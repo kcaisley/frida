@@ -1,0 +1,30 @@
+module vco(out, in);
+input in; voltage in;
+output out; voltage out;
+parameter real vmin=0;                       // V(in) at min output freq (V)
+parameter real vmax=vmin+1 from (vmin:inf);  // V(in) at max output freq (V)
+parameter real fmin=1 from (0:inf);          // min output freq (Hz)
+parameter real fmax=2*fmin from (fmin:inf);  // max output freq (Hz)
+parameter real ampl=1;                       // output amplitude (V)
+real freq, phase;
+
+analog begin
+    // compute the freq from the input voltage
+    freq = (V(in) - vmin)*(fmax - fmin) / (vmax - vmin) + fmin;
+
+    // bound the frequency
+    if (freq > fmax) freq = fmax;
+    if (freq < fmin) freq = fmin;
+
+    // phase is the integral of the freq modulo 2pi
+    phase = `M_TWO_PI*idtmod(freq, 0.0, 1.0, -0.5);
+
+    // generate the output
+    V(out) <+ ampl*cos(phase);
+
+    // bound the time step to assure no cycles are skipped
+    $bound_step(0.1/freq);
+end
+endmodule
+
+

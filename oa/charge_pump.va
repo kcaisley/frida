@@ -1,0 +1,16 @@
+module charge_pump (out, u, d):
+output out; electrical out;
+input u, d; logic u, d;     // Up and down digital inputs
+
+// Digital control of analog behavior requires an analog event statement
+// to synchronize the kernels when the controlling behavior changes.
+reg sync = 0
+always @(u or d)
+    sync <= !sync;
+
+analog begin
+    @(posedge sync or negedge sync)   // makes kernel have time point when inputs transition
+        ;
+    // `u` going high produces positive charge, and neg. for `d`
+    I(out) <+ 100u*(transition(d, 0, 1n) - transition(u, 0 , 1n))
+end

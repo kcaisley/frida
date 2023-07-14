@@ -1,0 +1,82 @@
+
+// TODO we will need to break this out into individual files: verilog-A supports a monolithic inclusion of all modules in one file, but
+// placing them in cadence virtuoso will require 
+
+// top level module
+module pll(vin_rf, vlocal_osc, phase_detect_in, vout);
+
+electrical vin_rf, vlocal_osc, vout_ph_det, vout, phase_detect_in;
+
+parameter real FILTER_BANDWIDTH=130.0;
+parameter real VCO_GAIN=1K;
+parameter real VC_CENTRE_FREQ=2.45K;
+
+phase_detector #(.GAIN(2))
+pd (phase_detect_in, vin_rf, vout_ph_det);
+
+// note arguments being passed to subblocks
+vco #(.AMPLITUDE(1),.CENTRE_FREQ(VC_CENTRE_FREQ), .VCO_GAIN(VCO_GAIN) )  
+osc (vout, vlocal_osc);
+
+lpf_1storder #(.BANDWIDTH(FILTER_BANDWIDTH) )
+lpf (vout_ph_det, vout);
+
+endmodule
+
+// Simple first order filter
+module lpf_1storder(vin, vout);
+
+electrical vout, vin;
+
+parameter real BANDWIDTH = 300.0;
+
+localparam r = 1k ;
+localparam c= 1.0/(2.0*'M_PI*r*BANDWIDTH);
+
+analog begin
+V(vout, vin) <+ r*I(vout, vin);
+I(vout) <+ ddt(c*V(vout));
+end
+
+endmodule
+
+
+
+// Ideal VCO
+module vco(vin, vout);
+
+electrical vin, vout;
+
+parameter real AMPLITUDE = 1.0;
+parameter real CENTRE_FREQ = 2.5k;
+parameter real VCO_GAIN = 1K;
+
+real phase;
+real inst_freq;
+
+analog begin
+
+inst_freq = CENTRE_FREQ + VCO_GAIN * V(vin);
+phase = 2.0 * 'M_PI *  idtmod( inst_freq, 0.0, 1.0);
+
+V(vout) <+ AMPLITUDE * sin ( phase);
+
+$bound_step (0.04 / inst_freq);
+end
+endmodule
+
+
+// Phase detector - using multiplier
+module phase_detector(vlocal_osc, vin_rf, vif);
+
+electrical vlocal_osc, vin_rf, vif;
+parameter real GAIN = 2.0;
+
+
+analog begin
+V(vif) <+ GAIN*V(vlocal_osc)*V(vin_rf);
+end
+
+endmodule
+
+

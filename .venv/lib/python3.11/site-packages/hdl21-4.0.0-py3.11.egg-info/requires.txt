@@ -1,0 +1,12 @@
+vlsir==4.0.0
+vlsirtools==4.0.0
+pydantic<1.11,>=1.9.0
+
+[dev]
+pytest==7.1
+coverage
+pytest-cov
+pre-commit==2.20
+black==22.6
+twine
+build

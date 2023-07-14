@@ -1,0 +1,22 @@
+//Verilog-AMS HDL for "dmc65v2", "pll_vco" "verilogams"
+
+`timescale 1ns / 1ps
+`include "constants.vams"
+`include "disciplines.vams"
+
+module pll_vco(v_in, clk_out);
+	parameter real f0 = 3.2G;						//center frequency (Hz)
+	parameter real kvco = 200M;					//gain (Hz/V)
+	parameter real rin = 100k from (0:inf);		//input resistance (Ohms)
+	input v_in; output clk_out;
+	electrical v_in;
+	reg clk_out;		//file type needs to be .vams
+	logic clk_out;
+	real v_sample;
+
+	always begin
+		v_sample = V(v_in);
+		#(0.5e9 / (f0 + kvco * v_sample));  // where #x construct delays for x time units
+		clk_out = ~clk_out;
+	end
+endmodule

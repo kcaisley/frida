@@ -1,0 +1,23 @@
+//Verilog-AMS HDL for "dmc65v2", "pll_charge_pump" "verilogams"
+
+`include "constants.vams"
+`include "disciplines.vams"
+
+module pll_charge_pump(pos_out, neg_out, up_in, down_in);
+	parameter real cur = 1m; 	//output current parameter in mA
+	input up_in, down_in;
+	electrical pos_out, neg_out;
+	real out;	//intermediate variable for computing output current pulse
+	
+	analog begin
+		@(initial_step) out = 0.0;
+		
+		if (down_in && !up_in)
+			out = -cur;
+		else if(!down_in && up_in)
+			out = cur;
+		else out = 0;
+	
+		I(pos_out, neg_out) <+ transition(out, 0.0, 10n, 10n);
+	end
+endmodule

@@ -1,0 +1,16 @@
+Metadata-Version: 2.1
+Name: vlsir
+Version: 4.0.0
+Summary: Python Bindings to the VLSIR Data Schemas for Chip Design
+Home-page: https://github.com/Vlsir/Vlsir
+Author: Dan Fritchman
+Author-email: dan@fritch.mn
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+License-File: LICENSE
+
+
+# Vlsir 
+
+Bindings to the [Vlsir](https://github.com/Vlsir/Vlsir) data-schemas for chip design. 
