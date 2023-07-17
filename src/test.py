@@ -1,4 +1,5 @@
 import hdl21 as h
+h.Literal.
 
 @h.paramclass
 class MyParams:
