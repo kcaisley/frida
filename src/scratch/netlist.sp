@@ -26,7 +26,7 @@ xmos
 xtop 0 Tb // Top-Level DUT 
 
 
-.include "/users/kcaisley/.venv/hdl21/lib64/python3.11/site-packages/hdl21/pdk/sample_pdk/resources/models.sp"
+.include "/home/kcaisley/.venv/hdl21/lib64/python3.11/site-packages/hdl21/pdk/sample_pdk/resources/models.sp"
 .op
 
 

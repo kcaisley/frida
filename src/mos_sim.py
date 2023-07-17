@@ -60,9 +60,6 @@ def main():
     assert idd > 115e-6
     assert idd < 117e-6
 
-    assert 1 == 1
-    assert 2 == 3
-
 if __name__ == "__main__":
     main()
 
