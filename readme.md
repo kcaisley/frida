@@ -105,4 +105,70 @@ Q: Why are these two annotated this way?
 A: The print outputs for `Module(name=MyModule)` and `Module(name=MyModule2)` indicate that these are instances of a custom class (like `objTestClass`) named Module with specific attributes and values. The different annotations `Module(name=...)` are likely defined as part of the `__repr__` or `__str__` method within the Module class, which returns a string representation of the object.
 
 
+# 28nm PDK notes
 
+I'm looking for the spice models for the transistors
+
+```
+├── cdsusers
+│   ├── cds.lib
+│   └── setup.csh
+├── CERN
+│   ├── digital
+│   ├── models
+│   ├── StartFiles
+│   └── streamout_map
+├── doc
+├── pdk
+│   └── 1P9M_5X1Y1Z1U_UT_AlRDL
+└── TSMCHOME
+    ├── cds.cern.1p9.lib -> ../TSMCHOME/digital/Back_End/cdk/cds.lib.1P9M_5X1Y1Z1U_UT_AlRDL
+    ├── digital
+    ├── IMPORTANT.NOTE
+    └── VERSION_NUMBERING_SCHEME.txt
+```
+
+I see the following inside ./CERN/models/
+
+```
+DefaultSpiceLib SPECTRE {
+  ../models/spectre/toplevel.scs      att_pt                         y
+  ../models/spectre/toplevel.scs      att_ps                         n
+  ../models/spectre/toplevel.scs      att_pf                         n
+  ../models/spectre/toplevel.scs      ass_pt                         n
+  ../models/spectre/toplevel.scs      ass_ps                         n
+  ../models/spectre/toplevel.scs      ass_pf                         n
+  ../models/spectre/toplevel.scs      aff_pt                         n
+  ../models/spectre/toplevel.scs      aff_ps                         n
+  ../models/spectre/toplevel.scs      aff_pf                         n
+  ../models/spectre/toplevel.scs      afs_pt                         n
+  ../models/spectre/toplevel.scs      afs_ps                         n
+  ../models/spectre/toplevel.scs      afs_pf                         nq
+  ../models/spectre/toplevel.scs      local_mc                       n
+  ../models/spectre/toplevel.scs      global_mc__local_mc            n
+```
+
+All of the important PDK data is here.... everthing else is more setup or just links pointing inside here.
+
+```
+/tools/kits/TSMC/CRN28HPC+/HEP_DesignKit_TSMC28_HPCplusRF_v1.0/pdk/1P9M_5X1Y1Z1U_UT_AlRDL/cdsPDK
+```
+
+
+
+# Steps
+
+
+- Create basic VCO generator
+- Work through Ravazi PLL book, comparing against real circuits
+- Implement noise simulation via Spectre in HDL21
+- Work on physical implementation in SKY130, 65nm, and 28nm
+- Short feedback loops in sharing the work.
+
+By the end of this week, I want to have a simulation of a VCO, in 130nm SKYWATER. I want to run it against Spectre, as I want to plot large signal noise, in an eye diagram. Contribute that code as a Pull request. Start from gated ring oscillator example provided by examples. 
+
+Don't do anything that would require having visual access to cadence yet. This includes creating a parallel design in Cadence, creating layouts, or creating images showing how the graphical component of design normally works. 
+
+https://github.com/aviralpandey/CT-DS-ADC_generator/blob/main/characterize_technology.py
+
+https://github.com/aviralpandey/CT-DS-ADC_generator/blob/main/database_query.py
