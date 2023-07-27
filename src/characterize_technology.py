@@ -99,7 +99,7 @@ def run_characterization_sims(np_filename):
                         print("vgs = " + str(vgs) + "V")
                         print("vds = " + str(vds) + "V")
                         print("vbs = " + str(vbs) + "V")
-                        tb_name = get_tb_name(mos_type,lch)
+                        tb_name  = get_tb_name(mos_type,lch)
                         tb = h.sim.tb(tb_name)
                         tb.VDS = h.Signal()
                         tb.VGS = h.Signal()
