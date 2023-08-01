@@ -260,11 +260,11 @@ def main():
 
     # Netlist in a handful of formats
     duts = [rladder(rparams), mux_tree(mparams)]
-    h.netlist(duts, sys.stdout, fmt="verilog")
-    h.netlist(duts, sys.stdout, fmt="spectre")
+    # h.netlist(duts, sys.stdout, fmt="verilog")
+    # h.netlist(duts, sys.stdout, fmt="spectre")
     h.netlist(duts, sys.stdout, fmt="spice")
-    h.netlist(duts, sys.stdout, fmt="xyce")
+    # h.netlist(duts, sys.stdout, fmt="xyce")
 
 
 if __name__ == "__main__":
-    main()
+    main() 

@@ -250,7 +250,6 @@ ends
 
 ```
 
-
 ```netlist
 subckt inv vdd vin vout vss
     M0 (vout vin vss vss) nch_lvt_mac l=50n w=200n multi=1 nf=1 sd=100n \
@@ -269,13 +268,6 @@ subckt inv vdd vin vout vss
         spomt1=1.11111e+60 spmb=1.11111e+15 spomb=0 spomb1=1.11111e+60
 ends inv
 ```
-
-
-
-
-
-
-
 
 ```input.scs
 // Generated for: spectre
@@ -329,4 +321,172 @@ primitives info what=primitives where=rawfile
 subckts info what=subckts where=rawfile
 save vin vout 
 saveOptions options save=allpub
+```
+
+# July 31
+
+# Review of PDK Docs:
+
+All document are found in prefix: `/tools/kits/TSMC/CRN28HPC+/HEP_DesignKit_TSMC28_HPCplusRF_v1.0/pdk/1P9M_5X1Y1Z1U_UT_AlRDL/cdsPDK/PDK_doc/TSMC_DOC_WM/`
+
+- `PDK/Application_note_for_customized_cells.pdf`: instructions on adding 3rd party IP into TSMC PDK, by streaming in layouts, assigning pins
+
+- `PDK/N28_APP_of_MonteCarlo_statistical_simulation.pdf`: MonteCarlo is done by changing `top_tt` library for `top_globalmc_localmc` model cards of transistors. Is this do-able with Spectre natively, or do we need 'ADE XL' as a front end?
+
+- `PDK/parasitic_rc_UserGuide.pdf`: Raphael 2D and 3D parasitic models for PEX. (Actually in pdk, under do-not-use) See: ![](https://cseweb.ucsd.edu/classes/fa12/cse291-c/slides/L5extract.pdf)
+
+- `PDK/tsmcN28MSOAEnablement.pdf`: summarizes metal stack up, MSOA (mixed signal open access) explanation
+
+- `PDK/tsmc_PDK_usage_guide.pdf`: I see that I need to copy `display.drf` and `ln -s` link in `models` and `steam` to my `tsmc28` init directory.
+
+- `model/2d5 (or 1d8) /cln28ull_v1d0_2_usage_guide.pdf`: And finally, the master document for transitor models. Version 2d5 vs 1d8 folder doesn't matter
+
+    - primitive MOSFET models have been replaced with macro model (compiled TMI shared library)
+    - core transistor is BSIM6 version BSIMBULK binary model, surrounding layout effect are macro
+    - diodes use standard spice model
+    - resistors, mom varactors, and fmom use TSMC proprietary models
+    - You should see a `** TMI Share Library Version XXXXXX` in the sim log, if not there may be problem
+    - SPICE netlist difference
+        ```
+        For primitive model:
+        M1 d g s b nch l=30n w=0.6u
+        .print dc I1(M1)
+
+        For macro model:
+        X1 d g s b nch_mac l=30n w=0.6u
+        .print dc I1(X1.main)
+        ```
+    - Layout effects are modeled in either SPICE model or macro surroundings
+    - OD rouding, poly rounding, contact placement, and edge finger LOD are in macro
+    - LOD, WPE, PSE (poly space effect), OSE (OD to OD space effect), MBE (metal boundary effect), RDR
+    - In BSIM6 there are Instance Parameters which are set and passed in the netlist, and there are model parameters which are part of the compiled model binary, and don't change from device to device.
+    - How are parameters passed to the macro model? Perhaps it relies on the same input instance parameters that the core BSIM model uses?
+    - RDR = restrictive design rules. Should double check these devices, if the length is under 100nm.
+    - There is a 0.9 shrinkage in the "model usage files", so don't add it in netlists. It comes from the 'geoshrink' or in Spectre called the `.param scalefactor`. Therefore don't 
+    - There are four modes for variation simulation: trad. total corner, global corner, local monte carlo, global+local monte carlo
+    - Variation models are selected with high-level `.lib` statements, check slides 36-40 for instructions
+    - Full MC (Case 4) give most silicon accuracy, but is expensive. Instead use global corner (Case 2) for digital long path circuit, as global var dominates.
+    - And for analog design, mismatch matters, so do Case 2+MC or just Case 3 which includes MC by default
+    - you can run mismatch only for key devices, if designer
+    - `soa_warn=yes` will give warnings for over voltage
+    - `.lib 'usage.l' noise_mc` and related command will enable flicker noise models, which are independant of device corner
+
+# Short conversation with Hans:
+* For TSMC 65: 1.2V was core, IO voltages 1.8, 2.5, 3.3 V
+* Core devices have a thinner oxide, which is good for TID hardness
+    * we don't want to use IO devices, due to thicker oxide
+    * oxide thickness is a property of geometry, and uses a seperate mask
+* On the other hand, transistor thresholds flavors are not geometry determined but instead by doping profiles.
+    * you are limited by 
+* check CERN PDK, to understand which flavors of thresholda are compatible -> every additional threshold costs money
+- Requesting runs for Cern needs to be done 4 months in advance. Today is ~Aug 1.
+    - 4 months from Aug 1 is Nov 30 MPW
+    - 4.5 months from Aug 1 is Dec 15 MPW
+    - 6 months from Aug 1 is Feb 2 mini@sic
+    - If I want any of these next two runs, I should send my email application to CERN tomorrow.
+
+# Notes on simulation runs:
+
+Two subsequent runs, all that changes is the mpssession number
+
+```
+/tools/cadence/2020-21/RHELx86/SPECTRE_20.10.073/tools.lnx86/bin/spectre  \
+-64 input.scs +escchars +log ../psf/spectre.out +inter=mpsc  \
++mpssession=spectre0_897169_5 -format psfxl -raw ../psf  \
++lqtimeout 900 -maxw 5 -maxn 5 -env ade
+```
+
+```
+/tools/cadence/2020-21/RHELx86/SPECTRE_20.10.073/tools.lnx86/bin/spectre  \
+-64 input.scs +escchars +log ../psf/spectre.out +inter=mpsc  \
++mpssession=spectre0_897169_6 -format psfxl -raw ../psf  \
++lqtimeout 900 -maxw 5 -maxn 5 -env ade
+```
+
+full command
+```
+/tools/cadence/2020-21/RHELx86/SPECTRE_20.10.073/tools.lnx86/bin/spectre -64 input.scs +escchars +log ../psf/spectre.out +inter=mpsc +mpssession=spectre0_897169_7 -format psfxl -raw ../psf +lqtimeout 900 -maxw 5 -maxn 5 -env ade
+```
+
+or just
+```
+spectre input.scs
+```
+
+
+# Task Question Checklist:
+
+- [x] Simulation not working: Just needed to install cpp library inside
+- [ ] How to fix naming convention of modules from generator. Look like I need to just live with it, or rename 'manually after generation'
+    - [Primitives can't be instantiated with name arg. #91](https://github.com/dan-fritchman/Hdl21/issues/91)
+    - [Renaming Module Attributes #94](https://github.com/dan-fritchman/Hdl21/issues/94)
+    - [Netlist Subcircuit Name #96](https://github.com/dan-fritchman/Hdl21/issues/96)
+- [ ] What are these extra parameters being spit out by Spectre. Where are they being generated coming from? Can I leave them out in simulation?
+- [ ] Do layout macro models present a challenge for Hdl21?
+- [ ] Reach out to LBNL to get my old design files
+- [ ] Open Github issue for understanding how to name instances
+- [ ] Email dan asking about 28nm PDK setup?
+
+# Aug 1
+Only create a single generator, top to bottom. Don't try to do any partitioning **yet**
+Don't work on parameterizing with 65nm yet
+
+Let's run `spectre input.scs`, with and without all the params after `nf` removed.
+
+```
+    M0 (vout vin vss vss) nch_lvt_mac l=50n w=200n multi=1 nf=1 sd=100n \
+        ad=1.5e-14 as=1.5e-14 pd=550.0n ps=550.0n nrd=2.828877 \
+        nrs=2.828877 sa=75.0n sb=75.0n sa1=75.0n sa2=75.0n sa3=75.0n \
+        sa4=75.0n sb1=75.0n sb2=75.0n sb3=75.0n spa=100n spa1=100n \
+        spa2=100n spa3=100n sap=91.9776n sapb=120.93n spba=121.244n \
+        spba1=123.39n dfm_flag=0 spmt=1.11111e+15 spomt=0 \
+        spomt1=1.11111e+60 spmb=1.11111e+15 spomb=0 spomb1=1.11111e+60
+    M1 (vout vin vdd vdd) pch_lvt_mac l=50n w=200n multi=1 nf=1 sd=100n \
+        ad=1.5e-14 as=1.5e-14 pd=550.0n ps=550.0n nrd=1.688887 \
+        nrs=1.688887 sa=75.0n sb=75.0n sa1=75.0n sa2=75.0n sa3=75.0n \
+        sa4=75.0n sb1=75.0n sb2=75.0n sb3=75.0n spa=100n spa1=100n \
+        spa2=100n spa3=100n sap=91.9776n sapb=120.93n spba=121.244n \
+        spba1=123.39n dfm_flag=0 spmt=1.11111e+15 spomt=0 \
+        spomt1=1.11111e+60 spmb=1.11111e+15 spomb=0 spomb1=1.11111e+60
+ends inv
+```
+
+Deleting all of the parameters from this file, we see slightly different results:
+
+
+Before: `spectre.dc`
+```
+# CHECKPOINT_VERSION 1
+# Generated by spectre (mode: Spectre) from circuit file `input.scs' during analysis dc.
+# 1:41:04 PM, Tue Aug 1, 2023
+# Number of equations = 10
+# The default unit is V, otherwise its unit is after #unit
+V0:p	4.63439809742315e-14   #unit A
+V1:p	-1.06013974024808e-05   #unit A
+vdd	0.9
+vin	0.4
+vout	0.5480143793553
+I0.M0:int_di	0.547459563449464
+I0.M0:int_si	0.000554815823079183
+I0.M1:int_di	0.548417232001795
+I0.M1:int_si	0.899597147450026
+```
+
+After: `spectre.dc`
+
+```
+# CHECKPOINT_VERSION 1
+# Generated by spectre (mode: Spectre) from circuit file `input.scs' during analysis dc.
+# 3:00:09 PM, Tue Aug 1, 2023
+# Number of equations = 10
+# The default unit is V, otherwise its unit is after #unit
+V0:p	3.8030586214743e-14   #unit A
+V1:p	-1.41076442329871e-05   #unit A
+vdd	0.9
+vin	0.4
+vout	0.560396636650559
+I0.M0:int_di	0.560352920588334
+I0.M0:int_si	4.37160578571883e-05
+I0.M1:int_di	0.560449804834346
+I0.M1:int_si	0.899946831824211
 ```
