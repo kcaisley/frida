@@ -1,16 +1,10 @@
 import hdl21 as h
 from hdl21.prefix import µ, n, f
-from pathlib import Path
 import sys
 
-# First, create external modules for 28nm NMOS and PMOS
+from ...Tsmc28.tsmc28_hdl21.pdk import MosParams
 
-@h.paramclass
-class MosParams:    # External modules support parameters, unlike Hdl21 modules
-    w = h.Param(dtype=h.Scalar, desc="Channel Width")
-    l = h.Param(dtype=h.Scalar, desc="Channel Length")
-    multi = h.Param(dtype=h.Scalar, desc="Multiplier")
-    nf = h.Param(dtype=h.Scalar, desc="Number of fingers")
+# First, create external modules for 28nm NMOS and PMOS
 
 nch = h.ExternalModule(
     name="nch_lvt_mac", desc="Tsmc28 NMOS", # Modules 'name' is used *verbatim when exporting*, so be sure to match
