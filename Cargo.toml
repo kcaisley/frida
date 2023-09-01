@@ -1,0 +1,13 @@
+[package]
+name = "kottenforst"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#substrate = { git = "https://github.com/substrate-labs/substrate2", branch = "main"}
+
+#substrate = { git = "https://github.com/substrate-labs/substrate", branch = "main" }
+
+substrate = { path = "../../core/substrate2/substrate"}

@@ -1,0 +1,13 @@
+- Intro
+- Background
+    - Particle types, detectors/AFEs good for each
+    - Radiation damage, detector constraints
+    - ADC FOMs
+- Contributions
+    - FOM for pixel detectors, evaluate w/ Comparative studies of AFEs
+    - FOSS tooling
+        - Design phase: Schematic and layout generators (optimization vs template vs design equation based)
+        - Testing phase: integration w/ 
+    - Demonstration of tooling: building blocks (PLL, should go in appendix?)
+    - Using AFE FOM and tooling: Propose various optimized AFEs
+    - Test fabricate AFE (appendix?)
