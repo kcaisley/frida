@@ -62,6 +62,15 @@ Allpix² then builds on top of this core.
 
 We don't need more complicated EM solver types like, Finite-differences-time domain (FDTD), Method of Moments (MoM), or equivalently, Boundary Element Method (BEM). [More info on these.](https://www.matecdev.com/posts/differences-fdtd-fem-mom.html)
 
+
+![Alt text](notes/charon.png)
+
+electric field can't be generated in metals, as the conduction and valence band are overlapped
+there are no 'carriers'weighting field and shockely ramo theorem
+
+Short article on epitaxial layers on top of substrate, for pixel dectors: https://meroli.web.cern.ch/lecture_CMOS_APS_epilayer.html
+
+
 # From pixel charge to digital readout
 
 Then explain, mathematically how an AFE is trying to extract certain deried measureable parameters from the signal waveform.

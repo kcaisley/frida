@@ -1,8 +1,0 @@
-//Verilog-AMS HDL for "dmc65v2", "pll_charge_pump" "verilogams"
-
-`include "constants.vams"
-`include "disciplines.vams"
-
-module pll_charge_pump ( );
-
-endmodule

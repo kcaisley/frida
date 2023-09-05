@@ -29,3 +29,5 @@ Q: Based on estimated sensor models and existing readout chain performance, can 
 Then, given AFE performance is now segregated (we now know the bottlenecks), let's translate this into circuit specifications to target for improvement.
 
 A figure of merit.
+
+
