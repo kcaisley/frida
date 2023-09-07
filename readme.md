@@ -4,4 +4,4 @@ See `/notes` for a mess of notes
 
 See `/script` for a mess of scripts
 
-See `/behavioral` for the worst Verilog-A code you've ever seen.
+See `/ams` for the worst Verilog-A code you've ever seen.
