@@ -1,7 +1,23 @@
-# From https://github.com/aviralpandey/CT-DS-ADC_generator
+# Modified from: https://github.com/aviralpandey/CT-DS-ADC_generator
+
+"""
+Notes:
+
+- loops ~2500 times, with 1 DC opt point at each
+- each iteration is 5s, of which ngspice is like 99%
+- it seems others report long load times for ngpisce, with xyce being faster
+- How fast would Spectre be? How can I run it without running my code inside a container? (This might be hard, as container is OS-level vitualization, not just filesystem)
+    - This would be one reason to use Rocky 8 or 9 as a desktop, so that I can communicate easily on the same machine
+    - But running a simulator on another machine (real physical machine) is common, and this is a similar situation. 
+- Why is only one image being written? (no with or legth variation?)
+- How can I save the small signal params using a generic Hdl21 sim.save statment, and be simulator portable?
+- What does the database look like on the inside?
+- Do I understand the nuance of the per-loop saving to the arrays at the end?
+- How are these databases used by the higher level routines?
+- Integrate this: https://github.com/ChrisZonghaoLi/gm_id_gf180mcu
+"""
 
 from pathlib import Path
-import os
 
 import hdl21 as h
 from hdl21.primitives import Vdc
@@ -13,15 +29,10 @@ from matplotlib import cm as cm
 import numpy as np
 import scipy.interpolate
 
-# import nest_asyncio
-# nest_asyncio.apply()
-
-CONDA_PREFIX = os.environ.get("CONDA_PREFIX", None)
-
 sim_options = SimOptions(
     rundir=Path("./scratch"),
     fmt=ResultFormat.SIM_DATA,
-    simulator=SupportedSimulators.NGSPICE,
+    simulator=SupportedSimulators.XYCE,
 )
 
 tb_prefix = 'tb_mos_ibias'
@@ -56,7 +67,7 @@ class CommonSourceParams:
     nmos_params = h.Param(dtype=MosParams, desc="NMOS Parameters")
     res_value = h.Param(dtype=float, desc="Drain resistor Value")
 
-
+# Common source amp, un-used
 @h.generator
 def common_source_amp_gen(params: CommonSourceParams) -> h.Module:
     @h.module
@@ -78,7 +89,7 @@ def get_tb_name(mos_type, lch):
 def run_characterization_sims(np_filename):
     
     ids = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
-    vth = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
+    vth = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])     # not used
     cgg = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
     cdd = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
     gm = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
@@ -100,6 +111,8 @@ def run_characterization_sims(np_filename):
                         print("vgs = " + str(vgs) + "V")
                         print("vds = " + str(vds) + "V")
                         print("vbs = " + str(vbs) + "V")
+
+                        # start building TB, procedurally
                         tb_name  = get_tb_name(mos_type,lch)
                         tb = h.sim.tb(tb_name)
                         tb.VDS = h.Signal()
@@ -115,16 +128,22 @@ def run_characterization_sims(np_filename):
                             tb.VDS_src = Vdc(Vdc.Params(dc=str(-vds)))(p=tb.VDS, n=tb.VSS)
                             tb.VGS_src = Vdc(Vdc.Params(dc=str(-vgs)))(p=tb.VGS, n=tb.VSS)
                             tb.VBS_src = Vdc(Vdc.Params(dc=str(-vbs)))(p=tb.VBS, n=tb.VSS)
+                        # Test bench built now, let's put it inside a simulation class...
+
+
+                        # This is the simulation class, which will contain the testbench
                         sim = h.sim.Sim(tb=tb)
-                        sim.lib(f"{CONDA_PREFIX}/share/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice", 'tt')
+                        sim.lib(f"/tools/kits/SKY/sky130A/libs.tech/ngspice/sky130.lib.spice", 'tt')
                         sim.op()
                         if mos_type == "nch":
-                            sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gm]")
-                            sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gds]")
-                            sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cgg]")
-                            sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdd]")
-                            sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdb]")
-                            sim.literal(".save all")
+                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gm]")      # Can I make these tool agnostic?
+                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gds]")
+                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cgg]")
+                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdd]")
+                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdb]")
+                            # sim.literal(".save all")
+                            sim.save(tb.VDS)
+                            sim.save(SaveMode.SELECTED)
                             sim_results = sim.run(sim_options)
                             ids[mos_type_index,lch_index,vbs_index,vgs_index,vds_index] = -sim_results[0].data['i(v.xtop.vvds_src)']
                             cgg[mos_type_index,lch_index,vbs_index,vgs_index,vds_index] = sim_results[0].data['@m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cgg]']
@@ -163,7 +182,7 @@ def run_characterization_sims(np_filename):
         "cgg" : cgg,
         "cdd" : cdd,
         }
-    np.save(np_filename,results)
+    # np.save(np_filename,results)
     return results
 
 def compute_small_signal_parameters(filename,plot_results=True):
@@ -180,14 +199,22 @@ def compute_small_signal_parameters(filename,plot_results=True):
     
     if plot_results:
         fig = plt.figure()
-        ax = fig.gca(projection='3d')
+        ax = fig.add_subplot(projection='3d')
         vds, vgs = np.meshgrid(vds_raw,vgs_raw)
         ax.plot_surface(vds,vgs,gm_raw,cmap=cm.jet)
-    
-    breakpoint()
+
+
+        ax.set_xlabel('Vds')
+        ax.set_ylabel('Vgs')
+        ax.set_zlabel('gm')
+
+        plt.savefig('nch_minsize.png')
+
+        # plt.show()
+    # breakpoint()
 
 
 if __name__ == '__main__':
     run_characterization_sims(np_filename)
     
-    compute_small_signal_parameters(np_filename)
+    # compute_small_signal_parameters(np_filename)

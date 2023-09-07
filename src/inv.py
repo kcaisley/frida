@@ -57,3 +57,8 @@ x2 = inverter_gen(inverter_params_obj2)
 print("hello")
 
 h.Instance
+
+from hdl21.sim import *
+
+@sim
+class MySim:
