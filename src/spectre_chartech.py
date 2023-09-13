@@ -32,7 +32,7 @@ import scipy.interpolate
 sim_options = SimOptions(
     rundir=Path("./scratch"),
     fmt=ResultFormat.SIM_DATA,
-    simulator=SupportedSimulators.XYCE,
+    simulator=SupportedSimulators.SPECTRE,
 )
 
 tb_prefix = 'tb_mos_ibias'
@@ -89,7 +89,7 @@ def get_tb_name(mos_type, lch):
 def run_characterization_sims(np_filename):
     
     ids = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
-    vth = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])     # not used
+    vth = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
     cgg = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
     cdd = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
     gm = np.zeros([np.size(mos_list),np.size(lch_list),np.size(vbs_list),np.size(vgs_list),np.size(vds_list)])
@@ -131,19 +131,13 @@ def run_characterization_sims(np_filename):
                         # Test bench built now, let's put it inside a simulation class...
 
 
-                        # This is the simulation class, which will contain the testbench
+                        # This is the simulation class, which contains the testbench
                         sim = h.sim.Sim(tb=tb)
                         sim.lib(f"/tools/kits/SKY/sky130A/libs.tech/ngspice/sky130.lib.spice", 'tt')
                         sim.op()
                         if mos_type == "nch":
-                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gm]")      # Can I make these tool agnostic?
-                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[gds]")
-                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cgg]")
-                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdd]")
-                            # sim.literal(".save @m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cdb]")
-                            # sim.literal(".save all")
-                            sim.save(tb.VDS)
                             sim.save(SaveMode.SELECTED)
+                            sim.save(
                             sim_results = sim.run(sim_options)
                             ids[mos_type_index,lch_index,vbs_index,vgs_index,vds_index] = -sim_results[0].data['i(v.xtop.vvds_src)']
                             cgg[mos_type_index,lch_index,vbs_index,vgs_index,vds_index] = sim_results[0].data['@m.xtop.xdut.msky130_fd_pr__nfet_01v8_lvt[cgg]']
@@ -182,7 +176,7 @@ def run_characterization_sims(np_filename):
         "cgg" : cgg,
         "cdd" : cdd,
         }
-    # np.save(np_filename,results)
+    np.save(np_filename,results)
     return results
 
 def compute_small_signal_parameters(filename,plot_results=True):
