@@ -1,12 +1,9 @@
-See `/docs` for a mess of notes
+# Hdl21
 
-See `/src` for a mess of scripts
-
-See `/vams` for the worst Verilog-A code you've ever seen.
-
-# Dependencies + Interactions
-
-The core functionality relies on Hdl21 and Laygo2.
+# Laygo2
+clone repo
+sudo dnf install python3-devel g++ gcc
+pip install gdspy matplotlib cairosvg
 
 # Conda environment
 A conda environment is useful to have everything linked against a specific python interpreter. It can also help with managing sourcing everything when activating the environment.

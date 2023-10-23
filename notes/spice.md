@@ -1,3 +1,17 @@
+# Spice History:
+
+Digital IR drop, power domiains, timing closure
+
+Level 1 16 params, bsim6 has 1200
+
+Additions beyond the core spice:
+Fast spice
+Simulation corners and Monte Carlo
+Extraction
+
+
+
+
 15.4.2 batch versus interactive mode
 .meas analysis may not be used in batch mode (-b command line option), if an output file (rawfile) is given at the same time (-r rawfile command line option).
 

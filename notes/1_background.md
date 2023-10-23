@@ -1,7 +1,8 @@
 # Particles worth measuring
 
-![](../../images/elementary%20particle.png)
+![](elementary%20particle.png)
 Notes: 
+
 - Leptons/antileptons have no strong interaction
 - 
 Order of detection:
@@ -63,7 +64,7 @@ Allpix² then builds on top of this core.
 We don't need more complicated EM solver types like, Finite-differences-time domain (FDTD), Method of Moments (MoM), or equivalently, Boundary Element Method (BEM). [More info on these.](https://www.matecdev.com/posts/differences-fdtd-fem-mom.html)
 
 
-![Alt text](notes/charon.png)
+![Alt text](charon.png)
 
 electric field can't be generated in metals, as the conduction and valence band are overlapped
 there are no 'carriers'weighting field and shockely ramo theorem

@@ -60,7 +60,7 @@ In the tape out stage, we are increasingly needing large design margins at high 
 
 PDK models are correct in the sense that they are extracted from Si during development, and yet why do designers claim SPICE models are inaccurate?
 
-![image-20230418181857736](image-20230418181857736.png)
+![image-20230418181857736](./image-20230418181857736.png)
 
 There are many different ground-source-ground (GSG) test structures used for calibration of the different properties of the devices, including
 
@@ -69,7 +69,7 @@ There are many different ground-source-ground (GSG) test structures used for cal
 3) fringe capacitances/metal
 4) fringe capacitances/ via
 
-![image-20230418183246467](image-20230418183246467.png)
+![image-20230418183246467](./image-20230418183246467.png)
 
 
 
