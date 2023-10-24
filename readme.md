@@ -147,3 +147,22 @@ List of open-source projects tools for analog/mixed-signal circuit design.
 
 It also documents the available solver types.
 
+# At infineon
+
+Corporate: Anagen, PDGen, Mosaic orchestrator, Frauhaufter, Bosch EPDL,  
+
+FOSS:
+Laygo2
+Xbase+Bag2
+Xbase+Bag3
+Hdl21+VLSIR+Layout21
+GDS Factory
+Gdstk/Gdspy
+substrate2
+TheSyDeKick
+PDKMaster
+Chisel
+OpenVAF
+
+
+
