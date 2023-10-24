@@ -2,12 +2,12 @@
 
 While watching Elad Alon's videos, I came to a realization: Circuit theory is more about analyzing circuits as they are, and not about 'design'. Design is an optimization problem, and I find myself hopelessly overhwhelmed by informal/uintuitive methods. I prefer to frame my work as a formal design problem.
 
-Looking at the Sci-ML website, they partition their tools into: modeling, solvers, analysis, and machine learning. Ignoring the latter of theses (partitioned into Function Approximation, Symbolic Learning, Implicit Layer Deep Learning, and Differential Tooling), we can focus on the first three:
+Looking at the Sci-ML website, they partition their tools into: modeling, solvers, analysis, and machine learning. Ignoring the latter of theses (partitioned into ), we can focus on the first three:
 
 1. Modeling: Model Languages, Libraries, Tools, Array Libraries, Symbolic Tools
 2. Solvers: Equation Solvers, PDE Solvers, Inverse Problem/Estimation, Optimization
 3. Analysis: Plotting, Uncertainty Quantification, Parameter Analysis
-4. ML: Computery tricks to approximate the modeling, solving, and analysis steps
+4. ML: Computery tricks to approximate the modeling, solving, and analysis steps (Function Approximation, Symbolic Learning, Implicit Layer Deep Learning, and Differential Tooling)
 
 Now, I shouldn't take these as the 'holy grain' of mapping out the field of applied maths, but I think that these partititions are something I hadn't really thought through before.
 
@@ -48,29 +48,6 @@ When you draw a schematic in EDA software, you are essentially defining the arra
 This [course](https://web.stanford.edu/group/sisl/k12/optimization/#!index.md) explains in detail a lot of optimization concepts.
 
 9. Another note: Notice how there is a transition between system modeling, system solving, and analysis, and then finally optimization? This parallels what we see on the [SciML](https://docs.sciml.ai/Overview/stable/overview/#overview) page. I'm primarily working at the analysis and optimization stage, but I want to understand how the prior two work as well.
-
-
-
-# Circuit Modeling
-
-Analog work-group 
-April 18, Sadayuki Yoshitomi
-
-In the tape out stage, we are increasingly needing large design margins at high speed, as real silicon is far from actual PDK models.
-
-PDK models are correct in the sense that they are extracted from Si during development, and yet why do designers claim SPICE models are inaccurate?
-
-![image-20230418181857736](./image-20230418181857736.png)
-
-There are many different ground-source-ground (GSG) test structures used for calibration of the different properties of the devices, including
-
-1) dielectric constants/well resistance
-2) metal conductivity
-3) fringe capacitances/metal
-4) fringe capacitances/ via
-
-![image-20230418183246467](./image-20230418183246467.png)
-
 
 
 Compact modeling:

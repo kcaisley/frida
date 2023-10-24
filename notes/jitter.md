@@ -1,3 +1,9 @@
+# Statistics
+
+Concerning the collection, organisation, analysis, interpretation, and presentation of data. The opposite of mechanistic modelling. Used to learn, describe, and predict the behaviour of systems after empirical data has been collected. Statistical or correlation studies often bypass the need for causality and focus exclusively on prediction, and not mechanistic explanations of “why?”. As most data is computer generated (Ninety per cent of the world's data have been generated in the last 5 years), these methods are often closely intertwined with computer algorithms. Permutations and combinations, allow us to work with simple discrete known populations and directly calculate probability from it. Random variables. Intersections and unions of sets. Multiplication rule. Bayes’ theorem, the central limit theorem and the law of large numbers, co-variance and correlation, and maximum likelihood estimation (MLE). Probability density functions and cumulative design functions
+
+# Understanding Jitter
+
 'Understanding and Characterizing Timing Jitter' - Primer by Tektronix
 
 * Jitter is short term variation w/ frequencies above 10 Hz, other it is called "wander"
@@ -36,7 +42,7 @@ where $n$ is the cumulative edge number, in time. The more cycles go by, the fur
 
 Mean of the distribution is the reciprocal of the frequency of the signal.
 
-Next, regardless of which method you use to measure timing error, the statistical PDF can either be characterized by it's standard deviation (RMS), or by a more stringent metric tied to a BER. For example, 68% percent of distribution is within one standard deviation, but a BER of 0.32 would be unacceptable, so
+Next, regardless of which method you use to measure timing error, the statistical PDF can either be characterised by it's standard deviation (RMS), or by a more stringent metric tied to a BER. For example, 68% percent of distribution is within one standard deviation, but a BER of 0.32 would be unacceptable, so
 
 $$
 J_{pp} = α * Jitter_{rms}
@@ -61,6 +67,6 @@ The reason for this peak-to-peak concept is that Gaussian random processes techn
 
 The convolution of random data with a deterministic waveform jitter, will create a non-gaussian PDF. For example, in a system with different rise and fall times, the PDF will be Bimodal:
 
-![](../../images/Pasted%20image%2020230615132026.png)
+![](img/jitter_pdf.png)
 
 It's instead convolved with a sinusoidal waveform, then you will have a normal area in the middle, with sharp rising gaussian components on the edges.
