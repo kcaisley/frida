@@ -127,44 +127,162 @@ The full-well capacity (FWC) is the largest charge a pixel can hold before satur
 
 
 
-# EDET DCD + DMC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# EDET & Belle: DCD + DMC + DEPFET
+DCD 1 + Switcher3: [P. Fischer TWEPP 2007](https://indico.cern.ch/event/11994/contributions/84416/)
+DCD Belle: [I. Peric TNS 2010](https://doi.org/10.1109/TNS.2010.2040487)
+DCD2 + ASM Belle: [M. Koch Thesis 2011](https://cds.cern.ch/record/1380639?ln=en)
+DCD2: [P. Fischer JINST 2011](https://doi.org/10.1088/1748-0221/6/01/C01085)
+EDET prototype: [S. Epp VERTEX 2016](https://indico.cern.ch/event/452781/contributions/2297602/)
+EDET prototype: [S. Epp IWDDA 2016](https://indico.mpp.mpg.de/event/4247/contributions/9603/)
+Belle Modules: [F. Mueller Thesis 2017](https://www.mpp.mpg.de/~cmk/Belle/Thesis_Mueller_Felix.pdf)
+EDET80k summary [MPG HPP HLL](https://www.hll.mpg.de/3051199/EDET80k)
+EDET80k sensor [M. Predikaka JNIMA 2020](https://doi.org/10.1016/j.nima.2019.162544)
+
 
 - EDET does time-resolved spectroscopy, does it measure after illumination?
 - Good for study dynamics of chemical processes, protein folding.
 - The spacial resolution of electron beam illuminated systems has already seen good improvements, I think down to the atomic scale?
 - But 'real time' vs 'stroboscopic' imaging of system dynamics is still unsolved.
-- 1Mpixel @ 80 kHz
 - Backthinning + minimal support reduces multiple and back scattering -> good spatial resolution
 - In pixel signal compression -> DR is single primary $e^-$, or from $100$ -> $8\times10^5$ $e^-$ (poisson limited)
-- 
+
+DCD1: TNS 2010. 72 ADC channels. Two cyclic ADCs in parrallel, 8-bit, 660 SNR (56 dB), 320ns conversion time, 40um x 55 um, 1mW power, 180nm. At this time, DEPFET array produced 400 pA /e in sensor. Input signal range Dynamic range is from +- 8uA, with a 64nA LSB. The measurement takes 8 cycles, each 40ns long, for a total of 320ns for 8bit precision. (They also built a fast variant, with 20ns per bit, for 160ns sampling time for 8-bit resolution)
+
+DCDB: Revision for Belle, 180UMC, increased to 256 channels (JINST 2011)
 
 
+DCD2
 
-DCD is 8-bit, uses a 
+DCDE is an increased dynamic range version DCD. It's being used in EDET (Koffmane, 2019)
 
-
-
-Slides on early EDET system is [Epp VERTEX 2016](https://indico.cern.ch/event/452781/contributions/2297602/)
-
-Main EDET sensor paper is [Predikaka TNS 2020](https://doi.org/10.1016/j.nima.2019.162544)
-
-Full system is explained in preprint [Fischer TWEPP 2007](https://indico.cern.ch/event/11994/contributions/84416/)
-
-## DCD
-
-DCDe is an increased dynamic range version DCD [Peric TNS 2010](https://doi.org/10.1109/TNS.2010.2040487)
+Are cyclic ADCs used in all of these?
 
 
 
 
+![DMC options](img/dmc_options.png)
+
+EDET specs:
+- 1Mpixel @ 80 kHz, but is broken into four regions of 512 x 512 pix
+- Therefore one frame is 262 kbit/frame, with a 78 kHz frame rate, or fully readout every 12.821 microseconds
+
+
+- 100 ns /gate
+- 128 gates
+- ADCs are column parallel, 8-bit
+- Are ADCs one channel per column? How wide are they? Compare this with Murman ADC Survey
+
+
+
+Existing 65nm PLLs:
+
+|Design|Fin(Hz)|Fout(Hz)|Jitter(s)|Power(W)|TID(Rad)|
+|---|---|---|---|---|---|
+|DHPT|80M|1.6G|20p|1.25m VCO|20M|
+|RD53|80M|1.28G|5p|6.5m|500M|
+
+SAR ADC specs from Berkeley:
+
+process_info:
+  unit_res_ohms: 6600
+  cap_mismatch_percentage: 10
+top_specs:
+  resolution_bits: 7 #8
+  samp_freq: 1e6
+  input_range: 1.8
+  throughput: 8 #11 # latency
+app_specs:
+  clk_in_jitter: 1e-11
 
 
 
 
 
-Particle detector for tracking are weird, as they don't form images, are single particle sensitive, and they are event-based triggering-based, rather than frame based
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Notes from meeting, Oct 10
+-My money comes from HLL MPG, which is in Munich?
+-The dynamics of the collection electrode are very slow, relative to the injection charge. Ie the dominant pole is the electronics. Therefore the shaped of the transient of the current injection isn’t important, and can be modeled as anything. The area is all that matters. This is why injection circuits can be built the way they are. Perhaps this would not be true for timing sensitive systems?
+- First order description of a detector front end is just noise and threshold. Second order is amplitude dependent time walk.
+- TOT information is mainly just used for calibration. However, it can be used to provide a slight improvement for particle identification in assistance to the calorimeters, and in the case of a particle that just arcs through the inner tracker, only, without passing into the calorimeters, it can identify that too. These would be heavy particles?
+- EDET and current PXD system are very similar
+Cordia has ADC which could be built into new EDET
+You could have the DCD and DHPT all on one chip in EDET
+- The Cordia project has a very, very large dynamic range from 10photons to 10000, and so it needs an adaptive real time gain scaling, incase a hit gets close to saturating.
+- VTX Obelix is a monolithic chip for Belle upgrade, which has a column based VCO for timing at 320MHz.
+- Timepix has a local VCO for timing.
+- The Belle DCD had a data rate of 2.5 MS/s, with 10 bit of resolution, while the EDET DCD needs 10MS/s
+- Tracking systems are of low commercial appeal, so maybe I should focus more on imagers. EDET and Timepix are two examples.
+- The two main ongoing monolithic detector projects are the RD 50 projects and the Obelix projects. I’m not sure how Liverpool fits in here, perhaps it’s part of the RD 50? 
+- Is allpix useful for imaging systems?
+- Snoeyes is well known for leading the Alpide design project.
+- The ASM is specially made in a proprietary process by a research lab. Is it by MPG HLL? It has DEPFETs and had flip chips for Switcher, DCD and DMC/DHPT chips.
+- The inventor of DEPFETs is a TCAD guy, now working on EDET.
+
+
+
+
+
+
+
+
+
+
 
 # AGIPD:
+Find more stuff like this:
+- Stuff at linear accelerators
+- Stuff at syncrotron light sources
+
 Hybrid system w/ bump bonds, 200um pitch, 
 
 4.5 MHz (pulse separation of by 220 ns) for up to 2,700 pulses (total train 600 µs)
@@ -177,7 +295,7 @@ EDET
 # Cordia
 at Desy
 
-
+Cordia 10 MS/s 8-bit charge-redist ADC [Tetsuichi, Hemprek, Krueger, JNIMA 2013](https://doi.org/10.1016/j.nima.2013.05.192)
 
 # Medipix/Timepix
 
@@ -198,23 +316,6 @@ Timepix4 specs: `3.58*10^6 hits/mm^2/s	195ps LSB	ToA 23bit DR (1.6ms)	80e- LSB	1
 
 
 
-# DEPFET (BELLE II)
-
-[](https://iopscience.iop.org/article/10.1088/1748-0221/6/01/C01085)
-
-Stuff at linear accelerators
-Stuff at syncrotron light sources
-
-Are cyclic ADCs used in all of these?
-
-Not considered (as they are trackers)
-
-### Existing 65nm PLLs
-
-|Design|Fin(Hz)|Fout(Hz)|Jitter(s)|Power(W)|TID(Rad)|
-|---|---|---|---|---|---|
-|DHPT|80M|1.6G|20p|1.25m VCO|20M|
-|RD53|80M|1.28G|5p|6.5m|500M|
 
 
 # Monolithic
@@ -231,6 +332,9 @@ Obelix has no pll
 
 
 # Hybrid Tracker LHC
+
+Particle detector for tracking are weird, as they don't form images, are single particle sensitive, and they are event-based triggering-based, rather than frame based
+
 FE-I4 (ATLAS LHC)
 RD53 (CMS + ATLAS HL-LHC)
 

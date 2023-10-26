@@ -50,21 +50,26 @@ There are basically three types of compact models:
 5. An intermediate step which must be completed is a layout generator, which produces a DRC valid layout from a template and transistor sizes, and then which extracts it to get a more complex (but same class) PEX netlist for simulation. This generator is necessary for trusting our models, but isn't needed for every optimization setp.
 
 
-# Forward problem solutions: simulations, etc
+# Direct problem solutions: plain calculation and simulations, etc
 
 Once you have a mathematic model which is generalizable across different problems, we solve these problems. Some problems, like standard simulations in DC, AC, or transient analaysis modes, are 'forward problems'.
 
-Forward problem solutions includes stochasticity (arising from measurement error, system noise, and environmental noise), boundaries conditions, linearity/nonlinearity, partial differential equations
+Direct/forward problem solutions includes stochasticity (arising from measurement error, system noise, and environmental noise), boundaries conditions, linearity/nonlinearity, partial differential equations
 
 Numerical/approximate methods for solving problems existed before Computer science and programming. Older methods, like analog computers/slides rules are approximate because of error accumulation from mechanical tolerances and electronic noise. And so the methods explored by them accumulate error in a different manner. Digital computers instead accumulate error through quantization. Herein lies the beauty of digital; after conversion, it suppress analog noise/error with noise margin, at the expense of quantization error. Note: Computers drastically accelerate numerical **AND** symbolic methods. Therefore, make sure you don’t confuse numerical(approximate) methods are being the exclusive or sole domain of digital computers. Humans can also do numerical and symbolic computation. (Is analog computation a third type?)
 
-Monte-carlo methods are a stochastic forward solution to understanding variance
+Monte-carlo methods are a stochastic forward solution to simulating variance
+
+## Traditional Sensitivity Analysis
+
+Traditionally, sensitivity analysis referred to a procedure used in simulation studies(direct problems) where one needed to evaluate the effects of parameter variations on the time course of model outputs and to identify the parametersor the initial conditions to which the model is most/least sensitive.
+In one direction, sensitivity of systems with probability measures embedded in the dynamics (problems involving aggregate dynam ics) have become important in applications in biology, electromagnetics, andhysteretic and polymeric materials (see [7, 8] and the references therein). 
 
 # Inverse problems: optimization, sensitivity analysis, parameter estimation, regression
 
 ## Classical Optimization
 
-The alternative problem type is an [inverse problem](https://en.wikipedia.org/wiki/Inverse_problem), where you work backward from desired analysis outputs, to compute ideal parameters. The most common example in engineering is optimization: when you're working from analysis outputs, to find ideal parameters of the model. Types include Mathematical(linear programming, non-linear programminag, mixed integer, semidefinite, conic, etc) and Baysian statistical optimization (which is very sample efficient, and good in cases of treating the inside as a black box.) The systems to be optimized can be discrete/continuous, singular or multi-variable, constrained/unconstrained, static/dynamic (time-varying?), and deterministic/stochastic.).
+The alternative problem type is an [inverse problem](https://en.wikipedia.org/wiki/Inverse_problem), where you work backward from desired analysis outputs, to compute ideal parameters. The most common example in engineering is optimization: when you're working from analysis outputs, to find ideal parameters of the model. Types include Mathematical(linear programming, non-linear programminag, mixed integer, semidefinite, conic, etc) and Baysian statistical optimization (which is very sample efficient, and good in cases of treating the inside as a black box.) The systems to be optimized can be discrete/continuous, singular or multi-variable, constrained/unconstrained, static/dynamic (time-varying?), and deterministic/stochastic.). Theories: finite dimensional derivatives, convexity, optimality, duality, and sensitivity. Methods: simplex and interior-point, gradient, Newton, and barrier.
 
 This [course](https://web.stanford.edu/group/sisl/k12/optimization/#!index.md) explains in detail a lot of optimization concepts.
 
@@ -75,8 +80,14 @@ When you have lots of data from the output of a forward simulation, or from a re
 
 ![Estimators](https://scikit-learn.org/stable/_static/ml_map.png)
 
-## Sensitivity Analysis
+## Inverse Sensitivity Analysis
+
+In recent years however, due to an increasing interest in incorporating uncertaintyinto models and in ascertaining the sensitivity of parameter estimates withrespect to data measurements, the uses of sensitivity have broadened significantly [7, 26]. 
+So on the other hand, investigators’ attention has also recently turned to the sensitivity of the solutions to inverse problems with respect to data, in a quest for optimal selection of data measurements in experimental design. 
+
 Another inverse problem example is [sensitivity analysis](https://en.wikipedia.org/wiki/Sensitivity_analysis). Problem inversion is an unstable process: noise and errors can be tremendously amplified making a direct solution hardly practicable. With the advent of computers in the 70s, the least-squares and probabilistic approaches came in and turned out to be very helpful for the determination of parameters involved in various physical systems.
+
+Sensitivity analysis consists in computing derivatives of one or more quantities (outputs) with respect to one or several independent variables (inputs). Although there are various uses for sensitivity information, our main motivation is the use of this information in gradient-based optimization
 
 
 ## Regression
@@ -181,6 +192,8 @@ Concerning the collection, organisation, analysis, interpretation, and presentat
 
 
 # Jitter
+
+This jitter section can be understood through the concepts of statistical models, solvers, and analysis.
 
 'Understanding and Characterizing Timing Jitter' - Primer by Tektronix
 
