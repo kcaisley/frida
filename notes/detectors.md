@@ -143,12 +143,19 @@ The full-well capacity (FWC) is the largest charge a pixel can hold before satur
 
 
 
+# Scientific imaging needs:
 
 
+![Phenomenon timescales](img/timescale.png)
 
+*Timescales for phenomena studied in materials science (red), life sciences (blue), semiconductor (gray), and nanotechnology (green). Accessible timescales of complementary UTEM techniques are also superimposed.*
 
+Are time scales the same thing as temporal resolution?
 
+![Field resolutions](img/resolution.png)
 
+Yellow area: high time resolution, continously high repeated measurements (real and k-space)
+Pinkg region: very high single-shot time resolution, but stroboscopic slower repetition  (k-space only)
 
 
 
@@ -173,16 +180,44 @@ EDET80k sensor [M. Predikaka JNIMA 2020](https://doi.org/10.1016/j.nima.2019.162
 - Backthinning + minimal support reduces multiple and back scattering -> good spatial resolution
 - In pixel signal compression -> DR is single primary $e^-$, or from $100$ -> $8\times10^5$ $e^-$ (poisson limited)
 
-DCD1: TNS 2010. 72 ADC channels. Two cyclic ADCs in parrallel, 8-bit, 660 SNR (56 dB), 320ns conversion time, 40um x 55 um, 1mW power, 180nm. At this time, DEPFET array produced 400 pA /e in sensor. Input signal range Dynamic range is from +- 8uA, with a 64nA LSB. The measurement takes 8 cycles, each 40ns long, for a total of 320ns for 8bit precision. (They also built a fast variant, with 20ns per bit, for 160ns sampling time for 8-bit resolution)
 
-DCDB: Revision for Belle, 180UMC, increased to 256 channels (JINST 2011)
+Sampling time of ADC but be slow enough to achive resolution needed for each pixel, but the aggregate rate must be fast enough to achive readout time of the entire pixel array.
 
+- DCD1: TNS 2010. 72 ADC channels each with 140um x 110um. Contains two cyclic ADCs in parrallel, 8-bit, 660 SNR (56 dB), 320ns (3.125 MHz) conversion time, 40um x 55 um, 1mW power, 180nm. At this time, DEPFET array produced 400 pA /e in sensor. Input signal range Dynamic range is from +- 8uA, with a 64nA LSB. The measurement takes 8 cycles, each 40ns (25 MHz) long, for a total of 320ns for 8bit precision. (They also built a fast variant, with 20ns per bit, for 160ns sampling time for 8-bit resolution)
 
-DCD2
+- DCD2: An in-between chip revision, not documented specifically in a paper.
 
-DCDE is an increased dynamic range version DCD. It's being used in EDET (Koffmane, 2019)
+- DCDB: Revision for Belle, 180UMC, increased to 256 channels (JINST 2011). Total chip area was 3200 x 5000 um. 16 by 16 ADC array, with each measuring 200 um x 180 um. 256 ADC channels, at same data rate as DCD1, requires eight 8-bit links. Each ADC presents a byte of data every 320ns. This is means each ADC is clocking out a parrallel byte at 3.125 MHz. 32 of these channels are serialized together. The ADC conversion time is increased now to 100ns (10MHz), which is like 3 times faster than DCD1. Total power per channel is 4mW.
 
-Are cyclic ADCs used in all of these?
+- DCDB + DHPT65: T. Kishishita 2012 for Belle. 256 ADC in, 4:1 mux for 64 links -> DHPT, then with 1.6GHz single serial output (1.28Gbps after 20% overhead), 12-15m twisted pair. They used four DCDB + DHPT pairs. Shooting for 20 us per frame (50 kHz frame rate). The row time is the same as EDET, it's just 
+
+Pixel array for Belle module is 768 px rows, x 256px columns. Four rows are read out at a time, though. Therefore, 4 DCD + DHPT channels are used. No correlated double sampling is used.
+
+> Readout timing: The most challenging aspect is the frame readout time of 20 µs, which would translate on a full module with 1536 (768x2) pixels to a row time of only 13 ns (76.8 MHz). This timing is impossible to achieve (cf. measurements in Section 7.1) due to intrinsic settling times of the DEPFET sensor and the readout chips. The time constraint is however relaxed by splitting the module in half using readout chips at both sides, and implementing a high degree of parallelization by using a four-fold pixel arrangement(Figure 12). This results in a factor of eight gained in speed, translating to a row time of 104.2 ns (9.6 MHz). To gain additional time, the DEPFET typical sample-clear-sample (double sampling, see Section 2.2.3) readout operation has been abandoned in favor of the faster sample-clear (single sampling) sequence.
+
+- EDET project starts: ~ 80 kHz frame rate (actually 78.125 kHz/12.8 us frame time). 512x512 pixel in a quadrant. Twice many columns as Belle, and I think still readout four rows at a time, so this is why 2*4 = 8 DCD + DMC chips are needed. To sanity check: 512 row read in groups of four (512/4=128), with each ADC at 100ns sampling time sampling time, gives us 12.8 us frametime (78.125 kHz frame rate).
+
+- DCDE is an increased dynamic range version DCD. It's being used in EDET (Koffmane, 2019)
+
+Are cyclic ADCs used in all of these? When I hear 'residual' and 'algorithmic ADC', what should this mean to me?
+
+So what have we learned:
+
+- The settling time of the switcher and DEPFET pixels determines how quickly a row can be readout.
+  - approx 50ns settling appeared to be the speed limit in 2010. Can we improve on this?
+  - So making the ADCs faster than 10 Mhz doesn't look like it would help.
+  - But maybe switcher could be faster, or maybe the settling time of the DEPFET array has improved in the past 15 years?
+  - Just reading multiple rows in at once, with extra ADCs, is a work around for the 'speed limit', but 4-fold may be the pratical limit.
+  - What physical processes would be then measurable, if the frame rate were to improve?
+- The on chip memory density/capacity determines how many frames can be buffered before the system has to pause.
+  - Would this be beneficial to increase?
+  - Do we really need a 3.2 Ghz PLL, if we can readout the frames as slowly as necessary?
+  - What is the downstream PHY capable of, and how long/what type are the cables
+- Would timing information be helpful? (I think not, as it's in imaging mode.)
+- What determines/limits the spatial resolution? Does framerate affect that? Would it help if it were improved?
+  - If ADCs were faster, but the frame time was the same, perhaps we could oversample or correlated double sample the pixel current
+  - This would not improve temporary resolution, but would get us better SNR. 
+
 
 
 
