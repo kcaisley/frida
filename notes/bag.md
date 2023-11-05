@@ -58,6 +58,11 @@ To run against local cadence environments, I should be able to use a 'local runn
 These may run inside a container, but they could also run on the hardware, if the bash script contains a 'uninstall' portion?
 Does this require github premium?
 
+I might be able to use 'python namespace packages' to begin to refactor the repo, without moving the location of any of the code?
+	more info: https://packaging.python.org/en/latest/guides/packaging-namespace-packages/
+
+
+
 
 # BAG3++ Install
 
