@@ -1,3 +1,64 @@
+# Refactoring
+
+## build (get and compile 
+no environment variabes, if possible
+building on EL7, EL8, EL9, Ubuntu 20.04 containers. Do this on machine you control. For example: Running Openlane2 on github takes 4 cumulative hours on github actions. 33 hours is the limit per month (2000 mins)
+clone git repos
+fetch 
+
+PDK, Virtuoso, Klayout, Ngspice, etc, are all limiting as they take up a lot of space?
+
+## install (workspace component)
+use bash or python
+using cookiecutter? or something similar?
+how do work around PDK dependency?
+
+## test
+
+pytest? No, I think just a smoke test. Design generators are good integration tests. Unit tests aren't helpful at this stage, before refactoring.
+Use built in generators as the smoke test.
+
+## run
+environment variables should be avoided
+running bag should be done with `bag` command
+Is YAML okay? How can we make it more structured?
+
+## General
+Can we get a logo?
+What top level to use for this repo?
+How can the repositories be best refactored?
+- tools solving a similar problem are:
+    - UCB chipyard (see /scripts/build-setup.sh): https://github.com/ucb-bar/chipyard
+        - Their flow: https://github.com/ucb-bar/chipyard/blob/main/.github/workflows/chipyard-full-flow.yml
+    - UCB hammer https://github.com/ucb-bar/hammer
+    - CERN flowkit
+    - Efabless openlane2
+	
+How many minutes does SiLab have on CI runners?
+    How can I run the CI on my local machine?
+How can I start refactoring things together, in my local repo, while still being able to merge in upstream changes?
+Sounds like I should maintainer a local repo, with branches that track the upsteam, and then 
+
+To make github actions runnable locally, just use github as the top level runner, and then run a bash script:
+
+```
+jobs:
+  run_tests:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run script file
+      run: |
+         chmod +x ./public/scripts/test.sh
+         ./public/scripts/test.sh
+      shell: bash
+```
+
+To run against local cadence environments, I should be able to use a 'local runner'.
+These may run inside a container, but they could also run on the hardware, if the bash script contains a 'uninstall' portion?
+Does this require github premium?
+
+
 # BAG3++ Install
 
 ## Container .def file:
