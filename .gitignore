@@ -1,2 +1,7 @@
 .venv
 .venv39
+
+
+# Added by cargo
+
+/target
