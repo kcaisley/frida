@@ -53,20 +53,3 @@ $$
 ### Device fabrication possible steps:
 
 Dy processing/microstructuring, ceramic layer deposition, reactive ion etching, metrology, wet processing (organic-organic etc, maskless lithography, dicing (by wafer size), GEM foil production, backside processing, wafer-wafer bonding, through silicon vias, bump-bonding
-
-
-## FD SOI, Finfet, and Bulk:
-
-A better name for FD-SOI is 'Ultra Thin Body' or UTB-SOI
-
-When you compare two basically different technologies like FinFET and FDSOI it’s not a case that one is intrinsically better than the other for all applications, they both have pros and cons which make them the best choice for different applications.
-
-FinFETs have more drive current per unit cell area, higher capacitance, steeper subthreshold slope, no Vth tuning. FDSOI has lower drive current but also lower capacitance, lower power/current density, and the ability to tune Vth up or down using back biasing.
-
-So in more heavily loaded circuits FinFETs clock faster, have lower leakage but also higher dynamic power and power/current density. In more lightly loaded circuits — especially if parallelisation can be used — FDSOI has lower dynamic (and total) power and can run at lower voltages with higher power efficiency than FinFETs.
-
-For circuits with a lot of “dark silicon” or low average activity where gate density and maximum clock rate are important (e.g. mobile AP, PC CPU) FinFET is the winner. For power-critical parallel circuits with high activity running all the time at high temperature (e.g. 100G networking devices) FDSOI wins because power efficiency per gate transition is better and power/current density is lower, so fewer problems with electromigration and hotspots than FinFET. FDSOI chip size may be a bit larger but this is overridden by lower power consumption. FDSOI can also win where minimum power per operation is crucial and maximum clock rate is less important (e.g. IoT).
-
-Both are a lot better than bulk CMOS, but in different ways. Each is better than the other in some applications and worse in others.
-
-Fins a fabricated on a fixed grid, on the order of 30nm, while gates are at a 50nm pitch. A Gate crossing multipel fins creates a wider transistor. Multiple gates neighboring gates will create fingers, which also 
