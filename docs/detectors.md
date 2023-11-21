@@ -180,6 +180,11 @@ EDET80k sensor [M. Predikaka JNIMA 2020](https://doi.org/10.1016/j.nima.2019.162
 - Backthinning + minimal support reduces multiple and back scattering -> good spatial resolution
 - In pixel signal compression -> DR is single primary $e^-$, or from $100$ -> $8\times10^5$ $e^-$ (poisson limited)
 
+EDET is normally used for 'shadow' based imaging, with either electrons or photons (soft Xrays). Electrons have a very high depositied energy, and so if you're using them in a TEM configuration you need to make sure the dynamic range of the DEPFET pixel won't saturate. When doing Xray imaging, with a source coming from a syncrotron (for example) you instead have a different deposited energy pattern, which is the 'Fourier transform' of the incoming particle energy. It's used in drug discovery and material science.
+
+DEPFETS could also be used for space based imaging, where the object of interest is the source itself.
+
+DEPFETs in EDET and Belle2 uses a quad-grouped rolling shutter. In Belle2, this works for tracking because it's already a 'quasi' continuous beam with a 2ns bunch crossing, but the hit rate is so low, that the inner layers don't need to 'disentangle' nearly as many events. Finally, the outer layers actually take multiple samples along the deposited charge waveform, and so they are doing the job of getting precise timing information.
 
 Sampling time of ADC but be slow enough to achive resolution needed for each pixel, but the aggregate rate must be fast enough to achive readout time of the entire pixel array.
 

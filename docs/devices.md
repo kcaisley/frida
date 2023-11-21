@@ -68,3 +68,5 @@ So in more heavily loaded circuits FinFETs clock faster, have lower leakage but 
 For circuits with a lot of “dark silicon” or low average activity where gate density and maximum clock rate are important (e.g. mobile AP, PC CPU) FinFET is the winner. For power-critical parallel circuits with high activity running all the time at high temperature (e.g. 100G networking devices) FDSOI wins because power efficiency per gate transition is better and power/current density is lower, so fewer problems with electromigration and hotspots than FinFET. FDSOI chip size may be a bit larger but this is overridden by lower power consumption. FDSOI can also win where minimum power per operation is crucial and maximum clock rate is less important (e.g. IoT).
 
 Both are a lot better than bulk CMOS, but in different ways. Each is better than the other in some applications and worse in others.
+
+Fins a fabricated on a fixed grid, on the order of 30nm, while gates are at a 50nm pitch. A Gate crossing multipel fins creates a wider transistor. Multiple gates neighboring gates will create fingers, which also 
