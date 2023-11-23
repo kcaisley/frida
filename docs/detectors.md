@@ -204,6 +204,22 @@ Pixel array for Belle module is 768 px rows, x 256px columns. Four rows are read
 
 - DCDE is an increased dynamic range version DCD. It's being used in EDET (Koffmane, 2019)
 
+
+# For FASTRoic
+
+We have 512 x 512, but each of the 8 chips is responsible for a 64 x 512 region of pixels. Each pixel is 60 x 60 µm, so that means that the width for the 64 pixel section is 3.84 mm. This is much less than the maximum ~20mm full reticle size. But that's okay, as we can reduce our design complexity and improve yield.
+
+We have fourfold column readout though, so it more like we're reading a 256 wide x 128 tall pixel array.
+
+Each of these 256 effective columns gets an ADC, which are fit in 16x16 configuration. Thus each ADC is limited to 64/16=4 pixel rows. That means each ADC must fit a 4*60 = 240µm width, and we assume they are square, a 57600 µm² or 0.0576 mm² area.
+
+
+which takes 100ns to sample at 8-bit resolution, and that the full 64 x 512 region needs to be readout in 12.8 us frametime (78.125 kHz frame rate). 
+
+
+
+
+
 Are cyclic ADCs used in all of these? When I hear 'residual' and 'algorithmic ADC', what should this mean to me?
 
 So what have we learned:
@@ -222,6 +238,9 @@ So what have we learned:
 - What determines/limits the spatial resolution? Does framerate affect that? Would it help if it were improved?
   - If ADCs were faster, but the frame time was the same, perhaps we could oversample or correlated double sample the pixel current
   - This would not improve temporary resolution, but would get us better SNR. 
+
+
+
 
 
 
