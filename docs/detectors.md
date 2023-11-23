@@ -216,6 +216,23 @@ Each of these 256 effective columns gets an ADC, which are fit in 16x16 configur
 
 which takes 100ns to sample at 8-bit resolution, and that the full 64 x 512 region needs to be readout in 12.8 us frametime (78.125 kHz frame rate). 
 
+ENOB * 6.02 + 1.76 -> SNR
+
+8 * 6.02 + 1.76 -> 50 dB
+10 * 6.02 + 1.76 -> 62 dB
+
+Previously, in TSMC 65: 12.5 Ms/s, 8-bit, 40x70um size, 40 uW at 1.2V. 
+
+100ns is 100 Ms/S.
+
+Energy per conversion is 40e-6/12.5e6 = 3.2e-12 J.
+
+
+at a ~80kHz full frame rate (12.8 us). The end application is for a high-performance transmission electron microscopy camera.
+
+The ROICs will be bonded around the periphery of the sensor arrays substrate. Each is only responsible for reading a subsection of the array measuring 256 column x 128 rows, with one ADC per column. Based on the frame time ADC must capture the drain current in less than 100ns, at 10 bit resolution. The area per ADC should be around 0.0576 mm² area (240µm * 240µm, assuming it's square).
+
+
 
 
 

@@ -31,47 +31,25 @@ The levels of organization are modules -> files -> crates -> workspaces?
 
 # questions for Substrate devs
 
-I guess the best place to start might be first for me to outline what my use case for Substrate would be, and then see where we can find some common ground where I could contribute.
+So first, I guess I could summarize my research project. I'm building a readout IC (28nm bulk CMOS) for a 1 Mpixel, 80kHz frame rate transmission electron camera. Each column-parallel readout channel should probably fit within the 60 µm pixel pitch and measure the column current at 10 Ms/s with a 8+ bit resolution. The data from each channel will then be buffered, seralized, and transmitted out over short (25 cm) wireline links. I'd like to try different configurations of ADC speed, ADC resolution, buffer size, serializer ratio, wireline link speed, and number of links. I'm hoping the generation of these narrow 60 µm channel slices, to be then arranged in parallel, is an appropriate use case for Substrate.
 
-My task over the next 2-3 years is to project design a readout ICs for a 1 megapixel image sensor with a 60 µm pixel pitch, at a ~80kHz full frame rate (12.8 us). The end application is for a high-performance transmission electron microscopy camera.
+1. I'm still wrapping my head around the Substrate API, and how Rust modules, crates (and workspaces?) are used to organize it. If I understand correctly: The `substrate` crate is the top-level API which user written generators import and interface with, with the exception of "plugin" crates for connection to external tools like DRC, LVS, and ngspice/spectre simulation. And rust crates for a PDK.
 
-The corresponding ROICs are placed around the periphery of the sensor array, and bump bonded to substrate. Each is only responsible for reading a subsection of the array with 256 column x 128 rows, with one ADC per column. Based on the frame time ADC must capture the drain current in less than 100ns, at 10bit resolution. The area per ADC should be around 0.0576 mm² area (240µm * 240µm, assuming it's square).
+2. If I remember correctly, the layout engine of Substrate2 isn't done, but i'm Developing Xbase-like device primitives? bag/xbase/bag3_generators are sort of a vertical mess, so I'm wrondering what the strategy here would be?
 
-The minimum requirement is the full frame needs to be readout at 80kHz, with at least 10 bit resolution.
+3. BAG2 uses nutbin and for 
 
+4. Parsing in SPECTRE and ngspice netlists?
 
+5. User would write then a rust crate which imports and calls this 
 
-Like I mentioned earlier, I've taken a long look at BAG3, Laygo2, and Hdl21. I like some of the features from each, but the the complexity of the
-
- of work that would be necessary to get BAG3 to a place where it's usable
-
-
-I was hoping to ask some questions about the substrate API:
+I'd really like to help with documentation and examples,
 
 
 
 
-What is the outward facing API of substrate? It must be the substrate + simulation plugins crates? 
 
 
-As I understand it right now, the basic intented interface for 
-
-
-
-Access to git repository
-Add as a guest to BAR Slack?
-
-Developing Xbase-like device primitives?
-Developing generators on top? (How will it be packaged?)
-Providing assitance for PDK integration (DRC, LVS, SPICE decks?) Skill hooks to stream in GDS?
-Parsing SPECTRE netlists? 
-Layout interface is not implemented yet
-Good first issues?
-your docs look great
-My plan is to make a column parrallel image sensor ROIC, with 10bit ADC, SRAM (for buffering), PLL, digital core, and SERDES interface
-    All the components will be medium performance, medium area, medium power
-    I need to target TSMC 28nm, but would like to have a public version which works in 130 nm
-    I'd like to make the individual components
     
 has functionality of both BAG (layout, DRC, LVS, etc) and Hdl21 (schematic generation)
 
@@ -82,12 +60,12 @@ A high level user would simply have a commandline utility called `droic`.
 
 https://crates.io/crates/substrate2 appears to not be recieving updates in line with github?
 
-Do you envision others being able to depend directly on your library?
-
 Good generators 'unroll' the design problem:
 - Don't symbolically solve an expression in code, solve it on paper, so it is directly computable.
 - Don't require incremental optimization/design centering. Refine your generator so that it can produce a design on the first run through.
 - Then simple run simulations at the end. This is harder, but runs faster.
+
+
 
 # problems with BAG
 
