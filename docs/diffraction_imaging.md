@@ -103,3 +103,17 @@ Crystallographers often explicitly state the type of beam used, as in the terms 
 - Neutrons are scattered by the atomic nuclei through the strong nuclear forces, but in addition, the magnetic moment of neutrons is non-zero. They are therefore also scattered by magnetic fields. When neutrons are scattered from hydrogen-containing materials, they produce diffraction patterns with high noise levels. However, the material can sometimes be treated to substitute deuterium for hydrogen. Because of these different forms of interaction, the three types of radiation are suitable for different crystallographic studies.
 
 From here, look at the article on x-ray, electron, and neutron diffraction. How thin do samples need to be?
+
+
+# Cryo-EM, a new type of microscopy
+
+
+# Detectors for Transmission electron microscopes:
+
+Previously, a Scintillator would convert ionizing radiation to visible light, which would then hit sensor
+
+Now we use CMOS image sensors, which provide a higher readout rate and which are less succeptible to 'blooming', which is the overflow of charge into adjacent pixels.
+
+With a CMOS we can do direct electron detection (rather than using a scintilator).
+
+Dectris offers direct electron and direct X-ray detectors.
