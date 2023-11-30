@@ -791,6 +791,32 @@ There is a reason dynamic range is not the most important spec to quote for a da
 In SNR, you are computing a relative ratio; it's unitless. Therefore, 
 
 
+# Questions:
+
+Can TSV and wafer bonding (thin hybrid) be used with Silicon only, or also with Ge, GaAs, CdTe, Diamond?
+
+How to integrate with Allpix? Can Allpix be used to Xray and Electron detectors? How does it compare with Pyxel or Fluka 2005?
+
+Is CdTe used for Xray or electron? -> For X-ray. Silicon or High-Z are used for Electrons.
+
+What is the architecture of TJMonopix and LF-Monopix. -> I know, at least, that LF has flip-flops in pixel.
+
+Are digital CMOS image sensors now the state of the art? How are the three layer stack chips organized? Is what happens before the DRAM?
+
+Why is silicon Depfet used for EDET? How does it compare to what Dectris is doing? -> Dectris uses Silicon and High-Z, in hybrid bump bonded mode.
+
+Is silicon DEPFET essentially just equivalent to an APS array? How about a 
+
+Is the counting vs integrating perspective accurate? When to use which?
+
+Let’s look at Peter Fischers presentation again. Was he making direct detection, counting optical photon ROICs?
+
+What other companies are in the same space as Dectris?
+
+Can we really not vertically integrate the EDET ROIC? Timepix3 and Dectri chip have been successfully used for direct electron detection in a stacked mode.
+
+Dectris Arina appears to be the high frequency (120kHz) readout chip. I can 'count every single electron, up to 10pA/pixel' and has 'noise free readout'. It has Silicon or high-Z sensors, with 100um pitch. 192x192 pixels with 20mm x 20mm sensor size. It uses hybrid-pixel technology. KITE is the ASIC before ARINA. '10us dwell times' 10^8 el/s/pixel.
+
 
 
 

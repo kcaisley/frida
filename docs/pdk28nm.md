@@ -171,3 +171,40 @@ column parrallel ROICs are an ideal candidate for this type of layout generation
 Pcells aren't DRC clean, and need lots of additions (end caps, cut?)
 
 Static (handmade) templates can encapsulate most of the DRC rules and process specific stuff. These templates can be extremely quantized to a unit area, in small process nodes. And if they're made dynamic, you pay a bit more in the way of layout complexity/irregularity but recieve better layout density and application specific customizations.
+
+
+# 28nm Forum (Nov 30th)
+
+Marco Andorono, CERN:
+- CERN IP blocks plus a distributed list of different institution shared IP designs
+- analog IP, digital soft IP (software like, rtl code, verified), hard digital IP (output of flow: layouts, good for highly optimized floor plan)
+- after 3-way NDA, and EDA tool sharing (one per IP) and CERN design sharing letter (one per institute)
+- IP block datasheet template
+- IP block design doesn't stop with layout, it need documentation and files for using in digital-on-top flow (LIB, abstract)
+- Abstract generation for analog block will haver a user guide soon
+- Lib file has timing arcs, power, etc. Liberate AMS generator can automate this.
+- OD/PO dummy fill should be done at block level, there is a script for this
+- Latch up violations should be avoided using guard rings
+- Triple guard rings are recommended for blocks, and between power domains. Using LVS logical boundary
+
+Frank Bandi, CERN:
+- Analog blocks: Bandgap, 8bit ADC, SLVS TX/RX, TID monitoring, Radhard ESD and CMOS IO pads (from Sofics)
+- Integrated DC-DC converters, LDOs, shunt LDOs
+- 14b Sigma delta ADC, Fin 20kHz, for monitoring
+- Fast and slow rail-to-rail
+
+Adam Klekotko and Stefan Biereigel, KU Leuven/CERN:
+- DART28 25.6 Gbps per lane, NRZ, four lanes.
+- High Speed Transmitter macro block:
+	- 12.8 Ghz all digital PLL w/ LC oscillator
+	- TMR high-speed serializer (20:1): uses (True single phase clocking) TSPC logic dynamic circuits, storing data in node capacitance. Faster than static circuits.
+	- pre-emphasis
+	- Dual-use driver (DUDE) for silicon photonics ring modulator or 100ohm differential transmission line
+- Clock coming from PLL needed duty-cycle correct, and balancing of even-odd jitter (EOJ)
+- Single lane operation, 120mW per channel. Driver > Serializer > All other blocks
+- HST block has RTL (divider and low speed serializer) and Full custom (high-speed serlizer and output) part
+- Liberate AMS only captures interfaces timing, long run time,
+- Mixed signal simulation takes a long time to run
+- STA flow is best! Load OA schematic/layout into innovus, each block and heirachy is characterized with .lib, and then in innovus you can simulate
+- 
+
