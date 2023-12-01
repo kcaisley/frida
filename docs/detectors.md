@@ -818,4 +818,7 @@ Can we really not vertically integrate the EDET ROIC? Timepix3 and Dectris chip 
 Dectris Arina appears to be the high frequency (120kHz) X-ray detector, with the KITE ASIC. I can 'count every single electron, up to 10pA/pixel' and has 'noise free readout'. It has Silicon or high-Z sensors, with 100um pitch. 192x192 pixels with 20mm x 20mm sensor size. It uses hybrid-pixel technology. KITE is the ASIC behind ARINA. '10us dwell times' 10^8 el/s/pixel.
 
 
+Epitaxial wafer, vs Czochralski, vs SOI
+TSV and wafer bonding (limits on process?) Available in 28nm or 65nm?
+3 layer process
 
