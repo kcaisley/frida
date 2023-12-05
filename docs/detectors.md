@@ -793,7 +793,14 @@ In SNR, you are computing a relative ratio; it's unitless. Therefore,
 
 # Questions:
 
-Can TSV and wafer bonding (thin hybrid) be used with Silicon only, or also with Ge, GaAs, CdTe, Diamond?
+Can TSV and wafer bonding (thin hybrid) be used with Silicon only, or also with Ge, GaAs, CdTe, Diamond? TSV and wafer bonding (limits on process?) Available in 28nm or 65nm?. It looks like maybe so: With 'Vist-last' TSVs provided by CEA-Leti and Fraunhofer IZM. Bonn-IZM project is already in this vein.
+
+
+It's [often said](doi.org/10.1088/1748-0221/11/01/C01007) that TimePix chips are for spectroscopic X-ray imaging, but I don't understand how their counting discriminator can perform spectroscopy. Perhaps as it can look at TOT?
+
+Where do the wafer for ATLAS come from? Are they LFoundary based?
+
+When we say 'back-scattering' is bad, is this in the sensor volume? Can we improve this by thinning the sensor but having bump bonds? Despite this supposed issue, there appear to be several examples of hybrid-detectors which are 
 
 How to integrate with Allpix? Can Allpix be used to Xray and Electron detectors? How does it compare with Pyxel or Fluka 2005?
 
@@ -819,6 +826,5 @@ Dectris Arina appears to be the high frequency (120kHz) X-ray detector, with the
 
 
 Epitaxial wafer, vs Czochralski, vs SOI
-TSV and wafer bonding (limits on process?) Available in 28nm or 65nm?
 3 layer process
 

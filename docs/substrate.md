@@ -1,5 +1,11 @@
 # Rust basics
 
+'vectors' store memory adjacently, whereas a linked lists/linked structres stores data in a disparate manner. This is bad for performance, and not necessarily even helpful when inserting values.
+
+https://isocpp.org/blog/2014/06/stroustrup-lists
+https://www.programmingtalks.org/talk/keynote-goingnative-2012
+
+
 metaprogramming? 
 
 interfaces
