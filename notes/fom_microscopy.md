@@ -1,12 +1,28 @@
-dynamic range				
-Noise / precision				
+Essentially, we need to look at the single shot precision/dispersion of the threshold, expressed in input referred charge, rather than, rather than any sort of continuous time resolution.
+This is going to matter more based on the noise of the system, then the 'number of the bits' of the output, as not all systems have output.
+All of our systems are 'single-shot', but readout can be either frame-based, or event based.
+	If event based, the 'dead time' is the 'data rate'
+	If frame based, we take the frame time as the data rate
+
+Like data transfer systems, we must compare the system at a certain 'error-rate', and at a current hit rate (data rate!)
+
+A low threshold improves detection efficiency and timing precision (from time walk), but also increases noise hit rate. In general, for timing precision/time walk, if we know what our minimum signal is, we can specify 99% of Siganl mxt be >2 threshold
+
+
+The dispersion (pixel to pixel variation), even after calibration, limits how low you can set the global threshold.
+
+
+
+
+dynamic range
+Noise / precision
 input energy → signal gain TF (not including sensor)				With hybrid, pair them with an ideal sensor, for DEPFET and monolithic, keep it seperate.
 				
-Power consumption unit area				
-Maximum hit rate (is this the same as dynamic range)				
+Power consumption unit area
+Maximum hit rate (is this the same as dynamic range)
 				
 				
-Need to be able to comment on DEPFET peformance.				
+Need to be able to comment on DEPFET peformance.
 
 
 thoughts on FOM:
