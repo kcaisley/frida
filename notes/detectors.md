@@ -143,6 +143,7 @@ The full-well capacity (FWC) is the largest charge a pixel can hold before satur
 
 
 
+
 # Scientific imaging needs:
 
 
@@ -789,6 +790,29 @@ There is a reason dynamic range is not the most important spec to quote for a da
 > A converter’s differential linearity must be <1 LSB regardless of the specified resolution. Also, a converter’s integral linearity determines its distortion performance, so converters with higher resolution can achieve higher SFDR.
 
 In SNR, you are computing a relative ratio; it's unitless. Therefore, 
+
+
+# TSVs
+
+Redistribution layers are a post metalization layer which can be used to remap the spacing of top metal traces, either in 3D or 2D integrations. They're being using for Obelix, but not for thin hybrid.
+
+What is the difference between a DMAPS sensor, and a DEPFET? Is front gate, vs back gate amplification the only difference?
+
+Via last technology is being used for the thin hybrid project.
+
+Bonding and thinning of entire wafers is done before dicing.
+
+Minimum TSV pitch in the IZM process is 20 um.
+
+There is filling between wafer bonded layers, which is typically poly-silicon? (maybe?)
+
+chip and sensor in bump-bonding are 300um and 150um respectively. With wafer bonding and TSV, the chip and sensor can be thinning to 20um and 100um, respectively.
+
+# Guard rings and sensors:
+
+On the sides and tops of the chips, surface damage occurs which reduces the impedance and causes super drastic transitions in the field strength, which can lead to breakdown. Oxide breakdown is at ~700V for a 300nm thick oxide, or 7V for a 3nm oxide.
+
+Guard rings help smooth this transisition in the precense of defects, to avoid breakdown. 
 
 
 # Questions:
