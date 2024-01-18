@@ -1,4 +1,82 @@
-# Rust basics
+# Chapter 2:
+
+```rust
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+
+fn main() {
+    println!("Guess the number!");
+
+    // originally this was inferred as i32, but now with the guess u32 and the later cmp, rustc knows to infer u32
+    let secret_number = rand::thread_rng().gen_range(1..=100);
+
+    println!("The secret number is: {secret_number}");  // Just for debugging!
+
+    loop {
+        println!("Please input your guess.");
+
+        let mut guess = String::new();
+
+        // Result is an enum of Ok and Error. The options of an enum are called Variants.
+        io::stdin()
+            .read_line(&mut guess)
+            .expect("Failed to read line");
+
+        // This is shadowing, where we reuse a variable name by overwriting.
+        // parse returns an error type, in case an unparsable value is entered
+        // just like before, if we get 'Ok' expect passes the value, if 'Err' expect panics
+        let guess: u32 = match guess.trim().parse() {
+            Ok(num) => num,
+            Err(_) => continue  // _ means match all error values; continue means skip to next loop iteration
+        };
+
+        println!("You guessed: {guess}");
+
+        /*
+        match expression gives the => cases notation
+        */
+
+        match guess.cmp(&secret_number) {
+            Ordering::Less => println!("Too small!"),       // Ordering is an enum from the standard library
+            Ordering::Greater => println!("Too big!"),
+            Ordering::Equal => {
+                println!("You win!");
+                break;
+            }
+        }
+    }
+}
+```
+
+
+# Chapter 3, 
+
+- scalar types are int, float, bool, and char
+- (primitive) compound types: tuple, array
+    - .... struct, enum? user defined?
+    - `tuples` have mixed types, `arrays` have one type
+    - `tuples` and `arrays` can't be increased in size.
+    - more complex compound types can come from collections, like `vector`
+    - tuples indexed with `.` or deaggregagted, arrays indexed with `[]`
+    - you can make tuples of array (and maybe arrays of tuples?)
+    - Are strings compound types of `chars`?
+- functions have args and return
+    - last term can be returned implicitly, without return or ;
+- control flow:
+  - if, else, if else need a bool input
+  - loops, while, for. Break statement exists for all; necessary for 'loop'
+
+Structs have a 
+
+
+traits are collections of functions defined for a certain type
+macros are grouping of functions which act as one
+
+
+- The elements of an enum are called 'variants'
+
 
 'vectors' store memory adjacently, whereas a linked lists/linked structres stores data in a disparate manner. This is bad for performance, and not necessarily even helpful when inserting values.
 
@@ -31,13 +109,12 @@ Attributes	#[meta]	#[derive()]	#[inline]	#[cfg(test)]
 
 Macros
 
-
 The levels of organization are modules -> files -> crates -> workspaces?
 
 
 # questions for Substrate devs
 
-So first, I guess I could summarize my research project. I'm building a readout IC (28nm bulk CMOS) for a 1 Mpixel, 80kHz frame rate transmission electron camera. Each column-parallel readout channel should probably fit within the 60 µm pixel pitch and measure the column current at 10 Ms/s with a 8+ bit resolution. The data from each channel will then be buffered, seralized, and transmitted out over short (25 cm) wireline links. I'd like to try different configurations of ADC speed, ADC resolution, buffer size, serializer ratio, wireline link speed, and number of links. I'm hoping the generation of these narrow 60 µm channel slices, to be then arranged in parallel, is an appropriate use case for Substrate.
+to summarize my research project. I'm building a readout IC (28nm bulk CMOS) for a 1 Mpixel, 80kHz frame rate transmission electron camera. Each column-parallel readout channel should probably fit within the 60 µm pixel pitch and measure the column current at 10 Ms/s with a 8+ bit resolution. The data from each channel will then be buffered, seralized, and transmitted out over short (25 cm) wireline links. I'd like to try different configurations of ADC speed, ADC resolution, buffer size, serializer ratio, wireline link speed, and number of links. I'm hoping the generation of these narrow 60 µm channel slices, to be then arranged in parallel, is an appropriate use case for Substrate.
 
 1. I'm still wrapping my head around the Substrate API, and how Rust modules, crates (and workspaces?) are used to organize it. If I understand correctly: The `substrate` crate is the top-level API which user written generators import and interface with, with the exception of "plugin" crates for connection to external tools like DRC, LVS, and ngspice/spectre simulation. And rust crates for a PDK.
 
