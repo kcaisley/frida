@@ -52,3 +52,34 @@ impl Schematic<Spice> for Vdivider {
             Ok(())  // this is a return value? It's part of `core result`?
     }
 }
+
+// begin-code-snippet tests
+#[cfg(test)]
+mod tests {         // why use a module here? So that you can simulate calling the code from an external environment, even if it's in the same file?
+    use super::*;
+    use rust_decimal_macros::dec;
+    use spice::netlist::NetlistOptions;
+    use std::path::PathBuf;
+    use substrate::context::Context;
+
+    #[test]
+    pub fn netlist_vdivider() {
+        let ctx = Context::new();
+        Spice
+            .write_block_netlist_to_file(
+                &ctx,
+                Vdivider {
+                    r1: dec!(100),
+                    r2: dec!(200),
+                },
+                PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/netlist_vdivider"
+                ))
+                .join("vdivider.spice"),
+                NetlistOptions::default(),
+            )
+            .expect("failed to netlist vdivider");
+    }
+}
+// end-code-snippet tests
