@@ -18,31 +18,42 @@ use substrate::simulation::data::{tran, FromSaved, Save, SaveTb};
 use substrate::simulation::waveform::{EdgeDir, TimeWaveform, WaveformRef};
 use substrate::simulation::{SimulationContext, Simulator, Testbench};
 
+
+/* in short, we must:
+create an inverter testbench struct
+create an constructor method, which 
+
+`Self` is a keyword for the Type that a method is implemented on, via inherent or trait approachs
+`self` refers to an instance a method acts on itself, and typically comes in the input arguments
+
+`&self` take a reference to the instance, with read-only access
+`&mut self` take a reference with read-write permission, aka 'borrowing'
+`self` a method 'consumes' the instance, taking 'ownership'
+*/
+
+
 // creating a testbench is the same as a regular block, except without IO
 
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Block)]   // automatically generate traits (clone, etc) for InverterTb struct, using Derive attribute. 
-#[substrate(io = "TestbenchIo")]    // like above, this in attribute macro. In the context of Substrate, all TBs must have this attribute. 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, Block)]    
+#[substrate(io = "TestbenchIo")]    // attribute macro, in substrate alll TBs must have this attribute, as they have no IO
 pub struct InverterTb {
     pvt: Pvt<Sky130Corner>,    // 3-tuple of corner, V, and temp. Also it's a 'generic type', as it takes a parameter
     dut: Inverter,          // a struct is a compound type
 }
 
-impl InverterTb {   // is this an inherent implementation?. No this is a constructor method for instances of 
-    #[inline]   // optional hint to the compiler to inline the function at later call sites. Useful for small, frequently called functions like constructors.
-    pub fn new(pvt: Pvt<Sky130Corner>, dut: Inverter) -> Self {
+impl InverterTb {   // a constructor method which can create instances
+    #[inline]   // optional hint to compile. Useful for small, frequently called functions like constructors.
+    pub fn new(pvt: Pvt<Sky130Corner>, dut: Inverter) -> Self { // call site in design function
         Self { pvt, dut }
     }
 }
 
-impl ExportsNestedData for InverterTb{  // why can't this be put in a derive macro?
+impl ExportsNestedData for InverterTb{  // could this be a derive macro?
     type NestedData = Node;
 }
 
-
-// is this impl ever called? I guess it just gives properties to the Testbench
 impl Schematic<Ngspice> for InverterTb {
-    fn schematic(
+    fn schematic(   // is this ever called?
         &self,
         io: &<<Self as Block>::Io as SchematicType>::Bundle, //`as` casts one type to another
         cell: &mut CellBuilder<Ngspice>,            // Method on testbench, which 
@@ -82,21 +93,28 @@ impl Schematic<Ngspice> for InverterTb {
 
 }
 
+
+
+
+
 // next, we want to run our testbench, to test the 20-80% rise and fall time
 
-// Debug allows for fmt print debugging, Clone is deep copying, De/Serialize is for transmission or storage, FromSaved not in stdlib
+// Debug allows for fmt print debugging, Clone is deep copying
+// De/Serialize is for transmission or storage, FromSaved not in stdlib
 #[derive(Debug, Clone, Serialize, Deserialize, FromSaved)]   
 pub struct Vout {       //... a struct is a compound type ...
     t: tran::Time,      // this struct is a container for output data
     v: tran::Voltage,
 }
 
-impl SaveTb<Ngspice, ngspice::tran::Tran, Vout> for InverterTb {
-    fn save_tb(
+
+// We say the SaveTb trait is 'generic over three params'
+impl SaveTb<Ngspice, ngspice::tran::Tran, Vout> for InverterTb {    // note how trait isn't ever 'called'
+    fn save_tb( // but this isn't called either in my code. Perhaps 
         ctx: &SimulationContext<Ngspice>,   // simulation context
-        cell: &Cell<Self>,  
-        opts: &mut <Ngspice as Simulator>::Options,
-    ) -> <Vout as FromSaved<Ngspice, Tran>>::SavedKey {
+        cell: &Cell<Self>,     // a cell, probably the testbench? Yes it actor on Self, so InverterTb
+        opts: &mut <Ngspice as Simulator>::Options, // SPICE sim options
+    ) -> <Vout as FromSaved<Ngspice, Tran>>::SavedKey { 
         VoutSavedKey {                                      // this is the return value; as note the lack of semicolon
             t: tran::Time::save(ctx, (), opts),     // marks the time data for saving
             v: tran::Voltage::save(ctx, cell.data(), opts),     // marks the voltage data for saving.
@@ -122,8 +140,6 @@ impl Testbench<Ngspice> for InverterTb {
     }
 }
 
-
-
 /// Designs an inverter for balanced pull-up and pull-down times.
 ///
 /// The NMOS width is kept constant; the PMOS width is swept over
@@ -138,7 +154,7 @@ pub struct InverterDesign {
 }
 
 impl InverterDesign {
-    pub fn run<S: Simulator>(
+    pub fn run<S: Simulator>(      // called by the test runner below
         &self,
         ctx: &mut PdkContext<Sky130Pdk>,
         work_dir: impl AsRef<Path>,
@@ -156,7 +172,7 @@ impl InverterDesign {
                 pw,
                 lch: self.lch,
             };
-            let tb = InverterTb::new(pvt, dut);
+            let tb = InverterTb::new(pvt, dut);     // this is where the testbench is instantiated
             let output = ctx
                 .simulate(tb, work_dir.join(format!("pw{pw}")))
                 .expect("failed to run simulation");
@@ -210,21 +226,29 @@ pub fn sky130_open_ctx() -> PdkContext<Sky130Pdk> {
         .with_pdk() 
 }
 
+// why would the above not be implemented as a trait, on the PdkContext<Sky130Pdk> struct?
+
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
+    #[test]     // can be run via `cargo test design_inverter_ngspice -- --show-output`
     pub fn design_inverter_ngspice() {
         let work_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/design_inverter_ngspice");
         let mut ctx = sky130_open_ctx();
         let script = InverterDesign {
-            nw: 1_200,
+            nw: 1_200,  
             pw: (1_200..=5_000).step_by(200).collect(),
             lch: 150,
         };
 
-        let inv = script.run::<Ngspice>(&mut ctx, work_dir);
+        let inv = script.run::<Ngspice>(&mut ctx, work_dir);    // call site of the inverter design method
         println!("Designed inverter:\n{:#?}", inv);
     }
 }
+
+

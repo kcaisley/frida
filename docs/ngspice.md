@@ -7,6 +7,7 @@ See chapter 32 of the [manual](https://ngspice.sourceforge.io/docs/ngspice-manua
 ```shell
 wget https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42.tar.gz
 tar -xzf ngspice-42.tar.gz
+cd ngspice-42
 mkdir release
 cd release
 ../configure
