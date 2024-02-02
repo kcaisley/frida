@@ -7,10 +7,12 @@ use substrate::io::{Io, SchematicType};
 use substrate::schematic::{CellBuilder, ExportsNestedData, Schematic};
 
 pub mod tb; // how does this reference thing work?
+pub mod io;
+
 
 // What are all the derives here?
-#[derive(Io, Clone, Default, Debug)]
-pub struct InverterIo {
+#[derive(Io, Clone, Default, Debug)]       // Io attribute here gives a bundle struct `InverterIoSchematic`
+pub struct InverterIo {         // IO structs represent the type of an interface, while bundles give real netlist 
     pub vdd: InOut<Signal>,
     pub vss: InOut<Signal>,
     pub din: Input<Signal>,
@@ -31,7 +33,7 @@ pub struct Inverter {
     pub lch: i64,
 }
 
-impl ExportsNestedData for Inverter {
+impl ExportsNestedData for Inverter {   // If you manually write the `impl`, you don't need the derive attribute right?
     type NestedData = ();
 }
 

@@ -1,4 +1,83 @@
-# Chapter 2:
+# Outstanding questions
+
+What is the appropriate way to organize the project? I was thinking something like:
+
+```
+project/
+|-- src/
+|   |-- amp.rs      // contains code describing hardware itself
+|   |-- amp_tb.rs   // contains code that can TB, simulate, evaluate, and size devices?
+|   |-- inv.rs
+|   |-- inv_tb.rs
+|   |-- lib.rs      // has top level declaration of different elements, and libraries to import.
+
+```
+
+:: is the path seperator, but can also be part of the turbofish `instance.method::<SomeThing>()`
+
+In other words: 
+
+. is used when you have a value on the left-hand-side. It's for value access.
+:: is used when you have a type or module. It's for namespace member access.
+
+# Info
+
+Hdl21 is opinionated, and doesn't really support the use-case of generating a schematic, with sizing determined by:
+- a set of iterated values
+- a deterministic expression (closed-form solution, found by analytic methods)
+- a set of instances, filtered by numerical simulation result (choosing the best of several)
+
+This could be either done at runtime, or potentially before with preprocessers, macros, or other metaprogramming types. But I think for the 'plain old data' approach, these more abstract tools should be reserved for the function which produce and manipulate block, and not be used by the block definitions themselves.
+
+One idea from Hdl21 is that modules, i.e. the equivalent representation of a SPICE netlist, should be represent-able by a serialized format. This generic representation can then be transpiled to the necessary format.
+
+Laygo2 adds the same idea for layouts, with a generic interchange format. But it goes one step further, with 'templates' for layouts, which are 
+
+Rust and Substrate the following system packages:
+`sudo dnf install gcc protobuf protobuf-compiler sqlite sqlite-devel`
+
+gcc is for the `cc` linker
+
+# IOs
+
+How does this `Default` attribute work? It should be adding a trait to the struct...?
+IO is a schematic interface, and all implement the `Directed` trait, and each component of IO has a default of `InOut<Signal>.` These can be expanded to be made an array, and can be configured as `Input` or `Output`. This can happen at the single signal level or at the level of an entire collection, because composite type IOs are flattenable 
+`VdividerIo::default()` is an example of an associated function, not a method?
+The `Default` attribute creates a trait which is a 'default' constructor for the Type
+    where each basic type is initialized to it's default (ints are zero, etc)
+    and where compound types behave specially, like enums, where the first  varients is selected.
+So it's like a default version of a constructor, e.g. `InverterTb::new()`.
+    Just like the above, it's an associated function not a method, as it doesn't take `self` aka not acting on an object
+
+You can create an instance of a certain type with:
+1. An associated function like `let myinst = MyType::new(10,20)`, which you've manually defined
+2. The default trait `let myinst::default()` which is applied to the type definition via the derive attribute `#[derive(Default)]`
+3. By direct instantiation `let myinst = MyType{x:10, y:20};`
+
+Where 
+```
+struct MyType {
+    x: i32,
+    y: i32,
+}
+```
+
+One you have the schematic netlist representation of IOs, you can connect it easily to other IOs that have the same type (aka the same IO struct). If it's a compound (aka composite) of IO types, aka a bundle, then it is first flattened, and then connected in order. If the types don't match, then you would need to self-write a custom `Connect` Marker Trait.
+
+But doing this directly isn't advisable, and so instead the better approach is the  
+
+In the 
+
+# Blocks
+
+Blocks are like modules/cells, and are paired with a corresponding Io. Blocks can automatically implement the `Block` trait via derive attributes, but it's often better to manually define it.
+
+I don't really grok what the params inside the block struct should be? Should they always be physical dimensions, and when can they be under specified? I guess the `impl Schematic for Inverter` is how one actually maps out the netlist contents of a block.
+
+
+
+
+# Rust Book Chapter 2:
 
 ```rust
 use std::io;
@@ -68,7 +147,11 @@ fn main() {
   - if, else, if else need a bool input
   - loops, while, for. Break statement exists for all; necessary for 'loop'
 
-Structs have a 
+
+static methods — methods that belong to a type itself are called using the :: operator.
+
+instance methods — methods that belong to an instance of a type are called using the . operator.
+
 
 
 traits are collections of functions defined for a certain type
