@@ -21,7 +21,7 @@ use substrate::simulation::{SimulationContext, Simulator, Testbench};
 
 /* in short, we must:
 create an inverter testbench struct
-create an constructor method, which 
+create a constructor method, which 
 
 `Self` is a keyword for the Type that a method is implemented on, via inherent or trait approachs
 `self` refers to an instance a method acts on itself, and typically comes in the input arguments

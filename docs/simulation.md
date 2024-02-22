@@ -1,3 +1,15 @@
+# System simulation
+
+Given a small system of equations to solve, tools like SciPy will attempt to solve them with Newton's method.
+
+If the system become too large, it will then require we use a [Krylov method](https://en.wikipedia.org/wiki/Newton%E2%80%93Krylov_method)
+    This requires domain specific knoledge
+or specify some flavor problem-specific of spasity patten to simplify the system
+    Auto sparse can compute spasity matrix for you, in Julia
+
+
+
+
 # Verilog-A
 
 Verilog-A is the analog component of Verilog-AMS, and can be understood by the SPICE kernel in a AMS simulator.

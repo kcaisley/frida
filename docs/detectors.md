@@ -109,7 +109,7 @@ To fully read out this charge, we need either a resistive or large capacitive lo
 
 Hans wrote that $V = Q/C$, which is true, but this seems to imply that having a large cap actually reduces the voltage signal?
 
-Some variations of the arch. are putting a current source in feedback with $C_{f}$, or placing a AC-coupling capacitor on the input of the amplifier. Also, placing something in feedback is a great way to also build a hi-pass filter, which eliminates the leakage baseline, and any left over signal.
+Some variations of the arch. are putting a current source in feedback with $C_{f}$, or placing an AC-coupling capacitor on the input of the amplifier. Also, placing something in feedback is a great way to also build a hi-pass filter, which eliminates the leakage baseline, and any left over signal.
 
 
 # Images sensors:
@@ -327,7 +327,6 @@ app_specs:
 
 
 # Notes from meeting, Oct 10
--My money comes from HLL MPG, which is in Munich?
 -The dynamics of the collection electrode are very slow, relative to the injection charge. Ie the dominant pole is the electronics. Therefore the shaped of the transient of the current injection isn’t important, and can be modeled as anything. The area is all that matters. This is why injection circuits can be built the way they are. Perhaps this would not be true for timing sensitive systems?
 - First order description of a detector front end is just noise and threshold. Second order is amplitude dependent time walk.
 - TOT information is mainly just used for calibration. However, it can be used to provide a slight improvement for particle identification in assistance to the calorimeters, and in the case of a particle that just arcs through the inner tracker, only, without passing into the calorimeters, it can identify that too. These would be heavy particles?
@@ -607,7 +606,7 @@ And here is an interesting paper, talking about similar problems but for mass sp
   * Process modification used to enhance charge collection ability... I this the epitaxy?
   * Additionally, it is a bit strange because it has two opposing voltage applied, rather than one large bias voltage. (How big is this voltage?).
   * One issue with this is the fact that small collection node causes some areas to be far from the node, and the horizontal field isn't strong enough to sweep up the charge properly. 
-    * Some process modification, with either a opposite doped region, or just no epitaxial deposition (allowing regular p type to remain) counteracts this by removing the areas that were previous acting as dead-zones trapping signal charge
+    * Some process modification, with either an opposite doped region, or just no epitaxial deposition (allowing regular p type to remain) counteracts this by removing the areas that were previous acting as dead-zones trapping signal charge
   * Uses the concept of 
 
 Talking more with Ivan, there were three original flavors. 180nm from AMS/TSI, which has been led by Ivan Peric, and which became ATLAS pix. (peric also made Deptfet and FEI3) It has been customized for many different applications now, all under the HVCMOS label. Then there was the TJMonopix/TJMalta which family which started at CERN, in ALICE, and as a non-rad hard design with epitaxial layer (not called TJ), but then which received process modifications (intermediate n layer and end stops) to become the rad-hard TJ family. It was worked on by Ivan,It competed with ATLAS pix for the outerlayer of the ATLAS HLC upgrade, but neither won, as the whole ATLAS detector is now just RD53. The only potential outlet for TJ technology now is the Belle upgrade. This is called the 'Obelix' project. Finally the LFMonopix family, which doesn't have any process modifications, and which is large fill-factor like ATLASpix. This design has been tested in a  progression has been the major responsibility of Toko, Ivan, and Lars.
