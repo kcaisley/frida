@@ -63,3 +63,32 @@ ALIGN
 MAGICAL
 GDSFactory	63k python, 20k YAML (but it's an alternate approach)
 GDStk		32k C++, 5k python wrapper
+
+# the rust-based Substrate environment is the best compromise for my PhD
+- It's all integrated, with schematic, layout, and test benching in one place. We can write and debug in one language.
+- It's not super easy for others to read, but the next best options, i.e. python with hdl21, python with Laygo2,python with Gdstk, or lua with openpcells are also relatively complicated. And frankly I'm doing it for my own satisfaction and learning; I'm not making 'product'.
+- It doesn't support plotting, but I will be downsampling and plotting with pgfplot/tex anyways.
+- It isn't quite as good for prototyping, but I'd like to improve my software engineering anyways
+- It doesn't have integration with numerical simulation, optimization frameworks, and machine learning, but I don't want to get into those things anyways
+- I doesn't have a library of existing designs, but the ones from Laygo2 aren't plentiful, the ones from BAG don't run, and the ones in openpcells are something I can always use for reference. Plus, as a designer, I need to *do* the designs anyways.
+- It has great tooling, good libraries, good documentation, resonable compile times (compared to C++), a good build system, libraries, packaging
+- It doesn't read as easily as Mojo, but it's ready now, and we don't even know if Mojo will succeed. It mojo does succeed, then I can simply rewrite, as there are so many similarities.
+- It doesn't 'integrate' with Klayout or Cadence, but neither do Openpcells, and the latter doesn't it doesn't seem to be an issue for me when I think of it in my head.
+
+
+
+# Presentation
+Discuss the fundamental steps the exist in EDA, and how these can be mapped into a general purpose programming languages. I should show some nice example layouts, which I can manually draw to explain how things should be constructed.
+
+Issues: manual design is tedious, poor/no documentation, no integration with testing software, 
+design isn't a pipeline, it's building of contraints, and tools help us exchange
+implementing in language systems (classes), trade-offs (composability, runtime)
+
+compare Analog design (vs digital, TCAd, or system level) but then focus in
+explain that DRC, LVS, PEX, are necessary, but not 
+
+We won't be including any 'optimization' routines in the code. Instead with manually constrain the design, and then generate variations within the constraints. Essentially we just build Pcells, where layouts are correct by construction. Optimizations may happen later, but they best occur on top of constrained (pcells).
+
+Process portability is still essential. But I think it's doable, if we abstract the design rules.
+
+Aside from assiting others on the occasional tapeout, and teaching my courses, don't stray too far beyond my work, like taking Math classes, etc. If I simply share what I'm working on frequently, the collaborations will occur.
