@@ -208,3 +208,8 @@ Adam Klekotko and Stefan Biereigel, KU Leuven/CERN:
 - STA flow is best! Load OA schematic/layout into innovus, each block and heirachy is characterized with .lib, and then in innovus you can simulate
 - 
 
+
+
+Redistribution layers (RDLs) are the copper metal interconnects that electrically connect one part of the semiconductor package to another. RDLs are measured by line and space, which refer to the width and pitch of a metal trace. Higher-end RDLs may be at 2μm line/space and smaller.
+
+The RDL is a layer of wiring metal interconnects that redistribute the I/O access to different parts of the chip and makes it easier to add microbumps to a die.

@@ -80,6 +80,24 @@ GDStk		32k C++, 5k python wrapper
 # Presentation
 Discuss the fundamental steps the exist in EDA, and how these can be mapped into a general purpose programming languages. I should show some nice example layouts, which I can manually draw to explain how things should be constructed.
 
+What I won't be talking about:
+- Introducing a new framework. This field is super fractured, as few designers can program, and those that can, always want to start their own project.
+- Automatic circuit synthesis. This is a very broad unsolved problem, with many niche solutions. We may get there one day, but not
+- DRC, LVS, PEX, graphical user interfaces, interaction with Klayout / 
+
+
+Question: What are the core procedures/components of analog design?
+- transistor device models. These are mapped to certain PDKs and provided by the foundary, but aren't virtuoso specific (like the pcells are). Recreating pcells isn't that hard, LVS will later tell us if we messed up, and
+- Heirachical arrangement of schmetaics. We can do that pretty easily. And if we want to do parameterization, code can do this way better. You might say we need graphical representations. Well verilog systems are way more complicated, and we don't need them there? Also, the LVS tools can graphically show you the netlists, and some [people](https://github.com/gen-alpha-xtor/GenAlphaXtorSchematics) are working on adding schematics to vscode.
+- Simulation running. We don't need cadence. We can view sims in a waveform viewer, and Spectre/Ngspice work fine over the command line. Plus we can better track how the testbenching and results are produced.
+- Analysis: Cadence's post processing abiliies are limited anyways, and we normally pull this out into a script.
+- Documentation: Cadence sucks at this. We can just use comments.
+- Layout of cells: We can fairly easily recreate transistor pcells. And for other devices, like caps and guard rings, we end up often manually creating our own pcells anyways. In smaller processes our layouts are fairly regular.
+- Heirachical layout: Building up tiles and arrays is natural in programming languages. And we can use some basic templating and grid structures, with basic routing algorithms to manually connect. We can track width classes. End caps, etc.
+- library management is simply done via packages.
+
+Of course, design isn't a pipeline. It's interactive, so we need to make sure that our code can be run in an ad-hoc manner. This is where unit-testing is a perfect fit. We also have to make sure that we manage dependencies in the language, to keep build times relatively short. And we can use the vscode IDEs features.
+
 Issues: manual design is tedious, poor/no documentation, no integration with testing software, 
 design isn't a pipeline, it's building of contraints, and tools help us exchange
 implementing in language systems (classes), trade-offs (composability, runtime)
@@ -92,3 +110,7 @@ We won't be including any 'optimization' routines in the code. Instead with manu
 Process portability is still essential. But I think it's doable, if we abstract the design rules.
 
 Aside from assiting others on the occasional tapeout, and teaching my courses, don't stray too far beyond my work, like taking Math classes, etc. If I simply share what I'm working on frequently, the collaborations will occur.
+
+# next
+
+Continue dev work on schematic level/simulation work Substate in TSMC65nm and TSMC28nm, and get in contact with devs about layout strategies.

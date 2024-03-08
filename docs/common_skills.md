@@ -1,3 +1,9 @@
+# Analog image sensors design
+clock-domain crossing (CDC) and rtl linting checks
+disciplines: design, verification, process, test, and application
+analysis types: transient, AC, DC, stability, Monte Carlo
+
+
 # common skills
 
 amplifiers, low noise regulators, readout, for pixel arrays
