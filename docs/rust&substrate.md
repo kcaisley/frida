@@ -1,3 +1,13 @@
+# Analysis of `strongarm` project
+
+- atoll and tb `pub mod`
+- Create IO struct for diffcomp, with a handful of impls, where `Io` is custom-defined via procedural macro, the rest are built-in
+- Create 
+
+
+Do I not need the spice parser, if I want to use the ngspice plugin?
+
+
 # Outstanding questions
 
 What is the appropriate way to organize the project? I was thinking something like:
@@ -193,6 +203,7 @@ Attributes	#[meta]	#[derive()]	#[inline]	#[cfg(test)]
 Macros
 
 The levels of organization are modules -> files -> crates -> workspaces?
+
 
 
 # questions for Substrate devs

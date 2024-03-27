@@ -15,3 +15,4 @@ bulk +10
 drift -5V
 source 6V (reference) of depfet xtor 
 
+

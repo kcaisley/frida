@@ -791,6 +791,24 @@ There is a reason dynamic range is not the most important spec to quote for a da
 In SNR, you are computing a relative ratio; it's unitless. Therefore, 
 
 
+# Bump bonding technologies
+
+Indium
+– small: 20μm pitch, 10μm diameter; electroplated
+– soft, low soldering temperature (<180°C)
+Goldstud
+– 50μm diameter, 70μm pitch
+– modified gold ball/wedge wirebonding process
+– slow sequential bumping process; high force flip-chip; >300°C
+Solder
+– minimum: 20μm pitch, 15μm diameter; standard: 200μm pitch / 100μm dia
+– Chip-on-Board: 300-500μm diameter
+– evaporation, electroplating, screen printing, ball drop, jetting
+– Eutectic, High-Lead, Lead-free solder alloys; >200°C soldering
+more...
+– Cu-Pillar
+– Solid-Liquid Interdiffusion (SLID): High Temperatur (600°C) applications
+
 # TSVs
 
 Redistribution layers are a post metalization layer which can be used to remap the spacing of top metal traces, either in 3D or 2D integrations. They're being using for Obelix, but not for thin hybrid.
