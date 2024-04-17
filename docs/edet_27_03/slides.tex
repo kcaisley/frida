@@ -27,7 +27,7 @@
     \includegraphics[width=\textwidth]{response.png}
     \end{figure}
     \begin{itemize}
-        \item Transfer Gains: $g_q^{IG}=300pA/e^-$;  $g_q^{OF}=~70pA/e^-$
+        \item Transfer Gains: $g_q^{IG}=300pA/e^-$;  $g_q^{OF}=~70pA/e^-$ ?
         \item $\approx14e^-$ ENC? [Chap 5.3] $\rightarrow$ 5 nA RMS noise @ drain?
     \end{itemize}
 \end{frame}
@@ -57,7 +57,7 @@
     \item $\frac{LSB}{\sqrt{12}} \approx 720 e^-$ quantization error (QE)
     \item $DR = 20\log{(\frac{1000ke^-}{2500e^-})}\approx 48 dB$ best case
     \item ADC non-linearity/skipped codes degrade this even further
-    \item Dispersion, leakage, etc not suffciently corrected by 2-bit pedestal DAC
+    \item Dispersion, leakage, etc not sufficiently corrected by 2-bit pedestal DAC
     \end{itemize}
 \end{frame}
 
@@ -77,33 +77,34 @@
 \begin{frame}
     \frametitle{Data Conversion Summary}
     \begin{itemize}
-    \item Pixel Rate ($10Mpixels/sec$) and Area ($36 mm^2$) are typical, and sufficient for application
-    \item Nominal resolution nowhere near noise limit (QE limited), but this is acceptable for application ($LSB=2500e^-$)
-    \item Nonlinearity + offset leave significantly degrade beyond nominal resolution
+    \item Pixel Rate ($10Mpixels/sec$) and Area ($36000\mu m^2$) are typical, and sufficient for application
+    \item Nominal resolution (8-bit) nowhere near noise limit (QE limited), but acceptable for application ($LSB=2500e^-$)
+    \item Nonlinearity + offset significantly degrade beyond nominal resolution
+    \item Power consumption of $\approx 5 mW$ seems to offer room for improvement
+    \item Need equivalent circuit for drain current signal dynamics
     \end{itemize}
 \end{frame}
+
+% \begin{frame}
+%     \frametitle{ADC archs}
+%     \begin{itemize}
+%     \item What ADC archs to try? Cyclic, SAR? (Show diagrams)
+%     \item Correlated double sampling could be nice (can we afford the time)
+%     \item What if we use a pipeline to digitize after integrating
+%     \item Parameters of ASM drain output current (noise, rise/fall times, parasitics)?
+%     \item Range of possible hit dynamic range.
+%     \end{itemize}
+% \end{frame}
 
 \begin{frame}
-    \frametitle{ADC archs}
+    \frametitle{Memory Buffer, PLL, Wireline PHY}
     \begin{itemize}
-    \item What ADC archs to try? Cyclic, SAR? (Show diagrams)
-    \item Correlated double sampling could be nice (can we afford the time)
-    \item What if we use a pipeline to digitize after integrating
-    \item Parameters of ASM drain output currnet (noise, rise/fall times, parasitics)?
-    \item Range of possible hit dynamic range.
+    \item PLL frequency upgrade to 3+ Gbps
+    \item SRAM 65nm $0.680\mu m^2$ $\rightarrow$ 28nm $0.127\mu m^2$
+    \item SP/DP SRAM vs FIFO?
+    \item What speeds are supported by receiver in FPGA?
     \end{itemize}
 \end{frame}
-
-\begin{frame}
-    \frametitle{PLL and Wireline PHY}
-    \begin{itemize}
-    \item Summarize PLl architectures
-    \item How many links, how many FPGAs?
-    \item Specs of wireline interface and reciever?
-    \end{itemize}
-\end{frame}
-
-
 
 \begin{frame}
     \frametitle{Potential architectures}
@@ -112,25 +113,4 @@
     \end{figure}
 \end{frame}
 
-
 \end{document}
-
-
-
-% Power consumption
-% area/pitch
-% noise + dynamic range, signal and converter
-%     pedestal to fit non-lin?
-% conv time
-
-% memory density
-
-% PLL output, but jitter won't matter
-
-
-% needs:
-% equivalent circuit model of ASM+DEPFET
-% clock signal provided + serial interface + wire length
-
-% \item Parameters of ASM drain output current (noise, rise/fall times, parasitics)
-% \item $10^4$ dynamic range would be nice (Epp 2016)

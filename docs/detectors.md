@@ -869,3 +869,16 @@ Dectris Arina appears to be the high frequency (120kHz) X-ray detector, with the
 Epitaxial wafer, vs Czochralski, vs SOI
 3 layer process
 
+
+
+# Early notes from Asianometry video
+CCD in invented in 1970s
+companies get it: GE, IBM, hughes, TI, RCA, fairchild, philips, hitachi, thompson, intel, sony
+CMOS first started in 1960 (IBM 1964 scanister)
+19060s 1st gen was passive pixel technology (1T per pixel, a passive switch). But a small charge, into a big wire, means lots of noise.
+Hitachi tried for the longest, but flicker noise was a problem
+1990s presented 2nd gen APS, as fabs caught up to make multi Ts per pixel
+JPL's Eric Fossum created the photogate APS and correlated double sampling
+Fossum then commercialized as Photobit, aquired by micron 2001, aptina spin off, then re-aquired by ON semiconductor in 2014.
+Early fill factors were as poor as 26%, compared to CCDs 100%
+
