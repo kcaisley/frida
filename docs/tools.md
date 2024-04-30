@@ -1,5 +1,3 @@
-# Hdl21
-
 # Laygo2
 clone repo
 sudo dnf install python3-devel g++ gcc

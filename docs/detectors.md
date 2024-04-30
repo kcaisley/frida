@@ -1,3 +1,8 @@
+
+
+
+
+
 # Particles worth measuring
 
 ![](img/particles.png)
@@ -21,6 +26,34 @@ Hadrons (Made of Quarks, almost always unstable when 'free')
 	- Pions
 	- Kaons
 
+
+
+# how to detect:
+
+Material systems
+
+In metals, the outermost electrons are delocalized and form a sea of electrons that are free to move throughout the material. This delocalization means that the outer electrons are less tightly bound to individual atoms compared to the electrons in semiconductor materials. As a result, high-energy particles have less interaction cross section with the electrons in metals because they are less likely to scatter off the loosely bound electrons.
+Also, in metals, I think that the conduction band overlapping with the valence (no distinct bandgap) means that incident high energy particle tend to excite electrons in the conduction band, rather than create electron hole pairs in the valence.
+
+
+photoelectric effect vs compton scattering vs pair-production
+
+How does the [photovoltaic effect](https://en.wikipedia.org/wiki/Photovoltaic_effect) work by comparison?
+
+
+
+
+
+## Energy resolution
+
+![alt text](img/spectrum.png)
+
+
+Kalpha and Kbeta emit the characteristic energy, and we see them in full absorption at those two lines
+
+The flat background baseline is 'particle absorbption from scatting'
+
+The energy noise is measured by 'fitting a gaussian' to the low energy peak
 
 ## Applications What needs to be measured, and with what precisions
 
@@ -580,6 +613,11 @@ And here is an interesting paper, talking about similar problems but for mass sp
 
 
 
+# Alice power consumption
+
+In Alice, 
+
+One statistic: In ALICE, water cooling is not needed if power consumption is < 20 mW/cm^2
 
 
 
@@ -882,3 +920,65 @@ JPL's Eric Fossum created the photogate APS and correlated double sampling
 Fossum then commercialized as Photobit, aquired by micron 2001, aptina spin off, then re-aquired by ON semiconductor in 2014.
 Early fill factors were as poor as 26%, compared to CCDs 100%
 
+
+
+
+# 21 december 2023
+I. MacLaren, 2020, https://doi.org/10.1063/5.0026992
+DEDs allow the 'whole back focal plane' to be captured
+abberation correction was known but not achieved until 2000, which revolutionized both imaging and spectroscopy with TEM, allowing direct imaging of atomic lattice in crystals, and very thin non-crystalline materials
+abberation correction also allowed increased beam current
+geometric vs chromatic abberation, johnson noise -> these limit spacial resolution
+k-space information can be obtained from angular-resolved scattered electrons
+
+What is the 'back-focal plane' of a probe?
+
+Electronic readout (in 1 dimension) first came to scanning, but even in this domain, useful information in the surrounding area of the beam exists (annular dark field and back-scattered diffraction patterns) and so we'd benefit from having 2D sensors in this area.
+
+
+
+
+# noise, etc on Jan 1 2024
+Mode of operation of detector affects how other noise sources contribute
+
+dark current andnoise: can be fixed by dark subtraction, I guess this is just the 'baseline' leakage?
+landau noise: variability in deposited energy (happens in integrating sensors, can be normalized out by counting sensors)
+
+
+readout noise: (can be removed by thresholding?)
+
+
+shot noise: temperature/frequency independent, applies to DC currents and HF alike (white noise). Therefore, at low temperature, as high frequencies, the shot noise may dominate, as flicker and Johnson noise reduce.
+flicker noise (pink, 1/f noise): spectrally dependent, decreases with frequency 
+Johnson-Nyquist (thermal) noise: increases with temperature
+
+Normal shot noise is the square root of the signal? Something like that.
+
+fano factor is a correction term to shot noise processes, which fits (recudes) the shot noise (which normally has a variance = value) to physical processes where one particle is producing others. For examples, charged particles creating ions in a gas, charged particles hitting a solid state detector, or visible light hitting a CCD or CMOS sensor.
+
+In the case of a metal wire, the mutual coulomb repulsion between electrons regulates their spacing, and so there is almost not shot noise. But in cases where the carriers individually overcome a potential energy barrier, say a PN juction, this repulsive-cancellation doesn't occur.
+
+Shot noise is distinct from thermal (Johnson-Nyquist) noise, as the latter occurs even without DC voltage or current flowing.  For example, a disconnected resistor, at thermal equilibrium, still internally has Johnson-Nyquist noise. However both are white noises, as so are difficult to disentangle even through their physical origins are different.
+
+
+
+# measurement types:
+
+- test beam w/ beam telescope
+  - measure spacial resolution, relative to telescope track (rasmus)
+  - temporal resolution, of time stamp relative to trigger logic unit
+  - efficiency (% of hit) (is there a hit, where there is supposed to be one?)
+  - noise occupancy (false positive)
+- in-pixel injection
+- injection + xray beam
+  - pile-up testing
+- xray beam
+- desktop souce
+  - spectroscopy lines?
+- neutron and proton and x-ray irradiation
+  - irradiation with neutrons to 10 15 n eq cm −2 NIEL (portion of energy that doesn't go into ionization, but displacement damage)
+- sweep the intjection charge, to tget a per pixel threshold, then calculated chip wide
+- general func
+- pileup
+- timing
+- dispersion and temporal dispersion

@@ -1,3 +1,9 @@
+# newer notes
+
+Gatan K2 vs 
+
+
+# older
 Essentially, we need to look at the single shot precision/dispersion of the threshold, expressed in input referred charge, rather than, rather than any sort of continuous time resolution.
 This is going to matter more based on the noise of the system, then the 'number of the bits' of the output, as not all systems have output.
 All of our systems are 'single-shot', but readout can be either frame-based, or event based.
@@ -10,8 +16,6 @@ A low threshold improves detection efficiency and timing precision (from time wa
 
 
 The dispersion (pixel to pixel variation), even after calibration, limits how low you can set the global threshold.
-
-
 
 
 dynamic range
@@ -50,7 +54,7 @@ I care about the transfer function of area (energy) to digital, and time to
 
 If a front end has a count mode, but then a data-driven readout, you must interpret the deadtime/in-time threshold as the 'frequency' limit of the system.
 
-Essentially a signal which has a limit on how fast it can measure particles, essentially has a limit on how 'quickly' it can observe incremetnal units of charge be added.
+Essentially a signal which has a limit on how fast it can measure particles, essentially has a limit on how 'quickly' it can observe incremental units of charge be added.
 
 
 # further thoughts:
@@ -105,3 +109,23 @@ In the basic electron microscopy book, ultrafast time resolved electron microsco
 
 
 I want to build the best detector possible for single particle imaging.
+
+
+##
+
+I'm not working on [Scanning mode, or diffraction based electron microscopy](https://myscope.training/TEM_Introduction_to_TEM)
+
+Focusing in on [TEM](https://myscope.training/TEM_Introduction_to_TEM), there are many types:
+
+- Standard (bright field, thin sample, not diffraction limited, no scanning)
+- CryoTEM
+- DarkField TEM (only considers scattered electrons)
+- Scanning TEM (requires a thin sample, unlike SEM)
+- Diffraction TEM (only makes sense with low rates, to build diffraction pattern)
+- 
+
+
+
+
+
+In material science, in situ TEM research is frequently used to study mixtures and colloids, metals and ceramics, catalysts, batteries, solar cells, electronic devices, nanomaterials, corrosion, polymers and semiconductors, and more. In the life sciences, in situ TEM has been employed for studying structural biology, protein transport, cancer therapies, cellular depredation, drug delivery, and particle reconstruction.

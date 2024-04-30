@@ -7,49 +7,6 @@ If the system become too large, it will then require we use a [Krylov method](ht
 or specify some flavor problem-specific of spasity patten to simplify the system
     Auto sparse can compute spasity matrix for you, in Julia
 
-# Verilog-A noise sources:
-
-shot noise, poisson process, but becomes gaussian macroscopically
-I(d)<+white_noise(2*q*id);
-
-
-Flicker noise
-
-I(ia)<+flicker_noise((AH*ID2)/f)
-
-(where AH is a constant which depends on the material, and f is the frequency, infact the flicker noise is inversely proportional to it)
-
-# Verilog-A
-
-Verilog-A is the analog component of Verilog-AMS, and can be understood by the SPICE kernel in a AMS simulator.
-
-
-One important thing to know, is that in Virtuoso, if you want a graphical representation of your system, you need to have “SPICE on top”, with the Verilog-A as only “leaf modules.” I think, as least?
-
-`<+` contribution operators assign (and only assign) values/relations to branch potentials or flows.
-
-starting with ` means something is a compiler directive
-
-
-functions with $ start are not synthesizable?
-
-base units of time, and the time precision are specified like this:
-
-```
-timescale 1s / 1ns
-```
-
-It isn't mandatory to use a base of 1 second, but since Verilog-AMS allows SI uni suffixes, we normally stick to this.
-The second unit is used for rounding/quantization of the time
-And for the output of the $realtime function
-
-
-Wires:
-Must be driven, continous or discrete, continous has a 'discipline' like a voltage/current
-'Nets' are wires that move between modules. They can be implicitely created, or explicitely.
-Can also be named 'tri' for tristate, and this syntax should just be used to explain that it's a wire that probably can have bus contentions or high-impedance outputs.
-
-
 Spectre-AMS Course -> about the AMS Designer Virtuoso Use Model (AVUM)
 
 Discipline Resolution and signals crossing A/D domain boundaries
@@ -238,3 +195,45 @@ Other available topics:
     parameters       paramset         postlayout       pspice_include   release_voltage  rfmemory         save             savestate        sens
     sparam           spectrerf        stitch           subckt           tmi_spec         vector           veriloga         xpsski
 ```
+
+# Verilog-A noise sources:
+
+shot noise, poisson process, but becomes gaussian macroscopically
+I(d)<+white_noise(2*q*id);
+
+
+Flicker noise
+
+I(ia)<+flicker_noise((AH*ID2)/f)
+
+(where AH is a constant which depends on the material, and f is the frequency, infact the flicker noise is inversely proportional to it)
+
+# Verilog-A
+
+Verilog-A is the analog component of Verilog-AMS, and can be understood by the SPICE kernel in a AMS simulator.
+
+
+One important thing to know, is that in Virtuoso, if you want a graphical representation of your system, you need to have “SPICE on top”, with the Verilog-A as only “leaf modules.” I think, as least?
+
+`<+` contribution operators assign (and only assign) values/relations to branch potentials or flows.
+
+starting with ` means something is a compiler directive
+
+
+functions with $ start are not synthesizable?
+
+base units of time, and the time precision are specified like this:
+
+```
+timescale 1s / 1ns
+```
+
+It isn't mandatory to use a base of 1 second, but since Verilog-AMS allows SI uni suffixes, we normally stick to this.
+The second unit is used for rounding/quantization of the time
+And for the output of the $realtime function
+
+
+Wires:
+Must be driven, continous or discrete, continous has a 'discipline' like a voltage/current
+'Nets' are wires that move between modules. They can be implicitely created, or explicitely.
+Can also be named 'tri' for tristate, and this syntax should just be used to explain that it's a wire that probably can have bus contentions or high-impedance outputs.

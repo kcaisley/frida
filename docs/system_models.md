@@ -45,29 +45,3 @@ variation of spatial resolution across chip (Rasmus)
 gmsh/scare used for weighting field calc? Still need Allpix/Geant for charge collection sim?
 
 different front end designs and coupling (AC vs DC coupling), 
-
-
-
-measurement types:
-- 
-- test beam w/ beam telescope
-  - measure spacial resolution, relative to telescope track (rasmus)
-  - temporal resolution, of time stamp relative to trigger logic unit
-  - efficiency (% of hit) (is there a hit, where there is supposed to be one?)
-  - noise occupancy (false positive)
-- in-pixel injection
-- injection + xray beam
-  - pile-up testing
-- xray beam
-- desktop souce
-  - spectroscopy lines?
-- neutron and proton and x-ray irradiation
-  - irradiation with neutrons to 10 15 n eq cm −2 NIEL (portion of energy that doesn't go into ionization, but displacement damage)
-
-
-sweep the intjection charge, to tget a per pixel threshold, then calculated chip wide
-
-general func
-pilup
-timing
-dispersion and temporal dispersion

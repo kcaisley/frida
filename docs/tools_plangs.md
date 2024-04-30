@@ -21,11 +21,7 @@ Miranda - 1985
 Haskell - 1990
 
 Rust - Influenced by Haskell, Erlang, ML, and Lisp (via Scheme) families
-
-
-
-
-Hare
+hare
 
 
 error handling: global var ERRNO, doesn’t work well with multi threading

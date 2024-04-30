@@ -1,6 +1,4 @@
 
-- Enclosed layout transistors (ELTs) used to be needed as in rectangular layout the parasitic FET on side of channel is significant, as LOCOS was poorly defined
-- But now in more modern processes, the use of shallow trench isolation (STI) creates a more cleanly defined edge of the transistor which minimizes the existance of a parasitic FET.
 
 It includes DRC and LVS rules, SPICE models, technology files, verification and extraction files, execution scripts, symbol library and parametric cells (PCells)
 

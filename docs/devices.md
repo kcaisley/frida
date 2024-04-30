@@ -1,3 +1,9 @@
+- Enclosed layout transistors (ELTs) used to be needed as in rectangular layout the parasitic FET on side of channel is significant, as LOCOS was poorly defined
+- But now in more modern processes, the use of shallow trench isolation (STI) creates a more cleanly defined edge of the transistor which minimizes the existance of a parasitic FET.
+
+
+
+
 bjt  bipolar because there are teo currenet.  Want to make tge base as thin as possible, as if it’s not fully depleted, we want to avoid recombination so that IC ~ IE
 
 
@@ -33,7 +39,7 @@ SEE - Single Event Upsets
 
 # List of junctions
 
-This studied the electric, thermal, and quantum effects of carriers and electromagnetic fields in lattices of crystall solids. It extends beyond semiconductors, of course, as both insulators and conductors exist here too, so the label is a bit of a misnomer.
+This studied the electric, thermal, and quantum effects of carriers and electromagnetic fields in lattices of crystal solids. It extends beyond semiconductors, of course, as both insulators and conductors exist here too, so the label is a bit of a misnomer.
 
 The scope is wave functions to junctions. At the top end, this is:
 
@@ -53,3 +59,74 @@ $$
 ### Device fabrication possible steps:
 
 Dy processing/microstructuring, ceramic layer deposition, reactive ion etching, metrology, wet processing (organic-organic etc, maskless lithography, dicing (by wafer size), GEM foil production, backside processing, wafer-wafer bonding, through silicon vias, bump-bonding
+
+
+Devices list:
+PN junction
+PIN
+JFEt
+MESFET
+DEPFET/DEPMOS
+BJT: difference of input impdeance, carrier dominance, and thermal noise (gen/recomb)
+
+# Effect and properties
+
+Hetero junctions
+tunnel diode/back diodes
+different bandgaps
+
+PIN 
+
+photodiodes (any pn juction is potentially a photodiode)
+
+Zener breakdown vs avalance breakdown
+
+
+### Surfaces and and interfaces
+semiconductor-metal contacts
+Interface states
+Ultrahigh vacuum technology
+Surface analysis: Electron, photon and ion spectroscopy overviewPhotoemission spectroscopy
+Particle-solid scattering: electrons, Auger electron spectroscopy, & electron energy loss spectroscopy
+Particle-solid scattering: ions, Rutherford backscattering spectrometry & secondary ion mass spectrometery
+Electron diffraction
+Scanned probe microscopy and spectroscopy
+Optical spectroscopies: modulation, ellipsometry, Raman, surface photovoltage, cathodoluminescence
+Electronic materials surfaces: growth, diffusion, etching, bonding, epitaxy
+Adsorbates on semiconductors
+Metals on semiconductors
+Semiconductor heterojunctions
+
+ohmic contacts
+
+reduced/low dimensional structures (of particle momentum):
+Three-dimensional (3D) structure or bulk structure: No quantization of the particle motion occurs, i.e., the particle is free.
+Two-dimensional (2D) structure or quantum well: Quantization of the particle motion occurs in one direction, while the particle is free to move in the other two directions.
+One-dimensional (1D) structure or quantum wire: Quantization occurs in two directions, leading to free movement along only one direction.
+Zero-dimensional (0D) structure or quantum dot (sometimes called "quantum box"): Quantization occurs in all three directions.
+
+### Lab fabrication:
+epitaxial growth
+XRD + PL characterization
+reactive ion etching
+metal contact deposition (evaporation and sputter deposition)
+thermal annealing
+dielectrics and passivation
+ion implatation
+
+
+### Fundamentals
+bandgaps
+tunneling, floating gates
+hot carriers
+heterojunctions
+
+### adv devices
+gated diode, high-k dieletrics
+amphoteric traps
+Generation-recombination theory, equilibrium, non-equilibrium, steady-state and non-steady-state, conductance, surface recombination boundary conditions
+CMOS transistors (bulk, SOI, mobility, transconductance, subthreshold operation, SPICE modeling, short-channel and narrow-width effects, surface and buried channel devices, propagation delay, ion-sensitive FETs (ISFETs), hot carrier injection
+charge pumping, interface, and dielectric traps
+
+
+
