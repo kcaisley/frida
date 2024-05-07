@@ -1,6 +1,13 @@
 # newer notes
 
-Gatan K2 vs 
+Gatan K2 vs DE-12
+
+At 2023 IWORID, [McMullan discussed](https://indico.cern.ch/event/1247911/contributions/5404765/attachments/2674086/4636395/iworid_2023_mcmullan.pdf) Timepix vs Gatan (K2/K3), Direct Electron (DE20), and ThermoScientific(Falcon)
+
+Hybrid integrtion, used by CERN Medipix/Timepix, Thermo Fisher EMPAD, JEOL 4D Canvas, Gatan Stela,
+Dectris QUADRO/ELA, ASI EM – CheeTah , Quantum Detectors Merlin EM [as shared by Amit Kohn](http://www.ismicroscopy.org.il/ism2022/files/2022/05/03-ISM2022-pre-meeting-workshop-Amit-Kohn-Cameras-and-Detectors.pdf)
+
+Monolithic: Gatan K3, Thermo Fisher Falcon, Direct Electron DE-12, DE-20, etc
 
 
 # older
@@ -123,9 +130,6 @@ Focusing in on [TEM](https://myscope.training/TEM_Introduction_to_TEM), there ar
 - Scanning TEM (requires a thin sample, unlike SEM)
 - Diffraction TEM (only makes sense with low rates, to build diffraction pattern)
 - 
-
-
-
 
 
 In material science, in situ TEM research is frequently used to study mixtures and colloids, metals and ceramics, catalysts, batteries, solar cells, electronic devices, nanomaterials, corrosion, polymers and semiconductors, and more. In the life sciences, in situ TEM has been employed for studying structural biology, protein transport, cancer therapies, cellular depredation, drug delivery, and particle reconstruction.
