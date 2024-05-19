@@ -14,3 +14,9 @@ cd release
 make
 sudo make install
 ```
+
+you can remove with
+
+```
+sudo make uninstall
+```
