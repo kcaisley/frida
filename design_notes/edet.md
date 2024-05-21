@@ -1,3 +1,4 @@
+# DEPFET control 
 common clear gate
 
 gate set
@@ -18,7 +19,16 @@ source 6V (reference) of depfet xtor
 
 ![alt text](img/depfet_model.png)
 
+[Fischer 2007](../../library_detectors/BELLE/2007_Fischer_Steering_Readout_DEPFET.pdf) provides a readout sequence of 
 
+In our system, we have 512x512 pixels per quadrant, electrically organized as 128 rows by 2048 columns.
+We have 8 chips with 16x16=256 ADCs, which yeilds the necessary 2048 ADCs, with one per column drain line.
+Internally we know this is organized into 8 banks of 2x16 ADCs, with each ADC having a bump bond.
+
+Therefore, my challenege is to see if I can get through 128 pixel, with per pixel time faster than 100ns. My silicon area to work with is roughly 200x180 micrometers. I want to measure 
+
+
+## EDET meeting notes:
 
 Some questions:
 Understanding the difference between TIA vs a more standard readout
@@ -136,6 +146,8 @@ Why can't they make the pixels smaller? I know pitch vs depth should be roughly 
 
 A unifying factor of detectors of high-energy particles is that they have a high spectral SNR, and very often have little information of interested encoded in that domain. And so we are typically more concerned with just counting accurately. (Good DQE and good linearity)
 
+Why is CDS needed if there is such a high signal? Is it more to perform offset for array wide normalization?
+
 
 
 # Other detectors
@@ -149,4 +161,26 @@ Falcon-II   4096x4096       14.0um  18
 K2 Summit   3838x3710       5.0um   400
 EDET        1024x1024       60um    10000   91Gpx/s
 
-Celetris    
+For the celeritas XS, we have four 512 by 512 sections, and each of these can read at 
+
+
+For the TEAM 4d, they state 576*576*87000=28864512000 pixels per section
+
+So the bit depth must be 480000000000 / (576*576*87000) = about 16 bit
+
+But they are quotes at saying 12 bit resolution .
+
+
+They quote 
+
+
+# 2024 Turchetta
+
+What is the different between a 'most probable energy loss', a MIP, and the minimum energy loss point on a plot of the Bethe-Bloch formula.
+
+# 2017 Goji Etoh
+
+In 2017, state of the art is roughly 10^10 pixels per second. So roughly 10^4 fps for 10^6 pixels.
+
+I'm chasing above 10^11 pixels (100,000 Mpx/s) per second.
+
