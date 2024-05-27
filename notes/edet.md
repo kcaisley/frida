@@ -154,24 +154,27 @@ Why is CDS needed if there is such a high signal? Is it more to perform offset f
 
 how quickly are other designs getting their data out? And how does this compare to commerical high-speed image sensors?
 
+Company			System			Array Size      Array Pitch 	Frame Rate		Pixel Rate
 
+Direct Electron	DE-20       5120x3840       6.4um   25      491Mpx/s
 
-DE-20       5120x3840       6.4um   25      491Mpx/s
-Falcon-II   4096x4096       14.0um  18
-K2 Summit   3838x3710       5.0um   400
-EDET        1024x1024       60um    10000   91Gpx/s
+Direct Electron	Celeritas XS    1024*1024      15		
+FEI 	Falcon-II   4096x4096       14.0um  18
+Gatan 	K2 Summit   3838x3710       5.0um   400
+MPG 	EDET        1024x1024       60um    10000   91Gpx/s
 
 For the celeritas XS, we have four 512 by 512 sections, and each of these can read at 
 
 
-For the TEAM 4d, they state 576*576*87000=28864512000 pixels per section
+For the TEAM 4d, they state 576*576*87000=28864512000 = 28.8 gigapixels per second
 
 So the bit depth must be 480000000000 / (576*576*87000) = about 16 bit
 
-But they are quotes at saying 12 bit resolution .
+But they are quote at saying 12 bit resolution 
 
 
-They quote 
+EDET has 1024*1024*78000 = 81788928000 = 81 Gigapixels per second
+
 
 
 # 2024 Turchetta
@@ -183,4 +186,27 @@ What is the different between a 'most probable energy loss', a MIP, and the mini
 In 2017, state of the art is roughly 10^10 pixels per second. So roughly 10^4 fps for 10^6 pixels.
 
 I'm chasing above 10^11 pixels (100,000 Mpx/s) per second.
+
+
+# In-situ applications
+
+`pdfgrep -r "in situ |in-situ" .`
+
+In-situ applications are measured in:
+2014 Campbell: phase change materials, solidification of metals and alloys, mophological instabilities, crystallization, reactive multilayer films
+2013 Paton: a thesis w/ table labeling some detectors as in situ
+2021 Spurgen: 
+2021 Levin: talks about all sorts of in situ material science applications. Probably has the best summary
+2020 Pu: Summary of nucleantion, growth, assembly, dissolution, nano particles/materials
+2020 Dourki: liquid cell
+2022 Predikaka: 
+2022 Printer: colloidal particle grown
+
+`pdfgrep -r "liquid-cell|liquid cell" .`
+liquid phase or liquid-phase
+
+so can probably just search for `liquid`
+
+as in LCEM: liquid cell electron microscopy
+
 
