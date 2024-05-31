@@ -75,6 +75,30 @@ We can get higher rate electron counting, if we used a hybrid readout configurat
 Event-based readout is possible in both hybrid and monolithic architectures, any is (I think) exclusively used with counting detection. The difference is that hit counts aren't digitally buffered for the subsequent frame, but instead are sparsely transmitted out as they occur.
 
 
+# Electronic noise:
+
+With macroscopic devices, it’s fairly easy to imagine how circuit diagrams correspond to what we physically see.
+
+But this becomes more complicated when dealing with integrated systems, as intentional structures are often overlapping and combined, with unintentional structures often being of similar magnitude.
+
+Full circuit loops with band diagram all the way around.
+
+
+
+Thermal noise: Structures with non-abrupt potential drops across them are typically conductors or single type semiconductor with measurable currents. Thermal agitation (random variations in drift). Resistors and capacitor structure (which have parasitic resistance) exhibit this. Constant regardless of current, so large DC currents will drown this out.
+
+Shot noise: Structures with large potential change barrier like PN and schottky junctions exhibit shot noise,
+
+Partition noise:
+Noise from fluctuations in splitting a currenr between branches.
+
+—the previous noises are inherent to the ideal structures of devices, while the following are from impurities / intentionally placed defects (but which still have this negative side effect)——
+
+For flicker noise: In electronic devices, it shows up as a low-frequency phenomenon, as the higher frequencies are overshadowed by white noise from other sources. In oscillators, however, the low-frequency noise can be mixed up to frequencies close to the carrier, which results in oscillator phase noise. Large DC currents make this worse.
+
+Burst noise: (modeled by random telegraph process) occurs from trapping and releasing of carriers by defect or surfaces contamination in thin films. Small effect; or order of 100uV, but can matter sometimes
+
+
 # In HEP, seperate sensors are typically made by:
 
 FBK - fondazione bruno kessler
@@ -86,9 +110,6 @@ IMB-CNM-CSIC - Institute of Microelectronics of Barcelona
 # Readout techniques
 
 - Buffered direct injection
-- 
-
-
 
 [Paper on photodiode modeling](https://apps.citius.usc.es/fd/media/publications/1344/final/tese_beatrizblanco_20210618112104311.pdf)
 
@@ -101,3 +122,34 @@ Ge - X-ray, Visible and NIR
 Si - X-ray, Visible, NIR
 SiC - X-ray and UV
 CdZeTe & CdTe - X-ray and Gamma, 'high-Z' material
+
+
+
+# PN junctions:
+
+Pn junction
+Charge carrier density, with and without external bias, and thermal generation.
+Minority injection
+Carrier currents under fwd and rev bias
+Continuity equation for steady state condition
+Finally, we have derived drift and diffusion current
+Can also add term to the above equation, to model generation and recombination of carriers
+Einstein equation
+Diffusion length is characteristic
+Assuming: low injections, and no generation in space charge region, we get the Shockley equation
+
+
+Reverse effect:
+impact ionization avalanche breakdown
+Thermal breakdown
+Tunneling
+Zener can take advantage
+
+
+Two caps:
+Junction cap (exists differently in forward and reverse bias)
+diffusion cap (only in fwd bias)
+
+The small signal model of Cj is the local derivative (slope), whereas a larger signal model can be made via a linear approximation between a starting and ending g bias point.
+
+Photovoltaic operation mode is when there is no applied reverse bias.

@@ -27,7 +27,6 @@ Internally we know this is organized into 8 banks of 2x16 ADCs, with each ADC ha
 
 Therefore, my challenege is to see if I can get through 128 pixel, with per pixel time faster than 100ns. My silicon area to work with is roughly 200x180 micrometers. I want to measure 
 
-
 ## EDET meeting notes:
 
 Some questions:
@@ -202,7 +201,10 @@ In-situ applications are measured in:
 2022 Predikaka: 
 2022 Printer: colloidal particle grown
 
-`pdfgrep -r "liquid-cell|liquid cell" .`
+```
+pdfgrep -r "liquid-cell|liquid cell|liquid phase|liquid-phase|LP-EM" .
+```
+
 liquid phase or liquid-phase
 
 so can probably just search for `liquid`
@@ -210,3 +212,15 @@ so can probably just search for `liquid`
 as in LCEM: liquid cell electron microscopy
 
 
+![](img/em_phenomena.png)
+[From King 2005](../../library_detectors/electron_detectors/2005_King_Microscopy_phenomena.pdf)
+
+
+# EDEt Dynamic range
+From [Predikaka 2022](../../library_detectors/electron_detectors/2022_Predikaka_Thesis_EDET.pdf)
+Capacity of EDET pixels is ~100 electrons, which means that you can image thing that produce a low contrast, like biological samples, as they have 'low-Z' materials?
+
+'It will contribute the most to the time-resolved imaging experiments and to the study of fast dynamics in biological systems.'
+But really? Can it tolerate the dose?
+
+Gatan K3 having 5um pitch was needed to be found from email exchange with Gatan?
