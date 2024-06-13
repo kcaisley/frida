@@ -1,9 +1,4 @@
-
-
-
-
-
-# Particles worth measuring
+## Particles worth measuring
 
 ![](img/particles.png)
 Notes: 
@@ -41,6 +36,14 @@ photoelectric effect vs compton scattering vs pair-production
 How does the [photovoltaic effect](https://en.wikipedia.org/wiki/Photovoltaic_effect) work by comparison?
 
 
+
+Infrared, visible light, and X-ray imaging are quite common. But UV isn't. This is has a couple reasons. One is that UV light is attenuated by the atmosphere, which means there is less of it for applications like ground based imaging of space. Another reason is that a significant challenge for UV imaging is the fact that glass absorbs UV light. Therefore, only specially designed optics made with very pure  glass (silica) with few impurities can fully take advantage of the full  UV exposure being imaged. Impurities such as iron and sodium are common  within glass and are the cause of most UV absorption. [Source](https://www.lumenera.com/blog/how-imaging-with-ultra-violet-light-reveals-hidden-details)
+
+>  Shorter wavelength photons (400 nanometers and below) are either reflected or absorbed into the gate region of the CCD. Longer wavelength photons (between 400 and 700 nanometers) have a high probability of generating an electron within the charge well. As photon wavelength exceeds 700 nanometers, the probability becomes greater that the photon will pass directly through the CCD without being absorbed. The spectral sensitivity of the CCD differs from that of a simple silicon photodiode detector because the CCD surface has channels used for charge transfer that are shielded by polysilicon gate electrodes, thin films of silicon dioxide, and a silicon nitride passivation layer. 
+
+![Uv light](/users/kcaisley/fastroic/notes/img/uv_detection.png)
+
+https://micro.magnet.fsu.edu/primer/java/digitalimaging/ccd/quantum/
 
 
 

@@ -58,3 +58,32 @@ A 0.1 nm wl electrons is E = 100 eV
 Photon light science can only be done where there is a high-energy syncrotron and light source.
 
 
+
+
+
+# A really bad outline
+
+Detector and imaging systems
+Imaging with 
+
+
+Radiation Imaging
+
+Electrons vs Photons
+Particle detection
+
+Detector Sensors
+Material (stop), Pixel Pitch, Thickness, Internal Gain, set and reset, Biasing, temporal response and resolution (or lack thereof, if integrating), energy response and resolution (or lack thereof, if avalanche)
+
+Readout Circuit
+hybrid vs monolithic materials, pixel-parallel circuits, column/row parallel circuits, array-parallel: power, pitch pitch, 
+
+high dynamic range: adaptive amplifier gain, scaled sensors, 
+
+integration time 
+
+
+
+# Single particle counting:
+
+these can be optimized for larger structure tomography, or for single particle analysis

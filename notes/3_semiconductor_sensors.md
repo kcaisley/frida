@@ -1,3 +1,45 @@
+# Fabrication
+
+## Wafers
+
+The base wafers are the starting point of any fabrication process.
+
+It seems the three choices for wafers are
+
+Czochralski wafers (5 kΩ cm – 7 kΩ cm)
+Float-zone wafers (8 kΩ cm – 9 kΩ cm)
+Epitaxial high-Z
+
+
+Wafer resistivity is important for allowing depletion, which in turn is important to allow a field improving fast collection and to prevent recombination which creates signal loss.
+
+
+
+
+# Deposition
+The start of a deposition process is nucleation, followed by growth. 
+
+Deposition comes in two primary mode flavors, chemical or physical.
+
+Chemical deposition is characterized by the phase (liquid/gas) of the precursor.
+Plating and spin-coating use a liquid phase
+Chemical vapor deposition (CVD) uses gas-phase precursor.
+Atomic layer deposition (ALD) and it's sister molecular layer deposition (MLD) use a gaseos precursor (they are considered a subset of CVD)
+
+W
+Physical vapor deposition [(PVD)](https://en.wikipedia.org/wiki/Physical_vapor_deposition) uses mechanical, electromechanical or thermodynamic means to produce a thin film of soli
+    [evaporative deposition](https://en.wikipedia.org/wiki/Evaporation_(deposition)), a type of PVD
+
+Melecular beam epitaxy, atomic layer deposition, and molecular layer deposition allow for single layers of atoms at a time
+
+
+
+ion implantation follows the same bethe bloch fomula, but because you want to particle to fulls stop, you get this concept of 'bragg peaks' where the particle deposits more energy as it decelerates. This means to get a constant doping over a wide depth, you need to overlap multiple bragg peaks.
+
+molecular beam epitaxy
+
+
+
 - Enclosed layout transistors (ELTs) used to be needed as in rectangular layout the parasitic FET on side of channel is significant, as LOCOS was poorly defined
 - But now in more modern processes, the use of shallow trench isolation (STI) creates a more cleanly defined edge of the transistor which minimizes the existance of a parasitic FET.
 
@@ -60,14 +102,62 @@ $$
 
 Dy processing/microstructuring, ceramic layer deposition, reactive ion etching, metrology, wet processing (organic-organic etc, maskless lithography, dicing (by wafer size), GEM foil production, backside processing, wafer-wafer bonding, through silicon vias, bump-bonding
 
-
 Devices list:
 PN junction
 PIN
 JFEt
 MESFET
 DEPFET/DEPMOS
+
 BJT: difference of input impdeance, carrier dominance, and thermal noise (gen/recomb)
+
+
+Fab
+
+Strategies to do lithography:
+Traditional UV or EUV
+Maskless? Electron beam?
+
+Strategies to etch (subtract)
+You can do wet (liquid) or dry (plasma) etching
+Dry etching is better, as it won’t undercut a resist, i.e. it’s “anisotropic”
+
+Strategies to make thin films/epitaxial layers (this can interact with a mask to control region)
+Sputtering
+CVD
+Atomic layer depositor (previously atomic layer epitaxy)
+Epitaxial growth
+
+To implant:
+Ion implantation
+
+What is ?
+Molecular beam epitaxy
+
+
+Micro fabrication Processes techonologies (i.e. an entire fab line for something):
+CMOS
+Power FETs (GaN and SiC)
+DRAM
+CCD
+Solar cells
+Displays:
+LCD
+LCD+small LED backlight
+LED display (uses PN junctions)
+OLED (photo-luminescent molecules, not PN)
+
+MEMS
+
+Glass layer and filters
+Optical waveguides on glass substrate
+
+
+
+
+
+
+
 
 # Effect and properties
 

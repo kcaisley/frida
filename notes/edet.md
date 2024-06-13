@@ -224,3 +224,180 @@ Capacity of EDET pixels is ~100 electrons, which means that you can image thing 
 But really? Can it tolerate the dose?
 
 Gatan K3 having 5um pitch was needed to be found from email exchange with Gatan?
+
+
+
+# Readout circuits for high frame rate electron detector
+other keywords: comparative study of, data converters, optimization and analysis, integrating-mode, single-electron sensitivity
+Scientific single-particle sensitive integrating-mode readout
+
+most often for in-situ material science applications.
+
+These problems are best solved by integrating mode sensors, where multiple particles are measured per frame, but still with single electron resolution.
+
+Higher speed in-pixel counting, or collumn adjacent electron counting readout has grabbed larger portion of the engineering mindshare (and market share), as they simplying the operation each pixel, and reduce the problem desing space to that of a single-bit quantization. These are especially benefitical in instaces where particle hit rate should be readout with high resolution requirement (small and many pixels), with very spare hit rates, and the desire 
+That being said, there will always be a desire for 
+
+Similar to how multi-bit quantization in wired and wireless data links offers a data rate improvement over single-bit, at the expense of increased design complexity due to need to satisfy BER requirements by considering signal to noise and distortion in both temporal and amplitude domains.
+
+Contrast vs dose rate vs problem dynamics vs spatial resolution requirements
+
+With the generous SNR provided by DEDs, single electron resolution has been readily achieved, and so the next question become how quickly and compactly (aka w/ low pixel pixel) can we read out these 
+
+# Review of existing commercial systems
+
+
+# Signal chain
+
+Sensor types (what is their inherit timing and signal to noise resolution)
+Amplification types (C->V and v->C, the above then determines the amplification and buffering necessary to read at full electron resolution)
+Buffer types (current vs voltage)
+Sampler types ()
+ADC achitecture (pipline vs SAR ADC)
+
+then consider each of these with permutations of in-pixel, under-pixel SOI, under pixel hybrid, periphery column matched, and peripherry redistributed ADCS (often off chip)
+
+[Diagrma which shows the various integration possibilites)
+
+
+# Research outputs:
+
+A concrete comparative analysis and methodology for designing/optimizing layout-aware system models and producing the system design information and netlist colleteral for subsequently correctly implementing these in real fabricated chips.
+
+
+
+
+# Methodology
+
+Correctly evaluating the system performance requires    high-level models which can be trusted to accurately estimate real fabricated chip performance, and which can also be then confidently translated into these systems.
+
+SPICE-type simulation provides the gold standard for accurate circuit level simulation, but there are many different commercially available version of this tool. To start, at the bare minimum we must be able to simulate the compact device models which come with our chosen foundry's PDK. These come in the form of core devices models like BSIM and ideal diode/mosfet/resistor models then with additional macro models lumped element devices to capture device layout-specific parasitics not covered by the core model.
+
+PDKs typically come in two flavors, being the TSMC/Synopysys-backed iPDK format (Tcl based) and the Cadence/Si2-backed OpenPDK (Skill-based) formats. In either case, our devices models are given in a BSIM format, and with macro-model to layout correspondance being covered by Tcl or Skill scripts which don't interact well with anything other than 'big 3' commercial EDA vendor environments.
+
+To pick the best from the crowd, we must consider the fact that we also would hugely benefit from high-level behavioral modeling for analog and digital system.
+
+Analog behavioral modeling can be done with CPPsim, XSPICE 
+
+
+
+
+System performance will be evalutated with manually created SPECTRE simulations, with some models being composed in Verilog-A.
+
+There are many steps fo rhi
+
+Initial sensor performance metrics are critical for optimization, but the design of them are outside the scope of this these. Therefore equivalent circuit macromodels will be built from data gathered from research papers.
+
+
+#
+To do list:
+- Understand if verilog-A works as a top level netlist, for both simluation, as well as DRC/LVS.
+- To understand how system parameters can be programmatically varied by a python script. What I mean specifically is 
+- 
+
+
+This high spatial (nanometer) and temporal resolution (10e-6 to 10e-15) microscope has numerous potential applications for the study of structural and electronic phase transformations, catalytic activity in nanoparticles and nucleation and growth.[Campbell 2006](../../library_detectors/electron_detectors/2006_G_Campbell_pratical_TR_EM.pdf)
+
+
+Just shortening frame time, or light exposure time doesn't work well, as noise grows. Instead use pulse electron sources [Campbell 2014](../../library_detectors/electron_detectors/2014_Campbell_time_resolved_EM_insitu.pdf)
+
+Recording multiple frames can be done in a stroboscopic pulse train by steering the resulting electron pulses into different portions of the second on different times, using an orthogonal pair of electroscatic deflection plates. In this case, the resolution is limited by the subdivided regions, and the stabiliting time of the defletion plate power supplies. [Campbell 2014](../../library_detectors/electron_detectors/2014_Campbell_time_resolved_EM_insitu.pdf)
+
+
+
+Suffice to say, the following are in our speed range (and tolerate):
+
+Dislocation dynamics at conventional strain-rates
+nanomaterial synthesis and manipulation. Or in other terms: Nucleation and growth of things like nano-particle, and nano-tubes. These can be 'functionalized'
+Dynamics of structural biology: proteins, enzymes, ligands, DNA? These can be aided by filling them with high-Z gold nano particles, to increase contrast.
+Battery science: delithium anodes, charging discharging/cycling, dendrite formation, breakdown of lithium ion trasport (battery failure), microdischarge events
+Other softmaterials like plastics (biological samples are considered soft)
+
+Things like the below are too fast for us:
+Phase transformations: Phase change materials (useful for optical storage, and future PC memories from Intel) use phase change
+melting and resolivat
+magnetics switching
+
+
+
+
+
+
+
+# Electron Detector  Ideas
+
+Next generation improvements to detector readout for time-resolved electron microscopy in applications where detector speed would realistically allow improvements in observation capabilities. System like EDET target this, but other systems can be configured to operate in this mode. That being said, most system wills either do at very reduced array size (limiting FOV) or perhaps at a very low hit rate (which limits contrast) which are both necessary for biological applications.
+
+One outstanding question if it this case of biological imagine will required rates so high, that very few frames will be able to accumulated before serious radiation damage is attained (again we are not in cryo mode, so biological samples are super rad-sensitive). If this is the case, perhaps we don't need that big of a FWC anyways? It looks like the DEPFET can handle 100-200 electrons.
+
+system integration possibilities: including SOI vertical integration of detectors, regular monolithic integration (on TSPco 65nm??) with in-pixel digitization, or perhaps even 3D hybrid with wafer-bonding? Does this reduce the scattering problem? I guess the radiation hardness and thickness (with back-thinning) both aren't a problem but scatting I'm not sure about?
+
+Kernel based readout of the pixels, so that array size can be restricted in exchange for higher frame rate
+
+Global shutter to reduce motion blur, and maybe can it also to improve readout speed? Can MOSFET process support an extra MOSFET?
+
+correlated double sampling to reduce read-noise
+
+Ways to eliminate pedestal current? Saved value, vs real-time pre-measurement (sort of like cds!)
+
+Ways to improve dynamic range: Different capacitors, separate detectors, either with combined well transfer, auto-adjusting gain, or transistor implemented overflow with intemediated biased transfer gates. 
+
+If we are targeting single electron sensitivity, can we perhaps build an ADC which acts as a multie bit quantizer, and which can (rather than reading out) full ADC resolution, can simply report the number of electrons? We're honestly quite close to that, as 8-bit gives us 256 levels (And looks like the DEPFET can handle FWC of 100-200 electrons.) Plus we must consider that having sub-electron energy resolution is useful for postiion localization.
+
+Different ADC architectures: SAR, vs pipline, vs cyclical?
+
+High speed continuous capabilitiy. Replace SRAM with high-speed serializer, etc?
+
+### Modeling and simulation and optimization
+
+- Devices models of DEPFET device and sensor
+- TCAD modeling of sensors
+- Verilog-A modeling of full system chain, for simulation and optimization
+- generation of analog building blocks?
+- Simulation of hits with Allpix2 + Geant4 (better than Casino?)
+
+### Serializer and wireline link:
+
+Each quandrant of EDET is currently producing: (512*512)×8×78000fps = 163577856000 = 163 Gbps
+
+Cordia and Timepix4 (in 65nm) uses a novel low power serializer developed at Nikhef (GWT originally for Velopix, which was based on Timepix3 itself):
+
+- Each link configurable bandwidth from 40Mbps to 10.24Gbps
+- Uses 16 links: 8 in each side
+
+As an alternative, CERN has designed the ASIC -> FPGA family called DART28.
+
+It has 25.6 Gbps per link: https://indico.cern.ch/event/1255624/contributions/5443774/
+
+https://iopscience.iop.org/article/10.1088/1748-0221/19/03/C03013/pdf
+
+https://doi.org/10.1088/1748-0221/19/03/C03013
+
+https://doi.org/10.1088/1748-0221/19/02/C02030
+
+### Process in TPSco 65 nm?
+
+- DESY has done Tangerine work
+- Nikhef has done 10.24Gbps data serializer and Wireline Transmitter (for ALICE ITS3)
+- BNL has done [SAQRADC](https://indico.cern.ch/event/1255624/contributions/5445285/) with 10-bit precision, but only 500 kS/s
+- ALICE/CERN has done some work on changing the collection node, for higher bias, lower detector capacitance, etc
+  - https://indico.cern.ch/event/1255624/contributions/5443773/
+  - https://indico.cern.ch/event/1255624/contributions/5443893/
+
+- And for the above, here is the two originating papers in 180nm:
+  - https://doi.org/10.1016/j.nima.2017.07.046
+  - https://doi.org/10.1088/1748-0221/14/05/C05013
+
+### There are three proposals:
+
+Propose work on a 65nm DEPFET readout chip, with building blocks that are re-usable to their 
+
+Full on chip-design in a monolithic system is expensive, so they certainly wouldn't take on 
+
+Examining their previously designed systems for on chip/off-chip ADCs:
+
+- ELFIS2: In Lfoundry? Uses a companion ADc. Has 4 quads, where each has 1024x1024 pixels @ 12-bit and 140fps. 1024 * 1024 * 140fps = 146,800,640 pix/s. Checking this we have 8 channels per quad, each at 40 MHz pixel rate, for max 320,000,000 pix/s. Not sure why there is such a higher rate available?
+- XS018 technology used for CASPAR2
+- FLAMES: on-chip 12-bit SAR ADCs w/ offchip LVDS drivers
+- 
+
