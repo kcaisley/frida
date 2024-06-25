@@ -220,3 +220,58 @@ charge pumping, interface, and dielectric traps
 
 
 
+
+/eda/cadence
+/eda/synopsys/installs/tools
+/eda/synopsys/installs/2022-23/
+/eda/synopsys/installs/2023-24/
+    /mentor
+
+
+ICVWB_2022.12   
+PWA_2022.12
+RAPHAEL_2022.12
+RAPHAEL-FX_2022.12
+SEN-PROC-EXP_2022.12
+SENTAURUS_2022.12
+SENTAURUS-PCM_2022.09
+SILICON-WB_2022.12
+SLITHO_2022.12
+TAURUS-MD_2022.12
+TAURUS-TS4_2022.12
+
+GENSYS_2023.12
+ICVWB_2023.09-SP1
+RAPHAEL-FX_2023.12
+SEN-PROC-EXP_2023.12
+SENTAURUS_2023.12
+SILICON-WB_2023.09-SP1
+SLITHO_2023.12
+S-METRO_2023.12
+
+
+sentarus process userguide
+icwb.create.mask
+
+in-sprocess, you can:
+define contact, which is a logical 
+
+
+in sdevice, apply voltage to contact, with voltage, and source resistance
+
+collection electrodes, set then to be 'ground' 
+
+for floating nodes, you don't specify a contact, because you don't want to have to enforce a 
+
+two steps for charge collection:
+quasistationary, to reach starting condition from zero, w/ numerically stable solution
+
+transient
+
+
+/szhang/3dTCAD/TJ2023/
+importing GDS, from next time, to produce .mac file.
+
+What is the language which is used to control sprocess?
+
+
