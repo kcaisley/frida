@@ -101,3 +101,164 @@ From [LayoutEditor Wiki:](http://www.layouteditor.net/wiki/iPDK)
 - In iPDKs, TCL is typically used for the callback functions, which for example are used to calculate a capacitor's new value after changing the width or length.
 - An other known problem is that some founderies use an extended Tcl API and implement these extended calls for some tools. So the 'iPDK' becomes incompatible to other tools. The extensions needs to implement for the LayoutEditor was well to use the iPDK. As an example for this problem the TowerJazz iPDKs use an API call iPDK_getParamList which is not part of the original iPDK specification. To use this iPDK with the LayoutEditor an additional Tcl file had to be included into the callback folder
 - Layer definitions can come from either `tech.db` file, `Santana.tech` and or from the `layer.map` file
+
+
+[text](https://spdocs.synopsys.com/dow_retrieve/latest/dg/pycell/pycell_olh/olh_pycell/pycell_studio_documentation.html)
+
+
+# June 25, dialog on Pycells
+
+What is happening here?
+
+iPDK hasn't been updated in two years by synopsys, and the version for OA 22.60 is only supported in Synopsys tools, while Cadence and Siememsn are still stuk on version 22.50 which only supports RHEL7 and Python 2.
+
+The si2 coalition hasn't posted anything in 2 years, on their block
+
+The IPL alliance doesn't appear to exist anymore?
+
+Jürgen Thies at layout edito
+
+Dr. Lan wei, professor at uni-waterloo
+
+September 9-12, 2024, ESSERC meeting in brudges.... appears to also have MOS-AK meeting going on there (which is different than CMC)
+
+Maybe also tried somebody via:
+IMEC
+Europratice?
+CERN - no, they didn't understand where models came from?
+
+online? 
+
+My research question focuses on the design of detector and readout circuits for high-energy particle imaging.
+
+The first section of my thesis focuses on layout and schematic generation and parametrization and optimization, with an extensive discussion on the general approaches of procedural vs constraint&optimization
+
+
+Can OA PCells be used during the initial device design, to vary many different parameters? I believe in this case, it is limited to parametric layout generation, with pointers to a compact models which takes the same input params for corresponding simulation.
+
+Can OA PCells be used to encapsulate the layouts of multi-device circuits?
+
+Is the process of loading layout masks from OA or GDS into a TCAD simulator fairly easy?
+
+Will OA PCells essentially function as compiled generators? I understand that they can't call out to simulators, and so how do simulation models get associated? Let's say you've compiled a PCell which changes dimensions of a device layout, and
+
+How would Verilog-A fit into this model? I believe the vein here would be to create a numerically efficient fit behavioral model, but this would be a final step. And it's initially mainly useful to move away from 'multi-model' simulation between TCAD and SPICE, by creating an IV model for the detector.
+
+How can simulation results be packaged with and associated with these devices? For SPICE-level simulation the eventually simulation format need to be compact models with a hierarchical netlist.
+
+The fundamental struggle of monolithic active pixel design is that you are assembling on die, pre-characterized devices with SKILL/OA/Pycell/Pcells layouts and characterized BSIM spice decks (and maybe macro models) from the PDK vendor alongside novel un-characterized structures which required TCAD simulation and custom layout to design.
+
+Add on top of this that there is no standardized procedural way to arrange and connect these all in layout, and no standardized way to configure a testbench, and no standardized way to run and parse back simulation results...
+
+You could imagine that during the prototyping you could write your own code to produce different layouts, perhaps using GDSTk, etc, but then when you wanted to hand-off your design to future designers, you'd leave them in the dark to either just to import your hardened GDS layouts or manually recreate your layout by inspection, and plus they'd have to create purely lumped element models.
+
+Perhaps the final work output of a front-end pixel design should be a layout PCell which is compiled in OA format (either based on Skill, pycells, or OA script?) and a corresponding compact model which is written in Verilog-A, with some 'current based input pin' for measuring input into the simulator.
+
+One tricky aspect here is that I want to be able to support the netlist formats of HSPICE (so that I can multi-mode sim with Sentarus), the layout tools of Siemens and Cadence (so that other groups can pick up where I leave off) and the GDSII layout format so that I can simulated the charge collection in Sentarus.
+
+It seems in this case that writing to an OA format, where concepts like Pins and named instances are supported. Via Matthias of Klayout:
+
+> concepts like pins and named instances are not part of the GDS and OASIS specification and that still is the basis of the program. It's possible to emulate those features (and others like net information) with user properties, but the interpretation of those is strongly dependent on the tools reading these files.
+https://www.klayout.de/forum/discussion/comment/1656#Comment_1656
+
+Figuring out the right way to do this will be tricky. It seems Synopsys has PyCells, which is used by at least LF and also this graphical thing called 'UDD' which appears to be a GUI only front end to OA pcells?
+
+UDD is advertised for power meshes, guard rings, stdcells, custom taps, fillers, decap cells, etc. It looks like it can also existing PCells with added structures, like for example a guard ring on an existing MOSFET pcell. In this presentation Synopsys comments that the alternative would be coding the Pcell in python. Which I guess in a pycell?
+
+From this I learned two other things: UDD input params are also called CDF params (component description format), like in Cadence. CDF is the Cadence front end for giving the GUI-user access to the parameters to pass to the simulation model and pcell. But CDF is seperate, and has to have values that match the range, quantization, and defaults of the models/pcells. CDF appears to work as a application level system component which can be interacted with via SKILL. It's the mesh layer internal to Cadence which connects pcells, simulators, models, netlists, etc and let's the user interactively modify the settings and connections between them in the GUI.
+
+This raises the question.... I know Cadence is built around Skill-based cells, allows but doesn't support Pycells..... but what do Synopsys and Siemens do? Does Synopsys really still use Pycells? It and Siemens MUST, right? Because how else would they support PDKs from foundaries?
+
+I need to do more research to understand how this works. Reading TowerJazz docs, LF docs, Synopsys compiler docs, and trying PyCells seems like the only approach here.
+
+The only other functional path forward appears to be writing directly to OA using OAscipt (or BAG???) or using Cadence SKILL to dump layouts produced in python using SKILL bridge.
+
+------------------------------------------
+
+Cadence is the implementation developer of OA, and with IBM as a co-advisor. Si2 is the holder of the licesense.
+
+Michaela Guiney - retired form Cadence in 2022, was the OA change leader, co-authored the Intro to OA paper I read
+
+James Masters - workes at intel for 20 years, developed oaScript and oaxPop
+
+Marshall Tiner - current director of OA internally at Si2. I emailed with him before.
+
+Eric Leavitt - past away in 2018, worked at Cadence with Michaela and was co-author of the paper
+
+Mark Rossman - now the current lead OA change leader at Cadence, to replace Michaela Guiney
+
+Prof. Rhett Davis - NCSU professor, authored FreePDK45 and FreePDK15, tehcnical advisor to Si2. rhett_davis@ncsu.edu
+
+
+
+The point of a compact model, whether it is exported from TCAD using Gamard, hard coded with Verilog-A, or simply exported as a IV curve is that the signal is originating from “inside” the device. This means that you can’t expect the circuit to “influence” the signal?
+
+Or can it?
+
+I guess, as long as the device is linear, can’t any curve be modeled?
+
+
+This is the version of PyCell available with the 1.5 release from Lfoundry:
+
+This is version L-2019.06-SP1 of PyCell Studio.
+Packaged on: 2019-8-30
+
+PyCell Studio build with Python version: 2.6.2 (r262:71600, Mar 16 2015, 19:14:39)
+[GCC 4.8.3]
+
+cnUtil:
+    Changelist #5031540
+    Changelist: Change 5015246 on 2019/08/21
+    Branch: /slowfs/swe101/PyCell_Studio/clientstore/pycell_p2019.06_dev_qscl/pystudio/santana
+
+Package platform:    plat_linux_gcc483_64
+Optimization mode:    opt
+
+Open Access:
+  Packages version:
+    oaBase:        22.50.011    Tue Nov 11 03:24:55 2014
+    oaDM:        22.50.011    Tue Nov 11 03:24:55 2014
+    oaTech:        22.50.011    Tue Nov 11 03:24:55 2014
+    oaDesign:        22.50.011    Tue Nov 11 03:24:55 2014
+
+
+This corresponds to RHEL 7 and CentOS 7, which built on gcc 4.8.5 (close enough)
+
+# 3 July 
+
+
+Program
+
+PyCells
+
+
+I propose to model and then fabricate a family of test pixels which are designed to the limits of SNR at high frame-rates (100kHZ).
+
+I’d like to try several different variations of pixels, including ones with photogate, photodiode, and collection electrodes, buried diffusion, transfer gates, reset and bias transistors, access transistors,
+
+
+- Diode and FD layout pcells (portable between tools via PyCells and OA)
+- Models for SPICE simulation, via tuned diode and parasitics “macro model” or via Verilog-A. Verified via TCAD device mixed-mode simulation, and measurment. Generated via HDL21?
+- Layout
+
+
+I’ve looked at:
+
+- Device level simulation for sensors (TCAD Synopsys, CASINO, Allpix2 +Geant)
+- Device level layout: Skill Pcells, PyCells, T-Cells in C++ or via GUI, Custom via Python. The first two allow OA and callbacks. Only the first isn’t portable between tools. The latter ones don’t allow callback integration, and are less integrated.
+- Device level compact models: Macro models, Verilog-A, multimode TCAD+SPICE (slow and limited as it doesn’t use normal EDA tools). Circuit generators are good here, as I won’t want to write to OA files anyways because LVS won’t run at this level and SPICE decks are the norm for macro modeling.
+- Circuit-level netlist creation: Relies on all devices being characterized/modeled. Graphical netlist entry doesn’t support good parametrization/automation. But the few choices I’ve tried either don’t support OA (Hdl21 and substrate) or they are impossible to setup (BAG2/3). I think schematics are less important to automate,
+- Circuit level layout: relies on hardened devices layouts or wrapped pcells, different approaches but procedural with templates is probably best for compactness vs LOC trade off. Templating and relative placement, informed by DRs also allows some degree of process portability.
+- Finally testbenches and simulation can also be generated (by Hdl21,BAG,substrate) but I’m not sure this is worth it
+
+
+Syncing: If I wanted to generate both layouts and schematics, I would run into the following issues:
+
+- PDKs provided technology files will need to be translated to Santana file format for PyCells.
+- PyCells layout will need to be exported to GDS, then imported to sprocess?
+- Do we even have the Python API license for Sentarus?
+- Fitting a macro model to the process simulation is the best next step, but will require additional Python steps, plus a library (Hdl21??) for generating netlist SPICE deck. (I think Verilog-A is too much work). Perhaps there is a simpler way to
+- I will need to develop an analytic model of the sensor and transistor, to rationalize the system to myself.
+- For circuit level schematic design: two sources of truth for the layout and schematic dimension parameters will be annoying but probably likely? Schematics are somewhat parametrizable, but not in a way that could then easily feed dimensions to a layout, I believe also the layout will probably have variations not included in the schematic?
+- Hdl21 or Substrate would require writing a PDK wrapper package to netlist PDK devices.
+- Hdl21 or Substrate would require a library for HSPICE or T-SPICE TB netlisting, simulation options, and parsing, depending on what Caeleste is using and wants
