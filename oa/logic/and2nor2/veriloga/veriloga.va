@@ -1,0 +1,28 @@
+`include "disciplines.vams"
+`include "constants.vams"
+
+module or2nand2(A, C, B, out );
+input A, C, B;
+output out;
+electrical A, out, B, n, C;
+branch (n, out)res;
+
+parameter real vout_high = vdd,
+               vout_low = vss from (-inf:vout_high),
+               vth = 2;
+parameter real RR=10K;
+
+               
+integer in_state1, in_state2 ;
+integer out_state;
+real vout;
+
+analog
+  begin
+       V(res) <+ RR * I(res);
+
+    @(cross(V(C) - vth) or cross(V(B)-vth) or cross(V(A)-vth));
+  
+  V(n) <+ transition(!((V(A)>vth) && ((V(B)>vth) || (V(C)>vth)))? vout_high: vout_low );
+end
+endmodule

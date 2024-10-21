@@ -1,0 +1,110 @@
+*******************************************************************************
+* (c) Caeleste
+* TPSC65 stdcell parameter file
+
+* 20240227 AM Created the file
+* 20240515 AM Added the definition of std_pdio, std_ndio, log_pdio, log_ndio, std_rpoly
+* 20240711 AM Changed the rpoly model to non-salicided N+ polysilicon resistor
+* 20240820 AM Added CPOD capacitor model
+* 20240925 vs added nwell-to-sub diode
+* 20241009 sb Change everything to the XRAY flow (SLC_NSUB_IS) instead of the TPSC regular IS flow.
+
+****************************************************************
+* all technology dependent parameters are included from following file 
+.include "v2.0_common.sp"
+****************************************************************
+
+*******************************************************
+* label used by Nick to ensure validity of the file
+.model STDCELL_VERSION_1_0 r
+*******************************************************
+
+***************
+* STANDARD (vdd/vss) MOSFET models
+***************
+
+.subckt std_nmos D G S B W_=0 L_=0 M_=1 AS_=0 PS_=0 AD_=0 PD_=0
+	* LOG is not available in this technology
+	Xstd_nmos D G S B nmos_33v W=W_ L=L_ M=M_ as='(AS_>0)?AS_:(0.6e-6*W_)' ps='(PS_>0)?PS_:(2*W_+2*0.6e-6)' ad='(AD_>0)?AD_:(0.6e-6*W_)' pd='(PD_>0)?PD_:(2*W_+2*0.6e-6)'
+	.if (rh)
+		Cp1 D G 'std_Crhgd*M_'
+		Cp2 G S 'std_Crhgs*M_'
+	.endif
+.ends
+	
+.subckt std_pmos D G S B W_=0 L_=0 M_=1 AS_=0 PS_=0 AD_=0 PD_=0
+	Xstd_pmos D G S B pmos_33v W=W_ L=L_ M=M_ as='(AS_>0)?AS_:(0.6e-6*W_)' ps='(PS_>0)?PS_:(2*W_+2*0.6e-6)' ad='(AD_>0)?AD_:(0.6e-6*W_)' pd='(PD_>0)?PD_:(2*W_+2*0.6e-6)'
+.ends
+
+***************
+* LOGIC (vcc/vee) MOSFET models
+***************
+
+.subckt log_nmos D G S B W_=0 L_=0 M_=1 AS_=0 PS_=0 AD_=0 PD_=0
+	Xlog_nmos D G S B tnnm133_hs_lvt W=W_ L=L_ M=M_ as='(AS_>0)?AS_:(0.6e-6*W_)' ps='(PS_>0)?PS_:(2*W_+2*0.6e-6)' ad='(AD_>0)?AD_:(0.6e-6*W_)' pd='(PD_>0)?PD_:(2*W_+2*0.6e-6)'
+	.if (rh)
+		Cp1 D G 'log_Crhgd*M_'
+		Cp2 G S 'log_Crhgs*M_'
+	.endif
+.ends
+
+.subckt log_pmos D G S B W_=0 L_=0 M_=1 AS_=0 PS_=0 AD_=0 PD_=0
+	Xlog_pmos D G S B tpnm133_hs_lvt W=W_ L=L_ M=M_ as='(AS_>0)?AS_:(0.6e-6*W_)' ps='(PS_>0)?PS_:(2*W_+2*0.6e-6)' ad='(AD_>0)?AD_:(0.6e-6*W_)' pd='(PD_>0)?PD_:(2*W_+2*0.6e-6)'
+.ends
+
+***************
+* DIODE models
+***************
+
+.subckt std_pdio p n W_=0 L_=0 M_=1
+	Xstd_pdio p n dio_podnw Area=L_*W_  M=M_
+.ends
+
+.subckt std_ndio p n W_=0 L_=0 M_=1
+	Xstd_ndio p n dio_nodpw Area=L_*W_  M=M_
+.ends
+
+.subckt log_pdio p n W_=0 L_=0 M_=1
+	Dlog_pdio p n pdjd_nm133 Area=L_*W_  M=M_
+.ends
+
+.subckt log_ndio p n W_=0 L_=0 M_=1
+	Dlog_ndio p n ndjd_nm133 Area=L_*W_  M=M_
+.ends
+
+* 20240925vs added nwell-to-sub diode 
+.subckt nwell_sub_diode p n W_=0 L_=0 M_=1
+	Dnwell_sub_diode p n px2nw_nm133 Area=L_*W_  M=M_
+.ends
+
+
+***************
+* RESISTOR models
+***************
+* We use preferentially an n-doped non-salicided poly resistor (not the HIGHres!!!)
+.subckt rpoly a b W_=0 L_=0  M_=1
+	Xrpoly a b rnpoly_2t L=L_ W=W_  M=M_
+.ends
+
+***************
+* CAPACITOR models
+***************
+.subckt Cmodel_WL top bottom sub Cmodel=0 W_=0 L_=0 M_=1
+	.if(Cmodel == CPOD)        *HV depletion capacitor
+		XCpod_std    top bottom sub  nm133_CCI2hv_dev  W_=W_ L_=L_ M_=M_
+	.elseif(Cmodel == CLOGPOD)		*LV depletion capacitor
+		XCpod_log    top bottom sub  nm133_CCI2_dev  W_=W_ L_=L_ M_=M_
+	.endif
+.ends
+
+*accumulation capacitor in thick oxide (std)
+.subckt std_Cnwnmos VP VM sub W_=0 L_=0 M_=1
+	* VP is the top, VM is the bottom
+	Xcnwnmos VP VM sub cap_acc_nw33v W=W_ L=L_ M=M_  
+.ends
+
+***************
+* MISC models
+***************
+.model Rshort r
+.model Cparasitic c

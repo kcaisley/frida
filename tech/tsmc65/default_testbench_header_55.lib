@@ -1,0 +1,457 @@
+**********************************************************************
+* unified SimulationBENCH HEADER for TSMC55
+* 20240226 AM Created the file
+
+*******************HSPICE_Models**********************************************
+*****TRADITIONAL CORNERS*****
+.lib NOM_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTMacro_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_MOM
+.endl
+
+.lib FAST_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FFMacro_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FF_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FF_MOM
+.endl
+
+.lib SLOW_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SSMacro_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SS_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SS_MOM
+.endl
+
+* Only MOS model is FS
+.lib FASTSLOW_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FSMacro_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_MOM
+.endl
+
+* Only MOS model is SF
+.lib SLOWFAST_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SFMacro_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TT_MOM
+.endl
+
+*****GLOBAL CORNERS*****
+.lib GLOBAL_NOM_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_MOM
+.endl
+
+.lib GLOBAL_FAST_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FFGlobalCorner_LocalMC_MOM
+.endl
+
+.lib GLOBAL_SLOW_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SSGlobalCorner_LocalMC_MOM
+.endl
+
+* Only MOS model is FS
+.lib GLOBAL_FASTSLOW_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' FSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_MOM
+.endl
+
+* Only MOS model is SF
+.lib GLOBAL_SLOWFAST_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' SFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' TTGlobalCorner_LocalMC_MOM
+.endl
+
+*****LOCAL MONTECARLO (Mismatch)*****
+.lib LOCAL_MC_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' LocalMCOnly_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' LocalMCOnly_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' LocalMCOnly_MOM
+.endl
+
+*****TOTAL MC (Global MC + Local MC) CORNERS*****
+.lib TOTAL_MC_MODEL
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' GlobalMC_LocalMC_MOS_MOSCAP
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
+	.lib 'S:\technologies\tsmc65\tsmcN55\CMN55LP\SPICE_Models\tn55cmsp010_1_2\models\cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.l' GlobalMC_LocalMC_MOM
+.endl
+
+*******************General Settings****************************************
+.lib setting
+    .model DIODE d
+    .model NPN npn
+    .model PNP pnp
+    .include  'S:\technologies\tsmc65\v2.0\v2.0.lib'
+.endl
+
+************tt*************
+.lib tt
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' NOM_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************ff*************
+.lib ff
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' FAST_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************fs*************
+.lib fs
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' FASTSLOW_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************sf*************
+.lib sf
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' SLOWFAST_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************ss*************
+.lib ss
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' SLOW_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************tt_g*************
+.lib tt_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_NOM_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************ff_g*************
+.lib ff_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_FAST_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************fs_g*************
+.lib fs_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_FASTSLOW_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************sf_g*************
+.lib sf_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_SLOWFAST_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************ss_g*************
+.lib ss_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_SLOW_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************mc*************
+.lib mc
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' LOCAL_MC_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+************mc_g*************
+.lib mc_g
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' TOTAL_MC_MODEL
+    .lib 'default_testbench_header_55.lib' setting
+.endl
+
+*******************ELDO models**********************************************
+*****TRADITIONAL CORNERS*****
+.lib NOM_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTMacro_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_MOM
+.endl
+
+.lib FAST_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FFMacro_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FF_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FF_MOM
+.endl
+
+.lib SLOW_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SSMacro_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SS_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SS_MOM
+.endl
+
+* Only MOS model is FS
+.lib FASTSLOW_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FSMacro_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_MOM
+.endl
+
+* Only MOS model is SF
+.lib SLOWFAST_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SFMacro_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TT_MOM
+.endl
+
+*****GLOBAL CORNERS*****
+.lib GLOBAL_NOM_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_MOM
+.endl
+
+.lib GLOBAL_FAST_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FFGlobalCorner_LocalMC_MOM
+.endl
+
+.lib GLOBAL_SLOW_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SSGlobalCorner_LocalMC_MOM
+.endl
+
+* Only MOS model is FS
+.lib GLOBAL_FASTSLOW_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' FSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_MOM
+.endl
+
+* Only MOS model is SF
+.lib GLOBAL_SLOWFAST_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' SFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' TTGlobalCorner_LocalMC_MOM
+.endl
+
+*****LOCAL MONTECARLO (Mismatch)*****
+.lib LOCAL_MC_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' LocalMCOnly_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' LocalMCOnly_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' LocalMCOnly_MOM
+.endl
+
+*****TOTAL MC (Global MC + Local MC) CORNERS*****
+.lib TOTAL_MC_MODEL_ELDO
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' GlobalMC_LocalMC_MOS_MOSCAP
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/caeleste/technologies/tsmc65/tsmcN55/CMN55LP/SPICE_Models/tn55cmsp010_1_2/models/cmn55lp_2d5_lk_v1d2_shrink0d9_embedded_usage.eldo' GlobalMC_LocalMC_MOM
+.endl
+
+*******************General Settings****************************************
+.lib setting_eldo
+    .model DIODE d
+    .model NPN npn
+    .model PNP pnp
+    .lib '/caeleste/technologies/tsmc65/v2.0/v2.0.lib'
+    ********** next as ELDO does not set Gnd==0
+    vdummy Gnd 0 0
+.endl
+
+************tt*************
+.lib tt_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' NOM_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************ff*************
+.lib ff_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' FAST_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************fs*************
+.lib fs_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' FASTSLOW_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************sf*************
+.lib sf_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' SLOWFAST_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************ss*************
+.lib ss_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' SLOW_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************tt_g*************
+.lib tt_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_NOM_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************ff_g*************
+.lib ff_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_FAST_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************fs_g*************
+.lib fs_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_FASTSLOW_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************sf_g*************
+.lib sf_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_SLOWFAST_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************ss_g*************
+.lib ss_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' GLOBAL_SLOW_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************mc*************
+.lib mc_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' LOCAL_MC_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************mc_g*************
+.lib mc_g_eldo
+	.option threads = 1   * run on multiple cores of computer
+	.option monteinfo = 2 * monteinfo=1 only print histogram
+                          * monteinfo=2 print all simulation results
+    .param log_only=0
+    .param rh=0
+    .param lvs=0
+    .lib 'default_testbench_header_55.lib' TOTAL_MC_MODEL_ELDO
+    .lib 'default_testbench_header_55.lib' setting_eldo
+.endl
+************************************************************************************
+
+
+
+
+
+
+

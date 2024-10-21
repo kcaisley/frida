@@ -1,0 +1,49 @@
+// GP and Qiang simulated , ready to use.
+// Written on 14-11-2012
+`include "disciplines.vams"
+`include "constants.vams"
+ 
+
+module inv_npnov( in, out, vdd, vss, gnd);
+ 
+
+input  in;
+output out;
+inout vdd,vss,gnd;
+ 
+
+electrical in, out, vdd, vss, gnd, n;
+branch (n, out)res;
+branch (in,vss)cap;
+ 
+
+real vout_high,vout_low,vtransl,vtransh;
+parameter real RR=20K;
+parameter real c=1f;
+real vout_val;
+ 
+
+analog
+  begin
+@(initial_step)begin
+vout_high = V(vdd);
+vout_low  = V(vss);
+if (V(in) > (vout_high + vout_low)*0.5) vout_val = vout_low;
+else  vout_val= vout_high;
+end
+ 
+
+ 
+     V(res) <+ RR * I(res);
+     I(cap) <+ ddt(c*V(cap));
+               
+                 vout_high = V(vdd);
+                vout_low  = V(vss);
+                vtransh =  (vout_high - vout_low)*0.75;
+                 vtransl =  (vout_high - vout_low)*0.25;
+                 
+    @(cross(V(in) - vtransl,  -1)) vout_val = vout_high;
+    @(cross(V(in) - vtransh, +1)) vout_val = vout_low;
+     V(n) <+ transition(vout_val);
+  end
+endmodule

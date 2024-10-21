@@ -1,0 +1,1 @@
+property set Protection.AllowEditing -system -host design -library logic -value true

@@ -1,0 +1,46 @@
+`include "disciplines.vams"
+`include "constants.vams"
+
+module VDD_pullup(A,B,gnd,vdd,vss,swP,swN);
+inout A;
+inout B;
+inout gnd;
+input swP;
+input swN;
+inout vdd;
+inout vss;
+
+// Module contents
+electrical A,B,gnd,vdd,vss,swP,swN;
+branch (A, B)res;
+parameter Ron=20K;
+parameter Roff=1000000k;
+real RR;
+real vout_high;
+real vout_low;
+real vtransh;
+real vtransl;
+
+analog 
+  begin
+@(initial_step)begin
+vout_high = V(vdd);
+vout_low  = V(vss);
+if (V(select) > (vout_high + vout_low)*0.5) RR = Ron;
+else  RR= Roff;
+end
+
+ 
+     				V(res) <+ RR * I(res);              
+               vout_high = V(vdd);
+               vout_low  = V(vss);
+               vtransh =  (vout_high - vout_low)*0.75; 
+               vtransl =  (vout_high - vout_low)*0.25; 
+                 
+    @(cross(V(select) - vtransl,  -1)) RR=Roff;
+    @(cross(V(select) - vtransh, +1)) RR=Ron;
+   
+  end
+
+
+endmodule // switch_strength4

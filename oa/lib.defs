@@ -1,0 +1,10 @@
+DEFINE devices devices
+ASSIGN devices libMode shared
+DEFINE spice spice
+ASSIGN spice libMode shared
+DEFINE stdcells stdcells
+ASSIGN stdcells libMode shared
+DEFINE logic logic
+ASSIGN logic libMode shared
+DEFINE sasc sasc
+ASSIGN sasc libMode shared

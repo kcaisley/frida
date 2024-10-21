@@ -1,0 +1,28 @@
+
+//the verilog has been tested and ready to be used 
+`include "disciplines.vams"
+`include "constants.vams"
+
+module xor2_compact(A, B, out);
+
+output out; 
+input A, B; 
+electrical A, B, out, p, z, n;
+branch (out, n)res;
+ 
+parameter real vh = 4;		 
+parameter real vl = 0;		 
+parameter real vth = 2; 
+
+parameter real RR=10K;
+
+analog begin
+
+V(res) <+ RR * I(res);
+
+    @(cross(V(A) - vth) or cross(V(B) - vth));
+
+    V(n) <+ transition( ((V(A) > vth) ^ (V(B) > vth)) ? vh : vl);
+end
+endmodule
+
