@@ -17,14 +17,15 @@
 | ADC resolution          | 8-bit       | 10-bit     | 8-bit      | 10-bit      |
 | Conversion rate         | 10 MHz      | 2.5MHz     | 5 MHz      | 10 MHz      |
 | Area of one ADC         | 100x200 μm² | 80x330 μm² | 60x800 μm² | 20x100 μm²  |
-| Power of one ADC        | 3500 μW     | 30 μW      | 700 μW     | 100 μW      |
+| Power of one ADC        | 1800 μW     | 30 μW      | 700 μW     | 100 μW      |
 | FOM_csa (conv/sec/area) | 500 Hz/μm²  | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² |
-| FOM_epc (energy/conv)   | 350 pJ      | 12 pJ      | 155 pJ     | 10 pJ       |
-| FOM_ppa (power/area)    | 17.5 W/cm²  | 0.11 W/cm² | 1.45 W/cm² | 5.0 W/cm²   |
+| FOM_epc (energy/conv)   | 180 pJ      | 12 pJ      | 155 pJ     | 10 pJ       |
+| FOM_ppa (power/area)    | 9.0 W/cm²   | 0.11 W/cm² | 1.45 W/cm² | 5.0 W/cm²   |
 | ADC qty Mpix @ 100 KHz  | 10000       | 40000      | 20000      | 10000       |
+| ADCs total pixel rate   | 100 Gpx/s   | 100 Gpx/s  | 100 Gpx/s  | 100 Gpx/s   |
+| ADCs total data rate    | 800 Gb/s    | 1 Tb/s     | 800 Gb/s   | 1 Tb/s      |
 | ADCs total area         | 2.0 cm²     | 10.5 cm²   | 9.6 cm²    | 0.2 cm²     |
 | ADCs total power        | 35.0 W      | 1.2 W      | 14 W       | 1.0 W       |
-
 
 # Design techniques
 
