@@ -1,7 +1,7 @@
 setup schematiccolors set -wire navy
 setup schematiccolors set -graphic #00cc66
 setup schematiccolors set -photonicnets turquoise
-setup schematiccolors set -background white
+setup schematiccolors set -background black
 setup schematiccolors set -selection orange
 setup schematiccolors set -minorgrid brightindigo
 setup schematiccolors set -majorgrid grey
