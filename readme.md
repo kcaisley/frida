@@ -1,15 +1,5 @@
 # Current design progress
 
-### Legacy 'flat' design
-![alt text](docs/images/helena_before.png)
-
-### SAR ADC sub-circuits (SASC)
-![alt text](docs/images/helena_top.png)
-
-# Basic Simulation
-
-![alt text](docs/images/helena_sim.png)
-
 # Design targets
 
 | Design                  | EDET DCD    | CoRDIA     | pre-Helena | Helena      |
@@ -31,7 +21,7 @@
 
 - ✅ Unary, double conversion, and non-binary steps (typically x1.8 smaller)
 - ✅ RDAC for powering lower voltage LSBs vs attenuating cap
-- ❕ MoM != MIM, and POD is best  @ 4fF in μm², with ~5% variation
+- ❕ MoM != MIM, and POD is best  @ 4fF in μm²
 - ❌ MoM caps are only 0.6-0.8 fF in the same μm², with worse variation
 - ❕ Most non-linearity comes from capacitor mismatch, but isn't a huge deal
 - ❕ Gain loss comes from parasitic capacitance
@@ -67,13 +57,79 @@ print(helena*10e15) # 3e17
 
 ![alt text](docs/images/helena_energy_sndr.png)
 
-# Compiling/simulating against PDKs
+# Capacitors types
+You can create capacitor plates with poly, metal, and diffusion. 
 
-- TSMC 65nm (✅ Working)
-- Tower 180nm (✅ working on tsl018)
-- TSMC 180nm (tsmc018)
-- Tower 65nm (tpsc65)
+Typically the common combinations are:
 
-### Still need:
-- [ ] tpsco65
-- [ ] Siemens AFS license (just 50EUR!)
+- Poly-diffusion, aka MOS varactor or 'MOSCAP' with poly over n-wells (actually implanted not diffused). Typically the term Varactor is used in RF applications, where the structure will be done differenclty. ITRS 2011 puts this at 7-11 fF/μm²
+- Poly-diffusion cap, where you use a field oxide instead of the standard FET gate
+- 'Accumulation cap' which is a poly-diffusion (POD) cap, but with the S and D connection. Only using G to Bulk capacitance
+- MIM caps, are created with metal layers, but place an intermetidate metal layer closer, and use a special insulator (silicon nitride, tantalum pentoxide Insulators (e.g., Si3N4 or Ta2O5)). ITRS 2011 puts this at 5-7 fF/μm²
+- Metal-metal, aka metal-fringe-capacitor (MFC), availabe in TJ180. These can be multiple layers, or just a single layer. There are several variations, with intedigitated fingers with via between, or with vias only on the edges, and fingers rotated each and other layers called an 'RTMOM'. In TSMC65, this is covered [here](file:///eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/crtmom_rf_device_route_guidance_for_RF_application.pdf). ITRS 2011 puts this at 5-7 fF/μm²?
+- Poly-poly caps can be as simple as two large rectangles, on two seperate poly layers. Called 'POP' caps. Need to have a poly2 layer.
+
+
+Tower 65nm seems to have nmoscap, moscaps, pmos caps (all these are varactors), mimcap, mimpcap 3T, RTMOM, and MIM. List is [here](file:///eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65LP_v1d7a_pdkFSAChecklist.pdf).
+
+Tower 180nm Accumulation caps, MIM caps, and MFCs are covered [here](/eda/kits/TOWER/ts18is_6M1L_2014/HOTCODE/models/ts18sl/v4.9.3/docs/DRS2_0018_B_manual.pdf).
+
+A common way to increase the density of decoupling capacitors. Stack MOM on top of device capacitors (make sure they are connected in parallel and not series).
+
+
+
+
+# Switching strategies
+
+
+Once we know that matching isn't important, we can discard unit capacitor design and guard rings. This allows the array to be smaller is capacitance, giving lower power, lower area, and faster settling.
+
+Brian Ginsburg and Anatha Chandrakasan, MIT 2010 showed that various switching stragegies for the capacitor arrays can offer speed or energy benefits:
+
+'split capacitor method' -> 37% energy reduction
+
+https://sci-hub.ru/https://ieeexplore.ieee.org/document/4140585
+https://sci-hub.ru/https://ieeexplore.ieee.org/document/1464555
+
+Theorhetical SAR ADC performance is estimated here:
+
+https://sci-hub.ru/https://ieeexplore.ieee.org/document/4077162
+
+Lui 2010 introduced the 'monotonic' strategy => 86% energy reduction. Only allows 'H->L' transistions on the plates. One disadvantage is continuous dropping of common mode.
+
+https://sci-hub.ru/https://ieeexplore.ieee.org/document/5437496
+
+Murmann 2006 analyzer regenerative latch offset from load cap mismatch:
+
+https://sci-hub.ru/https://ieeexplore.ieee.org/document/4033159
+
+
+'...the size of the sampling capacitors can be scaled down to the kTIC limit without matching concerns. For SA-ADCs with resolutions of 10 bits and above, a large power saving is envisioned using the proposed low-cost, power-efficient digital calibration technique.'
+Theory paper:
+https://sci-hub.ru/https://ieeexplore.ieee.org/abstract/document/4415624
+Implementation (less detailed)
+https://sci-hub.se/https://ieeexplore.ieee.org/document/4977318
+
+
+How does the redundancy or double-conversion stuff work? Does it retry with the same hardware, or different? And does it reset the previous stage, or proceed on from it? 
+
+Are the unary stage at the beginning redundancy? Or does redundancy have to do with overlapping ranges, which can come from non-binary step?
+
+A key term here is 'digital background calibration'.
+
+# Interleaving
+
+Two ADCs at once. Abandonded by Caeleste.
+
+# Binary vs non-binary (vs unary!)
+
+Allows for self-correction of conversion errors and code gaps. Compact sequencer and logic, simpler and smaller cdac, faster operation, lower power. But have to calibrate.
+
+Another type of array is a C-2C capacitor array, but according to Liu 2010, this is not nearly as linear.
+
+Kuttner 2004 is firs to use redundancy via non-binary: https://sci-hub.ru/https://ieeexplore.ieee.org/document/992993
+
+
+Unary steps just means that you don't in the beginning jump in an MSB step, and then MSB/2 step.
+
+Instead, you take three steps, each of MSB/2 size. This costs an extra clock cycle, but perhaps improves the metastability time of the MSB which might be quite large.
