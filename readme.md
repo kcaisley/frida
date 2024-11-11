@@ -1,4 +1,12 @@
-# Current design progress
+Improving the frame-rate of imaging system is indispensable for directly observing the dynamics of rapidly evolving systems, or rapidly capturing the complete structure of a solid, from many different angles for later reconstruction as is done in 'tomography' disciplines.
+
+Systems like cells, protiens, chemical reactions, oxidation, battery chemistry, X-ray cyrstllography all have dynamic processes 
+
+Historically, the highest frame rates haves been achieve by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
+
+There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the ADC, as it sufferes from a difficult tradeoff between resolution, sampling time, silicon area and power consumption. Furthermore, many critical imaging applications expose with high energy particles including electrons, X-ray, and neutrons. Depending on the type of particle and their energy, varying radiation damages occur, (both ionizing and non-ionizin) 
+
+To this end, this work investigates techniques for maximizing the sampling rate of column and pixel parallel ADCs contrained by the power consumptions, silicon area, and resolution of imaging applications. The successive approximation or "SAR" ADCs it identified as the optimal choice, and various techniques are investigated, including 
 
 # Design targets
 
@@ -76,40 +84,39 @@ Tower 180nm Accumulation caps, MIM caps, and MFCs are covered [here](/eda/kits/T
 
 A common way to increase the density of decoupling capacitors. Stack MOM on top of device capacitors (make sure they are connected in parallel and not series).
 
-
-
+# Array weighting
+BWC - binary weighted capacitor DAC
+BWSC - binary weighted split capacitor DAC
+SC - split capacitor (Ginsburg 2005)
 
 # Switching strategies
 
-
 Once we know that matching isn't important, we can discard unit capacitor design and guard rings. This allows the array to be smaller is capacitance, giving lower power, lower area, and faster settling.
 
-Brian Ginsburg and Anatha Chandrakasan, MIT 2010 showed that various switching stragegies for the capacitor arrays can offer speed or energy benefits:
+Brian Ginsburg and Anatha Chandrakasan, MIT 2005 showed that various switching stragegies for the capacitor arrays can offer speed or energy benefits:
 
 'split capacitor method' -> 37% energy reduction
 
-https://sci-hub.ru/https://ieeexplore.ieee.org/document/4140585
-https://sci-hub.ru/https://ieeexplore.ieee.org/document/1464555
+https://ieeexplore.ieee.org/document/4140585
+https://ieeexplore.ieee.org/document/1464555
 
-Theorhetical SAR ADC performance is estimated here:
+Theoretical SAR ADC performance is estimated here:
 
-https://sci-hub.ru/https://ieeexplore.ieee.org/document/4077162
+https://ieeexplore.ieee.org/document/4077162
 
 Lui 2010 introduced the 'monotonic' strategy => 86% energy reduction. Only allows 'H->L' transistions on the plates. One disadvantage is continuous dropping of common mode.
 
-https://sci-hub.ru/https://ieeexplore.ieee.org/document/5437496
+https://ieeexplore.ieee.org/document/5437496
 
 Murmann 2006 analyzer regenerative latch offset from load cap mismatch:
 
-https://sci-hub.ru/https://ieeexplore.ieee.org/document/4033159
-
+https://ieeexplore.ieee.org/document/4033159	
 
 '...the size of the sampling capacitors can be scaled down to the kTIC limit without matching concerns. For SA-ADCs with resolutions of 10 bits and above, a large power saving is envisioned using the proposed low-cost, power-efficient digital calibration technique.'
 Theory paper:
-https://sci-hub.ru/https://ieeexplore.ieee.org/abstract/document/4415624
+https://ieeexplore.ieee.org/document/4415624
 Implementation (less detailed)
-https://sci-hub.se/https://ieeexplore.ieee.org/document/4977318
-
+https://ieeexplore.ieee.org/document/4977318
 
 How does the redundancy or double-conversion stuff work? Does it retry with the same hardware, or different? And does it reset the previous stage, or proceed on from it? 
 
@@ -119,7 +126,7 @@ A key term here is 'digital background calibration'.
 
 # Interleaving
 
-Two ADCs at once. Abandonded by Caeleste.
+Two ADCs at once. Not further considered by Caeleste.
 
 # Binary vs non-binary (vs unary!)
 
@@ -127,8 +134,7 @@ Allows for self-correction of conversion errors and code gaps. Compact sequencer
 
 Another type of array is a C-2C capacitor array, but according to Liu 2010, this is not nearly as linear.
 
-Kuttner 2004 is firs to use redundancy via non-binary: https://sci-hub.ru/https://ieeexplore.ieee.org/document/992993
-
+Kuttner 2004 is firs to use redundancy via non-binary: https://ieeexplore.ieee.org/document/992993
 
 Unary steps just means that you don't in the beginning jump in an MSB step, and then MSB/2 step.
 
