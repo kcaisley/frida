@@ -6,7 +6,6 @@ we have done binary and non-binary ADCs (aka 'redundancy', which allows you to i
 4-unary steps , followed by double conversion step (solution for dynamic error, by sampling twice).
 At time zero, all comparators are brought to a high level., then one by one, each cap is lowered. This rejects power supply noise, and avoids the need for pregain even if you want different input ranges.
 
-
 no ramp ADC, as SAR is better in energy and area per conversion per taime
 
 power supply rejection is cucial, and 
