@@ -141,3 +141,15 @@ Another type of array is a C-2C capacitor array, but according to Liu 2010, this
 Unary steps just means that you don't in the beginning jump in an MSB step, and then MSB/2 step.
 
 Instead, you take three steps, each of MSB/2 size. This costs an extra clock cycle, but perhaps improves the metastability time of the MSB which might be quite large.
+
+# other recommended + representative papers:
+
+[Tang 2013, SS + SA](https://doi.org/10.1109/TED.2013.2268207) Low-Power CMOS Image Sensor Based on Column-Parallel Single-Slope/SAR Quantization Scheme
+
+[CP Huang 2016, INL+DNL analysis](https://doi.org/10.1109/TIM.2016.2562198) Analysis of Nonideal Behaviors Based on INL/DNL Plots for SAR ADCs
+
+[YS Yee, 1979, original SAR monolithic](https://doi.org/10.1109/JSSC.1979.1051264) A two-stage weighted capacitor network for D/A-A/D conversion
+
+[P Gray, 1975, all mos sar adc](https://doi.org/10.1109/JSSC.1975.1050629) All-MOS charge redistribution analog-to-digital conversion techniques, Part I
+
+[Z Zhou, E Fossum, 1995, first CIS SAR ADC](https://doi.org/10.1109/16.628833) CMOS active pixel sensor with on-chip successive approximation analog-to-digital converter
