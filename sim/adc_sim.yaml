@@ -1,0 +1,30 @@
+SAR_ADC:
+  resolution: 8  # resolution of the ADC
+  redundancy: 0  # redundancy of the ADC (TBD)
+  sampling_rate: 10.0e+6  # sampling rate in Hz
+  aperture_jitter: 10.0e-12  # aperture jitter in seconds (TBD)
+
+COMPARATOR:
+  use_offset_error: True  # use offset error in the comparator 
+  offset_voltage: 0.01  # offset voltage in Volts
+  common_mode_dependent_offset_gain: 0.01  # common mode voltage gain 
+
+CDAC:
+  unit_capacitance: 1.0e-15  # unit capacitance in Farads
+  capacitor_weights: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]  # capacitor weights in unit capacitance (use_radix = False) 
+  parasitic_capacitance: 1.0e-15  # Parasitic capacitance in Farads at the output of the CDAC
+  
+  use_radix: False  # use radix for automatic calculation of the capacitor array values
+  radix: 1.8  # radix of the CDAC, for automatic calculation of the capacitor array values (use_radix = True)
+  
+  use_systematic_errors: True  # use systematic errors in the CDAC
+  capacitor_systematic_errors: [0, -1, 2, 4, -3, 7, 4, -11, 6, -15, 10, 0]  # capacitor m Inder error in percent of the unit capacitor (will be scaled by 1/SQRT(cap size))
+#  capacitor_systematic_errors: [3, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0]  # capacitor m Inder error in percent of the unit capacitor (will be scaled by 1/SQRT(cap size))
+  # TODO add capacitor mismatch errors individual for p- and n- array
+  # capacitor_mismatch_errors: 3  # capacitor mismatch error in percent of the unit capacitor
+  positive_reference_voltage: 1.2  # reference voltage in Volts
+  negative_reference_voltage: 0.0  # reference voltage in Volts
+  common_mode_voltage: 0.6  # common mode voltage in Volts
+  
+  use_settling_error: False  # use settling error in the CDAC
+  settling_time: 10.0e-9  # settling time in seconds (TBD: individual settling errors per capacitor?)
