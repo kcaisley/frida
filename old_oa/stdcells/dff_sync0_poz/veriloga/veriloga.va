@@ -1,0 +1,42 @@
+// Qiang simulated , ready to use.
+// Written on 14-11-2012
+
+`include "disciplines.vams"
+`include "constants.vams"
+
+module dff_sync0(vdd, vss, D, Q, clock, sync);
+input vdd, vss, D, clock, sync;
+output Q;
+electrical vdd, vss, D, Q, clock, sync;
+
+real  vout_high, vout_low,vthh,vthl;
+integer x,reset;
+parameter real tdelay = 0.5n,
+					trise  = 0.5n,
+					tfall  = 0.7n;
+// Module contents
+
+analog
+begin
+    @(initial_step) 
+    begin
+    x = 1;
+    vthl = 1.2;
+    vthh = 2.4;
+    end
+	 
+	 vout_high = V(vdd);
+	 vout_low  = V(vss);
+	 vthh = (V(vdd)-V(vss))*0.75;
+	 vthl = (V(vdd)-V(vss))*0.25;
+	 reset = (V(sync)>vthl);
+	 
+	
+	 @(cross(V(clock) - vthl, +1 ))  x = ((V(D) > vthh)&&(!reset));
+		
+    
+	 V(Q) <+ transition( vout_high*x  +  vout_low*!x ,tdelay,trise,tfall);
+	 
+
+end
+endmodule // dff_sync0

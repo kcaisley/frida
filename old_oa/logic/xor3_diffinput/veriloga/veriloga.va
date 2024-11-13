@@ -1,0 +1,28 @@
+
+`include "disciplines.vams"
+`include "constants.vams"
+
+module axor(out, A, B);
+
+output out; 
+input A, B; 
+electrical A, B, out, p, z, n;
+branch (out, n)res;
+branch (p, A)cap; 
+branch (z, B)capp;
+parameter real vh = 3.3;		 
+parameter real vl = 0;		 
+parameter real vth = (vh + vl)/2; 
+
+parameter real RR=10K;
+parameter real cc=2f;
+
+analog begin
+
+V(res) <+ RR * I(res);
+
+    @(cross(V(A) - vth) or cross(V(B) - vth));
+
+    V(n) <+ transition( ((V(A) > vth) ^ (V(B) > vth)) ? vh : vl);
+end
+endmodule

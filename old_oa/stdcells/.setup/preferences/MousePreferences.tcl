@@ -1,0 +1,1 @@
+setup mouse set -wheelstyle pan

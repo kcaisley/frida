@@ -1,0 +1,17 @@
+setup schematiccolors set -wire navy
+setup schematiccolors set -graphic #00cc66
+setup schematiccolors set -photonicnets turquoise
+setup schematiccolors set -background black
+setup schematiccolors set -selection orange
+setup schematiccolors set -minorgrid brightindigo
+setup schematiccolors set -majorgrid grey
+setup schematiccolors set -selectionbox orange
+setup schematiccolors set -portinstance #bf0000
+setup schematiccolors set -portshape maroon
+setup schematiccolors set -porttext #ff01ff
+setup schematiccolors set -netlabel #3ac0ff
+setup schematiccolors set -textlabel #ff0100
+setup schematiccolors set -cellname #00cc66
+setup schematiccolors set -instancename olive
+setup schematiccolors set -property grey40
+setup schematiccolors set -hiddenproperty silver

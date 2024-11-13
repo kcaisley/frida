@@ -1,0 +1,30 @@
+//Peng simulated and ready to use
+//2012 10 21
+
+`include "disciplines.vams"
+`include "constants.vams"
+
+module  nor2(A,B,out,vdd,vss);
+input A,B;
+output out;
+inout vdd,vss;
+electrical A,B,out,vdd,vss;
+// Module contents
+integer a1,b1;
+parameter real vm = 1.65,
+					tdelay = 0.01n,
+					trise  = 0.6n,
+					tfall  = 0.1n;
+real x,vth;
+
+analog
+begin
+@(initial_step) vth = 1.65;
+vth = (V(vdd)-V(vss))*0.5;
+
+a1 = (V(A) > vth);
+b1 = (V(B) > vth);
+x  = (!(a1 || b1))*(V(vdd)-V(vss));
+V(out) <+ transition( x ,tdelay,trise,tfall); 
+end
+endmodule // nor2_LT

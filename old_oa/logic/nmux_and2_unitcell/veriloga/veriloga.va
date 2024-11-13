@@ -1,0 +1,63 @@
+// Koen simulated , ready to use.
+// Written on 20220113
+
+`include "disciplines.vams"
+`include "constants.vams"
+
+module nmux_unitcell_vaonly(in, nselect, out, select, sub, vcc, vee, gnd);
+input in, nselect, select;
+output out;
+inout sub, vcc, vee, gnd;
+electrical  in, nselect, out, select, sub, vcc, vee, gnd;
+// Module contents
+parameter real tdelay = 0.01n,
+					trise  = 0.2n,
+					tfall  = 0.2n;
+integer s_in, s_select, s_nselect;
+real vout;
+real iout;
+real Zout;
+integer power = 0;
+
+
+analog begin
+	@(initial_step) begin
+		s_in = (V(in)>(V(vcc)+V(vee))/2)? 1:0;
+		s_select = (V(select)>(V(vcc)+V(vee))/2)? 1:0;
+		s_nselect = (V(nselect)>(V(vcc)+V(vee))/2)? 1:0;
+	end
+
+	@(cross(V(in)-(V(vcc)+V(vee))/2)) begin
+		s_in = (V(in)>(V(vcc)+V(vee))/2)? 1:0;
+	end
+	@(cross(V(select)-(V(vcc)+V(vee))/2)) begin
+		s_select = (V(select)>(V(vcc)+V(vee))/2)? 1:0;
+	end
+	@(cross(V(nselect)-(V(vcc)+V(vee))/2)) begin
+		s_nselect = (V(nselect)>(V(vcc)+V(vee))/2)? 1:0;
+	end
+
+	if ((s_in > .5) && (s_select > .5)) begin
+		vout = V(vee);
+		//V(out) <+ vout;
+	end
+	else if ((s_in < .5) && (s_nselect < .5)) begin
+		vout = V(vcc);
+		//V(out) <+ vout;
+		end
+	else begin
+		Zout = 1e+15;
+		//iout = 1e-15;
+		V(out) <+ I(out)*Zout;
+		
+		//vout = I(out)*Zout;
+		vout = (V(vcc)+V(vee))/2;
+		//V(out) <+ vout;
+		
+	end
+
+	//I(out) <+ transition( iout ,tdelay,trise,tfall);
+	V(out) <+ transition( vout ,tdelay,trise,tfall);
+
+end
+endmodule // nmux_and2_unitcell
