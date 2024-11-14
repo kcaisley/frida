@@ -161,6 +161,9 @@ class COMPARATOR:
     self.common_mode_dependent_offset_gain  = params['COMPARATOR']['common_mode_dependent_offset_gain']
 
   def compare(self, input_voltage_p, input_voltage_n):
+    """
+    ...Explanation of comparator
+    """
     if self.use_offset_error:
       common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
       return input_voltage_p > input_voltage_n + self.offset_voltage + common_mode_offset_voltage
@@ -366,7 +369,7 @@ class SAR_ADC:
     plot.grid(True)  
     plot.set_xlabel('Diff. input voltage [V]')
   
-  def calculate_fom(self):
+  def calculate_kwon_fom(self):
     # No implementation for now, as timing is dimensionless, area isn't considered, and 
     # FoM(P, ConvTime, A_um2, DRDB):
     #     J_per_um2 = (P*ConvTime*A_um2)/(10**((DRDB-1.76)/10))
@@ -377,7 +380,7 @@ class SAR_ADC:
 if __name__ == "__main__":
 
   # Load parameters from YAML file
-  with open('sim/adc_sim.yaml', 'r') as file:
+  with open('adc_sim.yaml', 'r') as file:
     params = yaml.safe_load(file)
 
   adc = SAR_ADC()       # Create one SAR ADC instance
