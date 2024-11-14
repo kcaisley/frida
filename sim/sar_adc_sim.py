@@ -3,9 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# Load parameters from YAML file
-with open('adc_sim.yaml', 'r') as file:
-  params = yaml.safe_load(file)
+# class TRACKHOLD: 
+# to be added
 
 class CDAC:
   def __init__(self, array_size, clock_period = 1e-9):
@@ -169,11 +168,14 @@ class COMPARATOR:
       return input_voltage_p > input_voltage_n
 
 class SAR_ADC:
+  """
+  Top level class for ADC
+  """
   def __init__(self):
     self.resolution = params['SAR_ADC']['resolution']
     self.cycles = self.resolution + params['SAR_ADC']['redundancy']
     self.clock_period = 1/(params['SAR_ADC']['sampling_rate'] * self.cycles)
-    self.dac = CDAC(clock_period=self.clock_period, array_size=self.cycles-1)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
+    self.dac = CDAC(array_size=self.cycles-1, clock_period=self.clock_period)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
     self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution
     self.comparator = COMPARATOR()
@@ -307,7 +309,7 @@ class SAR_ADC:
     adc_data = np.empty(num_codes * values_per_bin)
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/values_per_bin)
 
-     # do the conversions
+    # do the conversions
     for i in tqdm(range(num_codes * values_per_bin)):
       adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
 
@@ -362,12 +364,23 @@ class SAR_ADC:
     plot.stairs(adc_data, input_voltage_data, baseline = None)
     plot.set_ylabel("ADC code")
     plot.grid(True)  
-    plot.set_xlabel('Diff. input voltage [V]')  
-
+    plot.set_xlabel('Diff. input voltage [V]')
+  
+  def calculate_fom(self):
+    # No implementation for now, as timing is dimensionless, area isn't considered, and 
+    # FoM(P, ConvTime, A_um2, DRDB):
+    #     J_per_um2 = (P*ConvTime*A_um2)/(10**((DRDB-1.76)/10))
+    #     fJ_per_um2 = J_per_um2*1e15
+    #     return fJ_per_um2 
+    return 0
 
 if __name__ == "__main__":
 
-  adc = SAR_ADC()
+  # Load parameters from YAML file
+  with open('sim/adc_sim.yaml', 'r') as file:
+    params = yaml.safe_load(file)
+
+  adc = SAR_ADC()       # Create one SAR ADC instance
   # plot SAR iterations
   adc.sample_and_convert_bss(1.1, 0, do_plot=True)
   # plot transfer function
@@ -380,4 +393,3 @@ if __name__ == "__main__":
   # dac.calculate_nonlinearity(do_plot=True)
 
   plt.show()
-
