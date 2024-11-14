@@ -164,18 +164,19 @@ class COMPARATOR:
   def compare(self, input_voltage_p, input_voltage_n):
     if self.use_offset_error:
       common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
-      return input_voltage_p > input_voltage_n + self.offset_voltage + common_mode_offset_voltage
+      return input_voltage_p >= input_voltage_n + self.offset_voltage + common_mode_offset_voltage
     else:
-      return input_voltage_p > input_voltage_n
+      return input_voltage_p >= input_voltage_n
 
 class SAR_ADC:
   def __init__(self):
     self.resolution = params['SAR_ADC']['resolution']
     self.cycles = self.resolution + params['SAR_ADC']['redundancy']
-    self.clock_period = 1/(params['SAR_ADC']['sampling_rate'] * self.cycles)
+    self.sampling_rate = params['SAR_ADC']['sampling_rate'] 
+    self.clock_period = 1/(self.sampling_rate * self.cycles)
     self.dac = CDAC(clock_period=self.clock_period, array_size=self.cycles-1)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
     self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
-    self.lsb_size = self.diff_input_voltage_range / 2**self.resolution
+    self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
     self.comparator = COMPARATOR()
     self.input_voltage_p = 0
     self.input_voltage_n = 0
@@ -215,16 +216,16 @@ class SAR_ADC:
   
     # do first comparison to set MSB (sign) bit
     if self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n): # comparator output = 1
-      self.comp_result.append(0)  # opposite direction
+      self.comp_result.append(1)  
     else: # comparator output = 0
-      self.comp_result.append(1)
+      self.comp_result.append(0)
     
     for i in range(self.dac.array_size):   # SAR loop, bidirectional single side switching (BSS)
       # print('conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.register_p, '#014b'), format(self.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
       
       # update DAC register depending on the previous conversion
       if (i == 0): # first conversion switches MSB bit in opposite direction
-        if self.comp_result[0] == 1:
+        if self.comp_result[0] == 0:
           self.register_p += 1 << (self.dac.array_size-1) # increment p-side
         else:
           self.register_n += 1 << (self.dac.array_size-1) # increment n-side
@@ -248,23 +249,24 @@ class SAR_ADC:
     
     # calculate result  
     result = self.calculate_result() 
-        
-    # calculate error free conversion for annotation
-    ideal_adc_code = int((input_voltage_p - input_voltage_n) / self.lsb_size )
-    # ideal conversion bits
-    for i in range(self.cycles):
-      comp_out_no_error.append(1 if ideal_adc_code & (1 << (self.cycles - i -1)) else 0)
-   
+         
     if do_plot:
+      # calculate error free conversion for annotation
+      ideal_adc_code = int(round((input_voltage_p - input_voltage_n) / self.lsb_size , 0))
+      # signed to unsigned conversion
+      ideal_adc_code += 2**(self.resolution-1)
+      # ideal conversion bits
+      for i in range(self.cycles):
+        comp_out_no_error.append(1 if ideal_adc_code & (1 << (self.cycles - i -1)) else 0)
       figure, plot = plt.subplots(1, 1)
       legend_title = ('Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s ' % (input_voltage_p, input_voltage_n, result, ideal_adc_code))
       figure.suptitle('SAR Conversion')
-      plot.stairs(dac_out_p, range(self.cycles+1), label = "p-side")
-      plot.stairs(dac_out_n, range(self.cycles+1), label = "n-side")
-      # plo0[1].axhline(y=input_voltage_p-input_voltage_n, color='red', linestyle='--')
+      plot.stairs(dac_out_p, range(self.cycles+1), baseline = False, label = "p-side")
+      plot.stairs(dac_out_n, range(self.cycles+1), baseline = False, label = "n-side")
       plot.set_ylabel("DAC Output Voltage [V]")
       plot.set_ylim(-1.5, 1.5)    
       plot.set_xticks(range(0, self.cycles + 1, 1))
+      plot.set_xlabel("Conversion Cycle")
       plot.legend(title=legend_title)
       plot.grid(True)  
       for i in range(self.cycles):
@@ -272,29 +274,25 @@ class SAR_ADC:
         plot.annotate(self.comp_result[i], xy=(i+0.5, 0), ha='center', color=color)
 
     return result
-
+  
   def calculate_result(self):
     result = 0
     if (self.dac.use_radix):
       radix = self.dac.radix
     else:
       radix = 2
-
     for i in range(self.cycles):
-      result += self.comp_result[i] * radix**(self.cycles - i -1)
-    # fix sign bit
-    if result >= 2**(self.resolution-1):
-      result = result - 2**self.resolution 
+      result += self.comp_result[i] * radix**(self.cycles-i-1)
     return result
 
   def calculate_nonlinearity(self, do_plot = False):
-    values_per_bin = 100 # number of values per bin for DNL/INL calculation
-    lower_excluded_bins = 10  # lower bound for DNL/INL calculation in LSB
-    upper_excluded_bins = 10  # upper bound for DNL/INL calculation in LSB distance from full scale
+    values_per_bin = 10 # number of values per bin for DNL/INL calculation
+    lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
+    upper_excluded_bins = 1  # upper bound for DNL/INL calculation in LSB distance from full scale
 
     # helper variables
-    min_code = -2**(self.resolution-1)
-    max_code =  2**(self.resolution-1)-1
+    min_code = 0 #-2**(self.resolution-1)
+    max_code = 2**(self.resolution)-1
     num_codes = 2**self.resolution
     lower_index_boundary = lower_excluded_bins
     upper_index_boundary = num_codes - upper_excluded_bins
@@ -306,6 +304,9 @@ class SAR_ADC:
     inl_data = np.empty(num_codes)
     adc_data = np.empty(num_codes * values_per_bin)
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/values_per_bin)
+
+    print( self.lsb_size/values_per_bin)
+    print(f"Size of input_voltage_data array: {len(input_voltage_data)}")
 
      # do the conversions
     for i in tqdm(range(num_codes * values_per_bin)):
@@ -323,13 +324,13 @@ class SAR_ADC:
     dnl_data[upper_index_boundary:] = 0
     dnl_sigma = np.std(dnl_data)
 
-    # calculate integral nonlinearity INL
+    # calculate integral nonlinearity 
     inl_data = np.cumsum(dnl_data)
     inl_sigma = np.std(inl_data)
 
-    x_ticks = range(-2**(self.resolution-1), 2**(self.resolution-1)+1, 2**(self.resolution-3))
     
     if do_plot:
+      x_ticks = range(min_code, max_code+10, 2**(self.resolution-3))
       plot_title = 'ADC Nonlinearity \n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
       figure, plot = plt.subplots(3, 1, sharex=True,)
       figure.suptitle(plot_title)
@@ -351,16 +352,59 @@ class SAR_ADC:
 
     return dnl_sigma, inl_sigma        
 
+  def calculate_enob(self):
+    # return (snr - 1.76)/6.02
+    frequency   = 1e4
+    amplitude   = 0.59
+    offset      = 0
+    num_samples = 10000
+    adc_gain    = self.diff_input_voltage_range / 2 / 2**self.resolution
+    adc_offset  = 2**(self.resolution-1)
+
+    time_array          = np.arange(start=0, stop=num_samples/self.sampling_rate, step=1/self.sampling_rate)
+    input_voltage_array = np.empty(len(time_array))
+    adc_data_array      = np.empty(len(time_array))
+
+    # sample sine wave
+    for i in range(len(time_array)):
+      input_voltage = offset + amplitude*np.sin(2*np.pi*frequency*time_array[i])
+      input_voltage_array[i] = input_voltage
+      adc_data_array[i] = self.sample_and_convert_bss(input_voltage,  -input_voltage)
+
+    # calculate residuals (in LSB)
+    residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array - 0.5
+    # noise floor RMS
+    noise_std = np.std(residual_array)
+    noise_percent = noise_std/2**self.resolution * 100
+    # ENOB
+    enob = self.resolution - noise_std*np.sqrt(12) + 1
+
+    plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
+    figure, plot = plt.subplots(3, 1, sharex=True)
+    figure.suptitle(plot_title)    
+    # plot adc data
+    plot[0].plot(time_array, input_voltage_array, label = 'Input voltage')
+    plot[0].legend()
+    plot[1].stairs(adc_data_array[:len(time_array)-1], time_array, baseline = False, label = 'ADC code')
+    plot[1].legend()
+    plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, enob))
+    plot[2].legend()
+
+    
   def plot_transfer_function(self):
-    input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2 + self.lsb_size, self.lsb_size)
-    adc_data = np.empty(2**self.resolution)
-    for i in range(2**self.resolution):
+    samples_per_bin = 1
+    input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
+    adc_data = np.empty(2**self.resolution*samples_per_bin)
+    for i in tqdm(range(len(input_voltage_data))):
       adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
+
+    y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
 
     figure, plot = plt.subplots(1, 1)
     figure.suptitle('ADC Transfer Function')
-    plot.stairs(adc_data, input_voltage_data, baseline = None)
+    plot.stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None)
     plot.set_ylabel("ADC code")
+    plot.set_yticks(y_ticks)
     plot.grid(True)  
     plot.set_xlabel('Diff. input voltage [V]')  
 
@@ -369,11 +413,12 @@ if __name__ == "__main__":
 
   adc = SAR_ADC()
   # plot SAR iterations
-  adc.sample_and_convert_bss(1.1, 0, do_plot=True)
+  #adc.sample_and_convert_bss(-0.003, 0, do_plot=True)
   # plot transfer function
-  adc.plot_transfer_function()
+  #adc.plot_transfer_function()
   # calculate DNL/INL
   adc.calculate_nonlinearity(do_plot=True)
+  adc.calculate_enob()
   
   # CDAC only
   # dac = CDAC()
