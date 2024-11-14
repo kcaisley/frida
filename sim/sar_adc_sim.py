@@ -377,7 +377,7 @@ class SAR_ADC:
     noise_std = np.std(residual_array)
     noise_percent = noise_std/2**self.resolution * 100
     # ENOB
-    enob = self.resolution - noise_std*np.sqrt(12) + 1
+    enob = self.resolution - noise_std*np.sqrt(12) + 1 # ???
 
     plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
     figure, plot = plt.subplots(3, 1, sharex=True)
