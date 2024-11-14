@@ -7,7 +7,7 @@ from tqdm import tqdm
 # to be added
 
 class CDAC:
-  def __init__(self, array_size, clock_period = 1e-9):
+  def __init__(self, params, array_size, clock_period = 1e-9):
     # capacitor array setup
     self.array_size            = array_size
     self.unit_capacitance      = np.array(params['CDAC']['unit_capacitance'])
@@ -155,14 +155,14 @@ class CDAC:
     return dac_dnl_std, dac_inl_std    
 
 class COMPARATOR:
-  def __init__(self):
+  def __init__(self, params):
     self.use_offset_error = params['COMPARATOR']['use_offset_error']  
     self.offset_voltage   = params['COMPARATOR']['offset_voltage']
     self.common_mode_dependent_offset_gain  = params['COMPARATOR']['common_mode_dependent_offset_gain']
 
   def compare(self, input_voltage_p, input_voltage_n):
     """
-    ...Explanation of comparator
+    Explanation of comparator
     """
     if self.use_offset_error:
       common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
@@ -178,10 +178,10 @@ class SAR_ADC:
     self.resolution = params['SAR_ADC']['resolution']
     self.cycles = self.resolution + params['SAR_ADC']['redundancy']
     self.clock_period = 1/(params['SAR_ADC']['sampling_rate'] * self.cycles)
-    self.dac = CDAC(array_size=self.cycles-1, clock_period=self.clock_period)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
+    self.dac = CDAC(params=params, array_size=self.cycles-1, clock_period=self.clock_period)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
     self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution
-    self.comparator = COMPARATOR()
+    self.comparator = COMPARATOR(params=params)
     self.input_voltage_p = 0
     self.input_voltage_n = 0
     self.register_p = 0 

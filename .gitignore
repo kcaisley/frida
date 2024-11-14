@@ -1,6 +1,6 @@
 .venv
 .venv39
-
+__pycache__
 
 # Added by cargo
 
