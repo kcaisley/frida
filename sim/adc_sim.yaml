@@ -8,7 +8,7 @@ COMPARATOR:
   use_offset_error: False  # use offset error in the comparator 
   offset_voltage: 1.0e-3  # offset voltage in Volts
   common_mode_dependent_offset_gain: 0.001  # common mode voltage gain 
-  use_noise_error: False  # use noise in the comparator
+  use_noise_error: True  # use noise in the comparator
   noise_voltage: 3.0e-3  # RMS noise voltage in Volts
 
 CDAC:
@@ -28,5 +28,5 @@ CDAC:
   negative_reference_voltage: 0.0  # reference voltage in Volts
   common_mode_voltage: 0.6  # common mode voltage in Volts
   
-  use_settling_error: False  # use settling error in the CDAC
+  use_settling_error: True  # use settling error in the CDAC
   settling_time: 0.2e-9  # settling time in seconds (TBD: individual settling errors per capacitor?)
