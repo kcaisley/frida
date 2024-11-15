@@ -59,7 +59,7 @@ class CDAC:
     self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
     
     # np.set_printoptions(precision=2)
-    # print('Capacitor array: ', self.capacitor_array_p)
+    print('Capacitor array: ', self.capacitor_array_p)
     # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
 
   def top_plate_sample(self, input_p, input_n):	
@@ -160,13 +160,21 @@ class COMPARATOR:
     self.use_offset_error = params['COMPARATOR']['use_offset_error']  
     self.offset_voltage   = params['COMPARATOR']['offset_voltage']
     self.common_mode_dependent_offset_gain  = params['COMPARATOR']['common_mode_dependent_offset_gain']
+    self.use_noise_error  = params['COMPARATOR']['use_noise_error']
+    self.noise_voltage    = params['COMPARATOR']['noise_voltage']
 
   def compare(self, input_voltage_p, input_voltage_n):
     if self.use_offset_error:
       common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
-      return input_voltage_p >= input_voltage_n + self.offset_voltage + common_mode_offset_voltage
     else:
-      return input_voltage_p >= input_voltage_n
+      common_mode_offset_voltage = 0
+
+    if self.use_noise_error:
+      noise_voltage = np.random.normal(0, self.noise_voltage)
+    else:
+      noise_voltage = 0
+
+    return input_voltage_p > input_voltage_n #+ self.offset_voltage + common_mode_offset_voltage + noise_voltage
 
 class SAR_ADC:
   def __init__(self):
@@ -286,7 +294,7 @@ class SAR_ADC:
     return result
 
   def calculate_nonlinearity(self, do_plot = False):
-    values_per_bin = 10 # number of values per bin for DNL/INL calculation
+    values_per_bin = 48 # number of values per bin for DNL/INL calculation
     lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
     upper_excluded_bins = 1  # upper bound for DNL/INL calculation in LSB distance from full scale
 
@@ -304,9 +312,6 @@ class SAR_ADC:
     inl_data = np.empty(num_codes)
     adc_data = np.empty(num_codes * values_per_bin)
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/values_per_bin)
-
-    print( self.lsb_size/values_per_bin)
-    print(f"Size of input_voltage_data array: {len(input_voltage_data)}")
 
      # do the conversions
     for i in tqdm(range(num_codes * values_per_bin)):
@@ -328,6 +333,8 @@ class SAR_ADC:
     inl_data = np.cumsum(dnl_data)
     inl_sigma = np.std(inl_data)
 
+    print('DNL  %.3f' % dnl_sigma)
+    print('INL  %.3f' % inl_sigma)
     
     if do_plot:
       x_ticks = range(min_code, max_code+10, 2**(self.resolution-3))
@@ -339,12 +346,12 @@ class SAR_ADC:
       plot[0].set_ylabel("Code density")
       plot[0].grid(True)  
       plot[1].stairs(dnl_data, bin_edges, baseline = None, label = "DNL sigma = %.3f" % dnl_sigma)
-      plot[1].set_ylim(-1, 1)
+      plot[1].set_ylim(-2, 2)
       plot[1].set_ylabel("DNL [LSB]")
       plot[1].legend()
       plot[1].grid(True)  
       plot[2].stairs(inl_data, bin_edges, baseline = None, label = "INL sigma = %.3f" % inl_sigma)
-      plot[2].set_ylim(-1, 1)    
+      plot[2].set_ylim(-2, 2)    
       plot[2].set_ylabel("INL [LSB]")  
       plot[2].legend()
       plot[2].set_xlabel('ADC code')  
@@ -371,13 +378,15 @@ class SAR_ADC:
       input_voltage_array[i] = input_voltage
       adc_data_array[i] = self.sample_and_convert_bss(input_voltage,  -input_voltage)
 
-    # calculate residuals (in LSB)
+    # calculate residuals which represent the noise (in LSB)
     residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array - 0.5
     # noise floor RMS
     noise_std = np.std(residual_array)
     noise_percent = noise_std/2**self.resolution * 100
     # ENOB
-    enob = self.resolution - noise_std*np.sqrt(12) + 1 # ???
+    enob = self.resolution - np.log10(noise_std*np.sqrt(12))
+
+    print('ENOB %.2f' % enob)
 
     plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
     figure, plot = plt.subplots(3, 1, sharex=True)
@@ -413,12 +422,12 @@ if __name__ == "__main__":
 
   adc = SAR_ADC()
   # plot SAR iterations
-  #adc.sample_and_convert_bss(-0.003, 0, do_plot=True)
+  adc.sample_and_convert_bss(-0, 0, do_plot=True)
   # plot transfer function
-  #adc.plot_transfer_function()
+  # adc.plot_transfer_function()
   # calculate DNL/INL
-  adc.calculate_nonlinearity(do_plot=True)
-  adc.calculate_enob()
+  # adc.calculate_nonlinearity(do_plot=True)
+  # adc.calculate_enob()
   
   # CDAC only
   # dac = CDAC()
