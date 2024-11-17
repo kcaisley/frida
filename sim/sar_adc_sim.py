@@ -36,6 +36,8 @@ class CDAC:
     self.register_p = 0
     self.register_n = 0
 
+    self.consumed_charge = 0
+
     self.use_settling_error  = params['CDAC']['use_settling_error']
     self.settling_time_error = np.exp(-clock_period/self.settling_time)
 
@@ -69,13 +71,13 @@ class CDAC:
     self.output_voltage_p = input_p 
     self.output_voltage_n = input_n 
 
-  def update(self, register_p, register_n):
+  def update(self, register_p, register_n, do_calculate_energy = False): 
     # helper variables
-
     delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
         
     delta_output_voltage_p = 0
     delta_output_voltage_n = 0
+    self.consumed_charge = 0
     
     # calculate output voltage change induced by switched bottom plate voltages
     for i in range(self.array_size):
@@ -90,7 +92,28 @@ class CDAC:
         delta_output_voltage_n += current_capacitor_n/self.total_capacitance_n * delta_backplane_voltage
       elif (register_n & (1 << i)) < (self.register_n & (1 << i)):
         delta_output_voltage_n -= current_capacitor_n/self.total_capacitance_n * delta_backplane_voltage
-    
+
+    if do_calculate_energy:
+      # calculate energy consumption
+      for i in range(self.array_size):
+        current_capacitor_p = self.capacitor_array_p[i]
+        current_capacitor_n = self.capacitor_array_n[i]
+        if   (register_p & (1 << i)) > (self.register_p & (1 << i)): # switch from neg. VREF to pos. VREF       
+          if   (self.register_p & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
+            self.consumed_charge += current_capacitor_p * delta_output_voltage_p
+
+        if   (register_p & (1 << i)) < (self.register_p & (1 << i)): # switch from pos. VREF to neg. VREF       
+          if   (self.register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
+            self.consumed_charge += current_capacitor_p * delta_output_voltage_p
+
+        if   (register_n & (1 << i)) > (self.register_n & (1 << i)): # switch from neg. VREF to pos. VREF       
+          if   (self.register_n & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
+            self.consumed_charge += current_capacitor_n * delta_output_voltage_n
+
+        if   (register_n & (1 << i)) < (self.register_n & (1 << i)): # switch from pos. VREF to neg. VREF       
+          if   (self.register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
+            self.consumed_charge += current_capacitor_n * delta_output_voltage_n
+ 
     # ideal output voltage
     self.output_voltage_no_error_p += delta_output_voltage_p
     self.output_voltage_no_error_n += delta_output_voltage_n  
@@ -191,6 +214,7 @@ class SAR_ADC:
     self.register_p = 0 
     self.register_n = 0
     self.comp_result = []
+    self.conversion_energy = 0
 
   def include_errors(self, use_settling_error = False, use_systematic_errors = False, use_dac_offset_error = False):
     # capacitor array mismatch
@@ -203,11 +227,13 @@ class SAR_ADC:
     # comparator offset error
     self.comparator.use_offset_error = use_dac_offset_error
       
-  def sample_and_convert_bss(self, input_voltage_p, input_voltage_n, do_plot = False):	
+  def sample_and_convert_bss(self, input_voltage_p, input_voltage_n, do_calculate_energy = False,  do_plot = False):	
     # init arrays with DAC output voltages and comparator results
     dac_out_p = np.empty(self.cycles, dtype='float64')
     dac_out_n = np.empty(self.cycles, dtype='float64')
     self.comp_result = []
+    self.conversion_energy = 0
+    total_consumed_charge = 0
     # for annotation
     comp_out_no_error = []
   
@@ -245,7 +271,8 @@ class SAR_ADC:
           self.register_n -= 1 << (self.dac.array_size-i-1) # decrement n-side
    
       # update DAC output voltage and append to array
-      self.dac.update(self.register_p, self.register_n)
+      self.dac.update(self.register_p, self.register_n, do_calculate_energy = do_calculate_energy)
+      total_consumed_charge += self.dac.consumed_charge
       dac_out_p[i+1] = self.dac.output_voltage_p
       dac_out_n[i+1] = self.dac.output_voltage_n
       
@@ -257,7 +284,8 @@ class SAR_ADC:
     
     # calculate result  
     result = self.calculate_result() 
-         
+    self.conversion_energy = total_consumed_charge * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
+             
     if do_plot:
       # calculate error free conversion for annotation
       ideal_adc_code = self.ideal_conversion(input_voltage_p, input_voltage_n)
@@ -405,19 +433,23 @@ class SAR_ADC:
     return ideal_adc_code
 
   def plot_transfer_function(self):
-    samples_per_bin = 10
+    samples_per_bin = 1
+    common_mode_input_voltage = 0.3
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
+    conversion_energy_array = np.empty(len(input_voltage_data))
     adc_data = np.empty(2**self.resolution*samples_per_bin)
     for i in tqdm(range(len(input_voltage_data))):
-      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
+      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage, do_calculate_energy=True) 
       #adc_data[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
       #input_voltage_data_lsb[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
+      conversion_energy_array[i] = self.conversion_energy
+
     input_voltage_data_lsb = input_voltage_data / self.lsb_size + 2**(self.resolution-1)
 
     y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
 
-    figure, plot = plt.subplots(2, 1, sharex=True)
+    figure, plot = plt.subplots(3, 1, sharex=True)
     figure.suptitle('ADC Transfer Function')
     plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
     plot[0].plot(input_voltage_data, input_voltage_data_lsb, 'r--', label = 'Ideal transfer function')
@@ -431,7 +463,11 @@ class SAR_ADC:
     plot[1].grid(True)
     plot[1].legend()
     plot[1].set_xlabel('Diff. input voltage [V]')
-
+    plot[2].plot(input_voltage_data, conversion_energy_array, label='Conversion energy')
+    plot[2].set_ylabel("Energy [J]")
+    plot[2].grid(True)
+    plot[2].legend()
+    plot[2].set_xlabel('Diff. input voltage [V]')
 
 if __name__ == "__main__":
 
@@ -441,9 +477,9 @@ if __name__ == "__main__":
   # plot transfer function
   adc.plot_transfer_function()
   # calculate DNL/INL
-  adc.calculate_nonlinearity(do_plot=True)
+  # adc.calculate_nonlinearity(do_plot=True)
   # calculate ENOB
-  adc.calculate_enob()
+  # adc.calculate_enob()
   
   # CDAC only
   # dac = CDAC()
