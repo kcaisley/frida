@@ -1,0 +1,11 @@
+{
+  "configurations": [
+    {
+      "type": "debugpy",
+      "request": "launch",
+      "name": "Launch SAR ADC Simulation",
+      "program": "${workspaceFolder}/sim/sar_adc_sim.py",
+      "cwd": "${workspaceFolder}/sim"
+    }
+  ]
+}

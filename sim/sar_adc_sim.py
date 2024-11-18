@@ -70,6 +70,13 @@ class CDAC:
     self.output_voltage_no_error_n = input_n 
     self.output_voltage_p = input_p 
     self.output_voltage_n = input_n 
+  
+  def reset(self, do_calculate_energy = False):
+    # init DAC register to mid-scale 0b01111...111
+    register_p = 2**(self.array_size-1)-1
+    register_n = 2**(self.array_size-1)-1 
+    self.update(register_p, register_n, do_calculate_energy=do_calculate_energy)  
+    # print('reset charge %e' % self.dac.consumed_charge)
 
   def update(self, register_p, register_n, do_calculate_energy = False): 
     # helper variables
@@ -124,7 +131,7 @@ class CDAC:
         else: # switch from pos. VREF to neg. VREF       
           if   (register_n & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
             self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
- 
+        
     # ideal output voltage
     self.output_voltage_no_error_p += delta_output_voltage_p
     self.output_voltage_no_error_n += delta_output_voltage_n  
@@ -247,17 +254,20 @@ class SAR_ADC:
     total_consumed_charge = 0
     # for annotation
     comp_out_no_error = []
+
   
-    # init DAC register to mid-scale 0b01111...111
-    register_p = 2**(self.dac.array_size-1)-1
-    register_n = 2**(self.dac.array_size-1)-1 
-    self.dac.update(register_p, register_n)   # init DAC register
-    total_consumed_charge += self.dac.consumed_charge
-    # print('reset charge %e' % self.dac.consumed_charge)
-   # self.dac.update(register_p, register_n)   # 2nd init DAC register to suppress settling time error for MSB comparison
+    # init DAC register
+    self.dac.reset(do_calculate_energy=do_calculate_energy)
+    # total_consumed_charge += self.dac.consumed_charge
+  
+    # get initial DAC register setting
+    temp_register_p = self.dac.register_p
+    temp_register_n = self.dac.register_n
    
     # sample input voltage and append voltages to array
     self.dac.top_plate_sample(input_voltage_p, input_voltage_n)   
+
+    # store first DAC output voltage set for plotting
     dac_out_p[0] = self.dac.output_voltage_p
     dac_out_n[0] = self.dac.output_voltage_n
   
@@ -273,18 +283,18 @@ class SAR_ADC:
       # update DAC register depending on the previous conversion
       if (i == 0): # first conversion switches MSB bit in opposite direction
         if self.comp_result[0] == 0:
-          register_p += 1 << (self.dac.array_size-1) # increment p-side
+          temp_register_p += 1 << (self.dac.array_size-1) # increment p-side
         else:
-          register_n += 1 << (self.dac.array_size-1) # increment n-side
+          temp_register_n += 1 << (self.dac.array_size-1) # increment n-side
 
       else: # all other bits
         if self.comp_result[i] == 1:
-          register_p -= 1 << (self.dac.array_size-i-1) # decrement p-side
+          temp_register_p -= 1 << (self.dac.array_size-i-1) # decrement p-side
         else:
-          register_n -= 1 << (self.dac.array_size-i-1) # decrement n-side
+          temp_register_n -= 1 << (self.dac.array_size-i-1) # decrement n-side
    
       # update DAC output voltage and append to array
-      self.dac.update(register_p, register_n, do_calculate_energy = do_calculate_energy)
+      self.dac.update(temp_register_p, temp_register_n, do_calculate_energy = do_calculate_energy)
       total_consumed_charge += self.dac.consumed_charge
       dac_out_p[i+1] = self.dac.output_voltage_p
       dac_out_n[i+1] = self.dac.output_voltage_n
@@ -298,6 +308,7 @@ class SAR_ADC:
     # calculate result  
     result = self.calculate_result() 
     self.conversion_energy = total_consumed_charge * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
+    # print('conversion energy %e [pJ]' % (self.conversion_energy * 1e12))
              
     if do_plot:
       # calculate error free conversion for annotation
@@ -321,7 +332,7 @@ class SAR_ADC:
         plot.annotate(self.comp_result[i], xy=(i+0.5, 0), ha='center', color=color)
 
     return result
-  
+
   def calculate_result(self):
     result = 0
     if (self.dac.use_radix):
@@ -398,7 +409,7 @@ class SAR_ADC:
 
     return dnl_sigma, inl_sigma        
 
-  def calculate_enob(self):
+  def calculate_enob(self, do_plot = False):
     # return (snr - 1.76)/6.02
     frequency   = 1e4
     amplitude   = 0.59
@@ -426,17 +437,20 @@ class SAR_ADC:
     enob = self.resolution - np.log10(noise_std*np.sqrt(12))
 
     print('ENOB %.2f' % enob)
-
-    plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
-    figure, plot = plt.subplots(3, 1, sharex=True)
-    figure.suptitle(plot_title)    
-    # plot adc data
-    plot[0].plot(time_array, input_voltage_array, label = 'Input voltage')
-    plot[0].legend()
-    plot[1].stairs(adc_data_array[:len(time_array)-1], time_array, baseline = False, label = 'ADC code')
-    plot[1].legend()
-    plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, enob))
-    plot[2].legend()
+    
+    if do_plot:
+      plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
+      figure, plot = plt.subplots(3, 1, sharex=True)
+      figure.suptitle(plot_title)    
+      # plot adc data
+      plot[0].plot(time_array, input_voltage_array, label = 'Input voltage')
+      plot[0].legend()
+      plot[1].stairs(adc_data_array[:len(time_array)-1], time_array, baseline = False, label = 'ADC code')
+      plot[1].legend()
+      plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, enob))
+      plot[2].legend()
+    
+    return enob
 
   def ideal_conversion(self, input_voltage_p, input_voltage_n): 
     # ideal conversion
@@ -450,19 +464,16 @@ class SAR_ADC:
     common_mode_input_voltage = 0.3
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
-    conversion_energy_array = np.empty(len(input_voltage_data))
     adc_data = np.empty(2**self.resolution*samples_per_bin)
     for i in tqdm(range(len(input_voltage_data))):
-      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage, do_calculate_energy=True) 
+      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage) 
       #adc_data[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
       #input_voltage_data_lsb[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
-      conversion_energy_array[i] = self.conversion_energy
 
     input_voltage_data_lsb = input_voltage_data / self.lsb_size + 2**(self.resolution-1)
 
+    figure, plot = plt.subplots(2, 1, sharex=True)
     y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
-
-    figure, plot = plt.subplots(3, 1, sharex=True)
     figure.suptitle('ADC Transfer Function')
     plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
     plot[0].plot(input_voltage_data, input_voltage_data_lsb, 'r--', label = 'Ideal transfer function')
@@ -475,24 +486,62 @@ class SAR_ADC:
     plot[1].set_ylabel("ADC code")
     plot[1].grid(True)
     plot[1].legend()
-    plot[2].plot(input_voltage_data, conversion_energy_array, label='Conversion energy')
-    plot[2].set_ylabel("Energy [J]")
-    plot[2].grid(True)
-    plot[2].legend()
+
+  def calculate_conversion_energy(self, do_plot = False):
+    samples_per_bin = 1
+    common_mode_input_voltage = 0.0
+    input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
+    conversion_energy_array = np.empty(len(input_voltage_data))
+    adc_data = np.empty(2**self.resolution*samples_per_bin)
+    conversion_energy_average = 0
+
+    for i in tqdm(range(len(input_voltage_data))):
+      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage, do_calculate_energy=True) 
+      conversion_energy_array[i] = self.conversion_energy
+    conversion_energy_average = np.average(conversion_energy_array)
+  
+    if do_plot:
+      figure, plot = plt.subplots(2, 1, sharex=True)
+      y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
+      figure.suptitle('ADC Transfer Function')
+      plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
+      plot[0].set_ylabel("ADC code")
+      plot[0].set_yticks(y_ticks)
+      plot[0].grid(True)  
+      plot[0].legend()
+      plot[1].plot(input_voltage_data, conversion_energy_array * 1e12, label='Conversion energy\n average = %.3f pJ' % (conversion_energy_average * 1e12))  
+      plot[1].set_ylabel("Energy [pJ]")
+      plot[1].set_xlabel('Diff. input voltage [V]')  
+      plot[1].grid(True)
+      plot[1].legend()
+
+    print('conversion energy average P[pJ] %e' % (conversion_energy_average * 1e12))
+    print('FOM[pJ] %e' % (conversion_energy_average / adc.resolution * 1e12))
 
 if __name__ == "__main__":
 
   adc = SAR_ADC()
   # plot SAR iterations
-  adc.sample_and_convert_bss(-0.01, 1, do_plot=True, do_calculate_energy=True)
-  print('conversion energy P[pJ] %e' % (adc.conversion_energy * 1e12))
-  print('FOM[pJ] %e' % (adc.conversion_energy / adc.resolution * 1e12))
+  # adc.sample_and_convert_bss(-0.01, 1, do_plot=True, do_calculate_energy=True)
+  
+  # calculate conversion energy
+  adc.calculate_conversion_energy(do_plot=True)
+  
   # plot transfer function
   # adc.plot_transfer_function()
+  
   # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
+  
   # calculate ENOB
   # adc.calculate_enob()
+
+  # parametric ENOB calculation
+  # adc.comparator.use_noise_error = True
+  # for noise in np.arange(0, 10, 2):
+  #   adc.comparator.noise_voltage = noise/1e3
+  #   enob = adc.calculate_enob()
+  #   print('noise %.3f [mV], ENOB %.2f' % (noise, enob))
   
   # CDAC only
   # dac = CDAC()
