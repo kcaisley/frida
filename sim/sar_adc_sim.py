@@ -74,15 +74,23 @@ class CDAC:
   def update(self, register_p, register_n, do_calculate_energy = False): 
     # helper variables
     delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
-        
+    
     delta_output_voltage_p = 0
     delta_output_voltage_n = 0
-    self.consumed_charge = 0
+    self.consumed_charge   = 0
     
     # calculate output voltage change induced by switched bottom plate voltages
+
+    # broadcast implementation: slower than loop !!!
+    # delta_register_array_p = np.array([int((register_p >> i) & 1) - int((self.register_p >> i) & 1) for i in range(self.array_size)], dtype='int')
+    # delta_register_array_n = np.array([int((register_n >> i) & 1) - int((self.register_n >> i) & 1) for i in range(self.array_size)], dtype='int')
+    # delta_output_voltage_p = np.sum(delta_register_array_p * self.capacitor_array_p/self.total_capacitance_p * delta_backplane_voltage)
+    # delta_output_voltage_n = np.sum(delta_register_array_n * self.capacitor_array_n/self.total_capacitance_n * delta_backplane_voltage)
+
     for i in range(self.array_size):
       current_capacitor_p = self.capacitor_array_p[i]
       current_capacitor_n = self.capacitor_array_n[i]
+
       if   (register_p & (1 << i)) > (self.register_p & (1 << i)):
         delta_output_voltage_p += current_capacitor_p/self.total_capacitance_p * delta_backplane_voltage
       elif (register_p & (1 << i)) < (self.register_p & (1 << i)):
@@ -94,25 +102,28 @@ class CDAC:
         delta_output_voltage_n -= current_capacitor_n/self.total_capacitance_n * delta_backplane_voltage
 
     if do_calculate_energy:
-      # calculate energy consumption
+      # calculate charge delivered from VREF supply dependent on output voltage change of the DAC:
+      #   for positive output voltage change: change in DAC output voltage * summed capacitance connected to neg. VREF (GND)
+      #   for negative output voltage change: change in DAC output voltage * summed capacitance connected to pos. VREF 
+
       for i in range(self.array_size):
         current_capacitor_p = self.capacitor_array_p[i]
         current_capacitor_n = self.capacitor_array_n[i]
-        if   (register_p & (1 << i)) > (self.register_p & (1 << i)): # switch from neg. VREF to pos. VREF       
-          if   (self.register_p & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
+        if   (delta_output_voltage_p > 0): # switch from neg. VREF (GND) to pos. VREF       
+          if   (register_p & (1 << i) == 0):  # sum over capacitors connected to neg. VREF (GND)
             self.consumed_charge += current_capacitor_p * delta_output_voltage_p
+        
+        else: # negative delta_output_voltage, switch from pos. VREF to neg. VREF       
+          if   (register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
+            self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
 
-        if   (register_p & (1 << i)) < (self.register_p & (1 << i)): # switch from pos. VREF to neg. VREF       
-          if   (self.register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
-            self.consumed_charge += current_capacitor_p * delta_output_voltage_p
-
-        if   (register_n & (1 << i)) > (self.register_n & (1 << i)): # switch from neg. VREF to pos. VREF       
-          if   (self.register_n & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
+        if   (delta_output_voltage_n > 0): # switch from neg. VREF (GND) to pos. VREF       
+          if   (register_n & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
             self.consumed_charge += current_capacitor_n * delta_output_voltage_n
 
-        if   (register_n & (1 << i)) < (self.register_n & (1 << i)): # switch from pos. VREF to neg. VREF       
-          if   (self.register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
-            self.consumed_charge += current_capacitor_n * delta_output_voltage_n
+        else: # switch from pos. VREF to neg. VREF       
+          if   (register_n & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
+            self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
  
     # ideal output voltage
     self.output_voltage_no_error_p += delta_output_voltage_p
@@ -211,8 +222,8 @@ class SAR_ADC:
     self.comparator = COMPARATOR()
     self.input_voltage_p = 0
     self.input_voltage_n = 0
-    self.register_p = 0 
-    self.register_n = 0
+    # self.register_p = 0 
+    # self.register_n = 0
     self.comp_result = []
     self.conversion_energy = 0
 
@@ -238,10 +249,12 @@ class SAR_ADC:
     comp_out_no_error = []
   
     # init DAC register to mid-scale 0b01111...111
-    self.register_p = 2**(self.dac.array_size-1)-1
-    self.register_n = 2**(self.dac.array_size-1)-1 
-    self.dac.update(self.register_p, self.register_n)   # init DAC register
-    self.dac.update(self.register_p, self.register_n)   # 2nd init DAC register to suppress settling time error for MSB comparison
+    register_p = 2**(self.dac.array_size-1)-1
+    register_n = 2**(self.dac.array_size-1)-1 
+    self.dac.update(register_p, register_n)   # init DAC register
+    total_consumed_charge += self.dac.consumed_charge
+    # print('reset charge %e' % self.dac.consumed_charge)
+   # self.dac.update(register_p, register_n)   # 2nd init DAC register to suppress settling time error for MSB comparison
    
     # sample input voltage and append voltages to array
     self.dac.top_plate_sample(input_voltage_p, input_voltage_n)   
@@ -255,23 +268,23 @@ class SAR_ADC:
       self.comp_result.append(0)
     
     for i in range(self.dac.array_size):   # SAR loop, bidirectional single side switching (BSS)
-      # print('conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.register_p, '#014b'), format(self.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
+      # print('conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(register_p, '#014b'), format(register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
       
       # update DAC register depending on the previous conversion
       if (i == 0): # first conversion switches MSB bit in opposite direction
         if self.comp_result[0] == 0:
-          self.register_p += 1 << (self.dac.array_size-1) # increment p-side
+          register_p += 1 << (self.dac.array_size-1) # increment p-side
         else:
-          self.register_n += 1 << (self.dac.array_size-1) # increment n-side
+          register_n += 1 << (self.dac.array_size-1) # increment n-side
 
       else: # all other bits
         if self.comp_result[i] == 1:
-          self.register_p -= 1 << (self.dac.array_size-i-1) # decrement p-side
+          register_p -= 1 << (self.dac.array_size-i-1) # decrement p-side
         else:
-          self.register_n -= 1 << (self.dac.array_size-i-1) # decrement n-side
+          register_n -= 1 << (self.dac.array_size-i-1) # decrement n-side
    
       # update DAC output voltage and append to array
-      self.dac.update(self.register_p, self.register_n, do_calculate_energy = do_calculate_energy)
+      self.dac.update(register_p, register_n, do_calculate_energy = do_calculate_energy)
       total_consumed_charge += self.dac.consumed_charge
       dac_out_p[i+1] = self.dac.output_voltage_p
       dac_out_n[i+1] = self.dac.output_voltage_n
@@ -462,20 +475,20 @@ class SAR_ADC:
     plot[1].set_ylabel("ADC code")
     plot[1].grid(True)
     plot[1].legend()
-    plot[1].set_xlabel('Diff. input voltage [V]')
     plot[2].plot(input_voltage_data, conversion_energy_array, label='Conversion energy')
     plot[2].set_ylabel("Energy [J]")
     plot[2].grid(True)
     plot[2].legend()
-    plot[2].set_xlabel('Diff. input voltage [V]')
 
 if __name__ == "__main__":
 
   adc = SAR_ADC()
   # plot SAR iterations
-  # adc.sample_and_convert_bss(-1, 0, do_plot=True)
+  adc.sample_and_convert_bss(-0.01, 1, do_plot=True, do_calculate_energy=True)
+  print('conversion energy P[pJ] %e' % (adc.conversion_energy * 1e12))
+  print('FOM[pJ] %e' % (adc.conversion_energy / adc.resolution * 1e12))
   # plot transfer function
-  adc.plot_transfer_function()
+  # adc.plot_transfer_function()
   # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
   # calculate ENOB
