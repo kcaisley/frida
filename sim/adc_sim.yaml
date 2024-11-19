@@ -1,7 +1,7 @@
 SAR_ADC:
   resolution: 12  # resolution of the ADC
   redundancy: 0  # redundancy of the ADC 
-  sampling_rate: 10.0e+6  # sampling rate in Hz
+  sampling_frequency: 10.0e+6  # sampling rate in Hz
   aperture_jitter: 10.0e-12  # aperture jitter in seconds (TBD)
   positive_reference_voltage: 1.2  # reference voltage in Volts
   negative_reference_voltage: 0.0  # reference voltage in Volts

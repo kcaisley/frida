@@ -3,20 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# Load parameters from YAML file
-with open('adc_sim.yaml', 'r') as file:
-  params = yaml.safe_load(file)
+
 
 class CDAC:
-  def __init__(self, resolution, sampling_frequency = 1e-9, positive_ref_voltage = 1, negative_ref_voltage = -1):
+  def __init__(self, params):
     # capacitor array setup, numbers (re-)calculated in 'build_capacitor_array'
     self.unit_capacitance      = params['CDAC']['unit_capacitance']
     self.use_radix             = params['CDAC']['use_radix']
     self.radix                 = params['CDAC']['radix']
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
-    self.resolution            = resolution 
-    self.array_size            = resolution - 1   
+    self.resolution            = params['SAR_ADC']['resolution'] 
+    self.array_size            = self.resolution - 1   
     self.capacitor_array_p     = np.zeros(self.array_size)
     self.capacitor_array_n     = np.zeros(self.array_size)
     self.total_capacitance_p   = 0  
@@ -25,10 +23,10 @@ class CDAC:
 
     # voltage swing and settling time
     self.settling_time         = params['CDAC']['settling_time']
-    self.positive_ref_voltage  = positive_ref_voltage
-    self.negative_ref_voltage  = negative_ref_voltage
-    self.common_mode_voltage   = (positive_ref_voltage - negative_ref_voltage) / 2
-    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**resolution
+    self.positive_ref_voltage  = params['SAR_ADC']['positive_reference_voltage']
+    self.negative_ref_voltage  = params['SAR_ADC']['negative_reference_voltage']
+    self.common_mode_voltage   = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
+    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.resolution
     
     self.output_voltage_p = 0
     self.output_voltage_n = 0
@@ -40,7 +38,7 @@ class CDAC:
     self.consumed_charge = 0
 
     self.use_settling_error  = params['CDAC']['use_settling_error']
-    self.settling_time_error = np.exp(-1/(self.settling_time * sampling_frequency * (self.array_size + 1)))
+    self.settling_time_error = np.exp(-1/(self.settling_time * params['SAR_ADC']['sampling_frequency'] * (self.array_size + 1)))
 
   def update_parameters(self):   # update depending parameters after changes
     self.build_capacitor_array()
@@ -212,7 +210,7 @@ class CDAC:
     return dac_dnl_std, dac_inl_std    
 
 class COMPARATOR:
-  def __init__(self):
+  def __init__(self, params):
     self.use_offset_error = params['COMPARATOR']['use_offset_error']  
     self.offset_voltage   = params['COMPARATOR']['offset_voltage']
     self.common_mode_dependent_offset_gain  = params['COMPARATOR']['common_mode_dependent_offset_gain']
@@ -233,18 +231,18 @@ class COMPARATOR:
     return input_voltage_p > input_voltage_n + self.offset_voltage + common_mode_offset_voltage + noise_voltage
 
 class SAR_ADC:
-  def __init__(self):
+  def __init__(self, params):
     self.resolution = params['SAR_ADC']['resolution']
-    self.sampling_frequency = params['SAR_ADC']['sampling_rate'] 
+    self.sampling_frequency = params['SAR_ADC']['sampling_frequency'] 
     self.positive_ref_voltage = params['SAR_ADC']['positive_reference_voltage']
     self.negative_ref_voltage = params['SAR_ADC']['negative_reference_voltage']
-    self.dac = CDAC(sampling_frequency=self.sampling_frequency, resolution=self.resolution, positive_ref_voltage=self.positive_ref_voltage, negative_ref_voltage=self.negative_ref_voltage)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
+    self.dac = CDAC(params) 
     self.cycles = self.dac.array_size + 1
     self.clock_period = 1/(self.sampling_frequency * self.cycles)
     self.redundancy = self.cycles - self.resolution
     self.diff_input_voltage_range = 2 * (self.positive_ref_voltage - self.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
-    self.comparator = COMPARATOR()
+    self.comparator = COMPARATOR(params)
     self.input_voltage_p = 0
     self.input_voltage_n = 0
     self.comp_result = []
@@ -584,7 +582,11 @@ class SAR_ADC:
 
 if __name__ == "__main__":
 
-  adc = SAR_ADC()
+  # Load parameters from YAML file
+  with open('adc_sim.yaml', 'r') as file:
+    params = yaml.safe_load(file)
+
+  adc = SAR_ADC(params)
   # plot SAR iterations
   # adc.sample_and_convert_bss(-0.2, 0, do_plot=True, do_calculate_energy=True)
   # calculate conversion energy
