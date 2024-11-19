@@ -8,26 +8,27 @@ with open('adc_sim.yaml', 'r') as file:
   params = yaml.safe_load(file)
 
 class CDAC:
-  def __init__(self, array_size, clock_period = 1e-9):
-    # capacitor array setup
-    self.array_size            = array_size
-    self.unit_capacitance      = np.array(params['CDAC']['unit_capacitance'])
-    self.capacitor_array_p     = np.zeros(self.array_size)
-    self.capacitor_array_n     = np.zeros(self.array_size)
+  def __init__(self, resolution, sampling_frequency = 1e-9, positive_ref_voltage = 1, negative_ref_voltage = -1):
+    # capacitor array setup, numbers (re-)calculated in 'build_capacitor_array'
+    self.unit_capacitance      = params['CDAC']['unit_capacitance']
     self.use_radix             = params['CDAC']['use_radix']
     self.radix                 = params['CDAC']['radix']
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
-    self.total_capacitance_p = 0  # calculated in 'build_capacitor_array'
-    self.total_capacitance_n = 0
-    self.build_capacitor_array(use_systematic_errors=self.use_systematic_errors)
+    self.resolution            = resolution 
+    self.array_size            = resolution - 1   
+    self.capacitor_array_p     = np.zeros(self.array_size)
+    self.capacitor_array_n     = np.zeros(self.array_size)
+    self.total_capacitance_p   = 0  
+    self.total_capacitance_n   = 0
+    self.build_capacitor_array()
 
     # voltage swing and settling time
     self.settling_time         = params['CDAC']['settling_time']
-    self.positive_ref_voltage  = params['CDAC']['positive_reference_voltage']
-    self.negative_ref_voltage  = params['CDAC']['negative_reference_voltage']
-    self.common_mode_voltage   = params['CDAC']['common_mode_voltage']
-    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.array_size
+    self.positive_ref_voltage  = positive_ref_voltage
+    self.negative_ref_voltage  = negative_ref_voltage
+    self.common_mode_voltage   = (positive_ref_voltage - negative_ref_voltage) / 2
+    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**resolution
     
     self.output_voltage_p = 0
     self.output_voltage_n = 0
@@ -39,18 +40,30 @@ class CDAC:
     self.consumed_charge = 0
 
     self.use_settling_error  = params['CDAC']['use_settling_error']
-    self.settling_time_error = np.exp(-clock_period/self.settling_time)
+    self.settling_time_error = np.exp(-1/(self.settling_time * sampling_frequency * (self.array_size + 1)))
 
-  def build_capacitor_array(self, use_systematic_errors):
+  def update_parameters(self):   # update depending parameters after changes
+    self.build_capacitor_array()
+    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.resolution
+    self.common_mode_voltage = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
+
+  def build_capacitor_array(self):
     if self.use_radix:
+      if self.radix != 2:
+        # resize capacitor array size to the dynamic range of the nominal binary weighted capacitors
+        self.array_size = int(np.ceil(self.array_size/np.log2(self.radix)))
+        self.capacitor_array_p = np.zeros(self.array_size)
+        self.capacitor_array_n = np.zeros(self.array_size)
+ 
       for i in range(self.array_size):
-        self.capacitor_array_p[i] = params['CDAC']['radix']**i * self.unit_capacitance
-        self.capacitor_array_n[i] = params['CDAC']['radix']**i * self.unit_capacitance
+        self.capacitor_array_p[i] = self.radix**i * self.unit_capacitance
+        self.capacitor_array_n[i] = self.radix**i * self.unit_capacitance
     else:
-      self.capacitor_array_p = params['CDAC']['capacitor_weights'][:self.array_size] * self.unit_capacitance
-      self.capacitor_array_n = params['CDAC']['capacitor_weights'][:self.array_size] * self.unit_capacitance
+      self.array_size = self.resolution - 1 
+      self.capacitor_array_p = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
+      self.capacitor_array_n = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
 
-    if use_systematic_errors:
+    if self.use_systematic_errors:
       capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
       capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
 
@@ -61,7 +74,9 @@ class CDAC:
     self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
     
     # np.set_printoptions(precision=2)
+    # print('Cycles: ', self.array_size+1)  
     # print('Capacitor array: ', self.capacitor_array_p)
+    # print('Total capacitance: ', self.total_capacitance_p)
     # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
 
   def top_plate_sample(self, input_p, input_n):	
@@ -220,41 +235,80 @@ class COMPARATOR:
 class SAR_ADC:
   def __init__(self):
     self.resolution = params['SAR_ADC']['resolution']
-    self.cycles = self.resolution + params['SAR_ADC']['redundancy']
-    self.sampling_rate = params['SAR_ADC']['sampling_rate'] 
-    self.clock_period = 1/(self.sampling_rate * self.cycles)
-    self.dac = CDAC(clock_period=self.clock_period, array_size=self.cycles-1)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
-    self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
+    self.sampling_frequency = params['SAR_ADC']['sampling_rate'] 
+    self.positive_ref_voltage = params['SAR_ADC']['positive_reference_voltage']
+    self.negative_ref_voltage = params['SAR_ADC']['negative_reference_voltage']
+    self.dac = CDAC(sampling_frequency=self.sampling_frequency, resolution=self.resolution, positive_ref_voltage=self.positive_ref_voltage, negative_ref_voltage=self.negative_ref_voltage)  # for BSS, DAC array size must be number of ADC conversion cycles - 1
+    self.cycles = self.dac.array_size + 1
+    self.clock_period = 1/(self.sampling_frequency * self.cycles)
+    self.redundancy = self.cycles - self.resolution
+    self.diff_input_voltage_range = 2 * (self.positive_ref_voltage - self.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
     self.comparator = COMPARATOR()
     self.input_voltage_p = 0
     self.input_voltage_n = 0
-    # self.register_p = 0 
-    # self.register_n = 0
     self.comp_result = []
     self.conversion_energy = 0
 
-  def include_errors(self, use_settling_error = False, use_systematic_errors = False, use_dac_offset_error = False):
-    # capacitor array mismatch
-    if use_systematic_errors:
-      self.dac.build_capacitor_array(use_systematic_errors=True, use_radix=False)
-    else:
-      self.dac.build_capacitor_array(use_systematic_errors=False, use_radix=True)
-        # DAC settling time error
-    self.dac.use_settling_error = use_settling_error
-    # comparator offset error
-    self.comparator.use_offset_error = use_dac_offset_error
-      
+    # performance metrics
+    self.dnl  = 0
+    self.inl  = 0
+    self.enob = 0
+    self.average_conversion_energy = 0
+    self.fom = 0
+
+  def update_parameters(self):  # update depending parameters after changes 
+    self.dac.update_parameters()
+    self.cycles = self.dac.array_size + 1
+    self.clock_period = 1/(self.sampling_frequency * self.cycles)
+    self.redundancy = self.cycles - self.resolution
+    self.diff_input_voltage_range = 2 * (self.positive_ref_voltage - self.negative_ref_voltage)
+    self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
+    self.dnl  = 0
+    self.inl  = 0
+    self.enob = 0
+    self.average_conversion_energy = 0   
+
+  def print_parameter_list(self):
+    b = "\033[1m"
+    n = "\033[0m"
+    parameters = ""
+    parameters += b+"Design parameters\n"+n
+    parameters += f" Resolution   {self.resolution}\n"
+    parameters += f" Sample freq. {self.sampling_frequency/1.0e6:.0f} Msps\n"
+    parameters += f" LSB size     {self.lsb_size/1.0e-3:.3f} mV\n"
+    parameters += f" Redundancy   {self.redundancy}\n"
+    if self.dac.use_radix:
+      parameters += f" DAC radix    {self.dac.radix:.1f}\n"
+    parameters += f" DAC capacitor array size  {self.dac.array_size}\n"
+    parameters += f" DAC unit capacitance      {self.dac.unit_capacitance/1e-15:.1f} fF\n"
+    parameters += f" DAC parasitic capacitance {self.dac.parasitic_capacitance/1e-15:.1f} fF\n"
+    parameters += f" DAC total capacitance     {self.dac.total_capacitance_p/1e-12:.2f} pF\n"
+    # TBD
+    # if self.dac.use_systematic_errors:
+    #   parameters += f" DAC systematic error {self.dac.settling_time_error:.2e}\n"    
+    if self.dac.use_settling_error:
+      parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
+    if self.comparator.use_noise_error:
+      parameters += f" Comparator noise          {self.comparator.noise_voltage:.2e}\n"
+    if self.comparator.use_offset_error:
+      parameters += f" Comparator offset         {self.comparator.offset_voltage:.2e}\n"
+    parameters += b+"Performance\n"+n
+    parameters += f" DNL   {self.dnl:.2f}\n"
+    parameters += f" INL   {self.inl:.2f}\n"
+    parameters += f" ENOB  {self.enob:.2f}\n"
+    parameters += f" FOM   {self.average_conversion_energy / self.resolution / 1e-12:.2e} pJ\n"
+    return parameters
+     
   def sample_and_convert_bss(self, input_voltage_p, input_voltage_n, do_calculate_energy = False,  do_plot = False):	
     # init arrays with DAC output voltages and comparator results
-    dac_out_p = np.empty(self.cycles, dtype='float64')
-    dac_out_n = np.empty(self.cycles, dtype='float64')
+    dac_out_p = np.empty(self.dac.array_size + 1, dtype='float64')
+    dac_out_n = np.empty(self.dac.array_size + 1, dtype='float64')
     self.comp_result = []
     self.conversion_energy = 0
     total_consumed_charge = 0
     # for annotation
     comp_out_no_error = []
-
   
     # init DAC register
     self.dac.reset(do_calculate_energy=do_calculate_energy)
@@ -341,6 +395,10 @@ class SAR_ADC:
       radix = 2
     for i in range(self.cycles):
       result += self.comp_result[i] * radix**(self.cycles-i-1)
+
+    if (radix != 2):
+      radix_scale_factor = (2**self.resolution-1) / ((radix**(self.cycles)-1)/(radix-1))
+      result = result * radix_scale_factor
     return result
 
   def calculate_nonlinearity(self, do_plot = False):
@@ -364,6 +422,7 @@ class SAR_ADC:
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/values_per_bin)
 
      # do the conversions
+    print('Calculating DNL/INL ...')
     for i in tqdm(range(len(input_voltage_data))):
       adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2.0, -input_voltage_data[i]/2.0) 
 
@@ -383,8 +442,6 @@ class SAR_ADC:
     inl_data = np.cumsum(dnl_data)
     inl_sigma = np.std(inl_data)
 
-    print('DNL  %.3f' % dnl_sigma)
-    print('INL  %.3f' % inl_sigma)
     
     if do_plot:
       x_ticks = range(min_code, max_code+10, 2**(self.resolution-3))
@@ -406,8 +463,9 @@ class SAR_ADC:
       plot[2].legend()
       plot[2].set_xlabel('ADC code')  
       plot[2].grid(True)        
-
-    return dnl_sigma, inl_sigma        
+    
+    self.dnl = dnl_sigma
+    self.inl = inl_sigma       
 
   def calculate_enob(self, do_plot = False):
     # return (snr - 1.76)/6.02
@@ -418,12 +476,13 @@ class SAR_ADC:
     adc_gain    = self.diff_input_voltage_range / 2 / 2**self.resolution
     adc_offset  = 2**(self.resolution-1)
 
-    time_array          = np.arange(start=0, stop=num_samples/self.sampling_rate, step=1/self.sampling_rate)
+    time_array          = np.arange(start=0, stop=num_samples/self.sampling_frequency, step=1/self.sampling_frequency)
     input_voltage_array = np.empty(len(time_array))
     adc_data_array      = np.empty(len(time_array))
 
     # sample sine wave
-    for i in range(len(time_array)):
+    print('Calculating ENOB ...')
+    for i in tqdm(range(len(time_array))):
       input_voltage = offset + amplitude*np.sin(2*np.pi*frequency*time_array[i])
       input_voltage_array[i] = input_voltage
       adc_data_array[i] = self.sample_and_convert_bss(input_voltage,  -input_voltage)
@@ -436,7 +495,6 @@ class SAR_ADC:
     # ENOB
     enob = self.resolution - np.log10(noise_std*np.sqrt(12))
 
-    print('ENOB %.2f' % enob)
     
     if do_plot:
       plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
@@ -449,8 +507,45 @@ class SAR_ADC:
       plot[1].legend()
       plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, enob))
       plot[2].legend()
+      print('ENOB %.2f' % enob)
     
+    self.enob = enob
     return enob
+
+  def calculate_conversion_energy(self, do_plot = False):
+    samples_per_bin = 1
+    common_mode_input_voltage = 0.0
+    input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
+    conversion_energy_array = np.empty(len(input_voltage_data))
+    adc_data = np.empty(2**self.resolution*samples_per_bin)
+    conversion_energy_average = 0
+
+    print('Calculating conversion energy ...')
+    for i in tqdm(range(len(input_voltage_data))):
+      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage, do_calculate_energy=True) 
+      conversion_energy_array[i] = self.conversion_energy
+    conversion_energy_average = np.average(conversion_energy_array)
+  
+    if do_plot:
+      figure, plot = plt.subplots(2, 1, sharex=True)
+      y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
+      figure.suptitle('ADC Transfer Function')
+      plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
+      plot[0].set_ylabel("ADC code")
+      plot[0].set_yticks(y_ticks)
+      plot[0].grid(True)  
+      plot[0].legend()
+      plot[1].plot(input_voltage_data, conversion_energy_array * 1e12, label='Conversion energy\n average = %.3f pJ' % (conversion_energy_average * 1e12))  
+      plot[1].set_ylabel("Energy [pJ]")
+      plot[1].set_xlabel('Diff. input voltage [V]')  
+      plot[1].grid(True)
+      plot[1].legend()
+
+      print('conversion energy average P[pJ] %e' % (conversion_energy_average * 1e12))
+      print('FOM[pJ] %e' % (conversion_energy_average / adc.resolution * 1e12))
+
+    self.fom = conversion_energy_average / adc.resolution
+    self.average_conversion_energy = conversion_energy_average
 
   def ideal_conversion(self, input_voltage_p, input_voltage_n): 
     # ideal conversion
@@ -487,54 +582,34 @@ class SAR_ADC:
     plot[1].grid(True)
     plot[1].legend()
 
-  def calculate_conversion_energy(self, do_plot = False):
-    samples_per_bin = 1
-    common_mode_input_voltage = 0.0
-    input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
-    conversion_energy_array = np.empty(len(input_voltage_data))
-    adc_data = np.empty(2**self.resolution*samples_per_bin)
-    conversion_energy_average = 0
-
-    for i in tqdm(range(len(input_voltage_data))):
-      adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2+common_mode_input_voltage, -input_voltage_data[i]/2+common_mode_input_voltage, do_calculate_energy=True) 
-      conversion_energy_array[i] = self.conversion_energy
-    conversion_energy_average = np.average(conversion_energy_array)
-  
-    if do_plot:
-      figure, plot = plt.subplots(2, 1, sharex=True)
-      y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
-      figure.suptitle('ADC Transfer Function')
-      plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
-      plot[0].set_ylabel("ADC code")
-      plot[0].set_yticks(y_ticks)
-      plot[0].grid(True)  
-      plot[0].legend()
-      plot[1].plot(input_voltage_data, conversion_energy_array * 1e12, label='Conversion energy\n average = %.3f pJ' % (conversion_energy_average * 1e12))  
-      plot[1].set_ylabel("Energy [pJ]")
-      plot[1].set_xlabel('Diff. input voltage [V]')  
-      plot[1].grid(True)
-      plot[1].legend()
-
-    print('conversion energy average P[pJ] %e' % (conversion_energy_average * 1e12))
-    print('FOM[pJ] %e' % (conversion_energy_average / adc.resolution * 1e12))
-
 if __name__ == "__main__":
 
   adc = SAR_ADC()
   # plot SAR iterations
-  # adc.sample_and_convert_bss(-0.01, 1, do_plot=True, do_calculate_energy=True)
-  
+  # adc.sample_and_convert_bss(-0.2, 0, do_plot=True, do_calculate_energy=True)
   # calculate conversion energy
-  adc.calculate_conversion_energy(do_plot=True)
+  # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
   # adc.plot_transfer_function()
   
-  # calculate DNL/INL
+  # adc.dac.use_radix = False 
+  # adc.update_parameters()
+  # print('binary weighted capacitors')
+  # # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
-  
-  # calculate ENOB
+  # # calculate ENOB
   # adc.calculate_enob()
+
+  # adc.dac.use_radix = True
+  # adc.dac.radix = 1.8
+  # adc.update_parameters()
+  # # print('non-binary weighted capacitors')
+  # # calculate DNL/INL
+  # adc.calculate_nonlinearity(do_plot=True)
+  # # # calculate ENOB
+  # adc.calculate_enob()
+
 
   # parametric ENOB calculation
   # adc.comparator.use_noise_error = True
@@ -547,5 +622,9 @@ if __name__ == "__main__":
   # dac = CDAC()
   # dac.calculate_nonlinearity(do_plot=True)
 
+  adc.calculate_nonlinearity(do_plot=True)
+  adc.calculate_enob()
+  adc.calculate_conversion_energy()
+  print(adc.print_parameter_list())
   plt.show()
 
