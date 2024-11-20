@@ -45,133 +45,15 @@ class CDAC:
     self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.resolution
     self.common_mode_voltage = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
 
-  def build_capacitor_array(self):
-    if self.use_radix:
-      if self.radix != 2:
-        # resize capacitor array size to the dynamic range of the nominal binary weighted capacitors
-        self.array_size = int(np.ceil(self.array_size/np.log2(self.radix)))
-        self.capacitor_array_p = np.zeros(self.array_size)
-        self.capacitor_array_n = np.zeros(self.array_size)
- 
-      for i in range(self.array_size):
-        self.capacitor_array_p[i] = self.radix**i * self.unit_capacitance
-        self.capacitor_array_n[i] = self.radix**i * self.unit_capacitance
-    else:
-      self.array_size = self.resolution - 1 
-      self.capacitor_array_p = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
-      self.capacitor_array_n = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
-
-    if self.use_systematic_errors:
-      capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
-      capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
-
-      self.capacitor_array_p += capacitor_errors_weighted
-      self.capacitor_array_n -= capacitor_errors_weighted
-
-    self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
-    self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
-    
-    # np.set_printoptions(precision=2)
-    # print('Cycles: ', self.array_size+1)  
-    # print('Capacitor array: ', self.capacitor_array_p)
-    # print('Total capacitance: ', self.total_capacitance_p)
-    # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
-
-  def top_plate_sample(self, input_p, input_n):	
-    # top plate sampling: DAC output voltage = input voltage
-    self.output_voltage_no_error_p = input_p 
-    self.output_voltage_no_error_n = input_n 
-    self.output_voltage_p = input_p 
-    self.output_voltage_n = input_n 
-  
-  def reset(self, do_calculate_energy = False):
-    # init DAC register to mid-scale 0b01111...111
-    register_p = 2**(self.array_size-1)-1
-    register_n = 2**(self.array_size-1)-1 
-    self.update(register_p, register_n, do_calculate_energy=do_calculate_energy)  
-    # print('reset charge %e' % self.dac.consumed_charge)
-
-  def update(self, register_p, register_n, do_calculate_energy = False): 
-    # helper variables
-    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
-    
-    delta_output_voltage_p = 0
-    delta_output_voltage_n = 0
-    self.consumed_charge   = 0
-    
-    # calculate output voltage change induced by switched bottom plate voltages
-
-    # broadcast implementation: slower than loop !!!
-    # delta_register_array_p = np.array([int((register_p >> i) & 1) - int((self.register_p >> i) & 1) for i in range(self.array_size)], dtype='int')
-    # delta_register_array_n = np.array([int((register_n >> i) & 1) - int((self.register_n >> i) & 1) for i in range(self.array_size)], dtype='int')
-    # delta_output_voltage_p = np.sum(delta_register_array_p * self.capacitor_array_p/self.total_capacitance_p * delta_backplane_voltage)
-    # delta_output_voltage_n = np.sum(delta_register_array_n * self.capacitor_array_n/self.total_capacitance_n * delta_backplane_voltage)
-
-    for i in range(self.array_size):
-      current_capacitor_p = self.capacitor_array_p[i]
-      current_capacitor_n = self.capacitor_array_n[i]
-
-      if   (register_p & (1 << i)) > (self.register_p & (1 << i)):
-        delta_output_voltage_p += current_capacitor_p/self.total_capacitance_p * delta_backplane_voltage
-      elif (register_p & (1 << i)) < (self.register_p & (1 << i)):
-        delta_output_voltage_p -= current_capacitor_p/self.total_capacitance_p * delta_backplane_voltage
-
-      if   (register_n & (1 << i)) > (self.register_n & (1 << i)):
-        delta_output_voltage_n += current_capacitor_n/self.total_capacitance_n * delta_backplane_voltage
-      elif (register_n & (1 << i)) < (self.register_n & (1 << i)):
-        delta_output_voltage_n -= current_capacitor_n/self.total_capacitance_n * delta_backplane_voltage
-
-    if do_calculate_energy:
-      # calculate charge delivered from VREF supply dependent on output voltage change of the DAC:
-      #   for positive output voltage change: change in DAC output voltage * summed capacitance connected to neg. VREF (GND)
-      #   for negative output voltage change: change in DAC output voltage * summed capacitance connected to pos. VREF 
-
-      for i in range(self.array_size):
-        current_capacitor_p = self.capacitor_array_p[i]
-        current_capacitor_n = self.capacitor_array_n[i]
-        if   (delta_output_voltage_p > 0): # switch from neg. VREF (GND) to pos. VREF       
-          if   (register_p & (1 << i) == 0):  # sum over capacitors connected to neg. VREF (GND)
-            self.consumed_charge += current_capacitor_p * delta_output_voltage_p
-        
-        else: # negative delta_output_voltage, switch from pos. VREF to neg. VREF       
-          if   (register_p & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
-            self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
-
-        if   (delta_output_voltage_n > 0): # switch from neg. VREF (GND) to pos. VREF       
-          if   (register_n & (1 << i) == 0):  # sum over capacitors connected to neg. VREF
-            self.consumed_charge += current_capacitor_n * delta_output_voltage_n
-
-        else: # switch from pos. VREF to neg. VREF       
-          if   (register_n & (1 << i) != 0):  # sum over capacitors connected to pos. VREF
-            self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
-        
-    # ideal output voltage
-    self.output_voltage_no_error_p += delta_output_voltage_p
-    self.output_voltage_no_error_n += delta_output_voltage_n  
-
-    if self.use_settling_error:
-      # update output voltage, including settling error
-      self.output_voltage_p += delta_output_voltage_p * (1-self.settling_time_error)
-      self.output_voltage_n += delta_output_voltage_n * (1-self.settling_time_error)
-    else:   
-      self.output_voltage_p = self.output_voltage_no_error_p
-      self.output_voltage_n = self.output_voltage_no_error_n
-
-    # update register
-    self.register_p = register_p
-    self.register_n = register_n
-
-    return self.output_voltage_p-self.output_voltage_n
-
   def calculate_nonlinearity(self, do_plot = False):
-    dnl_data = np.empty(2**self.array_size)
-    inl_data = np.empty(2**self.array_size)
-    dac_data = np.empty(2**self.array_size)
-    reg_data = np.arange(2**self.array_size)
+    dnl_data = np.empty(2**self.resolution)
+    inl_data = np.empty(2**self.resolution)
+    dac_data = np.empty(2**self.resolution)
+    reg_data = np.arange(2**self.resolution)
 
-    mid_scale = 2**(self.array_size-1)
+    mid_scale = 2**(self.resolution-1)
     
-    self.top_plate_sample(0,0)
+    self.sample(0,0)
 
     for reg in reg_data:
       if (reg < mid_scale):
@@ -209,6 +91,109 @@ class CDAC:
 
     return dac_dnl_std, dac_inl_std    
 
+class CDAC_BSS(CDAC):
+  def __init__(self, params):
+    super().__init__(params)
+
+  def build_capacitor_array(self):
+      if self.use_radix:
+        if self.radix != 2:
+          # resize capacitor array size to the dynamic range of the nominal binary weighted capacitors
+          self.array_size = int(np.ceil(self.array_size/np.log2(self.radix)))
+          self.capacitor_array_p = np.zeros(self.array_size)
+          self.capacitor_array_n = np.zeros(self.array_size)
+  
+        for i in range(self.array_size):
+          self.capacitor_array_p[i] = self.radix**i * self.unit_capacitance
+          self.capacitor_array_n[i] = self.radix**i * self.unit_capacitance
+      else:
+        self.array_size = self.resolution - 1 
+        self.capacitor_array_p = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
+        self.capacitor_array_n = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
+
+      if self.use_systematic_errors:
+        capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
+        capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
+
+        self.capacitor_array_p += capacitor_errors_weighted
+        self.capacitor_array_n -= capacitor_errors_weighted
+
+      self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
+      self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
+      
+      # np.set_printoptions(precision=2)
+      # print('Cycles: ', self.array_size+1)  
+      # print('Capacitor array: ', self.capacitor_array_p)
+      # print('Total capacitance: ', self.total_capacitance_p)
+      # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
+
+  def reset(self, do_calculate_energy = False):
+    # init DAC register to mid-scale 0b01111...111
+    register_p = 2**(self.array_size-1)-1
+    register_n = 2**(self.array_size-1)-1 
+    self.update(register_p, register_n, do_calculate_energy=do_calculate_energy)  
+    # print('reset charge %e' % self.dac.consumed_charge)
+
+  def sample(self, input_p, input_n):	
+    # top plate sampling: DAC output voltage = input voltage
+    self.output_voltage_no_error_p = input_p 
+    self.output_voltage_no_error_n = input_n 
+    self.output_voltage_p = input_p 
+    self.output_voltage_n = input_n 
+  
+  def update(self, register_p, register_n, do_calculate_energy=False):
+    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
+    delta_output_voltage_p = 0
+    delta_output_voltage_n = 0
+    self.consumed_charge = 0
+
+    for i in range(self.array_size):
+      current_capacitor_p = self.capacitor_array_p[i]
+      current_capacitor_n = self.capacitor_array_n[i]
+
+      if (register_p & (1 << i)) > (self.register_p & (1 << i)):
+        delta_output_voltage_p += current_capacitor_p / self.total_capacitance_p * delta_backplane_voltage 
+      elif (register_p & (1 << i)) < (self.register_p & (1 << i)):
+        delta_output_voltage_p -= current_capacitor_p / self.total_capacitance_p * delta_backplane_voltage 
+
+      if (register_n & (1 << i)) > (self.register_n & (1 << i)):
+        delta_output_voltage_n += current_capacitor_n / self.total_capacitance_n * delta_backplane_voltage 
+      elif (register_n & (1 << i)) < (self.register_n & (1 << i)):
+        delta_output_voltage_n -= current_capacitor_n / self.total_capacitance_n * delta_backplane_voltage
+
+    if do_calculate_energy:
+      for i in range(self.array_size):
+        current_capacitor_p = self.capacitor_array_p[i]
+        current_capacitor_n = self.capacitor_array_n[i]
+        if delta_output_voltage_p > 0:
+          if (register_p & (1 << i)) == 0:
+            self.consumed_charge += current_capacitor_p * delta_output_voltage_p
+        else:
+          if (register_p & (1 << i)) != 0:
+            self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
+
+        if delta_output_voltage_n > 0:
+          if (register_n & (1 << i)) == 0:
+            self.consumed_charge += current_capacitor_n * delta_output_voltage_n
+        else:
+          if (register_n & (1 << i)) != 0:
+            self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
+
+    self.output_voltage_no_error_p += delta_output_voltage_p
+    self.output_voltage_no_error_n += delta_output_voltage_n
+
+    if self.use_settling_error:
+      self.output_voltage_p += delta_output_voltage_p * (1 - self.settling_time_error)
+      self.output_voltage_n += delta_output_voltage_n * (1 - self.settling_time_error)
+    else:
+      self.output_voltage_p = self.output_voltage_no_error_p
+      self.output_voltage_n = self.output_voltage_no_error_n
+
+    self.register_p = register_p
+    self.register_n = register_n
+
+    return self.output_voltage_p - self.output_voltage_n
+
 class COMPARATOR:
   def __init__(self, params):
     self.use_offset_error = params['COMPARATOR']['use_offset_error']  
@@ -236,7 +221,7 @@ class SAR_ADC:
     self.sampling_frequency = params['SAR_ADC']['sampling_frequency'] 
     self.positive_ref_voltage = params['SAR_ADC']['positive_reference_voltage']
     self.negative_ref_voltage = params['SAR_ADC']['negative_reference_voltage']
-    self.dac = CDAC(params) 
+    self.dac = CDAC_BSS(params) 
     self.cycles = self.dac.array_size + 1
     self.clock_period = 1/(self.sampling_frequency * self.cycles)
     self.redundancy = self.cycles - self.resolution
@@ -317,7 +302,7 @@ class SAR_ADC:
     temp_register_n = self.dac.register_n
    
     # sample input voltage and append voltages to array
-    self.dac.top_plate_sample(input_voltage_p, input_voltage_n)   
+    self.dac.sample(input_voltage_p, input_voltage_n)   
 
     # store first DAC output voltage set for plotting
     dac_out_p[0] = self.dac.output_voltage_p
@@ -621,12 +606,12 @@ if __name__ == "__main__":
   #   print('noise %.3f [mV], ENOB %.2f' % (noise, enob))
   
   # CDAC only
-  # dac = CDAC()
-  # dac.calculate_nonlinearity(do_plot=True)
+  dac = CDAC_BSS(params)
+  dac.calculate_nonlinearity(do_plot=True)
 
-  adc.calculate_nonlinearity(do_plot=True)
-  adc.calculate_enob()
-  adc.calculate_conversion_energy()
-  print(adc.print_parameter_list())
+  #adc.calculate_nonlinearity(do_plot=True)
+  #adc.calculate_enob()
+  #adc.calculate_conversion_energy(do_plot=True)
+   #print(adc.print_parameter_list())
   plt.show()
 
