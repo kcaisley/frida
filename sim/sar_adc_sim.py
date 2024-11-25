@@ -14,9 +14,6 @@ class CDAC:
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
     self.resolution            = params['SAR_ADC']['resolution'] 
-    self.array_size            = self.resolution - 1   
-    self.capacitor_array_p     = np.zeros(self.array_size)
-    self.capacitor_array_n     = np.zeros(self.array_size)
     self.total_capacitance_p   = 0  
     self.total_capacitance_n   = 0
     self.build_capacitor_array()
@@ -25,8 +22,6 @@ class CDAC:
     self.settling_time         = params['CDAC']['settling_time']
     self.positive_ref_voltage  = params['SAR_ADC']['positive_reference_voltage']
     self.negative_ref_voltage  = params['SAR_ADC']['negative_reference_voltage']
-    self.common_mode_voltage   = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
-    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.resolution
     
     self.output_voltage_p = 0
     self.output_voltage_n = 0
@@ -34,30 +29,33 @@ class CDAC:
     self.output_voltage_no_error_n = 0
     self.register_p = 0
     self.register_n = 0
-
     self.consumed_charge = 0
 
-    self.use_settling_error  = params['CDAC']['use_settling_error']
-    self.settling_time_error = np.exp(-1/(self.settling_time * params['SAR_ADC']['sampling_frequency'] * (self.array_size + 1)))
+    self.update_parameters()
 
   def update_parameters(self):   # update depending parameters after changes
+    self.array_size = self.resolution - 1   
+    self.capacitor_array_p     = np.zeros(self.array_size)
+    self.capacitor_array_n     = np.zeros(self.array_size)
     self.build_capacitor_array()
-    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) / 2**self.resolution
+    self.use_settling_error  = params['CDAC']['use_settling_error']
+    self.settling_time_error = np.exp(-1/(self.settling_time * params['SAR_ADC']['sampling_frequency'] * (self.array_size + 1)))
+    self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) /(2**self.array_size)
     self.common_mode_voltage = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
 
   def calculate_nonlinearity(self, do_plot = False):
-    dnl_data = np.empty(2**self.resolution)
-    inl_data = np.empty(2**self.resolution)
-    dac_data = np.empty(2**self.resolution)
-    reg_data = np.arange(2**self.resolution)
+    dnl_data = np.empty(2**self.resolution-1)
+    inl_data = np.empty(2**self.resolution-1)
+    dac_data = np.empty(2**self.resolution-1)
+    reg_data = np.arange(2**self.resolution-1)
 
-    mid_scale = 2**(self.resolution-1)
+    mid_scale = 2**(self.resolution-1) - 1
     
     self.sample(0,0)
 
     for reg in reg_data:
       if (reg < mid_scale):
-        dac_data[reg] = self.update(0, mid_scale - reg - 1) 
+        dac_data[reg] = self.update(0, mid_scale - reg) 
       else:
         dac_data[reg] = self.update(reg - mid_scale, 0)
     
@@ -67,26 +65,24 @@ class CDAC:
     dac_inl_std = np.std(inl_data)
   
     if do_plot:
-      figure, plot = plt.subplots(3, 1)
+      figure, plot = plt.subplots(3, 1, sharex =	True)
       figure.suptitle('DAC Nonlinearity')
-      plot[0].stairs(dac_data[:len(reg_data)-1], reg_data, baseline = None)
+      plot[0].step(reg_data, dac_data, where='post', label = 'DAC transfer function')
       #plot[0].set_xticks(range(0, self.bin_count,  self.bin_count>>3))
       plot[0].set_ylabel("Output voltage [V]")
       plot[0].grid(True)  
-      plot[1].stairs(dnl_data[:len(reg_data)], reg_data, baseline = None, label = "DNL avg = %.3f" % dac_dnl_std)
+      plot[1].step(reg_data[:-1], dnl_data, where='post', label = 'DNL avg = %.3f' % dac_dnl_std)
       if dac_dnl_std < 0.001:
         plot[1].set_ylim(-1, 1)
-      #plot10].set_xticks(range(0, self.bin_count,  self.bin_count>>3))
       plot[1].set_ylabel("DNL [LSB]")
       plot[1].legend()
       plot[1].grid(True)  
-      plot[2].stairs(inl_data[:len(reg_data)-1], reg_data, baseline = None, label = "INL avg = %.3f" % dac_inl_std)
+      plot[2].step(reg_data[:-1], inl_data, where='post', label = "INL avg = %.3f" % dac_inl_std)
       if dac_inl_std < 0.001:
         plot[2].set_ylim(-1, 1)    
-      #plot21].set_xticks(range(0, self.bin_count,  self.bin_count>>3))
       plot[2].set_ylabel("INL [LSB]")  
       plot[2].legend()
-      plot[2].set_xlabel('Digital Output [ADU]')  
+      plot[2].set_xlabel('Digital code')  
       plot[2].grid(True)        
 
     return dac_dnl_std, dac_inl_std    
