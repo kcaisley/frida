@@ -72,13 +72,13 @@ class CDAC:
       plot[0].set_ylabel("Output voltage [V]")
       plot[0].grid(True)  
       plot[1].step(reg_data[:-1], dnl_data, where='post', label = 'DNL avg = %.3f' % dac_dnl_std)
-      if dac_dnl_std < 0.001:
+      if dac_dnl_std < 0.0001:
         plot[1].set_ylim(-1, 1)
       plot[1].set_ylabel("DNL [LSB]")
       plot[1].legend()
       plot[1].grid(True)  
       plot[2].step(reg_data[:-1], inl_data, where='post', label = "INL avg = %.3f" % dac_inl_std)
-      if dac_inl_std < 0.001:
+      if dac_inl_std < 0.0001:
         plot[2].set_ylim(-1, 1)    
       plot[2].set_ylabel("INL [LSB]")  
       plot[2].legend()
