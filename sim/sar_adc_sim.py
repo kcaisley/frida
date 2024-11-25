@@ -14,9 +14,9 @@ class CDAC:
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
     self.resolution            = params['SAR_ADC']['resolution'] 
+    
     self.total_capacitance_p   = 0  
     self.total_capacitance_n   = 0
-    self.build_capacitor_array()
 
     # voltage swing and settling time
     self.settling_time         = params['CDAC']['settling_time']
@@ -32,6 +32,7 @@ class CDAC:
     self.consumed_charge = 0
 
     self.update_parameters()
+    self.build_capacitor_array()
 
   def update_parameters(self):   # update depending parameters after changes
     self.array_size = self.resolution - 1   
@@ -117,9 +118,9 @@ class CDAC_BSS(CDAC):
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
       
-      # np.set_printoptions(precision=2)
-      # print('Cycles: ', self.array_size+1)  
-      # print('Capacitor array: ', self.capacitor_array_p)
+      np.set_printoptions(precision=2)
+      print('Cycles: ', self.array_size+1)  
+      print('Capacitor array: ', self.capacitor_array_p)
       # print('Total capacitance: ', self.total_capacitance_p)
       # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
 
@@ -569,7 +570,7 @@ if __name__ == "__main__":
 
   adc = SAR_ADC(params)
   # plot SAR iterations
-  # adc.sample_and_convert_bss(-0.2, 0, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(-0.2, 0, do_plot=True, do_calculate_energy=True)
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
   
@@ -602,8 +603,8 @@ if __name__ == "__main__":
   #   print('noise %.3f [mV], ENOB %.2f' % (noise, enob))
   
   # CDAC only
-  dac = CDAC_BSS(params)
-  dac.calculate_nonlinearity(do_plot=True)
+  # dac = CDAC_BSS(params)
+  # dac.calculate_nonlinearity(do_plot=True)
 
   #adc.calculate_nonlinearity(do_plot=True)
   #adc.calculate_enob()
