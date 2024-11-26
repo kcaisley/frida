@@ -1,5 +1,5 @@
 SAR_ADC:
-  resolution: 8  # resolution of the ADC
+  resolution: 4  # resolution of the ADC
   redundancy: 0  # redundancy of the ADC 
   sampling_frequency: 10.0e+6  # sampling rate in Hz
   aperture_jitter: 10.0e-12  # aperture jitter in seconds (TBD)

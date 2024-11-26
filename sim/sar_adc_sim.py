@@ -118,10 +118,10 @@ class CDAC_BSS(CDAC):
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
       
-      # np.set_printoptions(precision=2)
-      # print('Cycles: ', self.array_size+1)  
-      # print('Capacitor array: ', self.capacitor_array_p)
-      # print('Total capacitance: ', self.total_capacitance_p)
+      np.set_printoptions(precision=2)
+      print('Cycles: ', self.array_size+1)  
+      print('Capacitor array: ', self.capacitor_array_p)
+      print('Total capacitance: ', self.total_capacitance_p)
       # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
 
   def reset(self, reset_value, do_calculate_energy = False):
@@ -292,10 +292,10 @@ class SAR_ADC:
     ideal_comp_result = []
   
     # init DAC register
-    # reset_value = 2**(self.dac.array_size-1)-1 # mid-scale
+    reset_value = 2**(self.dac.array_size-1)-1 # mid-scale
     # reset_value = 2**self.dac.array_size-1  # all 1's  
     # reset_value = 0  # all 0's
-    reset_value = 0xff
+    # reset_value = 0xff
     self.dac.reset(reset_value=reset_value, do_calculate_energy=do_calculate_energy)
     # total_consumed_charge += self.dac.consumed_charge
   
@@ -311,10 +311,9 @@ class SAR_ADC:
     dac_out_n[0] = self.dac.output_voltage_n
   
     # do first comparison to set MSB (sign) bit
-    self.comp_result.append(self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n))  
+    self.comp_result.append(1 if self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n) else 0)  
     
     for i in range(self.dac.array_size):   # SAR loop, bidirectional single side switching (BSS)
-      # print('conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.dac.register_p, '#014b'), format(self.dac.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
       
       # update DAC register depending on the previous conversion
       if (reset_value &  1 << (self.dac.array_size-i-1) == 0): # switch direction depends on the reset value of the DAC register
@@ -334,6 +333,7 @@ class SAR_ADC:
       total_consumed_charge += self.dac.consumed_charge
       dac_out_p[i+1] = self.dac.output_voltage_p
       dac_out_n[i+1] = self.dac.output_voltage_n
+      # print('  conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.dac.register_p, '#014b'), format(self.dac.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
       
       # compare
       if self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n): # comparator output = 1
@@ -373,7 +373,7 @@ class SAR_ADC:
     return result
 
   def calculate_result(self, comp_result):
-    result = 0  # start result code at midscale and increment or decrement depending on sign bit
+    result = 0  # start result code at mid-scale and increment or decrement depending on sign bit
     neg_sign = not comp_result[0] # first comparison indicates the signal polarity
     
     if (self.dac.use_radix):
@@ -381,6 +381,7 @@ class SAR_ADC:
     else:
       radix = 2
 
+    print('comp_result', comp_result)
     # calculate absolute value of result
     for i in range(self.dac.array_size):
         if neg_sign:
@@ -552,7 +553,7 @@ class SAR_ADC:
     return ideal_adc_code
 
   def plot_transfer_function(self):
-    samples_per_bin = 100
+    samples_per_bin = 1
     common_mode_input_voltage = 0.3
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
@@ -589,7 +590,7 @@ if __name__ == "__main__":
 
   adc = SAR_ADC(params)
   # plot SAR iterations 
-  # adc.sample_and_convert_bss(0.8, 0.81, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(0.8, 0.81, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
@@ -625,9 +626,9 @@ if __name__ == "__main__":
   # dac = CDAC_BSS(params)
   # dac.calculate_nonlinearity(do_plot=True)
 
-  adc.calculate_nonlinearity(do_plot=True)
+  # adc.calculate_nonlinearity(do_plot=True)
   #adc.calculate_enob()
   #adc.calculate_conversion_energy(do_plot=True)
-   #print(adc.print_parameter_list())
+  # print(adc.print_parameter_list())
   plt.show()
 
