@@ -1,10 +1,11 @@
 Python code for SAR ADC functional modelling.
 
+```
 adc = SAR_ADC()
 SAR_ADC.__init__()
-    resolution, cycles, sampling_rate, clock_period
+    resolution, cycles, sampling_rate, clock_period, etc...
     CDAC.__init__()
-        array_size, unit_cap, radix, parasitics
+        array_size, unit_cap, radix, parasitics, etc..
         build_capacitor_array(use_radix, systematic_errors)
         settling_time, etc
     diff_input_range, lsb_size
@@ -22,14 +23,17 @@ SAR_ADC.sample_and_convert_bss(self, voltage_in, plot?, calculate?)
     for cap p/n pair:
         CDAC.update #here, all caps will be checked, but in monotonic switching only one will change
         COMPARATOR.compare
+```
 
 
 
 
-
-
-- double
+To do:
 - double conversion
-ENOB
-FoMs
-Energy per conversion
+- ENOB
+- FoMs
+- Energy per conversion
+
+
+
+BSS - has top plate sampling
