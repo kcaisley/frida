@@ -30,6 +30,7 @@ class CDAC:
     self.register_p = 0
     self.register_n = 0
     self.consumed_charge = 0
+    self.binary_range = 0
 
     self.update_parameters()
   
@@ -44,22 +45,24 @@ class CDAC:
     self.common_mode_voltage = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
 
   def calculate_nonlinearity(self, do_plot = False):
-    dnl_data = np.empty(2**self.resolution-1)
-    inl_data = np.empty(2**self.resolution-1)
-    dac_data = np.empty(2**self.resolution-1)
-    reg_data = np.arange(2**self.resolution-1)
+    reg_data = np.arange(0, 2**(self.array_size), 1)
+    dac_data = np.zeros(len(reg_data))
+    dnl_data = np.zeros(len(reg_data)-1)
+    inl_data = np.zeros(len(reg_data))
 
-    mid_scale = 2**(self.resolution-1) - 1
+    print('DAC array size %d' % self.array_size)
+    print('lsb size %e' % self.lsb_size)
+
+    mid_scale = 0
     
-    self.sample(0,0)
 
     for reg in reg_data:
-      if (reg < mid_scale):
-        dac_data[reg] = self.update(0, mid_scale - reg) 
-      else:
-        dac_data[reg] = self.update(reg - mid_scale, 0)
+      self.reset(0)
+      self.sample(0,0)
+      dac_data[reg] = self.update(reg, 0) 
+
     
-    dnl_data    = np.diff(dac_data) - self.lsb_size
+    dnl_data    = (np.diff(dac_data) - self.lsb_size) / self.lsb_size
     dac_dnl_std = np.std(dnl_data)
     inl_data    = np.cumsum(dnl_data)
     dac_inl_std = np.std(inl_data)
@@ -67,17 +70,17 @@ class CDAC:
     if do_plot:
       figure, plot = plt.subplots(3, 1, sharex =	True)
       figure.suptitle('DAC Nonlinearity')
-      plot[0].step(reg_data, dac_data, where='post', label = 'DAC transfer function')
-      #plot[0].set_xticks(range(0, self.bin_count,  self.bin_count>>3))
+      plot[0].step(reg_data, dac_data, where = 'pre', label = 'DAC transfer function')
+      #plot[0].set_xticks(range(reg_data[0], reg_data[len(reg_data)-1]+1,  self.array_size//4))
       plot[0].set_ylabel("Output voltage [V]")
       plot[0].grid(True)  
-      plot[1].step(reg_data[:-1], dnl_data, where='post', label = 'DNL avg = %.3f' % dac_dnl_std)
+      plot[1].step(reg_data[:-1], dnl_data,  where = 'post', label = 'DNL = %.3f' % dac_dnl_std)
       if dac_dnl_std < 0.0001:
         plot[1].set_ylim(-1, 1)
       plot[1].set_ylabel("DNL [LSB]")
       plot[1].legend()
       plot[1].grid(True)  
-      plot[2].step(reg_data[:-1], inl_data, where='post', label = "INL avg = %.3f" % dac_inl_std)
+      plot[2].step(reg_data[:-1], inl_data,  where = 'post', label = "INL = %.3f" % dac_inl_std)
       if dac_inl_std < 0.0001:
         plot[2].set_ylim(-1, 1)    
       plot[2].set_ylabel("INL [LSB]")  
@@ -107,6 +110,7 @@ class CDAC_BSS(CDAC):
         self.capacitor_array_p = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
         self.capacitor_array_n = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
 
+
       if self.use_systematic_errors:
         capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
         capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
@@ -116,13 +120,15 @@ class CDAC_BSS(CDAC):
 
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
+      # non-triviel for non radix 2
+      self.binary_range = (self.total_capacitance_p-self.parasitic_capacitance) / self.unit_capacitance
+  
+      np.set_printoptions(precision=2)
+      print('Cycles: ', self.array_size+1)  
+      print('Capacitor array: ', self.capacitor_array_p)
+      print('Total capacitance: ', self.total_capacitance_p)
+      print('DAC binary range %d' % self.binary_range)  
       
-      # np.set_printoptions(precision=2)
-      # print('Cycles: ', self.array_size+1)  
-      # print('Capacitor array: ', self.capacitor_array_p)
-      # print('Total capacitance: ', self.total_capacitance_p)
-      # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
-
   def reset(self, reset_value, do_calculate_energy = False):
     register_p = reset_value # 2**(self.array_size-1)-1
     register_n = reset_value # 2**(self.array_size-1)-1 
@@ -382,16 +388,15 @@ class SAR_ADC:
     # calculate absolute value of result
     for i in range(self.cycles):
       result += comp_result[i] * radix**(self.cycles-i-1)    
-      print('  comp_result[%d] %d, weight %.3f' % (i, comp_result[i], radix**(self.cycles-i-1) ))
     
-    result -= 2**(self.cycles-2) # convert to signed value
-    # result += 0.5           # shift by half a LSB to have symmetric quantization error
+    result -= radix**(self.cycles-1)  # convert to signed value
     # result *= self.lsb_size # convert to voltage
 
     if (radix != 2):
       radix_scale_factor = (2**self.resolution-1) / ((radix**(self.cycles)-1)/(radix-1))
-      result = result * radix_scale_factor
-    return (result)
+#      radix_scale_factor = 2**(self.resolution-1) / self.dac.binary_range
+      #result = result * radix_scale_factor
+    return np.round(result)
 
   def calculate_nonlinearity(self, do_plot = False):
     values_per_bin = 10 # number of values per bin for DNL/INL calculation
@@ -561,7 +566,7 @@ class SAR_ADC:
       # input_voltage_data_lsb[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
 
    # input_voltage_data_lsb = input_voltage_data / self.lsb_size + 2**(self.resolution-1) - 0.5
-    input_voltage_data_lsb = input_voltage_data / self.lsb_size - 0.5
+    input_voltage_data_lsb = input_voltage_data / self.lsb_size + 0.5
 
     figure, plot = plt.subplots(2, 1, sharex=True)
    # y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-2))
@@ -573,7 +578,7 @@ class SAR_ADC:
     #plot[0].set_yticks(y_ticks)
     plot[0].grid(True)  
     plot[0].legend()
-    plot[0].set_xlabel('Diff. input voltage [V]')  
+    plot[1].set_xlabel('Diff. input voltage [V]')  
     plot[1].step(input_voltage_data, adc_data-input_voltage_data_lsb, label='Residuals')
     plot[1].set_ylabel("Error [LSB]")
     plot[1].grid(True)
@@ -587,7 +592,8 @@ if __name__ == "__main__":
 
   adc = SAR_ADC(params)
   # plot SAR iterations 
-  adc.sample_and_convert_bss( 0.0, 0.73, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(  0.000, 0.0, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss( -1.2, 0.0, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
