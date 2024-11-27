@@ -32,8 +32,7 @@ class CDAC:
     self.consumed_charge = 0
 
     self.update_parameters()
-    self.build_capacitor_array()
-
+  
   def update_parameters(self):   # update depending parameters after changes
     self.array_size = self.resolution - 1   
     self.capacitor_array_p     = np.zeros(self.array_size)
@@ -96,7 +95,7 @@ class CDAC_BSS(CDAC):
       if self.use_radix:
         if self.radix != 2:
           # resize capacitor array size to the dynamic range of the nominal binary weighted capacitors
-          self.array_size = int(np.ceil(self.array_size/np.log2(self.radix)))
+          self.array_size = int(np.round(self.array_size/np.log2(self.radix)))
           self.capacitor_array_p = np.zeros(self.array_size)
           self.capacitor_array_n = np.zeros(self.array_size)
   
@@ -118,10 +117,10 @@ class CDAC_BSS(CDAC):
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
       
-      np.set_printoptions(precision=2)
-      print('Cycles: ', self.array_size+1)  
-      print('Capacitor array: ', self.capacitor_array_p)
-      print('Total capacitance: ', self.total_capacitance_p)
+      # np.set_printoptions(precision=2)
+      # print('Cycles: ', self.array_size+1)  
+      # print('Capacitor array: ', self.capacitor_array_p)
+      # print('Total capacitance: ', self.total_capacitance_p)
       # print('capacitor_errors_weighted: ', capacitor_errors_weighted)
 
   def reset(self, reset_value, do_calculate_energy = False):
@@ -373,34 +372,30 @@ class SAR_ADC:
     return result
 
   def calculate_result(self, comp_result):
-    result = 0  # start result code at mid-scale and increment or decrement depending on sign bit
-    neg_sign = not comp_result[0] # first comparison indicates the signal polarity
-    
+    result = 0  # initialize result
+
     if (self.dac.use_radix):
       radix = self.dac.radix
     else:
       radix = 2
 
-    print('comp_result', comp_result)
     # calculate absolute value of result
-    for i in range(self.dac.array_size):
-        if neg_sign:
-          result += (not comp_result[i+1]) * radix**(self.dac.array_size-i-1)
-        else:
-          result += comp_result[i+1] * radix**(self.dac.array_size-i-1)
-
-    # convert to signed value
-    if (neg_sign):
-      result = - result - 1
+    for i in range(self.cycles):
+      result += comp_result[i] * radix**(self.cycles-i-1)    
+      print('  comp_result[%d] %d, weight %.3f' % (i, comp_result[i], radix**(self.cycles-i-1) ))
+    
+    result -= 2**(self.cycles-2) # convert to signed value
+    # result += 0.5           # shift by half a LSB to have symmetric quantization error
+    # result *= self.lsb_size # convert to voltage
 
     if (radix != 2):
       radix_scale_factor = (2**self.resolution-1) / ((radix**(self.cycles)-1)/(radix-1))
       result = result * radix_scale_factor
-    return result
+    return (result)
 
   def calculate_nonlinearity(self, do_plot = False):
     values_per_bin = 10 # number of values per bin for DNL/INL calculation
-    lower_excluded_bins = 2  # lower bound for DNL/INL calculation in LSB
+    lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
     upper_excluded_bins = 2  # upper bound for DNL/INL calculation in LSB distance from full scale
 
     # helper variables
@@ -422,6 +417,8 @@ class SAR_ADC:
     print('Calculating DNL/INL ...')
     for i in tqdm(range(len(input_voltage_data))):
       adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2.0, -input_voltage_data[i]/2.0) 
+
+    #print('adc_data ', adc_data)
 
     # calculate code density histogram
     code_density_hist, bin_edges = np.histogram(adc_data, bins = num_codes, range = (min_code, max_code))   
@@ -553,8 +550,8 @@ class SAR_ADC:
     return ideal_adc_code
 
   def plot_transfer_function(self):
-    samples_per_bin = 1
-    common_mode_input_voltage = 0.3
+    samples_per_bin = 100
+    common_mode_input_voltage = 0.6
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
     adc_data = np.empty(2**self.resolution*samples_per_bin)
@@ -568,17 +565,17 @@ class SAR_ADC:
 
     figure, plot = plt.subplots(2, 1, sharex=True)
    # y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-2))
-    y_ticks = range(-2**(self.resolution-1), 2**(self.resolution-1)+1, 2**(self.resolution-2))
+   # y_ticks = range(-2**(self.resolution-1), 2**(self.resolution-1)+1, 2**(self.resolution-2))
     figure.suptitle('ADC Transfer Function')
     plot[0].step(input_voltage_data, adc_data, label = 'ADC transfer function')
     plot[0].plot(input_voltage_data, input_voltage_data_lsb, 'r--', label = 'Ideal transfer function')
     plot[0].set_ylabel("ADC code")
-    plot[0].set_yticks(y_ticks)
+    #plot[0].set_yticks(y_ticks)
     plot[0].grid(True)  
     plot[0].legend()
     plot[0].set_xlabel('Diff. input voltage [V]')  
-    plot[1].step(input_voltage_data, input_voltage_data_lsb-adc_data, label='Residuals')
-    plot[1].set_ylabel("ADC code")
+    plot[1].step(input_voltage_data, adc_data-input_voltage_data_lsb, label='Residuals')
+    plot[1].set_ylabel("Error [LSB]")
     plot[1].grid(True)
     plot[1].legend()
 
@@ -590,7 +587,7 @@ if __name__ == "__main__":
 
   adc = SAR_ADC(params)
   # plot SAR iterations 
-  adc.sample_and_convert_bss(0.8, 0.81, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss( 0.0, 0.73, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
