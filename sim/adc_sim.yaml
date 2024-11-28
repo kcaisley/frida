@@ -1,16 +1,16 @@
 SAR_ADC:
-  resolution: 10  # resolution of the ADC
+  resolution: 4  # resolution of the ADC
   redundancy: 0  # redundancy of the ADC 
-  sampling_frequency: 10.0e+6  # sampling rate in Hz
+  sampling_frequency: 8.0e+6 #10.0e+6  # sampling rate in Hz
   aperture_jitter: 10.0e-12  # aperture jitter in seconds (TBD)
   positive_reference_voltage: 1.2  # reference voltage in Volts
   negative_reference_voltage: 0.0  # reference voltage in Volts
 
 COMPARATOR:
-  use_offset_error: True  # use offset error in the comparator 
+  use_offset_error: False  # use offset error in the comparator 
   offset_voltage: 1.0e-3  # offset voltage in Volts
   common_mode_dependent_offset_gain: 0.0  # common mode voltage gain 
-  use_noise_error: True  # use noise in the comparator
+  use_noise_error: False  # use noise in the comparator
   noise_voltage: 2.0e-3  # RMS noise voltage in Volts
 
 CDAC:
@@ -27,5 +27,5 @@ CDAC:
   # TODO add capacitor mismatch errors individual for p- and n- array
   # capacitor_mismatch_errors: 3  # capacitor mismatch error in percent of the unit capacitor
   
-  use_settling_error: False  # use settling error in the CDAC
-  settling_time: 5.0e-9  # settling time in seconds (TBD: individual settling errors per capacitor?)
+  use_settling_error: True  # use settling error in the CDAC
+  settling_time: 10.0e-9  # settling time in seconds (TBD: individual settling errors per capacitor?)
