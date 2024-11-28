@@ -304,7 +304,7 @@ class SAR_ADC:
     if (radix != 2):
       radix_scale_factor = 2**(self.resolution-1) / self.dac.binary_range
       result = result * radix_scale_factor
-    return (result)
+    return int(result)
 
   def calculate_nonlinearity(self, do_plot = False):
     values_per_bin = 100     # number of values per bin for DNL/INL calculation
@@ -624,7 +624,7 @@ if __name__ == "__main__":
   # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
-  # adc.plot_transfer_function()
+  adc.plot_transfer_function()
   
   # calculate DNL/INL
   adc.calculate_nonlinearity(do_plot=True)
