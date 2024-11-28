@@ -14,14 +14,15 @@ class CDAC:
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
     self.resolution            = params['SAR_ADC']['resolution'] 
+    self.reference_voltage_noise = params['CDAC']['reference_voltage_noise']
     
     self.total_capacitance_p   = 0  
     self.total_capacitance_n   = 0
 
     # voltage swing and settling time
     self.settling_time         = params['CDAC']['settling_time']
-    self.positive_ref_voltage  = params['SAR_ADC']['positive_reference_voltage']
-    self.negative_ref_voltage  = params['SAR_ADC']['negative_reference_voltage']
+    self.positive_ref_voltage  = params['CDAC']['positive_reference_voltage']
+    self.negative_ref_voltage  = params['CDAC']['negative_reference_voltage']
     
     self.output_voltage_p = 0
     self.output_voltage_n = 0
@@ -39,8 +40,10 @@ class CDAC:
     self.capacitor_array_p     = np.zeros(self.array_size)
     self.capacitor_array_n     = np.zeros(self.array_size)
     self.build_capacitor_array()
-    self.use_settling_error  = params['CDAC']['use_settling_error']
-    self.settling_time_error = np.exp(-1/(self.settling_time * params['SAR_ADC']['sampling_frequency'] * (self.array_size + 1)))
+    if self.settling_time > 0:
+      self.settling_time_error = np.exp(-1/(self.settling_time * params['SAR_ADC']['sampling_frequency'] * (self.array_size + 1)))
+    else:
+      self.settling_time_error = 0
     self.lsb_size = (self.positive_ref_voltage - self.negative_ref_voltage) /(2**self.array_size)
     self.common_mode_voltage = (self.positive_ref_voltage - self.negative_ref_voltage) / 2
 
@@ -143,10 +146,10 @@ class CDAC_BSS(CDAC):
     self.output_voltage_n = input_n 
   
   def update(self, register_p, register_n, do_calculate_energy=False):
-    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
     delta_output_voltage_p = 0
     delta_output_voltage_n = 0
     self.consumed_charge = 0
+    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage + np.random.normal(0, self.reference_voltage_noise)
 
     for i in range(self.array_size):
       current_capacitor_p = self.capacitor_array_p[i]
@@ -183,12 +186,8 @@ class CDAC_BSS(CDAC):
     self.output_voltage_no_error_p += delta_output_voltage_p
     self.output_voltage_no_error_n += delta_output_voltage_n
 
-    if self.use_settling_error:
-      self.output_voltage_p += delta_output_voltage_p * (1 - self.settling_time_error)
-      self.output_voltage_n += delta_output_voltage_n * (1 - self.settling_time_error)
-    else:
-      self.output_voltage_p = self.output_voltage_no_error_p
-      self.output_voltage_n = self.output_voltage_no_error_n
+    self.output_voltage_p += delta_output_voltage_p * (1 - self.settling_time_error)
+    self.output_voltage_n += delta_output_voltage_n * (1 - self.settling_time_error)
 
     self.register_p = register_p
     self.register_n = register_n
@@ -197,36 +196,25 @@ class CDAC_BSS(CDAC):
 
 class COMPARATOR:
   def __init__(self, params):
-    self.use_offset_error = params['COMPARATOR']['use_offset_error']  
     self.offset_voltage   = params['COMPARATOR']['offset_voltage']
     self.common_mode_dependent_offset_gain  = params['COMPARATOR']['common_mode_dependent_offset_gain']
-    self.use_noise_error  = params['COMPARATOR']['use_noise_error']
-    self.noise_voltage    = params['COMPARATOR']['noise_voltage']
+    self.threshold_voltage_noise    = params['COMPARATOR']['threshold_voltage_noise']
 
   def compare(self, input_voltage_p, input_voltage_n):
-    if self.use_offset_error:
-      common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
-    else:
-      common_mode_offset_voltage = 0
-
-    if self.use_noise_error:
-      noise_voltage = np.random.normal(0, self.noise_voltage)
-    else:
-      noise_voltage = 0
-
+    common_mode_offset_voltage = (input_voltage_p + input_voltage_n)/2 * self.common_mode_dependent_offset_gain
+    noise_voltage = np.random.normal(0, self.threshold_voltage_noise)
     return input_voltage_p > input_voltage_n + self.offset_voltage + common_mode_offset_voltage + noise_voltage
 
 class SAR_ADC:
   def __init__(self, params):
     self.resolution = params['SAR_ADC']['resolution']
     self.sampling_frequency = params['SAR_ADC']['sampling_frequency'] 
-    self.positive_ref_voltage = params['SAR_ADC']['positive_reference_voltage']
-    self.negative_ref_voltage = params['SAR_ADC']['negative_reference_voltage']
+
     self.dac = CDAC_BSS(params) 
     self.cycles = self.dac.array_size + 1
     self.clock_period = 1/(self.sampling_frequency * self.cycles)
     self.redundancy = self.cycles - self.resolution
-    self.diff_input_voltage_range = 2 * (self.positive_ref_voltage - self.negative_ref_voltage)
+    self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
     self.comparator = COMPARATOR(params)
     self.input_voltage_p = 0
@@ -276,7 +264,7 @@ class SAR_ADC:
     if self.dac.use_settling_error:
       parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
     if self.comparator.use_noise_error:
-      parameters += f" Comparator noise          {self.comparator.noise_voltage:.2e}\n"
+      parameters += f" Comparator noise          {self.comparator.threshold_noise_voltage:.2e}\n"
     if self.comparator.use_offset_error:
       parameters += f" Comparator offset         {self.comparator.offset_voltage:.2e}\n"
     parameters += "Performance\n"
@@ -383,12 +371,9 @@ class SAR_ADC:
       caption   += f' Cap. array         {self.dac.capacitor_array_p/self.dac.unit_capacitance}\n'
 
       caption += "Non-idealities\n"
-      if self.dac.use_settling_error:
-        caption += f" DAC settling error {self.dac.settling_time_error:.2e}\n"
-      if self.comparator.use_noise_error:
-        caption += f" Comparator noise   {self.comparator.noise_voltage:.2e}\n"
-      if self.comparator.use_offset_error:
-        caption += f" Comparator offset  {self.comparator.offset_voltage:.2e}\n"
+      caption += f" DAC settling error {self.dac.settling_time_error:.2e}\n"
+      caption += f" Comparator noise   {self.comparator.threshold_voltage_noise:.2e}\n"
+      caption += f" Comparator offset  {self.comparator.offset_voltage:.2e}\n"
       figure.tight_layout()
       figure.subplots_adjust(bottom=0.15)
       figure.text(0.1, 0.1, caption, fontsize=10, ha='left', va='top', wrap=False)
@@ -624,7 +609,7 @@ if __name__ == "__main__":
   # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
-  adc.plot_transfer_function()
+  # adc.plot_transfer_function()
   
   # calculate DNL/INL
   adc.calculate_nonlinearity(do_plot=True)
