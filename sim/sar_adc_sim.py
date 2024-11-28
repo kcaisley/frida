@@ -120,14 +120,14 @@ class CDAC_BSS(CDAC):
 
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
-      # non-triviel for non radix 2
-      self.binary_range = (self.total_capacitance_p-self.parasitic_capacitance) / self.unit_capacitance
+      # non-triviel scaling factor for non radix 2
+      self.binary_range = self.total_capacitance_p / self.unit_capacitance
   
-      np.set_printoptions(precision=2)
-      print('Cycles: ', self.array_size+1)  
-      print('Capacitor array: ', self.capacitor_array_p)
-      print('Total capacitance: ', self.total_capacitance_p)
-      print('DAC binary range %d' % self.binary_range)  
+      # np.set_printoptions(precision=2)
+      # print('Cycles: ', self.array_size+1)  
+      # print('Capacitor array: ', self.capacitor_array_p)
+      # print('Total capacitance: ', self.total_capacitance_p)
+      # print('DAC binary range %d' % self.binary_range)  
       
   def reset(self, reset_value, do_calculate_energy = False):
     register_p = reset_value # 2**(self.array_size-1)-1
@@ -387,20 +387,21 @@ class SAR_ADC:
 
     # calculate absolute value of result
     for i in range(self.cycles):
-      result += comp_result[i] * radix**(self.cycles-i-1)    
+      result += (2*comp_result[i]-1) * radix**(self.cycles-i-2)    
     
-    result -= radix**(self.cycles-1)  # convert to signed value
+    result += 0.5  # round to nearest integer
+       
+    # result -= radix**(self.cycles-1)  # convert to signed value
     # result *= self.lsb_size # convert to voltage
 
     if (radix != 2):
-      radix_scale_factor = (2**self.resolution-1) / ((radix**(self.cycles)-1)/(radix-1))
-#      radix_scale_factor = 2**(self.resolution-1) / self.dac.binary_range
-      #result = result * radix_scale_factor
-    return np.round(result)
+      radix_scale_factor = 2**(self.resolution-1) / self.dac.binary_range
+      result = result * radix_scale_factor
+    return (result)
 
   def calculate_nonlinearity(self, do_plot = False):
-    values_per_bin = 10 # number of values per bin for DNL/INL calculation
-    lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
+    values_per_bin = 100 # number of values per bin for DNL/INL calculation
+    lower_excluded_bins = 2  # lower bound for DNL/INL calculation in LSB
     upper_excluded_bins = 2  # upper bound for DNL/INL calculation in LSB distance from full scale
 
     # helper variables
@@ -473,7 +474,7 @@ class SAR_ADC:
     offset      = 0
     num_samples = 10000
     adc_gain    = self.diff_input_voltage_range / 2 / 2**self.resolution
-    adc_offset  = 2**(self.resolution-1)
+    adc_offset  = 0
 
     time_array          = np.arange(start=0, stop=num_samples/self.sampling_frequency, step=1/self.sampling_frequency)
     input_voltage_array = np.empty(len(time_array))
@@ -487,7 +488,7 @@ class SAR_ADC:
       adc_data_array[i] = self.sample_and_convert_bss(input_voltage,  -input_voltage)
 
     # calculate residuals which represent the noise (in LSB)
-    residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array - 0.5
+    residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array 
     # noise floor RMS
     noise_std = np.std(residual_array)
     noise_percent = noise_std/2**self.resolution * 100
@@ -565,7 +566,6 @@ class SAR_ADC:
       #adc_data[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
       # input_voltage_data_lsb[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2) 
 
-   # input_voltage_data_lsb = input_voltage_data / self.lsb_size + 2**(self.resolution-1) - 0.5
     input_voltage_data_lsb = input_voltage_data / self.lsb_size + 0.5
 
     figure, plot = plt.subplots(2, 1, sharex=True)
@@ -591,9 +591,11 @@ if __name__ == "__main__":
     params = yaml.safe_load(file)
 
   adc = SAR_ADC(params)
+ 
+  # below code blocks can be individually used for visualization and debugging
+
   # plot SAR iterations 
-  adc.sample_and_convert_bss(  0.000, 0.0, do_plot=True, do_calculate_energy=True)
-  adc.sample_and_convert_bss( -1.2, 0.0, do_plot=True, do_calculate_energy=True)
+  # adc.sample_and_convert_bss(  0.000, 0.0, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
@@ -601,22 +603,30 @@ if __name__ == "__main__":
   # plot transfer function
   # adc.plot_transfer_function()
   
+  # calculate DNL/INL
+  # adc.calculate_nonlinearity(do_plot=True)
+  
+  # CDAC only
+  # dac = CDAC_BSS(params)
+  # dac.calculate_nonlinearity(do_plot=True)
+
+  # here starts the quantification of the performance metrices
+
   # compare binary and non-binary weighted capacitors 
-  # adc.dac.use_radix = False 
-  # adc.update_parameters()
-  # print('binary weighted capacitors')
-  # # calculate DNL/INL
-  # adc.calculate_nonlinearity(do_plot=True)
-  # # calculate ENOB
-  # adc.calculate_enob()
-  # adc.dac.use_radix = True
-  # adc.dac.radix = 1.8
-  # adc.update_parameters()
-  # # print('non-binary weighted capacitors')
-  # # calculate DNL/INL
-  # adc.calculate_nonlinearity(do_plot=True)
-  # # # calculate ENOB
-  # adc.calculate_enob()
+  adc.dac.use_radix = False 
+  adc.update_parameters()
+  print('binary weighted capacitors')
+  adc.calculate_nonlinearity(do_plot=True)
+  adc.calculate_enob()
+  print(adc.print_parameter_list())
+ 
+  adc.dac.use_radix = True
+  adc.dac.radix = 1.8
+  adc.update_parameters()
+  print('non-binary weighted capacitors')
+  adc.calculate_nonlinearity(do_plot=True)
+  adc.calculate_enob()
+  print(adc.print_parameter_list())
 
   # parametric ENOB calculation
   # adc.comparator.use_noise_error = True
@@ -624,14 +634,8 @@ if __name__ == "__main__":
   #   adc.comparator.noise_voltage = noise/1e3
   #   enob = adc.calculate_enob()
   #   print('noise %.3f [mV], ENOB %.2f' % (noise, enob))
-  
-  # CDAC only
-  # dac = CDAC_BSS(params)
-  # dac.calculate_nonlinearity(do_plot=True)
-
-  # adc.calculate_nonlinearity(do_plot=True)
-  #adc.calculate_enob()
-  #adc.calculate_conversion_energy(do_plot=True)
+ 
+ 
   # print(adc.print_parameter_list())
   plt.show()
 
