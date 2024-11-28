@@ -1,3 +1,20 @@
+# Terminology
+- Top & bottom plate sampling
+- Top & bottm plate switching
+- Split capacitor array (SCA)
+
+- BSS: Bidirectional single-side switching [Long Chen 2014](library/2014_Long_Chen_BSS.pdf) Is it similar to monotonic, except that the MSB starts at the opposite polarity to center the Common mode better?
+- CRS: Correlated reverse switching [Jen-Huan Tsai](https://ieeexplore.ieee.org/document/7091951) Similar to BSS, but splits up the MSB cap?
+
+- MCS: Merged capacitor switching [V. Hariprasath 2010](https://digital-library.theiet.org/doi/10.1049/el.2010.0706)
+- IMCS: Inverter merged capacitor swithing [Albert Hsu 2014](library/2013_Albert_Hsu_MIT_disseration_SAR_calibration.pdf)
+
+
+- Split capacitor array (SCA) != split capacitor switching technique
+- VCM technique?
+# Summary
+
+
 Improving the frame-rate of imaging system is indispensable for directly observing the dynamics of rapidly evolving systems, or rapidly capturing the complete structure of a solid, from many different angles for later reconstruction as is done in 'tomography' disciplines.
 
 Systems like cells, protiens, chemical reactions, oxidation, battery chemistry, X-ray cyrstllography all have dynamic processes 
@@ -88,7 +105,7 @@ A common way to increase the density of decoupling capacitors. Stack MOM on top 
 [AHT Chang 2013](https://dspace.mit.edu/handle/1721.1/82177) is the best SAR summary
 
 BWC - binary weighted capacitor DAC
-BWSC - binary weighted split capacitor DAC
+BWSC - binary weighted split capacitor array (SCA)
 SC - split capacitor (Ginsburg 2005)
 
 # Switching strategies
@@ -97,15 +114,15 @@ Once we know that matching isn't important, we can discard unit capacitor design
 
 Brian Ginsburg and Anatha Chandrakasan, MIT 2005 showed that various switching stragegies for the capacitor arrays can offer speed or energy benefits:
 
-'split capacitor method' -> 37% energy reduction
+'split capacitor technique' -> 37% energy reduction
 
-[BP Ginsburg ISCAS 2005](https://doi.org/10.1109/ISCAS.2005.1464555)
+[Brian Ginsburg ISCAS 2005](https://doi.org/10.1109/ISCAS.2005.1464555)
 
-[Ginsburg JSSC 2006](https://doi.org/10.1109/JSSC.2006.889372)
+[Brian Ginsburg JSSC 2006](https://doi.org/10.1109/JSSC.2006.889372)
 
 Theoretical SAR ADC performance is estimated here:
 
-[BP Ginsburg JSSC 2007](https://doi.org/10.1109/JSSC.2007.892169)
+[Brian Ginsburg JSSC 2007](https://doi.org/10.1109/JSSC.2007.892169)
 
 Lui 2010 introduced the 'monotonic' strategy => 86% energy reduction. Only allows 'H->L' transistions on the plates. One disadvantage is continuous dropping of common mode.
 
