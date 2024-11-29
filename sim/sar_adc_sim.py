@@ -124,7 +124,7 @@ class CDAC_BSS(CDAC):
       self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
       # non-triviel scaling factor for non radix 2
-      self.binary_range = self.total_capacitance_p / self.unit_capacitance
+      self.total_capacitance_norm = self.total_capacitance_p / self.unit_capacitance
   
       # np.set_printoptions(precision=2)
       # print('Cycles: ', self.array_size+1)  
@@ -149,7 +149,7 @@ class CDAC_BSS(CDAC):
     delta_output_voltage_p = 0
     delta_output_voltage_n = 0
     self.consumed_charge = 0
-    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage + np.random.normal(0, self.reference_voltage_noise)
+    delta_backplane_voltage = self.positive_ref_voltage - self.negative_ref_voltage
 
     for i in range(self.array_size):
       current_capacitor_p = self.capacitor_array_p[i]
@@ -183,11 +183,18 @@ class CDAC_BSS(CDAC):
           if (register_n & (1 << i)) != 0:
             self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
 
+    # ideal CDAC output voltage for reference
     self.output_voltage_no_error_p += delta_output_voltage_p
     self.output_voltage_no_error_n += delta_output_voltage_n
 
+    # add settling time error
     self.output_voltage_p += delta_output_voltage_p * (1 - self.settling_time_error)
     self.output_voltage_n += delta_output_voltage_n * (1 - self.settling_time_error)
+
+    # add reference voltage noise, weighted by the ratio of capacitance connected to VREF, correlated for n and p side 
+    noise_voltage = np.random.normal(0, self.reference_voltage_noise)
+    self.output_voltage_p += noise_voltage * register_p/self.total_capacitance_norm
+    self.output_voltage_n += noise_voltage * register_n/self.total_capacitance_norm
 
     self.register_p = register_p
     self.register_n = register_n
@@ -261,12 +268,10 @@ class SAR_ADC:
     # TBD
     # if self.dac.use_systematic_errors:
     #   parameters += f" DAC systematic error {self.dac.settling_time_error:.2e}\n"    
-    if self.dac.use_settling_error:
-      parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
-    if self.comparator.use_noise_error:
-      parameters += f" Comparator noise          {self.comparator.threshold_noise_voltage:.2e}\n"
-    if self.comparator.use_offset_error:
-      parameters += f" Comparator offset         {self.comparator.offset_voltage:.2e}\n"
+    parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
+    parameters += f" Comparator noise          {self.comparator.threshold_noise_voltage:.2e}\n"
+    parameters += f" Comparator offset         {self.comparator.offset_voltage:.2e}\n"
+    parameters += f" Reference noise           {self.dac.reference_voltage_noise:.2e}\n"
     parameters += "Performance\n"
     parameters += f" DNL   {self.dnl:.2f}\n"
     parameters += f" INL   {self.inl:.2f}\n"
@@ -290,13 +295,13 @@ class SAR_ADC:
 
     # correct for scaling factor with sub-binary weighted capacitors
     if (radix != 2):
-      radix_scale_factor = 2**(self.resolution-1) / self.dac.binary_range
+      radix_scale_factor = 2**(self.resolution-1) / self.dac.total_capacitance_norm
       result = result * radix_scale_factor
     return int(result)
 
   def calculate_nonlinearity(self, do_plot = False):
     values_per_bin = 100     # number of values per bin for DNL/INL calculation
-    lower_excluded_bins = 0  # lower bound for DNL/INL calculation in LSB
+    lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
     upper_excluded_bins = 0  # upper bound for DNL/INL calculation in LSB distance from full scale
 
     # helper variables
@@ -374,13 +379,14 @@ class SAR_ADC:
       caption += f" DAC settling error {self.dac.settling_time_error:.2e}\n"
       caption += f" Comparator noise   {self.comparator.threshold_voltage_noise:.2e}\n"
       caption += f" Comparator offset  {self.comparator.offset_voltage:.2e}\n"
+      caption += f" Reference noise    {self.dac.reference_voltage_noise:.2e}\n"
       figure.tight_layout()
       figure.subplots_adjust(bottom=0.15)
       figure.text(0.1, 0.1, caption, fontsize=10, ha='left', va='top', wrap=False)
 
   def calculate_enob(self, do_plot = False):
     # return (snr - 1.76)/6.02
-    frequency   = 1e4
+    frequency   = 1e3
     amplitude   = 0.59
     offset      = 0
     num_samples = 10000
@@ -408,7 +414,7 @@ class SAR_ADC:
 
     
     if do_plot:
-      plot_title = 'ENOB Calculation\n (settling error = %s, systematic errors = %s, offset error = %s)' % (self.dac.use_settling_error, self.dac.use_systematic_errors, self.comparator.use_offset_error) 
+      plot_title = 'ENOB Calculation'
       figure, plot = plt.subplots(3, 1, sharex=True)
       figure.suptitle(plot_title)    
       # plot adc data
@@ -613,14 +619,15 @@ if __name__ == "__main__":
   
   # calculate DNL/INL
   adc.calculate_nonlinearity(do_plot=True)
+
+  # calculate ENOB
+  # adc.calculate_enob(do_plot=True)
   
   # CDAC only
   # dac = CDAC_BSS(params)
   # dac.calculate_nonlinearity(do_plot=True)
 
-  # here starts the quantification of the performance metrices
-
-  # compare binary and non-binary weighted capacitors 
+    # compare binary and non-binary weighted capacitors 
   # adc.dac.use_radix = False 
   # adc.update_parameters()
   # print('binary weighted capacitors')
