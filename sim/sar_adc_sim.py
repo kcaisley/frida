@@ -1,9 +1,13 @@
 import yaml
 import numpy as np	
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from tqdm import tqdm
+import os
+import pandas as pd
 
-
+# format all plots as A4 portrait
+plt.rc('figure', figsize=(8.27,11.69))
 
 class CDAC:
   def __init__(self, params):
@@ -269,7 +273,7 @@ class SAR_ADC:
     # if self.dac.use_systematic_errors:
     #   parameters += f" DAC systematic error {self.dac.settling_time_error:.2e}\n"    
     parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
-    parameters += f" Comparator noise          {self.comparator.threshold_noise_voltage:.2e}\n"
+    parameters += f" Comparator noise          {self.comparator.threshold_voltage_noise:.2e}\n"
     parameters += f" Comparator offset         {self.comparator.offset_voltage:.2e}\n"
     parameters += f" Reference noise           {self.dac.reference_voltage_noise:.2e}\n"
     parameters += "Performance\n"
@@ -343,26 +347,34 @@ class SAR_ADC:
     inl_sigma = np.std(inl_data)
     self.dnl = dnl_sigma
     self.inl = inl_sigma       
+    print('DNL sigma %.3f' % dnl_sigma)
+    print('INL sigma %.3f' % inl_sigma)
 
     
     if do_plot:
       x_ticks = range(min_code, max_code+10, 2**(self.resolution-3))
       plot_title = 'ADC Nonlinearity' 
-      figure, plot = plt.subplots(4, 1, sharex=True, figsize=(8, 10))
-      figure.suptitle(plot_title)
-      plot[0].step(adc_data, input_voltage_data,  where = 'pre')
+      figure, plot = plt.subplots(4, 1, sharex=True)
+      # figure.tight_layout()
+      # figure.suptitle(plot_title)
+      plot[0].title.set_text('ADC Transfer Function')
+      plot[0].step(adc_data, input_voltage_data, where = 'pre')
       plot[0].set_xticks(x_ticks)
       plot[0].set_ylabel("Input voltage [V]")
       plot[0].grid(True)  
-      plot[1].step(bin_edges, code_density_hist,  where = 'pre')
+      plot[1].title.set_text('Code Density')
+      plot[1].step(bin_edges, code_density_hist, where = 'pre', label = "Ideal bin count = %d" % values_per_bin)
       plot[1].set_xticks(x_ticks)
-      plot[1].set_ylabel("Code density")
-      plot[1].grid(True)        
+      plot[1].set_ylabel("Counts per ADC code")
+      plot[1].legend()
+      plot[1].grid(True)     
+      plot[2].title.set_text('Differential Nonlinearity')   
       plot[2].step(bin_edges, dnl_data,  where = 'post', label = "DNL sigma = %.3f" % dnl_sigma)
       plot[2].set_ylim(-2, 2)
       plot[2].set_ylabel("DNL [LSB]")
       plot[2].legend()
       plot[2].grid(True)  
+      plot[3].title.set_text('Integral Nonlinearity')
       plot[3].step( bin_edges, inl_data,  where = 'post', label = "INL sigma = %.3f" % inl_sigma)
       plot[3].set_ylim(-2, 2)    
       plot[3].set_ylabel("INL [LSB]")  
@@ -370,19 +382,7 @@ class SAR_ADC:
       plot[3].set_xlabel('ADC code')  
       plot[3].grid(True)        
 
-      np.set_printoptions(precision=2, suppress=True, formatter={'float': '{:0.2f}'.format})
-      caption = "Design parameters\n"
-      caption   += f' Radix              {self.dac.radix}\n'
-      caption   += f' Cap. array         {self.dac.capacitor_array_p/self.dac.unit_capacitance}\n'
-
-      caption += "Non-idealities\n"
-      caption += f" DAC settling error {self.dac.settling_time_error:.2e}\n"
-      caption += f" Comparator noise   {self.comparator.threshold_voltage_noise:.2e}\n"
-      caption += f" Comparator offset  {self.comparator.offset_voltage:.2e}\n"
-      caption += f" Reference noise    {self.dac.reference_voltage_noise:.2e}\n"
-      figure.tight_layout()
-      figure.subplots_adjust(bottom=0.15)
-      figure.text(0.1, 0.1, caption, fontsize=10, ha='left', va='top', wrap=False)
+      return figure    
 
   def calculate_enob(self, do_plot = False):
     # return (snr - 1.76)/6.02
@@ -410,9 +410,9 @@ class SAR_ADC:
     noise_std = np.std(residual_array)
     noise_percent = noise_std/2**self.resolution * 100
     # ENOB
-    enob = self.resolution - np.log10(noise_std*np.sqrt(12))
+    self.enob = self.resolution - np.log10(noise_std*np.sqrt(12))
+    print('ENOB %.2f' % self.enob)
 
-    
     if do_plot:
       plot_title = 'ENOB Calculation'
       figure, plot = plt.subplots(3, 1, sharex=True)
@@ -422,13 +422,10 @@ class SAR_ADC:
       plot[0].legend()
       plot[1].stairs(adc_data_array[:len(time_array)-1], time_array, baseline = False, label = 'ADC code')
       plot[1].legend()
-      plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, enob))
+      plot[2].plot(time_array, residual_array, label = 'Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f' % (noise_std, self.enob))
       plot[2].legend()
-      print('ENOB %.2f' % enob)
+      return figure
     
-    self.enob = enob
-    return enob
-
   def calculate_conversion_energy(self, do_plot = False):
     samples_per_bin = 1
     common_mode_input_voltage = 0.0
@@ -443,26 +440,30 @@ class SAR_ADC:
       conversion_energy_array[i] = self.conversion_energy
     conversion_energy_average = np.average(conversion_energy_array)
   
+    self.fom = conversion_energy_average / adc.resolution
+    self.average_conversion_energy = conversion_energy_average
+    print('conversion energy average P[pJ] %e' % (self.average_conversion_energy * 1e12))
+    print('FOM[pJ] %e' % ( self.fom * 1e12))
+
     if do_plot:
       figure, plot = plt.subplots(2, 1, sharex=True)
-      y_ticks = range(0, 2**self.resolution+10, 2**(self.resolution-3))
-      figure.suptitle('ADC Transfer Function')
-      plot[0].stairs(adc_data[:len(input_voltage_data)-1], input_voltage_data, baseline = None, label = 'ADC transfer function')
+      figure.subplots_adjust(bottom=0.5) 
+      y_ticks = range(-2**(self.resolution-1), 2**(self.resolution-1)+1, 2**(self.resolution-3))
+      # figure.tight_layout()
+      # figure.suptitle('ADC Transfer Function')
+      plot[0].title.set_text('ADC Transfer Function')
+      plot[0].step(input_voltage_data, adc_data)
       plot[0].set_ylabel("ADC code")
       plot[0].set_yticks(y_ticks)
       plot[0].grid(True)  
-      plot[0].legend()
-      plot[1].plot(input_voltage_data, conversion_energy_array * 1e12, label='Conversion energy\n average = %.3f pJ' % (conversion_energy_average * 1e12))  
+      #plot[0].legend()
+      plot[1].title.set_text('Conversion energy')
+      plot[1].step(input_voltage_data, conversion_energy_array * 1e12, label='Conversion energy\n average = %.3f pJ' % (conversion_energy_average * 1e12))  
       plot[1].set_ylabel("Energy [pJ]")
       plot[1].set_xlabel('Diff. input voltage [V]')  
       plot[1].grid(True)
       plot[1].legend()
-
-      print('conversion energy average P[pJ] %e' % (conversion_energy_average * 1e12))
-      print('FOM[pJ] %e' % (conversion_energy_average / adc.resolution * 1e12))
-
-    self.fom = conversion_energy_average / adc.resolution
-    self.average_conversion_energy = conversion_energy_average
+      return figure
 
   def ideal_conversion(self, input_voltage_p, input_voltage_n): 
     # ideal conversion
@@ -500,6 +501,65 @@ class SAR_ADC:
     plot[1].set_ylabel("Error [LSB]")
     plot[1].grid(True)
     plot[1].legend()
+
+  def compile_results(self):
+ 
+    # open file with unique name
+    def get_unique_filename(filename):
+      base, ext = os.path.splitext(filename)
+      counter = 1
+      new_filename = filename
+      while os.path.exists(new_filename):
+        new_filename = f"{base}_{counter}{ext}"
+        counter += 1
+      return new_filename
+
+    filename = get_unique_filename('datasheet_1.pdf')
+
+    # calculate and save plots to PDF
+    pdf = PdfPages(filename)
+    figure = self.calculate_nonlinearity(do_plot=True)
+    pdf.savefig(figure)
+    figure = self.calculate_conversion_energy(do_plot=True)
+    pdf.savefig(figure)
+    adc.calculate_enob()
+
+    # Collect parameters and results
+    data = [
+      ("Resolution", self.resolution, "bits"),
+      ("Sample frequency", self.sampling_frequency / 1.0e6, "Msps"),
+      ("LSB size", self.lsb_size / 1.0e-3, "mV"),
+      ("Redundancy", self.redundancy, ""),
+      ("DAC radix", self.dac.radix if self.dac.use_radix else "2", ""),
+      ("DAC capacitor array size", self.dac.array_size, ""),
+      ("DAC unit capacitance", self.dac.unit_capacitance / 1e-15, "fF"),
+      ("DAC parasitic capacitance", self.dac.parasitic_capacitance / 1e-15, "fF"),
+      ("DAC total capacitance", self.dac.total_capacitance_p / 1e-12, "pF"),
+      ("DAC settling error", f"{self.dac.settling_time_error/100:.2f}", "%"),
+      ("Comparator noise", self.comparator.threshold_voltage_noise*1000, "mV"),
+      ("Comparator offset", self.comparator.offset_voltage*1000, "mV"),
+      ("Reference voltage noise", self.dac.reference_voltage_noise*1000, "mV"),
+      ("DNL", f"{self.dnl:.2f}", "LSB"),
+      ("INL", f"{self.inl:.2f}", "LSB"),
+      ("ENOB", f"{self.enob:.2f}", "bits"),
+      ("FOM (energy/conversion)",  f"{self.average_conversion_energy / self.resolution / 1e-12:.2f}", "pJ")
+    ]
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    df.columns = ["Parameter", "Value", "Unit"]
+
+    # Save DataFrame to PDF
+    fig, ax = plt.subplots(figsize=(8.27, 11.69))  # A4 size
+    ax.axis('tight')
+    ax.axis('off')
+    table = ax.table(cellText=df.values, colLabels=df.columns, cellLoc='left', loc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.auto_set_column_width(col=list(range(len(df.columns)))) 
+    #table.scale(1, 1.2)
+    pdf.savefig(fig)#, bbox_inches='tight')
+    pdf.close()
 
 class SAR_ADC_BSS(SAR_ADC):
   def __init__(self, params):
@@ -605,11 +665,12 @@ if __name__ == "__main__":
     params = yaml.safe_load(file)
 
   adc = SAR_ADC_BSS(params)
- 
-  # below code blocks can be individually used for visualization and debugging
+  ########################################################################################
+  # Below code blocks can be individually used for visualization and debugging
+  ########################################################################################
 
   # plot SAR iterations 
-  # adc.sample_and_convert_bss(  0.000, 0.0, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(  0.000, 0.01, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
@@ -618,23 +679,35 @@ if __name__ == "__main__":
   # adc.plot_transfer_function()
   
   # calculate DNL/INL
-  adc.calculate_nonlinearity(do_plot=True)
+  # adc.calculate_nonlinearity(do_plot=True)
 
   # calculate ENOB
   # adc.calculate_enob(do_plot=True)
-  
+   
   # CDAC only
   # dac = CDAC_BSS(params)
   # dac.calculate_nonlinearity(do_plot=True)
 
-    # compare binary and non-binary weighted capacitors 
+  ########################################################################################
+  # Performance analysis
+  ########################################################################################
+ 
+  #---------------------------------------------------------------------------------------
+  # calculate and gather all performance parameters
+  #--------------------------------------------------------------------------------------- 
+  
+  # adc.compile_results() 
+ 
+ 
+  #---------------------------------------------------------------------------------------
+  # compare binary and non-binary weighted capacitors 
+  #---------------------------------------------------------------------------------------
   # adc.dac.use_radix = False 
   # adc.update_parameters()
   # print('binary weighted capacitors')
   # adc.calculate_nonlinearity(do_plot=True)
   # adc.calculate_enob()
   # print(adc.print_parameter_list())
- 
   # adc.dac.use_radix = True
   # adc.dac.radix = 1.8
   # adc.update_parameters()
@@ -643,8 +716,10 @@ if __name__ == "__main__":
   # adc.calculate_enob()
   # print(adc.print_parameter_list())
 
+  #---------------------------------------------------------------------------------------
   # parametric ENOB calculation
-  # adc.comparator.use_noise_error = True
+  #---------------------------------------------------------------------------------------
+    # adc.comparator.use_noise_error = True
   # for noise in np.arange(0, 10, 2):
   #   adc.comparator.noise_voltage = noise/1e3
   #   enob = adc.calculate_enob()

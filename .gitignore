@@ -8,3 +8,4 @@ __pycache__
 /Cargo.lock
 /tests
 /edet/build
+sim/*.pdf
