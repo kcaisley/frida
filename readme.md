@@ -1,23 +1,56 @@
 # Terminology
+
+## Switching schemes (reducing power)
+
+- Conventional (essentially [McCreary 1975](library/1975_James_McCreary_conventional_0%.pdf), with differential config)
+- Split capacitor switching technique [2005 Brian Ginsburg](library/2005_Brian_Ginsburg-split_cap37%-charge_sharing24%-two_step10%.pdf) Showed three switching stragegies for reducing energy: 2-step, charge sharing, and split capacitor). The best was 'split capacitor', with a 37% energy reduction.
+- Monotonic switching (aka 'set and down') [2010 C.C. Liu](library/2010_Chun-Cheng_Liu_monotonic_aka_set&down_switching_81%.pdf) 86% energy reduction. Only allows 'H->L' transistions on the plates. One disadvantage is continuous dropping of common mode.
+- MCS: Merged capacitor switching [2010 Hariprasath](library/2010_Venkatram_Hariprasath_merged_cap_switching_93%_(Vcm-based).pdf)
+- Vcm-based: [Yan Zhu 2010](library/2010_Yan_Zhu_Vcm-based_switching_87%.pdf), 87% reduction
+- IMCS: Inverted merged capacitor swithing [2013 Albert Hsu](library/2013_Albert_Hsu_MIT_disseration_SAR_calibration.pdf)
+- BSS: Bidirectional single-side switching [2014 Long Chen](library/2014_Long_Chen_bidirectional_singleside_switching.pdf) Is it similar to monotonic, except that the MSB starts at the opposite polarity to center the common-mode better.
+- CAS: Charge-average switching [2013 C.C.Hsieh](library/2013_CY_Liou_CCHsieh_charge_average_switching_CAS.pdf)
+- CRS: Correlated reverse switching [2015 Jen-Huan Tsai](library/2015_Jen-Huan_Tsai_correlated_reverse_switching_wADEC.pdf) Similar to BSS, but splits up the MSB cap?
+- Merge-and-split [2015 Jin-Yi Lin](library/2015_Jin-Yi_Lin_merge&split_switching.pdf)
+
+
+## Redundancy
+
+- I think these are all basically the same, in their redundancy benefits:
+    - non-binary, sub-radix 2
+    - double conversion
+    - post-conversion
+
+- [2014 Franz Kuttner](library/2004_Franz_Kuttner_subradix2_nonbinary.pdf): Is first to use redundancy via non-binary subradix 2
+- [2013 Boris Murman](library/2013_Boris_Murmann_non_binary_survey.pdf):
+- [2014 T. Waho](library/2014_T_Waho_nonbinary_redundancy_survey.pdf):
+- [2015 C.C. Liu](library/2015_CC_Liu_redundancy.pdf):
+
+## Digital error correction (DEC)
+
+- Terms:
+    - Addition-only DEC
+    - adaptive equalization
+    - 
+
+- [Wenbo Liu 2007 ISCAS Urbana](https://doi.org/10.1109/ICASIC.2007.4415624): An Equalization-Based Adaptive Digital Background Calibration Technique for Successive Approximation Analog-to-Digital Converters
+- [Wenbo Liu 2009 ISSCC Urbana](https://doi.org/10.1109/ISSCC.2009.4977318): Implementation of above, with less detail 
+
+## Other terms
+- Latch offet. [Murmann 2006](https://doi.org/10.1109/TCSII.2006.883204) analyzed regenerative latch offset from load cap mismatch
+- NOTE: Split capacitor array (SCA) != split capacitor switching technique
 - Top & bottom plate sampling
 - Top & bottm plate switching
-- Split capacitor array (SCA)
+- Noise minimum shift (Caeleste, pg 26) An alternative to reference voltage regulation. When CDAC values are close to mid-scale, an equal number of capacitors are connected to Vhigh vs Vlow reference voltages, and the sensitivity to noise on the reference voltage is minimized. This technique add an additional capacitor array which  of the input to minimized noise in each measurement.
+- Split capacitors (statically biased caps, Caeleste pg58, p116). Similar to above, but divides caps into two, and sets them to different biases to improve noise
+- Interleaving: Multiple ADCs operating in parrallel, sampling out of phase. Mainly necessary for >100Ms/s, at the expense of power and area. Not useful for our applications.
+- Pipelining: Multiple sub-ADCs, operating sequentially. Similarly allows for greating speed, at higher power and area costs. Not necessary for our applications.
 
-- BSS: Bidirectional single-side switching [Long Chen 2014](library/2014_Long_Chen_BSS.pdf) Is it similar to monotonic, except that the MSB starts at the opposite polarity to center the Common mode better?
-- CRS: Correlated reverse switching [Jen-Huan Tsai](https://ieeexplore.ieee.org/document/7091951) Similar to BSS, but splits up the MSB cap?
-
-- MCS: Merged capacitor switching [V. Hariprasath 2010](https://digital-library.theiet.org/doi/10.1049/el.2010.0706)
-- IMCS: Inverter merged capacitor swithing [Albert Hsu 2014](library/2013_Albert_Hsu_MIT_disseration_SAR_calibration.pdf)
-
-
-- Split capacitor array (SCA) != split capacitor switching technique
-- VCM technique?
-# Summary
-
+# Abstract
 
 Improving the frame-rate of imaging system is indispensable for directly observing the dynamics of rapidly evolving systems, or rapidly capturing the complete structure of a solid, from many different angles for later reconstruction as is done in 'tomography' disciplines.
 
-Systems like cells, protiens, chemical reactions, oxidation, battery chemistry, X-ray cyrstllography all have dynamic processes 
+Systems like cells, protiens, chemical reactions, oxidation, battery chemistry, X-ray cyrstllography all have dynamic processes.
 
 Historically, the highest frame rates haves been achieve by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
 
@@ -57,31 +90,6 @@ To this end, this work investigates techniques for maximizing the sampling rate 
 - ❌ Interleaving typically not worth it
 - ✅ 7-8 Gbps JESD204B w/ 8b/10b encoding
 
-# Column-parrallel ADC FOM
-
-![alt text](docs/images/helena_adc_fom.png)
-
-$$
-FoM = \frac{P\times T_{conv} \times A}{10^{\frac{DR_{dB}-1.76}{10} }} \left[ \mathrm{\frac{fJ \cdot \mu m^2}{conv.-step}} \right]
-$$
-
-```python
-def FoM(P, ConvTime, A_um2, DRdB):
-    J_per_um2 = (P*ConvTime*A_um2)/(10**((DRdB-1.76)/10))
-    fJ_per_um2 = J_per_um2*1e15
-    return fJ_per_um2
-
-DCD = FoM(3600e-6, 1e-7, 40000, 50)
-print(DCD*10e15) #2e21
-
-helena = FoM(100e-6, 100e-9, 2000, 60) 
-print(helena*10e15) # 3e17
-```
-
-![alt text](docs/images/helena_power_conv.png)
-
-![alt text](docs/images/helena_energy_sndr.png)
-
 # Capacitors types
 You can create capacitor plates with poly, metal, and diffusion. 
 
@@ -91,82 +99,11 @@ Typically the common combinations are:
 - Poly-diffusion cap, where you use a field oxide instead of the standard FET gate
 - 'Accumulation cap' which is a poly-diffusion (POD) cap, but with the S and D connection. Only using G to Bulk capacitance
 - MIM caps, are created with metal layers, but place an intermetidate metal layer closer, and use a special insulator (silicon nitride, tantalum pentoxide Insulators (e.g., Si3N4 or Ta2O5)). ITRS 2011 puts this at 5-7 fF/μm²
-- Metal-metal, aka metal-fringe-capacitor (MFC), availabe in TJ180. These can be multiple layers, or just a single layer. There are several variations, with intedigitated fingers with via between, or with vias only on the edges, and fingers rotated each and other layers called an 'RTMOM'. In TSMC65, this is covered [here](file:///eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/crtmom_rf_device_route_guidance_for_RF_application.pdf). ITRS 2011 puts this at 5-7 fF/μm²?
+- Metal-metal, aka metal-fringe-capacitor (MFC), availabe in TJ180. These can be multiple layers, or just a single layer. There are several variations, with intedigitated fingers with via between, or with vias only on the edges, and fingers rotated each and other layers called an 'RTMOM'. In TSMC65, this is covered [here](/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/crtmom_rf_device_route_guidance_for_RF_application.pdf). ITRS 2011 puts this at 5-7 fF/μm²?
 - Poly-poly caps can be as simple as two large rectangles, on two seperate poly layers. Called 'POP' caps. Need to have a poly2 layer.
 
-
-Tower 65nm seems to have nmoscap, moscaps, pmos caps (all these are varactors), mimcap, mimpcap 3T, RTMOM, and MIM. List is [here](file:///eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65LP_v1d7a_pdkFSAChecklist.pdf).
+Tower 65nm seems to have nmoscap, moscaps, pmos caps (all these are varactors), mimcap, mimpcap 3T, RTMOM, and MIM. List is [here](/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65LP_v1d7a_pdkFSAChecklist.pdf).
 
 Tower 180nm Accumulation caps, MIM caps, and MFCs are covered [here](/eda/kits/TOWER/ts18is_6M1L_2014/HOTCODE/models/ts18sl/v4.9.3/docs/DRS2_0018_B_manual.pdf).
 
 A common way to increase the density of decoupling capacitors. Stack MOM on top of device capacitors (make sure they are connected in parallel and not series).
-
-# Array weighting
-[AHT Chang 2013](https://dspace.mit.edu/handle/1721.1/82177) is the best SAR summary
-
-BWC - binary weighted capacitor DAC
-BWSC - binary weighted split capacitor array (SCA)
-SC - split capacitor (Ginsburg 2005)
-
-# Switching strategies
-
-Once we know that matching isn't important, we can discard unit capacitor design and guard rings. This allows the array to be smaller is capacitance, giving lower power, lower area, and faster settling.
-
-Brian Ginsburg and Anatha Chandrakasan, MIT 2005 showed that various switching stragegies for the capacitor arrays can offer speed or energy benefits:
-
-'split capacitor technique' -> 37% energy reduction
-
-[Brian Ginsburg ISCAS 2005](https://doi.org/10.1109/ISCAS.2005.1464555)
-
-[Brian Ginsburg JSSC 2006](https://doi.org/10.1109/JSSC.2006.889372)
-
-Theoretical SAR ADC performance is estimated here:
-
-[Brian Ginsburg JSSC 2007](https://doi.org/10.1109/JSSC.2007.892169)
-
-Lui 2010 introduced the 'monotonic' strategy => 86% energy reduction. Only allows 'H->L' transistions on the plates. One disadvantage is continuous dropping of common mode.
-
-[CC Liu 2010 JSSC, monotonic switch cap](https://doi.org/10.1109/jssc.2010.2042254 )
-
-[Murmann 2006](https://doi.org/10.1109/TCSII.2006.883204) analyzed regenerative latch offset from load cap mismatch
-
-'...the size of the sampling capacitors can be scaled down to the kTIC limit without matching concerns. For SA-ADCs with resolutions of 10 bits and above, a large power saving is envisioned using the proposed low-cost, power-efficient digital calibration technique.'
-Theory paper:
-[Wenbo Liu 2007 ISCAS Urbana](https://doi.org/10.1109/ICASIC.2007.4415624)An Equalization-Based Adaptive Digital Background Calibration Technique for Successive Approximation Analog-to-Digital Converters
-
-Implementation (less detailed)
-[Wenbo Liu 2009 ISSCC Urbana](https://doi.org/10.1109/ISSCC.2009.4977318)
-
-How does the redundancy or double-conversion stuff work? Does it retry with the same hardware, or different? And does it reset the previous stage, or proceed on from it? 
-
-Are the unary stage at the beginning redundancy? Or does redundancy have to do with overlapping ranges, which can come from non-binary step?
-
-A key term here is 'digital background calibration'.
-
-# Interleaving
-
-Two ADCs at once. Not further considered by Caeleste.
-
-# Binary vs non-binary (vs unary!)
-
-Allows for self-correction of conversion errors and code gaps. Compact sequencer and logic, simpler and smaller cdac, faster operation, lower power. But have to calibrate.
-
-Another type of array is a C-2C capacitor array, but according to Liu 2010, this is not nearly as linear.
-
-[Kuttner 2004](https://doi.org/10.1109/isscc.2002.992993) is first to use redundancy via non-binary
-
-Unary steps just means that you don't in the beginning jump in an MSB step, and then MSB/2 step.
-
-Instead, you take three steps, each of MSB/2 size. This costs an extra clock cycle, but perhaps improves the metastability time of the MSB which might be quite large.
-
-# other recommended + representative papers:
-
-[Tang 2013, SS + SA](https://doi.org/10.1109/TED.2013.2268207) Low-Power CMOS Image Sensor Based on Column-Parallel Single-Slope/SAR Quantization Scheme
-
-[CP Huang 2016, INL+DNL analysis](https://doi.org/10.1109/TIM.2016.2562198) Analysis of Nonideal Behaviors Based on INL/DNL Plots for SAR ADCs
-
-[YS Yee, 1979, original SAR monolithic](https://doi.org/10.1109/JSSC.1979.1051264) A two-stage weighted capacitor network for D/A-A/D conversion
-
-[P Gray, 1975, all mos sar adc](https://doi.org/10.1109/JSSC.1975.1050629) All-MOS charge redistribution analog-to-digital conversion techniques, Part I
-
-[Z Zhou, E Fossum, 1995, first CIS SAR ADC](https://doi.org/10.1109/16.628833) CMOS active pixel sensor with on-chip successive approximation analog-to-digital converter
