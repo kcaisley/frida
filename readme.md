@@ -1,19 +1,40 @@
 # Terminology
-- Top & bottom plate sampling
-- Top & bottm plate switching
-- Split capacitor array (SCA)
 
-- BSS: Bidirectional single-side switching [Long Chen 2014](library/2014_Long_Chen_BSS.pdf) Is it similar to monotonic, except that the MSB starts at the opposite polarity to center the Common mode better?
-- CRS: Correlated reverse switching [Jen-Huan Tsai](https://ieeexplore.ieee.org/document/7091951) Similar to BSS, but splits up the MSB cap?
+## Switching schemes
 
+
+
+
+
+
+- Conventional (essentially McCreary 1975, with differential config)
+- Split capacitor switching technique
+- Monotonic switching (aka 'set and down') introduced by []
 - MCS: Merged capacitor switching [V. Hariprasath 2010](https://digital-library.theiet.org/doi/10.1049/el.2010.0706)
-- IMCS: Inverter merged capacitor swithing [Albert Hsu 2014](library/2013_Albert_Hsu_MIT_disseration_SAR_calibration.pdf)
+- Vcm-based: [Yan Zhu 2010], 87% reduction
+- IMCS: Inverter merged capacitor swithing [2013 Albert Hsu](library/2013_Albert_Hsu_MIT_disseration_SAR_calibration.pdf)
+- BSS: Bidirectional single-side switching [2014 Long Chen](library/2014_Long_Chen_BSS.pdf) Is it similar to monotonic, except that the MSB starts at the opposite polarity to center the Common mode better?
+- CRS: Correlated reverse switching [2015 Jen-Huan Tsai](https://ieeexplore.ieee.org/document/7091951) Similar to BSS, but splits up the MSB cap?
 
 
 - Split capacitor array (SCA) != split capacitor switching technique
 - VCM technique?
-# Summary
 
+- CAS
+- Merge-and-split
+
+- Top & bottom plate sampling
+- Top & bottm plate switching
+
+- Noise minimum shift (Caeleste, pg 26) An alternative to reference voltage regulation. When CDAC values are close to mid-scale, an equal number of capacitors are connected to Vhigh vs Vlow reference voltages, and the sensitivity to noise on the reference voltage is minimized. This technique add an additional capacitor array which  of the input to minimized noise in each measurement.
+- Split capacitors (statically biased caps, Caeleste pg58, p116). Similar to above, but divides caps into two, and sets them to different biases to improve noise
+
+https://ieeexplore.ieee.org/document/6487735
+https://ieeexplore.ieee.org/document/7243367
+
+
+
+# Summary
 
 Improving the frame-rate of imaging system is indispensable for directly observing the dynamics of rapidly evolving systems, or rapidly capturing the complete structure of a solid, from many different angles for later reconstruction as is done in 'tomography' disciplines.
 
