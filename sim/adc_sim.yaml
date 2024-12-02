@@ -1,5 +1,5 @@
 SAR_ADC:
-  resolution: 8  # resolution of the ADC
+  resolution: 5  # resolution of the ADC
   redundancy: 0  # redundancy of the ADC 
   sampling_frequency: 10.0e+6  # sampling rate in Hz
   aperture_jitter: 10.0e-12  # aperture jitter in seconds (TBD)
@@ -12,12 +12,12 @@ COMPARATOR:
 CDAC:
   positive_reference_voltage: 1.2  # reference voltage in Volts
   negative_reference_voltage: 0.0  # reference voltage in Volts
-  reference_voltage_noise: 0.1e-3  # reference voltage noise in Volts
+  reference_voltage_noise: 0.0e-3  # reference voltage noise in Volts
   unit_capacitance: 1.0e-15  # unit capacitance in Farads
-  capacitor_weights: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]  # capacitor weights in unit capacitance (use_radix = False) 
+  capacitor_weights: [8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1]  # capacitor weights in unit capacitance (use_radix = False) 
   parasitic_capacitance: 1.0e-15  # Parasitic capacitance in Farads at the output of the CDAC
-  use_radix: False  # use radix for automatic calculation of the capacitor array values
-  radix: 2 # radix of the CDAC, for automatic calculation of the capacitor array values (use_radix = True)
+  use_radix: True  # use radix for automatic calculation of the capacitor array values
+  radix: 1.8 # radix of the CDAC, for automatic calculation of the capacitor array values (use_radix = True)
   use_systematic_errors: False  # use systematic errors in the CDAC
 #  capacitor_systematic_errors: [0, -1, 2, 4, -3, 7, 4, -6, 6, -15, 10, 0]  # capacitor error in percent of the unit capacitor (will be scaled by 1/SQRT(cap size))
   capacitor_systematic_errors: [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]  # capacitor error in percent of the unit capacitor (will be scaled by 1/SQRT(cap size))

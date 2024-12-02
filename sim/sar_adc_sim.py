@@ -16,8 +16,10 @@ class CDAC:
     self.use_radix             = params['CDAC']['use_radix']
     self.radix                 = params['CDAC']['radix']
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
+    self.capacitor_weights     = np.array(params['CDAC']['capacitor_weights'])
     self.use_systematic_errors = params['CDAC']['use_systematic_errors']
     self.resolution            = params['SAR_ADC']['resolution'] 
+    self.array_size            = self.resolution - 1
     self.reference_voltage_noise = params['CDAC']['reference_voltage_noise']
     
     self.total_capacitance_p   = 0  
@@ -108,32 +110,35 @@ class CDAC_BSS(CDAC):
           self.array_size = int(np.round(self.array_size/np.log2(self.radix)))
           self.capacitor_array_p = np.zeros(self.array_size)
           self.capacitor_array_n = np.zeros(self.array_size)
-  
+        # build capacitor array from given radix
         for i in range(self.array_size):
-          self.capacitor_array_p[i] = self.radix**i * self.unit_capacitance
-          self.capacitor_array_n[i] = self.radix**i * self.unit_capacitance
-      else:
+          self.capacitor_array_p[self.array_size-i-1] = self.radix**i * self.unit_capacitance
+          self.capacitor_array_n[self.array_size-i-1] = self.radix**i * self.unit_capacitance
+        self.capacitor_weights = self.capacitor_array_p / self.unit_capacitance
+      else: # use predefined weights
         self.array_size = self.resolution - 1 
-        self.capacitor_array_p = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
-        self.capacitor_array_n = np.array(params['CDAC']['capacitor_weights'][:self.array_size]) * self.unit_capacitance
-
+        array_index_offset     = len(self.capacitor_weights) - self.array_size
+        self.capacitor_weights = self.capacitor_weights[array_index_offset:array_index_offset+self.array_size]
+        self.capacitor_array_p = self.capacitor_weights * self.unit_capacitance
+        self.capacitor_array_n = self.capacitor_weights * self.unit_capacitance
 
       if self.use_systematic_errors:
         capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
         capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
-
         self.capacitor_array_p += capacitor_errors_weighted
         self.capacitor_array_n -= capacitor_errors_weighted
 
-      self.total_capacitance_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
-      self.total_capacitance_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
-      # non-triviel scaling factor for non radix 2
-      self.total_capacitance_norm = self.total_capacitance_p / self.unit_capacitance
+      self.capacitance_sum_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
+      self.capacitance_sum_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
+      # non-trivial scaling factor for non radix 2
+      self.capacitor_weights_sum = self.capacitance_sum_p / self.unit_capacitance
   
-      # np.set_printoptions(precision=2)
-      # print('Cycles: ', self.array_size+1)  
-      # print('Capacitor array: ', self.capacitor_array_p)
-      # print('Total capacitance: ', self.total_capacitance_p)
+      np.set_printoptions(precision=2)
+      print('Cycles: ', self.array_size+1)  
+      print('Capacitor array: ', self.capacitor_array_p)
+      print('Total capacitance: ', self.total_capacitance_p)
+      print('Capacitor weights: ', self.capacitor_weights)
+      print('Capacitor weights sum: ', self.capacitor_weights_sum) 
       # print('DAC binary range %d' % self.binary_range)  
       
   def reset(self, reset_value, do_calculate_energy = False):
@@ -158,33 +163,31 @@ class CDAC_BSS(CDAC):
     for i in range(self.array_size):
       current_capacitor_p = self.capacitor_array_p[i]
       current_capacitor_n = self.capacitor_array_n[i]
+      reg_index = self.array_size - i - 1
 
-      if (register_p & (1 << i)) > (self.register_p & (1 << i)):
-        delta_output_voltage_p += current_capacitor_p / self.total_capacitance_p * delta_backplane_voltage 
-      elif (register_p & (1 << i)) < (self.register_p & (1 << i)):
-        delta_output_voltage_p -= current_capacitor_p / self.total_capacitance_p * delta_backplane_voltage 
+      if (register_p & (1 << reg_index)) > (self.register_p & (1 << reg_index)):
+        delta_output_voltage_p += current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage 
+      elif (register_p & (1 << reg_index)) < (self.register_p & (1 << reg_index)):
+        delta_output_voltage_p -= current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage 
 
-      if (register_n & (1 << i)) > (self.register_n & (1 << i)):
-        delta_output_voltage_n += current_capacitor_n / self.total_capacitance_n * delta_backplane_voltage 
-      elif (register_n & (1 << i)) < (self.register_n & (1 << i)):
-        delta_output_voltage_n -= current_capacitor_n / self.total_capacitance_n * delta_backplane_voltage
+      if (register_n & (1 << reg_index)) > (self.register_n & (1 << reg_index)):
+        delta_output_voltage_n += current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage 
+      elif (register_n & (1 << reg_index)) < (self.register_n & (1 << reg_index)):
+        delta_output_voltage_n -= current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage
 
-    if do_calculate_energy:
-      for i in range(self.array_size):
-        current_capacitor_p = self.capacitor_array_p[i]
-        current_capacitor_n = self.capacitor_array_n[i]
+      if do_calculate_energy:
         if delta_output_voltage_p > 0:
-          if (register_p & (1 << i)) == 0:
+          if (register_p & (1 << reg_index)) == 0:
             self.consumed_charge += current_capacitor_p * delta_output_voltage_p
         else:
-          if (register_p & (1 << i)) != 0:
+          if (register_p & (1 << reg_index)) != 0:
             self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
 
         if delta_output_voltage_n > 0:
-          if (register_n & (1 << i)) == 0:
+          if (register_n & (1 << reg_index)) == 0:
             self.consumed_charge += current_capacitor_n * delta_output_voltage_n
         else:
-          if (register_n & (1 << i)) != 0:
+          if (register_n & (1 << reg_index)) != 0:
             self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
 
     # ideal CDAC output voltage for reference
@@ -197,8 +200,8 @@ class CDAC_BSS(CDAC):
 
     # add reference voltage noise, weighted by the ratio of capacitance connected to VREF, correlated for n and p side 
     noise_voltage = np.random.normal(0, self.reference_voltage_noise)
-    self.output_voltage_p += noise_voltage * register_p/self.total_capacitance_norm
-    self.output_voltage_n += noise_voltage * register_n/self.total_capacitance_norm
+    self.output_voltage_p += noise_voltage * register_p/self.capacitor_weights_sum
+    self.output_voltage_n += noise_voltage * register_n/self.capacitor_weights_sum
 
     self.register_p = register_p
     self.register_n = register_n
@@ -268,7 +271,7 @@ class SAR_ADC:
     parameters += f" DAC capacitor array size  {self.dac.array_size}\n"
     parameters += f" DAC unit capacitance      {self.dac.unit_capacitance/1e-15:.1f} fF\n"
     parameters += f" DAC parasitic capacitance {self.dac.parasitic_capacitance/1e-15:.1f} fF\n"
-    parameters += f" DAC total capacitance     {self.dac.total_capacitance_p/1e-12:.2f} pF\n"
+    parameters += f" DAC total capacitance     {self.dac.capacitance_sum_p/1e-12:.2f} pF\n"
     # TBD
     # if self.dac.use_systematic_errors:
     #   parameters += f" DAC systematic error {self.dac.settling_time_error:.2e}\n"    
@@ -284,6 +287,7 @@ class SAR_ADC:
     return parameters
      
   def calculate_result(self, comp_result):
+
     result = 0  # initialize result
 
     if (self.dac.use_radix):
@@ -296,10 +300,31 @@ class SAR_ADC:
       result += (2*comp_result[i]-1) * radix**(self.cycles-i-2)    
     
     result += 0.5  # adjust offset (???)
-
     # correct for scaling factor with sub-binary weighted capacitors
     if (radix != 2):
-      radix_scale_factor = 2**(self.resolution-1) / self.dac.total_capacitance_norm
+      radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
+      result = result * radix_scale_factor
+    return int(result)
+
+  def calculate_result_work(self, comp_result):
+
+    if (self.dac.use_radix):
+      radix = self.dac.radix
+    else:
+      radix = 2
+    sign = self.comp_result[0]
+    result = 0# self.dac.capacitor_weights[0]  # initialize result
+    # calculate absolute value of result
+    for i in range(1, self.cycles-1):
+      if sign == 1:
+        result +=  comp_result[i] * self.dac.capacitor_weights[i]
+      else:
+        result -= ~comp_result[i] * self.dac.capacitor_weights[i]    
+  
+    
+    # correct for scaling factor with sub-binary weighted capacitors
+    if (radix != 2):
+      radix_scale_factor = 2**(self.resolution-1) /  self.dac.capacitor_weights_sum
       result = result * radix_scale_factor
     return int(result)
 
@@ -534,7 +559,7 @@ class SAR_ADC:
       ("DAC capacitor array size", self.dac.array_size, ""),
       ("DAC unit capacitance", self.dac.unit_capacitance / 1e-15, "fF"),
       ("DAC parasitic capacitance", self.dac.parasitic_capacitance / 1e-15, "fF"),
-      ("DAC total capacitance", self.dac.total_capacitance_p / 1e-12, "pF"),
+      ("DAC total capacitance", self.dac.capacitance_sum_p / 1e-12, "pF"),
       ("DAC settling error", f"{self.dac.settling_time_error/100:.2f}", "%"),
       ("Comparator noise", self.comparator.threshold_voltage_noise*1000, "mV"),
       ("Comparator offset", self.comparator.offset_voltage*1000, "mV"),
@@ -670,13 +695,13 @@ if __name__ == "__main__":
   ########################################################################################
 
   # plot SAR iterations 
-  adc.sample_and_convert_bss(  0.000, 0.01, do_plot=True, do_calculate_energy=True)
+  # adc.sample_and_convert_bss(  0.000, 0.01, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
-  # adc.plot_transfer_function()
+  adc.plot_transfer_function()
   
   # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
