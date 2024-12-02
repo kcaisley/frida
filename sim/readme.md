@@ -30,10 +30,8 @@ SAR_ADC.sample_and_convert_bss(self, voltage_in, plot?, calculate?)
 
 To do:
 - double conversion
-- ENOB
-- FoMs
-- Energy per conversion
+- ENOB (done)
+- FoMs (FOM (E/conv): done)
+- Energy per conversion (done)
 
-
-
-BSS - has top plate sampling
+BSS - has top plate sampling 
