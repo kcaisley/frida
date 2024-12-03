@@ -293,8 +293,10 @@ class SAR_ADC:
     for i in range(self.cycles-1):
       result += (2*comp_result[i]-1) * self.dac.capacitor_weights[i]   
    
-    result += comp_result[self.cycles-1] # 0.5  # adjust offset (???)
+    result += comp_result[self.cycles-1]# 0.5  # adjust offset (???)
 
+    result_binary = bin(int(result))[2:].zfill(self.resolution)
+   
     # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
     radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
     result = result * radix_scale_factor
@@ -491,7 +493,7 @@ class SAR_ADC:
     return ideal_adc_code
 
   def plot_transfer_function(self):
-    samples_per_bin = 100
+    samples_per_bin = 10
     common_mode_input_voltage = 0.6
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
@@ -672,8 +674,6 @@ class SAR_ADC_BSS(SAR_ADC):
         plot.annotate(self.comp_result[i], xy=(i+0.5, 0), ha='center', color=color)
 
     return result
-
-
 
 if __name__ == "__main__":
 
