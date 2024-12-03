@@ -287,45 +287,37 @@ class SAR_ADC:
     return parameters
      
   def calculate_result(self, comp_result):
-
     result = 0  # initialize result
+   
+    # calculate result
+    for i in range(self.cycles-1):
+      result += (2*comp_result[i]-1) * self.dac.capacitor_weights[i]   
+   
+    result += comp_result[self.cycles-1] # 0.5  # adjust offset (???)
 
-    if (self.dac.use_radix):
-      radix = self.dac.radix
-    else:
-      radix = 2
-
-    # calculate absolute value of result
-    for i in range(self.cycles):
-      result += (2*comp_result[i]-1) * radix**(self.cycles-i-2)    
-    
-    result += 0.5  # adjust offset (???)
-    # correct for scaling factor with sub-binary weighted capacitors
-    if (radix != 2):
-      radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
-      result = result * radix_scale_factor
+    # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
+    radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
+    result = result * radix_scale_factor
     return int(result)
 
-  def calculate_result_work(self, comp_result):
-
-    if (self.dac.use_radix):
-      radix = self.dac.radix
-    else:
-      radix = 2
-    sign = self.comp_result[0]
-    result = 0# self.dac.capacitor_weights[0]  # initialize result
-    # calculate absolute value of result
-    for i in range(1, self.cycles-1):
-      if sign == 1:
-        result +=  comp_result[i] * self.dac.capacitor_weights[i]
+  def calculate_result_alt(self, comp_result):
+    result = 0  # initialize result
+    sign = comp_result[0]
+   
+    # calculate result
+    for i in range(1, self.cycles):
+      if sign == 0:
+        result += (not comp_result[i]) * self.dac.capacitor_weights[i-1]
       else:
-        result -= ~comp_result[i] * self.dac.capacitor_weights[i]    
-  
-    
-    # correct for scaling factor with sub-binary weighted capacitors
-    if (radix != 2):
-      radix_scale_factor = 2**(self.resolution-1) /  self.dac.capacitor_weights_sum
-      result = result * radix_scale_factor
+        result += comp_result[i] * self.dac.capacitor_weights[i-1]   
+   
+    # correct for sign bit
+    if sign == 0:
+      result = - result-1
+
+    # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
+    radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
+    result = result * radix_scale_factor
     return int(result)
 
   def calculate_nonlinearity(self, do_plot = False):
