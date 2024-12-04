@@ -17,7 +17,7 @@ class CDAC:
     self.radix                 = params['CDAC']['radix']
     self.parasitic_capacitance = params['CDAC']['parasitic_capacitance']
     self.capacitor_weights     = np.array(params['CDAC']['capacitor_weights'])
-    self.use_systematic_errors = params['CDAC']['use_systematic_errors']
+    self.capacitor_mismatch_error = params['CDAC']['capacitor_mismatch_error']
     self.resolution            = params['SAR_ADC']['resolution'] 
     self.array_size            = self.resolution - 1
     self.reference_voltage_noise = params['CDAC']['reference_voltage_noise']
@@ -122,23 +122,23 @@ class CDAC_BSS(CDAC):
         self.capacitor_array_p = self.capacitor_weights * self.unit_capacitance
         self.capacitor_array_n = self.capacitor_weights * self.unit_capacitance
 
-      if self.use_systematic_errors:
-        capacitor_errors_absolute = np.array(params['CDAC']['capacitor_systematic_errors'][:self.array_size]) / 100 * self.unit_capacitance
-        capacitor_errors_weighted = capacitor_errors_absolute / np.sqrt(params['CDAC']['capacitor_weights'][:self.array_size])
-        self.capacitor_array_p += capacitor_errors_weighted
-        self.capacitor_array_n -= capacitor_errors_weighted
-
       self.capacitance_sum_p = sum(self.capacitor_array_p) + self.parasitic_capacitance
       self.capacitance_sum_n = sum(self.capacitor_array_n) + self.parasitic_capacitance
       # non-trivial scaling factor for non radix 2
       self.capacitor_weights_sum = self.capacitance_sum_p / self.unit_capacitance
   
-      np.set_printoptions(precision=2)
-      print('Cycles: ', self.array_size+1)  
-      print('Capacitor array: ', self.capacitor_array_p)
-      print('Total capacitance: ', self.total_capacitance_p)
-      print('Capacitor weights: ', self.capacitor_weights)
-      print('Capacitor weights sum: ', self.capacitor_weights_sum) 
+      # add systematic errors
+      if self.capacitor_mismatch_error > 0:
+        for i in range(self.array_size):  #                     error in percent/100   scaled with  sqrt(capacitance/unit capacitance)             
+          self.capacitor_array_p[i] += self.unit_capacitance * np.random.normal(0, self.capacitor_mismatch_error/100) / np.sqrt(self.capacitor_array_p[i]/self.unit_capacitance)
+          self.capacitor_array_n[i] += self.unit_capacitance * np.random.normal(0, self.capacitor_mismatch_error/100) / np.sqrt(self.capacitor_array_n[i]/self.unit_capacitance)
+  
+      # np.set_printoptions(precision=2)
+      # print('Cycles: ', self.array_size+1)  
+      # print('Capacitor array: ', self.capacitor_array_p)
+      # print('Total capacitance: ', self.total_capacitance_p)
+      # print('Capacitor weights: ', self.capacitor_weights)
+      # print('Capacitor weights sum: ', self.capacitor_weights_sum) 
       # print('DAC binary range %d' % self.binary_range)  
       
   def reset(self, reset_value, do_calculate_energy = False):
@@ -199,9 +199,19 @@ class CDAC_BSS(CDAC):
     self.output_voltage_n += delta_output_voltage_n * (1 - self.settling_time_error)
 
     # add reference voltage noise, weighted by the ratio of capacitance connected to VREF, correlated for n and p side 
+    # calculate total capacitance connected to VREF for each side
+    capacitance_at_vref_p = 0
+    capacitance_at_vref_n = 0 
+    for i in range(self.array_size):
+      reg_index = self.array_size - i - 1
+      if (register_p & (1 << reg_index)) != 0:
+        capacitance_at_vref_p += self.capacitor_array_p[i]
+      if (register_n & (1 << reg_index)) != 0:
+        capacitance_at_vref_n += self.capacitor_array_n[i]
+
     noise_voltage = np.random.normal(0, self.reference_voltage_noise)
-    self.output_voltage_p += noise_voltage * register_p/self.capacitor_weights_sum
-    self.output_voltage_n += noise_voltage * register_n/self.capacitor_weights_sum
+    self.output_voltage_p += noise_voltage * capacitance_at_vref_p/self.capacitance_sum_p
+    self.output_voltage_n += noise_voltage * capacitance_at_vref_n/self.capacitance_sum_n
 
     self.register_p = register_p
     self.register_n = register_n
@@ -249,7 +259,7 @@ class SAR_ADC:
     self.cycles = self.dac.array_size + 1
     self.clock_period = 1/(self.sampling_frequency * self.cycles)
     self.redundancy = self.cycles - self.resolution
-    self.diff_input_voltage_range = 2 * (self.positive_ref_voltage - self.negative_ref_voltage)
+    self.diff_input_voltage_range = 2 * (self.dac.positive_ref_voltage - self.dac.negative_ref_voltage)
     self.lsb_size = self.diff_input_voltage_range / 2**self.resolution 
     self.midscale = 2**(self.resolution-1) 
     self.dnl  = 0
@@ -287,40 +297,19 @@ class SAR_ADC:
     return parameters
      
   def calculate_result(self, comp_result):
-    result = 0  # initialize result
-   
-    # calculate result
+    # initialize result
+    result = 0 
+
+    # accumulate weights to calculate the result
     for i in range(self.cycles-1):
-      result += (2*comp_result[i]-1) * self.dac.capacitor_weights[i]   
-   
-    result += comp_result[self.cycles-1]# 0.5  # adjust offset (???)
-
-    result_binary = bin(int(result))[2:].zfill(self.resolution)
-   
-    # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
-    radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
-    result = result * radix_scale_factor
-    return int(result)
-
-  def calculate_result_alt(self, comp_result):
-    result = 0  # initialize result
-    sign = comp_result[0]
-   
-    # calculate result
-    for i in range(1, self.cycles):
-      if sign == 0:
-        result += (not comp_result[i]) * self.dac.capacitor_weights[i-1]
-      else:
-        result += comp_result[i] * self.dac.capacitor_weights[i-1]   
-   
-    # correct for sign bit
-    if sign == 0:
-      result = - result-1
+      result += (2*comp_result[i]-1) * self.dac.capacitor_weights[i] 
+    
+    # add final comparison result
+    result += comp_result[self.cycles-1]  
 
     # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
-    radix_scale_factor = 2**(self.resolution-1) / self.dac.capacitor_weights_sum
-    result = result * radix_scale_factor
-    return int(result)
+    result *= 2**(self.resolution-1) / self.dac.capacitor_weights_sum
+    return int(np.round(result))
 
   def calculate_nonlinearity(self, do_plot = False):
     values_per_bin = 100     # number of values per bin for DNL/INL calculation
@@ -405,8 +394,8 @@ class SAR_ADC:
 
   def calculate_enob(self, do_plot = False):
     # return (snr - 1.76)/6.02
-    frequency   = 1e3
-    amplitude   = 0.59
+    frequency   = 10e3
+    amplitude   = 0.55
     offset      = 0
     num_samples = 10000
     adc_gain    = self.diff_input_voltage_range / 2 / 2**self.resolution
@@ -693,7 +682,7 @@ if __name__ == "__main__":
   # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
-  adc.plot_transfer_function()
+  # adc.plot_transfer_function()
   
   # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
@@ -719,24 +708,24 @@ if __name__ == "__main__":
   #---------------------------------------------------------------------------------------
   # compare binary and non-binary weighted capacitors 
   #---------------------------------------------------------------------------------------
-  # adc.dac.use_radix = False 
-  # adc.update_parameters()
-  # print('binary weighted capacitors')
+  print('Binary weighted capacitors')
+  adc.dac.use_radix = True
+  adc.dac.radix = 2
+  adc.update_parameters()
+  adc.calculate_enob(do_plot=True)
   # adc.calculate_nonlinearity(do_plot=True)
-  # adc.calculate_enob()
   # print(adc.print_parameter_list())
-  # adc.dac.use_radix = True
-  # adc.dac.radix = 1.8
-  # adc.update_parameters()
-  # print('non-binary weighted capacitors')
+  print('Non-binary weighted capacitors')
+  adc.dac.use_radix = True
+  adc.dac.radix = 1.8
+  adc.update_parameters()
+  adc.calculate_enob(do_plot=True)
   # adc.calculate_nonlinearity(do_plot=True)
-  # adc.calculate_enob()
   # print(adc.print_parameter_list())
 
   #---------------------------------------------------------------------------------------
   # parametric ENOB calculation
   #---------------------------------------------------------------------------------------
-    # adc.comparator.use_noise_error = True
   # for noise in np.arange(0, 10, 2):
   #   adc.comparator.noise_voltage = noise/1e3
   #   enob = adc.calculate_enob()
