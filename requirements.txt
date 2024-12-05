@@ -1,0 +1,8 @@
+numpy
+matplotlib
+pyqt5
+pyyaml
+tqdm
+pandas
+pytest
+pip >= 24.3.1

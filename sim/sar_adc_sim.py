@@ -139,7 +139,7 @@ class CDAC_BSS(CDAC):
       print('Total capacitance: ', self.total_capacitance_p)
       print('Capacitor weights: ', self.capacitor_weights)
       print('Capacitor weights sum: ', self.capacitor_weights_sum) 
-      # print('DAC binary range %d' % self.binary_range)  
+      # print('DAC binary range %d' % self.binary_range)
       
   def reset(self, reset_value, do_calculate_energy = False):
     register_p = reset_value # 2**(self.array_size-1)-1
@@ -421,7 +421,7 @@ class SAR_ADC:
     for i in tqdm(range(len(time_array))):
       input_voltage = offset + amplitude*np.sin(2*np.pi*frequency*time_array[i])
       input_voltage_array[i] = input_voltage
-      adc_data_array[i] = self.sample_and_convert_bss(input_voltage,  -input_voltage)
+      adc_data_array[i] = self.sample_and_convert_bss(input_voltage, -input_voltage)
 
     # calculate residuals which represent the noise (in LSB)
     residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array 
