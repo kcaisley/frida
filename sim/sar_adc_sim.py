@@ -125,12 +125,12 @@ class CDAC_BSS(CDAC):
     self.capacitance_sum_p = sum(self.capacitor_array_p) + self.params['parasitic_capacitance']
     self.capacitance_sum_n = sum(self.capacitor_array_n) + self.params['parasitic_capacitance']
 
-    # np.set_printoptions(precision=2)
-    # print('Cycles: ', self.params['array_size']+1)  
-    # print('Capacitor array: ', self.capacitor_array_p)
-    # print('Total capacitance: ', self.capacitance_sum_p)
-    # print('Capacitor weights: ', self.weights_array)
-    # print('Capacitor weights sum: ', self.weights_sum) 
+    np.set_printoptions(precision=2)
+    print('Cycles: ', self.params['array_size']+1)  
+    print('Capacitor array: ', self.capacitor_array_p)
+    print('Total capacitance: %.2e' % self.capacitance_sum_p)
+    print('Weights: ', self.weights_array)
+    print('Weights sum: %.1d' % self.weights_sum) 
       
   def reset(self, reset_value, do_calculate_energy = False):
     register_p = reset_value # 2**(self.params['array_size']-1)-1
@@ -215,7 +215,7 @@ class CDAC_BSS(CDAC):
     settling_error_n = delta_output_voltage_n * self.settling_time_error
 
     # add settlingtime error and noise only to momentary return value
-    return (self.output_voltage_p + noise_p + settling_error_p), (self.output_voltage_n + noise_n + settling_error_n)  
+    return (self.output_voltage_p + noise_p - settling_error_p), (self.output_voltage_n + noise_n - settling_error_n)  
 
 class COMPARATOR:
   def __init__(self, params):
@@ -258,7 +258,7 @@ class SAR_ADC:
     self.clock_period = 1/(self.sampling_frequency * self.cycles)
     self.redundancy = self.cycles - self.params['resolution']
     self.diff_input_voltage_range = 2 * (self.dac.params['positive_reference_voltage'] - self.dac.params['negative_reference_voltage'] )
-    self.lsb_size = self.diff_input_voltage_range / self.weights_sum 
+    self.lsb_size = self.diff_input_voltage_range / self.dac.weights_sum
     self.midscale = 2**(self.params['resolution']-1) 
     self.dnl  = 0
     self.inl  = 0
@@ -488,7 +488,7 @@ class SAR_ADC:
     return ideal_adc_code
 
   def plot_transfer_function(self):
-    samples_per_bin = 10
+    samples_per_bin = 100
     common_mode_input_voltage = 0.6
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/samples_per_bin)
     input_voltage_data_lsb = np.empty(len(input_voltage_data))
@@ -682,13 +682,13 @@ if __name__ == "__main__":
   ########################################################################################
 
   # plot SAR iterations 
-  # adc.sample_and_convert_bss(  0.000, 0.01, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(0.000, 0.01, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)
   
   # plot transfer function
-  adc.plot_transfer_function()
+  # adc.plot_transfer_function()
   
   # calculate DNL/INL
   # adc.calculate_nonlinearity(do_plot=True)
@@ -720,7 +720,7 @@ if __name__ == "__main__":
   # enob_nb = []
   # error_array = []
 
-  # adc_b.dac.params['use_individual_weights'] = True
+  # adc_b.dac.params['use_individual_weights'] = False
   # adc_b.dac.params['radix'] = 2
   # adc_b.update_parameters()
 
