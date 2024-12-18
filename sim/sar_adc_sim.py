@@ -306,7 +306,7 @@ class SAR_ADC:
       else:
         # use ideal weights, ignoring the mismatch error of the real capacitors
         result += (2*comp_result[i]-1) * self.dac.weights_array[i] 
-      print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i], ' result ', result)  
+      # print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i], ' result ', result)  
     
     # add final comparison result
     result += comp_result[self.cycles-1]  
