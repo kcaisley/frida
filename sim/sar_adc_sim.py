@@ -302,13 +302,11 @@ class SAR_ADC:
     for i in range(self.cycles-1):
       if self.params['use_calibration']:
       # use real capacitor values available after (perfect) calibration
-        if comp_result[i] == 1:
-          result += self.dac.capacitor_array_p[i] / self.dac.params['unit_capacitance']
-        else:
-          result -= self.dac.capacitor_array_n[i] / self.dac.params['unit_capacitance']
+        result += (2*comp_result[i]-1) * self.dac.capacitor_array_p[i] / self.dac.params['unit_capacitance'] 
       else:
         # use ideal weights, ignoring the mismatch error of the real capacitors
         result += (2*comp_result[i]-1) * self.dac.weights_array[i] 
+      print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i], ' result ', result)  
     
     # add final comparison result
     result += comp_result[self.cycles-1]  
@@ -682,7 +680,7 @@ if __name__ == "__main__":
   ########################################################################################
 
   # plot SAR iterations 
-  adc.sample_and_convert_bss(0.000, 0.01, do_plot=True, do_calculate_energy=True)
+  adc.sample_and_convert_bss(0.65, 0.0, do_plot=True, do_calculate_energy=True)
   
   # calculate conversion energy
   # adc.calculate_conversion_energy(do_plot=True)

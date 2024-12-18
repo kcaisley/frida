@@ -1,6 +1,6 @@
 # Common ADC parameters
 ADC:
-  resolution: 5                    # resolution of the ADC
+  resolution: 4                    # resolution of the ADC
   sampling_frequency: 10.0e+6      # sampling rate in Hz
   aperture_jitter: 0.0e-12         # aperture jitter in seconds (TBD)
   use_calibration: True            # use weights including mismatch errors for the result calculation
@@ -19,6 +19,6 @@ CDAC:
   array_size: 9                    # number of capacitors in the array = resolution-1 for binary weighted or larger for unitary weights and/or redundant conversions
   individual_weights: [8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 2, 2, 2, 1, 1]  # capacitor weights in unit capacitance (use_individual_weights = True) 
   parasitic_capacitance: 1.0e-15   # Parasitic capacitance in Farads at the output of the CDAC
-  radix: 1.8                         # radix of the CDAC, for automatic calculation of the capacitor array values (use_individual_weights = False)
+  radix: 2                         # radix of the CDAC, for automatic calculation of the capacitor array values (use_individual_weights = False)
   capacitor_mismatch_error: 0.0    # mismatch error in percent of the unit capacitor
   settling_time: 0.0e-9            # settling time in seconds (TBD: individual settling errors per capacitor?)
