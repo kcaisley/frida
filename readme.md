@@ -1,3 +1,20 @@
+# Abstract
+
+
+Semiconductor pixel radiation detectors are widely used in the natural, physical, and medical sciences. For applications requiring tagging of individual particles with better than 10 µm spatial resolution and less than 1 µs temporal resolution, but with sparse hit occupancy and relaxed energy resolution, event-based counting detectors remain a reliable and common choice. By contrast, when particles need not be individually differentiated (in time or space), hit-rates are above 100 MHz/cm (without external trigger), and spatial resolution below 10 um are paramount, frame-based integrating-mode readouts are better-suited.
+
+These frame-based architectures are especially advantageous for imaging-modes used in electron microscopy and X-ray imaging. In an experimental setting, fast frame rates allow for real time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
+
+Our work pursues the possibility of a single-reticle array exceeding 1 Mpixel with a continuous frame-rate surpassing 100,000 fps, which would be unprecedented. For the conjunction of these two specifications to be met, this presentation will present initial investigations into a compact and power efficient bank of column-parallel data converters, which at 10-12 bit resolution churn out a combined data rate exceeding 1000 Gbps. To fit within the constraints of a chip-bottom, the converter fabric must consume less than 1 W/cm^2 and have an effective ADC sampling rate density above 5 ksps/μm^2. Successive approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
+
+Extras:
+ADCs are also used in the case of 
+
+Historically, the highest frame rates haves been achieved by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
+
+There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the 
+
+
 # Terminology
 
 ## Switching schemes (reducing power)
@@ -45,18 +62,6 @@
 - Split capacitors (statically biased caps, Caeleste pg58, p116). Similar to above, but divides caps into two, and sets them to different biases to improve noise
 - Interleaving: Multiple ADCs operating in parrallel, sampling out of phase. Mainly necessary for >100Ms/s, at the expense of power and area. Not useful for our applications.
 - Pipelining: Multiple sub-ADCs, operating sequentially. Similarly allows for greating speed, at higher power and area costs. Not necessary for our applications.
-
-# Abstract
-
-Improving the frame-rate of imaging system is indispensable for directly observing the dynamics of rapidly evolving systems, or rapidly capturing the complete structure of a solid, from many different angles for later reconstruction as is done in 'tomography' disciplines.
-
-Systems like cells, protiens, chemical reactions, oxidation, battery chemistry, X-ray cyrstllography all have dynamic processes.
-
-Historically, the highest frame rates haves been achieve by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
-
-There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the ADC, as it sufferes from a difficult tradeoff between resolution, sampling time, silicon area and power consumption. Furthermore, many critical imaging applications expose with high energy particles including electrons, X-ray, and neutrons. Depending on the type of particle and their energy, varying radiation damages occur, (both ionizing and non-ionizin) 
-
-To this end, this work investigates techniques for maximizing the sampling rate of column and pixel parallel ADCs contrained by the power consumptions, silicon area, and resolution of imaging applications. The successive approximation or "SAR" ADCs it identified as the optimal choice, and various techniques are investigated, including 
 
 # Design targets
 

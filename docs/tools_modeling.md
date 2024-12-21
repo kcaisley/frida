@@ -13,7 +13,7 @@ From [SciML](https://docs.sciml.ai/Overview/stable/overview/#overview) :
 3. Analysis: Plotting, Uncertainty Quantification, Parameter Analysis
 4. ML: Computery trickery to approximate the modeling, solving, and analysis steps (Function Approximation, Symbolic Learning, Implicit Layer Deep Learning, and Differential Tooling)
 
-Now, I shouldn't take these as the 'holy grain' of mapping out the field of applied maths, but I think that these partititions are something I hadn't really thought through before.
+Now, I shouldn't take these as the 'holy grail' of mapping out the field of applied maths, but I think that these partititions are something I hadn't really thought through before.
 
 Note how Optimization is part of the 'solvers' section. It's a different type of problem though. You aren't simulating a given system, with fixed parameters, to find the response, you are detailing a 'cost function' which formally specifies what you want to have as the output, and then changing the system parameters in order to best minimize the cost function. What's interesting is that if the system is simple and has 'one output', then the cost function to minimize is the function that models the system itself. However, if there any many outputs, then it's up to the user to 'overlay' a synthetic cost function to be minimized, which compresses all the outputs down to a single parameter to minimize.
 

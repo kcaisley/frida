@@ -335,9 +335,11 @@ class SAR_ADC:
     dnl_data = np.empty(num_codes)
     inl_data = np.empty(num_codes)
     adc_data = np.empty(num_codes * values_per_bin)
+
+    # values are uniformly distributed within bin uniformly
     input_voltage_data = np.arange(-self.diff_input_voltage_range/2, self.diff_input_voltage_range/2, self.lsb_size/values_per_bin)
 
-     # do the conversions
+    # do the conversions, assuming input codes have uniform density
     print('Calculating DNL/INL ...')
     for i in tqdm(range(len(input_voltage_data))):
       adc_data[i] = self.sample_and_convert_bss(input_voltage_data[i]/2.0, -input_voltage_data[i]/2.0) 
@@ -350,17 +352,17 @@ class SAR_ADC:
     bin_edges         = bin_edges[lower_index_boundary:upper_index_boundary]
     average_bin_count = np.average(code_density_hist)
 
-    # calculate differential nonlinearity
+    # calculate differential nonlinearity, difference between expected ideal counts in a bit and 'measured' (ideally would be zero)
     dnl_data = (code_density_hist - average_bin_count) / average_bin_count
     dnl_data[:lower_index_boundary] = 0
     dnl_data[upper_index_boundary:] = 0
     dnl_sigma = np.std(dnl_data)
 
-    # calculate integral nonlinearity 
+    # calculate integral(i.e. cumsum) nonlinearity 
     inl_data = np.cumsum(dnl_data)
     inl_sigma = np.std(inl_data)
     self.dnl = dnl_sigma
-    self.inl = inl_sigma       
+    self.inl = inl_sigma
     print('DNL sigma %.3f' % dnl_sigma)
     print('INL sigma %.3f' % inl_sigma)
 
@@ -419,12 +421,12 @@ class SAR_ADC:
       adc_data_array[i] = self.sample_and_convert_bss(input_voltage, -input_voltage)
 
     # calculate residuals which represent the noise (in LSB)
-    residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array 
+    residual_array = input_voltage_array/adc_gain + adc_offset - adc_data_array
     # noise floor RMS
     noise_std = np.std(residual_array)
     noise_percent = noise_std/2**self.params['resolution'] * 100
-    # ENOB
-    self.enob = self.params['resolution'] - np.log10(noise_std*np.sqrt(12))
+    # ENOB (ideal resolution minus noise gives effective resolution)
+    self.enob = self.params['resolution'] - np.log10(noise_std * np.sqrt(12))
     print('ENOB %.2f' % self.enob)
 
     if do_plot:
@@ -589,8 +591,8 @@ class SAR_ADC_BSS(SAR_ADC):
     ideal_comp_result = []
   
     # init DAC register
-    reset_value = 2**(self.dac.params['array_size']-1)-1 # mid-scale
-    # reset_value = 2**self.dac.params['array_size']-1  # all 1's  
+    # reset_value = 2**(self.dac.params['array_size']-1)-1 # mid-scale, so BSS bidirectional single side switching
+    reset_value = 2**self.dac.params['array_size']-1  # all 1's, so monotonic switching
     # reset_value = 0  # all 0's
     # reset_value = 0xff
     self.dac.reset(reset_value=reset_value, do_calculate_energy=do_calculate_energy)
