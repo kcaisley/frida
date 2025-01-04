@@ -45,7 +45,7 @@ df['Vsamp'] = df['cnode3n'] - df['cnode3p']
 # df = df.drop(columns='cnode3n')
 
 # Digitize the data bit lines to that they are either 1 or 0
-for col in [f'data<{i}>' for i in range(convs)]:  # Create list ['data<0>', 'data<1>', ..., 'data<7>']
+for col in [f'data<{i}>' for i in range(convs)]:  # Create list ['data<0>',..., 'data<7>']
     df[col] = df.loc[:,col].apply(lambda x: 1 if x > 1.1 else (0 if x < 0.1 else x))
 
 # Define the binary weights for data<0> to data<7>, where data<0> is the LSB, and data<7> is MSB

@@ -1,6 +1,5 @@
 # Abstract
 
-
 Semiconductor pixel radiation detectors are widely used in the natural, physical, and medical sciences. For applications requiring tagging of individual particles with better than 10 µm spatial resolution and less than 1 µs temporal resolution, but with sparse hit occupancy and relaxed energy resolution, event-based counting detectors remain a reliable and common choice. By contrast, when particles need not be individually differentiated (in time or space), hit-rates are above 100 MHz/cm (without external trigger), and spatial resolution below 10 um are paramount, frame-based integrating-mode readouts are better-suited.
 
 These frame-based architectures are especially advantageous for imaging-modes used in electron microscopy and X-ray imaging. In an experimental setting, fast frame rates allow for real time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
@@ -8,11 +7,11 @@ These frame-based architectures are especially advantageous for imaging-modes us
 Our work pursues the possibility of a single-reticle array exceeding 1 Mpixel with a continuous frame-rate surpassing 100,000 fps, which would be unprecedented. For the conjunction of these two specifications to be met, this presentation will present initial investigations into a compact and power efficient bank of column-parallel data converters, which at 10-12 bit resolution churn out a combined data rate exceeding 1000 Gbps. To fit within the constraints of a chip-bottom, the converter fabric must consume less than 1 W/cm^2 and have an effective ADC sampling rate density above 5 ksps/μm^2. Successive approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
 
 Extras:
-ADCs are also used in the case of 
+ADCs are also used in the case of
 
 Historically, the highest frame rates haves been achieved by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
 
-There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the 
+There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the
 
 
 # Terminology
@@ -30,13 +29,19 @@ There are multiple components which together to determine the read out rate, whi
 - CRS: Correlated reverse switching [2015 Jen-Huan Tsai](library/2015_Jen-Huan_Tsai_correlated_reverse_switching_wADEC.pdf) Similar to BSS, but splits up the MSB cap?
 - Merge-and-split [2015 Jin-Yi Lin](library/2015_Jin-Yi_Lin_merge&split_switching.pdf)
 
+## Capacitor sizing
+- capacitance splitting: switching half the effective value of each C_N on the P and N plate, to maintain common mode
+-
 
 ## Redundancy
 
-- I think these are all basically the same, in their redundancy benefits:
-    - non-binary, sub-radix 2
-    - double conversion
-    - post-conversion
+Redundancy can either be implemented in the CDAC itself, or in an arithmetic block which takes the comparator result to then determine a binary code which is closest in
+
+I think these are all basically the same, in their redundancy benefits:
+
+- non-binary, sub-radix 2. F. Kuttner 2005 does it with comp > arithmetic block -> nearest quantized binary value -> thermometer code
+- "double conversion/multi conversion" is covered in CC Liu 2010, as "binary compensation redundancy". In
+- "post-conversion" is covered in CC Liu 20
 
 - [2014 Franz Kuttner](library/2004_Franz_Kuttner_subradix2_nonbinary.pdf): Is first to use redundancy via non-binary subradix 2
 - [2013 Boris Murman](library/2013_Boris_Murmann_non_binary_survey.pdf):
@@ -48,10 +53,10 @@ There are multiple components which together to determine the read out rate, whi
 - Terms:
     - Addition-only DEC
     - adaptive equalization
-    - 
+    -
 
 - [Wenbo Liu 2007 ISCAS Urbana](https://doi.org/10.1109/ICASIC.2007.4415624): An Equalization-Based Adaptive Digital Background Calibration Technique for Successive Approximation Analog-to-Digital Converters
-- [Wenbo Liu 2009 ISSCC Urbana](https://doi.org/10.1109/ISSCC.2009.4977318): Implementation of above, with less detail 
+- [Wenbo Liu 2009 ISSCC Urbana](https://doi.org/10.1109/ISSCC.2009.4977318): Implementation of above, with less detail
 
 ## Other terms
 - Latch offet. [Murmann 2006](https://doi.org/10.1109/TCSII.2006.883204) analyzed regenerative latch offset from load cap mismatch
@@ -96,7 +101,7 @@ There are multiple components which together to determine the read out rate, whi
 - ✅ 7-8 Gbps JESD204B w/ 8b/10b encoding
 
 # Capacitors types
-You can create capacitor plates with poly, metal, and diffusion. 
+You can create capacitor plates with poly, metal, and diffusion.
 
 Typically the common combinations are:
 
