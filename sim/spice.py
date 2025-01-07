@@ -4,9 +4,9 @@ import pandas as pd
 import os
 os.environ["XDG_SESSION_TYPE"] = "xcb" # this silences the display Wayland error
 
-radix = 1.8     #
+radix = 2.0     #
 convs = 8       # how many conversion registers are set each
-duration = 1100  # in microseconds
+duration = 300  # in microseconds
 vhigh = 1.2  # voltages for low and high logic levels
 
 # Load the CSV data into a pandas DataFrame, skip first row as it just has text e.g. "Transient analysis: temperature=25.0"
@@ -56,32 +56,22 @@ print(weights)
 # The 'Dout' column contains the weighted sum of data<0> to data<7>
 df['Dout'] = sum(df[f'data<{7-i}>'] * weight for i, weight in enumerate(weights))
 
+# ax# instances are an xy pair of axes, here we have one per sub-plot
+fig, (ax0, ax1) = plt.subplots(nrows=2, ncols=1)
+
 # Plot the line for Vin vs Dout
-plt.plot(df['Vin'], df['Dout'], label='Dout vs Vin', color='b')
+ax0.plot(df['Vin'], df['Dout'], label='Dout vs Vin', color='b')
+ax0.set_xlabel('Vin')
+ax0.set_ylabel('Dout')
+ax0.set_title(f'Dout vs Vin (radix = {radix}, conversions = {convs}, samples = {duration*10})')
+ax0.legend()
+ax0.grid(True)
 
-# Adding labels and title
-plt.xlabel('Vin')
-plt.ylabel('Dout')
-plt.title(f'Dout vs Vin (radix = {radix}, conversions = {convs}, samples = {duration*10})')
+# plot histogram showing code density
+ax1.hist(df['Dout'], bins=list(range(0, 2**convs)), color='g', edgecolor='black')
+ax1.set_xlabel('Re-Analog')
+ax1.set_ylabel('Code Count')
+ax1.set_title(f'Re-Analog Code Density (radix = {radix}, conversions = {convs}, samples = {duration*10})')
+ax1.grid(True)
 
-# Show the plot
-plt.legend()
-plt.grid(True)
-plt.show()
-
-# Slice the DataFrame to exclude the first and last 100 rows
-
-# Plot the histogram
-plt.figure(figsize=(10, 6))
-
-histbins = list(range(0, 256))
-plt.hist(df['Dout'], bins=histbins, color='g', edgecolor='black')
-
-# Adding labels and title
-plt.xlabel('Re-Analog')
-plt.ylabel('Code Count')
-plt.title(f'Re-Analog Code Density (radix = {radix}, conversions = {convs}, samples = {duration*10})')
-
-# Show the plot
-plt.grid(True)
 plt.show()

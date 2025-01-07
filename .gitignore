@@ -1,9 +1,7 @@
 .venv
 .venv39
 __pycache__
-
-# Added by cargo
-
+.ropeproject
 /target
 /Cargo.lock
 /tests
