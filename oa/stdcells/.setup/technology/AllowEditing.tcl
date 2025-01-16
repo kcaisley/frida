@@ -1,1 +1,1 @@
-property set Protection.AllowEditing -system -host design -library stdcells -value false
+property set Protection.AllowEditing -system -host design -library stdcells -value true

@@ -14,11 +14,11 @@
 .param tsmc65 = 7
 .param technology_name = tsmc65
 *******************************************************************************
-** nominal supply voltages                           
+** nominal supply voltages
 .param std_VDD = 3.3
 .param log_VCC = 1.2
 ******************************************************************************
-** MOSFET Device dimensions 
+** MOSFET Device dimensions
 ** the HV (=std) true design rule limits, try to keep  small if these rules are too relaxed.  Relaxing is for yield not for matching!
 .param std_nmos_Ldesignrule = 0.5u
 .param std_nmos_Wdesignrule = 0.4u
@@ -36,8 +36,8 @@
 .param std_pmos_WS1 = 0.5u
 .param std_nmos_WS1 = 0.4u
 ** Lmin for lowVth mosfets
-* MISSING VALUE (or obsolete param).param std_nmos_lowVth_Lmin = 
-* MISSING VALUE (or obsolete param).param std_pmos_lowVth_Lmin = 
+* MISSING VALUE (or obsolete param).param std_nmos_lowVth_Lmin =
+* MISSING VALUE (or obsolete param).param std_pmos_lowVth_Lmin =
 ** the effective W/L ratios between PMOS/NMOS single mosfets.  Is effective ratio of mobilities (20221219ba used in switch_np_rcbalanced)
 .param std_ratio_rcbalanced = 3.6
 ** sqrt of the above
@@ -78,15 +78,15 @@
 **algorithm to define see BP011 20240320baac
 .param log_Wtune = (log_Wmin*32  )
 *******************************************************************
-**RH (radhard) parasitics for H-shaped nMOSFETs  //  these need to be estimated for each technology 
-* MISSING VALUE (or obsolete param).param std_Crhgs = 
-* MISSING VALUE (or obsolete param).param std_Crhgd = 
-* MISSING VALUE (or obsolete param).param log_Crhgs = 
-* MISSING VALUE (or obsolete param).param log_Crhgd = 
+**RH (radhard) parasitics for H-shaped nMOSFETs  //  these need to be estimated for each technology
+* MISSING VALUE (or obsolete param).param std_Crhgs =
+* MISSING VALUE (or obsolete param).param std_Crhgd =
+* MISSING VALUE (or obsolete param).param log_Crhgs =
+* MISSING VALUE (or obsolete param).param log_Crhgd =
 *******************************************************************
 *DIODES
 *minimum antenna protection diode
-* .param q: is the below set of parameters still in use? = 
+* .param q: is the below set of parameters still in use? =
 *20240919ba obsoleting
 .param std_Ldiode = 0.5u
 *20240919ba obsoleting
@@ -113,25 +113,27 @@
 *POLY RESISTORS
 *for several reasons we use as baseline highly doped n-type, not salicided, typical corner
 *sheet resistance
-.param std_rpoly_sheet = ?
-*strong advice to use unsalicided N+ poly. WARNING: XFAB: uses both RSRNP1 and RSENP1SB! 
+*####NED##### the ? line below was making the program crash, so I commented it out. I tried also setting it to 405u (as in tpso65) which seemed to work?
+* .param std_rpoly_sheet = ?
+*strong advice to use unsalicided N+ poly. WARNING: XFAB: uses both RSRNP1 and RSENP1SB!
 *effective W = design W + delta
-* .param std_deltaW_sheet = 
+* .param std_deltaW_sheet =
 *effective L = design L + delta
-* .param std_deltaL_sheet = 
+* .param std_deltaL_sheet =
 *this is the minimum relaxed L
-.param std_Lrpoly10 = ?
-* MISSING VALUE (or obsolete param).param std_Wrpoly10 = 
-* MISSING VALUE (or obsolete param).param std_Lrpoly100 = 
+*####NED##### the ? line below was making the program crash, so I commented it out. I tried also setting it to 1u (as in tpso65) which seemed to work?
+* .param std_Lrpoly10 = ?
+* MISSING VALUE (or obsolete param).param std_Wrpoly10 =
+* MISSING VALUE (or obsolete param).param std_Lrpoly100 =
 *values optimized by simulation  for xs tt +25deg
-* .param std_Wrpoly100 = 
-* MISSING VALUE (or obsolete param).param std_Lrpoly1k = 
-* MISSING VALUE (or obsolete param).param std_Wrpoly1k = 
-* MISSING VALUE (or obsolete param).param std_Lrpoly10k = 
-* MISSING VALUE (or obsolete param).param std_Wrpoly10k = 
-* MISSING VALUE (or obsolete param).param std_Lrpoly100k = 
-* MISSING VALUE (or obsolete param).param std_Wrpoly100k = 
-* MISSING VALUE (or obsolete param).param std_Lrpoly1Meg = 
+* .param std_Wrpoly100 =
+* MISSING VALUE (or obsolete param).param std_Lrpoly1k =
+* MISSING VALUE (or obsolete param).param std_Wrpoly1k =
+* MISSING VALUE (or obsolete param).param std_Lrpoly10k =
+* MISSING VALUE (or obsolete param).param std_Wrpoly10k =
+* MISSING VALUE (or obsolete param).param std_Lrpoly100k =
+* MISSING VALUE (or obsolete param).param std_Wrpoly100k =
+* MISSING VALUE (or obsolete param).param std_Lrpoly1Meg =
 *this is the minimum relaxed W
 .param std_Wrpoly1Meg = 0.1u
 
@@ -142,95 +144,91 @@
 *actual cap values in standard cell layout can be derived from the 1pF versions, with fixed L (height) and variable W
 *20210321ba IN THE FUTURE one will only use C*_ffperum2 to calculate C value. Perhaps a fringe C must be introduced too.
 *The convention is W is direction of the VSS VDD rail, L is orthogonal to the VSS VDD rails
-*basic MIM capacitor 
-* .param CMIM = 
+*basic MIM capacitor
+* .param CMIM =
 *model name (experimental)
-* .param CMIM_model = 
+* .param CMIM_model =
 *new naming
-* .param CMIM_1pF_W = 
+* .param CMIM_1pF_W =
 *new naming
-* .param CMIM_1pF_L = 
-* MISSING VALUE (or obsolete param).param CMIM_ffperum2 = 
+* .param CMIM_1pF_L =
+* MISSING VALUE (or obsolete param).param CMIM_ffperum2 =
 *POD or NIC capacitor
-* .param CPOD = 
+* .param CPOD =
 *model name (experimental)
-* .param CPOD_model = 
-* MISSING VALUE (or obsolete param).param CPOD_1pF_W = 
-* MISSING VALUE (or obsolete param).param CPOD_1pF_L = 
-* MISSING VALUE (or obsolete param).param CPOD_ffperum2 = 
+* .param CPOD_model =
+* MISSING VALUE (or obsolete param).param CPOD_1pF_W =
+* MISSING VALUE (or obsolete param).param CPOD_1pF_L =
+* MISSING VALUE (or obsolete param).param CPOD_ffperum2 =
 *std accumulation capacitor
-* .param CACC = 
-* MISSING VALUE (or obsolete param).param CACC_1pF_W = 
-* MISSING VALUE (or obsolete param).param CACC_1pF_L = 
-* MISSING VALUE (or obsolete param).param CACC_ffperum2 = 
+* .param CACC =
+* MISSING VALUE (or obsolete param).param CACC_1pF_W =
+* MISSING VALUE (or obsolete param).param CACC_1pF_L =
+* MISSING VALUE (or obsolete param).param CACC_ffperum2 =
 *high density MIMH
-* .param CMIMH = 
+* .param CMIMH =
 *model name
-* .param CMIMH_model = 
+* .param CMIMH_model =
 *20221104ba high K removed
-* .param CMIMH_1pF_W = 
+* .param CMIMH_1pF_W =
 *20221104ba high K removed
-* .param CMIMH_1pF_L = 
+* .param CMIMH_1pF_L =
 *20221104ba high K removed
-* .param CMIMH_ffperum2 = 
+* .param CMIMH_ffperum2 =
 *NMOS capacitor STANDARD
 .param CNMOS = 4
 .param CNMOS_ffperum2 = 5
 *accumulation caps in the logic transistor scope
-* .param CLOGACC = 
-* MISSING VALUE (or obsolete param).param CLOGACC_1pF_W = 
-* MISSING VALUE (or obsolete param).param CLOGACC_1pF_L = 
-* MISSING VALUE (or obsolete param).param CLOGACC_ffperum2 = 
+* .param CLOGACC =
+* MISSING VALUE (or obsolete param).param CLOGACC_1pF_W =
+* MISSING VALUE (or obsolete param).param CLOGACC_1pF_L =
+* MISSING VALUE (or obsolete param).param CLOGACC_ffperum2 =
 *POD or NIC capacitor in the LOG environment
-* .param CLOGPOD = 
-* MISSING VALUE (or obsolete param).param CLOGPOD_1pF_W = 
-* MISSING VALUE (or obsolete param).param CLOGPOD_1pF_L = 
-* MISSING VALUE (or obsolete param).param CLOGPOD_ffperum2 = 
+* .param CLOGPOD =
+* MISSING VALUE (or obsolete param).param CLOGPOD_1pF_W =
+* MISSING VALUE (or obsolete param).param CLOGPOD_1pF_L =
+* MISSING VALUE (or obsolete param).param CLOGPOD_ffperum2 =
 *NMOS capacitor LOG
-* .param CLOGNMOS = 
-* MISSING VALUE (or obsolete param).param CLOGNMOS_ffperum2 = 
+* .param CLOGNMOS =
+* MISSING VALUE (or obsolete param).param CLOGNMOS_ffperum2 =
 *double layer MIM2
-* .param CMIM2 = 
+* .param CMIM2 =
 *double layer MIM2 model name (INFO only)
-* .param CMIM2_model = 
-* MISSING VALUE (or obsolete param).param CMIM2_1pF_W = 
-* MISSING VALUE (or obsolete param).param CMIM2_1pF_L = 
-* MISSING VALUE (or obsolete param).param CMIM2_ffperum2 = 
+* .param CMIM2_model =
+* MISSING VALUE (or obsolete param).param CMIM2_1pF_W =
+* MISSING VALUE (or obsolete param).param CMIM2_1pF_L =
+* MISSING VALUE (or obsolete param).param CMIM2_ffperum2 =
 *triple layer MIM3
-* .param CMIM3 = 
-* MISSING VALUE (or obsolete param).param CMIM3_1pF_W = 
-* MISSING VALUE (or obsolete param).param CMIM3_1pF_L = 
-* MISSING VALUE (or obsolete param).param CMIM3_ffperum2 = 
+* .param CMIM3 =
+* MISSING VALUE (or obsolete param).param CMIM3_1pF_W =
+* MISSING VALUE (or obsolete param).param CMIM3_1pF_L =
+* MISSING VALUE (or obsolete param).param CMIM3_ffperum2 =
 *PMOS capacitor STANDARD
 .param CPMOS = 10
 .param CPMOS_ffperum2 = 5
 *PMOS capacitor LOG
-* .param CLOGPMOS = 
-* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_W = 
-* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_L = 
-* MISSING VALUE (or obsolete param).param CLOGPMOS_ffperum2 = 
+* .param CLOGPMOS =
+* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_W =
+* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_L =
+* MISSING VALUE (or obsolete param).param CLOGPMOS_ffperum2 =
 *Ideal SPICE capacitor (for comparisons only)
 .param CIDEAL = 12
 .param CIDEAL_ffperum2 = 1
 *MOM capacitor = fingered WIP
 .param CMOM = 13
-* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_W = 
-* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_L = 
-* MISSING VALUE (or obsolete param).param CLOGPMOS_ffperum2 = 
+* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_W =
+* MISSING VALUE (or obsolete param).param CLOGPMOS_1pF_L =
+* MISSING VALUE (or obsolete param).param CLOGPMOS_ffperum2 =
 ******************************************************************
 *ESD RESISTORS
 *we use n-type poly resistor, non salicided
-* .param IO_ESD_Rsheet = 
-* MISSING VALUE (or obsolete param).param IO_ESD50_L = 
-* MISSING VALUE (or obsolete param).param IO_ESD50_W = 
-* MISSING VALUE (or obsolete param).param IO_ESD20_L = 
+* .param IO_ESD_Rsheet =
+* MISSING VALUE (or obsolete param).param IO_ESD50_L =
+* MISSING VALUE (or obsolete param).param IO_ESD50_W =
+* MISSING VALUE (or obsolete param).param IO_ESD20_L =
 *should evolve to W<=40u
-* .param IO_ESD20_W = 
+* .param IO_ESD20_W =
 .param IO_ESDdiode_L = 2.2u
 .param IO_ESDdiode_W = 19.2u
 
 *******************************************************************
-
-
-
-
