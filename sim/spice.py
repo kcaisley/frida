@@ -4,9 +4,9 @@ import pandas as pd
 import os
 os.environ["XDG_SESSION_TYPE"] = "xcb" # this silences the display Wayland error
 
-radix = 2.0     #
+radix = 1.8     #
 convs = 8       # how many conversion registers are set each
-duration = 300  # in microseconds
+duration = 1100  # in microseconds
 vhigh = 1.2  # voltages for low and high logic levels
 
 # Load the CSV data into a pandas DataFrame, skip first row as it just has text e.g. "Transient analysis: temperature=25.0"
