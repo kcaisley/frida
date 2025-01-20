@@ -8,3 +8,4 @@ __pycache__
 /edet/build
 sim/*.pdf
 sim/*.csv
+sim/results

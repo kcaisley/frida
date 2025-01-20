@@ -1,5 +1,5 @@
-`include "disciplines.h"
-`include "constants.h"
+`include "disciplines.vams"
+`include "constants.vams"
 
 module comparator_verilogA(
     output electrical outp,

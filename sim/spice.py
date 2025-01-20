@@ -6,11 +6,12 @@ os.environ["XDG_SESSION_TYPE"] = "xcb" # this silences the display Wayland error
 
 radix = 1.8     #
 convs = 8       # how many conversion registers are set each
-duration = 1100  # in microseconds
+duration = 2000  # in microseconds
 vhigh = 1.2  # voltages for low and high logic levels
 
 # Load the CSV data into a pandas DataFrame, skip first row as it just has text e.g. "Transient analysis: temperature=25.0"
-df = pd.read_csv(f'{radix}radix_{convs}bit_{duration}u.csv', skiprows=1)
+# df = pd.read_csv(f'{radix}radix_{convs}bit_{duration}u.csv', skiprows=1)
+df = pd.read_csv('sim/results/SB_saradc8_radix1p80/SB_saradc8_radix1p80.csv', skiprows=1)
 
 # Remove unwanted parts from column names: V(....)
 df.columns = df.columns.str.replace(r'V\(|\)', '', regex=True)
@@ -33,6 +34,8 @@ df = df.drop(index=[0, 1]).reset_index(drop=True)
 # Delete the clock columns, as we don't need them
 df = df.drop(columns='syncp')
 df = df.drop(columns='clockp')
+df = df.drop(columns='comz_p')
+df = df.drop(columns='comz_n')
 
 # Find total input, drop unneeded values
 df['Vin'] = df['reference'] - df['signal']
@@ -46,7 +49,7 @@ df['Vsamp'] = df['cnode3n'] - df['cnode3p']
 
 # Digitize the data bit lines to that they are either 1 or 0
 for col in [f'data<{i}>' for i in range(convs)]:  # Create list ['data<0>',..., 'data<7>']
-    df[col] = df.loc[:,col].apply(lambda x: 1 if x > 1.1 else (0 if x < 0.1 else x))
+    df[col] = df.loc[:,col].apply(lambda x: 1 if x > (vhigh/2) else (-1 if x <= (vhigh/2) else x))
 
 # Define the binary weights for data<0> to data<7>, where data<0> is the LSB, and data<7> is MSB
 weights = [radix**i for i in reversed(range(convs))]
