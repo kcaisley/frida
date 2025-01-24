@@ -1,5 +1,5 @@
 * SPICE export by:      S-Edit 2023.2.0
-* Export time:          Fri Jan 17 00:04:36 2025
+* Export time:          Tue Jan 21 15:56:07 2025
 * Design path:          /users/kcaisley/helena/oa/lib.defs
 * Library:              sasc
 * Cell:                 SB_saradc8_radixN
@@ -19,9 +19,10 @@
 * Control property name(s):    SPICE
 
 ********* Simulation Settings - General Section *********
+.OPTION FAST=true
 .LIB "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" tt
 *************** Subcircuits ***************
-.subckt PAGEFRAME gnd
+.subckt PAGEFRAME gnd 
 * Library name: devices
 * Cell name: PAGEFRAME
 * View name: schematic
@@ -38,7 +39,7 @@ Rstd_version gnd gnd STDCELL_VERSION_1_0 r=0 $ $x=208 $y=32 $w=416 $h=64
 * PORT=ref TYPE=InOut
 * PORT=n TYPE=InOut
 
-*
+* 
 * (C) Caeleste
 * Cell: Source_v_pulse_differential | Design: devices
 * Designed by: Bart Dierickx | Sat Jun  1 11:13:23 2024
@@ -59,7 +60,7 @@ vSource_v_pulse_2 n ref pulse(high low del risefall risefall width-risefall peri
 * PORT=vcc TYPE=Other
 * PORT=rtap<2> TYPE=InOut
 
-*
+* 
 * (C) Caeleste
 * Cell: rdivider1__b3 | Design: sasc
 * Designed by: Bart Dierickx | Tue Jun 18 18:49:45 2024
@@ -95,7 +96,7 @@ XMp1 N_2 A vcc vcc log_pmos W_='log_pmos_WS1*2*S' L_='log_pmos_Lmin' M_=1 $ $x=4
 XMp2 out B N_2 vcc log_pmos W_='log_pmos_WS1*2*S' L_='log_pmos_Lmin' M_=1 $ $x=448 $y=608 $w=128 $h=192
 .ends
 
-.subckt srff Q Q_n R S sub vcc vee
+.subckt srff Q Q_n R S sub vcc vee 
 * Library name: logic
 * Cell name: srff
 * View name: schematic
@@ -107,7 +108,7 @@ XMp2 out B N_2 vcc log_pmos W_='log_pmos_WS1*2*S' L_='log_pmos_Lmin' M_=1 $ $x=4
 * PORT=S TYPE=In
 * PORT=sub TYPE=Other
 
-*
+* 
 * (C) Caeleste
 * Cell: srff | Design: logic
 * Designed by: Nick | Sun Feb 13 01:06:04 2022
@@ -117,7 +118,7 @@ Xnor2_3 Q S Q_n sub vcc vee nor2 S=1 $ $x=1280 $y=896 $w=192 $h=128
 Xnor2_4 Q_n R Q sub vcc vee nor2 S=1 $ $x=1280 $y=576 $w=192 $h=128 $r=180 $m
 .ends
 
-.subckt latch9_BETA clock D nclock nQ Q sub vcc vee
+.subckt latch9_BETA clock D nclock nQ Q sub vcc vee 
 * Library name: logic
 * Cell name: latch9_BETA
 * View name: schematic
@@ -130,7 +131,7 @@ Xnor2_4 Q_n R Q sub vcc vee nor2 S=1 $ $x=1280 $y=576 $w=192 $h=128 $r=180 $m
 * PORT=vee TYPE=Other
 * PORT=clock TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: latch9_BETA | Design: logic
 * Designed by: Amir | Tue Apr 11 15:45:07 2023
@@ -149,7 +150,7 @@ XMp11 Q nQ vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1792 
 XMp12 nQ Q N_5 vcc log_pmos W_='log_pmos_WS1*4' L_='log_pmos_Lmin' M_=1 $ $x=1408 $y=960 $w=128 $h=192 $m
 .ends
 
-.subckt dff9 clock D nclock nQ Q sub vcc vee
+.subckt dff9 clock D nclock nQ Q sub vcc vee 
 * Library name: logic
 * Cell name: dff9
 * View name: schematic
@@ -162,7 +163,7 @@ XMp12 nQ Q N_5 vcc log_pmos W_='log_pmos_WS1*4' L_='log_pmos_Lmin' M_=1 $ $x=140
 * PORT=nQ TYPE=Out
 * PORT=D TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: dff9 | Design: logic
 * Designed by:  | Tue Apr 11 15:45:07 2023
@@ -172,7 +173,7 @@ Xlatch9_1 clock D nclock N_2 N_1 sub vcc vee latch9_BETA $ $x=160 $y=144 $w=320 
 Xlatch9_2 nclock N_2 clock Q nQ sub vcc vee latch9_BETA $ $x=704 $y=144 $w=320 $h=352
 .ends
 
-.subckt sequencer1_unitcell cdacclock clockn clockp D init nset Q sub vcc vee
+.subckt sequencer1_unitcell cdacclock clockn clockp D init nset Q sub vcc vee 
 * Library name: sasc
 * Cell name: sequencer1_unitcell
 * View name: schematic
@@ -187,7 +188,7 @@ Xlatch9_2 nclock N_2 clock Q nQ sub vcc vee latch9_BETA $ $x=704 $y=144 $w=320 $
 * PORT=cdacclock TYPE=Out
 * PORT=Q TYPE=Out
 
-*
+* 
 * (C) Caeleste
 * Cell: sequencer1_unitcell | Design: sasc
 * Designed by:  | Thu Jun 13 16:05:25 2024
@@ -197,7 +198,7 @@ Xdff9_13 clockp D clockn cdacclock Q sub vcc vee dff9 $ $x=480 $y=-112 $w=320 $h
 Xsrff_11 nset N_1 init Q sub vcc vee srff $ $x=480 $y=416 $w=192 $h=128
 .ends
 
-.subckt dff9_asr asr clock D nclock nQ Q sub vcc vee
+.subckt dff9_asr asr clock D nclock nQ Q sub vcc vee 
 * Library name: logic
 * Cell name: dff9_asr
 * View name: schematic
@@ -211,7 +212,7 @@ Xsrff_11 nset N_1 init Q sub vcc vee srff $ $x=480 $y=416 $w=192 $h=128
 * PORT=nQ TYPE=Out
 * PORT=vee TYPE=Other
 
-*
+* 
 * (C) Caeleste
 * Cell: dff9_asr | Design: logic
 * Designed by:  | Sat Feb 12 23:51:10 2022
@@ -259,7 +260,7 @@ XMp12 nQi Qi N_10 vcc log_pmos W_='log_pmos_WS1*4' L_='log_pmos_Lmin' M_=1 $ $x=
 * PORT=nQ TYPE=Out
 * PORT=vcc TYPE=Other
 
-*
+* 
 * (C) Caeleste
 * Cell: latch5_BETA | Design: logic
 * Designed by:  | Sat Feb 12 23:51:08 2022
@@ -293,7 +294,7 @@ XMp6 Q nQ N_3 vcc log_pmos W_='log_pmos_WS1*S*4' L_='log_pmos_Lmin' M_=1 $ $x=45
 * PORT=clock TYPE=In
 * PORT=nclock TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: dff5_BETA | Design: logic
 * Designed by:  | Sun Feb 13 01:06:04 2022
@@ -317,7 +318,7 @@ Xlatch9_2 clock N_1 nclock N_2 nQ Q sub vcc vee latch5_BETA S=S $ $x=800 $y=-304
 * PORT=dirtysync TYPE=In
 * PORT=ndirtysync TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: cleansync9 | Design: logic
 * Designed by:  | Wed Jun  5 17:48:59 2024
@@ -348,7 +349,7 @@ XMn2 N_1 in vee sub log_nmos W_='log_nmos_WS1*S' L_='log_nmos_Lmin' M_=1 $ $x=32
 XMp1 out in vcc vcc log_pmos W_='log_pmos_WS1*S' L_='log_pmos_Lmin' M_=1 $ $x=320 $y=608 $w=128 $h=192
 .ends
 
-.subckt sequencer1__b8 cdacclock<0> cdacclock<1> cdacclock<2> cdacclock<3> cdacclock<4> cdacclock<5> cdacclock<6> cdacclock<7> clockn clockp nlatch noffset nset<0> nset<1> nset<2> nset<3> nset<4> nset<5> nset<6> nset<7> sub swref swsig syncn syncp vcc vee
+.subckt sequencer1__b8 cdacclock<0> cdacclock<1> cdacclock<2> cdacclock<3> cdacclock<4> cdacclock<5> cdacclock<6> cdacclock<7> clockn clockp nlatch noffset nset<0> nset<1> nset<2> nset<3> nset<4> nset<5> nset<6> nset<7> sub swref swsig syncn syncp vcc vee 
 * Library name: sasc
 * Cell name: sequencer1__b8
 * View name: schematic
@@ -380,7 +381,7 @@ XMp1 out in vcc vcc log_pmos W_='log_pmos_WS1*S' L_='log_pmos_Lmin' M_=1 $ $x=32
 * PORT=vcc TYPE=Other
 * PORT=vee TYPE=Other
 
-*
+* 
 * (C) Caeleste
 * Cell: sequencer1__b8 | Design: sasc
 * Designed by: Bart Dierickx | Thu Jan 16 11:25:25 2025
@@ -425,37 +426,7 @@ XMn2 N_1 in vee sub log_nmos W_='log_nmos_WS1*S' L_='log_nmos_Lmin' M_=1 $ $x=32
 XMp1 out in vcc vcc log_pmos W_='log_pmos_WS1*2*S' L_='log_pmos_Lmin' M_=1 $ $x=320 $y=608 $w=128 $h=192
 .ends
 
-.subckt comparator_latch clock inn inp outn outp sub vcc vee S=4
-* Library name: logic
-* Cell name: comparator_latch
-* View name: schematic
-* PORT=outp TYPE=Out
-* PORT=outn TYPE=Out
-* PORT=vcc TYPE=Other
-* PORT=inp TYPE=In
-* PORT=vee TYPE=Other
-* PORT=sub TYPE=Other
-* PORT=inn TYPE=In
-* PORT=clock TYPE=In
-
-*
-* (C) Caeleste
-* Cell: comparator_latch | Design: logic
-* Designed by: Bart | Tue Jan 14 16:29:27 2025
-* Cell version 1.0, rev. 6
-Xstd_versioncheck 0 PAGEFRAME $ $x=1088 $y=96 $w=2176 $h=192
-XMn1 N_3 inp N_1 sub log_nmos W_='log_nmos_WS1*S' L_='log_nmos_Lmin' M_=1 $ $x=1248 $y=544 $w=128 $h=192 $m
-XMn2 N_2 inn N_1 sub log_nmos W_='log_nmos_WS1*S' L_='log_nmos_Lmin' M_=1 $ $x=800 $y=544 $w=128 $h=192
-XMn3 N_1 clock vee sub log_nmos W_='log_nmos_WS1' L_='log_nmos_Lmin' M_=1 $ $x=1056 $y=352 $w=128 $h=192 $m
-XMn4 outp outn N_2 sub log_nmos W_='log_nmos_WS1' L_='log_nmos_Lmin' M_=1 $ $x=864 $y=928 $w=128 $h=192 $m
-XMn5 outn outp N_3 sub log_nmos W_='log_nmos_WS1' L_='log_nmos_Lmin' M_=1 $ $x=1184 $y=928 $w=128 $h=192
-XMp1 outn outp vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1184 $y=1184 $w=128 $h=192
-XMp2 outp clock vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=448 $y=1184 $w=128 $h=192
-XMp3 N_2 clock vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=256 $y=1184 $w=128 $h=192 $m
-XMp4 outp outn vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=864 $y=1184 $w=128 $h=192 $m
-XMp5 N_3 clock vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1792 $y=1184 $w=128 $h=192
-XMp6 outn clock vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1600 $y=1184 $w=128 $h=192 $m
-.ends
+.hdl ___sasc.HDL/comparator_latch.va
 
 .subckt comparator1 clockn inn inp outn outp sub vcc vee zero S=4
 * Library name: sasc
@@ -471,13 +442,13 @@ XMp6 outn clock vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=
 * PORT=outp TYPE=Out
 * PORT=outn TYPE=Out
 
-*
+*  
 * (C) Caeleste
 * Cell: comparator1 | Design: sasc
 * Designed by: Bart | Tue Jan 14 17:09:17 2025
 * Cell version 1.0, rev. 3
 Xstd_versioncheck 0 PAGEFRAME $ $x=1088 $y=96 $w=2176 $h=192
-Xcomparator_latch_1 clockn inn inp compout_n compout_p sub vcc vee comparator_latch S=S $ $x=464 $y=640 $w=352 $h=320
+Xcomparator_latch_1 compout_p compout_n inp inn clockn vcc vee comparator_latch S=S td=100p trf=100p $ $x=464 $y=640 $w=352 $h=320
 Xinv_MHthreshold_1 compout_p outn sub vcc vee inv_MHthreshold S=S $ $x=736 $y=800 $w=192 $h=128
 Xinv_MHthreshold_2 compout_n outp sub vcc vee inv_MHthreshold S=S $ $x=736 $y=480 $w=192 $h=128
 .ends
@@ -495,7 +466,7 @@ Xinv_MHthreshold_2 compout_n outp sub vcc vee inv_MHthreshold S=S $ $x=736 $y=48
 * PORT=vee TYPE=Other
 * PORT=pmos TYPE=InOut
 
-*
+* 
 * (C) Caeleste
 * Cell: switch_np_fast_core | Design: logic
 * Designed by: Nick | Thu Jan 26 10:34:52 2023
@@ -517,7 +488,7 @@ XMp2 pmos swP mid vcc log_pmos W_='log_pmos_WS1*S*2' L_='log_pmos_Lmin' M_=1 $ $
 * PORT=A TYPE=InOut
 * PORT=B TYPE=InOut
 
-*
+* 
 * (C) Caeleste
 * Cell: switch_np_fast | Design: logic
 * Designed by: Nick | Thu Jan 26 16:22:06 2023
@@ -537,7 +508,7 @@ Xswitch_np_fast_core_1 B A A sub swN swP vcc vee switch_np_fast_core S=S $ $x=10
 * PORT=B TYPE=InOut
 * PORT=select TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: switch_fast | Design: logic
 * Designed by: Nick | Sun Feb 13 01:06:04 2022
@@ -562,7 +533,7 @@ Xswitch_np_1 A B sub select N_1 vcc vee switch_np_fast S=Ssw $ $x=1344 $y=512 $w
 * PORT=swsig TYPE=In
 * PORT=swref TYPE=In
 
-*
+*  
 * (C) Caeleste
 * Cell: sample_passive | Design: sasc
 * Designed by: Bart | Wed Jan 15 16:12:37 2025
@@ -572,7 +543,7 @@ Xswitch_fast_3 signal cnode_p swsig sub vcc vee switch_fast Ssw='S/4' $ $x=1056 
 Xswitch_fast_4 reference cnode_n swref sub vcc vee switch_fast Ssw='S/4' $ $x=1056 $y=480 $w=192 $h=192
 .ends
 
-.subckt and2nor2 A B C out sub vcc vee
+.subckt and2nor2 A B C out sub vcc vee 
 * Library name: logic
 * Cell name: and2nor2
 * View name: schematic
@@ -584,7 +555,7 @@ Xswitch_fast_4 reference cnode_n swref sub vcc vee switch_fast Ssw='S/4' $ $x=10
 * PORT=B TYPE=In
 * PORT=sub TYPE=Other
 
-*
+* 
 * (C) Caeleste
 * Cell: and2nor2 | Design: logic
 * Designed by: Nick | Sat Feb 12 23:51:10 2022
@@ -599,7 +570,7 @@ XMp3 N_3 B vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1536 
 XMp6 out A N_3 vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1312 $y=1248 $w=128 $h=192 $m
 .ends
 
-.subckt latch_th clock D Q Q_n sub vcc vee
+.subckt latch_th clock D Q Q_n sub vcc vee 
 * Library name: logic
 * Cell name: latch_th
 * View name: schematic
@@ -622,7 +593,7 @@ Xand2nor2_2 Q_n clock N_1 Q sub vcc vee and2nor2 $ $x=1280 $y=496 $w=384 $h=160
 Xinv_1 D N_1 sub vcc vee inv S=1 $ $x=896 $y=544 $w=192 $h=128
 .ends
 
-.subckt or2nand3 A B C D out sub vcc vee
+.subckt or2nand3 A B C D out sub vcc vee 
 * Library name: logic
 * Cell name: or2nand3
 * View name: schematic
@@ -635,7 +606,7 @@ Xinv_1 D N_1 sub vcc vee inv S=1 $ $x=896 $y=544 $w=192 $h=128
 * PORT=C TYPE=In
 * PORT=out TYPE=Out
 
-*
+* 
 * (C) Caeleste
 * Cell: or2nand3 | Design: logic
 * Designed by: Nick | Sat Feb 12 23:51:08 2022
@@ -651,7 +622,7 @@ XMp3 N_2 C vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=1408 
 XMp5 out D vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=640 $y=1344 $w=128 $h=192
 .ends
 
-.subckt latch_nset clock D nD nQ nset Q sub vcc vee
+.subckt latch_nset clock D nD nQ nset Q sub vcc vee 
 * Library name: logic
 * Cell name: latch_nset
 * View name: schematic
@@ -665,7 +636,7 @@ XMp5 out D vcc vcc log_pmos W_='log_pmos_WS1' L_='log_pmos_Lmin' M_=1 $ $x=640 $
 * PORT=D TYPE=In
 * PORT=nD TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: latch_nset | Design: logic
 * Designed by: Bart | Sun Feb 25 18:00:55 2024
@@ -675,7 +646,7 @@ Xor2nand3_1 Q clock D nset nQ sub vcc vee or2nand3 $ $x=1152 $y=944 $w=384 $h=16
 Xor2nand3_2 nQ clock nD nset Q sub vcc vee or2nand3 $ $x=1152 $y=688 $w=384 $h=160 $r=180 $m
 .ends
 
-.subckt cdac1_unitcell capn capp clock comp_n comp_p latched nlatch nset sub vcc vee
+.subckt cdac1_unitcell capn capp clock comp_n comp_p latched nlatch nset sub vcc vee 
 * Library name: sasc
 * Cell name: cdac1_unitcell
 * View name: schematic
@@ -691,7 +662,7 @@ Xor2nand3_2 nQ clock nD nset Q sub vcc vee or2nand3 $ $x=1152 $y=688 $w=384 $h=1
 * PORT=capp TYPE=Out
 * PORT=nset TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: cdac1_unitcell | Design: sasc
 * Designed by: Bart Dierickx | Thu Jun 13 16:07:17 2024
@@ -742,7 +713,7 @@ Xlatch_th nlatch capp latched N_1 sub vcc vee latch_th $ $x=480 $y=1248 $w=320 $
 * PORT=comp_n TYPE=In
 * PORT=clock<2> TYPE=In
 
-*
+* 
 * (C) Caeleste
 * Cell: cdac1__nb8_radix | Design: sasc
 * Designed by: Bart Dierickx | Thu Jan 16 13:46:18 2025
@@ -781,19 +752,20 @@ Xsasc_cdacunitcell_1_16 N_9 N_16 clock<0> comp_n comp_p latched<0> nlatch nset<0
 
 
 ********* Simulation Settings - Parameters *********
-.param simtime = 2000u
-.param convtime = 0.1u
-.param rladder = 100k
-.param radix = 1.75
 .param cap = 100f
+.param radix = 2
+.param rladder = 100k
+.param convtime = 0.1u
+.param simtime = 1u
 ********* Simulation Settings - Options *********
 .option csv = 2
+.option threads = 1
 ***** Top Level *****
-*
+* 
 * (C) Caeleste
 * Cell: SB_saradc8_radixN | Design: sasc
-* Designed by: Bart Dierickx | Fri Jan 17 00:03:00 2025
-* Cell version , rev. 42
+* Designed by: Bart Dierickx, Kennedy Caisley | Tue Jan 21 15:56:06 2025
+* Cell version , rev. 58
 Xstd_versioncheck 0 PAGEFRAME $ $x=1088 $y=96 $w=2176 $h=192
 RResistor_1 vcc ntuner 100k TC=0.0, 0.0 $ $x=-1120 $y=1760 $w=24 $h=192
 Rshort_1 gnd sub Rshort R=1m $ $x=832 $y=480 $w=24 $h=192 $r=180
@@ -804,10 +776,10 @@ vinput vcci gnd log_VCC $ $x=-288 $y=480 $w=320 $h=192
 vresistor vccr gnd log_VCC $ $x=-640 $y=480 $w=320 $h=192
 vsequencer vcc gnd log_VCC $ $x=64 $y=480 $w=320 $h=192
 vSource_v_dc_2 reference gnd log_VCC $ $x=-704 $y=1536 $w=320 $h=192
-vSource_v_pwl_1 signal gnd pwl(0 log_VCC simtime 0.5*log_VCC) $ $x=-704 $y=1888 $w=128 $h=192
+vSource_v_pwl_1 signal gnd pwl(0 log_VCC simtime 0.95*log_VCC) $ $x=-704 $y=1888 $w=128 $h=192
 Xcdac1__nb8_radix_1 clo<0> clo<1> clo<2> clo<3> clo<4> clo<5> clo<6> clo<7> cnode3n cnode3p comz_n comz_p data<0> data<1> data<2> data<3> data<4> data<5> data<6> data<7> nlatch noffset3 nset<0> nset<1> nset<2> nset<3> nset<4> nset<5> nset<6> nset<7> Unknown_Pin_rtap<0>_29 Unknown_Pin_rtap<1>_29 Unknown_Pin_rtap<2>_29 sub vcca vee cdac1__nb8_radix cap=cap radix=radix $ $x=1056 $y=1727 $w=640 $h=321
 Xlog_nmos_1 ntuner ntuner vee sub log_nmos W_='log_Wmin' L_='log_Lntune' M_=1 $ $x=-1152 $y=1568 $w=128 $h=192
-Xsasc_comparator_1_2 clockn cnode3n cnode3p comz_n comz_p sub vccc vee N_1 comparator1 S=4 $ $x=1936 $y=1728 $w=352 $h=320
+Xsasc_comparator_1 clockn cnode3n cnode3p comz_n comz_p sub vccc vee N_1 comparator1 S=4 $ $x=1936 $y=1728 $w=352 $h=320
 Xsasc_rdivider1_1 rtap<0> rtap<1> rtap<2> sub vccr vee rdivider1__b3 rladder=100k $ $x=736 $y=2240 $w=320 $h=320
 Xsasc_sample1_1 cnode3n cnode3p ntuner reference signal sub swref swsig vcci vee sample_passive S=4 $ $x=288 $y=1728 $w=320 $h=320
 Xsasc_sequencer1_8steps_1 clo<0> clo<1> clo<2> clo<3> clo<4> clo<5> clo<6> clo<7> clockn clockp nlatch noffset3 nset<0> nset<1> nset<2> nset<3> nset<4> nset<5> nset<6> nset<7> sub swref swsig syncn syncp vcc vee sequencer1__b8 $ $x=1056 $y=1216 $w=640 $h=320
@@ -837,3 +809,4 @@ XSource_v_pulse_differential_2 syncn syncp gnd Source_v_pulse_differential del='
 .print v(data<7>)
 
 .end
+

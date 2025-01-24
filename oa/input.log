@@ -1,0 +1,62 @@
+
+Spectre (R) Circuit Simulator
+Version 24.1.0.078 64bit -- 14 Sep 2024
+Copyright (C) 1989-2024 Cadence Design Systems, Inc. All rights reserved worldwide. Cadence and Spectre are registered trademarks of Cadence Design Systems, Inc. All others are the property of their respective holders.
+
+Includes RSA BSAFE(R) Cryptographic or Security Protocol Software from RSA Security, Inc.
+
+User: kcaisley   Host: lt177.physik.uni-bonn.de   HostID: DC83B1A7   PID: 106568
+Memory  available: 3.6760 GB  physical: 15.9210 GB
+Linux   : AlmaLinux release 9.5 (Teal Serval)
+CPU Type: Intel(R) Core(TM) Ultra 5 135H
+        Socket: Processors [Frequency] (Hyperthreaded Processor)
+        0:       0 [4066.3] (  1 ),  1 [400.0] (),  2 [4334.8] (  3 )
+                 3 [400.0] (),  4 [3183.2] (  5 ),  5 [400.0] (),  6 [4342.0] (  7 )
+                 7 [400.0] (),  8 [968.6] (),  9 [2665.5] (), 10 [400.0] (), 11 [400.0] ()
+                12 [400.0] (), 13 [400.0] (), 14 [1291.2] (), 15 [1000.8] (), 16 [400.0] ()
+                17 [2322.8] ()
+        
+System load averages (1min, 5min, 15min) : 2.9 %, 2.4 %, 3.2 %
+Hyperthreading is enabled
+HPC is enabled
+
+
+Simulating `input.scs' on lt177.physik.uni-bonn.de at 6:38:10 PM, Tue Jan 21, 2025 (process id: 106568).
+Current working directory: /users/kcaisley/helena/oa
+Command line:
+     \
+        /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/bin/spectre  \
+        -64 +preset=mx input.scs +liclog
+
+Licensing Information:
+[18:38:10.502697] Configured Lic search path (24.01-s002): 8000@faust02.physik.uni-bonn.de
+
+
+Notice from spectre during license check-out.
+    Failed to check out 1 license(s) of 'spectre_X_sc', trying to check out other license(s).
+    Checked out 3 license(s) of 'Virtuoso_Multi_mode_Simulation' for [Spectre X Base].
+    Checked out 3 license(s) of 'Spectre_X_MMSIM_Lk' for [Spectre X Base].
+
+Licensing Information:
+[18:38:10.008073] Periodic Lic check successful
+
+Time spent in licensing: elapsed = 431 ms.
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libinfineon_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_I_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libsparam_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libstmodels_sh.so ...
+
+Error found by spectre.
+    ERROR (CMI-2011): Unable to open the input file `input.scs'.
+         Ensure that the specified file or directory exists.
+
+Checking in all checked-out license(s)..... Done!
+
+Aggregate audit (6:38:10 PM, Tue Jan 21, 2025):
+Time used: CPU = 90.8 ms, elapsed = 272 ms, util. = 33.4%.
+Time spent in licensing: elapsed = 272 ms, percentage of total = 100%.
+Peak memory used = 168 Mbytes.
+Simulation started at: 6:38:10 PM, Tue Jan 21, 2025, ended at: 6:38:10 PM, Tue Jan 21, 2025, with elapsed time (wall clock): 272 ms.
+spectre completes with 1 error, 0 warnings, and 3 notices.
+spectre terminated prematurely due to fatal error.
