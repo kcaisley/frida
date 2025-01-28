@@ -1,5 +1,5 @@
-`include "constants.vams"
-`include "disciplines.vams"
+`include "discipline.h"
+`include "constants.h"
 module comparator_latch(
     output electrical outp,
     output electrical outn,

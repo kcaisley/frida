@@ -1,32 +1,61 @@
+import os
 import matplotlib.pyplot as plt
+import itertools
+os.environ["XDG_SESSION_TYPE"] = "xcb" # this silences the display Wayland error
 
-bits = 9
+bits = 8
+mapped_bits = 8
 radix = 1.8
 
 # produces a list of lists with binary codes. For 8 bit example [[0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0, 0]....
-binary_list = [[1 if digit & (1 << j) else 0 for j in range(bits)] for digit in range(2**bits)]
+binary_list = [[1 if digit & (1 << j) else 0 for j in range(bits)] for digit in range(2**bits)] # a list of lists of ints
 weights = [radix**i for i in range(bits)]
-dout = [sum((2*binary_list[k][i]-1) * weight for i, weight in enumerate(weights)) for k in range(2**bits)]
+vout = [sum((2*binary_list[k][i]-1) * weight for i, weight in enumerate(weights)) for k in range(2**bits)]
 
 # We want the output DAC values to be sorted by magnitude, and we want to have an their associated binary codes.
-# Zips dout and binary_list together.
-# Sorts the pairs based on the first element of each tuple (dout value).
-# Unzips the sorted pairs back into dout and binary_list.
-# Converts the dout and binary_list from tuples back into lists.
-dout_sorted, binary_list_sorted = zip(*sorted(zip(dout, binary_list), key=lambda x: x[0]))
-dout_sorted, binary_list_sorted = list(dout_sorted), list(binary_list_sorted)
-print(dout_sorted)
-print(binary_list_sorted)
+# Zips vout and binary_list together.
+# Sorts the pairs based on the first element of each tuple (vout value).
+# Unzips the sorted pairs back into vout and binary_list.
+# Converts the vout and binary_list from tuples back into lists.
+vout_sorted, binary_list_sorted = zip(*sorted(zip(vout, binary_list), key=lambda x: x[0]))
+vout_sorted, binary_list_sorted = list(vout_sorted), list(binary_list_sorted)
 
-# Assuming dout and dout_sorted are already defined and have 2**bits values
-indices = range(len(dout))
+# Assuming vout and vout_sorted are already defined and have 2**bits values
+indices = range(len(vout))
 
-plt.step(indices, dout, label='dout', color='blue')
-plt.step(indices, dout_sorted, label='dout_sorted', color='red')
+# Normalize values to between 0 to 1, value is a value in vout array (not an index)
+vout_norm = [(value - vout[0]) / (vout[2**bits-1]-vout[0]) for value in vout]
+vout_sorted_norm = [(value - vout_sorted[0]) / (vout_sorted[2**bits-1]-vout_sorted[0]) for value in vout_sorted]
 
-plt.xlabel('Index')
-plt.ylabel('Value')
-plt.title(f'Comparison of dout and dout_sorted (radix = {radix}, bits = {bits})')
+# Here we calculate the DNL, normalized against the ideal uniform bin size of a {bits} bit ideal binary ADC
+vout_sorted_norm_dnl_ideal = [((vout_sorted_norm[index + 1] - vout_sorted_norm[index])-1/(2**bits-1))/(1/(2**bits-1)) for index, value in itertools.islice(enumerate(vout_sorted_norm), len(vout_sorted_norm) - 1)]
+
+fig, (ax0, ax1, ax2) = plt.subplots(nrows=3, ncols=1)
+
+ax0.step(indices, vout_norm, label='vout_norm', color='blue')
+ax0.step(indices, vout_sorted_norm, label='vout_sorted_norm', color='red')
+ax0.set_xlabel('Din')
+ax0.set_ylabel('Vout')
+ax0.set_title(f'Comparison DAC Vout and Vout_sorted vs Din (radix = {radix}, bits = {bits})')
+ax0.grid(True)
+
+# Vout becomes Vin, as it's being used in an ADC
+ax1.step(vout_norm, indices, label='vout_norm', color='blue')
+ax1.step(vout_sorted_norm, indices, label='vout_sorted_norm', color='red')
+ax1.set_xlabel('Vin')
+ax1.set_ylabel('Dout')
+ax1.set_title(f'Comparison of ADC Dout and Dout_sorted vs Vin (radix = {radix}, bits = {bits})')
+ax1.grid(True)
+
+ax2.step(indices[:-1], vout_sorted_norm_dnl_ideal, label='vout_sorted_norm', color='red')
+ax2.set_xlabel('Dout')
+ax2.set_ylabel(f'Vin Sorted Norm DNL (mapped against {9}bit binary ideal tripping points)')
+ax2.set_title(f'DNL of Dout sorted (radix = {radix}, bits = {bits})')
+ax2.grid(True)
+
+plt.subplots_adjust()
 plt.legend()
-
 plt.show()
+
+# plt.figure(figsize=(8, 6), dpi=100)
+# plt.savefig(f'./results/vout_{bits}bits_{radix}radix.png')
