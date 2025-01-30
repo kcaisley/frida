@@ -1,0 +1,6 @@
+TDMCHECKPOINT="1.0"
+analogLib/pcapacitor type="cell"
+analogLib/pdiode type="cell"
+analogLib/presistor type="cell"
+analogLib/pinductor type="cell"
+analogLib/pmind type="cell"

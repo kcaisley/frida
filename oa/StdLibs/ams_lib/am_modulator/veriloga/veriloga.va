@@ -1,0 +1,55 @@
+`include "constants.h"			// Include Files
+`include "discipline.h"
+
+module am_modulator(
+	vin,
+	vout
+);
+input vin;
+output vout;
+electrical vin, vout;
+
+// Frequency of the carrier used to modulate the input signal.    
+parameter real Fc=20E6;
+parameter real Vmax=1;
+parameter real Vmin=-1;
+parameter real MI=1;
+parameter real Gain=1;
+
+real VCenter = 0;
+real VRange = 0;
+real VClipped = 0;
+real VTransform = 0;
+
+// Module contents
+analog
+ begin
+	@(initial_step())
+		begin
+			// Initial Center Info.
+			VCenter = (Vmax + Vmin)/2;
+			VRange = (Vmax - Vmin);
+		end
+	
+	// Clip Input to VMax and Vmin
+	VClipped = V(vin);
+	if (VClipped < Vmin)
+		begin 
+			VClipped = Vmin;
+		end
+	else if (VClipped > Vmax)
+		begin 
+			VClipped = Vmax;
+		end
+	
+	// Center the signal
+	VTransform = (VClipped - VCenter) / (VRange/2);
+	
+ 	// Make the Amplitude of the carrier proportional to the input.
+	V(vout) <+ Gain*(1+MI*VClipped)*cos(2*`M_PI*Fc*$abstime());
+	
+	// Limit the timestep to a minimum of 20 points per period of the
+	//  carrier frequency.
+	bound_step(0.05/Fc);
+ end
+endmodule

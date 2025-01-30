@@ -1,0 +1,7 @@
+TDMCHECKPOINT="1.0"
+basic/dst type="cell"
+basic/gnd_net type="cell"
+basic/iosc type="cell"
+basic/oosc type="cell"
+basic/src type="cell"
+basic/ta_vdd type="cell"

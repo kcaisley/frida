@@ -1,0 +1,84 @@
+
+// Copyright Mentor Graphics Corporation 2009
+//
+//    All Rights Reserved.
+//
+// THIS WORK CONTAINS TRADE SECRET
+// AND PROPRIETARY INFORMATION WHICH IS THE
+// PROPERTY OF MENTOR GRAPHICS
+// CORPORATION OR ITS LICENSORS AND IS
+// SUBJECT TO LICENSE TERMS. 
+
+
+// SHORT DESCRIPTION: Analog Comparator 
+// MODULE: acomp_m1: Analog Comparator with hysteresys and slew rate limiting
+
+`include "disciplines.h"
+`include "constants.h"
+
+module acomparator(noninv, inv, aout);
+	input noninv, inv;
+	output aout;
+	electrical noninv, inv, aout;
+	electrical a_slew;
+
+	branch (a_slew,aout) lim ;
+	branch (aout) extra ;
+  
+ 
+  parameter real Rdm    = 1.0e12 from (0:inf);				// Differential input resistance
+  parameter real Rcm    = 1.0e12 from (0:inf);				// Common mode input resistance
+  parameter real Cdm    = 0.0 from [0:inf);					// Differential input capacitance
+  parameter real Ccm    = 0.0 from [0:inf);					// Common mode input capacitance
+  parameter real Vio    = 0.0 from (-1.0 : 1.0);			// Input offset voltage
+  parameter real Iio    = 0.0 from (-1.0e-3 : 1.0e-3);	// Input offset current
+  parameter real Iib    = 0.0 from (-1.0e-3 : 1.0e-3);	// Input bias current
+  parameter real Imax_p = 5.0e-3 from (0.0 : inf];			// Maximum output source current
+  parameter real Imax_n = -5.0e-3 from [-inf : 0.0);		// Maximum output sink current
+  parameter real Vhi    =  1.0;									// Voltage corresponding to logic '1'
+  parameter real Vlo    = -1.0 from (-inf : Vhi];			// Voltage corresponding to logic '0'
+  parameter real VthL   = 0.0;			 						// Low threshold voltage
+  parameter real VthH   = 0.0 from [VthL : inf);			// High threshold voltage
+  parameter real SR     = 1.0e7 from(0:inf) ;    			// Slew rate at output terminal
+  parameter real trise  = 1.0e-9 from (0.0 : inf);			// rise time
+  parameter real tfall  = 1.0e-9 from (0.0 : inf);			// fall time
+  
+  real Soutput, Vramp ;
+
+  branch (noninv, inv) b_offset;
+  
+  analog begin
+    
+   if (analysis("static")) begin
+		Soutput = Vlo;
+		Vramp = Vlo;
+      if (V(noninv,inv)+Vio > VthH) Soutput = Vhi;
+      if (V(noninv,inv)+Vio < VthL) Soutput = Vlo;
+	end
+        
+	I(inv)          <+ Iib + V(inv)/Rcm + Ccm*ddt(V(inv));
+	I(noninv)       <+ Iib + V(noninv)/Rcm + Ccm*ddt(V(noninv));
+	I(b_offset)     <+ Iio;
+	I(noninv,inv)   <+ (V(noninv,inv)+Vio)/Rdm + Cdm*ddt(V(noninv,inv)+Vio);
+	
+	@(cross(V(noninv,inv)+Vio - VthH, +1)) Soutput = Vhi;
+	@(cross(V(noninv,inv)+Vio - VthL, -1)) Soutput = Vlo;
+        
+	Vramp = transition(Soutput, 0, trise, tfall); 
+	V(a_slew) <+ slew (Vramp, SR); 
+
+   // This part models current limiting by sinking or sourcing extra current 
+	V(lim) <+ I(lim)*1.0 ;
+	@(cross(I(lim)-Imax_n,0));
+	@(cross(I(lim)-Imax_p,0));
+   
+	if (I(lim) < Imax_n) 
+		I(extra)<+ (I(lim) - Imax_n) ;
+	else 
+		if  (I(lim) > (Imax_p))  
+			I(extra) <+ (I(lim) - Imax_p) ;
+		else
+			I(extra) <+ 0.0 ;
+  end
+
+endmodule // acomparator

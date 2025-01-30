@@ -1,0 +1,35 @@
+`include "constants.h"			// Include Files
+`include "discipline.h"
+
+module am_demodulator(
+	vin,
+	vout
+);
+input vin;
+output vout;
+electrical vin, vout;
+
+parameter real LPc=1E6;		// Low Pass 3db Corner
+parameter real InGain=1;
+parameter real OutGain=1;
+parameter real OutShift=0;
+
+electrical vrect;
+
+real Wlpc = 1;
+
+// Module contents
+analog
+ begin
+	@(initial_step())
+		begin
+			Wlpc = 2 * `M_PI * LPc;
+		end
+	
+	// Rectify the input signal
+	V(vrect) <+ abs(InGain * V(vin));
+	
+	// Low Pass filter
+	V(vout) <+ OutGain*laplace_nd(V(vrect), { 1.0 }, { 1.0, 1/(2*`M_PI*LPc) }) + OutShift;
+ end
+endmodule

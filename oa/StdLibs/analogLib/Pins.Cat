@@ -1,0 +1,5 @@
+TDMCHECKPOINT="1.0"
+analogLib/iopin type="cell"
+analogLib/ipin type="cell"
+analogLib/opin type="cell"
+analogLib/sympin type="cell"

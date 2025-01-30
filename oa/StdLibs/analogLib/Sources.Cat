@@ -1,0 +1,6 @@
+TDMCHECKPOINT="1.0"
+analogLib/Dependent.Cat type="category"
+analogLib/Globals.Cat type="category"
+analogLib/Independent.Cat type="category"
+analogLib/Ports.Cat type="category"
+analogLib/Z_S_Domain.Cat type="category"

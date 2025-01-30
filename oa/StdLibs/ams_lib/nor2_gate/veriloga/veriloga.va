@@ -1,0 +1,61 @@
+// Copyright Mentor Graphics Corporation 2009 
+//
+//    All Rights Reserved.
+//
+// THIS WORK CONTAINS TRADE SECRET
+// AND PROPRIETARY INFORMATION WHICH IS THE
+// PROPERTY OF MENTOR GRAPHICS
+// CORPORATION OR ITS LICENSORS AND IS
+// SUBJECT TO LICENSE TERMS.
+
+`include "disciplines.h"
+`include "constants.h"
+
+//DOCUMENTATION BEGIN
+//MODEL TYPE: VERILOG-A
+//SHORT DESCRIPTION: NOR-Gate with two input ports
+//MODULE: dig_nor2_m1
+//DESCRIPTION:
+//
+//This is a VERILOG-A model of a logic NOR-Gate with two input ports.
+//This model performs propagation delay handling. When an input changes state,
+//the output is delayed by a propagation time, tPLH or tPHL (from low to high
+//and high to low). These parameters must be positive and are set to 0 by
+//default.
+//
+//DOCUMENTATION END.
+
+module nor2_gate(din1, din2, dout);
+
+input din1, din2; 
+electrical din1, din2;
+output dout;
+electrical dout;
+
+parameter real tPLH = 0.0 from [0.0 : inf];   	// Propagation delay from low to high
+parameter real tPHL = 0.0 from [0.0 : inf];   	// Propagation delay from high to low 
+parameter real Vth = 0.5;								// Threshold voltage
+parameter real Vhi = 1.0;								// Output voltage corresponding to '1'
+parameter real Vlo = 0.0 from [-inf : Vhi);     // Output voltage corresponding to '0'
+parameter real tDelay = 1.0e-9;     				// Propagation delay
+
+integer din1_integer, din2_integer, dout_tmp;
+  
+analog begin
+
+	if (analysis("ic", "dc", "op")) begin
+		din1_integer = (V(din1) > Vth)? 1:0;
+		din2_integer = (V(din2) > Vth)? 1:0;
+		dout_tmp = !(din1_integer || din2_integer);
+	end  
+
+	@(cross(V(din1) - Vth)) din1_integer = (V(din1) > Vth)? 1:0;
+	@(cross(V(din2) - Vth)) din2_integer = (V(din2) > Vth)? 1:0;
+
+  	dout_tmp = !(din1_integer || din2_integer);
+
+	V(dout) <+ transition((dout_tmp >= 0.5)? Vhi : Vlo, ( dout_tmp >= 0.5)? tPLH : tPHL, tDelay);
+
+end
+
+endmodule // nor_gate

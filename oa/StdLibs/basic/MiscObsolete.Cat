@@ -1,0 +1,4 @@
+TDMCHECKPOINT="1.0"
+basic/simNameState type="cell"
+basic/simState type="cell"
+keepEmptyCategory type="unknown"

@@ -1,0 +1,2 @@
+DEFINE analogLib ../analogLib
+ASSIGN analogLib libMode shared

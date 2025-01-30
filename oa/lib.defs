@@ -1,3 +1,4 @@
+# Caeleste libraries
 DEFINE devices devices
 ASSIGN devices libMode shared
 DEFINE spice spice
@@ -8,3 +9,7 @@ DEFINE logic logic
 ASSIGN logic libMode shared
 DEFINE sasc sasc
 ASSIGN sasc libMode shared
+
+# Standard libraries from S-Edit examples
+INCLUDE StdLibs/lib.defs
+INCLUDE StdLibs/lib_SPICE.defs

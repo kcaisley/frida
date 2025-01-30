@@ -1,0 +1,7 @@
+TDMCHECKPOINT="1.0"
+basic/Connectors.Cat type="category"
+basic/MiscObsolete.Cat type="category"
+basic/Saber.Cat type="category"
+basic/SuppliesObsolete.Cat type="category"
+basic/TA.Cat type="category"
+keepEmptyCategory type="unknown"

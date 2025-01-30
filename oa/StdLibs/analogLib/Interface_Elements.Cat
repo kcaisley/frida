@@ -1,0 +1,5 @@
+TDMCHECKPOINT="1.0"
+analogLib/MOS_a2d type="cell"
+analogLib/MOS_d2a type="cell"
+analogLib/TTL_a2d type="cell"
+analogLib/TTL_d2a type="cell"

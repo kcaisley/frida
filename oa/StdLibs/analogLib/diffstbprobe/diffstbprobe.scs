@@ -1,0 +1,38 @@
+
+
+simulator lang=spectre
+//*** Spectre cmdm probe for differential stability analysis ***
+//*** The subckt name is 'diffstbprobe'
+// Use this subckt as follows:
+// Istbprobe (IN1 IN2 OUT1 OUT2) diffstbprobe
+// 1. measure differential mode stability
+//    stb stb start=10 stop=500M dec=40  probe=Istbprobe.IPRB_DM
+// 2. measure common mode stability
+//    stb stb start=10 stop=500M dec=40  probe=Istbprobe.IPRB_CM
+
+
+//pragma protect begin_protected
+//pragma protect data_method   = RC5
+//pragma protect data_keyowner = Cadence Design Systems.
+//pragma protect data_keyname  = CDS_KEY
+//pragma protect data_block
+EnJARPH2QZPtohXNT9FmW9YRxbtC/0R5ztdF8eL5Mrw75IBgJi/6AAp9f3OeTYP8
+ric1Jt3RTH+/+P9r1UPWzgs8GrXNu9Foln8y+mgnLdnOCnSTFwAkDEuw2BM1ZlkT
+Q8LmPan5zRVM+KEnjN8f7lbf3rPjAChERHbU2Pjr4/3zAxPlF7isNxAOutW2qtTc
+S9XjohGZSGrUGKlLxUkKdJw920kWSJmb0J3zZ+yJMr6I8j4/+SoXfysCGvkC/sDF
+pC0q1PqHiIEfDNmXr4iGWm7y2Cl4IHk3PE5YRMXX8K0uWC+yoHu2tKqBDagRpTKH
+tBVy0hy2wMiw8BoY0xKgs/ulUl0P1eqBNkWPgZo2YN42WfGzFFJg6/FdN6GuioVe
+Ud9O2nrE0jMZ939C16hpwiQmc48G/wTV1y8JbaP/4mVvcCKqzlGuuyxv7xo97MTw
+JpxdwVl5vxt8k50n0lMO50fvY+SGzSP5B39du9kiFu2lrlIBtmO22Xyyx9ZmqO72
+//pragma protect end_protected
+  IPRB_DM (a c) iprobe
+  IPRB_CM (b d) iprobe
+//pragma protect begin_protected
+//pragma protect data_method   = RC5
+//pragma protect data_keyowner = Cadence Design Systems.
+//pragma protect data_keyname  = CDS_KEY
+//pragma protect data_block
+YJP324dyKRZccQM3IQcjfVH3GeONkr+bGRu9H1IxjPqBFNj6qh28pDMjKf7i2xxq
+BB/e3RQqj84Toks35H2+2/gSvns804KQ4tYc/uf7CFFiwli5mMJ1KJwkEg+R8XKN
+pFpliXHhJbRvXhNpglRyfsb4c049RGbiIWs6+/ODAwww1mRPriJOOOuKdz2na3Yl
+//pragma protect end_protected

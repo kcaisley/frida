@@ -1,0 +1,156 @@
+
+// Include Files
+`include "constants.h"	
+`include "discipline.h"
+
+`define F_EOF -1
+`define DF_TOLERANCE 1E-4
+
+module DC_IDsat(Vd, Vds, Vgs);
+input Vd;
+inout Vgs;
+inout Vds;
+electrical Vd, Vds, Vgs;
+
+branch(Vds, Vd) IDS_Branch;
+
+parameter real TranW = 0;
+parameter real TranL = 0;
+parameter integer Corner = 0;
+
+parameter real Tolerance = 5;
+parameter string QA_ValidationDataFilename = "";
+parameter string QA_ResultFilename = "Results";
+parameter string TestName = "Test";
+
+integer nValidationDataFileID = 0;
+integer nLogFileID = 0;
+integer nErrorFileID = 0;
+real dTemp = 0;
+
+string sLogName = "TEMP";
+string sErrName = "TEMP";
+
+integer bFound = 0;
+integer nLineNum=0;
+integer nNumRead = 0;
+integer nTempNumRead = 0;
+real dFileVds = 0.0;
+real dFileVgs = 0.0;
+real dFileTranW = 0.0;
+real dFileTranL = 0.0;
+real dFileTemp = 0.0;
+integer nFileCorner = 0;
+integer nFileTestType = 0;
+
+real dValue = 0.0;
+real dDifference = 0.0;
+string sResult = "FAILED";
+integer i = 0;
+
+analog function integer SameValues;
+input dExpectedValue, dValue; 
+real dExpectedValue, dValue; 
+real dTemp;
+ begin
+ 	dTemp = abs(dExpectedValue-dValue);
+ 	if (dTemp != 0.0)
+ 		dTemp = abs(dTemp / dValue);
+ 	SameValues = (dTemp < `DF_TOLERANCE);
+ end
+endfunction
+
+analog
+begin 
+	@(final_step("dc"))
+	 begin 
+	 	// Get temperature
+	 	dTemp = $temperature-273.15;
+		// Open log and error files.
+		$sformat(sLogName,"%s.log", QA_ResultFilename);
+		nLogFileID = $fopen(sLogName, "a");
+		if (nLogFileID != 0)
+		 begin
+		 	$sformat(sErrName,"%s.err", QA_ResultFilename);
+			nErrorFileID = $fopen(sErrName, "a");
+			if (nErrorFileID != 0)
+			begin 
+				// Get the published result.
+				begin 
+					nValidationDataFileID = $fopen(QA_ValidationDataFilename, "r");
+					if (nValidationDataFileID != 0)
+					 begin 
+					 	bFound = 0;
+					 	nLineNum = 0;
+					 	dValue = 0.0;
+					 	nNumRead = 8;
+						while (nNumRead == 8)
+						 begin
+							nNumRead = $fscanf(nValidationDataFileID, "%f,%f,%f,%f,%f,%d,%d,%f", 
+															dFileVds, dFileVgs, dFileTranW, dFileTranL, dFileTemp,
+															nFileCorner, nFileTestType, dValue);
+							nLineNum = nLineNum + 1;
+							if (nNumRead == 8)
+							 begin 
+								if (SameValues(dFileVds,Vds) && SameValues(dFileVgs, Vgs) && 
+									 SameValues(dFileTranW, TranW) && SameValues(dFileTranL,TranL) &&
+									 SameValues(dFileTemp, dTemp) && 
+									 (nFileCorner == Corner))
+								 begin 
+									bFound = 1;
+									nNumRead = 0;
+								 end 
+							 end 
+							else if (nNumRead != 8)
+							 begin 
+								// Send warning to log						
+								$strobe("WARNING: Line found without enough data (%d) on line %d in file \"%s\"", nNumRead, nLineNum, QA_ValidationDataFilename);
+							 end  
+						 end 
+						$fclose(nValidationDataFileID);
+					 end 
+					else
+					 begin 
+						$strobe("WARNING: Cannot open validation data file \"%s\"", QA_ValidationDataFilename);
+					 end
+			 	end 
+				if ( bFound != 0)
+				 begin 
+					// Calculate the Difference as a percentage.
+					dDifference = dValue-I(IDS_Branch);
+					if (dValue != 0.0)
+						dDifference = dDifference / dValue;
+					dDifference = abs(dDifference * 100);		
+			
+					// Compare to the tolerance.
+					if (dDifference > Tolerance)
+					 begin 
+						sResult = "FAILED";
+					 	$strobe("%s - %s Test: ID=%r\tExpected Value=%r\tDifference=%8.4f%%\tTranW=%r\tTranL=%r\tVds=%r\tVgs=%r\tCorner=%d\tTemp=%3.0f", sResult, TestName, I(IDS_Branch), dValue, dDifference, TranW, TranL, Vds, Vgs, Corner, dTemp);
+				 		$fstrobe(nErrorFileID, "%s - %s Test: ID=%r\tExpected Value=%r\tDifference=%8.4f%%\tTranW=%r\tTranL=%r\tVds=%r\tVgs=%r\tCorner=%d\tTemp=%3.0f", sResult, TestName, I(IDS_Branch), dValue, dDifference, TranW, TranL, Vds, Vgs, Corner, dTemp);
+					 end 
+					else
+					 	sResult = "PASSED";
+			
+				 	$fstrobe(nLogFileID, "%s - %s Test: ID=%r\tExpected Value=%r\tDifference=%8.4f%%\tTranW=%r\tTranL=%r\tVds=%r\tVgs=%r\tCorner=%d\tTemp=%3.0f", sResult, TestName, I(IDS_Branch), dValue, dDifference, TranW, TranL, Vds, Vgs, Corner, dTemp);
+				 end 
+				else
+				 begin 
+					// Send warning to log						
+					$strobe("WARNING: Cannot find validation data for the following in file \"%s\"\n\tTranW=%r\tTranL=%r\tVds=%r\tVgs=%r\tCorner=%d\tTemp=%3.0f\tTest=IDSAT", QA_ValidationDataFilename, TranW, TranL, Vds, Vgs, Corner, dTemp);
+				 end 
+				$fclose(nErrorFileID);
+			 end 
+			else
+			 begin 
+				$strobe("WARNING: (%d) Cannot open QA Error log file \"%s\"", nErrorFileID, sErrName);
+			 end 
+			$fclose(nLogFileID);
+		 end 
+		else
+		 begin 
+			$strobe("WARNING: (%d) Cannot open QA main log file \"%s\"", nLogFileID, sLogName);
+		 end 
+	end 
+end 
+endmodule

@@ -1,0 +1,2 @@
+DEFINE Misc ../Misc
+ASSIGN Misc libMode shared
