@@ -1,9 +1,10 @@
 # from sar_adc_sim import *
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy import stats
 import os
 import argparse
-os.environ["XDG_SESSION_TYPE"] = "xcb" # this silences the display Wayland error
+os.environ["XDG_SESSION_TYPE"] = "xcb" # For silencing "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome"
 
 # Create the parser
 parser = argparse.ArgumentParser(description='Analysis script for SAR ADC data')
@@ -91,42 +92,108 @@ print(f'sum of weights = {sum(weights)}')
 # enumerate returns the index, value of the sequence: [https://docs.python.org/3.9/library/functions.html#enumerate]
 df['Dout'] = sum((2*df[f'data<{i}>']-1) * (weight) for i, weight in enumerate(weights))   # enumerate returns the
 df['Dout'] += df['comz_n'] - 1 # we use negative comp output, because data outputs are tapped from N side
-df['Dout_norm'] = df['Dout'] / (radix**convs)
 
+# Compute linear fit
+dout_regression = stats.linregress(df['Vin'], df['Dout'])
+df['Dout_linear'] = dout_regression.slope * df['Vin'] + dout_regression.intercept
+
+# Compute error
+df['Dout_error'] = df['Dout'] - df['Dout_linear']
+
+
+
+# STRATEGY 1: Rounding to nearest integer
 # Compute an inter rounded version of dout
 df['Dout_rounded'] = df['Dout'].round()
 
 # Compute code frequency of the rounded values
-histo_dnl= df['Dout_rounded'].value_counts(sort = False)
+dout_rounded_histo = df['Dout_rounded'].value_counts(sort = False)
+
+# dout_rounded_histo contains the count of values in each bin
+total_values = dout_rounded_histo.sum()  # Total number of values across all bins
+num_bins = len(dout_rounded_histo)  # Number of bins
+average_per_bin = total_values / num_bins  # Average number of values per bin
+
+dout_averaged = (dout_rounded_histo.values) / average_per_bin - 1
+
+print(f'RMS DNL: {dout_averaged.std()}')
 
 # Compute a linear fit of dout
-df['Dout_linear'] = (((98+1)/-0.6)*df['Vin'])-0.5
+dout_rounded_regression = stats.linregress(df['Vin'], df['Dout_rounded'])
+df['Dout_rounded_linear'] = dout_rounded_regression.slope * df['Vin'] + dout_rounded_regression.intercept
 
-# Compute a
+# Compute error
+df['Dout_rounded_error'] = df['Dout_rounded'] - df['Dout_rounded_linear']
+
+
+
+# Strategy 2: Mapping to lower resolution set of bins (in this case 8)
+# Compute a 'binned' version, which maps the 9 nonbinary bin across 8 uniform binary bin
 # In a 9bit config, with 1.8 radix, the range is -136.4995072 to +136.4995072 (+ 1) = 274
 # To map this onto a 8-bit range we can find the radio of the two ranges, where 8bit range = 256
 # ratio of 274 / 256 is ~ 1.75
-df['Dout_8binned'] = (df['Dout'] / 1.075).round()
+df['Dout_mapped'] = (df['Dout'] / 1.075).round() * 1.075
+
+# Compute code frequency of the mapped values
+dout_mapped_histo = df['Dout_mapped'].value_counts(sort = False)
+
+# Compute linear fit
+dout_mapped_regression = stats.linregress(df['Vin'], df['Dout_mapped'])
+df['Dout_mapped_linear'] = dout_mapped_regression.slope * df['Vin'] + dout_mapped_regression.intercept
+
+# Compute error
+df['Dout_mapped_error'] = df['Dout_mapped'] - df['Dout_mapped_linear']
+
+
+
+# Strategy 3: what about some normalization?
+# df['Dout_norm'] = df['Dout'] / (radix**convs)
+
+
+
 
 print("Plotting...")
+# plt.style.use('dark_background')
+
 # ax# instances are an xy pair of axes, here we have one per sub-plot
-fig, (ax0, ax1) = plt.subplots(nrows=1, ncols=2, gridspec_kw={'width_ratios': [1, 2]})
+fig, ax = plt.subplots(ncols = 2, nrows = 2, gridspec_kw={'width_ratios': [1, 2]})
 
-# plot histogram showing code density
-ax0.barh(histo_dnl.index, histo_dnl.values, edgecolor='black')
-ax0.set_ylabel('Dout')
-ax0.set_xlabel('Code Count')
-ax0.set_title(f'Dout Rounded Code Density (radix = {radix}, conversions = {convs}, samples = {time*10})')
-ax0.grid(True)
+ax = ax.flatten()
 
-# Plot the line for Vin vs Dout
-ax1.plot(df['Vin'], df['Dout_rounded'], label='Dout vs Vin', color='b')
-ax1.plot(df['Vin'], df['Dout_linear'], label='Dout_linear vs Vin', color='r')
-ax1.set_xlabel('Vin')
-ax1.set_ylabel('Dout')
-ax1.set_title(f'Dout vs Vin (radix = {radix}, conversions = {convs}, samples = {time*10})')
-ax1.legend()
-ax1.grid(True)
+# Plot histogram showing code density
+ax[0].barh(dout_rounded_histo.index, dout_averaged, label='Dout rounded')
+# ax[0].barh(dout_mapped_histo.index, dout_mapped_histo.values, label='Dout mapped')
+ax[0].set_ylabel('Dout')
+ax[0].set_xlabel('Code Count')
+ax[0].set_title(f'Dout Code Density (radix = {radix}, conversions = {convs}, samples = {time*10})')
+ax[0].legend()
+ax[0].grid(True)
+
+# Plot the line for Dout vs Vin
+ax[1].plot(df['Vin'], df['Dout_rounded'], label='Dout rounded')
+ax[1].plot(df['Vin'], df['Dout_mapped'], label='Dout mapped')
+ax[1].plot(df['Vin'], df['Dout'], label='Dout')
+ax[1].sharey(ax[0])
+# ax[1].plot(df['Vin'], df['Dout_linear'], label='Dout_rounded linear fit')
+# ax[1].plot(df['Vin'], df['Dout_mapped_linear'], label='Dout_mapped linear fit')
+ax[1].set_xlabel('Vin')
+ax[1].set_ylabel('Dout')
+ax[1].set_title(f'Dout vs Vin (radix = {radix}, conversions = {convs}, samples = {time*10})')
+ax[1].legend()
+ax[1].grid(True)
+
+ax[2].axis('off')
+
+# Plot the line for Dout error vs Vin
+ax[3].plot(df['Vin'], df['Dout_rounded_error'], label='Dout rounded error')
+ax[3].plot(df['Vin'], df['Dout_mapped_error'], label='Dout mapped error')
+ax[3].plot(df['Vin'], df['Dout_error'], label='Dout error')
+ax[3].sharex(ax[1])
+ax[3].set_xlabel('Vin')
+ax[3].set_ylabel('Error')
+ax[3].set_title(f'Dout Error vs Vin (radix = {radix}, conversions = {convs}, samples = {time*10})')
+ax[3].legend()
+ax[3].grid(True)
 
 plt.show()
 
