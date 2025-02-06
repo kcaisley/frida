@@ -1,4 +1,3 @@
-import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -737,7 +736,7 @@ class SAR_ADC:
         pdf.savefig(figure)
         figure = self.calculate_conversion_energy(do_plot=True)
         pdf.savefig(figure)
-        adc.calculate_enob()
+        self.calculate_enob()
 
         # Collect parameters and results
         data = [
@@ -804,11 +803,6 @@ class SAR_ADC:
         # table.scale(1, 1.2)
         pdf.savefig(fig)  # , bbox_inches='tight')
         pdf.close()
-
-
-class SAR_ADC_BSS(SAR_ADC):
-    def __init__(self, params):
-        super().__init__(params)
 
     def sample_and_convert_bss(
         self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False
@@ -946,97 +940,4 @@ class SAR_ADC_BSS(SAR_ADC):
                     self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color
                 )
 
-        return -
-
-
-if __name__ == "__main__":
-
-    # Load parameters from YAML file
-    with open("adc_sim.yaml", "r") as file:
-        params = yaml.safe_load(file)
-
-    adc = SAR_ADC_BSS(params)
-
-    ######################################################################################
-    # Below code blocks can be individually used for visualization and debugging
-    ######################################################################################
-
-    # plot SAR iterations
-    # adc.sample_and_convert_bss(0.65, 0.0, do_plot=True, do_calculate_energy=True)
-
-    # calculate conversion energy
-    # adc.calculate_conversion_energy(do_plot=True)
-
-    # plot transfer function
-    # adc.plot_transfer_function()
-
-    # calculate DNL/INL
-    adc.calculate_nonlinearity(do_plot=True)
-
-    # calculate ENOB
-    # adc.calculate_enob(do_plot=True)
-
-    # CDAC only
-    # dac = CDAC_BSS(params, adc)
-    # dac.calculate_nonlinearity(do_plot=True)
-
-    ######################################################################################
-    # Performance analysis
-    ######################################################################################
-
-    # -------------------------------------------------------------------------------------
-    # calculate and gather all performance parameters
-    # -------------------------------------------------------------------------------------
-
-    # adc.compile_results()
-
-    # -------------------------------------------------------------------------------------
-    # parametric ENOB calculation
-    # -------------------------------------------------------------------------------------
-    # adc_b  = SAR_ADC_BSS(params)
-    # adc_nb = SAR_ADC_BSS(params)
-    # enob_b  = []
-    # enob_nb = []
-    # error_array = []
-
-    # adc_b.dac.params['use_individual_weights'] = False
-    # adc_b.dac.params['radix'] = 2
-    # adc_b.update_parameters()
-
-    # adc_nb.dac.params['use_individual_weights'] = False
-    # adc_nb.dac.params['radix'] = 1.8
-    # adc_nb.update_parameters()
-
-    # # TODO: add more error types and values
-    # error_index  = 1
-    # error_steps  = 4
-    # error_params = [
-    #   ('capacitor_mismatch_error', ' [%]',    30),
-    #   ('settling_time',            ' [s]',  5e-9),
-    #   ('reference_voltage_noise',  ' [V]', 10e-3),
-    #   ('offset_voltage',           ' [V]',  5e-3),
-    #   ('threshold_voltage_noise',  ' [V]',  5e-3)
-    # ]
-    # error_type, error_unit, error_max_value = error_params[error_index]
-
-    # for error in np.arange(0, error_max_value, error_max_value/error_steps):
-    #   error_array.append(error)
-    #   adc_b.dac.params[error_type]  = error
-    #   adc_nb.dac.params[error_type] = error
-    #   adc_b.update_parameters()
-    #   adc_nb.update_parameters()
-    #   adc_b.calculate_enob()
-    #   adc_nb.calculate_enob()
-    #   enob_b.append(adc_b.enob)
-    #   enob_nb.append(adc_nb.enob)
-
-    # figure, plot = plt.subplots(1, 1)
-    # plot.plot(error_array, enob_b, label='Binary weighted capacitors')
-    # plot.plot(error_array, enob_nb, label='Non-binary weighted capacitors')
-    # x_label = error_type + error_unit
-    # plot.set_xlabel(x_label)
-
-    # plot.set_ylabel('ENOB')
-    # plot.legend()
-
-    plt.show()
+        return result

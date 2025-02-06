@@ -1,10 +1,10 @@
 .venv
 .venv39
 .vscode
-__pycache__
 .ropeproject
+__pycache__
+
 /target
-/Cargo.lock
+/spiceout/*
 /tests
 /src/*.pkl
-/results/*
