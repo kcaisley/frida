@@ -6,6 +6,5 @@ __pycache__
 /target
 /Cargo.lock
 /tests
-/edet/build
 /src/*.pkl
 /results/*
