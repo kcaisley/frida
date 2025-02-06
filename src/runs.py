@@ -21,10 +21,10 @@ params = {
         "positive_reference_voltage": 1.2,  # reference voltage in Volts
         "negative_reference_voltage": 0.0,  # reference voltage in Volts
         "reference_voltage_noise": 0.0e-3,  # reference voltage noise in Volts
-        "unit_capacitance": 1e-15,  # unit capacitance in Farads
-        "array_size": 8,
+        "unit_capacitance": 0.8167e-15,  # unit capacitance in Farads (~0.8167 allows for Ctot per branch to ~100fF)
+        "array_size": 8,    # NOTE: this param is N but get increased to M if radix != 2
         "use_individual_weights": False,  # use array values to build cap array
-        "individual_weights": [],   # set below
+        "individual_weights": [],   # This can't be 
         "parasitic_capacitance": 0,  # in Farads at the output of the CDAC
         "radix": 1.80,  # for the cap values (use_individual_weights = False)
         "capacitor_mismatch_error": 0.0,  # mismatch error in percent of the unit cap
@@ -33,27 +33,27 @@ params = {
 }
 
 # sets the caps from top to bottom, as fractions of 100fF
-params["CDAC"]["individual_weights"] = [(100e-15 / 2 / (params["CDAC"]["radix"] ** i) ) for i in range(params["CDAC"]["array_size"])]
+# This doesn't work because it has to be integers
+# params["CDAC"]["individual_weights"] = [(100e-15 / 2 / (params["CDAC"]["radix"] ** i) ) for i in range(params["CDAC"]["array_size"])]
 
+adc = behavioral.SAR_ADC(params)
 
-adc = behavioral.SAR_ADC_BSS(params)
+adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.80, do_plot=True, do_calculate_energy=True)
+# adc.calculate_nonlinearity(do_plot=True)
 
-# adc2.sample_and_convert_bss(input_voltage_p=1.2, input_voltage_n=0.80, do_plot=True, do_calculate_energy=True)
-adc.calculate_nonlinearity(do_plot=True)
 # adc.sample_and_convert_bss(0.65, 0.0, do_plot=True, do_calculate_energy=True) # plot SAR iterations, for one input
 # adc.calculate_conversion_energy(do_plot=True)  # calculate conversion energy
 # adc.plot_transfer_function()  # plot transfer function
 # adc.calculate_nonlinearity(do_plot=True)  # calculate DNL/INL
 # adc.calculate_enob(do_plot=True) # calculate ENOB
 
-# adc.compile_results()  # essentially includes everything above
+adc.compile_results()  # essentially includes everything above
 
 # CDAC only
 # dac = behavioral.CDAC_BSS(params, adc)
 # dac.calculate_nonlinearity(do_plot=True)
 
 plt.show()
-
 
 # Old code blocks for reference
 

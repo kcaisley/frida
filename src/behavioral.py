@@ -470,7 +470,7 @@ class SAR_ADC:
         # do the conversions, assuming input codes have uniform density
         print("Calculating DNL/INL ...")
         for i in tqdm(range(len(input_voltage_data))):
-            adc_data[i] = self.sample_and_convert_bss(
+            adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0
             )
 
@@ -568,7 +568,7 @@ class SAR_ADC:
                 2 * np.pi * frequency * time_array[i]
             )
             input_voltage_array[i] = input_voltage
-            adc_data_array[i] = self.sample_and_convert_bss(
+            adc_data_array[i] = self.sample_and_convert(
                 input_voltage, -input_voltage
             )
 
@@ -618,7 +618,7 @@ class SAR_ADC:
 
         print("Calculating conversion energy ...")
         for i in tqdm(range(len(input_voltage_data))):
-            adc_data[i] = self.sample_and_convert_bss(
+            adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2 + common_mode_input_voltage,
                 -input_voltage_data[i] / 2 + common_mode_input_voltage,
                 do_calculate_energy=True,
@@ -684,7 +684,7 @@ class SAR_ADC:
         input_voltage_data_lsb = np.empty(len(input_voltage_data))
         adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
         for i in tqdm(range(len(input_voltage_data))):
-            adc_data[i] = self.sample_and_convert_bss(
+            adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2 + common_mode_input_voltage,
                 -input_voltage_data[i] / 2 + common_mode_input_voltage,
             )
@@ -803,10 +803,14 @@ class SAR_ADC:
         # table.scale(1, 1.2)
         pdf.savefig(fig)  # , bbox_inches='tight')
         pdf.close()
+    
+    def sample_and_convert(self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False):
+        """
+        Perform a sample and conversion using bidirectional single side switching (BSS).
+        NOTE: This function is specific to BSS CDACs and the code should be updated later
+        to use other CDAC styles.
+        """
 
-    def sample_and_convert_bss(
-        self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False
-    ):
         # init arrays with DAC output voltages and comparator results
         dac_out_p = np.empty(self.dac.params["array_size"] + 1, dtype="float64")
         dac_out_n = np.empty(self.dac.params["array_size"] + 1, dtype="float64")
@@ -817,10 +821,13 @@ class SAR_ADC:
         ideal_comp_result = []
 
         # init DAC register
-        # reset_value = 2**(self.dac.params['array_size']-1)-1 # mid-scale, so BSS bidirectional single side switching
-        reset_value = (
-            2 ** self.dac.params["array_size"] - 1
-        )  # all 1's, so monotonic switching
+        # NOTE: This essentially sets the switching strategy, but only covers cases where:
+        #   - The CDAC is front side sampling, and back side switching
+        #   - The backside switches can only choose between two potentials
+        #   - There is one cap per switch, and 
+        # reset_value = 2**(self.dac.params['array_size']-1)-1     # mid-scale, so BSS bidirectional single side switching
+        reset_value = (2 ** self.dac.params["array_size"] - 1)     # all 1's, so monotonic switching
+
         # reset_value = 0  # all 0's
         # reset_value = 0xff
         self.dac.reset(reset_value=reset_value, do_calculate_energy=do_calculate_energy)
