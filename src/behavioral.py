@@ -806,9 +806,11 @@ class SAR_ADC:
     
     def sample_and_convert(self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False):
         """
-        Perform a sample and conversion using bidirectional single side switching (BSS).
-        NOTE: This function is specific to BSS CDACs and the code should be updated later
-        to use other CDAC styles.
+        Perform a sample and conversion using switching of differential CDAC.
+        Currently supports BSS and monotonic strategies. Assumes that:
+            1. The CDAC is front side sampling, and back side switching
+            2. The backside switches can only choose between two potentials
+            3. There is one cap per switch, and vice versa. 
         """
 
         # init arrays with DAC output voltages and comparator results
