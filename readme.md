@@ -1,3 +1,40 @@
+[ ] LSB isn't considered, as the bit after the final DAC update isn't recorded. Three weights b2-b1-b0 on the cap array of 4-2-1 is a 4-bit design
+[ ] Double conversions clearly aren't addressed right, as can be seen in the basic case of 4-2-2-1 weights. If b2 is correctly measured, b2c shouldn't negate it...
+[ ] Expression for calculating re-analog should use correct expression
+[ ] replace active input with passive
+[ ] replace logic with Verilog-A
+[ ] replace comparator with ideal
+
+
+# Meeting agenda
+
+- SAR ADC
+    - algorithm jumps, implementation with redundancy (how to optimize)
+    - capacitor sizing, nominal and effective resolution
+    - power consumption, area, 
+
+- Radiation tolerance: TID only, testing with X-rays
+    - Backbias and guard rings
+    - Bulk damage isn't an issue
+
+- system level electronics (not all in test chip)
+    - Input: buffer, swing of incoming signals, impedance, current/voltage-mode, resolution?
+    - Serializers, 8b10b encoder, CML drivers (over LVDS / CMOS), JESD204B compatability
+    - 3.125 GHz for JESD204B, 3.2 for DMC V2 (we already have a 1.6 GHz PLL)
+    - IO pads (can come from CERN, or our internal)
+
+- Test chip submissions
+    - First submission June 18, TSMC 65nm CMOS Low Power MS/RF
+    - CERN or direct Europractice (this affects available IP)
+    - min area = 1 mm2 at 3,691 EUR, extra area is 360 / 0.1 mm2
+
+- IT logistics
+    - porting of 'V2' deck to TSMC 65
+    - File exchange / design sharing. Github, SVN, Dropbox, 
+    - S-edit schematics -> Virtuoso Layout
+    - IP transfer restrictions
+    - PDK data access
+
 # Abstract
 
 Semiconductor pixel radiation detectors are widely used in the natural, physical, and medical sciences. For applications requiring tagging of individual particles with better than 10 µm spatial resolution and less than 1 µs temporal resolution, but with sparse hit occupancy and relaxed energy resolution, event-based counting detectors remain a reliable and common choice. By contrast, when particles need not be individually differentiated (in time or space), hit-rates are above 100 MHz/cm (without external trigger), and spatial resolution below 10 um are paramount, frame-based integrating-mode readouts are better-suited.
@@ -12,7 +49,6 @@ ADCs are also used in the case of
 Historically, the highest frame rates haves been achieved by buffering and duty cycle readout, either in-pixel in the analog domain, or in-matrix or in the chip periphery in the digital domain.
 
 There are multiple components which together to determine the read out rate, which in-term deterine the frame. These including clock distribution, column sequencer, global shutter in-pixel transistor, clolumn drain line, column buffer, and ADC, and serializer, and serial driver, and wireline inteface. Of these, in most applications areas typically the most critic limiting factor is the
-
 
 # Terminology
 

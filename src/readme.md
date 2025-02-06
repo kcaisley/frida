@@ -1,7 +1,7 @@
 Python code for SAR ADC functional modelling.
 
 # Pseudocode
-```
+```python
 adc = SAR_ADC()
     SAR_ADC.__init__()
         resolution, cycles, sampling_rate, clock_period, etc...

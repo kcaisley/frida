@@ -1,4 +1,3 @@
-# from sar_adc_sim import *
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
@@ -116,7 +115,9 @@ average_per_bin = total_values / num_bins  # Average number of values per bin
 
 dout_averaged = (dout_rounded_histo.values) / average_per_bin - 1
 
-print(f'RMS DNL: {dout_averaged.std()}')
+rms_dnl = dout_averaged.std()
+
+print(f'RMS DNL: {rms_dnl}')
 
 # Compute a linear fit of dout
 dout_rounded_regression = stats.linregress(df['Vin'], df['Dout_rounded'])
@@ -149,9 +150,6 @@ df['Dout_mapped_error'] = df['Dout_mapped'] - df['Dout_mapped_linear']
 # Strategy 3: what about some normalization?
 # df['Dout_norm'] = df['Dout'] / (radix**convs)
 
-
-
-
 print("Plotting...")
 # plt.style.use('dark_background')
 
@@ -161,7 +159,7 @@ fig, ax = plt.subplots(ncols = 2, nrows = 2, gridspec_kw={'width_ratios': [1, 2]
 ax = ax.flatten()
 
 # Plot histogram showing code density
-ax[0].barh(dout_rounded_histo.index, dout_averaged, label='Dout rounded')
+ax[0].barh(dout_rounded_histo.index, dout_averaged, label='Dout rounded DNL (stdev = %d)' % rms_dnl)
 # ax[0].barh(dout_mapped_histo.index, dout_mapped_histo.values, label='Dout mapped')
 ax[0].set_ylabel('Dout')
 ax[0].set_xlabel('Code Count')

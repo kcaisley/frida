@@ -402,6 +402,7 @@ class SAR_ADC:
         parameters += f" FOM   {self.average_conversion_energy / self.params['resolution'] / 1e-12:.2e} pJ\n"
         return parameters
 
+    # This function calculates the output value (i.e. 're-analog') from the array of comp outputs
     def calculate_result(self, comp_result):
         # initialize result
         result = 0
@@ -512,6 +513,7 @@ class SAR_ADC:
             plot[0].set_ylabel("Input voltage [V]")
             plot[0].grid(True)
             plot[1].title.set_text("Code Density")
+
             plot[1].step(
                 bin_edges,
                 code_density_hist,
@@ -523,6 +525,7 @@ class SAR_ADC:
             plot[1].legend()
             plot[1].grid(True)
             plot[2].title.set_text("Differential Nonlinearity")
+            
             plot[2].step(
                 bin_edges, dnl_data, where="post", label="DNL sigma = %.3f" % dnl_sigma
             )
@@ -895,12 +898,15 @@ class SAR_ADC_BSS(SAR_ADC):
             else:  # comparator output = 0
                 self.comp_result.append(0)
 
+
         # calculate result
         result = self.calculate_result(self.comp_result)
         self.conversion_energy = total_consumed_charge * (
             self.dac.params["positive_reference_voltage"]
             - self.dac.params["negative_reference_voltage"]
         )
+
+
         # print('conversion energy %e [pJ]' % (self.conversion_energy * 1e12))
 
         if do_plot:
@@ -940,7 +946,7 @@ class SAR_ADC_BSS(SAR_ADC):
                     self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color
                 )
 
-        return result
+        return -
 
 
 if __name__ == "__main__":

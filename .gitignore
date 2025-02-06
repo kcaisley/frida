@@ -1,12 +1,13 @@
 .venv
 .venv39
+.vscode
 __pycache__
 .ropeproject
 /target
 /Cargo.lock
 /tests
 /edet/build
-sim/*.pdf
-sim/*.csv
-sim/*.pkl
-sim/results
+src/*.pdf
+src/*.csv
+src/*.pkl
+src/results
