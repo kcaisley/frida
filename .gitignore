@@ -7,7 +7,5 @@ __pycache__
 /Cargo.lock
 /tests
 /edet/build
-src/*.pdf
-src/*.csv
-src/*.pkl
-src/results
+/src/*.pkl
+/results/*
