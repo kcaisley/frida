@@ -5,6 +5,8 @@ import os
 plt.rc("figure", figsize=(8.27, 11.69))  # format all plots as A4 portrait
 os.environ["XDG_SESSION_TYPE"] = "xcb" # silence "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome"
 
+# eventually, need to pull the init code out, so that 
+
 params = {
     "ADC": {
         "resolution": 8,  # resolution of the ADC
@@ -22,7 +24,8 @@ params = {
         "negative_reference_voltage": 0.0,  # reference voltage in Volts
         "reference_voltage_noise": 0.0e-3,  # reference voltage noise in Volts
         "unit_capacitance": 0.8167e-15,  # unit capacitance in Farads (~0.8167 allows for Ctot per branch to ~100fF)
-        "array_size": 8,    # NOTE: this param is N but get increased to M if radix != 2
+        "array_size": 8,    # NOTE: this param is N but get recomputed to M if radix != 2, and array_N_M_expansion = True 
+        "array_N_M_expansion": False,
         "use_individual_weights": False,  # use array values to build cap array
         "individual_weights": [],   # This can't be 
         "parasitic_capacitance": 0,  # in Farads at the output of the CDAC
@@ -38,8 +41,8 @@ params = {
 
 adc = behavioral.SAR_ADC(params)
 
-adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.80, do_plot=True, do_calculate_energy=True)
-# adc.calculate_nonlinearity(do_plot=True)
+# adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.0, do_plot=True, do_calculate_energy=True)
+adc.calculate_nonlinearity(do_plot=True)
 
 # adc.sample_and_convert_bss(0.65, 0.0, do_plot=True, do_calculate_energy=True) # plot SAR iterations, for one input
 # adc.calculate_conversion_energy(do_plot=True)  # calculate conversion energy
@@ -47,7 +50,7 @@ adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.80, do_plot=True, 
 # adc.calculate_nonlinearity(do_plot=True)  # calculate DNL/INL
 # adc.calculate_enob(do_plot=True) # calculate ENOB
 
-adc.compile_results()  # essentially includes everything above
+# adc.compile_results()  # essentially includes everything above
 
 # CDAC only
 # dac = behavioral.CDAC_BSS(params, adc)
@@ -105,4 +108,3 @@ plt.show()
 # plot.set_xlabel(x_label)
 # plot.set_ylabel('ENOB')
 # plot.legend()
-

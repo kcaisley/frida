@@ -5,10 +5,6 @@ from tqdm import tqdm
 import os
 import pandas as pd
 
-# format all plots as A4 portrait
-plt.rc("figure", figsize=(8.27, 11.69))
-
-
 class CDAC:
     def __init__(self, params, parent):
         self.parent = parent
@@ -112,7 +108,7 @@ class CDAC_BSS(CDAC):
         # 3. Use non binary weight (radix > 2) to construct the capacitor array and 'array_size' will be resized to the dynamic range of the nominal binary weighted capacitors
 
         if self.params["use_individual_weights"]:
-            # use individual weights from the parameter file
+            # use individual weights from the parameter file, but only supports integers
             array_index_offset = (
                 len(self.params["individual_weights"]) - self.params["array_size"]
             )
@@ -127,19 +123,21 @@ class CDAC_BSS(CDAC):
             self.capacitor_array_n = (
                 self.weights_array * self.params["unit_capacitance"]
             )
-        else:  # construct array according to given radix
-            self.params["array_size"] = (
-                self.parent.params["resolution"] - 1
-            )  # for binary weighted capacitors
-            if self.params["radix"] != 2:
-                # resize no-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
-                self.params["array_size"] = int(
-                    np.ceil(self.params["array_size"] / np.log2(self.params["radix"]))
-                )  # match *at least* the resolution of the radix 2 design
+
+        else:  # construct array according to given radix and desired resolution
+            if self.params["array_N_M_expansion"]:          # If you want array size to be computed, instead of manually supplied
+                self.params["array_size"] = (self.parent.params["resolution"] - 1)          # for binary weighted capacitors
+                if self.params["radix"] != 2:
+                    # resize no-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
+                    self.params["array_size"] = int(
+                        np.ceil(self.params["array_size"] / np.log2(self.params["radix"]))
+                    )  # match *at least* the resolution of the radix 2 design
+            
             # resize arrays
             self.capacitor_array_p = np.zeros(self.params["array_size"])
             self.capacitor_array_n = np.zeros(self.params["array_size"])
             self.weights_array = np.zeros(self.params["array_size"])
+
             # build capacitor array from given radix
             for i in range(self.params["array_size"]):
                 self.capacitor_array_p[self.params["array_size"] - i - 1] = (
@@ -448,7 +446,7 @@ class SAR_ADC:
         min_code = -(2 ** (self.params["resolution"] - 1))  # 0
         max_code = (
             2 ** (self.params["resolution"] - 1) - 1
-        )  # 2**(self.params['resolution'])-1
+        )
         num_codes = 2 ** self.params["resolution"]
         lower_index_boundary = lower_excluded_bins
         upper_index_boundary = num_codes - upper_excluded_bins
@@ -474,7 +472,7 @@ class SAR_ADC:
                 input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0
             )
 
-        # print('adc_data ', adc_data)
+        print('adc_data ', adc_data)
 
         # calculate code density histogram
         code_density_hist, bin_edges = np.histogram(
@@ -908,7 +906,6 @@ class SAR_ADC:
             self.dac.params["positive_reference_voltage"]
             - self.dac.params["negative_reference_voltage"]
         )
-
 
         # print('conversion energy %e [pJ]' % (self.conversion_energy * 1e12))
 
