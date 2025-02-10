@@ -1,9 +1,15 @@
 import behavioral
+import spice
 import matplotlib.pyplot as plt
+import math
+import pandas as pd
 import os
+from tqdm import tqdm
 
 plt.rc("figure", figsize=(8.27, 11.69))  # format all plots as A4 portrait
 os.environ["XDG_SESSION_TYPE"] = "xcb" # silence "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome"
+pd.set_option('display.precision', 8)
+pd.options.mode.copy_on_write = True
 
 # eventually, need to pull the init code out, so that 
 
@@ -12,7 +18,7 @@ params = {
         "resolution": 8,  # resolution of the ADC
         "sampling_frequency": 10.0e6,  # sampling rate in Hz
         "aperture_jitter": 0.0e-12,  # aperture jitter in seconds (TBD)
-        "use_calibration": True,  # account for cap error when calculating re-analog results
+        "use_calibration": False,  # account for cap error when calculating re-analog results
     },
     "COMP": {
         "offset_voltage": 0.0e-3,  # offset voltage in Volts
@@ -28,10 +34,16 @@ params = {
         "array_N_M_expansion": False,
         "use_individual_weights": False,  # use array values to build cap array
         "individual_weights": [],   # This can't be 
-        "parasitic_capacitance": 0,  # in Farads at the output of the CDAC
+        "parasitic_capacitance": 5.00e-14,  # in Farads at the output of the CDAC
         "radix": 1.80,  # for the cap values (use_individual_weights = False)
         "capacitor_mismatch_error": 0.0,  # mismatch error in percent of the unit cap
         "settling_time": 0.0e-9,  # TBD: individual settling errors per capacitor?
+        "switching_strat": 'monotonic',     #used to determined initial starting voltages
+    },
+    "TESTBENCH": {
+        'simulation_times':        [0,   6000e-6],  # starting and ending sim times, matching with bottom voltages to make pwl
+        "positive_input_voltages": [0.2, 1.2],      # starting and ending voltages of the pwl voltage waveform
+        "negative_input_voltages": [1.2, 0.2],
     },
 }
 
@@ -41,8 +53,94 @@ params = {
 
 adc = behavioral.SAR_ADC(params)
 
+# Create the behavioral simulation DataFrame
+behavioral_df = pd.DataFrame(columns=["time", "inp", "inn", "Dout"])
+
+num_rows = int(params["TESTBENCH"]["simulation_times"][1] * params["ADC"]["sampling_frequency"])
+
+# FIXME: This could be simplified, as we already find the time step below, so we can just increment it to calculate the time step
+behavioral_df["time"] = [params["TESTBENCH"]["simulation_times"][0] + i * (params["TESTBENCH"]["simulation_times"][1] - params["TESTBENCH"]["simulation_times"][0]) / (num_rows) for i in range(num_rows)]  # note the -1 missing, which we include in the expression below...
+# Round the 'time' column to the nearest 1e-7, or whatever the sampling frequency
+behavioral_df["time"] = behavioral_df["time"].round(int(-math.log10(1/params["ADC"]["sampling_frequency"])))
+
+behavioral_df["inp"] = [params["TESTBENCH"]["positive_input_voltages"][0] + i * (params["TESTBENCH"]["positive_input_voltages"][1] - params["TESTBENCH"]["positive_input_voltages"][0]) / (len(behavioral_df) - 1) for i in range(len(behavioral_df))]
+behavioral_df["inn"] = [params["TESTBENCH"]["negative_input_voltages"][0] + i * (params["TESTBENCH"]["negative_input_voltages"][1] - params["TESTBENCH"]["negative_input_voltages"][0]) / (len(behavioral_df) - 1) for i in range(len(behavioral_df))]
+behavioral_df["Vin"] = behavioral_df["inp"] - behavioral_df["inn"]
+
+dout_series = pd.Series(index=behavioral_df.index, dtype=float)
+
+print("Running conversions for behavioral sim...")
+for i in range(len(behavioral_df)):
+    dout_series[i] = adc.sample_and_convert(
+        behavioral_df.iloc[i]["inp"],
+        behavioral_df.iloc[i]["inn"],
+        do_plot=False,
+        do_calculate_energy=False,
+        do_normalize_result=False,
+)
+
+behavioral_df["Dout"] = dout_series
+
+# Drop this for now, to make the analysis easier
+behavioral_df = behavioral_df.drop(columns=['time'])
+
+print("-----Behavioral dataframe-----")
+print(behavioral_df)
+
+
+
+spice_df = spice.parse_to_df(rawfile='results/SB_saradc8_radixN_1.8/SB_saradc8_radixN_1.8.csv', radix=1.8, convs=8, time=2000, vdd=1.2)    # FIXME: rawfile, use radix from params, etc
+spice_df = spice_df.drop(columns=['comz_p', 'comz_n', 'data<0>', 'data<1>', 'data<2>', 'data<3>', 'data<4>', 'data<5>', 'data<6>', 'data<7>'])
+spice_df = spice_df.drop(columns=['Time'])
+
+# there are two issues with the current SPICE dataset: 1) The dout polarity is swapped, and our data is single sided right now.
+# Let's make up some data to fix this for now (FIXME!!!!)
+spice_df["Dout"] = (-1 * spice_df["Dout"]) - 0.5
+spice_negative = spice_df.iloc[::-1].reset_index(drop=True)
+
+spice_df["Dout"] = -1 * (spice_df["Dout"])
+spice_df.loc[:, ['inp', 'inn']] = spice_df.loc[:, ['inn', 'inp']].values
+spice_positive = spice_df
+# Stack the DataFrames on top of each other
+spice_df = pd.concat([spice_negative, spice_positive], ignore_index=True)
+# Reset the index
+spice_df = spice_df.reset_index(drop=True)
+spice_df["Vin"] = spice_df["inp"] - spice_df["inn"]
+
+print("-----SPICE dataframe-----")
+print(spice_df)
+
+# Drop rows where Dout is greater than 0.83 or less than -0.83
+behavioral_df = behavioral_df.drop(behavioral_df[(behavioral_df["Vin"] > 0.6) | (behavioral_df["Vin"] < -0.6)].index)
+
+behavioral_df, behavioral_dout_rounded_histo, behavioral_dout_averaged, behavioral_rms_dnl = spice.df_linearity_analyze(behavioral_df)
+
+spice_df, spice_dout_rounded_histo, spice_dout_averaged, spice_rms_dnl = spice.df_linearity_analyze(spice_df)
+
+
+print("-----Behavioral dataframe-----")
+print(behavioral_df)
+
+print("-----SPICE dataframe-----")
+print(spice_df)
+
+# fig1, ax1 = spice.plot_df_linearity(behavioral_df, behavioral_dout_rounded_histo, behavioral_dout_averaged, behavioral_rms_dnl, title="behavioral")
+
+# fig2, ax2 = spice.plot_df_linearity(spice_df, spice_dout_rounded_histo, spice_dout_averaged, spice_rms_dnl, title="spice")
+
+
+# FIXME: I should just be able to bundle these different data points together:
+spice.plot_df_linearity_compare(behavioral_df, behavioral_dout_rounded_histo, behavioral_dout_averaged, behavioral_rms_dnl, spice_df, spice_dout_rounded_histo, spice_dout_averaged, spice_rms_dnl)
+
+plt.show()
+
+
+
+
+
+
 # adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.0, do_plot=True, do_calculate_energy=True)
-adc.calculate_nonlinearity(do_plot=True)
+# adc.calculate_nonlinearity(do_plot=True)
 
 # adc.sample_and_convert_bss(0.65, 0.0, do_plot=True, do_calculate_energy=True) # plot SAR iterations, for one input
 # adc.calculate_conversion_energy(do_plot=True)  # calculate conversion energy
@@ -55,8 +153,6 @@ adc.calculate_nonlinearity(do_plot=True)
 # CDAC only
 # dac = behavioral.CDAC_BSS(params, adc)
 # dac.calculate_nonlinearity(do_plot=True)
-
-plt.show()
 
 # Old code blocks for reference
 

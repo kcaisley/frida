@@ -400,7 +400,7 @@ class SAR_ADC:
         return parameters
 
     # This function calculates the output value (i.e. 're-analog') from the array of comp outputs
-    def calculate_result(self, comp_result):
+    def calculate_result(self, comp_result, do_normalize_result=True):
         # initialize result
         result = 0
 
@@ -416,6 +416,8 @@ class SAR_ADC:
             else:
                 # use ideal weights, ignoring the mismatch error of the real capacitors
                 result += (2 * comp_result[i] - 1) * self.dac.weights_array[i]
+
+            # DEBUGGING ONLY: note this print statement is too slow in a loop:
             # print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i], ' result ', result)
 
         # add final comparison result
@@ -429,13 +431,20 @@ class SAR_ADC:
         #   result += comp_result[i] * self.dac.weights_array[i-1]
         #   #print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i-1], ' result ', result)
 
-        # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
-        result *= (2 ** (self.params["resolution"] - 1) - 1) / (
-            self.dac.weights_sum
-        )  # ???
-        return int(np.round(result))
+        if do_normalize_result:
+            # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
+            result *= (2 ** (self.params["resolution"] - 1) - 1) / (
+                self.dac.weights_sum
+            )  # ???
+            result = int(np.round(result))
+        return result
 
     def calculate_nonlinearity(self, do_plot=False):
+        """
+        This function current has issues:
+        - The max and min code aren't accounting for the case of non-binary
+        - The number of codes...
+        """
         values_per_bin = 100  # number of values per bin for DNL/INL calculation
         lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
         upper_excluded_bins = (
@@ -443,11 +452,11 @@ class SAR_ADC:
         )
 
         # helper variables
-        min_code = -(2 ** (self.params["resolution"] - 1))  # 0
+        min_code = -(2 ** (self.params["resolution"] - 1))  # FIXME: wrong for non-binary
         max_code = (
-            2 ** (self.params["resolution"] - 1) - 1
+            2 ** (self.params["resolution"] - 1) - 1        # FIXME: wrong for non-binary
         )
-        num_codes = 2 ** self.params["resolution"]
+        num_codes = 2 ** self.params["resolution"]          # FIXME: wrong for non-binary
         lower_index_boundary = lower_excluded_bins
         upper_index_boundary = num_codes - upper_excluded_bins
 
@@ -802,7 +811,7 @@ class SAR_ADC:
         pdf.savefig(fig)  # , bbox_inches='tight')
         pdf.close()
     
-    def sample_and_convert(self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False):
+    def sample_and_convert(self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False, do_normalize_result=True):
         """
         Perform a sample and conversion using switching of differential CDAC.
         Currently supports BSS and monotonic strategies. Assumes that:
@@ -825,8 +834,19 @@ class SAR_ADC:
         #   - The CDAC is front side sampling, and back side switching
         #   - The backside switches can only choose between two potentials
         #   - There is one cap per switch, and 
-        # reset_value = 2**(self.dac.params['array_size']-1)-1     # mid-scale, so BSS bidirectional single side switching
-        reset_value = (2 ** self.dac.params["array_size"] - 1)     # all 1's, so monotonic switching
+
+        allowed_switching_strats = {'monotonic', 'bss'}     # FIX ME: janky data validation. Do it better
+
+        if self.dac.params["switching_strat"] == 'monotonic':
+            reset_value = (2 ** self.dac.params["array_size"] - 1)     # all 1's, so monotonic switching
+
+        elif self.dac.params["switching_strat"] == 'bss':  
+            reset_value = 2**(self.dac.params["array_size"]-1)-1     # mid-scale, so BSS bidirectional single side switching
+
+        else:
+            raise ValueError(f"switching_strat wasn't one of the allowed values: {allowed_switching_strats}")
+
+        del allowed_switching_strats    # python doesn't need cleanup, but do it anyways?
 
         # reset_value = 0  # all 0's
         # reset_value = 0xff
@@ -901,7 +921,7 @@ class SAR_ADC:
 
 
         # calculate result
-        result = self.calculate_result(self.comp_result)
+        result = self.calculate_result(self.comp_result, do_normalize_result)
         self.conversion_energy = total_consumed_charge * (
             self.dac.params["positive_reference_voltage"]
             - self.dac.params["negative_reference_voltage"]
