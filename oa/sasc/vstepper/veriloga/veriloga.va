@@ -1,0 +1,38 @@
+`include "discipline.h"
+`include "constants.h"
+
+module vstepper(vstart, vstep, vend, clk, vout);
+    input vstart, vstep, vend, clk;
+    output vout;
+    electrical vstart, vstep, vend, clk, vout;
+
+    // Internal variable to store the current voltage
+    real current_voltage;
+    real next_update_time;
+
+    // Initial conditions
+    initial begin
+        current_voltage = vstart;  // Start voltage is vstart
+        next_update_time = $abstime;  // Initialize the update time
+    end
+
+    // Voltage update logic
+    analog begin
+        // Only update the voltage when the clock signal is active (high)
+        if (V(clk) > 0) begin
+            // If the current voltage is less than vend, increment
+            if (current_voltage < V(vend)) begin
+                current_voltage = current_voltage + V(vstep);
+                if (current_voltage > V(vend)) begin
+                    current_voltage = V(vend);  // Ensure voltage doesn't exceed vend
+                end
+            end
+        end
+
+        // Output the current voltage
+        V(vout) <+ current_voltage;
+    end
+
+endmodule // vstepper
+
+

@@ -670,7 +670,7 @@ class SAR_ADC:
             plot[1].legend()
             return figure
 
-    def ideal_conversion(self, input_voltage_p, input_voltage_n):
+    def ideal_conversion(self, input_voltage_p, input_voltage_n):   #FIXME: This isn't implemented for non-binary! It's coloring the chart RED!
         # ideal conversion
         ideal_adc_code = int(
             np.round((input_voltage_p - input_voltage_n) / self.lsb_size - 0.5)
@@ -938,12 +938,14 @@ class SAR_ADC:
                     1 if ideal_adc_code & (1 << (self.cycles - i - 1)) else 0
                 )
             # use calculate_result() to get the ideal result from the ideal comparison results
-            ideal_result = self.calculate_result(ideal_comp_result)
+            ideal_result = self.calculate_result(ideal_comp_result) # FIXME: Based on binary only model
 
             figure, plot = plt.subplots(1, 1)
             legend_title = (
-                "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
-                % (input_voltage_p, input_voltage_n, result, ideal_result)
+                # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
+                # % (input_voltage_p, input_voltage_n, result, ideal_result)
+                "Diff input voltage [%.3f, %.3f] \nADC code = %.2f"       # FIXME: Disable ideal result being added, as it's based on binary only model.
+                % (input_voltage_p, input_voltage_n, result)
             )
             figure.suptitle("SAR Conversion")
             plot.stairs(
@@ -960,7 +962,8 @@ class SAR_ADC:
             plot.grid(True)
             for i in range(self.cycles):
                 color = (
-                    "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
+                    # "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
+                    "black"     # FIXME: The ideal comp result is based on binary-only code. FIX this!
                 )
                 plot.annotate(
                     self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color

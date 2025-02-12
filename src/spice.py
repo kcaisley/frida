@@ -5,7 +5,7 @@ import os
 import argparse
 os.environ["XDG_SESSION_TYPE"] = "xcb" # For silencing "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome"
 
-def parse_to_df(rawfile, radix=2.0, convs=8, time=2000, vdd=1.2):
+def parse_to_df(rawfile, radix, array_size, time, vdd):
     """
     Analysis script for SAR ADC data
 
@@ -17,15 +17,13 @@ def parse_to_df(rawfile, radix=2.0, convs=8, time=2000, vdd=1.2):
     vdd (float): Supply voltages in volts (default: 1.2)
     """
 
-    if os.path.exists(f'./spice_{radix}radix_{convs}bit_{time}u.pkl'):   # FIXME: don't use convs
+    if os.path.exists(f'src/spice_{radix}radix_{array_size}caps_{time}secs.pkl'):   # FIXME: don't use convs
         print("Pickled precleaned cache file found, loading it...")
-        df = pd.read_pickle(f'./spice_{radix}radix_{convs}bit_{time}u.pkl')
+        df = pd.read_pickle(f'src/spice_{radix}radix_{array_size}caps_{time}secs.pkl')
     else:
         print("Loading raw CSV...")
         # Load the CSV data into a pandas DataFrame, skip first row as it just has text e.g. "Transient analysis: temperature=25.0"
         df = pd.read_csv(rawfile, skiprows=1)
-        # df = pd.read_csv(f'{radix}radix_{convs}bit_{duration}u.csv', skiprows=1)
-        # df = pd.read_csv('sim/results/SB_saradc8_radix1p80/SB_saradc8_radix1p80.csv', skiprows=1)
 
         print("Cleaning dataframe...")
         # Remove unwanted text from column names: V(....)
@@ -42,7 +40,6 @@ def parse_to_df(rawfile, radix=2.0, convs=8, time=2000, vdd=1.2):
         # NOTE: This isn't the correct offset however, for plates
         df = df[(df.index % 1000) == 70 ]
         df = df.reset_index(drop=True)
-        sample_count = time * 10 # Work out the total of conversions representated in the data set
 
         # Since measurement data out is derived to the voltage 100ns before, we can shift the voltages down by one to correlate the two
         for col in ['Time','inn', 'inp']:
@@ -54,8 +51,8 @@ def parse_to_df(rawfile, radix=2.0, convs=8, time=2000, vdd=1.2):
         # Remove every row past 580, as the ADC stops acting linear due to switch
         # df = df.iloc[:7000].reset_index(drop=True)
 
-        print("Writing dataframe to `spice_####radix_####bit_###u.pkl` pickle cache file...")
-        df.to_pickle(f'./spice_{radix}radix_{convs}bit_{time}u.pkl')     # FIXME: don't use convs
+        print("Writing dataframe to `spice_####radix_####caps_###secs.pkl` pickle cache file...")
+        df.to_pickle(f'src/spice_{radix}radix_{array_size}caps_{time}secs.pkl')     # FIXME: don't use convs
 
     print("Computing new columns...")
     
@@ -69,11 +66,11 @@ def parse_to_df(rawfile, radix=2.0, convs=8, time=2000, vdd=1.2):
     # df['comp'] = df['comz_p'] - df['comz_n'] # FIX ME: Why isn't this needed?
 
     # Digitize the data bit lines to that they are either 1 or 0
-    for col in [f'data<{i}>' for i in range(convs)]:  # Create list ['data<0>',..., 'data<7>']
+    for col in [f'data<{i}>' for i in range(array_size)]:  # Create list ['data<0>',..., 'data<7>']
         df[col] = df.loc[:,col].apply(lambda x: 1 if x > (vdd/2) else (0 if x <= (vdd/2) else x))    # FIXME: don't use convs
 
     # Define the binary weights for data<0> to data<7>, where data<0> is the 2nd lowest LSB, and data<7> is MSB
-    weights = [radix**i for i in range(convs)]       # FIXME: don't use convs
+    weights = [radix**i for i in range(array_size)]       # FIXME: don't use convs
     print(f'weights = {weights}')
     print(f'sum of weights = {sum(weights)}')
     # Calculate the 'Dout' column
@@ -94,6 +91,10 @@ def df_linearity_analyze(df):
 
     # Compute error
     df['Dout_error'] = df['Dout'] - df['Dout_linear']
+
+    rms_error =  df['Dout_error'].std()
+
+    print(f'RMS Error: {rms_error}')
 
     # STRATEGY 1: Rounding to nearest integer
     # Compute an inter rounded version of dout
@@ -138,7 +139,7 @@ def df_linearity_analyze(df):
     df['Dout_mapped_error'] = df['Dout_mapped'] - df['Dout_mapped_linear']
 
     # Strategy 3: what about some normalization?
-    # df['Dout_norm'] = df['Dout'] / (radix**convs)     # FIXME: don't use convs
+    # df['Dout_norm'] = df['Dout'] / (radix**array_size)     # FIXME: don't use array_size (was conv, but still wrong)
 
     return df, dout_rounded_histo, dout_averaged, rms_dnl
 
@@ -216,7 +217,7 @@ def plot_df_linearity_compare(behavioral_df, behavioral_dout_rounded_histo, beha
     ax[1].sharey(ax[0])
     ax[1].set_xlabel('Vin')
     ax[1].set_ylabel('Dout')
-    ax[1].set_title(f'Dout vs Vin)')
+    ax[1].set_title(f'Dout vs Vin')
     ax[1].legend()
     ax[1].grid(True)
 

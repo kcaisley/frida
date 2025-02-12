@@ -1,0 +1,16 @@
+#
+# Edit Lock-Stake file. CAUTION: Please do not change.
+#
+# Information about current Edit Lock Owner.
+#
+LockStakeVersion               1.1
+LoginName                      kcaisley
+HostName                       lt177.physik.uni-bonn.de
+ProcessIdentifier              213777
+ProcessCreationTime_UTC        1739303223
+ProcessCreationTime_Readable   Tue Feb 11 20:47:03 2025 Central Europe Standard Time
+AppIdentifier                  OA File System Design Manager
+OSType                         unix
+ReasonForPlacingEditLock       OpenAccess edit lock
+FilePathUsedToEditLock         /users/kcaisley/helena/oa/sasc/SB_saradc8_radixN/schematic/sch.oa.cdslck
+TimeEditLocked                 Tue Feb 11 23:57:45 2025 Central Europe Standard Time

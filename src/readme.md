@@ -1,5 +1,15 @@
 Python code for SAR ADC functional modelling.
 
+
+codes which show non-monotonic behavior
+[1.0, 1.8, 3.24, 5.832000000000001, 10.4976, 18.895680000000002, 34.012224, 61.22200320000001]
+comp  data<0>  data<1>  data<2>  data<3>  data<4>  data<5>  data<6>  data<7>       -Vin       Dout
+     0        1        1        0        0        1        0        1        1    0.48723  79.564147
+     1        1        1        0        0        1        0        1        1    0.48990  80.564147
+     0        0        0        1        0        1        0        1        1    0.48993  80.444147
+     1        0        0        1        0        1        0        1        1    0.49257  81.444147
+
+
 # Pseudocode
 ```python
 adc = SAR_ADC()

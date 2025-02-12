@@ -44,6 +44,8 @@ params = {
         'simulation_times':        [0,   6000e-6],  # starting and ending sim times, matching with bottom voltages to make pwl
         "positive_input_voltages": [0.2, 1.2],      # starting and ending voltages of the pwl voltage waveform
         "negative_input_voltages": [1.2, 0.2],
+        "spicedir": None,   # Use this to write netlist from template
+        "rawdir": None,     # Use this to set set SPICE output dir, and to read for parsing.
     },
 }
 
@@ -59,7 +61,8 @@ behavioral_df = pd.DataFrame(columns=["time", "inp", "inn", "Dout"])
 num_rows = int(params["TESTBENCH"]["simulation_times"][1] * params["ADC"]["sampling_frequency"])
 
 # FIXME: This could be simplified, as we already find the time step below, so we can just increment it to calculate the time step
-behavioral_df["time"] = [params["TESTBENCH"]["simulation_times"][0] + i * (params["TESTBENCH"]["simulation_times"][1] - params["TESTBENCH"]["simulation_times"][0]) / (num_rows) for i in range(num_rows)]  # note the -1 missing, which we include in the expression below...
+# note the -1 missing, which we include in the expression below...
+behavioral_df["time"] = [params["TESTBENCH"]["simulation_times"][0] + i * (params["TESTBENCH"]["simulation_times"][1] - params["TESTBENCH"]["simulation_times"][0]) / (num_rows) for i in range(num_rows)]
 # Round the 'time' column to the nearest 1e-7, or whatever the sampling frequency
 behavioral_df["time"] = behavioral_df["time"].round(int(-math.log10(1/params["ADC"]["sampling_frequency"])))
 
@@ -68,6 +71,16 @@ behavioral_df["inn"] = [params["TESTBENCH"]["negative_input_voltages"][0] + i * 
 behavioral_df["Vin"] = behavioral_df["inp"] - behavioral_df["inn"]
 
 dout_series = pd.Series(index=behavioral_df.index, dtype=float)
+
+adc.sample_and_convert(
+        0.792,
+        0.6104,
+        # 0.8,
+        # 0.6,
+        do_plot=True,
+        do_calculate_energy=False,
+        do_normalize_result=False,
+)
 
 print("Running conversions for behavioral sim...")
 for i in range(len(behavioral_df)):
@@ -87,9 +100,9 @@ behavioral_df = behavioral_df.drop(columns=['time'])
 print("-----Behavioral dataframe-----")
 print(behavioral_df)
 
-
-
-spice_df = spice.parse_to_df(rawfile='results/SB_saradc8_radixN_1.8/SB_saradc8_radixN_1.8.csv', radix=1.8, convs=8, time=2000, vdd=1.2)    # FIXME: rawfile, use radix from params, etc
+# FIXME: rawfile, use radix from params, etc
+# FIXME: note I'm overwri
+spice_df = spice.parse_to_df(rawfile='spiceout/SB_saradc8_radixN_1.8/SB_saradc8_radixN_1.8.csv', radix=params["CDAC"]["radix"], array_size=params["CDAC"]["array_size"], time=2000e-6, vdd=params["CDAC"]["positive_reference_voltage"])    
 spice_df = spice_df.drop(columns=['comz_p', 'comz_n', 'data<0>', 'data<1>', 'data<2>', 'data<3>', 'data<4>', 'data<5>', 'data<6>', 'data<7>'])
 spice_df = spice_df.drop(columns=['Time'])
 
@@ -112,6 +125,7 @@ print(spice_df)
 
 # Drop rows where Dout is greater than 0.83 or less than -0.83
 behavioral_df = behavioral_df.drop(behavioral_df[(behavioral_df["Vin"] > 0.6) | (behavioral_df["Vin"] < -0.6)].index)
+behavioral_df = behavioral_df.reset_index(drop=True)
 
 behavioral_df, behavioral_dout_rounded_histo, behavioral_dout_averaged, behavioral_rms_dnl = spice.df_linearity_analyze(behavioral_df)
 
@@ -133,11 +147,6 @@ print(spice_df)
 spice.plot_df_linearity_compare(behavioral_df, behavioral_dout_rounded_histo, behavioral_dout_averaged, behavioral_rms_dnl, spice_df, spice_dout_rounded_histo, spice_dout_averaged, spice_rms_dnl)
 
 plt.show()
-
-
-
-
-
 
 # adc.sample_and_convert(input_voltage_p=1.2, input_voltage_n=0.0, do_plot=True, do_calculate_energy=True)
 # adc.calculate_nonlinearity(do_plot=True)
