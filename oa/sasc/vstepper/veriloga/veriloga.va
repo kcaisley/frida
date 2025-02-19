@@ -1,38 +1,29 @@
 `include "discipline.h"
 `include "constants.h"
 
-module vstepper(vstart, vstep, vend, clk, vout);
-    input vstart, vstep, vend, clk;
-    output vout;
-    electrical vstart, vstep, vend, clk, vout;
+// Assumes transition point of clock signals is midway between vdd and vss
 
-    // Internal variable to store the current voltage
-    real current_voltage;
-    real next_update_time;
+module vstepper(
+    input electrical clk,  // by using voltage discipline, we don't have to use V() access functions
+    output electrical out
+    );
 
-    // Initial conditions
-    initial begin
-        current_voltage = vstart;  // Start voltage is vstart
-        next_update_time = $abstime;  // Initialize the update time
-    end
+    // Parameters
+    parameter real vstart = 0.0;	 // make start higher than stop, if you want to count down
+    parameter real vstep = 10e-6; // should be positive number
+    parameter real vstop = 1.2;
+    parameter real vdd = 1.2;
+    parameter real vss = 0;
 
-    // Voltage update logic
+    real vth = (vdd + vss)/2;
+    real vout = vstart;
+
     analog begin
-        // Only update the voltage when the clock signal is active (high)
-        if (V(clk) > 0) begin
-            // If the current voltage is less than vend, increment
-            if (current_voltage < V(vend)) begin
-                current_voltage = current_voltage + V(vstep);
-                if (current_voltage > V(vend)) begin
-                    current_voltage = V(vend);  // Ensure voltage doesn't exceed vend
-                end
-            end
+        @(cross(V(clk) - vth, +1)) begin // every time clk crosses mid-supply from low to high
+            if((vstart < vstop) && (vout+1e-6 < vstop)) vout = vout + vstep;
+            if((vstart > vstop) && (vout-1e-6 > vstop)) vout = vout - vstep;
         end
-
-        // Output the current voltage
-        V(vout) <+ current_voltage;
+        V(out) <+ transition(vout, 1n);  // increment to next level, with 1 ns rise time
     end
 
-endmodule // vstepper
-
-
+endmodule

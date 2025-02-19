@@ -11,6 +11,7 @@ module comparator_latch(
     // Parameters
     parameter real td  = 100p;       // Propagation delay
     parameter real trf = 100p;       // rise and fall times
+    parameter real S =4; // dummy paramter, only used by schematic view
     real state_p;
     real state_n;
     real vth;
