@@ -6,11 +6,11 @@
 LockStakeVersion               1.1
 LoginName                      kcaisley
 HostName                       lt177.physik.uni-bonn.de
-ProcessIdentifier              9354
-ProcessCreationTime_UTC        1739964424
-ProcessCreationTime_Readable   Wed Feb 19 12:27:04 2025 Central Europe Standard Time
+ProcessIdentifier              12349
+ProcessCreationTime_UTC        1740144990
+ProcessCreationTime_Readable   Fri Feb 21 14:36:30 2025 Central Europe Standard Time
 AppIdentifier                  OA File System Design Manager
 OSType                         unix
 ReasonForPlacingEditLock       OpenAccess edit lock
-FilePathUsedToEditLock         /users/kcaisley/helena/oa/sasc/SB_saradc8_radixN/schematic/sch.oa.cdslck
-TimeEditLocked                 Wed Feb 19 18:30:35 2025 Central Europe Standard Time
+FilePathUsedToEditLock         /users/kcaisley/helena/oa/spice/Source_v_pulse/symbol/symbol.oa.cdslck
+TimeEditLocked                 Fri Feb 21 15:14:21 2025 Central Europe Standard Time

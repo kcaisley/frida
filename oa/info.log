@@ -1,0 +1,53 @@
+
+Spectre (R) Circuit Simulator
+Version 24.1.0.078 64bit -- 14 Sep 2024
+Copyright (C) 1989-2024 Cadence Design Systems, Inc. All rights reserved worldwide. Cadence and Spectre are registered trademarks of Cadence Design Systems, Inc. All others are the property of their respective holders.
+
+Includes RSA BSAFE(R) Cryptographic or Security Protocol Software from RSA Security, Inc.
+
+User: kcaisley   Host: lt177.physik.uni-bonn.de   HostID: DC83B1A7   PID: 155043
+Memory  available: 8.5045 GB  physical: 15.9210 GB
+Linux   : AlmaLinux release 9.5 (Teal Serval)
+CPU Type: Intel(R) Core(TM) Ultra 5 135H
+        Socket: Processors [Frequency] (Hyperthreaded Processor)
+        0:       0 [1913.1] (  1 ),  1 [400.0] (),  2 [400.0] (  3 )
+                 3 [1983.0] (),  4 [1468.9] (  5 ),  5 [400.0] (),  6 [3506.0] (  7 )
+                 7 [400.0] (),  8 [2713.1] (),  9 [2144.7] (), 10 [400.0] (), 11 [1268.5] ()
+                12 [400.0] (), 13 [995.5] (), 14 [997.2] (), 15 [400.0] (), 16 [400.0] ()
+                17 [400.0] ()
+        
+System load averages (1min, 5min, 15min) : 0.1 %, 0.4 %, 1.1 %
+Hyperthreading is enabled
+
+
+Simulating `info' on lt177.physik.uni-bonn.de at 4:23:37 PM, Fri Feb 21, 2025 (process id: 155043).
+Current working directory: /users/kcaisley/helena/oa
+Command line:
+     \
+        /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/bin/spectre  \
+        -64 info
+
+Licensing Information:
+[16:23:37.513969] Configured Lic search path (24.01-s002): 27500@nexus.physik.uni-bonn.de
+
+Licensing Information:
+[16:23:37.146025] Periodic Lic check successful
+
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libinfineon_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_I_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libsparam_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libstmodels_sh.so ...
+
+Error found by spectre.
+    ERROR (CMI-2011): Unable to open the input file `info'.
+         Ensure that the specified file or directory exists.
+
+
+Aggregate audit (4:23:37 PM, Fri Feb 21, 2025):
+Time used: CPU = 82 ms, elapsed = 82 ms, util. = 100%.
+Time spent in licensing: elapsed = 21.6 ms, percentage of total = 26.4%.
+Peak memory used = 168 Mbytes.
+Simulation started at: 4:23:37 PM, Fri Feb 21, 2025, ended at: 4:23:37 PM, Fri Feb 21, 2025, with elapsed time (wall clock): 82 ms.
+spectre completes with 1 error, 0 warnings, and 0 notices.
+spectre terminated prematurely due to fatal error.
