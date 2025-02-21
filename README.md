@@ -2,7 +2,9 @@
 
 Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging where hit-rates are high, spatial resolution should be maximized with simple pixels, and energy resolution is needed, but particles need not be individually discriminated in time, space, or spectrum. In an experimental setting, fast frame rates allow for real time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
 
-Our work pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame-rate surpassing 100,000 fps. For the conjunction of these two specifications to be met, we will discuss initial investigations into a compact and power efficient bank of column-parallel data converters, which at 10-12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm^2 while exceeding a 5 ksps/µm^2 sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
+This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame-rate surpassing 100,000 fps. For the conjunction of these two specifications to be met, one must have a compact and power efficient bank of column-parallel data converters, which at 10-12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm^2 while exceeding a 5 ksps/µm^2 sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
+
+Research question: How do we best allocate the quantity and weighting of SA bit positions, in order to yeild the highest resolution (in ENOB) for a given power, area, and power budget, and with a given amount of power supply noise.
 
 ## Workflow
 
@@ -25,24 +27,29 @@ Our work pursues the possibility of a single-reticle array larger than 1 Mpixel 
 | ADCs total area         | 2.0 cm²     | 10.5 cm²   | 9.6 cm²    | 0.2 cm²     |
 | ADCs total power        | 35.0 W      | 1.2 W      | 14 W       | 1.0 W       |
 
-NOTE: EDET DCD 1800 μW power erroneously includes power? 
+NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
 
-# To do
+## Tasks
+
+In direct pursuit of the above research question.
 
 - [x] Verilog-A model of comparator
 - [x] Replace active input with passive
 - [x] Replace re-analog with external block
 - [x] Verilog-A model of vstepping input voltage
-- [ ] Verilog-A model of clock generators
-- [ ] Verilog-A model of logic
-- [ ] Implement PyTables backend of simulation
+- [ ] Fix Spectre compatibility (necessary for multi machine runs)
+    - [ ] Replace waveform sources with either VA or SPECTRE supported AnalogLib parts
+    - [ ] Benchmark SPICE vs Spectre, profile CPU
+- [ ] Benchmark lt177 vs jupiter vs asiclab0## workstations (necessary to know where to run)
+- [ ] Verilog-A model of logic (to try and speed up simulation)
+- [ ] Implement PyTables backend of simulation (for sane logging of data)
+    - [ ] Append simulation meta data to results
 - [ ] Identify reason for shifted output values
 - [ ] Identify reason for non-monotonic sections
-- [ ] Fix Spectre compatibility
-    - [ ] Replace waveform sources with either VA or SPECTRE supported AnalogLib parts
-    - [ ] ? others?
-- [ ] Pass parameters to top level .params file, which can be written by python
-- [ ] Implement double conversion capacitors
-- [ ] Porting to TSMC65nm
-- [ ] Schematic support for Cadence Virtuoso
-- [ ] Implement different switching schemes
+- [ ] Understand if monotonic/BSS conversions are properly understood (can we use last conversion?)
+- [ ] Implement multiple conversions
+    - [ ] Add syntax for repeated bit positions
+    - [ ] Generate different capacitor arrays, from params
+    - [ ] Generate N-bit sequencer (perhaps Verilog-A, can we remove bus width on top level?)
+    - [ ] Figure out correct expresions for multi bit (can we just re-normalize?)
+- [ ] Pass parameters to top level .params file, which can be written by python (necessary for multi param runs)
