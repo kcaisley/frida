@@ -40,6 +40,7 @@ In direct pursuit of the above research question.
 - [ ] Fix Spectre compatibility (necessary for multi machine runs)
     - [ ] Replace waveform sources with either VA or SPECTRE supported AnalogLib parts
     - [ ] Benchmark SPICE vs Spectre, profile CPU
+- [ ] Where are the asserts defined? Not in PDK or v2common...
 - [ ] Benchmark lt177 vs jupiter vs asiclab0## workstations (necessary to know where to run)
 - [ ] Verilog-A model of logic (to try and speed up simulation)
 - [ ] Implement PyTables backend of simulation (for sane logging of data)

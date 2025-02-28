@@ -1,0 +1,114 @@
+
+Spectre (R) Circuit Simulator
+Version 24.1.0.078 64bit -- 14 Sep 2024
+Copyright (C) 1989-2024 Cadence Design Systems, Inc. All rights reserved worldwide. Cadence and Spectre are registered trademarks of Cadence Design Systems, Inc. All others are the property of their respective holders.
+
+Includes RSA BSAFE(R) Cryptographic or Security Protocol Software from RSA Security, Inc.
+
+User: kcaisley   Host: lt177.physik.uni-bonn.de   HostID: DC83B1A7   PID: 13946
+Memory  available: 11.6292 GB  physical: 15.9210 GB
+Linux   : AlmaLinux release 9.5 (Teal Serval)
+CPU Type: Intel(R) Core(TM) Ultra 5 135H
+        Socket: Processors [Frequency] (Hyperthreaded Processor)
+        0:       0 [2000.0] (  1 ),  1 [2500.0] (),  2 [400.0] (  3 )
+                 3 [400.0] (),  4 [400.0] (  5 ),  5 [400.0] (),  6 [400.0] (  7 )
+                 7 [400.0] (),  8 [1607.7] (),  9 [400.0] (), 10 [400.0] (), 11 [400.0] ()
+                12 [400.0] (), 13 [1001.0] (), 14 [1000.6] (), 15 [400.0] (), 16 [1100.0] ()
+                17 [1100.0] ()
+        
+System load averages (1min, 5min, 15min) : 0.0 %, 0.9 %, 1.4 %
+Hyperthreading is enabled
+
+
+Simulating `SB_saradc8_radixN.scs' on lt177.physik.uni-bonn.de at 2:53:35 AM, Fri Feb 28, 2025 (process id: 13946).
+Current working directory: /users/kcaisley/sim_test
+Command line:
+     \
+        /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/bin/spectre  \
+        -64 SB_saradc8_radixN.scs
+
+Licensing Information:
+[02:53:35.513937] Configured Lic search path (24.01-s002): 27500@nexus.physik.uni-bonn.de
+
+Licensing Information:
+[02:53:35.458137] Periodic Lic check successful
+
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libinfineon_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_I_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libphilips_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libsparam_sh.so ...
+Loading /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/cmi/lib/64bit/5.0/libstmodels_sh.so ...
+Reading file:  /users/kcaisley/sim_test/SB_saradc8_radixN.scs
+Reading file:  /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/spectre/etc/configs/spectre.cfg
+Reading file:  /users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib
+Reading file:  /eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l
+Reading file:  /eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2.l
+Reading file:  /users/kcaisley/helena/tech/tsmc65/v2.0.lib
+Reading file:  /users/kcaisley/helena/tech/tsmc65/v2.0_common.sp
+Reading file:  /users/kcaisley/sim_test/SB_saradc8_radixN.HDL/vstepper.va
+Reading link:  /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/spectre/etc/ahdl/discipline.h
+Reading file:  /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/spectre/etc/ahdl/disciplines.vams
+Reading link:  /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/spectre/etc/ahdl/constants.h
+Reading file:  /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/tools.lnx86/spectre/etc/ahdl/constants.vams
+Reading file:  /users/kcaisley/sim_test/SB_saradc8_radixN.HDL/comparator_latch.va
+Time for NDB Parsing: CPU = 1.15295 s, elapsed = 1.99271 s.
+Time accumulated: CPU = 1.23155 s, elapsed = 1.99271 s.
+Peak resident memory used = 231 Mbytes.
+
+
+Error found by spectre in `PAGEFRAME', during circuit read-in.
+    ERROR (SFE-23): "SB_saradc8_radixN.scs" 34: The instance `VERSION_1' is referencing an undefined model or subcircuit, `VERSION'. Either include the file containing the definition of `VERSION', or define `VERSION' before running the simulation.
+
+Created directory ./SB_saradc8_radixN.ahdlSimDB/ (775)
+Created directory ./SB_saradc8_radixN.ahdlSimDB//150fd8ac0dc632b26cada7f04c333f13.comparator_latch.ahdlcmi/ (775)
+Created directory ./SB_saradc8_radixN.ahdlSimDB//150fd8ac0dc632b26cada7f04c333f13.comparator_latch.ahdlcmi/Linux-64/ (775)
+
+Warning from spectre during AHDL read-in.
+    WARNING (VACOMP-1116): "SB_saradc8_radixN.HDL/comparator_latch.va", line 41: Transition filter contains a continuous signal in the expression. Since a transition filter can only be applied to piecewise constant signals, redefine the expression to ensure that the transition filter applies only to a piecewise constant signal.
+    WARNING (VACOMP-1116): "SB_saradc8_radixN.HDL/comparator_latch.va", line 42: Transition filter contains a continuous signal in the expression. Since a transition filter can only be applied to piecewise constant signals, redefine the expression to ensure that the transition filter applies only to a piecewise constant signal.
+
+Compiling ahdlcmi module library for comparator_latch.
+Finished compilation in 1.69 s (elapsed) for comparator_latch.
+Installed compiled interface for comparator_latch.
+Opening directory ./SB_saradc8_radixN.ahdlSimDB/ (775)
+Created directory ./SB_saradc8_radixN.ahdlSimDB//d04881ceb7ebea07f729d53aa4b60a44.vstepper.ahdlcmi/ (775)
+Created directory ./SB_saradc8_radixN.ahdlSimDB//d04881ceb7ebea07f729d53aa4b60a44.vstepper.ahdlcmi/Linux-64/ (775)
+
+Warning from spectre during AHDL read-in.
+    WARNING (VACOMP-1115): "SB_saradc8_radixN.HDL/vstepper.va", line 26: The compiler found no rise and fall times for the transition and no `default_transition directive. Assuming ideal transition.
+
+Compiling ahdlcmi module library for vstepper.
+Finished compilation in 994 ms (elapsed) for vstepper.
+Installed compiled interface for vstepper.
+
+Warning from spectre during hierarchy flattening.
+    WARNING (SFE-1131): Scope option `scalefactor' specified with scope `TopCircuit' at line `248' has also been specified at line `1812' in file `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l'. As a result, the last specified value will be used for simulation.
+    WARNING (SFE-1131): Scope option `scalefactor' specified with scope `TopCircuit' at line `1812' has also been specified at line `2097' in file `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l'. As a result, the last specified value will be used for simulation.
+    WARNING (SFE-105): "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 97: `threads' has been ignored because it is not an option. Correct the name and rerun the simulation. Type `spectre -h options' to get more information on valid option parameters.
+    WARNING (SFE-105): "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 98: `monteinfo' has been ignored because it is not an option. Correct the name and rerun the simulation. Type `spectre -h options' to get more information on valid option parameters.
+Warning from spectre in `cdac1__nb8_radix':`cdac1__nb8_radix_1', during hierarchy flattening.
+    WARNING (SFE-30): "SB_saradc8_radixN.scs" 579: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type `spectre -h capacitor' to get more information on valid instance parameters.
+    WARNING (SFE-30): "SB_saradc8_radixN.scs" 580: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type `spectre -h capacitor' to get more information on valid instance parameters.
+    WARNING (SFE-30): "SB_saradc8_radixN.scs" 581: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type `spectre -h capacitor' to get more information on valid instance parameters.
+    WARNING (SFE-30): "SB_saradc8_radixN.scs" 582: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type `spectre -h capacitor' to get more information on valid instance parameters.
+    WARNING (SFE-30): "SB_saradc8_radixN.scs" 583: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type `spectre -h capacitor' to get more information on valid instance parameters.
+        Further occurrences of this warning will be suppressed.
+
+Time for Elaboration: CPU = 115.788 ms, elapsed = 2.80748 s.
+Time accumulated: CPU = 1.34743 s, elapsed = 4.80029 s.
+Peak resident memory used = 251 Mbytes.
+
+Licensing Information:
+Lic Summary:
+[02:53:39.430978] Cdslmd servers:27500@nexus.physik.uni-bonn.de
+[02:53:39.955283] Feature usage summary:
+[02:53:39.955288] Virtuoso_Multi_mode_Simulation
+
+
+Aggregate audit (2:53:39 AM, Fri Feb 28, 2025):
+Time used: CPU = 1.35 s, elapsed = 4.8 s, util. = 28.1%.
+Time spent in licensing: elapsed = 1.12 s, percentage of total = 23.4%.
+Peak memory used = 251 Mbytes.
+Simulation started at: 2:53:35 AM, Fri Feb 28, 2025, ended at: 2:53:39 AM, Fri Feb 28, 2025, with elapsed time (wall clock): 4.8 s.
+spectre completes with 1 error, 27 warnings, and 0 notices.
+spectre terminated prematurely due to fatal error.

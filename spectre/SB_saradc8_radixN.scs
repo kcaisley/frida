@@ -1,0 +1,657 @@
+// Spectre export by:    S-Edit 2023.2.0
+// Export time:          Fri Feb 28 02:29:56 2025
+// Design path:          /users/kcaisley/helena/oa/lib.defs
+// Library:              sasc
+// Cell:                 SB_saradc8_radixN
+// Testbench:            Spectre_Export
+// View:                 schematic
+// Export as:            top-level cell
+// Export mode:          hierarchical
+// Exclude empty:        yes
+// Exclude ahdl_include: no
+// Expand paths:         yes
+// Wrap lines:           no
+// Exclude simulator commands:  no
+// Exclude global pins:         no
+// Exclude instance locations:  yes
+// Control property name(s):    spectre
+
+simulator lang=spectre
+
+///////// Simulation Settings - General Section /////////
+inst_info info what=inst where=rawfile
+models_info info what=models where=rawfile
+subckts_info info what=subckts where=rawfile
+primitives_info info what=primitives where=rawfile
+include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt
+/////////////// Subcircuits ///////////////
+subckt PAGEFRAME (gnd) 
+// Library name: devices
+// Cell name: PAGEFRAME
+// View name: schematic
+// PORT=gnd TYPE=InOut
+
+VERSION_1 () VERSION stdver_hi=1 stdver_lo=0
+ends
+
+subckt nor2 (A B out sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: nor2
+// View name: schematic
+// PORT=A TYPE=In
+// PORT=vee TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=out TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=B TYPE=In
+
+Mn1 (sub out vcc N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mn2 (sub N_1 A vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mn3 (sub N_1 B vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mp1 (vcc N_2 A vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2*S
+Mp2 (vcc out B N_2) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2*S
+PAGEFRAME_1 (Unknown_Pin_gnd_5) PAGEFRAME
+ends
+
+subckt srff (Q Q_n R S sub vcc vee) 
+// Library name: logic
+// Cell name: srff
+// View name: schematic
+// PORT=Q_n TYPE=Out
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=Q TYPE=Out
+// PORT=R TYPE=In
+// PORT=S TYPE=In
+// PORT=sub TYPE=Other
+
+nor2_3 (Q S Q_n sub vcc vee) nor2 S=1
+nor2_4 (Q_n R Q sub vcc vee) nor2 S=1
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+ends
+
+subckt latch9_BETA (clock D nclock nQ Q sub vcc vee) 
+// Library name: logic
+// Cell name: latch9_BETA
+// View name: schematic
+// PORT=nQ TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=Q TYPE=Out
+// PORT=nclock TYPE=In
+// PORT=D TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=clock TYPE=In
+
+Mn4 (sub N_1 clock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn8 (sub nQ Q N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn9 (sub N_4 nQ vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn10 (sub N_3 nclock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn11 (sub nQ D N_3) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn12 (sub Q vcc N_4) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mp7 (vcc N_2 clock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp9 (vcc N_5 nclock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+Mp10 (vcc nQ D N_2) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp11 (vcc Q nQ vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp12 (vcc nQ Q N_5) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+PAGEFRAME_1 (Unknown_Pin_gnd_11) PAGEFRAME
+ends
+
+subckt dff9 (clock D nclock nQ Q sub vcc vee) 
+// Library name: logic
+// Cell name: dff9
+// View name: schematic
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=clock TYPE=In
+// PORT=vee TYPE=Other
+// PORT=nclock TYPE=In
+// PORT=Q TYPE=Out
+// PORT=nQ TYPE=Out
+// PORT=D TYPE=In
+
+latch9_1 (clock D nclock N_1 N_2 sub vcc vee) latch9_BETA
+latch9_2 (nclock N_1 clock Q nQ sub vcc vee) latch9_BETA
+PAGEFRAME_1 (Unknown_Pin_gnd_3) PAGEFRAME
+ends
+
+subckt sequencer1_unitcell (cdacclock clockn clockp D init nset Q sub vcc vee) 
+// Library name: sasc
+// Cell name: sequencer1_unitcell
+// View name: schematic
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=nset TYPE=Out
+// PORT=init TYPE=In
+// PORT=clockp TYPE=In
+// PORT=clockn TYPE=In
+// PORT=D TYPE=In
+// PORT=cdacclock TYPE=Out
+// PORT=Q TYPE=Out
+
+dff9_13 (clockp D clockn cdacclock Q sub vcc vee) dff9
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+srff_11 (nset N_1 init Q sub vcc vee) srff
+ends
+
+subckt dff9_asr (asr clock D nclock nQ Q sub vcc vee) 
+// Library name: logic
+// Cell name: dff9_asr
+// View name: schematic
+// PORT=vcc TYPE=Other
+// PORT=D TYPE=In
+// PORT=Q TYPE=Out
+// PORT=clock TYPE=In
+// PORT=asr TYPE=In
+// PORT=nclock TYPE=In
+// PORT=sub TYPE=Other
+// PORT=nQ TYPE=Out
+// PORT=vee TYPE=Other
+
+Mn1 (sub nQ asr N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn2 (sub Qi vcc N_2) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn3 (sub N_3 nclock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn4 (sub N_5 clock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn5 (sub Q nQ N_3) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn6 (sub N_1 Q vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn7 (sub N_9 clock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn8 (sub N_11 Qi N_5) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn9 (sub N_2 nQi vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn10 (sub N_8 nclock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn11 (sub N_12 D N_8) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn12 (sub Q nQi N_9) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn13 (sub nQi asr N_11) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*2
+Mn14 (sub nQi asr N_12) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mp1 (vcc nQi asr vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp2 (vcc nQ asr vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp3 (vcc N_4 nclock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp4 (vcc N_6 clock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+Mp5 (vcc Q nQi N_4) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp6 (vcc nQ Q vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp7 (vcc N_7 clock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp8 (vcc Q nQ N_6) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+Mp9 (vcc N_10 nclock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+Mp10 (vcc nQi D N_7) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2
+Mp11 (vcc Qi nQi vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp12 (vcc nQi Qi N_10) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*4
+PAGEFRAME_1 (Unknown_Pin_gnd_26) PAGEFRAME
+ends
+
+subckt latch5_BETA (clock D nclock nD nQ Q sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: latch5_BETA
+// View name: schematic
+// PORT=nD TYPE=In
+// PORT=sub TYPE=Other
+// PORT=clock TYPE=In
+// PORT=nclock TYPE=In
+// PORT=Q TYPE=Out
+// PORT=vee TYPE=Other
+// PORT=D TYPE=In
+// PORT=nQ TYPE=Out
+// PORT=vcc TYPE=Other
+
+Mn1 (sub N_1 nclock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S*2
+Mn2 (sub Q nQ N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S*2
+Mn3 (sub nQ Q N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S*2
+Mn5 (sub N_4 clock vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mn6 (sub nQ D N_4) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mn7 (sub Q nD N_4) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mp1 (vcc N_2 nclock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*2
+Mp2 (vcc Q nD N_2) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*2
+Mp3 (vcc N_3 clock vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*4
+Mp4 (vcc nQ D N_2) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*2
+Mp5 (vcc nQ Q N_3) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*4
+Mp6 (vcc Q nQ N_3) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*4
+PAGEFRAME_1 (Unknown_Pin_gnd_12) PAGEFRAME
+ends
+
+subckt dff5_BETA (clock D nclock nD nQ Q sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: dff5_BETA
+// View name: schematic
+// PORT=D TYPE=In
+// PORT=Q TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=nD TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=nQ TYPE=Out
+// PORT=vee TYPE=Other
+// PORT=clock TYPE=In
+// PORT=nclock TYPE=In
+
+latch9_1 (nclock D clock nD N_2 N_1 sub vcc vee) latch5_BETA S=S
+latch9_2 (clock N_1 nclock N_2 nQ Q sub vcc vee) latch5_BETA S=S
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+ends
+
+subckt cleansync9 (clean clock dirtysync nclean nclock ndirtysync sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: cleansync9
+// View name: schematic
+// PORT=clean TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=clock TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=nclean TYPE=Out
+// PORT=vee TYPE=Other
+// PORT=nclock TYPE=In
+// PORT=dirtysync TYPE=In
+// PORT=ndirtysync TYPE=In
+
+dff9_asr_1 (nclean dirtysync vcc ndirtysync N_2 N_1 sub vcc vee) dff9_asr
+dff9_diff_1 (nclock N_1 clock N_2 nclean clean sub vcc vee) dff5_BETA S=S
+PAGEFRAME_1 (Unknown_Pin_gnd_1) PAGEFRAME
+ends
+
+subckt inv (in out sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: inv
+// View name: schematic
+// PORT=in TYPE=In
+// PORT=vee TYPE=Other
+// PORT=out TYPE=InOut
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+
+Mn1 (sub out vcc N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mn2 (sub N_1 in vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mp1 (vcc out in vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S
+PAGEFRAME_1 (Unknown_Pin_gnd_3) PAGEFRAME
+ends
+
+subckt sequencer1__b8 (cdacclock\<0\> cdacclock\<1\> cdacclock\<2\> cdacclock\<3\> cdacclock\<4\> cdacclock\<5\> cdacclock\<6\> cdacclock\<7\> clockn clockp nlatch noffset nset\<0\> nset\<1\> nset\<2\> nset\<3\> nset\<4\> nset\<5\> nset\<6\> nset\<7\> sub swref swsig syncn syncp vcc vee) 
+// Library name: sasc
+// Cell name: sequencer1__b8
+// View name: schematic
+// PORT=swref TYPE=Out
+// PORT=swsig TYPE=Out
+// PORT=nset<6> TYPE=Out
+// PORT=cdacclock<6> TYPE=Out
+// PORT=nset<5> TYPE=Out
+// PORT=cdacclock<5> TYPE=Out
+// PORT=nset<4> TYPE=Out
+// PORT=cdacclock<4> TYPE=Out
+// PORT=nset<3> TYPE=Out
+// PORT=syncn TYPE=In
+// PORT=syncp TYPE=In
+// PORT=cdacclock<3> TYPE=Out
+// PORT=nset<2> TYPE=Out
+// PORT=cdacclock<2> TYPE=Out
+// PORT=cdacclock<7> TYPE=Out
+// PORT=nset<1> TYPE=Out
+// PORT=cdacclock<1> TYPE=Out
+// PORT=nset<0> TYPE=Out
+// PORT=cdacclock<0> TYPE=Out
+// PORT=nlatch TYPE=Out
+// PORT=nset<7> TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=clockp TYPE=In
+// PORT=clockn TYPE=In
+// PORT=noffset TYPE=Out
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+
+cleansync9_1 (cleanp clockn syncp cleann clockp syncn sub vcc vee) cleansync9 S=1
+dff9_1 (clockp cleanp clockn N_1 s\<0\> sub vcc vee) dff9
+dff9_2 (clockp s\<0\> clockn N_2 s\<1\> sub vcc vee) dff9
+dff9_3 (clockp s\<1\> clockn N_3 s\<2\> sub vcc vee) dff9
+inv_1 (cleann nlatch sub vcc vee) inv S=1
+inv_3 (N_1 init sub vcc vee) inv S=1
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+sasc_sequencer1_unitcell_1 (cdacclock\<5\> clockn clockp s\<4\> init nset\<5\> s\<5\> sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_2 (cdacclock\<4\> clockn clockp s\<5\> init nset\<4\> N_5 sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_3 (cdacclock\<3\> clockn clockp N_5 init nset\<3\> N_6 sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_4 (cdacclock\<2\> clockn clockp N_6 init nset\<2\> N_7 sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_5 (cdacclock\<1\> clockn clockp N_7 init nset\<1\> N_8 sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_6 (cdacclock\<0\> clockn clockp N_8 init nset\<0\> N_9 sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_7 (cdacclock\<6\> clockn clockp s\<3\> init nset\<6\> s\<4\> sub vcc vee) sequencer1_unitcell
+sasc_sequencer1_unitcell_8 (cdacclock\<7\> clockn clockp s\<2\> init nset\<7\> s\<3\> sub vcc vee) sequencer1_unitcell
+srff_1 (swref N_4 s\<1\> init sub vcc vee) srff
+srff_2 (swsig noffset s\<2\> init sub vcc vee) srff
+ends
+
+ahdl_include "SB_saradc8_radixN.HDL/vstepper.va"
+
+subckt inv_MHthreshold (in out sub vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: inv_MHthreshold
+// View name: schematic
+// PORT=in TYPE=In
+// PORT=vee TYPE=Other
+// PORT=out TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+
+Mn1 (sub out vcc N_1) log_nmos L_=log_nmos_Lmin*2 M_=1 W_=log_nmos_WS1*S
+Mn2 (sub N_1 in vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mp1 (vcc out in vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*2*S
+PAGEFRAME_1 (Unknown_Pin_gnd_3) PAGEFRAME
+ends
+
+ahdl_include "SB_saradc8_radixN.HDL/comparator_latch.va"
+
+subckt comparator1 (clockn inn inp outn outp sub vcc vee zero) 
+parameters S=4
+// Library name: sasc
+// Cell name: comparator1
+// View name: schematic
+// PORT=inn TYPE=In
+// PORT=clockn TYPE=In
+// PORT=zero TYPE=In
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=outp TYPE=Out
+// PORT=outn TYPE=Out
+// PORT=vee TYPE=Other
+// PORT=inp TYPE=In
+
+comparator_latch_1 (compout_p compout_n inp inn clockn vcc) comparator_latch S=S td=100p trf=100p
+inv_MHthreshold_1 (compout_p outn sub vcc vee) inv_MHthreshold S=S
+inv_MHthreshold_2 (compout_n outp sub vcc vee) inv_MHthreshold S=S
+PAGEFRAME_1 (Unknown_Pin_gnd_3) PAGEFRAME
+ends
+
+subckt switch_np_fast_core (mid nmos pmos sub swN swP vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: switch_np_fast_core
+// View name: schematic
+// PORT=mid TYPE=InOut
+// PORT=vcc TYPE=Other
+// PORT=sub TYPE=Other
+// PORT=nmos TYPE=InOut
+// PORT=swN TYPE=In
+// PORT=swP TYPE=In
+// PORT=vee TYPE=Other
+// PORT=pmos TYPE=InOut
+
+Mn3 (sub nmos swN mid) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1*S
+Mp2 (vcc pmos swP mid) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1*S*2
+PAGEFRAME_1 (Unknown_Pin_gnd_3) PAGEFRAME
+ends
+
+subckt switch_np_fast (A B sub swN swP vcc vee) 
+parameters S=1
+// Library name: logic
+// Cell name: switch_np_fast
+// View name: schematic
+// PORT=swP TYPE=In
+// PORT=swN TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=sub TYPE=Other
+// PORT=A TYPE=InOut
+// PORT=B TYPE=InOut
+
+PAGEFRAME_1 (Unknown_Pin_gnd_0) PAGEFRAME
+switch_np_fast_core_1 (B A A sub swN swP vcc vee) switch_np_fast_core S=S
+ends
+
+subckt switch_fast (A B select sub vcc vee) 
+parameters Ssw=1
+// Library name: logic
+// Cell name: switch_fast
+// View name: schematic
+// PORT=sub TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=A TYPE=InOut
+// PORT=B TYPE=InOut
+// PORT=select TYPE=In
+
+inv_1 (select N_1 sub vcc vee) inv S=1
+PAGEFRAME_1 (Unknown_Pin_gnd_1) PAGEFRAME
+switch_np_1 (A B sub select N_1 vcc vee) switch_np_fast S=Ssw
+ends
+
+subckt sample_passive (cnode_n cnode_p ntuner reference signal sub swref swsig vcc vee) 
+parameters S=4
+// Library name: sasc
+// Cell name: sample_passive
+// View name: schematic
+// PORT=vcc TYPE=Other
+// PORT=sub TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=reference TYPE=In
+// PORT=signal TYPE=In
+// PORT=ntuner TYPE=In
+// PORT=cnode_p TYPE=Out
+// PORT=cnode_n TYPE=Out
+// PORT=swsig TYPE=In
+// PORT=swref TYPE=In
+
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+switch_fast_3 (signal cnode_p swsig sub vcc vee) switch_fast Ssw=S/4
+switch_fast_4 (reference cnode_n swref sub vcc vee) switch_fast Ssw=S/4
+ends
+
+subckt and2nor2 (A B C out sub vcc vee) 
+// Library name: logic
+// Cell name: and2nor2
+// View name: schematic
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=C TYPE=In
+// PORT=out TYPE=Out
+// PORT=A TYPE=In
+// PORT=B TYPE=In
+// PORT=sub TYPE=Other
+
+Mn1 (sub out C N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn2 (sub N_1 B vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn3 (sub N_2 A vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn4 (sub out vcc N_2) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mp1 (vcc N_3 C vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp3 (vcc N_3 B vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp6 (vcc out A N_3) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+PAGEFRAME_1 (Unknown_Pin_gnd_7) PAGEFRAME
+ends
+
+subckt latch_th (clock D Q Q_n sub vcc vee) 
+// Library name: logic
+// Cell name: latch_th
+// View name: schematic
+// PORT=Q TYPE=Out
+// PORT=sub TYPE=Other
+// PORT=clock TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=Q_n TYPE=Out
+// PORT=D TYPE=In
+// PORT=vee TYPE=Other
+
+and2nor2_1 (Q clock D Q_n sub vcc vee) and2nor2
+and2nor2_2 (Q_n clock N_1 Q sub vcc vee) and2nor2
+inv_1 (D N_1 sub vcc vee) inv S=1
+PAGEFRAME_1 (Unknown_Pin_gnd_1) PAGEFRAME
+ends
+
+subckt or2nand3 (A B C D out sub vcc vee) 
+// Library name: logic
+// Cell name: or2nand3
+// View name: schematic
+// PORT=B TYPE=In
+// PORT=sub TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=A TYPE=In
+// PORT=D TYPE=In
+// PORT=C TYPE=In
+// PORT=out TYPE=Out
+
+Mn1 (sub N_3 D N_1) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn2 (sub N_1 B vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn3 (sub N_1 C vee) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mn5 (sub out A N_3) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+Mp1 (vcc out A vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp2 (vcc out B N_2) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp3 (vcc N_2 C vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+Mp5 (vcc out D vcc) log_pmos L_=log_pmos_Lmin M_=1 W_=log_pmos_WS1
+PAGEFRAME_1 (Unknown_Pin_gnd_8) PAGEFRAME
+ends
+
+subckt latch_nset (clock D nD nQ nset Q sub vcc vee) 
+// Library name: logic
+// Cell name: latch_nset
+// View name: schematic
+// PORT=nset TYPE=In
+// PORT=sub TYPE=Other
+// PORT=vee TYPE=Other
+// PORT=vcc TYPE=Other
+// PORT=nQ TYPE=Out
+// PORT=Q TYPE=Out
+// PORT=clock TYPE=In
+// PORT=D TYPE=In
+// PORT=nD TYPE=In
+
+or2nand3_1 (Q clock D nset nQ sub vcc vee) or2nand3
+or2nand3_2 (nQ clock nD nset Q sub vcc vee) or2nand3
+PAGEFRAME_1 (Unknown_Pin_gnd_1) PAGEFRAME
+ends
+
+subckt cdac1_unitcell (capn capp clock comp_n comp_p latched nlatch nset sub vcc vee) 
+// Library name: sasc
+// Cell name: cdac1_unitcell
+// View name: schematic
+// PORT=capp TYPE=Out
+// PORT=nset TYPE=In
+// PORT=nlatch TYPE=In
+// PORT=vee TYPE=Other
+// PORT=sub TYPE=Other
+// PORT=capn TYPE=Out
+// PORT=vcc TYPE=Other
+// PORT=clock TYPE=In
+// PORT=comp_p TYPE=In
+// PORT=comp_n TYPE=In
+// PORT=latched TYPE=Out
+
+latch_nset_enable (clock comp_n comp_p capn nset capp sub vcc vee) latch_nset
+latch_th (nlatch capp latched N_1 sub vcc vee) latch_th
+PAGEFRAME_1 (Unknown_Pin_gnd_0) PAGEFRAME
+ends
+
+subckt cdac1__nb8_radix (clock\<0\> clock\<1\> clock\<2\> clock\<3\> clock\<4\> clock\<5\> clock\<6\> clock\<7\> cnode_n cnode_p comp_n comp_p latched\<0\> latched\<1\> latched\<2\> latched\<3\> latched\<4\> latched\<5\> latched\<6\> latched\<7\> nlatch noffset nset\<0\> nset\<1\> nset\<2\> nset\<3\> nset\<4\> nset\<5\> nset\<6\> nset\<7\> sub vcc vee) 
+parameters cap=100f radix=2
+// Library name: sasc
+// Cell name: cdac1__nb8_radix
+// View name: schematic
+// PORT=latched<0> TYPE=Out
+// PORT=nset<0> TYPE=In
+// PORT=clock<0> TYPE=In
+// PORT=noffset TYPE=In
+// PORT=latched<7> TYPE=Out
+// PORT=latched<6> TYPE=Out
+// PORT=latched<5> TYPE=Out
+// PORT=latched<4> TYPE=Out
+// PORT=latched<3> TYPE=Out
+// PORT=latched<2> TYPE=Out
+// PORT=latched<1> TYPE=Out
+// PORT=nset<7> TYPE=In
+// PORT=nset<6> TYPE=In
+// PORT=nset<5> TYPE=In
+// PORT=nset<4> TYPE=In
+// PORT=nset<3> TYPE=In
+// PORT=nset<2> TYPE=In
+// PORT=nset<1> TYPE=In
+// PORT=clock<7> TYPE=In
+// PORT=clock<6> TYPE=In
+// PORT=clock<5> TYPE=In
+// PORT=clock<4> TYPE=In
+// PORT=clock<3> TYPE=In
+// PORT=clock<1> TYPE=In
+// PORT=cnode_n TYPE=InOut
+// PORT=vee TYPE=Other
+// PORT=cnode_p TYPE=InOut
+// PORT=sub TYPE=Other
+// PORT=nlatch TYPE=In
+// PORT=vcc TYPE=Other
+// PORT=comp_p TYPE=In
+// PORT=comp_n TYPE=In
+// PORT=clock<2> TYPE=In
+
+Capacitor_3 (N_2 vee) capacitor C=cap/4
+Capacitor_4 (offset N_1) capacitor C=cap/4
+Capacitor_19 (cnode_p vee) capacitor C=cap/2
+Capacitor_20 (vee cnode_n) capacitor C=cap/2
+Capacitor_21 (cnode_p N_4) capacitor C=cap/2/radix**5
+Capacitor_22 (N_3 cnode_n) capacitor C=cap/2/radix**5
+Capacitor_23 (cnode_p N_13) capacitor C=cap/2
+Capacitor_24 (N_6 cnode_n) capacitor C=cap/2
+Capacitor_25 (cnode_p N_12) capacitor C=cap/2/radix
+Capacitor_26 (N_5 cnode_n) capacitor C=cap/2/radix
+Capacitor_27 (cnode_p N_14) capacitor C=cap/2/radix**2
+Capacitor_28 (N_7 cnode_n) capacitor C=cap/2/radix**2
+Capacitor_29 (cnode_p N_15) capacitor C=cap/2/radix**3
+Capacitor_30 (N_8 cnode_n) capacitor C=cap/2/radix**3
+Capacitor_31 (cnode_p N_16) capacitor C=cap/2/radix**4
+Capacitor_32 (N_9 cnode_n) capacitor C=cap/2/radix**4
+Capacitor_33 (cnode_p N_17) capacitor C=cap/2/radix**6
+Capacitor_34 (N_10 cnode_n) capacitor C=cap/2/radix**6
+Capacitor_35 (cnode_p N_18) capacitor C=cap/2/radix**7
+Capacitor_36 (N_11 cnode_n) capacitor C=cap/2/radix**7
+inv_2 (noffset offset sub vcc vee) inv S=1
+PAGEFRAME_1 (Unknown_Pin_gnd_2) PAGEFRAME
+sasc_cdacunitcell_1_9 (N_3 N_4 clock\<2\> comp_n comp_p latched\<2\> nlatch nset\<2\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_10 (N_5 N_12 clock\<6\> comp_n comp_p latched\<6\> nlatch nset\<6\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_11 (N_6 N_13 clock\<7\> comp_n comp_p latched\<7\> nlatch nset\<7\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_12 (N_7 N_14 clock\<5\> comp_n comp_p latched\<5\> nlatch nset\<5\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_13 (N_8 N_15 clock\<4\> comp_n comp_p latched\<4\> nlatch nset\<4\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_14 (N_9 N_16 clock\<3\> comp_n comp_p latched\<3\> nlatch nset\<3\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_15 (N_10 N_17 clock\<1\> comp_n comp_p latched\<1\> nlatch nset\<1\> sub vcc vee) cdac1_unitcell
+sasc_cdacunitcell_1_16 (N_11 N_18 clock\<0\> comp_n comp_p latched\<0\> nlatch nset\<0\> sub vcc vee) cdac1_unitcell
+ends
+
+
+///////// Simulation Settings - Parameters /////////
+parameters cap = 100f
+parameters radix = 2.0
+parameters convtime = 0.1u
+parameters simtime = 2u
+///////// Simulation Settings - Options /////////
+simulatorOptions options redefinedparams=ignore
+///// Top Level /////
+cdac1__nb8_radix_1 (clo\<0\> clo\<1\> clo\<2\> clo\<3\> clo\<4\> clo\<5\> clo\<6\> clo\<7\> cdac_n cdac_p comz_n comz_p data\<0\> data\<1\> data\<2\> data\<3\> data\<4\> data\<5\> data\<6\> data\<7\> nlatch noffset nset\<0\> nset\<1\> nset\<2\> nset\<3\> nset\<4\> nset\<5\> nset\<6\> nset\<7\> sub vcca vee) cdac1__nb8_radix cap=cap radix=radix
+R1 (sub gnd!) resistor r=1m
+R2 (vee gnd!) resistor r=1m
+sasc_comparator_1 (clockn cdac_n cdac_p comz_n comz_p sub vccc vee gnd!) comparator1 S=4
+sasc_sample1_1 (cdac_n cdac_p gnd! inn inp sub swref swsig vcci vee) sample_passive S=4
+sasc_sequencer1_8steps_1 (clo\<0\> clo\<1\> clo\<2\> clo\<3\> clo\<4\> clo\<5\> clo\<6\> clo\<7\> clockn clockp nlatch noffset nset\<0\> nset\<1\> nset\<2\> nset\<3\> nset\<4\> nset\<5\> nset\<6\> nset\<7\> sub swref swsig syncn syncp vcc vee) sequencer1__b8
+V1 (vccc gnd!) vsource dc=log_VCC type=dc
+V2 (vcci gnd!) vsource dc=log_VCC  type=dc
+V3 (vcca gnd!) vsource dc=log_VCC  type=dc
+V4 (vcc gnd!) vsource dc=log_VCC type=dc
+V5 (syncn gnd!) vsource type=pulse val0=log_VCC val1=0 period=convtime  delay=-convtime/48  rise=100p fall=100p width="(convtime/24)-100p"
+V6 (syncp gnd!) vsource type=pulse val0=0 val1=log_VCC period=convtime  delay=-convtime/48  rise=100p fall=100p width="(convtime/24)-100p"
+V7 (clockn gnd!) vsource type=pulse val0=log_VCC val1=0 period=convtime/12 delay=0 rise=100p fall=100p width="(convtime/24)-100p"
+V8 (clockp gnd!) vsource type=pulse val0=0 val1=log_VCC period=convtime/12 delay=0 rise=100p fall=100p width="(convtime/24)-100p"
+vstepper_n (syncp inn) vstepper vdd=1.2 vss=0 vstart=1.20002 vstep=10u vstop=1
+vstepper_p (syncp inp) vstepper vdd=1.2 vss=0 vstart=999.98m vstep=10u vstop=1.2
+
+///////// Simulation Settings - Signals to Save /////////
+save inp  
+save inn  
+save cnode3p  
+save cnode3n  
+save comz_p  
+save comz_n  
+save syncp  
+save clockp  
+save data\<0\>  
+save data\<1\>  
+save data\<2\>  
+save data\<3\>  
+save data\<4\>  
+save data\<5\>  
+save data\<6\>  
+save data\<7\>  
+
+///////// Simulation Settings - Analysis Section /////////
+tran1 tran stop=2us maxstep=0.1n
+
