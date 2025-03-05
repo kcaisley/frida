@@ -1,11 +1,10 @@
 .venv
-.venv39
 .vscode
 .ropeproject
 __pycache__
-
 /target
-/spiceout/*
-/tests
+/spectre/saradc/*
+/spectre/
+/tspice/*
 /src/*.pkl
 /src/*.pdf

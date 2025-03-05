@@ -72,10 +72,7 @@ V8 (clockp gnd!) vsource type=pulse val0=0 val1=log_VCC period=convtime/12 delay
 ```
 
 
-
-# Manual fixes:
-
-1. The capacitor model is called `capacitor` and must be lower cased, else you get this error:
+9. The capacitor model is called `capacitor` and must be lower cased, else you get this error:
 
 ```
 ERROR (SFE-23): "SB_saradc8_radixN.scs" 580: The instance `Capacitor_3' is referencing an undefined model or subcircuit, `Capacitor'. Either
@@ -83,7 +80,9 @@ ERROR (SFE-23): "SB_saradc8_radixN.scs" 580: The instance `Capacitor_3' is refer
 ```
 
 
-2. The `save` statements at the end of the file use `<>` which must be escaped:
+10. The `save` statements at the end of the file use `<>` which must be escaped:
+
+**MANUAL FIX: adding in parsing script to update**
 
 ```
 save data\<0\>  
@@ -96,32 +95,48 @@ save data\<6\>
 save data<\7\> 
 ```
 
-3. the analog lib need the path, and need quotes.
+11. the analog_include needs the path, and need quotes
 
-4.     WARNING (SFE-30): "SB_saradc8_radixN.scs" 583: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type        `spectre -h capacitor' to get more information on valid instance parameters.
+**MANUAL FIX: adding in parsing script to update**
 
-5. Error found by spectre in `PAGEFRAME', during circuit read-in.
+13. Fix: Updated the Spectre subsection of the .oa model to netlist with lowercase `capacitor` syntax.
+
+```
+WARNING (SFE-30): "SB_saradc8_radixN.scs" 583: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type        `spectre -h capacitor' to get more information on valid instance parameters.
+```
+
+14. Error found by spectre in `PAGEFRAME', during circuit read-in.
     ERROR (SFE-23): "SB_saradc8_radixN.scs" 34: The instance `VERSION_1' is referencing an undefined model or subcircuit, `VERSION'. Either include the file containing the definition of `VERSION', or define `VERSION' before running the   simulation.
 
-# Others:
+**Script fix: only write `if not line.startswith('VERSION'):`**
 
+15. Note that spectre models are case sensitive, and the model definitions like `cap`, `res`, and `vsource` are needed to call the right backends in spectre.
 
-the `patten` argument of a pwl source needs parenthesis, which T-spice won't do on normal export:
-e.g.
-Source_v_pwl_1 (gnd inp) Source_v_pwl pattern="0 log_VCC simtime 0.5*log_VCC"
+16. The `-format nutascii` option in Spectre give the output most similar to T-spice's log format. Perhaps the 
 
+17. Note that by default, Spectre will read new netlists in the SPICE format, so you don't need to specify it for PDK netlists. And inversely, if you are specifying your own subcircuits in new files in Spectre language, then you need to add `simulator lang=spectre`.
 
+18. Output waveforms should have transition delays specfied.
 
+```
+Warning from spectre during AHDL read-in.
+WARNING (VACOMP-1115): "vstepper.va", line 26: The compiler found no rise and fall times for the transition and no default_transition directive. Assuming ideal transition.
+```
 
-^ note that the 'view' column in the software is showing the "view name" not the view type. The real view type is hiding off to the right.
+Fix: I supplied a 1ns value to transition() but 2nd argument is actually the propagation delay. So I corrected it via `V(out) <+ transition(vout, td, trisefall);`
 
+19. From reading designer's guide to Spectre, and seeing some warnings, it looks like the top level ground should be set as simply a `0` node. Don't use `gnd!`.
 
-Note: Does "Use spectre models and includes" mandate built in models of Spectre? And how does it work with .l type spice decks?
+```
+V5 (syncn gnd!) vsource 
+V6 (syncp gnd!) vsource 
+V7 (clockn gnd!) vsource
+V8 (clockp gnd!) vsource
+```
 
-For spectre, the ahdl import needs to look like this:
-ahdl_include "SB_saradc8_radixN.HDL/comparator_latch.va"
+FIX: Just changed the schematic to use a net labeled `0` to fix this.
 
+20. Use the +preset=[mx, lx, cx, etc] mode to enable Spectre X which is the newest revision of Spectre. It might disable multithreading if design is too small.
+Simulation string now looks like `spectre SB_saradc8_radixN.scs -format psfascii +preset=mx`.
 
-Note that if you are passing a parameter to a SPICE primitive, it's model needs to have a user param to match that param. Otherwise it won't fill it in.
-
-
+21. 

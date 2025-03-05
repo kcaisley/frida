@@ -1,6 +1,7 @@
 import sys
 import re
 import os
+import shutil
 
 def escape_angle_brackets(line):
     # Escape < and > with a backslash
@@ -8,17 +9,22 @@ def escape_angle_brackets(line):
     print(f"{line}  =>  {updated_line}")
     return updated_line
 
-
-def modify_ahdl_include_line(line, prefix):
-    # Modify the ahdl_include line to prepend the prefix directory
-    updated_line = re.sub(r'^(ahdl_include\s+)(.+)$', r'\1' + prefix + r'/\2', line)
+def modify_ahdl_include_line(line):
+    # Find the position of "ahdl_include"
+    start_index = line.find("ahdl_include") + len("ahdl_include")
+    
+    # Extract the part after "ahdl_include"
+    after_ahdl = line[start_index:].strip()
+    
+    # Add double quotes around the string after "ahdl_include"
+    updated_line = line[:start_index] + ' "' + after_ahdl + '"'
     print(f"{line}  =>  {updated_line}")
     return updated_line
 
 def process_file(filename):
     try:
         # Extract the prefix directory from the filename
-        prefix = os.path.splitext(filename)[0] + ".HDL"
+        ahdl_dir = os.path.splitext(filename)[0] + ".HDL"
 
         with open(filename, 'r') as file:
             lines = file.readlines()
@@ -27,12 +33,21 @@ def process_file(filename):
             for line in lines:
                 if line.startswith('save'):
                     line = escape_angle_brackets(line)
-                elif line.startswith('ahdl_include'):
-                    line = modify_ahdl_include_line(line, prefix)
-                file.write(line)
+                if line.startswith('ahdl_include'):
+                    line = modify_ahdl_include_line(line)
+                if not line.startswith('VERSION'):
+                    file.write(line)
 
         print(f"Processed {filename} successfully.")
-
+        print(f"AHDL direct is: {ahdl_dir}")
+        # Iterate over all files and subdirectories in the source directory
+        for f in os.listdir(ahdl_dir):
+            source_f = os.path.join(ahdl_dir, f)
+            dest_f = os.path.join(os.path.dirname(ahdl_dir), f)
+            shutil.move(source_f, dest_f)
+        os.rmdir(ahdl_dir)
+        print("Move adhl files up and deleting dir...")
+            
     except FileNotFoundError:
         print(f"Error: The file {filename} was not found.")
     except Exception as e:
