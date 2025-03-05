@@ -137,6 +137,15 @@ V8 (clockp gnd!) vsource
 FIX: Just changed the schematic to use a net labeled `0` to fix this.
 
 20. Use the +preset=[mx, lx, cx, etc] mode to enable Spectre X which is the newest revision of Spectre. It might disable multithreading if design is too small.
-Simulation string now looks like `spectre SB_saradc8_radixN.scs -format psfascii +preset=mx`.
+Simulation string now looks like `spectre SB_saradc8_radixN.scs -format psfbin +preset=mx -maxwarnstolog=25`.
 
-21. 
+21. The invisible ground pins on the `PAGEFRAME_1` instances are generating many warnings in the spectre netlist. Let's silence those using the netlist fix script.
+
+22. Note that I don't need the `maxstep` param because Spectre X sets it internall in a more intelligent way:
+
+```
+WARNING (SPECTRE-592): Following parameters are disabled because they are ignored or redefined in Spectre X:
+Tran Parameters: maxstep
+```
+
+23. Looks like the parameter redefine is actually: `simulatorOptions options redefinedparams=ignore`

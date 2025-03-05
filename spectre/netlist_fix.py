@@ -26,6 +26,7 @@ def process_file(filename):
         # Extract the prefix directory from the filename
         ahdl_dir = os.path.splitext(filename)[0] + ".HDL"
 
+        # Break the file into a list of strings
         with open(filename, 'r') as file:
             lines = file.readlines()
 
@@ -35,9 +36,9 @@ def process_file(filename):
                     line = escape_angle_brackets(line)
                 if line.startswith('ahdl_include'):
                     line = modify_ahdl_include_line(line)
-                if not line.startswith('VERSION'):
+                if not line.startswith('PAGEFRAME_1'):	# This removes the PAGEFRAME_1 instances (but leaves the `subckt` definition, which is fine)
                     file.write(line)
-
+        print("Removing `PAGEFRAME_1` instances.")
         print(f"Processed {filename} successfully.")
         print(f"AHDL direct is: {ahdl_dir}")
         # Iterate over all files and subdirectories in the source directory
