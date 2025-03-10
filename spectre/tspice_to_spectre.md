@@ -149,3 +149,198 @@ Tran Parameters: maxstep
 ```
 
 23. Looks like the parameter redefine is actually: `simulatorOptions options redefinedparams=ignore`
+
+24. I can simply save all voltages with `save *` in the netlist, instead of all the other netlists. Get more info with `spectre -help save`.
+
+25. The CDAC nodes appear to not have any resistance to ground:
+
+```
+Notice from spectre during topology check.
+    No connections to node `0'.
+    No DC path from node `cdac1__nb8_radix_1.offset' to ground, Gmin installed to provide path.
+Warning from spectre during heuristic topology check - set topcheck=fixall to fix all floating nodes.
+    WARNING (SPECTRE-7): No DC path from node `cdac_n' to ground.
+    WARNING (SPECTRE-7): No DC path from node `cdac_p' to ground.
+    WARNING (SPECTRE-7): No DC path from node `cdac1__nb8_radix_1.inv_2.N_1' to ground.
+```
+
+FIX: Adding 10M resistors to `cnode_p` and `cnode_n` to `vee` net.
+
+26. Sure enough, when you netlist from Virtuoso, the ground net is `0`. Therefore be sure to do the same in S-Edit schematic.
+This is, for example, how a basic voltage divider nelists:
+
+```
+simulator lang=spectre
+include "ade_e.scs"
+global 0
+R1 (vdd vout) resistor r=1K
+R0 (vout 0) resistor r=1K
+V0 (vdd 0) vsource type=dc
+simulatorOptions options psfversion="1.4.0" reltol=1e-3 vabstol=1e-6 \
+    iabstol=1e-12 temp=27 tnom=27 scalem=1.0 scale=1.0 gmin=1e-12 rforce=1 \
+    maxnotes=5 maxwarns=5 digits=5 cols=80 pivrel=1e-3 \
+    sensfile="../psf/sens.output" checklimitdest=psf 
+dcOp dc write="spectre.dc" maxiters=150 maxsteps=10000 annotate=status
+dcOpInfo info what=oppoint where=rawfile
+modelParameter info what=models where=rawfile
+element info what=inst where=rawfile
+outputParameter info what=output where=rawfile
+designParamVals info what=parameters where=rawfile
+primitives info what=primitives where=rawfile
+subckts info what=subckts where=rawfile
+saveOptions options save=allpub
+```
+
+27. Circling back to the redefined parameters problem, we can see the example message:
+
+```
+Warning : "/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l" line 338 Redefinition of parameter 'mismatchflag_cap' (value changed from 1 to 0)
+        : "Z:\eda\kits\TSMC\CMN55ULP\SPICE_Models\crn55ulp_2d5_lk_v1d2\crn55ulp_2d5_lk_v1d2.l" line 169886 Original definition
+```
+
+This implies the usage file is has the 2nd occurance. Looking inside, we see it's actually the higher level file, but calls this command after referencing the lower level file:
+
+
+In the higher level: `crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l`:
+
+```
+.LIB SFMacro_MOS_MOSCAP
+.option geoshrink=0.9
+    ...
+.lib 'crn55ulp_2d5_lk_v1d2.l' TT_MOS_CAP
+.lib 'crn55ulp_2d5_lk_v1d2.l' TT_MOS_CAP_25
+    ...
+.lib 'crn55ulp_2d5_lk_v1d2.l' total_rf_mos_hv25
+.lib 'crn55ulp_2d5_lk_v1d2.l' stat
+.lib 'crn55ulp_2d5_lk_v1d2.l' stat_hv25
+.param mismatchflag_cap_rf=0
+.param mismatchflag_cap_25_rf=0
+.param mismatchflag_cap=0
+.param mismatchflag_cap_25=0
+.ENDL SFMacro_MOS_MOSCAP
+```
+
+Inside the lower level `crn55ulp_2d5_lk_v1d2.l`
+
+```
+.LIB setup_cap
+.param scale_cap= 0.9
+.param mismatchflag_cap=1
+.param ov_ratio_cap=1
+
+.ENDL setup_cap
+```
+
+Sure enough, this exists in the hspice `.1` spice decks offered by the standard 65lp PDK as well though, which lives at `/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/hspice`
+We find `crn65lp_2d5_lk_v1d7_usage.l` overides `.param mismatchflag_cap=0` which was originally set in `crn65lp_2d5_lk_v1d7.l` to the value `.param mismatchflag_cap=1`
+
+What about the spectre versions? Checking `/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre`:
+
+```
+$ grep -R "mismatchflag_cap="
+crn65lp_2d5_lk_v1d7.scs:parameters mismatchflag_cap=1
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=0
+crn65lp_2d5_lk_v1d7_usage.scs:parameters mismatchflag_cap=1
+```
+
+The libs in which it's `0` disabled by overwriting are: `tt_lib`, `ss_lib`, `ff_lib`, `fs_lib`, `sf_lib`, and `mc_lib`.
+
+But it's set to `1` in the `mismatch_lib` section. This makes sense!
+
+Q: Why is this not flagged as an error by Spectre when simulating with ADE? Or is it?
+
+Conclusion: Anyways, you should just set the `simulatorOptions options redefinedparams=ignore`
+
+
+28.  Found the issue with the netlist produced by S-Edit! Let's look at the port parameters for the transistor: 
+
+From `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2.scs`
+
+```
+section total_rf_mos
+inline subckt nmos_rf ( d g s b ) 
+parameters lr=0.06e-6 wr=0.6e-6 multi=1 nr=4
++ factor=factor_mos_rf
++ sa=0.76746e-6*0.9/factor sb=sa
++ sca=1.76487e+000 scb=5.70185e-006
++ scc=2.24921e-011 sd=0.24e-6*0.9/factor
++ mismatchflag=mismatchflag_mos_rf
++ globalflag=globalflag_mos_rf
++ totalflag=totalflag_mos_rf
++ rbflag=1
+    ...
+```
+
+From `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2.l`
+
+
+```
+.LIB Total_RF_MOS
+.subckt nmos_rf d g s b lr='0.06e-6' wr='0.6e-6' multi='1' nr='4'
++ scale='scale_mos_rf'
++ sa='0.76746e-6*0.9/scale' sb=sa
++ sca='1.76487e+000' scb='5.70185e-006'
++ scc='2.24921e-011' sd='0.24e-6*0.9/scale'
++ mismatchflag='mismatchflag_mos_rf'
++ globalflag='globalflag_mos_rf'
++ totalflag='totalflag_mos_rf'
++ rbflag='1
+    ...
+```
+
+Looks like the order is drain, gate, source, then bulk.
+
+Let's make a schematic:
+
+![Basic testbench with nmos](img/nmos_ids_vgs.png)
+
+And let's simulate it:
+
+![T-Spice ids_vgs](img/tspice_ids_vgs.png)
+
+But when we netlist from S-Edit exported in the Spectre mode:
+
+```
+// ---- Post-processed by `prep_netlist.py` for compatibility ----
+// Library:              sasc
+// Cell:                 tb_nmos_ids_vgs
+// Testbench:            Spectre
+
+simulator lang=spectre
+
+inst_info info what=inst where=rawfile
+models_info info what=models where=rawfile
+subckts_info info what=subckts where=rawfile
+primitives_info info what=primitives where=rawfile
+include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt
+
+simulatorOptions options redefinedparams=ignore
+
+log_nmos_1 (0 vds vgs 0) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1
+V1 (vgs 0) vsource dc=0 type=dc
+V2 (vds 0) vsource dc=1.2 type=dc
+
+save vgs
+save log_nmos_1:D
+
+dc dc dev=V1 param=dc start=0 stop=1.2 step=0.01
+```
+
+That's source, drain, gate, bulk order!
+
+Sure enough, if you simulate it, you don't get what you expect!
+
+![Spectre wrong ids_vgs](img/spectre_wrong_ids_vgs.png)
+
+Now if we change the offending line pin order to: `log_nmos_1 (vds vgs 0 0) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1`
+
+And resimulating, we get the same as T-spice:
+
+![Spectre correct ids_vgs](img/spectre_correct_ids_vgs.png)
+
+Solution: We need to flip the ports of the transistors to D-G-S-B order as part of our port preprocessing script.

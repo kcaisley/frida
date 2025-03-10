@@ -2,9 +2,7 @@
 .vscode
 .ropeproject
 __pycache__
-/target
-/spectre/saradc/*
-/spectre/
+/spectre/sim*
 /tspice/*
 /src/*.pkl
 /src/*.pdf

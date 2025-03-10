@@ -24,13 +24,15 @@ def modify_ahdl_include_line(line):
 def process_file(filename):
     try:
         # Extract the prefix directory from the filename
-        ahdl_dir = os.path.splitext(filename)[0] + ".HDL"
+        ahdl_dir = os.path.splitext(filename)[0] + ".HDL"       #FIX ME: This produces an error when there are no ahdl models!
 
         # Break the file into a list of strings
         with open(filename, 'r') as file:
             lines = file.readlines()
 
         with open(filename, 'w') as file:
+            # Notice to prevent re-running on same file.
+            file.write("// ---- Post-processed by `prep_netlist.py` for compatibility ----\n")
             for line in lines:
                 if line.startswith('save'):
                     line = escape_angle_brackets(line)
@@ -48,14 +50,47 @@ def process_file(filename):
             shutil.move(source_f, dest_f)
         os.rmdir(ahdl_dir)
         print("Move adhl files up and deleting dir...")
-            
-    except FileNotFoundError:
-        print(f"Error: The file {filename} was not found.")
+
     except Exception as e:
         print(f"An error occurred: {e}")
 
+def cleanup_dir():
+    # Iterate over all items in the current directory
+    for item in os.listdir():
+        # Check if the item is a file and ends with .va or .log
+        if os.path.isfile(item) and item.endswith(('.va', '.log')):
+            print(f"Deleting file: {item}")
+            os.remove(item)  # Delete the file
+        # Check if the item is a directory and ends with .ahdlSimDB or .raw
+        elif os.path.isdir(item) and item.endswith(('.ahdlSimDB', '.raw', '.cadence')):
+            print(f"Deleting directory: {item}")
+            shutil.rmtree(item)  # Recursively delete the directory
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python script.py <filename>")
+    # Get the current working directory and the script's directory
+    current_directory = os.getcwd()
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+
+    # Check if the script is being run from the same directory
+    if current_directory == script_directory:
+        print("Error: This script should not be run from the same directory as the script.")
+        print("Please run it from a lower-level directory.")
+        print("Usage: python ../prep_netlist.py <netlist_name.scs>")
+
+    # Check for the correct number of command-line arguments
+    elif len(sys.argv) != 2:
+        print("Error: This script needs a netlist as an argument.")
+        print("Usage: python ../prep_netlist.py <netlist_name.scs>")
+
+    # Check if the file has already been processed
     else:
-        process_file(sys.argv[1])
+        try: 
+            with open(sys.argv[1], 'r') as file:
+                first_line = file.readline()
+                if first_line.strip() == "// ---- Post processed by prep_netlist.py for compatibility ----":
+                    print(f"Error: The netlist {sys.argv[1]} has already been processed by prep_netlist.py.")
+                else:
+                    cleanup_dir()
+                    process_file(sys.argv[1])
+        except FileNotFoundError:
+            print(f"Error: The netlist {sys.argv[1]} was not found.")
