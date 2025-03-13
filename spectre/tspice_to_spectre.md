@@ -1,6 +1,6 @@
 # Netlist, schematic, and Simulation Setup corrections:
 
-1. SPICE `.option` isn't supported. S-edit is smart enough to remove these in an AFS/Spectre export, but 
+### 1. SPICE `.option` isn't supported. S-edit is smart enough to remove these in an AFS/Spectre export, but
 
 ```
 WARNING (SFE-105): "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 97: `threads' has been ignored because it is not
@@ -27,19 +27,18 @@ The relevant setting from this file is below, where we can see `.option`
 
 But we can't fix this for now, without editing the underlying .lib file.
 
-2. Redefining the params gives a lot of noisy warnings, in both T-spice and Spectre. In the latter at least, we can go into settings and add:
+### 2. Redefining the params gives a lot of noisy warnings, in both T-spice and Spectre. In the latter at least, we can go into settings and add:
 
 `.param redefinedparams=ignore`is needed to stop the error from redefined params, if running a .spc in spectre
 `redefinedparams=ignore` is needed in spectre options, if running a .scs in spectre. It will netlist correctly.
 
+### 3. `simulator lang=spectre` or `spice` is needed by Spectre. The S-Edit export already does this though in AFS/Spectre mode.
 
-3. `simulator lang=spectre` or `spice` is needed by Spectre. The S-Edit export already does this though in AFS/Spectre mode.
-
-4. `**` is supported by tspice and spectre, but `^` isn't supported by spectre for exponents. I've updated the schematic in S-edit to fix this.
+### 4. `**` is supported by tspice and spectre, but `^` isn't supported by spectre for exponents. I've updated the schematic in S-edit to fix this.
 
 The C param of each capacitor is now set to: `cap/2/radix**2`
 
-5. Reading verilog-A files needed a "" around the file name, which T-spice was unwilling to do in spice mode.
+### 5. Reading verilog-A files needed a "" around the file name, which T-spice was unwilling to do in spice mode.
 
 ```
     ERROR (SFE-23): "SB_saradc8_radixN.scs" 637: The instance `vstepper_n' is referencing an undefined model or subcircuit, `vstepper'. Either include
@@ -47,23 +46,22 @@ The C param of each capacitor is now set to: `cap/2/radix**2`
     ERROR (SFE-23): "SB_saradc8_radixN.scs" 638: The instance `vstepper_p' is referencing an undefined model or subcircuit, `vstepper'. Either include
         the file containing the definition of `vstepper', or define `vstepper' before running the simulation.
 ```
+
 The relevant commands would be for e.g. `ahdl_include comparator_latch.va` and `ahdl_include vstepper.va`.
 
-If exporting (instead of netlisting) one need to make sure to *un-check* `Exclude ahdl_include`.
+If exporting (instead of netlisting) one need to make sure to _un-check_ `Exclude ahdl_include`.
 
+### 6. include statements in spectre need a `section=tt` instead of just `tt`, and the include needs double quotes. This can be achieved by changing the string in the `Setup Simulation > General > Spectre Library Files` and set it to `"/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" tt` to produce the output netlist string `include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt`
 
-
-6. include statements in spectre need a `section=tt` instead of just `tt`, and the include needs double quotes. This can be achieved by changing the string in the `Setup Simulation > General > Spectre Library Files` and set it to `"/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" tt` to produce the output netlist string `include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt`
-
-
-7. In the 'heirarchy priority list' you should put:
+### 7. In the 'heirarchy priority list' you should put:
 
 ```
 cell name w/ !		view type	view name (can be set abitrarylity, but is often the same as the view type)
 !comparator_latch	veriloga	veriloga_test1
 ```
 
-8. The single quotes below on the width param throw the error `Cannot run the simulation because an unexpected character ''' was found`
+### 8. The single quotes below on the width param throw the error `Cannot run the simulation because an unexpected character ''' was found`
+
 ```
 V5 (syncn gnd!) vsource type=pulse val0=log_VCC val1=0 period=convtime  delay=-convtime/48  rise=100p fall=100p width='(convtime/24)-100p'
 V6 (syncp gnd!) vsource type=pulse val0=0 val1=log_VCC period=convtime  delay=-convtime/48  rise=100p fall=100p width='(convtime/24)-100p'
@@ -71,52 +69,51 @@ V7 (clockn gnd!) vsource type=pulse val0=log_VCC val1=0 period=convtime/12 delay
 V8 (clockp gnd!) vsource type=pulse val0=0 val1=log_VCC period=convtime/12 delay=0 rise=100p fall=100p width='(convtime/24)-100p'
 ```
 
-
-9. The capacitor model is called `capacitor` and must be lower cased, else you get this error:
+### 9. The capacitor model is called `capacitor` and must be lower cased, else you get this error:
 
 ```
 ERROR (SFE-23): "SB_saradc8_radixN.scs" 580: The instance `Capacitor_3' is referencing an undefined model or subcircuit, `Capacitor'. Either
     include the file containing the definition of `Capacitor', or define `Capacitor' before running the simulation.
 ```
 
-
-10. The `save` statements at the end of the file use `<>` which must be escaped:
+### 10. The `save` statements at the end of the file use `<>` which must be escaped:
 
 **MANUAL FIX: adding in parsing script to update**
 
 ```
-save data\<0\>  
-save data\<1\>  
-save data\<2\>  
-save data\<3\>  
-save data\<4\>  
-save data\<5\>  
-save data\<6\>  
-save data<\7\> 
+save data\<0\>
+save data\<1\>
+save data\<2\>
+save data\<3\>
+save data\<4\>
+save data\<5\>
+save data\<6\>
+save data<\7\>
 ```
 
-11. the analog_include needs the path, and need quotes
+### 11. the analog_include needs the path, and need quotes
 
 **MANUAL FIX: adding in parsing script to update**
 
-13. Fix: Updated the Spectre subsection of the .oa model to netlist with lowercase `capacitor` syntax.
+### 12. Fix: Updated the Spectre subsection of the .oa model to netlist with lowercase `capacitor` syntax.
 
 ```
 WARNING (SFE-30): "SB_saradc8_radixN.scs" 583: Parameter `C', specified for primitive `capacitor', has been ignored because it is an invalid instance parameter. Specify a valid instance parameter and rerun the simulation. Type        `spectre -h capacitor' to get more information on valid instance parameters.
 ```
 
-14. Error found by spectre in `PAGEFRAME', during circuit read-in.
+### 13. Error found by spectre in `PAGEFRAME', during circuit read-in.
+
     ERROR (SFE-23): "SB_saradc8_radixN.scs" 34: The instance `VERSION_1' is referencing an undefined model or subcircuit, `VERSION'. Either include the file containing the definition of `VERSION', or define `VERSION' before running the   simulation.
 
 **Script fix: only write `if not line.startswith('VERSION'):`**
 
-15. Note that spectre models are case sensitive, and the model definitions like `cap`, `res`, and `vsource` are needed to call the right backends in spectre.
+### 14. Note that spectre models are case sensitive, and the model definitions like `cap`, `res`, and `vsource` are needed to call the right backends in spectre.
 
-16. The `-format nutascii` option in Spectre give the output most similar to T-spice's log format. Perhaps the 
+### 15. The `-format nutascii` option in Spectre give the output most similar to T-spice's log format. Perhaps the
 
-17. Note that by default, Spectre will read new netlists in the SPICE format, so you don't need to specify it for PDK netlists. And inversely, if you are specifying your own subcircuits in new files in Spectre language, then you need to add `simulator lang=spectre`.
+### 16. Note that by default, Spectre will read new netlists in the SPICE format, so you don't need to specify it for PDK netlists. And inversely, if you are specifying your own subcircuits in new files in Spectre language, then you need to add `simulator lang=spectre`.
 
-18. Output waveforms should have transition delays specfied.
+### 17. Output waveforms should have transition delays specfied.
 
 ```
 Warning from spectre during AHDL read-in.
@@ -125,34 +122,35 @@ WARNING (VACOMP-1115): "vstepper.va", line 26: The compiler found no rise and fa
 
 Fix: I supplied a 1ns value to transition() but 2nd argument is actually the propagation delay. So I corrected it via `V(out) <+ transition(vout, td, trisefall);`
 
-19. From reading designer's guide to Spectre, and seeing some warnings, it looks like the top level ground should be set as simply a `0` node. Don't use `gnd!`.
+### 18. From reading designer's guide to Spectre, and seeing some warnings, it looks like the top level ground should be set as simply a `0` node. Don't use `gnd!`.
 
 ```
-V5 (syncn gnd!) vsource 
-V6 (syncp gnd!) vsource 
+V5 (syncn gnd!) vsource
+V6 (syncp gnd!) vsource
 V7 (clockn gnd!) vsource
 V8 (clockp gnd!) vsource
 ```
 
 FIX: Just changed the schematic to use a net labeled `0` to fix this.
 
-20. Use the +preset=[mx, lx, cx, etc] mode to enable Spectre X which is the newest revision of Spectre. It might disable multithreading if design is too small.
+### 19. Use the +preset=[mx, lx, cx, etc] mode to enable Spectre X which is the newest revision of Spectre. It might disable multithreading if design is too small.
+
 Simulation string now looks like `spectre SB_saradc8_radixN.scs -format psfbin +preset=mx -maxwarnstolog=25`.
 
-21. The invisible ground pins on the `PAGEFRAME_1` instances are generating many warnings in the spectre netlist. Let's silence those using the netlist fix script.
+### 20. The invisible ground pins on the `PAGEFRAME_1` instances are generating many warnings in the spectre netlist. Let's silence those using the netlist fix script.
 
-22. Note that I don't need the `maxstep` param because Spectre X sets it internall in a more intelligent way:
+### 21. Note that I don't need the `maxstep` param because Spectre X sets it internall in a more intelligent way:
 
 ```
 WARNING (SPECTRE-592): Following parameters are disabled because they are ignored or redefined in Spectre X:
 Tran Parameters: maxstep
 ```
 
-23. Looks like the parameter redefine is actually: `simulatorOptions options redefinedparams=ignore`
+### 22. Looks like the parameter redefine is actually: `simulatorOptions options redefinedparams=ignore`
 
-24. I can simply save all voltages with `save *` in the netlist, instead of all the other netlists. Get more info with `spectre -help save`.
+### 23. I can simply save all voltages with `save *` in the netlist, instead of all the other netlists. Get more info with `spectre -help save`.
 
-25. The CDAC nodes appear to not have any resistance to ground:
+### 24. The CDAC nodes appear to not have any resistance to ground:
 
 ```
 Notice from spectre during topology check.
@@ -166,7 +164,8 @@ Warning from spectre during heuristic topology check - set topcheck=fixall to fi
 
 FIX: Adding 10M resistors to `cnode_p` and `cnode_n` to `vee` net.
 
-26. Sure enough, when you netlist from Virtuoso, the ground net is `0`. Therefore be sure to do the same in S-Edit schematic.
+### 25. Sure enough, when you netlist from Virtuoso, the ground net is `0`. Therefore be sure to do the same in S-Edit schematic.
+
 This is, for example, how a basic voltage divider nelists:
 
 ```
@@ -179,7 +178,7 @@ V0 (vdd 0) vsource type=dc
 simulatorOptions options psfversion="1.4.0" reltol=1e-3 vabstol=1e-6 \
     iabstol=1e-12 temp=27 tnom=27 scalem=1.0 scale=1.0 gmin=1e-12 rforce=1 \
     maxnotes=5 maxwarns=5 digits=5 cols=80 pivrel=1e-3 \
-    sensfile="../psf/sens.output" checklimitdest=psf 
+    sensfile="../psf/sens.output" checklimitdest=psf
 dcOp dc write="spectre.dc" maxiters=150 maxsteps=10000 annotate=status
 dcOpInfo info what=oppoint where=rawfile
 modelParameter info what=models where=rawfile
@@ -191,7 +190,7 @@ subckts info what=subckts where=rawfile
 saveOptions options save=allpub
 ```
 
-27. Circling back to the redefined parameters problem, we can see the example message:
+### 26. Circling back to the redefined parameters problem, we can see the example message:
 
 ```
 Warning : "/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l" line 338 Redefinition of parameter 'mismatchflag_cap' (value changed from 1 to 0)
@@ -199,7 +198,6 @@ Warning : "/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d
 ```
 
 This implies the usage file is has the 2nd occurance. Looking inside, we see it's actually the higher level file, but calls this command after referencing the lower level file:
-
 
 In the higher level: `crn55ulp_2d5_lk_v1d2_shrink0d9_embedded_usage.l`:
 
@@ -256,14 +254,13 @@ Q: Why is this not flagged as an error by Spectre when simulating with ADE? Or i
 
 Conclusion: Anyways, you should just set the `simulatorOptions options redefinedparams=ignore`
 
-
-28.  Found the issue with the netlist produced by S-Edit! Let's look at the port parameters for the transistor: 
+### 27. Found the issue with the netlist produced by S-Edit! Let's look at the port parameters for the transistor:
 
 From `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2.scs`
 
 ```
 section total_rf_mos
-inline subckt nmos_rf ( d g s b ) 
+inline subckt nmos_rf ( d g s b )
 parameters lr=0.06e-6 wr=0.6e-6 multi=1 nr=4
 + factor=factor_mos_rf
 + sa=0.76746e-6*0.9/factor sb=sa
@@ -277,7 +274,6 @@ parameters lr=0.06e-6 wr=0.6e-6 multi=1 nr=4
 ```
 
 From `/eda/kits/TSMC/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2.l`
-
 
 ```
 .LIB Total_RF_MOS
@@ -331,7 +327,7 @@ save log_nmos_1:D
 dc dc dev=V1 param=dc start=0 stop=1.2 step=0.01
 ```
 
-That's source, drain, gate, bulk order!
+That's bulk, drain, gate, source order!
 
 Sure enough, if you simulate it, you don't get what you expect!
 
@@ -344,3 +340,89 @@ And resimulating, we get the same as T-spice:
 ![Spectre correct ids_vgs](img/spectre_correct_ids_vgs.png)
 
 Solution: We need to flip the ports of the transistors to D-G-S-B order as part of our port preprocessing script.
+
+### 28. Simulation speeds
+
+Making some observations about simulation time with different settings in Spectre.
+
+Parsing and initial conditions only take about 1s to compute, so the run time is entirely dominated by the actual transient simulation iterations.
+
+```
+The inventory of the circuit is:
+              nodes 418
+          capacitor 20
+   comparator_latch 1
+           resistor 4
+            vsource 8
+           vstepper 2
+              bsim4 681
+```
+
+> Multithreading is disabled due to the size of the design being too small.
+
+As a baseline, I observed T-spice takeing 25-30 s per simulated microsecond.
+
+`spectre SB_saradc8_radixN.scs -format psfbin +preset=mx` runs at 5.2 s per simulated microsecond, with
+
+`spectre SB_saradc8_radixN.scs -format nutbin +preset=mx` runs at 5.2 s per simulated microsecond
+
+`spectre SB_saradc8_radixN.scs -format nutascii +preset=mx` runs at 6.1 s per simulated microsecond
+
+Interestingly, if I remove the preset option, which normally specifies a version of SpectreX, and instead run with standard Spectre, I see that the simulation is:
+
+`spectre SB_saradc8_radixN.scs -format psfbin` run at 51.8 s per simulated microsecond
+
+This usage of normal Spectre is 10x slower than Spectre X, and 2x slower than S-Edit!
+
+### 29. Monte-carlo simulation
+
+Monte-carlo is enabled in Spectre by wrapping a function in a statistics block:
+
+```
+montecarlo montecarlo variations=all numruns=100 savefamilyplots=yes {
+   dc dc dev=V1 param=dc start=0 stop=1.2 step=0.01
+   }
+```
+
+Also the correct SPICE deck section must be seleted for usage: `section=mc_g`
+
+More information can be found on pg. 477 of the Spectre user guide. Note that the runs are done sequentially by Spectre.
+
+Note that `savefamilyplots=yes` is necessary if writing to `psfbin` as otherwise each curve is overwritten. If using `nutascii` I believe it will write all runs to one text file.
+
+### 30. Temporal noise simulation
+
+From pg. 283 of spectre user guide.
+
+Running multiple transient simulations is a bit more complicated. If we simply fill out the form in S-edit's AFS/Spectre mode, we get something like this:
+
+```
+parameters afs_TN_Iterations=1
+afs_tn_sweep sweep param=afs_TN_Iterations start=1 stop=10 step=1 {
+	tran1 tran stop=simtime noisefmax=2G noiseseed=afs_TN_Iterations
+}
+```
+
+At first I thought this wasn't compatible with Spectre, but then I exported my own basic inverter from Virtuoso + ADE Assembler and saw this:
+
+```
+parameters Iteration=1
+sweep sweep param=Iteration start=1 stop=100 step=1 {
+tran tran stop=1u errpreset=moderate noisefmax=2G noiseseed=Iteration write="spectre.ic" writefinal="spectre.fc" annotate=status maxiters=5
+}
+```
+
+This showed me that the the parameters field take an arbitrary name, which can then be iterated by the sweep analysis steps. Keep in mind that this can in priciple be run in parallel, but that job control [is only provided by ADE at a higher level](https://community.cadence.com/cadence_technology_forums/f/custom-ic-design/45089/is-there-a-setting-to-let-multiple-runs-of-transient-noise-run-in-parallel).
+
+Therefore, if just using virtuoso from the command line, I should create my own job control in Python.
+
+Anyways, running it sequentially for 1u, for 10 runs, with transient noise, took 155s, or roughly 15.5s per simulated 1u. So transient noise slows down the simulation by a factor of 3x, when using `noisefmax=2G` which limits the max time to `0.5/noisefmax` which I guess is equal to 0.1ns.
+
+### 31. Verilog-A linting
+
+I can do Verilog linting like so: `spectre -ahdllint netlist.scs` where netlist.scs is written using Spectre, SPICE, or eSpice syntax and includes one or
+more Verilog-A models.
+
+### 32. Spectre Mixed-Signal Design Simulation
+
+It looks like by running `spectre +ms input.scs` I can use the XPS engine to speed up the simulation of blocks which are recognized to have digital behavioral. Read more on page 70 of the Spectre manual.
