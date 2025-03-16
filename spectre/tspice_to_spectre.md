@@ -426,3 +426,80 @@ more Verilog-A models.
 ### 32. Spectre Mixed-Signal Design Simulation
 
 It looks like by running `spectre +ms input.scs` I can use the XPS engine to speed up the simulation of blocks which are recognized to have digital behavioral. Read more on page 70 of the Spectre manual.
+
+### 32. Deciding between psfbin, nutbin, psfascii, and nutascii
+
+In spectre, if using nutbin format does not support multi threading and multi processing!
+
+psfbin is needed for Viva usage
+
+libpsf (c++, also used by bag3): https://github.com/henjo/libpsf/
+bespice: https://www.analogflavor.com/en/bespice/bespice-wave-parser/
+https://www.analogflavor.com/en/2023/05/04/the-psf-and-psfxl-file-structure/
+psfdata: https://github.com/chwa/psfdata
+Spectre runner code: https://github.com/KenKundert/flicker-noise/blob/master/runPnoise
+
+
+### 33. Setting voltage sweep for examining ADC-level TF with noise
+
+With 8-bits, each bin is roughly 4.6 mV. And we found that noise can cause some false switches in the ADC when within ~5mV of the ADC edge. Thus I think 1mV steps with a 20mV range would be good enough, to see 4-5 bins.
+
+We should set the vcm to be 1V.
+
+
+### Converting psfbin to psfascii
+
+I have two directories:
+```
+$ ls
+0 drwxr-xr-x 2 kcaisley kcaisley         6 Mar 16 17:11 SB_comparator.psfascii
+17996 drwxr-xr-x 2 kcaisley kcaisley  15015936 Mar 16 06:43 SB_comparator.raw
+```
+
+Inside of `SB_comparator.raw`, there are many files like this:
+```
+vcm-007_vdiff-160_tnoise-073_tran1.tran.tran
+vcm-012_vdiff-200_tnoise-099_tran1.tran.tran
+```
+
+For each of these files, I'd like to run a command like so on the bash command line:
+```
+psf -i SB_comparator.raw/vcm-007_vdiff-160_tnoise-073_tran1.tran.tran -o SB_comparator.psfascii/vcm-007_vdiff-160_tnoise-073_tran1.tran.psfascii
+psf -i SB_comparator.raw/vcm-012_vdiff-200_tnoise-099_tran1.tran.tran -o SB_comparator.psfascii/vcm-012_vdiff-200_tnoise-099_tran1.tran.psfascii
+```
+
+So I need to create a python script which runs this command, looping the parameters in the file names like so, all inclusive:
+
+from vcm-000 to vcm-012
+    from vdiff-000 to vdiff-200
+        from tnoise-000 to tnoise-099
+
+The loops are nested so it should be 13×201×100 = 261300 iterations.
+
+
+
+       SB_saradc8_radixN.raw/afs_tn_sweep-000_tran1.tran.tran -> SB_saradc8_radixN.psfascii/tnoise-000_tran1.tran.psfascii
+
+psf -i SB_saradc8_radixN.raw/afs_tn_sweep-000_tran1.tran.tran -o SB_saradc8_radixN.psfacii/tnoise-000_tran1.tran.psfascii
+
+### planning
+
+SPICE comparator characterization
+SPICE 8 bins of ADC for comparison, just binary 8-bit to verify noise at tripping points
+
+behavioral simulation of ADC which compares different bit combos and values:
+	8 steps binary
+	12 steps binary
+	12 steps non-binary
+	12 steps
+
+
+Chip submission
+Deadlines for PhD
+Taking courses in optimization
+
+Questions:
+
+How do I optimize the weights of the capacitors?
+How do I model the noise of the capacitors? (cap noise, area, power, and switching noise)
+How can I model

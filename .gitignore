@@ -3,6 +3,8 @@
 .ropeproject
 __pycache__
 /spectre/sim*
+/spectre/.psf*
+/spectre/.cadence
 /tspice/*
 /src/*.pkl
 /src/*.pdf

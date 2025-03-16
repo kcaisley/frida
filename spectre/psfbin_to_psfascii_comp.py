@@ -1,0 +1,38 @@
+import os
+import subprocess
+
+# This should be run from the directory above the psfbin and psfascii dirs
+
+# Define the base directories
+raw_dir = "SB_comparator.raw"
+psfascii_dir = "SB_comparator.psfascii"
+
+# Define the ranges for vcm, vdiff, and tnoise
+vcm_range = range(0, 13)  # vcm-000 to vcm-012
+vdiff_range = range(0, 201)  # vdiff-000 to vdiff-200
+tnoise_range = range(0, 100)  # tnoise-000 to tnoise-099
+
+# Loop through all combinations of vcm, vdiff, and tnoise
+for vcm in vcm_range:
+    for vdiff in vdiff_range:
+        for tnoise in tnoise_range:
+            # Construct the input and output filenames
+            input_filename = f"vcm-{vcm:03}_vdiff-{vdiff:03}_tnoise-{tnoise:03}_tran1.tran.tran"
+            output_filename = f"vcm-{vcm:03}_vdiff-{vdiff:03}_tnoise-{tnoise:03}_tran1.tran.psfascii"
+
+            # Construct the full paths
+            input_path = os.path.join(raw_dir, input_filename)
+            output_path = os.path.join(psfascii_dir, output_filename)
+
+            # Print the file being accessed for debugging
+            print(f"Processing: {input_path} -> {output_path}")
+
+            # Check if the input file exists
+            if os.path.exists(input_path):
+                # Run the psf command
+                command = ["psf", "-i", input_path, "-o", output_path]
+                subprocess.run(command)
+            else:
+                print(f"File not found: {input_path}")
+
+print("Processing complete.")
