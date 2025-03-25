@@ -5,6 +5,7 @@ from tqdm import tqdm
 import os
 import pandas as pd
 
+
 class CDAC:
     def __init__(self, params, parent):
         self.parent = parent
@@ -29,12 +30,12 @@ class CDAC:
     def update_parameters(self):  # update depending parameters after changes
         self.build_capacitor_array()
         if self.params["settling_time"] > 0:
-            self.settling_time_error = np.exp(
+            self.settling_time_error = np.exp( # Decaying exponential model (percent decay)
                 -1
                 / (
-                    self.params["settling_time"]
+                    self.params["settling_time"] # This is tau, the time constant
                     * self.parent.params["sampling_frequency"]
-                    * (self.params["array_size"] + 1)
+                    * (self.params["array_size"] + 1) # This divides the sampling frequency to find the settling error
                 )
             )
         else:
@@ -47,6 +48,18 @@ class CDAC:
             self.params["positive_reference_voltage"]
             - self.params["negative_reference_voltage"]
         ) / 2
+
+    def reset(self, reset_value, do_calculate_energy=False):
+        raise NotImplementedError
+
+    def sample(self, input_p, input_n):
+        raise NotImplementedError
+
+    def update(self, register_p, register_n, do_calculate_energy=False):
+        raise NotImplementedError
+
+    def build_capacitor_array(self):
+        raise NotImplementedError
 
     def calculate_nonlinearity(self, do_plot=False):
         reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
@@ -102,11 +115,12 @@ class CDAC_BSS(CDAC):
         self.update_parameters()
 
     def build_capacitor_array(self):
+        """
         # The capacitor array can be constructed in three different ways:
         # 1. Use individual weights from the parameter file and 'array_size' as defined in the parameter file.
         # 2. Use binary weights (radix = 2) to construct the capacitor array and 'array_size' = resolution-1
         # 3. Use non binary weight (radix > 2) to construct the capacitor array and 'array_size' will be resized to the dynamic range of the nominal binary weighted capacitors
-
+        """
         if self.params["use_individual_weights"]:
             # use individual weights from the parameter file, but only supports integers
             array_index_offset = (
@@ -125,14 +139,20 @@ class CDAC_BSS(CDAC):
             )
 
         else:  # construct array according to given radix and desired resolution
-            if self.params["array_N_M_expansion"]:          # If you want array size to be computed, instead of manually supplied
-                self.params["array_size"] = (self.parent.params["resolution"] - 1)          # for binary weighted capacitors
+            if self.params[
+                "array_N_M_expansion"
+            ]:  # If you want array size to be computed, instead of manually supplied
+                self.params["array_size"] = (
+                    self.parent.params["resolution"] - 1
+                )  # for binary weighted capacitors
                 if self.params["radix"] != 2:
                     # resize no-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
                     self.params["array_size"] = int(
-                        np.ceil(self.params["array_size"] / np.log2(self.params["radix"]))
+                        np.ceil(
+                            self.params["array_size"] / np.log2(self.params["radix"])
+                        )
                     )  # match *at least* the resolution of the radix 2 design
-            
+
             # resize arrays
             self.capacitor_array_p = np.zeros(self.params["array_size"])
             self.capacitor_array_n = np.zeros(self.params["array_size"])
@@ -156,7 +176,7 @@ class CDAC_BSS(CDAC):
         if self.params["capacitor_mismatch_error"] > 0:
             for i in range(
                 self.params["array_size"]
-            ):  #                     error in percent/100   scaled with  sqrt(capacitance/unit capacitance)
+            ):  # error in percent/100   scaled with  sqrt(capacitance/unit capacitance)
                 self.capacitor_array_p[i] += (
                     self.params["unit_capacitance"]
                     * np.random.normal(0, self.params["capacitor_mismatch_error"] / 100)
@@ -198,6 +218,12 @@ class CDAC_BSS(CDAC):
         self.output_voltage_n = input_n
 
     def update(self, register_p, register_n, do_calculate_energy=False):
+        """
+        Modeling note, which applies to all blocks:
+        Class attributes are state internal to the block
+        Input argument variables are changing values which are driven by other blocks
+        Output return values model outputs which are driver to other blocks
+        """
         delta_output_voltage_p = 0
         delta_output_voltage_n = 0
         self.consumed_charge = 0
@@ -207,17 +233,20 @@ class CDAC_BSS(CDAC):
         )
 
         # calculate the contributions of the toggled capacitors to the output voltage change
+        # Note that in real hardware, this would all happen simultaneously
         for i in range(self.params["array_size"]):
             current_capacitor_p = self.capacitor_array_p[i]
             current_capacitor_n = self.capacitor_array_n[i]
             reg_index = self.params["array_size"] - i - 1
 
+            # If the incoming register value (at index i) is higher than the stored value, increase output
             if (register_p & (1 << reg_index)) > (self.register_p & (1 << reg_index)):
                 delta_output_voltage_p += (
                     current_capacitor_p
                     / self.capacitance_sum_p
                     * delta_backplane_voltage
                 )
+            # vice-versa, decrease the output, Note how there is no case for the same value as this would maintain voltage.
             elif (register_p & (1 << reg_index)) < (self.register_p & (1 << reg_index)):
                 delta_output_voltage_p -= (
                     current_capacitor_p
@@ -293,11 +322,11 @@ class CDAC_BSS(CDAC):
         noise_p = voltage_noise_sample * capacitance_at_vref_p / self.capacitance_sum_p
         noise_n = voltage_noise_sample * capacitance_at_vref_n / self.capacitance_sum_n
 
-        # calculate settling time error
-        settling_error_p = delta_output_voltage_p * self.settling_time_error
-        settling_error_n = delta_output_voltage_n * self.settling_time_error
+        # calculate how much of the voltage step is resolved, as a voltage with same sign
+        settling_error_p = delta_output_voltage_p * self.settling_time_error #
+        settling_error_n = delta_output_voltage_n * self.settling_time_error #
 
-        # add settlingtime error and noise only to momentary return value
+        # add noise and subtract the unresolved voltage step
         return (self.output_voltage_p + noise_p - settling_error_p), (
             self.output_voltage_n + noise_n - settling_error_n
         )
@@ -401,13 +430,20 @@ class SAR_ADC:
 
     # This function calculates the output value (i.e. 're-analog') from the array of comp outputs
     def calculate_result(self, comp_result, do_normalize_result=True):
+        """
+        Like the other functions starting with calculate_*, this function is non-physical
+        in the sense that it just analyzes the data produced by the modeled ADC hardware.
+        """
+
+
         # initialize result
         result = 0
 
         # accumulate weights to calculate the result
         for i in range(self.cycles - 1):
             if self.params["use_calibration"]:
-                # use real capacitor values available after (perfect) calibration
+                # Use real capacitor values available after (perfect) calibration
+                # In the real world, we would try to find these values but it would be an impefect process
                 result += (
                     (2 * comp_result[i] - 1)
                     * self.dac.capacitor_array_p[i]
@@ -452,11 +488,13 @@ class SAR_ADC:
         )
 
         # helper variables
-        min_code = -(2 ** (self.params["resolution"] - 1))  # FIXME: wrong for non-binary
+        min_code = -(
+            2 ** (self.params["resolution"] - 1)
+        )  # FIXME: wrong for non-binary
         max_code = (
-            2 ** (self.params["resolution"] - 1) - 1        # FIXME: wrong for non-binary
+            2 ** (self.params["resolution"] - 1) - 1  # FIXME: wrong for non-binary
         )
-        num_codes = 2 ** self.params["resolution"]          # FIXME: wrong for non-binary
+        num_codes = 2 ** self.params["resolution"]  # FIXME: wrong for non-binary
         lower_index_boundary = lower_excluded_bins
         upper_index_boundary = num_codes - upper_excluded_bins
 
@@ -481,7 +519,7 @@ class SAR_ADC:
                 input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0
             )
 
-        print('adc_data ', adc_data)
+        print("adc_data ", adc_data)
 
         # calculate code density histogram
         code_density_hist, bin_edges = np.histogram(
@@ -531,7 +569,7 @@ class SAR_ADC:
             plot[1].legend()
             plot[1].grid(True)
             plot[2].title.set_text("Differential Nonlinearity")
-            
+
             plot[2].step(
                 bin_edges, dnl_data, where="post", label="DNL sigma = %.3f" % dnl_sigma
             )
@@ -557,7 +595,7 @@ class SAR_ADC:
         amplitude = 0.55
         offset = 0
         num_samples = 10000
-        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"]
+        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # Q: shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
         time_array = np.arange(
@@ -570,22 +608,21 @@ class SAR_ADC:
 
         # sample sine wave
         print("Calculating ENOB ...")
-        for i in tqdm(range(len(time_array))):
+        for i in tqdm(range(len(time_array))):      #Q: So one cycle of the sine wave?
             input_voltage = offset + amplitude * np.sin(
                 2 * np.pi * frequency * time_array[i]
             )
             input_voltage_array[i] = input_voltage
-            adc_data_array[i] = self.sample_and_convert(
-                input_voltage, -input_voltage
-            )
+            adc_data_array[i] = self.sample_and_convert(input_voltage, -input_voltage)
 
         # calculate residuals which represent the noise (in LSB)
+        # Q: Assumes an ideal binary ADCs, so just ideal quantization noise.
         residual_array = input_voltage_array / adc_gain + adc_offset - adc_data_array
         # noise floor RMS
         noise_std = np.std(residual_array)
         noise_percent = noise_std / 2 ** self.params["resolution"] * 100
         # ENOB (ideal resolution minus noise gives effective resolution)
-        self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12))
+        self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12)) # log10 is Decibels,
         print("ENOB %.2f" % self.enob)
 
         if do_plot:
@@ -670,7 +707,9 @@ class SAR_ADC:
             plot[1].legend()
             return figure
 
-    def ideal_conversion(self, input_voltage_p, input_voltage_n):   #FIXME: This isn't implemented for non-binary! It's coloring the chart RED!
+    def ideal_conversion(
+        self, input_voltage_p, input_voltage_n
+    ):  # FIXME: This isn't implemented for non-binary! It's coloring the chart RED!
         # ideal conversion
         ideal_adc_code = int(
             np.round((input_voltage_p - input_voltage_n) / self.lsb_size - 0.5)
@@ -810,14 +849,21 @@ class SAR_ADC:
         # table.scale(1, 1.2)
         pdf.savefig(fig)  # , bbox_inches='tight')
         pdf.close()
-    
-    def sample_and_convert(self, input_voltage_p, input_voltage_n, do_calculate_energy=False, do_plot=False, do_normalize_result=True):
+
+    def sample_and_convert(
+        self,
+        input_voltage_p,
+        input_voltage_n,
+        do_calculate_energy=False,
+        do_plot=False,
+        do_normalize_result=True,
+    ):
         """
         Perform a sample and conversion using switching of differential CDAC.
         Currently supports BSS and monotonic strategies. Assumes that:
             1. The CDAC is front side sampling, and back side switching
             2. The backside switches can only choose between two potentials
-            3. There is one cap per switch, and vice versa. 
+            3. There is one cap per switch, and vice versa.
         """
 
         # init arrays with DAC output voltages and comparator results
@@ -833,20 +879,29 @@ class SAR_ADC:
         # NOTE: This essentially sets the switching strategy, but only covers cases where:
         #   - The CDAC is front side sampling, and back side switching
         #   - The backside switches can only choose between two potentials
-        #   - There is one cap per switch, and 
+        #   - There is one cap per switch, and
 
-        allowed_switching_strats = {'monotonic', 'bss'}     # FIX ME: janky data validation. Do it better
+        allowed_switching_strats = {
+            "monotonic",
+            "bss",
+        }  # FIX ME: janky data validation. Do it better
 
-        if self.dac.params["switching_strat"] == 'monotonic':
-            reset_value = (2 ** self.dac.params["array_size"] - 1)     # all 1's, so monotonic switching
+        if self.dac.params["switching_strat"] == "monotonic":
+            reset_value = (
+                2 ** self.dac.params["array_size"] - 1
+            )  # all 1's, so monotonic switching
 
-        elif self.dac.params["switching_strat"] == 'bss':  
-            reset_value = 2**(self.dac.params["array_size"]-1)-1     # mid-scale, so BSS bidirectional single side switching
+        elif self.dac.params["switching_strat"] == "bss":
+            reset_value = (
+                2 ** (self.dac.params["array_size"] - 1) - 1
+            )  # mid-scale, so BSS bidirectional single side switching
 
         else:
-            raise ValueError(f"switching_strat wasn't one of the allowed values: {allowed_switching_strats}")
+            raise ValueError(
+                f"switching_strat wasn't one of the allowed values: {allowed_switching_strats}"
+            )
 
-        del allowed_switching_strats    # python doesn't need cleanup, but do it anyways?
+        del allowed_switching_strats  # python doesn't need cleanup, but do it anyways?
 
         # reset_value = 0  # all 0's
         # reset_value = 0xff
@@ -919,7 +974,6 @@ class SAR_ADC:
             else:  # comparator output = 0
                 self.comp_result.append(0)
 
-
         # calculate result
         result = self.calculate_result(self.comp_result, do_normalize_result)
         self.conversion_energy = total_consumed_charge * (
@@ -938,13 +992,15 @@ class SAR_ADC:
                     1 if ideal_adc_code & (1 << (self.cycles - i - 1)) else 0
                 )
             # use calculate_result() to get the ideal result from the ideal comparison results
-            ideal_result = self.calculate_result(ideal_comp_result) # FIXME: Based on binary only model
+            ideal_result = self.calculate_result(
+                ideal_comp_result
+            )  # FIXME: Based on binary only model. Also this variable isn't used?'
 
             figure, plot = plt.subplots(1, 1)
             legend_title = (
                 # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
                 # % (input_voltage_p, input_voltage_n, result, ideal_result)
-                "Diff input voltage [%.3f, %.3f] \nADC code = %.2f"       # FIXME: Disable ideal result being added, as it's based on binary only model.
+                "Diff input voltage [%.3f, %.3f] \nADC code = %.2f"  # FIXME: Disable ideal result being added, as it's based on binary only model.
                 % (input_voltage_p, input_voltage_n, result)
             )
             figure.suptitle("SAR Conversion")
@@ -963,7 +1019,7 @@ class SAR_ADC:
             for i in range(self.cycles):
                 color = (
                     # "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
-                    "black"     # FIXME: The ideal comp result is based on binary-only code. FIX this!
+                    "black"  # FIXME: The ideal comp result is based on binary-only code. FIX this!
                 )
                 plot.annotate(
                     self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color

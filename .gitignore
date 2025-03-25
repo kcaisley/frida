@@ -8,3 +8,4 @@ __pycache__
 /tspice/*
 /src/*.pkl
 /src/*.pdf
+/docs/talks/dpg2025/build/*

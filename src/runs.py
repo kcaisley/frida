@@ -11,7 +11,7 @@ os.environ["XDG_SESSION_TYPE"] = "xcb" # silence "Warning: Ignoring XDG_SESSION_
 pd.set_option('display.precision', 8)
 pd.options.mode.copy_on_write = True
 
-# eventually, need to pull the init code out, so that 
+# eventually, need to pull the init code out, so that
 
 params = {
     "ADC": {
@@ -30,10 +30,10 @@ params = {
         "negative_reference_voltage": 0.0,  # reference voltage in Volts
         "reference_voltage_noise": 0.0e-3,  # reference voltage noise in Volts
         "unit_capacitance": 0.8167e-15,  # unit capacitance in Farads (~0.8167 allows for Ctot per branch to ~100fF)
-        "array_size": 8,    # NOTE: this param is N but get recomputed to M if radix != 2, and array_N_M_expansion = True 
+        "array_size": 8,    # NOTE: this param is N but get recomputed to M if radix != 2, and array_N_M_expansion = True
         "array_N_M_expansion": False,
         "use_individual_weights": False,  # use array values to build cap array
-        "individual_weights": [],   # This can't be 
+        "individual_weights": [],   # This can't be
         "parasitic_capacitance": 5.00e-14,  # in Farads at the output of the CDAC
         "radix": 1.80,  # for the cap values (use_individual_weights = False)
         "capacitor_mismatch_error": 0.0,  # mismatch error in percent of the unit cap
@@ -102,7 +102,7 @@ print(behavioral_df)
 
 # FIXME: rawfile, use radix from params, etc
 # FIXME: note I'm overwri
-spice_df = spice.parse_to_df(rawfile='spiceout/SB_saradc8_radixN_1.8/SB_saradc8_radixN_1.8.csv', radix=params["CDAC"]["radix"], array_size=params["CDAC"]["array_size"], time=2000e-6, vdd=params["CDAC"]["positive_reference_voltage"])    
+spice_df = spice.parse_to_df(rawfile='spiceout/SB_saradc8_radixN_1.8/SB_saradc8_radixN_1.8.csv', radix=params["CDAC"]["radix"], array_size=params["CDAC"]["array_size"], time=2000e-6, vdd=params["CDAC"]["positive_reference_voltage"])
 spice_df = spice_df.drop(columns=['comz_p', 'comz_n', 'data<0>', 'data<1>', 'data<2>', 'data<3>', 'data<4>', 'data<5>', 'data<6>', 'data<7>'])
 spice_df = spice_df.drop(columns=['Time'])
 

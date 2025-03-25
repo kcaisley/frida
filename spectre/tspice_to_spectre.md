@@ -447,7 +447,7 @@ With 8-bits, each bin is roughly 4.6 mV. And we found that noise can cause some 
 We should set the vcm to be 1V.
 
 
-### Converting psfbin to psfascii
+### 34. Converting psfbin to psfascii
 
 I have two directories:
 ```
@@ -481,25 +481,3 @@ The loops are nested so it should be 13×201×100 = 261300 iterations.
        SB_saradc8_radixN.raw/afs_tn_sweep-000_tran1.tran.tran -> SB_saradc8_radixN.psfascii/tnoise-000_tran1.tran.psfascii
 
 psf -i SB_saradc8_radixN.raw/afs_tn_sweep-000_tran1.tran.tran -o SB_saradc8_radixN.psfacii/tnoise-000_tran1.tran.psfascii
-
-### planning
-
-SPICE comparator characterization
-SPICE 8 bins of ADC for comparison, just binary 8-bit to verify noise at tripping points
-
-behavioral simulation of ADC which compares different bit combos and values:
-	8 steps binary
-	12 steps binary
-	12 steps non-binary
-	12 steps
-
-
-Chip submission
-Deadlines for PhD
-Taking courses in optimization
-
-Questions:
-
-How do I optimize the weights of the capacitors?
-How do I model the noise of the capacitors? (cap noise, area, power, and switching noise)
-How can I model
