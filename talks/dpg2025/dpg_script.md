@@ -87,4 +87,37 @@ As a technical note, the results here are produced from a mixture of SPICE and B
 Buffer and caching in SRAM and DRAM are something which will depend on application
 Monolithic vs seperate provides addition challenges
 
+
+
+
+300keV
+cryogenically freeze
+0.5anstrong spatial resolution, cryoem
+
+pulsed electrons at 100k per second (shutter) (time clock waveforms)
+
+
+Pixel matrix
+- This determines spatial resolution
+- 22um of full recticle available
+- 10-15um pitch is good for spatial, any less is dominated by charge sharing
+- This leaves 6-7um on the chip edges for other circuits,
+
+
+remove facts before adding adding data rates and configs
+
 One reason I find this quite cool, is that in all of intergeatef chip design this is really the only class of chip which has millions of sensors, and thus needs 1000s of adcs
+
+
+
+#comments
+
+focus on results, focus on methodology
+
+- appears to be very difficult but feasible
+- adc hitting 2 of these 3 have been made, but not all three
+- an array this large has never been built
+
+- Behavioral modeling
+
+
