@@ -146,7 +146,7 @@ class CDAC_BSS(CDAC):
                     self.parent.params["resolution"] - 1
                 )  # for binary weighted capacitors
                 if self.params["radix"] != 2:
-                    # resize no-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
+                    # resize non-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
                     self.params["array_size"] = int(
                         np.ceil(
                             self.params["array_size"] / np.log2(self.params["radix"])

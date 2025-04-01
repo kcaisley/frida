@@ -1,3 +1,14 @@
+# parsing output of spice
+
+libpsf (c++): https://github.com/henjo/libpsf/
+
+bespice: https://www.analogflavor.com/en/bespice/bespice-wave-parser/
+https://www.analogflavor.com/en/2023/05/04/the-psf-and-psfxl-file-structure/
+psfdata: https://github.com/chwa/psfdata
+
+
+Spectre runner code: https://github.com/KenKundert/flicker-noise/blob/master/runPnoise
+
 # System simulation
 
 Given a small system of equations to solve, tools like SciPy will attempt to solve them with Newton's method.
@@ -56,7 +67,7 @@ In this phase-locked loop example, all modules and the top level module intercon
 
 But the latter isn't really possible with Verilog-AMS. The prior though can be broken down:
 
-1. To model components: Unlike traditional SPICE simulation libraries which only support a limited number of devices, model SPICE simulators which support Verilog-AMS can describe 
+1. To model components: Unlike traditional SPICE simulation libraries which only support a limited number of devices, model SPICE simulators which support Verilog-AMS can describe
    1. Basic devices (R, L, C)
    2. Compact models like Gummel-Poon BJT, VBIC BJT, Mextram BJT, MOS3, BSIM3+4, and EKV MOS. BSIM4 is written in a bunch of C files. BSIM-Bulk, the newest version of BSIM is instead a single Verilog-A model.
    3. Functional blocks like ADCs, de/modulators, samplers, filters, etc
@@ -64,7 +75,7 @@ But the latter isn't really possible with Verilog-AMS. The prior though can be b
    5. Logic components
    6. Test bench components like sources and monitors?
 2. To create testbenches: testbench devices will often not be ideal, so this is perfect for Verilog-A
-3. To accelerate simulation: replacing non-examined blocks in each simulation with a more abstract representation. In end, this is part of the testbench, as the  
+3. To accelerate simulation: replacing non-examined blocks in each simulation with a more abstract representation. In end, this is part of the testbench, as the
 4. To verify mixed-signal simulation
 5. To support the top-down design process
 
@@ -168,7 +179,7 @@ Available components:
     sccvs            spmos            sprobeport       ssim_mbc         stackup          step             svccs            svcvs            switch
     tee              tline            tom2             tom3             tom3v1           transformer      ucsd_hbt         utsoi2           vbic
     vccs             vcvs             vsource          vswitch          winding          wprobe           wsource          zcccs            zccvs
-    zvccs            zvcvs            
+    zvccs            zvcvs
 
     Components marked with * are loaded from shared objects
 
