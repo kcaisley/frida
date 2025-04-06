@@ -1,4 +1,52 @@
-# Notes
+# Notes for Caeleste meeting
+
+- Challenges I want to prevent: dynamic errors (thermal, settling, supply/refernce noise) and static error
+  - First let's figure out how bad these are in a 10-bit design (taking a )
+  - Calibration is costly, so can we do this in hardware with just DEC. Maybe some offline
+  - systematic errors = accuracy, random errors = precision.
+  - Calibration a subset of error correction targeted at systematic errors, can be done via lookup tables,
+  - error correction can be used for both: oversampling and averaging can reduce random errors,
+  - Redundant circuitry or digital post-processing (e.g., error-correcting codes) may address either type depending on implementation.
+
+- strategies for solving these:
+  - Take smaller steps (when LSB is big)
+  - have overlap in path finding algorithm
+  - This costs time, but we have some wiggle-room ourselves
+
+- I've also looked at:
+  - Unit cap design: just show 3 different types
+  - How small can we make the unit caps? (125aF for unit caps in 10-bit design). Explain how switched cap noise works. (we can't do it twice: average or CDS, since we don't have time budget)
+
+JH Tsai 2015:
+- SC-ADEC is for the dynamic errors, and correlated reverse switching for the static errors
+- I'm not sure I understand HS Tsai's perspective on the subtle different between sub-radix 2 vs radix 2 extended search.  guess that the strategy of taking lots of small steps only makes sense (th)
+- Liu 2010 worked well, but cost extra capacitors. This extra total capcitance didn't even improve mismatch, and so the only benefit was the error correction plus slightly lower sampling noise, but at the cost of slower settling, higher power, and larger area. Thus I think we should just consider approaches which use the same total unit capacitance as the binary design.
+- The other paper that did something similar was SH Cho 2011 multistep addition only DEC. Here I don't think they added any extra caps though. In a 10-bit design, each single ended DAC has 2^9 = 512 caps. The only special thing is that they are partitioned in a funky way.
+- Fig 23b shows us pretty much the smallest SAR ADC (in 65nm?) running at 10MHz was 250x50um. So P. Harpe's 2019 paper at 36um ^2 was very much state of the art.
+
+
+Papers with merge or split caps in title name:
+split capacitor array DAC - Gisburg 2007
+merge and split switching - JY Lin 2015
+merged capacitor switching - V Hariparsath 2010
+inverter merged capacitor switching - A Hsu 2013
+correlated reverse switching - JH Tsai 2015
+
+
+### Questions for Hans:
+
+In CC Liu 2015, the section III math for MSB capacitor first states it is `B10 = 2**8 - 2**4`.
+Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this math work out? Do the earlier examples not assume 2**N-1 caps per CDAC side?
+
+CC Liu 2015 Equation #1 seems wrong to me? C/C is normalized, so you can't subtract C right?
+
+What is the D= BW^T expression used by J Tsai on Page 1? I don't understand the term coding offset? D is output bit depth, B is the raw bits. W is the weight.
+
+2015 JH Tsai pg. 3 says that 'differential arch' allows DAC to be 9-bit, in a 10-bit ADC. This contrasts what we stated before in the meeting? I thought it was more to do with the top-side sampling, where the comparator is connected to the same node as the sampled voltage.
+2011 SH Cho pg. 2 claims the 'dual reference voltages' is what allows them to have a 9-bit DAC for a 10-bit ADC.
+
+
+# Notes @ DPG
 
 Calibration and error correction are two distinct issues
 
@@ -102,7 +150,7 @@ This is what we're doing in our design. We're not really actually pushing our se
 Comparator noise won't be much of an issue, because our power budget isn't too tight, and our CDAC will be small out of necessity, so low power anyways.
 But because we're wanting such a small array (close to kTC noise limit) with maybe even 12-bit precision, we're going to have big linearity issues.
 
-# Strategies for digital error correction / redundancy
+Strategies for digital error correction / redundancy
 
 F Kuttner 2002: Sub-radix 2 with binary weighted
 
@@ -133,8 +181,6 @@ Sanyal Sun 2022: survey just basically says it a way to avoid comparator errors,
 *C.C. Liu 2015* is referenced only by P. Harpe 2018: only comments that their cap array is only small because it is in 20nm. If backported it would be too large.
 
 
-
-
 # Design aspects
 
 - Unit cap design / layout
@@ -148,7 +194,7 @@ Sanyal Sun 2022: survey just basically says it a way to avoid comparator errors,
 
 
 
-# old
+# Older notes
 
 Python code for SAR ADC functional modelling.
 

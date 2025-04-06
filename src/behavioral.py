@@ -27,7 +27,7 @@ class CDAC:
         self.register_n = 0
         self.consumed_charge = 0
 
-    def update_parameters(self):  # update depending parameters after changes
+    def update_parameters(self):  #FIXME: how is this even called at the beginning?
         self.build_capacitor_array()
         if self.params["settling_time"] > 0:
             self.settling_time_error = np.exp( # Decaying exponential model (percent decay)
@@ -61,7 +61,7 @@ class CDAC:
     def build_capacitor_array(self):
         raise NotImplementedError
 
-    def calculate_nonlinearity(self, do_plot=False):
+    def calculate_nonlinearity(self, do_plot=False):    #FIXME: there is also an ADC top nonlinearity function?
         reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
         dac_data = np.zeros(len(reg_data))
         dnl_data = np.zeros(len(reg_data) - 1)
@@ -140,7 +140,7 @@ class CDAC_BSS(CDAC):
 
         else:  # construct array according to given radix and desired resolution
             if self.params[
-                "array_N_M_expansion"
+                "array_N_M_expansion"   #FIXME: I've deleted this option
             ]:  # If you want array size to be computed, instead of manually supplied
                 self.params["array_size"] = (
                     self.parent.params["resolution"] - 1
@@ -356,23 +356,23 @@ class COMPARATOR:
 class SAR_ADC:
     def __init__(self, params):
         # dictionary with parameters
-        self.params = params["ADC"].copy()
+        self.params = params["ADC"].copy()  # need .copy() to make sure modifiying one won't also change the other
         self.sampling_frequency = self.params["sampling_frequency"]
         self.dac = CDAC_BSS(params, self)
         self.cycles = self.dac.params["array_size"] + 1
         self.clock_period = 1 / (self.sampling_frequency * self.cycles)
-        self.redundancy = self.cycles - self.params["resolution"]
-        self.diff_input_voltage_range = 2 * (
+        self.redundancy = self.cycles - self.params["resolution"] #FIXME: remove, not a useful metric. Won't break code.
+        self.diff_input_voltage_range = 2 * ( #FIXME: depends on parasitics... also CDAC update seems to have the same code?
             self.dac.params["positive_reference_voltage"]
             - self.dac.params["negative_reference_voltage"]
         )
-        self.lsb_size = self.diff_input_voltage_range / 2 ** self.params["resolution"]
+        self.lsb_size = self.diff_input_voltage_range / 2 ** self.params["resolution"]  #FIXME: this isn't true for non-binary??
         self.comparator = COMPARATOR(params)
         self.input_voltage_p = 0
         self.input_voltage_n = 0
         self.comp_result = []
         self.conversion_energy = 0
-        self.midscale = 2 ** (self.params["resolution"] - 1)
+        self.midscale = 2 ** (self.params["resolution"] - 1) #FIXME: this isn't true for non-binary, right?
 
         # performance metrics
         self.dnl = 0
@@ -381,8 +381,8 @@ class SAR_ADC:
         self.average_conversion_energy = 0
         self.fom = 0
 
-    def update_parameters(self):  # update depending parameters after changes
-        self.dac.update_parameters()
+    def update_parameters(self):  # FIXME: I think this is never called?
+        self.dac.update_parameters()    # FIXME: This is also called in CDAC_BSS subclass?
         self.cycles = self.dac.params["array_size"] + 1
         self.clock_period = 1 / (self.sampling_frequency * self.cycles)
         self.redundancy = self.cycles - self.params["resolution"]
@@ -432,7 +432,7 @@ class SAR_ADC:
     def calculate_result(self, comp_result, do_normalize_result=True):
         """
         Like the other functions starting with calculate_*, this function is non-physical
-        in the sense that it just analyzes the data produced by the modeled ADC hardware.
+        in the sense that it just analyzes the data produced by the physical ADC hardware modeled by the other code.
         """
 
 
@@ -595,7 +595,7 @@ class SAR_ADC:
         amplitude = 0.55
         offset = 0
         num_samples = 10000
-        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # Q: shouldn't this depend on parasitics. Does this really just depend on Cunit?
+        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # FIXME shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
         time_array = np.arange(
@@ -884,7 +884,7 @@ class SAR_ADC:
         allowed_switching_strats = {
             "monotonic",
             "bss",
-        }  # FIX ME: janky data validation. Do it better
+        }  # FIXME: janky data validation. Do it better
 
         if self.dac.params["switching_strat"] == "monotonic":
             reset_value = (
