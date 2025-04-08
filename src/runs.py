@@ -22,7 +22,6 @@ params = {
         "use_individual_weights": True,  # use array values to build cap array
         # "radix": None,  # for the cap values (use_individual_weights = False)
         "individual_weights": [],
-        "parasitic_capacitance": 5.00e-14,  # in Farads at the output of the CDAC
         "capacitor_mismatch_error": 0.0,  # mismatch error in percent of the unit cap
         "settling_time": 0.0e-9,  # TBD: individual settling errors per capacitor?
         "switching_strat": 'monotonic',     # used to determined initial starting voltages
@@ -55,27 +54,24 @@ params = {
 # After building a database of values, try using `scipy.optimize` library to find the right values.
 
 
-plt.rc("figure", figsize=(8.27, 11.69))  # format all plots as A4 portrait
+# plt.rc("figure", figsize=(8.27, 11.69))  # format all plots as A4 portrait
+# plt.rcParams['savefig.dpi'] = 300        # Default dpi
+# plt.rcParams['savefig.bbox'] = 'tight'   # Default bbox_inches
 
 params["ADC"]["resolution"] = 10    #FIXME: I should remove this resolution term from the top level, as it doesn't seem to work for all cases
 params["COMP"]["threshold_voltage_noise"] = 0e-3
 params["COMP"]["capacitor_mismatch_error"] = 0
+params["CDAC"]["parasitic_capacitance"] = params["CDAC"]["unit_capacitance"] # 1e-15 unit cap, in Farads at the output of the CDAC, using this just to complete dynamic range
 params["CDAC"]["reference_voltage_noise"] = 0e-3
 params["CDAC"]["settling_time"] = 0.0e-9
 params["CDAC"]["individual_weights"] = [256, 128, 64, 32, 16, 8, 4, 2, 1]
 params["CDAC"]["array_size"] = len(params["CDAC"]["individual_weights"])    #FIXME: shouldn't be a parameter, should be calc'd internally
 
-adc = behavioral.SAR_ADC(params)
+adc1 = behavioral.SAR_ADC(params)
 
-# adc.sample_and_convert(
-#         1.1,
-#         1.0,
-#         do_plot=True,
-#         do_calculate_energy=True,
-#         do_normalize_result=True,
-# )
+adc1.compile_results()
 
-adc.calculate_nonlinearity(do_plot=True)  # calculate DNL/INL
-adc.calculate_enob(do_plot=True) # calculate ENOB
+params["COMP"]["threshold_voltage_noise"] = 10e-3
 
-plt.show()
+adc2 = behavioral.SAR_ADC(params)
+adc2.compile_results()

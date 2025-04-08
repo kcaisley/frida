@@ -271,6 +271,9 @@ class CDAC_BSS(CDAC):
             # calculate the consumed charge =
             # delta_output_voltage * total capacitance connected to VREF (for negative delta_output_voltage) and
             # delta_output_voltage * total capacitance connected to GND  (for positive delta_output_voltage)
+
+            # TODO: This can/should be simplified into just two cases, not two if-else
+            # NOTE: Even though only one register bit has been updated, is it correct that we need to examine all caps? 
             for i in range(self.params["array_size"]):
                 current_capacitor_p = self.capacitor_array_p[i]
                 current_capacitor_n = self.capacitor_array_n[i]
@@ -323,7 +326,7 @@ class CDAC_BSS(CDAC):
         noise_n = voltage_noise_sample * capacitance_at_vref_n / self.capacitance_sum_n
 
         # calculate how much of the voltage step is resolved, as a voltage with same sign
-        settling_error_p = delta_output_voltage_p * self.settling_time_error #
+        settling_error_p = delta_output_voltage_p * self.settling_time_error # 
         settling_error_n = delta_output_voltage_n * self.settling_time_error #
 
         # add noise and subtract the unresolved voltage step
@@ -483,18 +486,16 @@ class SAR_ADC:
         """
         values_per_bin = 100  # number of values per bin for DNL/INL calculation
         lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
-        upper_excluded_bins = (
-            0  # upper bound for DNL/INL calculation in LSB distance from full scale
-        )
+        upper_excluded_bins = 1  # upper bound for DNL/INL calculation in LSB distance from full scale
 
         # helper variables
         min_code = -(
             2 ** (self.params["resolution"] - 1)
-        )  # FIXME: wrong for non-binary
+        )  # FIXME: I thought this was wrong for binary, but now I realized it's right as long as it's re-analog codes
         max_code = (
-            2 ** (self.params["resolution"] - 1) - 1  # FIXME: wrong for non-binary
+            2 ** (self.params["resolution"] - 1) - 1  # FIXME: see above
         )
-        num_codes = 2 ** self.params["resolution"]  # FIXME: wrong for non-binary
+        num_codes = 2 ** self.params["resolution"]  # FIXME: see above
         lower_index_boundary = lower_excluded_bins
         upper_index_boundary = num_codes - upper_excluded_bins
 
@@ -595,10 +596,10 @@ class SAR_ADC:
         amplitude = 0.55
         offset = 0
         num_samples = 10000
-        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # FIXME shouldn't this depend on parasitics. Does this really just depend on Cunit?
+        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
-        time_array = np.arange(
+        time_array = np.arange( # For 100ns sampling times, this means we have 1ms worth of capture
             start=0,
             stop=num_samples / self.sampling_frequency,
             step=1 / self.sampling_frequency,
@@ -667,6 +668,8 @@ class SAR_ADC:
                 -input_voltage_data[i] / 2 + common_mode_input_voltage,
                 do_calculate_energy=True,
             )
+            # This is the core of the algorithm. At every input voltage, it records the energy used
+            # Inside sample_and_convert: reset() is run one, and update()
             conversion_energy_array[i] = self.conversion_energy
         conversion_energy_average = np.average(conversion_energy_array)
 
@@ -782,7 +785,8 @@ class SAR_ADC:
         pdf.savefig(figure)
         figure = self.calculate_conversion_energy(do_plot=True)
         pdf.savefig(figure)
-        self.calculate_enob()
+        figure = self.calculate_enob(do_plot=True)
+        pdf.savefig(figure)
 
         # Collect parameters and results
         data = [
@@ -805,7 +809,7 @@ class SAR_ADC:
                 self.dac.params["parasitic_capacitance"] / 1e-15,
                 "fF",
             ),
-            ("DAC total capacitance", self.dac.capacitance_sum_p / 1e-12, "pF"),
+            ("DAC total capacitance", f"{self.dac.capacitance_sum_p / 1e-12:.3f}", "pF"),
             ("DAC settling error", f"{self.dac.settling_time_error/100:.2f}", "%"),
             (
                 "Comparator noise",
@@ -955,12 +959,13 @@ class SAR_ADC:
                         self.dac.params["array_size"] - i - 1
                     )  # decrement n-side
 
-            # update DAC output voltage and append to array, return value includes noise and settling error
+            # update DAC output voltage by one bit and append to array, return values include noise and settling error
             temp_dac_output_p, temp_dac_output_n = self.dac.update(
                 temp_register_p,
                 temp_register_n,
                 do_calculate_energy=do_calculate_energy,
             )
+            # consumed charge is added up here. Note that only one cap position is examined per iteration of this loop (non-physical)
             total_consumed_charge += self.dac.consumed_charge
             dac_out_p[i + 1] = temp_dac_output_p
             dac_out_n[i + 1] = temp_dac_output_n
@@ -976,6 +981,8 @@ class SAR_ADC:
 
         # calculate result
         result = self.calculate_result(self.comp_result, do_normalize_result)
+
+        # TODO: Check the expression below (which is essentially C*V*V)
         self.conversion_energy = total_consumed_charge * (
             self.dac.params["positive_reference_voltage"]
             - self.dac.params["negative_reference_voltage"]

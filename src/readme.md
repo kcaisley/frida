@@ -1,54 +1,136 @@
-# Notes for Caeleste meeting
+# Outline for meeting
 
-- Challenges I want to prevent: dynamic errors (thermal, settling, supply/refernce noise) and static error
-  - First let's figure out how bad these are in a 10-bit design (taking a )
-  - Calibration is costly, so can we do this in hardware with just DEC. Maybe some offline
-  - systematic errors = accuracy, random errors = precision.
-  - Calibration a subset of error correction targeted at systematic errors, can be done via lookup tables,
-  - error correction can be used for both: oversampling and averaging can reduce random errors,
-  - Redundant circuitry or digital post-processing (e.g., error-correcting codes) may address either type depending on implementation.
+Basic:
 
-- strategies for solving these:
-  - Take smaller steps (when LSB is big)
-  - have overlap in path finding algorithm
-  - This costs time, but we have some wiggle-room ourselves
+- systematic errors = accuracy, random errors = precision
+- We'd like to focus on understanding how bad these can get, and how to fix them with: (1) precision design (2) calibration either digital (foreground/background) or analog and (3) redundancy.
+  - Redundancy differs from calibration in that errors (random or systematic) are not measured, it's simply that the ADC algorithm simple tolerates them and rejects their effect on the final result.
+  - 
 
-- I've also looked at:
-  - Unit cap design: just show 3 different types
-  - How small can we make the unit caps? (125aF for unit caps in 10-bit design). Explain how switched cap noise works. (we can't do it twice: average or CDS, since we don't have time budget)
+
+
+Assumptions:
+
+- We'd like to be as close to min capacitance as possible, to the point that we'd have 125aF for unit caps in 10-bit design
+  - This minimized power, area, and settling errors. But it makes sampling error (thermal), reference noise?, and mismatch worse.
+- We'd like to constrain all capacitance splits to within the above limit, we'd also like to ensure our caps are integer multiples of the unit capacitance.
+  - This has the benefit of making the math cheap in digital logic (even if in FPGA), and prevents floating point truncation from wasting precision we've worked to recover.
+
+
+
+1: Let's focus first on thermal noise and reference noise:
+
+- How bad do these affect a 10-bit design? show the problem it creates
+  - First show the single transient errors.
+  - Am I right that under a certain reasonable limit, it should never cause more than error of 2 LSB?
+
+- try different strategies to fix: 
+  - Show the capacitor sizing to fix this: two post step should be enough, within a certain level of noise
+  - Can also do 1-post step with a low-noise comparator on the last two conversion
+
+2: Now let's examine settling error
+
+- This impact is much worse, as cumulative error can be much larger that 2 LSB (not limited to twice in )
+
+* unary caps in the beginning (essentially take smaller steps to make MSBs smaller)
+* 
+
+
+
+3: Now that we'd addressed precision, let's take a look at accuracy: mismatch effects on non-linearity/static errors
+
+- NOTE: I'm not even convinced if this can be fixed by redundancy. Let's check papers. Also I need to understand the 'sufficient linearity' statement. Perhaps papers with calibration techniques (with small caps) will comment on this.
+  
+- This is especially important, as we'd like to make our Ctotal as small as possible
+- Calibration a subset of error correction targeted at systematic errors. Can be done with analog calibration, or startup aka foreground digital calibration. Both are costly, requiring a controlling input signal, plus tunable elements for analog, or lookup tables for digital.
+- So can we do this in hardware with just DEC or background calibration (LMS-based)? <- what is the other type?
+
+
+
+4: As an overview:
+
+- Can we find the sweep spot between all of these?
+  - There are two ways to accumulate redundancy: 
+    - Having extra repeated steps, 
+    - or by having overlapping search by reducing next step by less than two.
+
+  - Dynamic errors from thermal and reference noise (which add together) is fixable with minimal redundancy, since no more than 1 LSB error is likely to be caused. Ensuring it's correction requires getting the a post conversion after that fact, right. So we'd like our redundancy somewhere in the middle, and with a bit at the end. Or both at the end. or 1 at end with extra comparator power.
+  - Dynamic error from settling is more common and more pronounced at the beginning of the chain. Extra cycles will worsen it in each individual bit period, but if we get increased redundancy for it, then we need it to be improved. So we'd like it to be throughout the chain to improve total tolerance to settling errors.
+  - And similarly, we'd like to make sure digital calibratability is possible. Redunancy of the sub-radix kind can fix this. In contrast to JH Tsai saying redundancy can't fix calibration issue: What I think The redundancy is super important, because it relaxes the amount of mismatch can occur before more than an LSB of nonlinearity occurs, and missing levels mean that analog information is lost and calibration can't even be done.
+
+- we can view the different strategies as allowable error (or in terms of settling voltage)
+  - Doing so with unit quantized caps reduces mismatch and simplifies the arithmetic units and/or prevents truncation that results from floating point weights.
+  - Doing so with a fixed 2^N unit caps also prevents the need for overflow overflow/underflow logic.
+  - So rounding and constraining the sub-radix like this, plus adding the repeated will certainly mean that redundancy is accumuated less smoothly, but all that really matter is that the redundancy is kept as high as possible, throughout the chain.
+
+- Taking all of this into account:
+  - From Hsu 2013 we can see that having roughly a radix of 1.7-1.8 throughout the chain allows calibratability and rejects conversion errors, and then having a single repeated conversion at the end then fixes the remaining thermal noise.
+  - It's important to note that 'accumulated' redundancy itself dissipates the further you go along the chain from the point it was accumulated. So while it can be accumulated fairly well in the beginning of the chain in a large quantity, you also can't 'save it up.'
+  - FOR OUR DESIGN: The balance between these three will depend on the relative strength of the error sources in our design. Since we expect mismatch and reference noise to perhaps be the most severe, it make sense that we spend our time budget, thus making settling a bit worse but improving the other two.
+
+
+
+
+5: Next steps:
+
+- there are three ways to break the exponential increase of area (and power?) with increasing CDAC bits:
+  - reduce reference voltage for LSBs instead of their capacitance, using an RDAC chain. Does this not affect the total dynamic range? This may also have fairly poor linearity
+  - use split array for bridge. Also not sure how this poor this would be with linearity
+  - And lastly unit length caps instead of unit area caps from P. Harpe 2019.
+- And also how to layout these unit length/area caps? Crosses, fingers? How are the parasitics? How many layers?
+
+# Questions
+
+- Do we expect that energy consumption should be different between binary vs non-binary weightings?
+- Presentation to group next wednesday
+- Morning courses
+
+- In CC Liu 2015, the section III math for MSB capacitor first states it is `B10 = 2**8 - 2**4`.
+Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this math work out? Do the earlier examples not assume 2**N-1 caps per CDAC side?
+- CC Liu 2015 Equation #1 seems wrong to me? C/C is normalized, so you can't subtract C right?
+- What is the D= BW^T expression used by J Tsai on Page 1? I don't understand the term coding offset? D is output bit depth, B is the raw bits. W is the weight.
+- 2015 JH Tsai pg. 3 says that 'differential arch' allows DAC to be 9-bit, in a 10-bit ADC. This contrasts what we stated before in the meeting? I thought it was more to do with the top-side sampling, where the comparator is connected to the same node as the sampled voltage.
+- 2011 SH Cho pg. 2 claims the 'dual reference voltages' is what allows them to have a 9-bit DAC for a 10-bit ADC.
+- Show slides on dynamic and static error sources.
+- When finding non-linearity have to pick a method?: ![alt text](../docs/images/method.png)
+- When I have +1 LSB is the differential input range still 
+
+
+
+# Notes
 
 JH Tsai 2015:
+
 - SC-ADEC is for the dynamic errors, and correlated reverse switching for the static errors
+  - I disagree with this: On page 6: "While the applied redundancy technique absorbs dynamic errors, static DAC nonlinearity caused by capacitor mismatch remains untackled."
+  - What I think: The redundancy is super important, because it relaxes the amount of mismatch can occur before more than an LSB of nonlinearity occurs, and missing levels mean that analog information is lost and calibration can't even be done.
 - I'm not sure I understand HS Tsai's perspective on the subtle different between sub-radix 2 vs radix 2 extended search.  guess that the strategy of taking lots of small steps only makes sense (th)
 - Liu 2010 worked well, but cost extra capacitors. This extra total capcitance didn't even improve mismatch, and so the only benefit was the error correction plus slightly lower sampling noise, but at the cost of slower settling, higher power, and larger area. Thus I think we should just consider approaches which use the same total unit capacitance as the binary design.
 - The other paper that did something similar was SH Cho 2011 multistep addition only DEC. Here I don't think they added any extra caps though. In a 10-bit design, each single ended DAC has 2^9 = 512 caps. The only special thing is that they are partitioned in a funky way.
 - Fig 23b shows us pretty much the smallest SAR ADC (in 65nm?) running at 10MHz was 250x50um. So P. Harpe's 2019 paper at 36um ^2 was very much state of the art.
 
+Calibration mentions:
+
+- A Hsu 2013 and W Liu 2010 both discuss in their theses the requirements for 'digital calibratability/correctability
+- A Hsu:
+  - Equation 3.13 and Figure 3-7 gives the relationship between expected unit cap variation and recommended sub-radix redundancy, at least for the larger MSBs which matter most for 
+
+- V Tripathi 2014 did calibration in the foreground calibration (i.e. at start up) and then gained known weights
+- B Murmann 2013 points out 
 
 Papers with merge or split caps in title name:
-split capacitor array DAC - Gisburg 2007
-merge and split switching - JY Lin 2015
-merged capacitor switching - V Hariparsath 2010
-inverter merged capacitor switching - A Hsu 2013
-correlated reverse switching - JH Tsai 2015
+
+- split capacitor array DAC - Gisburg 2007
+- merge and split switching - JY Lin 2015
+- merged capacitor switching - V Hariparsath 2010
+- inverter merged capacitor switching - A Hsu 2013
+- correlated reverse switching - JH Tsai 2015
 
 
-### Questions for Hans:
 
-In CC Liu 2015, the section III math for MSB capacitor first states it is `B10 = 2**8 - 2**4`.
-Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this math work out? Do the earlier examples not assume 2**N-1 caps per CDAC side?
+(stuff past this was originally written at DPG, and so may be false or confused)
 
-CC Liu 2015 Equation #1 seems wrong to me? C/C is normalized, so you can't subtract C right?
-
-What is the D= BW^T expression used by J Tsai on Page 1? I don't understand the term coding offset? D is output bit depth, B is the raw bits. W is the weight.
-
-2015 JH Tsai pg. 3 says that 'differential arch' allows DAC to be 9-bit, in a 10-bit ADC. This contrasts what we stated before in the meeting? I thought it was more to do with the top-side sampling, where the comparator is connected to the same node as the sampled voltage.
-2011 SH Cho pg. 2 claims the 'dual reference voltages' is what allows them to have a 9-bit DAC for a 10-bit ADC.
-
-
-# Notes @ DPG
-
-Calibration and error correction are two distinct issues
+Calibration and error correction are two distinct issues?
 
 Linearity degrades quantization noise, but can be calibrated.
 
@@ -66,7 +148,7 @@ To consider matching DNL/INL impact, we can find we need all caps to be within 1
 
 Also process variation can lead to reference buffer mismatch.
 
-Also, rememember that when scaling the caps to the kT/C limit, this is based on the entire total CDAC capacitance. And it is determined at sampling time, before CDAC switching.
+Also, remember that when scaling the caps to the kT/C limit, this is based on the entire total CDAC capacitance. And it is determined at sampling time, before CDAC switching.
 Expression is `Vrms_noise = math.sqrt(k*T/Ctot)` and `Vrms_noise` << `Vref / 2**N` bit resolution, by a factor of 5 or so.
 
 So for a 10-bit design, with 1.2 supply `Vrms_noise` << 1mV and for a 12-bit design `Vrms_noise` << `0.2mV`.
@@ -141,7 +223,7 @@ key idea: however, if you are also suffering from dynamic error, having more red
 
 MSB caps are essentially saying you want to make sure you get your MSB conversions right? So you're really worried about large dynamic settling errors. In fact we can calculate the
 
-How much redundancy throughout the chain is necessary for a given amount of expected settling error? -> CC Liu 2015 Equation #2
+How much redundancy throughout the chain is necessary for a given amount of expected settling error? -> CC Liu 2015 Equation #1
 Albert Hsu 2013 also provides equation #3.5 which appears to also calculate the redundancy left in the chain, but in terms of weights, no voltage steps
 
 Key idea: The other reason for redundancy is to allow for 12-bit operation with very small caps.
@@ -160,17 +242,14 @@ CC Liu 2010: Binary compensation
 
 A Hsu 2013:
 
+- Albert Hsu's 2013 thesis really provides all the info we need on redundancy being used for thermal and switching errors, then as well as for calibration:
 
+- 2.3 explains static error, aka gains and offsets erorrs plus non-linearity from mismatch, all of which can be calibrated
+- 2.4 explains dynamic error sources: settling errors, reference noise (from switching through finite impedance with L and C), and also threshold noise in comp (which isn't measured)
 
-Albert Hsu's 2013 thesis really provides all the info we need on redundancy being used for thermal and switching errors, then as well as for calibration:
-
-2.3 explains static error, aka gains and offsets erorrs plus non-linearity from mismatch, all of which can be calibrated
-2.4 explains dynamic error sources: settling errors, reference noise (from switching through finite impedance with L and C), and also threshold noise in comp (which isn't measured)
-
-3.1 Redundancy can fix dynamic errors: calculate error tolerance windows (eq 3.5)
-3.2 redundancy can fix static errors, by enabling background calibration. The reason is that missing codes can be calibrated out, but missing input tripping points can't. So sub-radix ensures we have some DNL below -l but none over +1. In other words one input can map to multiple digital codes, but in no cases do multiple inputs map to the same output code (beyond one LSB). Does this mean graphically that the INL curve should stay over the ideal line, and never fall under?
-
-What did A Hsu say about CC Liu 2010 binary compensation? Nothing!
+- 3.1 Redundancy can fix dynamic errors: calculate error tolerance windows (eq 3.5)
+- 3.2 redundancy can fix static errors, by ensuring (to a certain tolerance) that calibratability can be achieved. The reason is that missing codes can be calibrated out, but missing input tripping points can't. So sub-radix ensures we have some DNL below -l but none over +1. In other words one input can map to multiple digital codes, but in no cases do multiple inputs map to the same output code (beyond one LSB). Does this mean graphically that the INL curve should stay over the ideal line, and never fall under?
+- What did A Hsu say about CC Liu 2010 binary compensation? Nothing!
 
 *C.C. Liu binary compensation 2010 is referenced in:*
 Murmann 2013: explained as redundant steps instead of redundant levels. Good for DAC settling which is indistiguisable from quantizer errors.

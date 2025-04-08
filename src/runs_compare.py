@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import math
 import pandas as pd
 import os
-from tqdm import tqdm
 
 plt.rc("figure", figsize=(8.27, 11.69))  # format all plots as A4 portrait
 os.environ["XDG_SESSION_TYPE"] = "xcb" # silence "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome"
