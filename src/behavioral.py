@@ -549,7 +549,7 @@ class SAR_ADC:
                 min_code, max_code + 10, 2 ** (self.params["resolution"] - 3)
             )
             plot_title = "ADC Nonlinearity"
-            figure, plot = plt.subplots(4, 1, sharex=True)
+            figure, plot = plt.subplots(4, 1, sharex=True, figsize = (10,17))
             # figure.tight_layout()
             # figure.suptitle(plot_title)
             plot[0].title.set_text("ADC Transfer Function")
@@ -588,7 +588,7 @@ class SAR_ADC:
             plot[3].set_xlabel("ADC code")
             plot[3].grid(True)
 
-            return figure
+            return figure, plot
 
     def calculate_enob(self, do_plot=False):
         # return (snr - 1.76)/6.02
@@ -628,26 +628,26 @@ class SAR_ADC:
 
         if do_plot:
             plot_title = "ENOB Calculation"
-            figure, plot = plt.subplots(3, 1, sharex=True)
+            figure, ax = plt.subplots(3, 1, sharex=True, figsize = (10,17))
             figure.suptitle(plot_title)
             # plot adc data
-            plot[0].plot(time_array, input_voltage_array, label="Input voltage")
-            plot[0].legend()
-            plot[1].stairs(
+            ax[0].plot(time_array, input_voltage_array, label="Input voltage")
+            ax[0].legend()
+            ax[1].stairs(
                 adc_data_array[: len(time_array) - 1],
                 time_array,
                 baseline=False,
                 label="ADC code",
             )
-            plot[1].legend()
-            plot[2].plot(
+            ax[1].legend(loc="upper right")
+            ax[2].plot(
                 time_array,
                 residual_array,
                 label="Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f"
                 % (noise_std, self.enob),
             )
-            plot[2].legend()
-            return figure
+            ax[2].legend()
+            return figure, ax
 
     def calculate_conversion_energy(self, do_plot=False):
         samples_per_bin = 1
@@ -682,8 +682,8 @@ class SAR_ADC:
         print("FOM[pJ] %e" % (self.fom * 1e12))
 
         if do_plot:
-            figure, plot = plt.subplots(2, 1, sharex=True)
-            figure.subplots_adjust(bottom=0.5)
+            figure, ax = plt.subplots(2, 1, sharex=True, figsize = (10,8))
+            # figure.subplots_adjust(bottom=0.5)
             y_ticks = range(
                 -(2 ** (self.params["resolution"] - 1)),
                 2 ** (self.params["resolution"] - 1) + 1,
@@ -691,24 +691,24 @@ class SAR_ADC:
             )
             # figure.tight_layout()
             # figure.suptitle('ADC Transfer Function')
-            plot[0].title.set_text("ADC Transfer Function")
-            plot[0].step(input_voltage_data, adc_data)
-            plot[0].set_ylabel("ADC code")
-            plot[0].set_yticks(y_ticks)
-            plot[0].grid(True)
+            ax[0].title.set_text("ADC Transfer Function")
+            ax[0].step(input_voltage_data, adc_data)
+            ax[0].set_ylabel("ADC code")
+            ax[0].set_yticks(y_ticks)
+            ax[0].grid(True)
             # plot[0].legend()
-            plot[1].title.set_text("Conversion energy")
-            plot[1].step(
+            ax[1].title.set_text("Conversion energy")
+            ax[1].step(
                 input_voltage_data,
                 conversion_energy_array * 1e12,
                 label="Conversion energy\n average = %.3f pJ"
                 % (conversion_energy_average * 1e12),
             )
-            plot[1].set_ylabel("Energy [pJ]")
-            plot[1].set_xlabel("Diff. input voltage [V]")
-            plot[1].grid(True)
-            plot[1].legend()
-            return figure
+            ax[1].set_ylabel("Energy [pJ]")
+            ax[1].set_xlabel("Diff. input voltage [V]")
+            ax[1].grid(True)
+            ax[1].legend()
+            return figure, ax
 
     def ideal_conversion(
         self, input_voltage_p, input_voltage_n
@@ -765,65 +765,47 @@ class SAR_ADC:
         plot[1].grid(True)
         plot[1].legend()
 
-    def compile_results(self):
+    def compile_results(self, builddir, testcase):
 
-        # open file with unique name
-        def get_unique_filename(filename):
-            base, ext = os.path.splitext(filename)
-            counter = 1
-            new_filename = filename
-            while os.path.exists(new_filename):
-                new_filename = f"{base}_{counter}{ext}"
-                counter += 1
-            return new_filename
-
-        filename = get_unique_filename("datasheet_1.pdf")
-
-        # calculate and save plots to PDF
-        pdf = PdfPages(filename)
-        figure = self.calculate_nonlinearity(do_plot=True)
-        pdf.savefig(figure)
-        figure = self.calculate_conversion_energy(do_plot=True)
-        pdf.savefig(figure)
-        figure = self.calculate_enob(do_plot=True)
-        pdf.savefig(figure)
+        figure1, ax1 = self.calculate_nonlinearity(do_plot=True)
+        plt.tight_layout()
+        plt.savefig(f"{builddir}{testcase}_nonlinearity.pdf")
+        figure2, ax2 = self.calculate_conversion_energy(do_plot=True)
+        plt.tight_layout()
+        plt.savefig(f"{builddir}{testcase}_energy.pdf")
+        figure3, ax3 = self.calculate_enob(do_plot=True)
+        plt.tight_layout()
+        plt.savefig(f"{builddir}{testcase}_enob.pdf")
 
         # Collect parameters and results
         data = [
             ("Resolution", self.params["resolution"], "bits"),
-            ("Sample frequency", self.sampling_frequency / 1.0e6, "Msps"),
-            ("LSB size", self.lsb_size / 1.0e-3, "mV"),
-            (
-                "DAC radix",
-                (
-                    self.dac.params["radix"]
-                    if not self.dac.params["use_individual_weights"]
-                    else "from array"
-                ),
-                "",
-            ),
+            ("Sample frequency", f"{self.sampling_frequency / 1.0e6:.3f}", "Msps"),
+            ("LSB size", f"{self.lsb_size / 1.0e-3:.3f}", "mV"),
+            ("DAC weights array", self.dac.weights_array, "" ),
+            ("DAC weights sum", self.dac.weights_sum, "" ),
             ("DAC capacitor array size", self.dac.params["array_size"], ""),
-            ("DAC unit capacitance", self.dac.params["unit_capacitance"] / 1e-15, "fF"),
+            ("DAC unit capacitance", f'{self.dac.params["unit_capacitance"] / 1e-15:.3f}', "fF"),
             (
                 "DAC parasitic capacitance",
-                self.dac.params["parasitic_capacitance"] / 1e-15,
+                f'{self.dac.params["parasitic_capacitance"] / 1e-15:.3f}',
                 "fF",
             ),
-            ("DAC total capacitance", f"{self.dac.capacitance_sum_p / 1e-12:.3f}", "pF"),
-            ("DAC settling error", f"{self.dac.settling_time_error/100:.2f}", "%"),
+            ("DAC total capacitance", f'{self.dac.capacitance_sum_p / 1e-12:.3f}', "pF"),
+            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "\%"), #need to escape percent sign
             (
                 "Comparator noise",
-                self.comparator.params["threshold_voltage_noise"] * 1000,
+                f'{self.comparator.params["threshold_voltage_noise"] * 1000:.3f}',
                 "mV",
             ),
             (
                 "Comparator offset",
-                self.comparator.params["offset_voltage"] * 1000,
+                f'{self.comparator.params["offset_voltage"] * 1000:.3f}',
                 "mV",
             ),
             (
                 "Reference voltage noise",
-                self.dac.params["reference_voltage_noise"] * 1000,
+                f'{self.dac.params["reference_voltage_noise"] * 1000:.3f}',
                 "mV",
             ),
             ("DNL", f"{self.dnl:.2f}", "LSB"),
@@ -831,7 +813,7 @@ class SAR_ADC:
             ("ENOB", f"{self.enob:.2f}", "bits"),
             (
                 "FOM (energy/conversion)",
-                f"{self.average_conversion_energy / self.params['resolution'] / 1e-12:.2f}",
+                f'{self.average_conversion_energy / self.params["resolution"] / 1e-12:.2f}',
                 "pJ",
             ),
         ]
@@ -839,20 +821,46 @@ class SAR_ADC:
         # Create DataFrame
         df = pd.DataFrame(data)
         df.columns = ["Parameter", "Value", "Unit"]
+        table = df.to_latex(index=False)
+        with open(f"{builddir}/{testcase}_table.tex", "w") as f:
+            f.write(table)
 
-        # Save DataFrame to PDF
-        fig, ax = plt.subplots(figsize=(8.27, 11.69))  # A4 size
-        ax.axis("tight")
-        ax.axis("off")
-        table = ax.table(
-            cellText=df.values, colLabels=df.columns, cellLoc="left", loc="center"
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.auto_set_column_width(col=list(range(len(df.columns))))
-        # table.scale(1, 1.2)
-        pdf.savefig(fig)  # , bbox_inches='tight')
-        pdf.close()
+        def combine_pdfs(testcase, builddir):
+            latex_content = f"""\\documentclass[varwidth]{{standalone}}
+\\usepackage{{graphicx}}
+\\usepackage{{subcaption}}
+\\usepackage{{booktabs}}
+
+\\begin{{document}}
+\\begin{{figure}}
+\\begin{{subfigure}}{{0.32\\textwidth}}
+    \\includegraphics[width=\\textwidth]{{{testcase}_nonlinearity.pdf}}
+\\end{{subfigure}}
+\\begin{{subfigure}}{{0.32\\textwidth}}
+    \\includegraphics[width=\\textwidth]{{{testcase}_enob.pdf}}
+\\end{{subfigure}}
+\\begin{{subfigure}}{{0.32\\textwidth}}
+    \\begin{{table}}
+    \\let\\center\\empty
+    \\let\\endcenter\\relax
+    \\centering
+    \\resizebox{{0.3\\width}}{{!}}{{\\input{{{testcase}_table.tex}}}}
+    \\end{{table}}
+    \\includegraphics[width=\\textwidth]{{{testcase}_energy.pdf}}
+\\end{{subfigure}}
+\\end{{figure}}
+
+\\end{{document}}
+"""
+            output_path = f"{builddir}/{testcase}_combine.tex"
+            with open(output_path, 'w') as f:
+                f.write(latex_content)
+            return output_path
+
+        tex_combine_file = combine_pdfs(testcase,builddir)
+        return tex_combine_file
+
+        # I'm currently relying on VSCode to run the combine.tex files, but I should manually do it.
 
     def sample_and_convert(
         self,

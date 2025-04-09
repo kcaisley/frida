@@ -8,7 +8,7 @@ Research question: How do we best allocate the quantity and weighting of SA bit 
 
 ## Workflow
 
-![](/docs/talks/workflow.svg)
+![](talks/caeleste1/workflow.svg)
 
 ## Design targets
 
