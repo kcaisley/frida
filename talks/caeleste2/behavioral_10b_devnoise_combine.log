@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024) (preloaded format=pdflatex 2025.2.5)  9 APR 2025 16:54
+This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024) (preloaded format=pdflatex 2025.2.5)  10 APR 2025 10:46
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -152,50 +152,55 @@ File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 ))
 Package caption Info: Begin \AtBeginDocument code.
 Package caption Info: End \AtBeginDocument code.
-<behavioral_10b_devnoise_nonlinearity.pdf, id=1, 722.7pt x 1228.59pt>
+<behavioral_10b_devnoise_nonlinearity.pdf, id=1, 722.7pt x 1156.32pt>
 File: behavioral_10b_devnoise_nonlinearity.pdf Graphic file (type pdf)
 <use behavioral_10b_devnoise_nonlinearity.pdf>
 Package pdftex.def Info: behavioral_10b_devnoise_nonlinearity.pdf  used on input line 9.
-(pdftex.def)             Requested size: 110.40253pt x 187.6737pt.
-<behavioral_10b_devnoise_enob.pdf, id=2, 722.7pt x 1228.59pt>
+(pdftex.def)             Requested size: 110.40253pt x 176.63408pt.
+<behavioral_10b_devnoise_redundancy.pdf, id=2, 722.7pt x 578.16pt>
+File: behavioral_10b_devnoise_redundancy.pdf Graphic file (type pdf)
+<use behavioral_10b_devnoise_redundancy.pdf>
+Package pdftex.def Info: behavioral_10b_devnoise_redundancy.pdf  used on input line 12.
+(pdftex.def)             Requested size: 110.40253pt x 88.31703pt.
+<behavioral_10b_devnoise_enob.pdf, id=3, 722.7pt x 578.16pt>
 File: behavioral_10b_devnoise_enob.pdf Graphic file (type pdf)
 <use behavioral_10b_devnoise_enob.pdf>
-Package pdftex.def Info: behavioral_10b_devnoise_enob.pdf  used on input line 12.
-(pdftex.def)             Requested size: 110.40253pt x 187.6737pt.
+Package pdftex.def Info: behavioral_10b_devnoise_enob.pdf  used on input line 13.
+(pdftex.def)             Requested size: 110.40253pt x 88.31703pt.
  (./behavioral_10b_devnoise_table.tex
 LaTeX Font Info:    External font `cmex10' loaded for size
 (Font)              <7> on input line 1.
 LaTeX Font Info:    External font `cmex10' loaded for size
 (Font)              <5> on input line 1.
 )
-<behavioral_10b_devnoise_energy.pdf, id=3, 722.7pt x 578.16pt>
+<behavioral_10b_devnoise_energy.pdf, id=4, 722.7pt x 578.16pt>
 File: behavioral_10b_devnoise_energy.pdf Graphic file (type pdf)
 <use behavioral_10b_devnoise_energy.pdf>
-Package pdftex.def Info: behavioral_10b_devnoise_energy.pdf  used on input line 21.
+Package pdftex.def Info: behavioral_10b_devnoise_energy.pdf  used on input line 22.
 (pdftex.def)             Requested size: 110.40253pt x 88.31703pt.
 
 
 [1
 
-{/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map} <./behavioral_10b_devnoise_nonlinearity.pdf> <./behavioral_10b_devnoise_enob.pdf> <./behavioral_10b_devnoise_energy.pdf>] (./behavioral_10b_devnoise_combine.aux)
+{/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map} <./behavioral_10b_devnoise_nonlinearity.pdf> <./behavioral_10b_devnoise_redundancy.pdf> <./behavioral_10b_devnoise_enob.pdf> <./behavioral_10b_devnoise_energy.pdf>] (./behavioral_10b_devnoise_combine.aux)
  ***********
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-01-18>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 3459 strings out of 473201
- 63367 string characters out of 5716127
+ 3466 strings out of 473201
+ 63705 string characters out of 5716127
  455499 words of memory out of 5000000
- 26712 multiletter control sequences out of 15000+600000
+ 26719 multiletter control sequences out of 15000+600000
  558837 words of font info for 36 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  83i,12n,131p,367b,428s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb>
-Output written on behavioral_10b_devnoise_combine.pdf (1 page, 302116 bytes).
+Output written on behavioral_10b_devnoise_combine.pdf (1 page, 303600 bytes).
 PDF statistics:
- 158 PDF objects out of 1000 (max. 8388607)
- 22 compressed objects within 1 object stream
+ 188 PDF objects out of 1000 (max. 8388607)
+ 27 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
- 16 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 21 words of extra memory for PDF output out of 10000 (max. 10000000)
 

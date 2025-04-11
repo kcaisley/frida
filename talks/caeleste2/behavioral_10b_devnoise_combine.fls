@@ -71,6 +71,11 @@ INPUT ./behavioral_10b_devnoise_nonlinearity.pdf
 INPUT ./behavioral_10b_devnoise_nonlinearity.pdf
 OUTPUT behavioral_10b_devnoise_combine.pdf
 INPUT ./behavioral_10b_devnoise_nonlinearity.pdf
+INPUT ./behavioral_10b_devnoise_redundancy.pdf
+INPUT ./behavioral_10b_devnoise_redundancy.pdf
+INPUT ./behavioral_10b_devnoise_redundancy.pdf
+INPUT ./behavioral_10b_devnoise_redundancy.pdf
+INPUT ./behavioral_10b_devnoise_redundancy.pdf
 INPUT ./behavioral_10b_devnoise_enob.pdf
 INPUT ./behavioral_10b_devnoise_enob.pdf
 INPUT ./behavioral_10b_devnoise_enob.pdf

@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1744210461.3445 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_noisy_scadec_combine.tex" "behavioral_10b_noisy_scadec_combine.pdf" "behavioral_10b_noisy_scadec_combine" 1744210461.84968 0
-  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_noisy_scadec_combine.tex" 1744210461.13112 730 18b8b2c774b83944e067e7a5c9140780 ""
+["pdflatex"] 1744274710.71187 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_noisy_scadec_combine.tex" "behavioral_10b_noisy_scadec_combine.pdf" "behavioral_10b_noisy_scadec_combine" 1744274711.2581 0
+  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_noisy_scadec_combine.tex" 1744272944.14679 813 20f60be33a3f0fa7f0953d085301f23f ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/local/texlive/2024/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
   "/usr/local/texlive/2024/texmf-dist/tex/generic/iftex/ifluatex.sty" 1572645307 492 1994775aa15b0d1289725a0b1bbc2d4c ""
@@ -33,12 +33,13 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1738755031 5466570 e8651e7fa7bb054fee9a07d3f37faf28 ""
   "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1738755093 3352588 23d9f17f7e462963c5e2cbcca750d8e5 ""
   "/usr/local/texlive/2024/texmf.cnf" 1738755025.26071 455 5b996dcaa0eb4ef14a83b026bc0a008c ""
-  "behavioral_10b_noisy_scadec_combine.aux" 1744210461.80411 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
-  "behavioral_10b_noisy_scadec_combine.tex" 1744210461.13112 730 18b8b2c774b83944e067e7a5c9140780 ""
-  "behavioral_10b_noisy_scadec_energy.pdf" 1744210340.7495 31337 42d5848d8360fd1fdc0705029ef21237 ""
-  "behavioral_10b_noisy_scadec_enob.pdf" 1744210344.35646 160496 1e9cdcae157697faa0654f0d95bf2c04 ""
-  "behavioral_10b_noisy_scadec_nonlinearity.pdf" 1744210340.11751 99899 94b06e1930dfa12e50af16b61be69619 ""
-  "behavioral_10b_noisy_scadec_table.tex" 1744210344.36246 679 7695a9f428d283ae5111542e4e31feab ""
+  "behavioral_10b_noisy_scadec_combine.aux" 1744274711.19551 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "behavioral_10b_noisy_scadec_combine.tex" 1744272944.14679 813 20f60be33a3f0fa7f0953d085301f23f ""
+  "behavioral_10b_noisy_scadec_energy.pdf" 1744272940.53483 32066 ffa0c9c840d0e2ec33da77cbf262eab7 ""
+  "behavioral_10b_noisy_scadec_enob.pdf" 1744272944.03679 155986 bb311d743d684ce4547520bbfdd96ba5 ""
+  "behavioral_10b_noisy_scadec_nonlinearity.pdf" 1744272939.69584 98748 465437d06bdf9e38cdb28b1a507ed58e ""
+  "behavioral_10b_noisy_scadec_redundancy.pdf" 1744272944.14379 13715 68d70b86393785182920c12351ba7bfd ""
+  "behavioral_10b_noisy_scadec_table.tex" 1744274710.50352 684 d4f4406e4c7b8e9ccedff3a5499b2219 ""
   (generated)
   "behavioral_10b_noisy_scadec_combine.aux"
   "behavioral_10b_noisy_scadec_combine.log"

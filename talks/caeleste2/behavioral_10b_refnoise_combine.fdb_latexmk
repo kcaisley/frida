@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1744210163.8392 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_refnoise_combine.tex" "behavioral_10b_refnoise_combine.pdf" "behavioral_10b_refnoise_combine" 1744210164.37319 0
-  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_refnoise_combine.tex" 1744210102.80422 714 cf108d97d7d628273d9a0252a3378b33 ""
+["pdflatex"] 1744274675.50267 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_refnoise_combine.tex" "behavioral_10b_refnoise_combine.pdf" "behavioral_10b_refnoise_combine" 1744274676.02784 0
+  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_refnoise_combine.tex" 1744274675.28589 793 ee7dc251e747b610fbaafb8e983915de ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/local/texlive/2024/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
   "/usr/local/texlive/2024/texmf-dist/tex/generic/iftex/ifluatex.sty" 1572645307 492 1994775aa15b0d1289725a0b1bbc2d4c ""
@@ -33,12 +33,13 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1738755031 5466570 e8651e7fa7bb054fee9a07d3f37faf28 ""
   "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1738755093 3352588 23d9f17f7e462963c5e2cbcca750d8e5 ""
   "/usr/local/texlive/2024/texmf.cnf" 1738755025.26071 455 5b996dcaa0eb4ef14a83b026bc0a008c ""
-  "behavioral_10b_refnoise_combine.aux" 1744210164.31352 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
-  "behavioral_10b_refnoise_combine.tex" 1744210102.80422 714 cf108d97d7d628273d9a0252a3378b33 ""
-  "behavioral_10b_refnoise_energy.pdf" 1744210100.24225 30428 e8ea8e326629f989a218602e76b4ceac ""
-  "behavioral_10b_refnoise_enob.pdf" 1744210102.80022 150292 9970bfc9f6e90f3bc7493e4014f0642c ""
-  "behavioral_10b_refnoise_nonlinearity.pdf" 1744210099.71026 92587 0ce0137f0c68b7ae9ad5c25cc2981fca ""
-  "behavioral_10b_refnoise_table.tex" 1744210163.62553 666 46a8350717948be006ecb9f3a5f3b1e4 ""
+  "behavioral_10b_refnoise_combine.aux" 1744274675.98488 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "behavioral_10b_refnoise_combine.tex" 1744274675.28589 793 ee7dc251e747b610fbaafb8e983915de ""
+  "behavioral_10b_refnoise_energy.pdf" 1744272791.54328 31461 845aa32321c14514c4530b149095e3c9 ""
+  "behavioral_10b_refnoise_enob.pdf" 1744272793.98626 150273 726e40b2ebf10674ab6f29c1af9c1d4c ""
+  "behavioral_10b_refnoise_nonlinearity.pdf" 1744272791.07728 95275 9001e6fa16232e123e875a9122df7309 ""
+  "behavioral_10b_refnoise_redundancy.pdf" 1744272794.10026 13450 aa52120fceee167ab4f11dfc71201f34 ""
+  "behavioral_10b_refnoise_table.tex" 1744272794.10426 671 b79a605a2949cbb46372a0c4aa2fc5b6 ""
   (generated)
   "behavioral_10b_refnoise_combine.aux"
   "behavioral_10b_refnoise_combine.log"

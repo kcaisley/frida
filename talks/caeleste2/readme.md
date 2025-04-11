@@ -1,21 +1,50 @@
+# Meeting notes:
+
+- splitting up MSB and switching it one by one improves linearity (in the extreme, you would have a thermeter code DAC array, which would have gurantee monotonic linearity)
+- express error in terms of LSB, it's better than ENOB spec
+- why is my ENOB calculation wrong. Thermal noise close to LSB should be -1.7 ENOB approximately
+- One deliverable: monte-carlo run of ADC non-linearity (especially MSB error) for a given level of random variation of unit cap
+	- Unit cap variation: 1/sqrt(N)
+- thermal noise is easy: kT/C noise
+- to address reference noise: clean supply
+- threshold noise: my 1mV measured value is way too high
+- 16, 20 wires
+- 12 effective bits
+- fix LSB in terms of error
+- credible value for noise of the comparator, in uV rms, in Spectre at a fixed speed (simulator bandwidth needs to be 10x circuit bandwidth)
+	- don't need layout, just add some dummy capacitance
+	- buffer and without buffer (it depends on kickback!)
+-is my understanding of shift vs subradix correct?
+	- check the code to make sure it's correctly recombined
+-   
+
+# To do list for meeting
+
 - [x] fix decimal places to 3f in specs table
 - [x] add array of weights
-- [ ] add weights total
-- [ ] fix pJ fom label to be per conversion 
-- [ ] add Walden FOM
+- [x] add weights total (and plus one)
 - [x] page numbers
-- [ ] run 3-4 more cases
+- [x] Add all device and reference noise checks
+  - [ ] Results look reasonable?
 - [x] generate table latex from pandas dataframe
 - [x] write .tex directily
+- [x] fix base case dropped bins
+- [ ] Add all device and reference noise checks
+  - [ ] Results look reasonable?
+- [x] Add plot on redundancy throughout chain
+  - [ ] Add to top level
+  - [ ] remove sine wave input chat
+  - [ ] scale to -35 to +55 percent
+- [ ] Check the unary and post conversion plots, as they look weird?
+
+- [ ] simply the run cases so that I can simply specify the cases,
 - [ ] add slides on theory / prior art from each paper I read
-- [ ] add slides on cap designs?
 - [ ] add slide with table on sampling noise and relationship to input cap
-- [ ] add slide with link to repo (clean up readme file)
-- [ ] change background of inkscape slides to white
-- [ ] remove sine wave, 
 - [ ] Add summary with different digital correction logics (with chart from HS Tsai 2015)
 - [ ] add methodology slide
-  - [ ] add note that our simulation is 4.5 orders of maginitude faster than spice (25 seconds vs 20-30 hours)
+  - [ ] add note that our simulation is 4.5 orders of magnitude faster than spice (25 seconds vs 20-30 hours)
+- [ ] add slides on cap designs?
+- [ ] Check if Inkscape slides still have blue background?
 
 
 # Outline for meeting

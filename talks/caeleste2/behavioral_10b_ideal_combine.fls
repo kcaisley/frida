@@ -71,6 +71,11 @@ INPUT ./behavioral_10b_ideal_nonlinearity.pdf
 INPUT ./behavioral_10b_ideal_nonlinearity.pdf
 OUTPUT behavioral_10b_ideal_combine.pdf
 INPUT ./behavioral_10b_ideal_nonlinearity.pdf
+INPUT ./behavioral_10b_ideal_redundancy.pdf
+INPUT ./behavioral_10b_ideal_redundancy.pdf
+INPUT ./behavioral_10b_ideal_redundancy.pdf
+INPUT ./behavioral_10b_ideal_redundancy.pdf
+INPUT ./behavioral_10b_ideal_redundancy.pdf
 INPUT ./behavioral_10b_ideal_enob.pdf
 INPUT ./behavioral_10b_ideal_enob.pdf
 INPUT ./behavioral_10b_ideal_enob.pdf

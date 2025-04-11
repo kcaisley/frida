@@ -71,6 +71,11 @@ INPUT ./behavioral_10b_refnoise_nonlinearity.pdf
 INPUT ./behavioral_10b_refnoise_nonlinearity.pdf
 OUTPUT behavioral_10b_refnoise_combine.pdf
 INPUT ./behavioral_10b_refnoise_nonlinearity.pdf
+INPUT ./behavioral_10b_refnoise_redundancy.pdf
+INPUT ./behavioral_10b_refnoise_redundancy.pdf
+INPUT ./behavioral_10b_refnoise_redundancy.pdf
+INPUT ./behavioral_10b_refnoise_redundancy.pdf
+INPUT ./behavioral_10b_refnoise_redundancy.pdf
 INPUT ./behavioral_10b_refnoise_enob.pdf
 INPUT ./behavioral_10b_refnoise_enob.pdf
 INPUT ./behavioral_10b_refnoise_enob.pdf

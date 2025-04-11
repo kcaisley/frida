@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1744210468.91289 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_ideal_combine.tex" "behavioral_10b_ideal_combine.pdf" "behavioral_10b_ideal_combine" 1744210469.41561 0
-  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_ideal_combine.tex" 1744210468.70103 702 759b655022b1cc2996e855287547382c ""
+["pdflatex"] 1744274783.256 "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_ideal_combine.tex" "behavioral_10b_ideal_combine.pdf" "behavioral_10b_ideal_combine" 1744274783.76959 0
+  "/users/kcaisley/helena/talks/caeleste2/behavioral_10b_ideal_combine.tex" 1744274783.04175 778 f2cc6f547e6083e709aa1341da899e90 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/local/texlive/2024/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
   "/usr/local/texlive/2024/texmf-dist/tex/generic/iftex/ifluatex.sty" 1572645307 492 1994775aa15b0d1289725a0b1bbc2d4c ""
@@ -33,12 +33,13 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1738755031 5466570 e8651e7fa7bb054fee9a07d3f37faf28 ""
   "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1738755093 3352588 23d9f17f7e462963c5e2cbcca750d8e5 ""
   "/usr/local/texlive/2024/texmf.cnf" 1738755025.26071 455 5b996dcaa0eb4ef14a83b026bc0a008c ""
-  "behavioral_10b_ideal_combine.aux" 1744210469.37402 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
-  "behavioral_10b_ideal_combine.tex" 1744210468.70103 702 759b655022b1cc2996e855287547382c ""
-  "behavioral_10b_ideal_energy.pdf" 1744210308.93687 32755 1ec352df10e8dbec5befe6cfdc804fd1 ""
-  "behavioral_10b_ideal_enob.pdf" 1744210311.47084 130810 e6ce94231f7123dc1bab84190473bb44 ""
-  "behavioral_10b_ideal_nonlinearity.pdf" 1744210308.45287 36917 1e98a1b2f5f221d7534b78c9f15bcda8 ""
-  "behavioral_10b_ideal_table.tex" 1744210311.53384 666 3d64fe8d2b63cc097d214be03e5f9d09 ""
+  "behavioral_10b_ideal_combine.aux" 1744274783.73074 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "behavioral_10b_ideal_combine.tex" 1744274783.04175 778 f2cc6f547e6083e709aa1341da899e90 ""
+  "behavioral_10b_ideal_energy.pdf" 1744272747.60072 32755 3b0d55f58b03e9f03d9f9de5ac8674e9 ""
+  "behavioral_10b_ideal_enob.pdf" 1744272750.0427 128521 a0dfeb5f81f4fd1c7eccb1a131ae5966 ""
+  "behavioral_10b_ideal_nonlinearity.pdf" 1744272747.11673 37291 8e5284e2497291b902365b58aecf8893 ""
+  "behavioral_10b_ideal_redundancy.pdf" 1744272750.1547 13450 e697a96cea185d1c4c5d77ff467419f1 ""
+  "behavioral_10b_ideal_table.tex" 1744272750.2157 671 33da0e52f80e6f374a26434cb3c17bd9 ""
   (generated)
   "behavioral_10b_ideal_combine.aux"
   "behavioral_10b_ideal_combine.log"

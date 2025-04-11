@@ -94,7 +94,7 @@ class CDAC:
             if dac_dnl_std < 0.0001:
                 plot[1].set_ylim(-1, 1)
             plot[1].set_ylabel("DNL [LSB]")
-            plot[1].legend()
+            plot[1].legend(loc="upper right")
             plot[1].grid(True)
             plot[2].step(
                 reg_data[:-1], inl_data, where="post", label="INL = %.3f" % dac_inl_std
@@ -102,7 +102,7 @@ class CDAC:
             if dac_inl_std < 0.0001:
                 plot[2].set_ylim(-1, 1)
             plot[2].set_ylabel("INL [LSB]")
-            plot[2].legend()
+            plot[2].legend(loc="upper right")
             plot[2].set_xlabel("Digital code")
             plot[2].grid(True)
 
@@ -485,8 +485,8 @@ class SAR_ADC:
         - The number of codes...
         """
         values_per_bin = 100  # number of values per bin for DNL/INL calculation
-        lower_excluded_bins = 1  # lower bound for DNL/INL calculation in LSB
-        upper_excluded_bins = 1  # upper bound for DNL/INL calculation in LSB distance from full scale
+        lower_excluded_bins = 4  # lower bound for DNL/INL calculation in LSB
+        upper_excluded_bins = 4  # upper bound for DNL/INL calculation in LSB distance from full scale
 
         # helper variables
         min_code = -(
@@ -549,7 +549,7 @@ class SAR_ADC:
                 min_code, max_code + 10, 2 ** (self.params["resolution"] - 3)
             )
             plot_title = "ADC Nonlinearity"
-            figure, plot = plt.subplots(4, 1, sharex=True, figsize = (10,17))
+            figure, plot = plt.subplots(4, 1, sharex=True, figsize = (10,16))
             # figure.tight_layout()
             # figure.suptitle(plot_title)
             plot[0].title.set_text("ADC Transfer Function")
@@ -567,7 +567,7 @@ class SAR_ADC:
             )
             plot[1].set_xticks(x_ticks)
             plot[1].set_ylabel("Counts per ADC code")
-            plot[1].legend()
+            plot[1].legend(loc="upper right")
             plot[1].grid(True)
             plot[2].title.set_text("Differential Nonlinearity")
 
@@ -576,7 +576,7 @@ class SAR_ADC:
             )
             plot[2].set_ylim(-2, 2)
             plot[2].set_ylabel("DNL [LSB]")
-            plot[2].legend()
+            plot[2].legend(loc="upper right")
             plot[2].grid(True)
             plot[3].title.set_text("Integral Nonlinearity")
             plot[3].step(
@@ -584,7 +584,7 @@ class SAR_ADC:
             )
             plot[3].set_ylim(-2, 2)
             plot[3].set_ylabel("INL [LSB]")
-            plot[3].legend()
+            plot[3].legend(loc="upper right")
             plot[3].set_xlabel("ADC code")
             plot[3].grid(True)
 
@@ -628,25 +628,29 @@ class SAR_ADC:
 
         if do_plot:
             plot_title = "ENOB Calculation"
-            figure, ax = plt.subplots(3, 1, sharex=True, figsize = (10,17))
+            figure, ax = plt.subplots(2, 1, sharex=True, figsize = (10,8))
             figure.suptitle(plot_title)
+            # Disabled to fit in the redundancy chart on the dashboard view
             # plot adc data
-            ax[0].plot(time_array, input_voltage_array, label="Input voltage")
-            ax[0].legend()
-            ax[1].stairs(
+            # ax[0].plot(time_array, input_voltage_array, label="Input voltage")
+            # ax[0].legend(loc="upper right")
+            ax[0].stairs(
                 adc_data_array[: len(time_array) - 1],
                 time_array,
                 baseline=False,
                 label="ADC code",
             )
-            ax[1].legend(loc="upper right")
-            ax[2].plot(
+            ax[0].legend(loc="upper right")
+            ax[0].grid(True)
+            ax[1].plot(
                 time_array,
                 residual_array,
                 label="Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f"
                 % (noise_std, self.enob),
             )
-            ax[2].legend()
+            ax[1].legend(loc="upper right")
+            ax[1].grid(True)
+            ax[1].set_ylim(-6,6)
             return figure, ax
 
     def calculate_conversion_energy(self, do_plot=False):
@@ -707,12 +711,39 @@ class SAR_ADC:
             ax[1].set_ylabel("Energy [pJ]")
             ax[1].set_xlabel("Diff. input voltage [V]")
             ax[1].grid(True)
-            ax[1].legend()
+            ax[1].legend(loc="upper right")
+            return figure, ax
+
+    # redundancy should express, if a bit decision error is made on bit i, what error should be expected by the end
+    # a bit positions weight determines the error it can introduce, so you'd like to make sure each bit is not larger than the remaining sum of bits.
+    # what we are actually calculating is the 'error tolerance range'. Think about settling error.
+    # So it we can tolerate 12.5% of a bit position, this means that the weight of the remaining bits should be 12.5% larger than current bit.
+    def calculate_redundancy(self, do_plot=False):
+        weights = self.dac.weights_array.tolist()
+        # Calculate the cumulative sum from the end, then subtract the current value
+        self.redundancy = []
+        step_ticks = []
+        for i,value in enumerate(weights[:-1]):
+            self.redundancy.append((sum(weights[i+1:]) - weights[i])/sum(weights[i:])*100)
+            step_ticks.append(i)
+        print(f"Error tolerance for step [i]: {self.redundancy}")
+
+        if do_plot:
+            figure, ax = plt.subplots(1, 1, figsize = (10,8))
+            figure.suptitle("Error Tolerance @ step [i] in percent [%]")
+            ax.plot(step_ticks, self.redundancy, label="Error tolerance [%]")
+            ax.set_xlabel("Conversion Step [i]")
+            ax.set_ylabel("Error Tolerance [%]")
+            ax.set_ylim(-35,55)
+            ax.grid(True)
+            ax.legend(loc="upper right")
+
             return figure, ax
 
     def ideal_conversion(
         self, input_voltage_p, input_voltage_n
     ):  # FIXME: This isn't implemented for non-binary! It's coloring the chart RED!
+        # NOTE: tHI
         # ideal conversion
         ideal_adc_code = int(
             np.round((input_voltage_p - input_voltage_n) / self.lsb_size - 0.5)
@@ -742,28 +773,28 @@ class SAR_ADC:
 
         input_voltage_data_lsb = input_voltage_data / self.lsb_size + 0.5
 
-        figure, plot = plt.subplots(2, 1, sharex=True)
+        figure, ax = plt.subplots(2, 1, sharex=True)
         # y_ticks = range(0, 2**self.params['resolution']+10, 2**(self.params['resolution']-2))
         # y_ticks = range(-2**(self.params['resolution']-1), 2**(self.params['resolution']-1)+1, 2**(self.params['resolution']-2))
         figure.suptitle("ADC Transfer Function")
-        plot[0].step(input_voltage_data, adc_data, label="ADC transfer function")
-        plot[0].plot(
+        ax[0].step(input_voltage_data, adc_data, label="ADC transfer function")
+        ax[0].plot(
             input_voltage_data,
             input_voltage_data_lsb,
             "r--",
             label="Ideal transfer function",
         )
-        plot[0].set_ylabel("ADC code")
+        ax[0].set_ylabel("ADC code")
         # plot[0].set_yticks(y_ticks)
-        plot[0].grid(True)
-        plot[0].legend()
-        plot[1].set_xlabel("Diff. input voltage [V]")
-        plot[1].step(
+        ax[0].grid(True)
+        ax[0].legend(loc="upper right")
+        ax[1].set_xlabel("Diff. input voltage [V]")
+        ax[1].step(
             input_voltage_data, adc_data - input_voltage_data_lsb, label="Residuals"
         )
-        plot[1].set_ylabel("Error [LSB]")
-        plot[1].grid(True)
-        plot[1].legend()
+        ax[1].set_ylabel("Error [LSB]")
+        ax[1].grid(True)
+        ax[1].legend(loc="upper right")
 
     def compile_results(self, builddir, testcase):
 
@@ -771,11 +802,17 @@ class SAR_ADC:
         plt.tight_layout()
         plt.savefig(f"{builddir}{testcase}_nonlinearity.pdf")
         figure2, ax2 = self.calculate_conversion_energy(do_plot=True)
+
         plt.tight_layout()
         plt.savefig(f"{builddir}{testcase}_energy.pdf")
+
         figure3, ax3 = self.calculate_enob(do_plot=True)
         plt.tight_layout()
         plt.savefig(f"{builddir}{testcase}_enob.pdf")
+
+        figure4, ax4 = self.calculate_redundancy(do_plot=True)
+        plt.tight_layout()
+        plt.savefig(f"{builddir}{testcase}_redundancy.pdf")
 
         # Collect parameters and results
         data = [
@@ -783,7 +820,7 @@ class SAR_ADC:
             ("Sample frequency", f"{self.sampling_frequency / 1.0e6:.3f}", "Msps"),
             ("LSB size", f"{self.lsb_size / 1.0e-3:.3f}", "mV"),
             ("DAC weights array", self.dac.weights_array, "" ),
-            ("DAC weights sum", self.dac.weights_sum, "" ),
+            ("DAC weights sum (+1)", self.dac.weights_sum+1, "" ),
             ("DAC capacitor array size", self.dac.params["array_size"], ""),
             ("DAC unit capacitance", f'{self.dac.params["unit_capacitance"] / 1e-15:.3f}', "fF"),
             (
@@ -792,7 +829,7 @@ class SAR_ADC:
                 "fF",
             ),
             ("DAC total capacitance", f'{self.dac.capacitance_sum_p / 1e-12:.3f}', "pF"),
-            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "\%"), #need to escape percent sign
+            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "\%"), # need to escape percent sign
             (
                 "Comparator noise",
                 f'{self.comparator.params["threshold_voltage_noise"] * 1000:.3f}',
@@ -837,6 +874,7 @@ class SAR_ADC:
     \\includegraphics[width=\\textwidth]{{{testcase}_nonlinearity.pdf}}
 \\end{{subfigure}}
 \\begin{{subfigure}}{{0.32\\textwidth}}
+    \\includegraphics[width=\\textwidth]{{{testcase}_redundancy.pdf}}
     \\includegraphics[width=\\textwidth]{{{testcase}_enob.pdf}}
 \\end{{subfigure}}
 \\begin{{subfigure}}{{0.32\\textwidth}}
@@ -860,7 +898,7 @@ class SAR_ADC:
         tex_combine_file = combine_pdfs(testcase,builddir)
         return tex_combine_file
 
-        # I'm currently relying on VSCode to run the combine.tex files, but I should manually do it.
+        # FIXME: I'm currently relying on VSCode to run the combine.tex files, but I should manually do it.
 
     def sample_and_convert(
         self,

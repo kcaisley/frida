@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024) (preloaded format=pdflatex 2025.2.5)  9 APR 2025 16:55
+This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024) (preloaded format=pdflatex 2025.2.5)  10 APR 2025 13:46
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -541,24 +541,24 @@ File: l3backend-pdftex.def 2024-05-08 L3 backend support: PDF output (pdfTeX)
 ) (./top.aux)
 \openout1 = `top.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 14.
-LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 16.
+LaTeX Font Info:    ... okay on input line 16.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -613,60 +613,60 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 48
  (/usr/local/texlive/2024/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 ))
-Package hyperref Info: Link coloring OFF on input line 14.
+Package hyperref Info: Link coloring OFF on input line 16.
  (./top.out) (./top.out)
 \@outlinefile=\write5
 \openout5 = `top.out'.
 
 LaTeX Font Info:    Overwriting symbol font `operators' in version `normal'
-(Font)                  OT1/cmr/m/n --> OT1/cmss/m/n on input line 14.
+(Font)                  OT1/cmr/m/n --> OT1/cmss/m/n on input line 16.
 LaTeX Font Info:    Overwriting symbol font `operators' in version `bold'
-(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 14.
+(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 16.
 \symnumbers=\mathgroup6
 \sympureletters=\mathgroup7
 LaTeX Font Info:    Overwriting math alphabet `\mathrm' in version `normal'
-(Font)                  OT1/cmss/m/n --> OT1/cmr/m/n on input line 14.
-LaTeX Font Info:    Redeclaring math alphabet \mathbf on input line 14.
+(Font)                  OT1/cmss/m/n --> OT1/cmr/m/n on input line 16.
+LaTeX Font Info:    Redeclaring math alphabet \mathbf on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathbf' in version `normal'
-(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 14.
+(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathbf' in version `bold'
-(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 14.
-LaTeX Font Info:    Redeclaring math alphabet \mathsf on input line 14.
+(Font)                  OT1/cmr/bx/n --> OT1/cmss/b/n on input line 16.
+LaTeX Font Info:    Redeclaring math alphabet \mathsf on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `normal'
-(Font)                  OT1/cmss/m/n --> OT1/cmss/m/n on input line 14.
+(Font)                  OT1/cmss/m/n --> OT1/cmss/m/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `bold'
-(Font)                  OT1/cmss/bx/n --> OT1/cmss/m/n on input line 14.
-LaTeX Font Info:    Redeclaring math alphabet \mathit on input line 14.
+(Font)                  OT1/cmss/bx/n --> OT1/cmss/m/n on input line 16.
+LaTeX Font Info:    Redeclaring math alphabet \mathit on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `normal'
-(Font)                  OT1/cmr/m/it --> OT1/cmss/m/it on input line 14.
+(Font)                  OT1/cmr/m/it --> OT1/cmss/m/it on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `bold'
-(Font)                  OT1/cmr/bx/it --> OT1/cmss/m/it on input line 14.
-LaTeX Font Info:    Redeclaring math alphabet \mathtt on input line 14.
+(Font)                  OT1/cmr/bx/it --> OT1/cmss/m/it on input line 16.
+LaTeX Font Info:    Redeclaring math alphabet \mathtt on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `normal'
-(Font)                  OT1/cmtt/m/n --> OT1/cmtt/m/n on input line 14.
+(Font)                  OT1/cmtt/m/n --> OT1/cmtt/m/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `bold'
-(Font)                  OT1/cmtt/m/n --> OT1/cmtt/m/n on input line 14.
+(Font)                  OT1/cmtt/m/n --> OT1/cmtt/m/n on input line 16.
 LaTeX Font Info:    Overwriting symbol font `numbers' in version `bold'
-(Font)                  OT1/cmss/m/n --> OT1/cmss/b/n on input line 14.
+(Font)                  OT1/cmss/m/n --> OT1/cmss/b/n on input line 16.
 LaTeX Font Info:    Overwriting symbol font `pureletters' in version `bold'
-(Font)                  OT1/cmss/m/it --> OT1/cmss/b/it on input line 14.
+(Font)                  OT1/cmss/m/it --> OT1/cmss/b/it on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathrm' in version `bold'
-(Font)                  OT1/cmss/b/n --> OT1/cmr/b/n on input line 14.
+(Font)                  OT1/cmss/b/n --> OT1/cmr/b/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathbf' in version `bold'
-(Font)                  OT1/cmss/b/n --> OT1/cmss/b/n on input line 14.
+(Font)                  OT1/cmss/b/n --> OT1/cmss/b/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathsf' in version `bold'
-(Font)                  OT1/cmss/m/n --> OT1/cmss/b/n on input line 14.
+(Font)                  OT1/cmss/m/n --> OT1/cmss/b/n on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathit' in version `bold'
-(Font)                  OT1/cmss/m/it --> OT1/cmss/b/it on input line 14.
+(Font)                  OT1/cmss/m/it --> OT1/cmss/b/it on input line 16.
 LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `bold'
-(Font)                  OT1/cmtt/m/n --> OT1/cmtt/b/n on input line 14.
-LaTeX Font Info:    Redeclaring symbol font `pureletters' on input line 14.
+(Font)                  OT1/cmtt/m/n --> OT1/cmtt/b/n on input line 16.
+LaTeX Font Info:    Redeclaring symbol font `pureletters' on input line 16.
 LaTeX Font Info:    Overwriting symbol font `pureletters' in version `normal'
-(Font)                  OT1/cmss/m/it --> OT1/mathkerncmss/m/sl on input line 14.
+(Font)                  OT1/cmss/m/it --> OT1/mathkerncmss/m/sl on input line 16.
 LaTeX Font Info:    Overwriting symbol font `pureletters' in version `bold'
-(Font)                  OT1/cmss/b/it --> OT1/mathkerncmss/m/sl on input line 14.
+(Font)                  OT1/cmss/b/it --> OT1/mathkerncmss/m/sl on input line 16.
 LaTeX Font Info:    Overwriting symbol font `pureletters' in version `bold'
-(Font)                  OT1/mathkerncmss/m/sl --> OT1/mathkerncmss/bx/sl on input line 14.
+(Font)                  OT1/mathkerncmss/m/sl --> OT1/mathkerncmss/bx/sl on input line 16.
  (/usr/local/texlive/2024/texmf-dist/tex/latex/translator/translator-basic-dictionary-English.dict
 Dictionary: translator-basic-dictionary, Language: English 
 ) (/usr/local/texlive/2024/texmf-dist/tex/latex/translator/translator-bibliography-dictionary-English.dict
@@ -685,203 +685,431 @@ pdfTeX warning: pdflatex (file ./title.pdf): PDF inclusion: found PDF version <1
 <title.pdf, id=13, 728.4759pt x 409.77658pt>
 File: title.pdf Graphic file (type pdf)
 <use title.pdf>
-Package pdftex.def Info: title.pdf  used on input line 15.
+Package pdftex.def Info: title.pdf  used on input line 17.
 (pdftex.def)             Requested size: 398.3386pt x 224.071pt.
 
 
 [1
 
 {/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map} <./title.pdf>]
-<tem1.pdf, id=57, 1445.4pt x 813.0375pt>
+<tem1.pdf, id=35, 1445.4pt x 813.0375pt>
 File: tem1.pdf Graphic file (type pdf)
 <use tem1.pdf>
-Package pdftex.def Info: tem1.pdf  used on input line 16.
+Package pdftex.def Info: tem1.pdf  used on input line 19.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [2
 
  <./tem1.pdf>]
-<tem2.pdf, id=91, 1445.4pt x 813.0375pt>
+<tem2.pdf, id=49, 1445.4pt x 813.0375pt>
 File: tem2.pdf Graphic file (type pdf)
 <use tem2.pdf>
-Package pdftex.def Info: tem2.pdf  used on input line 17.
+Package pdftex.def Info: tem2.pdf  used on input line 20.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [3
 
  <./tem2.pdf>]
-<tem3.pdf, id=144, 1445.4pt x 813.0375pt>
+<tem3.pdf, id=81, 1445.4pt x 813.0375pt>
 File: tem3.pdf Graphic file (type pdf)
 <use tem3.pdf>
-Package pdftex.def Info: tem3.pdf  used on input line 18.
+Package pdftex.def Info: tem3.pdf  used on input line 21.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [4
 
  <./tem3.pdf>]
-<arch1.pdf, id=432, 1445.4pt x 813.0375pt>
+<arch1.pdf, id=349, 1445.4pt x 813.0375pt>
 File: arch1.pdf Graphic file (type pdf)
 <use arch1.pdf>
-Package pdftex.def Info: arch1.pdf  used on input line 19.
+Package pdftex.def Info: arch1.pdf  used on input line 22.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [5
 
  <./arch1.pdf>]
-<arch2.pdf, id=472, 1445.4pt x 813.0375pt>
+<arch2.pdf, id=369, 1445.4pt x 813.0375pt>
 File: arch2.pdf Graphic file (type pdf)
 <use arch2.pdf>
-Package pdftex.def Info: arch2.pdf  used on input line 20.
+Package pdftex.def Info: arch2.pdf  used on input line 23.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [6
 
  <./arch2.pdf>]
-<arch3.pdf, id=524, 1445.4pt x 813.0375pt>
+<arch3.pdf, id=401, 1445.4pt x 813.0375pt>
 File: arch3.pdf Graphic file (type pdf)
 <use arch3.pdf>
-Package pdftex.def Info: arch3.pdf  used on input line 21.
+Package pdftex.def Info: arch3.pdf  used on input line 24.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [7
 
  <./arch3.pdf>]
-<arch4.pdf, id=572, 1445.4pt x 813.0375pt>
+<arch4.pdf, id=428, 1445.4pt x 813.0375pt>
 File: arch4.pdf Graphic file (type pdf)
 <use arch4.pdf>
-Package pdftex.def Info: arch4.pdf  used on input line 22.
+Package pdftex.def Info: arch4.pdf  used on input line 25.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [8
 
  <./arch4.pdf>]
-<adc1.pdf, id=624, 1445.4pt x 813.0375pt>
+<adc1.pdf, id=460, 1445.4pt x 813.0375pt>
 File: adc1.pdf Graphic file (type pdf)
 <use adc1.pdf>
-Package pdftex.def Info: adc1.pdf  used on input line 23.
+Package pdftex.def Info: adc1.pdf  used on input line 26.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [9
 
  <./adc1.pdf>]
-<adc2.pdf, id=658, 1445.4pt x 813.0375pt>
+<adc2.pdf, id=475, 1445.4pt x 813.0375pt>
 File: adc2.pdf Graphic file (type pdf)
 <use adc2.pdf>
-Package pdftex.def Info: adc2.pdf  used on input line 24.
+Package pdftex.def Info: adc2.pdf  used on input line 27.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
 
 
 [10
 
  <./adc2.pdf>]
-<tranchar1.pdf, id=693, 1445.4pt x 813.0375pt>
+<tranchar1.pdf, id=489, 1445.4pt x 813.0375pt>
 File: tranchar1.pdf Graphic file (type pdf)
 <use tranchar1.pdf>
-Package pdftex.def Info: tranchar1.pdf  used on input line 25.
+Package pdftex.def Info: tranchar1.pdf  used on input line 32.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
+
+Overfull \vbox (3.86234pt too high) detected at line 32
+ []
+
 
 
 [11
 
  <./tranchar1.pdf>]
-<tranchar2.pdf, id=733, 1445.4pt x 813.0375pt>
-File: tranchar2.pdf Graphic file (type pdf)
-<use tranchar2.pdf>
-Package pdftex.def Info: tranchar2.pdf  used on input line 26.
+<tranchar3.pdf, id=510, 1445.4pt x 813.0375pt>
+File: tranchar3.pdf Graphic file (type pdf)
+<use tranchar3.pdf>
+Package pdftex.def Info: tranchar3.pdf  used on input line 33.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
+
+Overfull \vbox (3.86234pt too high) detected at line 33
+ []
+
 
 
 [12
 
- <./tranchar2.pdf>]
-<tranchar3.pdf, id=776, 1445.4pt x 813.0375pt>
-File: tranchar3.pdf Graphic file (type pdf)
-<use tranchar3.pdf>
-Package pdftex.def Info: tranchar3.pdf  used on input line 27.
+ <./tranchar3.pdf>]
+<tranchar2.pdf, id=536, 1445.4pt x 813.0375pt>
+File: tranchar2.pdf Graphic file (type pdf)
+<use tranchar2.pdf>
+Package pdftex.def Info: tranchar2.pdf  used on input line 35.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
+
+Overfull \vbox (3.86234pt too high) detected at line 35
+ []
+
 
 
 [13
 
- <./tranchar3.pdf>]
-<tranchar4.pdf, id=824, 1445.4pt x 813.0375pt>
+ <./tranchar2.pdf>]
+<tranchar4.pdf, id=560, 1445.4pt x 813.0375pt>
 File: tranchar4.pdf Graphic file (type pdf)
 <use tranchar4.pdf>
-Package pdftex.def Info: tranchar4.pdf  used on input line 28.
+Package pdftex.def Info: tranchar4.pdf  used on input line 36.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
+
+Overfull \vbox (3.86234pt too high) detected at line 36
+ []
+
 
 
 [14
 
  <./tranchar4.pdf>]
-<tranchar5.pdf, id=876, 1445.4pt x 813.0375pt>
+<tranchar5.pdf, id=592, 1445.4pt x 813.0375pt>
 File: tranchar5.pdf Graphic file (type pdf)
 <use tranchar5.pdf>
-Package pdftex.def Info: tranchar5.pdf  used on input line 29.
+Package pdftex.def Info: tranchar5.pdf  used on input line 43.
 (pdftex.def)             Requested size: 398.3386pt x 224.06363pt.
+
+Overfull \vbox (33.19151pt too high) detected at line 43
+ []
+
 
 
 [15
 
  <./tranchar5.pdf>]
-<workflow.pdf, id=910, 769.37437pt x 267.24844pt>
-File: workflow.pdf Graphic file (type pdf)
-<use workflow.pdf>
-Package pdftex.def Info: workflow.pdf  used on input line 30.
-(pdftex.def)             Requested size: 398.3386pt x 138.37053pt.
-
+LaTeX Font Info:    Trying to load font information for U+msa on input line 54.
+ (/usr/local/texlive/2024/texmf-dist/tex/latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 54.
+ (/usr/local/texlive/2024/texmf-dist/tex/latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+LaTeX Font Info:    Trying to load font information for OT1+mathkerncmss on input line 54.
+ (/usr/local/texlive/2024/texmf-dist/tex/latex/sansmathaccent/ot1mathkerncmss.fd
+File: ot1mathkerncmss.fd 2020/01/31 Fontinst v1.933 font definitions for OT1/mathkerncmss.
+)
 
 [16
 
- <./workflow.pdf>]
-<behavioral_10b_ideal_combine.pdf, id=1003, 337.8743pt x 187.67415pt>
-File: behavioral_10b_ideal_combine.pdf Graphic file (type pdf)
-<use behavioral_10b_ideal_combine.pdf>
-Package pdftex.def Info: behavioral_10b_ideal_combine.pdf  used on input line 31.
-(pdftex.def)             Requested size: 398.3386pt x 221.276pt.
-
+]
 
 [17
 
- <./behavioral_10b_ideal_combine.pdf>]
-<behavioral_10b_devnoise_combine.pdf, id=1178, 337.8743pt x 187.67415pt>
-File: behavioral_10b_devnoise_combine.pdf Graphic file (type pdf)
-<use behavioral_10b_devnoise_combine.pdf>
-Package pdftex.def Info: behavioral_10b_devnoise_combine.pdf  used on input line 32.
-(pdftex.def)             Requested size: 398.3386pt x 221.276pt.
+]
+<workflow.pdf, id=621, 769.37437pt x 267.24844pt>
+File: workflow.pdf Graphic file (type pdf)
+<use workflow.pdf>
+Package pdftex.def Info: workflow.pdf  used on input line 73.
+(pdftex.def)             Requested size: 398.3386pt x 138.37053pt.
 
 
 [18
 
- <./behavioral_10b_devnoise_combine.pdf>]
-<behavioral_10b_refnoise_combine.pdf, id=1354, 337.8743pt x 187.67415pt>
-File: behavioral_10b_refnoise_combine.pdf Graphic file (type pdf)
-<use behavioral_10b_refnoise_combine.pdf>
-Package pdftex.def Info: behavioral_10b_refnoise_combine.pdf  used on input line 33.
-(pdftex.def)             Requested size: 398.3386pt x 221.276pt.
+ <./workflow.pdf>]
+<behavioral_10b_ideal_combine.pdf, id=693, 337.8743pt x 177.63364pt>
+File: behavioral_10b_ideal_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_ideal_combine.pdf>
+Package pdftex.def Info: behavioral_10b_ideal_combine.pdf  used on input line 75.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
 
 
 [19
 
- <./behavioral_10b_refnoise_combine.pdf>]
-<behavioral_10b_noisy_scadec_combine.pdf, id=1530, 337.8743pt x 187.67415pt>
-File: behavioral_10b_noisy_scadec_combine.pdf Graphic file (type pdf)
-<use behavioral_10b_noisy_scadec_combine.pdf>
-Package pdftex.def Info: behavioral_10b_noisy_scadec_combine.pdf  used on input line 34.
-(pdftex.def)             Requested size: 398.3386pt x 221.276pt.
-
+ <./behavioral_10b_ideal_combine.pdf>]
 
 [20
 
+]
+<redun_strats.png, id=888, 1331.97626pt x 982.67125pt>
+File: redun_strats.png Graphic file (type png)
+<use redun_strats.png>
+Package pdftex.def Info: redun_strats.png  used on input line 98.
+(pdftex.def)             Requested size: 239.00558pt x 176.3184pt.
+
+
+[21
+
+ <./redun_strats.png>]
+File: tranchar3.pdf Graphic file (type pdf)
+<use tranchar3.pdf>
+Package pdftex.def Info: tranchar3.pdf  used on input line 113.
+(pdftex.def)             Requested size: 239.00558pt x 134.43073pt.
+
+
+[22
+
+]
+File: tranchar2.pdf Graphic file (type pdf)
+<use tranchar2.pdf>
+Package pdftex.def Info: tranchar2.pdf  used on input line 124.
+(pdftex.def)             Requested size: 239.00558pt x 134.43073pt.
+
+
+[23
+
+]
+<calibrate.png, id=908, 1381.16pt x 587.19376pt>
+File: calibrate.png Graphic file (type png)
+<use calibrate.png>
+Package pdftex.def Info: calibrate.png  used on input line 139.
+(pdftex.def)             Requested size: 239.00558pt x 101.60461pt.
+
+
+[24
+
+ <./calibrate.png>]
+
+pdfTeX warning: pdflatex (file ./overlap.pdf): PDF inclusion: found PDF version <1.6>, but at most version <1.5> allowed
+<overlap.pdf, id=915, 796.67719pt x 448.1309pt>
+File: overlap.pdf Graphic file (type pdf)
+<use overlap.pdf>
+Package pdftex.def Info: overlap.pdf  used on input line 146.
+(pdftex.def)             Requested size: 398.3386pt x 224.0649pt.
+
+Overfull \vbox (11.8636pt too high) detected at line 146
+ []
+
+
+
+[25
+
+ <./overlap.pdf>]
+<behavioral_10b_devnoise_combine.pdf, id=938, 337.8743pt x 177.63364pt>
+File: behavioral_10b_devnoise_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_devnoise_combine.pdf>
+Package pdftex.def Info: behavioral_10b_devnoise_combine.pdf  used on input line 148.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[26
+
+ <./behavioral_10b_devnoise_combine.pdf>]
+<behavioral_10b_refnoise_combine.pdf, id=1124, 337.8743pt x 177.63364pt>
+File: behavioral_10b_refnoise_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_refnoise_combine.pdf>
+Package pdftex.def Info: behavioral_10b_refnoise_combine.pdf  used on input line 149.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[27
+
+ <./behavioral_10b_refnoise_combine.pdf>]
+<behavioral_10b_noisy_combine.pdf, id=1310, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_combine.pdf  used on input line 150.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[28
+
+ <./behavioral_10b_noisy_combine.pdf>]
+<behavioral_10b_noisy_postconv_combine.pdf, id=1496, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_postconv_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_postconv_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_postconv_combine.pdf  used on input line 163.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[29
+
+ <./behavioral_10b_noisy_postconv_combine.pdf>]
+<behavioral_10b_noisy_splitmsb_combine.pdf, id=1681, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_splitmsb_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_splitmsb_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_splitmsb_combine.pdf  used on input line 164.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[30
+
+ <./behavioral_10b_noisy_splitmsb_combine.pdf>]
+<behavioral_10b_noisy_radix175_combine.pdf, id=1868, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_radix175_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_radix175_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_radix175_combine.pdf  used on input line 165.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[31
+
+ <./behavioral_10b_noisy_radix175_combine.pdf>]
+<behavioral_10b_noisy_radix175norm_combine.pdf, id=2055, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_radix175norm_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_radix175norm_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_radix175norm_combine.pdf  used on input line 166.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[32
+
+ <./behavioral_10b_noisy_radix175norm_combine.pdf>]
+<behavioral_10b_noisy_bincomp_combine.pdf, id=2240, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_bincomp_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_bincomp_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_bincomp_combine.pdf  used on input line 167.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[33
+
+ <./behavioral_10b_noisy_bincomp_combine.pdf>]
+<behavioral_10b_noisy_binrecomb_combine.pdf, id=2425, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_binrecomb_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_binrecomb_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_binrecomb_combine.pdf  used on input line 168.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[34
+
+ <./behavioral_10b_noisy_binrecomb_combine.pdf>]
+<behavioral_10b_noisy_scadec_combine.pdf, id=2611, 337.8743pt x 177.63364pt>
+File: behavioral_10b_noisy_scadec_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_noisy_scadec_combine.pdf>
+Package pdftex.def Info: behavioral_10b_noisy_scadec_combine.pdf  used on input line 169.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[35
+
  <./behavioral_10b_noisy_scadec_combine.pdf>]
+<behavioral_10b_seterror_combine.pdf, id=2796, 337.8743pt x 177.63364pt>
+File: behavioral_10b_seterror_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_seterror_combine.pdf>
+Package pdftex.def Info: behavioral_10b_seterror_combine.pdf  used on input line 171.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[36
+
+ <./behavioral_10b_seterror_combine.pdf>]
+<behavioral_10b_seterror_binrecomb_combine.pdf, id=2983, 337.8743pt x 177.63364pt>
+File: behavioral_10b_seterror_binrecomb_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_seterror_binrecomb_combine.pdf>
+Package pdftex.def Info: behavioral_10b_seterror_binrecomb_combine.pdf  used on input line 172.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[37
+
+ <./behavioral_10b_seterror_binrecomb_combine.pdf>]
+<behavioral_10b_seterror_splitmsb_combine.pdf, id=3170, 337.8743pt x 177.63364pt>
+File: behavioral_10b_seterror_splitmsb_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_seterror_splitmsb_combine.pdf>
+Package pdftex.def Info: behavioral_10b_seterror_splitmsb_combine.pdf  used on input line 173.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[38
+
+ <./behavioral_10b_seterror_splitmsb_combine.pdf>]
+<behavioral_10b_mismatch_combine.pdf, id=3357, 337.8743pt x 177.63364pt>
+File: behavioral_10b_mismatch_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_mismatch_combine.pdf>
+Package pdftex.def Info: behavioral_10b_mismatch_combine.pdf  used on input line 175.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[39
+
+ <./behavioral_10b_mismatch_combine.pdf>]
+<behavioral_10b_mismatch_binrecomb_combine.pdf, id=3543, 337.8743pt x 177.63364pt>
+File: behavioral_10b_mismatch_binrecomb_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_mismatch_binrecomb_combine.pdf>
+Package pdftex.def Info: behavioral_10b_mismatch_binrecomb_combine.pdf  used on input line 176.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[40
+
+ <./behavioral_10b_mismatch_binrecomb_combine.pdf>]
+<behavioral_10b_mismatch_radix175norm_combine.pdf, id=3730, 337.8743pt x 177.63364pt>
+File: behavioral_10b_mismatch_radix175norm_combine.pdf Graphic file (type pdf)
+<use behavioral_10b_mismatch_radix175norm_combine.pdf>
+Package pdftex.def Info: behavioral_10b_mismatch_radix175norm_combine.pdf  used on input line 177.
+(pdftex.def)             Requested size: 398.3386pt x 209.4378pt.
+
+
+[41
+
+ <./behavioral_10b_mismatch_radix175norm_combine.pdf>]
 \tf@nav=\write6
 \openout6 = `top.nav'.
 
@@ -900,18 +1128,18 @@ Package rerunfilecheck Info: File `top.out' has not changed.
 (rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 21425 strings out of 473201
- 411627 string characters out of 5716127
- 779338 words of memory out of 5000000
- 44226 multiletter control sequences out of 15000+600000
- 560042 words of font info for 40 fonts, out of 8000000 for 9000
+ 21749 strings out of 473201
+ 420515 string characters out of 5716127
+ 780306 words of memory out of 5000000
+ 44484 multiletter control sequences out of 15000+600000
+ 566187 words of font info for 62 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 128i,14n,123p,438b,561s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmss8.pfb>
-Output written on top.pdf (20 pages, 2027268 bytes).
+ 128i,11n,123p,438b,450s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmss10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmss12.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmss8.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmssi10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmssi8.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb>
+Output written on top.pdf (41 pages, 6502152 bytes).
 PDF statistics:
- 1725 PDF objects out of 1728 (max. 8388607)
- 955 compressed objects within 10 object streams
- 41 named destinations out of 1000 (max. 500000)
- 143 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 3981 PDF objects out of 4296 (max. 8388607)
+ 1020 compressed objects within 11 object streams
+ 83 named destinations out of 1000 (max. 500000)
+ 223 words of extra memory for PDF output out of 10000 (max. 10000000)
 
