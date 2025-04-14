@@ -1,0 +1,25 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{siunitx} % For proper formatting of units
+
+\begin{document}
+
+\begin{table}[h!]
+\centering
+\caption{Thermal noise of capacitors at 300 K ($\sim$\SI{27}{\degreeCelsius})}
+\label{tab:thermal_noise}
+\begin{tabular}{cccc}
+\toprule
+Capacitance & $V_\text{rms} = \sqrt{\frac{k_{\text{B}}T}{C}}$ & Noise charge $Q_{n} = \sqrt{k_{\text{B}}TC}$ & Noise charge \\
+ & & in coulombs & in electrons \\
+\midrule
+1 fF & 2 mV & 2 aC & 13 e$^{-}$ \\
+10 fF & 640 $\mu$V & 6 aC & 40 e$^{-}$ \\
+100 fF & 200 $\mu$V & 20 aC & 125 e$^{-}$ \\
+1000 fF & 64 $\mu$V & 64 aC & 400 e$^{-}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

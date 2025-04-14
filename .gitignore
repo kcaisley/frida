@@ -9,3 +9,16 @@ __pycache__
 /src/*.pkl
 /src/*.pdf
 /docs/talks/dpg2025/build/*
+
+
+*.aux
+*.log
+*.synctex.gz
+*.fls
+*.out
+*.toc
+*.bbl
+*.blg
+*.fdb_latexmk
+*.run.xml
+*.bcf
