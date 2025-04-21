@@ -14,37 +14,9 @@
 - credible value for noise of the comparator, in uV rms, in Spectre at a fixed speed (simulator bandwidth needs to be 10x circuit bandwidth)
 	- don't need layout, just add some dummy capacitance
 	- buffer and without buffer (it depends on kickback!)
--is my understanding of shift vs subradix correct?
+	-is my understanding of shift vs subradix correct?
 	- check the code to make sure it's correctly recombined
 -   
-
-# To do list for meeting
-
-- [x] fix decimal places to 3f in specs table
-- [x] add array of weights
-- [x] add weights total (and plus one)
-- [x] page numbers
-- [x] Add all device and reference noise checks
-  - [ ] Results look reasonable?
-- [x] generate table latex from pandas dataframe
-- [x] write .tex directily
-- [x] fix base case dropped bins
-- [ ] Add all device and reference noise checks
-  - [ ] Results look reasonable?
-- [x] Add plot on redundancy throughout chain
-  - [ ] Add to top level
-  - [ ] remove sine wave input chat
-  - [ ] scale to -35 to +55 percent
-- [ ] Check the unary and post conversion plots, as they look weird?
-
-- [ ] simply the run cases so that I can simply specify the cases,
-- [ ] add slides on theory / prior art from each paper I read
-- [ ] add slide with table on sampling noise and relationship to input cap
-- [ ] Add summary with different digital correction logics (with chart from HS Tsai 2015)
-- [ ] add methodology slide
-  - [ ] add note that our simulation is 4.5 orders of magnitude faster than spice (25 seconds vs 20-30 hours)
-- [ ] add slides on cap designs?
-- [ ] Check if Inkscape slides still have blue background?
 
 
 # Outline for meeting
@@ -105,7 +77,7 @@ Assumptions:
 
   - Dynamic errors from thermal and reference noise (which add together) is fixable with minimal redundancy, since no more than 1 LSB error is likely to be caused. Ensuring it's correction requires getting the a post conversion after that fact, right. So we'd like our redundancy somewhere in the middle, and with a bit at the end. Or both at the end. or 1 at end with extra comparator power.
   - Dynamic error from settling is more common and more pronounced at the beginning of the chain. Extra cycles will worsen it in each individual bit period, but if we get increased redundancy for it, then we need it to be improved. So we'd like it to be throughout the chain to improve total tolerance to settling errors.
-  - And similarly, we'd like to make sure digital calibratability is possible. Redunancy of the sub-radix kind can fix this. In contrast to JH Tsai saying redundancy can't fix calibration issue: What I think The redundancy is super important, because it relaxes the amount of mismatch can occur before more than an LSB of nonlinearity occurs, and missing levels mean that analog information is lost and calibration can't even be done.
+  - And similarly, we'd like to make sure digital calibratability is possible. Redundancy of the sub-radix kind can fix this. In contrast to JH Tsai saying redundancy can't fix calibration issue: What I think The redundancy is super important, because it relaxes the amount of mismatch can occur before more than an LSB of nonlinearity occurs, and missing levels mean that analog information is lost and calibration can't even be done.
 
 - we can view the different strategies as allowable error (or in terms of settling voltage)
   - Doing so with unit quantized caps reduces mismatch and simplifies the arithmetic units and/or prevents truncation that results from floating point weights.
@@ -141,7 +113,7 @@ Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this 
 - 2015 JH Tsai pg. 3 says that 'differential arch' allows DAC to be 9-bit, in a 10-bit ADC. This contrasts what we stated before in the meeting? I thought it was more to do with the top-side sampling, where the comparator is connected to the same node as the sampled voltage.
 - 2011 SH Cho pg. 2 claims the 'dual reference voltages' is what allows them to have a 9-bit DAC for a 10-bit ADC.
 - Show slides on dynamic and static error sources.
-- When finding non-linearity have to pick a method?: ![alt text](../docs/images/method.png)
+- When finding non-linearity have to pick a method?: ![alt text](../writing/images/method.png)
 - When I have +1 LSB is the differential input range still 
 
 
@@ -151,10 +123,10 @@ Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this 
 JH Tsai 2015:
 
 - SC-ADEC is for the dynamic errors, and correlated reverse switching for the static errors
-  - I disagree with this: On page 6: "While the applied redundancy technique absorbs dynamic errors, static DAC nonlinearity caused by capacitor mismatch remains untackled."
+  - I disagree with this: On page 6: "While the applied redundancy technique absorbs dynamic errors, static DAC nonlinearity caused by capacitor mismatch remains un-tackled."
   - What I think: The redundancy is super important, because it relaxes the amount of mismatch can occur before more than an LSB of nonlinearity occurs, and missing levels mean that analog information is lost and calibration can't even be done.
 - I'm not sure I understand HS Tsai's perspective on the subtle different between sub-radix 2 vs radix 2 extended search.  guess that the strategy of taking lots of small steps only makes sense (th)
-- Liu 2010 worked well, but cost extra capacitors. This extra total capcitance didn't even improve mismatch, and so the only benefit was the error correction plus slightly lower sampling noise, but at the cost of slower settling, higher power, and larger area. Thus I think we should just consider approaches which use the same total unit capacitance as the binary design.
+- Liu 2010 worked well, but cost extra capacitors. This extra total capacitance didn't even improve mismatch, and so the only benefit was the error correction plus slightly lower sampling noise, but at the cost of slower settling, higher power, and larger area. Thus I think we should just consider approaches which use the same total unit capacitance as the binary design.
 - The other paper that did something similar was SH Cho 2011 multistep addition only DEC. Here I don't think they added any extra caps though. In a 10-bit design, each single ended DAC has 2^9 = 512 caps. The only special thing is that they are partitioned in a funky way.
 - Fig 23b shows us pretty much the smallest SAR ADC (in 65nm?) running at 10MHz was 250x50um. So P. Harpe's 2019 paper at 36um ^2 was very much state of the art.
 
@@ -322,73 +294,6 @@ Sanyal Sun 2022: survey just basically says it a way to avoid comparator errors,
 
 
 
-
-## old Tasks
-
-In direct pursuit of the above research question.
-
-- [x] Verilog-A model of comparator
-- [x] Replace active input with passive
-- [x] Replace re-analog with external block
-- [x] Verilog-A model of vstepping input voltage
-- [x] Fix Spectre compatibility (necessary for multi machine runs)
-    - [x] Replace waveform sources with either VA or SPECTRE supported AnalogLib parts
-    - [x] Benchmark SPICE vs Spectre, profile CPU
-- [ ] Where are the asserts defined? Not in PDK or v2common...
-- [ ] Benchmark lt177 vs jupiter vs asiclab0## workstations (necessary to know where to run)
-- [ ] Verilog-A model of logic (to try and speed up simulation)
-- [ ] Implement PyTables backend of simulation (for sane logging of data)
-    - [ ] Append simulation meta data to results
-- [ ] Identify reason for shifted output values
-- [ ] Identify reason for non-monotonic sections
-- [ ] Understand if monotonic/BSS conversions are properly understood (can we use last conversion?)
-- [ ] Implement multiple conversions
-    - [ ] Add syntax for repeated bit positions
-    - [ ] Generate different capacitor arrays, from params
-    - [ ] Generate N-bit sequencer (perhaps Verilog-A, can we remove bus width on top level?)
-    - [ ] Figure out correct expresions for multi bit (can we just re-normalize?)
-- [ ] Pass parameters to top level .params file, which can be written by python (necessary for multi param runs)
-- Figure out the expression for what input signal swing is, depending on total capacitance and parasitic capacitance!
-
-### older Run plans:
-
-SPICE comparator characterization
-SPICE 8 bins of ADC for comparison, just binary 8-bit to verify noise at tripping points
-
-behavioral simulation of ADC which compares different bit combos and values:
-	8 steps binary
-	12 steps binary
-	12 steps non-binary
-	12 steps
-
-
-Chip submission
-Deadlines for PhD
-Taking courses in optimization
-
-Questions:
-
-How do I optimize the weights of the capacitors?
-How do I model the noise of the capacitors? (cap noise, area, power, and switching noise)
-How can I model
-
-
-Other assumptions:
-networks are only composed of units caps, with monotonic switching
-No modeling of clock-feedthrough / kick-back, discharge from leakage
-
-We will compute area, power and ENOB for different configs
-We calculate ENOB as a degradation above the quantization eror calculated from the non-linearity + base QN
-
-Now how do we will out the capacitors?
-Do I start from a total or unit capacitance?
-
-Note that the
-
-
-
-
-
 # Older notes
 
 Python code for SAR ADC functional modelling.
@@ -428,12 +333,6 @@ SAR_ADC.sample_and_convert_bss(self, voltage_in, plot?, calculate?)
         CDAC.update #here, all caps will be checked, but in monotonic switching only one will change
         COMPARATOR.compare
 ```
-
-# To do:
-- double conversion
-- ENOB (done)
-- FoMs (FOM (E/conv): done)
-- Energy per conversion (done)
 
 # Questions:
 
@@ -502,5 +401,4 @@ Struggling with:
 - dataclasses and abstract base classes
 - subclassing and superclassing?
 - duck typing, to not even need some top-level class
-
 
