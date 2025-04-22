@@ -1,8 +1,57 @@
+# Week 17 (22.04.2025)
 
+![Chip planning](images/chip_planning.jpeg)
 
+- Input path: test generator -> high quality op amp -> Vin+ and Vin-
+  - Perhaps have a second input pair, for a single test channel
+- Four LVDS inputs, for sequencing the following:
+  - DAC reset signal, Sampling, Comparator, and Logic (is maybe just combinational?)
+  - Would be really nice to fit these all on one chip edge
+  - Use the CERN LVDS pad ring cells. This should be considered trivial
+  - These are generated via an 'oversampling' sequencer in the BDAQ FPGA.
+- Out LVDS output, from comparator output of selected channel
+- SPI 4-pin interface: SDI, SDO, SCLO, CS_B
+  - CS_B lowers at beginning of transfer, and when it raises it parallel loads the first FIFO into a parallel register with live data
+  - I can also read internal bits using a parallel load register
+  - I shouldn't use a binary to one-hot encoder, simply have a enable bit for each channel, and enable as many as you want? Having multiple bits be high is an invalid state, but that's okay
+- Three power domains, one pin for each
+  * $V_{refp}$ and $V_{refn}$, $V_{dda}$ and $V_{vssa}$, $V_{vddd}$ and $V_{vssd}$
+  * Decoupling MOSCAPs are available in periphery. Don't place them in-between as the real system won't have any room anyways
+- Channel select bits do the following:
+  - Allow SAMP to reach 1 (and only 1) input sample switch
+  - Allow COMP to reach 1 comparator
+  - Allow LOGIC clock to reach 1 logic
+  - Allow DAC default reset bits to reach 1 DAC
+  - Allow DAC reset signal to load from DAC bits
+  - Connect the comparator output serial sequence from the 
 
+- 
 
 # Week 16 (15-04-2025)
+
+Layout notes:
+
+- SAR logic on chip
+
+- SAR logic and comparator using different clock
+
+- analog multiplexor for input of ADCs
+
+- account for output measurement when
+
+- Basil provides sequencer and clock generation
+
+- SPI-fast?
+
+- Device -> FPGA. Do I need the analog support board?
+
+- Can I simply use the BDAQ board?
+
+- Sequencer for Coarse clocks, or FPGA clock resources which are programmable
+
+- Reminder:
+
+  ![image-20250422012102103](images/pinout.png)
 
 100um pitch is doable, 80 is harder
 don't forget fan out of bonds
