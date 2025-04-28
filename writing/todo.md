@@ -1,4 +1,40 @@
-# Week 17 (22.04.2025)
+# Week 17 (21 April)
+
+NOTE: can I organize this as some sort of GTD document? I'm losing tasks.
+
+By Tuesday ASIC meeting 27 April (focus on Virtuoso schematic, pick just one thing below!)
+
+- [ ] Download updated CoRDIA libraries
+- [ ] Get pad ring update working (can I find an 80um pad?)
+- [ ] Get Helena schematic working in Cadence fully (it's find to break S-edit compatability)
+  - [ ] Need to update pointers to our 65nm PDK, instead of 55nm one from Caeleste
+    - [ ] Does this require writing some files?
+  - [ ] Make sure I can run simulations.
+  - [ ] Also, look into the Skill export script Hans provided. I really should netlist in `.scs` format, but `.aucdl` netlists don't seem to meet that requirement
+- [ ] Find the LVDS drivers from CERN
+- [ ] Check the capacitors used by Tianyang in Cordia design
+- [ ] Pull in the SPI interface provided by Itchi
+- [ ] Figure out the different test cases I'd like to try (comparators? Capacitor types? Switching strats?)
+
+By 7 May meet with Bilgesu and update Itchi:
+
+- [ ] Comparator characterization testbench in SPICE
+  - [ ] What is the noise in 180nm/65nm?
+- [ ] Monte carlo simulation of mismatch vs average expected non-linearity
+  - [ ] First find expected 
+- [ ] Clean up script so that it can used by Caeleste
+  - [ ] Focus first on getting behavioral model corrected (see notes from two weeks ago)
+  - [ ] Getting the tool to trigger T-Spice, AFS, and Spectre simulations is probably not feasible...
+  - [ ] But in any case, write some docs explaining the file format
+- [ ] Double check the values for the weights recommendation
+  - [ ] Then create a digital correction schematic
+  - [ ] Double check it with Python code that models the correction
+
+Later work:
+
+- Capacitor array automatic layout generation in Klayout .py / or Virtuoso .il? Hans says it's too much work
+
+
 
 ![Chip planning](images/chip_planning.jpeg)
 
@@ -25,9 +61,14 @@
   - Allow DAC reset signal to load from DAC bits
   - Connect the comparator output serial sequence from the 
 
-- 
+- For PCB:
+  - Use exposed metal below chip, with normal epoxy to glue in place
+    - But not copper as it will oxidize, use (nickel / gold?)
 
-# Week 16 (15-04-2025)
+  - 
+
+
+# Week 16 (14 April)
 
 Layout notes:
 
@@ -98,7 +139,7 @@ post Caeleste visit
   - [ ] Can an async design potentially get away with less decaps?
 
 
-# Week 15 (09-04-2025)
+# Week 15 (9 April)
 
 Visiting Caeleste on Thursday
 
@@ -121,7 +162,7 @@ Visiting Caeleste on Thursday
 - [x] Check if Inkscape slides still have blue background?
 
 
-# Week 12 (21-04-2025)
+# Week 12 (21 March)
 
 In direct pursuit of the above research question.
 
