@@ -22,3 +22,6 @@ __pycache__
 *.fdb_latexmk
 *.run.xml
 *.bcf
+*.snm
+*.nav
+

@@ -32,3 +32,18 @@ Research question: How do we best allocate the quantity and weighting of SA bit 
 | ADCs total power        | 35.0 W      | 1.2 W      | 14 W       | 1.0 W       |
 
 NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
+
+| Design                  | CORDIA     | FRIDA       |
+|-------------------------|------------|-------------|
+| ADC resolution          | 10-bit     | 10/12-bit   |
+| Conversion rate         | 2.5MHz     | 10 MHz      |
+| Area of one ADC         | 80x330 μm² | 50x200 μm²  |
+| Power of one ADC        | 30 μW      | 100 μW      |
+| FOM_csa (conv/sec/area) | 95 Hz/μm²  | 5000 Hz/μm² |
+| FOM_epc (energy/conv)   | 12 pJ      | 10 pJ       |
+| FOM_ppa (power/area)    | 0.11 W/cm² | 5.0 W/cm²   |
+| ADC qty Mpix @ 100 KHz  | 40000      | 10000       |
+| ADCs total pixel rate   | 100 Gpx/s  | 100 Gpx/s   |
+| ADCs total data rate    | 1 Tb/s     | 1 Tb/s      |
+| ADCs total area         | 10.5 cm²   | 0.2 cm²     |
+| ADCs total power        | 1.2 W      | 1.0 W       |

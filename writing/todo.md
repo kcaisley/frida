@@ -1,3 +1,33 @@
+# Week 18
+
+- what to do about conflict of digital cells?
+- What should I name the project?
+- 28nm presentation next Monday
+- Where are the CERN LVDS drivers
+  - They are part of CORDIA?
+  - part of the pad frame macro
+  - HSI_ADC: bonn tapeout
+  - CORDA01
+- What is the original use of the SPI circuit from Itchi?
+- Cordia design
+  - Hans shall I get a DESY account?
+  - Is Cordia_10 the latest?
+- install thinlinc on Faust02, ask Alex
+- 27 of may (hans returns)
+- `si myTemp -batch -command netlist -cdslib cds.lib`
+- si.env is the profile of the simulation environment, you can check ADE->setup->environment. It also controls netlisting (for e.g. with the cdl netlister)
+- Maybe get the basic BAG symbols?
+  - Then I need to recreate the library with basic symbols.
+
+Plan for presentation:
+
+1. Just show the top level diagram of the chip, with the same annotations as before, but with extra note that it could be monolithic column parallels, hybrid bonded pixel parallel, or
+2. Show how the chip needs to be downsized relative to the cordia ADC. And also explain the 
+3. Introduce the FRIDA chip architecture, implemented in 28nm and 65nm?
+4. (last year I talked about this): Schematic 
+5. test chip plan, 
+
+
 # Week 17 (21 April)
 
 NOTE: can I organize this as some sort of GTD document? I'm losing tasks.
