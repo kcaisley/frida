@@ -1,0 +1,121 @@
+# File Created by Kennedy Caisley at Thu Apr 17 15:11:12 2025
+# assisted by CdsLibEditor
+
+# cdsDefTechLib, basic, analogLib, and tsmcN65 (so this is PDK specific)
+INCLUDE $PDK_PATH/$PDK_RELEASE/$OPTION/cds.lib
+DEFINE avTech /eda/cadence/2024-25/RHELx86/ASSURA_04.17.001_231/tools.lnx86/assura/etc/avtech/avTech
+
+# From old cordia folder (I think this is the ADC test submission?):
+DEFINE CoRDIA_ADC_01        $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/CoRDIA_ADC_01     # needs tcbn65lp_dnw
+# DEFINE CoRDIA_ADC_01_FILL $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/CoRDIA_ADC_01_FILL
+# DEFINE ComparatorThemis   $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/ComparatorThemis
+# DEFINE SEALRING2mm        $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/SEALRING2mm
+DEFINE IOlib                $HOME/designs/ADC_Bonn/Libs/IOlib/oa/IOlib
+DEFINE tcbn65lp_dnw         $HOME/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
+
+INCLUDE                     /eda/kits/TSMC/65LP/2024/digital/Back_End/cdk/cds.lib
+DEFINE temp65 /users/kcaisley/designs/temp65
+DEFINE CERN65_IOPAD_ESD_1V2_Library /eda/kits/TSMC/65LP/libs/CERN65_IOPAD_ESD_1V2_Library
+DEFINE frida /users/kcaisley/designs/frida/oa/frida
+
+DEFINE MM_SPI_RW /users/kcaisley/designs/MM_SPI_RW
+DEFINE sc9_cln65lp_base_hvt /eda/kits/TSMC/65LP/2011/ARM/sc9_base_hvt/r0p0/oa/sc9_cln65lp_base_hvt/
+
+# The above needs the following:
+# /eda/kits/TSMC/65LP/2014/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
+# /eda/kits/TSMC/65LP/2024/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
+# $HOME/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
+
+# from new cordia
+# DEFINE CoRDIA_ADC_01      $HOME/designs/CoRDIA_ADC_01/CoRDIA_ADC_01/oa/CoRDIA_ADC_01
+
+# from where?
+# DEFINE CoRDIA_ADC         $HOME/designs/CoRDIA/CoRDIA_ADC
+# DEFINE CoRDIA_ADC_IO      $HOME/designs/CoRDIA/CoRDIA_ADC_IO
+# DEFINE IOlib              $HOME/designs/CoRDIA/IOlib  # this was deleted!!
+# From DHPT
+# DEFINE ADC_IO             $HOME/designs/CoRDIA/ADC_IO
+
+
+# DEFINE ADC /users/kisisita/Designs/DHPT/oa/ADC
+# DEFINE PAD /users/kisisita/Designs/DHPT/oa/PAD
+# DEFINE PAD_RINGS /users/kisisita/Designs/DHPT/oa/PAD_RINGS
+# DEFINE tpdn65lpnv2 /eda/kits/TSMC/65LP/2011/TSMCHOME/digital/Back_End/oa/tpdn65lpnv2_140b/mt_2/9lm/tpdn65lpnv2
+# DEFINE tpan65lpnv2 /eda/kits/TSMC/65LP/2011/TSMCHOME/digital/Back_End/oa/tpan65lpnv2_140b/mt_2/9lm/tpan65lpnv2
+# DEFINE tpbn65v /eda/kits/TSMC/CRN65LP/2011/TSMCHOME/digital/Back_End/oa/tpbn65v_200a/wb/9m/9M_6X1Z1U/tpbn65v
+
+# DEFINE PIXELADC /users/kisisita/Workarea_tsmc65LP/PIXELADC
+
+# From DMC65
+
+# --- STD_CELLS ---
+# DEFINE sc9_cln65lp_base_rvt /eda/kits/TSMC/65LP/2011/ARM/sc9_base_rvt/r0p0/oa/sc9_cln65lp_base_rvt
+# DEFINE sc9_cln65lp_base_rvt_dnw /eda/kits/TSMC/65LP/2011/ARM/sc9_base_rvt/r0p0/oa/sc9_cln65lp_base_rvt_dnw
+# #DEFINE tpdn65lpnv2 /eda/kits/TSMC/65LP/2011/TSMCHOME/digital/Back_End/oa/tpdn65lpnv2_140b/mt_2/9lm/tpdn65lpnv2
+# #DEFINE tpan65lpnv2 /eda/kits/TSMC/65LP/2011/TSMCHOME/digital/Back_End/oa/tpan65lpnv2_140b/mt_2/9lm/tpan65lpnv2
+# DEFINE tpan65lpnv2od3 /eda/kits/TSMC/65LP/2014/digital/Back_End/cdk/tpan65lpnv2od3_200a_oa/1p9m6x1z1u/mt_2/6lm/tpan65lpnv2od3
+# DEFINE tcbn65lp /eda/kits/TSMC/65LP/2014/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
+
+# DEFINE STD_CELLS $HOME/designs/DMC65/utility/cadence/libManager/STD_CELLS
+# ASSIGN STD_CELLS COMBINE sc9_cln65lp_base_rvt sc9_cln65lp_base_rvt_dnw tpdn65lpnv2 tpan65lpnv2 tpan65lpnv2od3 tcbn65lp
+# ASSIGN STD_CELLS DISPLAY folder
+
+# --- from DHPT ---
+# DEFINE DHPT_V3_UB $HOME/designs/DMC65/oa/DHPT_V3_UB
+DEFINE PAD $HOME/designs/DMC65/oa/PAD
+# DEFINE LVDS_TXRX $HOME/designs/DMC65/oa/LVDS_TXRX
+# DEFINE SERIALIZER $HOME/designs/DMC65/oa/SERIALIZER
+DEFINE ESD $HOME/designs/DMC65/oa/ESD
+# DEFINE PLL $HOME/designs/DMC65/oa/PLL
+# DEFINE CML_TX $HOME/designs/DMC65/oa/CML_TX
+
+# DEFINE FROM_DHPT12B $HOME/designs/DMC65/utility/cadence/libManager/FROM_DHPT12B
+# ASSIGN FROM_DHPT12B COMBINE DHPT_V3_UB PAD LVDS_TXRX SERIALIZER ESD PLL CML_TX
+# ASSIGN FROM_DHPT12B DISPLAY folder
+
+# --- DMC ---
+DEFINE DMC_ANALOG $HOME/designs/DMC65/oa/DMC_ANALOG
+DEFINE DMC_MISC $HOME/designs/DMC65/oa/DMC_MISC
+DEFINE DMC_MEMORY $HOME/designs/DMC65/oa/DMC_MEMORY
+
+DEFINE DMC65v1 $HOME/designs/DMC65/oa/DMC65v1
+
+# from rd53"c"
+# INCLUDE $PDK_PATH/digital/Back_End/cdk/tcbn65lp_200a_oa/$OPTION/cds.lib
+# SOFTINCLUDE $PDK_PATH/digital/Back_End/cdk/tpdn65lpnv2od3_140b_oa/$OPTION/mt_2/6lm/cds.lib
+# SOFTINCLUDE $PDK_PATH/digital/Back_End/cdk/tpdn65lpnv2od3_140b_oa/$OPTION/mt_2/7lm/cds.lib
+# SOFTINCLUDE $PDK_PATH/digital/Back_End/cdk/tpan65lpnv2od3_200a_oa/$OPTION/mt_2/6lm/cds.lib
+# SOFTINCLUDE $PDK_PATH/digital/Back_End/cdk/tpan65lpnv2od3_200a_oa/$OPTION/mt_2/7lm/cds.lib
+# INCLUDE $PDK_PATH/digital/Back_End/cdk/tcbn65lpbwp7thvt_200a_oa/cds.lib
+# SOFTINCLUDE $PDK_PATH/digital/Back_End/cdk/tpbn65v_200b_oa/$OPTION/cds.lib
+# UNDEFINE tsmcN65
+# UNDEFINE tcbn65lp
+# SOFTINCLUDE /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/tech.lib
+# SOFTINCLUDE /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/project_RD53C.lib
+# SOFTINCLUDE /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/legacy.lib
+# SOFTINCLUDE $SOS_ROOT_DIR/RD53C/RD53C.lib
+# DEFINE avTech /tools/cadence/2017-18/RHELx86/ASSURA_04.15.111/tools.lnx86/assura/etc/avtech/avTech
+# DEFINE RD53B_PATCH_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/tapeout/ATLAS_V1_PATCH/top/cds/RD53B_PATCH_LIB
+# DEFINE DIGITAL_CORE_PATCH_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/tapeout/ATLAS_V1_PATCH/core/cds/DIGITAL_CORE_PATCH_LIB
+# DEFINE title_blocks /users/krueger/cadence/designs/title_blocks
+# DEFINE RD53B_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/tapeout/ATLAS_V1/top/cds/RD53B_LIB
+# DEFINE DIGITAL_CORE_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/tapeout/ATLAS_V1/core/cds/DIGITAL_CORE_LIB
+# DEFINE RD53B_AFE_DIFF_noDNW_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/FEs/RD53B_AFE_DIFF_noDNW_LIB
+# DEFINE BUMP_PAD_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/FEs/BUMP_PAD/cds/BUMP_PAD_LIB
+# DEFINE RD53B_AFE_DIFF_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/FEs/RD53B_AFE_DIFF/cds/RD53B_AFE_DIFF_LIB
+# DEFINE analogChipBottomLib /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/integration/cds/analogChipBottomLib
+# DEFINE powerDistributionLib /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/integration/cds/powerDistributionLib
+# DEFINE floorplanLib /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/integration/cds/floorplanLib
+# DEFINE PADFRAME_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/macros/PADFRAME/cds/PADFRAME_LIB
+# DEFINE RD53_LOGOS /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_LOGOS/cds/RD53_LOGOS
+# DEFINE BIAS_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/macros/BIAS/cds/BIAS_LIB
+# DEFINE CALIBRATION_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/macros/CALIBRATION/cds/CALIBRATION_LIB
+# DEFINE MONITORING_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/macros/MONITORING/cds/MONITORING_LIB
+# DEFINE CDR_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/macros/CDR/cds/CDR_LIB
+# DEFINE RD53_ADC12_CPPM /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_ADC_CPPM/cds/RD53_ADC12_CPPM
+# DEFINE digital65_rad_dnw /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_ADC_CPPM/cds/digital65_rad_dnw
+# DEFINE RD53B_CDR_BONN_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53B_CDR_BONN/cds/RD53B_CDR_BONN_LIB
+# DEFINE RD53B_SLDO_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_SLDO/cds/RD53B_SLDO_LIB
+# DEFINE RD53_ANALOG_CHIP_BOTTOM /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_ANALOG_CHIP_BOTTOM/cds/RD53_ANALOG_CHIP_BOTTOM
+# DEFINE RD53_SER_CML_Bonn /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_SER_CML_Bonn/cds/RD53_SER_CML_Bonn
+

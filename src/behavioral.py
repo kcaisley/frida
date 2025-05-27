@@ -33,12 +33,12 @@ class CDAC:
             self.settling_time_error = np.exp( # Decaying exponential model (percent decay)
                 -1
                 / (
-                    self.params["settling_time"] # This is tau, the time constant
+                    self.params["settling_time"] # This is tau; the time constant
                     * self.parent.params["sampling_frequency"]
                     * (self.params["array_size"] + 1) # This divides the sampling frequency to find the settling error
                 )
             )
-        else:
+        else:                   
             self.settling_time_error = 0
         self.lsb_size = (
             self.params["positive_reference_voltage"]

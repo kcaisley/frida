@@ -1,0 +1,80 @@
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find -type d -name "TN65CLLS001*"
+^C
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find -type f -name "TN65CLLS001*.pdf"
+^C
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find . -type f -name "TN65CLLS001*.pdf"
+./2011/v1.5a_1/1p9m6x1z1u/docs/t-n65-cl-ls-001_1_5_reference_layout/TN65CLLS001_1_5.pdf
+./2014/doc/TN65CLLS001_1_5.pdf
+./2019/doc/TN65CLLS001_1_5.pdf
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find . -type f -name "CRN65_CDF_Usage.pdf"
+./2017/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2024/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2024/V1.7A_1/1p7m4x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2011/v1.5a-CDB/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2011/v1.5a_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2011/v1.7a/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2014/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2014/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2019/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2019/V1.7A_1/1p7m4x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+./2019/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/PDK/CRN65_CDF_Usage.pdf
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ pwd
+/mnt/md127/eda/kits/TSMC/65LP
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ ls
+2011  2017  2024  Base_PDK       downloads  MSRF_1p9m_6X1Z1U_2.5IO_v1.5a_1    MSRF_1p9m_6X1Z1U_2.5IO_v1.7a  TSMCHOME
+2014  2019  ARM   Base_PDK_2017  LIBS       MSRF_1p9m_6X1Z1U_2.5IO_v1.5a-CDB  pre.7.0                       tsmcN55
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ ls 2019/
+digital/                doc/                    Release_Notes-2017.pdf  utils/                  V1.7A_1/                
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ ls 2019/doc/
+N65_N55_Assura_LVS_Deck_Usage.pdf  T000CLDR002_1_7.pdf  T000CLDR017_1_2.pdf  TN65CLDR001_2_1.pdf  TN65CLLE001_2_1A.pdf  TN65CLLS001_1_5.pdf
+N65_N55_PVS_LVS_Deck_Usage.pdf     T000CLDR002_1_8.pdf  T000CLDR017_1_3.pdf  TN65CLDR001_2_2.pdf  TN65CLLE001_2_2A.pdf  TSMC-info-2013-2
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ cd 2019/doc
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP/2019/doc$ ls
+N65_N55_Assura_LVS_Deck_Usage.pdf  T000CLDR002_1_7.pdf  T000CLDR017_1_2.pdf  TN65CLDR001_2_1.pdf  TN65CLLE001_2_1A.pdf  TN65CLLS001_1_5.pdf
+N65_N55_PVS_LVS_Deck_Usage.pdf     T000CLDR002_1_8.pdf  T000CLDR017_1_3.pdf  TN65CLDR001_2_2.pdf  TN65CLLE001_2_2A.pdf  TSMC-info-2013-2
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP/2019/doc$ ls -la
+total 39864
+dr-xr-x---. 3 asiclab tsmc65     4096 Aug 30  2019 .
+drwxr-x---. 6 asiclab tsmc65     4096 Aug 30  2019 ..
+-r--r-----. 1 asiclab tsmc65   351754 Aug 30  2019 N65_N55_Assura_LVS_Deck_Usage.pdf
+-r--r-----. 1 asiclab tsmc65  1950790 Aug 30  2019 N65_N55_PVS_LVS_Deck_Usage.pdf
+-r--r-----. 1 asiclab tsmc65  1312849 Aug 30  2019 T000CLDR002_1_7.pdf
+-r--r-----. 1 asiclab tsmc65  1256704 Aug 30  2019 T000CLDR002_1_8.pdf
+-r--r-----. 1 asiclab tsmc65  2664894 Aug 30  2019 T000CLDR017_1_2.pdf
+-r--r-----. 1 asiclab tsmc65  2650796 Aug 30  2019 T000CLDR017_1_3.pdf
+-r--r-----. 1 asiclab tsmc65 12949404 Aug 30  2019 TN65CLDR001_2_1.pdf
+-r--r-----. 1 asiclab tsmc65 13007133 Aug 30  2019 TN65CLDR001_2_2.pdf
+-r--r-----. 1 asiclab tsmc65   589215 Aug 30  2019 TN65CLLE001_2_1A.pdf
+-r--r-----. 1 asiclab tsmc65   684214 Aug 30  2019 TN65CLLE001_2_2A.pdf
+-r--r-----. 1 asiclab tsmc65  3367352 Aug 30  2019 TN65CLLS001_1_5.pdf
+dr-xr-x---. 2 asiclab tsmc65     4096 Aug 30  2019 TSMC-info-2013-2
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP/2019/doc$ find . -type f -name "N65_N55_Assura_LVS_Deck_Usage.pdf"
+./N65_N55_Assura_LVS_Deck_Usage.pdf
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP/2019/doc$ cd ../..
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find . -type f -name "N65_N55_Assura_LVS_Deck_Usage.pdf"
+./2017/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2024/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2024/V1.7A_1/1p7m4x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2024/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2011/v1.5a-CDB/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2011/v1.5a_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2011/v1.5a_1/1p9m6x1z1u/PDK_Patch_CRN65LP_v1.5a_1_Official_IC61_20100915_all/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2011/v1.7a/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2014/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2014/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2014/doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2019/V1.7A_1/1p6m3x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2019/V1.7A_1/1p7m4x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2019/V1.7A_1/1p9m6x1z1u/PDK_doc/TSMC_DOC_WM/LVS/Assura_doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+./2019/doc/N65_N55_Assura_LVS_Deck_Usage.pdf
+asiclab@penelope:/mnt/md127/eda/kits/TSMC/65LP$ find . -type f -iname "*formation*"
+./2017/V1.7A_1/1p9m6x1z1u/PVS_QRC/lvs/device_formation
+./2024/V1.7A_1/1p6m3x1z1u/PVS_QRC/lvs/device_formation
+./2024/V1.7A_1/1p7m4x1z1u/PVS_QRC/lvs/device_formation
+./2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/lvs/device_formation
+./2014/V1.7A_1/1p6m3x1z1u/PVS_QRC/lvs/device_formation
+./2014/V1.7A_1/1p9m6x1z1u/PVS_QRC/lvs/device_formation
+./2019/V1.7A_1/1p6m3x1z1u/PVS_QRC/lvs/device_formation
+./2019/V1.7A_1/1p7m4x1z1u/PVS_QRC/lvs/device_formation
+./2019/V1.7A_1/1p9m6x1z1u/PVS_QRC/lvs/device_formation

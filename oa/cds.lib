@@ -1,0 +1,7 @@
+# Caeleste libraries
+DEFINE devices devices
+DEFINE spice spice
+DEFINE stdcells stdcells
+DEFINE logic logic
+DEFINE sasc sasc
+

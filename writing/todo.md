@@ -1,3 +1,19 @@
+```mermaid
+gantt
+    title FRIDA v65p1 Submissions
+    dateFormat MM-DD
+    axisFormat %d %b
+        pad ring          :05-26, 7d
+        Cunit cells       :20d
+        comparator        :14d
+
+        IO mux        :7d
+        ADC verification  :28d
+        power grid        :21d
+        feature freeze & verification   :09-15, 30d
+        submit        :10-15, 7d
+```
+
 # Week 18
 
 - what to do about conflict of digital cells?
