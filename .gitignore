@@ -11,6 +11,8 @@ __pycache__
 /docs/talks/dpg2025/build/*
 
 
+.cadence
+
 *.aux
 *.log
 *.synctex.gz

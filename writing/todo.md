@@ -3,14 +3,14 @@ gantt
     title FRIDA v65p1 Submissions
     dateFormat MM-DD
     axisFormat %d %b
-        pad ring          :05-26, 7d
-        Cunit cells       :20d
-        comparator        :14d
-
-        IO mux        :7d
-        ADC verification  :28d
-        power grid        :21d
-        feature freeze & verification   :09-15, 30d
+        pad ring          :05-26, 14d
+        Cunit cells                 :20d
+        comparator                  :10d
+        IO mux                      :4d
+        ADC integration             :7d
+        ADC verification            :28d
+        sys power+routes            :21d
+        impl freeze & final checks   :09-15, 30d
         submit        :10-15, 7d
 ```
 
@@ -26,7 +26,7 @@ gantt
   - CORDA01
 - What is the original use of the SPI circuit from Itchi?
 - Cordia design
-  - Hans shall I get a DESY account?
+  - shall I get a DESY account?
   - Is Cordia_10 the latest?
 - install thinlinc on Faust02, ask Alex
 - 27 of may (hans returns)
