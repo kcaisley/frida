@@ -1,0 +1,625 @@
+/* This is a sample .cdsinit for Cadence DFII.  This is the
+   sample site initialization file supplied by Cadence under
+      <cds_install_dir>/samples/local/cdsinit
+
+   A&MS additions are appended at the end of the file.                      */
+
+
+
+/*
+   filepath:        <cds_install_dir>/cdsuser/.cdsinit
+
+   This file can be copied into a users home or project directory
+   and customized.
+
+   The site initialization file in <cds_install_dir>/local/.cdsinit should
+   set all the defaults for the site.
+
+   For more information on site initialization look at the files
+
+      <cds_install_dir>/samples/local/
+                                    cdsinit
+                                    aaConfig.il
+                                    dciConfig.il
+                                    metConfig.il
+                                    sysConfig.il
+                                    uiConfig.il
+
+
+
+   The sample site initialization file supplied is
+
+      <cds_install_dir>/samples/local/cdsinit
+
+   The site administrator should have moved this to
+
+      <cds_install_dir>/local/.cdsinit
+
+   and customized it.
+
+###################################################################
+   Please read the entire file and the comments before you start
+   customizing the file.
+
+   There are bind key definition files supplied for different
+   applications. The relevant bind key definitions files must
+   be loaded if you want bind keys defined for that application.
+   See section LOAD APPLICATION BIND KEY DEFINITIONS.
+###################################################################
+
+   The user may copy portions from the above files into the
+   home or project customization file and modify the defaults.
+
+
+   It is recommended that the user copy only portions as opposed
+   to copying the whole files.
+
+   Appropriate items for the user's customization file are
+
+   1. Library search path
+   2. Specific bind keys
+   3. Custom SKILL procedures
+   4. User preference options             - examples in uiConfig.il
+   5. Form placements                     - examples in uiConfig.il
+
+   In order for any window placements to work correctly the following
+   X resource must be set in the .Xdefaults or .xresources file
+   pertaining to your hardware platform.
+
+        Mwm*clientAutoPlace:             False
+
+   After setting the resource read in the resource file with the command
+
+        xrdb <resource_filename>
+
+   and restart the Motif window manager.
+
+   The function
+             prependInstallPath("string")
+   adds the installation path to the string argument
+   For this reason there should NOT be a space at the beginning of the
+   string.
+   There SHOULD be a space at the end of the string if more paths are to
+   follow.
+   This function is used to make path specification in this file
+   independant of the exact installation path.
+
+   The function let() creates local variables ( example: libPath ).
+   This makes sure that any global variables are not accidentally modified.
+
+*/
+;
+;################################################
+;#
+;# SETTINGS FOR SKILL PATH and SKILL PROGRAMMING
+;#
+;################################################
+;
+;  The function sstatus() sets the status of variables
+;  The variable writeProtect controls if a SKILL function can be
+;  redefined or not;
+;
+;  Any functions defined after writeProtect = t CANNOT be redefined
+;  Any functions defined after writeProtect = nil CAN be redefined
+;  If you are going to create SKILL programs and define functions set the
+;  status of writeProtect to nil at the beginning of your session.
+;
+;  Set skill search path. The SKILL search path contains directories
+;  to be searched to locate SKILL programs when program names are
+;  specified without full path names.
+;  The operation could be reading, writing or loading a SKILL program.
+;
+;  Source technology files are considered SKILL files and when loading
+;  or dumping the technology file SKILL search path will be used.
+;
+;
+
+sstatus(writeProtect nil)
+
+let((skillPath)
+   skillPath= strcat(
+    ". ~ "                                          ; Current & home directory
+    prependInstallPath("samples/techfile ")         ; sample source technology files
+   )
+   setSkillPath(skillPath)
+)
+;
+;
+;################################################
+;#
+;# LOAD APPLICATION BIND KEY DEFINITIONS
+;#
+;################################################
+;
+;  The bind keys supplied with the Cadence software should have
+;  been loaded by the site .cdsinit file.
+;  This file also loads them in case they were not loaded by the
+;  site customization file.
+;
+;  In case they are loaded by the site .cdsinit prevent reloading by
+;  adding the comment ; to the beginning of the line containing the
+;  specific file name in the list bindKeyFileList below.
+;
+;  If you load the bind key definition file but the application is not
+;  registered ( product not licensed or checked out ) then you might get
+;  a warning that looks like
+;
+;   *WARNING* "Schematics is not registered yet"
+;
+;  This warning can be ignored if you know that the product is not
+;  licensed or checked out.
+;
+;
+let( (bindKeyFileList file path saveSkillPath)
+    bindKeyFileList = '(
+                 "leBindKeys.il"
+                 "schBindKeys.il"
+                    )
+
+;  this is the path that is searched for the files
+    path = strcat(
+              ".   ~   "
+              prependInstallPath("local ")
+              prependInstallPath("samples/local")
+             )
+    saveSkillPath=getSkillPath()
+    setSkillPath(path)
+;
+;
+
+   foreach(file bindKeyFileList
+       if(isFile(file) then
+          loadi(file)
+         )
+    )
+
+    setSkillPath(saveSkillPath)
+)
+
+;
+;
+;  An individual user may wish to add some bindkeys of his/her own or
+;  over ride some default loaded bindkeys.  For more information about
+;  bindkeys see the manual "SKILL Reference Manual, Language Fundamentals",
+;  Chapter 4.
+;
+;  Here is an example of setting one bindkey on "F2" than prints
+;  "Hello world" to the CIW when pressed in the CIW.
+;hiSetBindKey("Command Interpreter" "<Key>F2" "printf(\"Hello World\")")
+;
+;  Here is an example of setting keys for more than one application
+;
+
+    hiSetBindKey("Schematics" "<Btn4Down>" "geScroll(nil \"n\" nil)")
+    hiSetBindKey("Schematics" "<Btn5Down>" "geScroll(nil \"s\" nil)")
+    hiSetBindKey("Schematics" "Shift<Btn4Down>" "geScroll(nil \"w\" nil)")
+    hiSetBindKey("Schematics" "Shift<Btn5Down>" "geScroll(nil \"e\" nil)")
+    hiSetBindKey("Schematics" "Ctrl<Btn4Down>" "hiZoomInAtMouse()")
+    hiSetBindKey("Schematics" "Ctrl<Btn5Down>" "hiZoomOutAtMouse()")
+ 
+    hiSetBindKey("Symbol" "<Btn4Down>" "geScroll(nil \"n\" nil)")
+    hiSetBindKey("Symbol" "<Btn5Down>" "geScroll(nil \"s\" nil)")
+    hiSetBindKey("Symbol" "Shift<Btn4Down>" "geScroll(nil \"w\" nil)")
+    hiSetBindKey("Symbol" "Shift<Btn5Down>" "geScroll(nil \"e\" nil)")
+    hiSetBindKey("Symbol" "Ctrl<Btn4Down>" "hiZoomInAtMouse()")
+    hiSetBindKey("Symbol" "Ctrl<Btn5Down>" "hiZoomOutAtMouse()")    
+    
+    hiSetBindKey("Layout" "<Btn4Down>" "geScroll(nil \"n\" nil)")
+    hiSetBindKey("Layout" "<Btn5Down>" "geScroll(nil \"s\" nil)")
+    hiSetBindKey("Layout" "Shift<Btn4Down>" "geScroll(nil \"w\" nil)")
+    hiSetBindKey("Layout" "Shift<Btn5Down>" "geScroll(nil \"e\" nil)")
+    hiSetBindKey("Layout" "Ctrl<Btn4Down>" "hiZoomInAtMouse()")
+    hiSetBindKey("Layout" "Ctrl<Btn5Down>" "hiZoomOutAtMouse()")
+
+
+
+;let( (app appList)
+;  appList = '(
+;             "Schematics"
+;             "Symbol"
+;             "Layout"
+;    )
+;"hiScaleMagnifier(1.25)"
+;"hiScaleMagnifier(0.80)"
+;  foreach(app appList
+;    hiSetBindKey(app "<Btn4Down>" "geScroll(nil \"n\" nil)")
+;    hiSetBindKey(app "<Btn5Down>" "geScroll(nil \"s\" nil)")
+;    hiSetBindKey(app "Shift<Btn4Down>" "geScroll(nil \"w\" nil)")
+;    hiSetBindKey(app "Shift<Btn5Down>" "geScroll(nil \"e\" nil)")
+;    hiSetBindKey(app "Ctrl<Btn4Down>" "hiZoomInAtMouse()")
+;    hiSetBindKey(app "Ctrl<Btn5Down>" "hiZoomOutAtMouse()")
+;  )
+;)
+;
+;
+;################################################
+;#
+;# MISCELLANEOUS
+;#
+;################################################
+;
+;
+; Set your own prompt in the CIW. The first argument is the prompt.
+; The second argument is not used yet.
+;
+; The variable editor defines the text editor to be used when any of
+; the applications invoke an editor. For example technology dump and edit
+; operation opens an editor window.
+;
+; The editor may also be set by
+;
+;         unix environment variable EDITOR
+;
+;             setenv EDITOR 'xedit'
+;
+;
+; When Design Framework is invoked the SKILL variable editor is set to the
+; value of the unix variable EDITOR.
+;
+; If EDITOR is not defined the SKILL variable
+; editor is set to "vi"
+;
+; You may also set the variable to execute a UNIX command
+; that invokes an xterm window of given size and location
+; and starts an editor program.
+; Example:
+;
+;    editor = "xterm -geometry 80x40 -e emacs"
+;
+; Size of xterm in the above example is 80 characters by 40 lines.
+; With some editors on certain platforms the variable editor must
+; be defined as shown above.
+;
+; Some application which require a text editor may be using the UNIX
+; variable EDITOR instead of the SKILL variable editor. It is a good
+; idea to set the UNIX variable EDITOR to the text editor of your
+; choice which will automatically set the SKILL variable editor.
+;
+;
+;setPrompts("Ready >" "")
+;editor = "xterm -geometry 85x50 -e vi";
+;
+;
+;  ENVIRONMENT VARIABLES
+;  Schematic, Layout and Graphic environment variable defaults are now found in
+;  <cds_install_dir>/etc/tools/
+;                               layout/.cdsenv
+;                               schematic/.cdsenv
+;                               graphic/.cdsenv
+;
+;  These can be customized in the user's ./cdsenv and ~/.cdsenv files.
+;  A .cdsenv file can be created by using CIW->options->save defaults.
+;
+printf("END OF USER CUSTOMIZATION\n")
+;
+;END OF USER CUSTOMIZATION
+
+
+
+;
+; Schematic cellview to cellview defaults for creating a symbol with Artist
+; IL interpreted labels. The default is to not create an Artist symbol.
+;
+schSetEnv( "tsgTemplateType" "artist" )
+;||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+; General Analog Simulation Environment Setup...
+;||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+; The following is a list of simulation tool parameters which cannot be
+; set by way of the Artist User Interface Options forms and therefore
+; can only be defined in the user's .cdsinit file.
+
+; If the value of numberOfSavedRuns is negative, no data will be copied or
+; deleted.
+; If the value is a non-negative integer, then that number of past runs
+; (It is assumed that the run names are non-negative integers, all others
+; are ignored) are saved.
+; (0 means don't copy the data at all, and delete all other
+; runs), otherwise all past runs are saved.
+;
+;       envSetVal( "asimenv.misc" "numberOfSavedRuns" 'int 0 )
+
+; By default, component CDF is not automatically updated when design
+; variables are copied to the cellview.  To enable auto updating,
+; specify the following line in your .cdsinit file:
+;
+;       artEnableAutoDesignVarCdfUpdate()
+;
+; artDisableAutoDesignVarCdfUpdate() can be used to disable auto updating.
+; artGetAutoDesignVarCdfUpdate() will return t if auto updating is enabled,
+; or nil otherwise.
+
+;||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+; WAVEFORM WINDOW DEFAULTS
+;||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+;
+; This section explains how waveform window defaults can be overridden.
+;
+; Waveform window/subwindow options can be set using awvSetOptionValue().
+; E.g., if you want your subwindow to be in the strip mode when it is opened,
+; add the following line to .cdsinit:
+;
+; awvSetOptionValue( "mode" "strip" )
+;
+; Option names may be strings or symbols, e.g.,
+;
+; awvSetOptionValue( 'mode "strip" )
+;
+; is legal. The complete list of options is included below.
+;
+;
+; Boolean options:
+; ----------------
+;
+;   Name                Purpose                 Default
+;   ----                _______                 -------
+;
+;   cursorSuppressed    Tracking cursor         nil
+;
+;   dateStamp           Date stamp
+;                       (top right corner)      nil
+;
+;   displayAxes         Display axes            t
+;
+;   displayAxesBy125    Axis labels by 1-2-5    nil
+;
+;   displayAxesLabel    Axes labels             t
+;
+;   displayGrids        Grid lines              nil
+;
+;   displayMajorTicks   Major tick marks        t
+;
+;   displayMinorTicks   Minor tick marks        t
+;
+;   updateStatus        Updatability            t
+;
+;   xLog                Log axis (X)            nil
+;
+;
+; String options:
+; ---------------
+;
+;   Name                Purpose                 Default         Other choices
+;   ----                -------                 -------         -------------
+;
+;   cursorAction        Snap to waveform or
+;                       actual data points      "line"          "data point"
+;
+;   cursorPhase         Phase display (Smith)   "degree"        "radian"
+;
+;   cursorValue         Value display (Smith)   "normalized impedance"
+;                                                     "normalized admittance"
+;                                                     "reflection coefficient"
+;
+;   mode                Mode type               "composite"     "strip"
+;                                                               "smith"
+;
+;   smithModeType       Smith Mode type         "impedance"     "admittance"
+;                                                               "polar"
+;
+;   stripModeType       Strip Mode type         "analogStrip"
+;                                                       "analogComposite"
+;
+;   style               Plot style              "auto"          "bar"
+;                                                               "scatterPlot"
+;                                                               "joined"
+
+;
+; Integer options:
+; ----------------
+;
+;   Name                Purpose                 Default         Other choices
+;   ----                -------                 -------         -------------
+;
+;   cursorPrecision     Number of digits
+;                       of cursor output        4               Any integer
+;                                                               greater than 2
+;                                                               and less than
+;                                                               16
+;
+;   numIdentifier       Number of identifiers
+;                       per waveform            6               Any positive
+;                                                               integer or
+;                                                               nil to get all
+;
+;
+; Hard copy options:
+; ------------------
+;
+;   Name                Purpose                 Default         Other choices
+;   ----                -------                 -------         -------------
+;
+;   hcCopyNum           Number of copies        1               Any positive
+;                                                               integer
+;
+;   hcDisplay           Display name            "display"       Defined in
+;                                                               the techfile
+;
+;   hcOrientation       Plot orientation        "automatic"     "portrait"
+;                                                               "landscape"
+;
+;   hcOutputFile        Plot to file only       nil             Name of the
+;                                                               output file
+;
+;   hcPaperSize         Plot paper size         Specified in .cdsplotinit
+;
+;   hcPlotterName       Plotter name            Specified in .cdsplotinit
+;
+;   hcTmpDir            Temporary scratch       "/usr/tmp"      Name of the
+;                       space                                   temp directory
+;
+;
+; Note: Typing awvSetOptionValue( name value ) into the CIW will affect
+;       waveform windows/subwindows opened after that. To restore an option
+;       to its default value, type awvSetOptionDefault( name ).
+
+
+/* PDK customization */
+
+_stacktrace = 7
+
+/* Skill commands for user customization */
+hiSetFilterOptions(t t t t t t t)                 /* Log filter options      */
+hiGetCIWindow()->displayMouseBinding = t
+hiGetCIWindow()->scrollBars = t                   /* Turn on scroll bars     */
+hiGetCIWindow()->infix = nil                      /* Turn off infix          */
+hiGetCIWindow()->displayMouseBinding = t
+hiSetUndoLimit(10)                                /* Allow 10 undos          */
+hiSetMultiClickTime(500)                          /* Set double click=500    */
+hiFormApply( hiSysProps )
+
+leSetEnv("modalCommands" t)
+leSetEnv("displayRefPoint" t)
+leSetEnv("autoSetRefPoint" nil)
+leSetEnv("gravityOn" t)
+leSetEnv("gravityType" list("centerline" "edge" "vertex" "end"))
+leSetEnv("gravityAperture" 3.0)
+leSetEnv("gravityDepth" 20)
+leSetEnv("flattenMode" "one level")
+leSetEnv("flattenPCells" t)
+
+leSetEnv("xSnapSpacing" 0.005)
+leSetEnv("ySnapSpacing" 0.005)
+
+
+;; Calibre setup
+
+;; Load Calibre Skill Interface if environment var is set
+mgc_home=getShellEnvVar("MGC_HOME")
+
+if( mgc_home!=nil && isDir(mgc_home) && isReadable(mgc_home) then
+    ; Load calibre.skl for Cadence versions 4.4 and greater
+    load(strcat(mgc_home "/shared/pkgs/icv/tools/queryskl/calibre.skl"))
+else
+    ; MGC_HOME is not set
+    printf("Calibre Skill Interface not loaded.\n")
+)
+;; End of Calibre Skill Interface
+
+;; VCAD added variable as on pre.4.0 (24-28 Oct 2013)
+(envSetVal "ams.envOpts" "netlisterMode" 'string "OSS-based")
+(envSetVal "ams.ncverilogOpts"  "libFiles"      'string " $TSMC_DIG_LIBS/Front_End/verilog/tcbn65lp_200a/tcbn65lp_pwr.v $TSMC_DIG_LIBS/Front_End/verilog/tpan65lpnv2od3_140b/tpan65lpnv2od3.v $TSMC_DIG_LIBS/Front_End/verilog/tpdn65lpnv2od3_140b/tpdn65lpnv2od3.v $TSMC_DIG_LIBS/Front_End/verilog/tcbn65lpbwp7thvt_pwr.v")
+
+deRegUserTriggers("maskLayout" nil '_pvsMaskLayoutMenuTrigger)
+deRegUserTriggers("maskLayoutXL" nil '_pvsMaskLayoutMenuTrigger)
+
+procedure( PVSPreFormTrigger( runType presetFile winId )
+let( (cv runDir tmpName f)
+tmpName = makeTempFileName( strcat( getTempDir() "/pvsXXXXXX"))
+techlib = "pvtech.lib"
+f = outfile( tmpName )
+if( runType == "DRC" then
+;; create a temporary preset file
+fprintf(f "[ pvsgui.Run%s ]\n" runType )
+fprintf(f "TechnologyLibPath \"%s\" \n" techlib)
+fprintf(f "TechnologyName \"%s\" \n" "tsmc65n")
+fprintf(f "TechnologyRuleSet \"%s\" \n" "Cell Only")
+fprintf(f "RunDir \"%s\" \n" "DRC")
+)
+if( runType == "VIPVSPOSTEDIT" then
+;; create a temporary preset file
+fprintf(f "[ pvsgui.VIPVS ]\n" runType )
+fprintf(f "TechnologyLibPath \"%s\" \n" techlib)
+fprintf(f "TechnologyName \"%s\" \n" "tsmc65n")
+fprintf(f "TechnologyRuleSet \"%s\" \n" "Cell Only")
+fprintf(f "LayerMapFile \"%s/%s/%s/tsmcN65/tsmcN65.layermap\" \n"
+                                      getShellEnvVar("PDK_PATH")
+                                      getShellEnvVar("PDK_RELEASE"))
+)
+if( runType == "LVS" then
+;; create a temporary preset file
+fprintf(f "[ pvsgui.Run%s ]\n" runType )
+fprintf(f "TechnologyLibPath \"%s\" \n" techlib)
+fprintf(f "TechnologyName \"%s\" \n" "tsmc65n")
+fprintf(f "TechnologyRuleSet \"%s\" \n" "default")
+fprintf(f "RunDir \"%s\" \n" "LVS")
+)
+close(f)
+tmpName
+))
+
+procedure( LvsGuiPreset(form) t)
+
+procedure( vuiUserDefinedRCXFormSetupCB(form)
+   let(
+     (DK_path CWD SVDB defTab1 defTab2 defTab3 defTab4 defTab5 path_to_file )
+
+     DK_path= strcat( getShellEnvVar("PDK_PATH") "/" getShellEnvVar("PDK_RELEASE") )
+;     path_to_file  = strcat( DK_path "/pvtech.lib")
+parasiticBlockingFile= strcat( DK_path  "/PVS_QRC/lvs/hcell" )
+      CWD=getShellEnvVar("PWD")
+
+; Setting of the preQRCform
+;;;     when( form->hiFormSym == 'vuipreRcxForm
+;;;     form->assuraTech->value = path_to_file
+;;;     form->tech->value = "gpdk045_pvs"
+
+;form->runDir->value = "myrundirpath"
+;form->runName->value = "myrunname"
+;form->mapFile->value = "file_name"
+
+
+;;;       ); end of when preQRC
+
+; Setting the QRC form
+
+        when( form->hiFormSym == 'vuiRcxRunForm
+
+;Definition of each QRC tabs
+
+        defTab1 = _vuiRcxGetTabField("vuiRcxRunForm" "setupTab")
+        defTab2 = _vuiRcxGetTabField("vuiRcxRunForm" "extractTab")
+        defTab3 = _vuiRcxGetTabField("vuiRcxRunForm" "filterTab")
+        defTab4 = _vuiRcxGetTabField("vuiRcxRunForm" "netlistTab")
+        defTab5 = _vuiRcxGetTabField("vuiRcxRunForm" "runTab")
+
+
+       ;; Set Field values in Setup Tab
+
+       ;defTab1->ruleSetDirField->value="./gpdk045/qrc/typical/"
+       defTab1->technologyField->value="tsmc65n"
+       ;typ must exist in the list of choice
+       defTab1->ruleSetField->value="typical"
+       defTab1->outputFormat->value="Extracted View"
+       defTab1->checkCellView->value=nil
+
+       ;; Set Field values in Extract Tab
+;       defTab2->capExtractMode->value="Decoupled"
+;       defTab2->rcxExtractionMode->value="RC"
+;       defTab2->refNode->value="gnd!"
+;       defTab2->netNameSpace->value="Schematic Names"
+        defTab2->parasBlockDevCellsFile->value= parasiticBlockingFile
+        ;; Set Field values in filterTab
+        ;; defTab3->...
+        ;; Set Field values in netlistTab
+        ;; defTab4-->...
+        ;; Set Field values in runTab
+        ;; defTab5->...
+
+   ); end When QRC form
+     t ; a true return value is necessary
+ ); end Let
+); end of procedure vuiUserDefinedRCXFormSetupCB
+
+;; WB 2014-01-16, added in pre.6 by PhC:
+load( strcat( getShellEnvVar("PDK_PATH") "/" getShellEnvVar("PDK_RELEASE") "/skill/TSMCN65_cktPro.il"))
+
+;; -----------------------------------------------
+;; -- CERN additions to set some default values --
+;; -----------------------------------------------
+
+envSetVal("adexl.results" "saveDir" `string strcat("/simulation/" getShellEnvVar("USER") "/SaveDir"))
+envSetVal("adexl.results" "saveResDir" `string strcat("/simulation/" getShellEnvVar("USER") "/ResDir"))
+envSetVal("asimenv.startup" "projectDir" `string strcat("/simulation/" getShellEnvVar("USER") "/ProjDir"))
+
+  let((clioDir)
+     clioDir = getShellEnvVar("CLIOSOFT_DIR")
+     when(clioDir
+       println("Loading SOS files...")
+       load((strcat clioDir "/scripts/cds_sosviadfII.il"))
+       println("Finished Loading SOS")
+     )
+  )
+
+

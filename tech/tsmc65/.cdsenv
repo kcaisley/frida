@@ -1,0 +1,11 @@
+ddserv	showWhatsNew	string	"6.1.5"
+layout  xSnapSpacing    float   0.005
+layout  ySnapSpacing    float   0.005
+layout  gravityType     string  "edge vertex end centerline"
+layout  instLibName     string  "tsmcN65"
+layout  gravityDepth    int     20
+layout  flattenPCells   boolean t
+layout  gravityAperture float   3
+layout  autoSetRefPoint boolean nil
+layout  gravityOn       boolean nil
+
