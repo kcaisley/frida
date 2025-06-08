@@ -486,7 +486,7 @@ leSetEnv("ySnapSpacing" 0.005)
 ;; Calibre setup
 
 ;; Load Calibre Skill Interface if environment var is set
-mgc_home=getShellEnvVar("MGC_HOME")
+mgc_home=getShellEnvVar("CALIBRE_HOME")
 
 if( mgc_home!=nil && isDir(mgc_home) && isReadable(mgc_home) then
     ; Load calibre.skl for Cadence versions 4.4 and greater

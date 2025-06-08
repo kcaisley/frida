@@ -6,8 +6,9 @@ INCLUDE $TSMC_PDK/cds.lib
 INCLUDE $TSMC_DIG_LIBS/Back_End/cdk/cds.lib
 
 DEFINE CERN65_IOPAD_ESD_1V2_Library $PDK_PATH/../libs/CERN65_IOPAD_ESD_1V2_Library
+DEFINE IOlib                $HOME/designs/ADC_Bonn/Libs/IOlib/oa/IOlib
 
-DEFINE MM_SPI_RW $HOME/designs/MM_SPI_RW
+# DEFINE MM_SPI_RW $HOME/designs/MM_SPI_RW
 DEFINE frida $HOME/designs/frida/oa/frida
 
 
@@ -126,4 +127,5 @@ DEFINE frida $HOME/designs/frida/oa/frida
 # DEFINE RD53B_CDR_BONN_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53B_CDR_BONN/cds/RD53B_CDR_BONN_LIB
 # DEFINE RD53B_SLDO_LIB /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_SLDO/cds/RD53B_SLDO_LIB
 # DEFINE RD53_ANALOG_CHIP_BOTTOM /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_ANALOG_CHIP_BOTTOM/cds/RD53_ANALOG_CHIP_BOTTOM
-# DEFINE RD53_SER_CML_Bonn /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_SER_CML_Bonn/cds/RD53_SER_CML_Bonn
+# DEFINE RD53_SER_CML_Bonn /users/krueger/cadence/designs/tsmc/65nm/RD53/RD53_DM/RD53B/IPs/RD53_SER_CML_Bonn/cds/RD53_SER_CML_BonnDEFINE avTech /eda/cadence/2024-25/RHELx86/ASSURA_04.17.001_231/tools.lnx86/assura/etc/avtech/avTech
+DEFINE avTech /eda/cadence/2024-25/RHELx86/ASSURA_04.17.001_231/tools.lnx86/assura/etc/avtech/avTech
