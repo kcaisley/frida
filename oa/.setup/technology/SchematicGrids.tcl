@@ -1,1 +1,0 @@
-setup schematicgrid set -units iu -majorgridsize 160 -majorgridstyle dots -majorgriddisplayed false -minorgridsize 16 -minorgridstyle dots -minorgriddisplayed true -snapgridsize 16 -portinstancesize 8 -snapcursor false 

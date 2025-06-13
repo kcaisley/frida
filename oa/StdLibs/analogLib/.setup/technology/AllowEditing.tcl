@@ -1,1 +1,0 @@
-property set Protection.AllowEditing -system -host design -library analogLib -value false

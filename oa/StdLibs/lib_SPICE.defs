@@ -1,8 +1,0 @@
-DEFINE SPICE_Commands SPICE_Commands
-ASSIGN SPICE_Commands libMode shared
-
-DEFINE SPICE_Measure SPICE_Measure
-ASSIGN SPICE_Measure libMode shared
-
-DEFINE SPICE_Plot SPICE_Plot
-ASSIGN SPICE_Plot libMode shared
