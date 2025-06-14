@@ -5,82 +5,82 @@
 *******************HSPICE_Models**********************************************
 *****TRADITIONAL CORNERS*****
 .lib NOM_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
 .endl
 
 .lib FAST_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FF_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FF_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FF_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FF_MOM
 .endl
 
 .lib SLOW_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SS_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SS_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SS_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SS_MOM
 .endl
 
 * Only MOS model is FS
 .lib FASTSLOW_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FSMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FSMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
 .endl
 
 * Only MOS model is SF
 .lib SLOWFAST_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SFMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SFMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TT_MOM
 .endl
 
 *****GLOBAL CORNERS*****
 .lib GLOBAL_NOM_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
 .endl
 
 .lib GLOBAL_FAST_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FFGlobalCorner_LocalMC_MOM
 .endl
 
 .lib GLOBAL_SLOW_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SSGlobalCorner_LocalMC_MOM
 .endl
 
 * Only MOS model is FS
 .lib GLOBAL_FASTSLOW_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FSGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' FSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
 .endl
 
 * Only MOS model is SF
 .lib GLOBAL_SLOWFAST_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SFGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' SFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' TTGlobalCorner_LocalMC_MOM
 .endl
 
 *****LOCAL MONTECARLO (Mismatch)*****
 .lib LOCAL_MC_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' LocalMCOnly_MOM
 .endl
 
 *****TOTAL MC (Global MC + Local MC) CORNERS*****
 .lib TOTAL_MC_MODEL
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.l' GlobalMC_LocalMC_MOM
 .endl
 
 *******************General Settings****************************************
@@ -88,7 +88,7 @@
     .model DIODE d
     .model NPN npn
     .model PNP pnp
-    .include  '/users/kcaisley/designs/helena/technologies/tsmc65/v2.0/v2.0.lib'
+    .include  '/users/kcaisley/helena/technologies/tsmc65/v2.0/v2.0.lib'
 .endl
 
 ************tt*************
@@ -227,82 +227,82 @@
 *******************ELDO models**********************************************
 *****TRADITIONAL CORNERS*****
 .lib NOM_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
 .endl
 
 .lib FAST_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FF_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FF_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FF_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FF_MOM
 .endl
 
 .lib SLOW_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SS_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SS_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SS_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SS_MOM
 .endl
 
 * Only MOS model is FS
 .lib FASTSLOW_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FSMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FSMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
 .endl
 
 * Only MOS model is SF
 .lib SLOWFAST_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SFMacro_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SFMacro_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TT_MOM
 .endl
 
 *****GLOBAL CORNERS*****
 .lib GLOBAL_NOM_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
 .endl
 
 .lib GLOBAL_FAST_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FFGlobalCorner_LocalMC_MOM
 .endl
 
 .lib GLOBAL_SLOW_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SSGlobalCorner_LocalMC_MOM
 .endl
 
 * Only MOS model is FS
 .lib GLOBAL_FASTSLOW_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FSGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' FSGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
 .endl
 
 * Only MOS model is SF
 .lib GLOBAL_SLOWFAST_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SFGlobalCorner_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' SFGlobalCorner_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' TTGlobalCorner_LocalMC_MOM
 .endl
 
 *****LOCAL MONTECARLO (Mismatch)*****
 .lib LOCAL_MC_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' LocalMCOnly_MOM
 .endl
 
 *****TOTAL MC (Global MC + Local MC) CORNERS*****
 .lib TOTAL_MC_MODEL_ELDO
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_MOS_MOSCAP
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
-	.lib '/users/kcaisley/designs/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_MOM
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_MOS_MOSCAP
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_RES_BIP_DIO_DISRES
+	.lib '/users/kcaisley/helena/technologies/tsmc65/tsmcN55/CMN55ULP/SPICE_Models/crn55ulp_2d5_lk_v1d2/crn55ulp_2d5_lk_v1d2_usage.eldo' GlobalMC_LocalMC_MOM
 .endl
 
 *******************General Settings****************************************
@@ -310,7 +310,7 @@
     .model DIODE d
     .model NPN npn
     .model PNP pnp
-    .lib '/users/kcaisley/designs/helena/technologies/tsmc65/v2.0/v2.0.lib'
+    .lib '/users/kcaisley/helena/technologies/tsmc65/v2.0/v2.0.lib'
     ********** next as ELDO does not set Gnd==0
     vdummy Gnd 0 0
 .endl

@@ -6,7 +6,7 @@ DEFINE tsl18fs190svt_wb /eda/kits/TOWER/digital/tsl18fs190svt_wb_Rev_2022.12/lib
 DEFINE tsl18fs190svt_wb_dig /eda/kits/TOWER/digital/tsl18fs190svt_wb_Rev_2022.12/tech/oa/ts18sl/6M1L/tsl18fs190svt_wb_dig
 INCLUDE /users/krueger/cadence/designs/tj/obelix/dm/obelixPrj.lib
 
-#Removed by ddDeleteObj: DEFINE tpsco180_exportest /users/kcaisley/designs/tpsco180_exportest
-DEFINE test /users/kcaisley/designs/tpsco180/test
-DEFINE ts018_netlist_test /users/kcaisley/designs/ts018_netlist_test
+#Removed by ddDeleteObj: DEFINE tpsco180_exportest /users/kcaisley/tpsco180_exportest
+DEFINE test /users/kcaisley/tpsco180/test
+DEFINE ts018_netlist_test /users/kcaisley/ts018_netlist_test
 DEFINE avTech /eda/cadence/2024-25/RHELx86/ASSURA_04.17.001_231/tools.lnx86/assura/etc/avtech/avTech

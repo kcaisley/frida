@@ -1,4 +1,4 @@
-** Python v2.0_common export from source: /users/kcaisley/designs/helena/technologies/setup/v2common/v2common.xlsx
+** Python v2.0_common export from source: /users/kcaisley/helena/technologies/setup/v2common/v2common.xlsx
 
 ** DO NOT MODIFY FILE (unless you know very well what you're doing.)
 

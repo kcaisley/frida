@@ -4,9 +4,7 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 
 This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame-rate surpassing 100,000 fps. For the conjunction of these two specifications to be met, one must have a compact and power efficient bank of column-parallel data converters, which at 10-12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm^2 while exceeding a 5 ksps/µm^2 sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
 
-Research question: How do we best allocate the quantity and weighting of SA bit positions, in order to yeild the highest resolution (in ENOB) for a given power, area, and power budget, and with a given amount of power supply noise?
-
-## Block diagram of example system
+This project focuses on how one can best allocate the quantity and weighting of SA bit positions, in order to yeild the highest resolution (in ENOB) for a given power, area, and power budget, and with a given amount of power supply noise.
 
 ![](docs/caeleste2/arch.svg)
 
@@ -33,7 +31,20 @@ Research question: How do we best allocate the quantity and weighting of SA bit 
 
 NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
 
-# Project organization (proposal)
+# Installation
+
+This project should be thought of as a workspace, and relies of several different languages and a mixture of open and closed sources tools, and so all installation and configuration is documented in this README, instead of in a `requirementments.txt` or `pyproject.toml` files.
+
+Create a python .venv and install the following packages:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install cicpy psf_utils numpy matplotlib pandas tqdm
+```
+
+
+
 
 ```
 ├── src

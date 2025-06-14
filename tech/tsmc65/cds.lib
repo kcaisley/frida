@@ -26,12 +26,12 @@ DEFINE frida $HOME/designs/frida/oa/frida
 
 
 
-# DEFINE temp65 /users/kcaisley/designs/temp65
+# DEFINE temp65 /users/kcaisley/temp65
 
 
 
 # DEFINE sc9_cln65lp_base_hvt /eda/kits/TSMC/65LP/2011/ARM/sc9_base_hvt/r0p0/oa/sc9_cln65lp_base_hvt/
-# INCLUDE /users/kcaisley/designs/DHPT12B/cds.lib
+# INCLUDE /users/kcaisley/DHPT12B/cds.lib
 
 # The above needs the following:
 # /eda/kits/TSMC/65LP/2014/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
