@@ -1,0 +1,3 @@
+## PDK specific entries do not touch --
+INCLUDE $LF15A_HOME/tools/setup/cds.lib
+## END PDK specific entries do not touch --

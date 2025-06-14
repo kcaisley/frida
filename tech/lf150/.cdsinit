@@ -1,0 +1,90 @@
+;; PDK specific entries do not touch --
+
+LF15A_HOME = getShellEnvVar( "LF15A_HOME" )
+
+defun( LFinitDisplayError ( t_banner t_errorMsg )
+;; display a dialog box message about LF15A_HOME failure.
+    when( t_errorMsg
+        warn( t_errorMsg )
+        hiDisplayAppDBox(
+            ?name           'LF15A_HOME_error
+            ?dboxBanner     t_banner
+            ?dboxText       t_errorMsg
+            ?dialogType     hicErrorDialog
+            ?dialogStyle    'modal
+            ?buttonLayout   'Close
+        )
+    )
+) ;; close defun
+
+;; getting LF15A_HOME directory
+if( !LF15A_HOME || LF15A_HOME == "" then
+  LFinitDisplayError(
+    "LF15A_HOME Error"
+    strcat( 
+      "Environment variable LF15A_HOME not set.\n" 
+      "This will result in an incomplete customization for LF15A.\n" 
+    )
+  )
+else
+  if( !isDir( LF15A_HOME ) then
+    LFinitDisplayError(
+      "LF15A_HOME Error"
+      strcat( 
+   "Environment variable LF15A_HOME is not a directory.\n"
+   "This will result in an incomplete customization for LF15A.\n" 
+      )
+    )
+  else
+    if( !isReadable( LF15A_HOME ) then
+      LFinitDisplayError( 
+        "LF15A_HOME Error"
+   strcat( 
+     "Directory LF15A_HOME is not readable.\n"
+     "This will result in an incomplete customization for LF15A.\n" 
+   )
+      )
+    else
+      loadi( strcat( LF15A_HOME "/tools/setup/.cdsinit" ) )
+    ) ;; close unless isReadable   
+  ) ;; close if isDir
+) ;; close if getShellEnvVar
+
+;;) ;; close let
+
+;; END PDK specific entries do not touch --
+
+
+;; PDK ADDONs specific entries do not touch --
+let(
+   (
+      (addon_list getShellEnvVar("LF15A_ADDON"))
+      addon_path
+   )
+   addon_list=getShellEnvVar("LF15A_ADDON")
+   when(addon_list
+      foreach(addon parseString(addon_list ":")
+         addon_path=strcat(addon "/tools/setup/.cdsinit")
+         if(isFile(addon_path) then
+            printf("*LF-INFO* %s loading \n" addon_path)
+            loadi(addon_path)
+         else
+            printf("*LF-WARN* %s is not avaliable \n" addon_path)
+         );if
+      );foreach
+   );when
+)
+;; END PDK ADDONs specific entries do not touch --
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opening the library manager
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+let( (b_openLibManger)
+b_openLibManger=t
+if( b_openLibManger then
+    ddsOpenLibManager( )
+    printf( "*LF-INFO* .cdsinit: Opening library manager               done\n" )
+else
+    printf( "*LF-INFO* .cdsinit: Opening library manager            skipped\n" )
+) ;; close if b_openLibManger
+)

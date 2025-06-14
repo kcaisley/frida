@@ -1,0 +1,4 @@
+DEFINE testlib /users/kcaisley/designs/testlib
+DEFINE analogLib_tanner /users/kcaisley/designs/frida/oa/StdLibs/analogLib
+DEFINE analogLib /eda/cadence/2024-25/RHELx86/IC_23.10.070/tools.lnx86/dfII/etc/cdslib/artist/analogLib 
+

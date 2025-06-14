@@ -1,0 +1,7 @@
+# File Created by Kennedy Caisley at Mon May 19 17:43:35 2025
+# assisted by CdsLibEditor
+DEFINE bag_vco_adc $HOME/designs/bag_sar_vco_adc/OA/bag_vco_adc
+SOFTINCLUDE /eda/cadence/2024-25/RHELx86/IC_23.10.070/share/cdssetup/cds.lib
+SOFTINCLUDE /users/kcaisley/designs/frida/oa/cds.lib
+SOFTINCLUDE $HOME/designs/frida/oa/StdLibs/cds.lib
+DEFINE testlib /users/kcaisley/designs/testlib
