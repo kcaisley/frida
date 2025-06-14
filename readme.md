@@ -8,11 +8,11 @@ Research question: How do we best allocate the quantity and weighting of SA bit 
 
 ## Block diagram of example system
 
-![](writing/caeleste2/arch.svg)
+![](docs/caeleste2/arch.svg)
 
 ## Modeling and analysis workflow
 
-![](writing/caeleste2/workflow.svg)
+![](docs/caeleste2/workflow.svg)
 
 ## Past designs vs current target
 
@@ -49,5 +49,5 @@ NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
 ├── tech
 │   └── tsmc65 (EDA env start dir)
 │   └── tsmc28
-├── writing
+├── docs
 ```

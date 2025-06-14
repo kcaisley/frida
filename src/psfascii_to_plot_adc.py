@@ -1,7 +1,4 @@
 from psf_utils import PSF
-from inform import Error, display
-import matplotlib.pyplot as plt
-
 
 import subprocess
 

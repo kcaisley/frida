@@ -34,7 +34,7 @@ params["CDAC"]["settling_time"] = 0.5e-9
 params["CDAC"]["individual_weights"] = [896, 512 , 288, 160, 80, 48, 24, 16, 8, 6, 3, 2, 2, 1, 1]
 params["CDAC"]["array_size"] = len(params["CDAC"]["individual_weights"])    #FIXME: shouldn't be a parameter, should be calc'd internally
 adc1 = behavioral.SAR_ADC(params)
-adc1.compile_results("/users/kcaisley/helena/writing/aida2025/", "12b_splitcap")
+adc1.compile_results("/users/kcaisley/helena/docs/aida2025/", "12b_splitcap")
 
 # -------------------- noise errors ------------------
 

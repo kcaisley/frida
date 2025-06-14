@@ -113,7 +113,7 @@ Then later the MSB is `B11 = 480` and the `MSB-1 = just 2**8`???? How does this 
 - 2015 JH Tsai pg. 3 says that 'differential arch' allows DAC to be 9-bit, in a 10-bit ADC. This contrasts what we stated before in the meeting? I thought it was more to do with the top-side sampling, where the comparator is connected to the same node as the sampled voltage.
 - 2011 SH Cho pg. 2 claims the 'dual reference voltages' is what allows them to have a 9-bit DAC for a 10-bit ADC.
 - Show slides on dynamic and static error sources.
-- When finding non-linearity have to pick a method?: ![alt text](../writing/images/method.png)
+- When finding non-linearity have to pick a method?: ![alt text](../docs/images/method.png)
 - When I have +1 LSB is the differential input range still 
 
 

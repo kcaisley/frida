@@ -66,5 +66,5 @@ plt.title("Relative Error Tolerance @ Cycle [i] in Percent [%]")
 ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
 plt.tight_layout()
-plt.savefig("./writing/caeleste3/redundancy.pdf")
+plt.savefig("./docs/caeleste3/redundancy.pdf")
 plt.show()
