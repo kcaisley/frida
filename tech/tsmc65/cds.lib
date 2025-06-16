@@ -9,7 +9,7 @@ DEFINE CERN65_IOPAD_ESD_1V2_Library $PDK_PATH/../libs/CERN65_IOPAD_ESD_1V2_Libra
 DEFINE IOlib                $HOME/designs/ADC_Bonn/Libs/IOlib/oa/IOlib
 
 # DEFINE MM_SPI_RW $HOME/designs/MM_SPI_RW
-DEFINE frida $HOME/designs/frida/oa/frida
+DEFINE frida $HOME/designs/frida/
 
 
 # This just has some data.dm, tech.db, and cdsinfo.tag, and avTech.layermap?
@@ -17,12 +17,13 @@ DEFINE frida $HOME/designs/frida/oa/frida
 
 
 # From old cordia folder    (I think this is the ADC test submission?):
-# DEFINE CoRDIA_ADC_01        $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/CoRDIA_ADC_01     # needs tcbn65lp_dnw
+DEFINE CoRDIA_ADC_01        $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/CoRDIA_ADC_01     # needs tcbn65lp_dnw
+DEFINE tcbn65lp_dnw         $HOME/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
 # DEFINE CoRDIA_ADC_01_FILL $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/CoRDIA_ADC_01_FILL
 # DEFINE ComparatorThemis   $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/ComparatorThemis
 # DEFINE SEALRING2mm        $HOME/designs/ADC_Bonn/CoRDIA_ADC_01/oa/SEALRING2mm
 # DEFINE IOlib                $HOME/designs/ADC_Bonn/Libs/IOlib/oa/IOlib
-# DEFINE tcbn65lp_dnw         $HOME/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
+
 
 
 
@@ -36,7 +37,7 @@ DEFINE frida $HOME/designs/frida/oa/frida
 # The above needs the following:
 # /eda/kits/TSMC/65LP/2014/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
 # /eda/kits/TSMC/65LP/2024/digital/Back_End/cdk/tcbn65lp_200a_oa/1p9m6x1z1u/tcbn65lp
-# $HOME/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
+# /users/kcaisley/designs/ADC_Bonn/Libs/tcbn65lp_dnw/oa/tcbn65lp_dnw
 
 # from new cordia
 # DEFINE CoRDIA_ADC_01      $HOME/designs/CoRDIA_ADC_01/CoRDIA_ADC_01/oa/CoRDIA_ADC_01

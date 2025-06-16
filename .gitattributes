@@ -1,0 +1,5 @@
+# Force .sp files to be recognized as SPICE netlists
+*.sp linguist-language=SPICE
+
+# Exclude .sp files from language stats
+# *.sp linguist-detectable=false
