@@ -1,13 +1,14 @@
 # File Created by Kennedy Caisley at Mon May 19 17:43:35 2025
 # assisted by CdsLibEditor
 
-SOFTINCLUDE /users/kcaisley/helena/cds.lib
-SOFTINCLUDE /users/kcaisley/helena/StdLibs/cds.lib
+INCLUDE /users/kcaisley/designs/helena/cds.lib
+INCLUDE /users/kcaisley/designs/helena/StdLibs/cds.lib
 
 DEFINE test_oaschem     /users/kcaisley/designs/test_oaschem
 
 DEFINE bag_vco_adc      /users/kcaisley/designs/bag_sar_vco_adc/OA/bag_vco_adc
 DEFINE bag3_digital     /users/kcaisley/designs/bag3_digital/OA/bag3_digital
+DEFINE bag3_analog      /users/kcaisley/designs/bag3_analog/OA/bag3_analog
 DEFINE xbase            /users/kcaisley/designs/xbase/OA/xbase
 DEFINE BAG_prim         /users/kcaisley/designs/cds_ff_mpt-bag3/OA/BAG_prim
 

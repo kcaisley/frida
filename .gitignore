@@ -1,6 +1,5 @@
 .venv
 .vscode
-.ropeproject
 __pycache__
 /spectre/sim*
 /spectre/.psf*
@@ -12,9 +11,8 @@ __pycache__
 
 
 .cadence
-
-*.aux
 *.log
+*.aux
 *.synctex.gz
 *.fls
 *.out
