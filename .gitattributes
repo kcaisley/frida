@@ -1,5 +1,5 @@
 # Force .sp files to be recognized as SPICE netlists
-# *.sp linguist-language=SPICE
+*.sp linguist-language=SPICE
 
 # Exclude .sp files, since mine are SPICE netlists, but linguist thinks they are 'SourcePrawn' whatever that is lol
 *.sp linguist-detectable=false
