@@ -1,15 +1,6 @@
+__pycache__
 .venv
 .vscode
-__pycache__
-/spectre/sim*
-/spectre/.psf*
-/spectre/.cadence
-/tspice/*
-/src/*.pkl
-/src/*.pdf
-/docs/talks/dpg2025/build/*
-
-
 .cadence
 *.log
 *.aux
@@ -30,3 +21,7 @@ __pycache__
 *.ext
 *.calibre.db
 *.test
+
+/tech/nopdk/*
+/tech/tsmc65/*
+/tech/tsmc28/*
