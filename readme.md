@@ -33,14 +33,24 @@ NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
 
 # Installation
 
-This project should be thought of as a workspace, and relies of several different languages and a mixture of open and closed sources tools, and so all installation and configuration is documented in this README, instead of in a `requirementments.txt` or `pyproject.toml` files.
+This project should be thought of as a workspace, and relies of several different languages and a mixture of open and closed sources tools, and so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` files.
 
 Create a python .venv and install the following packages:
 
 ```
 python -m venv .venv
 source .venv/bin/activate
-pip install cicpy psf_utils numpy matplotlib pandas tqdm
+pip install psf_utils gdstk cicpy numpy matplotlib pandas tqdm 
+```
+
+Generating layouts requires `ciccreator` and viewing them optionally requires Cadence Virtuoso or `magic`, built with:
+
+```
+sudo dnf install -y m4
+sudo dnf install -y tcl-devel tk-devel
+sudo dnf install -y mesa-libGL-devel mesa-libGLU-devel zlib-devel
+sudo dnf install -y libX11-common libX11-devel 
+sudo dnf install -y ncurses-devel
 ```
 
 
