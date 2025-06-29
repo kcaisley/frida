@@ -1,3 +1,9 @@
+/tech/nopdk/*
+/tech/tsmc65/*
+/tech/tsmc28/*
+
+/build
+
 __pycache__
 .venv
 .vscode
@@ -21,7 +27,3 @@ __pycache__
 *.ext
 *.calibre.db
 *.test
-
-/tech/nopdk/*
-/tech/tsmc65/*
-/tech/tsmc28/*

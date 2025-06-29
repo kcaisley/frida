@@ -53,7 +53,16 @@ sudo dnf install -y libX11-common libX11-devel
 sudo dnf install -y ncurses-devel
 ```
 
+For compiling/running cic-gui:
 
+```
+sudo dnf install qt6-qtbase qt6-qtbase-devel qt6-qtbase-x11
+sudo dnf install xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil libxcb
+sudo dnf install qt5-qtbase qt5-qtbase-devel qt5-qtbase-x11 qt5-qtx11extras
+sudo dnf install qt6-qtwayland qt6-qtwayland-devel qt5-qtwayland qt5-qtwayland-devel
+```
+
+For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
 
 
 ```

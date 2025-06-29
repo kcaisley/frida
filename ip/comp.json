@@ -1,0 +1,127 @@
+{
+	//Add regex in here to disable certain cells
+    "disableCells" : [
+    ],
+
+
+	//All cells in the SAR
+    "cells":
+    [
+		//------------------------------------------------------------
+		// Unit cells
+		//------------------------------------------------------------
+
+        { "name" : "PCHDL",
+          "inherit" : "DMOSE",
+          "type" : "pch_lvt_io",
+          "beforePlace" :{
+              "addEnclosures" : [
+                  ["OD",1,["PPE","LVT","HS"]],
+                  ["OD",0,["PP","NSS"]]
+              ],
+              "addEnclosuresByRectangle" : [
+                  ["OD",[0,0,"width","height"],["OD2"]],
+                  ["OD",[0,0,11,"height"],["HS"]]
+              ]
+          }
+        },
+
+        { "name" : "NCHDL",
+          "inherit" : "DMOSE",
+          "xoffset" : -2,
+          "afterNew" : {
+              "mirrorPatternString" : 1
+          },
+          "type" : "nch_lvt_io",
+          "beforePlace" :{
+              "addEnclosures" : [
+                  ["OD",1,["LVT"]]
+              ],
+              "addEnclosuresByRectangle" : [
+                  ["OD",[0,0,"width","height"],["NW","HS","OD2"]],
+                  ["OD",[0,0,4,"height"],["NSSN"]]
+              ]
+          }
+        },
+
+		 { "name" : "NCHDLR", "type" : "nch_lvt_io",
+          "inherit" : "NCHDL", "afterPaint" : { "mirrorCenterY" : 0 },
+          "beforePlace" :{
+              "addEnclosuresByRectangle" : [
+                  ["OD",[0,0,22,15],["NW","HS"]]
+              ]
+          }
+        },
+
+		//- Half a strong-arm comparator
+        { "name": "SARCMPHX1_EV",
+          "class" : "Layout::LayoutDigitalCell",
+          "setYoffsetHalf" :  "" ,
+          "rows" : 7,
+          "beforeRoute" : {
+              "addDirectedRoutes" : [ ["PO","VMR","MN6:G-MP6:G"],
+                                      ["M1","VMR","MP4:G||MP6:G"],
+                                      ["M1","CI","MN1:G||MN5:G"],
+                                      ["M1","N2","MN1:D,MN3:D,MN5:D-|--MP1:D"],
+                                      ["M1","N1","MN0:D,MN2:D|-MN4:D"],
+                                      ["M1","N1","MN0:D-|--MP0:S"],
+                                      ["M1","CO","MP3:D,MP5:D--|-MN6:D"],
+                                      ["PO","CK","MN0:G-MP0:G"],
+                                      ["M1","CK","MP0:G,MP1:G-|MP3:G"],
+                                      ["M4","NC","MP2$:D-|--MP2:G"]
+                                    ]
+          },
+          "afterRoute" : {
+              "addPortOnRects" : [ ["AVDD","M4" ],["N1","M1","MN4:D"],["N2","M1","MN5:D" ]]
+          }
+        },
+
+		//- Comparator kick back compensator
+        { "name": "SARKICKHX1_EV",
+          "class" : "Layout::LayoutDigitalCell",
+          "setYoffsetHalf" :  "" ,
+          "rows" : 7,
+          "beforeRoute" : {
+              "addDirectedRoutes" : [   ["M1","N1","MN0:D||MN6:S"],
+                                        ["M1","N1","MN0:D-|--MP0:S"],
+                                        ["M1","CI","MN1:G||MN5:G"],
+                                        ["PO","CKN","MN0:G-MP0:G"],
+                                        ["M1","NC","MP1:G||MP6:G"],
+                                        ["M1","NC","MP1:S||MP6:D"],
+                                        ["M1","NC","MN6:D-MP6:D"],
+                                        ["M1","NC","MP6:D-|--MP6:G"]
+                                    ]
+          },
+          "afterRoute" : {
+              "addPortOnRects" : [ ["AVDD","M4"], ["CK","M1", "MN6:G" ],["CKN","M1","MN0:G"],["CI","M1","MN1:G"]]
+          }
+        },
+		
+		
+		//- Strong-arm comparator
+        { "name": "SARCMPX1_EV",
+          "class" : "Layout::LayoutDigitalCell",
+          "composite" : 1,
+          "beforeRoute" : {
+              "addDirectedRoutes" : [
+                  ["M1","CNO_I","XA2b?$:MP6:S-|--XA3b?$:MP4:G,XA3a:MP0:G"],
+                  ["M2","CPO_I","XA3b?$:MP4:S-|--XA2b?$:MP5:G,XA2a:MP0:G"],
+			      ["M2","CNI", "XA1$:MN5:G-|XA2$:MN1:G"],
+                  ["M2","CPI", "XA3$:MN5:G-|XA4$:MN1:G"],
+                  ["M1","CK_B","XA1$:MN6:G|-XA2b?$:MN0:G,XA3b?$:MN0:G,XA4$:MN6:G"],
+                  ["M1","CK_B","XA4$:MN6:G-|--XA9:Y"],
+                  ["M2","CK_N","XA1b?$:MN0:G|-XA4$:MN0:G,XA9:MN0:G"],
+                  ["M2","CK_N","XA9:MN0:G-|--XA10:MN1:D"],
+                  ["M1","DONE_N","XA11:Y--|-XA10:MN0:G"],
+                  ["M1","CK_A","XA12:MP0:D-|--XA10:MP1:G"],
+                  ["M1","N1","XA2b?$:MN4:D|-XA3b?$:MN4:D"]
+              ],
+			  "addConnectivityRoutes" : [
+			  ]
+          },
+          "afterRoute" : {
+              "addPortOnRects" : [ ["CK_SAMPLE","M1"] ,["CK_CMP","M1"],["DONE","M1"],["CNO", "M1","XA3a:Y"], ["CPO","M1","XA2a:Y"] ,["CPI","M1","XA1$:MN5:G" ],["CNI","M1","XA3$:MN5:G" ] ]
+          }
+        }
+    ]
+}
