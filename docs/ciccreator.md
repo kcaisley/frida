@@ -10,6 +10,7 @@ make all
 To run:
 
 ```bash
+cd /users/kcaisley/frida/build
 cic SAR_ESSCIRC16_28N.json ../tech/tsmc65/tech.json SAR_ESSCIRC16_28N
 cic-gui SAR_ESSCIRC16_28N.cic ../tech/tsmc65/tech.json
 

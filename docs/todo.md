@@ -22,7 +22,7 @@ gantt
 1. Load these legacy 65nm designs with newest version of PDK. One by one, make sure they support the latest PDK version, and have zero errors in schematic or layout. Anything which has PDK dependencies, which are hard coded and not matching latest naming conventions should be ported. If anything needs to be fixed, make a local copy, and manually do so.
 - 
 
-## Step 2: Simulating against a PDK with transis
+## Step 2: Simulating against a PDK with transistors
 
 
 # Week 18
@@ -40,7 +40,6 @@ gantt
   - shall I get a DESY account?
   - Is Cordia_10 the latest?
 - install thinlinc on Faust02, ask Alex
-- 27 of may (hans returns)
 - `si myTemp -batch -command netlist -cdslib cds.lib`
 - si.env is the profile of the simulation environment, you can check ADE->setup->environment. It also controls netlisting (for e.g. with the cdl netlister)
 - Maybe get the basic BAG symbols?
