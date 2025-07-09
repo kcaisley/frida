@@ -40,8 +40,17 @@ Create a python .venv and install the following packages:
 ```
 python -m venv .venv
 source .venv/bin/activate
-pip install psf_utils gdstk cicpy numpy matplotlib pandas tqdm 
+pip install pyspectre gdstk cicpy numpy matplotlib pandas tqdm 
 ```
+
+Ensure `spectre` is installed, and available in your `PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
+
+```
+which spectre
+```
+
+Despite using `spectre` will will opt to use the widely compatible `nutbin` format, which is a binary file following original SPICE3 nutmet format. It is less compact than `psfbin` files, but can be read by other tools than Cadence's Viva. For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
+
 
 Generating layouts requires `ciccreator` and viewing them optionally requires Cadence Virtuoso or `magic`, built with:
 
@@ -62,7 +71,7 @@ sudo dnf install qt5-qtbase qt5-qtbase-devel qt5-qtbase-x11 qt5-qtx11extras
 sudo dnf install qt6-qtwayland qt6-qtwayland-devel qt5-qtwayland qt5-qtwayland-devel
 ```
 
-For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
+
 
 
 ```
