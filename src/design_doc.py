@@ -1,3 +1,7 @@
+
+# This is a test of the design document
+
+#%%
 weights = [2**10-2**7,
            2**9,
            2**8+2**5,
@@ -13,3 +17,7 @@ weights = [2**10-2**7,
                 2**1,
                 2**0,
                 2**0]
+
+
+#%%
+print(weights)

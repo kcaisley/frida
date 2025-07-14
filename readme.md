@@ -29,7 +29,7 @@ This project focuses on how one can best allocate the quantity and weighting of 
 | ADCs total area         | 2.0 cm²     | 10.5 cm²   | 9.6 cm²    | 0.2 cm²     |
 | ADCs total power        | 35.0 W      | 1.2 W      | 14 W       | 1.0 W       |
 
-NOTE: EDET DCD 1800 μW seems high, does it erroneously includes input amp?
+NOTE: Was told EDET DCD 1800 μW seems high? Each DCD in Belle II is 1.8W, which works out to 7000 μW per channel including the input amp + ADC. I think 1800 μW is therefor probably correct.
 
 # Installation
 
@@ -40,7 +40,7 @@ Create a python .venv and install the following packages:
 ```
 python -m venv .venv
 source .venv/bin/activate
-pip install pyspectre gdstk cicpy numpy matplotlib pandas tqdm 
+pip install pyspectre gdstk cicpy numpy matplotlib pandas tqdm jupyter
 ```
 
 Ensure `spectre` is installed, and available in your `PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
@@ -55,6 +55,7 @@ Despite using `spectre` will will opt to use the widely compatible `nutbin` form
 Generating layouts requires `ciccreator` and viewing them optionally requires Cadence Virtuoso or `magic`, built with:
 
 ```
+pip install cicpy
 sudo dnf install -y m4
 sudo dnf install -y tcl-devel tk-devel
 sudo dnf install -y mesa-libGL-devel mesa-libGLU-devel zlib-devel

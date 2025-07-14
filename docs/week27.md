@@ -34,11 +34,24 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - Used 'dynamic logic' to reduce circuit size, I can do the same later-on
     - Harpe ran slow enough, and sized comparators strongly enough, and decoupled power supply well enough that transient noise and dynamic switching errors shouldn't be a big issues, which is why he didn't use redundancy. Then after this, the mismatch of the capacitors was essentially good enough for his target ENOB.
         - But I want to perhaps go for close to 12-bit ENOB, with small caps, and so I'm interested in adding redundancy to allow calibration of my small capacitors.
+    - A 'modified conventional switching is used' (from Harpe 2011) but is low power since the caps are so small
+        - Each side has 21 elements, with 9.2fF cap (C + C'), and 10Mhz, so power would be estimated as `2*21 * 9.2e-15 * 1.2**2 *10e6` = ~5uW
+        - This is exactly on the money, as power is measured at ~5uW as well
+    - Also, total capacitance for sampling purposes is simply the number of units times the (C + C')
+    - Q: does monotonic switching, bidrectional, mcs, etc have a place here? Is my expected power just `2*75 * 20e-15 * 1.2**2 *10e6` = ~45uW?
 
 - JH Tsai 2015
- - doesn't use calibraiton, but achieves a small fast 10b design
- - They first split MSB up, using what they call SC-ADEC (split cap - addition only digital error correction), but it's the same as CC Liu 2015
- - They then used a monotonic switching scheme, and add to their new technique called CRS, but also suggested it could be used with MCS from V. Haripasath 2010 (but this is a Vcm technique, so I don't think I want to use it)
+    - doesn't use calibration, but achieves a small fast 10b design
+    - They first split MSB up, using what they call SC-ADEC (split cap - addition only digital error correction), but it's the same as CC Liu 2015
+    - They then used a monotonic switching scheme, and add to their new technique called CRS, but also suggested it could be used with MCS from V. Haripasath 2010 (but this is a Vcm technique, so I don't think I want to use it)
+    - pg9,sec C: the CRS and SC-ADEC strat can be independently applied to a given switching scheme
+    - "The differential realization reduces the hardware of the DAC" by one bit, which confuses me a bit as I thought it was top plate sampling related
+    - pg 5 "Over-/under-ﬂow removals are typically employed for designs that use extra redundant capacitors" which is why splitting the MSB is better
+    - Is the base switching scheme monotonics, bss, or something else?
+
+- Chen-Saynyal-Sun, BSS
+    - Does Bss benefit here?
+    - 
 
 - D. Van Blerkom, Forza, 2021:
     - 40 super blocks, 20 on each side, with 1024 ADCs per superblock. ADCs run at 1.7 Msps.
@@ -165,4 +178,3 @@ Webb 2024 - Matching Improvements in Capacitor Arrays for Precision Charge Redis
        + 2**0
 ```
 Yeilds 2047, which with a +1 dummy gives us 2048, or 2**11.
-
