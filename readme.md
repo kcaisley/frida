@@ -35,12 +35,15 @@ NOTE: Was told EDET DCD 1800 μW seems high? Each DCD in Belle II is 1.8W, which
 
 This project should be thought of as a workspace, and relies of several different languages and a mixture of open and closed sources tools, and so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` files.
 
-Create a python .venv and install the following packages:
+Create a python .venv (tested with python 3.11) and install the following packages:
 
 ```
-python -m venv .venv
-source .venv/bin/activate
-pip install pyspectre gdstk cicpy numpy matplotlib pandas tqdm jupyter
+python -m venv .venv311
+source .venv311/bin/activate
+pip install --upgrade pip
+pip install numpy matplotlib pandas tqdm jupyter
+pip install git+https://github.com/augustunderground/pynut.git
+pip install git+https://github.com/augustunderground/pyspectre.git
 ```
 
 Ensure `spectre` is installed, and available in your `PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
