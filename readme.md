@@ -23,6 +23,26 @@ This project focuses on how one can best allocate the quantity and weighting of 
 | SPI Interface        | ✅        | 🔄     | Need to resize                     |
 | Pad Ring            | ✅        | ✅     |                                    |
 
+```
+LSB voltage: 585.94 µV
+Quantization noise RMS: 169.15 µV
+SNR_ideal: 74.01 dB
+ENOB_ideal: 12.00 ENOB
+
+Sampling noise RMS: 91.02 µV
+Comparator noise RMS: 120.00 µV
+SNR w/ noise: 71.47 dB
+ENOB w/ noise: 11.58 ENOB
+
+3σ worst-case DNL: 0.80 LSB
+SNR w/ noise & dist: 64.22 dB
+ENOB w/ noise & dist: 10.37 ENOB
+
+Weights list: [896, 512, 288, 160, 80, 48, 24, 16, 8, 6, 3, 2, 2, 1, 1]
+Sum of weights: 2047
+```
+
+
 ## Modeling and analysis workflow
 
 ![](docs/caeleste2/workflow.svg)
