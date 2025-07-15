@@ -8,6 +8,21 @@ This project focuses on how one can best allocate the quantity and weighting of 
 
 ![](docs/caeleste2/arch.svg)
 
+
+## Status:
+
+| Block                | Schematic | Layout | Notes                              |
+|----------------------|-----------|--------|------------------------------------|
+| Unit Length cap      | ✅        | ✅     |                                    |
+| Unit Area Cap        | ❌        | ❌     | Need to decide type                |
+| Unit Length Array    | ❌        | 🔄     | Design weights already known       |
+| Unit Area Array      | ❌        | ❌     |                                    |
+| Comparators x2       | ✅        | ✅     | Performance resimulated            |
+| Drivers              | ✅        | ✅     | Mixture of devices from Caeleste / Cordia |
+| SA Logic             | ✅        | ❌     | Mixture from Caeleste / Cordia     |
+| SPI Interface        | ✅        | 🔄     | Need to resize                     |
+| Pad Ring            | ✅        | ✅     |                                    |
+
 ## Modeling and analysis workflow
 
 ![](docs/caeleste2/workflow.svg)
