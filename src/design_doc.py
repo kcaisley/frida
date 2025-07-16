@@ -24,6 +24,7 @@ SNR_ideal = calc_snr_volts(Vinpp_rms, Vqnoise_rms)
 ENOB_ideal = calc_enob(SNR_ideal)
 
 # Next we find the degradation due to sampling and comparator noise
+# NOTE: Actually, do I need to calculate the noise for each pseudo differential plate, and add it in quadrature?
 Ctot = 500e-15 # just a guess for now, might be closer to 1000fF, but current guess is more pessamistic
 Vcompnoise_rms = 120e-6    # for double tailed latch
 Vsampnoise_rms = math.sqrt(kB*T/Ctot)

@@ -21,7 +21,7 @@ This project focuses on how one can best allocate the quantity and weighting of 
 | Drivers              | ✅        | ✅     | Mixture of devices from Caeleste / Cordia |
 | SA Logic             | ✅        | ❌     | Mixture from Caeleste / Cordia     |
 | SPI Interface        | ✅        | 🔄     | Need to resize                     |
-| Pad Ring            | ✅        | ✅     |                                    |
+| Pad Ring             | ✅        | ✅     |                                    |
 
 ```
 LSB voltage: 585.94 µV
@@ -49,22 +49,16 @@ Sum of weights: 2047
 
 ## Past designs vs current target
 
-| Design                  | EDET DCD    | CoRDIA     | pre-Helena | Helena      |
-|-------------------------|-------------|------------|------------|-------------|
-| ADC resolution          | 8-bit       | 10-bit     | 8-bit      | 10-bit      |
-| Conversion rate         | 10 MHz      | 2.5MHz     | 5 MHz      | 10 MHz      |
-| Area of one ADC         | 100x200 μm² | 80x330 μm² | 60x800 μm² | 20x100 μm²  |
-| Power of one ADC        | 1800 μW     | 30 μW      | 700 μW     | 100 μW      |
-| FOM_csa (conv/sec/area) | 500 Hz/μm²  | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² |
-| FOM_epc (energy/conv)   | 180 pJ      | 12 pJ      | 155 pJ     | 10 pJ       |
-| FOM_ppa (power/area)    | 9.0 W/cm²   | 0.11 W/cm² | 1.45 W/cm² | 5.0 W/cm²   |
-| ADC qty Mpix @ 100 KHz  | 10000       | 40000      | 20000      | 10000       |
-| ADCs total pixel rate   | 100 Gpx/s   | 100 Gpx/s  | 100 Gpx/s  | 100 Gpx/s   |
-| ADCs total data rate    | 800 Gb/s    | 1 Tb/s     | 800 Gb/s   | 1 Tb/s      |
-| ADCs total area         | 2.0 cm²     | 10.5 cm²   | 9.6 cm²    | 0.2 cm²     |
-| ADCs total power        | 35.0 W      | 1.2 W      | 14 W       | 1.0 W       |
-
-NOTE: Was told EDET DCD 1800 μW seems high? Each DCD in Belle II is 1.8W, which works out to 7000 μW per channel including the input amp + ADC. I think 1800 μW is therefor probably correct.
+| Design                  | DCD v1      | CoRDIA     | M          | H           | F           |
+|-------------------------|-------------|------------|------------|-------------|-------------|
+| Design resolution       | 8-bit       | 10-bit     | 8-bit      | 10-bit      | 12-bit      |
+| ENOB                    | 8.3         | 8.8        | 8.0        | 9.5 ?       | 11.0 ?      |
+| Conversion rate         | 6.25 MHz    | 2.5MHz     | 4.5 MHz    | 10 MHz      | 10 MHz      |
+| Dimensions of one ADC   | 40x55 μm²   | 80x330 μm² | 60x800 μm² | 15x100 μm²  | 50x50 μm²   |
+| Dimensions of one ADC   | 0.002 mm²   | 0.026 mm²  | 0.048 mm²  | 0.0015 mm²  | 0.0025 mm²  |
+| Power of one ADC        | 960 μW      | 30 μW      | 700 μW     | 100 μW      | 100 μW ?    |
+| FOM_csa (conv/sec/area) | ??? Hz/μm²  | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² | 5000 Hz/μm² |
+| FOM_wal (J/conv-step)   | 487 fJ      | 26 fJ      | 608 fJ     | 14 fJ       | 5 fJ        |
 
 # Installation
 
