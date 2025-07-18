@@ -33,7 +33,7 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - the DBC requires no extra hardware, and essentially works by buildin statistics in the output data
 
 - CC Liu 2015
-    - Top plate sampling and monotonic switching only require 2**9 caps in each side for 10-bit ADC (references CC Liu 2010)
+    - Top plate sampling and monotonic switching only require `2**9` caps in each side for 10-bit ADC (references CC Liu 2010)
     - Sampling capacitance is 300 fF for 2^9 caps (is this in both sides?) in an (each side) area of 25um by 10um, which is roughly 0.58fF per unit cap, with 1.2um^2
     - NOTE: There were roughly 200 fF of parasitic capacitance, which is probably partially due to the top plate being outside / exposed
 
@@ -84,7 +84,8 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - The thing I want to try is applying his idea, but incorporating sub-radix2 redundancy, async clocking, digital background calibration to enabled a high-density array without noise issues
     - Also, I might be able to run faster than 12-bit? Since redundancy doesn't just enable mismatch calibration, but also can correct transient errors from transient noise and dynamic settling?
     - Used 'dynamic logic' to reduce circuit size, I can do the same later-on
-    - Harpe ran slow enough, and sized comparators strongly enough, and decoupled power supply well enough that transient noise and dynamic switching errors shouldn't be a big issues, which is why he didn't use redundancy. Then after this, the mismatch of the capacitors was essentially good enough for his target ENOB.
+    - Harpe ran slow enough, and sized comparators strongly enough, and decoupled power supply well enough that transient noise and dynamic switching errors shouldn't be a big issues, which is why he didn't use redundancy.
+    	- Then after this, the mismatch of the capacitors was essentially good enough for his target ENOB.
         - But I want to perhaps go for close to 12-bit ENOB, with small caps, and so I'm interested in adding redundancy to allow calibration of my small capacitors.
     - A 'modified conventional switching is used' (from Harpe 2011) but is low power since the caps are so small
         - Each side has 21 elements, with 9.2fF cap (C + C'), and 10Mhz, so power would be estimated as `2*21 * 9.2e-15 * 1.2**2 *10e6` = ~5uW
@@ -93,10 +94,11 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - Q: does monotonic switching, bidrectional, mcs, etc have a place here? Is my expected power just `2*75 * 20e-15 * 1.2**2 *10e6` = ~45uW?
 
 - Pelgrom 2022 textbook
-    - pg 74
+    - pg 750: 
     - pg 768: In a basic SAR w/o calibration Ctot required for mismatch linearity is typically 10X that for noise.
         - For example, 10-bit SAR Ctot 50fF for sampling but ~500fF for mismatch are required
         - A 12-bit SAR would require 16x more at 800fF and 
+    -  
 
 - J.Liu - S.Sun 2022 kT/C noise cancelling SAR 13-bit
     - uses only 240fF of differential sampling capacitance, 591uW power, 
@@ -125,6 +127,12 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
         - But calibration of the capacitors themselves (see Ding 2015) of calibration only of the digital weights is necessary for high resolution.
         - When the the sampling node can't be measured directly, calibratability is a requirement for both the strats above
         - See Ding 2018 for on-chip LMS engine calibration. Off-chip paper is only 6-bit so I didn't read
+
+- IMASENIC Sagara
+    - One design had 6 ADCs per column, each running at 1Mhz 11-bit resolution.
+    - Assuming 20e-3/2052 = ~10um pixel pitch, each ADC is roughly 5um by 30um from the photo?
+    - This makes the combined column parralle block be 10um x 90um, or ~ 0.001um^2 similar to H in area, but only 6MHz and 
+    - Not sure about the power
 
 - Zhaokai Liu 2025:
     - Talks a lot about the linearity requirements of high resolution ADCs, and how bottom-plate sampling helps enable this
@@ -178,6 +186,8 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
 - 2006 Chen-Brodersen
     - Does digital foreground calibration, using either ramp or sinewave
     - uses LMS loop with an adaptive FIR filter as it is easiest hardware implementation, although hints that 'orthogonality principle' could also be used in software
+- 2015 Ding-Harpe Background calibration
+    
 
 # Reading / simulating list:
 - Finish calculating allowed device mismatch from A Hsu's diagram, and make sure our caps follow that radix
@@ -218,7 +228,8 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
 - Could we realistically implement some form of on-chip calibration (foreground or background, digital/analog)
 - Could we potentially benefit from one of the additional switching techniques? (which reduce power and/or improve linearity)
     - Right now our power budget even with the 12-bit design is okay around ~300uW
-
+- Try dynamic logic (Harpe 2022 pg4, Baker2019 chp14,) true single phase clocking (TSPC) logic (Baker, Wulff)
+- Three standard strategies for improved linearity (Pelgrom pg750): Bootstrapped switch, differential operation, bottom plate sampling
 
 # Others:
 
