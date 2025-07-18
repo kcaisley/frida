@@ -32,12 +32,21 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - "In addition, a digital background calibration was employed off-chip to further improve the ADC’s INL and SNR, by calibrating the gain mismatches of each capacitor."
     - the DBC requires no extra hardware, and essentially works by buildin statistics in the output data
 
+
 - CC Liu 2015
     - Top plate sampling and monotonic switching only require `2**9` caps in each side for 10-bit ADC (references CC Liu 2010)
     - Sampling capacitance is 300 fF for 2^9 caps (is this in both sides?) in an (each side) area of 25um by 10um, which is roughly 0.58fF per unit cap, with 1.2um^2
     - NOTE: There were roughly 200 fF of parasitic capacitance, which is probably partially due to the top plate being outside / exposed
 
 - JH Tsai 2015
+    - AH! The bidirectional switching in this paper and Chen-Sanyal-Sun 2014 are essentially the same. This paper just uses it on more bit positions
+    	- Actually there is another difference: BSS paper uses bottom plate sampling with a CM setting on the top plate
+	- This paper has a more complicated MCS component for correcting 1LSB worth of cap non-linearity
+	- But overall it has a simple design
+	- I will uses the top-plate sampling bi-directional switching
+	- And I will also use the SC-ADEC (split capacitor addition only digital error correction) which is the same essentially at CC Liu 2015.
+	- Not how he certainly has several spots only the chain where the radix between two bits is 2. This shows all that matters in the sum of remaining is greater.
+	- this paper plus CC Liu 2015 are essentially a combination of the repeated levels strat (CC Liu 2010 and , plus the sub-radix 2 (rounded) strat (Kuttner 2005)
     - doesn't use calibration, but achieves a small fast 10b design
     - They first split MSB up, using what they call SC-ADEC (split cap - addition only digital error correction), but it's the same as CC Liu 2015
     - They then used a monotonic switching scheme, and add to their new technique called CRS, but also suggested it could be used with MCS from V. Haripasath 2010 (but this is a Vcm technique, so I don't think I want to use it)
@@ -46,9 +55,11 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - pg 5 "Over-/under-ﬂow removals are typically employed for designs that use extra redundant capacitors" which is why splitting the MSB is better
     - Is the base switching scheme monotonics, bss, or something else?
 
-- Chen-Saynyal-Sun, BSS
-    - Does Bss benefit here?
-    - 
+- Chen-Saynyal-Sun, BSS, 2014
+    - Does Bss benefit here? yes, it maintains the common mode better
+    - JH Tsai took it even further, buy adding 2 more bits that swing up at some point along the chain. That way the positive swing also isn't big.
+    - Also this paper using a Vcm voltage in two places, plus it uses bottom plate sampling. I will just take the bidirectional single-side idea.
+    - I would prefer not to use bottom-plate sampling as it requires a Vcm voltage, and I think it makes the input sampling switching more complicated?
 
 - D. Van Blerkom, Forza, 2021:
     - 40 super blocks, 20 on each side, with 1024 ADCs per superblock. ADCs run at 1.7 Msps.
@@ -158,7 +169,7 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - Three strategies:
         - ch4: peturbation-based digital calibration
         - ch5: bit-wise-correlation based (BWC)
-        - ch6: equalization based
+        - ch6: equalization based (I believe this is using 2nd calibration ADC, so it adds hardware)
         - realtime calibration using LMS engine, and a 'BWC' (bit-wise correlation based) signal. Appears to be either sine wave, ramp, or gaussian noise, but all appear to be the same for training.
     - Also, he talks about calibratability
         - Essentially, final output of DAC must be less than 1 LSB away from true value. In other words, conversion must be 'successful'
