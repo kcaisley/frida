@@ -1,0 +1,12 @@
+- layer properties are saved in a .lyp file. It can be produces using a Cadence .tf, display.df, and .layermap file
+    - .lyp is a XML file, essentially
+    - The code is found [here](https://github.com/klayoutmatthias/tf_import)
+- Once shape (rects, polygons, paths, labels) are written to a cell, the database unit is multiplied if they are the integer (non D-) types
+- Layers are attached to the ly = db.Layout() object via `layer1 = ly.layer(1, 2, "Poly")
+- You can get info of a lyaer with `ly.get_info(layer1)`
+- layouts contain a layers list, and an a shaped list for each layer
+- each shapes list contains the geometries (boxes, polygons, pahts, and labels) which are on that layer
+- Can I define a cell, but not place instances of it?
+    - I don't think so. What happens it that when you fist declare a geometric object, it doesn't belong to a cell, and so nothing exists in the layout
+    - But once you create a layout and create a cells, and insert the geometry to the shape list of the cells, it now exists in the layout.
+    - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open the layout, it will show the top level heirachy cells, and the two instance of ti 

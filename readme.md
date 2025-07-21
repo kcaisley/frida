@@ -64,13 +64,13 @@ Sum of weights: 2047
 
 This project should be thought of as a workspace, and relies of several different languages and a mixture of open and closed sources tools, and so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` files.
 
-Create a python .venv (tested with python 3.11) and install the following packages:
+Create a python .venv (tested with Python 3.9 - 3.13) and install the following packages:
 
 ```
-python -m venv .venv311
-source .venv311/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install --upgrade pip
-pip install numpy matplotlib pandas tqdm jupyter
+pip install numpy matplotlib pandas tqdm klayout klayout-pex
 pip install git+https://github.com/augustunderground/pynut.git
 pip install git+https://github.com/augustunderground/pyspectre.git
 ```
@@ -108,18 +108,13 @@ sudo dnf install qt6-qtwayland qt6-qtwayland-devel qt5-qtwayland qt5-qtwayland-d
 
 
 ```
-├── src
-├── hdl
-├── oa  (Caeleste input collateral eventually to be deleted)
-├── netlists (library of generic netlists, and Verilog A models -> converted with find+replace)
-├── impl
-│   └── tsmc65 (1. impl netlists/oa schems/layouts/ 2. pointers to )
-│   └── tsmc28
-├── sim
-│   └── tsmc65 (runs against impl netlists, since we have to have to include external libs)
-│   └── tsmc28
-├── tech
-│   └── tsmc65 (EDA env start dir)
-│   └── tsmc28
-├── docs
+├── build       netlists etc, collateral from ip + src
+├── docs        notes & documentation
+├── ip          netlists, verilog-A models, etc 
+├── src         script and utils
+└── tech        PDK specific files, only added as symlinks
+    ├── nopdk
+    ├── tsmc28
+    └── tsmc65
+
 ```

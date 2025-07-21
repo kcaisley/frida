@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<klayout-macro>
+ <description/>
+ <version/>
+ <category>pymacros</category>
+ <prolog/>
+ <epilog/>
+ <doc/>
+ <autorun>true</autorun>
+ <autorun-early>false</autorun-early>
+ <priority>0</priority>
+ <shortcut/>
+ <show-in-menu>false</show-in-menu>
+ <group-name/>
+ <menu-path/>
+ <interpreter>python</interpreter>
+ <dsl-interpreter-name/>
+ <text>import pya
+
+class RingWithInteriorStrip(pya.PCellDeclarationHelper):
+    """
+    Creates a ring with an interior strip structure
+    """
+
+    def __init__(self):
+        super(RingWithInteriorStrip, self).__init__()
+        
+        # Declare the parameters
+        self.param("l", self.TypeDouble, "Interior Length", default=10.0)
+        self.param("w", self.TypeDouble, "Interior Width", default=2.0)
+        self.param("sx", self.TypeDouble, "X Spacing", default=1.0)
+        self.param("sy", self.TypeDouble, "Y Spacing", default=1.0)
+        self.param("ring_w", self.TypeDouble, "Ring Width", default=1.0)
+        self.param("layer", self.TypeLayer, "Layer", default=pya.LayerInfo(1, 0))
+
+    def display_text_impl(self):
+        return f"RingWithInteriorStrip(L={self.l}, W={self.w}, Sx={self.sx}, Sy={self.sy}, RingW={self.ring_w})"
+    
+    def produce_impl(self):
+        dbu = self.layout.dbu
+        
+        # Convert parameters from micron to database units
+        l = self.l / dbu
+        w = self.w / dbu
+        sx = self.sx / dbu
+        sy = self.sy / dbu
+        ring_w = self.ring_w / dbu
+        
+        # Calculate outer dimensions
+        outer_width = w + 2 * sy + 2 * ring_w
+        outer_length = l + 2 * sx + 2 * ring_w
+        
+        # Create the outer ring
+        outer_box = pya.Box(0, 0, outer_length, outer_width)
+        inner_box = pya.Box(ring_w, ring_w, outer_length - ring_w, outer_width - ring_w)
+        outer_ring = outer_box - inner_box
+        
+        # Create the inner strip
+        strip_x1 = ring_w + sx
+        strip_x2 = outer_length - ring_w - sx
+        strip_y1 = ring_w + sy
+        strip_y2 = outer_width - ring_w - sy
+        inner_strip = pya.Box(strip_x1, strip_y1, strip_x2, strip_y2)
+        
+        # Combine the shapes
+        shapes = pya.Region(outer_ring) + pya.Region(inner_strip)
+        
+        # Convert to the target layer
+        self.cell.shapes(self.layer_layer).insert(shapes)
+
+# Register the PCell
+class RingWithInteriorStripLib(pya.Library):
+    def __init__(self):
+        self.description = "Ring with Interior Strip Library"
+        self.layout().register_pcell("RingWithInteriorStrip", RingWithInteriorStrip())
+        self.register("RingWithInteriorStripLib")
+
+# Instantiate and register the library
+RingWithInteriorStripLib()</text>
+</klayout-macro>
