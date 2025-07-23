@@ -162,6 +162,8 @@ def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, s
 ring1 = ring(interior_x, interior_y, ring_xdim)
 
 strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, 8)  # 8 time difference in length
+
+# Center the strips inside the ring
 strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
 strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
 
