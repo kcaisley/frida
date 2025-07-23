@@ -3,7 +3,7 @@ MIM UHD 	2.8
 mim regular   1.7fF/um
 mom caps 	1.7
 
-if you use mim caps, you lost the top copper layer (1 out of 6 layers)
+if you use mim caps, you lose the top copper layer (1 out of 6 layers)
 
 put nmost in n
 
