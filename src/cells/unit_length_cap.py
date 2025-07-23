@@ -53,7 +53,6 @@ method2 = []
 method3 = []
 method4 = []
 radix = []
-
 bit = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]
 
 for i,cap in enumerate(weights[:-1]):
@@ -64,41 +63,42 @@ for i,cap in enumerate(weights[:-1]):
 
     method1.append((remain - weights[i]+1)/weights[i])
     method2.append((remain - weights[i]+1)/remain)   
-    method3.append(round((sum(weights[i+1:]) - weights[i])/weights[i], 3)) #this metric make the most sense to me
-    method4.append((remaining[i]-weights[i]))
+    method3.append(round((sum(weights[i+1:]) - weights[i])/weights[i], 3))
+    method4.append((remaining[i]-weights[i]))   # this is the one I'm printing
     radix.append((weights[i]/weights[i+1]))
 
 for a, b, c, d in zip(bit, weights, method4, radix):
     print(f"{a:<8} {b:<8} {c:<8} {d:<8}") # Left-aligned, 8-char width
 
-# print(weights)
-# print(remaining)
-# # print(method1)
-# # print(method2)
-# print(method3)
-# print(f"sum: {sum(weights)+1}")
+
+# Everything before this marker is testbenches, to get the:
+# - weights
+# - unary_weight
+# - ratio between the two
 
 
-
-
-# weights = weights[::-1] #flip the list around
-
+# Next we build the single physical unit length cap, concious of the fact that it must fit 64 steps within it, based on our unary weight
 strips_xdim = 0.120
-strips_ydim = 50
+strips_ydim_min = 1
+strips_ydim_step = 0.4
+strips_ydim_base = strips_ydim_min + (strips_ydim_step * unary_weight) # make the base strip long enough
+
 strips_xspace = 0.1
 strips_yspace = 0.1
+strips_ydim = strips_yspace + 2*strips_ydim_base
 
 ring_xdim = 0.12
 ring_ydim = 0.12
 
+interior_x = strips_xdim + 2*strips_xspace
+interior_y = strips_ydim + 2*strips_yspace
+
+# As a principle, a function should only generate a single structure, on a single layer
 
 ly = db.Layout()
 
 # sets the database unit to 1 nm
 ly.dbu = 0.001
-
-# adds a single cell
-ring = ly.create_cell("")
 
 # creates a new layer (layer number 1, datatype 0)
 metal5 = ly.layer(36, 0, "M5.drawing")
@@ -109,44 +109,67 @@ via5 = ly.layer(55, 0, "VIA5.drawing")
 via6 = ly.layer(56, 0, "VIA6.drawing")
 via7 = ly.layer(57, 0, "VIA7.drawing")
 
-# # produces pixels from the bitmap as 0.5x0.5 µm
-# # boxes on a 1x1 µm grid:
-# y = 8.0
-# for line in pattern.split("\n"):
+def ring(width, height, thickness):
+    """
+    Creates a ring-shaped polygon with specified inner dimensions and thickness.
+    
+    Parameters:
+    - width: Inner width of the ring (in database units)
+    - height: Inner height of the ring (in database units)
+    - thickness: Uniform thickness of the ring (in database units)
+    
+    Returns:
+    - A db.DPolygon object representing the ring
+    """
+    # Create outer rectangle dimensions
+    outer_width = width + 2 * thickness
+    outer_height = height + 2 * thickness
+    
+    # Create outer rectangle points (clockwise)
+    outer_points = [
+        db.DPoint(0, 0),
+        db.DPoint(0, outer_height),
+        db.DPoint(outer_width, outer_height),
+        db.DPoint(outer_width, 0)
+    ]
+    
+    # Create inner rectangle points (counter-clockwise)
+    inner_points = [
+        db.DPoint(thickness, thickness),
+        db.DPoint(thickness, thickness + height),
+        db.DPoint(thickness + width, thickness + height),
+        db.DPoint(thickness + width, thickness)
+    ]
+    
+    # Create and return the polygon, inner points create a hole
+    return db.DPolygon(outer_points).insert_hole(inner_points)
 
-#   x = 0.0
-#   for bit in line:
 
-#     if bit == "#":
-#       # creates a rectangle for the "on" pixel
-#       rect = db.DBox(0, 0, 0.5, 0.5).moved(x, y)
-#       top_cell.shapes(layer1).insert(rect)
+def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strip_ydim_diff):
 
-#     x += 1.0
+    # Calculate the y positions for the second strips
+    y1 = strips_ydim_base + strips_yspace
+    ydiff = strips_ydim_step * strip_ydim_diff
 
-#   y -= 1.0
+    # Create two boxes (strips)
+    strip1 = db.DBox(0, 0, strips_xdim, strips_ydim_base + ydiff) # bottom stays fixed, top lengthens upward
+    strip2 = db.DBox(0, y1+ydiff, strips_xdim, y1 + strips_ydim_base) # top stay fixed, bottum shortens upward
 
-# # adds an envelope box on layer 2/0
-# layer2 = ly.layer(2, 0)
-# envelope = top_cell.dbbox().enlarged(1.0, 1.0)
-# top_cell.shapes(layer2).insert(envelope)
-  
-# # writes the layout to GDS
-# ly.write("basic.gds")
+    # Return as a list of DBox objects
+    return [strip1, strip2]
 
-# f_cell = ly.create_cell("F")
 
-# poly = db.DPolygon([ 
-#   db.DPoint(0, 0), db.DPoint(0, 5), db.DPoint(4, 5), db.DPoint(4, 4),
-#   db.DPoint(1, 4), db.DPoint(1, 3), db.DPoint(3, 3), db.DPoint(3, 2),
-#   db.DPoint(1, 2), db.DPoint(1, 0)
-# ])
+ring1 = ring(interior_x, interior_y, ring_xdim)
 
-# l1 = ly.layer(1, 0)
-# f_cell.shapes(l1).insert(poly)
+strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, 8)  # 8 time difference in length
+strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
+strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
 
-# # Place this cell two times in a new cell TOP
+temp_cell = ly.create_cell("temp_cell")
 
-# top_cell = ly.create_cell("TOP")
+temp_cell.shapes(metal5).insert(ring1)
+temp_cell.shapes(metal5).insert(strip1)
+temp_cell.shapes(metal5).insert(strip2)
 
-# ly.write("test_cells.gds")
+ly.write("test.gds")
+
