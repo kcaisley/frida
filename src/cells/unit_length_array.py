@@ -2,6 +2,20 @@ import math
 
 import klayout.db as db
 
+def partition_weights(weights, unary_weight):
+    """
+    Splits each weight into chunks of unary_weight, with a possible remainder at the end.
+    Returns a list of lists.
+    """
+    result = []
+    for w in weights:
+        chunks = [unary_weight] * (w // unary_weight)
+        remainder = w % unary_weight
+        if remainder > 0:
+            chunks.append(remainder)
+        result.append(chunks)
+    return result
+
 
 wbase = [ 2**10-2**8,
             2**9,
@@ -43,6 +57,8 @@ unary_weight = 64
 
 print(weights)
 print([w / unary_weight for w in weights])
+partitioned_weights = partition_weights(weights, unary_weight)
+print(partitioned_weights)
 print(f"unit count: {sum([math.ceil(w / unary_weight) for w in weights])}")
 print(f"sum: {sum(weights)}")
 print(f"length: {len(weights)}")
@@ -158,20 +174,93 @@ def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, s
     # Return as a list of DBox objects
     return [strip1, strip2]
 
+def unit_length_cap(
+    ly,
+    metal5,
+    strips_xdim,
+    strips_ydim_base,
+    strips_yspace,
+    strips_ydim_step,
+    strips_ydim_diff,
+    strips_xspace,
+    ring_xdim,
+    ring_ydim,
+    interior_x,
+    interior_y
+):
+    """
+    Creates a unit length capacitor cell with a ring and a pair of strips.
 
-ring1 = ring(interior_x, interior_y, ring_xdim)
+    Parameters:
+    - ly: db.Layout object to create the cell in
+    - metal5: Layer index for metal5
+    - strips_xdim: Width of the strips
+    - strips_ydim_base: Base height of the strips
+    - strips_yspace: Vertical space between strips
+    - strips_ydim_step: Step size for strip length difference
+    - strips_ydim_diff: Integer multiple for difference in strip length (in steps)
+    - strips_xspace: Horizontal space between strips and ring
+    - ring_xdim: Thickness of the ring
+    - ring_ydim: Not used directly, but kept for symmetry/future use
+    - interior_x: Inner width of the ring
+    - interior_y: Inner height of the ring
 
-strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, 8)  # 8 time difference in length
+    Returns:
+    - temp_cell: The created cell containing the ring and strips
+    """
 
-# Center the strips inside the ring
-strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
-strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
+    ring1 = ring(interior_x, interior_y, ring_xdim)
 
-temp_cell = ly.create_cell("temp_cell")
+    strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strips_ydim_diff)
 
-temp_cell.shapes(metal5).insert(ring1)
-temp_cell.shapes(metal5).insert(strip1)
-temp_cell.shapes(metal5).insert(strip2)
+    # Center the strips inside the ring
+    strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
+    strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
 
-ly.write("test.gds")
+    temp_cell = ly.create_cell("temp_cell")
 
+    temp_cell.shapes(metal5).insert(ring1)
+    temp_cell.shapes(metal5).insert(strip1)
+    temp_cell.shapes(metal5).insert(strip2)
+
+    return temp_cell
+
+# Create the top-level cell
+top_cell = ly.create_cell("cdac_array")
+
+# Define the y shift (hardcoded to 0)
+y_shift = 0
+
+# X shift between capacitors
+x_shift = interior_x + ring_xdim
+
+# List of ydim differences
+ydim_diffs = partitioned_weights
+
+position_counter = 0
+
+for main_idx in range(len(partitioned_weights) - 1, -1, -1):
+    sublist = partitioned_weights[main_idx]
+    for sub_idx in range(len(sublist) - 1, -1, -1):
+        strips_ydim_diff = sublist[sub_idx]
+        temp_cell = unit_length_cap(
+            ly,
+            metal5,
+            strips_xdim,
+            strips_ydim_base,
+            strips_yspace,
+            strips_ydim_step,
+            strips_ydim_diff,
+            strips_xspace,
+            ring_xdim,
+            ring_ydim,
+            interior_x,
+            interior_y
+        )
+        # Calculate the transformation for placement
+        trans = db.DTrans(position_counter * x_shift, y_shift)
+        position_counter += 1
+        # Insert the temp_cell into the top_cell with the transformation
+        top_cell.insert(db.DCellInstArray(temp_cell.cell_index(), trans))
+
+ly.write("build/cdac_array.gds")

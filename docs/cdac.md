@@ -20,11 +20,11 @@ We focus on CDAC, since it is the limited factor for 10-12bit precision in a com
 - binary weighted array expected 4sigma (0.999936) mismatch, for different size arrays, and given
 - also can try a monte carlo simulation
 - DNL errors essentially worsen quantization noise, and there is an inflection point beyond which calibration isn't possible.
-- given math for which 
+- given math for which
 
 # Strategy 1: Calibration
 - of limited effective in binary weighted design, as condition for calibratbility is dependent on mismatch in the thing we're trying to calibrate
-- Considition is ______, and in binary design it's 'a short leash" metaphorically
+- Condition is ______, and in binary design it's 'a short leash" metaphorically
 
 # Strategy 2: CDAC redundancy
 - switching caps over a larger number of M:N cycles (Q: doesn't improve linearity alone, but just allows calibration?)
@@ -45,8 +45,6 @@ We focus on CDAC, since it is the limited factor for 10-12bit precision in a com
 - Top side vs bottom side sampling and switching, switching and parasitics, implications for linearity and signal switch
 - Graphic: showing unit length cap array and unit cap array, showing
 - show layout, including dummy caps
-
-if time permits..
 
 # Strategy 4: switching schemes (can improve linearity, with CRS/VCM techniques, but I won't explore)
 - some switching improve linearity, but we won't do them
