@@ -264,3 +264,20 @@ for main_idx in range(len(partitioned_weights) - 1, -1, -1):
         top_cell.insert(db.DCellInstArray(temp_cell.cell_index(), trans))
 
 ly.write("build/cdac_array.gds")
+
+
+# Generate a single ring cell with 1um inner height and write to "build/ring.gds"
+# ring_inner_width = interior_x
+# ring_inner_height = 1.0  # 1um inner height
+# ring_thickness = ring_xdim
+
+# ring_ly = db.Layout()
+
+# ring_cell = ring_ly.create_cell("ring_only")
+# ring_shape = ring(ring_inner_width, ring_inner_height, ring_thickness)
+# ring_cell.shapes(metal5).insert(ring_shape)
+
+# # Write the ring cell to a separate layout object and file
+# ring_ly.dbu = 0.001
+# ring_ly.layer(36, 0, "M5.drawing")
+# ring_ly.write("build/ring.gds")

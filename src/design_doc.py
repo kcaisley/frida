@@ -64,7 +64,7 @@ ENOB_noise = calc_enob(SNR_noise)
 # To get 64 bit steps 60um/2/0.45um_step = 66.6
 C_MSB = (2**10 - 2**7)/64*20e-15                  # Or something like this
 C_LSB = 20e-15 / 64                               # around 0.30 aF
-Acap = 0.005                                      # mismatch coefficient per sqrt(C fF), from Pelgrom pg768
+Acap = 0.0085                                     # mismatch coefficient per sqrt(C fF), from Pelgrom pg768
 MSB_mismatch_sigma = Acap/math.sqrt(C_MSB*1e15)   # for Acap, need C_MSB in fF
 MSB_mismatch_in_LSB_sigma = MSB_mismatch_sigma*C_MSB/C_LSB
 MSB_mismatch_in_LSB_3sigma = 3 * MSB_mismatch_in_LSB_sigma  # around 0.8
@@ -74,22 +74,7 @@ Vnoise_dist_rms = math.sqrt(Vqnoise_rms**2 + Vcompnoise_rms**2 + Vsampnoise_rms*
 SNR_tot = calc_snr_volts(Vinpp_rms, Vnoise_dist_rms)
 ENOB_tot = calc_enob(SNR_tot)
 
-print(f"LSB voltage: {Vlsb * 1e6:.2f} µV")
-print(f"Quantization noise RMS: {Vqnoise_rms * 1e6:.2f} µV")
-print(f"SNR_ideal: {SNR_ideal:.2f} dB")
-print(f"ENOB_ideal: {ENOB_ideal:.2f} ENOB")
-print()
-
-print(f"Sampling noise RMS: {Vsampnoise_rms * 1e6:.2f} µV")
-print(f"Comparator noise RMS: {Vcompnoise_rms * 1e6:.2f} µV")
-print(f"SNR w/ noise: {SNR_noise:.2f} dB")
-print(f"ENOB w/ noise: {ENOB_noise:.2f} ENOB")
-print()
-
-print(f"3σ worst-case DNL: {MSB_mismatch_in_LSB_3sigma:.2f} LSB")
-print(f"SNR w/ noise & dist: {SNR_tot:.2f} dB")
-print(f"ENOB w/ noise & dist: {ENOB_tot:.2f} ENOB")
-print()
+# 3σ
 
 # -----------------------------------------------
 
@@ -110,7 +95,7 @@ plt.rcParams.update({
 })
 
 Nbits_range = np.arange(8, 15)
-Vrefs = [1.8, 1.2, 0.9]
+Vrefs = [1.2, 0.9, 1.8]
 labels = [f"Vref = {v} V" for v in Vrefs]
 
 plt.figure()
@@ -140,7 +125,7 @@ plt.close()
 # -----------------------------------------------
 
 # Plot sampling noise vs. total capacitance (10 fF to 10 pF)
-Ctot_range = np.logspace(-14, -10, 100)  # 10 fF to 10 pF
+Ctot_range = np.logspace(-13, -10, 100)  # 10 fF to 10 pF
 Vsampnoise_vals = [calc_sampnoise(C) * 1e6 for C in Ctot_range]  # µV
 
 plt.figure()
@@ -166,4 +151,33 @@ plt.savefig('build/sampnoise.pdf')
 plt.close()
 
 # -----------------------------------------------
+
+# Plot ENOB vs. total capacitance (10 fF to 10 pF) for different Vref values
+# This plot essentially tells use that in order for the sampling noise to cause no more than 0.1 ENOB degredation, it must 
+
+Ctot_range = np.logspace(-13, -11, 100)  # 10 fF to 10 pF
+Nbits_plot = 12
+Vrefs = [1.2, 0.9, 1.8]
+labels = [f"Vref = {v} V" for v in Vrefs]
+
+plt.figure()
+for Vref_val, label in zip(Vrefs, labels):
+    enob_vals = [calc_enob_from_vref_Ctot_Nbits(Vref_val, C, Nbits_plot) for C in Ctot_range]
+    plt.plot(Ctot_range * 1e15, enob_vals, label=label)
+    # Annotate ENOB at specific capacitances
+    for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
+        x = C_annot * 1e15  # fF
+        y = calc_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits_plot)
+        plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
+        plt.annotate(f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+
+plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+plt.ylabel(r"ENOB (reduced by sampling noise)")
+plt.title(rf'Degradation of ENOB vs. Sampling Capacitance ($N_{{\mathrm{{bits}}}}={Nbits_plot}$)')
+plt.grid(True, which="both", ls="--", alpha=0.5)
+plt.xscale("log")
+plt.legend()
+plt.tight_layout()
+plt.savefig(f'build/enob_vs_Ctot_{Nbits_plot}bit.pdf')
+plt.close()
 
