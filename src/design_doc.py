@@ -5,13 +5,26 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Configure LaTeX for all text (requires LaTeX installed)
+plt.rcParams.update({
+    "text.usetex": True,       # Use LaTeX for text rendering
+    "font.family": "serif",   # Use serif (LaTeX default)
+    "font.serif": ["Computer Modern Roman"],  # LaTeX default font
+    "font.size": 11,          # Base font size
+    "axes.titlesize": 12,     # Title font size
+    "axes.labelsize": 11,     # Axis label font size
+    "xtick.labelsize": 10,    # X-tick label size
+    "ytick.labelsize": 10,    # Y-tick label size
+    "legend.fontsize": 10,    # Legend font size
+})
+
 Vref = 1.2
 Nbits = 12
+Acap = 0.0085     # mismatch coefficient per sqrt(C fF), from Pelgrom pg768
 
-# We can estimat ethe 
+# We can estimat the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
 def calc_signal_rms(Vref):
     return Vref * 2 / (2 * math.sqrt(2))
-
 
 def calc_qnoise(Vref, Nbits):
     Vlsb = (Vref*2) / (2**Nbits)
@@ -31,6 +44,17 @@ def calc_enob(SNR):
     return (SNR - 1.76)/6.02
 
 def calc_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
+    """
+    Calculates the effective number of bits (ENOB) for an ADC given reference voltage, total sampling capacitance, and resolution.
+
+    Args:
+        Vref (float): Reference voltage of the ADC.
+        Ctot (float): Total sampling capacitance.
+        Nbits (int): Number of ADC bits.
+
+    Returns:
+        float: Effective number of bits (ENOB).
+    """
     Vinpp_rms = calc_signal_rms(Vref)
     Vqnoise_rms, Vlsb = calc_qnoise(Vref, Nbits)
     Vsampnoise_rms = calc_sampnoise(Ctot)
@@ -39,60 +63,28 @@ def calc_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
     enob = calc_enob(snr)
     return enob
 
-Vinpp_rms = calc_signal_rms(Vref)
+def calc_midcode_sigma_bounds(Ctot, Nbits, Acap):
+    """
+    Calculates the 3-sigma and 4-sigma bounds for mid-code variation due to capacitor mismatch.
 
-Vqnoise_rms, Vlsb = calc_qnoise(Vref, Nbits)
+    Args:
+        Ctot (float): Total capacitance of the array (F).
+        Nbits (int): Number of design bits.
+        Acap (float): Mismatch coefficient per sqrt(C fF), from Pelgrom pg. 768
 
-SNR_ideal = calc_snr_volts(Vinpp_rms, Vqnoise_rms)
-ENOB_ideal = calc_enob(SNR_ideal)
-
-# Next we find the degradation due to sampling and comparator noise
-# NOTE: Actually, do I need to calculate the noise for each pseudo differential plate, and add it in quadrature?
-Ctot = 500e-15 # just a guess for now, might be closer to 1000fF, but current guess is more pessamistic
-Vcompnoise_rms = 120e-6    # for double tailed latch
-
-
-Vsampnoise_rms = calc_sampnoise(Ctot)
-
-Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vcompnoise_rms**2 + Vsampnoise_rms**2)
-
-SNR_noise = calc_snr_volts(Vinpp_rms, Vnoise_rms)
-ENOB_noise = calc_enob(SNR_noise)
-
-# And finally, we try to estimate worse case DNL from the MSB switching
-# See Pelgrom pg299
-# To get 64 bit steps 60um/2/0.45um_step = 66.6
-C_MSB = (2**10 - 2**7)/64*20e-15                  # Or something like this
-C_LSB = 20e-15 / 64                               # around 0.30 aF
-Acap = 0.0085                                     # mismatch coefficient per sqrt(C fF), from Pelgrom pg768
-MSB_mismatch_sigma = Acap/math.sqrt(C_MSB*1e15)   # for Acap, need C_MSB in fF
-MSB_mismatch_in_LSB_sigma = MSB_mismatch_sigma*C_MSB/C_LSB
-MSB_mismatch_in_LSB_3sigma = 3 * MSB_mismatch_in_LSB_sigma  # around 0.8
-Vdist_DNL = Vlsb * MSB_mismatch_in_LSB_3sigma
-Vnoise_dist_rms = math.sqrt(Vqnoise_rms**2 + Vcompnoise_rms**2 + Vsampnoise_rms**2 + Vdist_DNL**2)
-
-SNR_tot = calc_snr_volts(Vinpp_rms, Vnoise_dist_rms)
-ENOB_tot = calc_enob(SNR_tot)
-
-# 3σ
+    Returns:
+        tuple: (3sigma_bound, 4sigma_bound) in Farads.
+    """
+    # Cu = Ctot / (2 ** Nbits)
+    # sigmaCu = Acap * math.sqrt(Cu * 1e15) # for Acap, need C_MSB in fF
+    # num_elements = 2 ** Nbits
+    # simgaDNLmid = math.sqrt(num_elements) * sigmaCu / Cu
+    simgaDNLmid = Nbits/2 * Acap / math.sqrt(1.e15*Ctot/2)
+    bound_3sigma = 3 * simgaDNLmid
+    bound_4sigma = 4 * simgaDNLmid
+    return bound_3sigma, bound_4sigma
 
 # -----------------------------------------------
-
-# visualization of the data above
-
-
-# Configure LaTeX for all text (requires LaTeX installed)
-plt.rcParams.update({
-    "text.usetex": True,       # Use LaTeX for text rendering
-    "font.family": "serif",   # Use serif (LaTeX default)
-    "font.serif": ["Computer Modern Roman"],  # LaTeX default font
-    "font.size": 11,          # Base font size
-    "axes.titlesize": 12,     # Title font size
-    "axes.labelsize": 11,     # Axis label font size
-    "xtick.labelsize": 10,    # X-tick label size
-    "ytick.labelsize": 10,    # Y-tick label size
-    "legend.fontsize": 10,    # Legend font size
-})
 
 Nbits_range = np.arange(8, 15)
 Vrefs = [1.2, 0.9, 1.8]
@@ -181,3 +173,40 @@ plt.tight_layout()
 plt.savefig(f'build/enob_vs_Ctot_{Nbits_plot}bit.pdf')
 plt.close()
 
+# -----------------------------------------------
+# Plot 3-sigma and 4-sigma mid-code bounds vs. total capacitance (100 fF to 10 pF)
+Ctot_range = np.logspace(-13, -11, 100)  # 100 fF to 10 pF
+Nbits_midcode = 12
+
+bounds_3sigma = []
+bounds_4sigma = []
+for cap in Ctot_range:
+    b3, b4 = calc_midcode_sigma_bounds(cap, Nbits_midcode, Acap)
+    bounds_3sigma.append(b3)
+    bounds_4sigma.append(b4)
+
+print(bounds_3sigma)
+
+plt.figure()
+plt.plot(Ctot_range * 1e15, bounds_3sigma, label=r"3$\sigma$ Bound")
+plt.plot(Ctot_range * 1e15, bounds_4sigma, label=r"4$\sigma$ Bound")
+
+# Annotate at specific capacitances
+annotate_Cs = [200e-15, 500e-15, 1e-12, 2e-12, 4e-12]
+for cap in annotate_Cs:
+    x = C * 1e15  # fF
+    b3, b4 = calc_midcode_sigma_bounds(C, Nbits_midcode, Acap)
+    plt.plot(x, b3, 'o', color=plt.gca().lines[0].get_color(), label='_nolegend_')
+    plt.plot(x, b4, 'o', color=plt.gca().lines[1].get_color(), label='_nolegend_')
+    # plt.annotate(f"{b3:.2f}", xy=(x, b3), xytext=(5, -3), textcoords='offset points', fontsize=9)
+    # plt.annotate(f"{b4:.2f}", xy=(x, b4), xytext=(5, -3), textcoords='offset points', fontsize=9)
+
+plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+plt.ylabel(r"Mid-code Bound ($\sigma$ units)")
+plt.title(rf'3$\sigma$ and 4$\sigma$ Mid-code Bounds vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}}}={Nbits_midcode}$)')
+plt.grid(True, which="both", ls="--", alpha=0.5)
+plt.xscale("log")
+plt.legend()
+plt.tight_layout()
+plt.savefig(f'build/expected_mismatch_{Nbits_midcode}bit.pdf')
+plt.close()
