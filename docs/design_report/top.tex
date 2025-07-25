@@ -25,16 +25,46 @@
   \end{center}
 \end{frame}
 
+
 \begin{frame}
-  \frametitle{Two-Column Example}
+  \frametitle{Sampling Noise in SAR ADCs}
+  \begin{center}
+    \includegraphics[height=0.7\textheight,keepaspectratio]{../../build/sampnoise.pdf}
+  \end{center}
+\end{frame}
+
+\begin{frame}
+  \frametitle{ENOB vs C\textsubscript{tot}: Sampling Noise}
+  \begin{columns}
+    % Left column: 10-bit figure
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/enob_vs_Ctot_10bit.pdf}
+        \\
+        \small 10-bit
+      \end{center}
+    \end{column}
+    % Right column: 12-bit figure
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/enob_vs_Ctot_12bit.pdf}
+        \\
+        \small 12-bit
+      \end{center}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Unit Fringe Capacitor}
 
   \begin{columns}
     % Left column with equations and small image
     \begin{column}{0.5\textwidth}
       % Capacitance densities for 1, 2, and 3 layers (in fF/$\mu$m$^2$)
-      1 layer: $?~\mathrm{fF}/\mu\mathrm{m}^2$ \\
-      2 layers: $?~\mathrm{fF}/\mu\mathrm{m}^2$ \\
-      3 layers: $?~\mathrm{fF}/\mu\mathrm{m}^2$ \\
+      1 layer: $0.31~\mathrm{fF}/\mu\mathrm{m}^2$ \\
+      2 layers: $0.62~\mathrm{fF}/\mu\mathrm{m}^2$ \\
+      3 layers: $0.93~\mathrm{fF}/\mu\mathrm{m}^2$ \\
       % Pelgrom matching coefficient for 65nm CMOS
       Matching coefficient: $\sigma(\Delta C/C) = 0.85\% \times \sqrt{C~[\mathrm{fF}]}$
       \vspace{2em}
@@ -57,6 +87,57 @@
 
 
 \begin{frame}
+  \frametitle{Expected Mismatch and DNL Noise}
+  \begin{columns}
+    % Left column: Expected mismatch
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/expected_mismatch_12bit.pdf}
+        \\
+        \small Expected Mismatch (12-bit)
+      \end{center}
+    \end{column}
+    % Right column: DNL noise due to mismatch
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/mismatch_dnl_noise_12bit.pdf}
+        \\
+        \small DNL Noise from Mismatch (12-bit)
+      \end{center}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+
+\begin{frame}
+  \frametitle{ENOB vs C\textsubscript{tot}: Sampling Noise or Mismatch DNL Noise}
+
+  \begin{columns}
+    % Left column: 10-bit comparison figure
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/enob_vs_Ctot_10bit_compare.pdf}
+        \\
+        \small 10-bit Comparison
+      \end{center}
+    \end{column}
+    % Right column: 12-bit comparison figure
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,keepaspectratio]{../../build/enob_vs_Ctot_12bit_compare.pdf}
+        \\
+        \small 12-bit Comparison
+      \end{center}
+    \end{column}
+  \end{columns}
+  \begin{center}
+    \small
+    \textbf{Note:} Assuming a worst case $3\sigma$ variation, corresponding to roughly 1 in 300 ADCs
+  \end{center}
+\end{frame}
+
+
+\begin{frame}
   \frametitle{CDAC Array Overview}
 
   \begin{columns}
@@ -65,6 +146,9 @@
       % Math section at the top
       \[
         \text{Total Area} = 1940~\mu\mathrm{m}^2
+      \]
+      \[
+        C_\mathrm{tot} = 1.4~\mathrm{pF}
       \]
       % Small square image at the bottom, centered
       \begin{center}
