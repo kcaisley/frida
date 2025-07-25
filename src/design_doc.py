@@ -338,29 +338,24 @@ plt.savefig(f'build/enob_vs_Ctot_{Nbits}bit_compare.pdf')
 plt.close()
 
 
-##
+# For producing redundancy vs calibratability charts:
 
-# Data
-M_steps = np.array([12, 13, 14, 15, 16, 17, 18, 19, 20])
-cu_var_pct = np.array([5.3, 8.5, 12.2, 15.2, 19.2, 23.1, 27.3, 30.4, 32.6])
-effective_radix = 12 / M_steps
+# plt.figure(figsize=(7, 4))
+# plt.plot(M_steps, cu_var_pct, marker='o', label='Tolerable Cu Variation (percent)')
+# plt.xlabel('Redundant Steps (M)')
+# plt.ylabel('Tolerable Cu Variation (%)')
+# plt.title('Tolerable Unit Cap Variation vs. Redundant Steps')
+# plt.grid(True, which="both", ls="--", alpha=0.5)
 
-plt.figure(figsize=(7, 4))
-plt.plot(M_steps, cu_var_pct, marker='o', label='Tolerable Cu Variation (percent)')
-plt.xlabel('Redundant Steps (M)')
-plt.ylabel('Tolerable Cu Variation (%)')
-plt.title('Tolerable Unit Cap Variation vs. Redundant Steps')
-plt.grid(True, which="both", ls="--", alpha=0.5)
+# # Annotate effective radix below each x tick
+# plt.xticks(M_steps)
+# ax = plt.gca()
+# ax2 = ax.twiny()
+# ax2.set_xlim(ax.get_xlim())
+# ax2.set_xticks(M_steps)
+# ax2.set_xticklabels([f"{r:.2f}" for r in effective_radix])
+# ax2.set_xlabel("Effective Radix")
 
-# Annotate effective radix below each x tick
-plt.xticks(M_steps)
-ax = plt.gca()
-ax2 = ax.twiny()
-ax2.set_xlim(ax.get_xlim())
-ax2.set_xticks(M_steps)
-ax2.set_xticklabels([f"{r:.2f}" for r in effective_radix])
-ax2.set_xlabel("Effective Radix")
-
-plt.tight_layout()
-plt.savefig('build/redun_tolerace.pdf')
-plt.close()
+# plt.tight_layout()
+# plt.savefig('build/redun_tolerace.pdf')
+# plt.close()
