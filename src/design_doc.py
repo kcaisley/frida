@@ -1,6 +1,3 @@
-
-# This is a test of the design document
-
 import math
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,7 +17,7 @@ plt.rcParams.update({
 
 Vref = 1.2
 Nbits = 12
-Acap = 0.0085     # mismatch coefficient per sqrt(C fF), from Pelgrom pg768
+Acap = 0.0085     # mismatch coefficient per sqrt(C fF), def by Pelgrom pg768 and given in 
 
 # We can estimat the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
 def calc_signal_rms(Vref):
@@ -336,26 +333,3 @@ plt.legend(loc='lower right', bbox_to_anchor=(1, 0), frameon=True)
 plt.tight_layout()
 plt.savefig(f'build/enob_vs_Ctot_{Nbits}bit_compare.pdf')
 plt.close()
-
-
-# For producing redundancy vs calibratability charts:
-
-# plt.figure(figsize=(7, 4))
-# plt.plot(M_steps, cu_var_pct, marker='o', label='Tolerable Cu Variation (percent)')
-# plt.xlabel('Redundant Steps (M)')
-# plt.ylabel('Tolerable Cu Variation (%)')
-# plt.title('Tolerable Unit Cap Variation vs. Redundant Steps')
-# plt.grid(True, which="both", ls="--", alpha=0.5)
-
-# # Annotate effective radix below each x tick
-# plt.xticks(M_steps)
-# ax = plt.gca()
-# ax2 = ax.twiny()
-# ax2.set_xlim(ax.get_xlim())
-# ax2.set_xticks(M_steps)
-# ax2.set_xticklabels([f"{r:.2f}" for r in effective_radix])
-# ax2.set_xlabel("Effective Radix")
-
-# plt.tight_layout()
-# plt.savefig('build/redun_tolerace.pdf')
-# plt.close()
