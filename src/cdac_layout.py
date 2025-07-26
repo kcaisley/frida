@@ -1,97 +1,14 @@
 import math
-
 import klayout.db as db
-
-def partition_weights(weights, unary_weight):
-    """
-    Splits each weight into chunks of unary_weight, with a possible remainder at the end.
-    Returns a list of lists.
-    """
-    result = []
-    for w in weights:
-        chunks = [unary_weight] * (w // unary_weight)
-        remainder = w % unary_weight
-        if remainder > 0:
-            chunks.append(remainder)
-        result.append(chunks)
-    return result
+import cdac
 
 
-wbase = [ 2**10-2**8,
-            2**9,
-            2**8,
-            2**7,
-            2**6,
-            2**5,
-            2**4,
-            2**3,
-            2**2,
-            2**1,
-            2**0]
 
-wredun =  [
-          2**6,
-          2**6,
-          2**5,
-          2**5,
-          2**4,
-          2**4,
-          2**3,
-          2**3,
-          2**2,
-          2**2,
-          2**2,
-          2**1,
-          2**0,
-          2**0]
-
-offset = 2
-weights = [0] * (len(wredun) + offset)
-for i in range(len(wbase)):
-  weights[i] += wbase[i]
-
-for i in range(len(wredun)):
-  weights[i+offset] += wredun[i]
-
+# Calculate weights and perform analysis
 unary_weight = 64
-
-print(weights)
-print([w / unary_weight for w in weights])
-partitioned_weights = partition_weights(weights, unary_weight)
-print(partitioned_weights)
-print(f"unit count: {sum([math.ceil(w / unary_weight) for w in weights])}")
-print(f"sum: {sum(weights)}")
-print(f"length: {len(weights)}")
-
-remaining = []
-method1 = []
-method2 = []
-method3 = []
-method4 = []
-radix = []
-bit = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]
-
-for i,cap in enumerate(weights[:-1]):
-    remain = 0
-    for j,val in enumerate(weights[i+1:]):
-        remain += val
-    remaining.append(remain)
-
-    method1.append((remain - weights[i]+1)/weights[i])
-    method2.append((remain - weights[i]+1)/remain)   
-    method3.append(round((sum(weights[i+1:]) - weights[i])/weights[i], 3))
-    method4.append((remaining[i]-weights[i]))   # this is the one I'm printing
-    radix.append((weights[i]/weights[i+1]))
-
-for a, b, c, d in zip(bit, weights, method4, radix):
-    print(f"{a:<8} {b:<8} {c:<8} {d:<8}") # Left-aligned, 8-char width
-
-
-# Everything before this marker is testbenches, to get the:
-# - weights
-# - unary_weight
-# - ratio between the two
-
+weights, w_base, w_redun = cdac.generate_weights(11, 8, [5,6], 2)
+print(w_base, w_redun)
+partitioned_weights = cdac.analyze_weights(weights, unary_weight)
 
 # Next we build the single physical unit length cap, concious of the fact that it must fit 64 steps within it, based on our unary weight
 strips_xdim = 0.120
@@ -175,42 +92,15 @@ def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, s
     return [strip1, strip2]
 
 def unit_length_cap(
-    ly,
-    metal5,
-    strips_xdim,
-    strips_ydim_base,
-    strips_yspace,
-    strips_ydim_step,
-    strips_ydim_diff,
-    strips_xspace,
-    ring_xdim,
-    ring_ydim,
-    interior_x,
-    interior_y
+    ly, metal5, strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step,
+    strips_ydim_diff, strips_xspace, ring_xdim, ring_ydim, interior_x, interior_y
 ):
     """
-    Creates a unit length capacitor cell with a ring and a pair of strips.
+    Create a unit length capacitor cell with a ring and a pair of strips.
 
-    Parameters:
-    - ly: db.Layout object to create the cell in
-    - metal5: Layer index for metal5
-    - strips_xdim: Width of the strips
-    - strips_ydim_base: Base height of the strips
-    - strips_yspace: Vertical space between strips
-    - strips_ydim_step: Step size for strip length difference
-    - strips_ydim_diff: Integer multiple for difference in strip length (in steps)
-    - strips_xspace: Horizontal space between strips and ring
-    - ring_xdim: Thickness of the ring
-    - ring_ydim: Not used directly, but kept for symmetry/future use
-    - interior_x: Inner width of the ring
-    - interior_y: Inner height of the ring
-
-    Returns:
-    - temp_cell: The created cell containing the ring and strips
+    Returns the created cell.
     """
-
     ring1 = ring(interior_x, interior_y, ring_xdim)
-
     strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strips_ydim_diff)
 
     # Center the strips inside the ring
@@ -218,7 +108,6 @@ def unit_length_cap(
     strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
 
     temp_cell = ly.create_cell("temp_cell")
-
     temp_cell.shapes(metal5).insert(ring1)
     temp_cell.shapes(metal5).insert(strip1)
     temp_cell.shapes(metal5).insert(strip2)
@@ -264,20 +153,3 @@ for main_idx in range(len(partitioned_weights) - 1, -1, -1):
         top_cell.insert(db.DCellInstArray(temp_cell.cell_index(), trans))
 
 ly.write("build/cdac_array.gds")
-
-
-# Generate a single ring cell with 1um inner height and write to "build/ring.gds"
-# ring_inner_width = interior_x
-# ring_inner_height = 1.0  # 1um inner height
-# ring_thickness = ring_xdim
-
-# ring_ly = db.Layout()
-
-# ring_cell = ring_ly.create_cell("ring_only")
-# ring_shape = ring(ring_inner_width, ring_inner_height, ring_thickness)
-# ring_cell.shapes(metal5).insert(ring_shape)
-
-# # Write the ring cell to a separate layout object and file
-# ring_ly.dbu = 0.001
-# ring_ly.layer(36, 0, "M5.drawing")
-# ring_ly.write("build/ring.gds")

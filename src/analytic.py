@@ -15,11 +15,7 @@ plt.rcParams.update({
     "legend.fontsize": 10,    # Legend font size
 })
 
-Vref = 1.2
-Nbits = 12
-Acap = 0.0085     # mismatch coefficient per sqrt(C fF), def by Pelgrom pg768 and given in 
-
-# We can estimat the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
+# We can estimate the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
 def calc_signal_rms(Vref):
     return Vref * 2 / (2 * math.sqrt(2))
 
@@ -73,8 +69,8 @@ def calc_midcode_sigma_bounds(Ctot, Nbits, Acap):
         tuple: (3sigma_bound, 4sigma_bound) in Farads.
     """
     Cu = Ctot / (2 ** Nbits)
-    # From Pelgom pg. 762, when using Acap need C in fF
-    # note this is actually giving already the expected variation between two equal sized caps
+    # From Pelgrom pg. 762, when using Acap need C in fF
+    # note this already gives the expected variation between two equal sized caps
     Cu_delta_sigma_norm = Acap / math.sqrt(Cu * 1e15)
 
     # extracting the single device variation, it would be 
@@ -117,7 +113,10 @@ def calc_enob_from_mismatch(Ctot, Nbits, Acap, Vref):
 
 # -----------------------------------------------
 
-Nbits_range = np.arange(8, 15)
+Vref = 1.2
+Nbits = 12
+Acap = 0.0085     # mismatch coefficient per sqrt(C fF), defined by Pelgrom pg. 768
+Nbits_range = list(range(8, 15))
 Vrefs = [1.2, 0.9, 1.8]
 labels = [f"Vref = {v} V" for v in Vrefs]
 
@@ -160,7 +159,7 @@ for C in annotate_Cs:
     y = calc_sampnoise(C) * 1e6  # µV
     plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
     plt.annotate(f"{y:.1f} µV", xy=(x, y), xytext=(5, -3), textcoords='offset points')
-    # Annotate X axis value below the point (Doesn't appear to be working?)
+    # Annotate X axis value below the point (Does not appear to be working.)
     # plt.annotate(f"{x:.0f} fF", xy=(x, 1e-1), xytext=(0, 5), textcoords='offset points',
     #              ha='center', va='bottom', fontsize=9, rotation=0)
 plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
@@ -176,7 +175,7 @@ plt.close()
 # -----------------------------------------------
 
 # Plot ENOB vs. total capacitance (10 fF to 10 pF) for different Vref values
-# This plot essentially tells use that in order for the sampling noise to cause no more than 0.1 ENOB degredation, it must 
+# This plot essentially tells us that in order for the sampling noise to cause no more than 0.1 ENOB degradation, it must 
 
 Ctot_range = np.logspace(-13, -11, 100)  # 10 fF to 10 pF
 Nbits_plot = 12
@@ -259,7 +258,7 @@ dnl_noise_4sigma = []
 for cap in Ctot_range:
     d1, d3, d4 = calc_mismatch_dnl_noise(cap, Nbits_dnl, Acap, Vref)
     dnl_noise_1sigma.append(d1*1e6) # multiply each here by 1e6 to get it in microvolts
-    dnl_noise_3sigma.append(d3*1e6) # we can't do it later, as: can't multiply sequence by non-int of type 'float'
+    dnl_noise_3sigma.append(d3*1e6) # we cannot do it later, as: cannot multiply sequence by non-int of type 'float'
     dnl_noise_4sigma.append(d4*1e6)
 
 plt.figure()
@@ -280,7 +279,7 @@ plt.close()
 # -----------------------------------------------
 
 # Plot ENOB vs. total capacitance (10 fF to 10 pF) for different Vref values
-# This plot essentially tells use that in order for the sampling noise to cause no more than 0.1 ENOB degredation, it must 
+# This plot essentially tells us that in order for the sampling noise to cause no more than 0.1 ENOB degradation, it must 
 
 Ctot_range = np.logspace(-13, -10, 100)  # 10 fF to 100 pF
 Nbits = 12
@@ -298,8 +297,6 @@ enob_vals_mismatchdnl_noise =[]
 for Ctot in Ctot_range:
     enob = calc_enob_from_mismatch(Ctot, Nbits, Acap, Vref)
     enob_vals_mismatchdnl_noise.append(enob)
-
-
 
 plt.plot(Ctot_range * 1e15, enob_vals_sampnoise, label="ENOB due to Sampling noise")
 plt.plot(Ctot_range * 1e15, enob_vals_mismatchdnl_noise, label="ENOB due to Mismatch DNL noise")
