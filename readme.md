@@ -88,7 +88,7 @@ Despite using `spectre`, we will opt to use the widely compatible `nutbin` forma
 ├── docs        # notes & documentation
 ├── ip          # netlists, Verilog-A models, etc 
 ├── src         # scripts and utils
-└── tech        # PDK specific files, only added as symlinks
+└── tech        # PDK specific files, added as symlinks
     ├── nopdk
     ├── tsmc28
     └── tsmc65

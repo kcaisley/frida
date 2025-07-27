@@ -4,10 +4,12 @@ from spicelib import RawRead
 import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
-
+from sys import getsizeof
 
 
 rawfile = RawWrite()
+
+
 
 tx = Trace('time', np.arange(0.0, 3e-3, 997E-11))
 vy = Trace('N001', np.sin(2 * np.pi * tx.data * 10000))
@@ -16,6 +18,8 @@ vz = Trace('N002', np.cos(2 * np.pi * tx.data * 9970))
 rawfile.add_trace(tx)
 rawfile.add_trace(vy)
 rawfile.add_trace(vz)
+
+print(getsizeof(tx.data))
 
 rawfile.save("test_sincos.raw")
 
