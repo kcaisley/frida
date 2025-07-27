@@ -5,7 +5,7 @@
 import behavioral
 import matplotlib.pyplot as plt
 
-params = {
+arch_params = {
     "ADC": {
         "sampling_frequency": 10.0e6,  # sampling rate in Hz
         "use_calibration": False,  # account for cap error when calculating re-analog results
@@ -28,14 +28,21 @@ params = {
     }
 }
 
+analysis_config = {
+    
+
+}
+
+
+
 # Basic case, without anything
-params["ADC"]["resolution"] = 12    #FIXME: I should remove this resolution term from the top level, as it doesn't seem to work for all cases
-params["COMP"]["threshold_voltage_noise"] = 0e-3
-params["COMP"]["capacitor_mismatch_error"] = 4
-params["CDAC"]["parasitic_capacitance"] = params["CDAC"]["unit_capacitance"] # 1e-15 unit cap, in Farads at the output of the CDAC, using this just to complete dynamic range
-params["CDAC"]["reference_voltage_noise"] = 0.5e-3
-params["CDAC"]["settling_time"] = 0.5e-9
-params["CDAC"]["individual_weights"] = [896, 512 , 288, 160, 80, 48, 24, 16, 8, 6, 3, 2, 2, 1, 1]
-params["CDAC"]["array_size"] = len(params["CDAC"]["individual_weights"])    #FIXME: shouldn't be a parameter, should be calc'd internally
-adc1 = behavioral.SAR_ADC(params)
+arch_params["ADC"]["resolution"] = 12    #FIXME: I should remove this resolution term from the top level, as it doesn't seem to work for all cases
+arch_params["COMP"]["threshold_voltage_noise"] = 0e-3
+arch_params["COMP"]["capacitor_mismatch_error"] = 4
+arch_params["CDAC"]["parasitic_capacitance"] = arch_params["CDAC"]["unit_capacitance"] # 1e-15 unit cap, in Farads at the output of the CDAC, using this just to complete dynamic range
+arch_params["CDAC"]["reference_voltage_noise"] = 0.5e-3
+arch_params["CDAC"]["settling_time"] = 0.5e-9
+arch_params["CDAC"]["individual_weights"] = [896, 512 , 288, 160, 80, 48, 24, 16, 8, 6, 3, 2, 2, 1, 1]
+arch_params["CDAC"]["array_size"] = len(arch_params["CDAC"]["individual_weights"])    #FIXME: shouldn't be a parameter, should be calc'd internally
+adc1 = behavioral.SAR_ADC(arch_params)
 adc1.compile_results("/users/kcaisley/helena/docs/aida2025/", "12b_splitcap")
