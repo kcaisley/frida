@@ -93,3 +93,34 @@ Despite using `spectre`, we will opt to use the widely compatible `nutbin` forma
     ├── tsmc28
     └── tsmc65
 ```
+
+
+## Test chip pin-out:
+
+| Pin Name    | Pad Type     | Pin Purpose                           |
+|-------------|--------------|---------------------------------------|
+| seq_init_p  | LVDS RX      | Sequencing: ADC initialization        |
+| seq_init_n  | LVDS RX      | Sequencing: ADC initialization        |
+| seq_samp_p  | LVDS RX      | Sequencing: Sample phase control      |
+| seq_samp_n  | LVDS RX      | Sequencing: Sample phase control      |
+| seq_cmp_p   | LVDS RX      | Sequencing: Comparator timing         |
+| seq_cmp_n   | LVDS RX      | Sequencing: Comparator timing         |
+| seq_logic_p | LVDS RX      | Sequencing: SAR logic timing          |
+| seq_logic_n | LVDS RX      | Sequencing: SAR logic timing          |
+| vdd_a       | Power        | Analog supply positive                |
+| vss_a       | GND          | Analog supply negative                | 
+| vdd_d       | Power        | Digital supply positive               | 
+| vss_d       | GND          | Digital supply negative               | 
+| vdd_io      | Power        | I/O supply positive                   | 
+| vss_io      | GND          | I/O supply negative                   | 
+| vdd_dac     | Power        | DAC supply positive                   |
+| vss_dac     | GND          | DAC supply negative                   |
+| spi_sclk    | CMOS Input   | SPI serial clock                      |
+| spi_mosi    | CMOS Input   | SPI master out, slave in              | 
+| spi_miso    | CMOS Output  | SPI master in, slave out              | 
+| spi_cs_b    | CMOS Input   | SPI chip select (active low)          | 
+| ain_p       | Analog       | Analog input positive                 | 
+| ain_n       | Analog       | Analog input negative                 | 
+| data_out_p  | LVDS TX      | Data output positive                  | 
+| data_out_n  | LVDS TX      | Data output negative                  | 
+| reset_n     | CMOS Input   | Global reset (active low)             | 

@@ -1,3 +1,22 @@
+# Tools I'm using
+- Python itself
+- Linux itself
+- numpy + scipy + matplotlib
+- latex
+
+# EDA specific
+- ngspice
+- spicelib (Schweize)
+- klayout + klayout-pex
+- bspicewave / gaw for waveform viewing
+- openvaf for verilog-A compiling?
+
+# digital tools
+- Verilator
+- Cocotb
+- 
+
+
 # Laygo2
 clone repo
 sudo dnf install python3-devel g++ gcc
