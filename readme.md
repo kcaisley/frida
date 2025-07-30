@@ -1,51 +1,42 @@
 # FRIDA: Fast Radiation Imaging Digitizer Array
 
-Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high, spatial resolution should be maximized with simple pixels, and energy resolution is needed, but particles need not be individually discriminated in time, space, or spectrum. In an experimental setting, fast frame rates allow for real-time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
+Frame-based radiation detectors with integrating front-ends are eConfially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high, spatial resolution should be maximized with simple pixels, and energy resolution is needed, but particles need not be individually discriminated in time, space, or Conftrum. In an experimental setting, fast frame rates allow for real-time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
 
-This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame rate surpassing 100,000 fps. For the conjunction of these two specifications to be met, one must have a compact and power-efficient bank of column-parallel data converters, which at 10–12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm² while exceeding a 5 ksps/µm² sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
+This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame rate surpassing 100,000 fps. For the conjunction of these two Confifications to be met, one must have a compact and power-efficient bank of column-parallel data converters, which at 10–12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must reConft a restricted metric of 1 W/cm² while exceeding a 5 ksps/µm² sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
 
+<!--
 This project focuses on how one can best allocate the quantity and weighting of SA bit positions, in order to yield the highest resolution (in ENOB) for a given power, area, and power budget, and with a given amount of power supply noise.
+-->
 
 ![](docs/caeleste2/arch.svg)
 
-## Status
+## Workflow
 
-| Block                | Schematic | Layout | Notes                              |
-|----------------------|-----------|--------|------------------------------------|
-| Unit Length Cap      | ✅        | ✅     |                                    |
-| Unit Area Cap        | ❌        | ❌     | Need to decide type                |
-| Unit Length Array    | ❌        | 🔄     | Design weights already known       |
-| Unit Area Array      | ❌        | ❌     |                                    |
-| Comparators x2       | ✅        | ✅     | Performance resimulated            |
-| Drivers              | ✅        | ✅     | Mixture of devices from Caeleste / Cordia |
-| SA Logic             | ✅        | ❌     | Mixture from Caeleste / Cordia     |
-| SPI Interface        | ✅        | 🔄     | Need to resize                     |
-| Pad Ring             | ✅        | ✅     |                                    |
+The workflow below shows how the FRIDA ADC design progresses from specifications to analysis. Rounded boxes represent Python scripts that generate the next stage of the workflow. Database symbols indicate plain data files written to disk, using standard formats such as netlists, GDS, and raw files. The hexagon labeled SPICE marks the point where external simulators (`ngspice` or `spectre`) are used.
 
+```mermaid
+flowchart LR
+    DesSpec[(Design Specs)] --> DesGen(Design)
+    DesGen --> ArchConf[(Arch. Conf.)]
+    ArchConf --> LayGen(Layout Gen.)
+    ArchConf --> BehavSim
+    ArchConf --> NetGen
+    SimConf[(Sim Conf.)] --> BehavSim(Behav. Sim.)
+    SimConf[(Sim Conf.)] --> NetGen
+    NetGen(Netlist Gen.) --> Netlist[(ckt.sp)]
+    NetGen --> TB[(tb.sp)]
+    LayGen --> Gds[(ckt.gds)]
+    Netlist --> Spice{{SPICE}}
+    TB --> Spice
+    BehavSim --> BRaw[(ckt.raw)]
+    Spice --> Raw[(ckt.raw)]
+    Raw --> Analyze(Analysis)
+    BRaw --> Analyze
 ```
-LSB voltage: 585.94 µV
-Quantization noise RMS: 169.15 µV
-SNR_ideal: 74.01 dB
-ENOB_ideal: 12.00 ENOB
-
-Sampling noise RMS: 91.02 µV
-Comparator noise RMS: 120.00 µV
-SNR w/ noise: 71.47 dB
-ENOB w/ noise: 11.58 ENOB
-
-3σ worst-case DNL: 0.80 LSB
-SNR w/ noise & dist: 64.22 dB
-ENOB w/ noise & dist: 10.37 ENOB
-
-Weights list: [896, 512, 288, 160, 80, 48, 24, 16, 8, 6, 3, 2, 2, 1, 1]
-Sum of weights: 2047
-```
-
-## Modeling and Analysis Workflow
-
-![](docs/caeleste2/workflow.svg)
 
 ## Past Designs vs Current Target
+
+The table below compares previous ADC designs with the current FRIDA target, highlighting improvements in resolution, speed, area, and energy efficiency. Notable advancements include higher conversion rates and lower power consumption per ADC, supporting the project's goal of scalable, high-performance digitizer arrays.
 
 | Design                  | DCD v1      | CoRDIA     | M          | H           | F           |
 |-------------------------|-------------|------------|------------|-------------|-------------|
@@ -60,67 +51,35 @@ Sum of weights: 2047
 
 ## Installation
 
-This project should be thought of as a workspace, and relies on several different languages and a mixture of open and closed source tools, so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` file.
+This project is a "workspace", and relies on a mixture of open and closed source tools, so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` file.
 
 Create a Python virtual environment (tested with Python 3.9–3.13) and install the following packages:
 
-```
+```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install numpy matplotlib pandas tqdm klayout klayout-pex
-pip install git+https://github.com/augustunderground/pynut.git
-pip install git+https://github.com/augustunderground/pyspectre.git
+pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib
 ```
 
-Ensure `spectre` is installed and available in your `PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
+Ensure `spectre` is installed and available in your `$PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
 
-```
+```bash
 which spectre
 ```
 
 Despite using `spectre`, we will opt to use the widely compatible `nutbin` format, which is a binary file following the original SPICE3 nutmeg format. It is less compact than `psfbin` files, but can be read by tools other than Cadence's Viva. For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
 
 ## Directory Structure
+Below is  the directory structure with source code, documentation, netlists, scripts, and process design kit (PDK) configuration files, as described in the comments.
 
 ```
 ├── build       # netlists etc, collateral from ip + src
 ├── docs        # notes & documentation
 ├── ip          # netlists, Verilog-A models, etc 
 ├── src         # scripts and utils
-└── tech        # PDK specific files, added as symlinks
+└── tech        # PDK config files, added as symlinks
     ├── nopdk
     ├── tsmc28
     └── tsmc65
 ```
-
-
-## Test chip pin-out:
-
-| Pin Name    | Pad Type     | Pin Purpose                           |
-|-------------|--------------|---------------------------------------|
-| seq_init_p  | LVDS RX      | Sequencing: ADC initialization        |
-| seq_init_n  | LVDS RX      | Sequencing: ADC initialization        |
-| seq_samp_p  | LVDS RX      | Sequencing: Sample phase control      |
-| seq_samp_n  | LVDS RX      | Sequencing: Sample phase control      |
-| seq_cmp_p   | LVDS RX      | Sequencing: Comparator timing         |
-| seq_cmp_n   | LVDS RX      | Sequencing: Comparator timing         |
-| seq_logic_p | LVDS RX      | Sequencing: SAR logic timing          |
-| seq_logic_n | LVDS RX      | Sequencing: SAR logic timing          |
-| vdd_a       | Power        | Analog supply positive                |
-| vss_a       | GND          | Analog supply negative                | 
-| vdd_d       | Power        | Digital supply positive               | 
-| vss_d       | GND          | Digital supply negative               | 
-| vdd_io      | Power        | I/O supply positive                   | 
-| vss_io      | GND          | I/O supply negative                   | 
-| vdd_dac     | Power        | DAC supply positive                   |
-| vss_dac     | GND          | DAC supply negative                   |
-| spi_sclk    | CMOS Input   | SPI serial clock                      |
-| spi_mosi    | CMOS Input   | SPI master out, slave in              | 
-| spi_miso    | CMOS Output  | SPI master in, slave out              | 
-| spi_cs_b    | CMOS Input   | SPI chip select (active low)          | 
-| ain_p       | Analog       | Analog input positive                 | 
-| ain_n       | Analog       | Analog input negative                 | 
-| data_out_p  | LVDS TX      | Data output positive                  | 
-| data_out_n  | LVDS TX      | Data output negative                  | 
-| reset_n     | CMOS Input   | Global reset (active low)             | 
