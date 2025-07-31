@@ -45,9 +45,9 @@ The table below compares previous ADC designs with the current FRIDA target, hig
 | Conversion rate         | 6.25 MHz    | 2.5 MHz    | 4.5 MHz    | 10 MHz      | 10 MHz      |
 | Dimensions of one ADC   | 40×55 μm²   | 80×330 μm² | 60×800 μm² | 15×100 μm²  | 50×50 μm²   |
 | Area of one ADC         | 0.002 mm²   | 0.026 mm²  | 0.048 mm²  | 0.0015 mm²  | 0.0025 mm²  |
-| Power of one ADC        | 960 μW      | 30 μW      | 700 μW     | 100 μW      | 100 μW ?    |
-| FOM_csa (conv/sec/area) | ??? Hz/μm²  | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² | 5000 Hz/μm² |
-| FOM_wal (J/conv-step)   | 487 fJ      | 26 fJ      | 608 fJ     | 14 fJ       | 5 fJ        |
+| Power of one ADC        | 960 μW      | 30 μW      | 700 μW     | 100 μW      | 200 μW ?    |
+| FOM_csa (conv/sec/area) | 3125 Hz/μm² | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² | 5000 Hz/μm² |
+| FOM_wal (J/conv-step)   | 487 fJ      | 26 fJ      | 608 fJ     | 14 fJ       | 10 fJ       |
 
 ## Installation
 
@@ -59,7 +59,11 @@ Create a Python virtual environment (tested with Python 3.9–3.13) and install 
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib
+pip install klayout spicelib cocotb blosc2 wavedrom PyQt5 numpy matplotlib
+```
+
+```bash
+sudo {apt | dnf} install klayout ngspice iverilog verilator yosys gtkwave
 ```
 
 Ensure `spectre` is installed and available in your `$PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
@@ -69,6 +73,8 @@ which spectre
 ```
 
 Despite using `spectre`, we will opt to use the widely compatible `nutbin` format, which is a binary file following the original SPICE3 nutmeg format. It is less compact than `psfbin` files, but can be read by tools other than Cadence's Viva. For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
+
+When producing raw binary files, ensure `utf_8` encoding is used for the plaintext section. Some viewer (e.g. )
 
 ## Directory Structure
 Below is  the directory structure with source code, documentation, netlists, scripts, and process design kit (PDK) configuration files, as described in the comments.
