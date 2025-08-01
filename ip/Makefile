@@ -5,7 +5,8 @@
 # Default settings
 SIMULATOR = iverilog
 VCD_VIEWER = gtkwave
-CLEAN_FILES = *.vcd *.out *_sim
+SYNTHESIZER = yosys
+CLEAN_FILES = *.vcd *.out *_sim synth_*.v synth_*.json synth_*.blif *.dot synth_*report.txt
 
 # Default module (can be overridden from command line)
 MODULE ?= sar
@@ -38,12 +39,16 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make simulate mod=<module_name>     - Compile and run simulation"
+	@echo "  make synth mod=<module_name>        - Synthesize module to hardware"
+	@echo "  make synth-adv mod=<module_name>    - Advanced synthesis analysis"
+	@echo "  make synth-asic mod=<module_name>   - ASIC-optimized synthesis"
 	@echo "  make wave mod=<module_name>         - Open waveform viewer"
 	@echo "  make clean                          - Clean generated files"
 	@echo "  make list                           - List available modules"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make simulate mod=sar               - Simulate sar.v with sar_tb.v"
+	@echo "  make synth mod=sar                  - Synthesize sar.v to hardware"
 	@echo "  make wave mod=sar                   - View sar_tb.vcd waveforms"
 	@echo ""
 	@echo "Default module: $(MODULE)"
@@ -86,6 +91,56 @@ simulate:
 	@if [ -f "$(VCD_FILE)" ]; then \
 		echo "VCD file generated: $(VCD_FILE)"; \
 	fi
+
+# Synthesize module to hardware
+.PHONY: synth
+synth:
+	@echo "Synthesizing $(TARGET_MODULE) to hardware..."
+	@if [ ! -f "$(SRC_FILE)" ]; then \
+		echo "Error: Source file $(SRC_FILE) not found!"; \
+		exit 1; \
+	fi
+	@echo "Running Yosys synthesis..."
+	$(SYNTHESIZER) -s synth_sar.ys
+	@echo "Synthesis complete! Generated files:"
+	@echo "  - synth_sar.v (synthesized Verilog)"
+	@echo "  - synth_sar.json (JSON netlist)"
+	@echo "  - sar_synth.dot (graphical representation)"
+	@echo "  - synth_report.txt (synthesis report)"
+
+# Advanced synthesis analysis
+.PHONY: synth-adv
+synth-adv:
+	@echo "Running advanced synthesis analysis for $(TARGET_MODULE)..."
+	@if [ ! -f "$(SRC_FILE)" ]; then \
+		echo "Error: Source file $(SRC_FILE) not found!"; \
+		exit 1; \
+	fi
+	@echo "Running advanced Yosys synthesis..."
+	$(SYNTHESIZER) -s synth_sar_advanced.ys
+	@echo "Advanced synthesis complete! Generated files:"
+	@echo "  - synth_sar_clean.v (clean synthesized Verilog)"
+	@echo "  - synth_sar_detailed.json (detailed JSON netlist)"
+	@echo "  - synth_sar.blif (BLIF format)"
+	@echo "  - sar_detailed.dot (detailed graphical representation)"
+	@echo "  - synth_detailed_report.txt (detailed synthesis report)"
+
+# ASIC synthesis targeting specific technology
+.PHONY: synth-asic
+synth-asic:
+	@echo "Synthesizing $(TARGET_MODULE) for ASIC technology..."
+	@if [ ! -f "$(SRC_FILE)" ]; then \
+		echo "Error: Source file $(SRC_FILE) not found!"; \
+		exit 1; \
+	fi
+	@echo "Targeting: combinational logic, muxes, D-flip flops, SR latches"
+	$(SYNTHESIZER) -s synth_sar_asic.ys
+	@echo "ASIC synthesis complete! Generated files:"
+	@echo "  - synth_sar_asic.v (ASIC-optimized Verilog)"
+	@echo "  - synth_sar_asic.json (ASIC JSON netlist)"
+	@echo "  - synth_sar_asic.blif (ASIC BLIF format)"
+	@echo "  - sar_asic.dot (ASIC layout visualization)"
+	@echo "  - synth_asic_report.txt (ASIC synthesis report)"
 
 # Open waveform viewer
 .PHONY: wave

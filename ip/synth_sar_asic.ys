@@ -1,0 +1,44 @@
+# Custom ASIC synthesis script for SAR logic
+# Targeting: combinational logic, muxes, D-flip flops, and SR latches
+
+# Read the Verilog source
+read_verilog sar.v
+
+# Set the top module
+hierarchy -top sar_logic -check
+
+# Print initial statistics
+stat
+
+# Perform synthesis with explicit technology mapping
+synth -top sar_logic
+
+# Map to technology primitives explicitly
+# Use simple mapping for ASIC technology
+techmap
+
+# Map flip-flops to standard D-flip-flops
+dfflibmap -liberty /dev/null
+
+# Optimize for area (typical for ASIC)
+opt -full
+
+# Map to simple gates: AND, OR, NOT, MUX
+abc -g AND,OR,NOT,MUX,DFF
+
+# Final optimization
+opt_clean
+
+# Print final statistics
+stat -tech cmos
+
+# Generate outputs
+write_verilog -noattr synth_sar_asic.v
+write_json synth_sar_asic.json
+write_blif synth_sar_asic.blif
+
+# Create visualization
+show -prefix sar_asic -format dot -stretch
+
+# Print resource utilization summary
+tee -o synth_asic_report.txt stat -tech cmos

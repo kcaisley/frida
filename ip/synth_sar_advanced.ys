@@ -1,0 +1,37 @@
+# Advanced Yosys synthesis script for SAR logic
+# This script performs more detailed synthesis analysis
+
+# Read the Verilog source
+read_verilog sar.v
+
+# Set the top module and check hierarchy
+hierarchy -top sar_logic -check
+
+# Print initial statistics
+stat
+
+# Perform various synthesis passes
+synth -run begin:fine
+synth -run fine:abc
+
+# Technology mapping (using generic library)
+abc -g AND,OR,NOT,MUX
+
+# Print resource utilization
+stat -tech generic
+
+# Generate various output formats
+write_verilog -noattr -noexpr synth_sar_clean.v
+write_json synth_sar_detailed.json
+write_blif synth_sar.blif
+
+# Create a dot file for visualization
+show -prefix sar_detailed -format dot -stretch
+
+# Analyze timing paths (basic)
+select -module sar_logic
+select -set clocks i:seq_init i:seq_update
+select -clear
+
+# Print final synthesis report
+tee -o synth_detailed_report.txt stat -tech generic
