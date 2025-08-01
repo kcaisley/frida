@@ -27,3 +27,4 @@ __pycache__
 *.ext
 *.calibre.db
 *.test
+*.vcd
