@@ -42,6 +42,7 @@ help:
 	@echo "  make synth mod=<module_name>        - Synthesize module to hardware"
 	@echo "  make synth-adv mod=<module_name>    - Advanced synthesis analysis"
 	@echo "  make synth-asic mod=<module_name>   - ASIC-optimized synthesis"
+	@echo "  make synth-gates mod=<module_name>  - Gate-level synthesis (NAND/NOR/NOT/MUX/DFF)"
 	@echo "  make wave mod=<module_name>         - Open waveform viewer"
 	@echo "  make clean                          - Clean generated files"
 	@echo "  make list                           - List available modules"
@@ -141,6 +142,23 @@ synth-asic:
 	@echo "  - synth_sar_asic.blif (ASIC BLIF format)"
 	@echo "  - sar_asic.dot (ASIC layout visualization)"
 	@echo "  - synth_asic_report.txt (ASIC synthesis report)"
+
+# Gate-level synthesis for discrete logic primitives
+.PHONY: synth-gates
+synth-gates:
+	@echo "Synthesizing $(TARGET_MODULE) to discrete logic gates..."
+	@if [ ! -f "$(SRC_FILE)" ]; then \
+		echo "Error: Source file $(SRC_FILE) not found!"; \
+		exit 1; \
+	fi
+	@echo "Targeting: NAND, NOR, NOT, MUX, DFF gates (no PDK)"
+	$(SYNTHESIZER) -s synth_sar_gates.ys
+	@echo "Gate-level synthesis complete! Generated files:"
+	@echo "  - synth_sar_gates.v (gate-level Verilog netlist)"
+	@echo "  - synth_sar_gates.json (gate-level JSON netlist)"
+	@echo "  - synth_sar_gates.blif (gate-level BLIF format)"
+	@echo "  - sar_gates.dot (gate-level schematic)"
+	@echo "  - synth_gates_report.txt (gate count report)"
 
 # Open waveform viewer
 .PHONY: wave
