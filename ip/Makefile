@@ -101,13 +101,19 @@ synth:
 		echo "Error: Source file $(SRC_FILE) not found!"; \
 		exit 1; \
 	fi
+	@if [ ! -f "synth_$(TARGET_MODULE).ys" ]; then \
+		echo "Error: Synthesis script synth_$(TARGET_MODULE).ys not found!"; \
+		echo "Available synthesis scripts:"; \
+		ls synth_*.ys 2>/dev/null || echo "  No synthesis scripts found"; \
+		exit 1; \
+	fi
 	@echo "Running Yosys synthesis..."
-	$(SYNTHESIZER) -s synth_sar.ys
+	$(SYNTHESIZER) -s synth_$(TARGET_MODULE).ys
 	@echo "Synthesis complete! Generated files:"
-	@echo "  - synth_sar.v (synthesized Verilog)"
-	@echo "  - synth_sar.json (JSON netlist)"
-	@echo "  - sar_synth.dot (graphical representation)"
-	@echo "  - synth_report.txt (synthesis report)"
+	@echo "  - synth_$(TARGET_MODULE).v (synthesized Verilog)"
+	@echo "  - synth_$(TARGET_MODULE).json (JSON netlist)"
+	@echo "  - $(TARGET_MODULE)_synth.dot (graphical representation)"
+	@echo "  - synth_$(TARGET_MODULE)_report.txt (synthesis report)"
 
 # Advanced synthesis analysis
 .PHONY: synth-adv
@@ -117,14 +123,18 @@ synth-adv:
 		echo "Error: Source file $(SRC_FILE) not found!"; \
 		exit 1; \
 	fi
+	@if [ ! -f "synth_$(TARGET_MODULE)_advanced.ys" ]; then \
+		echo "Error: Advanced synthesis script synth_$(TARGET_MODULE)_advanced.ys not found!"; \
+		exit 1; \
+	fi
 	@echo "Running advanced Yosys synthesis..."
-	$(SYNTHESIZER) -s synth_sar_advanced.ys
+	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_advanced.ys
 	@echo "Advanced synthesis complete! Generated files:"
-	@echo "  - synth_sar_clean.v (clean synthesized Verilog)"
-	@echo "  - synth_sar_detailed.json (detailed JSON netlist)"
-	@echo "  - synth_sar.blif (BLIF format)"
-	@echo "  - sar_detailed.dot (detailed graphical representation)"
-	@echo "  - synth_detailed_report.txt (detailed synthesis report)"
+	@echo "  - synth_$(TARGET_MODULE)_clean.v (clean synthesized Verilog)"
+	@echo "  - synth_$(TARGET_MODULE)_detailed.json (detailed JSON netlist)"
+	@echo "  - synth_$(TARGET_MODULE).blif (BLIF format)"
+	@echo "  - $(TARGET_MODULE)_detailed.dot (detailed graphical representation)"
+	@echo "  - synth_$(TARGET_MODULE)_detailed_report.txt (detailed synthesis report)"
 
 # ASIC synthesis targeting specific technology
 .PHONY: synth-asic
@@ -134,14 +144,18 @@ synth-asic:
 		echo "Error: Source file $(SRC_FILE) not found!"; \
 		exit 1; \
 	fi
+	@if [ ! -f "synth_$(TARGET_MODULE)_asic.ys" ]; then \
+		echo "Error: ASIC synthesis script synth_$(TARGET_MODULE)_asic.ys not found!"; \
+		exit 1; \
+	fi
 	@echo "Targeting: combinational logic, muxes, D-flip flops, SR latches"
-	$(SYNTHESIZER) -s synth_sar_asic.ys
+	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_asic.ys
 	@echo "ASIC synthesis complete! Generated files:"
-	@echo "  - synth_sar_asic.v (ASIC-optimized Verilog)"
-	@echo "  - synth_sar_asic.json (ASIC JSON netlist)"
-	@echo "  - synth_sar_asic.blif (ASIC BLIF format)"
-	@echo "  - sar_asic.dot (ASIC layout visualization)"
-	@echo "  - synth_asic_report.txt (ASIC synthesis report)"
+	@echo "  - synth_$(TARGET_MODULE)_asic.v (ASIC-optimized Verilog)"
+	@echo "  - synth_$(TARGET_MODULE)_asic.json (ASIC JSON netlist)"
+	@echo "  - synth_$(TARGET_MODULE)_asic.blif (ASIC BLIF format)"
+	@echo "  - $(TARGET_MODULE)_asic.dot (ASIC layout visualization)"
+	@echo "  - synth_$(TARGET_MODULE)_asic_report.txt (ASIC synthesis report)"
 
 # Gate-level synthesis for discrete logic primitives
 .PHONY: synth-gates
@@ -151,14 +165,18 @@ synth-gates:
 		echo "Error: Source file $(SRC_FILE) not found!"; \
 		exit 1; \
 	fi
+	@if [ ! -f "synth_$(TARGET_MODULE)_gates.ys" ]; then \
+		echo "Error: Gate synthesis script synth_$(TARGET_MODULE)_gates.ys not found!"; \
+		exit 1; \
+	fi
 	@echo "Targeting: NAND, NOR, NOT, MUX, DFF gates (no PDK)"
-	$(SYNTHESIZER) -s synth_sar_gates.ys
+	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_gates.ys
 	@echo "Gate-level synthesis complete! Generated files:"
-	@echo "  - synth_sar_gates.v (gate-level Verilog netlist)"
-	@echo "  - synth_sar_gates.json (gate-level JSON netlist)"
-	@echo "  - synth_sar_gates.blif (gate-level BLIF format)"
-	@echo "  - sar_gates.dot (gate-level schematic)"
-	@echo "  - synth_gates_report.txt (gate count report)"
+	@echo "  - synth_$(TARGET_MODULE)_gates.v (gate-level Verilog netlist)"
+	@echo "  - synth_$(TARGET_MODULE)_gates.json (gate-level JSON netlist)"
+	@echo "  - synth_$(TARGET_MODULE)_gates.blif (gate-level BLIF format)"
+	@echo "  - $(TARGET_MODULE)_gates.dot (gate-level schematic)"
+	@echo "  - synth_$(TARGET_MODULE)_gates_report.txt (gate count report)"
 
 # Open waveform viewer
 .PHONY: wave
