@@ -1,7 +1,7 @@
-// Testbench for Switch Control Interface
+// Testbench for Sample Control Interface
 `timescale 1ns / 1ps
 
-module switch_ctrl_tb;
+module sampctl_tb;
 
     // Testbench signals
     reg seq_samp;
@@ -11,7 +11,7 @@ module switch_ctrl_tb;
     wire switch_n;
 
     // Instantiate the Unit Under Test (UUT)
-    switch_ctrl uut (
+    sampctl uut (
         .seq_samp(seq_samp),
         .samp_p_en(samp_p_en),
         .samp_n_en(samp_n_en),
@@ -22,8 +22,9 @@ module switch_ctrl_tb;
     // Test stimulus - Truth table verification
     initial begin
         // Generate VCD file for waveform viewing
-        $dumpfile("switch_ctrl_test.vcd");
+        $dumpfile("sampctl_test.vcd");
         $dumpvars(0, switch_ctrl_tb);
+        $dumpvars(0, sampctl_tb);
         
         // Initialize inputs
         seq_samp = 0;

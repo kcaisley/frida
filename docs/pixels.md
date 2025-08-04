@@ -4,7 +4,7 @@
 - photogate: 2nd most common structure for photo sensing. Basic structure used for originally CCDS (although since Interline Transfer is introduced, these now used a PD as the sensing element)
 
 - pinned photodiode (PPD): massively important invention which reduces noise 
-![alt text](img/pinned.png)
+![alt text](images/pinned.png)
 
 
 - charge-domain binning

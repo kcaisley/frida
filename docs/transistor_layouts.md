@@ -19,14 +19,14 @@ Hakhamaneshi's thesis has some tidbits.
 
 - Y axis: multiple of fin grid (in mine, this is finger width). This is equal to the height of the unit transistor.
 
-![Alt text](img/layout_grid.png)
+![Alt text](images/layout_grid.png)
 
 Quantized routing grid and unit transistor:
 
 - M1/M2 are used to connect transistors (generally non-uniform)
 - TR (transistor) sizing: quantized to unit transistor (4 fins suggested)
 
-![Alt text](img/layout_cells.png)
+![Alt text](images/layout_cells.png)
 
 Transistors are aranged in the following manner:
 
@@ -37,14 +37,14 @@ Transistors are aranged in the following manner:
 
 Ah! We see in the image below, the core NMOS cell is `nf=2`.
 
-![Alt text](img/layout_rows.png)
+![Alt text](images/layout_rows.png)
 
 Other devices
 – Define pin(or port) to be compatible with routing grid
 – Metal-Oxide-Metal (MOM) cap
 – Thick gate (IO) TR and diode for BGR generator
 
-![Alt text](img/layout_other.png)
+![Alt text](images/layout_other.png)
 
 
 # FD SOI, Finfet, and Bulk:

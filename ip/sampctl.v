@@ -2,7 +2,7 @@
 // Controls switch turn-on and turn-off timing based on sequence sampling signal
 // Provides separate enable controls for p-side and n-side switch control
 
-module switch_ctrl (
+module sampctl (
     // Input signals
     input  wire seq_samp,      // Sequence sampling signal - determines turn on/off timing
     input  wire samp_p_en,     // Enable for p-side switch control

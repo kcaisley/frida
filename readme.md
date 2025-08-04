@@ -59,7 +59,7 @@ Create a Python virtual environment (tested with Python 3.9–3.13) and install 
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install klayout spicelib cocotb blosc2 wavedrom PyQt5 numpy matplotlib
+pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
 ```
 
 ```bash

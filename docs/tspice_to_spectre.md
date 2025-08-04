@@ -293,11 +293,11 @@ Looks like the order is drain, gate, source, then bulk.
 
 Let's make a schematic:
 
-![Basic testbench with nmos](img/nmos_ids_vgs.png)
+![Basic testbench with nmos](images/nmos_ids_vgs.png)
 
 And let's simulate it:
 
-![T-Spice ids_vgs](img/tspice_ids_vgs.png)
+![T-Spice ids_vgs](images/tspice_ids_vgs.png)
 
 But when we netlist from S-Edit exported in the Spectre mode:
 
@@ -331,13 +331,13 @@ That's bulk, drain, gate, source order!
 
 Sure enough, if you simulate it, you don't get what you expect!
 
-![Spectre wrong ids_vgs](img/spectre_wrong_ids_vgs.png)
+![Spectre wrong ids_vgs](images/spectre_wrong_ids_vgs.png)
 
 Now if we change the offending line pin order to: `log_nmos_1 (vds vgs 0 0) log_nmos L_=log_nmos_Lmin M_=1 W_=log_nmos_WS1`
 
 And resimulating, we get the same as T-spice:
 
-![Spectre correct ids_vgs](img/spectre_correct_ids_vgs.png)
+![Spectre correct ids_vgs](images/spectre_correct_ids_vgs.png)
 
 Solution: We need to flip the ports of the transistors to D-G-S-B order as part of our port preprocessing script.
 

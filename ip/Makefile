@@ -40,9 +40,6 @@ help:
 	@echo "Usage:"
 	@echo "  make simulate mod=<module_name>     - Compile and run simulation"
 	@echo "  make synth mod=<module_name>        - Synthesize module to hardware"
-	@echo "  make synth-adv mod=<module_name>    - Advanced synthesis analysis"
-	@echo "  make synth-asic mod=<module_name>   - ASIC-optimized synthesis"
-	@echo "  make synth-gates mod=<module_name>  - Gate-level synthesis (NAND/NOR/NOT/MUX/DFF)"
 	@echo "  make wave mod=<module_name>         - Open waveform viewer"
 	@echo "  make clean                          - Clean generated files"
 	@echo "  make list                           - List available modules"
@@ -93,7 +90,7 @@ simulate:
 		echo "VCD file generated: $(VCD_FILE)"; \
 	fi
 
-# Synthesize module to hardware
+# Synthesize module to hardware using agnostic synthesis script
 .PHONY: synth
 synth:
 	@echo "Synthesizing $(TARGET_MODULE) to hardware..."
@@ -101,82 +98,35 @@ synth:
 		echo "Error: Source file $(SRC_FILE) not found!"; \
 		exit 1; \
 	fi
-	@if [ ! -f "synth_$(TARGET_MODULE).ys" ]; then \
-		echo "Error: Synthesis script synth_$(TARGET_MODULE).ys not found!"; \
-		echo "Available synthesis scripts:"; \
-		ls synth_*.ys 2>/dev/null || echo "  No synthesis scripts found"; \
+	@if [ ! -f "synth.ys" ]; then \
+		echo "Error: Generic synthesis script synth.ys not found!"; \
 		exit 1; \
 	fi
-	@echo "Running Yosys synthesis..."
-	$(SYNTHESIZER) -s synth_$(TARGET_MODULE).ys
+	@echo "Running Yosys synthesis with generic script..."
+	@# Determine the top module name based on common patterns
+	@if [ "$(TARGET_MODULE)" = "sar" ]; then \
+		TOP_MODULE="sar_logic"; \
+	elif [ "$(TARGET_MODULE)" = "spi" ]; then \
+		TOP_MODULE="spi_controller"; \
+	elif [ "$(TARGET_MODULE)" = "switch_ctrl" ]; then \
+		TOP_MODULE="switch_ctrl"; \
+	else \
+		TOP_MODULE="$(TARGET_MODULE)"; \
+	fi; \
+	echo "Using VERILOG_FILE=$(SRC_FILE) TOP_MODULE=$$TOP_MODULE"; \
+	sed -e "s/PLACEHOLDER_VERILOG_FILE/$(SRC_FILE)/g" -e "s/PLACEHOLDER_TOP_MODULE/$$TOP_MODULE/g" synth.ys > synth_temp.ys; \
+	$(SYNTHESIZER) -s synth_temp.ys; \
+	rm -f synth_temp.ys
+	@# Rename output files to match expected naming convention
+	@if [ -f "synth.v" ]; then mv synth.v $(TARGET_MODULE)_synth.v; fi
+	@if [ -f "hierarchy.dot" ]; then mv hierarchy.dot $(TARGET_MODULE)_hierarchy.dot; fi
+	@if [ -f "synth.dot" ]; then mv synth.dot $(TARGET_MODULE)_synth.dot; fi
+	@if [ -f "synth_report.txt" ]; then mv synth_report.txt $(TARGET_MODULE)_synth_report.txt; fi
 	@echo "Synthesis complete! Generated files:"
-	@echo "  - synth_$(TARGET_MODULE).v (synthesized Verilog)"
-	@echo "  - synth_$(TARGET_MODULE).json (JSON netlist)"
-	@echo "  - $(TARGET_MODULE)_synth.dot (graphical representation)"
-	@echo "  - synth_$(TARGET_MODULE)_report.txt (synthesis report)"
-
-# Advanced synthesis analysis
-.PHONY: synth-adv
-synth-adv:
-	@echo "Running advanced synthesis analysis for $(TARGET_MODULE)..."
-	@if [ ! -f "$(SRC_FILE)" ]; then \
-		echo "Error: Source file $(SRC_FILE) not found!"; \
-		exit 1; \
-	fi
-	@if [ ! -f "synth_$(TARGET_MODULE)_advanced.ys" ]; then \
-		echo "Error: Advanced synthesis script synth_$(TARGET_MODULE)_advanced.ys not found!"; \
-		exit 1; \
-	fi
-	@echo "Running advanced Yosys synthesis..."
-	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_advanced.ys
-	@echo "Advanced synthesis complete! Generated files:"
-	@echo "  - synth_$(TARGET_MODULE)_clean.v (clean synthesized Verilog)"
-	@echo "  - synth_$(TARGET_MODULE)_detailed.json (detailed JSON netlist)"
-	@echo "  - synth_$(TARGET_MODULE).blif (BLIF format)"
-	@echo "  - $(TARGET_MODULE)_detailed.dot (detailed graphical representation)"
-	@echo "  - synth_$(TARGET_MODULE)_detailed_report.txt (detailed synthesis report)"
-
-# ASIC synthesis targeting specific technology
-.PHONY: synth-asic
-synth-asic:
-	@echo "Synthesizing $(TARGET_MODULE) for ASIC technology..."
-	@if [ ! -f "$(SRC_FILE)" ]; then \
-		echo "Error: Source file $(SRC_FILE) not found!"; \
-		exit 1; \
-	fi
-	@if [ ! -f "synth_$(TARGET_MODULE)_asic.ys" ]; then \
-		echo "Error: ASIC synthesis script synth_$(TARGET_MODULE)_asic.ys not found!"; \
-		exit 1; \
-	fi
-	@echo "Targeting: combinational logic, muxes, D-flip flops, SR latches"
-	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_asic.ys
-	@echo "ASIC synthesis complete! Generated files:"
-	@echo "  - synth_$(TARGET_MODULE)_asic.v (ASIC-optimized Verilog)"
-	@echo "  - synth_$(TARGET_MODULE)_asic.json (ASIC JSON netlist)"
-	@echo "  - synth_$(TARGET_MODULE)_asic.blif (ASIC BLIF format)"
-	@echo "  - $(TARGET_MODULE)_asic.dot (ASIC layout visualization)"
-	@echo "  - synth_$(TARGET_MODULE)_asic_report.txt (ASIC synthesis report)"
-
-# Gate-level synthesis for discrete logic primitives
-.PHONY: synth-gates
-synth-gates:
-	@echo "Synthesizing $(TARGET_MODULE) to discrete logic gates..."
-	@if [ ! -f "$(SRC_FILE)" ]; then \
-		echo "Error: Source file $(SRC_FILE) not found!"; \
-		exit 1; \
-	fi
-	@if [ ! -f "synth_$(TARGET_MODULE)_gates.ys" ]; then \
-		echo "Error: Gate synthesis script synth_$(TARGET_MODULE)_gates.ys not found!"; \
-		exit 1; \
-	fi
-	@echo "Targeting: NAND, NOR, NOT, MUX, DFF gates (no PDK)"
-	$(SYNTHESIZER) -s synth_$(TARGET_MODULE)_gates.ys
-	@echo "Gate-level synthesis complete! Generated files:"
-	@echo "  - synth_$(TARGET_MODULE)_gates.v (gate-level Verilog netlist)"
-	@echo "  - synth_$(TARGET_MODULE)_gates.json (gate-level JSON netlist)"
-	@echo "  - synth_$(TARGET_MODULE)_gates.blif (gate-level BLIF format)"
-	@echo "  - $(TARGET_MODULE)_gates.dot (gate-level schematic)"
-	@echo "  - synth_$(TARGET_MODULE)_gates_report.txt (gate count report)"
+	@echo "  - $(TARGET_MODULE)_synth.v (synthesized Verilog)"
+	@echo "  - $(TARGET_MODULE)_hierarchy.dot (pre-synthesis visualization)"
+	@echo "  - $(TARGET_MODULE)_synth.dot (post-synthesis visualization)"
+	@echo "  - $(TARGET_MODULE)_synth_report.txt (synthesis report)"
 
 # Open waveform viewer
 .PHONY: wave

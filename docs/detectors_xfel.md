@@ -15,7 +15,7 @@ The Continuous Wave (CW) upgrade of the Eu XFEL will give it 100-200kHz operatio
 
 Beam lines at LCLS range from 3-15 GeV, and has both a 120 Hz (copper accelerator) and 1 MHz (super-conducting accelerator) repetition rates
 
-![Alt text](img/xfel-specs.png)
+![Alt text](images/xfel-specs.png)
 
 
 # Fundamentals

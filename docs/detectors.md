@@ -1,6 +1,6 @@
 ## Particles worth measuring
 
-![](img/particles.png)
+![](images/particles.png)
 Notes: 
 
 - Leptons/antileptons have no strong interaction
@@ -41,7 +41,7 @@ Infrared, visible light, and X-ray imaging are quite common. But UV isn't. This 
 
 >  Shorter wavelength photons (400 nanometers and below) are either reflected or absorbed into the gate region of the CCD. Longer wavelength photons (between 400 and 700 nanometers) have a high probability of generating an electron within the charge well. As photon wavelength exceeds 700 nanometers, the probability becomes greater that the photon will pass directly through the CCD without being absorbed. The spectral sensitivity of the CCD differs from that of a simple silicon photodiode detector because the CCD surface has channels used for charge transfer that are shielded by polysilicon gate electrodes, thin films of silicon dioxide, and a silicon nitride passivation layer. 
 
-![Uv light](/users/kcaisley/fastroic/notes/img/uv_detection.png)
+![Uv light](/users/kcaisley/fastroic/notes/images/uv_detection.png)
 
 https://micro.magnet.fsu.edu/primer/java/digitalimaging/ccd/quantum/
 
@@ -49,7 +49,7 @@ https://micro.magnet.fsu.edu/primer/java/digitalimaging/ccd/quantum/
 
 ## Energy resolution
 
-![alt text](img/spectrum.png)
+![alt text](images/spectrum.png)
 
 
 Kalpha and Kbeta emit the characteristic energy, and we see them in full absorption at those two lines
@@ -92,7 +92,7 @@ Allpix² then builds on top of this core.
 We don't need more complicated EM solver types like, Finite-differences-time domain (FDTD), Method of Moments (MoM), or equivalently, Boundary Element Method (BEM). [More info on these.](https://www.matecdev.com/posts/differences-fdtd-fem-mom.html)
 
 
-![Alt text](img/tcad_types.png)
+![Alt text](images/tcad_types.png)
 
 electric field can't be generated in metals, as the conduction and valence band are overlapped
 there are no 'carriers'weighting field and shockely ramo theorem
@@ -153,11 +153,11 @@ Some variations of the arch. are putting a current source in feedback with $C_{f
 Cyclic ADC is like SAR, but amplifier error signal instead of reference voltage
 
 On sensor ADC, comes in 3 main layout configurations:
-![Alt text](img/pixel_array.png)
+![Alt text](images/pixel_array.png)
 
 The full-well capacity (FWC) is the largest charge a pixel can hold before saturation which results in degradation of the signal. When the charge in a pixel exceeds the saturation level, the charge starts to fill adjacent pixels, a process known as Blooming.
 
-![](img/pixel_fwc.png)
+![](images/pixel_fwc.png)
 
 
 
@@ -183,13 +183,13 @@ The full-well capacity (FWC) is the largest charge a pixel can hold before satur
 # Scientific imaging needs:
 
 
-![Phenomenon timescales](img/timescale.png)
+![Phenomenon timescales](images/timescale.png)
 
 *Timescales for phenomena studied in materials science (red), life sciences (blue), semiconductor (gray), and nanotechnology (green). Accessible timescales of complementary UTEM techniques are also superimposed.*
 
 Are time scales the same thing as temporal resolution?
 
-![Field resolutions](img/resolution.png)
+![Field resolutions](images/resolution.png)
 
 Yellow area: high time resolution, continously high repeated measurements (real and k-space)
 Pinkg region: very high single-shot time resolution, but stroboscopic slower repetition  (k-space only)
@@ -300,7 +300,7 @@ So what have we learned:
 
 
 
-![DMC options](img/dmc_options.png)
+![DMC options](images/dmc_options.png)
 
 EDET specs:
 - 1Mpixel @ 80 kHz, but is broken into four regions of 512 x 512 pix
@@ -435,7 +435,7 @@ OBELIX monolithic (BELLE II)
 ALPIDE (ALICE)
 TJMonopix
 LFMonopix
-![Ivan 2021](img/monopix_specs.png)
+![Ivan 2021](images/monopix_specs.png)
 from [I. Caicedo 2018](https://arxiv.org/pdf/1902.03679.pdf)
 Tangerine
 
@@ -743,7 +743,7 @@ But remember the system isn't just a charge and TOA digitized, it also needs to 
 
 In-time threshold, means a hit which can be correctly assigned to the correct 25ns bunch id. Hits close to the threshold may take a long time to be detected.
 
-![Alt text](img/pixel_intimethresh.png)
+![Alt text](images/pixel_intimethresh.png)
 
 In this example, a signal will be detected with 50% probability if it is 3000e-, but assuming any time delay is permissable. If we instead want to have that within 20ns, we find the 50% detection probability at that point is 1.7ke- (overdrive) higher at 4700e- at the *in-time threshold.*
 

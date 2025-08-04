@@ -17,7 +17,7 @@ drift -5V
 source 6V (reference) of depfet xtor 
 
 
-![alt text](img/depfet_model.png)
+![alt text](images/depfet_model.png)
 
 [Fischer 2007](../../library_detectors/BELLE/2007_Fischer_Steering_Readout_DEPFET.pdf) provides a readout sequence of 
 
@@ -212,7 +212,7 @@ so can probably just search for `liquid`
 as in LCEM: liquid cell electron microscopy
 
 
-![](img/em_phenomena.png)
+![](images/em_phenomena.png)
 [From King 2005](../../library_detectors/electron_detectors/2005_King_Microscopy_phenomena.pdf)
 
 

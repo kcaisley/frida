@@ -258,7 +258,7 @@ The reason for this peak-to-peak concept is that Gaussian random processes techn
 
 The convolution of random data with a deterministic waveform jitter, will create a non-gaussian PDF. For example, in a system with different rise and fall times, the PDF will be Bimodal:
 
-![](img/jitter_pdf.png)
+![](images/jitter_pdf.png)
 
 It's instead convolved with a sinusoidal waveform, then you will have a normal area in the middle, with sharp rising gaussian components on the edges.
 

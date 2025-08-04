@@ -1,0 +1,50 @@
+# Generic Yosys synthesis script for digital logic modules
+# This is a template that gets customized by the Makefile
+# PDK-independent synthesis using generic gate library
+
+# NOTE: This file will be customized by the Makefile with actual filenames
+# The Makefile will substitute placeholders with real values
+
+# Read the Verilog source file
+read_verilog PLACEHOLDER_VERILOG_FILE
+
+# Set the top module and check for design hierarchy problems  
+hierarchy -top PLACEHOLDER_TOP_MODULE -check
+
+# Print initial design statistics with CMOS technology estimates
+# Provides transistor counts and area estimates without requiring a PDK
+stat -tech cmos
+
+# Generate hierarchical view before synthesis for comparison
+show -prefix hierarchy -format dot
+
+# Perform complete synthesis to generic gates
+# This includes: process conversion, optimization, techmap, and basic gate mapping
+synth -top PLACEHOLDER_TOP_MODULE
+
+# Map to comprehensive gate library for maximum optimization flexibility
+# Uses built-in 'gates' library: AND, NAND, OR, NOR, XOR, XNOR, ANDNOT, ORNOT
+# -dff flag ensures flip-flops are also processed through ABC optimizer
+abc -g gates -dff
+
+# Final area-focused optimization pass
+# Includes all individual optimization passes (opt_clean, opt_expr, etc.)
+opt -full
+
+# Memory block optimizations (useful for designs with memory elements)
+memory
+
+# Finite State Machine detection and optimization
+fsm
+
+# Print final synthesis statistics with CMOS technology estimates
+stat -tech cmos
+
+# Generate synthesized netlist without attributes for clean output
+write_verilog -noattr synth.v
+
+# Create graphical representation of synthesized design
+show -prefix synth -format dot
+
+# Save detailed synthesis report with CMOS technology information
+tee -o synth_report.txt stat -tech cmos
