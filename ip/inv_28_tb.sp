@@ -1,8 +1,8 @@
-* TSMC65nm Inverter Test
+* TSMC28nm Inverter Test
 * Test inverter using nch_lvt and pch_lvt devices
 
-* Include TSMC65nm PDK models
-.lib '../tech/tsmc65/models/toplevel.l' tt_lib
+* Include TSMC28nm PDK models
+.lib '../tech/tsmc28/models/toplevel.l' TOP_TT
 
 * Supply voltage
 vdd vdd 0 1.2
