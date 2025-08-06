@@ -4,10 +4,6 @@ Frame-based radiation detectors with integrating front-ends are eConfially well-
 
 This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame rate surpassing 100,000 fps. For the conjunction of these two Confifications to be met, one must have a compact and power-efficient bank of column-parallel data converters, which at 10–12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm² while exceeding a 5 ksps/µm² sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
 
-<!--
-This project focuses on how one can best allocate the quantity and weighting of SA bit positions, in order to yield the highest resolution (in ENOB) for a given power, area, and power budget, and with a given amount of power supply noise.
--->
-
 ![](docs/caeleste2/arch.svg)
 
 ## Workflow
@@ -62,8 +58,10 @@ pip install --upgrade pip
 pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
 ```
 
+The following are also necessary in `$PATH`, using a mixture of `oss-cad-suite` or `apt` or `dnf` installs from distribution repos:
+
 ```bash
-sudo {apt | dnf} install klayout ngspice iverilog verilator yosys gtkwave
+which klayout ngspice iverilog vvp verilator yosys gtkwave
 ```
 
 Ensure `spectre` is installed and available in your `$PATH`. This is the Cadence Spectre simulator, which is used for running simulations. It is available as part of the Cadence Virtuoso suite, which is a commercial EDA tool.
@@ -74,17 +72,17 @@ which spectre
 
 Despite using `spectre`, we will opt to use the widely compatible `nutbin` format, which is a binary file following the original SPICE3 nutmeg format. It is less compact than `psfbin` files, but can be read by tools other than Cadence's Viva. For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
 
-When producing raw binary files, ensure `utf_8` encoding is used for the plaintext section. Some viewer (e.g. )
+When producing raw binary files, ensure `utf_8` encoding is used for the plaintext section.
 
 ## Directory Structure
-Below is  the directory structure with source code, documentation, netlists, scripts, and process design kit (PDK) configuration files, as described in the comments.
+Summarized below is the directory structure with source code, documentation, RTL, netlists, scripts, and pointer to the process design kit (PDK) configuration files.
 
 ```
-├── build       # netlists etc, collateral from ip + src
+├── build       # collateral from hdl + src
 ├── docs        # notes & documentation
-├── ip          # netlists, Verilog-A models, etc 
+├── hdl         # rtl and spice netlists 
 ├── src         # scripts and utils
-└── tech        # PDK config files, added as symlinks
+└── tech        # PDK-specific config files, added as symlinks
     ├── nopdk
     ├── tsmc28
     └── tsmc65
