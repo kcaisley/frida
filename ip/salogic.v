@@ -1,6 +1,11 @@
 // SAR Logic Module - Non-traditional SAR logic implementation
 // Inputs: dac_astate (Ndac bits), dac_bstate (Ndac bits), dac_mode, comp, clk_init, clk_update
 
+
+// A potential issues reported by Yosys:
+// The SAR logic has two always blocks that can both drive dac_state and dac_cycle, which creates the multiple driver warnings.
+// The second always block only executes when clk_init is low, but the synthesis tool doesn't understand this mutual exclusion properly.
+
 module salogic #(
     parameter Ndac = 16  // Parameterizable number of step DAC
 ) (

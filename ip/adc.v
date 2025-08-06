@@ -29,7 +29,7 @@ module adc #(
     input  wire [Madc-2:0] dac_bstate_n,      // DAC B state negative side
 
     // DAC diff caps (for unit length caps!)
-    input wire dac_diffcaps,                  // Enable differential capacitor mode
+    input wire dac_diffcaps,                  // Enable differential capacitor mode. (Unused for now, reserved for diffcaps)
     
     // Analog inputs
     input  wire vin_p,                        // Analog input positive
@@ -49,8 +49,8 @@ module adc #(
     wire clk_comp;                            // Comparator clock
     wire clk_update_p, clk_update_n;          // Logic clock signals
     wire comp_out_p, comp_out_n;              // Comparator differential outputs
-    wire [Madc-2:0] dac_state_p, dac_state_n; // DAC state buses
-    wire [Madc-2:0] dac_drive_p, dac_drive_n; // SAR logic output buses
+    wire [Madc-2:0] dac_state_p, dac_state_n;// SAR logic output buses
+    wire [Madc-2:0] dac_cap_botplate_p, dac_cap_botplate_n; // Capacitor driver output buses
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate_inst (
@@ -85,7 +85,7 @@ module adc #(
         .dac_bstate(dac_bstate_p),            // DAC B state positive
         .dac_mode(dac_mode_p),                // DAC mode positive
         .comp(comp_out_n),                    // Use negative comp output for P-side logic
-        .dac_state(dac_drive_p)               // Output to positive DAC
+        .dac_state(dac_state_p)               // Output to positive DAC state
     );
 
     // SAR Logic - Negative branch
@@ -96,7 +96,20 @@ module adc #(
         .dac_bstate(dac_bstate_n),            // DAC B state negative
         .dac_mode(dac_mode_n),                // DAC mode negative
         .comp(comp_out_p),                    // Use positive comp output for N-side logic
-        .dac_state(dac_drive_n)               // Output to negative DAC
+        .dac_state(dac_state_n)               // Output to negative DAC state
+    );
+
+    // Capacitor Drivers
+    capdriver #(.Ndac(Madc-1)) capdriver_p (
+        .dac_state(dac_state_p),              // SAR logic positive output
+        .dac_drive_invert(1'b0),              // No inversion as the caps aren't inverted
+        .dac_drive(dac_cap_botplate_p)        // To positive capacitor array
+    );
+
+    capdriver #(.Ndac(Madc-1)) capdriver_n (
+        .dac_state(dac_state_n),              // SAR logic negative output
+        .dac_drive_invert(1'b0),              // No inversion as the caps aren't inverted
+        .dac_drive(dac_cap_botplate_n)        // To negative capacitor array
     );
 
     // ! DUMMY ! Sampling switches
@@ -114,13 +127,13 @@ module adc #(
 
     // ! DUMMY ! Capacitor arrays (CDACs)
     caparray #(.Ndac(Madc-1)) caparray_p (
-        .vdac(vdac_p),                        // Positive DAC voltage
-        .dac_state(dac_drive_p)               // Positive DAC state
+        .cap_topplate(vdac_p),                // Positive DAC voltage
+        .cap_botplate(dac_cap_botplate_p)     // Positive capacitor bottom plates
     );
 
     caparray #(.Ndac(Madc-1)) caparray_n (
-        .vdac(vdac_n),                        // Negative DAC voltage
-        .dac_state(dac_drive_n)               // Negative DAC state
+        .cap_topplate(vdac_n),                // Negative DAC voltage
+        .cap_botplate(dac_cap_botplate_n)     // Negative capacitor bottom plates
     );
 
     // ! DUMMY ! Comparator
@@ -131,5 +144,9 @@ module adc #(
         .vout_n(comp_out_n),                  // Negative comparator output
         .clk(clk_comp)                        // Comparator clock
     );
+
+    // Output assignment
+    // NOTE: Should maybe add an output driver cell here!
+    assign comp_out = comp_out_p;             // Transmit out the positive comparator output
 
 endmodule

@@ -1,24 +1,22 @@
 // Capacitor Driver Module - Drives capacitor array control signals
-// Takes DAC state and generates drive signals for capacitor arrays
-
-
-// UNFINISHED!
+// Takes DAC state and generates drive signals with independent driver sizing
+// NOTE: Each bit requires different driver strength based on capacitive load
+//       - MSB drivers need higher strength (larger caps)
+//       - LSB drivers need lower strength (smaller caps)
+//       - Driver sizing determined at analog implementation level
 
 module capdriver #(
     parameter Ndac = 16  // Number of DAC bits (default 16)
 ) (
     input  wire [Ndac-1:0] dac_state,        // DAC state input bus
-    input  wire dac_diffcaps,                // Enable differential capacitor mode
-    output wire [Ndac-1:0] dac_drive,        // DAC drive main caps output bus
-    output wire [Ndac-1:0] dac_drive_diff    // DAC drive difference caps output bus
+    input  wire dac_drive_invert,            // Control signal for inverting output
+    output wire [Ndac-1:0] dac_drive         // DAC drive output bus (sized per bit)
 );
 
-    // Direct assignment for standard drive
-    assign dac_drive = dac_state;
-    
-    // Conditional assignment for differential drive
-    // When dac_diffcaps = 0: no inversion (same as dac_state)
-    // When dac_diffcaps = 1: invert dac_state
-    assign dac_drive_diff = dac_diffcaps ? ~dac_state : dac_state;
+    // Conditional assignment for drive output
+    // NOTE: Each bit [i] will be implemented with appropriate driver strength
+    // When dac_drive_invert = 0: dac_drive = dac_state
+    // When dac_drive_invert = 1: dac_drive = ~dac_state
+    assign dac_drive = dac_drive_invert ? ~dac_state : dac_state;
 
 endmodule
