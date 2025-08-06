@@ -1,20 +1,13 @@
-************************************************************************
-* Library Name: logic
-* Cell Name:    comparator_latch
-* View Name:    schematic
-************************************************************************
-
-.SUBCKT comparator_latch clock inn inp outn outp sub vcc vee
-*.PININFO clock:I inn:I inp:I sub:I vcc:I vee:I outn:O outp:O
-Mn5 net7 outn outp net1 log_nmos
-Mn4 net6 outp outn net3 log_nmos
-Mn3 net4 net2 clock net5 log_nmos
-Mn2 sub net3 inn net2 log_nmos
-Mn1 sub net1 inp net2 log_nmos
-Mp5 vcc net1 clock vcc log_pmos
-Mp6 vcc outn clock vcc log_pmos
-Mp3 vcc net3 clock vcc log_pmos
-Mp2 vcc outp clock vcc log_pmos
-Mp1 vcc outn outp vcc log_pmos
-Mp4 vcc outp outn vcc log_pmos
-.ENDS
+.subckt comparator_latch clock inn inp outn outp sub vdd vee
+mn5 net7 outn outp net1 nmos
+mn4 net6 outp outn net3 nmos
+mn3 net4 net2 clock net5 nmos
+mn2 sub net3 inn net2 nmos
+mn1 sub net1 inp net2 nmos
+mp5 vdd net1 clock vdd pmos
+mp6 vdd outn clock vdd pmos
+mp3 vdd net3 clock vdd pmos
+mp2 vdd outp clock vdd pmos
+mp1 vdd outn outp vdd pmos
+mp4 vdd outp outn vdd pmos
+.ends

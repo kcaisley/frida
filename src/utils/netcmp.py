@@ -4,6 +4,8 @@
 import hashlib
 
 
+# DOESN'T WORK YET, NEEDS FIXES!
+
 """
 SPICE netlist comparison tool.
 Code based on `netcomp`: copyright 2004 Sam Hocevar <sam@hocevar.net>

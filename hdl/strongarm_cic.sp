@@ -1,52 +1,49 @@
-**********************************************************************
 
-.SUBCKT SARCMPHX1_EV CI CK CO VMR N1 N2 AVDD AVSS
-MN0  N1 CK AVSS AVSS NCHDL
-MN1  N2 CI N1   AVSS NCHDL
-MN2  N1 CI N2   AVSS NCHDL
-MN3  N2 CI N1   AVSS NCHDL
-MN4  N1 CI N2   AVSS NCHDL
-MN5  N2 CI N1   AVSS NCHDL
-MN6  CO VMR N2   AVSS NCHDL
+.subckt sarcmphx1_ev ci ck co vmr n1 n2 vdd vss
+mn0 n1 ck vss vss nmos
+mn1 n2 ci n1  vss nmos
+mn2 n1 ci n2  vss nmos
+mn3 n2 ci n1  vss nmos
+mn4 n1 ci n2  vss nmos
+mn5 n2 ci n1  vss nmos
+mn6 co vmr n2  vss nmos
 
-MP0  AVDD CK N1 AVDD PCHDL
-MP1  N2 CK AVDD AVDD PCHDL
-MP2  AVDD AVDD N2 AVDD PCHDL
-MP3  CO CK AVDD AVDD PCHDL
-MP4  AVDD VMR CO AVDD PCHDL
-MP5  CO VMR AVDD AVDD PCHDL
-MP6  AVDD VMR CO AVDD PCHDL
-.ENDS SARCMPHX1_EV
+mp0 vdd ck n1 vdd pmos
+mp1 n2 ck vdd vdd pmos
+mp2 vdd vdd n2 vdd pmos
+mp3 co ck vdd vdd pmos
+mp4 vdd vmr co vdd pmos
+mp5 co vmr vdd vdd pmos
+mp6 vdd vmr co vdd pmos
+.ends sarcmphx1_ev
 
-.SUBCKT SARKICKHX1_EV CI CK CKN AVDD AVSS
-MN0  N1 CKN AVSS AVSS NCHDL
-MN1  N1 CI N1   AVSS NCHDL
-MN2  N1 CI N1   AVSS NCHDL
-MN3  N1 CI N1   AVSS NCHDL
-MN4  N1 CI N1   AVSS NCHDL
-MN5  N1 CI N1   AVSS NCHDL
-MN6  AVDD CK N1   AVSS NCHDL
+.subckt sarkickhx1_ev ci ck ckn vdd vss
+mn0 n1 ckn vss vss nmos
+mn1 n1 ci n1  vss nmos
+mn2 n1 ci n1  vss nmos
+mn3 n1 ci n1  vss nmos
+mn4 n1 ci n1  vss nmos
+mn5 n1 ci n1  vss nmos
+mn6 vdd ck n1  vss nmos
 
-MP0  AVDD CKN N1 AVDD PCHDL
-MP1_DMY AVDD AVDD AVDD AVDD PCHDL
-MP2_DMY AVDD AVDD AVDD AVDD PCHDL
-MP3_DMY AVDD AVDD AVDD AVDD PCHDL
-MP4_DMY AVDD AVDD AVDD AVDD PCHDL
-MP5_DMY AVDD AVDD AVDD AVDD PCHDL
-MP6  AVDD AVDD AVDD AVDD PCHDL
-.ENDS SARKICKHX1_EV
+mp0 vdd ckn n1 vdd pmos
+mp1_dmy vdd vdd vdd vdd pmos
+mp2_dmy vdd vdd vdd vdd pmos
+mp3_dmy vdd vdd vdd vdd pmos
+mp4_dmy vdd vdd vdd vdd pmos
+mp5_dmy vdd vdd vdd vdd pmos
+mp6 vdd vdd vdd vdd pmos
+.ends sarkickhx1_ev
 
-.SUBCKT SARCMPX1_EV CPI CNI CPO CNO CK_CMP CK_SAMPLE DONE AVDD AVSS
-XA0 AVSS AVDD TAPCELLB_EV
-XA1 CPI CK_B CK_N AVDD AVSS SARKICKHX1_EV
-XA2 CPI CK_B CNO_I CPO_I N1 NC1 AVDD AVSS SARCMPHX1_EV
-XA2a CPO_I CPO AVDD AVSS IVX4_EV
-XA3a CNO_I CNO AVDD AVSS IVX4_EV
-XA3 CNI CK_B CPO_I CNO_I N1 NC2 AVDD AVSS SARCMPHX1_EV
-XA4 CNI CK_B CK_N AVDD AVSS SARKICKHX1_EV
-XA9 CK_N CK_B AVDD AVSS IVX1_EV
-XA10 DONE_N CK_A CK_N AVDD AVSS NDX1_EV
-XA11 CK_SAMPLE DONE DONE_N AVDD AVSS NRX1_EV
-XA12 CK_CMP CK_A AVDD AVSS IVX1_EV
-XA13 AVSS AVDD TAPCELLB_EV
-.ENDS
+.subckt sarcmpx1_ev cpi cni cpo cno ck_cmp ck_sample done vdd vss
+xa1 cpi ck_b ck_n vdd vss sarkickhx1_ev
+xa2 cpi ck_b cno_i cpo_i n1 nc1 vdd vss sarcmphx1_ev
+xa3 cni ck_b cpo_i cno_i n1 nc2 vdd vss sarcmphx1_ev
+xa2a cpo_i cpo vdd vss ivx4_ev
+xa3a cno_i cno vdd vss ivx4_ev
+xa4 cni ck_b ck_n vdd vss sarkickhx1_ev
+xa9 ck_n ck_b vdd vss ivx1_ev
+xa10 done_n ck_a ck_n vdd vss ndx1_ev
+xa11 ck_sample done done_n vdd vss nrx1_ev
+xa12 ck_cmp ck_a vdd vss ivx1_ev
+.ends

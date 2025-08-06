@@ -194,31 +194,72 @@ def convert_cdl_to_spice(cdl_file, spice_file):
             f_out.write(line + '\n')
 
 def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <LibName> <CellName>")
-        print("Example: python oaschem2spice.py OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG")
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <mode> [args...]")
+        print("Modes:")
+        print("  oa <LibName> <CellName>  - Convert from OA library")
+        print("  file <input_file>        - Convert from CDL/SPICE file")
+        print()
+        print("Examples:")
+        print("  python oaschem2spice.py oa OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG")
+        print("  python oaschem2spice.py file strongarm_bag.sp")
         sys.exit(1)
     
-    simLibName = sys.argv[1]
-    simCellName = sys.argv[2]
-    cdl_file = f"{simCellName}.cdl"
-    spice_file = f"{simCellName}.sp"
+    mode = sys.argv[1]
     
-    # Step 1: Create si.env
-    print(f"Creating si.env for {simLibName}/{simCellName}...")
-    create_si_env(simLibName, simCellName)
-    print(f"Finished si.env for {simLibName}/{simCellName}...")
+    if mode == "oa":
+        # Original OA library mode
+        if len(sys.argv) != 4:
+            print("Usage for OA mode: python oaschem2spice.py oa <LibName> <CellName>")
+            sys.exit(1)
+            
+        simLibName = sys.argv[2]
+        simCellName = sys.argv[3]
+        cdl_file = f"{simCellName}.cdl"
+        spice_file = f"{simCellName}.sp"
+        
+        # Step 1: Create si.env
+        print(f"Creating si.env for {simLibName}/{simCellName}...")
+        create_si_env(simLibName, simCellName)
+        print(f"Finished si.env for {simLibName}/{simCellName}...")
 
-    # Step 2: Run si netlist command
-    run_si_netlist()
-    print(f"Converted OA schematic to .cdl netlist for {simLibName}/{simCellName}...")
+        # Step 2: Run si netlist command
+        if not run_si_netlist():
+            sys.exit(1)
+        print(f"Converted OA schematic to .cdl netlist for {simLibName}/{simCellName}...")
 
-    # Step 3: Convert CDL to SPICE
-    print(f"Converting {cdl_file} to {spice_file}...")
-    convert_cdl_to_spice(cdl_file, spice_file)
-    
-    print("\nConversion complete!")
-    print(f"SPICE netlist saved to {spice_file}")
+        # Step 3: Convert CDL to SPICE
+        print(f"Converting {cdl_file} to {spice_file}...")
+        convert_cdl_to_spice(cdl_file, spice_file)
+        
+        print("\nConversion complete!")
+        print(f"SPICE netlist saved to {spice_file}")
+        
+    elif mode == "file":
+        # Direct file conversion mode
+        if len(sys.argv) != 3:
+            print("Usage for file mode: python oaschem2spice.py file <input_file>")
+            sys.exit(1)
+            
+        input_file = sys.argv[2]
+        
+        # Generate output filename by replacing extension with .sp
+        if '.' in input_file:
+            base_name = input_file.rsplit('.', 1)[0]
+        else:
+            base_name = input_file
+        spice_file = f"{base_name}_normalized.sp"
+        
+        print(f"Converting {input_file} to {spice_file}...")
+        convert_cdl_to_spice(input_file, spice_file)
+        
+        print("\nConversion complete!")
+        print(f"Normalized SPICE netlist saved to {spice_file}")
+        
+    else:
+        print(f"Unknown mode: {mode}")
+        print("Valid modes are: oa, file")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
