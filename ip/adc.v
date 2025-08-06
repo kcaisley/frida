@@ -32,8 +32,8 @@ module adc #(
     input wire dac_diffcaps,                  // Enable differential capacitor mode. (Unused for now, reserved for diffcaps)
     
     // Analog inputs
-    input  wire vin_p,                        // Analog input positive
-    input  wire vin_n,                        // Analog input negative
+    inout  wire vin_p,                        // Analog input positive
+    inout  wire vin_n,                        // Analog input negative
     
     // Reset
     input  wire rst,                          // Reset signal, currently unused (might use for salogic reset)
