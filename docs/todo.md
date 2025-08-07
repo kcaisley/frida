@@ -1,26 +1,4 @@
-```mermaid
-gantt
-    title FRIDA v65p1 Submissions
-    dateFormat MM-DD
-    axisFormat %d %b
-        pad ring          :05-26, 14d
-        Cunit cells                 :20d
-        comparator                  :10d
-        IO mux                      :4d
-        ADC integration             :7d
-        ADC verification            :28d
-        sys power+routes            :21d
-        impl freeze & final checks   :09-15, 30d
-        submit        :10-15, 7d
-```
 
-# Week 23
-
-## Step 1: Generating a process agnostic library
-1. Identify past 65nm designs which should be used
-1. Configure minimal 2024 PDK environment, ensure not error.
-1. Load these legacy 65nm designs with newest version of PDK. One by one, make sure they support the latest PDK version, and have zero errors in schematic or layout. Anything which has PDK dependencies, which are hard coded and not matching latest naming conventions should be ported. If anything needs to be fixed, make a local copy, and manually do so.
-- 
 
 ## Step 2: Simulating against a PDK with transistors
 

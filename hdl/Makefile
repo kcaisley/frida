@@ -116,7 +116,12 @@ synth:
 	echo "Using VERILOG_FILE=$(SRC_FILE) TOP_MODULE=$$TOP_MODULE"; \
 	sed -e "s/PLACEHOLDER_VERILOG_FILE/$(SRC_FILE)/g" -e "s/PLACEHOLDER_TOP_MODULE/$$TOP_MODULE/g" synth.ys > synth_temp.ys; \
 	$(SYNTHESIZER) -s synth_temp.ys; \
-	rm -f synth_temp.ys
+	rm -f synth_temp.ys; \
+	echo "Cleaning up SPICE netlist module names..."; \
+	if [ -f "$$TOP_MODULE.sp" ]; then \
+		sed -i 's/_paramod_\([^_]*\)_Ndac_s32.*00000000000000000000000000010000/\1_Ndac16/g' "$$TOP_MODULE.sp"; \
+		echo "SPICE netlist cleaned: $$TOP_MODULE.sp"; \
+	fi
 	@# Rename output files to match expected naming convention
 	@if [ -f "synth.v" ]; then mv synth.v $(TARGET_MODULE)_synth.v; fi
 	@if [ -f "hierarchy.dot" ]; then mv hierarchy.dot $(TARGET_MODULE)_hierarchy.dot; fi

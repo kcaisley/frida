@@ -1,0 +1,98 @@
+
+23. Printing statistics.
+
+=== $paramod\capdriver\Ndac=s32'00000000000000000000000000010000 ===
+
+   Number of wires:                  3
+   Number of wire bits:             33
+   Number of public wires:           3
+   Number of public wire bits:      33
+   Number of ports:                  3
+   Number of port bits:             33
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                 16
+     CKXOR2D0LVT                    16
+
+=== $paramod\salogic\Ndac=s32'00000000000000000000000000010000 ===
+
+   Number of wires:                 26
+   Number of wire bits:             86
+   Number of public wires:           8
+   Number of public wire bits:      68
+   Number of ports:                  7
+   Number of port bits:             52
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                 50
+     CKND0LVT                        1
+     DFQD1LVT                       16
+     EDFQD1LVT                      16
+     INR2D0LVT                      15
+     MUX2D0LVT                       1
+     NR2D0LVT                        1
+
+=== adc ===
+
+   Number of wires:                 35
+   Number of wire bits:            155
+   Number of public wires:          35
+   Number of public wire bits:     155
+   Number of ports:                 21
+   Number of port bits:             81
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                 10
+     $paramod\capdriver\Ndac=s32'00000000000000000000000000010000      2
+     $paramod\salogic\Ndac=s32'00000000000000000000000000010000      2
+     caparray                        2
+     clkgate                         1
+     comp                            1
+     sampswitch                      2
+
+=== clkgate ===
+
+   Number of wires:                 16
+   Number of wire bits:             16
+   Number of public wires:          16
+   Number of public wire bits:      16
+   Number of ports:                 16
+   Number of port bits:             16
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                  6
+     AN2D0LVT                        6
+
+=== design hierarchy ===
+
+   adc                               1
+     $paramod\capdriver\Ndac=s32'00000000000000000000000000010000      2
+     $paramod\salogic\Ndac=s32'00000000000000000000000000010000      2
+     clkgate                         1
+
+   Number of wires:                109
+   Number of wire bits:            409
+   Number of public wires:          73
+   Number of public wire bits:     373
+   Number of ports:                 57
+   Number of port bits:            267
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                143
+     AN2D0LVT                        6
+     CKND0LVT                        2
+     CKXOR2D0LVT                    32
+     DFQD1LVT                       32
+     EDFQD1LVT                      32
+     INR2D0LVT                      30
+     MUX2D0LVT                       2
+     NR2D0LVT                        2
+     caparray                        2
+     comp                            1
+     sampswitch                      2
+

@@ -1,14 +1,17 @@
-# Yosys synthesis script with TSMC 65LP LVT standard cells and SPICE netlist generation
-# This script replaces the old generic synthesis with PDK-aware synthesis
+# Complete ADC synthesis script with all required modules
+# Includes salogic, caparray, comp, and other dependencies
 
-# NOTE: This file will be customized by the Makefile with actual filenames
-# The Makefile will substitute placeholders with real values
-
-# Read the Verilog source file
-read_verilog PLACEHOLDER_VERILOG_FILE
+# Read all required Verilog modules for the ADC design
+read_verilog adc.v
+read_verilog salogic.v
+read_verilog comp.v
+read_verilog caparray.v
+read_verilog sampswitch.v
+read_verilog clkgate.v
+read_verilog capdriver.v
 
 # Set the top module and check for design hierarchy problems  
-hierarchy -top PLACEHOLDER_TOP_MODULE -check
+hierarchy -top adc -check
 
 # Print initial design statistics
 stat -tech cmos
@@ -32,10 +35,10 @@ clean
 stat
 
 # Generate synthesized Verilog netlist 
-write_verilog -noattr PLACEHOLDER_TOP_MODULE_synth.v
+write_verilog -noattr adc_complete_synth.v
 
-# Generate SPICE netlist with standard cell mapping
-write_spice -pos VDD -neg VSS PLACEHOLDER_TOP_MODULE.sp
+# Generate SPICE netlist with standard cell mapping (preserve hierarchy)
+write_spice -pos VDD -neg VSS adc_complete.sp
 
 # Save synthesis report
-tee -o PLACEHOLDER_TOP_MODULE_synth_report.txt stat
+tee -o adc_complete_synth_report.txt stat

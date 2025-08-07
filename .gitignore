@@ -3,7 +3,7 @@
 /tech/tsmc28/*
 
 /build
-
+.claude
 __pycache__
 .venv*
 .vscode
