@@ -101,3 +101,4 @@ Follow these rules for commit messages:
 2. **Subsequent lines**: Format with `- ` prefix, one entry per type of change made
 3. **Multiple files, one change type**: Counts as one entry
 4. **One file, multiple change types**: Create separate entries if changes are significant
+5. **Always push**: After creating a commit, immediately push to origin with `git push`
