@@ -56,3 +56,68 @@ We focus on CDAC, since it is the limited factor for 10-12bit precision in a com
 - foreground better than background, offchip better than on chip, digital vs analog
 - only good as input test source, masked by comparator non-linearity and offset and/or non-linearity near rails?
 - can I simulate calibratability from my
+
+
+# from caleste presentation:
+## CDAC Construction Principles
+
+For individual capacitor weights
+
+- Defining each bit weights as integers simplifies cap implementation; improves matching
+- And defining each bit weight as sum of binary scaled values keeps DEC to just adders
+- Finally, keeping sum total to binary scaled total prevents overflow
+
+## SAR Modeling Status
+
+- Threshold noise and variation, reference noise, settling error, capacitor mismatch supported
+- Arbitrary CDAC weights, with support for "extended range bits"
+- Monotonic and bidirectional-single-side switching supported (CRS, CAS, MCS to be added)
+- Analyses for static and dynamic performance analyses ($ENOB @ f_{s}$)
+- Single test case requires 20 seconds
+- Compatibility with T-Spice, AFS, and Spectre simulator (30hr run, 4hr with Spectre)
+
+## Error Tolerance Strategies
+
+Sub-radix 2 steps
+
+- Creates overlapping search voltages
+- In $D_{out}$ procesed as $W_i \times B_i$
+- Can also satisfy calibratability requirements
+
+Extended search steps
+
+- In $D_{out}$ procesed as $W_i \times (B_i-0.5)$
+- Decreases input amplitude swing to $V_{ref} \times \frac{C}{d}$
+- Introduced by CC Liu 2010, where they were additional cap
+
+## Device and Reference Noise Correction
+
+- In most common case, only small LSBs errors will occur from thermal noise.
+- Can be corrected by single post-bits, or more comparator power
+
+$$\sigma_n^2 \leq LSB^2 / 2 \times 12$$
+
+## Settling Error Correction
+
+Most pronounced in MSBs, recovery determined by remaining caps:
+
+$$\textrm{Error tolerance @} B_i = \frac{\sum_{i+1}^{M}B_j - B_i} {\sum_{i}^{M}B_j} \times 100 \%$$
+
+## Mismatch Static Error & Calibratability
+
+- Redundancy can absorb static error, but what about mismatch?
+- 1-bit comparator = inherintely linear, so CDAC dominates
+- Assuming monotonic switching, without cap-reuse like CRS [Tsai 2015]
+
+$$\sigma_{INL_{max}} \approx \frac{1}{2}(\sigma_{C_{unit}})\sqrt{2^N}$$
+
+Visual from both A. Hsu 2013 and W. Liu 2010
+
+## Mismatch Static Error & Calibratability
+
+Lower radixes create more overlap tolerance to prevent missing levels
+
+## Mismatch Static Error & Calibratability
+
+Radix $\beta$ and min. steps vs unit cap mismatch $\sigma_{C_{unit}}$ (A. Hsu 2013)
+

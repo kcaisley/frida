@@ -1,12 +1,36 @@
-- layer properties are saved in a .lyp file. It can be produces using a Cadence .tf, display.df, and .layermap file
+- GDS Layer Numbers: Physical layer numbers and datatypes (e.g., `"M1": {"number": 15, "datatype": 0}`)
+- Layer Connectivity: Stack ordering relationships (`"previous": "CO", "next": "VIA1"`)
+- Material Classifications: Layer material types (`"metal"`, `"poly"`, `"diffusion"`, `"cut"`, `"implant"`, `"marker"`)
+- Pin Layer Mappings: Associated pin/label layer datatypes for electrical connectivity
+- Display Properties: Layer colors and fill patterns for visualization in KLayout
+- Minimum Widths: Layer-specific minimum feature sizes
+- Spacings: Minimum separation between features on same layer
+- Enclosure Rules: Via enclosure and opposite-side clearance requirements
+- Via Specifications: Via sizes, spacings, and placement rules for each via level
+- Gate Rules: Minimum gate lengths, finger spacing, and poly extension requirements
+- Routing Grid: Horizontal and vertical grid alignment requirements
+- Cell Spacing: Standard cell height and digital placement constraints
+- Capacitor Rules: Special width and spacing requirements for precision capacitors
+- Implant Rules: Well and threshold voltage layer enclosure requirements
+- Available Devices: Supported device types (`"nch"`, `"pch"`, `"mres"`, etc.)
+- Port Mappings: Device terminal names and order (`["d","g","s","b"]`)
+- Parameter Mapping: Translation between layout parameters and schematic properties
+- Device Inheritance: Base device definitions that can be specialized
+- PDK Library Name: Technology library identifier for device models
+- Process Node: Technology node specifications and gamma correction factors
+- Property Mapping: Parameter name translations between tools
+
+- Layer properties are saved in a .lyp file. It can be produced using a Cadence .tf, display.df, and .layermap file
     - .lyp is a XML file, essentially
     - The code is found [here](https://github.com/klayoutmatthias/tf_import)
 - Once shape (rects, polygons, paths, labels) are written to a cell, the database unit is multiplied if they are the integer (non D-) types
-- Layers are attached to the ly = db.Layout() object via `layer1 = ly.layer(1, 2, "Poly")
-- You can get info of a lyaer with `ly.get_info(layer1)`
-- layouts contain a layers list, and an a shaped list for each layer
-- each shapes list contains the geometries (boxes, polygons, pahts, and labels) which are on that layer
+- Layers are attached to the ly = db.Layout() object via `layer1 = ly.layer(1, 2, "Poly")`
+- You can get info of a layer with `ly.get_info(layer1)`
+- Layouts contain a layers list, and a shapes list for each layer
+- Each shapes list contains the geometries (boxes, polygons, paths, and labels) which are on that layer
 - Can I define a cell, but not place instances of it?
-    - I don't think so. What happens it that when you fist declare a geometric object, it doesn't belong to a cell, and so nothing exists in the layout
+    - I don't think so. What happens is that when you first declare a geometric object, it doesn't belong to a cell, and so nothing exists in the layout
     - But once you create a layout and create a cells, and insert the geometry to the shape list of the cells, it now exists in the layout.
-    - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open the layout, it will show the top level heirachy cells, and the two instance of ti 
+    - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open the layout, it will show the top level hierarchy cells, and the two instance of it
+
+- Concepts like pins and named instances are not part of the GDS and OASIS specification and that still is the basis of the program. It's possible to emulate those features (and others like net information) with user properties, but the interpretation of those is strongly dependent on the tools reading these files.

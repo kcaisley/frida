@@ -28,3 +28,8 @@ waveform generator.
 Not, you can't by default have independent params determined by others.
 Also, you can't have spaces, and need quotes around expression. So
 `pw=’(convtime/24)-100p’`
+
+
+
+This statement may sometimes be needed, to ensure the simulator knows the size of devices:
+*.SCALE micron

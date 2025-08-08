@@ -1,7 +1,7 @@
 # FRIDA: Fast Radiation Imaging Digitizer Array
 
-[!WARNING]
-This project is currently under very active development, and is subject to change.
+> [!WARNING]  
+> This project is currently under very active development, and is subject to change.
 
 Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high, spatial resolution should be maximized with simple pixels, and energy resolution is needed, but particles need not be individually discriminated in time, space, or spectrum. In an experimental setting, fast frame rates allow for real-time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
 
