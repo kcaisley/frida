@@ -356,29 +356,10 @@ High speed continuous capabilitiy. Replace SRAM with high-speed serializer, etc?
 - generation of analog building blocks?
 - Simulation of hits with Allpix2 + Geant4 (better than Casino?)
 
-### Serializer and wireline link:
-
-Each quandrant of EDET is currently producing: (512*512)×8×78000fps = 163577856000 = 163 Gbps
-
-Cordia and Timepix4 (in 65nm) uses a novel low power serializer developed at Nikhef (GWT originally for Velopix, which was based on Timepix3 itself):
-
-- Each link configurable bandwidth from 40Mbps to 10.24Gbps
-- Uses 16 links: 8 in each side
-
-As an alternative, CERN has designed the ASIC -> FPGA family called DART28.
-
-It has 25.6 Gbps per link: https://indico.cern.ch/event/1255624/contributions/5443774/
-
-https://iopscience.iop.org/article/10.1088/1748-0221/19/03/C03013/pdf
-
-https://doi.org/10.1088/1748-0221/19/03/C03013
-
-https://doi.org/10.1088/1748-0221/19/02/C02030
 
 ### Process in TPSco 65 nm?
 
 - DESY has done Tangerine work
-- Nikhef has done 10.24Gbps data serializer and Wireline Transmitter (for ALICE ITS3)
 - BNL has done [SAQRADC](https://indico.cern.ch/event/1255624/contributions/5445285/) with 10-bit precision, but only 500 kS/s
 - ALICE/CERN has done some work on changing the collection node, for higher bias, lower detector capacitance, etc
   - https://indico.cern.ch/event/1255624/contributions/5443773/
@@ -398,6 +379,8 @@ Examining their previously designed systems for on chip/off-chip ADCs:
 
 - ELFIS2: In Lfoundry? Uses a companion ADc. Has 4 quads, where each has 1024x1024 pixels @ 12-bit and 140fps. 1024 * 1024 * 140fps = 146,800,640 pix/s. Checking this we have 8 channels per quad, each at 40 MHz pixel rate, for max 320,000,000 pix/s. Not sure why there is such a higher rate available?
 - XS018 technology used for CASPAR2
-- FLAMES: on-chip 12-bit SAR ADCs w/ offchip LVDS drivers
+
 - 
 
+
+- FLAMES: on-chip 12-bit SAR ADCs w/ offchip LVDS drivers

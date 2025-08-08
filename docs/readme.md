@@ -2,7 +2,6 @@
 
 - splitting up MSB and switching it one by one improves linearity (in the extreme, you would have a thermeter code DAC array, which would have gurantee monotonic linearity)
 - express error in terms of LSB, it's better than ENOB spec
-- why is my ENOB calculation wrong. Thermal noise close to LSB should be -1.7 ENOB approximately
 - One deliverable: monte-carlo run of ADC non-linearity (especially MSB error) for a given level of random variation of unit cap
 	- Unit cap variation: 1/sqrt(N)
 - thermal noise is easy: kT/C noise
@@ -10,12 +9,8 @@
 - threshold noise: my 1mV measured value is way too high
 - 16, 20 wires
 - 12 effective bits
-- fix LSB in terms of error
-- credible value for noise of the comparator, in uV rms, in Spectre at a fixed speed (simulator bandwidth needs to be 10x circuit bandwidth)
-	- don't need layout, just add some dummy capacitance
 	- buffer and without buffer (it depends on kickback!)
 	-is my understanding of shift vs subradix correct?
-	- check the code to make sure it's correctly recombined
 -   
 
 

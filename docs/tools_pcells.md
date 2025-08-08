@@ -165,7 +165,7 @@ Figuring out the right way to do this will be tricky. It seems Synopsys has PyCe
 
 UDD is advertised for power meshes, guard rings, stdcells, custom taps, fillers, decap cells, etc. It looks like it can also existing PCells with added structures, like for example a guard ring on an existing MOSFET pcell. In this presentation Synopsys comments that the alternative would be coding the Pcell in python. Which I guess in a pycell?
 
-From this I learned two other things: UDD input params are also called CDF params (component description format), like in Cadence. CDF is the Cadence front end for giving the GUI-user access to the parameters to pass to the simulation model and pcell. But CDF is seperate, and has to have values that match the range, quantization, and defaults of the models/pcells. CDF appears to work as a application level system component which can be interacted with via SKILL. It's the mesh layer internal to Cadence which connects pcells, simulators, models, netlists, etc and let's the user interactively modify the settings and connections between them in the GUI.
+
 
 This raises the question.... I know Cadence is built around Skill-based cells, allows but doesn't support Pycells..... but what do Synopsys and Siemens do? Does Synopsys really still use Pycells? It and Siemens MUST, right? Because how else would they support PDKs from foundaries?
 

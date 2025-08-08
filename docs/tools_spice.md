@@ -37,25 +37,17 @@ SystemVerilog and Verilog-AMS both have support for real number modeling (called
 Unified/Commond Power Format (https://www.techdesignforums.com/practice/guides/unified-power-format-upf/)
 
 
-Spectre AMS connect connects the uniform timestep SPICE/Spectre Simulator with an event based Xcelium simulator.
+
 
 Spectre AMS Simulator/Design is not just an interprocess communication between two separate kernels, but instead a pair of tightly coupled enginge which access a shared memory storing the state of the circuit during simulation.
 
 
-Two ways to run AMS Design/Simulator:
-1) AVUM for GUI
-2) AXUM for command line
 
-In the Virtuoso USe model, config views are used to select the cellview for each cell.
 
 ## Spectre analysis types
 
-normal: ac, dc, noise sp, stb, xf, tran
-hb:     ac, noise, sp, stb, xf
-p:	ac, noise, sp, ss, stb, xf
-qp:	ac, noise, sp, ss, xf
 
-the hb, p, and qp analysis flavors aren't available in AMS Designer
+
 
 ## Hierarchical Structures
 
@@ -248,3 +240,5 @@ Wires:
 Must be driven, continous or discrete, continous has a 'discipline' like a voltage/current
 'Nets' are wires that move between modules. They can be implicitely created, or explicitely.
 Can also be named 'tri' for tristate, and this syntax should just be used to explain that it's a wire that probably can have bus contentions or high-impedance outputs.
+
+

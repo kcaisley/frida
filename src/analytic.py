@@ -2,18 +2,48 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Configure LaTeX for all text (requires LaTeX installed)
-plt.rcParams.update({
-    "text.usetex": True,       # Use LaTeX for text rendering
-    "font.family": "serif",   # Use serif (LaTeX default)
-    "font.serif": ["Computer Modern Roman"],  # LaTeX default font
-    "font.size": 11,          # Base font size
-    "axes.titlesize": 12,     # Title font size
-    "axes.labelsize": 11,     # Axis label font size
-    "xtick.labelsize": 10,    # X-tick label size
-    "ytick.labelsize": 10,    # Y-tick label size
-    "legend.fontsize": 10,    # Legend font size
-})
+def configure_fonts_for_pdf():
+    """Configure LaTeX fonts for PDF output"""
+    plt.rcParams.update({
+        "text.usetex": True,       # Use LaTeX for text rendering
+        "font.family": "serif",   # Use serif (LaTeX default)
+        "font.serif": ["Computer Modern Roman"],  # LaTeX default font
+        "font.size": 11,          # Base font size
+        "axes.titlesize": 12,     # Title font size
+        "axes.labelsize": 11,     # Axis label font size
+        "xtick.labelsize": 10,    # X-tick label size
+        "ytick.labelsize": 10,    # Y-tick label size
+        "legend.fontsize": 10,    # Legend font size
+    })
+
+def configure_fonts_for_svg():
+    """Configure sans-serif fonts for SVG output"""
+    plt.rcParams.update({
+        "text.usetex": False,      # Disable LaTeX for SVG
+        "font.family": "sans-serif",  # Use sans-serif
+        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],  # Default sans-serif fonts
+        "font.size": 11,          # Base font size
+        "axes.titlesize": 12,     # Title font size
+        "axes.labelsize": 11,     # Axis label font size
+        "xtick.labelsize": 10,    # X-tick label size
+        "ytick.labelsize": 10,    # Y-tick label size
+        "legend.fontsize": 10,    # Legend font size
+    })
+
+def save_plot(filename_base):
+    """Save plot in both PDF and SVG formats with appropriate font settings"""
+    # Save PDF version with LaTeX fonts
+    configure_fonts_for_pdf()
+    plt.tight_layout()
+    plt.savefig(f'{filename_base}.pdf')
+    
+    # Save SVG version with sans-serif fonts
+    configure_fonts_for_svg()
+    plt.tight_layout()
+    plt.savefig(f'{filename_base}.svg')
+
+# Start with PDF configuration as default
+configure_fonts_for_pdf()
 
 # We can estimate the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
 def calc_signal_rms(Vref):
@@ -139,8 +169,7 @@ plt.title(r'$\sigma_{V_{\mathrm{qnoise}}}$ vs. Bit Resolution')
 plt.grid(True, which="both", ls="--", alpha=0.5)
 plt.legend()
 plt.yscale("log")
-plt.tight_layout()
-plt.savefig('build/qnoise.pdf')  # PDF preserves LaTeX text best
+save_plot('build/qnoise')
 plt.close()
 
 
@@ -168,8 +197,7 @@ plt.title(r'$\sigma_{V_{\mathrm{samp}}}$ vs. Total Capacitance')
 plt.grid(True, which="both", ls="--", alpha=0.5)
 plt.xscale("log")
 plt.yscale("log")
-plt.tight_layout()
-plt.savefig('build/sampnoise.pdf')
+save_plot('build/sampnoise')
 plt.close()
 
 # -----------------------------------------------
@@ -178,30 +206,31 @@ plt.close()
 # This plot essentially tells us that in order for the sampling noise to cause no more than 0.1 ENOB degradation, it must 
 
 Ctot_range = np.logspace(-13, -11, 100)  # 10 fF to 10 pF
-Nbits_plot = 12
-Vrefs = [1.2, 0.9, 1.8]
-labels = [f"Vref = {v} V" for v in Vrefs]
 
-plt.figure()
-for Vref_val, label in zip(Vrefs, labels):
-    enob_vals = [calc_enob_from_vref_Ctot_Nbits(Vref_val, C, Nbits_plot) for C in Ctot_range]
-    plt.plot(Ctot_range * 1e15, enob_vals, label=label)
-    # Annotate ENOB at specific capacitances
-    for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
-        x = C_annot * 1e15  # fF
-        y = calc_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits_plot)
-        plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
-        plt.annotate(f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+# Generate plots for both 10-bit and 12-bit
+for Nbits_plot in [10, 12]:
+    Vrefs = [1.2, 0.9, 1.8]
+    labels = [f"Vref = {v} V" for v in Vrefs]
 
-plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-plt.ylabel(r"ENOB (reduced by sampling noise)")
-plt.title(rf'Degradation of ENOB vs. Sampling Capacitance ($N_{{\mathrm{{bits}}}}={Nbits_plot}$)')
-plt.grid(True, which="both", ls="--", alpha=0.5)
-plt.xscale("log")
-plt.legend()
-plt.tight_layout()
-plt.savefig(f'build/enob_vs_Ctot_{Nbits_plot}bit.pdf')
-plt.close()
+    plt.figure()
+    for Vref_val, label in zip(Vrefs, labels):
+        enob_vals = [calc_enob_from_vref_Ctot_Nbits(Vref_val, C, Nbits_plot) for C in Ctot_range]
+        plt.plot(Ctot_range * 1e15, enob_vals, label=label)
+        # Annotate ENOB at specific capacitances
+        for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
+            x = C_annot * 1e15  # fF
+            y = calc_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits_plot)
+            plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
+            plt.annotate(f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"ENOB (reduced by sampling noise)")
+    plt.title(rf'Degradation of ENOB vs. Sampling Capacitance ($N_{{\mathrm{{bits}}}}={Nbits_plot}$)')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend()
+    save_plot(f'build/enob_vs_Ctot_{Nbits_plot}bit')
+    plt.close()
 
 # -----------------------------------------------
 # Plot 3-sigma and 4-sigma mid-code bounds vs. total capacitance (100 fF to 10 pF)
@@ -241,8 +270,7 @@ plt.title(rf'1$\sigma$, 3$\sigma$, and 4$\sigma$ Mid-code LSB vs. $C_{{\mathrm{{
 plt.grid(True, which="both", ls="--", alpha=0.5)
 plt.xscale("log")
 plt.legend()
-plt.tight_layout()
-plt.savefig(f'build/expected_mismatch_{Nbits_midcode}bit.pdf')
+save_plot(f'build/expected_mismatch_{Nbits_midcode}bit')
 plt.close()
 
 
@@ -271,8 +299,7 @@ plt.title(rf'Mismatch DNL Noise vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}
 plt.grid(True, which="both", ls="--", alpha=0.5)
 plt.xscale("log")
 plt.legend()
-plt.tight_layout()
-plt.savefig(f'build/mismatch_dnl_noise_{Nbits_dnl}bit.pdf')
+save_plot(f'build/mismatch_dnl_noise_{Nbits_dnl}bit')
 plt.close()
 
 
@@ -282,51 +309,42 @@ plt.close()
 # This plot essentially tells us that in order for the sampling noise to cause no more than 0.1 ENOB degradation, it must 
 
 Ctot_range = np.logspace(-13, -10, 100)  # 10 fF to 100 pF
-Nbits = 12
 Vref = 1.2
 Acap = 0.0085
 
-plt.figure()
-enob_vals_sampnoise = []
-for Ctot in Ctot_range:
-    enob = calc_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits)
-    enob_vals_sampnoise.append(enob)
+# Generate comparison plots for both 10-bit and 12-bit
+for Nbits in [10, 12]:
+    plt.figure()
+    enob_vals_sampnoise = []
+    for Ctot in Ctot_range:
+        enob = calc_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits)
+        enob_vals_sampnoise.append(enob)
 
+    enob_vals_mismatchdnl_noise =[] 
+    for Ctot in Ctot_range:
+        enob = calc_enob_from_mismatch(Ctot, Nbits, Acap, Vref)
+        enob_vals_mismatchdnl_noise.append(enob)
 
-enob_vals_mismatchdnl_noise =[] 
-for Ctot in Ctot_range:
-    enob = calc_enob_from_mismatch(Ctot, Nbits, Acap, Vref)
-    enob_vals_mismatchdnl_noise.append(enob)
+    plt.plot(Ctot_range * 1e15, enob_vals_sampnoise, label="ENOB due to Sampling noise")
+    plt.plot(Ctot_range * 1e15, enob_vals_mismatchdnl_noise, label="ENOB due to Mismatch DNL noise")
 
-plt.plot(Ctot_range * 1e15, enob_vals_sampnoise, label="ENOB due to Sampling noise")
-plt.plot(Ctot_range * 1e15, enob_vals_mismatchdnl_noise, label="ENOB due to Mismatch DNL noise")
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"ENOB")
+    plt.title(rf'ENOB vs. $C_{{\mathrm{{tot}}}}$: from Sampling or Mismatch DNL Noise')
 
-# # Annotate ENOB at specific capacitances
-# for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
-#     x = C_annot * 1e15  # fF
-#     y = calc_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits_plot)
-#     plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
-#     plt.annotate(f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+    plt.annotate(
+        rf"$N_{{\mathrm{{bits}}}}={Nbits}$" "\n"
+        rf"$V_{{\mathrm{{ref}}}}={Vref}$ V" "\n"
+        rf"$A_{{C}}={Acap}$",
+        xy=(1, 0), xycoords='axes fraction',
+        va='top',
+        # Shift annotation up and over
+        xytext=(-60, 75), textcoords='offset points',fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.7)
+    )
 
-plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-plt.ylabel(r"ENOB")
-plt.title(rf'ENOB vs. $C_{{\mathrm{{tot}}}}$: from Sampling or Mismatch DNL Noise')
-
-plt.annotate(
-    rf"$N_{{\mathrm{{bits}}}}={Nbits}$" "\n"
-    rf"$V_{{\mathrm{{ref}}}}={Vref}$ V" "\n"
-    rf"$A_{{C}}={Acap}$",
-    xy=(1, 0), xycoords='axes fraction',
-    va='top',
-    # Shift annotation up and over
-    xytext=(-60, 75), textcoords='offset points',fontsize=10,
-    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.7)
-)
-
-plt.grid(True, which="both", ls="--", alpha=0.5)
-plt.xscale("log")
-plt.legend(loc='lower right', bbox_to_anchor=(1, 0), frameon=True)
-# plt.gca().add_artist(plt.gca().texts[-1])  # Ensure annotation is drawn above the legend
-plt.tight_layout()
-plt.savefig(f'build/enob_vs_Ctot_{Nbits}bit_compare.pdf')
-plt.close()
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend(loc='lower right', bbox_to_anchor=(1, 0), frameon=True)
+    save_plot(f'build/enob_vs_Ctot_{Nbits}bit_compare')
+    plt.close()
