@@ -1,8 +1,15 @@
 # SPICE netlists
 
+- Spice standard netlist files should conventionally end in `.sp`, instead of the sometimes used `.spi`, `.ckt`, or `.net` extensions.
+  - The combination of this extension and format allows portability between `spectre` and `ngspice`.
+- The project supports multiple PDKs through symlinked `tech/` directories
+- SPICE simulations output to `raw` binary format for broad tool compatibility
+  - This is called `nutbin` by `spectre`
+
+
 This doc provides notes how to correctly use SPICE netlists.
 
-The the approve to generate diffential clocks is:
+The the approve to generate differential clocks is:
 
 ```spice
 VV5 syncn gnd! PULSE( log_VCC 0 -convtime/48  100p 100p convtime/24  convtime  )

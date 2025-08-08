@@ -29,6 +29,7 @@
 
 ## POD/Accumulation Capacitors
 - Structure: Poly-over-diffusion with accumulation mode operation
+- Implemented in FEOL like other MOSCAP structures, 
 - Capacitance Density: ~5 fF/μm²
 - Operation: Channel doping keeps device in accumulation even at zero gate voltage
 - Connection: Uses gate-to-bulk capacitance with source/drain tied together
