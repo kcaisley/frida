@@ -4,6 +4,7 @@
 
 /build
 .claude
+CLAUDE.md
 __pycache__
 .venv*
 .vscode
@@ -28,3 +29,4 @@ __pycache__
 *.calibre.db
 *.test
 *.vcd
+
