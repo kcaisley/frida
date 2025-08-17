@@ -1,4 +1,4 @@
-// Capacitor Array Module - Dummy CDAC implementation
+// Capacitor Array Module - Analog black box
 // Parameterizable capacitive DAC array
 
 (* blackbox *)
@@ -9,8 +9,7 @@ module caparray #(
     input  wire [Ndac-1:0] cap_botplate  // Capacitor bottom plate control bus
 );
 
-    // Black box for analog implementation
-    // In real design this would be analog capacitor array
-    // No assignments needed for inout wire - it's controlled externally
+    // Black box - analog implementation
+    // This module will be implemented at the analog level
 
 endmodule

@@ -27,14 +27,15 @@ module salogic #(
 // Counter width calculated to accommodate Ndac bits
 reg [Ndac-1:0] dac_cycle;
 
-// Simplified single clock domain with synchronous reset-like behavior
+// Initialize dac_state to dac_astate on rising edge of clk_init
+always @(posedge clk_init) begin
+    dac_state <= dac_astate;
+    dac_cycle <= {1'b1, {(Ndac-1){1'b0}}};  // First bit is 1, others are 0 (MSB first)
+end
+
+// Update dac_state on rising edge of clk_update (when clk_init is low)
 always @(posedge clk_update) begin
-    if (clk_init) begin
-        // Initialize dac_state to dac_astate when clk_init is high
-        dac_state <= dac_astate;
-        dac_cycle <= {1'b1, {(Ndac-1){1'b0}}};  // First bit is 1, others are 0 (MSB first)
-    end else begin
-        // Update dac_state when clk_init is low
+    if (~clk_init) begin  // Only update when clk_init is low
         if (dac_mode == 1) begin
             // Mode 1: Use dac_cycle as one-hot mask to update only the selected bit
             // Update only the bit where dac_cycle has a 1, preserve others

@@ -1,4 +1,4 @@
-// Comparator Module - Dummy analog implementation
+// Comparator Module - Analog black box
 // Differential comparator with clock
 
 (* blackbox *)
@@ -10,9 +10,7 @@ module comp (
     input  wire clk         // Comparator clock
 );
 
-    // Black box for analog implementation
-    // Simple assignments for synthesis - in real design this would be analog comparator
-    assign vout_p = vin_p;
-    assign vout_n = vin_n;
+    // Black box - analog implementation
+    // This module will be implemented at the analog level
 
 endmodule

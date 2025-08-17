@@ -1,4 +1,4 @@
-// Sampling Switch Module - Dummy analog implementation
+// Sampling Switch Module - Analog black box
 // Simple switch for connecting input to output under clock control
 
 (* blackbox *)
@@ -8,8 +8,7 @@ module sampswitch (
     input  wire clk         // Switch control clock
 );
 
-    // Black box for analog implementation
-    // In real design this would be analog switch
-    assign vout = vin; // Simple pass-through for synthesis
+    // Black box - analog implementation
+    // This module will be implemented at the analog level
 
 endmodule
