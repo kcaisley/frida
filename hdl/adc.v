@@ -49,7 +49,7 @@ module adc #(
     wire clk_comp;                            // Comparator clock
     wire clk_update_p, clk_update_n;          // Logic clock signals
     wire comp_out_p, comp_out_n;              // Comparator differential outputs
-    wire [Madc-2:0] dac_state_p, dac_state_n;// SAR logic output buses
+    wire [Madc-2:0] dac_state_p, dac_state_n; // SAR logic output buses
     wire [Madc-2:0] dac_cap_botplate_p, dac_cap_botplate_n; // Capacitor driver output buses
 
     // Clock gate module - generates all gated clocks

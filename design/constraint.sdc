@@ -1,35 +1,70 @@
-current_design adc
+current_design frida
 
 # Clock definitions
-set seq_init_period 100.0
-set seq_samp_period 50.0
-set seq_comp_period 20.0
-set seq_update_period 40.0
 set clk_io_pct 0.2
 
 # Create clocks for sequencing signals
-create_clock -name seq_init_clk -period $seq_init_period [get_ports seq_init]
-create_clock -name seq_samp_clk -period $seq_samp_period [get_ports seq_samp]
-create_clock -name seq_comp_clk -period $seq_comp_period [get_ports seq_comp]
-create_clock -name seq_update_clk -period $seq_update_period [get_ports seq_update]
+create_clock -name seq_init -period 100 -waveform {0 5} [get_ports seq_init]
+create_clock -name seq_samp -period 100 -waveform {0 5} [get_ports seq_samp]
+create_clock -name seq_comp -period 5 [get_ports seq_comp]
+create_clock -name seq_update -period 5 [get_ports seq_update]
 
 # Set clock uncertainties
-set_clock_uncertainty 0.1 [all_clocks]
+set_clock_uncertainty 0.5 [all_clocks]
 
-# Input/Output delays
-set non_clock_inputs [all_inputs -no_clocks]
-set_input_delay [expr $seq_comp_period * $clk_io_pct] -clock seq_comp_clk $non_clock_inputs
-set_output_delay [expr $seq_comp_period * $clk_io_pct] -clock seq_comp_clk [all_outputs]
+# No input/output delay specified now, as we aren't working at the chip level, and have no IO.
 
 # Clock groups (since they are independent)
+# Group all four clocks as mutually asynchronous
+# This automatically implies fale_path between each other
 set_clock_groups -asynchronous \
-  -group [get_clocks seq_init_clk] \
-  -group [get_clocks seq_samp_clk] \
-  -group [get_clocks seq_comp_clk] \
-  -group [get_clocks seq_update_clk]
+  -group {seq_init} \
+  -group {seq_samp} \
+  -group {seq_comp} \
+  -group {seq_update}
 
-# Set false paths for reset signal
-set_false_path -from [get_ports rst]
+# Path-specific delay constraints
+# Critical paths from seq_init/seq_update through salogic to capdriver outputs
 
-# Set max delay for critical paths
-set_max_delay 15.0 -from [get_ports seq_comp] -to [get_ports comp_out]
+# Max delay constraints for seq_init to dac_cap_botplate outputs
+set_max_delay 2.0 \
+  -from [get_ports seq_init] \
+  -to [get_pins */capdriver_p/dac_drive*] \
+  -through [get_pins */salogic_p/dac_state*]
+
+set_max_delay 2.0 \
+  -from [get_ports seq_init] \
+  -to [get_pins */capdriver_n/dac_drive*] \
+  -through [get_pins */salogic_n/dac_state*]
+
+# Max delay constraints for seq_update to dac_cap_botplate outputs  
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins */capdriver_p/dac_drive*] \
+  -through [get_pins */salogic_p/dac_state*]
+
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins */capdriver_n/dac_drive*] \
+  -through [get_pins */salogic_n/dac_state*]
+
+# Min delays aren't for hold time, but to ensure minimal timing variation between DAC bits
+set_min_delay 0.1 \
+  -from [get_ports seq_init] \
+  -to [get_pins */capdriver_p/dac_drive*] \
+  -through [get_pins */salogic_p/dac_state*]
+
+set_min_delay 0.1 \
+  -from [get_ports seq_init] \
+  -to [get_pins */capdriver_n/dac_drive*] \
+  -through [get_pins */salogic_n/dac_state*]
+
+set_min_delay 0.1 \
+  -from [get_ports seq_update] \
+  -to [get_pins */capdriver_p/dac_drive*] \
+  -through [get_pins */salogic_p/dac_state*]
+
+set_min_delay 0.1 \
+  -from [get_ports seq_update] \
+  -to [get_pins */capdriver_n/dac_drive*] \
+  -through [get_pins */salogic_n/dac_state*]
