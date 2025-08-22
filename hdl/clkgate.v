@@ -25,12 +25,12 @@ module clkgate (
     output wire clk_update_n     // Gated update clock negative
 );
 
-    // Generate gated clocks by ANDing sequence signals with enables
-    assign clk_init = seq_init & en_init;
-    assign clk_samp_p = seq_samp & en_samp_p;
-    assign clk_samp_n = seq_samp & en_samp_n;
-    assign clk_comp = seq_comp & en_comp;
-    assign clk_update_p = seq_update & en_update_p;
-    assign clk_update_n = seq_update & en_update_n;
+    // Generate gated clocks using proper clock gates
+    OPENROAD_CLKGATE clkgate_init (.CK(seq_init), .E(en_init), .GCK(clk_init));
+    OPENROAD_CLKGATE clkgate_samp_p (.CK(seq_samp), .E(en_samp_p), .GCK(clk_samp_p));
+    OPENROAD_CLKGATE clkgate_samp_n (.CK(seq_samp), .E(en_samp_n), .GCK(clk_samp_n));
+    OPENROAD_CLKGATE clkgate_comp (.CK(seq_comp), .E(en_comp), .GCK(clk_comp));
+    OPENROAD_CLKGATE clkgate_update_p (.CK(seq_update), .E(en_update_p), .GCK(clk_update_p));
+    OPENROAD_CLKGATE clkgate_update_n (.CK(seq_update), .E(en_update_n), .GCK(clk_update_n));
 
 endmodule

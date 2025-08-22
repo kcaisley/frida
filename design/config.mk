@@ -20,10 +20,10 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NAME)/constraint.sdc
 # -------------------------------------------------------
 
 # Design parameters - mixed-signal layout constraints
-# export CORE_UTILIZATION = 60
+export CORE_UTILIZATION = 60
+export CORE_MARGIN = 2
+export CORE_ASPECT_RATIO = 0.8 # W/L, retquires CORE_UTILIZATION
 export PLACE_DENSITY = 0.8  # Higher density for more compact placement
-CORE_UTILIZATION = 0.8
-export CORE_ASPECT_RATIO = 0.8
 
 #--------------------------------------------------------
 # Floorplan
@@ -33,8 +33,6 @@ export CORE_ASPECT_RATIO = 0.8
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M4
-
-
 
 
 # I/O placement configuration - based on TSMC65LP metal layer directions from LEF

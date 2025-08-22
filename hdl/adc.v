@@ -53,7 +53,7 @@ module adc #(
     wire [Madc-2:0] dac_cap_botplate_p, dac_cap_botplate_n; // Capacitor driver output buses
 
     // Clock gate module - generates all gated clocks
-    clkgate clkgate_inst (
+    clkgate clkgate(
         // Sequencing inputs
         .seq_init(seq_init),
         .seq_samp(seq_samp),
