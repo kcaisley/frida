@@ -60,13 +60,10 @@ ln -sf "$HOME/asiclab/tech/tsmc65" "$ORFS_DIR/flow/platforms/tsmc65"
 MAKEFILE="$ORFS_DIR/flow/Makefile"
 DESIGN_CONFIG_LINE="DESIGN_CONFIG=./designs/tsmc65/frida/config.mk"
 
-echo "Updating $MAKEFILE line 8..."
-
-# Create backup
-cp "$MAKEFILE" "$MAKEFILE.bak"
+echo "Updating $MAKEFILE line to have a default config for FRIDA..."
 
 # Use sed to replace line 8 with the design config
-sed -i "8s/.*/$DESIGN_CONFIG_LINE/" "$MAKEFILE"
+sed -i "8s|.*|$DESIGN_CONFIG_LINE|" "$MAKEFILE"
 
 echo "Updated line 8 of Makefile:"
 sed -n '8p' "$MAKEFILE"
@@ -76,6 +73,5 @@ echo "Setup complete! Symlinks created:"
 echo "  • $ORFS_DIR/flow/designs/src/frida -> $FRIDA_DIR/hdl"
 echo "  • $ORFS_DIR/flow/designs/tsmc65/frida -> $FRIDA_DIR/design"  
 echo "  • $ORFS_DIR/flow/platforms/tsmc65 -> $HOME/asiclab/tech/tsmc65"
-echo "  • Updated flow/Makefile line 8: $DESIGN_CONFIG_LINE"
+echo "  • FRIDA config.mk to flow/Makefile line 8:"
 echo ""
-echo "Backup created: $MAKEFILE.bak"
