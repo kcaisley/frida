@@ -1,3 +1,14 @@
+# 65nm Chip Design Pre-Submission Checklist - OpenROAD Flow
+
+- [ ] Manual positioning of top-level macros
+- [ ] Set specific input wires for manual routing or unbuffered routing
+- [ ] Set how to place the pad ring automatically
+- [ ] Double check what additional buffers and clock cells are being put on clock tree and data path (on top of the core synthesized netlist)
+- [ ] Handle double or quad cut vias where OpenROAD doesn't support (make single cuts larger initially, then run find and replace operation in specific locations after the fact)
+- [ ] Connect to the 3 analog macros within each ADC channel (figure out proper positioning and apply correct pin/IO to each macro)
+- [ ] Get LEF files for the 3 analog blocks so tool can properly connect to them
+- [ ] Implement SPI Register
+- [ ] Implement output demultiplexer between the different channels
 
 # Behavioral modeling
 - [ ] Actually build the model with python, following 'wreal' modeling.

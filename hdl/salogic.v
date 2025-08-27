@@ -7,7 +7,7 @@
 // The second always block only executes when clk_init is low, but the synthesis tool doesn't understand this mutual exclusion properly.
 
 module salogic #(
-    parameter Ndac = 16  // Parameterizable number of step DAC
+    parameter Ndac = 16  // Default parameterizable number of step DAC, can be overwritten from above
 ) (
     // Clock inputs for Mealy state machine
     input wire clk_init,                    // Initialize signal
