@@ -1,8 +1,6 @@
 // ADC Module - with configurable resolution
 
-module adc #(
-    parameter Madc = 17                       // ADC number of comparision cycles M (where M > N adc resolution)
-) (
+module adc (
    
     // Sequencing signals
     input  wire seq_init,                     // Initialization sequence timing
@@ -20,13 +18,13 @@ module adc #(
 
     // DAC control - positive side
     input  wire dac_mode_p,                   // DAC mode control positive
-    input  wire [Madc-2:0] dac_astate_p,      // DAC A state positive side
-    input  wire [Madc-2:0] dac_bstate_p,      // DAC B state positive side
+    input  wire [15:0] dac_astate_p,          // DAC A state positive side
+    input  wire [15:0] dac_bstate_p,          // DAC B state positive side
     
     // DAC control - negative side
     input  wire dac_mode_n,                   // DAC mode control negative
-    input  wire [Madc-2:0] dac_astate_n,      // DAC A state negative side
-    input  wire [Madc-2:0] dac_bstate_n,      // DAC B state negative side
+    input  wire [15:0] dac_astate_n,          // DAC A state negative side
+    input  wire [15:0] dac_bstate_n,          // DAC B state negative side
 
     // DAC diff caps (for unit length caps!)
     input wire dac_diffcaps,                  // Enable differential capacitor mode. (Unused for now, reserved for diffcaps)
@@ -49,8 +47,8 @@ module adc #(
     wire clk_comp;                            // Comparator clock
     wire clk_update_p, clk_update_n;          // Logic clock signals
     wire comp_out_p, comp_out_n;              // Comparator differential outputs
-    wire [Madc-2:0] dac_state_p, dac_state_n; // SAR logic output buses
-    wire [Madc-2:0] dac_cap_botplate_p, dac_cap_botplate_n; // Capacitor driver output buses
+    wire [15:0] dac_state_p, dac_state_n;     // SAR logic output buses
+    wire [15:0] dac_cap_botplate_p, dac_cap_botplate_n; // Capacitor driver output buses
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate(
@@ -78,7 +76,7 @@ module adc #(
     );
 
     // SAR Logic - Positive branch
-    salogic #(.Ndac(Madc-1)) salogic_p (
+    salogic salogic_p (
         .clk_init(clk_init),                  // Initialization clock
         .clk_update(clk_update_p),            // Update clock positive
         .dac_astate(dac_astate_p),            // DAC A state positive
@@ -89,7 +87,7 @@ module adc #(
     );
 
     // SAR Logic - Negative branch
-    salogic #(.Ndac(Madc-1)) salogic_n (
+    salogic salogic_n (
         .clk_init(clk_init),                  // Initialization clock
         .clk_update(clk_update_n),            // Update clock negative
         .dac_astate(dac_astate_n),            // DAC A state negative
@@ -100,13 +98,13 @@ module adc #(
     );
 
     // Capacitor Drivers
-    capdriver #(.Ndac(Madc-1)) capdriver_p (
+    capdriver capdriver_p (
         .dac_state(dac_state_p),              // SAR logic positive output
         .dac_drive_invert(1'b0),              // No inversion as the caps aren't inverted
         .dac_drive(dac_cap_botplate_p)        // To positive capacitor array
     );
 
-    capdriver #(.Ndac(Madc-1)) capdriver_n (
+    capdriver capdriver_n (
         .dac_state(dac_state_n),              // SAR logic negative output
         .dac_drive_invert(1'b0),              // No inversion as the caps aren't inverted
         .dac_drive(dac_cap_botplate_n)        // To negative capacitor array
@@ -126,12 +124,12 @@ module adc #(
     );
 
     // ! DUMMY ! Capacitor arrays (CDACs)
-    caparray #(.Ndac(Madc-1)) caparray_p (
+    caparray caparray_p (
         .cap_topplate(vdac_p),                // Positive DAC voltage
         .cap_botplate(dac_cap_botplate_p)     // Positive capacitor bottom plates
     );
 
-    caparray #(.Ndac(Madc-1)) caparray_n (
+    caparray caparray_n (
         .cap_topplate(vdac_n),                // Negative DAC voltage
         .cap_botplate(dac_cap_botplate_n)     // Negative capacitor bottom plates
     );

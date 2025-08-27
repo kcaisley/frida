@@ -18,6 +18,8 @@ export SYNTH_BLACKBOXES = caparray sampswitch comp
 # If is provided, I think I don't need to set variables like ABC_CLOCK_PERIOD_IN_PS or CLOCK_PERIOD myself
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/constraint.sdc
 
+export SYNTH_HIERARCHICAL = 1
+
 #--------------------------------------------------------
 # Floorplan
 # -------------------------------------------------------
@@ -41,10 +43,10 @@ export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 # -------------------------------------------------------
 
 # Design parameters - mixed-signal layout constraints
-export CORE_UTILIZATION = 50
-export CORE_MARGIN = 2
+export CORE_UTILIZATION = 40
+export CORE_MARGIN = 1
 export CORE_ASPECT_RATIO = 1.4 # H/W, requires CORE_UTILIZATION (taller than wide for more left/right pin space)
-export PLACE_DENSITY = 0.7  # Higher density for more compact placement
+export PLACE_DENSITY = 0.6  # Higher density for more compact placement
 
 # MACRO_PLACE_HALO
 

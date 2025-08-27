@@ -26,7 +26,4 @@ module core (
     input  wire reset_b        // Global reset (active low)
 );
 
-
-
-
 endmodule
