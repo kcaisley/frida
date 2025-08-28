@@ -50,15 +50,10 @@ The table below compares previous ADC designs with the current FRIDA target, hig
 
 ## Installation
 
-This project is a "workspace", and relies on a mixture of open and closed source tools, so all installation and configuration is documented in this README, instead of in a `requirements.txt` or `pyproject.toml` file.
+This project is a "workspace", and relies on a mixture of open and closed source tools, so instead of in a `requirements.txt` or `pyproject.toml` file, a `make setup` target which creates a Python virtual environment (tested with Python 3.9–3.13) and installs the following packages:
 
-Create a Python virtual environment (tested with Python 3.9–3.13) and install the following packages:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
+```
+klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
 ```
 
 The following are also necessary in `$PATH`, using a mixture of `oss-cad-suite` or `apt` or `dnf` installs from distribution repos:

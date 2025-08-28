@@ -1,75 +1,144 @@
 # FRIDA Project Makefile
 
-# Default target
-.PHONY: all clean caparray strmout lefout cdlout
-
-all: caparray
-
-# Generate caparray.gds using the cdac_layout.py script
-caparray: tech/tsmc65/gds/caparray.gds
-
-tech/tsmc65/gds/caparray.gds: src/cdac_layout.py src/cdac.py
-	@mkdir -p tech/tsmc65/gds
-	cd src && python3 cdac_layout.py ../tech/tsmc65/gds/caparray.gds
-
-# Clean generated files
-clean:
-	rm -f tech/tsmc65/gds/caparray.gds
-
-# View the generated GDS file in KLayout
-view: tech/tsmc65/gds/caparray.gds
-	klayout -nn tech/tsmc65/tsmc65.lyt -l tech/tsmc65/tsmc65.lyp tech/tsmc65/gds/caparray.gds
+# Platform configuration
+PLATFORM := tsmc65
 
 # Define cells to export: library:cell:outputname
 EXPORT_CELLS := CoRDIA_ADC_01:COMP_LATCH:comp CoRDIA_ADC_01:SAMPLE_SW:sampswitch
 
+# PVS DRC rule file path
+PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
+
+# Default target
+.PHONY: all clean caparray strmout lefout cdlout pvsdrc viewdrc setup
+
+all: caparray
+
+# Setup Python virtual environment and install dependencies
+setup:
+	@echo "Creating Python virtual environment..."
+	python -m venv .venv
+	@echo "Activating virtual environment and installing packages..."
+	.venv/bin/python -m pip install --upgrade pip
+	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
+	@echo "Setup complete! Activate with: source .venv/bin/activate"
+
+# Generate caparray.gds using the cdac_layout.py script
+caparray: tech/$(PLATFORM)/gds/caparray.gds
+
+tech/$(PLATFORM)/gds/caparray.gds: src/cdac_layout.py src/cdac.py
+	@mkdir -p tech/$(PLATFORM)/gds
+	cd src && python3 cdac_layout.py ../tech/$(PLATFORM)/gds/caparray.gds
+
+# Clean generated files
+clean:
+	rm -f tech/$(PLATFORM)/gds/caparray.gds
+
+# View the generated GDS file in KLayout
+view: tech/$(PLATFORM)/gds/caparray.gds
+	klayout -nn tech/$(PLATFORM)/$(PLATFORM).lyt -l tech/$(PLATFORM)/$(PLATFORM).lyp tech/$(PLATFORM)/gds/caparray.gds
+
 # Export OpenAccess cells to GDS using Cadence strmout
 strmout:
-	@mkdir -p logs tech/tsmc65/gds
+	@mkdir -p logs tech/$(PLATFORM)/gds
 	@echo "Exporting OpenAccess cells to GDS..."
 	@for cell in $(EXPORT_CELLS); do \
 		library=$$(echo $$cell | cut -d: -f1); \
 		cellname=$$(echo $$cell | cut -d: -f2); \
 		output=$$(echo $$cell | cut -d: -f3); \
 		echo "Exporting $$library:$$cellname -> $$output.gds"; \
-		(cd $(CURDIR)/tech/tsmc65/cds && . ./workspace.sh && strmout -library "$$library" -strmFile "$(CURDIR)/tech/tsmc65/gds/$$output.gds" -techLib 'tsmcN65' -topCell "$$cellname" -view 'layout' -logFile "$(CURDIR)/logs/$${output}_strmOut.log" -enableColoring) || exit 1; \
+		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && strmout -library "$$library" -strmFile "$(CURDIR)/tech/$(PLATFORM)/gds/$$output.gds" -techLib 'tsmcN65' -topCell "$$cellname" -view 'layout' -logFile "$(CURDIR)/logs/$${output}_strmOut.log" -enableColoring) || exit 1; \
 	done
-	@echo "GDS export complete. Files saved to tech/tsmc65/gds/, logs in logs/"
+	@echo "GDS export complete. Files saved to tech/$(PLATFORM)/gds/, logs in logs/"
 
 # Export OpenAccess cells to LEF using Cadence lefout
 lefout:
-	@mkdir -p logs tech/tsmc65/lef
+	@mkdir -p logs tech/$(PLATFORM)/lef
 	@echo "Exporting OpenAccess cells to LEF..."
 	@for cell in $(EXPORT_CELLS); do \
 		library=$$(echo $$cell | cut -d: -f1); \
 		cellname=$$(echo $$cell | cut -d: -f2); \
 		output=$$(echo $$cell | cut -d: -f3); \
 		echo "Exporting $$library:$$cellname -> $$output.lef"; \
-		(cd $(CURDIR)/tech/tsmc65/cds && . ./workspace.sh && lefout -lef "$(CURDIR)/tech/tsmc65/lef/$$output.lef" -lib "$$library" -cells "$$cellname" -views "layout" -log "$(CURDIR)/logs/$${output}_lefout.log") || exit 1; \
+		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && lefout -lef "$(CURDIR)/tech/$(PLATFORM)/lef/$$output.lef" -lib "$$library" -cells "$$cellname" -views "layout" -log "$(CURDIR)/logs/$${output}_lefout.log") || exit 1; \
 	done
-	@echo "LEF export complete. Files saved to tech/tsmc65/lef/, logs in logs/"
+	@echo "LEF export complete. Files saved to tech/$(PLATFORM)/lef/, logs in logs/"
 
 # Export OpenAccess cells to CDL/SPICE using oaschem2spice.py
 cdlout:
-	@mkdir -p logs tech/tsmc65/spice
+	@mkdir -p logs tech/$(PLATFORM)/spice
 	@echo "Exporting OpenAccess cells to CDL/SPICE..."
 	@for cell in $(EXPORT_CELLS); do \
 		library=$$(echo $$cell | cut -d: -f1); \
 		cellname=$$(echo $$cell | cut -d: -f2); \
 		output=$$(echo $$cell | cut -d: -f3); \
 		echo "Exporting $$library:$$cellname -> $$output.cdl/.sp"; \
-		(cd $(CURDIR)/tech/tsmc65/cds && . ./workspace.sh && python3 $(CURDIR)/src/utils/oaschem2spice.py oa "$$library" "$$cellname" "$$output" && mv "$$output.cdl" "$(CURDIR)/tech/tsmc65/spice/$$output.cdl" && mv "$$output.sp" "$(CURDIR)/tech/tsmc65/spice/$$output.sp" && rm -f si.env) || exit 1; \
+		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && python3 $(CURDIR)/src/utils/oaschem2spice.py oa "$$library" "$$cellname" "$$output" && mv "$$output.cdl" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.cdl" && mv "$$output.sp" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.sp" && rm -f si.env) || exit 1; \
 	done
-	@echo "CDL/SPICE export complete. Files saved to tech/tsmc65/spice/, logs in logs/"
+	@echo "CDL/SPICE export complete. Files saved to tech/$(PLATFORM)/spice/, logs in logs/"
+
+# Run PVS DRC on OpenAccess cells using exported GDS files
+pvsdrc:
+	@echo "Running PVS DRC on exported GDS files..."
+	@for cell in $(EXPORT_CELLS); do \
+		library=$$(echo $$cell | cut -d: -f1); \
+		cellname=$$(echo $$cell | cut -d: -f2); \
+		output=$$(echo $$cell | cut -d: -f3); \
+		gds_file="../gds/$$output.gds"; \
+		if [ -f "$(CURDIR)/tech/$(PLATFORM)/gds/$$output.gds" ]; then \
+			echo "Running PVS DRC on $$output.gds (top cell: $$cellname)"; \
+			(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && \
+			pvs -drc -top_cell "$$cellname" -gds "$$gds_file" -run_dir "$(CURDIR)/logs" -gdsrdb "$(CURDIR)/logs/$${output}_violations.gds" "$(PVS_DRC_RULES)" > /dev/null) || echo "PVS DRC failed for $$output"; \
+			echo "=== DRC Results for $$output ==="; \
+			if [ -f "$(CURDIR)/logs/DRC_RES.db" ]; then \
+				echo "DRC_RES.db:"; \
+				cat "$(CURDIR)/logs/DRC_RES.db"; \
+			fi; \
+			if [ -f "$(CURDIR)/logs/DRC.rep" ]; then \
+				echo "Last 6 lines of DRC.rep:"; \
+				tail -6 "$(CURDIR)/logs/DRC.rep"; \
+			fi; \
+		else \
+			echo "Warning: GDS file $(CURDIR)/tech/$(PLATFORM)/gds/$$output.gds not found. Run 'make strmout' first."; \
+		fi; \
+	done
+	@echo "PVS DRC complete. Results in logs/"
+
+# View DRC results in KLayout with violation markers
+viewdrc:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make viewdrc <output_name>"; \
+		echo "Available outputs: comp, sampswitch"; \
+		exit 1; \
+	fi
+	@output="$(filter-out $@,$(MAKECMDGOALS))"; \
+	original_gds="tech/$(PLATFORM)/gds/$$output.gds"; \
+	violations_gds="logs/$${output}_violations.gds"; \
+	if [ -f "$$original_gds" ] && [ -f "$$violations_gds" ]; then \
+		echo "Opening $$output design with DRC violations in KLayout..."; \
+		klayout -nn tech/$(PLATFORM)/$(PLATFORM).lyt -l tech/$(PLATFORM)/$(PLATFORM).lyp "$$original_gds" "$$violations_gds" & \
+	else \
+		echo "Missing files for $$output:"; \
+		[ ! -f "$$original_gds" ] && echo "  $$original_gds not found - run 'make strmout' first"; \
+		[ ! -f "$$violations_gds" ] && echo "  $$violations_gds not found - run 'make pvsdrc' first"; \
+		exit 1; \
+	fi
+
+# Prevent make from trying to build the argument as a target
+%:
+	@:
 
 # Help target
 help:
 	@echo "Available targets:"
+	@echo "  setup     - Create Python venv and install dependencies"
 	@echo "  all       - Build all targets (default)"
 	@echo "  caparray  - Generate caparray.gds layout file"
-	@echo "  view      - Open caparray.gds in KLayout with TSMC65 tech files"
+	@echo "  view      - Open caparray.gds in KLayout with tech files"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
+	@echo "  pvsdrc    - Run PVS DRC on exported GDS files"
+	@echo "  viewdrc   - View DRC results in KLayout (usage: make viewdrc <output>)"
 	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
