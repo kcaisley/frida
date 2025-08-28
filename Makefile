@@ -10,9 +10,9 @@ EXPORT_CELLS := CoRDIA_ADC_01:COMP_LATCH:comp CoRDIA_ADC_01:SAMPLE_SW:sampswitch
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
 
 # Default target
-.PHONY: all clean caparray strmout lefout cdlout pvsdrc viewdrc setup
+.PHONY: all clean gds lef strmout lefout cdlout pvsdrc viewdrc setup
 
-all: caparray
+all: gds caparray
 
 # Setup Python virtual environment and install dependencies
 setup:
@@ -23,20 +23,55 @@ setup:
 	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
-# Generate caparray.gds using the cdac_layout.py script
-caparray: tech/$(PLATFORM)/gds/caparray.gds
+# Generate GDS for specified block: make gds <cellname>
+gds:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make gds <cellname>"; \
+		echo "This will look for src/<cellname>.py and generate tech/$(PLATFORM)/gds/<cellname>.gds"; \
+		exit 1; \
+	fi
+	@cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "src/$${cellname}.py" ]; then \
+		echo "Error: src/$${cellname}.py not found"; \
+		exit 1; \
+	fi; \
+	mkdir -p tech/$(PLATFORM)/gds; \
+	echo "Generating GDS for $${cellname}..."; \
+	cd src && ../.venv/bin/python "$${cellname}.py" "../tech/$(PLATFORM)/gds/$${cellname}.gds"
 
-tech/$(PLATFORM)/gds/caparray.gds: src/cdac_layout.py src/cdac.py
-	@mkdir -p tech/$(PLATFORM)/gds
-	cd src && python3 cdac_layout.py ../tech/$(PLATFORM)/gds/caparray.gds
+# Generate LEF for specified block: make lef <cellname>
+lef:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make lef <cellname>"; \
+		echo "This will convert tech/$(PLATFORM)/gds/<cellname>.gds to tech/$(PLATFORM)/lef/<cellname>.lef"; \
+		exit 1; \
+	fi
+	@cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "tech/$(PLATFORM)/gds/$${cellname}.gds" ]; then \
+		echo "Error: tech/$(PLATFORM)/gds/$${cellname}.gds not found. Run 'make gds $${cellname}' first."; \
+		exit 1; \
+	fi; \
+	mkdir -p tech/$(PLATFORM)/lef; \
+	echo "Converting GDS to LEF for $${cellname}..."; \
+	.venv/bin/python src/utils/gds2lef_standalone.py "tech/$(PLATFORM)/gds/$${cellname}.gds" "tech/$(PLATFORM)/lef/$${cellname}.lef"
 
 # Clean generated files
 clean:
-	rm -f tech/$(PLATFORM)/gds/caparray.gds
+	rm -rf tech/$(PLATFORM)/gds/*.gds tech/$(PLATFORM)/lef/*.lef
 
-# View the generated GDS file in KLayout
-view: tech/$(PLATFORM)/gds/caparray.gds
-	klayout -nn tech/$(PLATFORM)/$(PLATFORM).lyt -l tech/$(PLATFORM)/$(PLATFORM).lyp tech/$(PLATFORM)/gds/caparray.gds
+# View a GDS file in KLayout: make view <cellname>
+view:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make view <cellname>"; \
+		echo "This will open tech/$(PLATFORM)/gds/<cellname>.gds in KLayout"; \
+		exit 1; \
+	fi
+	@cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "tech/$(PLATFORM)/gds/$${cellname}.gds" ]; then \
+		echo "Error: tech/$(PLATFORM)/gds/$${cellname}.gds not found. Run 'make gds $${cellname}' first."; \
+		exit 1; \
+	fi; \
+	klayout -nn tech/$(PLATFORM)/$(PLATFORM).lyt -l tech/$(PLATFORM)/$(PLATFORM).lyp "tech/$(PLATFORM)/gds/$${cellname}.gds"
 
 # Export OpenAccess cells to GDS using Cadence strmout
 strmout:
@@ -133,8 +168,9 @@ help:
 	@echo "Available targets:"
 	@echo "  setup     - Create Python venv and install dependencies"
 	@echo "  all       - Build all targets (default)"
-	@echo "  caparray  - Generate caparray.gds layout file"
-	@echo "  view      - Open caparray.gds in KLayout with tech files"
+	@echo "  gds <cellname>  - Generate GDS layout file (looks for src/<cellname>.py)"
+	@echo "  lef <cellname>  - Generate LEF file from GDS for specified cell"
+	@echo "  view <cellname> - Open GDS file in KLayout with tech files"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"

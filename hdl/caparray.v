@@ -4,8 +4,8 @@
 (* blackbox *)
 module caparray (
     inout  wire cap_topplate,             // Capacitor top plate (bidirectional)
-    input  wire [15:0] cap_botplate   // Capacitor bottom plate control bus
-    // input  wire [15:0] cap_botplate_d // Capacitor bottom plate control bus
+    input  wire [15:0] cap_botplate_m       // Capacitor bottom plate main caps
+    input  wire [15:0] cap_botplate_d     // Capacitor bottom plate diff caps
 );
 
     // Black box - analog implementation
