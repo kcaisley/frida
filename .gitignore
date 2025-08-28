@@ -1,7 +1,7 @@
 /tech/nopdk/*
 /tech/tsmc65/*
 /tech/tsmc28/*
-
+/logs/*
 /build
 .claude
 CLAUDE.md
