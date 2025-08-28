@@ -75,26 +75,21 @@ module adc (
         .clk_update_n(clk_update_n)
     );
 
-    // SAR Logic - Positive branch
-    salogic salogic_p (
+    // SAR Logic - Consolidated dual-channel
+    salogic salogic_dual (
         .clk_init(clk_init),                  // Initialization clock
-        .clk_update(clk_update_p),            // Update clock positive
-        .dac_astate(dac_astate_p),            // DAC A state positive
-        .dac_bstate(dac_bstate_p),            // DAC B state positive
-        .dac_mode(dac_mode_p),                // DAC mode positive
-        .comp(comp_out_n),                    // Use negative comp output for P-side logic
-        .dac_state(dac_state_p)               // Output to positive DAC state
-    );
-
-    // SAR Logic - Negative branch
-    salogic salogic_n (
-        .clk_init(clk_init),                  // Initialization clock
-        .clk_update(clk_update_n),            // Update clock negative
-        .dac_astate(dac_astate_n),            // DAC A state negative
-        .dac_bstate(dac_bstate_n),            // DAC B state negative
-        .dac_mode(dac_mode_n),                // DAC mode negative
-        .comp(comp_out_p),                    // Use positive comp output for N-side logic
-        .dac_state(dac_state_n)               // Output to negative DAC state
+        .clk_update_p(clk_update_p),          // Update clock positive
+        .clk_update_n(clk_update_n),          // Update clock negative
+        .dac_astate_p(dac_astate_p),          // DAC A state positive
+        .dac_bstate_p(dac_bstate_p),          // DAC B state positive
+        .dac_mode_p(dac_mode_p),              // DAC mode positive
+        .comp_p(comp_out_n),                  // Use negative comp output for P-side logic
+        .dac_astate_n(dac_astate_n),          // DAC A state negative
+        .dac_bstate_n(dac_bstate_n),          // DAC B state negative
+        .dac_mode_n(dac_mode_n),              // DAC mode negative
+        .comp_n(comp_out_p),                  // Use positive comp output for N-side logic
+        .dac_state_p(dac_state_p),            // Output to positive DAC state
+        .dac_state_n(dac_state_n)             // Output to negative DAC state
     );
 
     // Capacitor Drivers

@@ -1,4 +1,5 @@
 import math
+import sys
 import klayout.db as db
 import cdac
 
@@ -10,7 +11,7 @@ weights, w_base, w_redun = cdac.generate_weights(11, 8, [5,6], 2)
 print(w_base, w_redun)
 partitioned_weights = cdac.analyze_weights(weights, unary_weight)
 
-# Next we build the single physical unit length cap, concious of the fact that it must fit 64 steps within it, based on our unary weight
+# Next we build the single physical unit length cap, conscious of the fact that it must fit 64 steps within it, based on our unary weight
 strips_xdim = 0.120
 strips_ydim_min = 1
 strips_ydim_step = 0.4
@@ -152,4 +153,9 @@ for main_idx in range(len(partitioned_weights) - 1, -1, -1):
         # Insert the temp_cell into the top_cell with the transformation
         top_cell.insert(db.DCellInstArray(temp_cell.cell_index(), trans))
 
-ly.write("build/cdac_array.gds")
+if len(sys.argv) != 2:
+    print("Usage: python cdac_layout.py <output_path>")
+    sys.exit(1)
+
+output_path = sys.argv[1]
+ly.write(output_path)

@@ -1,5 +1,7 @@
-# 65nm Chip Design Pre-Submission Checklist - OpenROAD Flow
-
+# Todo list
+- [ ] Create GDS for capacitor array
+- [ ] Create GDS for switches and comparator, from .OA views
+- [ ] Create .lef for capacitor, switches, and comparator
 - [ ] Manual positioning of top-level macros
 - [ ] Set specific input wires for manual routing or unbuffered routing
 - [ ] Set how to place the pad ring automatically
@@ -9,6 +11,10 @@
 - [ ] Get LEF files for the 3 analog blocks so tool can properly connect to them
 - [ ] Implement SPI Register
 - [ ] Implement output demultiplexer between the different channels
+- [ ] Double check register count versus what I expect from synthesis result
+- [ ] Make sure registers are minimum sized to minimize area
+- [ ] Specify load capacitance for the different drivers so they are properly sized
+- [ ] Add negative plate drivers for my try for a ray
 
 # Behavioral modeling
 - [ ] Actually build the model with python, following 'wreal' modeling.
