@@ -29,3 +29,5 @@ __pycache__
 *.calibre.db
 *.test
 *.vcd
+
+si.env

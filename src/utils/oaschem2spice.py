@@ -9,15 +9,15 @@ Process:
 3. Converts CDL to cleaned SPICE format
 
 Usage:
-    python3 oaschem2spice.py <LibName> <CellName>
+    python3 oaschem2spice.py <LibName> <CellName> [OutputName]
 
 Example:
-    python3 oaschem2spice.py OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG
+    python3 oaschem2spice.py OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG driver_output
 
 Output Files:
     - si.env (temporary configuration)
-    - <CellName>.cdl (intermediate CDL)
-    - <CellName>.sp (final SPICE output)
+    - <OutputName>.cdl (intermediate CDL)
+    - <OutputName>.sp (final SPICE output)
 """
 
 import re
@@ -197,11 +197,11 @@ def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <mode> [args...]")
         print("Modes:")
-        print("  oa <LibName> <CellName>  - Convert from OA library")
+        print("  oa <LibName> <CellName> [OutputName]  - Convert from OA library")
         print("  file <input_file>        - Convert from CDL/SPICE file")
         print()
         print("Examples:")
-        print("  python oaschem2spice.py oa OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG")
+        print("  python oaschem2spice.py oa OBELIX_BCID_DRIVER BCID_DRIVER_DC_ORG driver_output")
         print("  python oaschem2spice.py file strongarm_bag.sp")
         sys.exit(1)
     
@@ -209,14 +209,16 @@ def main():
     
     if mode == "oa":
         # Original OA library mode
-        if len(sys.argv) != 4:
-            print("Usage for OA mode: python oaschem2spice.py oa <LibName> <CellName>")
+        if len(sys.argv) < 4 or len(sys.argv) > 5:
+            print("Usage for OA mode: python oaschem2spice.py oa <LibName> <CellName> [OutputName]")
             sys.exit(1)
             
         simLibName = sys.argv[2]
         simCellName = sys.argv[3]
-        cdl_file = f"{simCellName}.cdl"
-        spice_file = f"{simCellName}.sp"
+        outputName = sys.argv[4] if len(sys.argv) == 5 else simCellName
+        intermediate_cdl_file = f"{simCellName}.cdl"  # si generates this filename
+        cdl_file = f"{outputName}.cdl"  # final output filename
+        spice_file = f"{outputName}.sp"
         
         # Step 1: Create si.env
         print(f"Creating si.env for {simLibName}/{simCellName}...")
@@ -229,8 +231,14 @@ def main():
         print(f"Converted OA schematic to .cdl netlist for {simLibName}/{simCellName}...")
 
         # Step 3: Convert CDL to SPICE
-        print(f"Converting {cdl_file} to {spice_file}...")
-        convert_cdl_to_spice(cdl_file, spice_file)
+        print(f"Converting {intermediate_cdl_file} to {spice_file}...")
+        convert_cdl_to_spice(intermediate_cdl_file, spice_file)
+        
+        # Step 4: Rename intermediate CDL to final name if different
+        if intermediate_cdl_file != cdl_file:
+            import os
+            os.rename(intermediate_cdl_file, cdl_file)
+            print(f"Renamed {intermediate_cdl_file} to {cdl_file}")
         
         print("\nConversion complete!")
         print(f"SPICE netlist saved to {spice_file}")

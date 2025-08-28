@@ -1,7 +1,7 @@
 # FRIDA Project Makefile
 
 # Default target
-.PHONY: all clean caparray strmout lefout
+.PHONY: all clean caparray strmout lefout cdlout
 
 all: caparray
 
@@ -49,6 +49,19 @@ lefout:
 	done
 	@echo "LEF export complete. Files saved to tech/tsmc65/lef/, logs in logs/"
 
+# Export OpenAccess cells to CDL/SPICE using oaschem2spice.py
+cdlout:
+	@mkdir -p logs tech/tsmc65/spice
+	@echo "Exporting OpenAccess cells to CDL/SPICE..."
+	@for cell in $(EXPORT_CELLS); do \
+		library=$$(echo $$cell | cut -d: -f1); \
+		cellname=$$(echo $$cell | cut -d: -f2); \
+		output=$$(echo $$cell | cut -d: -f3); \
+		echo "Exporting $$library:$$cellname -> $$output.cdl/.sp"; \
+		(cd $(CURDIR)/tech/tsmc65/cds && . ./workspace.sh && python3 $(CURDIR)/src/utils/oaschem2spice.py oa "$$library" "$$cellname" "$$output" && mv "$$output.cdl" "$(CURDIR)/tech/tsmc65/spice/$$output.cdl" && mv "$$output.sp" "$(CURDIR)/tech/tsmc65/spice/$$output.sp" && rm -f si.env) || exit 1; \
+	done
+	@echo "CDL/SPICE export complete. Files saved to tech/tsmc65/spice/, logs in logs/"
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -57,5 +70,6 @@ help:
 	@echo "  view      - Open caparray.gds in KLayout with TSMC65 tech files"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
+	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
 	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
