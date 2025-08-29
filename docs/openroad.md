@@ -276,3 +276,139 @@ clkbuf_0_clk_update_p → clkbuf_2_3__f_clk_update_p
 
 This shows why you have so many buffers - each of the 23 clock nets gets its own H-tree with multiple levels of
 buffering for timing balance.
+
+# Automatic Pad Ring Placement
+
+OpenROAD provides comprehensive automation for pad ring cell placement through the **PAD module** (based on ICeWall). The key command for automatic placement is:
+
+## `place_pads` - Automatic Pad Placement
+
+```tcl
+place_pads -row row_name pads
+```
+
+**Features:**
+- Places pads into IO rows in specified order
+- Automatically aligns pads with bumps when bump array is placed
+- Uniform distribution when no bumps are present
+- Preserves pad order while optimizing alignment
+
+**Example usage:**
+```tcl
+place_pads -row IO_SOUTH u_reset.u_in u_reset.u_out
+place_pads -row IO_NORTH clk pad_vdd pad_vss
+place_pads -row IO_EAST data_bus[7:0]
+place_pads -row IO_WEST control_signals
+```
+
+## Complete Automated Pad Ring Flow
+
+1. **`make_io_sites`** - Define IO sites for pad placement
+2. **`place_corners`** - Automatically place corner cells  
+3. **`place_pads`** - Automatically place pads in rows
+4. **`place_io_fill`** - Place IO filler cells
+5. **`connect_by_abutment`** - Connect ring signals
+
+**Additional automation:**
+- **`place_bondpad`** - Automatically place wirebond pads over IO cells
+- **`make_io_bump_array`** - Create bump arrays automatically
+- **`assign_io_bump`** - Assign nets to bumps
+
+The PAD module handles bump-to-pad alignment, uniform spacing, and maintains proper pad ordering automatically.
+
+# Hierarchical Design Flow with Hard Macros
+
+OpenROAD Flow Scripts provides a **hierarchical block-based flow** for placing and routing sub-modules independently before top-level integration.
+
+## BLOCKS Variable Configuration
+
+Define sub-modules using the `BLOCKS` variable in your top-level `config.mk`:
+
+```make
+# In your top-level design config.mk
+export DESIGN_NICKNAME = my_soc_design
+export BLOCKS = cpu_core memory_controller dsp_engine io_interface
+```
+
+## Directory Structure
+
+```
+flow/designs/PLATFORM/my_soc_design/
+├── config.mk              # Top-level configuration
+├── cpu_core/
+│   └── config.mk           # Sub-module configuration
+├── memory_controller/
+│   └── config.mk           # Sub-module configuration
+├── dsp_engine/
+│   └── config.mk           # Sub-module configuration
+└── io_interface/
+    └── config.mk           # Sub-module configuration
+```
+
+## Automatic File Generation
+
+The flow automatically generates and links these files for each block:
+- **LEF files**: `${block}.lef` (physical view)
+- **Liberty files**: `${block}_typ.lib`, `${block}_fast.lib`, `${block}_slow.lib` (timing)
+- **GDS files**: `6_final.gds` (layout)
+
+## Build Process
+
+```bash
+# Build all sub-modules first (place & route each block)
+make build_macros
+
+# Then build top-level with hard macros
+make
+```
+
+## Key Variables for Hard Macro Integration
+
+The flow automatically populates these variables for the top-level:
+
+```make
+# Automatically populated from BLOCKS
+ADDITIONAL_LEFS += $(BLOCK_LEFS)      # Physical views
+ADDITIONAL_LIBS += $(BLOCK_TYP_LIBS)  # Timing models  
+ADDITIONAL_GDS += $(BLOCK_GDS)        # Layout files
+```
+
+## Macro Placement Control
+
+Control hard macro placement using:
+
+```make
+# Manual placement file (coordinates)
+export MACRO_PLACEMENT = $(DESIGN_HOME)/macro_placement.cfg
+
+# Or TCL-based placement (more flexible)
+export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/macro_placement.tcl
+```
+
+## Example from mock-array design:
+
+```make
+# designs/asap7/mock-array/config.mk
+export BLOCKS = Element
+
+ifneq ($(BLOCKS),)
+  export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/asap7/mock-array/macro-placement.tcl
+  export PDN_TCL = $(PLATFORM_DIR)/openRoad/pdn/BLOCKS_grid_strategy.tcl
+endif
+```
+
+## Complete Hierarchical Workflow
+
+1. **Design sub-modules** with individual `config.mk` files
+2. **Set BLOCKS variable** in top-level config
+3. **Run `make build_macros`** to generate hard macros (full P&R each block)
+4. **Configure macro placement** (optional - can use automatic placement)
+5. **Run `make`** for top-level integration
+
+**Benefits:**
+- **Independent optimization** of each block
+- **Controlled timing closure** at block level
+- **Parallel development** of different blocks
+- **Block reuse** across multiple top-levels
+- **Reduced complexity** through hierarchy
+- **Better convergence** for large designs
