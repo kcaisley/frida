@@ -222,13 +222,16 @@ def create_strip_end_cutouts_and_vias(strips_xdim, strips_ydim_base, strips_yspa
     Returns:
     - List of cutout polygons for M5
     - List of via shapes for VIA4 and VIA5 layers
+    - List of M5 metal squares (0.12x0.12) centered on each via stack
     """
     cutouts = []
     vias = []
+    m5_squares = []
     
     # Parameters for cutouts and vias
     cutout_size = 0.32
     via_inset = 0.12  # 0.12um inset from strip ends
+    m5_square_size = 0.12  # 0.12x0.12 um M5 metal squares
     
     # Calculate strip positions (matching the strip_pair function)
     y1 = strips_ydim_base + strips_yspace
@@ -283,8 +286,13 @@ def create_strip_end_cutouts_and_vias(strips_xdim, strips_ydim_base, strips_yspa
                          via_center_x + via_size/2, via_center_y + via_size/2)
         
         vias.append(via_box)
+        
+        # Create 0.12x0.12 M5 metal square centered on this via stack
+        m5_square = db.DBox(via_center_x - m5_square_size/2, via_center_y - m5_square_size/2,
+                           via_center_x + m5_square_size/2, via_center_y + m5_square_size/2)
+        m5_squares.append(m5_square)
     
-    return cutouts, vias
+    return cutouts, vias, m5_squares
 
 
 def unit_length_cap(ly, layers, strips_xdim, strips_ydim_base, strips_yspace, 
@@ -309,7 +317,7 @@ def unit_length_cap(ly, layers, strips_xdim, strips_ydim_base, strips_yspace,
                                                    strips_xspace, strips_yspace, strips_ydim_base)
     
     # Create strip end cutouts and vias
-    strip_cutouts, via_shapes = create_strip_end_cutouts_and_vias(
+    strip_cutouts, via_shapes, m5_via_squares = create_strip_end_cutouts_and_vias(
         strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, 
         strips_ydim_diff, strips_xspace, ring_xdim, layers)
     
@@ -335,6 +343,10 @@ def unit_length_cap(ly, layers, strips_xdim, strips_ydim_base, strips_yspace,
     
     # Add M5 shielding
     temp_cell.shapes(layers['M5']).insert(m5_shielding)
+    
+    # Add M5 via squares (0.12x0.12 metal squares on each via stack)
+    for m5_square in m5_via_squares:
+        temp_cell.shapes(layers['M5']).insert(m5_square)
     
     # Add vias (VIA4 connects M4-M5, VIA5 connects M5-M6)
     for via_shape in via_shapes:
