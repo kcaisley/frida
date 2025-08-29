@@ -4,7 +4,19 @@
 PLATFORM := tsmc65
 
 # Define cells to export: library:cell:outputname
-EXPORT_CELLS := CoRDIA_ADC_01:COMP_LATCH:comp CoRDIA_ADC_01:SAMPLE_SW:sampswitch
+EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
+	IOlib:GROUND_CUP_pad:GROUND_CUP_pad \
+	IOlib:POWER_CUP_pad:POWER_CUP_pad \
+	IOlib:LVDS_RX_CUP_pad:LVDS_RX_CUP_pad \
+	IOlib:CMOS_IO_CUP_pad:CMOS_IO_CUP_pad \
+	IOlib:LVDS_TX_CUP_pad:LVDS_TX_CUP_pad \
+	IOlib:PASSIVE_CUP_pad:PASSIVE_CUP_pad \
+	IOlib:POWERCUT_CUP:POWERCUT_CUP \
+	IOlib:SF_CORNER:SF_CORNER \
+	IOlib:SF_FILLER25_CUP:SF_FILLER25_CUP \
+	IOlib:SF_FILLER50_CUP:SF_FILLER50_CUP \
+	IOlib:SF_FILLER_CUP:SF_FILLER_CUP \
+	CoRDIA_ADC_01:SEALRING_mini_sic65nm_1mm_1mm_from_2mm_2mm:sealring
 
 # PVS DRC rule file path
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
@@ -95,7 +107,7 @@ lefout:
 		cellname=$$(echo $$cell | cut -d: -f2); \
 		output=$$(echo $$cell | cut -d: -f3); \
 		echo "Exporting $$library:$$cellname -> $$output.lef"; \
-		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && lefout -lef "$(CURDIR)/tech/$(PLATFORM)/lef/$$output.lef" -lib "$$library" -cells "$$cellname" -views "layout" -log "$(CURDIR)/logs/$${output}_lefout.log") || exit 1; \
+		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && lefout -lef "$(CURDIR)/tech/$(PLATFORM)/lef/$$output.lef" -lib "$$library" -cells "$$cellname" -views "layout" -log "$(CURDIR)/logs/$${output}_lefout.log" -noTech) || exit 1; \
 	done
 	@echo "LEF export complete. Files saved to tech/$(PLATFORM)/lef/, logs in logs/"
 
