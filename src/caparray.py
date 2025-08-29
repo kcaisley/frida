@@ -545,15 +545,27 @@ def main():
     for shape in m4_routing_shapes:
         top_cell.shapes(layers['M4']).insert(shape)
     
-    # Add M4 pin labels to the top cell on M4.PIN layer
+    # Add M4 pin labels and rectangles to the top cell on M4.PIN layer
     if 'M4' in layers:
         # Create M4.PIN layer (layer 134, datatype 0 based on LEF file pattern)
         m4_pin_layer = ly.layer(134, 0, "M4.PIN")
         
+        # Pin rectangle size (0.01 x 0.01 μm)
+        pin_rect_size = 0.01
+        
         for label in m4_pin_labels:
+            # Add text label
             top_cell.shapes(m4_pin_layer).insert(label)
+            
+            # Add rectangle at the same position as the label
+            label_pos = label.trans.disp
+            pin_rect = db.DBox(
+                label_pos.x - pin_rect_size/2, label_pos.y - pin_rect_size/2,
+                label_pos.x + pin_rect_size/2, label_pos.y + pin_rect_size/2
+            )
+            top_cell.shapes(m4_pin_layer).insert(pin_rect)
 
-    # Add cap_topplate pin label at top left corner of the first capacitor's outer ring
+    # Add cap_topplate pin label and rectangle at top left corner of the first capacitor's outer ring
     if 'M6' in layers:
         # Create M6.PIN layer for the top plate connection
         m6_pin_layer = ly.layer(136, 0, "M6.PIN")
@@ -562,8 +574,17 @@ def main():
         topplate_x = 0 + 0.06  # Right 0.06 from left edge
         topplate_y = interior_y + ring_ydim + y_shift + 0.06  # Up 0.06 from previous position
         
+        # Add text label
         topplate_label = db.DText("cap_topplate", db.DTrans(topplate_x, topplate_y))
         top_cell.shapes(m6_pin_layer).insert(topplate_label)
+        
+        # Add pin rectangle (0.01 x 0.01 μm)
+        pin_rect_size = 0.01
+        topplate_rect = db.DBox(
+            topplate_x - pin_rect_size/2, topplate_y - pin_rect_size/2,
+            topplate_x + pin_rect_size/2, topplate_y + pin_rect_size/2
+        )
+        top_cell.shapes(m6_pin_layer).insert(topplate_rect)
 
     # Write the layout
     ly.write(output_path)
