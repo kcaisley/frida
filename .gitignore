@@ -2,9 +2,6 @@
 /tech/tsmc65/*
 /tech/tsmc28/*
 /logs/*
-/build
-.claude
-CLAUDE.md
 __pycache__
 .venv*
 .vscode
@@ -23,11 +20,10 @@ __pycache__
 *.snm
 *.nav
 *.cdslck
-*.lvs_
+*.lvs*
 *.report
 *.ext
 *.calibre.db
 *.test
 *.vcd
-
 si.env

@@ -4,7 +4,7 @@ import sys
 import pya
 import re
 
-def convert_gds_to_lef(gds_path, out_file):
+def convert_gds_to_lef(gds_path, out_file, custom_blockage_layers=None):
     """
     Convert GDS file to LEF using KLayout's Python API
     """
@@ -21,6 +21,11 @@ def convert_gds_to_lef(gds_path, out_file):
         "M6.PIN": (136,0)  # M6 pin layer                     
     }                                                          
     ignore_cells = ["unit_cap_with_shielding"]  # Ignore individual capacitor cells               
+    
+    # Layers to export as single blockage rectangles (encompassing all structures)
+    # Instead of exporting every individual rectangle/polygon
+    default_blockage_layers = {"M5", "M6", "VIA5"}  # Add layer names here that should be simple blockages
+    blockage_layers = custom_blockage_layers if custom_blockage_layers is not None else default_blockage_layers
     #######################
 
     def point_in_rectangle(point, rectangles):
@@ -49,6 +54,24 @@ def convert_gds_to_lef(gds_path, out_file):
             p1x, p1y = p2x, p2y
 
         return inside
+
+    def get_layer_bounding_box(shapes_iter):
+        """Calculate the bounding box that encompasses all shapes on a layer"""
+        min_x = min_y = float('inf')
+        max_x = max_y = float('-inf')
+        
+        has_shapes = False
+        for shape in shapes_iter:
+            has_shapes = True
+            bbox = shape.bbox()
+            min_x = min(min_x, bbox.left)
+            min_y = min(min_y, bbox.bottom)
+            max_x = max(max_x, bbox.right)
+            max_y = max(max_y, bbox.top)
+        
+        if not has_shapes:
+            return None
+        return [min_x, min_y, max_x, max_y]
 
     # Load GDS file
     ly = pya.Layout()
@@ -90,18 +113,26 @@ def convert_gds_to_lef(gds_path, out_file):
                 rectangles = []
                 polygons = []
                 
-                for shape in top_cell.shapes(layer_info):     
-                    if shape.is_polygon():
-                        polygons.append([int(coord) for coord in re.split(r'[;,]', str(shape.polygon).replace('(', '').replace(')', ''))])                   
-                    elif shape.is_box():
-                        rectangles.append([shape.box.left, shape.box.bottom, shape.box.right, shape.box.top])                 
-                    elif shape.is_path():
-                        polygons.append([int(coord) for coord in re.split(r'[;,]', str(shape.path.polygon()).replace('(', '').replace(')', ''))])
-                    elif shape.is_text():
-                        position = shape.bbox().center()
-                        x = position.x
-                        y = position.y
-                        pins.append((shape.text, x, y))
+                # Check if this layer should be treated as a blockage layer
+                if key in blockage_layers:
+                    # For blockage layers, calculate single bounding box
+                    bbox = get_layer_bounding_box(top_cell.shapes(layer_info))
+                    if bbox is not None:
+                        rectangles = [bbox]  # Single rectangle encompassing all shapes
+                else:
+                    # For regular layers, process all individual shapes
+                    for shape in top_cell.shapes(layer_info):     
+                        if shape.is_polygon():
+                            polygons.append([int(coord) for coord in re.split(r'[;,]', str(shape.polygon).replace('(', '').replace(')', ''))])                   
+                        elif shape.is_box():
+                            rectangles.append([shape.box.left, shape.box.bottom, shape.box.right, shape.box.top])                 
+                        elif shape.is_path():
+                            polygons.append([int(coord) for coord in re.split(r'[;,]', str(shape.path.polygon()).replace('(', '').replace(')', ''))])
+                        elif shape.is_text():
+                            position = shape.bbox().center()
+                            x = position.x
+                            y = position.y
+                            pins.append((shape.text, x, y))
 
                 # Process pins
                 for pin in pins:
@@ -150,15 +181,23 @@ def convert_gds_to_lef(gds_path, out_file):
         print("END LIBRARY", file=file)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python gds2lef_standalone.py <input.gds> <output.lef>")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: python gds2lef_standalone.py <input.gds> <output.lef> [blockage_layers]")
+        print("  blockage_layers: comma-separated list of layer names to export as single blockage rectangles")
+        print("  Example: python gds2lef_standalone.py input.gds output.lef VIA4,VIA5,M5")
         sys.exit(1)
     
     gds_path = sys.argv[1]
     out_file = sys.argv[2]
     
+    custom_blockage_layers = None
+    if len(sys.argv) == 4:
+        # Parse comma-separated blockage layers
+        custom_blockage_layers = set(layer.strip() for layer in sys.argv[3].split(','))
+        print(f"Using custom blockage layers: {custom_blockage_layers}")
+    
     try:
-        convert_gds_to_lef(gds_path, out_file)
+        convert_gds_to_lef(gds_path, out_file, custom_blockage_layers)
         print(f"Successfully converted {gds_path} to {out_file}")
     except Exception as e:
         print(f"Error: {e}")
