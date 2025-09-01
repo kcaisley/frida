@@ -476,6 +476,10 @@ def main():
         sys.exit(1)
 
     output_path = sys.argv[1]
+    
+    # Extract cell name from output path
+    import os
+    cell_name = os.path.splitext(os.path.basename(output_path))[0]
     lyt_file_path = "/home/kcaisley/asiclab/tech/tsmc65/tsmc65.lyt"
     
     # Parse layer mapping from tsmc65.lyt file
@@ -510,7 +514,7 @@ def main():
     layers = create_layers(ly, layer_mapping)
 
     # Create the top-level cell
-    top_cell = ly.create_cell("cdac_array_with_shielding")
+    top_cell = ly.create_cell(cell_name)
 
     # Layout parameters
     y_shift = 0

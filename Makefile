@@ -22,7 +22,7 @@ EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
 
 # Default target
-.PHONY: all clean gds lef strmout lefout cdlout pvsdrc viewdrc setup
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup
 
 all: gds caparray
 
@@ -35,7 +35,7 @@ setup:
 	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
-# Generate GDS for specified block: make gds <cellname>
+# Generate GDS for specified block, using .py script for klayout: make gds <cellname>
 gds:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "Usage: make gds <cellname>"; \
@@ -49,9 +49,9 @@ gds:
 	fi; \
 	mkdir -p tech/$(PLATFORM)/gds; \
 	echo "Generating GDS for $${cellname}..."; \
-	cd src && ../.venv/bin/python "$${cellname}.py" "../tech/$(PLATFORM)/gds/$${cellname}.gds"
+	.venv/bin/python "src/$${cellname}.py" "tech/$(PLATFORM)/gds/$${cellname}.gds"
 
-# Generate LEF for specified block: make lef <cellname>
+# Generate LEF for specified block from gds: make lef <gds cellname>
 lef:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "Usage: make lef <cellname>"; \
@@ -65,11 +65,7 @@ lef:
 	fi; \
 	mkdir -p tech/$(PLATFORM)/lef; \
 	echo "Converting GDS to LEF for $${cellname}..."; \
-	.venv/bin/python src/utils/gds2lef_standalone.py "tech/$(PLATFORM)/gds/$${cellname}.gds" "tech/$(PLATFORM)/lef/$${cellname}.lef"
-
-# Clean generated files
-clean:
-	rm -rf tech/$(PLATFORM)/gds/*.gds tech/$(PLATFORM)/lef/*.lef
+	.venv/bin/python src/utils/gds2lef.py "tech/$(PLATFORM)/gds/$${cellname}.gds" "tech/$(PLATFORM)/lef/$${cellname}.lef" "tech/$(PLATFORM)/tsmc65.lyt"
 
 # View a GDS file in KLayout: make view <cellname>
 view:
@@ -120,7 +116,7 @@ cdlout:
 		cellname=$$(echo $$cell | cut -d: -f2); \
 		output=$$(echo $$cell | cut -d: -f3); \
 		echo "Exporting $$library:$$cellname -> $$output.cdl/.sp"; \
-		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && python3 $(CURDIR)/src/utils/oaschem2spice.py oa "$$library" "$$cellname" "$$output" && mv "$$output.cdl" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.cdl" && mv "$$output.sp" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.sp" && rm -f si.env) || exit 1; \
+		(cd $(CURDIR)/tech/$(PLATFORM)/cds && . ./workspace.sh && .venv/bin/python $(CURDIR)/src/utils/oaschem2spice.py oa "$$library" "$$cellname" "$$output" && mv "$$output.cdl" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.cdl" && mv "$$output.sp" "$(CURDIR)/tech/$(PLATFORM)/spice/$$output.sp" && rm -f si.env) || exit 1; \
 	done
 	@echo "CDL/SPICE export complete. Files saved to tech/$(PLATFORM)/spice/, logs in logs/"
 
@@ -188,5 +184,4 @@ help:
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
 	@echo "  pvsdrc    - Run PVS DRC on exported GDS files"
 	@echo "  viewdrc   - View DRC results in KLayout (usage: make viewdrc <output>)"
-	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
