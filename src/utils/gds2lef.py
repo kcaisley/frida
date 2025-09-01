@@ -1,58 +1,21 @@
 #!/usr/bin/env python3
 
 import sys
-import xml.etree.ElementTree as ET
 import klayout.db as db
 
-def parse_layer_mapping(lyt_file_path):
-    """
-    Parse layer mapping from tsmc65.lyt file.
-    
-    Returns:
-    - Dictionary mapping layer names to (layer_number, datatype) tuples
-    """
-    tree = ET.parse(lyt_file_path)
-    root = tree.getroot()
-    
-    layer_mapping = {}
-    
-    # Find connectivity symbols section
-    connectivity = root.find('connectivity')
-    if connectivity is not None:
-        for symbols in connectivity.findall('symbols'):
-            text = symbols.text
-            if text:
-                # Parse entries like "M5='35/0+135/0'"
-                parts = text.split('=')
-                if len(parts) == 2:
-                    layer_name = parts[0].strip()
-                    layer_def = parts[1].strip().strip("'")
-                    
-                    # Extract primary layer number (before the +)
-                    if '+' in layer_def:
-                        primary = layer_def.split('+')[0]
-                    else:
-                        primary = layer_def
-                    
-                    if '/' in primary:
-                        layer_num, datatype = primary.split('/')
-                        layer_mapping[layer_name] = (int(layer_num), int(datatype))
-    
-    return layer_mapping
+try:
+    from .layers import load_layers_from_lyt
+except ImportError:
+    # Handle standalone execution
+    from layers import load_layers_from_lyt
 
-def create_layers(ly, layer_mapping):
-    """
-    Create KLayout layers from the mapping dictionary.
-    
-    Returns:
-    - Dictionary mapping layer names to KLayout layer objects
-    """
-    layers = {}
-    
-    for layer_name, (layer_num, datatype) in layer_mapping.items():
-        layers[layer_name] = ly.layer(layer_num, datatype)
-    
-    return layers
+
+# TODO: This is should be broken up into:
+# 1. load_layers() - already done!
+# 2. read GDS
+# 3. parse "access layers" to pin rects/polygons extra blockage polygons (OBS)
+# 4. parse "internal layers" to simply rect OBS equal to cell bounding box.
+# 5. write the two to a 
 
 def convert_gds_to_lef(gds_path, out_file, lyt_file_path, blockage_layers=None, cell_name=None):
     """
@@ -60,9 +23,7 @@ def convert_gds_to_lef(gds_path, out_file, lyt_file_path, blockage_layers=None, 
     Generate simple LEF with M4 pins and configurable blockage layers
     """
     
-    # Parse layer mapping from .lyt file
-    layer_mapping = parse_layer_mapping(lyt_file_path)
-    
+    # TODO: This should be depend on the input cell, but it's hard-coded for caparray.gds now
     # Default blockage layers if none specified
     if blockage_layers is None:
         blockage_layers = {"M5", "M6"}
@@ -71,9 +32,10 @@ def convert_gds_to_lef(gds_path, out_file, lyt_file_path, blockage_layers=None, 
     ly = db.Layout()
     ly.read(gds_path)
     
-    # Create layer objects from mapping
-    layers = create_layers(ly, layer_mapping)
-    
+    # Load layer mapping from technology file
+    layers = load_layers_from_lyt(ly, lyt_file_path)
+    print(layers)
+
     # Get the first top cell (assume single macro)
     top_cells = ly.top_cells()
     if not top_cells:
@@ -220,13 +182,17 @@ def convert_gds_to_lef(gds_path, out_file, lyt_file_path, blockage_layers=None, 
                 print("", file=file)
         
         # Add blockage layers
+        print(layers)
         blockage_bboxes = {}
         for layer_name in blockage_layers:
             if layer_name in layers:
                 bbox = get_bounding_box(top_cell, layers[layer_name])
+                print(f"layer_name: {layer_name}")
+                print(f"bbox: {bbox}")
                 if bbox:
                     blockage_bboxes[layer_name] = bbox
-        
+
+        print(f"Test for {blockage_bboxes}")
         if blockage_bboxes:
             print("  OBS", file=file)
             

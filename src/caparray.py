@@ -1,60 +1,14 @@
 import math
 import sys
-import xml.etree.ElementTree as ET
 import klayout.db as db
 import cdac
 
-
-def parse_layer_mapping(lyt_file_path):
-    """
-    Parse layer mapping from tsmc65.lyt file.
-    
-    Returns:
-    - Dictionary mapping layer names to (layer_number, datatype) tuples
-    """
-    tree = ET.parse(lyt_file_path)
-    root = tree.getroot()
-    
-    layer_mapping = {}
-    
-    # Find connectivity symbols section
-    connectivity = root.find('connectivity')
-    if connectivity is not None:
-        for symbols in connectivity.findall('symbols'):
-            text = symbols.text
-            if text:
-                # Parse entries like "M5='35/0+135/0'"
-                parts = text.split('=')
-                if len(parts) == 2:
-                    layer_name = parts[0].strip()
-                    layer_def = parts[1].strip().strip("'")
-                    
-                    # Extract primary layer number (before the +)
-                    if '+' in layer_def:
-                        primary = layer_def.split('+')[0]
-                    else:
-                        primary = layer_def
-                    
-                    if '/' in primary:
-                        layer_num, datatype = primary.split('/')
-                        layer_mapping[layer_name] = (int(layer_num), int(datatype))
-    
-    return layer_mapping
+# Get GDS layer purpose numbers for a PDK
+from utils.layers import load_layers_from_lyt
 
 
-def create_layers(ly, layer_mapping):
-    """
-    Create KLayout layers from the mapping dictionary.
-    
-    Returns:
-    - Dictionary mapping layer names to KLayout layer objects
-    """
-    layers = {}
-    
-    for layer_name, (layer_num, datatype) in layer_mapping.items():
-        layers[layer_name] = ly.layer(layer_num, datatype, f"{layer_name}.drawing")
-    
-    return layers
+# TODO: This implementation works for my technology of choice, but has many 'magic numbers' which won't work on another technology.
+# In the future, I should factor these out use something like 'lambda rules', to be technology agnostic.
 
 
 def ring(width, height, thickness):
@@ -482,9 +436,6 @@ def main():
     cell_name = os.path.splitext(os.path.basename(output_path))[0]
     lyt_file_path = "/home/kcaisley/asiclab/tech/tsmc65/tsmc65.lyt"
     
-    # Parse layer mapping from tsmc65.lyt file
-    layer_mapping = parse_layer_mapping(lyt_file_path)
-    
     # Calculate weights and perform analysis
     unary_weight = 64
     weights, w_base, w_redun = cdac.generate_weights(11, 8, [5,6], 2)
@@ -507,11 +458,11 @@ def main():
     interior_x = strips_xdim + 2*strips_xspace
     interior_y = strips_ydim + 2*strips_yspace
 
-    # Create layout and layers
+    # Create layout and load layers from technology file
     ly = db.Layout()
     ly.dbu = 0.001  # sets the database unit to 1 nm
     
-    layers = create_layers(ly, layer_mapping)
+    layers = load_layers_from_lyt(ly, lyt_file_path)
 
     # Create the top-level cell
     top_cell = ly.create_cell(cell_name)
