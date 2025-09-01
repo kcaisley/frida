@@ -10,12 +10,17 @@ except ImportError:
     from layers import load_layers_from_lyt
 
 
+# TODO: Currently broken, and layers function gives: print(layers)
+# {'M1': 0, 'M2': 1, 'M3': 2, 'M4': 3, 'M5': 4, 'M6': 5, 'M7': 6, 'M8': 7, 'M9': 8, 'VIA1': 9, 'VIA2': 10, 'VIA3': 11, 'VIA4': 12, 'VIA5': 13, 'VIA6': 14, 'VIA7': 15, 'VIA8': 16, 'PO': 17, 'CO': 18, 'OD': 19, 'NW': 20, 'PM': 21, 'M1.PIN': 22, 'M2.PIN': 23, 'M3.PIN': 24, 'M4.PIN': 25, 'M5.PIN': 26, 'M6.PIN': 27, 'M7.PIN': 28, 'M8.PIN': 29, 'M9.PIN': 30, 'M1.DUMMY': 31, 'M2.DUMMY': 32, 'M3.DUMMY': 33, 'M4.DUMMY': 34, 'M5.DUMMY': 35, 'M6.DUMMY': 36, 'M7.DUMMY': 37, 'M8.DUMMY': 38, 'M9.DUMMY': 39}
+
+
+
 # TODO: This is should be broken up into:
 # 1. load_layers() - already done!
 # 2. read GDS
 # 3. parse "access layers" to pin rects/polygons extra blockage polygons (OBS)
 # 4. parse "internal layers" to simply rect OBS equal to cell bounding box.
-# 5. write the two to a 
+# 5. write the both out as .LEF file
 
 def convert_gds_to_lef(gds_path, out_file, lyt_file_path, blockage_layers=None, cell_name=None):
     """

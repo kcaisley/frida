@@ -5,7 +5,8 @@
 module sampswitch (
     input  wire vin,        // Input voltage
     output wire vout,       // Output voltage  
-    input  wire clk         // Switch control clock
+    input  wire clk,         // Switch control clock
+    input  wire clk_b
 );
 
     // Black box - analog implementation
