@@ -9,8 +9,7 @@
 module salogic (
     // Clock inputs for Mealy state machine
     input wire clk_init,                    // Initialize signal
-    input wire clk_update_p,                // Update signal positive
-    input wire clk_update_n,                // Update signal negative
+    input wire clk_update,                // Update signal positive
 
     // Control and data inputs - positive side
     input wire [15:0] dac_astate_p,            // 16 bits input A positive from SPI
@@ -34,13 +33,15 @@ module salogic (
 reg [15:0] dac_cycle;
 
 // Simplified single clock domain with synchronous reset-like behavior
-// Positive side logic
-always @(posedge clk_update_p) begin
+
+always @(posedge clk_update) begin
     if (clk_init) begin
         // Initialize dac_state_p to dac_astate_p when clk_init is high
         dac_state_p <= dac_astate_p;
+        dac_state_n <= dac_astate_n;
         dac_cycle <= {1'b1, {(15){1'b0}}};  // First bit is 1, others are 0 (MSB first)
     end else begin
+        
         // Update dac_state_p when clk_init is low
         if (dac_mode_p == 1) begin
             // Mode 1: Use dac_cycle as one-hot mask to update only the selected bit
@@ -52,15 +53,7 @@ always @(posedge clk_update_p) begin
             // Mode 0: Set dac_state_p to dac_bstate_p, don't increment counter
             dac_state_p <= dac_bstate_p;
         end
-    end
-end
 
-// Negative side logic
-always @(posedge clk_update_n) begin
-    if (clk_init) begin
-        // Initialize dac_state_n to dac_astate_n when clk_init is high
-        dac_state_n <= dac_astate_n;
-    end else begin
         // Update dac_state_n when clk_init is low
         if (dac_mode_n == 1) begin
             // Mode 1: Use dac_cycle as one-hot mask to update only the selected bit
@@ -72,5 +65,6 @@ always @(posedge clk_update_n) begin
         end
     end
 end
+
 
 endmodule

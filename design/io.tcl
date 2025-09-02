@@ -11,7 +11,7 @@ set_io_pin_constraint -region right:* -group -order -pin_names {dac_bstate_n[15]
 
 # Bottom - All control signals (will use IO_PLACER_V = M2)
 set_io_pin_constraint -pin_names {seq_init seq_samp seq_comp seq_update} -region bottom:* -group -order
-set_io_pin_constraint -pin_names {en_init en_samp_p en_samp_n en_comp en_update_p en_update_n} -region bottom:* -group -order
+set_io_pin_constraint -pin_names {en_init en_samp_p en_samp_n en_comp en_update} -region bottom:* -group -order
 set_io_pin_constraint -pin_names {dac_diffcaps rst comp_out} -region bottom:* -group -order
 set_io_pin_constraint -pin_names {dac_mode_p dac_mode_n} -region bottom:* -group -order
 
