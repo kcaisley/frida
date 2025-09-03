@@ -57,8 +57,8 @@ export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 # Design parameters - mixed-signal layout constraints
 
 # These settings are mutually exclusion with the ones below
-export DIE_AREA = 0 0 60 55
-export CORE_AREA = 0 0 60 55
+export DIE_AREA = 0 0 60 60
+export CORE_AREA = 0 0 60 60
 
 # export CORE_UTILIZATION = 40
 # export CORE_MARGIN = 1
@@ -98,6 +98,9 @@ export CTS_ARGS = -dont_use_dummy_load -sink_buffer_max_cap_derate 0.1 -delay_bu
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M5
+
+# Skip antenna repair due to crash in mixed-signal design
+export SKIP_ANTENNA_REPAIR = 1
 
 # Enable timing-driven placement for better compactness and connectivity
 # RC values configured in platforms/tsmc65/setRC.tcl from TSMC65LP specifications

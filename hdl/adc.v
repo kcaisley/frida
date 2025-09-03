@@ -16,12 +16,11 @@ module adc (
     input  wire en_update,                    // Enable update logic
 
     // DAC config - positive side
-    input  wire dac_mode_p,                   // DAC mode control positive
+    input  wire dac_mode,                     // DAC mode control (shared for both sides)
     input  wire [15:0] dac_astate_p,          // DAC A state positive side
     input  wire [15:0] dac_bstate_p,          // DAC B state positive side
     
     // DAC config - negative side
-    input  wire dac_mode_n,                   // DAC mode control negative
     input  wire [15:0] dac_astate_n,          // DAC A state negative side
     input  wire [15:0] dac_bstate_n,          // DAC B state negative side
 
@@ -87,11 +86,10 @@ module adc (
         .clk_update(clk_update),              // Update clock
         .dac_astate_p(dac_astate_p),          // DAC A state positive
         .dac_bstate_p(dac_bstate_p),          // DAC B state positive
-        .dac_mode_p(dac_mode_p),              // DAC mode positive
+        .dac_mode(dac_mode),                  // DAC mode (shared for both sides)
         .comp_p(comp_out_n),                  // Use negative comp output for P-side logic
         .dac_astate_n(dac_astate_n),          // DAC A state negative
         .dac_bstate_n(dac_bstate_n),          // DAC B state negative
-        .dac_mode_n(dac_mode_n),              // DAC mode negative
         .comp_n(comp_out_p),                  // Use positive comp output for N-side logic
         .dac_state_p(dac_state_p),            // Output to positive DAC state
         .dac_state_n(dac_state_n)             // Output to negative DAC state
