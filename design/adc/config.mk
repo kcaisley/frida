@@ -1,7 +1,7 @@
 export PLATFORM               = tsmc65
 
 export DESIGN_NAME            = adc
-export DESIGN_NICKNAME        = frida_adc
+export DESIGN_NICKNAME        = adc
 
 # -----------------------------------------------------
 #  Yosys (Synthesis)
@@ -16,17 +16,10 @@ export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/adc.v \
                        $(DESIGN_HOME)/$(PLATFORM)/frida/adc/sampswitch.v \
                        $(DESIGN_HOME)/$(PLATFORM)/frida/adc/caparray.v
 
-# Hardened analog macro files
-export ADDITIONAL_LEFS = $(PLATFORM_DIR)/lef/caparray.lef \
-                        $(PLATFORM_DIR)/lef/comp.lef \
-                        $(PLATFORM_DIR)/lef/sampswitch.lef
-
-export ADDITIONAL_GDS = $(PLATFORM_DIR)/gds/caparray.gds \
-                       $(PLATFORM_DIR)/gds/comp.gds \
-                       $(PLATFORM_DIR)/gds/sampswitch.gds
-
 # Constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
+
+export SYNTH_HIERARCHICAL = 1
 
 #--------------------------------------------------------
 # Floorplan
@@ -39,7 +32,7 @@ export IO_PLACER_V = M2  # Vertical I/O pins on M2
 # Custom I/O placement constraints
 export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
 
-# Pin placement settings
+# Pin placement settings, since my tracks are 200nm tall
 export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 
 #--------------------------------------------------------
@@ -47,13 +40,15 @@ export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 # -------------------------------------------------------
 
 # Design parameters - mixed-signal layout constraints
-export CORE_UTILIZATION = 40
-export CORE_ASPECT_RATIO = 1
-export CORE_MARGIN = 2
+
 export PLACE_DENSITY = 0.6
 
-# Macro placement configuration for analog blocks
-export MACRO_PLACEMENT = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.cfg
+# These settings are mutually exclusion with CORE_UTILIZATION, CORE_MARGIN, CORE_ASPECT_RATIO
+export DIE_AREA = 0 0 60 60
+export CORE_AREA = 0 0 60 60
+
+# Macro placement configuration for analog blocks  
+export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.tcl
 
 # MACRO_PLACE_HALO settings for mixed-signal layout
 export MACRO_PLACE_HALO = 1 1
@@ -78,6 +73,7 @@ export CTS_ARGS = -dont_use_dummy_load -sink_buffer_max_cap_derate 0.1 -delay_bu
 # -------------------------------------------------------
 
 # Routing layer constraints
+# Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M4
 
@@ -86,9 +82,6 @@ export SKIP_ANTENNA_REPAIR = 1
 export SKIP_DETAILED_ROUTE = 1
 # Enable detailed routing debug for caparray pin coverage issues
 export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
-
-# Enable timing-driven placement for better compactness and connectivity
-export PLACE_TIMING_DRIVEN = 1
 
 #--------------------------------------------------------
 # Finishing

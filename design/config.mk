@@ -3,8 +3,7 @@ export PLATFORM               = tsmc65
 export DESIGN_NAME            = frida_top
 export DESIGN_NICKNAME        = frida
 
-# Enable hierarchical synthesis
-export SYNTH_HIERARCHICAL = 1
+# name of sub-block directory to do first
 export BLOCKS = adc
 
 # Top-level Verilog files (hierarchical design)
@@ -12,22 +11,18 @@ export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/frida_top.v
                       $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/frida_core.v \
                       $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/spi_register.v \
                       $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/compmux.v \
-                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/pad_blackboxes.v
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/pad_blackboxes.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/adc.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/clkgate.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/salogic.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/capdriver.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/sampdriver.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/comp.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/sampswitch.v \
+                      $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/adc/caparray.v
 
 # Top-level constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/constraint.sdc
-
-# CUP Pad LEFs (Circuit Under Pad) and Fillers
-export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/LVDS_RX_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/LVDS_TX_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/CMOS_IO_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/PASSIVE_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/POWER_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/GROUND_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/SF_CORNER.lef \
-                         $(PLATFORM_DIR)/lef/SF_FILLER50_CUP.lef \
-                         $(PLATFORM_DIR)/lef/SF_FILLER_CUP.lef \
-                         $(PLATFORM_DIR)/lef/POWERCUT_CUP.lef
 
 # Sealring GDS file
 export SEAL_GDS = $(PLATFORM_DIR)/gds/sealring.gds
@@ -53,7 +48,7 @@ export PLACE_PINS_ARGS = -min_distance 10 -min_distance_in_tracks
 # -------------------------------------------------------
 
 export PLACE_DENSITY = 0.6
-export MACRO_PLACE_HALO = 20 20
+export MACRO_PLACE_HALO = 5 5
 
 # PDN configuration for hierarchical design
 export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/BLOCKS_grid_strategy.tcl
@@ -75,7 +70,6 @@ export CTS_ARGS = -dont_use_dummy_load -sink_buffer_max_cap_derate 0.1 -delay_bu
 # -------------------------------------------------------
 
 # Routing layer constraints - use more layers for top-level
-export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M6
 
 # Enable timing-driven placement

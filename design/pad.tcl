@@ -3,7 +3,8 @@
 # Based on TSMC65 CUP pad technology
 # 7 pads per side with 100μm pitch
 
-# Constants for positioning calculations
+# Constants for positioning calculations - declare as global
+global PAD_PITCH CORNER_SW_X CORNER_SW_Y CORNER_NE_X CORNER_NE_Y
 set PAD_PITCH 100.0
 set CORNER_SW_X 27.925
 set CORNER_SW_Y 27.925

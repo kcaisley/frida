@@ -34,7 +34,6 @@ echo "FRIDA directory: $FRIDA_DIR"
 echo "ORFS directory: $ORFS_DIR"
 
 # Create necessary directories if they don't exist
-mkdir -p "$ORFS_DIR/flow/designs/src"
 mkdir -p "$ORFS_DIR/flow/designs/tsmc65"
 mkdir -p "$ORFS_DIR/flow/platforms"
 
@@ -47,8 +46,6 @@ mkdir -p "$ORFS_DIR/flow/platforms"
 [ -d "$ORFS_DIR/flow/platforms/tsmc65" ] && rm -rf "$ORFS_DIR/flow/platforms/tsmc65"
 
 # Create symlinks
-echo "Creating symlink: $ORFS_DIR/flow/designs/src/frida -> $FRIDA_DIR/hdl"
-ln -sf "$FRIDA_DIR/hdl" "$ORFS_DIR/flow/designs/src/frida"
 
 echo "Creating symlink: $ORFS_DIR/flow/designs/tsmc65/frida -> $FRIDA_DIR/design"
 ln -sf "$FRIDA_DIR/design" "$ORFS_DIR/flow/designs/tsmc65/frida"

@@ -89,15 +89,15 @@ module frida_core(
                 .en_comp(adc_en_comp[i]),
                 .en_update(adc_en_update[i]),
                 .dac_mode(adc_dac_mode[i]),
-                .dac_diffcaps(adc_dac_diffcaps[i]),
                 .dac_astate_p(adc_dac_astate_p[i*16+15:i*16]),
                 .dac_bstate_p(adc_dac_bstate_p[i*16+15:i*16]),
                 .dac_astate_n(adc_dac_astate_n[i*16+15:i*16]),
                 .dac_bstate_n(adc_dac_bstate_n[i*16+15:i*16]),
-                .logic_state_init(adc_logic_state_init[i*6+5:i*6]),
+                .dac_diffcaps(adc_dac_diffcaps[i]),
                 .vin_p(vin_p),
                 .vin_n(vin_n),
-                .comparator_out(adc_comparator_out[i])
+                .rst(~reset_b),
+                .comp_out(adc_comparator_out[i])
             );
         end
     endgenerate
