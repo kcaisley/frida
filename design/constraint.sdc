@@ -1,70 +1,51 @@
-current_design frida
+# Top-level timing constraints for FRIDA chip
+# 1mm x 1mm die with IO pads
 
-# Our liberty file is in units of ns, so we must use the same here
+# Create sequencing clocks from LVDS inputs
+# These are the primary timing signals for the ADC operation
+create_clock -name "seq_init" -period 100.000 [get_ports "seq_init_p"]
+create_clock -name "seq_samp" -period 10.000 [get_ports "seq_samp_p"]  
+create_clock -name "seq_cmp" -period 5.000 [get_ports "seq_cmp_p"]
+create_clock -name "seq_logic" -period 20.000 [get_ports "seq_logic_p"]
 
-# Create clocks for sequencing signals
-# create_clock -name seq_init -period 100 -waveform {0 5} [get_ports seq_init]
-# create_clock -name seq_samp -period 100 -waveform {0 5} [get_ports seq_samp]
-# create_clock -name seq_comp -period 5 [get_ports seq_comp]
-create_clock -name seq_update -period 5 [get_ports seq_update]
+# Create SPI clock (slower for configuration)
+create_clock -name "spi_sclk" -period 100.000 [get_ports "spi_sclk"]
 
-# Set clock uncertainties
-set_clock_uncertainty 0.5 [all_clocks]
+# Set clock uncertainty (jitter, skew, etc.)
+set_clock_uncertainty 0.200 [all_clocks]
 
-# No input/output delay specified now, as we aren't working at the chip level, and have no IO.
+# Clock groups - seq_* clocks may be related, SPI is independent
+set_clock_groups -asynchronous -group [get_clocks "spi_sclk"] \
+                               -group [get_clocks "seq_init seq_samp seq_cmp seq_logic"]
 
-# Clock groups (since they are independent)
-# Group all four clocks as mutually asynchronous
-# This automatically implies fale_path between each other
-set_clock_groups -asynchronous \
-  -group {seq_update}
+# Balanced skew requirements for seq_* clock distribution to 16 ADCs
+# These clocks need to arrive at all ADCs with minimal skew
+set_max_skew 0.1 [get_clocks "seq_init"]
+set_max_skew 0.1 [get_clocks "seq_samp"] 
+set_max_skew 0.1 [get_clocks "seq_cmp"]
+set_max_skew 0.1 [get_clocks "seq_logic"]
 
-# -group {seq_samp}
-# -group {seq_comp}
-# -group {seq_init}
+# Input/output delays for pads
+set_input_delay -clock [get_clocks "spi_sclk"] -max 2.0 [get_ports "spi_sdi"]
+set_input_delay -clock [get_clocks "spi_sclk"] -min 1.0 [get_ports "spi_sdi"]
+set_input_delay -clock [get_clocks "spi_sclk"] -max 2.0 [get_ports "spi_cs_b"]
+set_input_delay -clock [get_clocks "spi_sclk"] -min 1.0 [get_ports "spi_cs_b"]
 
-# Path-specific delay constraints
-# Critical paths from seq_init/seq_update through salogic to capdriver outputs
+set_output_delay -clock [get_clocks "spi_sclk"] -max 2.0 [get_ports "spi_sdo"]
+set_output_delay -clock [get_clocks "spi_sclk"] -min 1.0 [get_ports "spi_sdo"]
 
-# Max delay constraints for seq_init to dac_cap_botplate outputs
-# set_max_delay 2.0 \
-#   -from [get_ports seq_init] \
-#   -to [get_pins */capdriver_p/dac_drive*] \
-#   -through [get_pins */salogic_p/dac_state*]
+# Comparator output has critical timing - minimize delay
+set_output_delay -clock [get_clocks "seq_cmp"] -max 1.0 [get_ports "comp_out_p"]
+set_output_delay -clock [get_clocks "seq_cmp"] -min 0.5 [get_ports "comp_out_p"]
 
-# set_max_delay 2.0 \
-#   -from [get_ports seq_init] \
-#   -to [get_pins */capdriver_n/dac_drive*] \
-#   -through [get_pins */salogic_n/dac_state*]
+# Set driving cell for inputs (pad strength)
+set_driving_cell -lib_cell "BUFFD2LVT" [all_inputs]
 
-# Max delay constraints for seq_update to dac_cap_botplate outputs  
-set_max_delay 2.0 \
-  -from [get_ports seq_update] \
-  -to [get_pins */capdriver_p/dac_drive*] \
-  -through [get_pins */salogic_p/dac_state*]
+# Set load capacitance for outputs (pad load) 
+set_load 0.1 [all_outputs]
 
-set_max_delay 2.0 \
-  -from [get_ports seq_update] \
-  -to [get_pins */capdriver_n/dac_drive*] \
-  -through [get_pins */salogic_n/dac_state*]
+# Set maximum transition time
+set_max_transition 0.5 [current_design]
 
-# Min delays aren't for hold time, but to ensure minimal timing variation between DAC bits
-# set_min_delay 0.1 \
-#   -from [get_ports seq_init] \
-#   -to [get_pins */capdriver_p/dac_drive*] \
-#   -through [get_pins */salogic_p/dac_state*]
-
-# set_min_delay 0.1 \
-#   -from [get_ports seq_init] \
-#   -to [get_pins */capdriver_n/dac_drive*] \
-#   -through [get_pins */salogic_n/dac_state*]
-
-set_min_delay 0.1 \
-  -from [get_ports seq_update] \
-  -to [get_pins */capdriver_p/dac_drive*] \
-  -through [get_pins */salogic_p/dac_state*]
-
-set_min_delay 0.1 \
-  -from [get_ports seq_update] \
-  -to [get_pins */capdriver_n/dac_drive*] \
-  -through [get_pins */salogic_n/dac_state*]
+# Set maximum fanout (important for clock distribution)
+set_max_fanout 20 [current_design]
