@@ -412,3 +412,144 @@ endif
 - **Block reuse** across multiple top-levels
 - **Reduced complexity** through hierarchy
 - **Better convergence** for large designs
+
+
+
+# Routing Issues
+
+## Antenna Properties
+My macro pins are missing:
+- ANTENNADIFFAREA (for diffusion area)
+- ANTENNAGATEAREA (for gate area)
+
+These are required by OpenROAD for:
+1. Pin access point generation
+2. Antenna violation analysis
+3. Proper routing connectivity
+
+## Caparray Pin Guide Coverage Problems
+
+The OpenROAD detailed router fails to route the caparray (capacitor array) pins in our mixed-signal SAR ADC design. The routing consistently fails with guide coverage errors for all caparray pins.
+
+### Error Messages
+
+The main errors we see during detailed routing:
+
+```
+[WARNING DRT-0215] Pin caparray_p/cap_botplate_main[0] not covered by guide.
+[WARNING DRT-0215] Pin caparray_p/cap_botplate_diff[0] not covered by guide.
+[WARNING DRT-0215] Pin caparray_n/cap_botplate_main[0] not covered by guide.
+[ERROR DRT-0218] Guide is not connected to design.
+```
+
+This pattern repeats for all 32 bottom plate pins (16 main + 16 diff) across both caparray_p and caparray_n instances, plus the 4 top plate pins.
+
+The routing fails immediately in the first iteration of detailed routing, even though:
+- Global routing completes successfully (520 nets routed)
+- Pin access generation works fine (#macroNoAp = 0)
+
+### Things We Investigated and Fixed
+
+#### 1. Pin Width Issues ✅ FIXED
+**Problem**: Original caparray pins were 0.18μm wide, which is below the M4 spacing table breakpoint of 0.20μm.
+
+**What we tried**: Increased all caparray pin widths from 0.18μm to 0.20μm while keeping the same center positions.
+
+**Result**: This fixed the pin access point generation (no more "Access Points: 0 items" errors), but detailed routing still fails with guide coverage issues.
+
+#### 2. Routing Track Alignment ✅ FIXED  
+**Problem**: Pin centers weren't aligned to the M4 routing grid.
+
+**What we tried**: Aligned all pin centers to M4 vertical tracks (0.1, 0.3, 0.5, 0.7μm spacing).
+
+**Result**: Pins are now properly quantized to the routing grid, but guide coverage problems persist.
+
+#### 3. Pin Area Violations ✅ FIXED
+**Problem**: Some pins had area violations due to small dimensions.
+
+**What we tried**: Doubled the height of pins that were too small to meet minimum area requirements.
+
+**Result**: No more area violations, but still no guide coverage.
+
+#### 4. Routing Layer Constraints ❌ NO EFFECT
+**Problem**: Maybe the router couldn't reach M4 pins with limited routing layers.
+
+**What we tried**: Changed MAX_ROUTING_LAYER from M4 to M6 to give more routing resources.
+
+**Result**: Global router still only used up to M4 anyway. No change in behavior.
+
+#### 5. Macro Placement and GCell Grid ❌ NO EFFECT  
+**Problem**: Maybe the caparray pins fall in bad locations relative to the 6μm global routing grid.
+
+**What we tried**: Analyzed where the pins land relative to GCell boundaries. Bottom pins are at Y=3.44μm (GCell 0), top pins at Y=56.28μm (GCell 9).
+
+**Result**: Pin locations seem reasonable relative to the grid. The issue appears deeper.
+
+#### 6. LEF File OBS Rectangles ❌ NO EFFECT
+**Problem**: Maybe routing obstructions in the LEF file were blocking guide generation.
+
+**What we tried**: Restored original OBS rectangle coordinates thinking they might affect routing.
+
+**Result**: No change in routing behavior with different OBS coordinates.
+
+### Current Theory: Bottom-Up Pin Access
+
+The most likely issue is that our mixed-signal design has an unusual pin access pattern. The caparray pins are on M4, but they need to be accessed from below (M1-M3 standard cell routing). Most OpenROAD designs access pins from above (higher metal layers).
+
+This "bottom-up" access pattern might be confusing the detailed router's guide generation algorithm.
+
+### Debug Commands for Investigation
+
+The following debug commands should be run in the OpenROAD GUI to understand what's happening:
+
+```tcl
+# Basic diagnostic - try to get guide coverage file before crash
+detailed_route -output_drc ./debug_drc.rpt -output_guide_coverage ./debug_coverage.csv -droute_end_iter 1 -verbose 2
+
+# Force via access from M3 layer  
+detailed_route -via_access_layer M3 -output_guide_coverage ./coverage_via_m3.csv -droute_end_iter 1
+
+# Via-in-pin constraints for M4 pins
+detailed_route -via_in_pin_bottom_layer M3 -via_in_pin_top_layer M4 -output_guide_coverage ./coverage_via_in_pin.csv -droute_end_iter 1
+
+# Skip pin access entirely (nuclear option)
+detailed_route -no_pin_access -output_guide_coverage ./coverage_no_pa.csv -droute_end_iter 1
+```
+
+The guide coverage CSV file should tell us exactly which pins are missing coverage and potentially why.
+
+### Root Cause Discovery: COVER vs BLOCK Instance Types
+
+**Key Finding**: The caparray instances are classified as type "COVER" rather than "BLOCK", which explains why they weren't placed through the normal macro placement flow.
+
+From `flow/logs/tsmc65/adc/base/6_report.log`:
+```
+Cell type report:                       Count       Area
+  Macro                                     3     428.55
+  Cover                                     2    1951.84
+```
+
+And from `flow/logs/tsmc65/adc/base/5_1_grt.log`:
+```
+[INFO GRT-0118] Macros: 3
+[WARNING GRT-0034] Net connected to instance of class COVER added for routing.
+[WARNING GRT-0034] Net connected to instance of class COVER added for routing.
+[WARNING GRT-0034] Net connected to instance of class COVER added for routing.
+...
+(67+ identical warnings for COVER instances)
+```
+
+**Analysis**: 
+- The `find_macros` function only detects instances of type "BLOCK" for macro placement
+- Caparray instances are type "COVER" (appropriate for metal-only structures that don't block FEOL)
+- This explains why caparrays don't appear in the `2_2_floorplan_macro.tcl` output file
+- The global router generates warnings when handling COVER instances
+- The detailed router may not properly handle pin access for COVER type instances in mixed-signal designs
+
+**Implication**: The fundamental issue may be that OpenROAD's detailed routing algorithms are not optimized for the "bottom-up" pin access pattern where M4 COVER instances need to be accessed from M1-M3 standard cells.
+
+### Status
+
+We successfully fixed all the pin geometry issues (width, alignment, area), but the fundamental guide coverage problem remains. The issue appears to be in OpenROAD's detailed routing algorithm when dealing with COVER type instances in mixed-signal designs, particularly the unusual bottom-up pin access pattern.
+
+Next steps are to use the debug commands above to get more detailed information about why guides aren't reaching the caparray pins.

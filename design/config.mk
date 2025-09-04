@@ -97,10 +97,13 @@ export CTS_ARGS = -dont_use_dummy_load -sink_buffer_max_cap_derate 0.1 -delay_bu
 # Routing layer constraints
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
-export MAX_ROUTING_LAYER = M5
+export MAX_ROUTING_LAYER = M4
 
 # Skip antenna repair due to crash in mixed-signal design
 export SKIP_ANTENNA_REPAIR = 1
+export SKIP_DETAILED_ROUTE = 1
+# Enable detailed routing debug for caparray pin coverage issues
+export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
 
 # Enable timing-driven placement for better compactness and connectivity
 # RC values configured in platforms/tsmc65/setRC.tcl from TSMC65LP specifications
