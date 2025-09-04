@@ -1,16 +1,35 @@
 # Todo list
-- [ ] Create GDS for capacitor array
-- [ ] Create GDS for switches and comparator, from .OA views
-- [ ] Create .lef for capacitor, switches, and comparator
-- [ ] Manual positioning of top-level macros
+
+
+# Next Steps (Priority Order)
+
+- [ ] Resolve KLayout crash in build_macros - ADC LEF/LIB generation failing during GDS merge step
+- [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis  
+- [ ] Run top-level synthesis - Test frida_top synthesis with ADC macros as black boxes
+- [ ] Implement floorplanning - Place 16 ADC macros in 4×4 grid within 600×600μm core area
+- [ ] Verify pad placement - Test IceWall pad.tcl script with 100μm pitch and power isolation
+- [ ] Run placement and routing - Complete physical implementation of full chip
+- [ ] Timing closure - Meet timing constraints across all four clock domains
+- [ ] Generate final GDS - Complete chip layout with sealring integration
+- [ ] 
+
+
+# Before submission don't forget:
+- [ ] Re-enable DRT in adc level
+- [ ] Re-enable antenna cell insertion / checking
+- [ ] Re-enable double/triple/quad cut via rules in the technology LEF
+- [x] Create GDS for capacitor array
+- [x] Create GDS for switches and comparator, from .OA views
+- [x] Create .lef for capacitor, switches, and comparator
+- [x] Manual positioning of top-level macros
 - [ ] Set specific input wires for manual routing or unbuffered routing
-- [ ] Set how to place the pad ring automatically
+- [x] Set how to place the pad ring automatically
 - [ ] Double check what additional buffers and clock cells are being put on clock tree and data path (on top of the core synthesized netlist)
 - [ ] Handle double or quad cut vias where OpenROAD doesn't support (make single cuts larger initially, then run find and replace operation in specific locations after the fact)
-- [ ] Connect to the 3 analog macros within each ADC channel (figure out proper positioning and apply correct pin/IO to each macro)
-- [ ] Get LEF files for the 3 analog blocks so tool can properly connect to them
-- [ ] Implement SPI Register
-- [ ] Implement output demultiplexer between the different channels
+- [x] Connect to the 3 analog macros within each ADC channel (figure out proper positioning and apply correct pin/IO to each macro)
+- [x] Get LEF files for the 3 analog blocks so tool can properly connect to them
+- [x] Implement SPI Register
+- [x] Implement output demultiplexer between the different channels
 - [ ] Double check register count versus what I expect from synthesis result
 - [ ] Make sure registers are minimum sized to minimize area
 - [ ] Specify load capacitance for the different drivers so they are properly sized
@@ -31,13 +50,13 @@
 - [ ] Test bench for expected input referred noise and offset
 
 # Capacitor array
-- [ ] Python script to generate layout
+- [x] Python script to generate layout
 - [ ] Python script to generate schematic 
 
 # Chip top level
-- [ ] Padring: 1mm x 1mm test chip, with 100um bump bond pitch. 28 pins in total.
+- [x] Padring: 1mm x 1mm test chip, with 100um bump bond pitch. 28 pins in total.
 - [ ] Decoupling MOSCAPs in periphery. Don't place them in-between as the real system won't have any room anyways
-- [ ] SPI 4-pin interface: SDI, SDO, SCLK, CS_B. Add more than one needs, and only use for static config
+- [x] SPI 4-pin interface: SDI, SDO, SCLK, CS_B. Add more than one needs, and only use for static config
 - [ ] Does the padring need to support 'higher voltages'?
 
 # Verification

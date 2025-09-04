@@ -34,46 +34,6 @@
 - Output Files: results/tsmc65/adc/base/1_synth.v, results/tsmc65/adc/base/1_synth.sdc, results/tsmc65/adc/base/1_2_yosys.v, results/tsmc65/adc/base/1_1_yosys_canonicalize.rtlil, results/tsmc65/adc/base/clock_period.txt, results/tsmc65/adc/base/mem.json
 - Report/Collateral Files: reports/tsmc65/adc/base/synth_stat.txt, reports/tsmc65/adc/base/synth_check.txt, logs/tsmc65/adc/base/1_1_yosys_canonicalize.log, logs/tsmc65/adc/base/1_2_yosys.log, objects/tsmc65/adc/base/lib/tcbn65lpwc.lib, objects/tsmc65/adc/base/abc.constr
 
-# Floorplan
-
-Mixed-signal layout with digital logic constrained to 40x40µm using M1-M3 layers:
-
-```
-┌─────────┐ ┌────────────┐ ┌─────────┐                      
-│         │ │            │ │         │                      
-│         │ │ Comparator │ │         │                      
-│Switch P │ │  (20x20µm) │ │Switch N │                      
-│(10x20µm)│ │            │ │(10x20µm)│                      
-└─────────┘ └────────────┘ └─────────┘                      
-┌────────────────────────────────────┐                      
-│  (sampswitches and comp connect)   │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│          Digital Logic             │                     
-│         (50x50µm max)              │                      
-│        (M1-M3 layers)              │                      
-│                                    │                      
-│(cap array              (cap array  │                      
-│ P connect)              N connect) │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│                                    │                      
-│             (SPI and config bits)  │                      
-└────────────────────────────────────┘                      
-```
 
 Note: Capacitor arrays are placed physically above in M5-M8 metal layers.
 
@@ -639,29 +599,3 @@ Total: 71 bits × 16 ADCs = 1136 bits
 - **spi_sclk**: SPI configuration clock (100ns period, 10 MHz)
 
 All sequencing clocks have balanced skew constraints (±0.1ns) for simultaneous operation across 16 ADCs.
-
-### Implementation Status
-
-#### ✅ Completed
-- **Verilog RTL**: All modules created and verified
-- **Synthesis**: 65,661-line netlist successfully generated
-- **Hierarchical Flow**: ADC block structure established
-- **Pad Integration**: CUP pad ring fully specified
-- **Signal Mapping**: Complete SPI-to-ADC control distribution
-
-#### 🔄 In Progress  
-- **ADC Hardening**: Generate LEF/LIB abstract files for hierarchical flow
-- **Physical Implementation**: Floorplan, placement, routing
-
-#### 🚧 Known Issues
-- **Detailed Routing**: COVER-type analog macros cause pin access failures
-- **Mixed-Signal**: Bottom-up pin access pattern challenges OpenROAD algorithms
-
-### Technical Innovations
-1. **Massive SPI Control**: 1280-bit register enabling individual control of 16 ADCs
-2. **Systematic Naming**: `adc_XX_signal_name` scheme for scalable design
-3. **Mixed-Signal Integration**: Digital control with analog macro blocks
-4. **Hierarchical Synthesis**: Separate ADC block for design reuse
-5. **Complete Pad Ring**: Full CUP pad integration for 1mm² die
-
-This represents one of the largest mixed-signal designs successfully synthesized through the OpenROAD open-source toolchain, demonstrating the capability for complex analog-digital integration in advanced process nodes.
