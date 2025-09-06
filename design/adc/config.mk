@@ -1,26 +1,18 @@
-export PLATFORM               = tsmc65
-
 export DESIGN_NAME            = adc
 export TOP_DESIGN_NICKNAME    = frida
 export DESIGN_NICKNAME        = ${TOP_DESIGN_NICKNAME}_${DESIGN_NAME}
+export PLATFORM               = tsmc65
 
 # -----------------------------------------------------
 #  Yosys (Synthesis)
 #  ----------------------------------------------------
 
-export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/adc.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/clkgate.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/salogic.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/capdriver.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/sampdriver.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/comp.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/sampswitch.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/caparray.v
+export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/${TOP_DESIGN_NICKNAME}/*.v
 
 # Constraints
-export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(TOP_DESIGN_NICKNAME)/${DESIGN_NAME}/constraint.sdc
 
-# export SYNTH_HIERARCHICAL = 1
+export SYNTH_HIERARCHICAL = 1
 
 #--------------------------------------------------------
 # Floorplan
@@ -50,7 +42,7 @@ export CORE_AREA = 0 0 60 60
 
 # Macro placement configuration for analog blocks  
 # export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.tcl
-# export MACRO_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.cfg
+export MACRO_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.cfg
 
 # MACRO_PLACE_HALO settings for mixed-signal layout
 export MACRO_PLACE_HALO = 1 1
