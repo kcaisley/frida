@@ -1,24 +1,23 @@
 export PLATFORM               = tsmc65
 
 export DESIGN_NAME            = adc
-export TOP_DESIGN_NICKNAME    = frida
-export DESIGN_NICKNAME        = ${TOP_DESIGN_NICKNAME}_${DESIGN_NAME}
+export DESIGN_NICKNAME        = adc
 
 # -----------------------------------------------------
 #  Yosys (Synthesis)
 #  ----------------------------------------------------
 
-export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/adc.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/clkgate.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/salogic.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/capdriver.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/sampdriver.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/comp.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/sampswitch.v \
-                       $(DESIGN_HOME)/$(PLATFORM)/frida/adc/caparray.v
+export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/adc/adc.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/clkgate.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/salogic.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/capdriver.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/sampdriver.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/comp.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/sampswitch.v \
+                       $(DESIGN_HOME)/$(PLATFORM)/adc/caparray.v
 
 # Constraints
-export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/adc/constraint.sdc
 
 # export SYNTH_HIERARCHICAL = 1
 
@@ -31,7 +30,7 @@ export IO_PLACER_H = M3  # Horizontal I/O pins on M3
 export IO_PLACER_V = M2  # Vertical I/O pins on M2
 
 # Custom I/O placement constraints
-export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
+export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/adc/io.tcl
 
 # Pin placement settings, since my tracks are 200nm tall
 export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
@@ -49,14 +48,14 @@ export DIE_AREA = 0 0 60 60
 export CORE_AREA = 0 0 60 60
 
 # Macro placement configuration for analog blocks  
-# export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.tcl
-# export MACRO_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.cfg
+# export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/adc/macro_placement.tcl
+export MACRO_PLACE = $(DESIGN_HOME)/$(PLATFORM)/adc/macro_placement.cfg
 
 # MACRO_PLACE_HALO settings for mixed-signal layout
 export MACRO_PLACE_HALO = 1 1
 export MACRO_PLACE_CHANNEL = 4 4
 
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/adc/pdn.tcl
 
 #--------------------------------------------------------
 # Clock Tree Synthsis (CTS)
