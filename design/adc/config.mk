@@ -14,6 +14,16 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(TOP_DESIGN_NICKNAME)/${DESIG
 
 export SYNTH_HIERARCHICAL = 1
 
+# Analog macro LEFs for ADC sub-block
+export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/caparray.lef \
+                         $(PLATFORM_DIR)/lef/comp.lef \
+                         $(PLATFORM_DIR)/lef/sampswitch.lef
+
+# Analog macro GDS files for ADC sub-block
+export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/caparray.gds \
+                        $(PLATFORM_DIR)/gds/comp.gds \
+                        $(PLATFORM_DIR)/gds/sampswitch.gds
+
 #--------------------------------------------------------
 # Floorplan
 # -------------------------------------------------------

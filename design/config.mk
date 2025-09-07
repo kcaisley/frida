@@ -16,6 +16,30 @@ export SYNTH_HIERARCHICAL = 1
 # name of sub-block directory to do first
 export BLOCKS = adc
 
+# IO Pad LEFs (Circuit Under Pad) and Fillers for top-level
+export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/LVDS_RX_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/LVDS_TX_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/CMOS_IO_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/PASSIVE_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/POWER_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/GROUND_CUP_pad.lef \
+                         $(PLATFORM_DIR)/lef/SF_CORNER.lef \
+                         $(PLATFORM_DIR)/lef/SF_FILLER50_CUP.lef \
+                         $(PLATFORM_DIR)/lef/SF_FILLER_CUP.lef \
+                         $(PLATFORM_DIR)/lef/POWERCUT_CUP.lef
+
+# IO Pad GDS files for top-level
+export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/LVDS_RX_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/LVDS_TX_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/CMOS_IO_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/PASSIVE_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/POWER_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/GROUND_CUP_pad.gds \
+                        $(PLATFORM_DIR)/gds/SF_CORNER.gds \
+                        $(PLATFORM_DIR)/gds/SF_FILLER50_CUP.gds \
+                        $(PLATFORM_DIR)/gds/SF_FILLER_CUP.gds \
+                        $(PLATFORM_DIR)/gds/POWERCUT_CUP.gds
+
 #--------------------------------------------------------
 # Floorplan
 # -------------------------------------------------------
