@@ -1,5 +1,3 @@
-current_design frida
-
 # Our liberty file is in units of ns, so we must use the same here
 
 # Create clocks for sequencing signals
@@ -40,13 +38,13 @@ set_clock_groups -asynchronous \
 # Max delay constraints for seq_update to dac_cap_botplate outputs  
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins */capdriver_p/dac_drive*] \
-  -through [get_pins */salogic_p/dac_state*]
+  -to [get_pins capdriver_p_main/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_p*]
 
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins */capdriver_n/dac_drive*] \
-  -through [get_pins */salogic_n/dac_state*]
+  -to [get_pins capdriver_n_main/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_n*]
 
 # Min delays aren't for hold time, but to ensure minimal timing variation between DAC bits
 # set_min_delay 0.1 \
@@ -61,10 +59,32 @@ set_max_delay 2.0 \
 
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins */capdriver_p/dac_drive*] \
-  -through [get_pins */salogic_p/dac_state*]
+  -to [get_pins capdriver_p_main/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_p*]
 
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins */capdriver_n/dac_drive*] \
-  -through [get_pins */salogic_n/dac_state*]
+  -to [get_pins capdriver_n_main/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_n*]
+
+# Max delay constraints for differential capacitor drivers
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins capdriver_p_diff/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_p*]
+
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins capdriver_n_diff/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_n*]
+
+# Min delay constraints for differential capacitor drivers  
+set_min_delay 0.1 \
+  -from [get_ports seq_update] \
+  -to [get_pins capdriver_p_diff/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_p*]
+
+set_min_delay 0.1 \
+  -from [get_ports seq_update] \
+  -to [get_pins capdriver_n_diff/dac_drive*] \
+  -through [get_pins salogic_dual/dac_state_n*]

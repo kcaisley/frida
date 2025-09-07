@@ -1,9 +1,36 @@
-# Todo list
+# ADC issues:
+- [x] Open road wouldn't build, even on Ubuntu 22.04 -> Solution was to install basic packages and rerun setup.sh
+- [x] Resolve KLayout crash in build_macros - ADC LEF/LIB generation failing during GDS merge step -> Solution was to move to Ubuntu 22.04 (or RHEl 9!)
+- [x] Solved issue of top level run not triggering ADC as BLOCK (solution was ADDITIONAL_LEFS += and placing them inside project config.mk)
+- [x] Technology and stdcells should be seperated into different .LEFs
+- [x] Pins must be track aligned, and meet minimum area, dimensions, and spacing as defined in technology LEF
+- [x] I believe all design levels should just include *.v, and use (* blackboxes *) for non-synthesized macros
+- [x] Error about double cut via -> For now out those rules from the the tech .LEF for now -> can also avoid those cells specifically
+- [x] Lots of timing repair delay cells were being inserted -> (hacky) solution was to force DFF w/ enable cells to be used
+- [ ] global placement failing with error about RSZ-2001 (can I try disabling repair for now?)
+- [ ] SDC constraint pin names aren't being resolved correctly, giving error -> maybe use -hierarchy?
+- [ ] DRT failing, because not working for pins of comparator, claiming pins aren't found in the guide, even though it shows in the GUI
+- [ ] Antenna diode insertion is failing, even got a crash at some point (skipping can't be final)
+- [ ] placement not working for macros, they're just going to random locations, after changing my flow for heirachical design
+- [ ] Klayout.lyt still doesn't have correct writer settings for DEF->GDS convesion for tsmc65, spacing is all messed up
+- [ ] Macro placement with .tcl fails with 'caparray_p isn't a macro' and with .cfg just seems to ignore it and place as though no placement locations were specified
+- [ ] PDN generation was failing with anything more than a basic VDD/VSS configuration. Need to re-implement.
 
+# Chip-level issues:
+- [ ] Top level timing constraints need to be completed, and also only be implemented from inside the pad-ring as we have no macro
+- [ ] LEF files for IO pads are wrong, no blockages, missing pins (see ihp130 for better example?)
+- [ ] Standard cells are appearing in the layout even during floorplanning?
+- [ ] Verilog connections for the pad ring power level still aren't fully complete, need to replace 'connect by abutment'
+- [ ] Pad placement script not really tested yet?
 
-# Next Steps (Priority Order)
+# Outstanding questions:
+- [x] Does specifying the sub-block config.mk yield the same output as when it's built as a dependency? -> Looks like it, yes
+- [ ] Should my blocks have power pins defined in verilog?
+- [ ] we don't have .lib files for the pad ring at all, and for our macros, but I think I can do without this? Or I even specify capacitance with a basic lib file myself?
+- [ ] which layers (drawing, pin, label, text) and objects (text, polygon, OA pin) should be used in .OA / .GDS files for input/outputs in my layouts?
+- [ ] What's the correct way to use placement for ORFS? .cfg or .tcl?
 
-- [ ] Resolve KLayout crash in build_macros - ADC LEF/LIB generation failing during GDS merge step
+# Before submission don't forget:
 - [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis  
 - [ ] Run top-level synthesis - Test frida_top synthesis with ADC macros as black boxes
 - [ ] Implement floorplanning - Place 16 ADC macros in 4×4 grid within 600×600μm core area
@@ -11,10 +38,6 @@
 - [ ] Run placement and routing - Complete physical implementation of full chip
 - [ ] Timing closure - Meet timing constraints across all four clock domains
 - [ ] Generate final GDS - Complete chip layout with sealring integration
-- [ ] 
-
-
-# Before submission don't forget:
 - [ ] Re-enable DRT in adc level
 - [ ] Re-enable antenna cell insertion / checking
 - [ ] Re-enable double/triple/quad cut via rules in the technology LEF

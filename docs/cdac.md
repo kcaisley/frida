@@ -57,8 +57,6 @@ We focus on CDAC, since it is the limited factor for 10-12bit precision in a com
 - only good as input test source, masked by comparator non-linearity and offset and/or non-linearity near rails?
 - can I simulate calibratability from my
 
-
-# from caleste presentation:
 ## CDAC Construction Principles
 
 For individual capacitor weights

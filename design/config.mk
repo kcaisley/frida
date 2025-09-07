@@ -11,7 +11,7 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/constraint.
 # Sealring GDS file
 export SEAL_GDS = $(PLATFORM_DIR)/gds/sealring.gds
 
-export SYNTH_HIERARCHICAL = 1
+# export SYNTH_HIERARCHICAL = 1
 
 # name of sub-block directory to do first
 export BLOCKS = adc
