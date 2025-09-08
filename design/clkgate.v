@@ -20,7 +20,10 @@ module clkgate (
     output wire clk_samp_p,     // Gated sampling clock positive
     output wire clk_samp_n,     // Gated sampling clock negative
     output wire clk_comp,       // Gated comparator clock
-    output wire clk_update      // Gated update clock
+    output wire clk_update,     // Gated update clock
+    
+    // Power supply signals  
+    inout wire vdd_d, vss_d     // Digital supply
 );
 
     // Generate gated clocks using proper clock gates

@@ -31,7 +31,9 @@
 - [ ] What's the correct way to use placement for ORFS? .cfg or .tcl?
 
 # Before submission don't forget:
-- [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis  
+- [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis
+- [ ] Don't forget to check if inverted signal in XOR gate in capdrive.v is right (I removed a ~)
+- [ ] Check that the config pins on IO pads have been set correctly
 - [ ] Run top-level synthesis - Test frida_top synthesis with ADC macros as black boxes
 - [ ] Implement floorplanning - Place 16 ADC macros in 4×4 grid within 600×600μm core area
 - [ ] Verify pad placement - Test IceWall pad.tcl script with 100μm pitch and power isolation

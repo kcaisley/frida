@@ -5,7 +5,7 @@
  */
 
 module frida_core(
-    // Clock inputs (from pad receivers)
+    // Clock inputs (from LVDS RX pads)
     input wire seq_init,
     input wire seq_samp, 
     input wire seq_cmp,
@@ -18,12 +18,18 @@ module frida_core(
     input wire spi_cs_b,
     input wire reset_b,
     
-    // Analog inputs (from pads)
+    // Analog inputs (from passive pads)
     input wire vin_p,
     input wire vin_n,
     
-    // Comparator output (to pad transmitter)
-    output wire comp_out
+    // Comparator output (to LVDS TX pad)
+    output wire comp_out,
+    
+    // Power supply signals
+    inout wire vdd_a, vss_a,               // Analog supply
+    inout wire vdd_d, vss_d,               // Digital supply  
+    inout wire vdd_io, vss_io,             // I/O supply
+    inout wire vdd_dac, vss_dac            // DAC supply
 );
 
     // SPI register outputs
@@ -46,7 +52,9 @@ module frida_core(
         .spi_sdi(spi_sdi),
         .spi_sclk(spi_sclk),
         .spi_sdo(spi_sdo),
-        .spi_bits(spi_bits)
+        .spi_bits(spi_bits),
+        .vdd_d(vdd_d),
+        .vss_d(vss_d)
     );
 
     // Map SPI bits to ADC control signals (71 bits per ADC)
@@ -97,7 +105,13 @@ module frida_core(
                 .vin_p(vin_p),
                 .vin_n(vin_n),
                 .rst(~reset_b),
-                .comp_out(adc_comparator_out[i])
+                .comp_out(adc_comparator_out[i]),
+                .vdd_a(vdd_a),
+                .vss_a(vss_a),
+                .vdd_d(vdd_d),
+                .vss_d(vss_d),
+                .vdd_dac(vdd_dac),
+                .vss_dac(vss_dac)
             );
         end
     endgenerate
@@ -106,7 +120,9 @@ module frida_core(
     compmux comp_mux (
         .mux_sel(mux_sel),
         .adc_comp_out(adc_comparator_out),
-        .comp_out(comp_out)
+        .comp_out(comp_out),
+        .vdd_d(vdd_d),
+        .vss_d(vss_d)
     );
 
 endmodule

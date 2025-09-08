@@ -68,6 +68,14 @@ Ensure `spectre` is installed and available in your `$PATH`. This is the Cadence
 which spectre
 ```
 
+ngspice 45 should be installed, which when compiled depends on the following packages on Ubuntu 22 LTS:
+
+```bash
+sudo apt install bison flex libx11-6 libx11-dev libxaw7 libxaw7-dev libxmu-dev libxext6 libxext-dev libxft2 libxft-dev libfontconfig1 libfontconfig1-dev libxrender1 libxrender-dev libfreetype6 libfreetype-dev libreadline8 libreadline-dev
+
+sudo ./compile_linux.sh
+```
+
 For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
 
 When producing raw binary files, ensure `utf_8` encoding is used for the plaintext section.

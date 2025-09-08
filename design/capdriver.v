@@ -8,7 +8,10 @@
 module capdriver (
     input  wire [15:0] dac_state,        // DAC state input bus (16-bit subset)
     input  wire dac_drive_invert,        // Control signal for inverting output (active low)
-    output wire [15:0] dac_drive         // DAC drive output bus (16-bit)
+    output wire [15:0] dac_drive,        // DAC drive output bus (16-bit)
+    
+    // Power supply signals
+    inout wire vdd_dac, vss_dac          // DAC supply
 );
 
     // Manual instantiation of TSMC65 XOR gates with drive strength 2
@@ -21,8 +24,10 @@ module capdriver (
         for (i = 0; i < 16; i = i + 1) begin : xor_gates
             CKXOR2D2LVT xor_gate (
                 .A1(dac_state[i]),           // Data input
-                .A2(~dac_drive_invert),      // Invert control (active low, so invert it)
-                .Z(dac_drive[i])             // Output
+                .A2(dac_drive_invert),       // Invert control (active low)
+                .Z(dac_drive[i]),            // Output
+                .VDD(vdd_dac),               // Power supply
+                .VSS(vss_dac)                // Ground supply
             );
         end
     endgenerate

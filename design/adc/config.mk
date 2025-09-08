@@ -14,8 +14,6 @@ export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/${TOP_DESIGN_NICKNAME}/*.v
 # Constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(TOP_DESIGN_NICKNAME)/${DESIGN_NAME}/constraint.sdc
 
-
-
 # Analog macro LEFs for ADC sub-block
 export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/caparray.lef \
                          $(PLATFORM_DIR)/lef/comp.lef \

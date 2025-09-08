@@ -599,3 +599,91 @@ Total: 71 bits × 16 ADCs = 1136 bits
 - **spi_sclk**: SPI configuration clock (100ns period, 10 MHz)
 
 All sequencing clocks have balanced skew constraints (±0.1ns) for simultaneous operation across 16 ADCs.
+
+
+
+# OpenSTA SDC timing constraint errors:
+
+Initial LEF/Liberty Warnings:
+
+[WARNING ORD-2011] LEF master caparray has no liberty cell.
+[WARNING ORD-2011] LEF master comp has no liberty cell.
+[WARNING ORD-2011] LEF master sampswitch has no liberty cell.
+
+```log
+Pin Reference Warnings (multiple iterations):
+
+[WARNING STA-0363] pin '*/capdriver_p_main/dac_drive*' not found.
+[WARNING STA-0473] no valid objects specified for -to.
+
+[WARNING STA-0363] pin 'capdriver_p_main/xor_gates[0].xor_gate/Z' not found.
+[WARNING STA-0363] pin 'capdriver_p_main/xor_gates[1].xor_gate/Z' not found.
+...continuing for all 16 pins of each capdriver instance...
+```
+
+# 1. Original hierarchical path with wildcards
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins */instance/pin*]
+
+# 2. Full hierarchical path with adc/ prefix
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins adc/instance/pin*]
+
+# 3. With -hierarchical flag
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins -hierarchical instance/pin*]
+
+# 4. Using get_nets (failed with "unsupported object type Net")
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_nets dac_drive_botplate_main_p*]
+
+# 5. Direct instance pin references without wildcards
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins capdriver_p_main/dac_drive*]
+
+# 6. With wildcard prefix
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins */capdriver_p_main/dac_drive*]
+
+```log
+[WARNING STA-1551] ./results/tsmc65/frida_adc/base/1_synth.sdc line 25,
+'capdriver_p_main/xor_gates[0].xor_gate/Z' is not a valid endpoint.
+[WARNING STA-1551] ./results/tsmc65/frida_adc/base/1_synth.sdc line 25,
+'capdriver_p_main/xor_gates[1].xor_gate/Z' is not a valid endpoint.
+...continuing for multiple lines and instances...
+```
+
+# 7. Final approach - using get_pins -of_objects with nets and filter
+set_max_delay 2.0 \
+  -from [get_ports seq_update] \
+  -to [get_pins -of_objects [get_nets dac_drive_botplate_main_p*] -filter "direction==output"]
+
+Along the way, this was persistant:
+```log
+Boolean Network Construction Error:
+[ERROR RSZ-2001] failed bnet construction for capdriver_p_main/xor_gates\[9\].xor_gate/Z
+Error: global_place.tcl, 49 RSZ-2001
+```
+
+
+
+  Invalid Endpoint Warnings:
+
+
+
+  Net Object Type Error:
+
+  
+
+
+
+Writing netlist in CDL format:
+
+>>> read_verilog results/tsmc65/frida_adc/base/1_2_yosys.v
+>>> write_cdl -masters "platforms/tsmc65/spice/tcbn65lplvt_200a.spi /home/kcaisley/frida/etc/sampswitch.cdl /home/kcaisley/frida/etc/comp.cdl /home/kcaisley/frida/etc/caparray.cdl" results/tsmc65/frida_adc/base/output.cdl

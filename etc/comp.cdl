@@ -1,0 +1,20 @@
+.subckt comp vin_p vin_n dout_p dout_n clk vdd_a vss_a
+*.PININFO vin_p:I vin_n:I dout_p:O dout_n:O clk:I vdd_a:B vss_a:B
+* Latch-based differential comparator
+* Note: Adding vdd and gnd connections for proper operation
+
+M0 tail clk vss_a vss_a nch_lvt l=800n w=550n m=1
+M2 net037 vin_n tail vss_a nch_lvt l=300n w=1u m=4
+M8 tail vss_a vss_a vss_a nch_lvt l=60n w=1u m=4
+M1 net031 vin_p tail vss_a nch_lvt l=300n w=1u m=4
+M3 dout_n dout_p net031 vss_a nch_lvt l=350n w=750n m=4
+M4 dout_p dout_n net037 vss_a nch_lvt l=350n w=750n m=4
+Ms2 net037 clk vdd_a vdd_a pch_lvt l=60n w=500n m=2
+Ms4 dout_p clk vdd_a vdd_a pch_lvt l=60n w=500n m=2
+Ms1 net031 clk vdd_a vdd_a pch_lvt l=60n w=500n m=2
+M7 tail clk vdd_a vdd_a pch_lvt l=60n w=500n m=1
+M6 dout_p dout_n vdd_a vdd_a pch_lvt l=1u w=2u m=2
+M5 dout_n dout_p vdd_a vdd_a pch_lvt l=1u w=2u m=2
+Ms3 dout_n clk vdd_a vdd_a pch_lvt l=60n w=500n m=2
+
+.ends

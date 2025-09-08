@@ -17,11 +17,11 @@ module frida_top(
     input wire seq_logic_p_PAD, seq_logic_n_PAD,   // SAR logic timing
     
     // CMOS I/O Pads
-    inout wire spi_sclk_PAD,                       // SPI serial clock
-    inout wire spi_sdi_PAD,                        // SPI serial data input (MOSI)
-    inout wire spi_sdo_PAD,                        // SPI serial data output (MISO)
-    inout wire spi_cs_b_PAD,                       // SPI chip select (active low)
-    inout wire reset_b_PAD,                        // Global reset (active low)
+    input wire spi_sclk_PAD,                       // SPI serial clock (input)
+    input wire spi_sdi_PAD,                        // SPI serial data input (MOSI)
+    output wire spi_sdo_PAD,                       // SPI serial data output (MISO)
+    input wire spi_cs_b_PAD,                       // SPI chip select (active low)
+    input wire reset_b_PAD,                        // Global reset (active low)
     
     // Analog Input Pads
     inout wire vin_p_PAD,                          // Analog input positive
@@ -44,13 +44,15 @@ module frida_top(
 
     // Internal signals from pads to core
     wire seq_init, seq_samp, seq_cmp, seq_logic;
-    wire spi_sclk_core, spi_sdi_core, spi_sdo_core, spi_cs_b_core, reset_b_core;
-    wire vin_p_core, vin_n_core;
-    wire comp_out_core;
+    wire spi_sclk, spi_sdi, spi_sdo, spi_cs_b, reset_b;
+    wire vin_p, vin_n;
+    wire comp_out;
     
-    // Internal bidirectional pad signals
-    wire spi_sclk_int, spi_sdi_int, spi_sdo_int, spi_cs_b_int, reset_b_int;
-    wire vin_p_int, vin_n_int;
+    // Internal power supply signals
+    wire vdd_a, vss_a;               // Analog supply
+    wire vdd_d, vss_d;               // Digital supply  
+    wire vdd_io, vss_io;             // I/O supply
+    wire vdd_dac, vss_dac;           // DAC supply
 
     // LVDS Receiver Pads for clocks
     LVDS_RX_CUP_pad lvds_seq_init (
@@ -58,10 +60,10 @@ module frida_top(
         .PAD_N(seq_init_n_PAD),
         .O(seq_init),
         .EN_B(1'b0),    // Enable active
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VSS()          // Connected by abutment
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .VDD(vdd_io),   // Connected to I/O supply
+        .VSS(vss_io)    // Connected to I/O supply
     );
     
     LVDS_RX_CUP_pad lvds_seq_samp (
@@ -69,10 +71,10 @@ module frida_top(
         .PAD_N(seq_samp_n_PAD),
         .O(seq_samp),
         .EN_B(1'b0),    // Enable active
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VSS()          // Connected by abutment
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .VDD(vdd_io),   // Connected to I/O supply
+        .VSS(vss_io)    // Connected to I/O supply
     );
     
     LVDS_RX_CUP_pad lvds_seq_cmp (
@@ -80,10 +82,10 @@ module frida_top(
         .PAD_N(seq_cmp_n_PAD),
         .O(seq_cmp),
         .EN_B(1'b0),    // Enable active
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VSS()          // Connected by abutment
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .VDD(vdd_io),   // Connected to I/O supply
+        .VSS(vss_io)    // Connected to I/O supply
     );
     
     LVDS_RX_CUP_pad lvds_seq_logic (
@@ -91,52 +93,50 @@ module frida_top(
         .PAD_N(seq_logic_n_PAD),
         .O(seq_logic),
         .EN_B(1'b0),    // Enable active
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VSS()          // Connected by abutment
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .VDD(vdd_io),   // Connected to I/O supply
+        .VSS(vss_io)    // Connected to I/O supply
     );
 
     // CMOS I/O Pads
     CMOS_IO_CUP_pad cmos_spi_sclk (
         .PAD(spi_sclk_PAD),
         .A(1'b0),       // Input only
-        .Z(spi_sclk_int),
+        .Z(spi_sclk),
         .OUT_EN(1'b0),  // Output disabled (input mode)
         .PEN(1'b1),     // Pull enable
-        .IO(),          // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .DS(),          // Connected by abutment
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .DS(1'b0),      // Drive strength control
         .Z_h(),         // Not used
         .UD_B(1'b1)     // Pull up/down control
     );
-    assign spi_sclk_core = spi_sclk_int;
     
     CMOS_IO_CUP_pad cmos_spi_sdi (
         .PAD(spi_sdi_PAD),
         .A(1'b0),
-        .Z(spi_sdi_int),
+        .Z(spi_sdi),
         .OUT_EN(1'b0),
         .PEN(1'b1),
-        .IO(),
-        .VDDPST(),
-        .VSSPST(),
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
     );
-    assign spi_sdi_core = spi_sdi_int;
     
     CMOS_IO_CUP_pad cmos_spi_sdo (
         .PAD(spi_sdo_PAD),
-        .A(spi_sdo_core),
-        .Z(spi_sdo_int),
+        .A(spi_sdo),
+        .Z(spi_sdo),
         .OUT_EN(1'b1),
         .PEN(1'b1),
-        .IO(),
-        .VDDPST(),
-        .VSSPST(),
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
@@ -145,67 +145,63 @@ module frida_top(
     CMOS_IO_CUP_pad cmos_spi_cs_b (
         .PAD(spi_cs_b_PAD),
         .A(1'b0),
-        .Z(spi_cs_b_int),
+        .Z(spi_cs_b),
         .OUT_EN(1'b0),
         .PEN(1'b1),
-        .IO(),
-        .VDDPST(),
-        .VSSPST(),
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
     );
-    assign spi_cs_b_core = spi_cs_b_int;
     
     CMOS_IO_CUP_pad cmos_reset_b (
         .PAD(reset_b_PAD),
         .A(1'b0),
-        .Z(reset_b_int),
+        .Z(reset_b),
         .OUT_EN(1'b0),
         .PEN(1'b1),
-        .IO(),
-        .VDDPST(),
-        .VSSPST(),
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
     );
-    assign reset_b_core = reset_b_int;
 
     // Analog Input Pads
     PASSIVE_CUP_pad passive_vin_p (
         .PAD(vin_p_PAD),
         .I(1'b0),       // Not used for input pads
-        .O(vin_p_int),  // Output to core
-        .VDD(),         // Connected by abutment
-        .VSS(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .O(vin_p),      // Output to core
+        .VDD(vdd_a_PAD), // Connected to analog power PAD
+        .VSS(vss_a_PAD), // Connected to analog ground PAD
+        .VDDPST(vdd_a),  // Connected to internal analog power rail
+        .VSSPST(vss_a)   // Connected to internal analog ground rail
     );
-    assign vin_p_core = vin_p_int;
     
     PASSIVE_CUP_pad passive_vin_n (
         .PAD(vin_n_PAD),
         .I(1'b0),       // Not used for input pads
-        .O(vin_n_int),  // Output to core
-        .VDD(),         // Connected by abutment
-        .VSS(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .O(vin_n),      // Output to core
+        .VDD(vdd_a_PAD), // Connected to analog power PAD
+        .VSS(vss_a_PAD), // Connected to analog ground PAD
+        .VDDPST(vdd_a),  // Connected to internal analog power rail
+        .VSSPST(vss_a)   // Connected to internal analog ground rail
     );
-    assign vin_n_core = vin_n_int;
 
     // LVDS Transmitter Pad for output
     LVDS_TX_CUP_pad lvds_comp_out (
         .PAD_P(comp_out_p_PAD),
         .PAD_N(comp_out_n_PAD),
-        .I(comp_out_core),
+        .I(comp_out),
         .EN_B(1'b0),    // Enable active
         .DS(3'b000),    // Drive strength control
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VSS()          // Connected by abutment
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .VDD(vdd_io),   // Connected to I/O supply
+        .VSS(vss_io)    // Connected to I/O supply
     );
 
     // Reserved Pads (no connections for future expansion)
@@ -213,10 +209,10 @@ module frida_top(
         .PAD(passive_reserved_0_PAD),
         .I(1'b0),       // Tied off
         .O(),           // Left unconnected
-        .VDD(),         // Connected by abutment
-        .VSS(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VDD(vdd_io_PAD), // Connected to I/O power PAD
+        .VSS(vss_io_PAD), // Connected to I/O ground PAD
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io)  // Connected to I/O ground rail
     );
     
     CMOS_IO_CUP_pad cmos_reserved_1 (
@@ -224,11 +220,11 @@ module frida_top(
         .A(1'b0),       // Tied off
         .Z(),           // Left unconnected
         .OUT_EN(1'b0),  // Output disabled
-        .PEN(1'b0),     // Pull disabled
-        .IO(),          // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .DS(),          // Connected by abutment
+        .PEN(1'b1),     // Pull enabled to prevent floating
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .DS(1'b0),      // Drive strength control
         .Z_h(),         // Left unconnected
         .UD_B(1'b0)     // Pull down
     );
@@ -238,70 +234,71 @@ module frida_top(
         .A(1'b0),       // Tied off
         .Z(),           // Left unconnected
         .OUT_EN(1'b0),  // Output disabled
-        .PEN(1'b0),     // Pull disabled
-        .IO(),          // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST(),      // Connected by abutment
-        .DS(),          // Connected by abutment
+        .PEN(1'b1),     // Pull enabled to prevent floating
+        .IO(vdd_io),    // Connected to I/O supply
+        .VDDPST(vdd_io), // Connected to I/O power rail
+        .VSSPST(vss_io), // Connected to I/O ground rail
+        .DS(1'b0),      // Drive strength control
         .Z_h(),         // Left unconnected
         .UD_B(1'b0)     // Pull down
     );
 
-    // Power Supply Pads
+    // Power distribution is handled through the POWER_CUP_pad and GROUND_CUP_pad instances below
+
     POWER_CUP_pad power_vdd_a (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment  
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_a),         // Connected to analog ground rail
+        .VDD(vdd_a_PAD),     // Connected to analog power PAD  
+        .VDDPST(vdd_a),      // Connected to internal analog rail
+        .VSSPST(vss_a)       // Connected to internal analog rail
     );
     
     GROUND_CUP_pad ground_vss_a (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_a_PAD),     // Connected to analog ground PAD
+        .VDD(vdd_a),         // Connected to analog power rail
+        .VDDPST(vdd_a),      // Connected to internal analog rail
+        .VSSPST(vss_a)       // Connected to internal analog rail
     );
     
     POWER_CUP_pad power_vdd_d (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_d),         // Connected to digital ground rail
+        .VDD(vdd_d_PAD),     // Connected to digital power PAD
+        .VDDPST(vdd_d),      // Connected to internal digital rail
+        .VSSPST(vss_d)       // Connected to internal digital rail
     );
     
     GROUND_CUP_pad ground_vss_d (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_d_PAD),     // Connected to digital ground PAD
+        .VDD(vdd_d),         // Connected to digital power rail
+        .VDDPST(vdd_d),      // Connected to internal digital rail
+        .VSSPST(vss_d)       // Connected to internal digital rail
     );
     
     POWER_CUP_pad power_vdd_io (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_io),        // Connected to I/O ground rail
+        .VDD(vdd_io_PAD),    // Connected to I/O power PAD
+        .VDDPST(vdd_io),     // Connected to internal I/O rail
+        .VSSPST(vss_io)      // Connected to internal I/O rail
     );
     
     GROUND_CUP_pad ground_vss_io (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_io_PAD),    // Connected to I/O ground PAD
+        .VDD(vdd_io),        // Connected to I/O power rail
+        .VDDPST(vdd_io),     // Connected to internal I/O rail
+        .VSSPST(vss_io)      // Connected to internal I/O rail
     );
     
     POWER_CUP_pad power_vdd_dac (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_dac),       // Connected to DAC ground rail
+        .VDD(vdd_dac_PAD),   // Connected to DAC power PAD
+        .VDDPST(vdd_dac),    // Connected to internal DAC rail
+        .VSSPST(vss_dac)     // Connected to internal DAC rail
     );
     
     GROUND_CUP_pad ground_vss_dac (
-        .VSS(),         // Connected by abutment
-        .VDD(),         // Connected by abutment
-        .VDDPST(),      // Connected by abutment
-        .VSSPST()       // Connected by abutment
+        .VSS(vss_dac_PAD),   // Connected to DAC ground PAD
+        .VDD(vdd_dac),       // Connected to DAC power rail
+        .VDDPST(vdd_dac),    // Connected to internal DAC rail
+        .VSSPST(vss_dac)     // Connected to internal DAC rail
     );
 
     // Instantiate core logic
@@ -310,14 +307,22 @@ module frida_top(
         .seq_samp(seq_samp),
         .seq_cmp(seq_cmp),
         .seq_logic(seq_logic),
-        .spi_sclk(spi_sclk_core),
-        .spi_sdi(spi_sdi_core),
-        .spi_sdo(spi_sdo_core),
-        .spi_cs_b(spi_cs_b_core),
-        .reset_b(reset_b_core),
-        .vin_p(vin_p_core),
-        .vin_n(vin_n_core),
-        .comp_out(comp_out_core)
+        .spi_sclk(spi_sclk),
+        .spi_sdi(spi_sdi),
+        .spi_sdo(spi_sdo),
+        .spi_cs_b(spi_cs_b),
+        .reset_b(reset_b),
+        .vin_p(vin_p),
+        .vin_n(vin_n),
+        .comp_out(comp_out),
+        .vdd_a(vdd_a),
+        .vss_a(vss_a),
+        .vdd_d(vdd_d),
+        .vss_d(vss_d),
+        .vdd_io(vdd_io),
+        .vss_io(vss_io),
+        .vdd_dac(vdd_dac),
+        .vss_dac(vss_dac)
     );
 
 endmodule
