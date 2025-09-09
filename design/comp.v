@@ -8,6 +8,11 @@ module comp (
     output wire dout_p,     // Positive output
     output wire dout_n,     // Negative output
     input  wire clk         // Comparator clock
+    
+    // Power supply signals
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_a, vss_a // Analog supply
+`endif
 );
 
     // Black box - analog implementation

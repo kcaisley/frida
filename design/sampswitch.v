@@ -6,10 +6,12 @@ module sampswitch (
     input  wire vin,        // Input voltage
     output wire vout,       // Output voltage  
     input  wire clk,        // Switch control clock
-    input  wire clk_b,      // Complementary switch control clock
+    input  wire clk_b       // Complementary switch control clock
     
     // Power supply signals
-    inout wire vdd_a, vss_a // Analog supply
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_a, vss_a // Analog supply
+`endif
 );
 
     // Black box - analog implementation

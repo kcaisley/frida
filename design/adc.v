@@ -119,36 +119,44 @@ module adc (
     capdriver capdriver_p_main (
         .dac_state(dac_state_p),              // SAR logic positive output
         .dac_drive_invert(1'b1),              // Main drivers: no inversion (active low)
-        .dac_drive(dac_drive_botplate_main_p), // To positive main capacitor array
-        .vdd_dac(vdd_dac),
+        .dac_drive(dac_drive_botplate_main_p) // To positive main capacitor array
+`ifdef USE_POWER_PINS
+        ,.vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
+`endif
     );
 
     // P-side diff capacitor driver (active low: 1 = no invert)  
     capdriver capdriver_p_diff (
         .dac_state(dac_state_p),              // SAR logic positive output
         .dac_drive_invert(dac_diffcaps),      // No inversion for positive side diff caps (active low)
-        .dac_drive(dac_drive_botplate_diff_p), // To positive diff capacitor array
-        .vdd_dac(vdd_dac),
+        .dac_drive(dac_drive_botplate_diff_p) // To positive diff capacitor array
+`ifdef USE_POWER_PINS
+        ,.vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
+`endif
     );
 
     // N-side main capacitor driver (active low: 1 = no invert)
     capdriver capdriver_n_main (
         .dac_state(dac_state_n),              // SAR logic negative output  
         .dac_drive_invert(1'b1),              // Main drivers: no inversion (active low)
-        .dac_drive(dac_drive_botplate_main_n), // To negative main capacitor array
-        .vdd_dac(vdd_dac),
+        .dac_drive(dac_drive_botplate_main_n) // To negative main capacitor array
+`ifdef USE_POWER_PINS
+        ,.vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
+`endif
     );
 
     // N-side diff capacitor driver (active low: 0 = invert)
     capdriver capdriver_n_diff (
         .dac_state(dac_state_n),              // SAR logic negative output
         .dac_drive_invert(dac_diffcaps),      // Invert diff caps for negative side (active low)
-        .dac_drive(dac_drive_botplate_diff_n), // To negative diff capacitor array
-        .vdd_dac(vdd_dac),
+        .dac_drive(dac_drive_botplate_diff_n) // To negative diff capacitor array
+`ifdef USE_POWER_PINS
+        ,.vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
+`endif
     );
 
 
@@ -172,17 +180,21 @@ module adc (
     sampdriver sampdriver_p (
         .clk_in(clk_samp_p_raw),              // Input raw gated sampling clock positive
         .clk_out(clk_samp_p),                 // Buffered output clock positive
-        .clk_out_b(clk_samp_p_b),             // Inverted output clock positive
-        .vdd_d(vdd_d),
+        .clk_out_b(clk_samp_p_b)              // Inverted output clock positive
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
     
     sampdriver sampdriver_n (
         .clk_in(clk_samp_n_raw),              // Input raw gated sampling clock negative
         .clk_out(clk_samp_n),                 // Buffered output clock negative
-        .clk_out_b(clk_samp_n_b),             // Inverted output clock negative
-        .vdd_d(vdd_d),
+        .clk_out_b(clk_samp_n_b)              // Inverted output clock negative
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
 
     // ! ANALOG MACRO ! Sampling switches with complementary clocks
@@ -190,18 +202,22 @@ module adc (
         .vin(vin_p),                          // Positive analog input
         .vout(vsamp_p),                       // Positive sampling output
         .clk(clk_samp_p),                     // Positive sampling clock
-        .clk_b(clk_samp_p_b),                 // Complementary positive sampling clock
-        .vdd_a(vdd_a),                        // Analog power
+        .clk_b(clk_samp_p_b)                  // Complementary positive sampling clock
+`ifdef USE_POWER_PINS
+        ,.vdd_a(vdd_a),                       // Analog power
         .vss_a(vss_a)                         // Analog ground
+`endif
     );
 
     sampswitch samp_n (
         .vin(vin_n),                          // Negative analog input
         .vout(vsamp_n),                       // Negative sampling output
         .clk(clk_samp_n),                     // Negative sampling clock
-        .clk_b(clk_samp_n_b),                 // Complementary negative sampling clock
-        .vdd_a(vdd_a),                        // Analog power
+        .clk_b(clk_samp_n_b)                  // Complementary negative sampling clock
+`ifdef USE_POWER_PINS
+        ,.vdd_a(vdd_a),                       // Analog power
         .vss_a(vss_a)                         // Analog ground
+`endif
     );
 
     // ! ANALOG MACRO ! Comparator
@@ -210,9 +226,11 @@ module adc (
         .vin_n(vdac_n),                       // Negative comparator input
         .dout_p(comp_out_p),                  // Positive comparator output
         .dout_n(comp_out_n),                  // Negative comparator output
-        .clk(clk_comp),                       // Comparator clock
-        .vdd_a(vdd_a),                        // Analog power
+        .clk(clk_comp)                        // Comparator clock
+`ifdef USE_POWER_PINS
+        ,.vdd_a(vdd_a),                       // Analog power
         .vss_a(vss_a)                         // Analog ground
+`endif
     );
 
     // Output assignment
