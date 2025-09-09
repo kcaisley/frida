@@ -7,8 +7,10 @@
 - [x] I believe all design levels should just include *.v, and use (* blackboxes *) for non-synthesized macros
 - [x] Error about double cut via -> For now out those rules from the the tech .LEF for now -> can also avoid those cells specifically
 - [x] Lots of timing repair delay cells were being inserted -> (hacky) solution was to force DFF w/ enable cells to be used
-- [ ] global placement failing with error about RSZ-2001 (can I try disabling repair for now?)
+- [ ] Can't figure out right syntax to generate multiple power domains, [ERROR PDN-1032] Unable to find DAC domain.
+- [ ] Also don't know how to express supply names in the `.v` files without just totally omitting them
 - [ ] SDC constraint pin names aren't being resolved correctly, giving error -> maybe use -hierarchy?
+- [ ] global placement failing with error about RSZ-2001 (can I try disabling repair for now?)
 - [ ] DRT failing, because not working for pins of comparator, claiming pins aren't found in the guide, even though it shows in the GUI
 - [ ] Antenna diode insertion is failing, even got a crash at some point (skipping can't be final)
 - [ ] placement not working for macros, they're just going to random locations, after changing my flow for heirachical design

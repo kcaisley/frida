@@ -671,19 +671,17 @@ Boolean Network Construction Error:
 Error: global_place.tcl, 49 RSZ-2001
 ```
 
-
-
-  Invalid Endpoint Warnings:
-
-
-
-  Net Object Type Error:
-
-  
-
-
-
-Writing netlist in CDL format:
+# Writing netlist in CDL format:
 
 >>> read_verilog results/tsmc65/frida_adc/base/1_2_yosys.v
 >>> write_cdl -masters "platforms/tsmc65/spice/tcbn65lplvt_200a.spi /home/kcaisley/frida/etc/sampswitch.cdl /home/kcaisley/frida/etc/comp.cdl /home/kcaisley/frida/etc/caparray.cdl" results/tsmc65/frida_adc/base/output.cdl
+
+# Error in PDN generation:
+```log
+  [WARNING PDN-1042] Core voltage domain will be named "Core".
+  [WARNING PDN-0183] Replacing existing core voltage domain.
+  [ERROR PDN-1032] Unable to find DAC domain.
+```
+
+- There are no examples of multiple power domain generation
+- Also note that UPF syntax is different than the PDN docs
