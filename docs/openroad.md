@@ -685,3 +685,132 @@ Error: global_place.tcl, 49 RSZ-2001
 
 - There are no examples of multiple power domain generation
 - Also note that UPF syntax is different than the PDN docs
+
+
+
+
+# Post synthesis, initial timing analysis
+
+  Based on my examination of the floorplan execution output and the underlying TCL scripts, here's exactly what happens during the 4 floorplanning steps and the
+  OpenSTA commands that are run:
+
+  4 Floorplan Steps:
+
+  Step 1: Initial Floorplan (2_1_floorplan)
+  - Script: scripts/floorplan.tcl
+  - Key OpenSTA commands:
+    - check_setup - validates timing constraints setup
+    - repair_timing -setup -verbose -setup_margin 0 -sequence unbuffer,sizeup,swap,buffer,vt_swap -repair_tns 100 -skip_last_gasp
+    - Various report_* commands for metrics collection
+
+  Step 2: Macro Placement (2_2_floorplan_macro)
+  - Script: scripts/macro_place.tcl
+  - No specific timing analysis commands, mainly macro placement
+
+  Step 3: Tapcell Insertion (2_3_floorplan_tapcell)
+  - Script: scripts/tapcell.tcl
+  - Primarily physical layout commands, no timing analysis
+
+  Step 4: PDN Generation (2_4_floorplan_pdn) - Failed in your run
+  - Script: scripts/pdn.tcl
+  - Failed due to missing "DAC domain" configuration
+
+  OpenSTA Command Sequence for Manual Reproduction:
+
+  Here's the exact sequence of OpenSTA/timing commands you can run in OpenROAD's interactive mode:
+
+  # 1. Read Liberty file
+  read_liberty /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lib/tcbn65lplvtwc.lib
+
+  # 2. Read LEF files  
+  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tsmc65lplvt_9lmT2.lef
+  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tcbn65lplvt_9lmT2.lef
+  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/caparray.lef
+  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/comp.lef
+  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/sampswitch.lef
+
+  # 3. Read Verilog and link design
+  read_verilog ./results/tsmc65/frida_adc/base/1_synth.v
+  link_design adc
+
+  # 4. Read SDC constraints
+  read_sdc ./results/tsmc65/frida_adc/base/1_synth.sdc
+
+  # 5. Set RC extraction parameters
+  set_layer_rc -layer M1 -resistance 0.160 -capacitance 0.000171
+  set_layer_rc -layer M2 -resistance 0.140 -capacitance 0.000232
+  set_layer_rc -layer M3 -resistance 0.140 -capacitance 0.000232
+  # ... (continue for M4-M9)
+  set_wire_rc -signal -layer M2
+  set_wire_rc -clock -layer M3
+
+  # 6. Run timing analysis commands
+  check_setup
+  report_tns
+  report_wns
+  report_worst_slack
+  report_clock_min_period -include_port_paths
+  report_checks -path_delay min -fields {slew cap input net fanout} -format full_clock_expanded
+  report_checks -path_delay max -fields {slew cap input net fanout} -format full_clock_expanded
+  report_checks -unconstrained -fields {slew cap input net fanout} -format full_clock_expanded
+  report_check_types -max_slew -max_capacitance -max_fanout -violators
+
+  The key timing analysis occurs in Step 1 (initial floorplan), where check_setup is called line 38 in
+  /home/kcaisley/OpenROAD-flow-scripts/flow/scripts/floorplan.tcl, and the repair_timing command performs setup timing optimization. The other steps focus mainly on
+  physical implementation rather than timing analysis.
+
+
+You can use info commands *liberty* or info commands read* in OpenROAD to see what commands are actually available, regardless of tab completion.
+
+# OpenDB vs. OpenSTA Architecture
+
+OpenROAD integrates two major database systems that serve different purposes in the EDA flow:
+
+## OpenDB vs. OpenSTA
+
+| **OpenDB** | **OpenSTA** |
+|------------|-------------|
+| Physical info | Logical / timing info |
+| Taxonomy from prior lectures | Taxonomy from Liberty |
+
+## OpenSTA Uses
+
+OpenSTA is responsible for:
+
+- **Calculating timing paths**
+  - Delay, rise time, fall time, etc.
+- **Tracing connectivity**  
+  - Finding paths between a startpoint and endpoint
+- **Reading and parsing Verilog**
+  - Verilog files parsed through OpenSTA
+  - DEF files parsed through OpenDB
+- **Several others**
+
+## Translating Key Objects
+
+The two database systems use different object models that need translation:
+
+| **OpenDB** | **OpenSTA** |
+|------------|-------------|
+| dbMaster | Cell |
+| dbInst | Instance |
+| dbITerm | Term |
+| dbBTerm | Term |
+| dbMTerm | Port |
+| dbNet | Net |
+
+## Command Registration and Tab Completion Issue
+
+The reason `read_liberty` doesn't show up in tab completion but is still a valid command is due to **lazy command registration** in OpenROAD's modular architecture:
+
+1. **Modular Design**: OpenROAD integrates multiple tools (OpenSTA, TritonRoute, OpenDB, etc.) with dynamic command registration
+2. **Lazy Loading**: OpenSTA commands like `read_liberty` may not register in tab completion until the timing engine is initialized
+3. **Integration Layer**: Commands are dispatched through a sophisticated system that doesn't always expose all available commands to tab completion
+
+**Common OpenSTA commands affected by this**:
+- `read_liberty` (OpenSTA)
+- `read_sdc` (OpenSTA) 
+- `report_checks` (OpenSTA)
+- `create_clock` (OpenSTA)
+
+**Workaround**: Use `info commands *liberty*` or `info commands read*` to see all available commands regardless of tab completion.

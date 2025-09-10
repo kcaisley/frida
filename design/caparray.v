@@ -13,3 +13,4 @@ module caparray (
     // This module will be implemented at the analog level
 
 endmodule
+

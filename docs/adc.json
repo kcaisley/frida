@@ -1,0 +1,1320 @@
+{
+  "creator": "Yosys 0.57+7 (git sha1 012ddc2f1, clang++ 18.1.8 -fPIC -O3)",
+  "modules": {
+    "adc": {
+      "attributes": {
+        "keep_hierarchy": "00000000000000000000000000000001",
+        "hdlname": "adc",
+        "top": "00000000000000000000000000000001",
+        "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:3.1-240.10"
+      },
+      "ports": {
+        "seq_init": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "seq_samp": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "seq_comp": {
+          "direction": "input",
+          "bits": [ 4 ]
+        },
+        "seq_update": {
+          "direction": "input",
+          "bits": [ 5 ]
+        },
+        "en_init": {
+          "direction": "input",
+          "bits": [ 6 ]
+        },
+        "en_samp_p": {
+          "direction": "input",
+          "bits": [ 7 ]
+        },
+        "en_samp_n": {
+          "direction": "input",
+          "bits": [ 8 ]
+        },
+        "en_comp": {
+          "direction": "input",
+          "bits": [ 9 ]
+        },
+        "en_update": {
+          "direction": "input",
+          "bits": [ 10 ]
+        },
+        "dac_mode": {
+          "direction": "input",
+          "bits": [ 11 ]
+        },
+        "dac_astate_p": {
+          "direction": "input",
+          "bits": [ 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 ]
+        },
+        "dac_bstate_p": {
+          "direction": "input",
+          "bits": [ 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "dac_astate_n": {
+          "direction": "input",
+          "bits": [ 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 ]
+        },
+        "dac_bstate_n": {
+          "direction": "input",
+          "bits": [ 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75 ]
+        },
+        "dac_diffcaps": {
+          "direction": "input",
+          "bits": [ 76 ]
+        },
+        "vin_p": {
+          "direction": "input",
+          "bits": [ 77 ]
+        },
+        "vin_n": {
+          "direction": "input",
+          "bits": [ 78 ]
+        },
+        "comp_out": {
+          "direction": "output",
+          "bits": [ 80 ]
+        }
+      },
+      "cells": {
+        "_1_": {
+          "hide_name": 0,
+          "type": "TIEHLVT",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "results/tsmc65/frida_adc/base/1_synth.v:353.11-355.4"
+          },
+          "port_directions": {
+            "Z": "output"
+          },
+          "connections": {
+            "Z": [ 87 ]
+          }
+        },
+        "caparray_n": {
+          "hide_name": 0,
+          "type": "caparray",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:171.14-176.6"
+          },
+          "port_directions": {
+            "cap_botplate_diff": "input",
+            "cap_botplate_main": "input",
+            "cap_topplate_in": "input",
+            "cap_topplate_out": "output"
+          },
+          "connections": {
+            "cap_botplate_diff": [ 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103 ],
+            "cap_botplate_main": [ 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119 ],
+            "cap_topplate_in": [ 120 ],
+            "cap_topplate_out": [ 121 ]
+          }
+        },
+        "caparray_p": {
+          "hide_name": 0,
+          "type": "caparray",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:164.14-169.6"
+          },
+          "port_directions": {
+            "cap_botplate_diff": "input",
+            "cap_botplate_main": "input",
+            "cap_topplate_in": "input",
+            "cap_topplate_out": "output"
+          },
+          "connections": {
+            "cap_botplate_diff": [ 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137 ],
+            "cap_botplate_main": [ 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153 ],
+            "cap_topplate_in": [ 154 ],
+            "cap_topplate_out": [ 155 ]
+          }
+        },
+        "capdriver_n_diff": {
+          "hide_name": 0,
+          "type": "capdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:152.15-160.6"
+          },
+          "port_directions": {
+            "dac_drive": "output",
+            "dac_drive_invert": "input",
+            "dac_state": "input"
+          },
+          "connections": {
+            "dac_drive": [ 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103 ],
+            "dac_drive_invert": [ 76 ],
+            "dac_state": [ 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171 ]
+          }
+        },
+        "capdriver_n_main": {
+          "hide_name": 0,
+          "type": "capdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:141.15-149.6"
+          },
+          "port_directions": {
+            "dac_drive": "output",
+            "dac_drive_invert": "input",
+            "dac_state": "input"
+          },
+          "connections": {
+            "dac_drive": [ 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119 ],
+            "dac_drive_invert": [ 87 ],
+            "dac_state": [ 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171 ]
+          }
+        },
+        "capdriver_p_diff": {
+          "hide_name": 0,
+          "type": "capdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:130.15-138.6"
+          },
+          "port_directions": {
+            "dac_drive": "output",
+            "dac_drive_invert": "input",
+            "dac_state": "input"
+          },
+          "connections": {
+            "dac_drive": [ 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137 ],
+            "dac_drive_invert": [ 76 ],
+            "dac_state": [ 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187 ]
+          }
+        },
+        "capdriver_p_main": {
+          "hide_name": 0,
+          "type": "capdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:119.15-127.6"
+          },
+          "port_directions": {
+            "dac_drive": "output",
+            "dac_drive_invert": "input",
+            "dac_state": "input"
+          },
+          "connections": {
+            "dac_drive": [ 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153 ],
+            "dac_drive_invert": [ 87 ],
+            "dac_state": [ 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187 ]
+          }
+        },
+        "clkgate": {
+          "hide_name": 0,
+          "type": "clkgate",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:66.13-90.6"
+          },
+          "port_directions": {
+            "clk_comp": "output",
+            "clk_init": "output",
+            "clk_samp_n": "output",
+            "clk_samp_p": "output",
+            "clk_update": "output",
+            "en_comp": "input",
+            "en_init": "input",
+            "en_samp_n": "input",
+            "en_samp_p": "input",
+            "en_update": "input",
+            "seq_comp": "input",
+            "seq_init": "input",
+            "seq_samp": "input",
+            "seq_update": "input"
+          },
+          "connections": {
+            "clk_comp": [ 188 ],
+            "clk_init": [ 189 ],
+            "clk_samp_n": [ 190 ],
+            "clk_samp_p": [ 191 ],
+            "clk_update": [ 192 ],
+            "en_comp": [ 9 ],
+            "en_init": [ 6 ],
+            "en_samp_n": [ 8 ],
+            "en_samp_p": [ 7 ],
+            "en_update": [ 10 ],
+            "seq_comp": [ 4 ],
+            "seq_init": [ 2 ],
+            "seq_samp": [ 3 ],
+            "seq_update": [ 5 ]
+          }
+        },
+        "comp": {
+          "hide_name": 0,
+          "type": "comp",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:224.10-234.6"
+          },
+          "port_directions": {
+            "clk": "input",
+            "dout_n": "output",
+            "dout_p": "output",
+            "vin_n": "input",
+            "vin_p": "input"
+          },
+          "connections": {
+            "clk": [ 188 ],
+            "dout_n": [ 193 ],
+            "dout_p": [ 80 ],
+            "vin_n": [ 121 ],
+            "vin_p": [ 155 ]
+          }
+        },
+        "salogic_dual": {
+          "hide_name": 0,
+          "type": "salogic",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:93.13-109.6"
+          },
+          "port_directions": {
+            "clk_init": "input",
+            "clk_update": "input",
+            "comp_n": "input",
+            "comp_p": "input",
+            "dac_astate_n": "input",
+            "dac_astate_p": "input",
+            "dac_bstate_n": "input",
+            "dac_bstate_p": "input",
+            "dac_mode": "input",
+            "dac_state_n": "output",
+            "dac_state_p": "output"
+          },
+          "connections": {
+            "clk_init": [ 189 ],
+            "clk_update": [ 192 ],
+            "comp_n": [ 80 ],
+            "comp_p": [ 193 ],
+            "dac_astate_n": [ 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 ],
+            "dac_astate_p": [ 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 ],
+            "dac_bstate_n": [ 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75 ],
+            "dac_bstate_p": [ 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 ],
+            "dac_mode": [ 11 ],
+            "dac_state_n": [ 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171 ],
+            "dac_state_p": [ 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187 ]
+          }
+        },
+        "samp_n": {
+          "hide_name": 0,
+          "type": "sampswitch",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:212.16-221.6"
+          },
+          "port_directions": {
+            "clk": "input",
+            "clk_b": "input",
+            "vin": "input",
+            "vout": "output"
+          },
+          "connections": {
+            "clk": [ 194 ],
+            "clk_b": [ 195 ],
+            "vin": [ 78 ],
+            "vout": [ 120 ]
+          }
+        },
+        "samp_p": {
+          "hide_name": 0,
+          "type": "sampswitch",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:201.16-210.6"
+          },
+          "port_directions": {
+            "clk": "input",
+            "clk_b": "input",
+            "vin": "input",
+            "vout": "output"
+          },
+          "connections": {
+            "clk": [ 196 ],
+            "clk_b": [ 197 ],
+            "vin": [ 77 ],
+            "vout": [ 154 ]
+          }
+        },
+        "sampdriver_n": {
+          "hide_name": 0,
+          "type": "sampdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:190.16-198.6"
+          },
+          "port_directions": {
+            "clk_in": "input",
+            "clk_out": "output",
+            "clk_out_b": "output"
+          },
+          "connections": {
+            "clk_in": [ 190 ],
+            "clk_out": [ 194 ],
+            "clk_out_b": [ 195 ]
+          }
+        },
+        "sampdriver_p": {
+          "hide_name": 0,
+          "type": "sampdriver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:180.16-188.6"
+          },
+          "port_directions": {
+            "clk_in": "input",
+            "clk_out": "output",
+            "clk_out_b": "output"
+          },
+          "connections": {
+            "clk_in": [ 191 ],
+            "clk_out": [ 196 ],
+            "clk_out_b": [ 197 ]
+          }
+        }
+      },
+      "netnames": {
+        "_0_": {
+          "hide_name": 0,
+          "bits": [ 87 ],
+          "attributes": {
+            "src": "results/tsmc65/frida_adc/base/1_synth.v:132.8-132.11"
+          }
+        },
+        "clk_comp": {
+          "hide_name": 0,
+          "bits": [ 188 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:54.10-54.18"
+          }
+        },
+        "clk_init": {
+          "hide_name": 0,
+          "bits": [ 189 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:50.10-50.18"
+          }
+        },
+        "clk_samp_n": {
+          "hide_name": 0,
+          "bits": [ 194 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:52.22-52.32"
+          }
+        },
+        "clk_samp_n_b": {
+          "hide_name": 0,
+          "bits": [ 195 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:53.24-53.36"
+          }
+        },
+        "clk_samp_n_raw": {
+          "hide_name": 0,
+          "bits": [ 190 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:51.26-51.40"
+          }
+        },
+        "clk_samp_p": {
+          "hide_name": 0,
+          "bits": [ 196 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:52.10-52.20"
+          }
+        },
+        "clk_samp_p_b": {
+          "hide_name": 0,
+          "bits": [ 197 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:53.10-53.22"
+          }
+        },
+        "clk_samp_p_raw": {
+          "hide_name": 0,
+          "bits": [ 191 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:51.10-51.24"
+          }
+        },
+        "clk_update": {
+          "hide_name": 0,
+          "bits": [ 192 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:55.10-55.20"
+          }
+        },
+        "comp_out": {
+          "hide_name": 0,
+          "bits": [ 80 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:39.17-39.25"
+          }
+        },
+        "comp_out_n": {
+          "hide_name": 0,
+          "bits": [ 193 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:56.22-56.32"
+          }
+        },
+        "dac_astate_n": {
+          "hide_name": 0,
+          "bits": [ 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:24.24-24.36"
+          }
+        },
+        "dac_astate_p": {
+          "hide_name": 0,
+          "bits": [ 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:20.24-20.36"
+          }
+        },
+        "dac_bstate_n": {
+          "hide_name": 0,
+          "bits": [ 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:25.24-25.36"
+          }
+        },
+        "dac_bstate_p": {
+          "hide_name": 0,
+          "bits": [ 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:21.24-21.36"
+          }
+        },
+        "dac_diffcaps": {
+          "hide_name": 0,
+          "bits": [ 76 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:28.16-28.28"
+          }
+        },
+        "dac_drive_botplate_diff_n[0]": {
+          "hide_name": 0,
+          "bits": [ 88 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[10]": {
+          "hide_name": 0,
+          "bits": [ 98 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[11]": {
+          "hide_name": 0,
+          "bits": [ 99 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[12]": {
+          "hide_name": 0,
+          "bits": [ 100 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[13]": {
+          "hide_name": 0,
+          "bits": [ 101 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[14]": {
+          "hide_name": 0,
+          "bits": [ 102 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[15]": {
+          "hide_name": 0,
+          "bits": [ 103 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[1]": {
+          "hide_name": 0,
+          "bits": [ 89 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[2]": {
+          "hide_name": 0,
+          "bits": [ 90 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[3]": {
+          "hide_name": 0,
+          "bits": [ 91 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[4]": {
+          "hide_name": 0,
+          "bits": [ 92 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[5]": {
+          "hide_name": 0,
+          "bits": [ 93 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[6]": {
+          "hide_name": 0,
+          "bits": [ 94 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[7]": {
+          "hide_name": 0,
+          "bits": [ 95 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[8]": {
+          "hide_name": 0,
+          "bits": [ 96 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_n[9]": {
+          "hide_name": 0,
+          "bits": [ 97 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:63.17-63.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[0]": {
+          "hide_name": 0,
+          "bits": [ 122 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[10]": {
+          "hide_name": 0,
+          "bits": [ 132 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[11]": {
+          "hide_name": 0,
+          "bits": [ 133 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[12]": {
+          "hide_name": 0,
+          "bits": [ 134 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[13]": {
+          "hide_name": 0,
+          "bits": [ 135 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[14]": {
+          "hide_name": 0,
+          "bits": [ 136 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[15]": {
+          "hide_name": 0,
+          "bits": [ 137 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[1]": {
+          "hide_name": 0,
+          "bits": [ 123 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[2]": {
+          "hide_name": 0,
+          "bits": [ 124 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[3]": {
+          "hide_name": 0,
+          "bits": [ 125 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[4]": {
+          "hide_name": 0,
+          "bits": [ 126 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[5]": {
+          "hide_name": 0,
+          "bits": [ 127 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[6]": {
+          "hide_name": 0,
+          "bits": [ 128 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[7]": {
+          "hide_name": 0,
+          "bits": [ 129 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[8]": {
+          "hide_name": 0,
+          "bits": [ 130 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_diff_p[9]": {
+          "hide_name": 0,
+          "bits": [ 131 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:61.17-61.42"
+          }
+        },
+        "dac_drive_botplate_main_n[0]": {
+          "hide_name": 0,
+          "bits": [ 104 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[10]": {
+          "hide_name": 0,
+          "bits": [ 114 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[11]": {
+          "hide_name": 0,
+          "bits": [ 115 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[12]": {
+          "hide_name": 0,
+          "bits": [ 116 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[13]": {
+          "hide_name": 0,
+          "bits": [ 117 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[14]": {
+          "hide_name": 0,
+          "bits": [ 118 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[15]": {
+          "hide_name": 0,
+          "bits": [ 119 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[1]": {
+          "hide_name": 0,
+          "bits": [ 105 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[2]": {
+          "hide_name": 0,
+          "bits": [ 106 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[3]": {
+          "hide_name": 0,
+          "bits": [ 107 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[4]": {
+          "hide_name": 0,
+          "bits": [ 108 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[5]": {
+          "hide_name": 0,
+          "bits": [ 109 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[6]": {
+          "hide_name": 0,
+          "bits": [ 110 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[7]": {
+          "hide_name": 0,
+          "bits": [ 111 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[8]": {
+          "hide_name": 0,
+          "bits": [ 112 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_n[9]": {
+          "hide_name": 0,
+          "bits": [ 113 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:62.17-62.42"
+          }
+        },
+        "dac_drive_botplate_main_p[0]": {
+          "hide_name": 0,
+          "bits": [ 138 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[10]": {
+          "hide_name": 0,
+          "bits": [ 148 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[11]": {
+          "hide_name": 0,
+          "bits": [ 149 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[12]": {
+          "hide_name": 0,
+          "bits": [ 150 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[13]": {
+          "hide_name": 0,
+          "bits": [ 151 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[14]": {
+          "hide_name": 0,
+          "bits": [ 152 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[15]": {
+          "hide_name": 0,
+          "bits": [ 153 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[1]": {
+          "hide_name": 0,
+          "bits": [ 139 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[2]": {
+          "hide_name": 0,
+          "bits": [ 140 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[3]": {
+          "hide_name": 0,
+          "bits": [ 141 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[4]": {
+          "hide_name": 0,
+          "bits": [ 142 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[5]": {
+          "hide_name": 0,
+          "bits": [ 143 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[6]": {
+          "hide_name": 0,
+          "bits": [ 144 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[7]": {
+          "hide_name": 0,
+          "bits": [ 145 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[8]": {
+          "hide_name": 0,
+          "bits": [ 146 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_drive_botplate_main_p[9]": {
+          "hide_name": 0,
+          "bits": [ 147 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:60.17-60.42"
+          }
+        },
+        "dac_mode": {
+          "hide_name": 0,
+          "bits": [ 11 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:19.17-19.25"
+          }
+        },
+        "dac_state_n[0]": {
+          "hide_name": 0,
+          "bits": [ 156 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[10]": {
+          "hide_name": 0,
+          "bits": [ 166 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[11]": {
+          "hide_name": 0,
+          "bits": [ 167 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[12]": {
+          "hide_name": 0,
+          "bits": [ 168 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[13]": {
+          "hide_name": 0,
+          "bits": [ 169 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[14]": {
+          "hide_name": 0,
+          "bits": [ 170 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[15]": {
+          "hide_name": 0,
+          "bits": [ 171 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[1]": {
+          "hide_name": 0,
+          "bits": [ 157 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[2]": {
+          "hide_name": 0,
+          "bits": [ 158 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[3]": {
+          "hide_name": 0,
+          "bits": [ 159 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[4]": {
+          "hide_name": 0,
+          "bits": [ 160 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[5]": {
+          "hide_name": 0,
+          "bits": [ 161 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[6]": {
+          "hide_name": 0,
+          "bits": [ 162 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[7]": {
+          "hide_name": 0,
+          "bits": [ 163 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[8]": {
+          "hide_name": 0,
+          "bits": [ 164 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_n[9]": {
+          "hide_name": 0,
+          "bits": [ 165 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.30-57.41"
+          }
+        },
+        "dac_state_p[0]": {
+          "hide_name": 0,
+          "bits": [ 172 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[10]": {
+          "hide_name": 0,
+          "bits": [ 182 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[11]": {
+          "hide_name": 0,
+          "bits": [ 183 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[12]": {
+          "hide_name": 0,
+          "bits": [ 184 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[13]": {
+          "hide_name": 0,
+          "bits": [ 185 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[14]": {
+          "hide_name": 0,
+          "bits": [ 186 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[15]": {
+          "hide_name": 0,
+          "bits": [ 187 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[1]": {
+          "hide_name": 0,
+          "bits": [ 173 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[2]": {
+          "hide_name": 0,
+          "bits": [ 174 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[3]": {
+          "hide_name": 0,
+          "bits": [ 175 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[4]": {
+          "hide_name": 0,
+          "bits": [ 176 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[5]": {
+          "hide_name": 0,
+          "bits": [ 177 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[6]": {
+          "hide_name": 0,
+          "bits": [ 178 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[7]": {
+          "hide_name": 0,
+          "bits": [ 179 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[8]": {
+          "hide_name": 0,
+          "bits": [ 180 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "dac_state_p[9]": {
+          "hide_name": 0,
+          "bits": [ 181 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:57.17-57.28"
+          }
+        },
+        "en_comp": {
+          "hide_name": 0,
+          "bits": [ 9 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:15.17-15.24"
+          }
+        },
+        "en_init": {
+          "hide_name": 0,
+          "bits": [ 6 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:12.17-12.24"
+          }
+        },
+        "en_samp_n": {
+          "hide_name": 0,
+          "bits": [ 8 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:14.17-14.26"
+          }
+        },
+        "en_samp_p": {
+          "hide_name": 0,
+          "bits": [ 7 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:13.17-13.26"
+          }
+        },
+        "en_update": {
+          "hide_name": 0,
+          "bits": [ 10 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:16.17-16.26"
+          }
+        },
+        "seq_comp": {
+          "hide_name": 0,
+          "bits": [ 4 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:8.17-8.25"
+          }
+        },
+        "seq_init": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:6.17-6.25"
+          }
+        },
+        "seq_samp": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:7.17-7.25"
+          }
+        },
+        "seq_update": {
+          "hide_name": 0,
+          "bits": [ 5 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:9.17-9.27"
+          }
+        },
+        "vdac_n": {
+          "hide_name": 0,
+          "bits": [ 121 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:48.18-48.24"
+          }
+        },
+        "vdac_p": {
+          "hide_name": 0,
+          "bits": [ 155 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:48.10-48.16"
+          }
+        },
+        "vin_n": {
+          "hide_name": 0,
+          "bits": [ 78 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:32.17-32.22"
+          }
+        },
+        "vin_p": {
+          "hide_name": 0,
+          "bits": [ 77 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:31.17-31.22"
+          }
+        },
+        "vsamp_n": {
+          "hide_name": 0,
+          "bits": [ 120 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:49.19-49.26"
+          }
+        },
+        "vsamp_p": {
+          "hide_name": 0,
+          "bits": [ 154 ],
+          "attributes": {
+            "src": "/home/kcaisley/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/adc.v:49.10-49.17"
+          }
+        }
+      }
+    }
+  }
+}

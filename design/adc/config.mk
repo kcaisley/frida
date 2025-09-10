@@ -9,7 +9,8 @@ export PLATFORM               = tsmc65
 
 # All files, including those which are just wrappers for analog macros should be included here
 # For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
-export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/${TOP_DESIGN_NICKNAME}/*.v
+export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/${TOP_DESIGN_NICKNAME}/*.v \
+                       $(PLATFORM_DIR)/cells_dffe.v
 
 # Constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(TOP_DESIGN_NICKNAME)/${DESIGN_NAME}/constraint.sdc
@@ -24,7 +25,17 @@ export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/caparray.gds \
                         $(PLATFORM_DIR)/gds/comp.gds \
                         $(PLATFORM_DIR)/gds/sampswitch.gds
 
-export SYNTH_HIERARCHICAL = 1
+# Analog macro library files for ADC sub-block
+# Hardened macro library files listed here. The library information is immutable and used throughout all stages. Not stored in the .odb file.
+export ADDITIONAL_LIBS += $(PLATFORM_DIR)/lib/caparray.lib \
+                         $(PLATFORM_DIR)/lib/comp.lib \
+                         $(PLATFORM_DIR)/lib/sampswitch.lib
+
+# Disable hierarchical synthesis to flatten OPENROAD helper modules
+export SYNTH_HIERARCHICAL = 0
+
+# Keep specific design modules from being flattened (exclude OPENROAD_* modules)
+export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
 
 #--------------------------------------------------------
 # Floorplan

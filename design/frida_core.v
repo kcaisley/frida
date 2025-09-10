@@ -104,7 +104,6 @@ module frida_core(
                 .dac_diffcaps(adc_dac_diffcaps[i]),
                 .vin_p(vin_p),
                 .vin_n(vin_n),
-                .rst(~reset_b),
                 .comp_out(adc_comparator_out[i]),
                 .vdd_a(vdd_a),
                 .vss_a(vss_a),

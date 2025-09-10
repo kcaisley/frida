@@ -2,7 +2,7 @@
 // Inputs: dac_astate (16 bits), dac_bstate (16 bits), dac_mode, comp, clk_init, clk_update
 
 // Include enabled flip-flop cell mapping
-`include "platforms/tsmc65/cells_dffe.v"
+//`include "platforms/tsmc65/cells_dffe.v"
 
 
 // A potential issues reported by Yosys:

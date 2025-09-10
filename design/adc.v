@@ -31,9 +31,6 @@ module adc (
     inout  wire vin_p,                        // Analog input positive
     inout  wire vin_n,                        // Analog input negative
     
-    // Reset
-    input  wire rst,                          // Reset signal, currently unused (might use for salogic reset)
-    
     
     // Output
     output wire comp_out,                     // Comparator output

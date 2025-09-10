@@ -22,36 +22,36 @@ set_clock_groups -asynchronous \
 # Max delay constraints from seq_update to capacitor driver output pins
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_main_p*] -filter "direction==output"]
+  -to [get_pins capdriver_p_main/\xor_gates[*].xor_gate/Z]
 
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_main_n*] -filter "direction==output"]
+  -to [get_pins capdriver_n_main/\xor_gates[*].xor_gate/Z]
 
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_diff_p*] -filter "direction==output"]
+  -to [get_pins capdriver_p_diff/\xor_gates[*].xor_gate/Z]
 
 set_max_delay 2.0 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_diff_n*] -filter "direction==output"]
+  -to [get_pins capdriver_n_diff/\xor_gates[*].xor_gate/Z]
 
 # Min delay constraints from seq_update to capacitor driver output pins
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_main_p*] -filter "direction==output"]
+  -to [get_pins capdriver_p_main/\xor_gates[*].xor_gate/Z]
 
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_main_n*] -filter "direction==output"]
+  -to [get_pins capdriver_n_main/\xor_gates[*].xor_gate/Z]
 
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_diff_p*] -filter "direction==output"]
+  -to [get_pins capdriver_p_diff/\xor_gates[*].xor_gate/Z]
 
 set_min_delay 0.1 \
   -from [get_ports seq_update] \
-  -to [get_pins -of_objects [get_net dac_drive_botplate_diff_n*] -filter "direction==output"]
+  -to [get_pins capdriver_n_diff/\xor_gates[*].xor_gate/Z]
 
 # Power rail constraints - exclude from timing analysis
 # These are static power supplies that should not be analyzed for timing
