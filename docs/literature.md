@@ -1,4 +1,4 @@
-Here's the plan for designing my ADC:
+# Here lies messy notes below
 
 I want to target 12-bit precision, as this is more generally useful, and it better places me compared the state of the art:
 
@@ -6,7 +6,7 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - The follow up 2015 paper seems to indicate (pg 3) that the inserted compensative capacitors add to the sampling capacitance (as I thought) but they don't add to the input range of the DAC. Why is the the case? Will need to come back to this.
 
 - Hsu 2013
-    - Intro "Our goal is to create an ADC that runs faster than 10 MS/s at more than 10b ENOB, while achieving F oM lower than 50f J/conv.-step."
+    - Intro "Our goal is to create an ADC that runs faster than 10 MS/s at more than 10b ENOB, while achieving FoM lower than 50f J/conv.-step."
     - For FRIDA: 12-bit, 400uW, 10MS/s gives: `400e-6/(2**12 * 10e6)` = 9.7 fJ/conv-step
     - pg53: ENOB, SNDR, SFDR = dynamic metrics, while INL/DNL, offset, and gain errors are static metrics
     - pg57: even 1% mismatch will (given enough instances) yeild below 11ENOB in 12-bit ADC. Remembers that the static linearity sets the baselines ENOB, even if one runs as slow as possible.
@@ -160,7 +160,7 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
     - Talks a lot about the linearity requirements of high resolution ADCs, and how bottom-plate sampling helps enable this
     - I'm not sure if this applies to my use case though. I need to read more.
 
-- The Cordia design:
+- Our past Cordia design:
     - Currently we have a 130uV noise, 30uW 2-3ns comparator, measurring 36x18um this wouldn't fit well in a 10-bit design, but would fit well under a 12-bit Harpe-style CDAC
     - also, given the speed, we could likely run a bit faster since 10Mhz = 100ns period
     - Note that (1.2/(2**12))/math.sqrt(12) = gives a quantization noise of 84uV. So our comparator has about 1.6x the noise it should to stay below the quantization. Can we simply 2.5x the power consumption, somehow, to get 1.6x lower noise? (using quadratic power fo linear noise improvement)

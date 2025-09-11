@@ -1,0 +1,42 @@
+klayout [<options>] [<file>] ..
+options
+  -b                  Batch mode (same as -zz -nc -rx)
+  -c <config file>    Use this configuration file
+  -nc                 Don't use a configuration file (implies -t)
+  -d <log level>      Set log level
+  -e                  Editable mode (allow editing of files)
+  -ne                 Readonly mode (editing of files is disabled)
+  -gr <file name>     Record GUI test file
+  -gp <file name>     Replay GUI test file
+  -gb <line number>   Replay GUI test file up to (including) line
+  -gx <millisec>      Replay rate for GUI test file
+  -gi                 Incremental logs for GUI test file
+  -i                  Disable undo buffering (less memory requirements)
+  -ni                 Enable undo buffering (default, overrides previous -i option)
+  -j <path>           Add the given path to the macro project paths
+  -k <log file>       Write log to the given file plus stdout/stderr
+  -l <lyp file>       Use layer properties file
+  -lx                 With -l: add other layers as well
+  -lf                 With -l: use the lyp file as it is (no expansion to multiple layouts)
+  -m <database file>  Load RDB (report database) file (into previous layout view)
+  -mn <database file> Load L2NDB (layout to netlist database) file (into previous layout view)
+  -n <technology>     Technology to use for next layout(s) on command line
+  -nn <tech file>     Technology file (.lyt) to use for next layout(s) on command line
+  -p <plugin>         Load the plugin (can be used multiple times)
+  -r <script>         Execute main script on startup (after having loaded files etc.)
+  -rr <script>        Like -r, but does not exit after executing the script
+  -rm <script>        Execute script on startup before loading files (can be used multiple times)
+  -rd <name>=<value>  Specify script variable
+  -rx                 Ignore all implicit macros (*.rbm, rbainit, *.lym)
+  -s                  Load files into same view
+  -t                  Don't update the configuration file on exit
+  -nt                 Update the configuration file on exit (default, overrides previous -t option)
+  -u <file name>      Restore session from given file
+  -v                  Print program version and exit
+  -wd <name>=<value>  Define a variable within expressions
+  -x                  Synchronous drawing mode
+  -y <package>        Package installation: install package(s) and exit - can be used more than once
+                      ('package' is a name, an URL and optionally a version in round brackets)
+  -yd                 With -y: include dependencies
+  -z                  Non-GUI mode (hidden views)
+  -zz                 Non-GUI mode (database only, implies -nc)
