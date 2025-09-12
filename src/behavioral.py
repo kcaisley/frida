@@ -1,6 +1,7 @@
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from tqdm import tqdm
 import os
 import pandas as pd
@@ -61,7 +62,7 @@ class CDAC:
     def build_capacitor_array(self):
         raise NotImplementedError
 
-    def calculate_nonlinearity(self, do_plot=False):    #FIXME: there is also an ADC top nonlinearity function?
+    def calculate_nonlinearity(self, do_plot=False, values_per_bin=10):    #FIXME: there is also an ADC top nonlinearity function?
         reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
         dac_data = np.zeros(len(reg_data))
         dnl_data = np.zeros(len(reg_data) - 1)
@@ -200,11 +201,7 @@ class CDAC_BSS(CDAC):
         )
 
         np.set_printoptions(precision=2)
-        print("Cycles: ", self.params["array_size"] + 1)
-        print("Capacitor array: ", self.capacitor_array_p)
-        print("Total capacitance: %.2e" % self.capacitance_sum_p)
-        print("Weights: ", self.weights_array)
-        print("Weights sum: %.1d" % self.weights_sum)
+        # Remove scattered prints - these are now in structured output
 
     def reset(self, reset_value, do_calculate_energy=False):
         register_p = reset_value  # 2**(self.params['array_size']-1)-1
@@ -478,13 +475,13 @@ class SAR_ADC:
             result = int(np.round(result))
         return result
 
-    def calculate_nonlinearity(self, do_plot=False):
+    def calculate_nonlinearity(self, do_plot=False, values_per_bin=10):
         """
         This function current has issues:
         - The max and min code aren't accounting for the case of non-binary
         - The number of codes...
         """
-        values_per_bin = 100  # number of values per bin for DNL/INL calculation
+        # values_per_bin is now passed as parameter
         lower_excluded_bins = 4  # lower bound for DNL/INL calculation in LSB
         upper_excluded_bins = 4  # upper bound for DNL/INL calculation in LSB distance from full scale
 
@@ -514,13 +511,13 @@ class SAR_ADC:
         )
 
         # do the conversions, assuming input codes have uniform density
-        print("Calculating DNL/INL ...")
+        # Calculating DNL/INL - progress shown by tqdm
         for i in tqdm(range(len(input_voltage_data))):
             adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0
             )
 
-        print("adc_data ", adc_data)
+        # ADC data array - results now in structured output
 
         # calculate code density histogram
         code_density_hist, bin_edges = np.histogram(
@@ -541,8 +538,7 @@ class SAR_ADC:
         inl_sigma = np.std(inl_data)
         self.dnl = dnl_sigma
         self.inl = inl_sigma
-        print("DNL sigma %.3f" % dnl_sigma)
-        print("INL sigma %.3f" % inl_sigma)
+        # DNL/INL results now reported in structured output
 
         if do_plot:
             x_ticks = range(
@@ -590,12 +586,12 @@ class SAR_ADC:
 
             return figure, plot
 
-    def calculate_enob(self, do_plot=False):
+    def calculate_enob(self, do_plot=False, num_samples=1000):
         # return (snr - 1.76)/6.02
         frequency = 10e3
         amplitude = 0.55
         offset = 0
-        num_samples = 10000
+        # num_samples is now passed as parameter
         adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
@@ -608,7 +604,7 @@ class SAR_ADC:
         adc_data_array = np.empty(len(time_array))
 
         # sample sine wave
-        print("Calculating ENOB ...")
+        # Calculating ENOB - progress shown by tqdm
         for i in tqdm(range(len(time_array))):      #Q: So one cycle of the sine wave?
             input_voltage = offset + amplitude * np.sin(
                 2 * np.pi * frequency * time_array[i]
@@ -624,7 +620,7 @@ class SAR_ADC:
         noise_percent = noise_std / 2 ** self.params["resolution"] * 100
         # ENOB (ideal resolution minus noise gives effective resolution)
         self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12)) # log10 is Decibels,
-        print("ENOB %.2f" % self.enob)
+        # ENOB result now reported in structured output
 
         if do_plot:
             plot_title = "ENOB Calculation"
@@ -653,8 +649,8 @@ class SAR_ADC:
             ax[1].set_ylim(-6,6)
             return figure, ax
 
-    def calculate_conversion_energy(self, do_plot=False):
-        samples_per_bin = 1
+    def calculate_conversion_energy(self, do_plot=False, samples_per_bin=1):
+        # samples_per_bin is now passed as parameter
         common_mode_input_voltage = 0.0
         input_voltage_data = np.arange(
             -self.diff_input_voltage_range / 2,
@@ -665,7 +661,7 @@ class SAR_ADC:
         adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
         conversion_energy_average = 0
 
-        print("Calculating conversion energy ...")
+        # Calculating conversion energy - progress shown by tqdm
         for i in tqdm(range(len(input_voltage_data))):
             adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2 + common_mode_input_voltage,
@@ -679,11 +675,7 @@ class SAR_ADC:
 
         self.fom = conversion_energy_average / self.params["resolution"]
         self.average_conversion_energy = conversion_energy_average
-        print(
-            "conversion energy average P[pJ] %e"
-            % (self.average_conversion_energy * 1e12)
-        )
-        print("FOM[pJ] %e" % (self.fom * 1e12))
+        # Conversion energy and FOM results now reported in structured output
 
         if do_plot:
             figure, ax = plt.subplots(2, 1, sharex=True, figsize = (10,8))
@@ -726,7 +718,7 @@ class SAR_ADC:
         for i,value in enumerate(weights[:-1]):
             self.redundancy.append((sum(weights[i+1:]) - weights[i])/sum(weights[i:])*100)
             step_ticks.append(i)
-        print(f"Error tolerance for step [i]: {self.redundancy}")
+        # Error tolerance array now summarized as scalar average in structured output
 
         if do_plot:
             figure, ax = plt.subplots(1, 1, figsize = (10,8))
@@ -754,7 +746,7 @@ class SAR_ADC:
         return ideal_adc_code
 
     def plot_transfer_function(self):
-        samples_per_bin = 100
+        samples_per_bin = 10  # Default value, can be overridden in function call
         common_mode_input_voltage = 0.6
         input_voltage_data = np.arange(
             -self.diff_input_voltage_range / 2,
@@ -796,109 +788,195 @@ class SAR_ADC:
         ax[1].grid(True)
         ax[1].legend(loc="upper right")
 
-    def compile_results(self, builddir, testcase):
+    def compile_results(self, builddir=None, testcase="default", values_per_bin=10, num_samples=1000, samples_per_bin=1):
+        # Create results directory if not specified
+        if builddir is None:
+            builddir = os.path.join(os.getcwd(), "results")
+        
+        # Ensure builddir exists
+        os.makedirs(builddir, exist_ok=True)
+        
+        # Ensure builddir ends with /
+        if not builddir.endswith('/'):
+            builddir += '/'
 
-        figure1, ax1 = self.calculate_nonlinearity(do_plot=True)
-        plt.tight_layout()
-        plt.savefig(f"{builddir}{testcase}_nonlinearity.pdf")
-        figure2, ax2 = self.calculate_conversion_energy(do_plot=True)
+        # Create unified output function
+        markdown_lines = []
+        def output_both(text, markdown_only=False):
+            """Output text to both STDOUT and markdown report"""
+            if not markdown_only:
+                print(text)
+            markdown_lines.append(text)
 
-        plt.tight_layout()
-        plt.savefig(f"{builddir}{testcase}_energy.pdf")
+        # Helper function to format aligned tables for terminal
+        def format_table_row(col1, col2, col3, col1_width=35, col2_width=15, col3_width=8):
+            """Format a table row with proper spacing for terminal alignment"""
+            return f"| {col1:<{col1_width}} | {col2:<{col2_width}} | {col3:<{col3_width}} |"
 
-        figure3, ax3 = self.calculate_enob(do_plot=True)
-        plt.tight_layout()
-        plt.savefig(f"{builddir}{testcase}_enob.pdf")
+        # Header information (markdown-only for report, plain for terminal)
+        output_both("# SAR ADC Analysis Report: " + testcase, markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("## System Configuration", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("| Parameter | Value | Unit |", markdown_only=True)
+        output_both("|-----------|--------|------|", markdown_only=True)
+        output_both("Simulation Type: Behavioral Model Only", markdown_only=True)
+        output_both("", markdown_only=True)
 
-        figure4, ax4 = self.calculate_redundancy(do_plot=True)
-        plt.tight_layout()
-        plt.savefig(f"{builddir}{testcase}_redundancy.pdf")
+        # Terminal header
+        print(f"SAR ADC Analysis Report: {testcase}")
+        print("=" * 60)
+        print()
 
-        # Collect parameters and results
-        data = [
+        # System parameters with aligned formatting
+        print("System Configuration:")
+        print("-" * 60)
+        print(format_table_row("Parameter", "Value", "Unit"))
+        print(format_table_row("-" * 35, "-" * 15, "-" * 8))
+        
+        # Collect all parameters including the scattered ones
+        params_data = [
+            ("Simulation Type", "Behavioral Model Only", ""),
             ("Resolution", self.params["resolution"], "bits"),
             ("Sample frequency", f"{self.sampling_frequency / 1.0e6:.3f}", "Msps"),
             ("LSB size", f"{self.lsb_size / 1.0e-3:.3f}", "mV"),
-            ("DAC weights array", self.dac.weights_array, "" ),
-            ("DAC weights sum (+1)", self.dac.weights_sum+1, "" ),
-            ("DAC capacitor array size", self.dac.params["array_size"], ""),
+            ("Cycles", self.dac.params["array_size"] + 1, ""),
+            ("DAC array size", self.dac.params["array_size"], "bits"),
             ("DAC unit capacitance", f'{self.dac.params["unit_capacitance"] / 1e-15:.3f}', "fF"),
-            (
-                "DAC parasitic capacitance",
-                f'{self.dac.params["parasitic_capacitance"] / 1e-15:.3f}',
-                "fF",
-            ),
+            ("DAC parasitic capacitance", f'{self.dac.params["parasitic_capacitance"] / 1e-15:.3f}', "fF"),
             ("DAC total capacitance", f'{self.dac.capacitance_sum_p / 1e-12:.3f}', "pF"),
-            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "\%"), # need to escape percent sign
-            (
-                "Comparator noise",
-                f'{self.comparator.params["threshold_voltage_noise"] * 1000:.3f}',
-                "mV",
-            ),
-            (
-                "Comparator offset",
-                f'{self.comparator.params["offset_voltage"] * 1000:.3f}',
-                "mV",
-            ),
-            (
-                "Reference voltage noise",
-                f'{self.dac.params["reference_voltage_noise"] * 1000:.3f}',
-                "mV",
-            ),
-            ("DNL", f"{self.dnl:.2f}", "LSB"),
-            ("INL", f"{self.inl:.2f}", "LSB"),
-            ("ENOB", f"{self.enob:.2f}", "bits"),
-            (
-                "FOM (energy/conversion)",
-                f'{self.average_conversion_energy / self.params["resolution"] / 1e-12:.2f}',
-                "pJ",
-            ),
+            ("DAC weights array", str(self.dac.weights_array), ""),
+            ("DAC weights sum", self.dac.weights_sum, ""),
+            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "%"),
+            ("DAC switching strategy", self.dac.params["switching_strat"], ""),
+            ("Comparator noise", f'{self.comparator.params["threshold_voltage_noise"] * 1000:.3f}', "mV"),
+            ("Comparator offset", f'{self.comparator.params["offset_voltage"] * 1000:.3f}', "mV"),
+            ("Reference positive voltage", f'{self.dac.params["positive_reference_voltage"]:.1f}', "V"),
+            ("Reference negative voltage", f'{self.dac.params["negative_reference_voltage"]:.1f}', "V"),
+            ("Reference voltage noise", f'{self.dac.params["reference_voltage_noise"] * 1000:.3f}', "mV"),
         ]
 
-        # Create DataFrame
-        df = pd.DataFrame(data)
-        df.columns = ["Parameter", "Value", "Unit"]
-        table = df.to_latex(index=False)
-        with open(f"{builddir}/{testcase}_table.tex", "w") as f:
-            f.write(table)
+        # Output parameters with aligned formatting for terminal and markdown table for report
+        output_both("## System Parameters", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("| Parameter | Value | Unit |", markdown_only=True)
+        output_both("|-----------|--------|------|", markdown_only=True)
 
-        def combine_pdfs(testcase, builddir):
-            latex_content = f"""\\documentclass[varwidth]{{standalone}}
-\\usepackage{{graphicx}}
-\\usepackage{{subcaption}}
-\\usepackage{{booktabs}}
+        for param, value, unit in params_data:
+            # Terminal with aligned formatting
+            print(format_table_row(param, str(value), unit))
+            # Markdown for report
+            output_both(f"| {param} | {value} | {unit} |", markdown_only=True)
 
-\\begin{{document}}
-\\begin{{figure}}
-\\begin{{subfigure}}{{0.32\\textwidth}}
-    \\includegraphics[width=\\textwidth]{{{testcase}_nonlinearity.pdf}}
-\\end{{subfigure}}
-\\begin{{subfigure}}{{0.32\\textwidth}}
-    \\includegraphics[width=\\textwidth]{{{testcase}_redundancy.pdf}}
-    \\includegraphics[width=\\textwidth]{{{testcase}_enob.pdf}}
-\\end{{subfigure}}
-\\begin{{subfigure}}{{0.32\\textwidth}}
-    \\begin{{table}}
-    \\let\\center\\empty
-    \\let\\endcenter\\relax
-    \\centering
-    \\resizebox{{0.3\\width}}{{!}}{{\\input{{{testcase}_table.tex}}}}
-    \\end{{table}}
-    \\includegraphics[width=\\textwidth]{{{testcase}_energy.pdf}}
-\\end{{subfigure}}
-\\end{{figure}}
+        print()
+        output_both("", markdown_only=True)
 
-\\end{{document}}
-"""
-            output_path = f"{builddir}/{testcase}_combine.tex"
-            with open(output_path, 'w') as f:
-                f.write(latex_content)
-            return output_path
+        # Analysis execution header
+        print("Analysis Execution:")
+        print("-" * 60)
+        output_both("## Analysis Execution", markdown_only=True)
+        output_both("", markdown_only=True)
+        
+        # Run analyses and collect results
+        figure1, ax1 = self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
+        plt.tight_layout()
+        plot_path = f"{builddir}{testcase}_nonlinearity.png"
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
-        tex_combine_file = combine_pdfs(testcase,builddir)
-        return tex_combine_file
+        figure2, ax2 = self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
+        plt.tight_layout()
+        plot_path2 = f"{builddir}{testcase}_energy.png"
+        plt.savefig(plot_path2, dpi=300, bbox_inches='tight')
+        plt.close()
 
-        # FIXME: I'm currently relying on VSCode to run the combine.tex files, but I should manually do it.
+        figure3, ax3 = self.calculate_enob(do_plot=True, num_samples=num_samples)
+        plt.tight_layout()
+        plot_path3 = f"{builddir}{testcase}_enob.png"
+        plt.savefig(plot_path3, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        figure4, ax4 = self.calculate_redundancy(do_plot=True)
+        plt.tight_layout()
+        plot_path4 = f"{builddir}{testcase}_redundancy.png"
+        plt.savefig(plot_path4, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # Calculate average redundancy for scalar summary
+        avg_redundancy = sum([x for x in self.redundancy if x > 0]) / len([x for x in self.redundancy if x > 0]) if any(x > 0 for x in self.redundancy) else 0
+
+        # Performance results with aligned formatting
+        print()
+        print("Analysis Results:")
+        print("-" * 60)
+        print(format_table_row("Parameter", "Value", "Unit"))
+        print(format_table_row("-" * 35, "-" * 15, "-" * 8))
+        
+        results_data = [
+            ("DNL", f"{self.dnl:.3f}", "LSB"),
+            ("INL", f"{self.inl:.3f}", "LSB"),
+            ("ENOB", f"{self.enob:.2f}", "bits"),
+            ("Conversion Energy", f'{self.average_conversion_energy * 1e12:.3f}', "pJ"),
+            ("FOM (energy/conversion)", f'{self.average_conversion_energy / self.params["resolution"] / 1e-12:.2f}', "pJ"),
+            ("Average Error Tolerance", f'{avg_redundancy:.1f}', "%"),
+        ]
+
+        # Terminal output
+        for param, value, unit in results_data:
+            print(format_table_row(param, value, unit))
+
+        # Plot generation summary for terminal
+        print()
+        print("Generated Plots:")
+        print("-" * 60)
+        print(f"Nonlinearity analysis: {plot_path}")
+        print(f"Energy analysis: {plot_path2}")
+        print(f"ENOB analysis: {plot_path3}")
+        print(f"Redundancy analysis: {plot_path4}")
+        print()
+
+        # Markdown-only sections for report
+        output_both(f"Generated nonlinearity plot: {plot_path}", markdown_only=True)
+        output_both(f"Generated energy analysis plot: {plot_path2}", markdown_only=True)
+        output_both(f"Generated ENOB analysis plot: {plot_path3}", markdown_only=True)
+        output_both(f"Generated redundancy analysis plot: {plot_path4}", markdown_only=True)
+        output_both("", markdown_only=True)
+
+        output_both("## Performance Results", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("| Parameter | Value | Unit |", markdown_only=True)
+        output_both("|-----------|--------|------|", markdown_only=True)
+
+        for param, value, unit in results_data:
+            output_both(f"| {param} | {value} | {unit} |", markdown_only=True)
+
+        output_both("", markdown_only=True)
+
+        # Analysis plots section for markdown
+        output_both("## Analysis Plots", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("### Nonlinearity Analysis", markdown_only=True)
+        output_both(f"![Nonlinearity Analysis]({testcase}_nonlinearity.png)", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("### Energy Analysis", markdown_only=True)
+        output_both(f"![Energy Analysis]({testcase}_energy.png)", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("### ENOB Analysis", markdown_only=True)
+        output_both(f"![ENOB Analysis]({testcase}_enob.png)", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("### Redundancy Analysis", markdown_only=True)
+        output_both(f"![Redundancy Analysis]({testcase}_redundancy.png)", markdown_only=True)
+        output_both("", markdown_only=True)
+        output_both("---", markdown_only=True)
+        output_both("*Generated by SAR ADC Behavioral Model*", markdown_only=True)
+
+        # Write markdown file
+        markdown_file = f"{builddir}{testcase}_report.md"
+        with open(markdown_file, 'w') as f:
+            f.write('\n'.join(markdown_lines))
+        
+        output_both(f"Report saved to: {markdown_file}")
+        return markdown_file
 
     def sample_and_convert(
         self,

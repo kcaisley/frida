@@ -22,7 +22,7 @@ EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
 
 # Default target
-.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral
 
 all: gds caparray
 
@@ -32,7 +32,7 @@ setup:
 	python -m venv .venv
 	@echo "Activating virtual environment and installing packages..."
 	.venv/bin/python -m pip install --upgrade pip
-	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
+	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm pytest cocotb cocotbext-spi jinja2
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
 # Generate GDS for specified block, using .py script for klayout: make gds <cellname>
@@ -171,6 +171,27 @@ viewdrc:
 %:
 	@:
 
+# Run behavioral simulation: make behavioral <run_script>
+behavioral:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make behavioral <run_script>"; \
+		echo "Available run scripts:"; \
+		for script in src/runs/*.py; do \
+			if [ -f "$$script" ]; then \
+				basename="$$(basename "$$script" .py)"; \
+				echo "  $$basename"; \
+			fi; \
+		done; \
+		exit 1; \
+	fi
+	@run_script="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "src/runs/$${run_script}.py" ]; then \
+		echo "Error: src/runs/$${run_script}.py not found"; \
+		exit 1; \
+	fi; \
+	echo "Running behavioral simulation: $${run_script}..."; \
+	.venv/bin/python "src/runs/$${run_script}.py"
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -179,6 +200,7 @@ help:
 	@echo "  gds <cellname>  - Generate GDS layout file (looks for src/<cellname>.py)"
 	@echo "  lef <cellname>  - Generate LEF file from GDS for specified cell"
 	@echo "  view <cellname> - Open GDS file in KLayout with tech files"
+	@echo "  behavioral <run_script> - Run behavioral simulation (e.g. make behavioral run_oneshot)"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"

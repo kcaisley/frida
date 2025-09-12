@@ -1,7 +1,7 @@
 /tech/nopdk/*
 /tech/tsmc65/*
 /tech/tsmc28/*
-/logs/*
+/results
 __pycache__
 .venv*
 .vscode
