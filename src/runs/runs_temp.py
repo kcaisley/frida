@@ -9,7 +9,7 @@ params_wip = {
         "positive_input_voltages": [0.2, 1.2, 20e-6],      # start, end (incl.), and step voltage
         "negative_input_voltages": [1.2, 0.2, 20e-6],
         "use_calibration": False,            # account for cap error when calculating Dout (re-analog)
-        "pdk_file": "\"~/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib\" tt",
+        "pdk_file": "\"~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib\" tt",
         "spicedir": None,                    # Use this to write netlist from template
         "rawdir": None,                      # Use this to set SPICE output dir, and to read for parsing
     },

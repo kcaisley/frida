@@ -64,10 +64,10 @@ Extraction
 ### 1. SPICE `.option` isn't supported. S-edit is smart enough to remove these in an AFS/Spectre export, but
 
 ```
-WARNING (SFE-105): "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 97: `threads' has been ignored because it is not
+WARNING (SFE-105): "~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 97: `threads' has been ignored because it is not
     an option. Correct the name and rerun the simulation. Type `spectre -h options' to get more information on valid option parameters.
 
-WARNING (SFE-105): "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 98: `monteinfo' has been ignored because it is not
+WARNING (SFE-105): "~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib" 98: `monteinfo' has been ignored because it is not
     an option. Correct the name and rerun the simulation. Type `spectre -h options' to get more information on valid option parameters.
 ```
 
@@ -112,7 +112,7 @@ The relevant commands would be for e.g. `ahdl_include comparator_latch.va` and `
 
 If exporting (instead of netlisting) one need to make sure to _un-check_ `Exclude ahdl_include`.
 
-### 6. include statements in spectre need a `section=tt` instead of just `tt`, and the include needs double quotes. This can be achieved by changing the string in the `Setup Simulation > General > Spectre Library Files` and set it to `"/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" tt` to produce the output netlist string `include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt`
+### 6. include statements in spectre need a `section=tt` instead of just `tt`, and the include needs double quotes. This can be achieved by changing the string in the `Setup Simulation > General > Spectre Library Files` and set it to `"~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib" tt` to produce the output netlist string `include "~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt`
 
 ### 7. In the 'heirarchy priority list' you should put:
 
@@ -364,7 +364,7 @@ But when we netlist from S-Edit exported in the Spectre mode:
 
 ```
 // ---- Post-processed by `prep_netlist.py` for compatibility ----
-// Library:              sasc
+// Library:              frida
 // Cell:                 tb_nmos_ids_vgs
 // Testbench:            Spectre
 
@@ -374,7 +374,7 @@ inst_info info what=inst where=rawfile
 models_info info what=models where=rawfile
 subckts_info info what=subckts where=rawfile
 primitives_info info what=primitives where=rawfile
-include "/users/kcaisley/helena/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt
+include "~/frida/tech/tsmc65/default_testbench_header_55ulp_linux.lib" section=tt
 
 simulatorOptions options redefinedparams=ignore
 

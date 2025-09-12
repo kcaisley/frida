@@ -674,7 +674,7 @@ Error: global_place.tcl, 49 RSZ-2001
 # Writing netlist in CDL format:
 
 >>> read_verilog results/tsmc65/frida_adc/base/1_2_yosys.v
->>> write_cdl -masters "platforms/tsmc65/spice/tcbn65lplvt_200a.spi /home/kcaisley/frida/etc/sampswitch.cdl /home/kcaisley/frida/etc/comp.cdl /home/kcaisley/frida/etc/caparray.cdl" results/tsmc65/frida_adc/base/output.cdl
+>>> write_cdl -masters "platforms/tsmc65/spice/tcbn65lplvt_200a.spi ~/frida/etc/sampswitch.cdl ~/frida/etc/comp.cdl ~/frida/etc/caparray.cdl" results/tsmc65/frida_adc/base/output.cdl
 
 # Error in PDN generation:
 ```log
@@ -720,14 +720,14 @@ Error: global_place.tcl, 49 RSZ-2001
   Here's the exact sequence of OpenSTA/timing commands you can run in OpenROAD's interactive mode:
 
   # 1. Read Liberty file
-  read_liberty /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lib/tcbn65lplvtwc.lib
+  read_liberty ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lib/tcbn65lplvtwc.lib
 
   # 2. Read LEF files  
-  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tsmc65lplvt_9lmT2.lef
-  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tcbn65lplvt_9lmT2.lef
-  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/caparray.lef
-  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/comp.lef
-  read_lef /home/kcaisley/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/sampswitch.lef
+  read_lef ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tsmc65lplvt_9lmT2.lef
+  read_lef ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/tcbn65lplvt_9lmT2.lef
+  read_lef ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/caparray.lef
+  read_lef ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/comp.lef
+  read_lef ~/OpenROAD-flow-scripts/flow/platforms/tsmc65/lef/sampswitch.lef
 
   # 3. Read Verilog and link design
   read_verilog ./results/tsmc65/frida_adc/base/1_synth.v
@@ -756,7 +756,7 @@ Error: global_place.tcl, 49 RSZ-2001
   report_check_types -max_slew -max_capacitance -max_fanout -violators
 
   The key timing analysis occurs in Step 1 (initial floorplan), where check_setup is called line 38 in
-  /home/kcaisley/OpenROAD-flow-scripts/flow/scripts/floorplan.tcl, and the repair_timing command performs setup timing optimization. The other steps focus mainly on
+  ~/OpenROAD-flow-scripts/flow/scripts/floorplan.tcl, and the repair_timing command performs setup timing optimization. The other steps focus mainly on
   physical implementation rather than timing analysis.
 
 

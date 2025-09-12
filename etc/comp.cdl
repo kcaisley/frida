@@ -18,3 +18,4 @@ M5 dout_n dout_p vdd_a vdd_a pch_lvt l=1u w=2u m=2
 Ms3 dout_n clk vdd_a vdd_a pch_lvt l=60n w=500n m=2
 
 .ends
+

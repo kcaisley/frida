@@ -85,7 +85,7 @@
          ns6:texconverter="pdflatex"
          ns6:pdfconverter="inkscape"
          ns6:text=" $C_1$"
-         ns6:preamble="/users/kcaisley/.config/inkscape/extensions/circuitSymbols/circuitSymbolsPreamble.tex"
+         ns6:preamble="~/.config/inkscape/extensions/circuitSymbols/circuitSymbolsPreamble.tex"
          ns6:scale="1.0"
          ns6:alignment="middle center"
          ns6:stroke-to-path="0"

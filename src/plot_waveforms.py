@@ -15,7 +15,7 @@ def plot_waveforms():
     Generate waveform plots from SPICE simulation data
     """
     # Read the raw file
-    raw_data = RawRead('/home/kcaisley/frida/hdl/test_simple_complete.raw')
+    raw_data = RawRead('~/frida/design/test_simple_complete.raw')
     
     # Get time vector and signals
     time = raw_data.get_trace('time').get_wave()
@@ -107,13 +107,13 @@ def plot_waveforms():
     plt.subplots_adjust(top=0.93)
     
     # Save high-quality plot
-    output_file = '/home/kcaisley/frida/hdl/spice_waveforms.png'
+    output_file = '~/frida/design/spice_waveforms.png'
     plt.savefig(output_file, dpi=200, bbox_inches='tight', 
                 facecolor='white', edgecolor='none')
     print(f'High-resolution waveform plot saved as: {output_file}')
     
     # Also save as PDF
-    pdf_file = '/home/kcaisley/frida/hdl/spice_waveforms.pdf'
+    pdf_file = '~/frida/design/spice_waveforms.pdf'
     plt.savefig(pdf_file, bbox_inches='tight', 
                 facecolor='white', edgecolor='none')
     print(f'Vector waveform plot saved as: {pdf_file}')
@@ -136,7 +136,7 @@ def create_interactive_plot():
         import matplotlib.pyplot as plt
         
         # Read the raw file
-        raw_data = RawRead('/home/kcaisley/frida/hdl/test_simple_complete.raw')
+        raw_data = RawRead('~/frida/design/test_simple_complete.raw')
         
         # Get signals
         time = raw_data.get_trace('time').get_wave() * 1e9  # Convert to ns

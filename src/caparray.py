@@ -434,7 +434,7 @@ def main():
     # Extract cell name from output path
     import os
     cell_name = os.path.splitext(os.path.basename(output_path))[0]
-    lyt_file_path = "/home/kcaisley/asiclab/tech/tsmc65/tsmc65.lyt"
+    lyt_file_path = "~/asiclab/tech/tsmc65/tsmc65.lyt"
     
     # Calculate weights and perform analysis
     unary_weight = 64

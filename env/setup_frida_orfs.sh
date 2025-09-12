@@ -67,7 +67,7 @@ sed -n '8p' "$MAKEFILE"
 
 echo ""
 echo "Setup complete! Symlinks created:"
-echo "  • $ORFS_DIR/flow/designs/src/frida -> $FRIDA_DIR/hdl"
+echo "  • $ORFS_DIR/flow/designs/src/frida -> $FRIDA_DIR/design"
 echo "  • $ORFS_DIR/flow/designs/tsmc65/frida -> $FRIDA_DIR/design"  
 echo "  • $ORFS_DIR/flow/platforms/tsmc65 -> $HOME/asiclab/tech/tsmc65"
 echo "  • FRIDA config.mk to flow/Makefile line 8:"

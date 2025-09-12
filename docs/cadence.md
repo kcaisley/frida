@@ -92,7 +92,7 @@ To load an external skill file:
 
 ```
 ddUpdateLibList()
-load("/users/kcaisley/frida/build/test_tsmc65_lay.il")
+load("~/frida/build/test_tsmc65_lay.il")
 ```
 
 From this I learned two other things: UDD input params are also called CDF params (component description format), like in Cadence. CDF is the Cadence front end for giving the GUI-user access to the parameters to pass to the simulation model and pcell. But CDF is seperate, and has to have values that match the range, quantization, and defaults of the models/pcells. CDF appears to work as a application level system component which can be interacted with via SKILL. It's the mesh layer internal to Cadence which connects pcells, simulators, models, netlists, etc and let's the user interactively modify the settings and connections between them in the GUI.

@@ -12,7 +12,7 @@ from spicelib import *
 
 def main():
     # Read the raw file
-    raw_data = RawRead('/home/kcaisley/frida/hdl/test_simple_complete.raw')
+    raw_data = RawRead('~/frida/design/test_simple_complete.raw')
     
     print('Raw file information:')
     print(f'  Available traces: {raw_data.get_trace_names()}')
@@ -167,7 +167,7 @@ def plot_waveforms(time, a, b, c, y1, y2):
     plt.subplots_adjust(top=0.93)
     
     # Save plot
-    plt.savefig('/home/kcaisley/frida/hdl/spice_waveforms.png', dpi=150, bbox_inches='tight')
+    plt.savefig('~/frida/design/spice_waveforms.png', dpi=150, bbox_inches='tight')
     print('Waveform plot saved as: hdl/spice_waveforms.png')
     
     # Show interactive plot

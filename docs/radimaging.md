@@ -158,8 +158,7 @@ high resistivity epitxial
 Charge-couple device 
 
 
-# Noise and other terms
-[Lexicon of terms](https://caeleste.be/lexicon/)
+# Terms
 
 shot noise?
 fano noise
@@ -985,7 +984,7 @@ Infrared, visible light, and X-ray imaging are quite common. But UV isn't. This 
 
 >  Shorter wavelength photons (400 nanometers and below) are either reflected or absorbed into the gate region of the CCD. Longer wavelength photons (between 400 and 700 nanometers) have a high probability of generating an electron within the charge well. As photon wavelength exceeds 700 nanometers, the probability becomes greater that the photon will pass directly through the CCD without being absorbed. The spectral sensitivity of the CCD differs from that of a simple silicon photodiode detector because the CCD surface has channels used for charge transfer that are shielded by polysilicon gate electrodes, thin films of silicon dioxide, and a silicon nitride passivation layer. 
 
-![Uv light](/users/kcaisley/fastroic/notes/images/uv_detection.png)
+![Uv light](~/frida/docs/images/uv_detection.png)
 
 https://micro.magnet.fsu.edu/primer/java/digitalimaging/ccd/quantum/
 
@@ -1186,7 +1185,7 @@ Pixel array for Belle module is 768 px rows, x 256px columns. Four rows are read
 - DCDE is an increased dynamic range version DCD. It's being used in EDET (Koffmane, 2019)
 
 
-# For FASTRoic
+# For FRIDA
 
 We have 512 x 512, but each of the 8 chips is responsible for a 64 x 512 region of pixels. Each pixel is 60 x 60 µm, so that means that the width for the 64 pixel section is 3.84 mm. This is much less than the maximum ~20mm full reticle size. But that's okay, as we can reduce our design complexity and improve yield.
 
