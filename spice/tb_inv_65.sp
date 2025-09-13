@@ -2,7 +2,7 @@
 * Test inverter using nch_lvt and pch_lvt devices
 
 * Include TSMC65nm PDK models
-.lib '../tech/tsmc65/models/toplevel.l' tt_lib
+.lib '../../asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
 
 * Supply voltage
 vdd vdd 0 1.2
@@ -12,13 +12,16 @@ vin in 0 pulse(0 1.2 0.1n 0.1n 0.1n 0.9n 2n)
 
 * Inverter circuit
 * NMOS transistor
-mn out in 0 0 nmos_rf_lvt w=240n l=60n m=1
+mn out in 0 0 nch_lvt w=240n l=60n m=1
 
 * PMOS transistor
-mp out in vdd vdd pmos_rf_lvt w=480n l=60n m=1
+mp out in vdd vdd pch_lvt w=480n l=60n m=1
 
 * Load capacitor
 cl out 0 10f
+
+* Save signals for output
+.save v(in) v(out)
 
 * Analysis
 .tran 10p 2n
@@ -26,7 +29,7 @@ cl out 0 10f
 * Output
 .control
 run
-plot v(in) v(out)
+write ../results/tb_inv_65.raw
 .endc
 
 .end

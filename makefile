@@ -196,8 +196,8 @@ behavioral:
 ngspice:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "Usage: make ngspice <testbench_name>"; \
-		echo "Available testbenches in etc/:"; \
-		for tb in etc/tb_*.sp; do \
+		echo "Available testbenches in spice/:"; \
+		for tb in spice/tb_*.sp; do \
 			if [ -f "$$tb" ]; then \
 				basename="$$(basename "$$tb" .sp)"; \
 				echo "  $$basename"; \
@@ -206,10 +206,10 @@ ngspice:
 		exit 1; \
 	fi
 	@tbname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -f "etc/$${tbname}.sp" ]; then \
-		echo "Error: etc/$${tbname}.sp not found"; \
+	if [ ! -f "spice/$${tbname}.sp" ]; then \
+		echo "Error: spice/$${tbname}.sp not found"; \
 		echo "Available testbenches:"; \
-		for tb in etc/tb_*.sp; do \
+		for tb in spice/tb_*.sp; do \
 			if [ -f "$$tb" ]; then \
 				basename="$$(basename "$$tb" .sp)"; \
 				echo "  $$basename"; \
@@ -217,13 +217,14 @@ ngspice:
 		done; \
 		exit 1; \
 	fi; \
+	mkdir -p results; \
 	echo "Running SPICE simulation: $${tbname}..."; \
-	cd etc && ngspice -b "$${tbname}.sp"; \
-	if [ -f "../src/results/$${tbname}.raw" ]; then \
-		echo "Simulation completed. Results saved to src/results/$${tbname}.raw"; \
-		ls -lh "../src/results/$${tbname}.raw"; \
+	cd spice && ngspice -b "$${tbname}.sp"; \
+	if [ -f "../results/$${tbname}.raw" ]; then \
+		echo "Simulation completed. Results saved to results/$${tbname}.raw"; \
+		ls -lh "../results/$${tbname}.raw"; \
 	else \
-		echo "Warning: Expected output file src/results/$${tbname}.raw not found"; \
+		echo "Warning: Expected output file results/$${tbname}.raw not found"; \
 	fi
 
 # Help target

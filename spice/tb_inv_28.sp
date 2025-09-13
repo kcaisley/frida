@@ -1,8 +1,8 @@
 * TSMC28nm Inverter Test
 * Test inverter using nch_lvt and pch_lvt devices
 
-* Include TSMC28nm PDK models
-.lib '../tech/tsmc28/models/toplevel.l' TOP_TT
+* Include TSMC28nm PDK models (NOTE: TSMC28 PDK not available in this setup)
+.lib '/home/kcaisley/asiclab/tech/tsmc28/spice/models/toplevel.l' TOP_TT
 
 * Supply voltage
 vdd vdd 0 1.2
@@ -20,13 +20,16 @@ mp out in vdd vdd pch_lvt w=480n l=60n m=1
 * Load capacitor
 cl out 0 10f
 
+* Save signals for output
+.save v(in) v(out)
+
 * Analysis
 .tran 10p 2n
 
 * Output
 .control
 run
-plot v(in) v(out)
+write ../results/tb_inv_28.raw
 .endc
 
 .end

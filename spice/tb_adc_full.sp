@@ -2,7 +2,7 @@
 * Full system simulation with timing sequences
 
 * Include TSMC65nm PDK models
-.lib '/home/kcaisley/asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
+.lib '../../asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
 
 * Include SPICE master files for standard cells
 .include '/home/kcaisley/asiclab/tech/tsmc65/spice/tcbn65lplvt_200a.spi'
@@ -155,7 +155,7 @@ xadc comp_out
 * Simulation control
 .control
 tran 10p 125n
-write ../src/results/tb_adc_full.raw
+write ../results/tb_adc_full.raw
 .endc
 
 * Legacy tran statement (required by some SPICE variants)

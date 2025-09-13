@@ -1,7 +1,7 @@
 * TSMC65nm ADC Quick Test - Short simulation
 
 * Include TSMC65nm PDK models
-.lib '/home/kcaisley/asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
+.lib '../../asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
 
 * Include SPICE master files for standard cells
 .include '/home/kcaisley/asiclab/tech/tsmc65/spice/tcbn65lplvt_200a.spi'
@@ -139,7 +139,7 @@ xadc comp_out
 .control
 op
 tran 0.1n 1n
-write ../src/results/tb_adc_quick.raw
+write ../results/tb_adc_quick.raw
 .endc
 
 .op

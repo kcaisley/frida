@@ -1,5 +1,5 @@
 * Simple test to check if PDK and basic setup works
-.lib '/home/kcaisley/asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
+.lib '../../asiclab/tech/tsmc65/spice/models/toplevel.l' tt_lib
 
 * Simple voltage sources
 vdd vdd 0 1.2
@@ -18,7 +18,7 @@ mp out in vdd vdd pch_lvt w=240n l=60n m=1
 * Control section
 .control
 tran 0.1n 20n
-write ../src/results/tb_simple.raw
+write ../results/tb_simple.raw
 .endc
 
 .tran 0.1n 20n
