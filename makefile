@@ -192,6 +192,40 @@ behavioral:
 	echo "Running behavioral simulation: $${run_script}..."; \
 	.venv/bin/python "src/runs/$${run_script}.py"
 
+# Run SPICE simulation: make ngspice <testbench_name>
+ngspice:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make ngspice <testbench_name>"; \
+		echo "Available testbenches in etc/:"; \
+		for tb in etc/tb_*.sp; do \
+			if [ -f "$$tb" ]; then \
+				basename="$$(basename "$$tb" .sp)"; \
+				echo "  $$basename"; \
+			fi; \
+		done; \
+		exit 1; \
+	fi
+	@tbname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "etc/$${tbname}.sp" ]; then \
+		echo "Error: etc/$${tbname}.sp not found"; \
+		echo "Available testbenches:"; \
+		for tb in etc/tb_*.sp; do \
+			if [ -f "$$tb" ]; then \
+				basename="$$(basename "$$tb" .sp)"; \
+				echo "  $$basename"; \
+			fi; \
+		done; \
+		exit 1; \
+	fi; \
+	echo "Running SPICE simulation: $${tbname}..."; \
+	cd etc && ngspice -b "$${tbname}.sp"; \
+	if [ -f "../src/results/$${tbname}.raw" ]; then \
+		echo "Simulation completed. Results saved to src/results/$${tbname}.raw"; \
+		ls -lh "../src/results/$${tbname}.raw"; \
+	else \
+		echo "Warning: Expected output file src/results/$${tbname}.raw not found"; \
+	fi
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -201,6 +235,7 @@ help:
 	@echo "  lef <cellname>  - Generate LEF file from GDS for specified cell"
 	@echo "  view <cellname> - Open GDS file in KLayout with tech files"
 	@echo "  behavioral <run_script> - Run behavioral simulation (e.g. make behavioral run_oneshot)"
+	@echo "  ngspice <tbname> - Run SPICE simulation (e.g. make ngspice tb_adc_full)"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
