@@ -1,0 +1,310 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+
+MACRO caparray
+  CLASS BLOCK ;
+  FOREIGN caparray 0 0 ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 40.000 BY 90.000 ;
+  SYMMETRY X Y ;
+
+  PIN cap_botplate_main[0]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 0.84 0.84 1.68 1.68 ;
+    END
+  END cap_botplate_main[0]
+
+  PIN cap_botplate_main[1]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 3.36 0.84 4.20 1.68 ;
+    END
+  END cap_botplate_main[1]
+
+  PIN cap_botplate_main[2]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 5.88 0.84 6.72 1.68 ;
+    END
+  END cap_botplate_main[2]
+
+  PIN cap_botplate_main[3]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 8.40 0.84 9.24 1.68 ;
+    END
+  END cap_botplate_main[3]
+
+  PIN cap_botplate_main[4]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 10.92 0.84 11.76 1.68 ;
+    END
+  END cap_botplate_main[4]
+
+  PIN cap_botplate_main[5]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 13.44 0.84 14.28 1.68 ;
+    END
+  END cap_botplate_main[5]
+
+  PIN cap_botplate_main[6]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 15.96 0.84 16.80 1.68 ;
+    END
+  END cap_botplate_main[6]
+
+  PIN cap_botplate_main[7]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 18.48 0.84 19.32 1.68 ;
+    END
+  END cap_botplate_main[7]
+
+  PIN cap_botplate_main[8]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 21.00 0.84 21.84 1.68 ;
+    END
+  END cap_botplate_main[8]
+
+  PIN cap_botplate_main[9]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 23.52 0.84 24.36 1.68 ;
+    END
+  END cap_botplate_main[9]
+
+  PIN cap_botplate_main[10]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 26.04 0.84 26.88 1.68 ;
+    END
+  END cap_botplate_main[10]
+
+  PIN cap_botplate_main[11]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 28.56 0.84 29.40 1.68 ;
+    END
+  END cap_botplate_main[11]
+
+  PIN cap_botplate_main[12]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 31.08 0.84 31.92 1.68 ;
+    END
+  END cap_botplate_main[12]
+
+  PIN cap_botplate_main[13]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 33.60 0.84 34.44 1.68 ;
+    END
+  END cap_botplate_main[13]
+
+  PIN cap_botplate_main[14]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 36.12 0.84 36.96 1.68 ;
+    END
+  END cap_botplate_main[14]
+
+  PIN cap_botplate_main[15]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 38.64 0.84 39.48 1.68 ;
+    END
+  END cap_botplate_main[15]
+
+  # Top pins (16 pins, y=89.0um, evenly spaced across 40um width)
+  PIN cap_botplate_diff[0]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 0.84 88.20 1.68 89.04 ;
+    END
+  END cap_botplate_diff[0]
+
+  PIN cap_botplate_diff[1]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 3.36 88.20 4.20 89.04 ;
+    END
+  END cap_botplate_diff[1]
+
+  PIN cap_botplate_diff[2]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 5.88 88.20 6.72 89.04 ;
+    END
+  END cap_botplate_diff[2]
+
+  PIN cap_botplate_diff[3]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 8.40 88.20 9.24 89.04 ;
+    END
+  END cap_botplate_diff[3]
+
+  PIN cap_botplate_diff[4]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 10.92 88.20 11.76 89.04 ;
+    END
+  END cap_botplate_diff[4]
+
+  PIN cap_botplate_diff[5]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 13.44 88.20 14.28 89.04 ;
+    END
+  END cap_botplate_diff[5]
+
+  PIN cap_botplate_diff[6]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 15.96 88.20 16.80 89.04 ;
+    END
+  END cap_botplate_diff[6]
+
+  PIN cap_botplate_diff[7]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 18.48 88.20 19.32 89.04 ;
+    END
+  END cap_botplate_diff[7]
+
+  PIN cap_botplate_diff[8]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 21.00 88.20 21.84 89.04 ;
+    END
+  END cap_botplate_diff[8]
+
+  PIN cap_botplate_diff[9]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 23.52 88.20 24.36 89.04 ;
+    END
+  END cap_botplate_diff[9]
+
+  PIN cap_botplate_diff[10]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 26.04 88.20 26.88 89.04 ;
+    END
+  END cap_botplate_diff[10]
+
+  PIN cap_botplate_diff[11]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 28.56 88.20 29.40 89.04 ;
+    END
+  END cap_botplate_diff[11]
+
+  PIN cap_botplate_diff[12]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 31.08 88.20 31.92 89.04 ;
+    END
+  END cap_botplate_diff[12]
+
+  PIN cap_botplate_diff[13]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 33.60 88.20 34.44 89.04 ;
+    END
+  END cap_botplate_diff[13]
+
+  PIN cap_botplate_diff[14]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 36.12 88.20 36.96 89.04 ;
+    END
+  END cap_botplate_diff[14]
+
+  PIN cap_botplate_diff[15]
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal4 ;
+        RECT 38.64 88.20 39.48 89.04 ;
+    END
+  END cap_botplate_diff[15]
+
+  OBS
+    LAYER Metal5 ;
+      RECT 0.000 0.000 40.000 90.000 ;
+    LAYER TopMetal1 ;
+      RECT 0.000 0.000 40.000 90.000 ;
+  END
+
+END caparray
+
+END LIBRARY

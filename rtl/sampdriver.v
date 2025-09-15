@@ -1,31 +1,31 @@
 // Sampling Clock Driver Module - Generates complementary clock signals
-// Uses TSMC65 matched clock buffer (CKB) and clock inverter (CKN) with strength 2
+// Uses generic OPENROAD clock buffer and inverter - mapped to technology-specific cells
 
 module sampdriver (
     input  wire clk_in,           // Input clock signal
     output wire clk_out,          // Buffered output clock
     output wire clk_out_b         // Inverted output clock
-    
+
     // Power supply signals
 `ifdef USE_POWER_PINS
     ,inout wire vdd_d, vss_d      // Digital supply
 `endif
 );
 
-    // Clock buffer for main signal path (strength 2 for better drive)
-    CKBD2LVT clk_buf (
-        .I(clk_in),               // Input clock
-        .Z(clk_out)               // Buffered clock output
+    // Generic clock buffer for main signal path
+    OPENROAD_CLKBUF clk_buf (
+        .A(clk_in),               // Input clock
+        .Y(clk_out)               // Buffered clock output
 `ifdef USE_POWER_PINS
         ,.VDD(vdd_d),             // Power supply
         .VSS(vss_d)               // Ground supply
 `endif
     );
-    
-    // Clock inverter for complementary signal path (strength 2, matched to buffer)
-    CKND2LVT clk_inv (
-        .I(clk_in),               // Input clock
-        .ZN(clk_out_b)            // Inverted clock output
+
+    // Generic clock inverter for complementary signal path
+    OPENROAD_CLKINV clk_inv (
+        .A(clk_in),               // Input clock
+        .Y(clk_out_b)             // Inverted clock output
 `ifdef USE_POWER_PINS
         ,.VDD(vdd_d),             // Power supply
         .VSS(vss_d)               // Ground supply

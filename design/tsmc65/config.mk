@@ -3,10 +3,10 @@ export DESIGN_NICKNAME        = frida
 export PLATFORM               = tsmc65
 
 # Top-level Verilog files (hierarchical design)
-export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/*.v
+export VERILOG_FILES = $(HOME)/frida/rtl/*.v
 
 # Top-level constraints
-export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/constraint.sdc
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/constraint.sdc
 
 # Sealring GDS file
 export SEAL_GDS = $(PLATFORM_DIR)/gds/sealring.gds
@@ -51,7 +51,7 @@ export DIE_AREA = 0 0 1000 1000
 export CORE_AREA = 200 200 800 800
 
 # Pad footprint placement script
-export FOOTPRINT_TCL = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/pad.tcl
+export FOOTPRINT_TCL = $(DESIGN_HOME)/$(PLATFORM)/pad.tcl
 
 # Pin placement settings for IO pads
 export PLACE_PINS_ARGS = -min_distance 10 -min_distance_in_tracks
@@ -64,7 +64,7 @@ export PLACE_DENSITY = 0.6
 export MACRO_PLACE_HALO = 5 5
 
 # PDN configuration for hierarchical design
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/BLOCKS_grid_strategy.tcl
+export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/BLOCKS_grid_strategy.tcl
 
 #--------------------------------------------------------
 # Clock Tree Synthsis (CTS)

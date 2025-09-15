@@ -1,0 +1,82 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+
+MACRO sampswitch
+  CLASS BLOCK ;
+  FOREIGN sampswitch 0 0 ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 10.000 BY 10.000 ;
+  SYMMETRY X Y ;
+
+  # Signal pins (vin, vout) - placed in center area, grid-aligned
+  PIN vin
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 4.32 6.60 5.28 7.56 ;
+    END
+  END vin
+
+  PIN vout
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 4.32 4.20 5.28 5.16 ;
+    END
+  END vout
+
+  # Clock pins - placed on left and right sides, grid-aligned
+  PIN clk
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal2 ;
+        RECT 8.40 4.20 9.24 5.04 ;
+    END
+  END clk
+
+  PIN clk_b
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal2 ;
+        RECT 1.26 4.20 2.10 5.04 ;
+    END
+  END clk_b
+
+  # Power pins - placed in corners, grid-aligned
+  PIN vdd_a
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 0.96 8.04 1.92 9.00 ;
+    END
+  END vdd_a
+
+  PIN vss_a
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 7.68 8.04 8.64 9.00 ;
+    END
+  END vss_a
+
+  OBS
+    LAYER Metal1 ;
+      RECT 0.000 0.000 10.000 10.000 ;
+    LAYER Metal2 ;
+      RECT 0.000 0.000 10.000 10.000 ;
+      RECT 4.000 0.000 6.000 10.000 ;
+    LAYER Metal3 ;
+      RECT 0.000 0.000 10.000 2.000 ;
+      RECT 0.000 8.000 10.000 10.000 ;
+  END
+
+END sampswitch
+
+END LIBRARY

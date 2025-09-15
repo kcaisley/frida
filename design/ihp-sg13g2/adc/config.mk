@@ -1,0 +1,103 @@
+export DESIGN_NAME            = adc
+export TOP_DESIGN_NICKNAME    = frida
+export DESIGN_NICKNAME        = ${TOP_DESIGN_NICKNAME}_${DESIGN_NAME}
+export PLATFORM               = ihp-sg13g2
+
+# -----------------------------------------------------
+#  Yosys (Synthesis)
+#  ----------------------------------------------------
+
+# All files, including those which are just wrappers for analog macros should be included here
+# For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
+export VERILOG_FILES = $(HOME)/frida/rtl/*.v \
+                       $(PLATFORM_DIR)/cells_ihp_sg13g2.v
+
+# Constraints
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
+
+# Analog macro LEFs for ADC sub-block - using local copies
+export ADDITIONAL_LEFS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/caparray.lef \
+                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/comp.lef \
+                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/sampswitch.lef
+
+# Note: No GDS files yet for IHP-SG13G2 analog macros
+# export ADDITIONAL_GDS += $(DESIGN_HOME)/$(PLATFORM)/adc/gds/caparray.gds \
+#                         $(DESIGN_HOME)/$(PLATFORM)/adc/gds/comp.gds \
+#                         $(DESIGN_HOME)/$(PLATFORM)/adc/gds/sampswitch.gds
+
+# Note: No library files yet for IHP-SG13G2 analog macros
+# export ADDITIONAL_LIBS += $(DESIGN_HOME)/$(PLATFORM)/adc/lib/caparray.lib \
+#                          $(DESIGN_HOME)/$(PLATFORM)/adc/lib/comp.lib \
+#                          $(DESIGN_HOME)/$(PLATFORM)/adc/lib/sampswitch.lib
+
+# Disable hierarchical synthesis to flatten OPENROAD helper modules
+export SYNTH_HIERARCHICAL = 0
+
+# Keep specific design modules from being flattened (exclude OPENROAD_* modules)
+export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
+
+#--------------------------------------------------------
+# Floorplan
+# -------------------------------------------------------
+
+# Increased design area: 150x150 micrometers for IHP-SG13G2 to accommodate macros
+export DIE_AREA = 0 0 150 150
+export CORE_AREA = 5 5 145 145
+
+export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro.tcl
+
+export MACRO_PLACE_HALO = 1 1
+
+export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+
+#--------------------------------------------------------
+# Placement
+# -------------------------------------------------------
+
+export IO_PLACER_H = Metal2  # Horizontal I/O pins on Metal2 (IHP-SG13G2)
+export IO_PLACER_V = Metal3  # Vertical I/O pins on Metal3 (IHP-SG13G2)
+
+export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
+
+# Pin placement settings, adapted for IHP-SG13G2 grid
+export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
+
+# Standard cell placement density
+export PLACE_DENSITY = 0.65
+
+#--------------------------------------------------------
+# Clock Tree Synthsis (CTS)
+# -------------------------------------------------------
+
+# export SKIP_GATE_CLONING = 1
+
+# Buffer list for CTS - using IHP-SG13G2 buffers
+# export CTS_BUF_LIST = sg13g2_buf_1 sg13g2_buf_2 sg13g2_buf_4
+
+# export CTS_BUF_DISTANCE = 80
+# export CTS_ARGS = -dont_use_dummy_load -sink_buffer_max_cap_derate 0.1 -delay_buffer_derate 0.3
+
+#--------------------------------------------------------
+# Routing
+# -------------------------------------------------------
+
+# Routing layer constraints - IHP-SG13G2 metal stack
+export MIN_ROUTING_LAYER = Metal2
+export MAX_ROUTING_LAYER = Metal4
+
+# Enable detailed routing debug for caparray pin coverage issues
+export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
+
+#--------------------------------------------------------
+# Finishing
+# -------------------------------------------------------
+
+export USE_FILL = 1
+
+#--------------------------------------------------------
+# Power Analysis
+# -------------------------------------------------------
+
+# Override platform power nets to match mixed-signal design power domains
+export PWR_NETS_VOLTAGES = "vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2"
+export GND_NETS_VOLTAGES = "vss_d 0.0 vss_a 0.0 vss_dac 0.0"

@@ -9,11 +9,11 @@ export PLATFORM               = tsmc65
 
 # All files, including those which are just wrappers for analog macros should be included here
 # For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
-export VERILOG_FILES = $(DESIGN_HOME)/$(PLATFORM)/${TOP_DESIGN_NICKNAME}/*.v \
+export VERILOG_FILES = $(HOME)/frida/rtl/*.v \
                        $(PLATFORM_DIR)/cells_dffe.v
 
 # Constraints
-export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/$(TOP_DESIGN_NICKNAME)/${DESIGN_NAME}/constraint.sdc
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/${DESIGN_NAME}/constraint.sdc
 
 # Analog macro LEFs for ADC sub-block
 export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/caparray.lef \
@@ -46,13 +46,13 @@ export DIE_AREA = 0 0 60 60
 export CORE_AREA = 0 0 60 60
 
 # Macro placement configuration for analog blocks  
-export MACRO_PLACEMENT = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro_placement.cfg
+export MACRO_PLACEMENT = $(DESIGN_HOME)/$(PLATFORM)/adc/macro_placement.cfg
 
 # MACRO_PLACE_HALO settings for mixed-signal layout
 export MACRO_PLACE_HALO = 1 1
 # export MACRO_PLACE_CHANNEL = 4 4
 
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/adc/pdn.tcl
 
 #--------------------------------------------------------
 # Placement
@@ -61,7 +61,7 @@ export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
 export IO_PLACER_H = M3  # Horizontal I/O pins on M3
 export IO_PLACER_V = M2  # Vertical I/O pins on M2
 
-export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
+export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/adc/io.tcl
 
 # Pin placement settings, since my tracks are 200nm tall
 export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks

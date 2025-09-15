@@ -1,0 +1,93 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+
+MACRO comp
+  CLASS BLOCK ;
+  FOREIGN comp 0 0 ;
+  ORIGIN 0.000 0.000 ;
+  SIZE 30.000 BY 30.000 ;
+  SYMMETRY X Y ;
+
+  # Input pins (vin_p, vin_n) - placed in upper area, grid-aligned
+  PIN vin_p
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 11.52 25.80 12.48 26.76 ;
+    END
+  END vin_p
+
+  PIN vin_n
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 17.28 25.80 18.24 26.76 ;
+    END
+  END vin_n
+
+  # Output pins (dout_p, dout_n) - placed in lower area, grid-aligned
+  PIN dout_p
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal2 ;
+        RECT 8.64 2.88 9.60 3.84 ;
+    END
+  END dout_p
+
+  PIN dout_n
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal2 ;
+        RECT 21.12 2.88 22.08 3.84 ;
+    END
+  END dout_n
+
+  # Clock pins - placed on left and right sides, grid-aligned
+  PIN clk
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal2 ;
+        RECT 2.52 14.70 3.36 15.54 ;
+      LAYER Metal2 ;
+        RECT 26.04 14.70 26.88 15.54 ;
+    END
+  END clk
+
+  # Power pins - placed in upper corners, grid-aligned
+  PIN vdd_a
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 1.92 27.24 2.88 28.20 ;
+    END
+  END vdd_a
+
+  PIN vss_a
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER Metal3 ;
+        RECT 26.88 27.24 27.84 28.20 ;
+    END
+  END vss_a
+
+  OBS
+    LAYER Metal1 ;
+      RECT 0.000 0.000 30.000 30.000 ;
+    LAYER Metal2 ;
+      RECT 12.000 0.000 18.000 30.000 ;
+    LAYER Metal3 ;
+      RECT 0.000 0.000 30.000 5.000 ;
+      RECT 0.000 25.000 30.000 30.000 ;
+  END
+
+END comp
+
+END LIBRARY
