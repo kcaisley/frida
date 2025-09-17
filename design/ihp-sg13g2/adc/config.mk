@@ -15,23 +15,24 @@ export VERILOG_FILES = $(HOME)/frida/rtl/*.v \
 # Constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
 
-# Analog macro LEFs for ADC sub-block - using local copies
+# Analog macro LEFs, GDS, and LIBs for SAR ADC sub-block
 export ADDITIONAL_LEFS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/caparray.lef \
                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/comp.lef \
                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/sampswitch.lef
 
-# Note: No GDS files yet for IHP-SG13G2 analog macros
-# export ADDITIONAL_GDS += $(DESIGN_HOME)/$(PLATFORM)/adc/gds/caparray.gds \
-#                         $(DESIGN_HOME)/$(PLATFORM)/adc/gds/comp.gds \
-#                         $(DESIGN_HOME)/$(PLATFORM)/adc/gds/sampswitch.gds
+export ADDITIONAL_GDS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/caparray.gds \
+                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/comp.gds \
+                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/sampswitch.gds
 
-# Note: No library files yet for IHP-SG13G2 analog macros
-# export ADDITIONAL_LIBS += $(DESIGN_HOME)/$(PLATFORM)/adc/lib/caparray.lib \
-#                          $(DESIGN_HOME)/$(PLATFORM)/adc/lib/comp.lib \
-#                          $(DESIGN_HOME)/$(PLATFORM)/adc/lib/sampswitch.lib
+export ADDITIONAL_LIBS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/caparray.lib \
+                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/comp.lib \
+                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/sampswitch.lib
 
 # Disable hierarchical synthesis to flatten OPENROAD helper modules
 export SYNTH_HIERARCHICAL = 0
+
+# Allow use of clock gate cells (override platform default that has these commented out)
+export DONT_USE_CELLS = sg13g2_sighold sg13g2_dfrbp_2
 
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
 export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
@@ -98,6 +99,6 @@ export USE_FILL = 1
 # Power Analysis
 # -------------------------------------------------------
 
-# Override platform power nets to match mixed-signal design power domains
-export PWR_NETS_VOLTAGES = "vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2"
-export GND_NETS_VOLTAGES = "vss_d 0.0 vss_a 0.0 vss_dac 0.0"
+# Disable IR drop analysis for now to avoid dictionary parsing issues
+# export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2}"
+# export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0}"

@@ -1,0 +1,66 @@
+library (caparray) {
+  capacitive_load_unit (1,pf);
+  current_unit : "1mA";
+  delay_model : "table_lookup";
+  nom_process : 1;
+  nom_temperature : 25;
+  nom_voltage : 1.2;
+  pulling_resistance_unit : "1kohm";
+  simulation : true;
+  time_unit : "1ns";
+  voltage_unit : "1V";
+  default_fanout_load : 1;
+  
+  type (bus1) {
+    base_type : "array";
+    data_type : "bit";
+  }
+
+  cell (caparray) {
+    area : 1;
+    
+    pin (ctrl[7]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[6]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[5]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[4]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[3]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[2]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[1]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (ctrl[0]) {
+      capacitance : 0.005;
+      direction : "input";
+    }
+    
+    pin (aout) {
+      direction : "output";
+    }
+  }
+}

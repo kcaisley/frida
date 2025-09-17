@@ -1,6 +1,7 @@
 // Clock Gate Module - Generates gated control 'clock' signals
 // Combines sequencing signals with enable controls
 
+(* dont_touch = "true" *)
 module clkgate (
     // Sequencing signals
     input  wire seq_init,       // DAC initialization sequence timing
@@ -26,11 +27,11 @@ module clkgate (
     inout wire vdd_d, vss_d     // Digital supply
 );
 
-    // Generate gated clocks using proper clock gates
-    OPENROAD_CLKGATE clkgate_init (.CK(seq_init), .E(en_init), .GCK(clk_init));
-    OPENROAD_CLKGATE clkgate_samp_p (.CK(seq_samp), .E(en_samp_p), .GCK(clk_samp_p));
-    OPENROAD_CLKGATE clkgate_samp_n (.CK(seq_samp), .E(en_samp_n), .GCK(clk_samp_n));
-    OPENROAD_CLKGATE clkgate_comp (.CK(seq_comp), .E(en_comp), .GCK(clk_comp));
-    OPENROAD_CLKGATE clkgate_update (.CK(seq_update), .E(en_update), .GCK(clk_update));
+    // Generate gated clocks using custom clock gates
+    OPENROAD_CTRLGATE clkgate_init (.CK(seq_init), .E(en_init), .GCK(clk_init));
+    OPENROAD_CTRLGATE clkgate_samp_p (.CK(seq_samp), .E(en_samp_p), .GCK(clk_samp_p));
+    OPENROAD_CTRLGATE clkgate_samp_n (.CK(seq_samp), .E(en_samp_n), .GCK(clk_samp_n));
+    OPENROAD_CTRLGATE clkgate_comp (.CK(seq_comp), .E(en_comp), .GCK(clk_comp));
+    OPENROAD_CTRLGATE clkgate_update (.CK(seq_update), .E(en_update), .GCK(clk_update));
 
 endmodule

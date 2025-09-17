@@ -6,7 +6,8 @@ MACRO caparray
   CLASS BLOCK ;
   FOREIGN caparray 0 0 ;
   ORIGIN 0.000 0.000 ;
-  SIZE 40.000 BY 90.000 ;
+  # SIZE 40.000 BY 90.000 ;
+  SIZE 1.000 BY 1.000 ;
   SYMMETRY X Y ;
 
   PIN cap_botplate_main[0]
