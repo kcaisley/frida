@@ -21,7 +21,6 @@ module frida_top(
     input wire spi_sdi_PAD,                        // SPI serial data input (MOSI)
     output wire spi_sdo_PAD,                       // SPI serial data output (MISO)
     input wire spi_cs_b_PAD,                       // SPI chip select (active low)
-    input wire reset_b_PAD,                        // Global reset (active low)
     
     // Analog Input Pads
     inout wire vin_p_PAD,                          // Analog input positive
@@ -44,7 +43,7 @@ module frida_top(
 
     // Internal signals from pads to core
     wire seq_init, seq_samp, seq_cmp, seq_logic;
-    wire spi_sclk, spi_sdi, spi_sdo, spi_cs_b, reset_b;
+    wire spi_sclk, spi_sdi, spi_sdo, spi_cs_b;
     wire vin_p, vin_n;
     wire comp_out;
     
@@ -156,19 +155,6 @@ module frida_top(
         .UD_B(1'b1)
     );
     
-    CMOS_IO_CUP_pad cmos_reset_b (
-        .PAD(reset_b_PAD),
-        .A(1'b0),
-        .Z(reset_b),
-        .OUT_EN(1'b0),
-        .PEN(1'b1),
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io),  // Connected to I/O ground rail
-        .DS(),
-        .Z_h(),
-        .UD_B(1'b1)
-    );
 
     // Analog Input Pads
     PASSIVE_CUP_pad passive_vin_p (
@@ -311,7 +297,6 @@ module frida_top(
         .spi_sdi(spi_sdi),
         .spi_sdo(spi_sdo),
         .spi_cs_b(spi_cs_b),
-        .reset_b(reset_b),
         .vin_p(vin_p),
         .vin_n(vin_n),
         .comp_out(comp_out),

@@ -32,6 +32,39 @@
 - [ ] which layers (drawing, pin, label, text) and objects (text, polygon, OA pin) should be used in .OA / .GDS files for input/outputs in my layouts?
 - [ ] What's the correct way to use placement for ORFS? .cfg or .tcl?
 
+# Outstanding Issues from Recent Work:
+- [ ] Investigate power domain isolation - IHP-SG13G2 may not have dedicated power cut cells, need to ensure filler cells don't bridge different power domains (vdd_a vs vdd_d vs vdd_io vs vdd_dac)
+- [ ] Address "ERROR GPL-0001: clk_PAD toplevel port is not placed" during placement stage - **RESOLVED** by removing unused clk_PAD from design
+- [ ] Address "WARNING ODB-0186: macro bondpad_70x70 references unknown site sg13g2_ioSite" during floorplan stage - bondpad may need proper site definition
+- [ ] Address "WARNING ODB-0229: Error: library already exists" warnings during floorplan - multiple library loading causing conflicts
+- [ ] Address "WARNING IFP-0028: Core area snapped to grid" during floorplan - core area coordinates not aligned to placement grid
+- [ ] Address "WARNING PAD-0033: Could not find block terminal associated with IO corner power nets" during floorplan - power ring connectivity issues
+- [ ] Address "WARNING RSZ-0062: Unable to repair all setup violations" during floorplan - timing issues that may need SDC constraint fixes
+- [ ] Address "WARNING RSZ-0020: found 2 floating nets" during ADC placement - unconnected nets in ADC block
+- [ ] Address "WARNING DRT-0349: LEF58_ENCLOSURE with no CUTCLASS not supported" during routing - technology LEF missing advanced via rules
+- [ ] Address "WARNING DRT-6000: Macro pin has more than 1 polygon" during routing - ADC macro pin geometry causing routing issues
+- [ ] Verify reset_b removal doesn't affect design functionality - removed reset_b_PAD from both TSMC65 and IHP-SG13G2 versions
+- [ ] Confirm reserved pad functionality - added 5 reserved CMOS pads (cmos_reserved_0-4_PAD) for future expansion
+- [ ] Validate macro spacing updates - increased ADC spacing from 160μm to 180μm to 190μm pitch, verify this resolves PDN conflicts
+- [ ] Test FOOTPRINT_TCL vs IO_CONSTRAINTS usage - confirmed FOOTPRINT_TCL is correct for place_pad commands in IHP-SG13G2 flow
+- [ ] Verify I/O power pad relocation - moved vdd_io_PAD and vss_io_PAD from NORTH edge to bottom of EAST/WEST edges
+- [ ] Check pad layout symmetry - ensure 7 positions per side with proper power distribution balance
+- [ ] Validate file path standardization - converted absolute paths to design variables throughout config files
+- [ ] Test hierarchical vs flattened synthesis approach - ADC uses SYNTH_HIERARCHICAL=0, top-level uses SYNTH_HIERARCHICAL=1
+- [ ] Verify cells_ihp_sg13g2.v file organization - moved from platform to source directory and updated all references
+
+# Configuration and Flow Issues:
+- [ ] Implement proper multi-domain PDN configuration - current simplified single VDD/VSS domain may not be sufficient for mixed-signal design
+- [ ] Add power domain boundary definitions to prevent filler cell placement across domains
+- [ ] Investigate FlowVariables.md documentation accuracy - added FOOTPRINT and FOOTPRINT_TCL variable documentation
+- [ ] Consider implementing power cut isolation techniques since IHP-SG13G2 appears to lack dedicated power cut cells
+- [ ] Review ADC macro LEF files for proper pin definitions to resolve DRT-6000 warnings about multi-polygon pins
+
+# Design Deviations Between TSMC65 and IHP-SG13G2:
+- [ ] Document major architectural differences - TSMC65 uses explicit pad cell instantiation, IHP-SG13G2 uses OpenROAD automated placement
+- [ ] Verify differential signal handling differences - TSMC65 has LVDS receivers, IHP-SG13G2 uses manual logic conversion
+- [ ] Confirm power distribution approach differences - TSMC65 uses explicit POWER_CUP_pad instances, IHP-SG13G2 relies on OpenROAD PDN
+
 # Before submission don't forget:
 - [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis
 - [ ] Don't forget to check if inverted signal in XOR gate in capdrive.v is right (I removed a ~)

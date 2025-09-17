@@ -9,8 +9,15 @@ export PLATFORM               = ihp-sg13g2
 
 # All files, including those which are just wrappers for analog macros should be included here
 # For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
-export VERILOG_FILES = $(HOME)/frida/rtl/*.v \
-                       $(PLATFORM_DIR)/cells_ihp_sg13g2.v
+export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
+                       $(DESIGN_HOME)/src/frida/caparray.v \
+                       $(DESIGN_HOME)/src/frida/capdriver.v \
+                       $(DESIGN_HOME)/src/frida/clkgate.v \
+                       $(DESIGN_HOME)/src/frida/comp.v \
+                       $(DESIGN_HOME)/src/frida/salogic.v \
+                       $(DESIGN_HOME)/src/frida/sampdriver.v \
+                       $(DESIGN_HOME)/src/frida/sampswitch.v \
+                       $(DESIGN_HOME)/src/frida/cells_ihp_sg13g2.v
 
 # Constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc

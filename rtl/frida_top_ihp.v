@@ -12,10 +12,6 @@
 module frida_top(
     // I/O Pad connections (must match pad.tcl instance names with _PAD suffix)
 
-    // System Clock and Reset
-    inout wire clk_PAD,                           // Main system clock pad
-    inout wire reset_b_PAD,                       // Global reset pad (active low)
-
     // SPI Interface
     inout wire spi_sclk_PAD,                      // SPI serial clock pad
     inout wire spi_sdi_PAD,                       // SPI serial data input pad (MOSI)
@@ -40,20 +36,24 @@ module frida_top(
     inout wire comp_out_p_PAD,                    // Data output positive pad
     inout wire comp_out_n_PAD,                    // Data output negative pad
 
+    // Reserved Pads (for future expansion)
+    inout wire cmos_reserved_0_PAD,               // Reserved CMOS pad 0
+    inout wire cmos_reserved_1_PAD,               // Reserved CMOS pad 1
+    inout wire cmos_reserved_2_PAD,               // Reserved CMOS pad 2
+    inout wire cmos_reserved_3_PAD,               // Reserved CMOS pad 3
+    inout wire cmos_reserved_4_PAD,               // Reserved CMOS pad 4
+
     // Power Supply Pad Connections (handled by OpenROAD PDN)
     inout wire vdd_a_PAD, vss_a_PAD,              // Analog supply pads
     inout wire vdd_d_PAD, vss_d_PAD,              // Digital supply pads
     inout wire vdd_io_PAD, vss_io_PAD,            // I/O supply pads
-    inout wire vdd_dac_PAD, vss_dac_PAD,          // DAC supply pads
-    inout wire extra_vdd_PAD, extra_vss_PAD       // Extra power pads
+    inout wire vdd_dac_PAD, vss_dac_PAD           // DAC supply pads
 );
 
     // Extract core signals from pad connections
     // The OpenROAD flow will automatically connect these signals to the I/O pads
 
     // Pad-to-core signal assignments
-    wire clk = clk_PAD;                           // Clock from pad
-    wire reset_b = reset_b_PAD;                   // Reset from pad
     wire spi_sclk = spi_sclk_PAD;                 // SPI clock from pad
     wire spi_sdi = spi_sdi_PAD;                   // SPI data in from pad
     wire spi_cs_b = spi_cs_b_PAD;                 // SPI chip select from pad
@@ -103,7 +103,6 @@ module frida_top(
         .spi_sdi(spi_sdi),
         .spi_sdo(spi_sdo),
         .spi_cs_b(spi_cs_b),
-        .reset_b(reset_b),
         .vin_p(vin_p),
         .vin_n(vin_n),
         .comp_out(comp_out),

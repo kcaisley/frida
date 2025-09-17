@@ -3,22 +3,22 @@ export DESIGN_NICKNAME        = frida
 export PLATFORM               = ihp-sg13g2
 
 # Top-level Verilog files (flattened design) - include platform clock gate cells
-export VERILOG_FILES = $(HOME)/frida/rtl/adc.v \
-                       $(HOME)/frida/rtl/caparray.v \
-                       $(HOME)/frida/rtl/capdriver.v \
-                       $(HOME)/frida/rtl/clkgate.v \
-                       $(HOME)/frida/rtl/comp.v \
-                       $(HOME)/frida/rtl/compmux.v \
-                       $(HOME)/frida/rtl/frida_core.v \
-                       $(HOME)/frida/rtl/frida_top_ihp.v \
-                       $(HOME)/frida/rtl/salogic.v \
-                       $(HOME)/frida/rtl/sampdriver.v \
-                       $(HOME)/frida/rtl/sampswitch.v \
-                       $(HOME)/frida/rtl/spi_register.v \
-                       $(PLATFORM_DIR)/cells_ihp_sg13g2.v
+export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
+                       $(DESIGN_HOME)/src/frida/caparray.v \
+                       $(DESIGN_HOME)/src/frida/capdriver.v \
+                       $(DESIGN_HOME)/src/frida/clkgate.v \
+                       $(DESIGN_HOME)/src/frida/comp.v \
+                       $(DESIGN_HOME)/src/frida/compmux.v \
+                       $(DESIGN_HOME)/src/frida/frida_core.v \
+                       $(DESIGN_HOME)/src/frida/frida_top_ihp.v \
+                       $(DESIGN_HOME)/src/frida/salogic.v \
+                       $(DESIGN_HOME)/src/frida/sampdriver.v \
+                       $(DESIGN_HOME)/src/frida/sampswitch.v \
+                       $(DESIGN_HOME)/src/frida/spi_register.v \
+                       $(DESIGN_HOME)/src/frida/cells_ihp_sg13g2.v
 
 # Top-level constraints
-export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/constraint.sdc
+export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/constraint.sdc
 
 # Hierarchical synthesis - enabled to preserve ADC macros for placement
 export SYNTH_HIERARCHICAL = 1
@@ -32,26 +32,26 @@ export DONT_USE_CELLS = sg13g2_sighold sg13g2_dfrbp_2
 # IO Pad LEFs for IHP-SG13G2 (bondpad and IO cells) and ADC macro LEF
 export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/bondpad_70x70.lef \
                          $(PLATFORM_DIR)/lef/sg13g2_io.lef \
-                         ./results/ihp-sg13g2/frida_adc/base/adc.lef
+                         ./results/$(PLATFORM)/frida_adc/base/adc.lef
 
 # IO Pad GDS files for IHP-SG13G2
 export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/bondpad_70x70.gds \
                         $(PLATFORM_DIR)/gds/sg13g2_io.gds
 
 # ADC macro library file
-export ADDITIONAL_TYP_LIBS += ./results/ihp-sg13g2/frida_adc/base/adc_typ.lib
+# export ADDITIONAL_TYP_LIBS += ./results/$(PLATFORM)/frida_adc/base/adc_typ.lib
 
 #--------------------------------------------------------
 # Floorplan
 # -------------------------------------------------------
 
 # Die area: 1.5mm x 1.5mm for IHP-SG13G2 (larger than TSMC65)
-# export DIE_AREA = 0.0 0.0 1500.0 1500.0
+export DIE_AREA = 0.0 0.0 1500.0 1500.0
 
 # Core area: 1000x1000 centered (250um margin for IO pads and bondpads)
-# export CORE_AREA = 250 250 1250 1250
+export CORE_AREA = 250 250 1250 1250
 
-# Pad footprint placement script - now handles floorplan initialization
+# Pad footprint placement script - contains place_pad commands run during floorplan
 export FOOTPRINT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pad.tcl
 
 # Macro placement script for 16 ADC instances - explicit 4x4 grid placement
@@ -65,7 +65,7 @@ export PLACE_PINS_ARGS = -min_distance 10 -min_distance_in_tracks
 # -------------------------------------------------------
 
 export PLACE_DENSITY = 0.6
-export MACRO_PLACE_HALO = 10 10
+export MACRO_PLACE_HALO = 3 3
 
 # PDN configuration for hierarchical design with multiple supply domains
 export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pdn.tcl
@@ -86,7 +86,7 @@ export SKIP_GATE_CLONING = 1
 # -------------------------------------------------------
 
 # Routing layer constraints - IHP-SG13G2 has 5 metal layers + 2 top metals
-export MIN_ROUTING_LAYER = Metal2
+export MIN_ROUTING_LAYER = Metal1
 export MAX_ROUTING_LAYER = Metal5
 
 # Enable timing-driven placement for large design

@@ -8,24 +8,25 @@
 # - Core area: 1000x1000μm (250,250 to 1250,1250)
 # - Center the 4x4 grid within the core area
 
-puts "Placing 16 ADC macros in explicit 4x4 grid with 100um spacing"
+puts "Placing 16 ADC macros in explicit 4x4 grid with 220um spacing"
 
 # Calculate grid positioning:
 # Die area: 1500×1500, Core area: 250,250 to 1250,1250
 # I/O pad ring extends ~150μm into core, so usable area is roughly 400,400 to 1100,1100 (700×700μm)
 # ADC macro size: 150μm × 150μm
-# 4x4 grid with tighter 160μm pitch to fit in smaller usable area
-# Grid total span: 3 * 160μm = 480μm
-# Available core width: 700μm, grid needs: 480μm + 150μm = 630μm
-# Margin on each side: (700 - 630) / 2 = 35μm
-# Grid starts at: 400 + 35 = 435, so positions: 435, 595, 755, 915
+# 4x4 grid with 220μm pitch for better routing and power distribution
+# Core area: 250,250 to 1250,1250 (1000×1000μm usable)
+# Grid total span: 3 * 220μm = 660μm
+# Grid needs: 660μm + 150μm (macro width) = 810μm total
+# Available: 1000μm, margin: (1000-660)/2 = 170μm on each side
+# Start position: 250 + 170 = 420μm, positions: 420, 640, 860, 1080
 
-# Define 4x4 grid positions (moved inward to avoid I/O pad ring)
+# Define 4x4 grid positions (centered in core area)
 set grid_positions {
-    {0 435 435} {1 595 435} {2 755 435} {3 915 435}
-    {4 435 595} {5 595 595} {6 755 595} {7 915 595}
-    {8 435 755} {9 595 755} {10 755 755} {11 915 755}
-    {12 435 915} {13 595 915} {14 755 915} {15 915 915}
+    {0 420 420} {1 640 420} {2 860 420} {3 1080 420}
+    {4 420 640} {5 640 640} {6 860 640} {7 1080 640}
+    {8 420 860} {9 640 860} {10 860 860} {11 1080 860}
+    {12 420 1080} {13 640 1080} {14 860 1080} {15 1080 1080}
 }
 
 # Get all ADC macro instances from the database and sort them
