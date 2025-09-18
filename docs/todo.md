@@ -34,7 +34,8 @@
 
 # Outstanding Issues from Recent Work:
 - [ ] Investigate power domain isolation - IHP-SG13G2 may not have dedicated power cut cells, need to ensure filler cells don't bridge different power domains (vdd_a vs vdd_d vs vdd_io vs vdd_dac)
-- [ ] Address "ERROR GPL-0001: clk_PAD toplevel port is not placed" during placement stage - **RESOLVED** by removing unused clk_PAD from design
+- [x] Address "ERROR GPL-0001: clk_PAD toplevel port is not placed" during placement stage - **RESOLVED** by removing unused clk_PAD from design
+- [x] Address "ERROR GPL-0001: vin_n_PAD/vin_p_PAD toplevel port is not placed" during placement stage - **RESOLVED** by blackboxing sg13g2_IOPadAnalog to prevent Yosys buffer insertion
 - [ ] Address "WARNING ODB-0186: macro bondpad_70x70 references unknown site sg13g2_ioSite" during floorplan stage - bondpad may need proper site definition
 - [ ] Address "WARNING ODB-0229: Error: library already exists" warnings during floorplan - multiple library loading causing conflicts
 - [ ] Address "WARNING IFP-0028: Core area snapped to grid" during floorplan - core area coordinates not aligned to placement grid
@@ -59,11 +60,20 @@
 - [ ] Investigate FlowVariables.md documentation accuracy - added FOOTPRINT and FOOTPRINT_TCL variable documentation
 - [ ] Consider implementing power cut isolation techniques since IHP-SG13G2 appears to lack dedicated power cut cells
 - [ ] Review ADC macro LEF files for proper pin definitions to resolve DRT-6000 warnings about multi-polygon pins
+- [ ] **FLOW BUG**: PWR_NETS_VOLTAGES and GND_NETS_VOLTAGES must be commented/uncommented in config.mk before each export - OpenROAD fails to parse dictionary format for power domain definitions, causing export to fail with parsing errors
 
 # Design Deviations Between TSMC65 and IHP-SG13G2:
-- [ ] Document major architectural differences - TSMC65 uses explicit pad cell instantiation, IHP-SG13G2 uses OpenROAD automated placement
-- [ ] Verify differential signal handling differences - TSMC65 has LVDS receivers, IHP-SG13G2 uses manual logic conversion
+- [x] Document major architectural differences - TSMC65 uses explicit pad cell instantiation, IHP-SG13G2 uses OpenROAD automated placement
+- [x] Verify differential signal handling differences - TSMC65 has LVDS receivers, IHP-SG13G2 uses manual logic conversion
 - [ ] Confirm power distribution approach differences - TSMC65 uses explicit POWER_CUP_pad instances, IHP-SG13G2 relies on OpenROAD PDN
+
+# Analog Pad Placement Issue - RESOLVED:
+- [x] **Challenge**: sg13g2_IOPadAnalog cells causing "vin_n_PAD toplevel port is not placed" errors during global placement
+- [x] **Root Cause**: Yosys synthesis tool was inserting digital buffers (sg13g2_buf_1) inside sg13g2_IOPadAnalog modules, breaking analog signal paths
+- [x] **Investigation**: Found buffer instances sg13g2_IOPad_vin_n/_0_ and sg13g2_IOPad_vin_p/_0_ in synthesized netlist even though original platform definition was analog pass-through
+- [x] **Solution**: Added sg13g2_IOPadAnalog to SYNTH_BLACKBOXES in config.mk to prevent Yosys from synthesizing analog cell internals
+- [x] **Verification**: Confirmed analog pad terminals (vin_p_PAD, vin_n_PAD) now create successfully during floorplan stage
+- [x] **Result**: Global placement proceeds without errors, analog signal integrity preserved
 
 # Before submission don't forget:
 - [ ] Complete ADC block hardening - Generate abstract files needed for hierarchical synthesis

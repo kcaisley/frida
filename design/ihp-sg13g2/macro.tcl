@@ -1,32 +1,28 @@
 # FRIDA Top-Level Macro Placement Script for IHP-SG13G2
 # 16 ADC instances arranged in 4x4 grid
-# 1.5mm x 1.5mm die with 1000x1000 core area
+# 1.6mm x 1.6mm die with 1000x1000 core area
 
 # ADC macro specifications:
 # - Macro size: assume 150x150 micrometers each (dummy black box size)
-# - Grid: 4x4 array with 100μm spacing between macro centers
-# - Core area: 1000x1000μm (250,250 to 1250,1250)
-# - Center the 4x4 grid within the core area
+# - Grid: 4x4 array with 220μm spacing between macro centers
+# - Core area: 1000x1000μm (300,300 to 1300,1300)
+# - Center the 4x4 grid horizontally, position 120μm higher than previous
 
 puts "Placing 16 ADC macros in explicit 4x4 grid with 220um spacing"
 
 # Calculate grid positioning:
-# Die area: 1500×1500, Core area: 250,250 to 1250,1250
-# I/O pad ring extends ~150μm into core, so usable area is roughly 400,400 to 1100,1100 (700×700μm)
-# ADC macro size: 150μm × 150μm
-# 4x4 grid with 220μm pitch for better routing and power distribution
-# Core area: 250,250 to 1250,1250 (1000×1000μm usable)
-# Grid total span: 3 * 220μm = 660μm
-# Grid needs: 660μm + 150μm (macro width) = 810μm total
-# Available: 1000μm, margin: (1000-660)/2 = 170μm on each side
-# Start position: 250 + 170 = 420μm, positions: 420, 640, 860, 1080
+# Core area: 300,300 to 1300,1300 (1000×1000μm usable)
+# Core center: (800, 800)
+# 4x4 grid with 220μm pitch, centered horizontally, shifted up 120μm
+# X positions: 395, 615, 835, 1055 (centered around 800)
+# Y positions: 465, 685, 905, 1125 (previous + 120μm)
 
-# Define 4x4 grid positions (centered in core area)
+# Define 4x4 grid positions (centered horizontally, moved up 120μm)
 set grid_positions {
-    {0 420 420} {1 640 420} {2 860 420} {3 1080 420}
-    {4 420 640} {5 640 640} {6 860 640} {7 1080 640}
-    {8 420 860} {9 640 860} {10 860 860} {11 1080 860}
-    {12 420 1080} {13 640 1080} {14 860 1080} {15 1080 1080}
+    {0 395 465} {1 615 465} {2 835 465} {3 1055 465}
+    {4 395 685} {5 615 685} {6 835 685} {7 1055 685}
+    {8 395 905} {9 615 905} {10 835 905} {11 1055 905}
+    {12 395 1125} {13 615 1125} {14 835 1125} {15 1055 1125}
 }
 
 # Get all ADC macro instances from the database and sort them

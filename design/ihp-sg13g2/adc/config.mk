@@ -41,6 +41,9 @@ export SYNTH_HIERARCHICAL = 0
 # Allow use of clock gate cells (override platform default that has these commented out)
 export DONT_USE_CELLS = sg13g2_sighold sg13g2_dfrbp_2
 
+# Protect critical buffer instances from removal during global placement
+export DONT_TOUCH_CELLS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
+
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
 export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
 

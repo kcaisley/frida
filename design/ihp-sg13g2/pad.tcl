@@ -5,7 +5,7 @@
 set IO_LENGTH 180
 set IO_WIDTH 80
 set BONDPAD_SIZE 70
-set SEALRING_OFFSET 5
+set SEALRING_OFFSET 75
 set IO_OFFSET [expr { $SEALRING_OFFSET }]
 
 proc calc_horizontal_pad_location { index total IO_LENGTH IO_WIDTH BONDPAD_SIZE SEALRING_OFFSET } {
@@ -48,99 +48,99 @@ place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     0 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {spi_sdi_PAD} \
+  {sg13g2_IOPad_spi_sdi} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {spi_sdo_PAD} \
+  {sg13g2_IOPad_spi_sdo} \
   -master sg13g2_IOPadOut4mA
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     2 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {spi_sclk_PAD} \
+  {sg13g2_IOPad_spi_sclk} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     3 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {spi_cs_b_PAD} \
+  {sg13g2_IOPad_spi_cs_b} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     4 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {comp_out_p_PAD} \
+  {sg13g2_IOPad_comp_out_p} \
   -master sg13g2_IOPadOut4mA
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     5 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {comp_out_n_PAD} \
+  {sg13g2_IOPad_comp_out_n} \
   -master sg13g2_IOPadOut4mA
 
 place_pad \
   -row IO_SOUTH \
   -location [calc_horizontal_pad_location \
     6 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {cmos_reserved_0_PAD} \
-  -master sg13g2_IOPadIn
+  {sg13g2_IOPad_cmos_reserved_0} \
+  -master sg13g2_IOPadOut4mA
 
 # WEST Edge (7 pads): Power supplies and sequencer init/sample (bottom to top)
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     0 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vdd_io_PAD} \
+  {sg13g2_IOPad_vdd_io} \
   -master sg13g2_IOPadIOVdd
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_samp_n_PAD} \
+  {sg13g2_IOPad_seq_samp_n} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     2 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_samp_p_PAD} \
+  {sg13g2_IOPad_seq_samp_p} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     3 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_init_n_PAD} \
+  {sg13g2_IOPad_seq_init_n} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     4 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_init_p_PAD} \
+  {sg13g2_IOPad_seq_init_p} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     5 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vss_a_PAD} \
+  {sg13g2_IOPad_vss_a} \
   -master sg13g2_IOPadVss
 
 place_pad \
   -row IO_WEST \
   -location [calc_vertical_pad_location \
     6 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vdd_a_PAD} \
+  {sg13g2_IOPad_vdd_a} \
   -master sg13g2_IOPadVdd
 
 # EAST Edge (7 pads): Digital power and sequencer compare/logic (bottom to top)
@@ -148,49 +148,49 @@ place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     0 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vss_io_PAD} \
+  {sg13g2_IOPad_vss_io} \
   -master sg13g2_IOPadIOVss
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_logic_n_PAD} \
+  {sg13g2_IOPad_seq_logic_n} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     2 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_logic_p_PAD} \
+  {sg13g2_IOPad_seq_logic_p} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     3 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_cmp_n_PAD} \
+  {sg13g2_IOPad_seq_cmp_n} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     4 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {seq_cmp_p_PAD} \
+  {sg13g2_IOPad_seq_cmp_p} \
   -master sg13g2_IOPadIn
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     5 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vss_d_PAD} \
+  {sg13g2_IOPad_vss_d} \
   -master sg13g2_IOPadVss
 
 place_pad \
   -row IO_EAST \
   -location [calc_vertical_pad_location \
     6 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vdd_d_PAD} \
+  {sg13g2_IOPad_vdd_d} \
   -master sg13g2_IOPadVdd
 
 # NORTH Edge (7 pads): reserved, vdd_dac, vss_dac, reserved, vin_p, vin_n, reserved (left to right)
@@ -198,50 +198,50 @@ place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     0 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {cmos_reserved_1_PAD} \
-  -master sg13g2_IOPadIn
+  {sg13g2_IOPad_cmos_reserved_1} \
+  -master sg13g2_IOPadOut4mA
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vdd_dac_PAD} \
+  {sg13g2_IOPad_vdd_dac} \
   -master sg13g2_IOPadVdd
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     2 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vss_dac_PAD} \
+  {sg13g2_IOPad_vss_dac} \
   -master sg13g2_IOPadIOVss
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     3 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {cmos_reserved_2_PAD} \
-  -master sg13g2_IOPadIn
+  {sg13g2_IOPad_cmos_reserved_2} \
+  -master sg13g2_IOPadOut4mA
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     4 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vin_p_PAD} \
-  -master sg13g2_IOPadInOut4mA
+  {sg13g2_IOPad_vin_p} \
+  -master sg13g2_IOPadAnalog
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     5 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {vin_n_PAD} \
-  -master sg13g2_IOPadInOut4mA
+  {sg13g2_IOPad_vin_n} \
+  -master sg13g2_IOPadAnalog
 
 place_pad \
   -row IO_NORTH \
   -location [calc_horizontal_pad_location \
     6 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
-  {cmos_reserved_3_PAD} \
-  -master sg13g2_IOPadIn
+  {sg13g2_IOPad_cmos_reserved_3} \
+  -master sg13g2_IOPadOut4mA
 
 # Place Corner Cells and Filler
 place_corners sg13g2_Corner
@@ -262,10 +262,11 @@ place_io_fill -row IO_EAST {*}$iofill
 
 connect_by_abutment
 
-# Place IO terminals to connect logical ports to physical pads
-place_io_terminals *_PAD
+# NOTE: place_io_terminals not needed for top-level port design
+# The command is designed for instance pins (u_clk.u_in), not top-level ports (cmos_reserved_0_PAD)
+# Top-level ports should be automatically connected during global placement
 
 # Place bondpads on all I/O pads
-place_bondpad -bond bondpad_70x70 *_PAD -offset {5.0 -70.0}
+place_bondpad -bond bondpad_70x70 sg13g2_IOPad_* -offset {5.0 -70.0}
 
 remove_io_rows

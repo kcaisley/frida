@@ -19,8 +19,8 @@ module frida_core(
     input wire reset_b,
     
     // Analog inputs (from passive pads)
-    input wire vin_p,
-    input wire vin_n,
+    inout wire vin_p,
+    inout wire vin_n,
     
     // Comparator output (to LVDS TX pad)
     output wire comp_out,
@@ -32,19 +32,21 @@ module frida_core(
     inout wire vdd_dac, vss_dac            // DAC supply
 );
 
-    // SPI register outputs
-    wire [1279:0] spi_bits;
-    
+    // SPI register outputs (reduced from 1280 to 180 bits)
+    wire [179:0] spi_bits;
+
     // ADC control signal arrays (16 ADCs)
     wire [15:0] adc_en_init, adc_en_samp_p, adc_en_samp_n, adc_en_comp, adc_en_update;
     wire [15:0] adc_dac_mode, adc_dac_diffcaps;
-    wire [255:0] adc_dac_astate_p, adc_dac_bstate_p;  // 16 ADCs × 16 bits each
-    wire [255:0] adc_dac_astate_n, adc_dac_bstate_n;  // 16 ADCs × 16 bits each
-    wire [95:0] adc_logic_state_init;                 // 16 ADCs × 6 bits each
+
+    // Shared DAC states for all ADCs (64 bits total)
+    wire [15:0] shared_dac_astate_p, shared_dac_bstate_p;
+    wire [15:0] shared_dac_astate_n, shared_dac_bstate_n;
+
     wire [15:0] adc_comparator_out;
     wire [3:0] mux_sel;
 
-    // Instantiate SPI register (1280-bit control)
+    // Instantiate SPI register (180-bit control)
     spi_register spi_reg (
         .clk(spi_sclk),
         .rst_b(reset_b),
@@ -57,12 +59,24 @@ module frida_core(
         .vss_d(vss_d)
     );
 
-    // Map SPI bits to ADC control signals (71 bits per ADC)
+    // New optimized SPI bit mapping (180 bits total)
+    // Layout: [179:176] mux_sel, [175:64] per-ADC controls, [63:0] shared DAC states
+
+    // Mux selection (4 bits)
+    assign mux_sel = spi_bits[179:176];
+
+    // Shared DAC states for all ADCs (64 bits)
+    assign shared_dac_astate_p = spi_bits[63:48];    // 16 bits
+    assign shared_dac_bstate_p = spi_bits[47:32];    // 16 bits
+    assign shared_dac_astate_n = spi_bits[31:16];    // 16 bits
+    assign shared_dac_bstate_n = spi_bits[15:0];     // 16 bits
+
+    // Per-ADC control signals (7 bits per ADC = 112 bits total)
     genvar i;
     generate
         for (i = 0; i < 16; i = i + 1) begin : spi_mapping
-            localparam int BASE = i * 71;
-            
+            localparam int BASE = 64 + i * 7;  // Start after shared DAC states
+
             assign adc_en_init[i] = spi_bits[BASE + 0];
             assign adc_en_samp_p[i] = spi_bits[BASE + 1];
             assign adc_en_samp_n[i] = spi_bits[BASE + 2];
@@ -70,18 +84,8 @@ module frida_core(
             assign adc_en_update[i] = spi_bits[BASE + 4];
             assign adc_dac_mode[i] = spi_bits[BASE + 5];
             assign adc_dac_diffcaps[i] = spi_bits[BASE + 6];
-            assign adc_dac_astate_p[i*16+15:i*16] = spi_bits[BASE + 22:BASE + 7];
-            assign adc_dac_bstate_p[i*16+15:i*16] = spi_bits[BASE + 38:BASE + 23];
-            assign adc_dac_astate_n[i*16+15:i*16] = spi_bits[BASE + 54:BASE + 39];
-            assign adc_dac_bstate_n[i*16+15:i*16] = spi_bits[BASE + 70:BASE + 55];
         end
     endgenerate
-
-    // Logic state initialization - using upper bits of SPI register
-    assign adc_logic_state_init = spi_bits[1279:1184]; // 96 bits = 16×6
-    
-    // Mux selection from remaining bits
-    assign mux_sel = spi_bits[1183:1180]; // 4 bits for 16:1 mux
 
     // Instantiate 16 ADC blocks
     generate
@@ -97,10 +101,10 @@ module frida_core(
                 .en_comp(adc_en_comp[i]),
                 .en_update(adc_en_update[i]),
                 .dac_mode(adc_dac_mode[i]),
-                .dac_astate_p(adc_dac_astate_p[i*16+15:i*16]),
-                .dac_bstate_p(adc_dac_bstate_p[i*16+15:i*16]),
-                .dac_astate_n(adc_dac_astate_n[i*16+15:i*16]),
-                .dac_bstate_n(adc_dac_bstate_n[i*16+15:i*16]),
+                .dac_astate_p(shared_dac_astate_p),
+                .dac_bstate_p(shared_dac_bstate_p),
+                .dac_astate_n(shared_dac_astate_n),
+                .dac_bstate_n(shared_dac_bstate_n),
                 .dac_diffcaps(adc_dac_diffcaps[i]),
                 .vin_p(vin_p),
                 .vin_n(vin_n),

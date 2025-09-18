@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<klayout-macro>
+ <description>IHP-SG13G2</description>
+ <version/>
+ <category>d25</category>
+ <prolog/>
+ <epilog/>
+ <doc/>
+ <autorun>false</autorun>
+ <autorun-early>false</autorun-early>
+ <priority>0</priority>
+ <shortcut/>
+ <show-in-menu>true</show-in-menu>
+ <group-name>d25_scripts</group-name>
+ <menu-path>tools_menu.d25.end</menu-path>
+ <interpreter>dsl</interpreter>
+ <dsl-interpreter-name>d25-dsl-xml</dsl-interpreter-name>
+ <text>
+# IHP-SG13G2 2.5D Visualization Script for KLayout
+# Layer mapping from sg13g2.map:
+# Metal1: 8/0, Via1: 19/0, Metal2: 10/0, Via2: 29/0, Metal3: 30/0
+# Via3: 49/0, Metal4: 50/0, Via4: 66/0, Metal5: 67/0
+# TopVia1: 125/0, TopMetal1: 126/0, TopVia2: 133/0, TopMetal2: 134/0
+# COMP: 189/0
+
+# Substrate
+zz(color: 0x654321, name: "Silicon Substrate") do
+  z(input(1, 0), 0.0 .. 0.5)
+end
+
+# FEOL Layers (estimated heights for 130nm process)
+zz(color: 0x8B4513, name: "Active/COMP") do
+  z(input(189, 0), zstart: 0.5, height: 0.2)
+end
+
+# Metal Stack - IHP-SG13G2 130nm process (7 metal layers)
+# Heights estimated based on typical 130nm process parameters
+# Colors from sg13g2.lyp layer properties file
+
+# Metal 1 (color: #39bfff - cyan blue)
+zz(color: 0x39bfff, name: "Metal1") do
+  z(input(8, 0), zstart: 1.0, zstop: 1.15)
+end
+
+# Via1 - From top of M1 to bottom of M2
+zz(color: 0x888888, name: "Via1") do
+  z(input(19, 0), zstart: 1.15, zstop: 1.30)
+end
+
+# Metal 2 (color: #ccccd9 - light gray)
+zz(color: 0xccccd9, name: "Metal2") do
+  z(input(10, 0), zstart: 1.30, zstop: 1.48)
+end
+
+# Via2 - From top of M2 to bottom of M3
+zz(color: 0x888888, name: "Via2") do
+  z(input(29, 0), zstart: 1.48, zstop: 1.63)
+end
+
+# Metal 3 (color: #d80000 - red)
+zz(color: 0xd80000, name: "Metal3") do
+  z(input(30, 0), zstart: 1.63, zstop: 1.81)
+end
+
+# Via3 - From top of M3 to bottom of M4
+zz(color: 0x888888, name: "Via3") do
+  z(input(49, 0), zstart: 1.81, zstop: 1.96)
+end
+
+# Metal 4 (color: #93e837 - green)
+zz(color: 0x93e837, name: "Metal4") do
+  z(input(50, 0), zstart: 1.96, zstop: 2.14)
+end
+
+# Via4 - From top of M4 to bottom of M5
+zz(color: 0x888888, name: "Via4") do
+  z(input(66, 0), zstart: 2.14, zstop: 2.29)
+end
+
+# Metal 5 (color: #dcd146 - yellow)
+zz(color: 0xdcd146, name: "Metal5") do
+  z(input(67, 0), zstart: 2.29, zstop: 2.47)
+end
+
+# TopVia1 - From top of M5 to bottom of TopMetal1
+zz(color: 0x888888, name: "TopVia1") do
+  z(input(125, 0), zstart: 2.47, zstop: 2.62)
+end
+
+# TopMetal1 (color: #ffe6bf - light orange, 6th metal layer)
+zz(color: 0xffe6bf, name: "TopMetal1") do
+  z(input(126, 0), zstart: 2.62, zstop: 2.85)
+end
+
+# TopVia2 - From top of TopMetal1 to bottom of TopMetal2
+zz(color: 0x888888, name: "TopVia2") do
+  z(input(133, 0), zstart: 2.85, zstop: 3.05)
+end
+
+# TopMetal2 (color: #ff8000 - orange, 7th metal layer - top thick metal)
+zz(color: 0xff8000, name: "TopMetal2") do
+  z(input(134, 0), zstart: 3.05, zstop: 3.35)
+end
+
+# Passivation (optional visualization layer)
+zz(color: 0x404040, name: "Passivation") do
+  z(input(1, 0), zstart: 3.35, height: 0.30)
+end
+
+</text>
+</klayout-macro>
