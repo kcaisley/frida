@@ -7,11 +7,13 @@
 
 module compmux(
     input wire [15:0] adc_comp_out,     // Comparator outputs from 16 ADCs (adc_00 to adc_15)
-    input wire [3:0] mux_sel,           // Selection bits from SPI register [1139:1136]
-    output wire comp_out,               // Selected output to LVDS TX
-    
-    // Power supply signals  
-    inout wire vdd_d, vss_d             // Digital supply
+    input wire [3:0] mux_sel,           // Selection bits from SPI register [179:176]
+    output wire comp_out               // Selected output to LVDS TX
+
+    // Power supply signals
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_d, vss_d             // Digital supply
+`endif
 );
 
     // 16:1 mux implementation using purely combinational logic

@@ -27,10 +27,12 @@ module salogic (
 
     // Outputs
     output reg [15:0] dac_state_p,       // Current output register positive
-    output reg [15:0] dac_state_n,       // Current output register negative
-    
-    // Power supply signals  
-    inout wire vdd_d, vss_d              // Digital supply
+    output reg [15:0] dac_state_n       // Current output register negative
+
+    // Power supply signals
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_d, vss_d              // Digital supply
+`endif
 );
 
 // Position counter for tracking which bit to update in dac_state

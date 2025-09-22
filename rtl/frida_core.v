@@ -26,10 +26,12 @@ module frida_core(
     output wire comp_out,
     
     // Power supply signals
-    inout wire vdd_a, vss_a,               // Analog supply
-    inout wire vdd_d, vss_d,               // Digital supply  
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_a, vss_a,               // Analog supply
+    inout wire vdd_d, vss_d,               // Digital supply
     inout wire vdd_io, vss_io,             // I/O supply
     inout wire vdd_dac, vss_dac            // DAC supply
+`endif
 );
 
     // SPI register outputs (reduced from 1280 to 180 bits)
@@ -54,9 +56,11 @@ module frida_core(
         .spi_sdi(spi_sdi),
         .spi_sclk(spi_sclk),
         .spi_sdo(spi_sdo),
-        .spi_bits(spi_bits),
-        .vdd_d(vdd_d),
+        .spi_bits(spi_bits)
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
 
     // New optimized SPI bit mapping (180 bits total)
@@ -108,13 +112,15 @@ module frida_core(
                 .dac_diffcaps(adc_dac_diffcaps[i]),
                 .vin_p(vin_p),
                 .vin_n(vin_n),
-                .comp_out(adc_comparator_out[i]),
-                .vdd_a(vdd_a),
+                .comp_out(adc_comparator_out[i])
+`ifdef USE_POWER_PINS
+                ,.vdd_a(vdd_a),
                 .vss_a(vss_a),
                 .vdd_d(vdd_d),
                 .vss_d(vss_d),
                 .vdd_dac(vdd_dac),
                 .vss_dac(vss_dac)
+`endif
             );
         end
     endgenerate
@@ -123,9 +129,11 @@ module frida_core(
     compmux comp_mux (
         .mux_sel(mux_sel),
         .adc_comp_out(adc_comparator_out),
-        .comp_out(comp_out),
-        .vdd_d(vdd_d),
+        .comp_out(comp_out)
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
 
 endmodule

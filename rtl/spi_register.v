@@ -19,10 +19,12 @@ module spi_register(
     input wire spi_sdi,       // SPI serial data input (MOSI)
     input wire spi_sclk,      // SPI serial clock
     output wire spi_sdo,      // SPI serial data output (MISO)
-    output wire [179:0] spi_bits,   // Parallel output of all register bits (reduced from 1280 to 180)
-    
-    // Power supply signals  
-    inout wire vdd_d, vss_d   // Digital supply
+    output wire [179:0] spi_bits   // Parallel output of all register bits (reduced from 1280 to 180)
+
+    // Power supply signals
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_d, vss_d   // Digital supply
+`endif
 );
 
     // Internal registers
