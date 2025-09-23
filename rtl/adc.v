@@ -33,12 +33,14 @@ module adc (
     
     
     // Output
-    output wire comp_out,                     // Comparator output
-    
+    output wire comp_out                      // Comparator output
+
     // Power supply signals
-    inout wire vdd_a, vss_a,                  // Analog supply
-    inout wire vdd_d, vss_d,                  // Digital supply  
+`ifdef USE_POWER_PINS
+    ,inout wire vdd_a, vss_a,                 // Analog supply
+    inout wire vdd_d, vss_d,                  // Digital supply
     inout wire vdd_dac, vss_dac               // DAC supply
+`endif
 );
 
     // Internal wires
@@ -66,24 +68,26 @@ module adc (
         .seq_samp(seq_samp),
         .seq_comp(seq_comp),
         .seq_update(seq_update),
-        
+
         // Enable inputs
         .en_init(en_init),
         .en_samp_p(en_samp_p),
         .en_samp_n(en_samp_n),
         .en_comp(en_comp),
         .en_update(en_update),
-        
+
         // Clock outputs
         .clk_init(clk_init),
         .clk_samp_p(clk_samp_p_raw),
         .clk_samp_n(clk_samp_n_raw),
         .clk_comp(clk_comp),
-        .clk_update(clk_update),
-        
+        .clk_update(clk_update)
+
         // Power supplies
-        .vdd_d(vdd_d),
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
 
     // SAR Logic - Consolidated dual-channel
@@ -98,11 +102,13 @@ module adc (
         .dac_bstate_n(dac_bstate_n),          // DAC B state negative
         .comp_n(comp_out_p),                  // Use positive comp output for N-side logic
         .dac_state_p(dac_state_p),            // Output to positive DAC state
-        .dac_state_n(dac_state_n),            // Output to negative DAC state
-        
+        .dac_state_n(dac_state_n)             // Output to negative DAC state
+
         // Power supplies
-        .vdd_d(vdd_d),
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
         .vss_d(vss_d)
+`endif
     );
 
 

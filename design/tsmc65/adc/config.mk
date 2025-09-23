@@ -23,20 +23,24 @@ export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
 
 # Analog macro LEFs, GDS, and LIBs for SAR ADC sub-block
-export ADDITIONAL_LEFS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/caparray.lef \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/comp.lef \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/sampswitch.lef
+export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/caparray.lef \
+                         $(PLATFORM_DIR)/lef/comp.lef \
+                         $(PLATFORM_DIR)/lef/sampswitch.lef \
+                         $(PLATFORM_DIR)/lef/tsmc65_io.lef
 
-export ADDITIONAL_GDS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/caparray.gds \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/comp.gds \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/sampswitch.gds
+export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/caparray.gds \
+                         $(PLATFORM_DIR)/gds/comp.gds \
+                         $(PLATFORM_DIR)/gds/sampswitch.gds
 
-export ADDITIONAL_LIBS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/caparray.lib \
-                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/comp.lib \
-                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/sampswitch.lib
+export ADDITIONAL_LIBS += $(PLATFORM_DIR)/lib/caparray.lib \
+                          $(PLATFORM_DIR)/lib/comp.lib \
+                          $(PLATFORM_DIR)/lib/sampswitch.lib
 
 # Disable hierarchical synthesis to flatten OPENROAD helper modules
 export SYNTH_HIERARCHICAL = 0
+
+# Enable power pins for physical implementation
+export SYNTH_DEFINES = USE_POWER_PINS
 
 # Allow use of clock gate cells (override platform default)
 export DONT_USE_CELLS =

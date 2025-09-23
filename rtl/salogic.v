@@ -31,7 +31,8 @@ module salogic (
 
     // Power supply signals
 `ifdef USE_POWER_PINS
-    ,inout wire vdd_d, vss_d              // Digital supply
+    ,inout wire vdd_d,                    // Digital supply positive
+    inout wire vss_d                      // Digital supply ground
 `endif
 );
 
