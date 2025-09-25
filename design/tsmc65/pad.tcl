@@ -1,47 +1,54 @@
 # FRIDA Pad Placement Script
 # 1mm x 1mm die with CUP pad ring
-# Based on TSMC65 CUP pad technology
 # 7 pads per side with 100μm pitch
 
-# Constants for positioning calculations - declare as global
-global PAD_PITCH CORNER_SW_X CORNER_SW_Y CORNER_NE_X CORNER_NE_Y
-set PAD_PITCH 100.0
-set CORNER_SW_X 27.925
-set CORNER_SW_Y 27.925
-set CORNER_NE_X 972.075
-set CORNER_NE_Y 972.075
+# Constants for positioning calculations
+# 1000μm die with 50μm inset for 25μm sealring
 
-# Helper functions for calculating pad positions (100μm pitch spacing)
-proc calc_south_pad_location { index } {
-    global CORNER_SW_X PAD_PITCH
-    return [expr { $CORNER_SW_X + ($index * $PAD_PITCH) + 50.0 }]
+set IO_LENGTH 121.655
+set IO_WIDTH 61
+set BONDPAD_SIZE 0
+set SEALRING_OFFSET 50
+set IO_OFFSET [expr { $SEALRING_OFFSET }]
+
+proc calc_horizontal_pad_location { index total IO_LENGTH IO_WIDTH BONDPAD_SIZE SEALRING_OFFSET } {
+  set DIE_WIDTH [expr { [lindex $::env(DIE_AREA) 2] - [lindex $::env(DIE_AREA) 0] }]
+  set PAD_OFFSET [expr { $IO_LENGTH + $BONDPAD_SIZE + $SEALRING_OFFSET }]
+  set PAD_AREA_WIDTH [expr { $DIE_WIDTH - ($PAD_OFFSET * 2) }]
+  set HORIZONTAL_PAD_DISTANCE [expr { ($PAD_AREA_WIDTH / $total) - $IO_WIDTH }]
+
+  return [expr {
+    $PAD_OFFSET + (($IO_WIDTH + $HORIZONTAL_PAD_DISTANCE) * $index)
+    + ($HORIZONTAL_PAD_DISTANCE / 2)
+  }]
 }
 
-proc calc_north_pad_location { index } {
-    global CORNER_SW_X PAD_PITCH
-    return [expr { $CORNER_SW_X + ($index * $PAD_PITCH) + 50.0 }]
-}
+proc calc_vertical_pad_location { index total IO_LENGTH IO_WIDTH BONDPAD_SIZE SEALRING_OFFSET } {
+  set DIE_HEIGHT [expr { [lindex $::env(DIE_AREA) 3] - [lindex $::env(DIE_AREA) 1] }]
+  set PAD_OFFSET [expr { $IO_LENGTH + $BONDPAD_SIZE + $SEALRING_OFFSET }]
+  set PAD_AREA_HEIGHT [expr { $DIE_HEIGHT - ($PAD_OFFSET * 2) }]
+  set VERTICAL_PAD_DISTANCE [expr { ($PAD_AREA_HEIGHT / $total) - $IO_WIDTH }]
 
-proc calc_west_pad_location { index } {
-    global CORNER_SW_Y PAD_PITCH
-    return [expr { $CORNER_SW_Y + ($index * $PAD_PITCH) + 50.0 }]
+  return [expr {
+    $PAD_OFFSET + (($IO_WIDTH + $VERTICAL_PAD_DISTANCE) * $index)
+    + ($VERTICAL_PAD_DISTANCE / 2)
+  }]
 }
-
-proc calc_east_pad_location { index } {
-    global CORNER_SW_Y PAD_PITCH
-    return [expr { $CORNER_SW_Y + ($index * $PAD_PITCH) + 50.0 }]
-}
-
 # Create fake IO sites (physical-only, no electrical connections needed)
-make_fake_io_site -name CUP_IOSite -width 100 -height 100
-make_fake_io_site -name CUP_CornerSite -width 100 -height 100
+# The IHP example shows that corner and normal pads all use the same real site, but they still make these dummy ones:
+make_fake_io_site -name IOLibSite -width 1 -height $IO_LENGTH
+
+# SF_CORNER is 123.42μm × 123.42μm
+make_fake_io_site -name IOLibCSite -width 123.42 -height 123.42
 
 # Create IO Rows
 make_io_sites \
-  -horizontal_site CUP_IOSite \
-  -vertical_site CUP_IOSite \
-  -corner_site CUP_CornerSite \
-  -offset 160
+  -horizontal_site IOLibSite \
+  -vertical_site IOLibSite \
+  -corner_site IOLibCSite \
+  -offset $IO_OFFSET
+
+
 
 # Place Corner Cells
 place_pad \
@@ -72,42 +79,43 @@ place_pad \
 # Position 0: SPI SDI
 place_pad \
   -row IO_SOUTH \
-  -location [calc_south_pad_location 0] \
+  -location [calc_horizontal_pad_location 1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {cmos_spi_sdi} \
   -master CMOS_IO_CUP_pad
 
 # Position 1: SPI SDO  
 place_pad \
   -row IO_SOUTH \
-  -location [calc_south_pad_location 1] \
+  -location [calc_horizontal_pad_location 2 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {cmos_spi_sdo} \
   -master CMOS_IO_CUP_pad
 
 # Position 2: SPI SCLK
 place_pad \
   -row IO_SOUTH \
-  -location [calc_south_pad_location 2] \
+  -location [calc_horizontal_pad_location 3 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {cmos_spi_sclk} \
   -master CMOS_IO_CUP_pad
 
 # Position 3: SPI CS_B
 place_pad \
   -row IO_SOUTH \
-  -location [calc_south_pad_location 3] \
+  -location [calc_horizontal_pad_location 4 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {cmos_spi_cs_b} \
   -master CMOS_IO_CUP_pad
 
 # Position 4-5: LVDS TX (comp_out) - double width at specified coordinates
 place_pad \
   -row IO_SOUTH \
-  -location 575.0 \
+  -location [calc_horizontal_pad_location 5 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {lvds_comp_out} \
   -master LVDS_TX_CUP_pad
 
 # Position 6: Reset
+# FIXME! This should be a vss_sub_cup_pad!
 place_pad \
   -row IO_SOUTH \
-  -location [calc_south_pad_location 6] \
+  -location [calc_horizontal_pad_location 7 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {cmos_reset_b} \
   -master CMOS_IO_CUP_pad
 
@@ -201,7 +209,7 @@ place_pad \
 # Position 0: Reserved passive
 place_pad \
   -row IO_NORTH \
-  -location [calc_north_pad_location 0] \
+  -location [calc_horizontal_pad_location 1 7 $IO_LENGTH $IO_WIDTH $BONDPAD_SIZE $SEALRING_OFFSET] \
   {passive_reserved_0} \
   -master PASSIVE_CUP_pad
 

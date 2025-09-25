@@ -40,13 +40,10 @@ export ADDITIONAL_LIBS += $(PLATFORM_DIR)/lib/caparray.lib \
 export SYNTH_HIERARCHICAL = 0
 
 # Enable power pins for physical implementation
-export SYNTH_DEFINES = USE_POWER_PINS
+# export SYNTH_DEFINES = USE_POWER_PINS
 
 # Allow use of clock gate cells (override platform default)
 export DONT_USE_CELLS =
-
-# Protect critical buffer instances from removal during global placement
-export DONT_TOUCH_CELLS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
 
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
 export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
@@ -56,20 +53,23 @@ export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampsw
 # -------------------------------------------------------
 
 # Design area: 60x60 micrometers for TSMC65 to accommodate macros
-export DIE_AREA = 0 0 60 60
-export CORE_AREA = 2 2 58 58
+export DIE_AREA = 0 0 60 59.4
+export CORE_AREA = 0 0 60 59.4
 
 export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro.tcl
 
 # MACRO_PLACE_HALO settings for mixed-signal layout
-export MACRO_PLACE_HALO = 1 1
-# export MACRO_PLACE_CHANNEL = 4 4
+export MACRO_PLACE_HALO = 0 0
 
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+# export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
 
 #--------------------------------------------------------
 # Placement
 # -------------------------------------------------------
+
+# FRIDA project specific scripts for placement (triggered from global_place.tcl)
+export DONT_TOUCH = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
+# export MANUAL_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/manual_place.tcl
 
 export IO_PLACER_H = M3  # Horizontal I/O pins on M3
 export IO_PLACER_V = M2  # Vertical I/O pins on M2
@@ -101,7 +101,7 @@ export PLACE_DENSITY = 0.65
 # Routing layer constraints
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
-export MAX_ROUTING_LAYER = M4
+export MAX_ROUTING_LAYER = M7
 
 # Skip antenna repair due to crash in mixed-signal design
 # export SKIP_ANTENNA_REPAIR = 1
@@ -113,12 +113,16 @@ export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
 # Finishing
 # -------------------------------------------------------
 
-export USE_FILL = 1
+# Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
+export USE_FILL = 0
 
 #--------------------------------------------------------
 # Power Analysis
 # -------------------------------------------------------
 
-# Disable IR drop analysis for now to avoid dictionary parsing issues
-# export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2}"
-# export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0}"
+# Power analysis settings
+export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2}"
+export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0}"
+
+# IR drop analysis layer (required for final report)
+export IR_DROP_LAYER = M1

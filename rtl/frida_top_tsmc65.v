@@ -58,44 +58,52 @@ module frida_top(
         .PAD_P(seq_init_p_PAD),
         .PAD_N(seq_init_n_PAD),
         .O(seq_init),
-        .EN_B(1'b0),    // Enable active
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
-        .VDD(vdd_io),   // Connected to I/O supply
-        .VSS(vss_io)    // Connected to I/O supply
+        .EN_B(1'b0)    // Enable active
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)   // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     LVDS_RX_CUP_pad lvds_seq_samp (
         .PAD_P(seq_samp_p_PAD),
         .PAD_N(seq_samp_n_PAD),
         .O(seq_samp),
-        .EN_B(1'b0),    // Enable active
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
-        .VDD(vdd_io),   // Connected to I/O supply
-        .VSS(vss_io)    // Connected to I/O supply
+        .EN_B(1'b0)    // Enable active
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)   // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     LVDS_RX_CUP_pad lvds_seq_cmp (
         .PAD_P(seq_cmp_p_PAD),
         .PAD_N(seq_cmp_n_PAD),
         .O(seq_cmp),
-        .EN_B(1'b0),    // Enable active
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
-        .VDD(vdd_io),   // Connected to I/O supply
-        .VSS(vss_io)    // Connected to I/O supply
+        .EN_B(1'b0)    // Enable active
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)   // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     LVDS_RX_CUP_pad lvds_seq_logic (
         .PAD_P(seq_logic_p_PAD),
         .PAD_N(seq_logic_n_PAD),
         .O(seq_logic),
-        .EN_B(1'b0),    // Enable active
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
-        .VDD(vdd_io),   // Connected to I/O supply
-        .VSS(vss_io)    // Connected to I/O supply
+        .EN_B(1'b0)    // Enable active
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)   // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     // CMOS I/O Pads
@@ -105,12 +113,15 @@ module frida_top(
         .Z(spi_sclk),
         .OUT_EN(1'b0),  // Output disabled (input mode)
         .PEN(1'b1),     // Pull enable
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
         .DS(1'b0),      // Drive strength control
         .Z_h(),         // Not used
         .UD_B(1'b1)     // Pull up/down control
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     CMOS_IO_CUP_pad cmos_spi_sdi (
@@ -119,12 +130,15 @@ module frida_top(
         .Z(spi_sdi),
         .OUT_EN(1'b0),
         .PEN(1'b1),
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     CMOS_IO_CUP_pad cmos_spi_sdo (
@@ -133,12 +147,15 @@ module frida_top(
         .Z(spi_sdo),
         .OUT_EN(1'b1),
         .PEN(1'b1),
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     CMOS_IO_CUP_pad cmos_spi_cs_b (
@@ -147,12 +164,15 @@ module frida_top(
         .Z(spi_cs_b),
         .OUT_EN(1'b0),
         .PEN(1'b1),
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io),  // Connected to I/O ground rail
         .DS(),
         .Z_h(),
         .UD_B(1'b1)
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
 
@@ -160,21 +180,25 @@ module frida_top(
     PASSIVE_CUP_pad passive_vin_p (
         .PAD(vin_p_PAD),
         .I(1'b0),       // Not used for input pads
-        .O(vin_p),      // Output to core
-        .VDD(vdd_a_PAD), // Connected to analog power PAD
-        .VSS(vss_a_PAD), // Connected to analog ground PAD
-        .VDDPST(vdd_a),  // Connected to internal analog power rail
-        .VSSPST(vss_a)   // Connected to internal analog ground rail
+        .O(vin_p)       // Output to core
+`ifdef USE_POWER_PINS
+        ,.VDD(vdd_a_PAD) // Connected to analog power PAD
+        ,.VSS(vss_a_PAD) // Connected to analog ground PAD
+        ,.VDDPST(vdd_a)  // Connected to internal analog power rail
+        ,.VSSPST(vss_a)  // Connected to internal analog ground rail
+`endif
     );
 
     PASSIVE_CUP_pad passive_vin_n (
         .PAD(vin_n_PAD),
         .I(1'b0),       // Not used for input pads
-        .O(vin_n),      // Output to core
-        .VDD(vdd_a_PAD), // Connected to analog power PAD
-        .VSS(vss_a_PAD), // Connected to analog ground PAD
-        .VDDPST(vdd_a),  // Connected to internal analog power rail
-        .VSSPST(vss_a)   // Connected to internal analog ground rail
+        .O(vin_n)       // Output to core
+`ifdef USE_POWER_PINS
+        ,.VDD(vdd_a_PAD) // Connected to analog power PAD
+        ,.VSS(vss_a_PAD) // Connected to analog ground PAD
+        ,.VDDPST(vdd_a)  // Connected to internal analog power rail
+        ,.VSSPST(vss_a)  // Connected to internal analog ground rail
+`endif
     );
 
     // LVDS Transmitter Pad for output
@@ -183,22 +207,26 @@ module frida_top(
         .PAD_N(comp_out_n_PAD),
         .I(comp_out),
         .EN_B(1'b0),    // Enable active
-        .DS(3'b000),    // Drive strength control
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
-        .VDD(vdd_io),   // Connected to I/O supply
-        .VSS(vss_io)    // Connected to I/O supply
+        .DS(3'b000)     // Drive strength control
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     // Reserved Pads (no connections for future expansion)
     PASSIVE_CUP_pad passive_reserved_0 (
         .PAD(passive_reserved_0_PAD),
         .I(1'b0),       // Tied off
-        .O(),           // Left unconnected
-        .VDD(vdd_io_PAD), // Connected to I/O power PAD
-        .VSS(vss_io_PAD), // Connected to I/O ground PAD
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io)  // Connected to I/O ground rail
+        .O()            // Left unconnected
+`ifdef USE_POWER_PINS
+        ,.VDD(vdd_io_PAD) // Connected to I/O power PAD
+        ,.VSS(vss_io_PAD) // Connected to I/O ground PAD
+        ,.VDDPST(vdd_io)  // Connected to I/O power rail
+        ,.VSSPST(vss_io)  // Connected to I/O ground rail
+`endif
     );
 
     CMOS_IO_CUP_pad cmos_reserved_1 (
@@ -207,12 +235,15 @@ module frida_top(
         .Z(),           // Left unconnected
         .OUT_EN(1'b0),  // Output disabled
         .PEN(1'b1),     // Pull enabled to prevent floating
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
         .DS(1'b0),      // Drive strength control
         .Z_h(),         // Left unconnected
         .UD_B(1'b0)     // Pull down
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     CMOS_IO_CUP_pad cmos_reserved_2 (
@@ -221,70 +252,89 @@ module frida_top(
         .Z(),           // Left unconnected
         .OUT_EN(1'b0),  // Output disabled
         .PEN(1'b1),     // Pull enabled to prevent floating
-        .IO(vdd_io),    // Connected to I/O supply
-        .VDDPST(vdd_io), // Connected to I/O power rail
-        .VSSPST(vss_io), // Connected to I/O ground rail
         .DS(1'b0),      // Drive strength control
         .Z_h(),         // Left unconnected
         .UD_B(1'b0)     // Pull down
+`ifdef USE_POWER_PINS
+        ,.VDDPST(vdd_io) // Connected to I/O power rail
+        ,.VSSPST(vss_io) // Connected to I/O ground rail
+        ,.VDD(vdd_io)    // Connected to I/O supply
+        ,.VSS(vss_io)    // Connected to I/O supply
+`endif
     );
 
     // Power distribution is handled through the POWER_CUP_pad and GROUND_CUP_pad instances below
 
     POWER_CUP_pad power_vdd_a (
+`ifdef USE_POWER_PINS
         .VSS(vss_a),         // Connected to analog ground rail
         .VDD(vdd_a_PAD),     // Connected to analog power PAD
         .VDDPST(vdd_a),      // Connected to internal analog rail
         .VSSPST(vss_a)       // Connected to internal analog rail
+`endif
     );
 
     GROUND_CUP_pad ground_vss_a (
+`ifdef USE_POWER_PINS
         .VSS(vss_a_PAD),     // Connected to analog ground PAD
         .VDD(vdd_a),         // Connected to analog power rail
         .VDDPST(vdd_a),      // Connected to internal analog rail
         .VSSPST(vss_a)       // Connected to internal analog rail
+`endif
     );
 
     POWER_CUP_pad power_vdd_d (
+`ifdef USE_POWER_PINS
         .VSS(vss_d),         // Connected to digital ground rail
         .VDD(vdd_d_PAD),     // Connected to digital power PAD
         .VDDPST(vdd_d),      // Connected to internal digital rail
         .VSSPST(vss_d)       // Connected to internal digital rail
+`endif
     );
 
     GROUND_CUP_pad ground_vss_d (
+`ifdef USE_POWER_PINS
         .VSS(vss_d_PAD),     // Connected to digital ground PAD
         .VDD(vdd_d),         // Connected to digital power rail
         .VDDPST(vdd_d),      // Connected to internal digital rail
         .VSSPST(vss_d)       // Connected to internal digital rail
+`endif
     );
 
     POWER_CUP_pad power_vdd_io (
+`ifdef USE_POWER_PINS
         .VSS(vss_io),        // Connected to I/O ground rail
         .VDD(vdd_io_PAD),    // Connected to I/O power PAD
         .VDDPST(vdd_io),     // Connected to internal I/O rail
         .VSSPST(vss_io)      // Connected to internal I/O rail
+`endif
     );
 
     GROUND_CUP_pad ground_vss_io (
+`ifdef USE_POWER_PINS
         .VSS(vss_io_PAD),    // Connected to I/O ground PAD
         .VDD(vdd_io),        // Connected to I/O power rail
         .VDDPST(vdd_io),     // Connected to internal I/O rail
         .VSSPST(vss_io)      // Connected to internal I/O rail
+`endif
     );
 
     POWER_CUP_pad power_vdd_dac (
+`ifdef USE_POWER_PINS
         .VSS(vss_dac),       // Connected to DAC ground rail
         .VDD(vdd_dac_PAD),   // Connected to DAC power PAD
         .VDDPST(vdd_dac),    // Connected to internal DAC rail
         .VSSPST(vss_dac)     // Connected to internal DAC rail
+`endif
     );
 
     GROUND_CUP_pad ground_vss_dac (
+`ifdef USE_POWER_PINS
         .VSS(vss_dac_PAD),   // Connected to DAC ground PAD
         .VDD(vdd_dac),       // Connected to DAC power rail
         .VDDPST(vdd_dac),    // Connected to internal DAC rail
         .VSSPST(vss_dac)     // Connected to internal DAC rail
+`endif
     );
 
     // Instantiate core logic

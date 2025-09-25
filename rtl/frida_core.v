@@ -79,7 +79,7 @@ module frida_core(
     genvar i;
     generate
         for (i = 0; i < 16; i = i + 1) begin : spi_mapping
-            localparam int BASE = 64 + i * 7;  // Start after shared DAC states
+            localparam BASE = 64 + i * 7;  // Start after shared DAC states
 
             assign adc_en_init[i] = spi_bits[BASE + 0];
             assign adc_en_samp_p[i] = spi_bits[BASE + 1];

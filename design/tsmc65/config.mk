@@ -15,13 +15,11 @@ export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
                        $(DESIGN_HOME)/src/frida/sampdriver.v \
                        $(DESIGN_HOME)/src/frida/sampswitch.v \
                        $(DESIGN_HOME)/src/frida/spi_register.v \
-                       $(DESIGN_HOME)/src/frida/cells_tsmc65.v
+                       $(DESIGN_HOME)/src/frida/cells_tsmc65.v \
+                       $(PLATFORM_DIR)/verilog/tsmc65_io.v
 
 # Top-level constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/constraint.sdc
-
-# Sealring GDS file
-export SEAL_GDS = $(PLATFORM_DIR)/gds/sealring.gds
 
 # Hierarchical synthesis - enabled to preserve ADC macros for placement
 export SYNTH_HIERARCHICAL = 1
@@ -31,30 +29,6 @@ export BLOCKS = adc
 
 # Override DONT_USE_CELLS to be empty (top-level design doesn't need restrictions)
 export DONT_USE_CELLS =
-
-# IO Pad LEFs (Circuit Under Pad) and Fillers for top-level
-export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/LVDS_RX_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/LVDS_TX_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/CMOS_IO_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/PASSIVE_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/POWER_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/GROUND_CUP_pad.lef \
-                         $(PLATFORM_DIR)/lef/SF_CORNER.lef \
-                         $(PLATFORM_DIR)/lef/SF_FILLER50_CUP.lef \
-                         $(PLATFORM_DIR)/lef/SF_FILLER_CUP.lef \
-                         $(PLATFORM_DIR)/lef/POWERCUT_CUP.lef
-
-# IO Pad GDS files for top-level
-export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/LVDS_RX_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/LVDS_TX_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/CMOS_IO_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/PASSIVE_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/POWER_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/GROUND_CUP_pad.gds \
-                        $(PLATFORM_DIR)/gds/SF_CORNER.gds \
-                        $(PLATFORM_DIR)/gds/SF_FILLER50_CUP.gds \
-                        $(PLATFORM_DIR)/gds/SF_FILLER_CUP.gds \
-                        $(PLATFORM_DIR)/gds/POWERCUT_CUP.gds
 
 #--------------------------------------------------------
 # Floorplan
@@ -122,4 +96,8 @@ export GPL_TIMING_DRIVEN = 1
 # Finishing
 # -------------------------------------------------------
 
-export USE_FILL = 1
+# Sealring GDS file
+export SEAL_GDS = $(PLATFORM_DIR)/gds/sealring.gds
+
+# Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
+export USE_FILL = 0

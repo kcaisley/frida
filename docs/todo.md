@@ -1,3 +1,18 @@
+# demo gds issues found:
+- asserts in synthesis give some issues, which were bypassed by commenting out line in scripts/synth.tcl
+- position where vsub_vss_cup_pad should be is still a reset, need to remove reset pin and add power
+- understand why 0.001 is needed for DBU scaling from DBU to micros to work properly. Even klayout gives a warning about the disagreement, but it's what works in practice for now?
+- deleted frida_top.v, not sure if that's an issue yet
+- pad dimensions in LEF are a bit complicated, one thing is that spacers need to be included between. WIP! Check cordia design for correct spacing. LVDS cells include one spacer, hence they need to take multiple positions? Maybe just flatten design into fixed positions, with no helpers.
+- Is the adc .sdc file working now, with update syntax?
+- Was the `localparam int BASE = 64 + i * 7;` syntax in the ADC generate actually problematic? I removed the `int` due to error from yosys, but I'm not sure if necessary?
+- fully added ifdef USE_POWER_PINS at all levels, essentially removing them. IHP pdk does the same
+- Modified platform pdn.tcl to mimic basic shape needed for frida, still needs 2 other domains though. Comment out design pdn.tcl for now
+- Caparray LEF uses `CLASS BLOCK` with minimum size, issue of seeing it due to cell dimensions small around origin meaning it is out of frame easily when zooming
+- Caparray LEF also needs M6 pins to be on LEF edge, to be accessible through blockages on M6!
+- removed rtran and other statements in .v model of io cells
+- passive cells has an I, O and PAD pin? That seems wrong.
+
 # ADC issues:
 - [x] Open road wouldn't build, even on Ubuntu 22.04 -> Solution was to install basic packages and rerun setup.sh
 - [x] Resolve KLayout crash in build_macros - ADC LEF/LIB generation failing during GDS merge step -> Solution was to move to Ubuntu 22.04 (or RHEl 9!)
