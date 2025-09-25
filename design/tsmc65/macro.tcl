@@ -1,29 +1,29 @@
 # FRIDA Top-Level Macro Placement Script for TSMC65
 # 16 ADC instances arranged in 4x4 grid
-# 1mm x 1mm die with 600x600 core area
+# 1mm x 1mm die with 520x540 core area
 
 # ADC macro specifications:
-# - Macro size: assume 60x60 micrometers each (black box size)
+# - Macro size: 60x60 micrometers each (black box size)
 # - Grid: 4x4 array with 100μm spacing between macro centers
-# - Core area: 600x600μm (200,200 to 800,800)
+# - Core area: 520x540μm (240,300 to 760,840)
 # - Center the 4x4 grid in the core area
 
 puts "Placing 16 ADC macros in explicit 4x4 grid with 100um spacing"
 
 # Calculate grid positioning:
-# Core area: 200,200 to 800,800 (600×600μm usable)
-# Core center: (500, 500)
+# Core area: 240,300 to 760,840 (520×540μm usable)
+# Core center: (500, 570)
 # 4x4 grid with 100μm pitch, centered
-# Grid span: 3×100 = 300μm, so grid goes from 350 to 650
-# X positions: 350, 450, 550, 650 (centered around 500)
-# Y positions: 350, 450, 550, 650 (centered around 500)
+# Grid span: 3×100 = 300μm
+# X positions: 290, 410, 530, 650 (120μm spacing)
+# Y positions: 350, 470, 590, 710 (120μm spacing)
 
 # Define 4x4 grid positions (centered in core area)
 set grid_positions {
-    {0 350 350} {1 450 350} {2 550 350} {3 650 350}
-    {4 350 450} {5 450 450} {6 550 450} {7 650 450}
-    {8 350 550} {9 450 550} {10 550 550} {11 650 550}
-    {12 350 650} {13 450 650} {14 550 650} {15 650 650}
+    {0 290 350} {1 410 350} {2 530 350} {3 650 350}
+    {4 290 470} {5 410 470} {6 530 470} {7 650 470}
+    {8 290 590} {9 410 590} {10 530 590} {11 650 590}
+    {12 290 710} {13 410 710} {14 530 710} {15 650 710}
 }
 
 # Get all ADC macro instances from the database and sort them

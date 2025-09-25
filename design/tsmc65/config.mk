@@ -30,6 +30,9 @@ export BLOCKS = adc
 # Override DONT_USE_CELLS to be empty (top-level design doesn't need restrictions)
 export DONT_USE_CELLS =
 
+# ADC macro LEF file dependency
+export ADDITIONAL_LEFS += ./results/$(PLATFORM)/frida_adc/base/adc.lef
+
 #--------------------------------------------------------
 # Floorplan
 # -------------------------------------------------------
@@ -37,8 +40,8 @@ export DONT_USE_CELLS =
 # Die area: 1mm x 1mm = 1000um x 1000um
 export DIE_AREA = 0 0 1000 1000
 
-# Core area: ~600um x 600um centered (200um margin for IO pads on all sides)
-export CORE_AREA = 200 200 800 800
+# Core area
+export CORE_AREA = 240 300 760 840
 
 # Pad footprint placement script - contains place_pad commands run during floorplan
 export FOOTPRINT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pad.tcl
@@ -57,7 +60,7 @@ export PLACE_DENSITY = 0.6
 export MACRO_PLACE_HALO = 5 5
 
 # PDN configuration for hierarchical design with multiple supply domains
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pdn.tcl
+# export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pdn.tcl
 
 #--------------------------------------------------------
 # Clock Tree Synthsis (CTS)
