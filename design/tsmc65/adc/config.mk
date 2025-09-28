@@ -7,8 +7,6 @@ export PLATFORM               = tsmc65
 #  Yosys (Synthesis)
 #  ----------------------------------------------------
 
-# All files, including those which are just wrappers for analog macros should be included here
-# For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
 export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
                        $(DESIGN_HOME)/src/frida/caparray.v \
                        $(DESIGN_HOME)/src/frida/capdriver.v \
@@ -19,30 +17,13 @@ export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
                        $(DESIGN_HOME)/src/frida/sampswitch.v \
                        $(DESIGN_HOME)/src/frida/cells_tsmc65.v
 
-# Constraints
+# Timing constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
-
-# Analog macro LEFs, GDS, and LIBs for SAR ADC sub-block
-export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/caparray.lef \
-                         $(PLATFORM_DIR)/lef/comp.lef \
-                         $(PLATFORM_DIR)/lef/sampswitch.lef \
-                         $(PLATFORM_DIR)/lef/tsmc65_io.lef
-
-export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/caparray.gds \
-                         $(PLATFORM_DIR)/gds/comp.gds \
-                         $(PLATFORM_DIR)/gds/sampswitch.gds
-
-export ADDITIONAL_LIBS += $(PLATFORM_DIR)/lib/caparray.lib \
-                          $(PLATFORM_DIR)/lib/comp.lib \
-                          $(PLATFORM_DIR)/lib/sampswitch.lib
 
 # Disable hierarchical synthesis to flatten OPENROAD helper modules
 export SYNTH_HIERARCHICAL = 0
 
-# Enable power pins for physical implementation
-# export SYNTH_DEFINES = USE_POWER_PINS
-
-# Allow use of clock gate cells (override platform default)
+# Allow all cells
 export DONT_USE_CELLS =
 
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
@@ -58,8 +39,7 @@ export CORE_AREA = 0 0 60 59.4
 
 export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro.tcl
 
-# MACRO_PLACE_HALO settings for mixed-signal layout
-export MACRO_PLACE_HALO = 0 0
+export MACRO_PLACE_HALO = 1 1
 
 # export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
 
@@ -74,9 +54,8 @@ export DONT_TOUCH = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
 export IO_PLACER_H = M3  # Horizontal I/O pins on M3
 export IO_PLACER_V = M2  # Vertical I/O pins on M2
 
+# NOTE: WAIT WOULD THIS MAYBE BE THE FLOORPLANNING SPACING FOR REGIONS?
 export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
-
-# Pin placement settings, since my tracks are 200nm tall
 export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 
 # Standard cell placement density
@@ -98,7 +77,6 @@ export PLACE_DENSITY = 0.65
 # Routing
 # -------------------------------------------------------
 
-# Routing layer constraints
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M7
@@ -121,8 +99,8 @@ export USE_FILL = 0
 # -------------------------------------------------------
 
 # Power analysis settings
-export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2}"
-export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0}"
+export PWR_NETS_VOLTAGES = "vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2"
+export GND_NETS_VOLTAGES = "vss_d 0.0 vss_a 0.0 vss_dac 0.0"
 
 # IR drop analysis layer (required for final report)
 export IR_DROP_LAYER = M1

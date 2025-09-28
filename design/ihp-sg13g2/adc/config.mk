@@ -7,8 +7,6 @@ export PLATFORM               = ihp-sg13g2
 #  Yosys (Synthesis)
 #  ----------------------------------------------------
 
-# All files, including those which are just wrappers for analog macros should be included here
-# For example, in flow/designs/sky130hd/chameleon/config.mk, VERILOG_FILES includes those labeled with the convenience variable of VERILOG_FILES_BLACKBOX
 export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
                        $(DESIGN_HOME)/src/frida/caparray.v \
                        $(DESIGN_HOME)/src/frida/capdriver.v \
@@ -19,30 +17,14 @@ export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
                        $(DESIGN_HOME)/src/frida/sampswitch.v \
                        $(DESIGN_HOME)/src/frida/cells_ihp_sg13g2.v
 
-# Constraints
+# Timing constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
-
-# Analog macro LEFs, GDS, and LIBs for SAR ADC sub-block
-export ADDITIONAL_LEFS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/caparray.lef \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/comp.lef \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lef/sampswitch.lef
-
-export ADDITIONAL_GDS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/caparray.gds \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/comp.gds \
-                         $(DESIGN_HOME)/$(PLATFORM)/frida/adc/gds/sampswitch.gds
-
-export ADDITIONAL_LIBS += $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/caparray.lib \
-                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/comp.lib \
-                          $(DESIGN_HOME)/$(PLATFORM)/frida/adc/lib/sampswitch.lib
 
 # Disable hierarchical synthesis to flatten OPENROAD helper modules
 export SYNTH_HIERARCHICAL = 0
 
 # Allow use of clock gate cells (override platform default that has these commented out)
 export DONT_USE_CELLS = sg13g2_sighold sg13g2_dfrbp_2
-
-# Protect critical buffer instances from removal during global placement
-export DONT_TOUCH_CELLS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
 
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
 export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampswitch comp
@@ -65,12 +47,14 @@ export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
 # Placement
 # -------------------------------------------------------
 
+# Protect critical buffer instances from removal during global placement
+export DONT_TOUCH = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/dont_touch.tcl
+# export MANUAL_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/manual_place.tcl
+
 export IO_PLACER_H = Metal2  # Horizontal I/O pins on Metal2 (IHP-SG13G2)
 export IO_PLACER_V = Metal3  # Vertical I/O pins on Metal3 (IHP-SG13G2)
 
 export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/io.tcl
-
-# Pin placement settings, adapted for IHP-SG13G2 grid
 export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
 
 # Standard cell placement density
@@ -93,8 +77,8 @@ export PLACE_DENSITY = 0.65
 # -------------------------------------------------------
 
 # Routing layer constraints - IHP-SG13G2 metal stack
-export MIN_ROUTING_LAYER = Metal2
-export MAX_ROUTING_LAYER = Metal4
+export MIN_ROUTING_LAYER = Metal1
+export MAX_ROUTING_LAYER = Metal7
 
 # Enable detailed routing debug for caparray pin coverage issues
 export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
@@ -103,12 +87,16 @@ export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
 # Finishing
 # -------------------------------------------------------
 
-export USE_FILL = 1
+# Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
+export USE_FILL = 0
 
 #--------------------------------------------------------
 # Power Analysis
 # -------------------------------------------------------
 
 # Disable IR drop analysis for now to avoid dictionary parsing issues
-# export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2}"
-# export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0}"
+export PWR_NETS_VOLTAGES = "vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2"
+export GND_NETS_VOLTAGES = "vss_d 0.0 vss_a 0.0 vss_dac 0.0"
+
+# IR drop analysis layer (required for final report)
+export IR_DROP_LAYER = M1

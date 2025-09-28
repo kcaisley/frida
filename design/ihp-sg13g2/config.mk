@@ -3,20 +3,11 @@ export DESIGN_NICKNAME        = frida
 export PLATFORM               = ihp-sg13g2
 
 # Top-level Verilog files (flattened design) - include platform clock gate cells and IO cells
-export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc.v \
-                       $(DESIGN_HOME)/src/frida/caparray.v \
-                       $(DESIGN_HOME)/src/frida/capdriver.v \
-                       $(DESIGN_HOME)/src/frida/clkgate.v \
-                       $(DESIGN_HOME)/src/frida/comp.v \
-                       $(DESIGN_HOME)/src/frida/compmux.v \
+export VERILOG_FILES = $(DESIGN_HOME)/src/frida/compmux.v \
                        $(DESIGN_HOME)/src/frida/frida_core.v \
                        $(DESIGN_HOME)/src/frida/frida_top_ihp.v \
-                       $(DESIGN_HOME)/src/frida/salogic.v \
-                       $(DESIGN_HOME)/src/frida/sampdriver.v \
-                       $(DESIGN_HOME)/src/frida/sampswitch.v \
                        $(DESIGN_HOME)/src/frida/spi_register.v \
-                       $(DESIGN_HOME)/src/frida/cells_ihp_sg13g2.v \
-                       $(PLATFORM_DIR)/verilog/sg13g2_io.v
+                       $(DESIGN_HOME)/src/frida/cells_ihp_sg13g2.v
 
 # Top-level constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/constraint.sdc
@@ -30,20 +21,11 @@ export BLOCKS = adc
 # Override DONT_USE_CELLS to be empty (top-level design doesn't need restrictions)
 export DONT_USE_CELLS =
 
+# If we wanted to only keep some modules heiarchical, with SYNTH_HIERARCHICAL = 0
+# export SYNTH_KEEP_MODULES = 
+
 # Blackbox analog IO cells to prevent Yosys from inserting buffers in parallel actually inside the io cell modules post synthesis
 export SYNTH_BLACKBOXES = sg13g2_IOPadAnalog
-
-# IO Pad LEFs for IHP-SG13G2 (bondpad and IO cells) and ADC macro LEF
-export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/bondpad_70x70.lef \
-                         $(PLATFORM_DIR)/lef/sg13g2_io.lef \
-                         ./results/$(PLATFORM)/frida_adc/base/adc.lef
-
-# IO Pad GDS files for IHP-SG13G2
-export ADDITIONAL_GDS += $(PLATFORM_DIR)/gds/bondpad_70x70.gds \
-                        $(PLATFORM_DIR)/gds/sg13g2_io.gds
-
-# ADC macro library file
-# export ADDITIONAL_TYP_LIBS += ./results/$(PLATFORM)/frida_adc/base/adc_typ.lib
 
 #--------------------------------------------------------
 # Floorplan
@@ -111,13 +93,11 @@ export GPL_TIMING_DRIVEN = 1
 # Finishing
 # -------------------------------------------------------
 
-export USE_FILL = 1
+# Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
+export USE_FILL = 0
 
-#--------------------------------------------------------
-# Power Analysis for Mixed-Signal Design
-# -------------------------------------------------------
+export SEAL_GDS = $(DESIGN_HOME)/$(PLATFORM)/$(DESIGN_NICKNAME)/sealring.gds.gz
 
-# Multiple power domains for mixed-signal design
-# Disable for now to avoid dictionary parsing issues at top level
-# export PWR_NETS_VOLTAGES = "{vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2 vdd_io 3.3}"
-# export GND_NETS_VOLTAGES = "{vss_d 0.0 vss_a 0.0 vss_dac 0.0 vss_io 0.0}"
+# For power analysis
+export PWR_NETS_VOLTAGES = "vdd_d 1.2 vdd_a 1.2 vdd_dac 1.2 vdd_io 3.3"
+export GND_NETS_VOLTAGES = "vss_d 0.0 vss_a 0.0 vss_dac 0.0 vss_io 0.0"
