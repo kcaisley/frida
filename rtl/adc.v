@@ -45,6 +45,7 @@ module adc (
 
     // Internal wires
     wire vdac_p, vdac_n;                      // DAC voltages (positive and negative)
+    wire comp_out_p, comp_out_n;              // Comparator differential outputs
     wire vsamp_p, vsamp_n;                    // Sampling switch output voltages
     wire clk_init;                            // Initialization clock
     wire clk_samp_p_raw, clk_samp_n_raw;      // Raw sampling clock signals from clkgate
@@ -52,7 +53,6 @@ module adc (
     wire clk_samp_p_b, clk_samp_n_b;          // Complementary sampling clock signals
     wire clk_comp;                            // Comparator clock
     wire clk_update;                          // Logic clock signal
-    wire comp_out_p, comp_out_n;              // Comparator differential outputs
     wire [15:0] dac_state_p, dac_state_n;     // SAR logic output buses
     
     // Four 16-bit capacitor driver outputs (keeping same signal names at top level)
@@ -163,20 +163,6 @@ module adc (
     );
 
 
-    // ! ANALOG MACRO ! Capacitor arrays (CDACs)
-    caparray caparray_p (
-        .cap_topplate_in(vsamp_p),            // Positive sampling input from sampling switch
-        .cap_topplate_out(vdac_p),            // Positive DAC voltage output to comparator
-        .cap_botplate_main(dac_drive_botplate_main_p), // Positive main capacitor bottom plates
-        .cap_botplate_diff(dac_drive_botplate_diff_p)  // Positive diff capacitor bottom plates
-    );
-
-    caparray caparray_n (
-        .cap_topplate_in(vsamp_n),            // Negative sampling input from sampling switch
-        .cap_topplate_out(vdac_n),            // Negative DAC voltage output to comparator
-        .cap_botplate_main(dac_drive_botplate_main_n), // Negative main capacitor bottom plates
-        .cap_botplate_diff(dac_drive_botplate_diff_n)  // Negative diff capacitor bottom plates
-    );
 
 
     // Sampling clock drivers - generate complementary clock pairs
@@ -200,6 +186,20 @@ module adc (
 `endif
     );
 
+    // ! ANALOG MACRO ! Capacitor arrays (CDACs)
+    caparray caparray_p (
+        .cap_topplate_in(vsamp_p),            // Positive sampling input from sampling switch
+        .cap_topplate_out(vdac_p),            // Positive DAC voltage output to comparator
+        .cap_botplate_main(dac_drive_botplate_main_p), // Positive main capacitor bottom plates
+        .cap_botplate_diff(dac_drive_botplate_diff_p)  // Positive diff capacitor bottom plates
+    );
+
+    caparray caparray_n (
+        .cap_topplate_in(vsamp_n),            // Negative sampling input from sampling switch
+        .cap_topplate_out(vdac_n),            // Negative DAC voltage output to comparator
+        .cap_botplate_main(dac_drive_botplate_main_n), // Negative main capacitor bottom plates
+        .cap_botplate_diff(dac_drive_botplate_diff_n)  // Negative diff capacitor bottom plates
+    );
     // ! ANALOG MACRO ! Sampling switches with complementary clocks
     sampswitch samp_p (
         .vin(vin_p),                          // Positive analog input

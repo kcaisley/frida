@@ -1,0 +1,55 @@
+.subckt capdriver dac_state[15] dac_state[14] dac_state[13] dac_state[12] dac_state[11] dac_state[10] dac_state[9] dac_state[8] dac_state[7] dac_state[6] dac_state[5] dac_state[4] dac_state[3] dac_state[2] dac_state[1] dac_state[0] dac_drive_invert dac_drive[15] dac_drive[14] dac_drive[13] dac_drive[12] dac_drive[11] dac_drive[10] dac_drive[9] dac_drive[8] dac_drive[7] dac_drive[6] dac_drive[5] dac_drive[4] dac_drive[3] dac_drive[2] dac_drive[1] dac_drive[0] vdd_dac vss_dac
+*.PININFO dac_state[15]:I dac_state[14]:I dac_state[13]:I dac_state[12]:I dac_state[11]:I dac_state[10]:I dac_state[9]:I dac_state[8]:I dac_state[7]:I dac_state[6]:I dac_state[5]:I dac_state[4]:I dac_state[3]:I dac_state[2]:I dac_state[1]:I dac_state[0]:I dac_drive_invert:I dac_drive[15]:O dac_drive[14]:O dac_drive[13]:O dac_drive[12]:O dac_drive[11]:O dac_drive[10]:O dac_drive[9]:O dac_drive[8]:O dac_drive[7]:O dac_drive[6]:O dac_drive[5]:O dac_drive[4]:O dac_drive[3]:O dac_drive[2]:O dac_drive[1]:O dac_drive[0]:O vdd_dac:B vss_dac:B
+* Capacitor Driver Module - Maps 16-bit DAC state to capacitor drive signals
+* Bit 15: Two CKXOR2D4LVT in parallel (highest drive strength)
+* Bits 14-12: One CKXOR2D4LVT each (high drive strength)
+* Bits 11-0: One CKXOR2D2LVT each (standard drive strength)
+
+* Invert the control signal since we need inverted version for XOR operation
+* Note: dac_drive_invert control signal is active high
+Xinv_ctrl dac_drive_invert dac_drive_invert_n vdd_dac vss_dac INVD1LVT
+
+* Bit 15 - MSB, highest capacitive load, uses two CKXOR2D4LVT in parallel
+* A1=dac_drive_invert_n (diff caps control), A2=dac_state[i] (cap state), Y=dac_drive[i] (output)
+Xxor15_0 dac_drive_invert_n dac_state[15] dac_drive[15] vdd_dac vss_dac CKXOR2D4LVT
+Xxor15_1 dac_drive_invert_n dac_state[15] dac_drive[15] vdd_dac vss_dac CKXOR2D4LVT
+
+* Bits 14-12 - High capacitive loads, use single CKXOR2D4LVT each
+* A1=dac_drive_invert_n (diff caps control), A2=dac_state[i] (cap state), Y=dac_drive[i] (output)
+Xxor14 dac_drive_invert_n dac_state[14] dac_drive[14] vdd_dac vss_dac CKXOR2D4LVT
+Xxor13 dac_drive_invert_n dac_state[13] dac_drive[13] vdd_dac vss_dac CKXOR2D4LVT
+Xxor12 dac_drive_invert_n dac_state[12] dac_drive[12] vdd_dac vss_dac CKXOR2D4LVT
+
+* Bits 11-0 - Lower capacitive loads, use single CKXOR2D2LVT each
+* A1=dac_drive_invert_n (diff caps control), A2=dac_state[i] (cap state), Y=dac_drive[i] (output)
+Xxor11 dac_drive_invert_n dac_state[11] dac_drive[11] vdd_dac vss_dac CKXOR2D2LVT
+Xxor10 dac_drive_invert_n dac_state[10] dac_drive[10] vdd_dac vss_dac CKXOR2D2LVT
+Xxor9 dac_drive_invert_n dac_state[9] dac_drive[9] vdd_dac vss_dac CKXOR2D2LVT
+Xxor8 dac_drive_invert_n dac_state[8] dac_drive[8] vdd_dac vss_dac CKXOR2D2LVT
+Xxor7 dac_drive_invert_n dac_state[7] dac_drive[7] vdd_dac vss_dac CKXOR2D2LVT
+Xxor6 dac_drive_invert_n dac_state[6] dac_drive[6] vdd_dac vss_dac CKXOR2D2LVT
+Xxor5 dac_drive_invert_n dac_state[5] dac_drive[5] vdd_dac vss_dac CKXOR2D2LVT
+Xxor4 dac_drive_invert_n dac_state[4] dac_drive[4] vdd_dac vss_dac CKXOR2D2LVT
+Xxor3 dac_drive_invert_n dac_state[3] dac_drive[3] vdd_dac vss_dac CKXOR2D2LVT
+Xxor2 dac_drive_invert_n dac_state[2] dac_drive[2] vdd_dac vss_dac CKXOR2D2LVT
+Xxor1 dac_drive_invert_n dac_state[1] dac_drive[1] vdd_dac vss_dac CKXOR2D2LVT
+Xxor0 dac_drive_invert_n dac_state[0] dac_drive[0] vdd_dac vss_dac CKXOR2D2LVT
+
+.ends
+
+* Function explanation:
+* - XOR gates implement: dac_drive[i] = dac_state[i] XOR dac_drive_invert_n
+* - When dac_drive_invert = 0 (inactive): dac_drive_invert_n = 1 → dac_drive[i] = ~dac_state[i] (invert mode)
+* - When dac_drive_invert = 1 (active high): dac_drive_invert_n = 0 → dac_drive[i] = dac_state[i] (buffer mode)
+*
+* Control signal behavior (dac_drive_invert is active high):
+* - dac_drive_invert = 0: Output inverted DAC state (normal operation)
+* - dac_drive_invert = 1: Output direct DAC state (differential mode)
+*
+* Driver sizing rationale:
+* - Bit 15 (MSB): 2x CKXOR2D4LVT = ~8x drive strength (largest capacitor)
+* - Bits 14-12: 1x CKXOR2D4LVT = ~4x drive strength (large capacitors)
+* - Bits 11-0: 1x CKXOR2D2LVT = ~2x drive strength (smaller capacitors)
+*
+* This provides binary-weighted drive strength that matches the binary-weighted
+* capacitor array structure typical in SAR ADC designs.

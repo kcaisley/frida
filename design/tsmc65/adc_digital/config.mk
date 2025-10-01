@@ -1,4 +1,4 @@
-export DESIGN_NAME            = adc
+export DESIGN_NAME            = adc_digital
 export TOP_DESIGN_NICKNAME    = frida
 export DESIGN_NICKNAME        = ${TOP_DESIGN_NICKNAME}_${DESIGN_NAME}
 export PLATFORM               = tsmc65
@@ -8,15 +8,11 @@ export PLATFORM               = tsmc65
 #  ----------------------------------------------------
 
 export VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc_digital.v \
+                       $(DESIGN_HOME)/src/frida/capdriver.v \
                        $(DESIGN_HOME)/src/frida/clkgate.v \
                        $(DESIGN_HOME)/src/frida/salogic.v \
                        $(DESIGN_HOME)/src/frida/sampdriver.v \
                        $(DESIGN_HOME)/src/frida/cells_tsmc65.v
-                       # Analog macros and drivers factored out of digital synthesis:
-                       # $(DESIGN_HOME)/src/frida/capdriver.v \
-                       # $(DESIGN_HOME)/src/frida/caparray.v \
-                       # $(DESIGN_HOME)/src/frida/comp.v \
-                       # $(DESIGN_HOME)/src/frida/sampswitch.v \
 
 # Timing constraints
 export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/constraint.sdc
@@ -28,9 +24,8 @@ export SYNTH_HIERARCHICAL = 0
 export DONT_USE_CELLS =
 
 # Keep specific design modules from being flattened (exclude OPENROAD_* modules)
-# Note: analog macros and drivers commented out since they're factored out
-export SYNTH_KEEP_MODULES = clkgate salogic sampdriver
-                            # capdriver caparray sampswitch comp
+# Note: analog macros (caparray, sampswitch, comp) removed since they're factored out
+export SYNTH_KEEP_MODULES = clkgate salogic capdriver sampdriver
 
 #--------------------------------------------------------
 # Floorplan
