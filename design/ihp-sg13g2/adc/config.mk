@@ -41,7 +41,7 @@ export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro.tcl
 
 export MACRO_PLACE_HALO = 1 1
 
-export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+# export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
 
 #--------------------------------------------------------
 # Placement
@@ -78,7 +78,7 @@ export PLACE_DENSITY = 0.65
 
 # Routing layer constraints - IHP-SG13G2 metal stack
 export MIN_ROUTING_LAYER = Metal1
-export MAX_ROUTING_LAYER = Metal7
+export MAX_ROUTING_LAYER = TopMetal1
 
 # Enable detailed routing debug for caparray pin coverage issues
 export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2

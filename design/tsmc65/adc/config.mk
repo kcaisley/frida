@@ -34,6 +34,9 @@ export SYNTH_KEEP_MODULES = clkgate salogic capdriver caparray sampdriver sampsw
 # -------------------------------------------------------
 
 # Design area: 60x60 micrometers for TSMC65 to accommodate macros
+
+# export CREATE_REGIONS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/create_regions.tcl
+
 export DIE_AREA = 0 0 60 59.4
 export CORE_AREA = 0 0 60 59.4
 
@@ -42,6 +45,7 @@ export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/macro.tcl
 export MACRO_PLACE_HALO = 1 1
 
 # export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+export PDN_TCL = \
 
 #--------------------------------------------------------
 # Placement
@@ -79,7 +83,7 @@ export PLACE_DENSITY = 0.65
 
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
-export MAX_ROUTING_LAYER = M7
+export MAX_ROUTING_LAYER = M6
 
 # Skip antenna repair due to crash in mixed-signal design
 # export SKIP_ANTENNA_REPAIR = 1

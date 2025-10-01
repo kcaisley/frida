@@ -299,6 +299,24 @@ MACRO caparray
     END
   END cap_botplate_diff[15]
 
+  PIN cap_topplate_in
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER TopMetal1 ;
+        RECT 38.64 88.20 39.48 90.00 ;
+    END
+  END cap_topplate_in
+
+  PIN cap_topplate_out
+    DIRECTION INOUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER TopMetal1 ;
+        RECT 31.08 88.20 31.92 90.00 ;
+    END
+  END cap_topplate_out
+
   OBS
     LAYER Metal5 ;
       RECT 0.000 0.000 40.000 90.000 ;
