@@ -40,7 +40,7 @@ export CORE_AREA = 0 0 60 49
 # Create blockages for future analog macro placement areas via floorplan hook
 export CREATE_BLOCKAGES = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/create_blockages.tcl
 
-# export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/pdn.tcl
+
 export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/pdn.tcl
 
 #--------------------------------------------------------
@@ -51,18 +51,18 @@ export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/pdn.tcl
 export DONT_TOUCH = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/dont_touch.tcl
 # export MANUAL_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/manual_place.tcl
 
-export IO_PLACER_H = M3  # Horizontal I/O pins on M3
-export IO_PLACER_V = M2  # Vertical I/O pins on M2
+export IO_PLACER_H = M3
+export IO_PLACER_V = M2
 
 # NOTE: WAIT WOULD THIS MAYBE BE THE FLOORPLANNING SPACING FOR REGIONS?
 export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/io.tcl
-export PLACE_PINS_ARGS = -min_distance 5 -min_distance_in_tracks
+export PLACE_PINS_ARGS = -min_distance 0.8
 
 # Standard cell placement density
 export PLACE_DENSITY = 0.65
 
 #--------------------------------------------------------
-# Clock Tree Synthsis (CTS)
+# Clock Tree Synthesis (CTS)
 # -------------------------------------------------------
 
 #--------------------------------------------------------
@@ -72,6 +72,9 @@ export PLACE_DENSITY = 0.65
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M4
+
+# Create routing blockages before global route
+export PRE_GLOBAL_ROUTE_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/routing_blockages.tcl
 
 # Enable detailed routing debug for caparray pin coverage issues
 export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
