@@ -42,6 +42,12 @@ module adc_digital (
     output wire [15:0] dac_state_n_main,         // Negative DAC state main (16 bits)
     output wire [15:0] dac_state_n_diff,         // Negative DAC state diff (16 bits)
 
+    // DAC invert outputs - control signals for capacitor drivers (4 bits total)
+    output wire dac_invert_p_main,               // Positive DAC invert main (tied low)
+    output wire dac_invert_p_diff,               // Positive DAC invert diff (driven by dac_diffcaps)
+    output wire dac_invert_n_main,               // Negative DAC invert main (tied low)
+    output wire dac_invert_n_diff,               // Negative DAC invert diff (driven by dac_diffcaps)
+
     // Output
     output wire comp_out                      // Comparator output
 
@@ -140,6 +146,12 @@ module adc_digital (
     assign dac_state_p_diff = dac_state_p;   // Buffer to diff positive output
     assign dac_state_n_main = dac_state_n;   // Buffer to main negative output
     assign dac_state_n_diff = dac_state_n;   // Buffer to diff negative output
+
+    // DAC invert signal assignments
+    assign dac_invert_p_main = 1'b0;         // Main invert signals tied low
+    assign dac_invert_p_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
+    assign dac_invert_n_main = 1'b0;         // Main invert signals tied low
+    assign dac_invert_n_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
 
     // Output assignment
     // NOTE: Should maybe add an output driver cell here!
