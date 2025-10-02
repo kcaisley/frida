@@ -1,7 +1,7 @@
 # Protect critical buffer instances from removal during placement optimization
 # These instances are being removed during placement because timing and loading
 # information of the capacitor array connections isn't present in the synthesis model
-puts "Protecting sampdriver, clkgate, and capdriver instances from buffer removal..."
+puts "Protecting clkgate and capdriver instances from buffer removal..."
 
 # Protect sampdriver instances (sampdriver_p and sampdriver_n)
 puts "Looking for sampdriver instances..."
@@ -41,31 +41,6 @@ foreach inst $clkgate_cells {
     puts "Protecting CKLNQD1LVT clock gate: $inst"
     set_dont_touch $inst
 }
-
-# Actually it does look like there are extra inverters here which should be eliminated!
-
-# # Protect capdriver instances (capdriver_p_main, capdriver_n_main, etc.)
-# puts "Looking for capdriver instances..."
-# set capdriver_instances [get_cells -quiet -filter "full_name =~ capdriver_*"]
-# foreach inst $capdriver_instances {
-#     puts "Protecting capdriver instance: $inst"
-#     set_dont_touch $inst
-# }
-
-# # Protect internal XOR gate cells within capdriver
-# # These XOR2D1LVT cells implement the critical DAC inversion logic
-# set capdriver_xor_internal [get_cells -quiet -filter "full_name =~ capdriver_*/xor_gates*xor_gate.xor_cell"]
-# foreach inst $capdriver_xor_internal {
-#     puts "Protecting capdriver XOR gate: $inst"
-#     set_dont_touch $inst
-# }
-
-# # Protect internal buffer cells within capdriver (drive strength critical for capacitors)
-# set capdriver_buf_internal [get_cells -quiet -filter "full_name =~ capdriver_*/_*"]
-# foreach inst $capdriver_buf_internal {
-#     puts "Protecting capdriver internal buffer: $inst"
-#     set_dont_touch $inst
-# }
 
 # Report what's protected
 puts "Reporting all dont_touch instances:"

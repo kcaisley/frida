@@ -1,6 +1,6 @@
 # Our liberty file is in units of ns, so we must use the same here
 
-current_design adc
+current_design adc_digital
 
 # Create clocks for sequencing signals
 create_clock -name seq_init -period 100 -waveform {0 5} [get_ports seq_init]

@@ -36,9 +36,11 @@ module adc_digital (
     // Digital clock output - to comparator
     output wire clk_comp,                     // Comparator clock
 
-    // DAC state outputs - direct from SAR logic (64 bits total)
-    output wire [15:0] dac_state_p,              // Positive DAC state (16 bits)
-    output wire [15:0] dac_state_n,              // Negative DAC state (16 bits)
+    // DAC state outputs - buffered to four separate signals (64 bits total)
+    output wire [15:0] dac_state_p_main,         // Positive DAC state main (16 bits)
+    output wire [15:0] dac_state_p_diff,         // Positive DAC state diff (16 bits)
+    output wire [15:0] dac_state_n_main,         // Negative DAC state main (16 bits)
+    output wire [15:0] dac_state_n_diff,         // Negative DAC state diff (16 bits)
 
     // Output
     output wire comp_out                      // Comparator output
@@ -55,6 +57,10 @@ module adc_digital (
     wire clk_init;                            // Initialization clock
     wire clk_samp_p_raw, clk_samp_n_raw;      // Raw sampling clock signals from clkgate
     wire clk_update;                          // Logic clock signal
+
+    // Internal DAC state signals from SAR logic
+    wire [15:0] dac_state_p;                  // Positive DAC state
+    wire [15:0] dac_state_n;                  // Negative DAC state
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate(
@@ -128,6 +134,12 @@ module adc_digital (
         .vss_d(vss_d)
 `endif
     );
+
+    // DAC state buffering - create four separate outputs from SAR logic
+    assign dac_state_p_main = dac_state_p;   // Buffer to main positive output
+    assign dac_state_p_diff = dac_state_p;   // Buffer to diff positive output
+    assign dac_state_n_main = dac_state_n;   // Buffer to main negative output
+    assign dac_state_n_diff = dac_state_n;   // Buffer to diff negative output
 
     // Output assignment
     // NOTE: Should maybe add an output driver cell here!
