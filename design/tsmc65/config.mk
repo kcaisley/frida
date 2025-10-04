@@ -53,6 +53,9 @@ export PLACE_PINS_ARGS = -min_distance 10 -min_distance_in_tracks
 export PLACE_DENSITY = 0.6
 export MACRO_PLACE_HALO = 3 3
 
+# Enable timing-driven placement for large design
+export GPL_TIMING_DRIVEN = 1
+
 # PDN configuration for hierarchical design with multiple supply domains
 # export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/pdn.tcl
 
@@ -85,9 +88,6 @@ export CTS_REPAIR_HOLD_VIOLATIONS = 0
 # Routing layer constraints - TSMC65 has 6 metal layers + 2 top metals
 export MIN_ROUTING_LAYER = M1
 export MAX_ROUTING_LAYER = M6
-
-# Enable timing-driven placement for large design
-export GPL_TIMING_DRIVEN = 1
 
 #--------------------------------------------------------
 # Finishing

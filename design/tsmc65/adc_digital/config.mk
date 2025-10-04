@@ -33,10 +33,6 @@ export SYNTH_KEEP_MODULES = clkgate salogic sampdriver
 export DIE_AREA = 0 0 60 49
 export CORE_AREA = 0 0 60 49
 
-# No macro placement - will be handled during integration
-# export MACRO_PLACEMENT_TCL =
-# export MACRO_PLACE_HALO =
-
 # Create blockages for future analog macro placement areas via floorplan hook
 export CREATE_BLOCKAGES = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/create_blockages.tcl
 
@@ -47,9 +43,18 @@ export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/pdn.tcl
 # Placement
 # -------------------------------------------------------
 
+# Disable routability-driven placement due to OpenROAD bug
+# ISSUE: OpenROAD v2.0-24135-gb57dad1953 crashes during routability-driven
+#        global placement with this design. The crash occurs in cutFillerCells()
+#        when GPL tries to inflate cell area to reduce routing congestion.
+# SYMPTOM: Assertion failure in std::vector at gpl::NesterovBase::destroyFillerGCell
+# TRIGGER: Any routability inflation > 0% causes vector out-of-bounds access
+# WORKAROUND: Disable routability-driven placement. Timing-driven mode still works.
+# TODO: Report bug to OpenROAD with design reproducer
+export GPL_ROUTABILITY_DRIVEN = 0
+
 # FRIDA project specific scripts for placement (triggered from global_place.tcl)
 export DONT_TOUCH = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/dont_touch.tcl
-# export MANUAL_PLACE = $(DESIGN_HOME)/$(PLATFORM)/frida/adc/manual_place.tcl
 
 export IO_PLACER_H = M3
 export IO_PLACER_V = M2
@@ -59,7 +64,7 @@ export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/io.tcl
 export PLACE_PINS_ARGS = -min_distance 0.8
 
 # Standard cell placement density
-export PLACE_DENSITY = 0.65
+export PLACE_DENSITY = 0.60
 
 #--------------------------------------------------------
 # Clock Tree Synthesis (CTS)
@@ -70,8 +75,8 @@ export PLACE_DENSITY = 0.65
 # -------------------------------------------------------
 
 # Based on TSMC65LP metal stack from tcbn65lp_9lmT2.lef
-export MIN_ROUTING_LAYER = M1
-export MAX_ROUTING_LAYER = M4
+export MIN_ROUTING_LAYER = M2
+export MAX_ROUTING_LAYER = M3
 
 # Create routing blockages before global route
 export PRE_GLOBAL_ROUTE_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/routing_blockages.tcl
