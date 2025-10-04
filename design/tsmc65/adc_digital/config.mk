@@ -64,7 +64,7 @@ export IO_CONSTRAINTS = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/io.tcl
 export PLACE_PINS_ARGS = -min_distance 0.8
 
 # Standard cell placement density
-export PLACE_DENSITY = 0.60
+export PLACE_DENSITY = 0.50
 
 #--------------------------------------------------------
 # Clock Tree Synthesis (CTS)
