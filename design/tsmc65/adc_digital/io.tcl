@@ -9,77 +9,77 @@
 # set_io_pin_constraint -region left:* -group -order -pin_names {dac_bstate_p[15] dac_bstate_p[14] dac_bstate_p[13] dac_bstate_p[12] dac_bstate_p[11] dac_bstate_p[10] dac_bstate_p[9] dac_bstate_p[8] dac_bstate_p[7] dac_bstate_p[6] dac_bstate_p[5] dac_bstate_p[4] dac_bstate_p[3] dac_bstate_p[2] dac_bstate_p[1] dac_bstate_p[0]}
 # set_io_pin_constraint -region right:* -group -order -pin_names {dac_bstate_n[15] dac_bstate_n[14] dac_bstate_n[13] dac_bstate_n[12] dac_bstate_n[11] dac_bstate_n[10] dac_bstate_n[9] dac_bstate_n[8] dac_bstate_n[7] dac_bstate_n[6] dac_bstate_n[5] dac_bstate_n[4] dac_bstate_n[3] dac_bstate_n[2] dac_bstate_n[1] dac_bstate_n[0]}
 
-# Left side - DAC astate positive pins (y=12.0 to 24.0, spacing 0.8um)
-place_pin -pin_name dac_astate_p[0] -layer M3 -location {0.0 12.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[1] -layer M3 -location {0.0 12.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[2] -layer M3 -location {0.0 13.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[3] -layer M3 -location {0.0 14.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[4] -layer M3 -location {0.0 15.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[5] -layer M3 -location {0.0 16.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[6] -layer M3 -location {0.0 16.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[7] -layer M3 -location {0.0 17.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[8] -layer M3 -location {0.0 18.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[9] -layer M3 -location {0.0 19.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[10] -layer M3 -location {0.0 20.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[11] -layer M3 -location {0.0 20.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[12] -layer M3 -location {0.0 21.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[13] -layer M3 -location {0.0 22.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[14] -layer M3 -location {0.0 23.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_p[15] -layer M3 -location {0.0 24.0} -force_to_die_boundary
+# Left side - DAC astate positive pins (y=5.6 to 23.6, spacing 1.2um)
+place_pin -pin_name dac_astate_p[0] -layer M3 -location {0.0 5.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[1] -layer M3 -location {0.0 6.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[2] -layer M3 -location {0.0 8.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[3] -layer M3 -location {0.0 9.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[4] -layer M3 -location {0.0 10.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[5] -layer M3 -location {0.0 11.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[6] -layer M3 -location {0.0 12.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[7] -layer M3 -location {0.0 14.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[8] -layer M3 -location {0.0 15.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[9] -layer M3 -location {0.0 16.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[10] -layer M3 -location {0.0 17.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[11] -layer M3 -location {0.0 18.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[12] -layer M3 -location {0.0 20.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[13] -layer M3 -location {0.0 21.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[14] -layer M3 -location {0.0 22.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_p[15] -layer M3 -location {0.0 23.6} -force_to_die_boundary
 
-# Left side - DAC bstate positive pins (y=24.8 to 36.8, spacing 0.8um)
+# Left side - DAC bstate positive pins (y=24.8 to 42.8, spacing 1.2um)
 place_pin -pin_name dac_bstate_p[0] -layer M3 -location {0.0 24.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[1] -layer M3 -location {0.0 25.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[2] -layer M3 -location {0.0 26.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[3] -layer M3 -location {0.0 27.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[4] -layer M3 -location {0.0 28.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[5] -layer M3 -location {0.0 28.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[6] -layer M3 -location {0.0 29.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[7] -layer M3 -location {0.0 30.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[8] -layer M3 -location {0.0 31.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[9] -layer M3 -location {0.0 32.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[10] -layer M3 -location {0.0 32.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[11] -layer M3 -location {0.0 33.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[12] -layer M3 -location {0.0 34.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[13] -layer M3 -location {0.0 35.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[14] -layer M3 -location {0.0 36.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_p[15] -layer M3 -location {0.0 36.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[1] -layer M3 -location {0.0 26.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[2] -layer M3 -location {0.0 27.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[3] -layer M3 -location {0.0 28.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[4] -layer M3 -location {0.0 29.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[5] -layer M3 -location {0.0 30.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[6] -layer M3 -location {0.0 32.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[7] -layer M3 -location {0.0 33.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[8] -layer M3 -location {0.0 34.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[9] -layer M3 -location {0.0 35.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[10] -layer M3 -location {0.0 36.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[11] -layer M3 -location {0.0 38.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[12] -layer M3 -location {0.0 39.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[13] -layer M3 -location {0.0 40.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[14] -layer M3 -location {0.0 41.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_p[15] -layer M3 -location {0.0 42.8} -force_to_die_boundary
 
-# Right side - DAC astate negative pins (y=12.0 to 24.0, spacing 0.8um)
-place_pin -pin_name dac_astate_n[0] -layer M3 -location {60.0 12.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[1] -layer M3 -location {60.0 12.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[2] -layer M3 -location {60.0 13.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[3] -layer M3 -location {60.0 14.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[4] -layer M3 -location {60.0 15.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[5] -layer M3 -location {60.0 16.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[6] -layer M3 -location {60.0 16.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[7] -layer M3 -location {60.0 17.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[8] -layer M3 -location {60.0 18.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[9] -layer M3 -location {60.0 19.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[10] -layer M3 -location {60.0 20.0} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[11] -layer M3 -location {60.0 20.8} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[12] -layer M3 -location {60.0 21.6} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[13] -layer M3 -location {60.0 22.4} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[14] -layer M3 -location {60.0 23.2} -force_to_die_boundary
-place_pin -pin_name dac_astate_n[15] -layer M3 -location {60.0 24.0} -force_to_die_boundary
+# Right side - DAC astate negative pins (y=5.6 to 23.6, spacing 1.2um)
+place_pin -pin_name dac_astate_n[0] -layer M3 -location {60.0 5.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[1] -layer M3 -location {60.0 6.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[2] -layer M3 -location {60.0 8.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[3] -layer M3 -location {60.0 9.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[4] -layer M3 -location {60.0 10.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[5] -layer M3 -location {60.0 11.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[6] -layer M3 -location {60.0 12.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[7] -layer M3 -location {60.0 14.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[8] -layer M3 -location {60.0 15.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[9] -layer M3 -location {60.0 16.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[10] -layer M3 -location {60.0 17.6} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[11] -layer M3 -location {60.0 18.8} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[12] -layer M3 -location {60.0 20.0} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[13] -layer M3 -location {60.0 21.2} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[14] -layer M3 -location {60.0 22.4} -force_to_die_boundary
+place_pin -pin_name dac_astate_n[15] -layer M3 -location {60.0 23.6} -force_to_die_boundary
 
-# Right side - DAC bstate negative pins (y=24.8 to 36.8, spacing 0.8um)
+# Right side - DAC bstate negative pins (y=24.8 to 42.8, spacing 1.2um)
 place_pin -pin_name dac_bstate_n[0] -layer M3 -location {60.0 24.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[1] -layer M3 -location {60.0 25.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[2] -layer M3 -location {60.0 26.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[3] -layer M3 -location {60.0 27.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[4] -layer M3 -location {60.0 28.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[5] -layer M3 -location {60.0 28.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[6] -layer M3 -location {60.0 29.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[7] -layer M3 -location {60.0 30.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[8] -layer M3 -location {60.0 31.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[9] -layer M3 -location {60.0 32.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[10] -layer M3 -location {60.0 32.8} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[11] -layer M3 -location {60.0 33.6} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[12] -layer M3 -location {60.0 34.4} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[13] -layer M3 -location {60.0 35.2} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[14] -layer M3 -location {60.0 36.0} -force_to_die_boundary
-place_pin -pin_name dac_bstate_n[15] -layer M3 -location {60.0 36.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[1] -layer M3 -location {60.0 26.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[2] -layer M3 -location {60.0 27.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[3] -layer M3 -location {60.0 28.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[4] -layer M3 -location {60.0 29.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[5] -layer M3 -location {60.0 30.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[6] -layer M3 -location {60.0 32.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[7] -layer M3 -location {60.0 33.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[8] -layer M3 -location {60.0 34.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[9] -layer M3 -location {60.0 35.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[10] -layer M3 -location {60.0 36.8} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[11] -layer M3 -location {60.0 38.0} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[12] -layer M3 -location {60.0 39.2} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[13] -layer M3 -location {60.0 40.4} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[14] -layer M3 -location {60.0 41.6} -force_to_die_boundary
+place_pin -pin_name dac_bstate_n[15] -layer M3 -location {60.0 42.8} -force_to_die_boundary
 
 # exclude_io_pin_region -region left:0-9 -region left:40-49 -region right:0-9 -region right:40-49
 

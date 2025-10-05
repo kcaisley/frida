@@ -81,9 +81,6 @@ export MAX_ROUTING_LAYER = M3
 # Create routing blockages before global route
 export PRE_GLOBAL_ROUTE_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/routing_blockages.tcl
 
-# Enable detailed routing debug for caparray pin coverage issues
-export DETAILED_ROUTE_ARGS = -droute_end_iter 1 -verbose 2
-
 #--------------------------------------------------------
 # Finishing
 # -------------------------------------------------------
