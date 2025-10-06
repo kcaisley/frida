@@ -8,7 +8,7 @@ module frida_core(
     // Clock inputs (from LVDS RX pads)
     input wire seq_init,
     input wire seq_samp, 
-    input wire seq_cmp,
+    input wire seq_comp,
     input wire seq_logic,
     
     // SPI interface (from pad I/O)
@@ -17,21 +17,9 @@ module frida_core(
     output wire spi_sdo,
     input wire spi_cs_b,
     input wire reset_b,
-    
-    // Analog inputs (from passive pads)
-    inout wire vin_p,
-    inout wire vin_n,
-    
+
     // Comparator output (to LVDS TX pad)
-    output wire comp_out,
-    
-    // Power supply signals
-`ifdef USE_POWER_PINS
-    ,inout wire vdd_a, vss_a,               // Analog supply
-    inout wire vdd_d, vss_d,               // Digital supply
-    inout wire vdd_io, vss_io,             // I/O supply
-    inout wire vdd_dac, vss_dac            // DAC supply
-`endif
+    output wire comp_out
 );
 
     // SPI register outputs (reduced from 1280 to 180 bits)
@@ -57,10 +45,6 @@ module frida_core(
         .spi_sclk(spi_sclk),
         .spi_sdo(spi_sdo),
         .spi_bits(spi_bits)
-`ifdef USE_POWER_PINS
-        ,.vdd_d(vdd_d),
-        .vss_d(vss_d)
-`endif
     );
 
     // New optimized SPI bit mapping (180 bits total)
@@ -97,7 +81,7 @@ module frida_core(
             adc adc_inst (
                 .seq_init(seq_init),
                 .seq_samp(seq_samp),
-                .seq_comp(seq_cmp),
+                .seq_comp(seq_comp),
                 .seq_update(seq_logic),
                 .en_init(adc_en_init[i]),
                 .en_samp_p(adc_en_samp_p[i]),
@@ -110,17 +94,7 @@ module frida_core(
                 .dac_astate_n(shared_dac_astate_n),
                 .dac_bstate_n(shared_dac_bstate_n),
                 .dac_diffcaps(adc_dac_diffcaps[i]),
-                .vin_p(vin_p),
-                .vin_n(vin_n),
                 .comp_out(adc_comparator_out[i])
-`ifdef USE_POWER_PINS
-                ,.vdd_a(vdd_a),
-                .vss_a(vss_a),
-                .vdd_d(vdd_d),
-                .vss_d(vss_d),
-                .vdd_dac(vdd_dac),
-                .vss_dac(vss_dac)
-`endif
             );
         end
     endgenerate
@@ -130,10 +104,6 @@ module frida_core(
         .mux_sel(mux_sel),
         .adc_comp_out(adc_comparator_out),
         .comp_out(comp_out)
-`ifdef USE_POWER_PINS
-        ,.vdd_d(vdd_d),
-        .vss_d(vss_d)
-`endif
     );
 
 endmodule
