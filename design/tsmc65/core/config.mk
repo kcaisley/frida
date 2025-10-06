@@ -15,6 +15,9 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/core/constraint.sdc
 # Additional LEF files for hierarchical macros
 export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/adc.lef
 
+# Allow empty GDS for ADC macro (analog block without GDS)
+export GDS_ALLOW_EMPTY = adc
+
 # # Verilog blackbox modules (prevent synthesis, use as pre-built macros)
 # export ADDITIONAL_VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc_macro.v
 
