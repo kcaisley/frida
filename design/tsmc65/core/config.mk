@@ -15,11 +15,11 @@ export SDC_FILE      = $(DESIGN_HOME)/$(PLATFORM)/frida/core/constraint.sdc
 # Additional LEF files for hierarchical macros
 export ADDITIONAL_LEFS += $(PLATFORM_DIR)/lef/adc.lef
 
+# Liberty files: standard cells + ADC macro
+export LIB_FILES = $(PLATFORM_DIR)/lib/tcbn65lplvtwc.lib $(PLATFORM_DIR)/lib/adc.lib
+
 # Allow empty GDS for ADC macro (analog block without GDS)
 export GDS_ALLOW_EMPTY = adc
-
-# # Verilog blackbox modules (prevent synthesis, use as pre-built macros)
-# export ADDITIONAL_VERILOG_FILES = $(DESIGN_HOME)/src/frida/adc_macro.v
 
 # Hierarchical synthesis - enabled to preserve ADC macros for placement
 export SYNTH_HIERARCHICAL = 1
@@ -61,23 +61,12 @@ export PLACE_DENSITY = 0.50
 # Clock Tree Synthsis (CTS)
 # -------------------------------------------------------
 
-# Use TSMC65 buffer cells for CTS
-# export CTS_BUF_LIST = BUFFD0LVT BUFFD1LVT BUFFD2LVT
-
-# export CTS_BUF_DISTANCE = 40
-# Disable clock gate cloning for mixed-signal design
-# export SKIP_GATE_CLONING = 1
-
-# Hold timing repair settings for mixed-signal design
-# export HOLD_BUF_LIST = BUFFD0LVT BUFFD1LVT
-# export MAX_HOLD_BUFFER_PERCENT = 40
-# export HOLD_MARGIN = 0.05
-
-# Additional repair_timing arguments to allow more hold buffers
-# export REPAIR_TIMING_ADDITIONAL_ARGS = -max_buffer_percent 40
-
-# Disable aggressive hold timing repair during CTS
-# export CTS_REPAIR_HOLD_VIOLATIONS = 0
+# Use clock buffers (CKBD*) for low-skew H-tree distribution to 16 ADC instances
+# - buf_list: Clock buffers for H-tree balancing (multiple sizes for optimization)
+# - balance_levels: True H-tree without clustering (for minimal skew across 500um)
+# - obstruction_aware: Place buffers intelligently around 16 ADC macro blockages
+# - macro_clustering_size 1: One leaf buffer per ADC macro (no clustering)
+# export CTS_ARGS = -buf_list {CKBD4LVT CKBD8LVT CKBD16LVT CKBD20LVT} -balance_levels -obstruction_aware -macro_clustering_size 1 -num_static_layers 4
 
 #--------------------------------------------------------
 # Routing

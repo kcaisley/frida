@@ -2,13 +2,13 @@
 # Explicit pin placement using place_pin command
 # Die area: 540x540um
 
-# Left side - Early phase clock sequencing signals (M3, y=220 and 221um)
-place_pin -pin_name seq_init -layer M3 -location {0.0 220.0} -force_to_die_boundary
-place_pin -pin_name seq_samp -layer M3 -location {0.0 221.0} -force_to_die_boundary
+# Left side - Early phase clock sequencing signals (M3)
+place_pin -pin_name seq_init -layer M3 -location {0.0 260.0} -force_to_die_boundary
+place_pin -pin_name seq_samp -layer M3 -location {0.0 81.0} -force_to_die_boundary
 
-# Right side - Late phase clock sequencing signals (M3, y=220 and 221um)
-place_pin -pin_name seq_comp -layer M3 -location {540.0 220.0} -force_to_die_boundary
-place_pin -pin_name seq_logic -layer M3 -location {540.0 221.0} -force_to_die_boundary
+# Right side - Late phase clock sequencing signals (M3)
+place_pin -pin_name seq_comp -layer M3 -location {540.0 260.0} -force_to_die_boundary
+place_pin -pin_name seq_logic -layer M3 -location {540.0 81.0} -force_to_die_boundary
 
 # Bottom side - SPI interface (M2, spaced 1um from x=140.1 to 143.1)
 place_pin -pin_name spi_sclk -layer M2 -location {140.1 0.0} -force_to_die_boundary
