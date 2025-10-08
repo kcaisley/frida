@@ -82,3 +82,6 @@ export MAX_ROUTING_LAYER = M3
 
 # Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
 export USE_FILL = 0
+
+# CDL netlist generation
+export WRITE_CDL = $(DESIGN_HOME)/$(PLATFORM)/frida/core/write_cdl.tcl

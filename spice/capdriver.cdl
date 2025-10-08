@@ -38,10 +38,3 @@ Xxor1 dac_drive_invert dac_state[1] dac_drive[1] vdd_dac vss_dac / CKXOR2D2LVT
 Xxor0 dac_drive_invert dac_state[0] dac_drive[0] vdd_dac vss_dac / CKXOR2D2LVT
 
 .ends
-
-* Empty subcircuit definitions for the referenced cells to avoid import errors
-.subckt CKXOR2D4LVT A1 A2 Z VDD VSS
-.ends
-
-.subckt CKXOR2D2LVT A1 A2 Z VDD VSS
-.ends

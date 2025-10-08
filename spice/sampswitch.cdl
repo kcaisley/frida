@@ -3,7 +3,7 @@
 * Sampling switch implementation with PMOS/NMOS pair
 * Drains and sources connected, gates driven by opposite polarity
 
-Mp1 vout clk_b vin vdd_a pch_lvt l=60n w=4u m=1
+Mp1 vout clk_b vin vdd_a pch_lvt l=60n w=5u m=1
 Mn1 vout clk vin vss_a nch_lvt l=60n w=4u m=1
 
 .ends

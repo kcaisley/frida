@@ -87,3 +87,6 @@ export PRE_GLOBAL_ROUTE_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/routi
 
 # Only disables metal fill; FILL_CELLS in routing step still adds FEOL decap fill cells
 export USE_FILL = 0
+
+# CDL netlist generation
+export WRITE_CDL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/write_cdl.tcl
