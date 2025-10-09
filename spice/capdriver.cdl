@@ -15,6 +15,8 @@
 * This provides binary-weighted drive strength that matches the binary-weighted
 * capacitor array structure typical in SAR ADC designs.
 
+*.BUSDELIMITER [
+
 .subckt capdriver dac_state[15] dac_state[14] dac_state[13] dac_state[12] dac_state[11] dac_state[10] dac_state[9] dac_state[8] dac_state[7] dac_state[6] dac_state[5] dac_state[4] dac_state[3] dac_state[2] dac_state[1] dac_state[0] dac_drive_invert dac_drive[15] dac_drive[14] dac_drive[13] dac_drive[12] dac_drive[11] dac_drive[10] dac_drive[9] dac_drive[8] dac_drive[7] dac_drive[6] dac_drive[5] dac_drive[4] dac_drive[3] dac_drive[2] dac_drive[1] dac_drive[0] vdd_dac vss_dac
 *.PININFO dac_state[15]:I dac_state[14]:I dac_state[13]:I dac_state[12]:I dac_state[11]:I dac_state[10]:I dac_state[9]:I dac_state[8]:I dac_state[7]:I dac_state[6]:I dac_state[5]:I dac_state[4]:I dac_state[3]:I dac_state[2]:I dac_state[1]:I dac_state[0]:I dac_drive_invert:I dac_drive[15]:O dac_drive[14]:O dac_drive[13]:O dac_drive[12]:O dac_drive[11]:O dac_drive[10]:O dac_drive[9]:O dac_drive[8]:O dac_drive[7]:O dac_drive[6]:O dac_drive[5]:O dac_drive[4]:O dac_drive[3]:O dac_drive[2]:O dac_drive[1]:O dac_drive[0]:O vdd_dac:B vss_dac:B
 
