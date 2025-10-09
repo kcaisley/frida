@@ -20,6 +20,11 @@ close $fd
 # Find the last line of the .SUBCKT frida_core definition (line starting with +) and append the analog pins
 exec sed -i {/^\.SUBCKT frida_core/,/^[^+]/{s/^\(+.*[^ ]\)$/\1 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac/; t; b}} $::env(RESULTS_DIR)/6_final.cdl
 
+# Clean hierarchical separators for Cadence SPICE-In compatibility
+# Remove all backslashes, replace / with _, then clean up double underscores
+# Skip the .INCLUDE line to preserve the file path
+exec sed -i {/^\.INCLUDE/!{s/\\//g; s/\//\_/g; s/__/_/g}} $::env(RESULTS_DIR)/6_final.cdl
+
 # Copy CDL to frida/spice directory
 exec cp $::env(RESULTS_DIR)/6_final.cdl $::env(HOME)/frida/spice/core.cdl
-puts "Copied CDL to $::env(HOME)/frida/spice/core.cdl (filler and decap instances removed, analog pins added)"
+puts "Copied CDL to $::env(HOME)/frida/spice/core.cdl (filler and decap instances removed, analog pins added, hierarchical separators cleaned)"

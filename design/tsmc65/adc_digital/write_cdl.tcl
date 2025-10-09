@@ -11,6 +11,10 @@ exec mv $::env(RESULTS_DIR)/6_final_nofill.cdl $::env(RESULTS_DIR)/6_final.cdl
 # Add vdd_d vss_d to the .SUBCKT port list (after the last signal port)
 exec sed -i {s/^+ seq_comp seq_init seq_samp seq_update$/+ seq_comp seq_init seq_samp seq_update vdd_d vss_d/} $::env(RESULTS_DIR)/6_final.cdl
 
+# Clean hierarchical separators for Cadence SPICE-In compatibility
+# Remove all backslashes, replace / with _, then clean up double underscores
+exec sed -i {s/\\//g; s/\//\_/g; s/__/_/g} $::env(RESULTS_DIR)/6_final.cdl
+
 # Copy CDL to frida/spice directory
 exec cp $::env(RESULTS_DIR)/6_final.cdl $::env(HOME)/frida/spice/adc_digital.cdl
-puts "Copied CDL to $::env(HOME)/frida/spice/adc_digital.cdl (filler removed, vdd_d/vss_d ports added)"
+puts "Copied CDL to $::env(HOME)/frida/spice/adc_digital.cdl (filler removed, vdd_d/vss_d ports added, hierarchical separators cleaned)"

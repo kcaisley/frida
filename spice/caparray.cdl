@@ -71,4 +71,4 @@ Cdiff1 cap_topplate cap_botplate_diff[1] capacitor c=25.6f
 Cmain0 cap_topplate cap_botplate_main[0] capacitor c=26.4f
 Cdiff0 cap_topplate cap_botplate_diff[0] capacitor c=25.6f
 
-.ends caparray
+.ends
