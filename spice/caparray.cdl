@@ -1,6 +1,6 @@
 *.BUSDELIMITER [
 
-.subckt caparray cap_topplate cap_shieldplate cap_botplate_main[15] cap_botplate_main[14] cap_botplate_main[13] cap_botplate_main[12] cap_botplate_main[11] cap_botplate_main[10] cap_botplate_main[9] cap_botplate_main[8] cap_botplate_main[7] cap_botplate_main[6] cap_botplate_main[5] cap_botplate_main[4] cap_botplate_main[3] cap_botplate_main[2] cap_botplate_main[1] cap_botplate_main[0] cap_botplate_diff[15] cap_botplate_diff[14] cap_botplate_diff[13] cap_botplate_diff[12] cap_botplate_diff[11] cap_botplate_diff[10] cap_botplate_diff[9] cap_botplate_diff[8] cap_botplate_diff[7] cap_botplate_diff[6] cap_botplate_diff[5] cap_botplate_diff[4] cap_botplate_diff[3] cap_botplate_diff[2] cap_botplate_diff[1] cap_botplate_diff[0]
+.SUBCKT caparray cap_topplate cap_shieldplate cap_botplate_main[15] cap_botplate_main[14] cap_botplate_main[13] cap_botplate_main[12] cap_botplate_main[11] cap_botplate_main[10] cap_botplate_main[9] cap_botplate_main[8] cap_botplate_main[7] cap_botplate_main[6] cap_botplate_main[5] cap_botplate_main[4] cap_botplate_main[3] cap_botplate_main[2] cap_botplate_main[1] cap_botplate_main[0] cap_botplate_diff[15] cap_botplate_diff[14] cap_botplate_diff[13] cap_botplate_diff[12] cap_botplate_diff[11] cap_botplate_diff[10] cap_botplate_diff[9] cap_botplate_diff[8] cap_botplate_diff[7] cap_botplate_diff[6] cap_botplate_diff[5] cap_botplate_diff[4] cap_botplate_diff[3] cap_botplate_diff[2] cap_botplate_diff[1] cap_botplate_diff[0]
 *.PININFO cap_topplate:B cap_shieldplate:B cap_botplate_main[15]:B cap_botplate_main[14]:B cap_botplate_main[13]:B cap_botplate_main[12]:B cap_botplate_main[11]:B cap_botplate_main[10]:B cap_botplate_main[9]:B cap_botplate_main[8]:B cap_botplate_main[7]:B cap_botplate_main[6]:B cap_botplate_main[5]:B cap_botplate_main[4]:B cap_botplate_main[3]:B cap_botplate_main[2]:B cap_botplate_main[1]:B cap_botplate_main[0]:B cap_botplate_diff[15]:B cap_botplate_diff[14]:B cap_botplate_diff[13]:B cap_botplate_diff[12]:B cap_botplate_diff[11]:B cap_botplate_diff[10]:B cap_botplate_diff[9]:B cap_botplate_diff[8]:B cap_botplate_diff[7]:B cap_botplate_diff[6]:B cap_botplate_diff[5]:B cap_botplate_diff[4]:B cap_botplate_diff[3]:B cap_botplate_diff[2]:B cap_botplate_diff[1]:B cap_botplate_diff[0]:B
 
 * Weighted capacitor array implementation  
@@ -71,4 +71,4 @@ Cdiff1 cap_topplate cap_botplate_diff[1] capacitor c=25.6f
 Cmain0 cap_topplate cap_botplate_main[0] capacitor c=26.4f
 Cdiff0 cap_topplate cap_botplate_diff[0] capacitor c=25.6f
 
-.ends
+.ENDS caparray
