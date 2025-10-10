@@ -20,6 +20,12 @@ module frida_core(
 
     // Comparator output (to LVDS TX pad)
     output wire comp_out
+`ifdef USE_POWER_PINS
+    ,input wire vin_p, vin_n,
+    inout wire vdd_a, vss_a,                 // Analog supply
+    inout wire vdd_d, vss_d,                  // Digital supply
+    inout wire vdd_dac, vss_dac               // DAC supply
+`endif
 );
 
     // SPI register outputs (reduced from 1280 to 180 bits)

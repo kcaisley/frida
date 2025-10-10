@@ -4,26 +4,13 @@
 write_cdl -masters "$::env(HOME)/OpenROAD-flow-scripts/flow/platforms/tsmc65/spice/tcbn65lplvt_200a.spi $::env(HOME)/frida/spice/adc.cdl $::env(HOME)/OpenROAD-flow-scripts/flow/platforms/tsmc65/spice/fillers.cdl" \
   $::env(RESULTS_DIR)/6_final.cdl
 
-# Strip all filler and decap instances from CDL
-exec grep -Ev "XFILLER.*FILL1LVT|XFILLER.*DCAPLVT|XFILLER.*DCAP4LVT|XFILLER.*DCAP8LVT|XFILLER.*DCAP16LVT|XFILLER.*DCAP32LVT|XFILLER.*DCAP64LVT" $::env(RESULTS_DIR)/6_final.cdl > $::env(RESULTS_DIR)/6_final_nofill.cdl
-exec mv $::env(RESULTS_DIR)/6_final_nofill.cdl $::env(RESULTS_DIR)/6_final.cdl
-
-# Clean hierarchical separators for Cadence SPICE-In compatibility (before reordering)
-# Remove all backslashes, replace / with _, then clean up double underscores
-exec sed -i {s/\\//g; s/\//\_/g; s/__/_/g} $::env(RESULTS_DIR)/6_final.cdl
-
 # Reorder .SUBCKT ports to match Verilog module definition
-# This creates single-line format and adds *.PININFO
-exec python3 $::env(HOME)/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/reorder_subckt_ports.py \
+# This creates single-line format, adds *.PININFO, and cleans fillers/separators
+# All power/analog pins (vin_p/vin_n/vdd_a/vss_a/vdd_d/vss_d/vdd_dac/vss_dac) from `ifdef USE_POWER_PINS in Verilog
+exec python3 $::env(HOME)/OpenROAD-flow-scripts/flow/designs/tsmc65/frida/clean_cdl.py \
     $::env(HOME)/frida/rtl/frida_core.v \
     $::env(RESULTS_DIR)/6_final.cdl \
-    $::env(RESULTS_DIR)/6_final.cdl \
+    $::env(HOME)/frida/spice/core.cdl \
     frida_core
 
-# Add analog pins (vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac) to the .SUBCKT frida_core port list
-# Append to the end of the single-line .SUBCKT definition
-exec sed -i {/^\.SUBCKT frida_core/s/$/ vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac/} $::env(RESULTS_DIR)/6_final.cdl
-
-# Copy CDL to frida/spice directory
-exec cp $::env(RESULTS_DIR)/6_final.cdl $::env(HOME)/frida/spice/core.cdl
-puts "CDL netlist generated with Verilog port order, analog pins added, and hierarchical separators cleaned"
+puts "CDL netlist generated with Verilog port order and hierarchical separators cleaned"

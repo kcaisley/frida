@@ -3,7 +3,7 @@
 *.BUSDELIMITER [
 
 .SUBCKT frida_core seq_init seq_samp seq_comp seq_logic spi_sclk spi_sdi spi_sdo spi_cs_b reset_b comp_out vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac
-*.PININFO seq_init:I seq_samp:I seq_comp:I seq_logic:I spi_sclk:I spi_sdi:I spi_sdo:O spi_cs_b:I reset_b:I comp_out:O
+*.PININFO seq_init:I seq_samp:I seq_comp:I seq_logic:I spi_sclk:I spi_sdi:I spi_sdo:O spi_cs_b:I reset_b:I comp_out:O vin_p:I vin_n:I vdd_a:B vss_a:B vdd_d:B vss_d:B vdd_dac:B vss_dac:B
 
 Xadc_array[0].adc_inst net3285 net3301 net3315 net3337 adc_comparator_out[0]
 + spi_bits[64] spi_bits[65] spi_bits[66] spi_bits[67]

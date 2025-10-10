@@ -52,7 +52,7 @@ module adc_digital (
 
     // Power supply signals
 `ifdef USE_POWER_PINS
-    inout wire vdd_d, vss_d,                  // Digital supply
+    ,inout wire vdd_d, vss_d,                  // Digital supply
 `endif
 );
 

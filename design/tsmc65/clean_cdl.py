@@ -105,10 +105,32 @@ def parse_verilog_ports(verilog_path, module_name):
 
     return ports, pininfo
 
+def clean_cdl_text(cdl_text):
+    """Clean CDL text by removing fillers/decaps and fixing hierarchical separators."""
+    # Step 1: Remove filler and decap instances
+    # Filter out lines matching XFILLER with any of the filler/decap cell types
+    filler_pattern = r'^XFILLER.*(FILL1LVT|DCAPLVT|DCAP4LVT|DCAP8LVT|DCAP16LVT|DCAP32LVT|DCAP64LVT).*$'
+    lines = cdl_text.split('\n')
+    filtered_lines = [line for line in lines if not re.match(filler_pattern, line)]
+    cdl_text = '\n'.join(filtered_lines)
+
+    # Step 2: Clean hierarchical separators for Cadence SPICE-In compatibility
+    # Remove all backslashes
+    cdl_text = cdl_text.replace('\\', '')
+    # Replace forward slashes with underscores
+    cdl_text = cdl_text.replace('/', '_')
+    # Clean up double underscores
+    cdl_text = re.sub(r'__+', '_', cdl_text)
+
+    return cdl_text
+
 def reorder_cdl_subckt(input_cdl_path, output_cdl_path, module_name, ports, pininfo):
     """Replace .SUBCKT line in CDL with new port order and add *.PININFO."""
     with open(input_cdl_path, 'r') as f:
         cdl = f.read()
+
+    # Clean CDL text (remove fillers, fix separators)
+    cdl = clean_cdl_text(cdl)
 
     # Build new .SUBCKT line (single line, all ports space-separated)
     new_subckt = f'.SUBCKT {module_name} ' + ' '.join(ports)
@@ -131,6 +153,8 @@ def reorder_cdl_subckt(input_cdl_path, output_cdl_path, module_name, ports, pini
         f.write(cdl)
 
     print(f"Reordered .SUBCKT {module_name}: {len(ports)} ports in Verilog order")
+    print(f"Cleaned fillers/decaps and hierarchical separators")
+    print(f"Output written to: {output_cdl_path}")
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:
