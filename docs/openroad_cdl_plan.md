@@ -1,0 +1,314 @@
+# OpenROAD CDL Netlist Generation Analysis
+
+## CDL Generation Implementation Overview
+
+The CDL netlist generation is implemented in `/tools/OpenROAD/src/odb/src/cdl/cdl.cpp` with the following key characteristics:
+
+### Input Data Sources
+
+1. **OpenDB Block** (`dbBlock* block`)
+   - Block name - used as the top-level `.SUBCKT` name
+   - I/O terminals via `block->getBTerms()` - the design's input/output pins
+   - Instances via `block->getInsts()` - all cell instances in the design
+   - Net connectivity information
+
+2. **Master CDL Files** (`mastersFileNames`)
+   - External CDL files containing `.SUBCKT` definitions for the standard cell library
+   - Terminal order is extracted from `.SUBCKT` lines and stored in `mtermMap`
+   - All other content (including `*.PININFO`, `*.EQN`, and transistor definitions) is ignored
+
+3. **Configuration Flags**
+   - `includeFillers` - controls inclusion of filler cells in output
+   - `outFileName` - output file path
+
+### Ordering Behavior
+
+#### Item Ordering in Output CDL
+
+1. **Block Terminals (I/O Pins)** - `cdl.cpp:175-180`
+   ```cpp
+   for (auto&& pin : block->getBTerms()) {
+     line += " " + pin->getName();
+   }
+   ```
+   Order is determined by `dbSet<dbBTerm>` iteration, which follows object ID assignment order.
+
+2. **Instance Order** - `cdl.cpp:182-211`
+   ```cpp
+   for (auto&& inst : block->getInsts()) {
+     ...
+   }
+   ```
+   Order is determined by `dbSet<dbInst>` iteration, which follows object ID assignment order.
+
+3. **Terminal Order Within Each Instance** - `cdl.cpp:189-206`
+   ```cpp
+   auto it = mtermMap.find(master);
+   for (auto&& mterm : it->second) {
+     line += " " + getNetName(block, inst, mterm, unconnectedNets);
+   }
+   ```
+   Order is **completely determined by the master CDL files** provided via the `-masters` option. The code explicitly reads and preserves the terminal ordering from those files.
+
+### Sequential Ordering Properties
+
+Based on `dbSet.h:48-68`, sequential set iterators have the following property:
+
+- Objects are iterated in ascending object ID order
+- Object IDs are assigned sequentially when objects are created
+- For BTerms, creation order follows the DEF file's PINS section order (`definPin.cpp:48`)
+
+## I/O Pin Ordering Analysis
+
+### Current Ordering Mechanism
+
+The order of I/O pins in generated CDL is determined by:
+
+1. **`dbSet` iteration order**: The `dbSet<dbBTerm>` class iterates in object ID order
+2. **ID assignment**: Object IDs are assigned sequentially when `dbBTerm::create()` is called
+3. **Creation order**: BTerms are created in the order they appear in the DEF file's PINS section
+
+### Verilog Port Order Preservation
+
+Whether the DEF preserves Verilog port order depends on the tool flow:
+
+- **Yosys synthesis → DEF conversion**: Port order is typically preserved, but depends on whether Yosys maintains port order in output and whether the DEF writer preserves the order
+- **Direct DEF generation from placed/routed design**: Port order may be arbitrary
+
+### Implementation Options for Port Order Control
+
+#### Option 1: Verify Current Behavior (1-2 hours)
+
+The current behavior should be tested to determine if port order is already preserved:
+
+```bash
+# Compare Verilog module ports to generated CDL .SUBCKT line
+diff <(grep "^module" design.v) <(grep "^.SUBCKT" output.cdl)
+```
+
+If the DEF already contains the correct order, no code changes are needed.
+
+#### Option 2: Sort BTerms Before Writing (4-8 hours)
+
+If order is not preserved, `cdl.cpp:175-180` can be modified:
+
+```cpp
+// Current code:
+for (auto&& pin : block->getBTerms()) {
+  line += " " + pin->getName();
+}
+
+// Modified code with sorting:
+std::vector<dbBTerm*> sorted_pins;
+for (auto&& pin : block->getBTerms()) {
+  sorted_pins.push_back(pin);
+}
+// Sort by criterion that matches original Verilog order
+std::sort(sorted_pins.begin(), sorted_pins.end(),
+  [](dbBTerm* a, dbBTerm* b) { return a->getId() < b->getId(); });
+
+for (auto* pin : sorted_pins) {
+  line += " " + pin->getName();
+}
+```
+
+**Challenge**: The sorting criterion must be determined to match the original Verilog order (ID, name, or custom attribute).
+
+#### Option 3: Add Port Index Metadata (2-3 days)
+
+If no inherent ordering exists, the following modifications would be required:
+
+- Database schema modification to add a `port_index` field to `dbBTerm`
+- DEF/Verilog reader updates to set this index during parsing
+- CDL writer modification to sort by this index
+
+### Recommended Approach
+
+The first step should be verifying whether port order is already preserved in the current flow. If the standard OpenROAD flow with DEF files is being used, the port order from the original module definition is likely already maintained through the ID assignment order.
+
+## PININFO Comment Generation
+
+### Current Capabilities
+
+The OpenROAD CDL generation code **does not** have the capability to generate `*.PININFO` comments.
+
+The generated output includes only:
+- Header comment (`* CDL Netlist generated by OpenROAD`)
+- BUSDELIMITER comment (`*.BUSDELIMITER [`)
+- The `.SUBCKT` definition with terminals
+- Instance definitions
+- The `.ENDS` statement
+
+### Master CDL File Handling
+
+While master CDL files (e.g., `NangateOpenCellLibrary.cdl`) contain `*.PININFO` comments like:
+
+```cdl
+.SUBCKT AND2_X1 A1 A2 ZN VDD VSS
+*.PININFO A1:I A2:I ZN:O VDD:P VSS:G
+*.EQN ZN=(A1 * A2)
+```
+
+The `readMasters()` function (`cdl.cpp:86-153`) only extracts terminal order from `.SUBCKT` lines. All `*.PININFO` and `*.EQN` comments are ignored and not propagated to the output.
+
+### Implementation Requirements for PININFO Generation
+
+To add `*.PININFO` comment generation, the following would be required:
+
+1. **Extract pin direction information** from OpenDB database
+   - `dbMTerm` provides `getIoType()` methods for accessing pin directions
+   - Pin types: INPUT, OUTPUT, INOUT, POWER, GROUND
+
+2. **Add PININFO generation code** after the `.SUBCKT` line
+   - Format: `*.PININFO pin1:DIR1 pin2:DIR2 ...`
+   - Direction codes: I (input), O (output), B (inout), P (power), G (ground)
+
+3. **Mapping table** between OpenDB types and CDL direction codes:
+   ```cpp
+   dbIoType → CDL direction code
+   INPUT    → I
+   OUTPUT   → O
+   INOUT    → B
+   POWER    → P
+   GROUND   → G
+   ```
+
+This feature is not currently implemented in the codebase (`cdl.cpp:155-216`).
+
+### Implementation Approach for PININFO in SUBCKT Definitions
+
+To generate `*.PININFO` comments after the `.SUBCKT` line, the following implementation approach can be used:
+
+1. **Modify `writeCdl()` function** at `cdl.cpp:180` (after writing the `.SUBCKT` line):
+   ```cpp
+   writeLine(f, line);
+
+   // Generate PININFO comment
+   std::string pininfo = "*.PININFO";
+   for (auto&& pin : block->getBTerms()) {
+     dbIoType ioType = pin->getIoType();
+     std::string dirCode;
+     switch (ioType) {
+       case dbIoType::INPUT:  dirCode = "I"; break;
+       case dbIoType::OUTPUT: dirCode = "O"; break;
+       case dbIoType::INOUT:  dirCode = "B"; break;
+       default:
+         if (pin->getSigType() == dbSigType::POWER) dirCode = "P";
+         else if (pin->getSigType() == dbSigType::GROUND) dirCode = "G";
+         break;
+     }
+     pininfo += " " + pin->getName() + ":" + dirCode;
+   }
+   writeLine(f, pininfo);
+   ```
+
+2. **Alternative: Read and preserve from master CDL**
+   - Extend `readMasters()` to parse and store `*.PININFO` lines from master CDL files
+   - Store PININFO data in a separate map: `std::unordered_map<dbMaster*, std::string>`
+   - Write stored PININFO when generating instances (though this applies to cell instances, not top-level)
+
+3. **Configuration flag** to enable/disable PININFO generation:
+   - Add `bool includePinInfo` parameter to `writeCdl()` function
+   - Add corresponding TCL/command option: `write_cdl -include_pininfo ...`
+
+## Line Wrapping Control
+
+### Current Line Wrapping Behavior
+
+The `writeLine()` function (`cdl.cpp:25-46`) automatically wraps long lines at approximately 57 characters:
+
+```cpp
+void writeLine(std::ostream& f, const std::string& s)
+{
+  std::size_t bufferBegin = 0, currentPos = -1;
+  while ((currentPos = s.find(' ', currentPos + 1)) != std::string::npos) {
+    if (currentPos - bufferBegin < 57) {
+      continue;
+    }
+    f << s.substr(bufferBegin, currentPos - bufferBegin);
+    bufferBegin = currentPos + 1;
+    if (bufferBegin < s.size() - 1) {
+      f << "\n+ ";  // Continuation line with + prefix
+    }
+  }
+  // Write remaining content
+}
+```
+
+This produces output like:
+```cdl
+XINSTANCE_WITH_VERY_LONG_NAME net1 net2 net3 net4 net5
++ net6 net7 net8 CELLTYPE
+```
+
+### Implementation for Disabling Line Wrapping
+
+To provide an option to disable line wrapping, the following modifications are needed:
+
+1. **Add configuration parameter** to `writeCdl()` signature:
+   ```cpp
+   bool writeCdl(utl::Logger* logger,
+                 dbBlock* block,
+                 const char* outFileName,
+                 const std::vector<const char*>& mastersFileNames,
+                 bool includeFillers = false,
+                 bool wrapLines = true)  // New parameter
+   ```
+
+2. **Modify `writeLine()` function** to accept wrap flag:
+   ```cpp
+   void writeLine(std::ostream& f, const std::string& s, bool wrap = true)
+   {
+     if (!wrap) {
+       f << s << "\n";
+       return;
+     }
+
+     // Existing wrapping logic...
+   }
+   ```
+
+3. **Pass wrap flag through all calls**:
+   ```cpp
+   writeLine(f, "* CDL Netlist generated by OpenROAD", wrapLines);
+   writeLine(f, "", wrapLines);
+   writeLine(f, line, wrapLines);  // For .SUBCKT and instance lines
+   ```
+
+4. **Add TCL command option**:
+   ```tcl
+   # In OpenRoad.tcl or corresponding command definition
+   write_cdl -masters lib.cdl -no_wrap output.cdl
+   ```
+
+5. **Considerations**:
+   - Some EDA tools may require continuation lines for very long instance definitions
+   - Without wrapping, extremely long lines (>1000 characters) may cause issues with some parsers
+   - A configurable line length limit could be provided instead of binary wrap/no-wrap:
+     ```cpp
+     writeLine(f, s, wrapLines, maxLineLength = 57)
+     ```
+
+### Alternative: Configurable Line Length
+
+A more flexible approach would allow users to specify the maximum line length:
+
+```cpp
+void writeLine(std::ostream& f,
+               const std::string& s,
+               int maxLineLength = 57)  // 0 or negative = no wrapping
+{
+  if (maxLineLength <= 0) {
+    f << s << "\n";
+    return;
+  }
+
+  // Existing wrapping logic with configurable length...
+}
+```
+
+Command usage:
+```tcl
+write_cdl -masters lib.cdl -max_line_length 120 output.cdl
+write_cdl -masters lib.cdl -max_line_length 0 output.cdl  # No wrapping
+```
