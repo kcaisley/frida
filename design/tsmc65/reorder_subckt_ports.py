@@ -54,7 +54,8 @@ def parse_verilog_ports(verilog_path, module_name):
     text = '\n'.join(filtered_lines)
 
     # Find all port declarations: input/output/inout wire [range] name, name, ...
-    port_pattern = r'(input|output|inout)\s+wire\s*(?:\[([^\]]+)\])?\s*([^,;]+(?:,\s*[^,;]+)*)'
+    # Use [^;\n] to avoid matching across lines
+    port_pattern = r'(input|output|inout)\s+wire\s*(?:\[([^\]]+)\])?\s*([^;\n]+)'
 
     # Map direction to PININFO label
     dir_map = {'input': 'I', 'output': 'O', 'inout': 'B'}
@@ -62,14 +63,23 @@ def parse_verilog_ports(verilog_path, module_name):
     for match in re.finditer(port_pattern, text):
         direction = match.group(1)
         bus_range = match.group(2)
-        names = match.group(3)
+        names_str = match.group(3)
 
         pin_dir = dir_map[direction]
 
         # Parse individual port names (may be comma-separated)
-        for name in names.split(','):
-            name = name.strip()
-            if not name:
+        # Split by comma and clean each name
+        for name in names_str.split(','):
+            # Remove any trailing comments, whitespace, and non-identifier chars
+            name = re.sub(r'//.*', '', name).strip()
+            # Extract just the identifier (alphanumeric and underscore)
+            name_match = re.match(r'([a-zA-Z_][a-zA-Z0-9_]*)', name)
+            if not name_match:
+                continue
+            name = name_match.group(1)
+
+            # Skip Verilog keywords that might be captured
+            if name in ('input', 'output', 'inout', 'wire'):
                 continue
 
             # Expand bus notation
@@ -100,23 +110,11 @@ def reorder_cdl_subckt(input_cdl_path, output_cdl_path, module_name, ports, pini
     with open(input_cdl_path, 'r') as f:
         cdl = f.read()
 
-    # Build new .SUBCKT line
-    new_subckt = f'.SUBCKT {module_name}'
-    for i in range(0, len(ports), 6):  # 6 ports per line for readability
-        line_ports = ports[i:i+6]
-        if i == 0:
-            new_subckt += ' ' + ' '.join(line_ports)
-        else:
-            new_subckt += '\n+ ' + ' '.join(line_ports)
+    # Build new .SUBCKT line (single line, all ports space-separated)
+    new_subckt = f'.SUBCKT {module_name} ' + ' '.join(ports)
 
-    # Build *.PININFO line
-    new_pininfo = '*.PININFO'
-    for i in range(0, len(pininfo), 4):  # 4 per line (they're longer with :I/:O/:B)
-        line_info = pininfo[i:i+4]
-        if i == 0:
-            new_pininfo += ' ' + ' '.join(line_info)
-        else:
-            new_pininfo += '\n+ ' + ' '.join(line_info)
+    # Build *.PININFO line (single line, all pininfo space-separated)
+    new_pininfo = '*.PININFO ' + ' '.join(pininfo)
 
     # Replace .SUBCKT line (from .SUBCKT to first instance line starting with X)
     subckt_pattern = rf'\.SUBCKT {module_name}\s+.*?(?=\nX)'
