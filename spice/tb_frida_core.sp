@@ -81,9 +81,9 @@ vseq_logic seq_logic 0 pulse(0 1.2 19.0175u 0.1n 0.1n 2.4n 5n)
 vcomp_out comp_out 0 0
 
 * frida_core instance
-* Port order from core.cdl: comp_out reset_b seq_comp seq_init seq_logic seq_samp spi_cs_b spi_sclk spi_sdi spi_sdo vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac
-xcore comp_out reset_b seq_comp seq_init seq_logic seq_samp
-+ spi_cs_b spi_sclk spi_sdi spi_sdo
+* Port order from core.cdl: seq_init seq_samp seq_comp seq_logic spi_sclk spi_sdi spi_sdo spi_cs_b reset_b comp_out vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac
+xcore seq_init seq_samp seq_comp seq_logic
++ spi_sclk spi_sdi spi_sdo spi_cs_b reset_b comp_out
 + vin_p vin_n
 + vdd_a vss_a vdd_d vss_d vdd_dac vss_dac
 + frida_core

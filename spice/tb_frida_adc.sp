@@ -28,6 +28,25 @@ vss_d vss_d 0 0
 vdd_dac vdd_dac 0 1.2
 vss_dac vss_dac 0 0
 
+
+* * Supply voltages (ideal sources)
+* vdd_a_src vdd_a_src 0 1.2
+* vss_a_src vss_a_src 0 0
+* vdd_d_src vdd_d_src 0 1.2
+* vss_d_src vss_d_src 0 0
+* vdd_dac_src vdd_dac_src 0 1.2
+* vss_dac_src vss_dac_src 0 0
+
+* * Series resistances (1 ohm to model power rail impedance)
+* rsup_a vdd_a_src vdd_a 1
+* rsup_d vdd_d_src vdd_d 1
+* rsup_dac vdd_dac_src vdd_dac 1
+
+* * Decoupling capacitors (5pF between power rails)
+* cdec_a vdd_a vss_a 5p
+* cdec_d vdd_d vss_d 5p
+* cdec_dac vdd_dac vss_dac 5p
+
 * Differential input signals - ramping voltages
 * vin_p ramps from 1.1V to 1.05V over 200ns
 * vin_n ramps from 0.8V to 0.85V over 200ns

@@ -27,12 +27,19 @@ MMP OUT IN VDD VDD pch_hvt l=60n w=520.0n m=1
 
 .SUBCKT comp_sr COMP_N COMP_P GND LATCH_N LATCH_P VDD
 *.PININFO COMP_N:I COMP_P:I LATCH_N:O LATCH_P:O GND:B VDD:B
-XI30 net41 net38 VDD GND net35 / NR2D2
-XI31 net35 net42 VDD GND net38 / NR2D2
-XI46 net39 VDD GND LATCH_P / CKND8
-XI47 net40 VDD GND LATCH_N / CKND8
-XI45 net35 VDD GND net39 / CKND4
-XI48 net38 VDD GND net40 / CKND4
+
+* cross coupler nor gates
+XI30 net41 net38 net35 VDD GND / NR2D2
+XI31 net35 net42 net38 VDD GND / NR2D2
+
+* 1st stage buffers
+XI45 net35 net39 VDD GND / CKND4
+XI48 net38 net40 VDD GND / CKND4
+
+* 2nd stage buffers
+XI46 net39 LATCH_P VDD GND / CKND8
+XI47 net40 LATCH_N VDD GND / CKND8
+
 XI22 GND COMP_P net41 VDD / comp_inverter_lvil
 XI0 GND COMP_N net42 VDD / comp_inverter_lvil
 XI1[5] VDD GND / DCAP8
