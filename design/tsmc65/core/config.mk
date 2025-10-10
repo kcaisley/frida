@@ -28,6 +28,9 @@ export SYNTH_HIERARCHICAL = 1
 # Floorplan
 # -------------------------------------------------------
 
+# Prevent link_design from flattening during implementation
+# export OPENROAD_HIERARCHICAL = 1
+
 # Die area: 540um x 540um
 export DIE_AREA = 0 0 540 540
 
