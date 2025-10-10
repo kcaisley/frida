@@ -17,15 +17,14 @@ module adc_digital (
 
     // DAC config - positive side
     input  wire dac_mode,                     // DAC mode control (shared for both sides)
+    // DAC diff caps (for unit length caps!)
+    input wire dac_diffcaps,                  // Enable differential capacitor mode.
     input  wire [15:0] dac_astate_p,          // DAC A state positive side
     input  wire [15:0] dac_bstate_p,          // DAC B state positive side
 
     // DAC config - negative side
     input  wire [15:0] dac_astate_n,          // DAC A state negative side
     input  wire [15:0] dac_bstate_n,          // DAC B state negative side
-
-    // DAC diff caps (for unit length caps!)
-    input wire dac_diffcaps,                  // Enable differential capacitor mode.
 
     input  wire comp_out_p, comp_out_n,      // Comparator differential outputs - from comparator
 
@@ -53,9 +52,7 @@ module adc_digital (
 
     // Power supply signals
 `ifdef USE_POWER_PINS
-    ,inout wire vdd_a, vss_a,                 // Analog supply
     inout wire vdd_d, vss_d,                  // Digital supply
-    inout wire vdd_dac, vss_dac               // DAC supply
 `endif
 );
 

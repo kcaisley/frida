@@ -7,8 +7,6 @@
 *.BUSDELIMITER [
 *.SCALE METER
 
-.INCLUDE /eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi
-
 ************************************************************************
 * Library Name: frida
 * Cell Name:    comp_inverter_lvil

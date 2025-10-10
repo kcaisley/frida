@@ -7,21 +7,21 @@
 * Simulator language
 simulator lang=spice
 
-* Include TSMC65nm PDK models
+* Include TSMC65nm PDK models for transistors
 .lib '/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs' tt_lib
 
-* Include SPICE master files for standard cells
-.include '/users/kcaisley/asiclab/tech/tsmc65/spice/tcbn65lplvt_200a.spi'
-.include '/users/kcaisley/asiclab/tech/tsmc65/spice/comp_stdcells.cdl'
+* Include standard cell libraries
+.include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi'
+.include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi'
 
 * Include ADC sub-module netlists (in dependency order)
-.include 'caparray.cdl'
-.include 'capdriver.cdl'
-.include 'sampswitch.cdl'
-.include 'comp.cdl'
-.include 'adc_digital.cdl'
-.include 'adc.cdl'
-.include 'core.cdl'
+.include '/users/kcaisley/frida/spice/sampswitch.cdl'
+.include '/users/kcaisley/frida/spice/comp.cdl'
+.include '/users/kcaisley/frida/spice/capdriver.cdl'
+.include '/users/kcaisley/frida/spice/caparray.cdl'
+.include '/users/kcaisley/frida/spice/adc_digital.cdl'
+.include '/users/kcaisley/frida/spice/adc.cdl'
+.include '/users/kcaisley/frida/spice/core.cdl'
 
 * Supply voltages (1.2V nominal)
 vdd_a vdd_a 0 1.2
