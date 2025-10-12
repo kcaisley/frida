@@ -5,218 +5,219 @@
 .SUBCKT frida_core seq_init seq_samp seq_comp seq_logic spi_sclk spi_sdi spi_sdo spi_cs_b reset_b comp_out vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac
 *.PININFO seq_init:I seq_samp:I seq_comp:I seq_logic:I spi_sclk:I spi_sdi:I spi_sdo:O spi_cs_b:I reset_b:I comp_out:O vin_p:I vin_n:I vdd_a:B vss_a:B vdd_d:B vss_d:B vdd_dac:B vss_dac:B
 
-Xadc_array[0].adc_inst net3037 net3047 net3067 net3083 adc_comparator_out[0]
+Xadc_array[0].adc_inst net2801 net2817 net2831 net2847 adc_comparator_out[0]
 + spi_bits[64] spi_bits[65] spi_bits[66] spi_bits[67]
-+ spi_bits[68] spi_bits[69] spi_bits[70] net2634 net2637
-+ net2638 net2639 net2646 net2648 net2650 net2652 net2653 net2654
-+ net2656 net2658 net2660 net2662 net2667 net2669 net2671 net2672
-+ net2673 net2674 net2675 net2676 net2677 net2679 net2684 net2686
-+ net2687 net2688 net2689 net2690 net2691 net2693 net2695 net2697
-+ net2700 net2702 net2704 net2707 net2709 net2711 net2713 net2715
-+ net2717 net2719 net2723 net2725 net2727 net2738 net2744 net2746
-+ net2761 net2772 net2786 net2800 net2614 net2626 net2629 net2632
-+ net2642 net2665 net2682 net2698 net2721 spi_bits[0] vin_p
-+ vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[10].adc_inst net3029 net3051 net3059 net3075
-+ adc_comparator_out[10] net2767 net2766 net2765 net2764 net2763
-+ net2762 net2760 net2636 net2637 net2638 net2640 net2647 net2649
-+ net2651 net2652 net2653 net2655 net2657 net2659 net2661 net2663
-+ net2668 net2670 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2680 net2685 net2686 net2687 net2688 net2689 net2690
-+ net2692 net2694 net2696 net2697 net2700 net2702 net2705 net2708
-+ net2710 net2712 net2714 net2716 net2718 net2720 net2724 net2726
-+ net2728 net2739 net2744 net2746 net2761 net2773 net2786 net2800
-+ net2614 net2626 net2630 net2633 net2644 net2665 net2682 net2699
-+ net2722 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[11].adc_inst net3028 net3050 net3058 net3074
-+ adc_comparator_out[11] net2758 net2757 net2756 net2755 net2754
-+ net2753 net2752 net2636 net2637 net2638 net2640 net2647 net2649
-+ net2651 net2652 net2653 net2655 net2657 net2659 net2661 net2663
-+ net2668 net2670 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2680 net2685 net2686 net2687 net2688 net2689 net2690
-+ net2692 net2694 net2696 net2697 net2701 net2703 net2706 net2708
-+ net2710 net2712 net2714 net2716 net2718 net2720 net2724 net2726
-+ net2728 net2739 net2744 net2746 net2761 net2773 net2787 net2801
-+ net2615 net2627 net2630 net2633 net2645 net2666 net2683 net2699
-+ net2722 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[12].adc_inst net3032 net3054 net3062 net3078
-+ adc_comparator_out[12] net2747 net3002 net2999 net2996 net2994
-+ net2992 net2990 net2634 net2637 net2638 net2639 net2646 net2648
-+ net2650 net2652 net2653 net2654 net2656 net2658 net2660 net2662
-+ net2667 net2669 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2679 net2684 net2686 net2687 net2688 net2689 net2690
-+ net2691 net2693 net2695 net2697 net2700 net2702 net2705 net2707
-+ net2709 net2711 net2713 net2715 net2717 net2719 net2723 net2725
-+ net2727 net2738 net2744 net2746 net2761 net2772 net2786 net2800
-+ net2614 net2626 net2629 net2632 net2644 net2665 net2682 net2698
-+ net2721 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[13].adc_inst net3032 net3054 net3062 net3078
-+ adc_comparator_out[13] net2745 net2985 net2982 net2980 net2977
-+ net2951 net2742 net2636 net2637 net2638 net2639 net2646 net2648
-+ net2650 net2652 net2653 net2654 net2656 net2658 net2660 net2662
-+ net2667 net2669 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2679 net2684 net2686 net2687 net2688 net2689 net2690
-+ net2691 net2693 net2695 net2697 net2700 net2702 net2705 net2707
-+ net2709 net2711 net2713 net2715 net2717 net2719 net2723 net2725
-+ net2727 net2738 net2744 net2746 net2761 net2772 net2786 net2800
-+ net2614 net2626 net2629 net2632 net2644 net2665 net2682 net2698
-+ net2721 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[14].adc_inst net3030 net3052 net3060 net3076
-+ adc_comparator_out[14] net2741 net2971 net2968 net2965 net2953
-+ net2963 net2961 net2636 net2637 net2638 net2640 net2647 net2649
-+ net2651 net2652 net2653 net2655 net2657 net2659 net2661 net2663
-+ net2668 net2670 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2680 net2685 net2686 net2687 net2688 net2689 net2690
-+ net2692 net2694 net2696 net2697 net2700 net2702 net2705 net2708
-+ net2710 net2712 net2714 net2716 net2718 net2720 net2724 net2726
-+ net2728 net2739 net2744 net2746 net2761 net2773 net2786 net2800
-+ net2614 net2626 net2630 net2633 net2644 net2665 net2682 net2699
-+ net2722 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[15].adc_inst net3028 net3050 net3058 net3074
-+ adc_comparator_out[15] net2959 net2957 net2954 net2737 net2736
-+ net2735 net2734 net2636 net2637 net2638 net2640 net2647 net2649
-+ net2651 net2652 net2653 net2655 net2657 net2659 net2661 net2663
-+ net2668 net2670 net2671 net2672 net2673 net2674 net2675 net2676
-+ net2677 net2680 net2685 net2686 net2687 net2688 net2689 net2690
-+ net2692 net2694 net2696 net2697 net2701 net2703 net2706 net2708
-+ net2710 net2712 net2714 net2716 net2718 net2720 net2724 net2726
-+ net2728 net2739 net2744 net2746 net2761 net2773 net2787 net2801
-+ net2615 net2627 net2630 net2633 net2645 net2666 net2683 net2699
-+ net2722 net2813 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
-+ vss_dac adc
-Xadc_array[1].adc_inst net3037 net3047 net3067 net3083 adc_comparator_out[1]
-+ net2631 spi_bits[72] spi_bits[73] spi_bits[74] spi_bits[75]
-+ spi_bits[76] spi_bits[77] net2636 net2637 net2638 net2639
-+ net2646 net2648 net2650 net2652 net2653 net2654 net2656 net2658
-+ net2660 net2662 net2667 net2669 net2671 net2672 net2673 net2674
-+ net2675 net2676 net2677 net2679 net2684 net2686 net2687 net2688
-+ net2689 net2690 net2691 net2693 net2695 net2697 net2700 net2702
-+ net2704 net2707 net2709 net2711 net2713 net2715 net2717 net2719
-+ net2723 net2725 net2727 net2738 net2744 net2746 net2761 net2772
-+ net2786 net2800 net2614 net2626 net2629 net2632 net2642 net2665
-+ net2682 net2698 net2721 net2815 vin_p vin_n vdd_a vss_a vdd_d
-+ vss_d vdd_dac vss_dac adc
-Xadc_array[2].adc_inst net3036 net3046 net3066 net3082 adc_comparator_out[2]
-+ spi_bits[78] spi_bits[79] spi_bits[80] spi_bits[81]
-+ spi_bits[82] spi_bits[83] spi_bits[84] net2636 net2637
-+ net2638 net2640 net2647 net2649 net2651 net2652 net2653 net2655
-+ net2657 net2659 net2661 net2663 net2668 net2670 net2671 net2672
-+ net2673 net2674 net2675 net2676 net2677 net2680 net2685 net2686
-+ net2687 net2688 net2689 net2690 net2692 net2694 net2696 net2697
-+ net2700 net2702 spi_bits[27] net2708 net2710 net2712 net2714
-+ net2716 net2718 net2720 net2724 net2726 net2728 net2739 net2744
-+ net2746 net2761 net2773 net2786 net2800 net2614 net2626 net2630
-+ net2633 net2644 net2665 net2682 net2699 net2722 net2815 vin_p
-+ vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[3].adc_inst net3034 net3044 net3064 net3080 adc_comparator_out[3]
-+ spi_bits[85] spi_bits[86] spi_bits[87] spi_bits[88]
-+ spi_bits[89] spi_bits[90] spi_bits[91] net2636 net2637
-+ net2638 net2640 net2647 net2649 net2651 net2652 net2653 net2655
-+ net2657 net2659 net2661 net2663 net2668 net2670 net2671 net2672
-+ net2673 net2674 net2675 net2676 net2677 net2680 net2685 net2686
-+ net2687 net2688 net2689 net2690 net2692 net2694 net2696 net2697
-+ net2701 net2703 net2706 net2708 net2710 net2712 net2714 net2716
-+ net2718 net2720 net2724 net2726 net2728 net2739 net2744 net2746
-+ net2761 net2773 net2787 net2801 net2615 net2627 net2630 net2633
-+ net2645 net2666 net2683 net2699 net2722 net2815 vin_p vin_n
++ spi_bits[68] spi_bits[69] spi_bits[70] net2475 net2478
++ net2480 net2481 net2484 net2486 net2488 net2490 net2492 net2495
++ net2496 net2498 net2501 net2502 net2505 net2507 net2509 net2510
++ net2511 net2512 net2513 net2514 net2515 net2516 net2518 net2520
++ net2521 net2522 net2523 net2525 net2526 net2528 net2529 net2531
++ net2535 net2537 net2539 net2541 net2543 net2545 net2548 net2550
++ net2551 net2554 net2558 net2559 net2561 net2571 net2573 net2574
++ net2590 net2603 net2615 net2627 net2458 net2470 net2471 net2474
++ net2483 net2504 net2517 net2532 net2555 net2638 vin_p vin_n
 + vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[4].adc_inst net3038 net3048 net3068 net3084 adc_comparator_out[4]
-+ net2623 net2622 net2621 net2620 net2619 net2618 net2617 net2634
-+ net2637 net2638 net2639 net2646 net2648 net2650 net2652 net2653
-+ net2654 net2656 net2658 net2660 net2662 net2667 net2669 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2679 net2684
-+ net2686 net2687 net2688 net2689 net2690 net2691 net2693 net2695
-+ net2697 net2700 net2702 net2705 net2707 net2709 net2711 net2713
-+ net2715 net2717 net2719 net2723 net2725 net2727 net2738 net2744
-+ net2746 net2761 net2772 net2786 net2800 net2614 net2626 net2629
-+ net2632 net2644 net2665 net2682 net2698 net2721 net2813 vin_p
+Xadc_array[10].adc_inst net2793 net2809 net2823 net2839
++ adc_comparator_out[10] net2597 net2596 net2595 net2594 net2593
++ net2592 net2589 net2477 net2478 net2479 net2482 net2485 net2487
++ net2489 net2491 net2493 net2494 net2497 net2499 net2500 net2503
++ net2506 net2508 net2509 net2510 net2511 net2512 net2513 net2514
++ net2515 net2516 net2519 net2520 net2521 net2522 net2523 net2524
++ net2527 net2528 net2529 net2530 net2535 net2537 net2539 net2542
++ net2544 net2546 net2547 net2549 net2552 net2553 net2557 net2560
++ net2562 net2572 net2573 net2574 net2591 net2602 net2615 net2627
++ net2458 net2470 net2472 net2474 net2483 net2504 net2517 net2533
++ net2556 net2638 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
++ vss_dac adc
+Xadc_array[11].adc_inst net2792 net2808 net2822 net2838
++ adc_comparator_out[11] net2588 net2587 net2586 net2585 net2584
++ net2583 net2582 net2477 net2478 net2479 net2482 net2485 net2487
++ net2489 net2491 net2493 net2494 net2497 net2499 net2500 net2503
++ net2506 net2508 net2509 net2510 net2511 net2512 net2513 net2514
++ net2515 net2516 net2519 net2520 net2521 net2522 net2523 net2524
++ net2527 net2528 net2529 net2530 net2536 net2538 net2540 net2542
++ net2544 net2546 net2547 net2549 net2552 net2553 net2557 net2560
++ net2562 net2572 net2573 net2574 net2591 net2602 net2615 net2627
++ net2458 net2470 net2472 net2474 net2483 net2504 net2517 net2533
++ net2556 net2638 vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac
++ vss_dac adc
+Xadc_array[12].adc_inst net2796 net2812 net2826 net2842
++ adc_comparator_out[12] net2579 spi_bits[149] spi_bits[150]
++ spi_bits[151] spi_bits[152] spi_bits[153] spi_bits[154]
++ net2475 net2478 net2480 net2481 net2484 net2486 net2488 net2490
++ net2492 net2495 net2496 net2498 net2501 net2502 net2505 net2507
++ net2509 net2510 net2511 net2512 net2513 net2514 net2515 net2516
++ net2518 net2520 net2521 net2522 net2523 net2525 net2526 net2528
++ net2529 net2531 net2535 net2537 net2539 net2541 net2543 net2545
++ net2548 net2550 net2551 net2554 net2558 net2559 net2561 net2571
++ net2573 net2574 net2590 net2603 net2615 net2627 net2458 net2470
++ net2471 net2474 net2483 net2504 net2517 net2532 net2555 net2638
++ vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[13].adc_inst net2796 net2812 net2826 net2842
++ adc_comparator_out[13] spi_bits[155] spi_bits[156] spi_bits[157]
++ spi_bits[158] spi_bits[159] spi_bits[160] spi_bits[161]
++ net2477 net2478 net2480 net2481 net2484 net2486 net2488 net2490
++ net2492 net2495 net2496 net2498 net2501 net2502 net2505 net2507
++ net2509 net2510 net2511 net2512 net2513 net2514 net2515 net2516
++ net2518 net2520 net2521 net2522 net2523 net2525 net2526 net2528
++ net2529 net2531 net2535 net2537 net2539 net2541 net2543 net2545
++ net2548 net2550 net2551 net2554 net2558 net2559 net2561 net2571
++ net2573 net2574 net2590 net2603 net2615 net2627 net2458 net2470
++ net2471 net2474 net2483 net2504 net2517 net2532 net2555 net2638
++ vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[14].adc_inst net2794 net2810 net2824 net2840
++ adc_comparator_out[14] spi_bits[162] spi_bits[163] spi_bits[164]
++ spi_bits[165] spi_bits[166] spi_bits[167] spi_bits[168]
++ net2477 net2478 net2479 net2482 net2485 net2487 net2489 net2491
++ net2493 net2494 net2497 net2499 net2500 net2503 net2506 net2508
++ net2509 net2510 net2511 net2512 net2513 net2514 net2515 net2516
++ net2519 net2520 net2521 net2522 net2523 net2524 net2527 net2528
++ net2529 net2530 net2535 net2537 net2539 net2542 net2544 net2546
++ net2547 net2549 net2552 net2553 net2557 net2560 net2562 net2572
++ net2573 net2574 net2591 net2602 net2615 net2627 net2458 net2470
++ net2472 net2474 net2483 net2504 net2517 net2533 net2556 net2638
++ vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[15].adc_inst net2792 net2808 net2822 net2838
++ adc_comparator_out[15] spi_bits[169] spi_bits[170] spi_bits[171]
++ spi_bits[172] spi_bits[173] spi_bits[174] spi_bits[175]
++ net2477 net2478 net2479 net2482 net2485 net2487 net2489 net2491
++ net2493 net2494 net2497 net2499 net2500 net2503 net2506 net2508
++ net2509 net2510 net2511 net2512 net2513 net2514 net2515 net2516
++ net2519 net2520 net2521 net2522 net2523 net2524 net2527 net2528
++ net2529 net2530 net2536 net2538 net2540 net2542 net2544 net2546
++ net2547 net2549 net2552 net2553 net2557 net2560 net2562 net2572
++ net2573 net2574 net2591 net2602 net2615 net2627 net2458 net2470
++ net2472 net2474 net2483 net2504 net2517 net2533 net2556 net2638
++ vin_p vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[1].adc_inst net2801 net2817 net2831 net2847 adc_comparator_out[1]
++ net2473 spi_bits[72] spi_bits[73] spi_bits[74] spi_bits[75]
++ spi_bits[76] spi_bits[77] net2477 net2478 net2480 net2481
++ net2484 net2486 net2488 net2490 net2492 net2495 net2496 net2498
++ net2501 net2502 net2505 net2507 net2509 net2510 net2511 net2512
++ net2513 net2514 net2515 net2516 net2518 net2520 net2521 net2522
++ net2523 net2525 net2526 net2528 net2529 net2531 net2535 net2537
++ net2539 net2541 net2543 net2545 net2548 net2550 net2551 net2554
++ net2558 net2559 net2561 net2571 net2573 net2574 net2590 net2603
++ net2615 net2627 net2458 net2470 net2471 net2474 net2483 net2504
++ net2517 net2532 net2555 net2641 vin_p vin_n vdd_a vss_a vdd_d
++ vss_d vdd_dac vss_dac adc
+Xadc_array[2].adc_inst net2800 net2816 net2830 net2846 adc_comparator_out[2]
++ spi_bits[78] spi_bits[79] spi_bits[80] spi_bits[81]
++ spi_bits[82] spi_bits[83] spi_bits[84] net2477 net2478
++ net2479 net2482 net2485 net2487 net2489 net2491 net2493 net2494
++ net2497 net2499 net2500 net2503 net2506 net2508 net2509 net2510
++ net2511 net2512 net2513 net2514 net2515 net2516 net2519 net2520
++ net2521 net2522 net2523 net2524 net2527 net2528 net2529 net2530
++ net2535 net2537 net2539 net2542 net2544 net2546 net2547 net2549
++ net2552 net2553 net2557 net2560 net2562 net2572 net2573 net2574
++ net2591 net2602 net2615 net2627 net2458 net2470 net2472 net2474
++ net2483 net2504 net2517 net2533 net2556 net2641 vin_p vin_n
++ vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[3].adc_inst net2798 net2814 net2828 net2844 adc_comparator_out[3]
++ spi_bits[85] spi_bits[86] spi_bits[87] spi_bits[88]
++ spi_bits[89] spi_bits[90] spi_bits[91] net2477 net2478
++ net2479 net2482 net2485 net2487 net2489 net2491 net2493 net2494
++ net2497 net2499 net2500 net2503 net2506 net2508 net2509 net2510
++ net2511 net2512 net2513 net2514 net2515 net2516 net2519 net2520
++ net2521 net2522 net2523 net2524 net2527 net2528 net2529 net2530
++ net2536 net2538 net2540 net2542 net2544 net2546 net2547 net2549
++ net2552 net2553 net2557 net2560 net2562 net2572 net2573 net2574
++ net2591 net2602 net2615 net2627 net2458 net2470 net2472 net2474
++ net2483 net2504 net2517 net2533 net2556 net2641 vin_p vin_n
++ vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
+Xadc_array[4].adc_inst net2802 net2818 net2832 net2848 adc_comparator_out[4]
++ net2467 net2465 net2464 net2463 net2462 net2461 net2460 net2475
++ net2478 net2480 net2481 net2484 net2486 net2488 net2490 net2492
++ net2495 net2496 net2498 net2501 net2502 net2505 net2507 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2518
++ net2520 net2521 net2522 net2523 net2525 net2526 net2528 net2529
++ net2531 net2535 net2537 net2539 net2541 net2543 net2545 net2548
++ net2550 net2551 net2554 net2558 net2559 net2561 net2571 net2573
++ net2574 net2590 net2603 net2615 net2627 net2458 net2470 net2471
++ net2474 net2483 net2504 net2517 net2532 net2555 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[5].adc_inst net3038 net3048 net3068 net3084 adc_comparator_out[5]
-+ net2616 net2811 net2810 net2809 net2808 net2807 net2806 net2636
-+ net2637 net2638 net2639 net2646 net2648 net2650 net2652 net2653
-+ net2654 net2656 net2658 net2660 net2662 net2667 net2669 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2679 net2684
-+ net2686 net2687 net2688 net2689 net2690 net2691 net2693 net2695
-+ net2697 net2700 net2702 net2705 net2707 net2709 net2711 net2713
-+ net2715 net2717 net2719 net2723 net2725 net2727 net2738 net2744
-+ net2746 net2761 net2772 net2786 net2800 net2614 net2626 net2629
-+ net2632 net2644 net2665 net2682 net2698 net2721 net2813 vin_p
+Xadc_array[5].adc_inst net2802 net2818 net2832 net2848 adc_comparator_out[5]
++ net2459 net2637 net2636 net2635 net2634 net2633 net2632 net2477
++ net2478 net2480 net2481 net2484 net2486 net2488 net2490 net2492
++ net2495 net2496 net2498 net2501 net2502 net2505 net2507 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2518
++ net2520 net2521 net2522 net2523 net2525 net2526 net2528 net2529
++ net2531 net2535 net2537 net2539 net2541 net2543 net2545 net2548
++ net2550 net2551 net2554 net2558 net2559 net2561 net2571 net2573
++ net2574 net2590 net2603 net2615 net2627 net2458 net2470 net2471
++ net2474 net2483 net2504 net2517 net2532 net2555 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[6].adc_inst net3035 net3045 net3065 net3081 adc_comparator_out[6]
-+ net2805 net2804 net2803 net2802 net2798 net2797 net2796 net2636
-+ net2637 net2638 net2640 net2647 net2649 net2651 net2652 net2653
-+ net2655 net2657 net2659 net2661 net2663 net2668 net2670 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2680 net2685
-+ net2686 net2687 net2688 net2689 net2690 net2692 net2694 net2696
-+ net2697 net2700 net2702 net2705 net2708 net2710 net2712 net2714
-+ net2716 net2718 net2720 net2724 net2726 net2728 net2739 net2744
-+ net2746 net2761 net2773 net2786 net2800 net2614 net2626 net2630
-+ net2633 net2644 net2665 net2682 net2699 net2722 net2813 vin_p
+Xadc_array[6].adc_inst net2799 net2815 net2829 net2845 adc_comparator_out[6]
++ net2631 net2630 net2629 net2628 net2626 net2625 net2624 net2477
++ net2478 net2479 net2482 net2485 net2487 net2489 net2491 net2493
++ net2494 net2497 net2499 net2500 net2503 net2506 net2508 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2519
++ net2520 net2521 net2522 net2523 net2524 net2527 net2528 net2529
++ net2530 net2535 net2537 net2539 net2542 net2544 net2546 net2547
++ net2549 net2552 net2553 net2557 net2560 net2562 net2572 net2573
++ net2574 net2591 net2602 net2615 net2627 net2458 net2470 net2472
++ net2474 net2483 net2504 net2517 net2533 net2556 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[7].adc_inst net3034 net3044 net3064 net3080 adc_comparator_out[7]
-+ net2795 net2794 net2793 net2792 net2791 net2790 net2789 net2636
-+ net2637 net2638 net2640 net2647 net2649 net2651 net2652 net2653
-+ net2655 net2657 net2659 net2661 net2663 net2668 net2670 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2680 net2685
-+ net2686 net2687 net2688 net2689 net2690 net2692 net2694 net2696
-+ net2697 net2701 net2703 net2706 net2708 net2710 net2712 net2714
-+ net2716 net2718 net2720 net2724 net2726 net2728 net2739 net2744
-+ net2746 net2761 net2773 net2787 net2801 net2615 net2627 net2630
-+ net2633 net2645 net2666 net2683 net2699 net2722 net2813 vin_p
+Xadc_array[7].adc_inst net2798 net2814 net2828 net2844 adc_comparator_out[7]
++ net2623 net2622 net2621 net2620 net2619 net2618 net2617 net2477
++ net2478 net2479 net2482 net2485 net2487 net2489 net2491 net2493
++ net2494 net2497 net2499 net2500 net2503 net2506 net2508 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2519
++ net2520 net2521 net2522 net2523 net2524 net2527 net2528 net2529
++ net2530 net2536 net2538 net2540 net2542 net2544 net2546 net2547
++ net2549 net2552 net2553 net2557 net2560 net2562 net2572 net2573
++ net2574 net2591 net2602 net2615 net2627 net2458 net2470 net2472
++ net2474 net2483 net2504 net2517 net2533 net2556 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[8].adc_inst net3031 net3053 net3061 net3077 adc_comparator_out[8]
-+ net2784 net2782 net2781 net2780 net2779 net2778 net2777 net2634
-+ net2637 net2638 net2639 net2646 net2648 net2650 net2652 net2653
-+ net2654 net2656 net2658 net2660 net2662 net2667 net2669 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2679 net2684
-+ net2686 net2687 net2688 net2689 net2690 net2691 net2693 net2695
-+ net2697 net2700 net2702 net2705 net2707 net2709 net2711 net2713
-+ net2715 net2717 net2719 net2723 net2725 net2727 net2738 net2744
-+ net2746 net2761 net2772 net2786 net2800 net2614 net2626 net2629
-+ net2632 net2644 net2665 net2682 net2698 net2721 net2813 vin_p
+Xadc_array[8].adc_inst net2795 net2811 net2825 net2841 adc_comparator_out[8]
++ net2614 net2612 net2611 net2610 net2609 net2608 net2607 net2475
++ net2478 net2480 net2481 net2484 net2486 net2488 net2490 net2492
++ net2495 net2496 net2498 net2501 net2502 net2505 net2507 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2518
++ net2520 net2521 net2522 net2523 net2525 net2526 net2528 net2529
++ net2531 net2535 net2537 net2539 net2541 net2543 net2545 net2548
++ net2550 net2551 net2554 net2558 net2559 net2561 net2571 net2573
++ net2574 net2590 net2603 net2615 net2627 net2458 net2470 net2471
++ net2474 net2483 net2504 net2517 net2532 net2555 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xadc_array[9].adc_inst net3031 net3053 net3061 net3077 adc_comparator_out[9]
-+ net2776 net2775 net2774 net2771 net2770 net2769 net2768 net2636
-+ net2637 net2638 net2639 net2646 net2648 net2650 net2652 net2653
-+ net2654 net2656 net2658 net2660 net2662 net2667 net2669 net2671
-+ net2672 net2673 net2674 net2675 net2676 net2677 net2679 net2684
-+ net2686 net2687 net2688 net2689 net2690 net2691 net2693 net2695
-+ net2697 net2700 net2702 net2705 net2707 net2709 net2711 net2713
-+ net2715 net2717 net2719 net2723 net2725 net2727 net2738 net2744
-+ net2746 net2761 net2772 net2786 net2800 net2614 net2626 net2629
-+ net2632 net2644 net2665 net2682 net2698 net2721 net2813 vin_p
+Xadc_array[9].adc_inst net2795 net2811 net2825 net2841 adc_comparator_out[9]
++ net2606 net2605 net2604 net2601 net2600 net2599 net2598 net2477
++ net2478 net2480 net2481 net2484 net2486 net2488 net2490 net2492
++ net2495 net2496 net2498 net2501 net2502 net2505 net2507 net2509
++ net2510 net2511 net2512 net2513 net2514 net2515 net2516 net2518
++ net2520 net2521 net2522 net2523 net2525 net2526 net2528 net2529
++ net2531 net2535 net2537 net2539 net2541 net2543 net2545 net2548
++ net2550 net2551 net2554 net2558 net2559 net2561 net2571 net2573
++ net2574 net2590 net2603 net2615 net2627 net2458 net2470 net2471
++ net2474 net2483 net2504 net2517 net2532 net2555 net2638 vin_p
 + vin_n vdd_a vss_a vdd_d vss_d vdd_dac vss_dac adc
-Xcomp_mux_43_ net2729 comp_mux_00_ vdd_d vss_d INVD2LVT
-Xcomp_mux_44_ net2934 net2611 comp_mux_01_ vdd_d vss_d IND2D1LVT
-Xcomp_mux_46_ net2929 net2730 comp_mux_03_ vdd_d vss_d IND2D1LVT
+Xcomp_mux_43_ net2565 comp_mux_00_ vdd_d vss_d INVD3LVT
+Xcomp_mux_44_ net2738 comp_mux_00_ comp_mux_01_ vdd_d vss_d
++ IND2D1LVT
+Xinput1 reset_b net1 vdd_d vss_d BUFFD2LVT
+Xcomp_mux_46_ net2734 net2565 comp_mux_03_ vdd_d vss_d IND2D1LVT
 Xcomp_mux_47_ spi_bits[177] comp_mux_04_ vdd_d vss_d CKND2LVT
 Xcomp_mux_48_ comp_mux_01_ comp_mux_03_ comp_mux_04_ comp_mux_05_
 + vdd_d vss_d ND3D1LVT
-Xcomp_mux_49_ net2926 comp_mux_00_ comp_mux_06_ vdd_d vss_d
+Xcomp_mux_49_ net2731 comp_mux_00_ comp_mux_06_ vdd_d vss_d
 + IND2D1LVT
-Xcomp_mux_50_ net2922 comp_mux_07_ vdd_d vss_d CKND0LVT
-Xcomp_mux_51_ net2844 spi_bits[176] comp_mux_08_ vdd_d
-+ vss_d ND2D1LVT
+Xcomp_mux_50_ net2727 comp_mux_07_ vdd_d vss_d CKND0LVT
+Xcomp_mux_51_ net2675 net2563 comp_mux_08_ vdd_d vss_d ND2D1LVT
 Xcomp_mux_52_ comp_mux_06_ comp_mux_08_ spi_bits[177]
 + comp_mux_09_ vdd_d vss_d ND3D1LVT
 Xcomp_mux_53_ comp_mux_05_ comp_mux_09_ spi_bits[178]
 + comp_mux_10_ vdd_d vss_d ND3D1LVT
-Xcomp_mux_54_ net2611 net2909 comp_mux_11_ vdd_d vss_d ND2D2LVT
-Xcomp_mux_55_ net2730 net2905 comp_mux_12_ vdd_d vss_d ND2D2LVT
+Xcomp_mux_54_ comp_mux_00_ net2714 comp_mux_11_ vdd_d vss_d
++ ND2D2LVT
+Xcomp_mux_55_ net2565 net2710 comp_mux_12_ vdd_d vss_d ND2D2LVT
 Xcomp_mux_56_ comp_mux_11_ comp_mux_12_ comp_mux_13_ vdd_d
 + vss_d ND2D2LVT
 Xcomp_mux_57_ comp_mux_13_ comp_mux_04_ comp_mux_14_ vdd_d
 + vss_d ND2D2LVT
-Xcomp_mux_58_ net2729 net2940 comp_mux_15_ vdd_d vss_d NR2D2LVT
+Xcomp_mux_58_ net2564 net2744 comp_mux_15_ vdd_d vss_d NR2D2LVT
 Xcomp_mux_59_ comp_mux_15_ comp_mux_04_ comp_mux_16_ vdd_d
 + vss_d NR2XD1LVT
-Xcomp_mux_60_ net2937 spi_bits[176] comp_mux_17_ vdd_d
-+ vss_d IND2D1LVT
+Xcomp_mux_60_ net2741 net2563 comp_mux_17_ vdd_d vss_d IND2D1LVT
 Xcomp_mux_61_ comp_mux_16_ comp_mux_17_ comp_mux_18_ vdd_d
 + vss_d ND2D2LVT
 Xcomp_mux_62_ spi_bits[178] comp_mux_19_ vdd_d vss_d CKND0LVT
@@ -224,11 +225,12 @@ Xcomp_mux_63_ comp_mux_14_ comp_mux_18_ comp_mux_19_ comp_mux_20_
 + vdd_d vss_d ND3D1LVT
 Xcomp_mux_64_ comp_mux_10_ comp_mux_20_ spi_bits[179]
 + comp_mux_21_ vdd_d vss_d ND3D1LVT
-Xcomp_mux_65_ adc_comparator_out[1] net2729 comp_mux_22_
+Xcomp_mux_65_ adc_comparator_out[1] net2565 comp_mux_22_
 + vdd_d vss_d IND2D1LVT
 Xcomp_mux_66_ adc_comparator_out[0] comp_mux_23_ vdd_d
 + vss_d CKND0LVT
-Xcomp_mux_67_ net2843 net2611 comp_mux_24_ vdd_d vss_d ND2D1LVT
+Xcomp_mux_67_ net2674 comp_mux_00_ comp_mux_24_ vdd_d vss_d
++ ND2D1LVT
 Xcomp_mux_68_ comp_mux_22_ comp_mux_24_ comp_mux_04_ comp_mux_25_
 + vdd_d vss_d ND3D1LVT
 Xcomp_mux_69_ adc_comparator_out[2] comp_mux_26_ vdd_d
@@ -237,21 +239,22 @@ Xcomp_mux_70_ comp_mux_00_ comp_mux_26_ comp_mux_27_ vdd_d
 + vss_d CKND2D1LVT
 Xcomp_mux_71_ adc_comparator_out[3] comp_mux_28_ vdd_d
 + vss_d CKND0LVT
-Xcomp_mux_72_ net2841 net2729 comp_mux_29_ vdd_d vss_d CKND2D1LVT
+Xcomp_mux_72_ net2673 net2564 comp_mux_29_ vdd_d vss_d CKND2D1LVT
 Xcomp_mux_73_ comp_mux_27_ comp_mux_29_ spi_bits[177]
 + comp_mux_30_ vdd_d vss_d ND3D1LVT
 Xcomp_mux_74_ comp_mux_25_ comp_mux_30_ comp_mux_19_ comp_mux_31_
 + vdd_d vss_d ND3D1LVT
-Xcomp_mux_75_ net2611 net2918 comp_mux_32_ vdd_d vss_d ND2D2LVT
-Xcomp_mux_76_ net2730 net2915 comp_mux_33_ vdd_d vss_d CKND2D2LVT
+Xcomp_mux_75_ comp_mux_00_ net2723 comp_mux_32_ vdd_d vss_d
++ ND2D2LVT
+Xcomp_mux_76_ net2565 net2720 comp_mux_33_ vdd_d vss_d CKND2D2LVT
 Xcomp_mux_77_ comp_mux_32_ comp_mux_33_ comp_mux_34_ vdd_d
 + vss_d ND2D1LVT
 Xcomp_mux_78_ comp_mux_34_ comp_mux_04_ comp_mux_35_ vdd_d
 + vss_d CKND2D1LVT
-Xcomp_mux_79_ net2729 net2913 comp_mux_36_ vdd_d vss_d NR2D2LVT
+Xcomp_mux_79_ net2564 net2718 comp_mux_36_ vdd_d vss_d NR2D2LVT
 Xcomp_mux_80_ comp_mux_36_ comp_mux_04_ comp_mux_37_ vdd_d
 + vss_d NR2XD1LVT
-Xcomp_mux_81_ net2911 net2729 comp_mux_38_ vdd_d vss_d IND2D1LVT
+Xcomp_mux_81_ net2874 net2564 comp_mux_38_ vdd_d vss_d IND2D1LVT
 Xcomp_mux_82_ comp_mux_37_ comp_mux_38_ comp_mux_39_ vdd_d
 + vss_d ND2D1LVT
 Xcomp_mux_83_ comp_mux_35_ comp_mux_39_ spi_bits[178]
@@ -261,2051 +264,1058 @@ Xcomp_mux_85_ comp_mux_31_ comp_mux_40_ comp_mux_41_ comp_mux_42_
 + vdd_d vss_d ND3D2LVT
 Xcomp_mux_86_ comp_mux_21_ comp_mux_42_ net4 vdd_d vss_d
 + ND2D1LVT
-Xspi_reg_0584_ net2863 spi_bits[52] spi_reg_0466_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0585_ spi_reg_0465_ spi_reg_0466_ spi_reg_0127_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0586_ net2823 spi_bits[52] spi_reg_0467_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0587_ net2863 spi_bits[53] spi_reg_0468_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0588_ spi_reg_0467_ spi_reg_0468_ spi_reg_0128_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0589_ spi_reg_0181_ spi_bits[53] spi_reg_0469_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0590_ net2862 spi_bits[54] spi_reg_0470_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0591_ spi_reg_0469_ spi_reg_0470_ spi_reg_0129_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0593_ net2818 spi_bits[54] spi_reg_0472_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0594_ net2861 spi_bits[55] spi_reg_0473_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0595_ spi_reg_0472_ spi_reg_0473_ spi_reg_0130_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0596_ net2818 spi_bits[55] spi_reg_0474_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0598_ net2861 spi_bits[56] spi_reg_0476_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0599_ spi_reg_0474_ spi_reg_0476_ spi_reg_0131_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0600_ net2818 spi_bits[56] spi_reg_0477_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0601_ net2861 spi_bits[57] spi_reg_0478_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0602_ spi_reg_0477_ spi_reg_0478_ spi_reg_0132_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0603_ net2817 spi_bits[57] spi_reg_0479_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0604_ net2862 spi_bits[58] spi_reg_0480_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0605_ spi_reg_0479_ spi_reg_0480_ spi_reg_0133_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0606_ net2817 spi_bits[58] spi_reg_0481_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0607_ net2862 spi_bits[59] spi_reg_0482_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0608_ spi_reg_0481_ spi_reg_0482_ spi_reg_0134_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0609_ net2837 spi_bits[4] spi_reg_0483_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0610_ net2867 spi_bits[5] spi_reg_0484_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0611_ spi_reg_0483_ spi_reg_0484_ spi_reg_0135_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0612_ spi_reg_0181_ spi_bits[59] spi_reg_0485_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0613_ net2863 spi_bits[60] spi_reg_0486_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0614_ spi_reg_0485_ spi_reg_0486_ spi_reg_0136_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0615_ net2818 spi_bits[60] spi_reg_0487_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0616_ net2860 spi_bits[61] spi_reg_0488_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0617_ spi_reg_0487_ spi_reg_0488_ spi_reg_0137_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0618_ net2818 spi_bits[61] spi_reg_0489_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0619_ net2860 spi_bits[62] spi_reg_0490_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0620_ spi_reg_0489_ spi_reg_0490_ spi_reg_0138_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0621_ net2818 spi_bits[62] spi_reg_0491_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0622_ net2860 spi_bits[63] spi_reg_0492_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0623_ spi_reg_0491_ spi_reg_0492_ spi_reg_0139_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0625_ net2821 spi_bits[63] spi_reg_0494_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0626_ net2845 spi_bits[64] spi_reg_0495_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0627_ spi_reg_0494_ spi_reg_0495_ spi_reg_0140_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0628_ net2821 spi_bits[64] spi_reg_0496_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0630_ net2845 spi_bits[65] spi_reg_0498_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0631_ spi_reg_0496_ spi_reg_0498_ spi_reg_0141_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0632_ net2821 spi_bits[65] spi_reg_0499_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0633_ net2845 spi_bits[66] spi_reg_0500_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0634_ spi_reg_0499_ spi_reg_0500_ spi_reg_0142_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0635_ net2821 spi_bits[66] spi_reg_0501_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0636_ net2845 spi_bits[67] spi_reg_0502_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0637_ spi_reg_0501_ spi_reg_0502_ spi_reg_0143_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0638_ net2821 spi_bits[67] spi_reg_0503_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0639_ net2845 spi_bits[68] spi_reg_0504_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0640_ spi_reg_0503_ spi_reg_0504_ spi_reg_0144_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0641_ net2821 spi_bits[68] spi_reg_0505_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0642_ net2845 spi_bits[69] spi_reg_0506_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0643_ spi_reg_0505_ spi_reg_0506_ spi_reg_0145_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0644_ net2823 net2641 spi_reg_0507_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0645_ net2863 spi_bits[6] spi_reg_0508_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0646_ spi_reg_0507_ spi_reg_0508_ spi_reg_0146_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0647_ net2821 spi_bits[69] spi_reg_0509_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0648_ net2845 spi_bits[70] spi_reg_0510_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0649_ spi_reg_0509_ spi_reg_0510_ spi_reg_0147_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0650_ net2821 spi_bits[70] spi_reg_0511_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0651_ net2860 spi_bits[71] spi_reg_0512_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0652_ spi_reg_0511_ spi_reg_0512_ spi_reg_0148_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0653_ net2818 spi_bits[71] spi_reg_0513_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0654_ net2861 spi_bits[72] spi_reg_0514_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0655_ spi_reg_0513_ spi_reg_0514_ spi_reg_0149_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0657_ net2817 spi_bits[72] spi_reg_0516_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0658_ net2862 spi_bits[73] spi_reg_0517_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0659_ spi_reg_0516_ spi_reg_0517_ spi_reg_0150_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0660_ net2817 spi_bits[73] spi_reg_0518_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0662_ net2862 spi_bits[74] spi_reg_0520_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0663_ spi_reg_0518_ spi_reg_0520_ spi_reg_0151_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0664_ net2817 spi_bits[74] spi_reg_0521_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0665_ net2862 spi_bits[75] spi_reg_0522_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0666_ spi_reg_0521_ spi_reg_0522_ spi_reg_0152_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0667_ net2817 spi_bits[75] spi_reg_0523_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0668_ net2862 spi_bits[76] spi_reg_0524_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0669_ spi_reg_0523_ spi_reg_0524_ spi_reg_0153_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0670_ net2817 spi_bits[76] spi_reg_0525_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0671_ net2862 spi_bits[77] spi_reg_0526_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0672_ spi_reg_0525_ spi_reg_0526_ spi_reg_0154_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0673_ net2817 spi_bits[77] spi_reg_0527_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0674_ net2864 spi_bits[78] spi_reg_0528_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0675_ net2610 spi_reg_0528_ spi_reg_0155_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0676_ net2836 spi_bits[78] spi_reg_0529_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0677_ net2864 spi_bits[79] spi_reg_0530_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0678_ spi_reg_0529_ spi_reg_0530_ spi_reg_0156_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0679_ net2835 spi_bits[6] spi_reg_0531_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0680_ net2864 net2628 spi_reg_0532_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0681_ spi_reg_0531_ spi_reg_0532_ spi_reg_0157_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0682_ net2836 spi_bits[79] spi_reg_0533_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0683_ net2864 spi_bits[80] spi_reg_0534_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0684_ spi_reg_0533_ spi_reg_0534_ spi_reg_0158_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0685_ net2836 spi_bits[80] spi_reg_0535_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0686_ net2864 spi_bits[81] spi_reg_0536_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0687_ spi_reg_0535_ spi_reg_0536_ spi_reg_0159_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0689_ net2836 spi_bits[81] spi_reg_0538_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0690_ net2864 spi_bits[82] spi_reg_0539_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0691_ spi_reg_0538_ spi_reg_0539_ spi_reg_0160_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0692_ net2836 spi_bits[82] spi_reg_0540_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0694_ net2864 spi_bits[83] spi_reg_0542_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0695_ spi_reg_0540_ spi_reg_0542_ spi_reg_0161_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0696_ net2836 spi_bits[83] spi_reg_0543_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0697_ net2864 spi_bits[84] spi_reg_0544_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0698_ spi_reg_0543_ spi_reg_0544_ spi_reg_0162_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0699_ net2837 spi_bits[84] spi_reg_0545_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0700_ net2868 spi_bits[85] spi_reg_0546_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0701_ net2609 spi_reg_0546_ spi_reg_0163_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0702_ net2838 spi_bits[85] spi_reg_0547_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0703_ net2868 spi_bits[86] spi_reg_0548_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0704_ spi_reg_0547_ spi_reg_0548_ spi_reg_0164_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0705_ net2838 spi_bits[86] spi_reg_0549_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0706_ net2868 spi_bits[87] spi_reg_0550_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0707_ spi_reg_0549_ spi_reg_0550_ spi_reg_0165_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0708_ net2838 spi_bits[87] spi_reg_0551_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0709_ net2868 spi_bits[88] spi_reg_0552_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0710_ spi_reg_0551_ spi_reg_0552_ spi_reg_0166_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0711_ net2838 spi_bits[88] spi_reg_0553_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0712_ net2868 spi_bits[89] spi_reg_0554_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0713_ spi_reg_0553_ spi_reg_0554_ spi_reg_0167_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0714_ net2837 net2628 spi_reg_0555_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0715_ net2867 net2625 spi_reg_0556_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0716_ spi_reg_0555_ spi_reg_0556_ spi_reg_0168_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0717_ net2838 spi_bits[89] spi_reg_0557_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0718_ net2868 spi_bits[90] spi_reg_0558_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0719_ spi_reg_0557_ spi_reg_0558_ spi_reg_0169_
-+ vdd_d vss_d CKND2D0LVT
-Xplace2625 spi_bits[8] net2625 vdd_d vss_d CKBD2LVT
-Xspi_reg_0721_ net2838 spi_bits[90] spi_reg_0560_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0722_ net2868 spi_bits[91] spi_reg_0561_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0723_ spi_reg_0560_ spi_reg_0561_ spi_reg_0170_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0724_ net2836 net2624 spi_reg_0562_ vdd_d vss_d
-+ CKND2D1LVT
-Xplace2626 net2625 net2626 vdd_d vss_d BUFFD6LVT
-Xspi_reg_0726_ net2860 spi_bits[92] spi_reg_0564_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0727_ net3092 spi_reg_0564_ spi_reg_0171_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0728_ net2821 spi_bits[92] spi_reg_0565_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0729_ net2845 spi_bits[93] spi_reg_0566_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0730_ spi_reg_0565_ spi_reg_0566_ spi_reg_0172_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0731_ net2821 spi_bits[93] spi_reg_0567_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0732_ net2845 spi_bits[94] spi_reg_0568_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0733_ spi_reg_0567_ spi_reg_0568_ spi_reg_0173_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0734_ net2821 spi_bits[94] spi_reg_0569_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0735_ net2845 spi_bits[95] spi_reg_0570_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0736_ spi_reg_0569_ spi_reg_0570_ spi_reg_0174_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0737_ net2821 spi_bits[95] spi_reg_0571_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0738_ net2845 spi_bits[96] spi_reg_0572_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0739_ spi_reg_0571_ spi_reg_0572_ spi_reg_0175_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0740_ net2821 spi_bits[96] spi_reg_0573_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0741_ net2845 spi_bits[97] spi_reg_0574_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0742_ spi_reg_0573_ spi_reg_0574_ spi_reg_0176_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0743_ net2821 spi_bits[97] spi_reg_0575_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0744_ net2845 spi_bits[98] spi_reg_0576_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0745_ spi_reg_0575_ spi_reg_0576_ spi_reg_0177_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0746_ net2821 spi_bits[98] spi_reg_0577_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0747_ net2861 spi_bits[99] spi_reg_0578_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0748_ net2606 spi_reg_0578_ spi_reg_0178_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0749_ net2837 spi_bits[8] spi_reg_0579_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0750_ net2867 net2613 spi_reg_0580_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0751_ spi_reg_0579_ spi_reg_0580_ spi_reg_0179_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0752_ spi_reg_0181_ spi_bits[179] spi_reg_0581_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0753_ net2 net2612 spi_reg_0582_ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0754_ spi_reg_0581_ net2605 spi_reg_0180_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0755_ net2862 spi_reg_0181_ vdd_d vss_d CKND6LVT
-Xspi_reg_0758_ net2819 net3 spi_reg_0184_ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0761_ spi_bits[0] net2860 spi_reg_0187_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0762_ spi_reg_0184_ spi_reg_0187_ spi_reg_0000_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0763_ net2817 spi_bits[99] spi_reg_0188_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0765_ net2861 spi_bits[100] spi_reg_0190_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0766_ spi_reg_0188_ spi_reg_0190_ spi_reg_0001_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0767_ net2817 spi_bits[100] spi_reg_0191_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0768_ net2861 spi_bits[101] spi_reg_0192_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0769_ spi_reg_0191_ spi_reg_0192_ spi_reg_0002_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0770_ net2817 spi_bits[101] spi_reg_0193_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0771_ net2861 spi_bits[102] spi_reg_0194_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0772_ spi_reg_0193_ spi_reg_0194_ spi_reg_0003_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0773_ net2817 spi_bits[102] spi_reg_0195_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0774_ net2861 spi_bits[103] spi_reg_0196_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0775_ spi_reg_0195_ spi_reg_0196_ spi_reg_0004_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0776_ net2817 spi_bits[103] spi_reg_0197_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0777_ net2861 spi_bits[104] spi_reg_0198_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0778_ spi_reg_0197_ spi_reg_0198_ spi_reg_0005_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0779_ net2817 spi_bits[104] spi_reg_0199_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0780_ net2861 spi_bits[105] spi_reg_0200_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0781_ spi_reg_0199_ spi_reg_0200_ spi_reg_0006_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0782_ net2817 spi_bits[105] spi_reg_0201_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0783_ net2866 spi_bits[106] spi_reg_0202_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0784_ net2604 spi_reg_0202_ spi_reg_0007_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0785_ net2840 spi_bits[106] spi_reg_0203_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0786_ net2866 spi_bits[107] spi_reg_0204_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0787_ spi_reg_0203_ spi_reg_0204_ spi_reg_0008_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0788_ net2835 spi_bits[107] spi_reg_0205_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0789_ net2865 spi_bits[108] spi_reg_0206_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0790_ spi_reg_0205_ spi_reg_0206_ spi_reg_0009_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0792_ net2835 spi_bits[108] spi_reg_0208_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0793_ net2865 spi_bits[109] spi_reg_0209_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0794_ spi_reg_0208_ spi_reg_0209_ spi_reg_0010_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0795_ net2836 spi_bits[9] spi_reg_0210_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0797_ net2865 spi_bits[10] spi_reg_0212_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0798_ spi_reg_0210_ spi_reg_0212_ spi_reg_0011_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0799_ net2835 spi_bits[109] spi_reg_0213_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0800_ net2865 spi_bits[110] spi_reg_0214_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0801_ spi_reg_0213_ spi_reg_0214_ spi_reg_0012_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0802_ net2835 spi_bits[110] spi_reg_0215_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0803_ net2865 spi_bits[111] spi_reg_0216_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0804_ spi_reg_0215_ spi_reg_0216_ spi_reg_0013_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0805_ net2835 spi_bits[111] spi_reg_0217_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0806_ net2867 spi_bits[112] spi_reg_0218_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0807_ spi_reg_0217_ spi_reg_0218_ spi_reg_0014_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0808_ net2837 spi_bits[112] spi_reg_0219_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0809_ net2868 spi_bits[113] spi_reg_0220_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0810_ spi_reg_0219_ spi_reg_0220_ spi_reg_0015_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0811_ net2838 spi_bits[113] spi_reg_0221_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0812_ net2868 spi_bits[114] spi_reg_0222_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0813_ spi_reg_0221_ spi_reg_0222_ spi_reg_0016_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0814_ net2838 spi_bits[114] spi_reg_0223_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0815_ net2868 spi_bits[115] spi_reg_0224_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0816_ spi_reg_0223_ spi_reg_0224_ spi_reg_0017_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0817_ net2838 spi_bits[115] spi_reg_0225_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0818_ net2868 spi_bits[116] spi_reg_0226_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0819_ spi_reg_0225_ spi_reg_0226_ spi_reg_0018_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0820_ net2838 spi_bits[116] spi_reg_0227_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0821_ net2868 spi_bits[117] spi_reg_0228_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0822_ spi_reg_0227_ spi_reg_0228_ spi_reg_0019_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0824_ net2838 spi_bits[117] spi_reg_0230_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0825_ net2868 spi_bits[118] spi_reg_0231_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0826_ spi_reg_0230_ spi_reg_0231_ spi_reg_0020_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0827_ net2838 spi_bits[118] spi_reg_0232_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0829_ net2869 spi_bits[119] spi_reg_0234_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0830_ spi_reg_0232_ spi_reg_0234_ spi_reg_0021_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0831_ net2837 spi_bits[10] spi_reg_0235_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0832_ net2867 net2785 spi_reg_0236_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0833_ spi_reg_0235_ spi_reg_0236_ spi_reg_0022_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0834_ net2840 net2788 spi_reg_0237_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0835_ net2859 spi_bits[120] spi_reg_0238_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0836_ net2603 spi_reg_0238_ spi_reg_0023_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0837_ net2820 net2783 spi_reg_0239_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0838_ net2857 spi_bits[121] spi_reg_0240_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0839_ spi_reg_0239_ spi_reg_0240_ spi_reg_0024_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0840_ net2820 spi_bits[121] spi_reg_0241_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0841_ net2857 spi_bits[122] spi_reg_0242_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0842_ spi_reg_0241_ spi_reg_0242_ spi_reg_0025_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0843_ net2820 spi_bits[122] spi_reg_0243_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0844_ net2857 spi_bits[123] spi_reg_0244_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0845_ spi_reg_0243_ spi_reg_0244_ spi_reg_0026_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0846_ net2820 spi_bits[123] spi_reg_0245_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0847_ net2857 spi_bits[124] spi_reg_0246_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0848_ spi_reg_0245_ spi_reg_0246_ spi_reg_0027_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0849_ net2820 spi_bits[124] spi_reg_0247_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0850_ net2857 spi_bits[125] spi_reg_0248_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0851_ spi_reg_0247_ spi_reg_0248_ spi_reg_0028_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0852_ net2820 spi_bits[125] spi_reg_0249_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0853_ net2857 spi_bits[126] spi_reg_0250_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0854_ spi_reg_0249_ spi_reg_0250_ spi_reg_0029_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0856_ net2820 spi_bits[126] spi_reg_0252_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0857_ net2858 spi_bits[127] spi_reg_0253_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0858_ spi_reg_0252_ spi_reg_0253_ spi_reg_0030_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0859_ net2822 spi_bits[127] spi_reg_0254_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0861_ net2859 spi_bits[128] spi_reg_0256_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0862_ spi_reg_0254_ spi_reg_0256_ spi_reg_0031_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0863_ net2822 spi_bits[128] spi_reg_0257_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0864_ net2859 spi_bits[129] spi_reg_0258_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0865_ spi_reg_0257_ spi_reg_0258_ spi_reg_0032_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0866_ net2835 spi_bits[11] spi_reg_0259_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0867_ net2865 spi_bits[12] spi_reg_0260_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0868_ spi_reg_0259_ spi_reg_0260_ spi_reg_0033_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0869_ net2822 spi_bits[129] spi_reg_0261_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0870_ net2859 spi_bits[130] spi_reg_0262_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0871_ spi_reg_0261_ spi_reg_0262_ spi_reg_0034_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0872_ net2822 spi_bits[130] spi_reg_0263_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0873_ net2859 spi_bits[131] spi_reg_0264_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0874_ spi_reg_0263_ spi_reg_0264_ spi_reg_0035_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0875_ net2822 spi_bits[131] spi_reg_0265_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0876_ net2859 spi_bits[132] spi_reg_0266_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0877_ spi_reg_0265_ spi_reg_0266_ spi_reg_0036_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0878_ net2822 spi_bits[132] spi_reg_0267_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0879_ net2859 spi_bits[133] spi_reg_0268_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0880_ spi_reg_0267_ spi_reg_0268_ spi_reg_0037_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0881_ spi_reg_0181_ spi_bits[133] spi_reg_0269_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0882_ net2859 spi_bits[134] spi_reg_0270_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0883_ spi_reg_0269_ spi_reg_0270_ spi_reg_0038_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0884_ net2840 spi_bits[134] spi_reg_0271_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0885_ net2866 spi_bits[135] spi_reg_0272_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0886_ spi_reg_0271_ spi_reg_0272_ spi_reg_0039_
-+ vdd_d vss_d CKND2D0LVT
-Xplace2627 net2625 net2627 vdd_d vss_d CKBD2LVT
-Xspi_reg_0888_ net2840 spi_bits[135] spi_reg_0274_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0889_ net2866 spi_bits[136] spi_reg_0275_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0890_ spi_reg_0274_ spi_reg_0275_ spi_reg_0040_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0891_ net2840 spi_bits[136] spi_reg_0276_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0893_ net2866 spi_bits[137] spi_reg_0278_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0894_ spi_reg_0276_ spi_reg_0278_ spi_reg_0041_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0895_ net2840 spi_bits[137] spi_reg_0279_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0896_ net2866 spi_bits[138] spi_reg_0280_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0897_ spi_reg_0279_ spi_reg_0280_ spi_reg_0042_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0898_ net2840 spi_bits[138] spi_reg_0281_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0899_ net2866 spi_bits[139] spi_reg_0282_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0900_ spi_reg_0281_ spi_reg_0282_ spi_reg_0043_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0901_ net2835 spi_bits[12] spi_reg_0283_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0902_ net2865 spi_bits[13] spi_reg_0284_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0903_ spi_reg_0283_ spi_reg_0284_ spi_reg_0044_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0904_ net2840 spi_bits[139] spi_reg_0285_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0905_ net2866 net2759 spi_reg_0286_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0906_ spi_reg_0285_ spi_reg_0286_ spi_reg_0045_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0907_ net2839 net2759 spi_reg_0287_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0908_ net2869 spi_bits[141] spi_reg_0288_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0909_ spi_reg_0287_ spi_reg_0288_ spi_reg_0046_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0910_ net2839 spi_bits[141] spi_reg_0289_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0911_ net2869 spi_bits[142] spi_reg_0290_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0912_ spi_reg_0289_ spi_reg_0290_ spi_reg_0047_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0913_ net2839 spi_bits[142] spi_reg_0291_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0914_ net2869 spi_bits[143] spi_reg_0292_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0915_ spi_reg_0291_ spi_reg_0292_ spi_reg_0048_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0916_ net2839 spi_bits[143] spi_reg_0293_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0917_ net2869 spi_bits[144] spi_reg_0294_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0918_ spi_reg_0293_ spi_reg_0294_ spi_reg_0049_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0920_ net2839 spi_bits[144] spi_reg_0296_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0921_ net2869 spi_bits[145] spi_reg_0297_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0922_ spi_reg_0296_ spi_reg_0297_ spi_reg_0050_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0923_ net2839 spi_bits[145] spi_reg_0298_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0925_ net2869 spi_bits[146] spi_reg_0300_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0926_ spi_reg_0298_ spi_reg_0300_ spi_reg_0051_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0927_ net2839 spi_bits[146] spi_reg_0301_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0928_ net2869 spi_bits[147] spi_reg_0302_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0929_ spi_reg_0301_ spi_reg_0302_ spi_reg_0052_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0930_ net2826 net2751 spi_reg_0303_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0931_ net2949 spi_bits[148] spi_reg_0304_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0932_ net2602 spi_reg_0304_ spi_reg_0053_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0933_ net2831 spi_bits[148] spi_reg_0305_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0934_ net2949 spi_bits[149] spi_reg_0306_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0935_ spi_reg_0305_ spi_reg_0306_ spi_reg_0054_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0936_ net2835 spi_bits[13] spi_reg_0307_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0937_ net2866 spi_bits[14] spi_reg_0308_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0938_ spi_reg_0307_ spi_reg_0308_ spi_reg_0055_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0939_ net2831 spi_bits[149] spi_reg_0309_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0940_ net2949 spi_bits[150] spi_reg_0310_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0941_ spi_reg_0309_ spi_reg_0310_ spi_reg_0056_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0942_ net2831 spi_bits[150] spi_reg_0311_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0943_ net2949 spi_bits[151] spi_reg_0312_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0944_ spi_reg_0311_ spi_reg_0312_ spi_reg_0057_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0945_ net2831 net2998 spi_reg_0313_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0946_ net2948 spi_bits[152] spi_reg_0314_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0947_ spi_reg_0313_ spi_reg_0314_ spi_reg_0058_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0948_ net2831 spi_bits[152] spi_reg_0315_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0949_ net2948 spi_bits[153] spi_reg_0316_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0950_ spi_reg_0315_ spi_reg_0316_ spi_reg_0059_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0952_ net2831 net2993 spi_reg_0318_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0953_ net2948 net2991 spi_reg_0319_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0954_ spi_reg_0318_ spi_reg_0319_ spi_reg_0060_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0955_ net2831 spi_bits[154] spi_reg_0320_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0957_ net2850 spi_bits[155] spi_reg_0322_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0958_ spi_reg_0320_ spi_reg_0322_ spi_reg_0061_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0959_ net2830 spi_bits[155] spi_reg_0323_ vdd_d
-+ vss_d ND2D1LVT
-Xspi_reg_0960_ net2850 spi_bits[156] spi_reg_0324_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0961_ spi_reg_0323_ spi_reg_0324_ spi_reg_0062_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0962_ net2830 net2987 spi_reg_0325_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0963_ net2851 net2984 spi_reg_0326_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0964_ spi_reg_0325_ spi_reg_0326_ spi_reg_0063_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0965_ net2829 net2984 spi_reg_0327_ vdd_d vss_d
-+ ND2D1LVT
-Xspi_reg_0966_ net2851 spi_bits[158] spi_reg_0328_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0967_ spi_reg_0327_ spi_reg_0328_ spi_reg_0064_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0968_ net2829 spi_bits[158] spi_reg_0329_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0969_ net2947 net2979 spi_reg_0330_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0970_ spi_reg_0329_ spi_reg_0330_ spi_reg_0065_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0971_ net2835 spi_bits[14] spi_reg_0331_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0972_ net2865 spi_bits[15] spi_reg_0332_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0973_ spi_reg_0331_ spi_reg_0332_ spi_reg_0066_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0974_ net2829 net2979 spi_reg_0333_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0975_ net2947 net2743 spi_reg_0334_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0976_ spi_reg_0333_ spi_reg_0334_ spi_reg_0067_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0977_ net2829 net2950 spi_reg_0335_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0978_ net2947 net2742 spi_reg_0336_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0979_ spi_reg_0335_ spi_reg_0336_ spi_reg_0068_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0980_ net2829 spi_bits[161] spi_reg_0337_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0981_ net2852 net2976 spi_reg_0338_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0982_ spi_reg_0337_ spi_reg_0338_ spi_reg_0069_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_0984_ net2828 net2976 spi_reg_0340_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0985_ net2852 net2973 spi_reg_0341_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0986_ spi_reg_0340_ spi_reg_0341_ spi_reg_0070_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0987_ net2944 spi_bits[163] spi_reg_0342_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0989_ net2853 net2970 spi_reg_0344_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0990_ spi_reg_0342_ spi_reg_0344_ spi_reg_0071_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0991_ net2944 spi_bits[164] spi_reg_0345_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0992_ net2853 spi_bits[165] spi_reg_0346_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0993_ spi_reg_0345_ spi_reg_0346_ spi_reg_0072_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0994_ net2944 spi_bits[165] spi_reg_0347_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_0995_ net2853 net2740 spi_reg_0348_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_0996_ spi_reg_0347_ spi_reg_0348_ spi_reg_0073_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_0997_ net2942 net2952 spi_reg_0349_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_0998_ net3091 spi_bits[167] spi_reg_0350_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_0999_ spi_reg_0349_ spi_reg_0350_ spi_reg_0074_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1000_ net2942 spi_bits[167] spi_reg_0351_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1001_ net2854 spi_bits[168] spi_reg_0352_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_1002_ spi_reg_0351_ spi_reg_0352_ spi_reg_0075_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1003_ net2942 spi_bits[168] spi_reg_0353_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1004_ net2855 net2960 spi_reg_0354_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_1005_ net2599 spi_reg_0354_ spi_reg_0076_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_1006_ net2823 spi_bits[15] spi_reg_0355_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1007_ net2864 spi_bits[16] spi_reg_0356_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_1008_ spi_reg_0355_ spi_reg_0356_ spi_reg_0077_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1009_ net2834 spi_bits[169] spi_reg_0357_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1010_ net2855 spi_bits[170] spi_reg_0358_ vdd_d
-+ vss_d CKND2D1LVT
-Xspi_reg_1011_ spi_reg_0357_ spi_reg_0358_ spi_reg_0078_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1012_ net2834 spi_bits[170] spi_reg_0359_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1013_ net2856 net2956 spi_reg_0360_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1014_ spi_reg_0359_ spi_reg_0360_ spi_reg_0079_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1016_ net2834 spi_bits[171] spi_reg_0362_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1017_ net2856 net2737 spi_reg_0363_ vdd_d vss_d
-+ CKND2D1LVT
-Xspi_reg_1018_ spi_reg_0362_ spi_reg_0363_ spi_reg_0080_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1019_ net2834 net2737 spi_reg_0364_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1021_ net2856 spi_bits[173] spi_reg_0366_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1022_ spi_reg_0364_ spi_reg_0366_ spi_reg_0081_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1023_ net2834 spi_bits[173] spi_reg_0367_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1024_ net2856 spi_bits[174] spi_reg_0368_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1025_ spi_reg_0367_ spi_reg_0368_ spi_reg_0082_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1026_ net2834 spi_bits[174] spi_reg_0369_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1027_ net2856 net2733 spi_reg_0370_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1028_ spi_reg_0369_ spi_reg_0370_ spi_reg_0083_
-+ vdd_d vss_d ND2D1LVT
-Xspi_reg_1029_ net2839 spi_bits[175] spi_reg_0371_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1030_ net2866 spi_bits[176] spi_reg_0372_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1031_ net2600 spi_reg_0372_ spi_reg_0084_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1032_ net2823 spi_bits[176] spi_reg_0373_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1033_ net2865 spi_bits[177] spi_reg_0374_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1034_ spi_reg_0373_ spi_reg_0374_ spi_reg_0085_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1035_ net2823 spi_bits[177] spi_reg_0375_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1036_ net2863 spi_bits[178] spi_reg_0376_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1037_ spi_reg_0375_ spi_reg_0376_ spi_reg_0086_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1038_ net2823 spi_bits[178] spi_reg_0377_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1039_ net2863 spi_bits[179] spi_reg_0378_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1040_ spi_reg_0377_ spi_reg_0378_ spi_reg_0087_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1041_ net2823 spi_bits[16] spi_reg_0379_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1042_ net2864 spi_bits[17] spi_reg_0380_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1043_ spi_reg_0379_ spi_reg_0380_ spi_reg_0088_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1044_ net2823 spi_bits[17] spi_reg_0381_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1045_ net2863 spi_bits[18] spi_reg_0382_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1046_ spi_reg_0381_ spi_reg_0382_ spi_reg_0089_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1048_ net2823 spi_bits[18] spi_reg_0384_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1049_ net2864 spi_bits[19] spi_reg_0385_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1050_ spi_reg_0384_ spi_reg_0385_ spi_reg_0090_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1051_ spi_reg_0181_ net2816 spi_reg_0386_ vdd_d
-+ vss_d CKND2D0LVT
-Xplace2609 spi_reg_0545_ net2609 vdd_d vss_d CKBD2LVT
-Xspi_reg_1053_ net2863 spi_bits[1] spi_reg_0388_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1054_ spi_reg_0386_ spi_reg_0388_ spi_reg_0091_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1055_ net2823 spi_bits[19] spi_reg_0389_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1056_ net2864 spi_bits[20] spi_reg_0390_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1057_ spi_reg_0389_ spi_reg_0390_ spi_reg_0092_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1058_ net2836 spi_bits[20] spi_reg_0391_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1059_ net2867 spi_bits[21] spi_reg_0392_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1060_ spi_reg_0391_ spi_reg_0392_ spi_reg_0093_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1061_ net2835 spi_bits[21] spi_reg_0393_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1062_ net2865 spi_bits[22] spi_reg_0394_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1063_ spi_reg_0393_ spi_reg_0394_ spi_reg_0094_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1064_ net2836 spi_bits[22] spi_reg_0395_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1065_ net2865 spi_bits[23] spi_reg_0396_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1066_ spi_reg_0395_ spi_reg_0396_ spi_reg_0095_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1067_ spi_reg_0181_ spi_bits[23] spi_reg_0397_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1068_ net2863 spi_bits[24] spi_reg_0398_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1069_ spi_reg_0397_ spi_reg_0398_ spi_reg_0096_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1070_ net2823 spi_bits[24] spi_reg_0399_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1071_ net2863 spi_bits[25] spi_reg_0400_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1072_ spi_reg_0399_ spi_reg_0400_ spi_reg_0097_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1073_ net2823 spi_bits[25] spi_reg_0401_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1074_ net2864 spi_bits[26] spi_reg_0402_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1075_ spi_reg_0401_ spi_reg_0402_ spi_reg_0098_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1076_ net2837 spi_bits[26] spi_reg_0403_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1077_ net2867 spi_bits[27] spi_reg_0404_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1078_ spi_reg_0403_ spi_reg_0404_ spi_reg_0099_
-+ vdd_d vss_d CKND2D0LVT
-Xplace2604 spi_reg_0201_ net2604 vdd_d vss_d CKBD2LVT
-Xspi_reg_1080_ net2837 spi_bits[27] spi_reg_0406_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1081_ net2867 spi_bits[28] spi_reg_0407_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1082_ spi_reg_0406_ spi_reg_0407_ spi_reg_0100_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1083_ net2837 spi_bits[28] spi_reg_0408_ vdd_d
-+ vss_d CKND2D0LVT
-Xoutput5 net2612 spi_sdo vdd_d vss_d BUFFD2LVT
-Xspi_reg_1085_ net2867 spi_bits[29] spi_reg_0410_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1086_ spi_reg_0408_ spi_reg_0410_ spi_reg_0101_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1087_ net2835 spi_bits[1] spi_reg_0411_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1088_ net2864 spi_bits[2] spi_reg_0412_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1089_ spi_reg_0411_ spi_reg_0412_ spi_reg_0102_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1090_ net2836 spi_bits[29] spi_reg_0413_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1091_ net2867 spi_bits[30] spi_reg_0414_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1092_ spi_reg_0413_ spi_reg_0414_ spi_reg_0103_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1093_ net2835 spi_bits[30] spi_reg_0415_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1094_ net2864 spi_bits[31] spi_reg_0416_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1095_ spi_reg_0415_ spi_reg_0416_ spi_reg_0104_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1096_ spi_reg_0181_ spi_bits[31] spi_reg_0417_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1097_ net2863 spi_bits[32] spi_reg_0418_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1098_ spi_reg_0417_ spi_reg_0418_ spi_reg_0105_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1099_ spi_reg_0181_ spi_bits[32] spi_reg_0419_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1100_ net2863 spi_bits[33] spi_reg_0420_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1101_ spi_reg_0419_ spi_reg_0420_ spi_reg_0106_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1102_ net2818 spi_bits[33] spi_reg_0421_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1103_ net2860 spi_bits[34] spi_reg_0422_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1104_ spi_reg_0421_ spi_reg_0422_ spi_reg_0107_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1105_ net2818 spi_bits[34] spi_reg_0423_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1106_ net2860 spi_bits[35] spi_reg_0424_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1107_ spi_reg_0423_ spi_reg_0424_ spi_reg_0108_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1108_ net2818 spi_bits[35] spi_reg_0425_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1109_ net2860 spi_bits[36] spi_reg_0426_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1110_ spi_reg_0425_ spi_reg_0426_ spi_reg_0109_
-+ vdd_d vss_d CKND2D0LVT
-Xoutput4 net4 comp_out vdd_d vss_d BUFFD2LVT
-Xspi_reg_1112_ net2818 spi_bits[36] spi_reg_0428_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1113_ net2860 spi_bits[37] spi_reg_0429_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1114_ spi_reg_0428_ spi_reg_0429_ spi_reg_0110_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1115_ net2818 spi_bits[37] spi_reg_0430_ vdd_d
-+ vss_d CKND2D0LVT
-Xinput3 spi_sdi net3 vdd_d vss_d BUFFD2LVT
-Xspi_reg_1117_ net2861 spi_bits[38] spi_reg_0432_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1118_ spi_reg_0430_ spi_reg_0432_ spi_reg_0111_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1119_ spi_reg_0181_ spi_bits[38] spi_reg_0433_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1120_ net2863 spi_bits[39] spi_reg_0434_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1121_ spi_reg_0433_ spi_reg_0434_ spi_reg_0112_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1122_ net2837 spi_bits[2] spi_reg_0435_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1123_ net2867 net2681 spi_reg_0436_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1124_ spi_reg_0435_ spi_reg_0436_ spi_reg_0113_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1125_ spi_reg_0181_ spi_bits[39] spi_reg_0437_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1126_ net2862 net2678 spi_reg_0438_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1127_ spi_reg_0437_ spi_reg_0438_ spi_reg_0114_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1128_ net2818 net2678 spi_reg_0439_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1129_ net2860 spi_bits[41] spi_reg_0440_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1130_ spi_reg_0439_ spi_reg_0440_ spi_reg_0115_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1131_ net2818 spi_bits[41] spi_reg_0441_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1132_ net2860 spi_bits[42] spi_reg_0442_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1133_ spi_reg_0441_ spi_reg_0442_ spi_reg_0116_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1134_ net2819 spi_bits[42] spi_reg_0443_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1135_ net2860 spi_bits[43] spi_reg_0444_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1136_ spi_reg_0443_ spi_reg_0444_ spi_reg_0117_
-+ vdd_d vss_d CKND2D1LVT
-Xspi_reg_1137_ net2817 spi_bits[43] spi_reg_0445_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1138_ net2861 spi_bits[44] spi_reg_0446_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1139_ spi_reg_0445_ spi_reg_0446_ spi_reg_0118_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1140_ net2818 spi_bits[44] spi_reg_0447_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1141_ net2861 spi_bits[45] spi_reg_0448_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1142_ spi_reg_0447_ spi_reg_0448_ spi_reg_0119_
-+ vdd_d vss_d CKND2D0LVT
+Xspi_reg_0_ net2 spi_reg_enable vdd_d vss_d CKND3LVT
+Xclkbuf_0_seq_init net2790 clknet_0_seq_init vdd_d vss_d BUFFD16LVT
+Xspi_reg_sdo_dff_dffe spi_bits[179] net2659 net2789 net2699
++ net5 _unconnected_0 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[0].dff_inst_dffe net3 net2643 clknet_4_6_leaf_spi_sclk
++ net2702 spi_bits[0] _unconnected_1 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[100].dff_inst_dffe spi_bits[99] net2645
++ clknet_4_0_leaf_spi_sclk net2701 spi_bits[100] _unconnected_2
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[101].dff_inst_dffe spi_bits[100]
++ net2645 clknet_4_0_leaf_spi_sclk net2699 spi_bits[101]
++ _unconnected_3 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[102].dff_inst_dffe spi_bits[101]
++ net2659 clknet_4_0_leaf_spi_sclk net2699 spi_bits[102]
++ _unconnected_4 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[103].dff_inst_dffe spi_bits[102]
++ net2659 clknet_4_2_leaf_spi_sclk net2699 spi_bits[103]
++ _unconnected_5 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[104].dff_inst_dffe spi_bits[103]
++ net2659 clknet_4_2_leaf_spi_sclk net2699 spi_bits[104]
++ _unconnected_6 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[105].dff_inst_dffe spi_bits[104]
++ net2659 clknet_4_2_leaf_spi_sclk net2699 spi_bits[105]
++ _unconnected_7 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[106].dff_inst_dffe spi_bits[105]
++ net2649 clknet_4_9_leaf_spi_sclk net2706 spi_bits[106]
++ _unconnected_8 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[107].dff_inst_dffe spi_bits[106]
++ net2653 clknet_4_10_leaf_spi_sclk net2706 spi_bits[107]
++ _unconnected_9 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[108].dff_inst_dffe spi_bits[107]
++ net2653 clknet_4_10_leaf_spi_sclk net2693 spi_bits[108]
++ _unconnected_10 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[109].dff_inst_dffe spi_bits[108]
++ net2654 clknet_4_10_leaf_spi_sclk net2692 spi_bits[109]
++ _unconnected_11 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[10].dff_inst_dffe spi_bits[9] net2653
++ clknet_4_10_leaf_spi_sclk net2692 spi_bits[10] _unconnected_12
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[110].dff_inst_dffe spi_bits[109]
++ net2654 clknet_4_10_leaf_spi_sclk net2692 spi_bits[110]
++ _unconnected_13 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[111].dff_inst_dffe spi_bits[110]
++ net2654 clknet_4_10_leaf_spi_sclk net2692 spi_bits[111]
++ _unconnected_14 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[112].dff_inst_dffe spi_bits[111]
++ net2654 clknet_4_10_leaf_spi_sclk net2691 spi_bits[112]
++ _unconnected_15 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[113].dff_inst_dffe spi_bits[112]
++ net2658 clknet_4_14_leaf_spi_sclk net2676 spi_bits[113]
++ _unconnected_16 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[114].dff_inst_dffe spi_bits[113]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[114]
++ _unconnected_17 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[115].dff_inst_dffe spi_bits[114]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[115]
++ _unconnected_18 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[116].dff_inst_dffe spi_bits[115]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[116]
++ _unconnected_19 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[117].dff_inst_dffe spi_bits[116]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[117]
++ _unconnected_20 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[118].dff_inst_dffe spi_bits[117]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[118]
++ _unconnected_21 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[119].dff_inst_dffe spi_bits[118]
++ net2658 clknet_4_14_leaf_spi_sclk net2678 spi_bits[119]
++ _unconnected_22 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[11].dff_inst_dffe spi_bits[10] net2653
++ clknet_4_10_leaf_spi_sclk net2693 spi_bits[11] _unconnected_23
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[120].dff_inst_dffe net2861 net2648
++ clknet_4_8_leaf_spi_sclk net2695 spi_bits[120] _unconnected_24
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[121].dff_inst_dffe net2756 net2642
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[121] _unconnected_25
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[122].dff_inst_dffe spi_bits[121]
++ spi_reg_enable clknet_4_4_leaf_spi_sclk net2703 spi_bits[122]
++ _unconnected_26 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[123].dff_inst_dffe spi_bits[122]
++ spi_reg_enable clknet_4_4_leaf_spi_sclk net2704 spi_bits[123]
++ _unconnected_27 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[124].dff_inst_dffe spi_bits[123]
++ spi_reg_enable clknet_4_6_leaf_spi_sclk net2704 spi_bits[124]
++ _unconnected_28 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[125].dff_inst_dffe spi_bits[124]
++ spi_reg_enable clknet_4_6_leaf_spi_sclk net2704 spi_bits[125]
++ _unconnected_29 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[126].dff_inst_dffe spi_bits[125]
++ net2660 clknet_4_6_leaf_spi_sclk net2704 spi_bits[126]
++ _unconnected_30 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[127].dff_inst_dffe spi_bits[126]
++ net2643 clknet_4_6_leaf_spi_sclk net2702 spi_bits[127]
++ _unconnected_31 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[128].dff_inst_dffe spi_bits[127]
++ net2644 clknet_4_1_leaf_spi_sclk net2705 spi_bits[128]
++ _unconnected_32 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[129].dff_inst_dffe spi_bits[128]
++ net2644 clknet_4_1_leaf_spi_sclk net2705 spi_bits[129]
++ _unconnected_33 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[12].dff_inst_dffe spi_bits[11] net2653
++ clknet_4_10_leaf_spi_sclk net2706 spi_bits[12] _unconnected_34
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[130].dff_inst_dffe spi_bits[129]
++ net2646 clknet_4_1_leaf_spi_sclk net2705 spi_bits[130]
++ _unconnected_35 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[131].dff_inst_dffe spi_bits[130]
++ net2646 clknet_4_1_leaf_spi_sclk net2705 spi_bits[131]
++ _unconnected_36 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[132].dff_inst_dffe spi_bits[131]
++ net2646 clknet_4_2_leaf_spi_sclk net2697 spi_bits[132]
++ _unconnected_37 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[133].dff_inst_dffe spi_bits[132]
++ net2646 clknet_4_3_leaf_spi_sclk net2697 spi_bits[133]
++ _unconnected_38 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[134].dff_inst_dffe spi_bits[133]
++ net2649 clknet_4_11_leaf_spi_sclk net2707 spi_bits[134]
++ _unconnected_39 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[135].dff_inst_dffe spi_bits[134]
++ net2650 clknet_4_11_leaf_spi_sclk net2707 spi_bits[135]
++ _unconnected_40 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[136].dff_inst_dffe spi_bits[135]
++ net2650 clknet_4_11_leaf_spi_sclk net2707 spi_bits[136]
++ _unconnected_41 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[137].dff_inst_dffe spi_bits[136]
++ net2652 clknet_4_11_leaf_spi_sclk net2691 spi_bits[137]
++ _unconnected_42 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[138].dff_inst_dffe spi_bits[137]
++ net2652 clknet_4_11_leaf_spi_sclk net2691 spi_bits[138]
++ _unconnected_43 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[139].dff_inst_dffe spi_bits[138]
++ net2654 clknet_4_11_leaf_spi_sclk net2691 spi_bits[139]
++ _unconnected_44 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[13].dff_inst_dffe spi_bits[12] net2653
++ clknet_4_10_leaf_spi_sclk net2706 spi_bits[13] _unconnected_45
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[140].dff_inst_dffe spi_bits[139]
++ net2654 clknet_4_13_leaf_spi_sclk net2690 spi_bits[140]
++ _unconnected_46 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[141].dff_inst_dffe spi_bits[140]
++ net2655 clknet_4_13_leaf_spi_sclk net2676 spi_bits[141]
++ _unconnected_47 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[142].dff_inst_dffe spi_bits[141]
++ net2656 clknet_4_12_leaf_spi_sclk net1 spi_bits[142] _unconnected_48
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[143].dff_inst_dffe spi_bits[142]
++ net2656 clknet_4_12_leaf_spi_sclk net1 spi_bits[143] _unconnected_49
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[144].dff_inst_dffe spi_bits[143]
++ net2656 clknet_4_14_leaf_spi_sclk net1 spi_bits[144] _unconnected_50
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[145].dff_inst_dffe spi_bits[144]
++ net2656 clknet_4_15_leaf_spi_sclk net1 spi_bits[145] _unconnected_51
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[146].dff_inst_dffe spi_bits[145]
++ net2656 clknet_4_15_leaf_spi_sclk net1 spi_bits[146] _unconnected_52
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[147].dff_inst_dffe spi_bits[146]
++ net2656 clknet_4_14_leaf_spi_sclk net2676 spi_bits[147]
++ _unconnected_53 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[148].dff_inst_dffe net2581 net2647
++ clknet_4_2_leaf_spi_sclk net2696 spi_bits[148] _unconnected_54
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[149].dff_inst_dffe net2578 net2664
++ clknet_4_4_leaf_spi_sclk net2687 spi_bits[149] _unconnected_55
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[14].dff_inst_dffe spi_bits[13] net2653
++ clknet_4_10_leaf_spi_sclk net2706 spi_bits[14] _unconnected_56
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[150].dff_inst_dffe net2872 net2666
++ clknet_4_4_leaf_spi_sclk net2688 spi_bits[150] _unconnected_57
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[151].dff_inst_dffe net2765 net2666
++ clknet_4_4_leaf_spi_sclk net2688 spi_bits[151] _unconnected_58
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[152].dff_inst_dffe net2764 net2859
++ net2852 net2856 spi_bits[152] _unconnected_59 vdd_d vss_d
++ EDFCND2LVT
+Xspi_reg_shift_stage[153].dff_inst_dffe spi_bits[152]
++ net2859 net2852 net2856 spi_bits[153] _unconnected_60 vdd_d
++ vss_d EDFCND2LVT
+Xspi_reg_shift_stage[154].dff_inst_dffe spi_bits[153]
++ net2859 net2852 net2856 spi_bits[154] _unconnected_61 vdd_d
++ vss_d EDFCND2LVT
+Xspi_reg_shift_stage[155].dff_inst_dffe net2762 net2665
++ clknet_4_4_leaf_spi_sclk net2747 spi_bits[155] _unconnected_62
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[156].dff_inst_dffe net2761 net2665
++ clknet_4_7_leaf_spi_sclk net2747 spi_bits[156] _unconnected_63
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[157].dff_inst_dffe spi_bits[156]
++ net2667 clknet_4_0_leaf_spi_sclk net2686 spi_bits[157]
++ _unconnected_64 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[158].dff_inst_dffe net2760 net2753
++ clknet_4_7_leaf_spi_sclk net2748 spi_bits[158] _unconnected_65
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[159].dff_inst_dffe spi_bits[158]
++ net2858 clknet_4_7_leaf_spi_sclk net2748 spi_bits[159]
++ _unconnected_66 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[15].dff_inst_dffe spi_bits[14] net2653
++ clknet_4_10_leaf_spi_sclk net2706 spi_bits[15] _unconnected_67
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[160].dff_inst_dffe spi_bits[159]
++ net2858 clknet_4_7_leaf_spi_sclk net2748 spi_bits[160]
++ _unconnected_68 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[161].dff_inst_dffe net2867 net2858
++ clknet_4_3_leaf_spi_sclk net2748 spi_bits[161] _unconnected_69
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[162].dff_inst_dffe spi_bits[161]
++ net2668 clknet_4_9_leaf_spi_sclk net2750 spi_bits[162]
++ _unconnected_70 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[163].dff_inst_dffe spi_bits[162]
++ net2668 clknet_4_9_leaf_spi_sclk net2751 spi_bits[163]
++ _unconnected_71 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[164].dff_inst_dffe spi_bits[163]
++ net2669 clknet_4_11_leaf_spi_sclk net2751 spi_bits[164]
++ _unconnected_72 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[165].dff_inst_dffe net2866 net2669
++ clknet_4_12_leaf_spi_sclk net2751 spi_bits[165] _unconnected_73
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[166].dff_inst_dffe spi_bits[165]
++ net2749 clknet_4_10_leaf_spi_sclk net2683 spi_bits[166]
++ _unconnected_74 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[167].dff_inst_dffe spi_bits[166]
++ net2749 clknet_4_13_leaf_spi_sclk net2683 spi_bits[167]
++ _unconnected_75 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[168].dff_inst_dffe spi_bits[167]
++ net2749 clknet_4_13_leaf_spi_sclk net2683 spi_bits[168]
++ _unconnected_76 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[169].dff_inst_dffe spi_bits[168]
++ net2670 clknet_4_14_leaf_spi_sclk net2682 spi_bits[169]
++ _unconnected_77 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[16].dff_inst_dffe spi_bits[15] net2654
++ clknet_4_11_leaf_spi_sclk net2691 spi_bits[16] _unconnected_78
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[170].dff_inst_dffe spi_bits[169]
++ net2670 clknet_4_14_leaf_spi_sclk net2682 spi_bits[170]
++ _unconnected_79 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[171].dff_inst_dffe net2759 net2857
++ clknet_4_15_leaf_spi_sclk net2860 spi_bits[171] _unconnected_80
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[172].dff_inst_dffe spi_bits[171]
++ net2857 clknet_4_15_leaf_spi_sclk net2860 spi_bits[172]
++ _unconnected_81 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[173].dff_inst_dffe spi_bits[172]
++ net2857 clknet_4_15_leaf_spi_sclk net2860 spi_bits[173]
++ _unconnected_82 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[174].dff_inst_dffe net2864 net2671
++ clknet_4_14_leaf_spi_sclk net2689 spi_bits[174] _unconnected_83
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[175].dff_inst_dffe spi_bits[174]
++ net2671 clknet_4_14_leaf_spi_sclk net2682 spi_bits[175]
++ _unconnected_84 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[176].dff_inst_dffe net2570 net2655
++ clknet_4_14_leaf_spi_sclk net2676 spi_bits[176] _unconnected_85
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[177].dff_inst_dffe net2566 net2648
++ clknet_4_8_leaf_spi_sclk net2695 spi_bits[177] _unconnected_86
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[178].dff_inst_dffe spi_bits[177]
++ net2648 clknet_4_8_leaf_spi_sclk net2695 spi_bits[178]
++ _unconnected_87 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[179].dff_inst_dffe spi_bits[178]
++ net2648 clknet_4_8_leaf_spi_sclk net2695 spi_bits[179]
++ _unconnected_88 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[17].dff_inst_dffe spi_bits[16] net2652
++ clknet_4_13_leaf_spi_sclk net2693 spi_bits[17] _unconnected_89
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[18].dff_inst_dffe spi_bits[17] net2651
++ clknet_4_9_leaf_spi_sclk net2693 spi_bits[18] _unconnected_90
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[19].dff_inst_dffe spi_bits[18] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[19] _unconnected_91
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[1].dff_inst_dffe net2640 net2649 clknet_4_8_leaf_spi_sclk
++ net2695 spi_bits[1] _unconnected_92 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[20].dff_inst_dffe spi_bits[19] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[20] _unconnected_93
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[21].dff_inst_dffe spi_bits[20] net2651
++ clknet_4_11_leaf_spi_sclk net2694 spi_bits[21] _unconnected_94
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[22].dff_inst_dffe spi_bits[21] net2652
++ clknet_4_13_leaf_spi_sclk net2693 spi_bits[22] _unconnected_95
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[23].dff_inst_dffe spi_bits[22] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[23] _unconnected_96
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[24].dff_inst_dffe spi_bits[23] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[24] _unconnected_97
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[25].dff_inst_dffe spi_bits[24] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[25] _unconnected_98
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[26].dff_inst_dffe spi_bits[25] net2652
++ clknet_4_11_leaf_spi_sclk net2693 spi_bits[26] _unconnected_99
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[27].dff_inst_dffe spi_bits[26] net2657
++ clknet_4_12_leaf_spi_sclk net2690 spi_bits[27] _unconnected_100
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[28].dff_inst_dffe spi_bits[27] net2657
++ clknet_4_12_leaf_spi_sclk net2690 spi_bits[28] _unconnected_101
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[29].dff_inst_dffe spi_bits[28] net2657
++ clknet_4_13_leaf_spi_sclk net2690 spi_bits[29] _unconnected_102
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[2].dff_inst_dffe spi_bits[1] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[2] _unconnected_103
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[30].dff_inst_dffe spi_bits[29] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[30] _unconnected_104
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[31].dff_inst_dffe spi_bits[30] net2649
++ clknet_4_8_leaf_spi_sclk net2694 spi_bits[31] _unconnected_105
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[32].dff_inst_dffe spi_bits[31] net2648
++ clknet_4_9_leaf_spi_sclk net2695 spi_bits[32] _unconnected_106
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[33].dff_inst_dffe spi_bits[32] net2648
++ clknet_4_8_leaf_spi_sclk net2695 spi_bits[33] _unconnected_107
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[34].dff_inst_dffe spi_bits[33] net2647
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[34] _unconnected_108
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[35].dff_inst_dffe spi_bits[34] net2659
++ clknet_4_1_leaf_spi_sclk net2699 spi_bits[35] _unconnected_109
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[36].dff_inst_dffe spi_bits[35] net2645
++ clknet_4_0_leaf_spi_sclk net2700 spi_bits[36] _unconnected_110
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[37].dff_inst_dffe spi_bits[36] net2645
++ clknet_4_0_leaf_spi_sclk net2701 spi_bits[37] _unconnected_111
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[38].dff_inst_dffe spi_bits[37] net2659
++ clknet_4_0_leaf_spi_sclk net2699 spi_bits[38] _unconnected_112
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[39].dff_inst_dffe spi_bits[38] net2647
++ clknet_4_2_leaf_spi_sclk net2696 spi_bits[39] _unconnected_113
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[3].dff_inst_dffe spi_bits[2] net2652
++ clknet_4_13_leaf_spi_sclk net2693 spi_bits[3] _unconnected_114
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[40].dff_inst_dffe spi_bits[39] net2659
++ clknet_4_1_leaf_spi_sclk net2699 spi_bits[40] _unconnected_115
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[41].dff_inst_dffe spi_bits[40] net2645
++ clknet_4_0_leaf_spi_sclk net2701 spi_bits[41] _unconnected_116
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[42].dff_inst_dffe spi_bits[41] net2645
++ clknet_4_0_leaf_spi_sclk net2701 spi_bits[42] _unconnected_117
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[43].dff_inst_dffe spi_bits[42] net2647
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[43] _unconnected_118
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[44].dff_inst_dffe spi_bits[43] net2659
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[44] _unconnected_119
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[45].dff_inst_dffe spi_bits[44] net2659
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[45] _unconnected_120
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[46].dff_inst_dffe spi_bits[45] net2659
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[46] _unconnected_121
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[47].dff_inst_dffe spi_bits[46] net2659
++ clknet_4_2_leaf_spi_sclk net2699 spi_bits[47] _unconnected_122
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[48].dff_inst_dffe spi_bits[47] net2647
++ clknet_4_2_leaf_spi_sclk net2698 spi_bits[48] _unconnected_123
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[49].dff_inst_dffe spi_bits[48] net2647
++ clknet_4_2_leaf_spi_sclk net2697 spi_bits[49] _unconnected_124
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[4].dff_inst_dffe spi_bits[3] net2654
++ clknet_4_13_leaf_spi_sclk net2690 spi_bits[4] _unconnected_125
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[50].dff_inst_dffe spi_bits[49] net2648
++ clknet_4_8_leaf_spi_sclk net2696 spi_bits[50] _unconnected_126
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[51].dff_inst_dffe spi_bits[50] net2646
++ clknet_4_1_leaf_spi_sclk net2700 spi_bits[51] _unconnected_127
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[52].dff_inst_dffe spi_bits[51] net2647
++ clknet_4_3_leaf_spi_sclk net2698 spi_bits[52] _unconnected_128
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[53].dff_inst_dffe spi_bits[52] net2647
++ clknet_4_2_leaf_spi_sclk net2697 spi_bits[53] _unconnected_129
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[54].dff_inst_dffe spi_bits[53] net2648
++ clknet_4_8_leaf_spi_sclk net2696 spi_bits[54] _unconnected_130
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[55].dff_inst_dffe spi_bits[54] net2659
++ clknet_4_3_leaf_spi_sclk net2699 spi_bits[55] _unconnected_131
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[56].dff_inst_dffe spi_bits[55] net2647
++ clknet_4_3_leaf_spi_sclk net2696 spi_bits[56] _unconnected_132
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[57].dff_inst_dffe spi_bits[56] net2647
++ clknet_4_3_leaf_spi_sclk net2696 spi_bits[57] _unconnected_133
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[58].dff_inst_dffe spi_bits[57] net2647
++ clknet_4_3_leaf_spi_sclk net2696 spi_bits[58] _unconnected_134
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[59].dff_inst_dffe spi_bits[58] net2647
++ clknet_4_3_leaf_spi_sclk net2697 spi_bits[59] _unconnected_135
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[5].dff_inst_dffe spi_bits[4] net2654
++ clknet_4_13_leaf_spi_sclk net2691 spi_bits[5] _unconnected_136
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[60].dff_inst_dffe spi_bits[59] net2647
++ clknet_4_3_leaf_spi_sclk net2698 spi_bits[60] _unconnected_137
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[61].dff_inst_dffe spi_bits[60] net2646
++ clknet_4_1_leaf_spi_sclk net2700 spi_bits[61] _unconnected_138
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[62].dff_inst_dffe spi_bits[61] net2643
++ clknet_4_7_leaf_spi_sclk net2701 spi_bits[62] _unconnected_139
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[63].dff_inst_dffe spi_bits[62] net2643
++ clknet_4_7_leaf_spi_sclk net2702 spi_bits[63] _unconnected_140
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[64].dff_inst_dffe spi_bits[63] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[64] _unconnected_141
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[65].dff_inst_dffe spi_bits[64] net2660
++ clknet_4_5_leaf_spi_sclk net2704 spi_bits[65] _unconnected_142
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[66].dff_inst_dffe spi_bits[65] net2660
++ clknet_4_5_leaf_spi_sclk net2704 spi_bits[66] _unconnected_143
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[67].dff_inst_dffe spi_bits[66] net2660
++ clknet_4_5_leaf_spi_sclk net2704 spi_bits[67] _unconnected_144
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[68].dff_inst_dffe spi_bits[67] net2660
++ clknet_4_5_leaf_spi_sclk net2704 spi_bits[68] _unconnected_145
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[69].dff_inst_dffe spi_bits[68] net2660
++ clknet_4_5_leaf_spi_sclk net2704 spi_bits[69] _unconnected_146
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[6].dff_inst_dffe spi_bits[5] net2651
++ clknet_4_9_leaf_spi_sclk net2694 spi_bits[6] _unconnected_147
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[70].dff_inst_dffe spi_bits[69] net2660
++ clknet_4_6_leaf_spi_sclk net2704 spi_bits[70] _unconnected_148
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[71].dff_inst_dffe spi_bits[70] net2643
++ clknet_4_6_leaf_spi_sclk net2702 spi_bits[71] _unconnected_149
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[72].dff_inst_dffe spi_bits[71] net2644
++ clknet_4_1_leaf_spi_sclk net2701 spi_bits[72] _unconnected_150
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[73].dff_inst_dffe spi_bits[72] net2645
++ clknet_4_1_leaf_spi_sclk net2700 spi_bits[73] _unconnected_151
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[74].dff_inst_dffe spi_bits[73] net2645
++ clknet_4_1_leaf_spi_sclk net2700 spi_bits[74] _unconnected_152
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[75].dff_inst_dffe spi_bits[74] net2645
++ clknet_4_1_leaf_spi_sclk net2700 spi_bits[75] _unconnected_153
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[76].dff_inst_dffe spi_bits[75] net2646
++ clknet_4_3_leaf_spi_sclk net2700 spi_bits[76] _unconnected_154
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[77].dff_inst_dffe spi_bits[76] net2646
++ clknet_4_2_leaf_spi_sclk net2700 spi_bits[77] _unconnected_155
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[78].dff_inst_dffe spi_bits[77] net2649
++ clknet_4_9_leaf_spi_sclk net2695 spi_bits[78] _unconnected_156
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[79].dff_inst_dffe spi_bits[78] net2651
++ clknet_4_11_leaf_spi_sclk net2693 spi_bits[79] _unconnected_157
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[7].dff_inst_dffe spi_bits[6] net2653
++ clknet_4_10_leaf_spi_sclk net2706 spi_bits[7] _unconnected_158
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[80].dff_inst_dffe spi_bits[79] net2652
++ clknet_4_11_leaf_spi_sclk net2692 spi_bits[80] _unconnected_159
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[81].dff_inst_dffe spi_bits[80] net2652
++ clknet_4_11_leaf_spi_sclk net2692 spi_bits[81] _unconnected_160
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[82].dff_inst_dffe spi_bits[81] net2652
++ clknet_4_11_leaf_spi_sclk net2692 spi_bits[82] _unconnected_161
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[83].dff_inst_dffe spi_bits[82] net2652
++ clknet_4_11_leaf_spi_sclk net2692 spi_bits[83] _unconnected_162
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[84].dff_inst_dffe spi_bits[83] net2654
++ clknet_4_11_leaf_spi_sclk net2691 spi_bits[84] _unconnected_163
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[85].dff_inst_dffe spi_bits[84] net2657
++ clknet_4_12_leaf_spi_sclk net2677 spi_bits[85] _unconnected_164
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[86].dff_inst_dffe spi_bits[85] net2657
++ clknet_4_12_leaf_spi_sclk net2677 spi_bits[86] _unconnected_165
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[87].dff_inst_dffe spi_bits[86] net2658
++ clknet_4_15_leaf_spi_sclk net2677 spi_bits[87] _unconnected_166
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[88].dff_inst_dffe spi_bits[87] net2658
++ clknet_4_15_leaf_spi_sclk net2678 spi_bits[88] _unconnected_167
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[89].dff_inst_dffe spi_bits[88] net2658
++ clknet_4_15_leaf_spi_sclk net2677 spi_bits[89] _unconnected_168
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[8].dff_inst_dffe spi_bits[7] net2653
++ clknet_4_10_leaf_spi_sclk net2693 spi_bits[8] _unconnected_169
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[90].dff_inst_dffe spi_bits[89] net2658
++ clknet_4_15_leaf_spi_sclk net2677 spi_bits[90] _unconnected_170
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[91].dff_inst_dffe spi_bits[90] net2658
++ clknet_4_15_leaf_spi_sclk net2677 spi_bits[91] _unconnected_171
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[92].dff_inst_dffe net2469 net2648 clknet_4_8_leaf_spi_sclk
++ net2696 spi_bits[92] _unconnected_172 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[93].dff_inst_dffe net2757 net2643 clknet_4_6_leaf_spi_sclk
++ net2702 spi_bits[93] _unconnected_173 vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[94].dff_inst_dffe spi_bits[93] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[94] _unconnected_174
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[95].dff_inst_dffe spi_bits[94] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[95] _unconnected_175
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[96].dff_inst_dffe spi_bits[95] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[96] _unconnected_176
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[97].dff_inst_dffe spi_bits[96] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[97] _unconnected_177
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[98].dff_inst_dffe spi_bits[97] net2660
++ clknet_4_4_leaf_spi_sclk net2703 spi_bits[98] _unconnected_178
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[99].dff_inst_dffe spi_bits[98] net2643
++ clknet_4_6_leaf_spi_sclk net2702 spi_bits[99] _unconnected_179
++ vdd_d vss_d EDFCND2LVT
+Xspi_reg_shift_stage[9].dff_inst_dffe spi_bits[8] net2654
++ clknet_4_10_leaf_spi_sclk net2692 spi_bits[9] _unconnected_180
++ vdd_d vss_d EDFCND2LVT
 Xinput2 spi_cs_b net2 vdd_d vss_d BUFFD2LVT
-Xspi_reg_1144_ net2817 spi_bits[45] spi_reg_0450_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1145_ net2861 spi_bits[46] spi_reg_0451_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1146_ spi_reg_0450_ spi_reg_0451_ spi_reg_0120_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1147_ net2817 spi_bits[46] spi_reg_0452_ vdd_d
-+ vss_d CKND2D0LVT
-Xinput1 reset_b net1 vdd_d vss_d BUFFD2LVT
-Xspi_reg_1149_ net2861 spi_bits[47] spi_reg_0454_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1150_ spi_reg_0452_ spi_reg_0454_ spi_reg_0121_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1151_ net2817 spi_bits[47] spi_reg_0455_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1152_ net2862 spi_bits[48] spi_reg_0456_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1153_ spi_reg_0455_ spi_reg_0456_ spi_reg_0122_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1154_ spi_reg_0181_ spi_bits[48] spi_reg_0457_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1155_ net2862 spi_bits[49] spi_reg_0458_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1156_ spi_reg_0457_ spi_reg_0458_ spi_reg_0123_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1157_ net2837 net2681 spi_reg_0459_ vdd_d vss_d
-+ CKND2D0LVT
-Xspi_reg_1158_ net2867 spi_bits[4] spi_reg_0460_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1159_ spi_reg_0459_ spi_reg_0460_ spi_reg_0124_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1160_ spi_reg_0181_ spi_bits[49] spi_reg_0461_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1161_ net2862 spi_bits[50] spi_reg_0462_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1162_ spi_reg_0461_ spi_reg_0462_ spi_reg_0125_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1163_ net2817 spi_bits[50] spi_reg_0463_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1164_ net2862 spi_bits[51] spi_reg_0464_ vdd_d
-+ vss_d CKND2D0LVT
-Xspi_reg_1165_ spi_reg_0463_ spi_reg_0464_ spi_reg_0126_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_1166_ spi_reg_0181_ spi_bits[51] spi_reg_0465_
-+ vdd_d vss_d CKND2D0LVT
-Xspi_reg_shift_reg[0]$_DFFE_PN0N_ spi_reg_0000_ clknet_4_1_leaf_spi_sclk
-+ net2899 spi_bits[0] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[100]$_DFFE_PN0N_ spi_reg_0001_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[100] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[101]$_DFFE_PN0N_ spi_reg_0002_ clknet_4_5_leaf_spi_sclk
-+ net2896 spi_bits[101] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[102]$_DFFE_PN0N_ spi_reg_0003_ clknet_4_7_leaf_spi_sclk
-+ net2896 spi_bits[102] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[103]$_DFFE_PN0N_ spi_reg_0004_ clknet_4_5_leaf_spi_sclk
-+ net2896 spi_bits[103] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[104]$_DFFE_PN0N_ spi_reg_0005_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[104] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[105]$_DFFE_PN0N_ spi_reg_0006_ clknet_4_5_leaf_spi_sclk
-+ net2897 spi_bits[105] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[106]$_DFFE_PN0N_ spi_reg_0007_ clknet_4_12_leaf_spi_sclk
-+ net2893 spi_bits[106] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[107]$_DFFE_PN0N_ spi_reg_0008_ clknet_4_12_leaf_spi_sclk
-+ net2893 spi_bits[107] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[108]$_DFFE_PN0N_ spi_reg_0009_ clknet_4_12_leaf_spi_sclk
-+ net2892 spi_bits[108] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[109]$_DFFE_PN0N_ spi_reg_0010_ clknet_4_13_leaf_spi_sclk
-+ net2892 spi_bits[109] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[10]$_DFFE_PN0N_ spi_reg_0011_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[10] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[110]$_DFFE_PN0N_ spi_reg_0012_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[110] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[111]$_DFFE_PN0N_ spi_reg_0013_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[111] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[112]$_DFFE_PN0N_ spi_reg_0014_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[112] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[113]$_DFFE_PN0N_ spi_reg_0015_ clknet_4_15_leaf_spi_sclk
-+ net2879 spi_bits[113] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[114]$_DFFE_PN0N_ spi_reg_0016_ clknet_4_15_leaf_spi_sclk
-+ net2878 spi_bits[114] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[115]$_DFFE_PN0N_ spi_reg_0017_ clknet_4_14_leaf_spi_sclk
-+ net2878 spi_bits[115] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[116]$_DFFE_PN0N_ spi_reg_0018_ clknet_4_14_leaf_spi_sclk
-+ net2878 spi_bits[116] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[117]$_DFFE_PN0N_ spi_reg_0019_ clknet_4_14_leaf_spi_sclk
-+ net2878 spi_bits[117] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[118]$_DFFE_PN0N_ spi_reg_0020_ clknet_4_14_leaf_spi_sclk
-+ net2878 spi_bits[118] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[119]$_DFFE_PN0N_ spi_reg_0021_ clknet_4_14_leaf_spi_sclk
-+ net2870 spi_bits[119] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[11]$_DFFE_PN0N_ spi_reg_0022_ clknet_4_9_leaf_spi_sclk
-+ net2891 spi_bits[11] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[120]$_DFFE_PN0N_ spi_reg_0023_ clknet_4_6_leaf_spi_sclk
-+ net2875 spi_bits[120] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[121]$_DFFE_PN0N_ spi_reg_0024_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[121] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[122]$_DFFE_PN0N_ spi_reg_0025_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[122] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[123]$_DFFE_PN0N_ spi_reg_0026_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[123] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[124]$_DFFE_PN0N_ spi_reg_0027_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[124] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[125]$_DFFE_PN0N_ spi_reg_0028_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[125] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[126]$_DFFE_PN0N_ spi_reg_0029_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[126] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[127]$_DFFE_PN0N_ spi_reg_0030_ clknet_4_1_leaf_spi_sclk
-+ net2877 spi_bits[127] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[128]$_DFFE_PN0N_ spi_reg_0031_ clknet_4_6_leaf_spi_sclk
-+ net2875 spi_bits[128] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[129]$_DFFE_PN0N_ spi_reg_0032_ clknet_4_6_leaf_spi_sclk
-+ net2875 spi_bits[129] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[12]$_DFFE_PN0N_ spi_reg_0033_ clknet_4_12_leaf_spi_sclk
-+ net2893 spi_bits[12] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[130]$_DFFE_PN0N_ spi_reg_0034_ clknet_4_6_leaf_spi_sclk
-+ net2875 spi_bits[130] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[131]$_DFFE_PN0N_ spi_reg_0035_ clknet_4_6_leaf_spi_sclk
-+ net2875 spi_bits[131] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[132]$_DFFE_PN0N_ spi_reg_0036_ clknet_4_6_leaf_spi_sclk
-+ net2874 spi_bits[132] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[133]$_DFFE_PN0N_ spi_reg_0037_ clknet_4_6_leaf_spi_sclk
-+ net2874 spi_bits[133] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[134]$_DFFE_PN0N_ spi_reg_0038_ clknet_4_6_leaf_spi_sclk
-+ net2874 spi_bits[134] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[135]$_DFFE_PN0N_ spi_reg_0039_ clknet_4_8_leaf_spi_sclk
-+ net2873 spi_bits[135] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[136]$_DFFE_PN0N_ spi_reg_0040_ clknet_4_8_leaf_spi_sclk
-+ net2872 spi_bits[136] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[137]$_DFFE_PN0N_ spi_reg_0041_ clknet_4_8_leaf_spi_sclk
-+ net2873 spi_bits[137] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[138]$_DFFE_PN0N_ spi_reg_0042_ clknet_4_8_leaf_spi_sclk
-+ net2872 spi_bits[138] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[139]$_DFFE_PN0N_ spi_reg_0043_ clknet_4_9_leaf_spi_sclk
-+ net2872 spi_bits[139] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[13]$_DFFE_PN0N_ spi_reg_0044_ clknet_4_8_leaf_spi_sclk
-+ net2893 spi_bits[13] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[140]$_DFFE_PN0N_ spi_reg_0045_ clknet_4_12_leaf_spi_sclk
-+ net2872 spi_bits[140] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[141]$_DFFE_PN0N_ spi_reg_0046_ clknet_4_14_leaf_spi_sclk
-+ net2870 spi_bits[141] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[142]$_DFFE_PN0N_ spi_reg_0047_ clknet_4_14_leaf_spi_sclk
-+ net2870 spi_bits[142] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[143]$_DFFE_PN0N_ spi_reg_0048_ clknet_4_14_leaf_spi_sclk
-+ net1 spi_bits[143] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[144]$_DFFE_PN0N_ spi_reg_0049_ clknet_4_14_leaf_spi_sclk
-+ net1 spi_bits[144] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[145]$_DFFE_PN0N_ spi_reg_0050_ clknet_4_14_leaf_spi_sclk
-+ net1 spi_bits[145] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[146]$_DFFE_PN0N_ spi_reg_0051_ clknet_4_14_leaf_spi_sclk
-+ net1 spi_bits[146] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[147]$_DFFE_PN0N_ spi_reg_0052_ clknet_4_11_leaf_spi_sclk
-+ net2870 spi_bits[147] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[148]$_DFFE_PN0N_ spi_reg_0053_ net3088
-+ net2889 spi_bits[148] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[149]$_DFFE_PN0N_ spi_reg_0054_ net3088
-+ net2889 spi_bits[149] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[14]$_DFFE_PN0N_ spi_reg_0055_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[14] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[150]$_DFFE_PN0N_ spi_reg_0056_ net3088
-+ net2890 spi_bits[150] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[151]$_DFFE_PN0N_ spi_reg_0057_ net3088
-+ net2890 spi_bits[151] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[152]$_DFFE_PN0N_ spi_reg_0058_ clknet_4_3_leaf_spi_sclk
-+ net2941 spi_bits[152] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[153]$_DFFE_PN0N_ spi_reg_0059_ clknet_4_3_leaf_spi_sclk
-+ net2941 spi_bits[153] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[154]$_DFFE_PN0N_ spi_reg_0060_ clknet_4_3_leaf_spi_sclk
-+ net2941 spi_bits[154] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[155]$_DFFE_PN0N_ spi_reg_0061_ clknet_4_0_leaf_spi_sclk
-+ net2888 spi_bits[155] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[156]$_DFFE_PN0N_ spi_reg_0062_ clknet_4_0_leaf_spi_sclk
-+ net2888 spi_bits[156] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[157]$_DFFE_PN0N_ spi_reg_0063_ clknet_4_0_leaf_spi_sclk
-+ net2888 spi_bits[157] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[158]$_DFFE_PN0N_ spi_reg_0064_ clknet_4_6_leaf_spi_sclk
-+ net3090 spi_bits[158] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[159]$_DFFE_PN0N_ spi_reg_0065_ clknet_4_6_leaf_spi_sclk
-+ net3090 spi_bits[159] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[15]$_DFFE_PN0N_ spi_reg_0066_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[15] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[160]$_DFFE_PN0N_ spi_reg_0067_ clknet_4_6_leaf_spi_sclk
-+ net2887 spi_bits[160] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[161]$_DFFE_PN0N_ spi_reg_0068_ clknet_4_6_leaf_spi_sclk
-+ net2887 spi_bits[161] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[162]$_DFFE_PN0N_ spi_reg_0069_ clknet_4_8_leaf_spi_sclk
-+ net2886 spi_bits[162] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[163]$_DFFE_PN0N_ spi_reg_0070_ clknet_4_8_leaf_spi_sclk
-+ net2886 spi_bits[163] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[164]$_DFFE_PN0N_ spi_reg_0071_ clknet_4_9_leaf_spi_sclk
-+ net2946 spi_bits[164] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[165]$_DFFE_PN0N_ spi_reg_0072_ clknet_4_10_leaf_spi_sclk
-+ net2946 spi_bits[165] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[166]$_DFFE_PN0N_ spi_reg_0073_ clknet_4_10_leaf_spi_sclk
-+ net2946 spi_bits[166] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[167]$_DFFE_PN0N_ spi_reg_0074_ clknet_4_15_leaf_spi_sclk
-+ net2945 spi_bits[167] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[168]$_DFFE_PN0N_ spi_reg_0075_ clknet_4_15_leaf_spi_sclk
-+ net2945 spi_bits[168] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[169]$_DFFE_PN0N_ spi_reg_0076_ clknet_4_15_leaf_spi_sclk
-+ net2883 spi_bits[169] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[16]$_DFFE_PN0N_ spi_reg_0077_ clknet_4_12_leaf_spi_sclk
-+ net2893 spi_bits[16] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[170]$_DFFE_PN0N_ spi_reg_0078_ clknet_4_15_leaf_spi_sclk
-+ net2883 spi_bits[170] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[171]$_DFFE_PN0N_ spi_reg_0079_ clknet_4_10_leaf_spi_sclk
-+ net2883 spi_bits[171] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[172]$_DFFE_PN0N_ spi_reg_0080_ clknet_4_10_leaf_spi_sclk
-+ net2883 spi_bits[172] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[173]$_DFFE_PN0N_ spi_reg_0081_ clknet_4_10_leaf_spi_sclk
-+ net2883 spi_bits[173] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[174]$_DFFE_PN0N_ net2598 clknet_4_10_leaf_spi_sclk
-+ net2882 spi_bits[174] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[175]$_DFFE_PN0N_ net2597 clknet_4_11_leaf_spi_sclk
-+ net1 spi_bits[175] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[176]$_DFFE_PN0N_ spi_reg_0084_ clknet_4_9_leaf_spi_sclk
-+ net2872 spi_bits[176] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[177]$_DFFE_PN0N_ spi_reg_0085_ clknet_4_8_leaf_spi_sclk
-+ net2893 spi_bits[177] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[178]$_DFFE_PN0N_ spi_reg_0086_ clknet_4_8_leaf_spi_sclk
-+ net2894 spi_bits[178] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[179]$_DFFE_PN0N_ spi_reg_0087_ clknet_4_6_leaf_spi_sclk
-+ net2895 spi_bits[179] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[17]$_DFFE_PN0N_ spi_reg_0088_ clknet_4_13_leaf_spi_sclk
-+ net2894 spi_bits[17] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[18]$_DFFE_PN0N_ spi_reg_0089_ clknet_4_13_leaf_spi_sclk
-+ net2895 spi_bits[18] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[19]$_DFFE_PN0N_ spi_reg_0090_ clknet_4_12_leaf_spi_sclk
-+ net2894 spi_bits[19] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[1]$_DFFE_PN0N_ spi_reg_0091_ clknet_4_7_leaf_spi_sclk
-+ net2894 spi_bits[1] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[20]$_DFFE_PN0N_ spi_reg_0092_ clknet_4_13_leaf_spi_sclk
-+ net2894 spi_bits[20] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[21]$_DFFE_PN0N_ spi_reg_0093_ clknet_4_9_leaf_spi_sclk
-+ net2892 spi_bits[21] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[22]$_DFFE_PN0N_ spi_reg_0094_ clknet_4_13_leaf_spi_sclk
-+ net2893 spi_bits[22] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[23]$_DFFE_PN0N_ spi_reg_0095_ clknet_4_13_leaf_spi_sclk
-+ net2893 spi_bits[23] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[24]$_DFFE_PN0N_ spi_reg_0096_ clknet_4_12_leaf_spi_sclk
-+ net2895 spi_bits[24] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[25]$_DFFE_PN0N_ spi_reg_0097_ clknet_4_12_leaf_spi_sclk
-+ net2894 spi_bits[25] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[26]$_DFFE_PN0N_ spi_reg_0098_ clknet_4_12_leaf_spi_sclk
-+ net2894 spi_bits[26] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[27]$_DFFE_PN0N_ spi_reg_0099_ clknet_4_9_leaf_spi_sclk
-+ net2891 spi_bits[27] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[28]$_DFFE_PN0N_ spi_reg_0100_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[28] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[29]$_DFFE_PN0N_ spi_reg_0101_ clknet_4_14_leaf_spi_sclk
-+ net2879 spi_bits[29] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[2]$_DFFE_PN0N_ spi_reg_0102_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[2] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[30]$_DFFE_PN0N_ spi_reg_0103_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[30] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[31]$_DFFE_PN0N_ spi_reg_0104_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[31] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[32]$_DFFE_PN0N_ spi_reg_0105_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[32] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[33]$_DFFE_PN0N_ spi_reg_0106_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[33] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[34]$_DFFE_PN0N_ spi_reg_0107_ clknet_4_2_leaf_spi_sclk
-+ net2898 spi_bits[34] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[35]$_DFFE_PN0N_ spi_reg_0108_ clknet_4_2_leaf_spi_sclk
-+ net2899 spi_bits[35] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[36]$_DFFE_PN0N_ spi_reg_0109_ clknet_4_2_leaf_spi_sclk
-+ net2899 spi_bits[36] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[37]$_DFFE_PN0N_ spi_reg_0110_ clknet_4_2_leaf_spi_sclk
-+ net2898 spi_bits[37] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[38]$_DFFE_PN0N_ spi_reg_0111_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[38] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[39]$_DFFE_PN0N_ spi_reg_0112_ clknet_4_7_leaf_spi_sclk
-+ net2901 spi_bits[39] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[3]$_DFFE_PN0N_ spi_reg_0113_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[3] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[40]$_DFFE_PN0N_ spi_reg_0114_ clknet_4_7_leaf_spi_sclk
-+ net2896 spi_bits[40] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[41]$_DFFE_PN0N_ spi_reg_0115_ clknet_4_4_leaf_spi_sclk
-+ net2898 spi_bits[41] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[42]$_DFFE_PN0N_ spi_reg_0116_ clknet_4_2_leaf_spi_sclk
-+ net2898 spi_bits[42] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[43]$_DFFE_PN0N_ spi_reg_0117_ clknet_4_1_leaf_spi_sclk
-+ net2899 spi_bits[43] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[44]$_DFFE_PN0N_ spi_reg_0118_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[44] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[45]$_DFFE_PN0N_ spi_reg_0119_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[45] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[46]$_DFFE_PN0N_ spi_reg_0120_ clknet_4_4_leaf_spi_sclk
-+ net2896 spi_bits[46] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[47]$_DFFE_PN0N_ spi_reg_0121_ clknet_4_4_leaf_spi_sclk
-+ net2896 spi_bits[47] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[48]$_DFFE_PN0N_ spi_reg_0122_ clknet_4_7_leaf_spi_sclk
-+ net2896 spi_bits[48] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[49]$_DFFE_PN0N_ spi_reg_0123_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[49] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[4]$_DFFE_PN0N_ spi_reg_0124_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[4] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[50]$_DFFE_PN0N_ spi_reg_0125_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[50] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[51]$_DFFE_PN0N_ spi_reg_0126_ clknet_4_7_leaf_spi_sclk
-+ net2896 spi_bits[51] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[52]$_DFFE_PN0N_ spi_reg_0127_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[52] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[53]$_DFFE_PN0N_ spi_reg_0128_ clknet_4_12_leaf_spi_sclk
-+ net2894 spi_bits[53] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[54]$_DFFE_PN0N_ spi_reg_0129_ clknet_4_7_leaf_spi_sclk
-+ net2895 spi_bits[54] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[55]$_DFFE_PN0N_ spi_reg_0130_ clknet_4_4_leaf_spi_sclk
-+ net2898 spi_bits[55] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[56]$_DFFE_PN0N_ spi_reg_0131_ clknet_4_4_leaf_spi_sclk
-+ net2898 spi_bits[56] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[57]$_DFFE_PN0N_ spi_reg_0132_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[57] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[58]$_DFFE_PN0N_ spi_reg_0133_ clknet_4_7_leaf_spi_sclk
-+ net2896 spi_bits[58] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[59]$_DFFE_PN0N_ spi_reg_0134_ clknet_4_7_leaf_spi_sclk
-+ net2901 spi_bits[59] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[5]$_DFFE_PN0N_ spi_reg_0135_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[5] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[60]$_DFFE_PN0N_ spi_reg_0136_ clknet_4_7_leaf_spi_sclk
-+ net2901 spi_bits[60] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[61]$_DFFE_PN0N_ spi_reg_0137_ clknet_4_2_leaf_spi_sclk
-+ net2898 spi_bits[61] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[62]$_DFFE_PN0N_ spi_reg_0138_ clknet_4_2_leaf_spi_sclk
-+ net2898 spi_bits[62] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[63]$_DFFE_PN0N_ spi_reg_0139_ clknet_4_2_leaf_spi_sclk
-+ net2899 spi_bits[63] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_shift_reg[64]$_DFFE_PN0N_ spi_reg_0140_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[64] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[65]$_DFFE_PN0N_ spi_reg_0141_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[65] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[66]$_DFFE_PN0N_ spi_reg_0142_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[66] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[67]$_DFFE_PN0N_ spi_reg_0143_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[67] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[68]$_DFFE_PN0N_ spi_reg_0144_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[68] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[69]$_DFFE_PN0N_ spi_reg_0145_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[69] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[6]$_DFFE_PN0N_ spi_reg_0146_ clknet_4_13_leaf_spi_sclk
-+ net2894 spi_bits[6] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[70]$_DFFE_PN0N_ spi_reg_0147_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[70] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[71]$_DFFE_PN0N_ spi_reg_0148_ clknet_4_2_leaf_spi_sclk
-+ net2899 spi_bits[71] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[72]$_DFFE_PN0N_ spi_reg_0149_ clknet_4_5_leaf_spi_sclk
-+ net2901 spi_bits[72] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[73]$_DFFE_PN0N_ spi_reg_0150_ clknet_4_5_leaf_spi_sclk
-+ net2901 spi_bits[73] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[74]$_DFFE_PN0N_ spi_reg_0151_ clknet_4_5_leaf_spi_sclk
-+ net2901 spi_bits[74] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[75]$_DFFE_PN0N_ spi_reg_0152_ clknet_4_5_leaf_spi_sclk
-+ net2901 spi_bits[75] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[76]$_DFFE_PN0N_ spi_reg_0153_ clknet_4_7_leaf_spi_sclk
-+ net2901 spi_bits[76] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[77]$_DFFE_PN0N_ spi_reg_0154_ clknet_4_5_leaf_spi_sclk
-+ net2901 spi_bits[77] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[78]$_DFFE_PN0N_ spi_reg_0155_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[78] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[79]$_DFFE_PN0N_ spi_reg_0156_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[79] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[7]$_DFFE_PN0N_ spi_reg_0157_ clknet_4_12_leaf_spi_sclk
-+ net2893 spi_bits[7] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[80]$_DFFE_PN0N_ spi_reg_0158_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[80] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[81]$_DFFE_PN0N_ spi_reg_0159_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[81] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[82]$_DFFE_PN0N_ spi_reg_0160_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[82] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[83]$_DFFE_PN0N_ spi_reg_0161_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[83] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[84]$_DFFE_PN0N_ spi_reg_0162_ clknet_4_13_leaf_spi_sclk
-+ net2902 spi_bits[84] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[85]$_DFFE_PN0N_ spi_reg_0163_ clknet_4_15_leaf_spi_sclk
-+ net2879 spi_bits[85] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[86]$_DFFE_PN0N_ spi_reg_0164_ clknet_4_15_leaf_spi_sclk
-+ net2879 spi_bits[86] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[87]$_DFFE_PN0N_ spi_reg_0165_ clknet_4_15_leaf_spi_sclk
-+ net2878 spi_bits[87] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[88]$_DFFE_PN0N_ spi_reg_0166_ clknet_4_15_leaf_spi_sclk
-+ net2878 spi_bits[88] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[89]$_DFFE_PN0N_ spi_reg_0167_ clknet_4_15_leaf_spi_sclk
-+ net2878 spi_bits[89] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[8]$_DFFE_PN0N_ spi_reg_0168_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[8] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[90]$_DFFE_PN0N_ spi_reg_0169_ clknet_4_15_leaf_spi_sclk
-+ net2879 spi_bits[90] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[91]$_DFFE_PN0N_ spi_reg_0170_ clknet_4_15_leaf_spi_sclk
-+ net2879 spi_bits[91] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[92]$_DFFE_PN0N_ spi_reg_0171_ clknet_4_2_leaf_spi_sclk
-+ net2899 spi_bits[92] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[93]$_DFFE_PN0N_ spi_reg_0172_ clknet_4_1_leaf_spi_sclk
-+ net2900 spi_bits[93] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[94]$_DFFE_PN0N_ spi_reg_0173_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[94] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[95]$_DFFE_PN0N_ spi_reg_0174_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[95] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[96]$_DFFE_PN0N_ spi_reg_0175_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[96] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[97]$_DFFE_PN0N_ spi_reg_0176_ clknet_4_3_leaf_spi_sclk
-+ net2900 spi_bits[97] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[98]$_DFFE_PN0N_ spi_reg_0177_ clknet_4_3_leaf_spi_sclk
-+ net2899 spi_bits[98] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[99]$_DFFE_PN0N_ spi_reg_0178_ clknet_4_4_leaf_spi_sclk
-+ net2897 spi_bits[99] vdd_d vss_d DFCNQD1LVT
-Xspi_reg_shift_reg[9]$_DFFE_PN0N_ spi_reg_0179_ clknet_4_11_leaf_spi_sclk
-+ net2891 spi_bits[9] vdd_d vss_d DFCNQD4LVT
-Xspi_reg_spi_sdo_reg$_DFFE_NN0N_ spi_reg_0180_ clknet_4_6_leaf_spi_sclk
-+ net2875 net5 spi_reg_0583_ vdd_d vss_d DFNCND1LVT
-Xplace2648 spi_bits[58] net2648 vdd_d vss_d BUFFD6LVT
-Xplace2649 spi_bits[58] net2649 vdd_d vss_d BUFFD6LVT
-Xplace2652 spi_bits[56] net2652 vdd_d vss_d CKBD16LVT
-Xplace2650 spi_bits[57] net2650 vdd_d vss_d BUFFD6LVT
-Xplace2651 spi_bits[57] net2651 vdd_d vss_d BUFFD6LVT
-Xplace2653 spi_bits[55] net2653 vdd_d vss_d CKBD16LVT
-Xplace2655 spi_bits[54] net2655 vdd_d vss_d BUFFD6LVT
-Xplace2654 spi_bits[54] net2654 vdd_d vss_d BUFFD6LVT
-Xplace2656 spi_bits[53] net2656 vdd_d vss_d BUFFD6LVT
-Xplace2657 spi_bits[53] net2657 vdd_d vss_d BUFFD6LVT
-Xplace2661 spi_bits[51] net2661 vdd_d vss_d BUFFD6LVT
-Xplace2658 spi_bits[52] net2658 vdd_d vss_d BUFFD6LVT
-Xplace2659 spi_bits[52] net2659 vdd_d vss_d BUFFD6LVT
-Xplace2660 spi_bits[51] net2660 vdd_d vss_d BUFFD6LVT
-Xplace2663 spi_bits[50] net2663 vdd_d vss_d BUFFD6LVT
-Xplace2662 spi_bits[50] net2662 vdd_d vss_d BUFFD6LVT
-Xplace2664 spi_bits[4] net2664 vdd_d vss_d CKBD2LVT
-Xplace2666 net2664 net2666 vdd_d vss_d CKBD2LVT
-Xplace2665 net2664 net2665 vdd_d vss_d BUFFD6LVT
-Xplace2669 spi_bits[48] net2669 vdd_d vss_d BUFFD6LVT
-Xplace2670 spi_bits[48] net2670 vdd_d vss_d BUFFD6LVT
-Xplace2671 spi_bits[47] net2671 vdd_d vss_d CKBD16LVT
-Xplace2672 spi_bits[46] net2672 vdd_d vss_d CKBD16LVT
-Xplace2673 spi_bits[45] net2673 vdd_d vss_d CKBD16LVT
-Xplace2674 spi_bits[44] net2674 vdd_d vss_d CKBD16LVT
-Xplace2677 spi_bits[41] net2677 vdd_d vss_d CKBD16LVT
-Xplace2676 spi_bits[42] net2676 vdd_d vss_d CKBD16LVT
-Xplace2678 spi_bits[40] net2678 vdd_d vss_d CKBD2LVT
-Xplace2680 net2678 net2680 vdd_d vss_d BUFFD6LVT
-Xplace2679 net2678 net2679 vdd_d vss_d BUFFD6LVT
-Xplace2686 spi_bits[38] net2686 vdd_d vss_d CKBD16LVT
-Xplace2687 spi_bits[37] net2687 vdd_d vss_d CKBD16LVT
-Xplace2688 spi_bits[36] net2688 vdd_d vss_d CKBD16LVT
-Xplace2689 spi_bits[35] net2689 vdd_d vss_d CKBD16LVT
-Xplace2690 spi_bits[34] net2690 vdd_d vss_d CKBD16LVT
-Xplace2691 spi_bits[33] net2691 vdd_d vss_d BUFFD6LVT
-Xplace2692 spi_bits[33] net2692 vdd_d vss_d BUFFD6LVT
-Xplace2693 spi_bits[32] net2693 vdd_d vss_d BUFFD6LVT
-Xplace2694 spi_bits[32] net2694 vdd_d vss_d BUFFD6LVT
-Xplace2695 spi_bits[31] net2695 vdd_d vss_d BUFFD6LVT
-Xplace2696 spi_bits[31] net2696 vdd_d vss_d BUFFD6LVT
-Xplace2697 spi_bits[30] net2697 vdd_d vss_d CKBD16LVT
-Xplace2698 spi_bits[2] net2698 vdd_d vss_d BUFFD6LVT
-Xplace2699 spi_bits[2] net2699 vdd_d vss_d BUFFD6LVT
-Xplace2700 spi_bits[29] net2700 vdd_d vss_d BUFFD6LVT
-Xplace2701 spi_bits[29] net2701 vdd_d vss_d CKBD2LVT
-Xplace2702 spi_bits[28] net2702 vdd_d vss_d BUFFD6LVT
-Xplace2703 spi_bits[28] net2703 vdd_d vss_d CKBD2LVT
-Xplace2706 spi_bits[27] net2706 vdd_d vss_d CKBD2LVT
-Xplace2704 spi_bits[27] net2704 vdd_d vss_d CKBD2LVT
-Xplace2705 spi_bits[27] net2705 vdd_d vss_d BUFFD6LVT
-Xplace2709 spi_bits[25] net2709 vdd_d vss_d BUFFD6LVT
-Xplace2710 spi_bits[25] net2710 vdd_d vss_d BUFFD6LVT
-Xplace2708 spi_bits[26] net2708 vdd_d vss_d BUFFD6LVT
-Xplace2707 spi_bits[26] net2707 vdd_d vss_d BUFFD6LVT
-Xplace2711 spi_bits[24] net2711 vdd_d vss_d BUFFD6LVT
-Xplace2712 spi_bits[24] net2712 vdd_d vss_d BUFFD6LVT
-Xplace2713 spi_bits[23] net2713 vdd_d vss_d BUFFD6LVT
-Xplace2714 spi_bits[23] net2714 vdd_d vss_d BUFFD6LVT
-Xplace2715 spi_bits[22] net2715 vdd_d vss_d BUFFD6LVT
-Xplace2716 spi_bits[22] net2716 vdd_d vss_d BUFFD6LVT
-Xplace2719 spi_bits[20] net2719 vdd_d vss_d BUFFD6LVT
-Xplace2720 spi_bits[20] net2720 vdd_d vss_d BUFFD6LVT
-Xplace2717 spi_bits[21] net2717 vdd_d vss_d BUFFD6LVT
-Xplace2718 spi_bits[21] net2718 vdd_d vss_d BUFFD6LVT
-Xplace2721 spi_bits[1] net2721 vdd_d vss_d BUFFD6LVT
-Xplace2722 spi_bits[1] net2722 vdd_d vss_d BUFFD6LVT
-Xplace2723 spi_bits[19] net2723 vdd_d vss_d BUFFD6LVT
-Xplace2724 spi_bits[19] net2724 vdd_d vss_d BUFFD6LVT
-Xplace2725 spi_bits[18] net2725 vdd_d vss_d BUFFD6LVT
-Xplace2726 spi_bits[18] net2726 vdd_d vss_d BUFFD6LVT
-Xplace2727 spi_bits[17] net2727 vdd_d vss_d BUFFD6LVT
-Xplace2728 spi_bits[17] net2728 vdd_d vss_d BUFFD6LVT
-Xplace2742 spi_bits[161] net2742 vdd_d vss_d CKBD2LVT
-Xplace2743 spi_bits[160] net2743 vdd_d vss_d CKBD2LVT
-Xplace2744 spi_bits[15] net2744 vdd_d vss_d CKBD16LVT
-Xplace2735 spi_bits[174] net2735 vdd_d vss_d CKBD2LVT
-Xplace2738 spi_bits[16] net2738 vdd_d vss_d BUFFD6LVT
-Xplace2739 spi_bits[16] net2739 vdd_d vss_d BUFFD6LVT
-Xplace2740 spi_bits[166] net2740 vdd_d vss_d CKBD2LVT
-Xplace2741 net2974 net2741 vdd_d vss_d CKBD2LVT
-Xload_slew3095 net2991 net3095 vdd_d vss_d CKBD4LVT
-Xload_slew3094 net2785 net3094 vdd_d vss_d CKBD3LVT
-Xplace2745 net2988 net2745 vdd_d vss_d CKBD2LVT
-Xplace2746 spi_bits[14] net2746 vdd_d vss_d CKBD16LVT
-Xplace2747 spi_bits[148] net2747 vdd_d vss_d CKBD2LVT
-Xwire3099 net3018 net3099 vdd_d vss_d BUFFD3LVT
-Xwire3098 net3012 net3098 vdd_d vss_d CKBD4LVT
-Xwire3076 clknet_1_1_leaf_seq_logic net3076 vdd_d vss_d CKBD4LVT
-Xwire3097 net3024 net3097 vdd_d vss_d BUFFD3LVT
-Xwire3096 net3009 net3096 vdd_d vss_d BUFFD4LVT
-Xplace2751 net2750 net2751 vdd_d vss_d CKBD2LVT
-Xwire3101 adc_comparator_out[7] net3101 vdd_d vss_d CKBD4LVT
-Xwire3100 net3017 net3100 vdd_d vss_d CKBD3LVT
-Xwire3102 adc_comparator_out[6] net3102 vdd_d vss_d CKBD4LVT
-Xplace2750 net2749 net2750 vdd_d vss_d CKBD2LVT
-Xplace2749 net2748 net2749 vdd_d vss_d BUFFD2LVT
-Xload_slew3093 net2953 net3093 vdd_d vss_d CKBD1LVT
-Xplace2752 net2750 net2752 vdd_d vss_d CKBD2LVT
-Xplace2762 spi_bits[139] net2762 vdd_d vss_d CKBD2LVT
-Xwire3058 net3059 net3058 vdd_d vss_d CKBD4LVT
-Xwire3057 seq_comp net3057 vdd_d vss_d CKBD6LVT
-Xwire3060 clknet_1_1_leaf_seq_comp net3060 vdd_d vss_d CKBD4LVT
-Xwire3059 net3060 net3059 vdd_d vss_d CKBD3LVT
-Xplace2760 net2759 net2760 vdd_d vss_d CKBD2LVT
-Xwire3063 clknet_1_1_leaf_seq_comp net3063 vdd_d vss_d CKBD4LVT
-Xplace2761 spi_bits[13] net2761 vdd_d vss_d CKBD16LVT
-Xwire3062 net3063 net3062 vdd_d vss_d CKBD4LVT
-Xwire3061 net3063 net3061 vdd_d vss_d BUFFD3LVT
-Xwire3074 net3075 net3074 vdd_d vss_d CKBD4LVT
-Xwire3073 seq_logic net3073 vdd_d vss_d BUFFD4LVT
-Xplace2759 spi_bits[140] net2759 vdd_d vss_d CKBD2LVT
-Xwire3027 seq_init net3027 vdd_d vss_d CKBD6LVT
-Xwire3066 clknet_1_0_leaf_seq_comp net3066 vdd_d vss_d CKBD4LVT
-Xwire3028 net3029 net3028 vdd_d vss_d CKBD4LVT
-Xwire3067 net3069 net3067 vdd_d vss_d CKBD4LVT
-Xwire3064 net3065 net3064 vdd_d vss_d CKBD4LVT
-Xwire3069 clknet_1_0_leaf_seq_comp net3069 vdd_d vss_d CKBD4LVT
-Xwire3065 net3066 net3065 vdd_d vss_d CKBD3LVT
-Xclkload5 clknet_4_10_leaf_spi_sclk _unconnected_0 vdd_d
-+ vss_d BUFFD12LVT
-Xclkload6 clknet_4_12_leaf_spi_sclk _unconnected_1 vdd_d
+Xinput3 spi_sdi net3 vdd_d vss_d BUFFD2LVT
+Xoutput4 net4 comp_out vdd_d vss_d BUFFD2LVT
+Xplace2467 net2757 net2467 vdd_d vss_d CKBD2LVT
+Xplace2469 net2468 net2469 vdd_d vss_d CKBD2LVT
+Xplace2486 spi_bits[58] net2486 vdd_d vss_d BUFFD6LVT
+Xplace2487 spi_bits[58] net2487 vdd_d vss_d BUFFD6LVT
+Xplace2488 spi_bits[57] net2488 vdd_d vss_d BUFFD6LVT
+Xplace2489 spi_bits[57] net2489 vdd_d vss_d BUFFD6LVT
+Xplace2490 spi_bits[56] net2490 vdd_d vss_d BUFFD6LVT
+Xplace2491 spi_bits[56] net2491 vdd_d vss_d BUFFD6LVT
+Xplace2492 spi_bits[55] net2492 vdd_d vss_d BUFFD6LVT
+Xplace2493 spi_bits[55] net2493 vdd_d vss_d BUFFD6LVT
+Xplace2494 spi_bits[54] net2494 vdd_d vss_d BUFFD6LVT
+Xplace2495 spi_bits[54] net2495 vdd_d vss_d BUFFD6LVT
+Xplace2496 spi_bits[53] net2496 vdd_d vss_d BUFFD6LVT
+Xplace2497 spi_bits[53] net2497 vdd_d vss_d BUFFD6LVT
+Xplace2485 spi_bits[59] net2485 vdd_d vss_d BUFFD6LVT
+Xplace2498 spi_bits[52] net2498 vdd_d vss_d BUFFD6LVT
+Xplace2499 spi_bits[52] net2499 vdd_d vss_d BUFFD6LVT
+Xplace2500 spi_bits[51] net2500 vdd_d vss_d BUFFD6LVT
+Xplace2501 spi_bits[51] net2501 vdd_d vss_d BUFFD6LVT
+Xplace2502 spi_bits[50] net2502 vdd_d vss_d BUFFD6LVT
+Xplace2503 spi_bits[50] net2503 vdd_d vss_d BUFFD6LVT
+Xplace2504 spi_bits[4] net2504 vdd_d vss_d CKBD16LVT
+Xplace2507 spi_bits[48] net2507 vdd_d vss_d BUFFD6LVT
+Xplace2508 spi_bits[48] net2508 vdd_d vss_d BUFFD6LVT
+Xplace2505 spi_bits[49] net2505 vdd_d vss_d BUFFD6LVT
+Xplace2506 spi_bits[49] net2506 vdd_d vss_d BUFFD6LVT
+Xplace2509 spi_bits[47] net2509 vdd_d vss_d CKBD16LVT
+Xplace2510 spi_bits[46] net2510 vdd_d vss_d CKBD16LVT
+Xplace2511 spi_bits[45] net2511 vdd_d vss_d CKBD16LVT
+Xplace2512 spi_bits[44] net2512 vdd_d vss_d CKBD16LVT
+Xplace2513 spi_bits[43] net2513 vdd_d vss_d CKBD16LVT
+Xplace2514 spi_bits[42] net2514 vdd_d vss_d CKBD16LVT
+Xplace2515 spi_bits[41] net2515 vdd_d vss_d CKBD16LVT
+Xplace2516 spi_bits[40] net2516 vdd_d vss_d CKBD16LVT
+Xplace2517 spi_bits[3] net2517 vdd_d vss_d CKBD16LVT
+Xplace2519 spi_bits[39] net2519 vdd_d vss_d BUFFD6LVT
+Xplace2518 spi_bits[39] net2518 vdd_d vss_d BUFFD6LVT
+Xplace2520 spi_bits[38] net2520 vdd_d vss_d CKBD16LVT
+Xplace2521 spi_bits[37] net2521 vdd_d vss_d CKBD16LVT
+Xplace2522 spi_bits[36] net2522 vdd_d vss_d CKBD16LVT
+Xplace2523 spi_bits[35] net2523 vdd_d vss_d CKBD16LVT
+Xplace2524 spi_bits[34] net2524 vdd_d vss_d BUFFD6LVT
+Xplace2525 spi_bits[34] net2525 vdd_d vss_d BUFFD6LVT
+Xplace2526 spi_bits[33] net2526 vdd_d vss_d BUFFD6LVT
+Xplace2527 spi_bits[33] net2527 vdd_d vss_d BUFFD6LVT
+Xplace2528 spi_bits[32] net2528 vdd_d vss_d CKBD16LVT
+Xplace2529 spi_bits[31] net2529 vdd_d vss_d CKBD16LVT
+Xplace2532 spi_bits[2] net2532 vdd_d vss_d BUFFD6LVT
+Xplace2533 spi_bits[2] net2533 vdd_d vss_d BUFFD6LVT
+Xplace2530 spi_bits[30] net2530 vdd_d vss_d BUFFD6LVT
+Xplace2531 spi_bits[30] net2531 vdd_d vss_d BUFFD6LVT
+Xplace2534 spi_bits[29] net2534 vdd_d vss_d CKBD2LVT
+Xplace2536 net2534 net2536 vdd_d vss_d CKBD2LVT
+Xplace2535 net2534 net2535 vdd_d vss_d BUFFD6LVT
+Xplace2537 spi_bits[28] net2537 vdd_d vss_d BUFFD6LVT
+Xplace2538 spi_bits[28] net2538 vdd_d vss_d CKBD2LVT
+Xplace2541 spi_bits[26] net2541 vdd_d vss_d BUFFD6LVT
+Xplace2542 spi_bits[26] net2542 vdd_d vss_d BUFFD6LVT
+Xplace2544 spi_bits[25] net2544 vdd_d vss_d BUFFD6LVT
+Xplace2546 spi_bits[24] net2546 vdd_d vss_d BUFFD6LVT
+Xplace2543 spi_bits[25] net2543 vdd_d vss_d BUFFD6LVT
+Xplace2545 spi_bits[24] net2545 vdd_d vss_d BUFFD6LVT
+Xplace2547 spi_bits[23] net2547 vdd_d vss_d BUFFD6LVT
+Xplace2548 spi_bits[23] net2548 vdd_d vss_d BUFFD6LVT
+Xplace2549 spi_bits[22] net2549 vdd_d vss_d BUFFD6LVT
+Xplace2550 spi_bits[22] net2550 vdd_d vss_d BUFFD6LVT
+Xplace2551 spi_bits[21] net2551 vdd_d vss_d BUFFD6LVT
+Xplace2552 spi_bits[21] net2552 vdd_d vss_d BUFFD6LVT
+Xplace2554 spi_bits[20] net2554 vdd_d vss_d BUFFD6LVT
+Xplace2553 spi_bits[20] net2553 vdd_d vss_d BUFFD6LVT
+Xplace2555 spi_bits[1] net2555 vdd_d vss_d BUFFD6LVT
+Xplace2556 spi_bits[1] net2556 vdd_d vss_d BUFFD6LVT
+Xplace2557 spi_bits[19] net2557 vdd_d vss_d BUFFD6LVT
+Xplace2558 spi_bits[19] net2558 vdd_d vss_d BUFFD6LVT
+Xplace2559 spi_bits[18] net2559 vdd_d vss_d BUFFD6LVT
+Xplace2560 spi_bits[18] net2560 vdd_d vss_d BUFFD6LVT
+Xplace2561 spi_bits[17] net2561 vdd_d vss_d BUFFD6LVT
+Xplace2562 spi_bits[17] net2562 vdd_d vss_d BUFFD6LVT
+Xplace2573 spi_bits[15] net2573 vdd_d vss_d CKBD16LVT
+Xplace2577 net2576 net2577 vdd_d vss_d BUFFD6LVT
+Xplace2578 net2577 net2578 vdd_d vss_d BUFFD6LVT
+Xplace2579 net2578 net2579 vdd_d vss_d CKBD2LVT
+Xwire2873 net2782 net2873 vdd_d vss_d BUFFD3LVT
+Xload_slew2872 spi_bits[149] net2872 vdd_d vss_d CKBD2LVT
+Xwire2874 net2716 net2874 vdd_d vss_d CKBD4LVT
+Xplace2574 spi_bits[14] net2574 vdd_d vss_d CKBD16LVT
+Xwire2854 net2855 net2854 vdd_d vss_d BUFFD4LVT
+Xplace2581 net2580 net2581 vdd_d vss_d CKBD2LVT
+Xplace2582 spi_bits[147] net2582 vdd_d vss_d CKBD2LVT
+Xplace2576 net2575 net2576 vdd_d vss_d BUFFD6LVT
+Xwire2882 adc_comparator_out[15] net2882 vdd_d vss_d BUFFD3LVT
+Xwire2877 net2788 net2877 vdd_d vss_d CKBD3LVT
+Xwire2876 net2777 net2876 vdd_d vss_d CKBD4LVT
+Xload_slew2870 spi_bits[151] net2870 vdd_d vss_d CKBD1LVT
+Xwire2875 net2787 net2875 vdd_d vss_d CKBD3LVT
+Xwire2879 net2770 net2879 vdd_d vss_d BUFFD3LVT
+Xwire2878 net2772 net2878 vdd_d vss_d CKBD3LVT
+Xwire2881 adc_comparator_out[4] net2881 vdd_d vss_d CKBD4LVT
+Xwire2880 net2767 net2880 vdd_d vss_d CKBD3LVT
+Xwire2839 net2840 net2839 vdd_d vss_d CKBD3LVT
+Xwire2840 clknet_1_1_leaf_seq_logic net2840 vdd_d vss_d CKBD4LVT
+Xwire2841 net2843 net2841 vdd_d vss_d BUFFD3LVT
+Xwire2850 net2851 net2850 vdd_d vss_d BUFFD6LVT
+Xwire2849 clknet_1_0_leaf_seq_logic net2849 vdd_d vss_d CKBD4LVT
+Xwire2844 net2845 net2844 vdd_d vss_d CKBD4LVT
+Xwire2845 net2846 net2845 vdd_d vss_d CKBD3LVT
+Xwire2843 clknet_1_1_leaf_seq_logic net2843 vdd_d vss_d CKBD4LVT
+Xwire2842 net2843 net2842 vdd_d vss_d CKBD4LVT
+Xwire2847 net2849 net2847 vdd_d vss_d CKBD4LVT
+Xwire2846 clknet_1_0_leaf_seq_logic net2846 vdd_d vss_d CKBD4LVT
+Xwire2848 net2849 net2848 vdd_d vss_d BUFFD3LVT
+Xplace2589 spi_bits[140] net2589 vdd_d vss_d CKBD2LVT
+Xwire2821 seq_comp net2821 vdd_d vss_d CKBD6LVT
+Xwire2822 net2823 net2822 vdd_d vss_d CKBD4LVT
+Xwire2824 clknet_1_1_leaf_seq_comp net2824 vdd_d vss_d CKBD4LVT
+Xwire2813 clknet_1_1_leaf_seq_samp net2813 vdd_d vss_d CKBD4LVT
+Xwire2823 net2824 net2823 vdd_d vss_d CKBD3LVT
+Xwire2838 net2839 net2838 vdd_d vss_d CKBD4LVT
+Xwire2812 net2813 net2812 vdd_d vss_d CKBD4LVT
+Xwire2816 clknet_1_0_leaf_seq_samp net2816 vdd_d vss_d CKBD4LVT
+Xwire2814 net2815 net2814 vdd_d vss_d CKBD4LVT
+Xplace2604 spi_bits[129] net2604 vdd_d vss_d CKBD2LVT
+Xwire2817 net2819 net2817 vdd_d vss_d CKBD4LVT
+Xwire2815 net2816 net2815 vdd_d vss_d CKBD3LVT
+Xplace2592 spi_bits[139] net2592 vdd_d vss_d CKBD2LVT
+Xwire2794 clknet_1_1_leaf_seq_init net2794 vdd_d vss_d CKBD4LVT
+Xclkload0 clknet_4_0_leaf_spi_sclk _unconnected_181 vdd_d
++ vss_d BUFFD4LVT
+Xclkload1 clknet_4_3_leaf_spi_sclk _unconnected_182 vdd_d
++ vss_d INVD6LVT
+Xplace2617 spi_bits[119] net2617 vdd_d vss_d CKBD2LVT
+Xplace2616 spi_bits[119] net2616 vdd_d vss_d CKBD2LVT
+Xwire2820 net2821 net2820 vdd_d vss_d BUFFD8LVT
+Xclkload4 clknet_4_8_leaf_spi_sclk _unconnected_183 vdd_d
++ vss_d BUFFD8LVT
+Xplace2613 spi_bits[120] net2613 vdd_d vss_d BUFFD6LVT
+Xclkload3 clknet_4_7_leaf_spi_sclk _unconnected_184 vdd_d
++ vss_d BUFFD4LVT
+Xclkload2 clknet_4_5_leaf_spi_sclk _unconnected_185 vdd_d
 + vss_d INVD3LVT
-Xwire3026 net3027 net3026 vdd_d vss_d BUFFD8LVT
-Xclkload7 clknet_4_14_leaf_spi_sclk _unconnected_2 vdd_d
-+ vss_d INVD0LVT
-Xwire3070 net3071 net3070 vdd_d vss_d BUFFD12LVT
-Xwire3068 net3069 net3068 vdd_d vss_d BUFFD3LVT
-Xclkbuf_4_0_f_spi_sclk clknet_3_0_0_spi_sclk clknet_4_0_leaf_spi_sclk
+Xwire2818 net2819 net2818 vdd_d vss_d BUFFD3LVT
+Xplace2614 net2756 net2614 vdd_d vss_d CKBD2LVT
+Xwire2819 clknet_1_0_leaf_seq_samp net2819 vdd_d vss_d CKBD4LVT
+Xplace2564 net2862 net2564 vdd_d vss_d CKBD2LVT
+Xplace2563 spi_bits[176] net2563 vdd_d vss_d CKBD2LVT
+Xplace2566 net2862 net2566 vdd_d vss_d CKBD2LVT
+Xplace2565 net2564 net2565 vdd_d vss_d CKBD2LVT
+Xplace2568 net2567 net2568 vdd_d vss_d BUFFD6LVT
+Xwire2793 net2794 net2793 vdd_d vss_d CKBD3LVT
+Xplace2567 net2758 net2567 vdd_d vss_d BUFFD6LVT
+Xplace2569 net2568 net2569 vdd_d vss_d BUFFD2LVT
+Xplace2570 net2569 net2570 vdd_d vss_d CKBD2LVT
+Xwire2792 net2793 net2792 vdd_d vss_d CKBD4LVT
+Xplace2571 spi_bits[16] net2571 vdd_d vss_d BUFFD6LVT
+Xwire2790 net2791 net2790 vdd_d vss_d BUFFD8LVT
+Xclkload5 clknet_4_12_leaf_spi_sclk _unconnected_186 vdd_d
++ vss_d BUFFD4LVT
+Xclkload6 clknet_4_15_leaf_spi_sclk _unconnected_187 vdd_d
++ vss_d BUFFD8LVT
+Xwire2791 seq_init net2791 vdd_d vss_d CKBD6LVT
+Xclkbuf_4_6_f_spi_sclk clknet_3_3_0_spi_sclk clknet_4_6_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xplace2783 spi_bits[120] net2783 vdd_d vss_d BUFFD6LVT
-Xplace2784 net2783 net2784 vdd_d vss_d CKBD2LVT
-Xclkload4 clknet_4_8_leaf_spi_sclk _unconnected_3 vdd_d vss_d
-+ INVD4LVT
-Xplace2774 spi_bits[129] net2774 vdd_d vss_d CKBD2LVT
-Xwire3032 net3033 net3032 vdd_d vss_d CKBD4LVT
-Xwire3029 net3030 net3029 vdd_d vss_d CKBD3LVT
-Xclkbuf_4_2_f_spi_sclk clknet_3_1_0_spi_sclk clknet_4_2_leaf_spi_sclk
+Xplace2667 net2665 net2667 vdd_d vss_d CKBD2LVT
+Xplace2666 net2665 net2666 vdd_d vss_d CKBD2LVT
+Xplace2628 spi_bits[109] net2628 vdd_d vss_d CKBD2LVT
+Xplace2668 net2858 net2668 vdd_d vss_d CKBD2LVT
+Xclkbuf_4_13_f_spi_sclk clknet_3_6_0_spi_sclk clknet_4_13_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xwire3031 net3033 net3031 vdd_d vss_d BUFFD3LVT
-Xwire3034 net3035 net3034 vdd_d vss_d CKBD4LVT
-Xwire3030 clknet_1_1_leaf_seq_init net3030 vdd_d vss_d CKBD4LVT
-Xwire3033 clknet_1_1_leaf_seq_init net3033 vdd_d vss_d CKBD4LVT
-Xwire3035 net3036 net3035 vdd_d vss_d CKBD3LVT
-Xplace2788 spi_bits[119] net2788 vdd_d vss_d CKBD2LVT
-Xplace2789 spi_bits[119] net2789 vdd_d vss_d CKBD2LVT
-Xclkbuf_1_0_f_seq_samp clknet_0_seq_samp clknet_1_0_leaf_seq_samp
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_0_seq_comp net3056 clknet_0_seq_comp vdd_d vss_d BUFFD16LVT
-Xclkbuf_1_1_f_seq_samp clknet_0_seq_samp clknet_1_1_leaf_seq_samp
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_1_1_f_seq_comp clknet_0_seq_comp clknet_1_1_leaf_seq_comp
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_1_0_f_seq_comp clknet_0_seq_comp clknet_1_0_leaf_seq_comp
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_1_1_f_seq_logic clknet_0_seq_logic clknet_1_1_leaf_seq_logic
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_0_spi_sclk net3086 clknet_0_spi_sclk vdd_d vss_d BUFFD16LVT
-Xclkbuf_3_1_0_spi_sclk clknet_0_spi_sclk clknet_3_1_0_spi_sclk
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_3_0_0_spi_sclk clknet_0_spi_sclk clknet_3_0_0_spi_sclk
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_1_0_f_seq_logic clknet_0_seq_logic clknet_1_0_leaf_seq_logic
-+ vdd_d vss_d BUFFD16LVT
-Xclkbuf_0_seq_logic net3070 clknet_0_seq_logic vdd_d vss_d
-+ BUFFD16LVT
-Xplace2803 spi_bits[108] net2803 vdd_d vss_d CKBD2LVT
-Xplace2798 spi_bits[110] net2798 vdd_d vss_d CKBD2LVT
-Xplace2799 spi_bits[10] net2799 vdd_d vss_d CKBD2LVT
-Xplace2797 spi_bits[111] net2797 vdd_d vss_d CKBD2LVT
-Xplace2796 spi_bits[112] net2796 vdd_d vss_d CKBD2LVT
-Xplace2794 spi_bits[114] net2794 vdd_d vss_d CKBD2LVT
-Xplace2795 spi_bits[113] net2795 vdd_d vss_d CKBD2LVT
-Xplace2807 spi_bits[104] net2807 vdd_d vss_d CKBD2LVT
-Xplace2806 spi_bits[105] net2806 vdd_d vss_d CKBD2LVT
-Xplace2804 spi_bits[107] net2804 vdd_d vss_d CKBD2LVT
-Xplace2805 spi_bits[106] net2805 vdd_d vss_d CKBD2LVT
-Xclkbuf_1_1_f_seq_init clknet_0_seq_init clknet_1_1_leaf_seq_init
-+ vdd_d vss_d BUFFD16LVT
-Xplace2790 spi_bits[118] net2790 vdd_d vss_d CKBD2LVT
-Xplace2844 comp_mux_07_ net2844 vdd_d vss_d BUFFD2LVT
-Xplace2808 spi_bits[103] net2808 vdd_d vss_d CKBD2LVT
-Xplace2819 net2818 net2819 vdd_d vss_d CKBD2LVT
-Xplace2812 spi_bits[0] net2812 vdd_d vss_d BUFFD6LVT
-Xplace2817 spi_reg_0181_ net2817 vdd_d vss_d CKBD2LVT
-Xplace2818 net2817 net2818 vdd_d vss_d CKBD2LVT
-Xplace2810 spi_bits[101] net2810 vdd_d vss_d CKBD2LVT
-Xplace2811 spi_bits[100] net2811 vdd_d vss_d CKBD2LVT
-Xplace2809 spi_bits[102] net2809 vdd_d vss_d CKBD2LVT
-Xplace2624 spi_bits[91] net2624 vdd_d vss_d CKBD2LVT
-Xplace2630 net2628 net2630 vdd_d vss_d BUFFD6LVT
-Xplace2628 spi_bits[7] net2628 vdd_d vss_d CKBD2LVT
-Xplace2629 net2628 net2629 vdd_d vss_d BUFFD6LVT
-Xplace2631 spi_bits[71] net2631 vdd_d vss_d CKBD2LVT
-Xplace2632 spi_bits[6] net2632 vdd_d vss_d BUFFD6LVT
-Xplace2633 spi_bits[6] net2633 vdd_d vss_d BUFFD6LVT
-Xplace2667 spi_bits[49] net2667 vdd_d vss_d BUFFD6LVT
-Xplace2668 spi_bits[49] net2668 vdd_d vss_d BUFFD6LVT
-Xplace2734 net2733 net2734 vdd_d vss_d CKBD2LVT
-Xplace2733 net2732 net2733 vdd_d vss_d BUFFD6LVT
-Xplace2732 net2731 net2732 vdd_d vss_d BUFFD6LVT
-Xplace2731 spi_bits[175] net2731 vdd_d vss_d BUFFD6LVT
-Xplace2729 spi_bits[176] net2729 vdd_d vss_d CKBD2LVT
-Xplace2730 net2729 net2730 vdd_d vss_d CKBD2LVT
-Xplace2675 spi_bits[43] net2675 vdd_d vss_d CKBD16LVT
-Xplace2683 net2681 net2683 vdd_d vss_d CKBD2LVT
-Xplace2682 net2681 net2682 vdd_d vss_d BUFFD6LVT
-Xwire3103 adc_comparator_out[11] net3103 vdd_d vss_d BUFFD3LVT
-Xplace2681 spi_bits[3] net2681 vdd_d vss_d CKBD2LVT
-Xplace2786 net2785 net2786 vdd_d vss_d BUFFD6LVT
-Xplace2684 spi_bits[39] net2684 vdd_d vss_d BUFFD6LVT
-Xplace2685 spi_bits[39] net2685 vdd_d vss_d BUFFD6LVT
-Xwire3075 net3076 net3075 vdd_d vss_d CKBD3LVT
-Xwire3072 net3073 net3072 vdd_d vss_d CKBD8LVT
-Xplace2748 spi_bits[147] net2748 vdd_d vss_d BUFFD6LVT
-Xwire3077 net3079 net3077 vdd_d vss_d BUFFD3LVT
-Xplace2785 spi_bits[11] net2785 vdd_d vss_d CKBD2LVT
-Xwire3071 net3072 net3071 vdd_d vss_d BUFFD8LVT
-Xplace2753 spi_bits[146] net2753 vdd_d vss_d CKBD2LVT
-Xwire3037 net3039 net3037 vdd_d vss_d CKBD4LVT
-Xwire3036 clknet_1_0_leaf_seq_init net3036 vdd_d vss_d CKBD4LVT
-Xwire2964 spi_bits[167] net2964 vdd_d vss_d BUFFD3LVT
-Xwire2974 net2975 net2974 vdd_d vss_d CKBD6LVT
-Xwire2963 net2964 net2963 vdd_d vss_d CKBD6LVT
-Xwire2962 spi_bits[168] net2962 vdd_d vss_d CKBD4LVT
-Xwire2961 net2962 net2961 vdd_d vss_d CKBD6LVT
-Xwire2960 spi_bits[169] net2960 vdd_d vss_d CKBD3LVT
-Xwire2977 net2978 net2977 vdd_d vss_d CKBD6LVT
-Xclkbuf_3_3_0_spi_sclk clknet_0_spi_sclk clknet_3_3_0_spi_sclk
-+ vdd_d vss_d BUFFD16LVT
-Xwire2959 net2960 net2959 vdd_d vss_d CKBD6LVT
-Xwire3017 adc_comparator_out[5] net3017 vdd_d vss_d CKBD4LVT
-Xwire2958 spi_bits[170] net2958 vdd_d vss_d CKBD3LVT
-Xwire2954 net2955 net2954 vdd_d vss_d CKBD6LVT
-Xwire2980 net2981 net2980 vdd_d vss_d CKBD6LVT
-Xwire3014 adc_comparator_out[9] net3014 vdd_d vss_d BUFFD4LVT
-Xwire3015 net3016 net3015 vdd_d vss_d CKBD6LVT
-Xwire3016 adc_comparator_out[8] net3016 vdd_d vss_d BUFFD4LVT
-Xclkbuf_3_2_0_spi_sclk clknet_0_spi_sclk clknet_3_2_0_spi_sclk
+Xplace2671 net2670 net2671 vdd_d vss_d CKBD2LVT
+Xplace2627 spi_bits[10] net2627 vdd_d vss_d CKBD16LVT
+Xplace2670 net2749 net2670 vdd_d vss_d CKBD2LVT
+Xplace2669 net2668 net2669 vdd_d vss_d CKBD2LVT
+Xplace2625 spi_bits[111] net2625 vdd_d vss_d CKBD2LVT
+Xplace2626 spi_bits[110] net2626 vdd_d vss_d CKBD2LVT
+Xplace2624 spi_bits[112] net2624 vdd_d vss_d CKBD2LVT
+Xplace2635 spi_bits[102] net2635 vdd_d vss_d CKBD2LVT
+Xplace2634 spi_bits[103] net2634 vdd_d vss_d CKBD2LVT
+Xplace2633 spi_bits[104] net2633 vdd_d vss_d CKBD2LVT
+Xclkbuf_4_5_f_spi_sclk clknet_3_2_0_spi_sclk clknet_4_5_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
 Xclkbuf_4_3_f_spi_sclk clknet_3_1_0_spi_sclk clknet_4_3_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
+Xplace2630 spi_bits[107] net2630 vdd_d vss_d CKBD2LVT
+Xplace2629 spi_bits[108] net2629 vdd_d vss_d CKBD2LVT
+Xplace2632 spi_bits[105] net2632 vdd_d vss_d CKBD2LVT
+Xplace2631 spi_bits[106] net2631 vdd_d vss_d CKBD2LVT
 Xclkbuf_4_1_f_spi_sclk clknet_3_0_0_spi_sclk clknet_4_1_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xplace2787 net3094 net2787 vdd_d vss_d CKBD2LVT
-Xclkbuf_3_4_0_spi_sclk net3089 clknet_3_4_0_spi_sclk vdd_d
+Xclkbuf_3_7_0_spi_sclk net2854 clknet_3_7_0_spi_sclk vdd_d
 + vss_d BUFFD16LVT
-Xclkbuf_3_7_0_spi_sclk net3089 clknet_3_7_0_spi_sclk vdd_d
-+ vss_d BUFFD16LVT
-Xclkbuf_3_6_0_spi_sclk net3089 clknet_3_6_0_spi_sclk vdd_d
-+ vss_d BUFFD16LVT
-Xplace2852 net2947 net2852 vdd_d vss_d CKBD2LVT
-Xplace2881 net2880 net2881 vdd_d vss_d BUFFD2LVT
-Xplace2874 net2873 net2874 vdd_d vss_d CKBD2LVT
-Xplace2871 net2870 net2871 vdd_d vss_d CKBD2LVT
-Xplace2873 net2872 net2873 vdd_d vss_d CKBD2LVT
-Xplace2876 net2875 net2876 vdd_d vss_d CKBD2LVT
-Xplace2872 net2871 net2872 vdd_d vss_d CKBD2LVT
-Xplace2880 net2879 net2880 vdd_d vss_d BUFFD6LVT
-Xplace2879 net2878 net2879 vdd_d vss_d CKBD2LVT
-Xplace2878 net2870 net2878 vdd_d vss_d CKBD2LVT
-Xplace2875 net2874 net2875 vdd_d vss_d CKBD2LVT
-Xplace2877 net2876 net2877 vdd_d vss_d CKBD2LVT
-Xplace2885 net2884 net2885 vdd_d vss_d CKBD2LVT
-Xplace2870 net1 net2870 vdd_d vss_d CKBD2LVT
-Xclkbuf_3_5_0_spi_sclk net3089 clknet_3_5_0_spi_sclk vdd_d
-+ vss_d BUFFD16LVT
-Xclkbuf_0_seq_samp net3040 clknet_0_seq_samp vdd_d vss_d BUFFD16LVT
-Xplace2853 net2852 net2853 vdd_d vss_d CKBD2LVT
-Xwire3021 adc_comparator_out[13] net3021 vdd_d vss_d BUFFD4LVT
-Xwire3024 net3025 net3024 vdd_d vss_d CKBD6LVT
-Xclkbuf_1_0_f_seq_init clknet_0_seq_init clknet_1_0_leaf_seq_init
+Xclkbuf_4_2_f_spi_sclk clknet_3_1_0_spi_sclk clknet_4_2_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xwire3022 net3023 net3022 vdd_d vss_d CKBD6LVT
-Xwire3023 net3103 net3023 vdd_d vss_d CKBD6LVT
-Xplace2859 net2858 net2859 vdd_d vss_d CKBD2LVT
-Xwire3019 net3020 net3019 vdd_d vss_d CKBD6LVT
-Xplace2862 net2861 net2862 vdd_d vss_d CKBD2LVT
-Xplace2858 net2857 net2858 vdd_d vss_d CKBD2LVT
-Xwire2994 net2995 net2994 vdd_d vss_d CKBD6LVT
-Xplace2855 net2854 net2855 vdd_d vss_d CKBD2LVT
-Xplace2854 net3091 net2854 vdd_d vss_d CKBD2LVT
-Xwire3002 net3003 net3002 vdd_d vss_d CKBD6LVT
-Xplace2801 net2799 net2801 vdd_d vss_d BUFFD2LVT
-Xwire3018 adc_comparator_out[4] net3018 vdd_d vss_d CKBD4LVT
-Xplace2800 net2799 net2800 vdd_d vss_d BUFFD6LVT
-Xwire3020 net3021 net3020 vdd_d vss_d CKBD6LVT
-Xplace2815 net2814 net2815 vdd_d vss_d CKBD2LVT
-Xplace2833 net2943 net2833 vdd_d vss_d CKBD2LVT
-Xplace2832 net2828 net2832 vdd_d vss_d CKBD2LVT
-Xplace2831 net2830 net2831 vdd_d vss_d CKBD2LVT
-Xwire2995 spi_bits[152] net2995 vdd_d vss_d BUFFD2LVT
-Xwire2993 spi_bits[153] net2993 vdd_d vss_d BUFFD2LVT
-Xplace2869 net2868 net2869 vdd_d vss_d CKBD2LVT
-Xplace2857 net2 net2857 vdd_d vss_d CKBD2LVT
-Xplace2856 net2855 net2856 vdd_d vss_d CKBD2LVT
-Xplace2868 net2867 net2868 vdd_d vss_d CKBD2LVT
-Xplace2839 net2838 net2839 vdd_d vss_d CKBD2LVT
-Xplace2816 net2814 net2816 vdd_d vss_d CKBD2LVT
-Xplace2838 net2837 net2838 vdd_d vss_d CKBD2LVT
-Xplace2837 net2836 net2837 vdd_d vss_d CKBD2LVT
-Xplace2836 net2835 net2836 vdd_d vss_d CKBD2LVT
-Xplace2835 net2823 net2835 vdd_d vss_d CKBD2LVT
-Xplace2834 net2833 net2834 vdd_d vss_d CKBD2LVT
-Xplace2861 net2860 net2861 vdd_d vss_d CKBD2LVT
-Xplace2865 net2864 net2865 vdd_d vss_d CKBD2LVT
-Xplace2860 net2 net2860 vdd_d vss_d CKBD2LVT
-Xplace2814 spi_bits[0] net2814 vdd_d vss_d BUFFD6LVT
-Xplace2813 net2812 net2813 vdd_d vss_d BUFFD6LVT
-Xwire2999 net3000 net2999 vdd_d vss_d CKBD6LVT
-Xwire2998 spi_bits[151] net2998 vdd_d vss_d BUFFD2LVT
-Xwire3001 spi_bits[150] net3001 vdd_d vss_d BUFFD2LVT
-Xwire3005 net3006 net3005 vdd_d vss_d CKBD6LVT
-Xplace2843 net2842 net2843 vdd_d vss_d BUFFD2LVT
-Xplace2851 net2850 net2851 vdd_d vss_d CKBD2LVT
-Xplace2847 net2846 net2847 vdd_d vss_d BUFFD6LVT
-Xplace2841 comp_mux_28_ net2841 vdd_d vss_d CKBD2LVT
-Xload_slew3004 spi_bits[149] net3004 vdd_d vss_d BUFFD2LVT
-Xplace2849 net2848 net2849 vdd_d vss_d CKBD2LVT
-Xplace2850 net2849 net2850 vdd_d vss_d CKBD2LVT
-Xplace2848 net2847 net2848 vdd_d vss_d BUFFD2LVT
-Xwire3000 net3001 net3000 vdd_d vss_d BUFFD4LVT
-Xwire3003 net3004 net3003 vdd_d vss_d BUFFD4LVT
-Xwire2996 net2997 net2996 vdd_d vss_d CKBD6LVT
-Xwire2997 net2998 net2997 vdd_d vss_d CKBD3LVT
-Xplace2890 net2889 net2890 vdd_d vss_d CKBD2LVT
-Xplace2884 net2883 net2884 vdd_d vss_d CKBD2LVT
-Xplace2889 net2888 net2889 vdd_d vss_d CKBD2LVT
-Xwire2990 net3095 net2990 vdd_d vss_d CKBD6LVT
-Xplace2888 net3090 net2888 vdd_d vss_d CKBD2LVT
-Xplace2887 net2886 net2887 vdd_d vss_d CKBD2LVT
-Xplace2886 net2946 net2886 vdd_d vss_d CKBD2LVT
-Xplace2842 comp_mux_23_ net2842 vdd_d vss_d CKBD2LVT
-Xplace2902 net2892 net2902 vdd_d vss_d CKBD2LVT
-Xplace2846 net2845 net2846 vdd_d vss_d BUFFD6LVT
-Xplace2901 net2895 net2901 vdd_d vss_d CKBD2LVT
-Xplace2845 net2 net2845 vdd_d vss_d CKBD2LVT
-Xload_slew2989 spi_bits[155] net2989 vdd_d vss_d BUFFD2LVT
-Xwire2992 net2993 net2992 vdd_d vss_d CKBD6LVT
-Xwire2988 net2989 net2988 vdd_d vss_d BUFFD4LVT
-Xwire2985 net2986 net2985 vdd_d vss_d CKBD6LVT
-Xload_slew2987 spi_bits[156] net2987 vdd_d vss_d BUFFD2LVT
-Xwire2986 net2987 net2986 vdd_d vss_d CKBD4LVT
-Xplace2897 net2896 net2897 vdd_d vss_d CKBD2LVT
-Xplace2896 net2895 net2896 vdd_d vss_d CKBD2LVT
-Xplace2891 net2879 net2891 vdd_d vss_d CKBD2LVT
-Xplace2895 net2894 net2895 vdd_d vss_d CKBD2LVT
-Xplace2894 net2893 net2894 vdd_d vss_d CKBD2LVT
-Xplace2893 net2892 net2893 vdd_d vss_d CKBD2LVT
-Xplace2883 net2882 net2883 vdd_d vss_d CKBD2LVT
-Xplace2882 net2881 net2882 vdd_d vss_d CKBD2LVT
-Xwire2991 spi_bits[154] net2991 vdd_d vss_d BUFFD2LVT
-Xwire2984 spi_bits[157] net2984 vdd_d vss_d BUFFD2LVT
-Xwire2983 net2984 net2983 vdd_d vss_d CKBD4LVT
-Xwire2982 net2983 net2982 vdd_d vss_d CKBD6LVT
-Xload_slew2953 net2740 net2953 vdd_d vss_d CKBD12LVT
-Xplace2903 net3013 net2903 vdd_d vss_d BUFFD6LVT
-Xload_slew2952 net3093 net2952 vdd_d vss_d BUFFD0LVT
-Xload_slew2948 net2849 net2948 vdd_d vss_d BUFFD2LVT
-Xload_slew2946 net2885 net2946 vdd_d vss_d BUFFD2LVT
-Xwire2945 net2885 net2945 vdd_d vss_d CKBD4LVT
-Xplace2904 net2903 net2904 vdd_d vss_d BUFFD2LVT
-Xwire2944 net2832 net2944 vdd_d vss_d BUFFD3LVT
-Xplace2922 net2921 net2922 vdd_d vss_d CKBD2LVT
-Xplace2921 net2920 net2921 vdd_d vss_d BUFFD2LVT
-Xwire2968 net2969 net2968 vdd_d vss_d CKBD6LVT
-Xwire2979 spi_bits[159] net2979 vdd_d vss_d BUFFD2LVT
-Xplace2918 net2917 net2918 vdd_d vss_d CKBD2LVT
-Xplace2905 net2904 net2905 vdd_d vss_d CKBD2LVT
-Xload_slew2949 net2849 net2949 vdd_d vss_d CKBD4LVT
-Xplace2909 net2908 net2909 vdd_d vss_d CKBD2LVT
-Xwire2947 net2851 net2947 vdd_d vss_d CKBD3LVT
-Xplace2908 net2907 net2908 vdd_d vss_d BUFFD2LVT
-Xload_slew2951 net2743 net2951 vdd_d vss_d BUFFD8LVT
-Xload_slew2950 net2951 net2950 vdd_d vss_d CKBD1LVT
-Xwire2981 spi_bits[158] net2981 vdd_d vss_d BUFFD3LVT
-Xwire2975 net2976 net2975 vdd_d vss_d CKBD4LVT
-Xwire2978 net2979 net2978 vdd_d vss_d BUFFD3LVT
-Xwire2976 spi_bits[162] net2976 vdd_d vss_d CKBD3LVT
-Xwire2972 net2973 net2972 vdd_d vss_d CKBD4LVT
-Xload_slew2973 spi_bits[163] net2973 vdd_d vss_d BUFFD2LVT
-Xwire2966 net2967 net2966 vdd_d vss_d BUFFD4LVT
-Xwire2965 net2966 net2965 vdd_d vss_d CKBD6LVT
-Xplace2606 spi_reg_0577_ net2606 vdd_d vss_d CKBD2LVT
-Xplace2607 spi_reg_0562_ net2607 vdd_d vss_d CKBD2LVT
-Xplace2923 adc_comparator_out[14] net2923 vdd_d vss_d BUFFD6LVT
-Xplace2910 net3101 net2910 vdd_d vss_d BUFFD2LVT
-Xplace2602 net2601 net2602 vdd_d vss_d CKBD2LVT
-Xplace2927 net3019 net2927 vdd_d vss_d BUFFD6LVT
-Xplace2610 spi_reg_0527_ net2610 vdd_d vss_d CKBD2LVT
-Xplace2605 spi_reg_0582_ net2605 vdd_d vss_d CKBD2LVT
-Xplace2863 net2862 net2863 vdd_d vss_d CKBD2LVT
-Xplace2866 net2865 net2866 vdd_d vss_d CKBD2LVT
-Xplace2864 net2863 net2864 vdd_d vss_d BUFFD2LVT
-Xplace2911 net2910 net2911 vdd_d vss_d CKBD2LVT
-Xplace2892 net2891 net2892 vdd_d vss_d CKBD2LVT
-Xplace2867 net2865 net2867 vdd_d vss_d CKBD2LVT
-Xplace2827 net2826 net2827 vdd_d vss_d BUFFD2LVT
-Xwire3011 net3098 net3011 vdd_d vss_d CKBD6LVT
-Xplace2820 net2819 net2820 vdd_d vss_d CKBD2LVT
-Xplace2821 net2819 net2821 vdd_d vss_d CKBD2LVT
-Xplace2825 net2824 net2825 vdd_d vss_d BUFFD2LVT
-Xplace2824 net2823 net2824 vdd_d vss_d BUFFD6LVT
-Xplace2826 net2825 net2826 vdd_d vss_d CKBD2LVT
-Xplace2828 net2827 net2828 vdd_d vss_d CKBD2LVT
-Xplace2822 spi_reg_0181_ net2822 vdd_d vss_d CKBD2LVT
-Xplace2823 spi_reg_0181_ net2823 vdd_d vss_d CKBD2LVT
-Xplace2830 net2829 net2830 vdd_d vss_d CKBD2LVT
-Xplace2829 net2828 net2829 vdd_d vss_d CKBD2LVT
-Xwire3007 net2930 net3007 vdd_d vss_d CKBD4LVT
-Xplace2802 spi_bits[109] net2802 vdd_d vss_d CKBD2LVT
-Xplace2840 net2835 net2840 vdd_d vss_d CKBD2LVT
-Xwire3006 net3007 net3006 vdd_d vss_d CKBD6LVT
-Xwire3008 net3096 net3008 vdd_d vss_d CKBD6LVT
-Xwire3010 net2923 net3010 vdd_d vss_d BUFFD3LVT
-Xwire3009 net3010 net3009 vdd_d vss_d CKBD6LVT
-Xwire3013 net3014 net3013 vdd_d vss_d CKBD6LVT
-Xwire3012 net2919 net3012 vdd_d vss_d CKBD6LVT
-Xplace2930 adc_comparator_out[12] net2930 vdd_d vss_d BUFFD6LVT
-Xplace2935 net3022 net2935 vdd_d vss_d BUFFD6LVT
-Xplace2938 net3097 net2938 vdd_d vss_d BUFFD6LVT
-Xplace2598 spi_reg_0082_ net2598 vdd_d vss_d CKBD2LVT
-Xplace2608 net2607 net2608 vdd_d vss_d CKBD2LVT
-Xplace2597 net2596 net2597 vdd_d vss_d CKBD2LVT
-Xplace2596 net2595 net2596 vdd_d vss_d BUFFD2LVT
-Xplace2595 spi_reg_0083_ net2595 vdd_d vss_d BUFFD6LVT
-Xplace2600 spi_reg_0371_ net2600 vdd_d vss_d CKBD2LVT
-Xplace2599 spi_reg_0353_ net2599 vdd_d vss_d CKBD2LVT
-Xplace2601 spi_reg_0303_ net2601 vdd_d vss_d BUFFD2LVT
-Xplace2603 spi_reg_0237_ net2603 vdd_d vss_d CKBD2LVT
-Xplace2611 comp_mux_00_ net2611 vdd_d vss_d CKBD2LVT
-Xplace2615 net2613 net2615 vdd_d vss_d CKBD2LVT
-Xplace2614 net2613 net2614 vdd_d vss_d BUFFD6LVT
-Xplace2613 spi_bits[9] net2613 vdd_d vss_d CKBD2LVT
-Xplace2612 net5 net2612 vdd_d vss_d CKBD2LVT
-Xplace2646 spi_bits[59] net2646 vdd_d vss_d BUFFD6LVT
-Xplace2647 spi_bits[59] net2647 vdd_d vss_d BUFFD6LVT
-Xplace2641 spi_bits[5] net2641 vdd_d vss_d CKBD2LVT
-Xplace2643 spi_bits[5] net2643 vdd_d vss_d CKBD2LVT
-Xplace2642 net2641 net2642 vdd_d vss_d CKBD2LVT
-Xplace2644 net2643 net2644 vdd_d vss_d BUFFD6LVT
-Xplace2645 net2643 net2645 vdd_d vss_d CKBD2LVT
-Xplace2639 spi_bits[60] net2639 vdd_d vss_d BUFFD6LVT
-Xplace2640 spi_bits[60] net2640 vdd_d vss_d BUFFD6LVT
-Xplace2638 spi_bits[61] net2638 vdd_d vss_d CKBD16LVT
-Xplace2637 spi_bits[62] net2637 vdd_d vss_d CKBD16LVT
-Xplace2634 spi_bits[63] net2634 vdd_d vss_d CKBD2LVT
-Xplace2636 net2635 net2636 vdd_d vss_d BUFFD6LVT
-Xplace2635 spi_bits[63] net2635 vdd_d vss_d CKBD2LVT
-Xplace2623 spi_bits[92] net2623 vdd_d vss_d CKBD2LVT
-Xplace2622 spi_bits[93] net2622 vdd_d vss_d CKBD2LVT
-Xplace2618 spi_bits[97] net2618 vdd_d vss_d CKBD2LVT
-Xplace2617 spi_bits[98] net2617 vdd_d vss_d CKBD2LVT
-Xplace2616 spi_bits[99] net2616 vdd_d vss_d CKBD2LVT
-Xplace2619 spi_bits[96] net2619 vdd_d vss_d CKBD2LVT
-Xplace2620 spi_bits[95] net2620 vdd_d vss_d CKBD2LVT
-Xplace2621 spi_bits[94] net2621 vdd_d vss_d CKBD2LVT
-Xplace2736 spi_bits[173] net2736 vdd_d vss_d CKBD2LVT
-Xplace2737 spi_bits[172] net2737 vdd_d vss_d CKBD2LVT
-Xwire3088 clknet_4_0_leaf_spi_sclk net3088 vdd_d vss_d BUFFD3LVT
-Xload_slew3090 net2887 net3090 vdd_d vss_d CKBD3LVT
-Xmax_length3089 clknet_0_spi_sclk net3089 vdd_d vss_d BUFFD8LVT
-Xwire3091 net2853 net3091 vdd_d vss_d CKBD3LVT
-Xwire3092 net2608 net3092 vdd_d vss_d CKBD4LVT
-Xplace2754 spi_bits[145] net2754 vdd_d vss_d CKBD2LVT
-Xwire3086 net3087 net3086 vdd_d vss_d CKBD6LVT
-Xwire3087 spi_sclk net3087 vdd_d vss_d BUFFD3LVT
-Xplace2755 spi_bits[144] net2755 vdd_d vss_d CKBD2LVT
-Xwire3084 net3085 net3084 vdd_d vss_d BUFFD3LVT
-Xwire3085 clknet_1_0_leaf_seq_logic net3085 vdd_d vss_d CKBD4LVT
-Xplace2756 spi_bits[143] net2756 vdd_d vss_d CKBD2LVT
-Xwire3082 clknet_1_0_leaf_seq_logic net3082 vdd_d vss_d CKBD4LVT
-Xwire3083 net3085 net3083 vdd_d vss_d CKBD4LVT
-Xplace2757 spi_bits[142] net2757 vdd_d vss_d CKBD2LVT
-Xwire3080 net3081 net3080 vdd_d vss_d CKBD4LVT
-Xwire3081 net3082 net3081 vdd_d vss_d CKBD3LVT
-Xplace2758 spi_bits[141] net2758 vdd_d vss_d CKBD2LVT
-Xwire3078 net3079 net3078 vdd_d vss_d CKBD4LVT
-Xwire3079 clknet_1_1_leaf_seq_logic net3079 vdd_d vss_d CKBD4LVT
-Xplace2763 spi_bits[138] net2763 vdd_d vss_d CKBD2LVT
-Xwire3055 clknet_1_1_leaf_seq_samp net3055 vdd_d vss_d CKBD4LVT
-Xwire3056 net3057 net3056 vdd_d vss_d BUFFD8LVT
-Xplace2764 spi_bits[137] net2764 vdd_d vss_d CKBD2LVT
-Xwire3053 net3055 net3053 vdd_d vss_d BUFFD3LVT
-Xwire3054 net3055 net3054 vdd_d vss_d CKBD4LVT
-Xplace2765 spi_bits[136] net2765 vdd_d vss_d CKBD2LVT
-Xwire3051 net3052 net3051 vdd_d vss_d CKBD3LVT
-Xwire3052 clknet_1_1_leaf_seq_samp net3052 vdd_d vss_d CKBD4LVT
-Xplace2766 spi_bits[135] net2766 vdd_d vss_d CKBD2LVT
-Xwire3049 clknet_1_0_leaf_seq_samp net3049 vdd_d vss_d CKBD4LVT
-Xwire3050 net3051 net3050 vdd_d vss_d CKBD4LVT
-Xplace2767 spi_bits[134] net2767 vdd_d vss_d CKBD2LVT
-Xwire3047 net3049 net3047 vdd_d vss_d CKBD4LVT
-Xwire3048 net3049 net3048 vdd_d vss_d BUFFD3LVT
-Xplace2768 spi_bits[133] net2768 vdd_d vss_d CKBD2LVT
-Xwire3045 net3046 net3045 vdd_d vss_d CKBD3LVT
-Xwire3046 clknet_1_0_leaf_seq_samp net3046 vdd_d vss_d CKBD4LVT
-Xplace2769 spi_bits[132] net2769 vdd_d vss_d CKBD2LVT
-Xwire3043 seq_samp net3043 vdd_d vss_d BUFFD4LVT
-Xwire3044 net3045 net3044 vdd_d vss_d CKBD4LVT
-Xplace2770 spi_bits[131] net2770 vdd_d vss_d CKBD2LVT
-Xwire3041 net3042 net3041 vdd_d vss_d BUFFD8LVT
-Xwire3042 net3043 net3042 vdd_d vss_d CKBD8LVT
-Xplace2771 spi_bits[130] net2771 vdd_d vss_d CKBD2LVT
-Xwire3039 clknet_1_0_leaf_seq_init net3039 vdd_d vss_d CKBD4LVT
-Xwire3040 net3041 net3040 vdd_d vss_d BUFFD12LVT
-Xplace2772 spi_bits[12] net2772 vdd_d vss_d BUFFD6LVT
-Xplace2773 spi_bits[12] net2773 vdd_d vss_d BUFFD6LVT
-Xwire3038 net3039 net3038 vdd_d vss_d BUFFD3LVT
-Xplace2775 spi_bits[128] net2775 vdd_d vss_d CKBD2LVT
-Xclkload2 clknet_4_5_leaf_spi_sclk _unconnected_4 vdd_d vss_d
-+ BUFFD16LVT
-Xclkload3 clknet_4_6_leaf_spi_sclk _unconnected_5 vdd_d vss_d
-+ INVD6LVT
-Xplace2776 spi_bits[127] net2776 vdd_d vss_d CKBD2LVT
-Xclkload0 clknet_4_0_leaf_spi_sclk _unconnected_6 vdd_d vss_d
-+ BUFFD8LVT
-Xclkload1 clknet_4_2_leaf_spi_sclk _unconnected_7 vdd_d vss_d
-+ BUFFD8LVT
-Xplace2777 spi_bits[126] net2777 vdd_d vss_d CKBD2LVT
-Xclkbuf_4_14_f_spi_sclk clknet_3_7_0_spi_sclk clknet_4_14_leaf_spi_sclk
+Xclkbuf_4_0_f_spi_sclk clknet_3_0_0_spi_sclk clknet_4_0_leaf_spi_sclk
++ vdd_d vss_d BUFFD16LVT
+Xclkbuf_4_4_f_spi_sclk clknet_3_2_0_spi_sclk clknet_4_4_leaf_spi_sclk
++ vdd_d vss_d BUFFD16LVT
+Xplace2484 spi_bits[59] net2484 vdd_d vss_d BUFFD6LVT
+Xplace2468 spi_bits[91] net2468 vdd_d vss_d CKBD2LVT
+Xplace2674 comp_mux_23_ net2674 vdd_d vss_d BUFFD2LVT
+Xplace2642 spi_reg_enable net2642 vdd_d vss_d CKBD2LVT
+Xplace2643 net2642 net2643 vdd_d vss_d CKBD2LVT
+Xplace2638 spi_bits[0] net2638 vdd_d vss_d CKBD16LVT
+Xplace2644 net2643 net2644 vdd_d vss_d CKBD2LVT
+Xplace2708 net2766 net2708 vdd_d vss_d BUFFD6LVT
+Xplace2575 spi_bits[148] net2575 vdd_d vss_d BUFFD6LVT
+Xplace2580 spi_bits[147] net2580 vdd_d vss_d CKBD2LVT
+Xload_slew2871 spi_bits[150] net2871 vdd_d vss_d CKBD1LVT
+Xwire2852 clknet_4_5_leaf_spi_sclk net2852 vdd_d vss_d CKBD4LVT
+Xplace2709 net2708 net2709 vdd_d vss_d BUFFD2LVT
+Xplace2636 spi_bits[101] net2636 vdd_d vss_d CKBD2LVT
+Xplace2637 spi_bits[100] net2637 vdd_d vss_d CKBD2LVT
+Xload_slew2868 spi_bits[157] net2868 vdd_d vss_d CKBD1LVT
+Xload_slew2865 spi_bits[170] net2865 vdd_d vss_d CKBD1LVT
+Xwire2855 clknet_0_spi_sclk net2855 vdd_d vss_d CKBD4LVT
+Xwire2851 spi_sclk net2851 vdd_d vss_d CKBD4LVT
+Xwire2752 net2689 net2752 vdd_d vss_d CKBD4LVT
+Xwire2751 net2684 net2751 vdd_d vss_d BUFFD3LVT
+Xwire2826 net2827 net2826 vdd_d vss_d CKBD4LVT
+Xwire2825 net2827 net2825 vdd_d vss_d BUFFD3LVT
+Xwire2748 net2685 net2748 vdd_d vss_d CKBD4LVT
+Xwire2756 net2613 net2756 vdd_d vss_d BUFFD4LVT
+Xplace2710 net2709 net2710 vdd_d vss_d CKBD2LVT
+Xplace2727 net2726 net2727 vdd_d vss_d CKBD2LVT
+Xplace2723 net2722 net2723 vdd_d vss_d CKBD2LVT
+Xplace2726 net2725 net2726 vdd_d vss_d BUFFD2LVT
+Xplace2714 net2713 net2714 vdd_d vss_d CKBD2LVT
+Xwire2755 net2666 net2755 vdd_d vss_d BUFFD3LVT
+Xwire2749 net2669 net2749 vdd_d vss_d CKBD4LVT
+Xload_slew2750 net2751 net2750 vdd_d vss_d CKBD3LVT
+Xload_slew2764 net2870 net2764 vdd_d vss_d CKBD1LVT
+Xwire2801 net2803 net2801 vdd_d vss_d CKBD4LVT
+Xwire2799 net2800 net2799 vdd_d vss_d CKBD3LVT
+Xplace2684 net2683 net2684 vdd_d vss_d CKBD2LVT
+Xwire2798 net2799 net2798 vdd_d vss_d CKBD4LVT
+Xplace2689 net2682 net2689 vdd_d vss_d CKBD2LVT
+Xplace2691 net2690 net2691 vdd_d vss_d CKBD2LVT
+Xwire2753 net2754 net2753 vdd_d vss_d CKBD6LVT
+Xplace2683 net2682 net2683 vdd_d vss_d CKBD2LVT
+Xplace2679 net2678 net2679 vdd_d vss_d BUFFD6LVT
+Xplace2696 net2695 net2696 vdd_d vss_d CKBD2LVT
+Xplace2678 net2677 net2678 vdd_d vss_d CKBD2LVT
+Xplace2673 net2672 net2673 vdd_d vss_d CKBD2LVT
+Xwire2754 net2667 net2754 vdd_d vss_d CKBD3LVT
+Xplace2672 comp_mux_28_ net2672 vdd_d vss_d CKBD2LVT
+Xwire2796 net2797 net2796 vdd_d vss_d CKBD4LVT
+Xwire2795 net2797 net2795 vdd_d vss_d BUFFD3LVT
+Xclkbuf_4_9_f_spi_sclk clknet_3_4_0_spi_sclk clknet_4_9_leaf_spi_sclk
++ vdd_d vss_d BUFFD16LVT
+Xclkbuf_4_8_f_spi_sclk clknet_3_4_0_spi_sclk clknet_4_8_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
 Xclkbuf_4_15_f_spi_sclk clknet_3_7_0_spi_sclk clknet_4_15_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xplace2778 spi_bits[125] net2778 vdd_d vss_d CKBD2LVT
+Xplace2618 spi_bits[118] net2618 vdd_d vss_d CKBD2LVT
+Xplace2693 net2692 net2693 vdd_d vss_d CKBD2LVT
+Xclkbuf_4_7_f_spi_sclk clknet_3_3_0_spi_sclk clknet_4_7_leaf_spi_sclk
++ vdd_d vss_d BUFFD16LVT
+Xplace2682 net2681 net2682 vdd_d vss_d CKBD2LVT
+Xplace2680 net2679 net2680 vdd_d vss_d BUFFD6LVT
+Xplace2681 net2680 net2681 vdd_d vss_d BUFFD2LVT
+Xplace2692 net2691 net2692 vdd_d vss_d CKBD2LVT
+Xplace2690 net2677 net2690 vdd_d vss_d CKBD2LVT
+Xplace2687 net2747 net2687 vdd_d vss_d CKBD2LVT
+Xplace2688 net2687 net2688 vdd_d vss_d CKBD2LVT
+Xplace2685 net2750 net2685 vdd_d vss_d CKBD2LVT
+Xplace2686 net2685 net2686 vdd_d vss_d CKBD2LVT
 Xclkbuf_4_12_f_spi_sclk clknet_3_6_0_spi_sclk clknet_4_12_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xclkbuf_4_13_f_spi_sclk clknet_3_6_0_spi_sclk clknet_4_13_leaf_spi_sclk
-+ vdd_d vss_d BUFFD16LVT
-Xplace2779 spi_bits[124] net2779 vdd_d vss_d CKBD2LVT
 Xclkbuf_4_10_f_spi_sclk clknet_3_5_0_spi_sclk clknet_4_10_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
 Xclkbuf_4_11_f_spi_sclk clknet_3_5_0_spi_sclk clknet_4_11_leaf_spi_sclk
 + vdd_d vss_d BUFFD16LVT
-Xplace2780 spi_bits[123] net2780 vdd_d vss_d CKBD2LVT
-Xclkbuf_4_8_f_spi_sclk clknet_3_4_0_spi_sclk clknet_4_8_leaf_spi_sclk
+Xplace2658 net2657 net2658 vdd_d vss_d CKBD2LVT
+Xplace2657 net2654 net2657 vdd_d vss_d CKBD2LVT
+Xplace2665 net2664 net2665 vdd_d vss_d CKBD2LVT
+Xplace2662 net2661 net2662 vdd_d vss_d BUFFD6LVT
+Xplace2694 net2693 net2694 vdd_d vss_d CKBD2LVT
+Xplace2695 net2694 net2695 vdd_d vss_d CKBD2LVT
+Xplace2656 net2655 net2656 vdd_d vss_d CKBD2LVT
+Xclkbuf_1_1_f_seq_comp clknet_0_seq_comp clknet_1_1_leaf_seq_comp
 + vdd_d vss_d BUFFD16LVT
-Xclkbuf_4_9_f_spi_sclk clknet_3_4_0_spi_sclk clknet_4_9_leaf_spi_sclk
+Xplace2697 net2696 net2697 vdd_d vss_d CKBD2LVT
+Xclkbuf_1_0_f_seq_comp clknet_0_seq_comp clknet_1_0_leaf_seq_comp
 + vdd_d vss_d BUFFD16LVT
-Xplace2781 spi_bits[122] net2781 vdd_d vss_d CKBD2LVT
-Xclkbuf_4_6_f_spi_sclk clknet_3_3_0_spi_sclk clknet_4_6_leaf_spi_sclk
+Xclkbuf_0_seq_comp net2820 clknet_0_seq_comp vdd_d vss_d BUFFD16LVT
+Xplace2707 net2691 net2707 vdd_d vss_d CKBD2LVT
+Xclkbuf_1_1_f_seq_samp clknet_0_seq_samp clknet_1_1_leaf_seq_samp
 + vdd_d vss_d BUFFD16LVT
-Xclkbuf_4_7_f_spi_sclk clknet_3_3_0_spi_sclk clknet_4_7_leaf_spi_sclk
+Xplace2706 net2693 net2706 vdd_d vss_d CKBD2LVT
+Xclkbuf_3_4_0_spi_sclk net2855 clknet_3_4_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xplace2664 net2663 net2664 vdd_d vss_d CKBD2LVT
+Xplace2663 net2662 net2663 vdd_d vss_d BUFFD2LVT
+Xplace2661 net2642 net2661 vdd_d vss_d BUFFD6LVT
+Xplace2639 spi_bits[0] net2639 vdd_d vss_d CKBD2LVT
+Xplace2660 net2642 net2660 vdd_d vss_d CKBD2LVT
+Xplace2659 net2645 net2659 vdd_d vss_d CKBD2LVT
+Xplace2640 net2639 net2640 vdd_d vss_d CKBD2LVT
+Xplace2641 net2640 net2641 vdd_d vss_d CKBD2LVT
+Xclkbuf_3_6_0_spi_sclk net2854 clknet_3_6_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xclkbuf_3_5_0_spi_sclk net2854 clknet_3_5_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xplace2698 net2697 net2698 vdd_d vss_d CKBD2LVT
+Xclkbuf_3_3_0_spi_sclk net2853 clknet_3_3_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xclkbuf_3_2_0_spi_sclk net2853 clknet_3_2_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xplace2700 net2698 net2700 vdd_d vss_d CKBD2LVT
+Xclkbuf_0_spi_sclk net2850 clknet_0_spi_sclk vdd_d vss_d BUFFD16LVT
+Xclkbuf_1_1_f_seq_logic clknet_0_seq_logic clknet_1_1_leaf_seq_logic
 + vdd_d vss_d BUFFD16LVT
-Xplace2782 spi_bits[121] net2782 vdd_d vss_d CKBD2LVT
-Xclkbuf_4_4_f_spi_sclk clknet_3_2_0_spi_sclk clknet_4_4_leaf_spi_sclk
+Xclkbuf_3_1_0_spi_sclk net2855 clknet_3_1_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xclkbuf_3_0_0_spi_sclk net2853 clknet_3_0_0_spi_sclk vdd_d
++ vss_d BUFFD16LVT
+Xplace2705 net2697 net2705 vdd_d vss_d CKBD2LVT
+Xclkbuf_1_0_f_seq_logic clknet_0_seq_logic clknet_1_0_leaf_seq_logic
 + vdd_d vss_d BUFFD16LVT
-Xclkbuf_4_5_f_spi_sclk clknet_3_2_0_spi_sclk clknet_4_5_leaf_spi_sclk
+Xplace2702 net2701 net2702 vdd_d vss_d CKBD2LVT
+Xplace2701 net2700 net2701 vdd_d vss_d CKBD2LVT
+Xplace2699 net2698 net2699 vdd_d vss_d CKBD2LVT
+Xwire2771 adc_comparator_out[6] net2771 vdd_d vss_d BUFFD4LVT
+Xwire2770 adc_comparator_out[7] net2770 vdd_d vss_d CKBD4LVT
+Xwire2782 net2783 net2782 vdd_d vss_d CKBD6LVT
+Xwire2784 adc_comparator_out[12] net2784 vdd_d vss_d CKBD4LVT
+Xclkbuf_1_1_f_seq_init clknet_0_seq_init clknet_1_1_leaf_seq_init
 + vdd_d vss_d BUFFD16LVT
-Xplace2791 spi_bits[117] net2791 vdd_d vss_d CKBD2LVT
-Xclkbuf_0_seq_init net3026 clknet_0_seq_init vdd_d vss_d BUFFD16LVT
-Xplace2792 spi_bits[116] net2792 vdd_d vss_d CKBD2LVT
-Xplace2793 spi_bits[115] net2793 vdd_d vss_d CKBD2LVT
-Xwire3025 adc_comparator_out[10] net3025 vdd_d vss_d BUFFD4LVT
-Xwire2967 spi_bits[165] net2967 vdd_d vss_d BUFFD2LVT
-Xwire2969 net2970 net2969 vdd_d vss_d BUFFD4LVT
-Xload_slew2970 spi_bits[164] net2970 vdd_d vss_d BUFFD2LVT
-Xwire2971 net2972 net2971 vdd_d vss_d CKBD6LVT
-Xwire2955 net2956 net2955 vdd_d vss_d BUFFD3LVT
-Xload_slew2956 spi_bits[171] net2956 vdd_d vss_d BUFFD2LVT
-Xwire2957 net2958 net2957 vdd_d vss_d CKBD6LVT
-Xplace2898 net2897 net2898 vdd_d vss_d CKBD2LVT
-Xplace2899 net2898 net2899 vdd_d vss_d CKBD2LVT
-Xplace2900 net2899 net2900 vdd_d vss_d CKBD2LVT
-Xplace2906 net3015 net2906 vdd_d vss_d BUFFD6LVT
-Xplace2907 net2906 net2907 vdd_d vss_d BUFFD6LVT
-Xplace2915 net2914 net2915 vdd_d vss_d CKBD2LVT
-Xplace2917 net2916 net2917 vdd_d vss_d BUFFD2LVT
-Xplace2912 net3102 net2912 vdd_d vss_d BUFFD2LVT
-Xplace2913 net2912 net2913 vdd_d vss_d CKBD2LVT
-Xplace2914 net3100 net2914 vdd_d vss_d BUFFD2LVT
-Xplace2916 net3099 net2916 vdd_d vss_d BUFFD6LVT
-Xplace2919 adc_comparator_out[15] net2919 vdd_d vss_d BUFFD6LVT
-Xplace2920 net3011 net2920 vdd_d vss_d BUFFD6LVT
-Xplace2924 net3008 net2924 vdd_d vss_d BUFFD6LVT
-Xplace2925 net2924 net2925 vdd_d vss_d BUFFD2LVT
-Xplace2926 net2925 net2926 vdd_d vss_d CKBD2LVT
-Xplace2928 net2927 net2928 vdd_d vss_d BUFFD2LVT
-Xplace2929 net2928 net2929 vdd_d vss_d CKBD2LVT
-Xplace2934 net2933 net2934 vdd_d vss_d CKBD2LVT
-Xplace2931 net3005 net2931 vdd_d vss_d BUFFD6LVT
-Xplace2932 net2931 net2932 vdd_d vss_d BUFFD6LVT
-Xplace2933 net2932 net2933 vdd_d vss_d BUFFD2LVT
-Xplace2936 net2935 net2936 vdd_d vss_d BUFFD2LVT
-Xplace2937 net2936 net2937 vdd_d vss_d CKBD2LVT
-Xload_slew2943 net2944 net2943 vdd_d vss_d BUFFD2LVT
-Xplace2939 net2938 net2939 vdd_d vss_d BUFFD2LVT
-Xplace2940 net2939 net2940 vdd_d vss_d CKBD2LVT
-Xwire2941 net2890 net2941 vdd_d vss_d BUFFD3LVT
-Xwire2942 net2944 net2942 vdd_d vss_d CKBD4LVT
+Xwire2769 adc_comparator_out[8] net2769 vdd_d vss_d CKBD4LVT
+Xwire2768 net2769 net2768 vdd_d vss_d CKBD6LVT
+Xwire2767 adc_comparator_out[9] net2767 vdd_d vss_d CKBD4LVT
+Xwire2766 net2880 net2766 vdd_d vss_d CKBD6LVT
+Xload_slew2765 net2871 net2765 vdd_d vss_d CKBD1LVT
+Xload_slew2763 spi_bits[154] net2763 vdd_d vss_d CKBD4LVT
+Xwire2762 net2763 net2762 vdd_d vss_d CKBD4LVT
+Xload_slew2761 net2869 net2761 vdd_d vss_d CKBD1LVT
+Xplace2713 net2712 net2713 vdd_d vss_d BUFFD2LVT
+Xwire2788 adc_comparator_out[10] net2788 vdd_d vss_d CKBD4LVT
+Xwire2787 net2877 net2787 vdd_d vss_d CKBD6LVT
+Xwire2786 adc_comparator_out[11] net2786 vdd_d vss_d CKBD4LVT
+Xplace2677 net2676 net2677 vdd_d vss_d CKBD2LVT
+Xplace2675 comp_mux_07_ net2675 vdd_d vss_d CKBD2LVT
+Xclkbuf_1_0_f_seq_init clknet_0_seq_init clknet_1_0_leaf_seq_init
++ vdd_d vss_d BUFFD16LVT
+Xplace2676 net1 net2676 vdd_d vss_d CKBD2LVT
+Xwire2781 adc_comparator_out[13] net2781 vdd_d vss_d CKBD4LVT
+Xspi_reg_clk_inv_inv_cell_2789 clknet_4_2_leaf_spi_sclk net2789
++ vdd_d vss_d INVD2LVT
+Xwire2783 net2784 net2783 vdd_d vss_d CKBD6LVT
+Xwire2785 net2786 net2785 vdd_d vss_d CKBD6LVT
+Xwire2772 adc_comparator_out[5] net2772 vdd_d vss_d CKBD4LVT
+Xwire2776 net2876 net2776 vdd_d vss_d CKBD6LVT
+Xwire2774 net2775 net2774 vdd_d vss_d CKBD6LVT
+Xwire2775 net2882 net2775 vdd_d vss_d BUFFD4LVT
+Xwire2773 net2774 net2773 vdd_d vss_d CKBD6LVT
+Xload_slew2759 net2865 net2759 vdd_d vss_d BUFFD0LVT
+Xload_slew2760 net2868 net2760 vdd_d vss_d CKBD1LVT
+Xload_slew2758 net2863 net2758 vdd_d vss_d CKBD1LVT
+Xwire2757 net2466 net2757 vdd_d vss_d CKBD4LVT
+Xclkbuf_0_seq_samp net2804 clknet_0_seq_samp vdd_d vss_d BUFFD16LVT
+Xplace2704 net2703 net2704 vdd_d vss_d CKBD2LVT
+Xclkbuf_0_seq_logic net2834 clknet_0_seq_logic vdd_d vss_d
++ BUFFD16LVT
+Xplace2645 net2644 net2645 vdd_d vss_d CKBD2LVT
+Xplace2646 net2645 net2646 vdd_d vss_d CKBD2LVT
+Xplace2649 net2648 net2649 vdd_d vss_d CKBD2LVT
+Xplace2647 net2646 net2647 vdd_d vss_d CKBD2LVT
+Xplace2650 net2649 net2650 vdd_d vss_d CKBD2LVT
+Xplace2716 net2715 net2716 vdd_d vss_d CKBD2LVT
+Xplace2715 net2879 net2715 vdd_d vss_d BUFFD2LVT
+Xclkbuf_1_0_f_seq_samp clknet_0_seq_samp clknet_1_0_leaf_seq_samp
++ vdd_d vss_d BUFFD16LVT
+Xplace2703 net2702 net2703 vdd_d vss_d CKBD2LVT
+Xplace2652 net2651 net2652 vdd_d vss_d CKBD2LVT
+Xplace2648 net2647 net2648 vdd_d vss_d CKBD2LVT
+Xplace2651 net2649 net2651 vdd_d vss_d CKBD2LVT
+Xplace2653 net2649 net2653 vdd_d vss_d CKBD2LVT
+Xplace2655 net2654 net2655 vdd_d vss_d CKBD2LVT
+Xplace2654 net2653 net2654 vdd_d vss_d CKBD2LVT
+Xplace2615 spi_bits[11] net2615 vdd_d vss_d CKBD16LVT
+Xwire2797 clknet_1_1_leaf_seq_init net2797 vdd_d vss_d CKBD4LVT
+Xplace2583 spi_bits[146] net2583 vdd_d vss_d CKBD2LVT
+Xplace2539 spi_bits[27] net2539 vdd_d vss_d BUFFD6LVT
+Xplace2540 spi_bits[27] net2540 vdd_d vss_d CKBD2LVT
+Xplace2728 net2776 net2728 vdd_d vss_d BUFFD6LVT
+Xplace2732 net2779 net2732 vdd_d vss_d BUFFD6LVT
+Xplace2737 net2736 net2737 vdd_d vss_d BUFFD2LVT
+Xplace2739 net2785 net2739 vdd_d vss_d BUFFD6LVT
+Xplace2742 net2875 net2742 vdd_d vss_d BUFFD6LVT
+Xwire1410 net2457 spi_sdo vdd_d vss_d CKBD2LVT
+Xplace2457 net5 net2457 vdd_d vss_d BUFFD2LVT
+Xplace2458 spi_bits[9] net2458 vdd_d vss_d CKBD16LVT
+Xplace2483 spi_bits[5] net2483 vdd_d vss_d CKBD16LVT
+Xplace2481 spi_bits[60] net2481 vdd_d vss_d BUFFD6LVT
+Xplace2482 spi_bits[60] net2482 vdd_d vss_d BUFFD6LVT
+Xplace2479 spi_bits[61] net2479 vdd_d vss_d BUFFD6LVT
+Xplace2480 spi_bits[61] net2480 vdd_d vss_d BUFFD6LVT
+Xplace2478 spi_bits[62] net2478 vdd_d vss_d CKBD16LVT
+Xplace2475 spi_bits[63] net2475 vdd_d vss_d CKBD2LVT
+Xplace2477 net2476 net2477 vdd_d vss_d BUFFD6LVT
+Xplace2476 spi_bits[63] net2476 vdd_d vss_d CKBD2LVT
+Xplace2473 spi_bits[71] net2473 vdd_d vss_d CKBD2LVT
+Xplace2474 spi_bits[6] net2474 vdd_d vss_d CKBD16LVT
+Xplace2471 spi_bits[7] net2471 vdd_d vss_d BUFFD6LVT
+Xplace2472 spi_bits[7] net2472 vdd_d vss_d BUFFD6LVT
+Xplace2470 spi_bits[8] net2470 vdd_d vss_d CKBD16LVT
+Xplace2466 spi_bits[92] net2466 vdd_d vss_d BUFFD6LVT
+Xplace2465 spi_bits[93] net2465 vdd_d vss_d CKBD2LVT
+Xplace2461 spi_bits[97] net2461 vdd_d vss_d CKBD2LVT
+Xplace2460 spi_bits[98] net2460 vdd_d vss_d CKBD2LVT
+Xplace2459 spi_bits[99] net2459 vdd_d vss_d CKBD2LVT
+Xplace2462 spi_bits[96] net2462 vdd_d vss_d CKBD2LVT
+Xplace2463 spi_bits[95] net2463 vdd_d vss_d CKBD2LVT
+Xplace2464 spi_bits[94] net2464 vdd_d vss_d CKBD2LVT
+Xplace2572 spi_bits[16] net2572 vdd_d vss_d BUFFD6LVT
+Xload_slew2866 spi_bits[164] net2866 vdd_d vss_d CKBD4LVT
+Xload_slew2867 spi_bits[160] net2867 vdd_d vss_d CKBD4LVT
+Xload_slew2869 spi_bits[155] net2869 vdd_d vss_d CKBD1LVT
+Xplace2584 spi_bits[145] net2584 vdd_d vss_d CKBD2LVT
+Xload_slew2863 spi_bits[175] net2863 vdd_d vss_d CKBD1LVT
+Xload_slew2864 spi_bits[173] net2864 vdd_d vss_d CKBD4LVT
+Xplace2585 spi_bits[144] net2585 vdd_d vss_d CKBD2LVT
+Xwire2861 net2616 net2861 vdd_d vss_d BUFFD3LVT
+Xwire2862 net2563 net2862 vdd_d vss_d CKBD3LVT
+Xplace2586 spi_bits[143] net2586 vdd_d vss_d CKBD2LVT
+Xwire2859 net2755 net2859 vdd_d vss_d CKBD4LVT
+Xwire2860 net2752 net2860 vdd_d vss_d CKBD4LVT
+Xplace2587 spi_bits[142] net2587 vdd_d vss_d CKBD2LVT
+Xload_slew2858 net2753 net2858 vdd_d vss_d BUFFD4LVT
+Xplace2588 spi_bits[141] net2588 vdd_d vss_d CKBD2LVT
+Xwire2856 net2745 net2856 vdd_d vss_d BUFFD4LVT
+Xwire2857 net2746 net2857 vdd_d vss_d CKBD4LVT
+Xplace2590 spi_bits[13] net2590 vdd_d vss_d BUFFD6LVT
+Xplace2591 spi_bits[13] net2591 vdd_d vss_d BUFFD6LVT
+Xmax_length2853 net2855 net2853 vdd_d vss_d BUFFD4LVT
+Xplace2593 spi_bits[138] net2593 vdd_d vss_d CKBD2LVT
+Xwire2836 net2837 net2836 vdd_d vss_d CKBD8LVT
+Xwire2837 seq_logic net2837 vdd_d vss_d BUFFD4LVT
+Xplace2594 spi_bits[137] net2594 vdd_d vss_d CKBD2LVT
+Xwire2835 net2836 net2835 vdd_d vss_d BUFFD8LVT
+Xplace2595 spi_bits[136] net2595 vdd_d vss_d CKBD2LVT
+Xwire2834 net2835 net2834 vdd_d vss_d BUFFD12LVT
+Xplace2596 spi_bits[135] net2596 vdd_d vss_d CKBD2LVT
+Xwire2833 clknet_1_0_leaf_seq_comp net2833 vdd_d vss_d CKBD4LVT
+Xplace2597 spi_bits[134] net2597 vdd_d vss_d CKBD2LVT
+Xwire2832 net2833 net2832 vdd_d vss_d BUFFD3LVT
+Xplace2598 spi_bits[133] net2598 vdd_d vss_d CKBD2LVT
+Xwire2831 net2833 net2831 vdd_d vss_d CKBD4LVT
+Xplace2599 spi_bits[132] net2599 vdd_d vss_d CKBD2LVT
+Xwire2829 net2830 net2829 vdd_d vss_d CKBD3LVT
+Xwire2830 clknet_1_0_leaf_seq_comp net2830 vdd_d vss_d CKBD4LVT
+Xplace2600 spi_bits[131] net2600 vdd_d vss_d CKBD2LVT
+Xwire2828 net2829 net2828 vdd_d vss_d CKBD4LVT
+Xplace2601 spi_bits[130] net2601 vdd_d vss_d CKBD2LVT
+Xwire2827 clknet_1_1_leaf_seq_comp net2827 vdd_d vss_d CKBD4LVT
+Xplace2602 spi_bits[12] net2602 vdd_d vss_d BUFFD6LVT
+Xplace2603 spi_bits[12] net2603 vdd_d vss_d BUFFD6LVT
+Xplace2605 spi_bits[128] net2605 vdd_d vss_d CKBD2LVT
+Xwire2811 net2813 net2811 vdd_d vss_d BUFFD3LVT
+Xplace2606 spi_bits[127] net2606 vdd_d vss_d CKBD2LVT
+Xwire2810 clknet_1_1_leaf_seq_samp net2810 vdd_d vss_d CKBD4LVT
+Xplace2607 spi_bits[126] net2607 vdd_d vss_d CKBD2LVT
+Xwire2808 net2809 net2808 vdd_d vss_d CKBD4LVT
+Xwire2809 net2810 net2809 vdd_d vss_d CKBD3LVT
+Xplace2608 spi_bits[125] net2608 vdd_d vss_d CKBD2LVT
+Xwire2806 net2807 net2806 vdd_d vss_d CKBD8LVT
+Xwire2807 seq_samp net2807 vdd_d vss_d BUFFD4LVT
+Xplace2609 spi_bits[124] net2609 vdd_d vss_d CKBD2LVT
+Xwire2805 net2806 net2805 vdd_d vss_d BUFFD8LVT
+Xplace2610 spi_bits[123] net2610 vdd_d vss_d CKBD2LVT
+Xwire2804 net2805 net2804 vdd_d vss_d BUFFD12LVT
+Xplace2611 spi_bits[122] net2611 vdd_d vss_d CKBD2LVT
+Xwire2803 clknet_1_0_leaf_seq_init net2803 vdd_d vss_d CKBD4LVT
+Xplace2612 spi_bits[121] net2612 vdd_d vss_d CKBD2LVT
+Xwire2802 net2803 net2802 vdd_d vss_d BUFFD3LVT
+Xwire2800 clknet_1_0_leaf_seq_init net2800 vdd_d vss_d CKBD4LVT
+Xclkbuf_4_14_f_spi_sclk clknet_3_7_0_spi_sclk clknet_4_14_leaf_spi_sclk
++ vdd_d vss_d BUFFD16LVT
+Xplace2619 spi_bits[117] net2619 vdd_d vss_d CKBD2LVT
+Xplace2620 spi_bits[116] net2620 vdd_d vss_d CKBD2LVT
+Xplace2621 spi_bits[115] net2621 vdd_d vss_d CKBD2LVT
+Xplace2622 spi_bits[114] net2622 vdd_d vss_d CKBD2LVT
+Xplace2623 spi_bits[113] net2623 vdd_d vss_d CKBD2LVT
+Xwire2777 net2778 net2777 vdd_d vss_d CKBD6LVT
+Xwire2778 adc_comparator_out[14] net2778 vdd_d vss_d BUFFD4LVT
+Xwire2779 net2780 net2779 vdd_d vss_d CKBD6LVT
+Xwire2780 net2781 net2780 vdd_d vss_d CKBD6LVT
+Xplace2735 net2873 net2735 vdd_d vss_d BUFFD6LVT
+Xplace2736 net2735 net2736 vdd_d vss_d BUFFD6LVT
+Xplace2711 net2768 net2711 vdd_d vss_d BUFFD6LVT
+Xplace2712 net2711 net2712 vdd_d vss_d BUFFD6LVT
+Xplace2720 net2719 net2720 vdd_d vss_d CKBD2LVT
+Xplace2722 net2721 net2722 vdd_d vss_d BUFFD2LVT
+Xplace2717 net2771 net2717 vdd_d vss_d BUFFD2LVT
+Xplace2718 net2717 net2718 vdd_d vss_d CKBD2LVT
+Xplace2719 net2878 net2719 vdd_d vss_d BUFFD2LVT
+Xplace2721 net2881 net2721 vdd_d vss_d BUFFD6LVT
+Xplace2724 net2773 net2724 vdd_d vss_d BUFFD6LVT
+Xplace2725 net2724 net2725 vdd_d vss_d BUFFD6LVT
+Xplace2729 net2728 net2729 vdd_d vss_d BUFFD6LVT
+Xplace2730 net2729 net2730 vdd_d vss_d BUFFD2LVT
+Xplace2731 net2730 net2731 vdd_d vss_d CKBD2LVT
+Xplace2733 net2732 net2733 vdd_d vss_d BUFFD2LVT
+Xplace2734 net2733 net2734 vdd_d vss_d CKBD2LVT
+Xplace2738 net2737 net2738 vdd_d vss_d CKBD2LVT
+Xplace2740 net2739 net2740 vdd_d vss_d BUFFD2LVT
+Xplace2741 net2740 net2741 vdd_d vss_d CKBD2LVT
+Xload_slew2747 net2686 net2747 vdd_d vss_d CKBD3LVT
+Xplace2743 net2742 net2743 vdd_d vss_d BUFFD2LVT
+Xplace2744 net2743 net2744 vdd_d vss_d CKBD2LVT
+Xwire2745 net2688 net2745 vdd_d vss_d BUFFD3LVT
+Xwire2746 net2671 net2746 vdd_d vss_d BUFFD3LVT
 .ENDS frida_core
