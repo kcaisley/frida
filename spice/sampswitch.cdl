@@ -1,8 +1,6 @@
 * Sampling switch implementation with PMOS/NMOS pair
 * Drains and sources connected, gates driven by opposite polarity
 
-*.SCALE METER
-
 .SUBCKT sampswitch vin vout clk clk_b vdd_a vss_a
 *.PININFO vin:I vout:O clk:I clk_b:I vdd_a:B vss_a:B
 
