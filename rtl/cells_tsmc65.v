@@ -15,6 +15,20 @@ module OPENROAD_DFFE (D, C, E, Q);
 
 endmodule
 
+// Generic OPENROAD enabled flip-flop with reset mapped to TSMC65
+module OPENROAD_DFFER (D, C, E, R, Q);
+  input D;     // Data input
+  input C;     // Clock input
+  input E;     // Enable input
+  input R;     // Active-low async reset
+  output Q;    // Data output
+
+  // Use TSMC65 enabled D flip-flop with reset
+  // EDFCND2LVT: Enabled D flip-flop with Clear-Direct-Negative (active-low reset)
+  EDFCND2LVT dffe (.D(D), .CP(C), .E(E), .CDN(R), .Q(Q));
+
+endmodule
+
 // Generic OPENROAD XOR gate mapped to TSMC65 XOR
 module OPENROAD_CLKXOR (A, B, Y);
   input A;     // Input A
