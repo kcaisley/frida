@@ -22,7 +22,7 @@ module frida_core(
     output wire comp_out
 `ifdef USE_POWER_PINS
     ,input wire vin_p, vin_n,
-    inout wire vdd_a, vss_a,                 // Analog supply
+    inout wire vdd_a, vss_a,                  // Analog supply
     inout wire vdd_d, vss_d,                  // Digital supply
     inout wire vdd_dac, vss_dac               // DAC supply
 `endif
@@ -44,13 +44,16 @@ module frida_core(
 
     // Instantiate SPI register (180-bit control)
     spi_register spi_reg (
-        .clk(spi_sclk),
         .rst_b(reset_b),
         .spi_cs_b(spi_cs_b),
         .spi_sdi(spi_sdi),
         .spi_sclk(spi_sclk),
         .spi_sdo(spi_sdo),
         .spi_bits(spi_bits)
+`ifdef USE_POWER_PINS
+        ,.vdd_d(vdd_d),
+        .vss_d(vss_d)
+`endif
     );
 
     // New optimized SPI bit mapping (180 bits total)
@@ -108,7 +111,7 @@ module frida_core(
     // Instantiate 16:1 comparator multiplexer
     compmux comp_mux (
         .mux_sel(mux_sel),
-        .adc_comp_out(adc_comparator_out),
+        .adc_comp_in(adc_comparator_out),
         .comp_out(comp_out)
     );
 

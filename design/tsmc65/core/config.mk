@@ -35,7 +35,7 @@ export SYNTH_HIERARCHICAL = 1
 export DIE_AREA = 0 0 540 540
 
 # Core area
-export CORE_AREA = 0 0 540 540
+export CORE_AREA = 35 35 505 505
 
 # Macro placement script for 16 ADC instances - explicit 4x4 grid placement
 export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/core/macro.tcl
@@ -77,7 +77,7 @@ export PLACE_DENSITY = 0.50
 
 # Routing layer constraints - TSMC65 has 6 metal layers + 2 top metals
 export MIN_ROUTING_LAYER = M2
-export MAX_ROUTING_LAYER = M3
+export MAX_ROUTING_LAYER = M4
 
 #--------------------------------------------------------
 # Finishing
