@@ -15,17 +15,17 @@ Xinput45 dac_bstate_n[2] net45 vdd_d vss_d BUFFD2LVT
 Xplace148 clk_init net148 vdd_d vss_d CKBD2LVT
 Xclkbuf_2_2_f_clk_update clknet_0_clk_update clknet_2_2_leaf_clk_update
 + vdd_d vss_d BUFFD12LVT
-Xclkload0 clknet_2_1_leaf_clk_update _unconnected_0 vdd_d
-+ vss_d INVD1LVT
-Xclkload2 clknet_2_3_leaf_clk_update _unconnected_1 vdd_d
+Xclkload0 clknet_2_0_leaf_clk_update _unconnected_0 vdd_d
 + vss_d INVD0LVT
+Xclkload2 clknet_2_3_leaf_clk_update _unconnected_1 vdd_d
++ vss_d BUFFD8LVT
 Xplace140 salogic_dual_dac_ff[7].dac_state_n_ff.D net140
 + vdd_d vss_d CKBD2LVT
 Xplace142 salogic_dual_dac_ff[5].dac_state_n_ff.D net142
 + vdd_d vss_d CKBD2LVT
 Xplace144 net105 net144 vdd_d vss_d CKBD2LVT
 Xplace146 salogic_dual_032_ net146 vdd_d vss_d CKBD2LVT
-Xplace149 net148 net149 vdd_d vss_d CKBD2LVT
+Xplace149 net69 net149 vdd_d vss_d CKBD2LVT
 Xclkbuf_2_0_f_clk_update clknet_0_clk_update clknet_2_0_leaf_clk_update
 + vdd_d vss_d BUFFD12LVT
 Xclkbuf_0_clk_update clk_update clknet_0_clk_update vdd_d
@@ -33,7 +33,7 @@ Xclkbuf_0_clk_update clk_update clknet_0_clk_update vdd_d
 Xclkbuf_2_3_f_clk_update clknet_0_clk_update clknet_2_3_leaf_clk_update
 + vdd_d vss_d BUFFD12LVT
 Xclkload1 clknet_2_2_leaf_clk_update _unconnected_2 vdd_d
-+ vss_d INVD0LVT
++ vss_d BUFFD8LVT
 Xplace141 salogic_dual_dac_ff[6].dac_state_n_ff.D net141
 + vdd_d vss_d CKBD2LVT
 Xplace143 salogic_dual_dac_ff[4].dac_state_n_ff.D net143
@@ -56,19 +56,19 @@ Xclkgate_clkgate_update.clkgate_cell _unconnected_7 en_update
 Xsalogic_dual_174_ salogic_dual_dac_cycle[1] salogic_dual_015_
 + vdd_d vss_d CKND0LVT
 Xinput44 dac_bstate_n[1] net44 vdd_d vss_d BUFFD2LVT
-Xsalogic_dual_176_ salogic_dual_015_ net149 salogic_dual_000_
+Xsalogic_dual_176_ salogic_dual_015_ clk_init salogic_dual_000_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_177_ salogic_dual_dac_cycle[11] salogic_dual_017_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_178_ salogic_dual_017_ net149 salogic_dual_001_
+Xsalogic_dual_178_ salogic_dual_017_ clk_init salogic_dual_001_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_179_ salogic_dual_dac_cycle[12] salogic_dual_018_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_180_ salogic_dual_018_ net149 salogic_dual_002_
+Xsalogic_dual_180_ salogic_dual_018_ clk_init salogic_dual_002_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_181_ salogic_dual_dac_cycle[13] salogic_dual_019_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_182_ salogic_dual_019_ net149 salogic_dual_003_
+Xsalogic_dual_182_ salogic_dual_019_ net148 salogic_dual_003_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_183_ salogic_dual_dac_cycle[14] salogic_dual_020_
 + vdd_d vss_d CKND0LVT
@@ -80,11 +80,11 @@ Xsalogic_dual_186_ salogic_dual_021_ net148 salogic_dual_005_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_187_ salogic_dual_dac_cycle[2] salogic_dual_022_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_188_ salogic_dual_022_ net149 salogic_dual_006_
+Xsalogic_dual_188_ salogic_dual_022_ clk_init salogic_dual_006_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_189_ salogic_dual_dac_cycle[3] salogic_dual_023_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_190_ salogic_dual_023_ net149 salogic_dual_007_
+Xsalogic_dual_190_ salogic_dual_023_ net148 salogic_dual_007_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_191_ salogic_dual_dac_cycle[4] salogic_dual_024_
 + vdd_d vss_d CKND0LVT
@@ -104,15 +104,15 @@ Xsalogic_dual_198_ salogic_dual_027_ net148 salogic_dual_011_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_199_ salogic_dual_dac_cycle[8] salogic_dual_028_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_200_ salogic_dual_028_ net149 salogic_dual_012_
+Xsalogic_dual_200_ salogic_dual_028_ net148 salogic_dual_012_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_201_ salogic_dual_dac_cycle[9] salogic_dual_029_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_202_ salogic_dual_029_ net149 salogic_dual_013_
+Xsalogic_dual_202_ salogic_dual_029_ clk_init salogic_dual_013_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_203_ salogic_dual_dac_cycle[10] salogic_dual_030_
 + vdd_d vss_d CKND0LVT
-Xsalogic_dual_204_ salogic_dual_030_ net149 salogic_dual_014_
+Xsalogic_dual_204_ salogic_dual_030_ clk_init salogic_dual_014_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_205_ net150 net4 salogic_dual_031_ vdd_d vss_d
 + CKND2D0LVT
@@ -128,26 +128,26 @@ Xsalogic_dual_211_ salogic_dual_035_ net150 salogic_dual_037_
 Xsalogic_dual_212_ salogic_dual_033_ salogic_dual_037_
 + salogic_dual_038_ vdd_d vss_d NR2D1LVT
 Xinput41 dac_bstate_n[13] net41 vdd_d vss_d BUFFD2LVT
-Xsalogic_dual_214_ net146 net5 salogic_dual_040_ vdd_d vss_d
+Xsalogic_dual_214_ net147 net5 salogic_dual_040_ vdd_d vss_d
 + NR2D0LVT
 Xsalogic_dual_215_ salogic_dual_038_ salogic_dual_040_
 + salogic_dual_dac_ff[0].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_216_ net150 net149 salogic_dual_041_ vdd_d
+Xsalogic_dual_216_ net150 clk_init salogic_dual_041_ vdd_d
 + vss_d INR2D2LVT
 Xinput40 dac_bstate_n[12] net40 vdd_d vss_d BUFFD2LVT
 Xsalogic_dual_218_ salogic_dual_dac_cycle[0] salogic_dual_041_
 + salogic_dual_dac_ff[0].dac_state_n_ff.E vdd_d vss_d IND2D0LVT
-Xsalogic_dual_219_ net3 net69 salogic_dual_043_ vdd_d vss_d
+Xsalogic_dual_219_ net3 net149 salogic_dual_043_ vdd_d vss_d
 + CKND2D0LVT
-Xsalogic_dual_220_ salogic_dual_043_ net147 salogic_dual_044_
+Xsalogic_dual_220_ salogic_dual_043_ net146 salogic_dual_044_
 + vdd_d vss_d ND2D2LVT
 Xinput39 dac_bstate_n[11] net39 vdd_d vss_d BUFFD2LVT
 Xsalogic_dual_222_ net53 salogic_dual_046_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_223_ salogic_dual_046_ net69 salogic_dual_047_
+Xsalogic_dual_223_ salogic_dual_046_ net149 salogic_dual_047_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_224_ salogic_dual_044_ salogic_dual_047_
 + salogic_dual_048_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_225_ net147 net21 salogic_dual_049_ vdd_d
+Xsalogic_dual_225_ net146 net21 salogic_dual_049_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_226_ salogic_dual_048_ salogic_dual_049_
 + salogic_dual_dac_ff[0].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -156,18 +156,18 @@ Xsalogic_dual_228_ salogic_dual_050_ net150 salogic_dual_051_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_229_ salogic_dual_033_ salogic_dual_051_
 + salogic_dual_052_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_230_ net146 net6 salogic_dual_053_ vdd_d vss_d
+Xsalogic_dual_230_ net147 net6 salogic_dual_053_ vdd_d vss_d
 + NR2D0LVT
 Xsalogic_dual_231_ salogic_dual_052_ salogic_dual_053_
 + salogic_dual_dac_ff[10].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_232_ net145 salogic_dual_030_ salogic_dual_dac_ff[10].dac_state_n_ff.E
-+ vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_232_ salogic_dual_041_ salogic_dual_030_
++ salogic_dual_dac_ff[10].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_233_ net54 salogic_dual_054_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_234_ salogic_dual_054_ net69 salogic_dual_055_
+Xsalogic_dual_234_ salogic_dual_054_ net149 salogic_dual_055_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_235_ salogic_dual_044_ salogic_dual_055_
 + salogic_dual_056_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_236_ net147 net22 salogic_dual_057_ vdd_d
+Xsalogic_dual_236_ net146 net22 salogic_dual_057_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_237_ salogic_dual_056_ salogic_dual_057_
 + salogic_dual_dac_ff[10].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -176,18 +176,18 @@ Xsalogic_dual_239_ salogic_dual_058_ net150 salogic_dual_059_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_240_ salogic_dual_033_ salogic_dual_059_
 + salogic_dual_060_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_241_ net146 net7 salogic_dual_061_ vdd_d vss_d
+Xsalogic_dual_241_ net147 net7 salogic_dual_061_ vdd_d vss_d
 + NR2D0LVT
 Xsalogic_dual_242_ salogic_dual_060_ salogic_dual_061_
 + salogic_dual_dac_ff[11].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_243_ net145 salogic_dual_017_ salogic_dual_dac_ff[11].dac_state_n_ff.E
-+ vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_243_ salogic_dual_041_ salogic_dual_017_
++ salogic_dual_dac_ff[11].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_244_ net55 salogic_dual_062_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_245_ salogic_dual_062_ net69 salogic_dual_063_
+Xsalogic_dual_245_ salogic_dual_062_ net149 salogic_dual_063_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_246_ salogic_dual_044_ salogic_dual_063_
 + salogic_dual_064_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_247_ net147 net23 salogic_dual_065_ vdd_d
+Xsalogic_dual_247_ net146 net23 salogic_dual_065_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_248_ salogic_dual_064_ salogic_dual_065_
 + salogic_dual_dac_ff[11].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -196,18 +196,18 @@ Xsalogic_dual_250_ salogic_dual_066_ net150 salogic_dual_067_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_251_ salogic_dual_033_ salogic_dual_067_
 + salogic_dual_068_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_252_ net146 net8 salogic_dual_069_ vdd_d vss_d
+Xsalogic_dual_252_ net147 net8 salogic_dual_069_ vdd_d vss_d
 + NR2D0LVT
 Xsalogic_dual_253_ salogic_dual_068_ salogic_dual_069_
 + salogic_dual_dac_ff[12].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_254_ net145 salogic_dual_018_ salogic_dual_dac_ff[12].dac_state_n_ff.E
-+ vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_254_ salogic_dual_041_ salogic_dual_018_
++ salogic_dual_dac_ff[12].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_255_ net56 salogic_dual_070_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_256_ salogic_dual_070_ net69 salogic_dual_071_
+Xsalogic_dual_256_ salogic_dual_070_ net149 salogic_dual_071_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_257_ salogic_dual_044_ salogic_dual_071_
 + salogic_dual_072_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_258_ net147 net24 salogic_dual_073_ vdd_d
+Xsalogic_dual_258_ net146 net24 salogic_dual_073_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_259_ salogic_dual_072_ salogic_dual_073_
 + salogic_dual_dac_ff[12].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -216,18 +216,18 @@ Xsalogic_dual_261_ salogic_dual_074_ net150 salogic_dual_075_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_262_ salogic_dual_033_ salogic_dual_075_
 + salogic_dual_076_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_263_ net146 net9 salogic_dual_077_ vdd_d vss_d
+Xsalogic_dual_263_ net147 net9 salogic_dual_077_ vdd_d vss_d
 + NR2D0LVT
 Xsalogic_dual_264_ salogic_dual_076_ salogic_dual_077_
 + salogic_dual_dac_ff[13].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
 Xsalogic_dual_265_ net145 salogic_dual_019_ salogic_dual_dac_ff[13].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_266_ net57 salogic_dual_078_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_267_ salogic_dual_078_ net69 salogic_dual_079_
+Xsalogic_dual_267_ salogic_dual_078_ net149 salogic_dual_079_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_268_ salogic_dual_044_ salogic_dual_079_
 + salogic_dual_080_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_269_ net147 net25 salogic_dual_081_ vdd_d
+Xsalogic_dual_269_ net146 net25 salogic_dual_081_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_270_ salogic_dual_080_ salogic_dual_081_
 + salogic_dual_dac_ff[13].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -238,18 +238,18 @@ Xsalogic_dual_273_ salogic_dual_082_ net150 salogic_dual_084_
 Xsalogic_dual_274_ salogic_dual_033_ salogic_dual_084_
 + salogic_dual_085_ vdd_d vss_d NR2D1LVT
 Xinput37 dac_bstate_n[0] net37 vdd_d vss_d BUFFD2LVT
-Xsalogic_dual_276_ net146 net10 salogic_dual_087_ vdd_d
+Xsalogic_dual_276_ net147 net10 salogic_dual_087_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_277_ salogic_dual_085_ salogic_dual_087_
 + salogic_dual_dac_ff[14].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
 Xsalogic_dual_278_ net145 salogic_dual_020_ salogic_dual_dac_ff[14].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_279_ net58 salogic_dual_088_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_280_ salogic_dual_088_ net69 salogic_dual_089_
+Xsalogic_dual_280_ salogic_dual_088_ net149 salogic_dual_089_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_281_ salogic_dual_044_ salogic_dual_089_
 + salogic_dual_090_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_282_ net147 net26 salogic_dual_091_ vdd_d
+Xsalogic_dual_282_ net146 net26 salogic_dual_091_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_283_ salogic_dual_090_ salogic_dual_091_
 + salogic_dual_dac_ff[14].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -258,18 +258,18 @@ Xsalogic_dual_285_ salogic_dual_092_ net150 salogic_dual_093_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_286_ salogic_dual_033_ salogic_dual_093_
 + salogic_dual_094_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_287_ net146 net11 salogic_dual_095_ vdd_d
+Xsalogic_dual_287_ net147 net11 salogic_dual_095_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_288_ salogic_dual_094_ salogic_dual_095_
 + salogic_dual_dac_ff[15].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
 Xsalogic_dual_289_ net145 salogic_dual_021_ salogic_dual_dac_ff[15].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_290_ net59 salogic_dual_096_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_291_ salogic_dual_096_ net69 salogic_dual_097_
+Xsalogic_dual_291_ salogic_dual_096_ net149 salogic_dual_097_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_292_ salogic_dual_044_ salogic_dual_097_
 + salogic_dual_098_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_293_ net147 net27 salogic_dual_099_ vdd_d
+Xsalogic_dual_293_ net146 net27 salogic_dual_099_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_294_ salogic_dual_098_ salogic_dual_099_
 + salogic_dual_dac_ff[15].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -278,18 +278,18 @@ Xsalogic_dual_296_ salogic_dual_100_ net150 salogic_dual_101_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_297_ salogic_dual_033_ salogic_dual_101_
 + salogic_dual_102_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_298_ net146 net12 salogic_dual_103_ vdd_d
+Xsalogic_dual_298_ net147 net12 salogic_dual_103_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_299_ salogic_dual_102_ salogic_dual_103_
 + salogic_dual_dac_ff[1].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
 Xsalogic_dual_300_ salogic_dual_041_ salogic_dual_015_
 + salogic_dual_dac_ff[1].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_301_ net60 salogic_dual_104_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_302_ salogic_dual_104_ net69 salogic_dual_105_
+Xsalogic_dual_302_ salogic_dual_104_ net149 salogic_dual_105_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_303_ salogic_dual_044_ salogic_dual_105_
 + salogic_dual_106_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_304_ net147 net28 salogic_dual_107_ vdd_d
+Xsalogic_dual_304_ net146 net28 salogic_dual_107_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_305_ salogic_dual_106_ salogic_dual_107_
 + salogic_dual_dac_ff[1].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -298,18 +298,18 @@ Xsalogic_dual_307_ salogic_dual_108_ net150 salogic_dual_109_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_308_ salogic_dual_033_ salogic_dual_109_
 + salogic_dual_110_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_309_ net146 net13 salogic_dual_111_ vdd_d
+Xsalogic_dual_309_ net147 net13 salogic_dual_111_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_310_ salogic_dual_110_ salogic_dual_111_
 + salogic_dual_dac_ff[2].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_311_ salogic_dual_041_ salogic_dual_022_
-+ salogic_dual_dac_ff[2].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_311_ net145 salogic_dual_022_ salogic_dual_dac_ff[2].dac_state_n_ff.E
++ vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_312_ net61 salogic_dual_112_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_313_ salogic_dual_112_ net69 salogic_dual_113_
+Xsalogic_dual_313_ salogic_dual_112_ net149 salogic_dual_113_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_314_ salogic_dual_044_ salogic_dual_113_
 + salogic_dual_114_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_315_ net147 net29 salogic_dual_115_ vdd_d
+Xsalogic_dual_315_ net146 net29 salogic_dual_115_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_316_ salogic_dual_114_ salogic_dual_115_
 + salogic_dual_dac_ff[2].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -318,18 +318,18 @@ Xsalogic_dual_318_ salogic_dual_116_ net150 salogic_dual_117_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_319_ salogic_dual_033_ salogic_dual_117_
 + salogic_dual_118_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_320_ net146 net14 salogic_dual_119_ vdd_d
+Xsalogic_dual_320_ net147 net14 salogic_dual_119_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_321_ salogic_dual_118_ salogic_dual_119_
 + salogic_dual_dac_ff[3].dac_state_n_ff.D vdd_d vss_d NR2D1LVT
-Xsalogic_dual_322_ salogic_dual_041_ salogic_dual_023_
-+ salogic_dual_dac_ff[3].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_322_ net145 salogic_dual_023_ salogic_dual_dac_ff[3].dac_state_n_ff.E
++ vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_323_ net62 salogic_dual_120_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_324_ salogic_dual_120_ net69 salogic_dual_121_
+Xsalogic_dual_324_ salogic_dual_120_ net149 salogic_dual_121_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_325_ salogic_dual_044_ salogic_dual_121_
 + salogic_dual_122_ vdd_d vss_d NR2D1LVT
-Xsalogic_dual_326_ net147 net30 salogic_dual_123_ vdd_d
+Xsalogic_dual_326_ net146 net30 salogic_dual_123_ vdd_d
 + vss_d NR2XD0LVT
 Xsalogic_dual_327_ salogic_dual_122_ salogic_dual_123_
 + salogic_dual_dac_ff[3].dac_state_p_ff.D vdd_d vss_d NR2D1LVT
@@ -340,18 +340,18 @@ Xsalogic_dual_330_ salogic_dual_124_ net150 salogic_dual_126_
 Xsalogic_dual_331_ salogic_dual_033_ salogic_dual_126_
 + salogic_dual_127_ vdd_d vss_d NR2D0LVT
 Xinput35 dac_astate_p[8] net35 vdd_d vss_d BUFFD2LVT
-Xsalogic_dual_333_ net146 net15 salogic_dual_129_ vdd_d
+Xsalogic_dual_333_ net147 net15 salogic_dual_129_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_334_ salogic_dual_127_ salogic_dual_129_
 + salogic_dual_dac_ff[4].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
-Xsalogic_dual_335_ salogic_dual_041_ salogic_dual_024_
-+ salogic_dual_dac_ff[4].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_335_ net145 salogic_dual_024_ salogic_dual_dac_ff[4].dac_state_n_ff.E
++ vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_336_ net63 salogic_dual_130_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_337_ salogic_dual_130_ net69 salogic_dual_131_
+Xsalogic_dual_337_ salogic_dual_130_ net149 salogic_dual_131_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_338_ salogic_dual_044_ salogic_dual_131_
 + salogic_dual_132_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_339_ net147 net31 salogic_dual_133_ vdd_d
+Xsalogic_dual_339_ net146 net31 salogic_dual_133_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_340_ salogic_dual_132_ salogic_dual_133_
 + salogic_dual_dac_ff[4].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -360,18 +360,18 @@ Xsalogic_dual_342_ salogic_dual_134_ net150 salogic_dual_135_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_343_ salogic_dual_033_ salogic_dual_135_
 + salogic_dual_136_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_344_ net146 net16 salogic_dual_137_ vdd_d
+Xsalogic_dual_344_ net147 net16 salogic_dual_137_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_345_ salogic_dual_136_ salogic_dual_137_
 + salogic_dual_dac_ff[5].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
 Xsalogic_dual_346_ net145 salogic_dual_025_ salogic_dual_dac_ff[5].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_347_ net64 salogic_dual_138_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_348_ salogic_dual_138_ net69 salogic_dual_139_
+Xsalogic_dual_348_ salogic_dual_138_ net149 salogic_dual_139_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_349_ salogic_dual_044_ salogic_dual_139_
 + salogic_dual_140_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_350_ net147 net32 salogic_dual_141_ vdd_d
+Xsalogic_dual_350_ net146 net32 salogic_dual_141_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_351_ salogic_dual_140_ salogic_dual_141_
 + salogic_dual_dac_ff[5].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -380,18 +380,18 @@ Xsalogic_dual_353_ salogic_dual_142_ net150 salogic_dual_143_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_354_ salogic_dual_033_ salogic_dual_143_
 + salogic_dual_144_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_355_ net146 net17 salogic_dual_145_ vdd_d
+Xsalogic_dual_355_ net147 net17 salogic_dual_145_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_356_ salogic_dual_144_ salogic_dual_145_
 + salogic_dual_dac_ff[6].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
 Xsalogic_dual_357_ net145 salogic_dual_026_ salogic_dual_dac_ff[6].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_358_ net65 salogic_dual_146_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_359_ salogic_dual_146_ net69 salogic_dual_147_
+Xsalogic_dual_359_ salogic_dual_146_ net149 salogic_dual_147_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_360_ salogic_dual_044_ salogic_dual_147_
 + salogic_dual_148_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_361_ net147 net33 salogic_dual_149_ vdd_d
+Xsalogic_dual_361_ net146 net33 salogic_dual_149_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_362_ salogic_dual_148_ salogic_dual_149_
 + salogic_dual_dac_ff[6].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -400,18 +400,18 @@ Xsalogic_dual_364_ salogic_dual_150_ net150 salogic_dual_151_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_365_ salogic_dual_033_ salogic_dual_151_
 + salogic_dual_152_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_366_ net146 net18 salogic_dual_153_ vdd_d
+Xsalogic_dual_366_ net147 net18 salogic_dual_153_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_367_ salogic_dual_152_ salogic_dual_153_
 + salogic_dual_dac_ff[7].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
 Xsalogic_dual_368_ net145 salogic_dual_027_ salogic_dual_dac_ff[7].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_369_ net66 salogic_dual_154_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_370_ salogic_dual_154_ net69 salogic_dual_155_
+Xsalogic_dual_370_ salogic_dual_154_ net149 salogic_dual_155_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_371_ salogic_dual_044_ salogic_dual_155_
 + salogic_dual_156_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_372_ net147 net34 salogic_dual_157_ vdd_d
+Xsalogic_dual_372_ net146 net34 salogic_dual_157_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_373_ salogic_dual_156_ salogic_dual_157_
 + salogic_dual_dac_ff[7].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -420,18 +420,18 @@ Xsalogic_dual_375_ salogic_dual_158_ net150 salogic_dual_159_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_376_ salogic_dual_033_ salogic_dual_159_
 + salogic_dual_160_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_377_ net146 net19 salogic_dual_161_ vdd_d
+Xsalogic_dual_377_ net147 net19 salogic_dual_161_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_378_ salogic_dual_160_ salogic_dual_161_
 + salogic_dual_dac_ff[8].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
 Xsalogic_dual_379_ net145 salogic_dual_028_ salogic_dual_dac_ff[8].dac_state_n_ff.E
 + vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_380_ net67 salogic_dual_162_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_381_ salogic_dual_162_ net69 salogic_dual_163_
+Xsalogic_dual_381_ salogic_dual_162_ net149 salogic_dual_163_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_382_ salogic_dual_044_ salogic_dual_163_
 + salogic_dual_164_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_383_ net147 net35 salogic_dual_165_ vdd_d
+Xsalogic_dual_383_ net146 net35 salogic_dual_165_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_384_ salogic_dual_164_ salogic_dual_165_
 + salogic_dual_dac_ff[8].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -440,18 +440,18 @@ Xsalogic_dual_386_ salogic_dual_166_ net150 salogic_dual_167_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_387_ salogic_dual_033_ salogic_dual_167_
 + salogic_dual_168_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_388_ net146 net20 salogic_dual_169_ vdd_d
+Xsalogic_dual_388_ net147 net20 salogic_dual_169_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_389_ salogic_dual_168_ salogic_dual_169_
 + salogic_dual_dac_ff[9].dac_state_n_ff.D vdd_d vss_d NR2D0LVT
-Xsalogic_dual_390_ net145 salogic_dual_029_ salogic_dual_dac_ff[9].dac_state_n_ff.E
-+ vdd_d vss_d CKND2D0LVT
+Xsalogic_dual_390_ salogic_dual_041_ salogic_dual_029_
++ salogic_dual_dac_ff[9].dac_state_n_ff.E vdd_d vss_d CKND2D0LVT
 Xsalogic_dual_391_ net68 salogic_dual_170_ vdd_d vss_d CKND0LVT
-Xsalogic_dual_392_ salogic_dual_170_ net69 salogic_dual_171_
+Xsalogic_dual_392_ salogic_dual_170_ net149 salogic_dual_171_
 + vdd_d vss_d NR2D0LVT
 Xsalogic_dual_393_ salogic_dual_044_ salogic_dual_171_
 + salogic_dual_172_ vdd_d vss_d NR2D0LVT
-Xsalogic_dual_394_ net147 net36 salogic_dual_173_ vdd_d
+Xsalogic_dual_394_ net146 net36 salogic_dual_173_ vdd_d
 + vss_d NR2D0LVT
 Xsalogic_dual_395_ salogic_dual_172_ salogic_dual_173_
 + salogic_dual_dac_ff[9].dac_state_p_ff.D vdd_d vss_d NR2D0LVT
@@ -497,7 +497,7 @@ Xsalogic_dual_dac_cycle[11]$_SDFF_PP0_ salogic_dual_002_
 + clknet_2_3_leaf_clk_update salogic_dual_dac_cycle[11] vdd_d
 + vss_d DFQD1LVT
 Xsalogic_dual_dac_cycle[12]$_SDFF_PP0_ salogic_dual_003_
-+ clknet_2_3_leaf_clk_update salogic_dual_dac_cycle[12] vdd_d
++ clknet_2_1_leaf_clk_update salogic_dual_dac_cycle[12] vdd_d
 + vss_d DFQD1LVT
 Xsalogic_dual_dac_cycle[13]$_SDFF_PP0_ salogic_dual_004_
 + clknet_2_1_leaf_clk_update salogic_dual_dac_cycle[13] vdd_d
@@ -523,7 +523,7 @@ Xsalogic_dual_dac_cycle[5]$_SDFF_PP0_ salogic_dual_010_
 + clknet_2_0_leaf_clk_update salogic_dual_dac_cycle[5] vdd_d
 + vss_d DFQD1LVT
 Xsalogic_dual_dac_cycle[6]$_SDFF_PP0_ salogic_dual_011_
-+ clknet_2_0_leaf_clk_update salogic_dual_dac_cycle[6] vdd_d
++ clknet_2_1_leaf_clk_update salogic_dual_dac_cycle[6] vdd_d
 + vss_d DFQD1LVT
 Xsalogic_dual_dac_cycle[7]$_SDFF_PP0_ salogic_dual_012_
 + clknet_2_1_leaf_clk_update salogic_dual_dac_cycle[7] vdd_d
@@ -559,7 +559,7 @@ Xsalogic_dual_dac_ff[12].dac_state_p_ff.dffe salogic_dual_dac_ff[12].dac_state_p
 + salogic_dual_dac_ff[12].dac_state_n_ff.E clknet_2_3_leaf_clk_update
 + net108 _unconnected_15 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[13].dac_state_n_ff.dffe salogic_dual_dac_ff[13].dac_state_n_ff.D
-+ salogic_dual_dac_ff[13].dac_state_n_ff.E clknet_2_3_leaf_clk_update
++ salogic_dual_dac_ff[13].dac_state_n_ff.E clknet_2_1_leaf_clk_update
 + net77 _unconnected_16 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[13].dac_state_p_ff.dffe salogic_dual_dac_ff[13].dac_state_p_ff.D
 + salogic_dual_dac_ff[13].dac_state_n_ff.E clknet_2_1_leaf_clk_update
@@ -586,16 +586,16 @@ Xsalogic_dual_dac_ff[2].dac_state_n_ff.dffe salogic_dual_dac_ff[2].dac_state_n_f
 + salogic_dual_dac_ff[2].dac_state_n_ff.E clknet_2_2_leaf_clk_update
 + net81 _unconnected_24 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[2].dac_state_p_ff.dffe salogic_dual_dac_ff[2].dac_state_p_ff.D
-+ salogic_dual_dac_ff[2].dac_state_n_ff.E clknet_2_2_leaf_clk_update
++ salogic_dual_dac_ff[2].dac_state_n_ff.E clknet_2_0_leaf_clk_update
 + net113 _unconnected_25 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[3].dac_state_n_ff.dffe salogic_dual_dac_ff[3].dac_state_n_ff.D
-+ salogic_dual_dac_ff[3].dac_state_n_ff.E clknet_2_2_leaf_clk_update
++ salogic_dual_dac_ff[3].dac_state_n_ff.E clknet_2_0_leaf_clk_update
 + net82 _unconnected_26 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[3].dac_state_p_ff.dffe salogic_dual_dac_ff[3].dac_state_p_ff.D
 + salogic_dual_dac_ff[3].dac_state_n_ff.E clknet_2_0_leaf_clk_update
 + net114 _unconnected_27 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[4].dac_state_n_ff.dffe net143 salogic_dual_dac_ff[4].dac_state_n_ff.E
-+ clknet_2_2_leaf_clk_update net83 _unconnected_28 vdd_d vss_d
++ clknet_2_0_leaf_clk_update net83 _unconnected_28 vdd_d vss_d
 + EDFD2LVT
 Xsalogic_dual_dac_ff[4].dac_state_p_ff.dffe salogic_dual_dac_ff[4].dac_state_p_ff.D
 + salogic_dual_dac_ff[4].dac_state_n_ff.E clknet_2_0_leaf_clk_update
@@ -610,10 +610,10 @@ Xsalogic_dual_dac_ff[6].dac_state_n_ff.dffe net141 salogic_dual_dac_ff[6].dac_st
 + clknet_2_0_leaf_clk_update net85 _unconnected_32 vdd_d vss_d
 + EDFD2LVT
 Xsalogic_dual_dac_ff[6].dac_state_p_ff.dffe salogic_dual_dac_ff[6].dac_state_p_ff.D
-+ salogic_dual_dac_ff[6].dac_state_n_ff.E clknet_2_0_leaf_clk_update
++ salogic_dual_dac_ff[6].dac_state_n_ff.E clknet_2_1_leaf_clk_update
 + net117 _unconnected_33 vdd_d vss_d EDFD2LVT
 Xsalogic_dual_dac_ff[7].dac_state_n_ff.dffe net140 salogic_dual_dac_ff[7].dac_state_n_ff.E
-+ clknet_2_1_leaf_clk_update net86 _unconnected_34 vdd_d vss_d
++ clknet_2_2_leaf_clk_update net86 _unconnected_34 vdd_d vss_d
 + EDFD2LVT
 Xsalogic_dual_dac_ff[7].dac_state_p_ff.dffe salogic_dual_dac_ff[7].dac_state_p_ff.D
 + salogic_dual_dac_ff[7].dac_state_n_ff.E clknet_2_1_leaf_clk_update

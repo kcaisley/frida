@@ -45,7 +45,8 @@ export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/core/macro.tcl
 # -------------------------------------------------------
 
 export PLACE_DENSITY = 0.6
-export MACRO_PLACE_HALO = 2 2
+# Necessary since DNW of differen votlage must be 
+export MACRO_PLACE_HALO = 2.8 2.8
 
 # PDN configuration for hierarchical design with multiple supply domains
 export PDN_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/core/pdn.tcl

@@ -16,15 +16,15 @@ global_connect
 set_voltage_domain -power vdd_d -ground vss_d -secondary_power {vdd_a vdd_dac vss_a vss_dac}
 define_pdn_grid -name "Core" -pins {M8}
 
-# Three concentric rings
+# Three concentric rings, minimum M9 spacing is 2um
 # Outermost ring: vdd_dac/vss_dac (DAC) - 2um from core edge
-add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 1.0 -core_offsets 26.0 -nets {vdd_dac vss_dac}
+add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 25.0 -nets {vdd_dac vss_dac}
 
 # Middle ring: vdd_a/vss_a (analog) - 6um from core edge
-add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 1.0 -core_offsets 15.0 -nets {vdd_a vss_a}
+add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 13.0 -nets {vdd_a vss_a}
 
 # Innermost ring: vdd_d/vss_d (digital) - 10um from core edge
-add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 1.0 -core_offsets 4.0 -nets {vdd_d vss_d}
+add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 1.0 -nets {vdd_d vss_d}
 
 
 # Vertical power stripes on M8 for each power domain
@@ -50,16 +50,14 @@ add_pdn_stripe -grid "Core" -layer M8 -width 1.0 -pitch 100.0 -offset 114.5 -num
 add_pdn_stripe -grid "Core" -layer M8 -width 2.0 -pitch 100.0 -offset 123.0 -number_of_straps 4 -nets {vss_d} -extend_to_core_ring
 add_pdn_stripe -grid "Core" -layer M8 -width 2.0 -pitch 100.0 -offset 129.0 -number_of_straps 4 -nets {vdd_d} -extend_to_core_ring
 
-# Horizontal power strips,
-add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 1.0 -pitch 100.0 -offset 71.0 -number_of_straps 4 -nets {vdd_d vss_d} -extend_to_core_ring
-add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 1.0 -pitch 100.0 -offset 82.0 -number_of_straps 4 -nets {vdd_dac vss_dac} -extend_to_core_ring
-add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 1.0 -pitch 100.0 -offset 93.0 -number_of_straps 4 -nets {vdd_a vss_a} -extend_to_core_ring
+# Horizontal power strips, minimum M9 spacing is 2um
+add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 2.0 -pitch 100.0 -offset 70.0 -number_of_straps 4 -nets {vdd_d vss_d} -extend_to_core_ring
+add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 2.0 -pitch 100.0 -offset 82.0 -number_of_straps 4 -nets {vdd_dac vss_dac} -extend_to_core_ring
+add_pdn_stripe -grid "Core" -layer M9 -width 4.0 -spacing 2.0 -pitch 100.0 -offset 94.0 -number_of_straps 4 -nets {vdd_a vss_a} -extend_to_core_ring
 
 
 # M1 horizontal stripes for standard cell power (follows standard cell rows)
 add_pdn_stripe -grid "Core" -layer M1 -followpins -width 0.33
-
-# add_pdn_stripe -grid "Core" -layer M1 -width 0.33 -pitch 3.6 -offset 0 -spacing 1.8 -nets {vdd_d vss_d}
 
 # Connect M8 stripes to M9 rings
 add_pdn_connect -grid "Core" -layers {M8 M9}

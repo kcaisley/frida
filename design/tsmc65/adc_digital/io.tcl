@@ -103,13 +103,13 @@ place_pin -pin_name comp_out -layer M2 -location {34.5 0.0} -force_to_die_bounda
 # Y: 29um, X from 27-33um (7 pins spaced 1um apart)
 #set_io_pin_constraint -pin_names {clk_samp_p clk_samp_p_b clk_samp_n clk_samp_n_b clk_comp comp_out_p comp_out_n} -region top:25-35 -group -order
 
-place_pin -pin_name clk_samp_p_b -layer M2 -location {27.3 28.8}
-place_pin -pin_name clk_samp_p -layer M2 -location {28.3 28.8}
-place_pin -pin_name comp_out_p -layer M2 -location {29.3 28.8}
-place_pin -pin_name clk_comp -layer M2 -location {30.3 28.8}
-place_pin -pin_name comp_out_n -layer M2 -location {31.3 28.8}
-place_pin -pin_name clk_samp_n -layer M2 -location {32.3 28.8}
-place_pin -pin_name clk_samp_n_b -layer M2 -location {33.3 28.8}
+place_pin -pin_name clk_samp_p_b -layer M2 -location {27.3 26.74}
+place_pin -pin_name clk_samp_p -layer M2 -location {28.3 26.74}
+place_pin -pin_name comp_out_p -layer M2 -location {29.3 26.74}
+place_pin -pin_name clk_comp -layer M2 -location {30.3 26.74}
+place_pin -pin_name comp_out_n -layer M2 -location {31.3 26.74}
+place_pin -pin_name clk_samp_n -layer M2 -location {32.3 26.74}
+place_pin -pin_name clk_samp_n_b -layer M2 -location {33.3 26.74}
 
 # Bottom - DAC main state outputs - Manual placement
 # Bottom left: Positive DAC main state outputs (17 pins from 0.9 to 13.7um, spacing ~0.8um)
