@@ -14,7 +14,7 @@ puts "Placing 16 ADC macros in 4x4 grid in upper 2/3 of die"
 # Calculate grid positioning:
 # Die area: 0 0 540 540
 # Macro size: 60um × 60um (centers offset by ±30um)
-# X centers: 90, 190, 290, 390 (100um pitch, range 90-390)
+# X centers: 89.6, 189.6, 289.6, 389.6 (100um pitch, shifted left 0.4um)
 # Y centers: 140, 240, 340, 440 (100um pitch, range 140-440)
 #   Row 0 @ y=140: spans 110-170
 #   Row 1 @ y=240: spans 210-270
@@ -23,10 +23,10 @@ puts "Placing 16 ADC macros in 4x4 grid in upper 2/3 of die"
 
 # Define 4x4 grid positions
 set grid_positions {
-    {0 90 140} {1 190 140} {2 290 140} {3 390 140}
-    {4 90 240} {5 190 240} {6 290 240} {7 390 240}
-    {8 90 340} {9 190 340} {10 290 340} {11 390 340}
-    {12 90 440} {13 190 440} {14 290 440} {15 390 440}
+    {0 89.6 140} {1 189.6 140} {2 289.6 140} {3 389.6 140}
+    {4 89.6 240} {5 189.6 240} {6 289.6 240} {7 389.6 240}
+    {8 89.6 340} {9 189.6 340} {10 289.6 340} {11 389.6 340}
+    {12 89.6 440} {13 189.6 440} {14 289.6 440} {15 389.6 440}
 }
 
 # Get all macro instances from the database
