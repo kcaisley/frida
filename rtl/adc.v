@@ -32,14 +32,12 @@ module adc (
     inout  wire vin_n,                        // Analog input negative
 
     // Output
-    output wire comp_out                      // Comparator output
+    output wire comp_out,                      // Comparator output
 
     // Power supply signals
-    `ifdef USE_POWER_PINS
-    ,inout wire vdd_a, vss_a,                 // Analog supply
+    inout wire vdd_a, vss_a,                  // Analog supply
     inout wire vdd_d, vss_d,                  // Digital supply
     inout wire vdd_dac, vss_dac               // DAC supply
-    `endif
 );
 
     // Internal wires
