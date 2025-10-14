@@ -120,6 +120,23 @@ def clean_cdl_text(cdl_text):
     cdl_text = cdl_text.replace('\\', '')
     # Replace forward slashes with underscores
     cdl_text = cdl_text.replace('/', '_')
+
+    # Step 3: Replace periods in net/instance names but preserve CDL/SPICE commands
+    # Process line by line to avoid replacing periods in .SUBCKT, .ENDS, *.PININFO, etc.
+    processed_lines = []
+    for line in filtered_lines:
+        # Skip lines that start with . or *. (CDL/SPICE directives)
+        if line.strip().startswith('.') or line.strip().startswith('*.'):
+            processed_lines.append(line)
+            continue
+
+        # For all other lines, replace periods with underscores
+        # This affects instance names (X...) and net names in connections
+        line = line.replace('.', '_')
+        processed_lines.append(line)
+
+    cdl_text = '\n'.join(processed_lines)
+
     # Clean up double underscores
     cdl_text = re.sub(r'__+', '_', cdl_text)
 
