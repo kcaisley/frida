@@ -78,7 +78,7 @@ export PLACE_DENSITY = 0.50
 export MIN_ROUTING_LAYER = M2
 export MAX_ROUTING_LAYER = M3
 
-# Create routing blockages before global route
+# This step has been moved inside the pdn.tcl script, to make sure horizontal M1 strips don't pass through macro
 export PRE_GLOBAL_ROUTE_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/adc_digital/routing_blockages.tcl
 
 #--------------------------------------------------------

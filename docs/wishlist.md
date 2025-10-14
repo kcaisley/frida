@@ -25,3 +25,14 @@
         - Manually mirror and add routes from previous step
         - Add final route which link two halves
         - Power grid straps on side, to power block?
+
+
+- Openroad:
+  - Support for multicut vias
+  - LEF abstract checker
+  - Better way to specify that a macro doesn't create FEOL blockage
+
+
+- Klayout:
+  - Pins and connectivity labeling nets
+  - Routing grids per technology? Maybe can just use normal grids

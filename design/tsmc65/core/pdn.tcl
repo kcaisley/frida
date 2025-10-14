@@ -17,13 +17,13 @@ set_voltage_domain -power vdd_d -ground vss_d -secondary_power {vdd_a vdd_dac vs
 define_pdn_grid -name "Core" -pins {M8}
 
 # Three concentric rings, minimum M9 spacing is 2um
-# Outermost ring: vdd_dac/vss_dac (DAC) - 2um from core edge
+# Outermost ring: vdd_dac/vss_dac (DAC)
 add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 25.0 -nets {vdd_dac vss_dac}
 
-# Middle ring: vdd_a/vss_a (analog) - 6um from core edge
+# Middle ring: vdd_a/vss_a (analog)
 add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 13.0 -nets {vdd_a vss_a}
 
-# Innermost ring: vdd_d/vss_d (digital) - 10um from core edge
+# Innermost ring: vdd_d/vss_d (digital)
 add_pdn_ring -grid "Core" -layers {M8 M9} -widths 4.0 -spacings 2.0 -core_offsets 1.0 -nets {vdd_d vss_d}
 
 

@@ -109,7 +109,8 @@ def clean_cdl_text(cdl_text):
     """Clean CDL text by removing fillers/decaps and fixing hierarchical separators."""
     # Step 1: Remove filler and decap instances
     # Filter out lines matching XFILLER with any of the filler/decap cell types
-    filler_pattern = r'^XFILLER.*(FILL1LVT|DCAPLVT|DCAP4LVT|DCAP8LVT|DCAP16LVT|DCAP32LVT|DCAP64LVT).*$'
+    # DECAP LIST: |DCAPLVT|DCAP4LVT|DCAP8LVT|DCAP16LVT|DCAP32LVT|DCAP64LVT|FILL1LVT
+    filler_pattern = r'^XFILLER.*(FILL0LVT).*$'
     lines = cdl_text.split('\n')
     filtered_lines = [line for line in lines if not re.match(filler_pattern, line)]
     cdl_text = '\n'.join(filtered_lines)

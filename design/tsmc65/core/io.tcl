@@ -18,4 +18,4 @@ place_pin -pin_name spi_cs_b -layer M2 -location {143.1 0.0} -force_to_die_bound
 
 # Bottom side - Comparator output and reset (M2)
 place_pin -pin_name comp_out -layer M2 -location {300.1 0.0} -force_to_die_boundary
-place_pin -pin_name reset_b -layer M2 -location {400.1 0.0} -force_to_die_boundary
+place_pin -pin_name reset_b -layer M2 -location {139.1 0.0} -force_to_die_boundary
