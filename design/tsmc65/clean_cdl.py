@@ -128,6 +128,17 @@ def clean_cdl_text(cdl_text):
             # This affects instance names (X...) and net names in connections
             line = line.replace('.', '_')
 
+            # Move array indices [#] to the end of net names
+            # Cadence truncates at [ or <, so move indices to end
+            # Match pattern: identifier[index]_rest_of_name
+            # Replace with: identifier_rest_of_name[index]
+            # Use regex to find all occurrences of [index] followed by underscore
+            line = re.sub(r'(\w+)\[(\d+)\]_(\w+)', r'\1_\3[\2]', line)
+            # Apply multiple times to handle multiple indices in same net name
+            # e.g., name[15]_part1_part2 -> name_part1_part2[15]
+            for _ in range(5):  # Max 5 levels of hierarchy
+                line = re.sub(r'(\w+)\[(\d+)\]_(\w+)', r'\1_\3[\2]', line)
+
         processed_lines.append(line)
 
     cdl_text = '\n'.join(processed_lines)

@@ -31,34 +31,48 @@ BLOCKAGE_X_RANGES = [
 ]
 
 # Define Y range where blockages apply
-BLOCKAGE_Y_MIN = int(27.0 * DBU_PER_UM)  # 54000 DBU
-BLOCKAGE_Y_MAX = int(49.0 * DBU_PER_UM)  # 98000 DBU
+# Extended to cover full height of analog macros including top rows
+BLOCKAGE_Y_MIN = int(27.0 * DBU_PER_UM)  # 54000 DBU (27.0 µm)
+BLOCKAGE_Y_MAX = int(60.0 * DBU_PER_UM)  # 120000 DBU (60.0 µm) - full die height
 
 # Core X range (stripes currently go from 0 to 120000)
 CORE_X_MIN = 0
 CORE_X_MAX = int(60.0 * DBU_PER_UM)  # 120000 DBU
 
 
-def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int]:
+def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
     """
     Parse M1 FOLLOWPIN line to extract width and coordinates.
 
     Format: NEW M1 <width> + SHAPE FOLLOWPIN ( <x1> <y1> ) ( <x2> <y2> )
+    Or:     + ROUTED M1 <width> + SHAPE FOLLOWPIN ( <x1> <y1> ) ( <x2> <y2> )
 
-    Returns: (width, x1, y1, x2) or None if not a valid M1 FOLLOWPIN line
+    Returns: (width, x1, y1, x2, is_routed) or None if not a valid M1 FOLLOWPIN line
+             is_routed=True if line starts with "+ ROUTED"
     """
-    pattern = r'NEW\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)'
-    match = re.search(pattern, line)
+    # Try matching "+ ROUTED M1" pattern first
+    routed_pattern = r'\+\s+ROUTED\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)'
+    match = re.search(routed_pattern, line)
     if match:
         width = int(match.group(1))
         x1 = int(match.group(2))
         y1 = int(match.group(3))
         x2 = int(match.group(4))
         y2 = int(match.group(5))
-
-        # Verify it's a horizontal stripe (y1 == y2)
         if y1 == y2:
-            return (width, x1, y1, x2)
+            return (width, x1, y1, x2, True)  # is_routed=True
+
+    # Try matching "NEW M1" pattern
+    new_pattern = r'NEW\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)'
+    match = re.search(new_pattern, line)
+    if match:
+        width = int(match.group(1))
+        x1 = int(match.group(2))
+        y1 = int(match.group(3))
+        x2 = int(match.group(4))
+        y2 = int(match.group(5))
+        if y1 == y2:
+            return (width, x1, y1, x2, False)  # is_routed=False
 
     return None
 
@@ -101,7 +115,7 @@ def compute_segments(y: int, x_min: int, x_max: int) -> List[Tuple[int, int]]:
     return segments
 
 
-def create_m1_followpin_lines(width: int, y: int, segments: List[Tuple[int, int]]) -> List[str]:
+def create_m1_followpin_lines(width: int, y: int, segments: List[Tuple[int, int]], is_routed: bool = False) -> List[str]:
     """
     Create M1 FOLLOWPIN line(s) for the given segments.
 
@@ -109,14 +123,19 @@ def create_m1_followpin_lines(width: int, y: int, segments: List[Tuple[int, int]
         width: Width of the stripe in DBU
         y: Y coordinate
         segments: List of (x_start, x_end) tuples
+        is_routed: If True, first segment uses "+ ROUTED M1", otherwise "NEW M1"
 
     Returns:
         List of DEF lines (one per segment)
     """
     lines = []
     for i, (x_start, x_end) in enumerate(segments):
-        # First segment uses "NEW", subsequent segments also use "NEW"
-        line = f"      NEW M1 {width} + SHAPE FOLLOWPIN ( {x_start} {y} ) ( {x_end} {y} )\n"
+        if i == 0 and is_routed:
+            # First segment of a ROUTED line keeps "+ ROUTED M1" format
+            line = f"      + ROUTED M1 {width} + SHAPE FOLLOWPIN ( {x_start} {y} ) ( {x_end} {y} )\n"
+        else:
+            # All other segments use "NEW M1" format
+            line = f"      NEW M1 {width} + SHAPE FOLLOWPIN ( {x_start} {y} ) ( {x_end} {y} )\n"
         lines.append(line)
 
     return lines
@@ -132,6 +151,8 @@ def process_def_file(input_path: str) -> None:
     # Read the entire file
     with open(input_path, 'r') as f:
         lines = f.readlines()
+
+    # No preprocessing needed - we'll handle + ROUTED lines specially during processing
 
     # Find SPECIALNETS section
     in_specialnets = False
@@ -155,7 +176,7 @@ def process_def_file(input_path: str) -> None:
         if in_specialnets:
             result = parse_m1_followpin_line(line)
             if result:
-                width, x1, y, x2 = result
+                width, x1, y, x2, is_routed = result
 
                 # Compute segments that avoid blockages
                 segments = compute_segments(y, x1, x2)
@@ -164,8 +185,8 @@ def process_def_file(input_path: str) -> None:
                 if len(segments) == 1 and segments[0] == (x1, x2):
                     output_lines.append(line)
                 else:
-                    # Create new lines for each segment
-                    new_lines = create_m1_followpin_lines(width, y, segments)
+                    # Create new lines for each segment, preserving + ROUTED format if needed
+                    new_lines = create_m1_followpin_lines(width, y, segments, is_routed)
                     output_lines.extend(new_lines)
                     stripes_modified += 1
                     stripes_created += len(segments)
