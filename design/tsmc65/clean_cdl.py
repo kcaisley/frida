@@ -113,26 +113,21 @@ def clean_cdl_text(cdl_text):
     filler_pattern = r'^XFILLER.*(FILL1LVT).*$'
     lines = cdl_text.split('\n')
     filtered_lines = [line for line in lines if not re.match(filler_pattern, line)]
-    cdl_text = '\n'.join(filtered_lines)
 
     # Step 2: Clean hierarchical separators for Cadence SPICE-In compatibility
-    # Remove all backslashes
-    cdl_text = cdl_text.replace('\\', '')
-    # Replace forward slashes with underscores
-    cdl_text = cdl_text.replace('/', '_')
-
-    # Step 3: Replace periods in net/instance names but preserve CDL/SPICE commands
-    # Process line by line to avoid replacing periods in .SUBCKT, .ENDS, *.PININFO, etc.
+    # Process line by line to handle all separator replacements
     processed_lines = []
     for line in filtered_lines:
-        # Skip lines that start with . or *. (CDL/SPICE directives)
-        if line.strip().startswith('.') or line.strip().startswith('*.'):
-            processed_lines.append(line)
-            continue
+        # First remove backslashes and replace forward slashes
+        line = line.replace('\\', '')
+        line = line.replace('/', '_')
 
-        # For all other lines, replace periods with underscores
-        # This affects instance names (X...) and net names in connections
-        line = line.replace('.', '_')
+        # Then replace periods, but skip CDL/SPICE directive lines
+        if not (line.strip().startswith('.') or line.strip().startswith('*.')):
+            # For all other lines, replace periods with underscores
+            # This affects instance names (X...) and net names in connections
+            line = line.replace('.', '_')
+
         processed_lines.append(line)
 
     cdl_text = '\n'.join(processed_lines)
