@@ -22,6 +22,7 @@ simulator lang=spice
 .include '/users/kcaisley/frida/spice/adc_digital.cdl'
 .include '/users/kcaisley/frida/spice/adc.cdl'
 .include '/users/kcaisley/frida/spice/core.cdl'
+.include '/users/kcaisley/frida/spice/dnw.sp'
 
 * Supply voltages (1.2V nominal)
 vdd_a vdd_a 0 1.2
