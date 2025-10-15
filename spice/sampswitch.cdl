@@ -5,6 +5,6 @@
 *.PININFO vin:I vout:O clk:I clk_b:I vdd_a:B vss_a:B
 
 Mp1 vout clk_b vin vdd_a pch_lvt l=60n w=5u m=1
-Mn1 vout clk vin vss_a nch_lvt l=60n w=4u m=1
+Mn1 vout clk vin vss_a nch_lvt_dnw l=60n w=4u m=1
 
 .ENDS sampswitch
