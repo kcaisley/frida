@@ -64,7 +64,7 @@ module OPENROAD_CTRLGATE (CK, E, GCK);
   input E;    // Enable input
   output GCK; // Gated clock output
 
-  // Use TSMC65 latch-based clock gate
-  CKLNQD1LVT clkgate_cell (.CP(CK), .E(E), .Q(GCK));
+  // Use TSMC65 latch-based clock gate (TE tied to 0 for normal operation)
+  CKLNQD1LVT clkgate_cell (.TE(1'b0), .CP(CK), .E(E), .Q(GCK));
 
 endmodule
