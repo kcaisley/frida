@@ -18,6 +18,7 @@ CDL_FILES = [
     'adc_digital.cdl',
     'adc.cdl',
     'core.cdl',
+    'dnw.sp',
 ]
 
 # Standard cell library includes to add at the top
