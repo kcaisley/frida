@@ -14,7 +14,7 @@
 
 .SUBCKT comp_inverter_lvil GND IN OUT VDD
 *.PININFO IN:I OUT:O GND:B VDD:B
-MMN OUT IN GND GND nch_lvt_dnw l=60n w=390.0n m=1
+MMN OUT IN GND GND nch_lvt l=60n w=390.0n m=1
 MMP OUT IN VDD VDD pch_hvt l=60n w=520.0n m=1
 .ENDS comp_inverter_lvil
 
@@ -57,15 +57,15 @@ XI1[0] VDD GND / DCAP8
 
 .SUBCKT comp_latch CLK GND INN INP OUTN OUTP VDD
 *.PININFO CLK:I INN:I INP:I OUTN:O OUTP:O GND:B VDD:B
-MM0 tail CLK GND GND nch_lvt_dnw l=800n w=550.0n m=1
-MM2 net037 INN tail GND nch_lvt_dnw l=300n w=1.1u m=4
-MM8[3] tail GND GND GND nch_lvt_dnw l=60n w=1.1u m=1
-MM8[2] tail GND GND GND nch_lvt_dnw l=60n w=1.1u m=1
-MM8[1] tail GND GND GND nch_lvt_dnw l=60n w=1.1u m=1
-MM8[0] tail GND GND GND nch_lvt_dnw l=60n w=1.1u m=1
-MM1 net031 INP tail GND nch_lvt_dnw l=300n w=1.1u m=4
-MM3 OUTN OUTP net031 GND nch_lvt_dnw l=350.0n w=750.0n m=4
-MM4 OUTP OUTN net037 GND nch_lvt_dnw l=350.0n w=750.0n m=4
+MM0 tail CLK GND GND nch_lvt l=800n w=550.0n m=1
+MM2 net037 INN tail GND nch_lvt l=300n w=1.1u m=4
+MM8[3] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[2] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[1] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[0] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM1 net031 INP tail GND nch_lvt l=300n w=1.1u m=4
+MM3 OUTN OUTP net031 GND nch_lvt l=350.0n w=750.0n m=4
+MM4 OUTP OUTN net037 GND nch_lvt l=350.0n w=750.0n m=4
 MS2 net037 CLK VDD VDD pch_lvt l=60n w=500n m=2
 MS4 OUTP CLK VDD VDD pch_lvt l=60n w=500n m=2
 MS1 net031 CLK VDD VDD pch_lvt l=60n w=500n m=2

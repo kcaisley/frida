@@ -8,9 +8,9 @@
 * - dac_drive_invert = 1: Output inverted DAC state (differential mode)
 *
 * Driver sizing rationale:
-* - Bits 15-14 (MSBs): 2x CKXOR2D4LVT_dnw = ~8x drive strength (largest capacitors)
-* - Bits 13-12: 1x CKXOR2D4LVT_dnw = ~4x drive strength (large capacitors)
-* - Bits 11-0: 1x CKXOR2D2LVT_dnw = ~2x drive strength (smaller capacitors)
+* - Bits 15-14 (MSBs): 2x CKXOR2D4LVT = ~8x drive strength (largest capacitors)
+* - Bits 13-12: 1x CKXOR2D4LVT = ~4x drive strength (large capacitors)
+* - Bits 11-0: 1x CKXOR2D2LVT = ~2x drive strength (smaller capacitors)
 *
 * This provides binary-weighted drive strength that matches the binary-weighted
 * capacitor array structure typical in SAR ADC designs.
