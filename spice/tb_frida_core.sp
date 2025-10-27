@@ -10,9 +10,8 @@ simulator lang=spice
 * Include TSMC65nm PDK models for transistors
 .lib '/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs' tt_lib
 
-* Include standard cell libraries
+* Include standard cell library (LVT cells only - all cells in core.cdl are LVT)
 .include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi'
-.include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi'
 
 * Include ADC sub-module netlists (in dependency order)
 .include '/users/kcaisley/frida/spice/sampswitch.cdl'
