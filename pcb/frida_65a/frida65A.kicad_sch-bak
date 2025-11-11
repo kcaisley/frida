@@ -1075,27 +1075,23 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Mechanical:MountingHole_Pad"
-			(pin_numbers
-				(hide yes)
-			)
+		(symbol "Mechanical:MountingHole"
 			(pin_names
 				(offset 1.016)
-				(hide yes)
 			)
 			(exclude_from_sim no)
 			(in_bom no)
 			(on_board yes)
 			(property "Reference" "H"
-				(at 0 6.35 0)
+				(at 0 5.08 0)
 				(effects
 					(font
 						(size 1.27 1.27)
 					)
 				)
 			)
-			(property "Value" "MountingHole_Pad"
-				(at 0 4.445 0)
+			(property "Value" "MountingHole"
+				(at 0 3.175 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -1120,7 +1116,7 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "Mounting Hole with connection"
+			(property "Description" "Mounting Hole without connection"
 				(at 0 0 0)
 				(effects
 					(font
@@ -1138,7 +1134,7 @@
 					(hide yes)
 				)
 			)
-			(property "ki_fp_filters" "MountingHole*Pad*"
+			(property "ki_fp_filters" "MountingHole*"
 				(at 0 0 0)
 				(effects
 					(font
@@ -1147,9 +1143,9 @@
 					(hide yes)
 				)
 			)
-			(symbol "MountingHole_Pad_0_1"
+			(symbol "MountingHole_0_1"
 				(circle
-					(center 0 1.27)
+					(center 0 0)
 					(radius 1.27)
 					(stroke
 						(width 1.27)
@@ -1157,26 +1153,6 @@
 					)
 					(fill
 						(type none)
-					)
-				)
-			)
-			(symbol "MountingHole_Pad_1_1"
-				(pin input line
-					(at 0 -2.54 90)
-					(length 2.54)
-					(name "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
 					)
 				)
 			)
@@ -3517,7 +3493,7 @@
 			(embedded_fonts no)
 		)
 	)
-	(text "this inversion necessary?\nis the Zout here right?"
+	(text "this inversion necessary?"
 		(exclude_from_sim no)
 		(at 131.318 84.328 0)
 		(effects
@@ -4781,16 +4757,6 @@
 	)
 	(wire
 		(pts
-			(xy 185.42 148.59) (xy 185.42 151.13)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "43d3c291-a286-42af-b562-447d0d897963")
-	)
-	(wire
-		(pts
 			(xy 86.36 167.64) (xy 86.36 170.18)
 		)
 		(stroke
@@ -4978,16 +4944,6 @@
 			(type default)
 		)
 		(uuid "4ee23d52-d6b4-4fcc-aa7b-f801164ea76c")
-	)
-	(wire
-		(pts
-			(xy 210.82 148.59) (xy 210.82 151.13)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "5047c2fc-88c8-4331-a677-a9ca74d61c6b")
 	)
 	(wire
 		(pts
@@ -5348,16 +5304,6 @@
 			(type default)
 		)
 		(uuid "75624b2a-1d8c-4e98-92e4-e33809e8199b")
-	)
-	(wire
-		(pts
-			(xy 236.22 148.59) (xy 236.22 151.13)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "75f8964f-db0c-4ce2-a95c-c04cc561cb09")
 	)
 	(wire
 		(pts
@@ -6821,16 +6767,6 @@
 	)
 	(wire
 		(pts
-			(xy 261.62 148.59) (xy 261.62 151.13)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ee1de1c5-bbe8-4bf6-b28b-cba1e548997f")
-	)
-	(wire
-		(pts
 			(xy 66.04 76.2) (xy 73.66 76.2)
 		)
 		(stroke
@@ -7089,6 +7025,16 @@
 		)
 		(uuid "2e7edc33-a3ec-4619-a151-edb50d1677c6")
 	)
+	(label "VDD_IO"
+		(at 259.08 101.6 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c8498f")
+	)
 	(label "VDD_D"
 		(at 259.08 86.36 0)
 		(effects
@@ -7099,16 +7045,6 @@
 		)
 		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c8498f")
 	)
-	(label "VDD_IO"
-		(at 259.08 101.6 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c84990")
-	)
 	(label "VDD_A"
 		(at 215.9 86.36 180)
 		(effects
@@ -7117,7 +7053,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c84991")
+		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c8498f")
 	)
 	(label "VDD_DAC"
 		(at 232.41 71.12 90)
@@ -7127,7 +7063,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c84992")
+		(uuid "33b23e02-60ca-41a2-a4ac-d2cd48c8498f")
 	)
 	(label "CLK_INIT_P"
 		(at 104.14 50.8 0)
@@ -7149,6 +7085,16 @@
 		)
 		(uuid "541ebd0b-59a6-4e66-ae57-de692dad83bc")
 	)
+	(label "COMP_OUT_N"
+		(at 242.57 119.38 270)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "707a60e7-50a9-4373-a8fc-a199192a4dd5")
+	)
 	(label "COMP_OUT_P"
 		(at 240.03 119.38 270)
 		(effects
@@ -7158,16 +7104,6 @@
 			(justify right bottom)
 		)
 		(uuid "707a60e7-50a9-4373-a8fc-a199192a4dd5")
-	)
-	(label "COMP_OUT_N"
-		(at 242.57 119.38 270)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "707a60e7-50a9-4373-a8fc-a199192a4dd6")
 	)
 	(label "CLK_SAMP_N"
 		(at 104.14 55.88 0)
@@ -7327,7 +7263,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "fbdb257a-af65-4da5-b879-95648392adca")
+		(uuid "fbdb257a-af65-4da5-b879-95648392adc9")
 	)
 	(label "VDD_D"
 		(at 153.67 167.64 0)
@@ -7337,7 +7273,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "fbdb257a-af65-4da5-b879-95648392adcb")
+		(uuid "fbdb257a-af65-4da5-b879-95648392adc9")
 	)
 	(label "VDD_A"
 		(at 163.83 142.24 0)
@@ -7347,7 +7283,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "fbdb257a-af65-4da5-b879-95648392adcc")
+		(uuid "fbdb257a-af65-4da5-b879-95648392adc9")
 	)
 	(symbol
 		(lib_id "Jumper:Jumper_3_Open")
@@ -7417,73 +7353,6 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "JP2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Mechanical:MountingHole_Pad")
-		(at 210.82 146.05 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom no)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "0dfad4b2-e212-4a75-b765-f092aab9d91c")
-		(property "Reference" "H2"
-			(at 213.36 143.5099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "MountingHole_Pad"
-			(at 213.36 146.0499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 210.82 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 210.82 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Mounting Hole with connection"
-			(at 210.82 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "2f034571-d2de-4b73-9191-57f2ebff9750")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "H2")
 					(unit 1)
 				)
 			)
@@ -7653,7 +7522,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 74.6252 177.8 0)
 			(effects
 				(font
@@ -7723,7 +7592,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 136.8552 152.4 0)
 			(effects
 				(font
@@ -7791,7 +7660,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 64.77 34.29 0)
 			(effects
 				(font
@@ -7861,7 +7730,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 83.5152 157.48 0)
 			(effects
 				(font
@@ -7898,6 +7767,70 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "C11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 234.95 152.4 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "2c0e5b29-d11a-4aba-9b46-0993d6ec8c36")
+		(property "Reference" "H3"
+			(at 237.49 151.1299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 237.49 153.6699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 234.95 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 234.95 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 234.95 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "H3")
 					(unit 1)
 				)
 			)
@@ -7995,7 +7928,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 99.06 25.4 0)
 			(effects
 				(font
@@ -8201,7 +8134,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 61.9252 177.8 0)
 			(effects
 				(font
@@ -8270,7 +8203,7 @@
 				)
 			)
 		)
-		(property "Footprint" "import:TE_3-1478978-1"
+		(property "Footprint" "Connector_Coaxial:SMA_Amphenol_901-143_Horizontal"
 			(at 250.19 29.21 0)
 			(effects
 				(font
@@ -8486,7 +8419,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 49.2252 177.8 0)
 			(effects
 				(font
@@ -8529,6 +8462,70 @@
 		)
 	)
 	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 189.23 152.4 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "6506ee3c-5962-464b-a216-0dd12e0e7790")
+		(property "Reference" "H1"
+			(at 191.77 151.1299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 191.77 153.6699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 189.23 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 189.23 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 189.23 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "H1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 125.73 173.99 0)
 		(unit 1)
@@ -8556,7 +8553,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 126.6952 177.8 0)
 			(effects
 				(font
@@ -8692,7 +8689,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 70.8152 157.48 0)
 			(effects
 				(font
@@ -9084,7 +9081,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 139.3952 177.8 0)
 			(effects
 				(font
@@ -9121,73 +9118,6 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "C7")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Mechanical:MountingHole_Pad")
-		(at 236.22 146.05 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom no)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "7aa9c9e5-a962-4cf9-bea4-1d6ed184a2cd")
-		(property "Reference" "H3"
-			(at 238.76 143.5099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "MountingHole_Pad"
-			(at 238.76 146.0499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 236.22 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 236.22 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Mounting Hole with connection"
-			(at 236.22 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "4d8531af-c6c6-4520-8807-e2dba28659cc")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "H3")
 					(unit 1)
 				)
 			)
@@ -9286,7 +9216,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 76.2 93.98 0)
 			(effects
 				(font
@@ -9470,72 +9400,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:Earth")
-		(at 210.82 151.13 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "916a73b9-b2b1-433a-b93c-7a80e488ffbe")
-		(property "Reference" "#PWR019"
-			(at 210.82 157.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "Earth"
-			(at 210.82 156.21 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 210.82 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 210.82 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"Earth\""
-			(at 210.82 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "b28b0a30-f0b0-444c-92e6-a643f69da215")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "#PWR019")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "dmaps_components:Conn_LEMO")
 		(at 226.06 29.21 0)
 		(unit 1)
@@ -9631,7 +9495,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 96.2152 157.48 0)
 			(effects
 				(font
@@ -9740,72 +9604,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:Earth")
-		(at 261.62 151.13 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "9c96c5df-bf9f-436b-9d0b-c60b17472114")
-		(property "Reference" "#PWR021"
-			(at 261.62 157.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "Earth"
-			(at 261.62 156.21 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 261.62 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 261.62 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"Earth\""
-			(at 261.62 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "970bd42a-a2a0-4a78-b000-f3354ac7bd1f")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "#PWR021")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Connector_Generic:Conn_02x03_Top_Bottom")
 		(at 177.8 101.6 0)
 		(unit 1)
@@ -9830,7 +9628,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"
+		(property "Footprint" "8911100178LF"
 			(at 177.8 101.6 0)
 			(effects
 				(font
@@ -9965,73 +9763,6 @@
 			(project ""
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "J1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Mechanical:MountingHole_Pad")
-		(at 185.42 146.05 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom no)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "a5b8f64c-4b5e-49c8-be18-e686887afa3e")
-		(property "Reference" "H1"
-			(at 187.96 143.5099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "MountingHole_Pad"
-			(at 187.96 146.0499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 185.42 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 185.42 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Mounting Hole with connection"
-			(at 185.42 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "16e469f1-ddd6-470a-8299-c1741a7900c3")
-		)
-		(instances
-			(project ""
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "H1")
 					(unit 1)
 				)
 			)
@@ -10197,7 +9928,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 113.9952 177.8 0)
 			(effects
 				(font
@@ -10267,7 +9998,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 58.1152 157.48 0)
 			(effects
 				(font
@@ -10304,6 +10035,70 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "C9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 257.81 152.4 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "aaf6eea4-d813-41bf-822a-057e7d3c8ac3")
+		(property "Reference" "H4"
+			(at 260.35 151.1299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 260.35 153.6699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 257.81 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 257.81 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 257.81 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "H4")
 					(unit 1)
 				)
 			)
@@ -10377,72 +10172,6 @@
 			(project ""
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "JP1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:Earth")
-		(at 185.42 151.13 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "b34190a7-decf-4e78-bed6-790e91cc76fe")
-		(property "Reference" "#PWR018"
-			(at 185.42 157.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "Earth"
-			(at 185.42 156.21 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 185.42 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 185.42 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"Earth\""
-			(at 185.42 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "bca046fa-6246-483c-86dd-9937f939914b")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "#PWR018")
 					(unit 1)
 				)
 			)
@@ -10728,139 +10457,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Mechanical:MountingHole_Pad")
-		(at 261.62 146.05 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom no)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "bdf39be5-a496-48cd-a3c4-de31fcf47f63")
-		(property "Reference" "H4"
-			(at 264.16 143.5099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "MountingHole_Pad"
-			(at 264.16 146.0499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 261.62 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 261.62 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Mounting Hole with connection"
-			(at 261.62 146.05 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "8cb5c303-a63d-494b-bb78-6d7d4552c335")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "H4")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:Earth")
-		(at 236.22 151.13 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "c3ed86cf-294b-448a-863a-bfbfd896cb62")
-		(property "Reference" "#PWR020"
-			(at 236.22 157.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "Earth"
-			(at 236.22 156.21 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 236.22 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 236.22 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"Earth\""
-			(at 236.22 151.13 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "2d41d4ea-0dca-4834-b913-2ed8c19916b6")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "#PWR020")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 86.36 173.99 0)
 		(unit 1)
@@ -10888,7 +10484,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 87.3252 177.8 0)
 			(effects
 				(font
@@ -11022,7 +10618,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x02_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 251.46 50.8 0)
 			(effects
 				(font
@@ -11162,7 +10758,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 76.2 25.4 0)
 			(effects
 				(font
@@ -11232,7 +10828,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 162.2552 152.4 0)
 			(effects
 				(font
@@ -11368,7 +10964,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 152.0952 177.8 0)
 			(effects
 				(font
@@ -11574,7 +11170,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 124.1552 152.4 0)
 			(effects
 				(font
@@ -11611,6 +11207,70 @@
 			(project ""
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "C1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 212.09 152.4 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "e54ce809-e101-41c4-8221-5e1050d057e9")
+		(property "Reference" "H2"
+			(at 214.63 151.1299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 214.63 153.6699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 212.09 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 212.09 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 212.09 152.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project ""
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "H2")
 					(unit 1)
 				)
 			)
@@ -11729,7 +11389,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0201_0603Metric"
+		(property "Footprint" ""
 			(at 149.5552 152.4 0)
 			(effects
 				(font
@@ -11797,7 +11457,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical"
+		(property "Footprint" ""
 			(at 87.63 34.29 0)
 			(effects
 				(font
