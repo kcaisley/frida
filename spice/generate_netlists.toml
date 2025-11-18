@@ -1,0 +1,49 @@
+# Technology configuration for different PDKs
+# Defines base dimensions and device naming conventions
+
+[tsmc65]
+name = "TSMC 65nm"
+
+[tsmc65.base_dimensions]
+w = 60e-9   # 60nm minimum width
+l = 100e-9  # 100nm minimum length
+
+[tsmc65.device_models]
+nmos_lvt = "nch_lvt"
+nmos_svt = "nch_svt"
+nmos_hvt = "nch_hvt"
+pmos_lvt = "pch_lvt"
+pmos_svt = "pch_svt"
+pmos_hvt = "pch_hvt"
+
+
+[tsmc28]
+name = "TSMC 28nm"
+
+[tsmc28.base_dimensions]
+w = 30e-9   # 30nm minimum width
+l = 40e-9   # 40nm minimum length
+
+[tsmc28.device_models]
+nmos_lvt = "nch_lvt_mac"
+nmos_svt = "nch_svt_mac"
+nmos_hvt = "nch_hvt_mac"
+pmos_lvt = "pch_lvt_mac"
+pmos_svt = "pch_svt_mac"
+pmos_hvt = "pch_hvt_mac"
+
+
+[tower180]
+name = "Tower 180nm"
+
+[tower180.base_dimensions]
+w = 220e-9  # 220nm minimum width
+l = 180e-9  # 180nm minimum length
+
+[tower180.device_models]
+nmos_lvt = "nfet_lvt"
+nmos_svt = "nfet"
+nmos_hvt = "nfet_hvt"
+pmos_lvt = "pfet_lvt"
+pmos_svt = "pfet"
+pmos_hvt = "pfet_hvt"

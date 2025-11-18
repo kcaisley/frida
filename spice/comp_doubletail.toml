@@ -1,0 +1,33 @@
+# Comparator Double-tail Configuration
+# Defines parameter sweeps for generating netlist variants
+
+# Technologies to generate variants for
+tech = ["tsmc65", "tsmc28", "tower180"]
+
+# Default parameters for all devices (per device type)
+[defaults.nmos]
+w = [1]        # multipliers of base width
+l = [1]        # multipliers of base length
+nf = [1]       # number of fingers
+type = ["lvt"] # threshold voltage variants
+
+[defaults.pmos]
+w = [1]
+l = [1]
+nf = [1]
+type = ["lvt"]
+
+# Device-specific overrides (only specify what differs from defaults)
+[devices.MNinp]
+w = [2, 4, 8, 16]
+type = ["lvt", "svt"]
+
+[devices.MNinn]
+w = [2, 4, 8, 16]
+type = ["lvt", "svt"]
+
+[devices.MNtail1]
+w = [2, 4]
+l = [4, 8]
+
+# Other devices (MPswMN, MPswMP, MNtail2, etc.) will use defaults

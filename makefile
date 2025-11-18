@@ -21,8 +21,14 @@ EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
 # PVS DRC rule file path
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
 
+# Netlist generation configuration
+SPICE_DIR := spice
+TECH_CONFIG := $(SPICE_DIR)/generate_netlists.toml
+RESULTS_DIR := results
+NETLIST_GEN := src/generate_netlists.py
+
 # Default target
-.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral netlist clean_netlist
 
 all: gds caparray
 
@@ -50,6 +56,51 @@ gds:
 	mkdir -p tech/$(PLATFORM)/gds; \
 	echo "Generating GDS for $${cellname}..."; \
 	.venv/bin/python "src/$${cellname}.py" "tech/$(PLATFORM)/gds/$${cellname}.gds"
+
+# Generate SPICE netlist variants: make netlist <comp_name>
+netlist:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make netlist <comp_name>"; \
+		echo "This will generate netlists from $(SPICE_DIR)/<comp_name>.sp and $(SPICE_DIR)/<comp_name>.toml"; \
+		echo "Example: make netlist comp_doubletail"; \
+		exit 1; \
+	fi
+	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
+	template="$(SPICE_DIR)/$${comp}.sp"; \
+	params="$(SPICE_DIR)/$${comp}.toml"; \
+	outdir="$(RESULTS_DIR)/$${comp}"; \
+	if [ ! -f "$${template}" ]; then \
+		echo "Error: Template $${template} not found"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$${params}" ]; then \
+		echo "Error: Parameters $${params} not found"; \
+		exit 1; \
+	fi; \
+	echo "Generating netlists for $${comp}..."; \
+	.venv/bin/python $(NETLIST_GEN) \
+		--template="$${template}" \
+		--params="$${params}" \
+		--config="$(TECH_CONFIG)" \
+		--outdir="$${outdir}"
+
+# Clean generated netlists: make clean_netlist <comp_name>
+clean_netlist:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_netlist <comp_name>"; \
+		echo "This will remove $(RESULTS_DIR)/<comp_name>/ directory"; \
+		echo "Example: make clean_netlist comp_doubletail"; \
+		exit 1; \
+	fi
+	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${comp}"; \
+	if [ -d "$${outdir}" ]; then \
+		echo "Removing $${outdir}..."; \
+		rm -rf "$${outdir}"; \
+		echo "Cleaned netlists for $${comp}"; \
+	else \
+		echo "Directory $${outdir} does not exist, nothing to clean"; \
+	fi
 
 # Generate LEF for specified block from gds: make lef <gds cellname>
 lef:
@@ -232,14 +283,20 @@ help:
 	@echo "Available targets:"
 	@echo "  setup     - Create Python venv and install dependencies"
 	@echo "  all       - Build all targets (default)"
-	@echo "  gds <cellname>  - Generate GDS layout file (looks for src/<cellname>.py)"
-	@echo "  lef <cellname>  - Generate LEF file from GDS for specified cell"
-	@echo "  view <cellname> - Open GDS file in KLayout with tech files"
+	@echo "  gds <cellname>       - Generate GDS layout file (looks for src/<cellname>.py)"
+	@echo "  lef <cellname>       - Generate LEF file from GDS for specified cell"
+	@echo "  netlist <comp>       - Generate SPICE netlist variants (e.g. make netlist comp_doubletail)"
+	@echo "  clean_netlist <comp> - Remove generated netlists (e.g. make clean_netlist comp_doubletail)"
+	@echo "  view <cellname>      - Open GDS file in KLayout with tech files"
 	@echo "  behavioral <run_script> - Run behavioral simulation (e.g. make behavioral run_oneshot)"
-	@echo "  ngspice <tbname> - Run SPICE simulation (e.g. make ngspice tb_adc_full)"
+	@echo "  ngspice <tbname>  - Run SPICE simulation (e.g. make ngspice tb_adc_full)"
 	@echo "  strmout   - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to GDS"
 	@echo "  lefout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to LEF"
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
 	@echo "  pvsdrc    - Run PVS DRC on exported GDS files"
 	@echo "  viewdrc   - View DRC results in KLayout (usage: make viewdrc <output>)"
 	@echo "  help      - Show this help message"
+
+# Dummy target to prevent make from treating arguments as targets
+%:
+	@:
