@@ -77,7 +77,7 @@ netlist:
 		echo "Error: Parameters $${params} not found"; \
 		exit 1; \
 	fi; \
-	echo "Generating netlists for $${comp}..."; \
+	echo "Generating netlists for $${comp}"; \
 	.venv/bin/python $(NETLIST_GEN) \
 		--template="$${template}" \
 		--params="$${params}" \

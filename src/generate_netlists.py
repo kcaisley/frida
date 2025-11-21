@@ -57,6 +57,30 @@ def get_device_params(device_name: str, comp_config: Dict[str, Any]) -> Dict[str
     return params
 
 
+def summarize_varying_params(devices: List[str], comp_config: Dict[str, Any]) -> str:
+    """Return a summary of which parameters are being varied."""
+    param_list = []
+
+    for device in devices:
+        params = get_device_params(device, comp_config)
+        varying = []
+
+        # Check which parameters have more than one value
+        if len(params['w']) > 1:
+            varying.append('W')
+        if len(params['l']) > 1:
+            varying.append('L')
+        if len(params['nf']) > 1:
+            varying.append('NF')
+        if len(params['type']) > 1:
+            varying.append('Type')
+
+        if varying:
+            param_list.append(f"{device} ({', '.join(varying)})")
+
+    return ', '.join(param_list)
+
+
 def generate_param_combinations(devices: List[str], comp_config: Dict[str, Any]) -> List[Dict[str, Dict[str, Any]]]:
     """
     Generate all combinations of device parameters.
@@ -267,15 +291,20 @@ def main():
     if args.verbose:
         print("Generating parameter combinations...")
     param_combinations = generate_param_combinations(devices, comp_config)
-    print(f"Generating {len(param_combinations)} variants across {len(comp_config['tech'])} technologies...")
+
+    # Print header with parameter summary
+    param_summary = summarize_varying_params(devices, comp_config)
+    num_tech = len(comp_config['tech'])
+    num_variants = len(param_combinations)
+    print(f"  Parameters: {param_summary}")
+    print(f"  Total: {num_variants} variants × {num_tech} technologies")
+    print()
 
     # Generate netlists for each technology
     total_netlists = 0
-    for tech in comp_config['tech']:
-        print(f"\n{'='*60}")
-        print(f"Processing technology: {tech}")
-        print(f"{'='*60}")
+    max_tech_len = max(len(tech) for tech in comp_config['tech'])
 
+    for tech in comp_config['tech']:
         tech_config = tech_configs[tech]
 
         for config_id, param_config in enumerate(param_combinations, start=1):
@@ -299,17 +328,13 @@ def main():
                 editor.save_netlist(str(output_path))
 
                 total_netlists += 1
-                if config_id % 10 == 0:
-                    print(f"Generated {config_id}/{len(param_combinations)} netlists for {tech}")
 
-        print(f"Completed {len(param_combinations)} netlists for {tech}")
+        print(f"{tech:<{max_tech_len}}  {len(param_combinations)} netlists")
 
-    print(f"\n{'='*60}")
     if args.dry_run:
-        print(f"Dry run complete. Would generate {len(comp_config['tech']) * len(param_combinations)} netlists.")
+        print(f"\nDry run complete. Would generate {len(comp_config['tech']) * len(param_combinations)} netlists.")
     else:
-        print(f"Successfully generated {total_netlists} netlists in {args.outdir}")
-    print(f"{'='*60}")
+        print(f"\n✓ {total_netlists} netlists → {args.outdir}")
 
 
 if __name__ == '__main__':
