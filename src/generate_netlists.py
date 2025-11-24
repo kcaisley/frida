@@ -31,99 +31,113 @@ def get_device_type(device_name: str) -> str:
         raise ValueError(f"Cannot determine device type for {device_name}")
 
 
-def get_device_params(device_name: str, comp_config: Dict[str, Any]) -> Dict[str, List]:
-    """
-    Get parameter lists for a device, merging defaults with device-specific overrides.
-
-    Returns a dict with keys: w, l, nf, type (each containing a list of values)
-    """
+def get_default_params(device_name: str, comp_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get default parameters for a device based on its type."""
     device_type = get_device_type(device_name)
-
-    # Start with defaults for this device type
-    params = {
-        'w': comp_config['defaults'][device_type]['w'].copy(),
-        'l': comp_config['defaults'][device_type]['l'].copy(),
-        'nf': comp_config['defaults'][device_type]['nf'].copy(),
-        'type': comp_config['defaults'][device_type]['type'].copy(),
+    defaults = comp_config['defaults'][device_type]
+    return {
+        'w': defaults['w'][0],  # Take first (only) value from defaults
+        'l': defaults['l'][0],
+        'nf': defaults['nf'][0],
+        'type': defaults['type'][0],
     }
 
-    # Override with device-specific parameters if they exist
-    if device_name in comp_config['devices']:
-        device_overrides = comp_config['devices'][device_name]
-        for key in ['w', 'l', 'nf', 'type']:
-            if key in device_overrides:
-                params[key] = device_overrides[key]
 
-    return params
+def summarize_varying_params(comp_config: Dict[str, Any]) -> str:
+    """Return a summary of which parameters are being varied in sweep groups."""
+    if 'sweeps' not in comp_config or not comp_config['sweeps']:
+        return "No parameter sweeps defined"
 
-
-def summarize_varying_params(devices: List[str], comp_config: Dict[str, Any]) -> str:
-    """Return a summary of which parameters are being varied."""
     param_list = []
-
-    for device in devices:
-        params = get_device_params(device, comp_config)
+    for sweep in comp_config['sweeps']:
+        devices = sweep['devices']
         varying = []
 
-        # Check which parameters have more than one value
-        if len(params['w']) > 1:
-            varying.append('W')
-        if len(params['l']) > 1:
-            varying.append('L')
-        if len(params['nf']) > 1:
-            varying.append('NF')
-        if len(params['type']) > 1:
-            varying.append('Type')
+        # Check which parameters are being swept
+        for param in ['w', 'l', 'nf', 'type']:
+            if param in sweep and len(sweep[param]) > 1:
+                varying.append(param.upper())
 
-        if varying:
-            param_list.append(f"{device} ({', '.join(varying)})")
+        if devices and varying:
+            device_str = ', '.join(devices)
+            param_str = ', '.join(varying)
+            if len(devices) > 1:
+                param_list.append(f"[{device_str}] ({param_str})")
+            else:
+                param_list.append(f"{device_str} ({param_str})")
 
-    return ', '.join(param_list)
+    return '; '.join(param_list) if param_list else "No variations"
 
 
 def generate_param_combinations(devices: List[str], comp_config: Dict[str, Any]) -> List[Dict[str, Dict[str, Any]]]:
     """
-    Generate all combinations of device parameters.
+    Generate all combinations of device parameters from sweep groups.
 
     Returns a list of configurations, where each config is a dict mapping
     device_name -> {w: val, l: val, nf: val, type: val}
+
+    Each sweep generates its own Cartesian product, then all sweeps are
+    combined via Cartesian product to get final configurations.
     """
-    # Get parameter options for each device
-    device_params = {}
-    for device in devices:
-        device_params[device] = get_device_params(device, comp_config)
-
-    # Generate all combinations
-    # For each device, we need to iterate over all combinations of its parameters
-    device_param_combos = {}
-    for device, params in device_params.items():
-        # Create all combinations for this device
-        combos = list(itertools.product(
-            params['w'],
-            params['l'],
-            params['nf'],
-            params['type']
-        ))
-        device_param_combos[device] = combos
-
-    # Now create all combinations across all devices
-    all_devices = list(device_param_combos.keys())
-    all_combos_per_device = [device_param_combos[dev] for dev in all_devices]
-
-    configurations = []
-    for combo in itertools.product(*all_combos_per_device):
+    if 'sweeps' not in comp_config or not comp_config['sweeps']:
+        # No sweeps defined, use defaults for all devices
         config = {}
-        for i, device in enumerate(all_devices):
-            w, l, nf, vt_type = combo[i]
-            config[device] = {
-                'w': w,
-                'l': l,
-                'nf': nf,
-                'type': vt_type
-            }
-        configurations.append(config)
+        for device in devices:
+            config[device] = get_default_params(device, comp_config)
+        return [config]
 
-    return configurations
+    # Generate combinations for each sweep group
+    sweep_combinations = []
+
+    for sweep in comp_config['sweeps']:
+        sweep_devices = sweep['devices']
+
+        # Get parameter lists for this sweep
+        param_lists = []
+        param_names = []
+        for param in ['w', 'l', 'nf', 'type']:
+            if param in sweep:
+                param_lists.append(sweep[param])
+                param_names.append(param)
+
+        # Generate all combinations for this sweep
+        sweep_combos = []
+        for combo in itertools.product(*param_lists):
+            # Create param dict for this combination
+            params = dict(zip(param_names, combo))
+
+            # Fill in any missing parameters with defaults
+            example_device = sweep_devices[0]
+            defaults = get_default_params(example_device, comp_config)
+            for param in ['w', 'l', 'nf', 'type']:
+                if param not in params:
+                    params[param] = defaults[param]
+
+            # Apply same params to all devices in this sweep
+            sweep_config = {}
+            for device in sweep_devices:
+                sweep_config[device] = params.copy()
+
+            sweep_combos.append(sweep_config)
+
+        sweep_combinations.append(sweep_combos)
+
+    # Combine all sweep groups via Cartesian product
+    all_configurations = []
+    for combo in itertools.product(*sweep_combinations):
+        # Merge all sweep configs
+        config = {}
+        for sweep_config in combo:
+            config.update(sweep_config)
+
+        # Add defaults for devices not in any sweep
+        for device in devices:
+            if device not in config:
+                config[device] = get_default_params(device, comp_config)
+
+        all_configurations.append(config)
+
+    return all_configurations
 
 
 def calculate_dimension(multiplier: int, base_value: float) -> float:
@@ -150,11 +164,51 @@ def format_dimension(value: float) -> str:
         return f"{value:.6e}"
 
 
-def generate_netlist_name(tech: str, config_id: int, template_path: Path) -> str:
-    """Generate a meaningful filename for the netlist variant."""
-    # Extract template name without extension
+def generate_netlist_name(tech: str, param_config: Dict[str, Dict[str, Any]],
+                          comp_config: Dict[str, Any], template_path: Path) -> str:
+    """
+    Generate a human-readable filename from parameter configuration.
+
+    Format: comp_doubletail_tsmc65_MNtail1-w2-l4_MNinp-MNinn-w2-typelvt.sp
+    - Devices separated by _
+    - For grouped devices: list all devices, then their shared params
+    - Parameters: paramname + value (no dash), separated by -
+    """
     base_name = template_path.stem
-    return f"{base_name}_{tech}_v{config_id:04d}.sp"
+    segments = [base_name, tech]
+
+    if 'sweeps' in comp_config and comp_config['sweeps']:
+        # Process each sweep group
+        for sweep in comp_config['sweeps']:
+            sweep_devices = sweep['devices']
+            if not sweep_devices:
+                continue
+
+            # Build device segment
+            device_part = '-'.join(sweep_devices)
+
+            # Build parameter segment (only non-default varying params)
+            param_parts = []
+            for param in ['w', 'l', 'nf', 'type']:
+                if param in sweep and len(sweep[param]) > 1:
+                    # This param is being swept
+                    # Get value from first device (all have same value in group)
+                    first_device = sweep_devices[0]
+                    value = param_config[first_device][param]
+
+                    # Format: param + value (no separator)
+                    # e.g., w2, l4, typelvt
+                    param_parts.append(f"{param}{value}")
+
+            # Combine device and params with dashes
+            if param_parts:
+                sweep_segment = device_part + '-' + '-'.join(param_parts)
+            else:
+                sweep_segment = device_part
+
+            segments.append(sweep_segment)
+
+    return '_'.join(segments) + '.sp'
 
 
 def apply_config_to_netlist(editor: SpiceEditor, subckt_name: str,
@@ -293,48 +347,64 @@ def main():
     param_combinations = generate_param_combinations(devices, comp_config)
 
     # Print header with parameter summary
-    param_summary = summarize_varying_params(devices, comp_config)
+    param_summary = summarize_varying_params(comp_config)
     num_tech = len(comp_config['tech'])
     num_variants = len(param_combinations)
-    print(f"  Parameters: {param_summary}")
+    print(f"  Sweeps: {param_summary}")
     print(f"  Total: {num_variants} variants × {num_tech} technologies")
     print()
 
     # Generate netlists for each technology
     total_netlists = 0
+    skipped_duplicates = 0
     max_tech_len = max(len(tech) for tech in comp_config['tech'])
 
     for tech in comp_config['tech']:
         tech_config = tech_configs[tech]
+        tech_new = 0
+        tech_skipped = 0
 
         for config_id, param_config in enumerate(param_combinations, start=1):
-            netlist_name = generate_netlist_name(tech, config_id, template_path)
-            output_path = args.outdir / netlist_name
-
             if args.dry_run:
-                print(f"Would generate: {netlist_name}")
+                print(f"Would generate netlist {config_id}/{len(param_combinations)}")
                 if config_id == 1:  # Show details for first config only
                     for dev, params in param_config.items():
                         print(f"  {dev}: w={params['w']}, l={params['l']}, "
                               f"nf={params['nf']}, type={params['type']}")
             else:
-                # Load template
-                editor = SpiceEditor(str(template_path))
+                # Generate human-readable filename from parameters
+                netlist_name = generate_netlist_name(tech, param_config, comp_config, template_path)
+                output_path = args.outdir / netlist_name
 
-                # Apply configuration
-                apply_config_to_netlist(editor, subckt_name, param_config, tech, tech_config)
+                # Check if file already exists (deduplication)
+                if output_path.exists():
+                    tech_skipped += 1
+                    skipped_duplicates += 1
+                else:
+                    # Load template
+                    editor = SpiceEditor(str(template_path))
 
-                # Save netlist
-                editor.save_netlist(str(output_path))
+                    # Apply configuration
+                    apply_config_to_netlist(editor, subckt_name, param_config, tech, tech_config)
 
-                total_netlists += 1
+                    # Save netlist
+                    editor.save_netlist(str(output_path))
+                    tech_new += 1
+                    total_netlists += 1
 
-        print(f"{tech:<{max_tech_len}}  {len(param_combinations)} netlists")
+        # Report with deduplication info
+        if tech_skipped > 0:
+            print(f"{tech:<{max_tech_len}}  {tech_new} unique netlists ({tech_skipped} duplicates skipped)")
+        else:
+            print(f"{tech:<{max_tech_len}}  {tech_new} netlists")
 
     if args.dry_run:
         print(f"\nDry run complete. Would generate {len(comp_config['tech']) * len(param_combinations)} netlists.")
     else:
-        print(f"\n✓ {total_netlists} netlists → {args.outdir}")
+        if skipped_duplicates > 0:
+            print(f"\n✓ {total_netlists} unique netlists → {args.outdir} ({skipped_duplicates} duplicates skipped)")
+        else:
+            print(f"\n✓ {total_netlists} netlists → {args.outdir}")
 
 
 if __name__ == '__main__':

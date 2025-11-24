@@ -1,0 +1,134 @@
+// ========================================================================
+// Comparator Testbench - Verilog-A
+// ========================================================================
+// Tests comparator across multiple common-mode voltages and differential
+// input voltages to characterize input-referred noise, offset, and speed.
+//
+// Test pattern:
+//   - 5 common-mode voltages: 90%, 70%, 50%, 30%, 10% of VDD
+//   - 17 differential voltages: +200�V to -200�V in 25�V steps
+//   - 20 clock cycles per condition
+//   - 20ns per clock cycle (50MHz, 50% duty cycle)
+//   - Total simulation time: 5 � 17 � 20 � 20ns = 34�s
+// ========================================================================
+
+`include "constants.vams"
+`include "disciplines.vams"
+
+module tb_comp;
+
+// ========================================================================
+// Parameters
+// ========================================================================
+parameter real VDD = 1.2;           // Supply voltage
+parameter real TCLK = 20n from (0:inf);  // Clock period (20ns)
+parameter real NPULSES = 20;        // Pulses per condition
+parameter real VDIFF_START = 200u;  // Starting differential voltage
+parameter real VDIFF_STOP = -200u;  // Ending differential voltage
+parameter real VDIFF_STEP = 25u;    // Differential voltage step
+parameter integer NVDIFF = 17;      // Number of differential voltages
+parameter integer NVCM = 5;         // Number of common-mode voltages
+
+// ========================================================================
+// Signal declarations
+// ========================================================================
+electrical vdd_a, vss_a;
+electrical in_p, in_n;
+electrical out_p, out_n;
+electrical clk, clk_b;
+
+// Internal variables
+real vcm_array[0:4];               // Common-mode voltage array
+real vdiff;                        // Current differential voltage
+real vcm;                          // Current common-mode voltage
+integer vcm_idx;                   // Common-mode index
+integer vdiff_idx;                 // Differential voltage index
+integer pulse_idx;                 // Pulse index
+real t_condition;                  // Time per condition
+real t_pulse;                      // Time for current pulse
+real condition_start_time;         // Start time of current condition
+
+// ========================================================================
+// Initialize common-mode voltage array
+// ========================================================================
+analog begin
+    @(initial_step) begin
+        vcm_array[0] = 0.9 * VDD;  // 90%
+        vcm_array[1] = 0.7 * VDD;  // 70%
+        vcm_array[2] = 0.5 * VDD;  // 50%
+        vcm_array[3] = 0.3 * VDD;  // 30%
+        vcm_array[4] = 0.1 * VDD;  // 10%
+
+        t_condition = NPULSES * TCLK;
+    end
+end
+
+// ========================================================================
+// Power supplies
+// ========================================================================
+analog begin
+    V(vdd_a) <+ VDD;
+    V(vss_a) <+ 0.0;
+end
+
+// ========================================================================
+// Test pattern generator
+// ========================================================================
+analog begin
+    // Calculate current indices based on absolute time
+    vcm_idx = floor($abstime / (NVDIFF * t_condition));
+    vdiff_idx = floor(($abstime - vcm_idx * NVDIFF * t_condition) / t_condition);
+    pulse_idx = floor(($abstime - vcm_idx * NVDIFF * t_condition - vdiff_idx * t_condition) / TCLK);
+
+    // Clamp indices to valid ranges
+    if (vcm_idx >= NVCM) vcm_idx = NVCM - 1;
+    if (vdiff_idx >= NVDIFF) vdiff_idx = NVDIFF - 1;
+    if (pulse_idx >= NPULSES) pulse_idx = NPULSES - 1;
+
+    // Calculate current voltages
+    vcm = vcm_array[vcm_idx];
+    vdiff = VDIFF_START + vdiff_idx * VDIFF_STEP;
+
+    // Apply differential input voltages
+    V(in_p) <+ vcm + vdiff / 2.0;
+    V(in_n) <+ vcm - vdiff / 2.0;
+end
+
+// ========================================================================
+// Clock generator (50% duty cycle)
+// ========================================================================
+analog begin
+    condition_start_time = vcm_idx * NVDIFF * t_condition + vdiff_idx * t_condition;
+    t_pulse = $abstime - condition_start_time - pulse_idx * TCLK;
+
+    // Generate clock (high for first half of period)
+    if (t_pulse < TCLK / 2.0) begin
+        V(clk) <+ VDD;
+        V(clk_b) <+ 0.0;
+    end else begin
+        V(clk) <+ 0.0;
+        V(clk_b) <+ VDD;
+    end
+end
+
+// ========================================================================
+// Device Under Test - Instantiate comparator
+// ========================================================================
+// The comparator subcircuit is included from the SPICE netlist
+// Instantiation syntax depends on simulator:
+// - For Spectre/AMS: Use subcircuit instantiation
+// - For Xyce: Ensure SPICE netlist is included
+
+// Subcircuit: comp_doubletail in_p in_n out_p out_n clk clk_b vdd_a vss_a
+comp_doubletail dut (
+    .in_p(in_p),
+    .in_n(in_n),
+    .out_p(out_p),
+    .out_n(out_n),
+    .clk(clk),
+    .clk_b(clk_b),
+    .vdd_a(vdd_a),
+    .vss_a(vss_a)
+);
+
+endmodule

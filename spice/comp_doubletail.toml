@@ -17,17 +17,23 @@ l = [1]
 nf = [1]
 type = ["lvt"]
 
-# Device-specific overrides (only specify what differs from defaults)
-[devices.MNinp]
+# Parameter sweeps - devices in same sweep vary together
+# Each sweep generates the Cartesian product of its parameters
+# Total combinations = product of all sweep sizes
+
+[[sweeps]]
+# Input differential pair - vary together (matched)
+devices = ["MNinp", "MNinn"]
 w = [2, 4, 8, 16]
 type = ["lvt", "svt"]
+# Generates: 4 × 2 = 8 combinations
 
-[devices.MNinn]
-w = [2, 4, 8, 16]
-type = ["lvt", "svt"]
-
-[devices.MNtail1]
+[[sweeps]]
+# Tail transistor - varies independently
+devices = ["MNtail1"]
 w = [2, 4]
 l = [4, 8]
+# Generates: 2 × 2 = 4 combinations
 
+# Total netlists: 8 × 4 = 32 per technology
 # Other devices (MPswMN, MPswMP, MNtail2, etc.) will use defaults
