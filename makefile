@@ -32,13 +32,20 @@ NETLIST_GEN := src/generate_netlists.py
 
 all: gds caparray
 
-# Setup Python virtual environment and install dependencies
+# Setup Python virtual environment and install dependencies using uv
 setup:
-	@echo "Creating Python virtual environment..."
-	python -m venv .venv
-	@echo "Activating virtual environment and installing packages..."
-	.venv/bin/python -m pip install --upgrade pip
-	.venv/bin/python -m pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm pytest cocotb cocotbext-spi jinja2
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "uv not found. Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		echo "uv installed. Please run 'make setup' again or add ~/.local/bin to your PATH"; \
+		exit 0; \
+	fi
+	@echo "Ensuring Python 3.14 is installed..."
+	uv python install 3.14
+	@echo "Creating Python virtual environment with Python 3.14..."
+	uv venv --python 3.14 .venv
+	@echo "Installing packages with uv..."
+	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm pytest cocotb cocotbext-spi jinja2
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
 # Generate GDS for specified block, using .py script for klayout: make gds <cellname>
