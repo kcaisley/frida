@@ -8,9 +8,11 @@ and generates multiple netlist variants for different technologies and device pa
 
 import argparse
 import itertools
+import logging
 import tomllib
 from pathlib import Path
 from typing import Dict, List, Any
+import datetime
 
 from spicelib import SpiceEditor
 
@@ -301,25 +303,36 @@ def main():
 
     args = parser.parse_args()
 
+    # Setup logging
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    log_file = args.outdir / f"netlist_gen_{timestamp}.log"
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format='%(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger(__name__)
+
     # Load configurations
-    if args.verbose:
-        print(f"Loading component parameters from {args.params}")
+    logger.debug(f"Loading component parameters from {args.params}")
     comp_config = load_toml_config(args.params)
 
-    if args.verbose:
-        print(f"Loading technology config from {args.config}")
+    logger.debug(f"Loading technology config from {args.config}")
     tech_configs = load_toml_config(args.config)
 
     # Get template path
     template_path = args.template
-    if args.verbose:
-        print(f"Using template netlist: {template_path}")
+    logger.debug(f"Using template netlist: {template_path}")
 
     # Create output directory
     if not args.dry_run:
         args.outdir.mkdir(parents=True, exist_ok=True)
-        if args.verbose:
-            print(f"Output directory: {args.outdir}")
+        logger.debug(f"Output directory: {args.outdir}")
 
     # Extract device names from template
     # We'll do this by reading the template once
@@ -328,31 +341,28 @@ def main():
     # Get the first subcircuit (assuming single subcircuit template)
     subckt_names = temp_editor.get_subcircuit_names()
     if not subckt_names:
-        print("Error: No subcircuits found in template!")
+        logger.error("No subcircuits found in template!")
         return
 
     subckt_name = subckt_names[0]
-    if args.verbose:
-        print(f"Using subcircuit: {subckt_name}")
+    logger.debug(f"Using subcircuit: {subckt_name}")
     subckt = temp_editor.get_subcircuit_named(subckt_name)
 
     devices = [comp for comp in subckt.get_components()
                if comp.upper().startswith(('MN', 'MP'))]
-    if args.verbose:
-        print(f"Found {len(devices)} devices: {', '.join(devices)}")
+    logger.debug(f"Found {len(devices)} devices: {', '.join(devices)}")
 
     # Generate parameter combinations
-    if args.verbose:
-        print("Generating parameter combinations...")
+    logger.debug("Generating parameter combinations...")
     param_combinations = generate_param_combinations(devices, comp_config)
 
     # Print header with parameter summary
     param_summary = summarize_varying_params(comp_config)
     num_tech = len(comp_config['tech'])
     num_variants = len(param_combinations)
-    print(f"  Sweeps: {param_summary}")
-    print(f"  Total: {num_variants} variants × {num_tech} technologies")
-    print()
+    logger.info(f"  Sweeps: {param_summary}")
+    logger.info(f"  Total: {num_variants} variants × {num_tech} technologies")
+    logger.info("")
 
     # Generate netlists for each technology
     total_netlists = 0
@@ -366,10 +376,10 @@ def main():
 
         for config_id, param_config in enumerate(param_combinations, start=1):
             if args.dry_run:
-                print(f"Would generate netlist {config_id}/{len(param_combinations)}")
+                logger.info(f"Would generate netlist {config_id}/{len(param_combinations)}")
                 if config_id == 1:  # Show details for first config only
                     for dev, params in param_config.items():
-                        print(f"  {dev}: w={params['w']}, l={params['l']}, "
+                        logger.info(f"  {dev}: w={params['w']}, l={params['l']}, "
                               f"nf={params['nf']}, type={params['type']}")
             else:
                 # Generate human-readable filename from parameters
@@ -394,17 +404,17 @@ def main():
 
         # Report with deduplication info
         if tech_skipped > 0:
-            print(f"{tech:<{max_tech_len}}  {tech_new} unique netlists ({tech_skipped} duplicates skipped)")
+            logger.info(f"{tech:<{max_tech_len}}  {tech_new} unique netlists ({tech_skipped} duplicates skipped)")
         else:
-            print(f"{tech:<{max_tech_len}}  {tech_new} netlists")
+            logger.info(f"{tech:<{max_tech_len}}  {tech_new} netlists")
 
     if args.dry_run:
-        print(f"\nDry run complete. Would generate {len(comp_config['tech']) * len(param_combinations)} netlists.")
+        logger.info(f"\nDry run complete. Would generate {len(comp_config['tech']) * len(param_combinations)} netlists.")
     else:
         if skipped_duplicates > 0:
-            print(f"\n✓ {total_netlists} unique netlists → {args.outdir} ({skipped_duplicates} duplicates skipped)")
+            logger.info(f"\n✓ {total_netlists} unique netlists → {args.outdir} ({skipped_duplicates} duplicates skipped)")
         else:
-            print(f"\n✓ {total_netlists} netlists → {args.outdir}")
+            logger.info(f"\n✓ {total_netlists} netlists → {args.outdir}")
 
 
 if __name__ == '__main__':

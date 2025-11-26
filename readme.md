@@ -11,26 +11,96 @@ This project pursues the possibility of a single-reticle array larger than 1 Mpi
 
 ## Workflow
 
-The workflow below shows how the FRIDA ADC design progresses from specifications to analysis. Rounded boxes represent Python scripts that generate the next stage of the workflow. Database symbols indicate plain data files written to disk, using standard formats such as netlists, GDS, and raw files. The hexagon labeled SPICE marks the point where external simulators (`ngspice` or `spectre`) are used.
+The workflow below shows how the FRIDA ADC design progresses from specifications, to simulations, to implementation, and analysis:
+
+
+### 0. Configuration and setup
+
+Run `make setup` to check dependencys, and install (some) if they are missing.
+
+### 1. Netlist generation
+
+Given a generic netlist topology, a technology mapping, and list of parameters to sweep, sized netlists for each technology can be generated.
 
 ```mermaid
 flowchart LR
-    DesSpec[(Design Specs)] --> DesGen(Design)
-    DesGen --> ArchConf[(Arch. Conf.)]
-    ArchConf --> LayGen(Layout Gen.)
-    ArchConf --> BehavSim
-    ArchConf --> NetGen
-    SimConf[(Sim Conf.)] --> BehavSim(Behav. Sim.)
-    SimConf[(Sim Conf.)] --> NetGen
-    NetGen(Netlist Gen.) --> Netlist[(ckt.sp)]
-    NetGen --> TB[(tb.sp)]
-    LayGen --> Gds[(ckt.gds)]
-    Netlist --> Spice{{SPICE}}
-    TB --> Spice
-    BehavSim --> BRaw[(ckt.raw)]
-    Spice --> Raw[(ckt.raw)]
-    Raw --> Analyze(Analysis)
-    BRaw --> Analyze
+    %% Input files
+    ckt@{ shape: rect, label: "generic topology netlist
+    [cell].sp" }
+    ckt_toml@{ shape: rect, label: "size and type sweeps
+    [cell].toml" }
+    tech_toml@{ shape: rect, label: "technology params 
+    tech.toml" }
+
+    %% Netlist generation process
+    subgraph make_netlist["make netlist [cell]
+    make clean_netlist [cell]"]
+        generate_netlist@{ shape: rounded, label: "generate_netlist.py" }
+    end
+
+    ckt --> generate_netlist
+    ckt_toml --> generate_netlist
+    tech_toml --> generate_netlist
+
+    netlist@{ shape: processes, label: "sized .sp netlist" }
+    generate_netlist --> netlist
+```
+
+### 2. Run simulation
+
+
+
+```mermaid
+flowchart LR
+    %% Input files
+    netlists@{ shape: processes, label: "sized .sp netlist" }
+    tb_va@{ shape: rect, label: "behavioral testbench 
+    tb_[cell].va" }
+    tb_sp@{ shape: rect, label: "simulation wrapper 
+    tb_[cell].sp" }
+
+    %% Simulation process
+    subgraph run_sim["make sim [cell]
+    make clean_sim [cell]"]
+        run_simulation@{ shape: rounded, label: "run_simulation.py" }
+    end
+
+    tb_va --> run_simulation
+    tb_sp --> run_simulation
+    netlists --> run_simulation
+
+    results@{ shape: processes, label: ".raw results" }
+    run_simulation --> results
+```
+
+### 3. Analyze results
+
+```mermaid
+flowchart LR
+    %% Input files
+    results@{ shape: processes, label: ".raw results" }
+    analysis_config@{ shape: rect, label: "analysis config
+    [cell].toml" }
+
+    %% Analysis process
+    subgraph analyze["make analyze [cell]
+    make clean_analyze [cell]"]
+        run_analysis@{ shape: rounded, label: "run_analysis.py" }
+        analyses@{ shape: processes, label: "analyses.py" }
+        run_analysis --> analyses
+    end
+
+    results --> run_analysis
+    analysis_config --> run_analysis
+
+    %% Output files
+    figures@{ shape: processes, label: "figures
+    [analysis]_[cell].png" }
+    reports@{ shape: processes, label: "reports
+    [analysis]_[cell].md" }
+
+    analyses --> figures
+    analyses --> reports
 ```
 
 ## Past Designs vs Current Target

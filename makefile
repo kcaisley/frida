@@ -28,7 +28,7 @@ RESULTS_DIR := results
 NETLIST_GEN := src/generate_netlists.py
 
 # Default target
-.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral netlist clean_netlist
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral netlist clean_netlist sim clean_sim completion
 
 all: gds caparray
 
@@ -45,7 +45,7 @@ setup:
 	@echo "Creating Python virtual environment with Python 3.14..."
 	uv venv --python 3.14 .venv
 	@echo "Installing packages with uv..."
-	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm pytest cocotb cocotbext-spi jinja2
+	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
 # Generate GDS for specified block, using .py script for klayout: make gds <cellname>
@@ -105,6 +105,91 @@ clean_netlist:
 		echo "Removing $${outdir}..."; \
 		rm -rf "$${outdir}"; \
 		echo "Cleaned netlists for $${comp}"; \
+	else \
+		echo "Directory $${outdir} does not exist, nothing to clean"; \
+	fi
+
+# Run batch Spectre simulations: make sim <comp_name> [tech=tsmc65] [workers=4]
+sim:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make sim <comp_name> [tech=<tech>] [workers=<N>]"; \
+		echo "This will run Spectre simulations for all netlists in $(RESULTS_DIR)/<comp_name>/"; \
+		echo "Example: make sim comp_doubletail"; \
+		echo "Example: make sim comp_doubletail tech=tsmc65"; \
+		echo "Example: make sim comp_doubletail tech=tsmc65 workers=8"; \
+		exit 1; \
+	fi
+	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
+	netlists="$(RESULTS_DIR)/$${comp}/*.sp"; \
+	outdir="$(RESULTS_DIR)/$${comp}"; \
+	tech_filter="$(tech)"; \
+	max_workers="$(workers)"; \
+	template="$(SPICE_DIR)/tb_comp.sp"; \
+	if [ -z "$$tech_filter" ]; then \
+		tech_filter="tsmc65"; \
+	fi; \
+	pdk=$$(python3 -c "import tomllib; f=open('$(TECH_CONFIG)', 'rb'); cfg=tomllib.load(f); print(cfg['$$tech_filter']['pdk_path'])" 2>/dev/null); \
+	if [ -z "$$pdk" ]; then \
+		echo "Error: Could not find pdk_path for tech '$$tech_filter' in $(TECH_CONFIG)"; \
+		exit 1; \
+	fi; \
+	if [ ! -d "$${outdir}" ]; then \
+		echo "Error: Directory $${outdir} not found. Run 'make netlist $${comp}' first."; \
+		exit 1; \
+	fi; \
+	if [ -n "$$tech_filter" ]; then \
+		if [ -n "$$max_workers" ]; then \
+			echo "Running Spectre simulations for $${comp} (filtered: $$tech_filter, workers: $$max_workers)"; \
+			.venv/bin/python src/run_simulations.py \
+				--template="$$template" \
+				--netlists="$$netlists" \
+				--pdk="$$pdk" \
+				--outdir="$$outdir" \
+				--max-workers=$$max_workers \
+				--filter="$$tech_filter" </dev/null; \
+		else \
+			echo "Running Spectre simulations for $${comp} (filtered: $$tech_filter, auto workers)"; \
+			.venv/bin/python src/run_simulations.py \
+				--template="$$template" \
+				--netlists="$$netlists" \
+				--pdk="$$pdk" \
+				--outdir="$$outdir" \
+				--filter="$$tech_filter" </dev/null; \
+		fi; \
+	else \
+		if [ -n "$$max_workers" ]; then \
+			echo "Running Spectre simulations for $${comp} (workers: $$max_workers)"; \
+			.venv/bin/python src/run_simulations.py \
+				--template="$$template" \
+				--netlists="$$netlists" \
+				--pdk="$$pdk" \
+				--outdir="$$outdir" \
+				--max-workers=$$max_workers </dev/null; \
+		else \
+			echo "Running Spectre simulations for $${comp} (auto workers)"; \
+			.venv/bin/python src/run_simulations.py \
+				--template="$$template" \
+				--netlists="$$netlists" \
+				--pdk="$$pdk" \
+				--outdir="$$outdir" </dev/null; \
+		fi; \
+	fi
+
+# Clean simulation results: make clean_sim <comp_name>
+clean_sim:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_sim <comp_name>"; \
+		echo "This will remove simulation results (*.log, *.raw, *.scs files) from $(RESULTS_DIR)/<comp_name>/"; \
+		echo "Example: make clean_sim comp_doubletail"; \
+		exit 1; \
+	fi
+	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${comp}"; \
+	if [ -d "$${outdir}" ]; then \
+		echo "Cleaning simulation results from $${outdir}..."; \
+		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log; \
+		find "$${outdir}" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
+		echo "Cleaned simulation results for $${comp}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
@@ -285,6 +370,25 @@ ngspice:
 		echo "Warning: Expected output file results/$${tbname}.raw not found"; \
 	fi
 
+# Enable bash TAB completion for make targets
+completion:
+	@echo "======================================================================="
+	@echo "TAB Completion for Make Commands"
+	@echo "======================================================================="
+	@echo ""
+	@echo "Enables intelligent TAB completion for:"
+	@echo "  • Component names:  make sim <TAB>          → comp_doubletail"
+	@echo "  • Technologies:     make sim comp tech=<TAB> → tsmc65 tsmc28 tower180"
+	@echo "  • Worker counts:    make sim comp workers=<TAB> → 1 2 4 8 16 32"
+	@echo "  • Make targets:     make <TAB>              → all available targets"
+	@echo ""
+	@source src/tab_completion.sh
+	@echo "✓ TAB completion enabled for current shell!"
+	@echo ""
+	@echo "To enable permanently, add to ~/.bashrc:"
+	@echo "  echo 'source $(CURDIR)/src/tab_completion.sh' >> ~/.bashrc"
+	@echo "======================================================================="
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -294,6 +398,9 @@ help:
 	@echo "  lef <cellname>       - Generate LEF file from GDS for specified cell"
 	@echo "  netlist <comp>       - Generate SPICE netlist variants (e.g. make netlist comp_doubletail)"
 	@echo "  clean_netlist <comp> - Remove generated netlists (e.g. make clean_netlist comp_doubletail)"
+	@echo "  sim <comp> [tech=<tech>] [workers=<N>] - Run batch Spectre simulations"
+	@echo "                         (e.g. make sim comp_doubletail tech=tsmc65 workers=4)"
+	@echo "  clean_sim <comp>     - Clean simulation results (logs, raw files, etc)"
 	@echo "  view <cellname>      - Open GDS file in KLayout with tech files"
 	@echo "  behavioral <run_script> - Run behavioral simulation (e.g. make behavioral run_oneshot)"
 	@echo "  ngspice <tbname>  - Run SPICE simulation (e.g. make ngspice tb_adc_full)"
@@ -302,6 +409,7 @@ help:
 	@echo "  cdlout    - Export OpenAccess cells (COMP_LATCH, SAMPLE_SW) to CDL/SPICE"
 	@echo "  pvsdrc    - Run PVS DRC on exported GDS files"
 	@echo "  viewdrc   - View DRC results in KLayout (usage: make viewdrc <output>)"
+	@echo "  completion - Enable bash TAB completion for make commands"
 	@echo "  help      - Show this help message"
 
 # Dummy target to prevent make from treating arguments as targets
