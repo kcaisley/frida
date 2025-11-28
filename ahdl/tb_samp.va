@@ -1,0 +1,153 @@
+// ========================================================================
+// Transmission Gate Testbench - Verilog-A
+// ========================================================================
+// Tests transmission gate with DC sweep and transient pulses to characterize
+// on-resistance, bandwidth, and switching behavior with realistic load.
+//
+// Test pattern:
+//   - DC sweep: Input voltage from 0V to VDD
+//   - 25 transient pulses at nominal input voltage
+//   - Source: 1kΩ series resistance (realistic driver)
+//   - Load: 1pF capacitance
+//   - Noise enabled for realistic analysis
+// ========================================================================
+
+`include "constants.vams"
+`include "disciplines.vams"
+
+module tb_samp;
+
+// ========================================================================
+// Parameters
+// ========================================================================
+parameter real VDD = 1.2;                    // Supply voltage (tech-dependent)
+parameter real TCLK = 100n from (0:inf);     // Clock period (100ns = 10MHz)
+parameter real NPULSES = 25;                 // Number of transient pulses
+parameter real DC_SWEEP_STEPS = 50;          // DC sweep resolution
+parameter real RSOURCE = 1000.0;             // Source resistance (1kΩ)
+parameter real CLOAD = 1e-12;                // Load capacitance (1pF)
+
+// ========================================================================
+// Signal declarations
+// ========================================================================
+electrical vdd_a, vss_a;
+electrical in_driver, in, out;
+electrical clk, clk_b;
+
+// Internal variables
+real vin_ideal;                              // Ideal input voltage
+real t_dc_sweep;                             // Duration of DC sweep
+real t_pulse_start;                          // Start time of pulse train
+integer pulse_idx;                           // Current pulse index
+real t_pulse;                                // Time within current pulse
+
+// ========================================================================
+// Initialize timing parameters
+// ========================================================================
+analog begin
+    @(initial_step) begin
+        t_dc_sweep = DC_SWEEP_STEPS * TCLK;
+        t_pulse_start = t_dc_sweep;
+    end
+end
+
+// ========================================================================
+// Power supplies
+// ========================================================================
+analog begin
+    V(vdd_a) <+ VDD;
+    V(vss_a) <+ 0.0;
+end
+
+// ========================================================================
+// Input signal generation
+// ========================================================================
+analog begin
+    // Phase 1: DC sweep (0 to t_dc_sweep)
+    if ($abstime < t_dc_sweep) begin
+        vin_ideal = VDD * ($abstime / t_dc_sweep);
+    end
+    // Phase 2: Transient pulses (t_dc_sweep to end)
+    else begin
+        pulse_idx = floor(($abstime - t_pulse_start) / TCLK);
+        if (pulse_idx >= NPULSES) pulse_idx = NPULSES - 1;
+
+        t_pulse = $abstime - t_pulse_start - pulse_idx * TCLK;
+
+        // Square wave: VDD for first half, 0V for second half
+        if (t_pulse < TCLK / 2.0) begin
+            vin_ideal = VDD;
+        end else begin
+            vin_ideal = 0.0;
+        end
+    end
+
+    // Ideal voltage source (before series resistance)
+    V(in_driver) <+ vin_ideal;
+end
+
+// ========================================================================
+// Source resistance (1kΩ series resistance)
+// ========================================================================
+analog begin
+    I(in_driver, in) <+ V(in_driver, in) / RSOURCE;
+end
+
+// ========================================================================
+// Load capacitance (1pF at output)
+// ========================================================================
+analog begin
+    I(out, vss_a) <+ ddt(CLOAD * V(out, vss_a));
+end
+
+// ========================================================================
+// Clock generator (50% duty cycle)
+// ========================================================================
+analog begin
+    if ($abstime < t_dc_sweep) begin
+        // During DC sweep: clock continuously toggles
+        t_pulse = $abstime - floor($abstime / TCLK) * TCLK;
+    end else begin
+        // During transient pulses: clock synchronous with input
+        pulse_idx = floor(($abstime - t_pulse_start) / TCLK);
+        if (pulse_idx >= NPULSES) pulse_idx = NPULSES - 1;
+        t_pulse = $abstime - t_pulse_start - pulse_idx * TCLK;
+    end
+
+    // Generate clock (high for first half of period)
+    if (t_pulse < TCLK / 2.0) begin
+        V(clk) <+ VDD;
+        V(clk_b) <+ 0.0;
+    end else begin
+        V(clk) <+ 0.0;
+        V(clk_b) <+ VDD;
+    end
+end
+
+// ========================================================================
+// Device Under Test - Instantiate sample cell
+// ========================================================================
+// All cells in samp family share the same 6-terminal interface:
+// Subcircuit: samp_* in out clk clk_b vdd_a vss_a
+//
+// Use preprocessor defines to select which cell to instantiate:
+//   -DSAMP_TGATE (default) : Transmission gate
+//   -DSAMP_PMOS            : PMOS-only pass gate
+//   -DSAMP_NMOS            : NMOS-only pass gate
+
+`ifdef SAMP_PMOS
+samp_pmos dut (
+`elsif SAMP_NMOS
+samp_nmos dut (
+`else
+samp_tgate dut (
+`endif
+    .in(in),
+    .out(out),
+    .clk(clk),
+    .clk_b(clk_b),
+    .vdd_a(vdd_a),
+    .vss_a(vss_a)
+);
+
+endmodule

@@ -1,6 +1,4 @@
-* ========================================================================
-* Double-tail Comparator
-* ========================================================================
+* Double-tail comparator
 
 .subckt comp_doubletail in_p in_n out_p out_n clk clk_b vdd_a vss_a
 *.PININFO in_p:I in_n:I out_p:O out_n:O clk:I clk_b:I vdd_a:B vss_a:B

@@ -4,6 +4,7 @@
 [tsmc65]
 name = "TSMC 65nm"
 pdk_path = "/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs"
+vdd = 1.2  # Nominal supply voltage (V)
 
 [tsmc65.base_dimensions]
 w = 100e-9  # 100nm minimum width
@@ -17,27 +18,49 @@ pmos_lvt = "pch_lvt"
 pmos_svt = "pch"
 pmos_hvt = "pch_hvt"
 
+[tsmc65.corners]
+tt = "tt_lib"
+ss = "ss_lib"
+ff = "ff_lib"
+sf = "sf_lib"
+fs = "fs_lib"
+mc = "mc_lib"
+
 
 [tsmc28]
 name = "TSMC 28nm"
 pdk_path = "/eda/kits/TSMC/28HPC+/2023_v1.1/pdk/1P9M_5X1Y1Z1U_UT_AlRDL/cdsPDK/models/spectre/toplevel.scs"
+vdd = 0.9  # Nominal supply voltage (V)
 
 [tsmc28.base_dimensions]
 w = 30e-9   # 30nm minimum width
 l = 40e-9   # 40nm minimum length
 
 [tsmc28.device_models]
-nmos_lvt = "nch_lvt_mac"
-nmos_svt = "nch_svt_mac"
-nmos_hvt = "nch_hvt_mac"
-pmos_lvt = "pch_lvt_mac"
-pmos_svt = "pch_svt_mac"
-pmos_hvt = "pch_hvt_mac"
+nmos_lvt = "nch_lvt"
+nmos_svt = "nch"
+nmos_hvt = "nch_hvt"
+pmos_lvt = "pch_lvt"
+pmos_svt = "pch"
+pmos_hvt = "pch_hvt"
+
+[tsmc28.corners]
+tt = "att_pt"
+ss = "ass_ps"
+ff = "aff_pf"
+sf = "asf_ps"
+fs = "afs_pf"
+mc = "local_mc"
+
+[tsmc28.noise_models]
+worst = { path = "/eda/kits/TSMC/28HPC+/2023_v1.1/pdk/1P9M_5X1Y1Z1U_UT_AlRDL/cdsPDK/models/spectre/crn28ull_1d8_elk_v1d8_2p2_shrink0d9_embedded_usage.scs", section = "noise_worst" }
+typical = { path = "/eda/kits/TSMC/28HPC+/2023_v1.1/pdk/1P9M_5X1Y1Z1U_UT_AlRDL/cdsPDK/models/spectre/crn28ull_1d8_elk_v1d8_2p2_shrink0d9_embedded_usage.scs", section = "noise_typical" }
 
 
 [tower180]
 name = "Tower 180nm"
 pdk_path = "/eda/kits/TOWER/ts18is_Rev_6.3.6/HOTCODE/models/ts18sl/v5.6.00/spectre/tsl018.scs"
+vdd = 1.8  # Nominal supply voltage (V)
 
 [tower180.base_dimensions]
 w = 220e-9  # 220nm minimum width
@@ -50,3 +73,11 @@ nmos_hvt = "nfet_hvt"
 pmos_lvt = "pfet_lvt"
 pmos_svt = "pfet"
 pmos_hvt = "pfet_hvt"
+
+[tower180.corners]
+tt = "tt_18"
+ss = "ss_18"
+ff = "ff_18"
+sf = "sf_18"
+fs = "fs_18"
+stat = "stat_18"

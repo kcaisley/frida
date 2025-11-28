@@ -23,14 +23,13 @@ PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PL
 
 # Netlist generation configuration
 SPICE_DIR := spice
+AHDL_DIR := ahdl
 TECH_CONFIG := $(SPICE_DIR)/generate_netlists.toml
 RESULTS_DIR := results
 NETLIST_GEN := src/generate_netlists.py
 
 # Default target
-.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup behavioral netlist clean_netlist sim clean_sim completion
-
-all: gds caparray
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup netlist clean_netlist sim clean_sim
 
 # Setup Python virtual environment and install dependencies using uv
 setup:
@@ -48,34 +47,22 @@ setup:
 	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
-# Generate GDS for specified block, using .py script for klayout: make gds <cellname>
-gds:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make gds <cellname>"; \
-		echo "This will look for src/<cellname>.py and generate tech/$(PLATFORM)/gds/<cellname>.gds"; \
-		exit 1; \
-	fi
-	@cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -f "src/$${cellname}.py" ]; then \
-		echo "Error: src/$${cellname}.py not found"; \
-		exit 1; \
-	fi; \
-	mkdir -p tech/$(PLATFORM)/gds; \
-	echo "Generating GDS for $${cellname}..."; \
-	.venv/bin/python "src/$${cellname}.py" "tech/$(PLATFORM)/gds/$${cellname}.gds"
 
-# Generate SPICE netlist variants: make netlist <comp_name>
+
+# Generate SPICE netlist variants: make netlist <family_cellname>
 netlist:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make netlist <comp_name>"; \
-		echo "This will generate netlists from $(SPICE_DIR)/<comp_name>.sp and $(SPICE_DIR)/<comp_name>.toml"; \
-		echo "Example: make netlist comp_doubletail"; \
+		echo "Usage: make netlist <family_cellname>"; \
+		echo "This will generate netlists from $(SPICE_DIR)/<family_cellname>.sp and $(SPICE_DIR)/<family_cellname>.toml"; \
+		echo "Examples:"; \
+		echo "  make netlist samp_tgate"; \
+		echo "  make netlist comp_doubletail"; \
 		exit 1; \
 	fi
-	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
-	template="$(SPICE_DIR)/$${comp}.sp"; \
-	params="$(SPICE_DIR)/$${comp}.toml"; \
-	outdir="$(RESULTS_DIR)/$${comp}"; \
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	template="$(SPICE_DIR)/$${family_cellname}.sp"; \
+	params="$(SPICE_DIR)/$${family_cellname}.toml"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
 	if [ ! -f "$${template}" ]; then \
 		echo "Error: Template $${template} not found"; \
 		exit 1; \
@@ -84,47 +71,64 @@ netlist:
 		echo "Error: Parameters $${params} not found"; \
 		exit 1; \
 	fi; \
-	echo "Generating netlists for $${comp}"; \
+	echo "Generating netlists for $${family_cellname}"; \
 	.venv/bin/python $(NETLIST_GEN) \
 		--template="$${template}" \
 		--params="$${params}" \
 		--config="$(TECH_CONFIG)" \
 		--outdir="$${outdir}"
 
-# Clean generated netlists: make clean_netlist <comp_name>
+# Clean generated netlists: make clean_netlist <family_cellname>
 clean_netlist:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make clean_netlist <comp_name>"; \
-		echo "This will remove $(RESULTS_DIR)/<comp_name>/ directory"; \
-		echo "Example: make clean_netlist comp_doubletail"; \
+		echo "Usage: make clean_netlist <family_cellname>"; \
+		echo "This will remove $(RESULTS_DIR)/<family_cellname>/ directory"; \
+		echo "Examples:"; \
+		echo "  make clean_netlist samp_tgate"; \
+		echo "  make clean_netlist comp_doubletail"; \
 		exit 1; \
 	fi
-	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
-	outdir="$(RESULTS_DIR)/$${comp}"; \
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
 	if [ -d "$${outdir}" ]; then \
 		echo "Removing $${outdir}..."; \
 		rm -rf "$${outdir}"; \
-		echo "Cleaned netlists for $${comp}"; \
+		echo "Cleaned netlists for $${family_cellname}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
 
-# Run batch Spectre simulations: make sim <comp_name> [tech=tsmc65] [workers=4]
+# Run batch Spectre simulations: make sim <family_cellname> [tech=tsmc65] [workers=4] [corner=tt]
 sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make sim <comp_name> [tech=<tech>] [workers=<N>]"; \
-		echo "This will run Spectre simulations for all netlists in $(RESULTS_DIR)/<comp_name>/"; \
-		echo "Example: make sim comp_doubletail"; \
-		echo "Example: make sim comp_doubletail tech=tsmc65"; \
-		echo "Example: make sim comp_doubletail tech=tsmc65 workers=8"; \
+		echo "Usage: make sim <family_cellname> [tech=<tech>] [workers=<N>] [corner=<corner>]"; \
+		echo "This will run Spectre simulations for all netlists in $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Uses testbench tb_<family>.sp and tb_<family>.va based on component family"; \
+		echo "Examples:"; \
+		echo "  make sim samp_tgate"; \
+		echo "  make sim samp_pmos tech=tsmc65"; \
+		echo "  make sim comp_doubletail tech=tsmc65 workers=8"; \
+		echo "  make sim samp_tgate tech=tsmc65 corner=ss"; \
 		exit 1; \
 	fi
-	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
-	netlists="$(RESULTS_DIR)/$${comp}/*.sp"; \
-	outdir="$(RESULTS_DIR)/$${comp}"; \
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	familyname=$$(echo "$$family_cellname" | cut -d'_' -f1); \
+	cellname=$$(echo "$$family_cellname" | cut -d'_' -f2-); \
+	netlists="$(RESULTS_DIR)/$${family_cellname}/*.sp"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
 	tech_filter="$(tech)"; \
+	corner_select="$(corner)"; \
 	max_workers="$(workers)"; \
-	template="$(SPICE_DIR)/tb_comp.sp"; \
+	template="$(SPICE_DIR)/tb_$${familyname}.sp"; \
+	testbench="$(AHDL_DIR)/tb_$${familyname}.va"; \
+	if [ ! -f "$$template" ]; then \
+		echo "Error: Testbench template $$template not found"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$testbench" ]; then \
+		echo "Error: Verilog-A testbench $$testbench not found"; \
+		exit 1; \
+	fi; \
 	if [ -z "$$tech_filter" ]; then \
 		tech_filter="tsmc65"; \
 	fi; \
@@ -134,62 +138,72 @@ sim:
 		exit 1; \
 	fi; \
 	if [ ! -d "$${outdir}" ]; then \
-		echo "Error: Directory $${outdir} not found. Run 'make netlist $${comp}' first."; \
+		echo "Error: Directory $${outdir} not found. Run 'make netlist $${family_cellname}' first."; \
 		exit 1; \
+	fi; \
+	corner_arg=""; \
+	if [ -n "$$corner_select" ]; then \
+		corner_arg="--corner=$$corner_select"; \
 	fi; \
 	if [ -n "$$tech_filter" ]; then \
 		if [ -n "$$max_workers" ]; then \
-			echo "Running Spectre simulations for $${comp} (filtered: $$tech_filter, workers: $$max_workers)"; \
+			echo "Running Spectre simulations for $${family_cellname} (filtered: $$tech_filter, workers: $$max_workers)"; \
 			.venv/bin/python src/run_simulations.py \
 				--template="$$template" \
+				--testbench="$$testbench" \
 				--netlists="$$netlists" \
 				--pdk="$$pdk" \
 				--outdir="$$outdir" \
 				--max-workers=$$max_workers \
-				--filter="$$tech_filter" </dev/null; \
+				--filter="$$tech_filter" $$corner_arg </dev/null; \
 		else \
-			echo "Running Spectre simulations for $${comp} (filtered: $$tech_filter, auto workers)"; \
+			echo "Running Spectre simulations for $${family_cellname} (filtered: $$tech_filter, auto workers)"; \
 			.venv/bin/python src/run_simulations.py \
 				--template="$$template" \
+				--testbench="$$testbench" \
 				--netlists="$$netlists" \
 				--pdk="$$pdk" \
 				--outdir="$$outdir" \
-				--filter="$$tech_filter" </dev/null; \
+				--filter="$$tech_filter" $$corner_arg </dev/null; \
 		fi; \
 	else \
 		if [ -n "$$max_workers" ]; then \
-			echo "Running Spectre simulations for $${comp} (workers: $$max_workers)"; \
+			echo "Running Spectre simulations for $${family_cellname} (workers: $$max_workers)"; \
 			.venv/bin/python src/run_simulations.py \
 				--template="$$template" \
+				--testbench="$$testbench" \
 				--netlists="$$netlists" \
 				--pdk="$$pdk" \
 				--outdir="$$outdir" \
-				--max-workers=$$max_workers </dev/null; \
+				--max-workers=$$max_workers $$corner_arg </dev/null; \
 		else \
-			echo "Running Spectre simulations for $${comp} (auto workers)"; \
+			echo "Running Spectre simulations for $${family_cellname} (auto workers)"; \
 			.venv/bin/python src/run_simulations.py \
 				--template="$$template" \
+				--testbench="$$testbench" \
 				--netlists="$$netlists" \
 				--pdk="$$pdk" \
-				--outdir="$$outdir" </dev/null; \
+				--outdir="$$outdir" $$corner_arg </dev/null; \
 		fi; \
 	fi
 
-# Clean simulation results: make clean_sim <comp_name>
+# Clean simulation results: make clean_sim <family_cellname>
 clean_sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make clean_sim <comp_name>"; \
-		echo "This will remove simulation results (*.log, *.raw, *.scs files) from $(RESULTS_DIR)/<comp_name>/"; \
-		echo "Example: make clean_sim comp_doubletail"; \
+		echo "Usage: make clean_sim <family_cellname>"; \
+		echo "This will remove simulation results (*.log, *.raw, *.scs files) from $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Examples:"; \
+		echo "  make clean_sim samp_tgate"; \
+		echo "  make clean_sim comp_doubletail"; \
 		exit 1; \
 	fi
-	@comp="$(filter-out $@,$(MAKECMDGOALS))"; \
-	outdir="$(RESULTS_DIR)/$${comp}"; \
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
 	if [ -d "$${outdir}" ]; then \
 		echo "Cleaning simulation results from $${outdir}..."; \
 		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log; \
 		find "$${outdir}" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
-		echo "Cleaned simulation results for $${comp}"; \
+		echo "Cleaned simulation results for $${family_cellname}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
@@ -209,6 +223,23 @@ lef:
 	mkdir -p tech/$(PLATFORM)/lef; \
 	echo "Converting GDS to LEF for $${cellname}..."; \
 	.venv/bin/python src/utils/gds2lef.py "tech/$(PLATFORM)/gds/$${cellname}.gds" "tech/$(PLATFORM)/lef/$${cellname}.lef" "tech/$(PLATFORM)/tsmc65.lyt"
+
+
+# Generate GDS for specified block, using .py script for klayout: make gds <cellname>
+gds:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make gds <cellname>"; \
+		echo "This will look for src/<cellname>.py and generate tech/$(PLATFORM)/gds/<cellname>.gds"; \
+		exit 1; \
+	fi
+	@cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -f "src/$${cellname}.py" ]; then \
+		echo "Error: src/$${cellname}.py not found"; \
+		exit 1; \
+	fi; \
+	mkdir -p tech/$(PLATFORM)/gds; \
+	echo "Generating GDS for $${cellname}..."; \
+	.venv/bin/python "src/$${cellname}.py" "tech/$(PLATFORM)/gds/$${cellname}.gds"
 
 # View a GDS file in KLayout: make view <cellname>
 view:
@@ -313,81 +344,6 @@ viewdrc:
 # Prevent make from trying to build the argument as a target
 %:
 	@:
-
-# Run behavioral simulation: make behavioral <run_script>
-behavioral:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make behavioral <run_script>"; \
-		echo "Available run scripts:"; \
-		for script in src/runs/*.py; do \
-			if [ -f "$$script" ]; then \
-				basename="$$(basename "$$script" .py)"; \
-				echo "  $$basename"; \
-			fi; \
-		done; \
-		exit 1; \
-	fi
-	@run_script="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -f "src/runs/$${run_script}.py" ]; then \
-		echo "Error: src/runs/$${run_script}.py not found"; \
-		exit 1; \
-	fi; \
-	echo "Running behavioral simulation: $${run_script}..."; \
-	.venv/bin/python "src/runs/$${run_script}.py"
-
-# Run SPICE simulation: make ngspice <testbench_name>
-ngspice:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make ngspice <testbench_name>"; \
-		echo "Available testbenches in spice/:"; \
-		for tb in spice/tb_*.sp; do \
-			if [ -f "$$tb" ]; then \
-				basename="$$(basename "$$tb" .sp)"; \
-				echo "  $$basename"; \
-			fi; \
-		done; \
-		exit 1; \
-	fi
-	@tbname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -f "spice/$${tbname}.sp" ]; then \
-		echo "Error: spice/$${tbname}.sp not found"; \
-		echo "Available testbenches:"; \
-		for tb in spice/tb_*.sp; do \
-			if [ -f "$$tb" ]; then \
-				basename="$$(basename "$$tb" .sp)"; \
-				echo "  $$basename"; \
-			fi; \
-		done; \
-		exit 1; \
-	fi; \
-	mkdir -p results; \
-	echo "Running SPICE simulation: $${tbname}..."; \
-	cd spice && ngspice -b "$${tbname}.sp"; \
-	if [ -f "../results/$${tbname}.raw" ]; then \
-		echo "Simulation completed. Results saved to results/$${tbname}.raw"; \
-		ls -lh "../results/$${tbname}.raw"; \
-	else \
-		echo "Warning: Expected output file results/$${tbname}.raw not found"; \
-	fi
-
-# Enable bash TAB completion for make targets
-completion:
-	@echo "======================================================================="
-	@echo "TAB Completion for Make Commands"
-	@echo "======================================================================="
-	@echo ""
-	@echo "Enables intelligent TAB completion for:"
-	@echo "  • Component names:  make sim <TAB>          → comp_doubletail"
-	@echo "  • Technologies:     make sim comp tech=<TAB> → tsmc65 tsmc28 tower180"
-	@echo "  • Worker counts:    make sim comp workers=<TAB> → 1 2 4 8 16 32"
-	@echo "  • Make targets:     make <TAB>              → all available targets"
-	@echo ""
-	@source src/tab_completion.sh
-	@echo "✓ TAB completion enabled for current shell!"
-	@echo ""
-	@echo "To enable permanently, add to ~/.bashrc:"
-	@echo "  echo 'source $(CURDIR)/src/tab_completion.sh' >> ~/.bashrc"
-	@echo "======================================================================="
 
 # Help target
 help:

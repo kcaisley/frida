@@ -13,11 +13,5 @@ nf = [1]
 type = ["lvt"]
 
 [[sweeps]]
-devices = ["MNinp", "MNinn"]
-w = [2, 4, 8, 16]
-type = ["lvt", "svt"]
-
-[[sweeps]]
-devices = ["MNtail1"]
-w = [2, 4]
-l = [4, 8]
+devices = ["MNa", "MNb", "MPa", "MPb"]
+w = [1, 2, 4, 8]

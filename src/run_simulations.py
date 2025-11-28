@@ -24,10 +24,11 @@ from typing import List, Tuple, Dict
 import time
 import datetime
 import re
+import tomllib
 
 
 def generate_netlist_content(template_path: Path, dut_netlist: Path,
-                            pdk_models: str, testbench_va: Path) -> str:
+                            pdk_models: str, testbench_va: Path, corner_section: str = None) -> str:
     """
     Generate netlist content with all paths substituted (in memory only).
 
@@ -36,6 +37,7 @@ def generate_netlist_content(template_path: Path, dut_netlist: Path,
         dut_netlist: Path to the specific DUT netlist to use
         pdk_models: Path to PDK models file
         testbench_va: Path to Verilog-A testbench
+        corner_section: Optional corner section name (e.g., "tt_lib", "att_pt")
 
     Returns:
         Modified netlist content as string
@@ -43,8 +45,14 @@ def generate_netlist_content(template_path: Path, dut_netlist: Path,
     with open(template_path, 'r') as f:
         content = f.read()
 
-    # Replace placeholders
-    content = content.replace('PLACEHOLDER_PDK_MODELS', str(pdk_models))
+    # Replace PDK models placeholder with .lib statement if corner specified
+    if corner_section:
+        lib_statement = f'.lib "{pdk_models}" {corner_section}'
+        content = content.replace('PLACEHOLDER_PDK_MODELS', lib_statement)
+    else:
+        # Backward compatibility: just use the path
+        content = content.replace('PLACEHOLDER_PDK_MODELS', str(pdk_models))
+
     content = content.replace('PLACEHOLDER_DUT_NETLIST', str(dut_netlist))
     content = content.replace('PLACEHOLDER_TESTBENCH_VA', str(testbench_va))
 
@@ -73,15 +81,30 @@ def run_spectre_simulation(netlist_content: str, output_dir: Path, log_file: Pat
     with open(temp_netlist, 'w') as f:
         f.write(netlist_content)
 
+    # Extract family and cellname from netlist_name for conditional compilation
+    # Format: family_cellname_tech_params (e.g., samp_pmos_tsmc65_MP-w5-l1)
+    parts = netlist_name.split('_')
+    define_flag = None
+    if len(parts) >= 2:
+        family = parts[0]
+        cellname = parts[1]
+        # Create preprocessor define for Verilog-A (e.g., -DSAMP_PMOS)
+        define_flag = f"-D{family.upper()}_{cellname.upper()}"
+
     # Build Spectre command
     raw_file = output_dir / f"{netlist_name}.raw"
-    cmd = [
-        'spectre',
-        str(temp_netlist),
+    cmd = ['spectre', str(temp_netlist)]
+
+    # Add preprocessor define if extracted from netlist name
+    if define_flag:
+        cmd.append(define_flag)
+
+    # Add remaining arguments
+    cmd.extend([
         '+log', str(log_file),
         '-format', 'nutbin',
         '-raw', str(raw_file)
-    ]
+    ])
 
     # Run simulation
     try:
@@ -153,17 +176,17 @@ def format_license_status(licenses: Dict[str, Tuple[int, int]]) -> str:
     return "Licenses: " + " | ".join(parts)
 
 
-def run_single_simulation(args: Tuple[Path, Path, str, Path, Path]) -> Tuple[str, bool, float]:
+def run_single_simulation(args: Tuple[Path, Path, str, Path, Path, str]) -> Tuple[str, bool, float]:
     """
     Run a single Spectre simulation.
 
     Args:
-        args: Tuple of (template, dut_netlist, pdk_path, outdir, testbench)
+        args: Tuple of (template, dut_netlist, pdk_path, outdir, testbench, corner_section)
 
     Returns:
         Tuple of (netlist_name, success, elapsed_time)
     """
-    template, dut_netlist, pdk_path, outdir, testbench = args
+    template, dut_netlist, pdk_path, outdir, testbench, corner_section = args
 
     netlist_name = dut_netlist.stem
     start_time = time.time()
@@ -178,7 +201,7 @@ def run_single_simulation(args: Tuple[Path, Path, str, Path, Path]) -> Tuple[str
 
     try:
         # Generate netlist content
-        netlist_content = generate_netlist_content(template, dut_netlist, pdk_path, testbench)
+        netlist_content = generate_netlist_content(template, dut_netlist, pdk_path, testbench, corner_section)
 
         # Setup paths
         log_file = outdir / f"{netlist_name}.log"
@@ -266,6 +289,13 @@ Example:
         help='Only run netlists matching this substring (e.g., "tsmc65")'
     )
 
+    parser.add_argument(
+        '--corner',
+        type=str,
+        default='tt',
+        help='Corner section name (e.g., "tt", "ss", "ff", default: "tt")'
+    )
+
     args = parser.parse_args()
 
     # Validate inputs
@@ -320,9 +350,41 @@ Example:
     logger.info(f"Log file:     {log_file}")
     logger.info("=" * 70)
 
+    # Load corner section from config if corner is specified
+    corner_section = None
+    if args.corner:
+        try:
+            config_path = Path('spice/generate_netlists.toml')
+            if config_path.exists():
+                with open(config_path, 'rb') as f:
+                    config = tomllib.load(f)
+
+                # Extract technology from first netlist filename (e.g., tsmc65 from samp_tgate_tsmc65_...)
+                if netlist_files:
+                    first_netlist = netlist_files[0].stem
+                    parts = first_netlist.split('_')
+                    # Find the technology part (tsmc65, tsmc28, tower180)
+                    tech = None
+                    for part in parts:
+                        if part in config:
+                            tech = part
+                            break
+
+                    if tech and 'corners' in config[tech]:
+                        corners = config[tech]['corners']
+                        if args.corner in corners:
+                            corner_section = corners[args.corner]
+                            logger.info(f"Corner:       {args.corner} -> {corner_section}")
+                        else:
+                            logger.warning(f"Warning: Corner '{args.corner}' not found in config for {tech}. Available: {list(corners.keys())}")
+                    elif tech:
+                        logger.warning(f"Warning: No corners defined for technology '{tech}' in config")
+        except Exception as e:
+            logger.warning(f"Warning: Could not load corner from config: {e}")
+
     # Prepare simulation tasks
     tasks = [
-        (args.template, netlist, args.pdk, args.outdir, args.testbench)
+        (args.template, netlist, args.pdk, args.outdir, args.testbench, corner_section)
         for netlist in netlist_files
     ]
 
