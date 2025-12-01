@@ -1,7 +1,29 @@
 # FRIDA Project Makefile
 
+
+# TODO:
+# - remove hardcoded PLATFORM
+# - factor sim pdk looping out of makefile, and into python script
+
 # Platform configuration
 PLATFORM := tsmc65
+TECH_CONFIG := tech/tech.toml
+
+# Python environment
+VENV_PYTHON := .venv/bin/python
+
+# Flow scripts
+NETLIST_SCRIPT := src/generate_netlists.py
+TESTBENCH_SCRIPT := src/generate_testbench.py
+SIM_SCRIPT := src/run_simulations.py
+
+# Cadence tools setup
+CADENCE_SPECTRE_SETUP := /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh
+CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
+
+# Spectre simulation configuration
+LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
+SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
 # Define cells to export: library:cell:outputname
 EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
@@ -21,15 +43,13 @@ EXPORT_CELLS := frida:comp:comp frida:sampswitch:sampswitch \
 # PVS DRC rule file path
 PVS_DRC_RULES := /eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/PVS_QRC/drc/cell.PLN65S_9M_6X1Z1U.23a1
 
-# Netlist generation configuration
+# Directory paths
 SPICE_DIR := spice
 AHDL_DIR := ahdl
-TECH_CONFIG := $(SPICE_DIR)/generate_netlists.toml
 RESULTS_DIR := results
-NETLIST_GEN := src/generate_netlists.py
 
 # Default target
-.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup netlist clean_netlist sim clean_sim
+.PHONY: all gds lef strmout lefout cdlout pvsdrc viewdrc setup netlist clean_netlist testbench clean_testbench sim clean_sim clean_all
 
 # Setup Python virtual environment and install dependencies using uv
 setup:
@@ -72,7 +92,7 @@ netlist:
 		exit 1; \
 	fi; \
 	echo "Generating netlists for $${family_cellname}"; \
-	.venv/bin/python $(NETLIST_GEN) \
+	$(VENV_PYTHON) $(NETLIST_SCRIPT) \
 		--template="$${template}" \
 		--params="$${params}" \
 		--config="$(TECH_CONFIG)" \
@@ -98,94 +118,93 @@ clean_netlist:
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
 
-# Run batch Spectre simulations: make sim <family_cellname> [tech=tsmc65] [workers=4] [corner=tt]
-sim:
+# Generate testbench wrappers: make testbench <family_cellname> [corner=tt]
+testbench:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make sim <family_cellname> [tech=<tech>] [workers=<N>] [corner=<corner>]"; \
-		echo "This will run Spectre simulations for all netlists in $(RESULTS_DIR)/<family_cellname>/"; \
-		echo "Uses testbench tb_<family>.sp and tb_<family>.va based on component family"; \
+		echo "Usage: make testbench <family_cellname> [corner=<corner>]"; \
+		echo "This will generate testbench wrappers for DUT netlists in $(RESULTS_DIR)/<family_cellname>/"; \
 		echo "Examples:"; \
-		echo "  make sim samp_tgate"; \
-		echo "  make sim samp_pmos tech=tsmc65"; \
-		echo "  make sim comp_doubletail tech=tsmc65 workers=8"; \
-		echo "  make sim samp_tgate tech=tsmc65 corner=ss"; \
+		echo "  make testbench samp_tgate"; \
+		echo "  make testbench samp_tgate corner=ss"; \
+		echo "  make testbench comp_doubletail corner=ff"; \
 		exit 1; \
 	fi
 	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
 	familyname=$$(echo "$$family_cellname" | cut -d'_' -f1); \
-	cellname=$$(echo "$$family_cellname" | cut -d'_' -f2-); \
-	netlists="$(RESULTS_DIR)/$${family_cellname}/*.sp"; \
+	netlists="$(RESULTS_DIR)/$${family_cellname}/$${family_cellname}_*.sp"; \
 	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
-	tech_filter="$(tech)"; \
 	corner_select="$(corner)"; \
-	max_workers="$(workers)"; \
-	template="$(SPICE_DIR)/tb_$${familyname}.sp"; \
 	testbench="$(AHDL_DIR)/tb_$${familyname}.va"; \
-	if [ ! -f "$$template" ]; then \
-		echo "Error: Testbench template $$template not found"; \
-		exit 1; \
-	fi; \
 	if [ ! -f "$$testbench" ]; then \
 		echo "Error: Verilog-A testbench $$testbench not found"; \
-		exit 1; \
-	fi; \
-	if [ -z "$$tech_filter" ]; then \
-		tech_filter="tsmc65"; \
-	fi; \
-	pdk=$$(python3 -c "import tomllib; f=open('$(TECH_CONFIG)', 'rb'); cfg=tomllib.load(f); print(cfg['$$tech_filter']['pdk_path'])" 2>/dev/null); \
-	if [ -z "$$pdk" ]; then \
-		echo "Error: Could not find pdk_path for tech '$$tech_filter' in $(TECH_CONFIG)"; \
 		exit 1; \
 	fi; \
 	if [ ! -d "$${outdir}" ]; then \
 		echo "Error: Directory $${outdir} not found. Run 'make netlist $${family_cellname}' first."; \
 		exit 1; \
 	fi; \
-	corner_arg=""; \
-	if [ -n "$$corner_select" ]; then \
-		corner_arg="--corner=$$corner_select"; \
+	if [ -z "$$corner_select" ]; then \
+		corner_select="tt"; \
 	fi; \
-	if [ -n "$$tech_filter" ]; then \
-		if [ -n "$$max_workers" ]; then \
-			echo "Running Spectre simulations for $${family_cellname} (filtered: $$tech_filter, workers: $$max_workers)"; \
-			.venv/bin/python src/run_simulations.py \
-				--template="$$template" \
-				--testbench="$$testbench" \
-				--netlists="$$netlists" \
-				--pdk="$$pdk" \
-				--outdir="$$outdir" \
-				--max-workers=$$max_workers \
-				--filter="$$tech_filter" $$corner_arg </dev/null; \
-		else \
-			echo "Running Spectre simulations for $${family_cellname} (filtered: $$tech_filter, auto workers)"; \
-			.venv/bin/python src/run_simulations.py \
-				--template="$$template" \
-				--testbench="$$testbench" \
-				--netlists="$$netlists" \
-				--pdk="$$pdk" \
-				--outdir="$$outdir" \
-				--filter="$$tech_filter" $$corner_arg </dev/null; \
-		fi; \
-	else \
-		if [ -n "$$max_workers" ]; then \
-			echo "Running Spectre simulations for $${family_cellname} (workers: $$max_workers)"; \
-			.venv/bin/python src/run_simulations.py \
-				--template="$$template" \
-				--testbench="$$testbench" \
-				--netlists="$$netlists" \
-				--pdk="$$pdk" \
-				--outdir="$$outdir" \
-				--max-workers=$$max_workers $$corner_arg </dev/null; \
-		else \
-			echo "Running Spectre simulations for $${family_cellname} (auto workers)"; \
-			.venv/bin/python src/run_simulations.py \
-				--template="$$template" \
-				--testbench="$$testbench" \
-				--netlists="$$netlists" \
-				--pdk="$$pdk" \
-				--outdir="$$outdir" $$corner_arg </dev/null; \
-		fi; \
+	echo "Generating testbench wrappers for $${family_cellname} (corner: $$corner_select)..."; \
+	$(VENV_PYTHON) $(TESTBENCH_SCRIPT) \
+		--netlists="$$netlists" \
+		--verilog-a="$$testbench" \
+		--config="$(TECH_CONFIG)" \
+		--corner="$$corner_select"
+
+# Clean testbench wrappers: make clean_testbench <family_cellname>
+clean_testbench:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_testbench <family_cellname>"; \
+		echo "This will remove testbench wrappers (tb_*.sp) from $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Examples:"; \
+		echo "  make clean_testbench samp_tgate"; \
+		echo "  make clean_testbench comp_doubletail"; \
+		exit 1; \
 	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ -d "$${outdir}" ]; then \
+		echo "Removing testbench wrappers from $${outdir}..."; \
+		rm -f "$${outdir}"/tb_*.sp; \
+		echo "Cleaned testbench wrappers for $${family_cellname}"; \
+	else \
+		echo "Directory $${outdir} does not exist, nothing to clean"; \
+	fi
+
+# Run batch Spectre simulations: make sim <family_cellname> [tech=<tech>]
+sim:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make sim <family_cellname> [tech=<tech>]"; \
+		echo "This will run Spectre simulations for testbench wrappers in $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Note: Run 'make testbench <family_cellname>' first to generate testbench wrappers"; \
+		echo "Examples:"; \
+		echo "  make sim samp_tgate"; \
+		echo "  make sim samp_tgate tech=tsmc65"; \
+		echo "  make sim comp_doubletail tech=tsmc28"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	dut_netlists="$(RESULTS_DIR)/$${family_cellname}/$${family_cellname}_*.sp"; \
+	tb_wrappers="$(RESULTS_DIR)/$${family_cellname}/tb_$${family_cellname}_*.sp"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	tech_filter="$(tech)"; \
+	if [ ! -d "$${outdir}" ]; then \
+		echo "Error: Directory $${outdir} not found. Run 'make netlist $${family_cellname}' first."; \
+		exit 1; \
+	fi; \
+	echo "Running Spectre simulations for $${family_cellname}..."; \
+	export CDS_LIC_FILE="$(LICENSE_SERVER)"; \
+	. $(CADENCE_SPECTRE_SETUP); \
+	. $(CADENCE_PVS_SETUP); \
+	$(VENV_PYTHON) $(SIM_SCRIPT) \
+		--dut-netlists="$$dut_netlists" \
+		--tb-wrappers="$$tb_wrappers" \
+		--outdir="$$outdir" \
+		--tech-filter="$$tech_filter" \
+		--license-server="$(LICENSE_SERVER)" \
+		--spectre-path="$(SPECTRE_PATH)" </dev/null
 
 # Clean simulation results: make clean_sim <family_cellname>
 clean_sim:
@@ -201,12 +220,29 @@ clean_sim:
 	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
 	if [ -d "$${outdir}" ]; then \
 		echo "Cleaning simulation results from $${outdir}..."; \
-		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log; \
+		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log "$${outdir}"/*.error; \
 		find "$${outdir}" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
 		echo "Cleaned simulation results for $${family_cellname}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
+
+# Clean everything: make clean_all <family_cellname>
+clean_all:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_all <family_cellname>"; \
+		echo "This will remove testbench wrappers, simulation results, and netlists"; \
+		echo "Examples:"; \
+		echo "  make clean_all samp_tgate"; \
+		echo "  make clean_all comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	echo "Cleaning all generated files for $${family_cellname}..."; \
+	$(MAKE) -s clean_sim $${family_cellname}; \
+	$(MAKE) -s clean_testbench $${family_cellname}; \
+	$(MAKE) -s clean_netlist $${family_cellname}; \
+	echo "All generated files cleaned for $${family_cellname}"
 
 # Generate LEF for specified block from gds: make lef <gds cellname>
 lef:
@@ -341,10 +377,6 @@ viewdrc:
 		exit 1; \
 	fi
 
-# Prevent make from trying to build the argument as a target
-%:
-	@:
-
 # Help target
 help:
 	@echo "Available targets:"
@@ -354,9 +386,12 @@ help:
 	@echo "  lef <cellname>       - Generate LEF file from GDS for specified cell"
 	@echo "  netlist <comp>       - Generate SPICE netlist variants (e.g. make netlist comp_doubletail)"
 	@echo "  clean_netlist <comp> - Remove generated netlists (e.g. make clean_netlist comp_doubletail)"
-	@echo "  sim <comp> [tech=<tech>] [workers=<N>] - Run batch Spectre simulations"
-	@echo "                         (e.g. make sim comp_doubletail tech=tsmc65 workers=4)"
+	@echo "  testbench <comp> [corner=<corner>] - Generate testbench wrappers (e.g. make testbench samp_tgate corner=ss)"
+	@echo "  clean_testbench <comp> - Remove testbench wrappers (e.g. make clean_testbench samp_tgate)"
+	@echo "  sim <comp> [tech=<tech>] - Run batch Spectre simulations (auto-calculates workers)"
+	@echo "                         (e.g. make sim comp_doubletail tech=tsmc65)"
 	@echo "  clean_sim <comp>     - Clean simulation results (logs, raw files, etc)"
+	@echo "  clean_all <comp>     - Clean everything (netlists, testbenches, simulation results)"
 	@echo "  view <cellname>      - Open GDS file in KLayout with tech files"
 	@echo "  behavioral <run_script> - Run behavioral simulation (e.g. make behavioral run_oneshot)"
 	@echo "  ngspice <tbname>  - Run SPICE simulation (e.g. make ngspice tb_adc_full)"
@@ -368,6 +403,6 @@ help:
 	@echo "  completion - Enable bash TAB completion for make commands"
 	@echo "  help      - Show this help message"
 
-# Dummy target to prevent make from treating arguments as targets
+# Catch-all pattern rule to prevent make from treating arguments as targets
 %:
 	@:
