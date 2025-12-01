@@ -29,13 +29,13 @@
 *   mppfbn     - PMOS regenerative feedback (negative side)
 *
 
-.subckt latch clk gnd inn inp outn outp vdd
-mntail tail clk gnd gnd nmos
-mninn midn inn tail gnd nmos
-mntailbias tail gnd gnd gnd nmos
-mninp midp inp tail gnd nmos
-mnnfbp outn outp midp gnd nmos
-mnnfbn outp outn midn gnd nmos
+.subckt latch clk inn inp outn outp vdd vss
+mntail tail clk vss vss nmos
+mninn midn inn tail vss nmos
+mntailbias tail vss vss vss nmos
+mninp midp inp tail vss nmos
+mnnfbp outn outp midp vss nmos
+mnnfbn outp outn midn vss nmos
 mpswmn midn clk vdd vdd pmos
 mpswop outp clk vdd vdd pmos
 mpswmp midp clk vdd vdd pmos
@@ -43,4 +43,4 @@ mptailsw tail clk vdd vdd pmos
 mppfbp outp outn vdd vdd pmos
 mppfbn outn outp vdd vdd pmos
 mpswon outn clk vdd vdd pmos
-.ends
+.ends latch

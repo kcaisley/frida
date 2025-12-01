@@ -9,4 +9,3 @@ xtb tb_comp
 .tran 1n 35u
 .options temp=27 scale=1.0 soft_bin=allmodels
 .save all
-
