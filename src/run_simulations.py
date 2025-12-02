@@ -93,6 +93,56 @@ def check_license_server():
     return total_licenses, busy_licenses
 
 
+def correct_spectre_raw(raw_file: Path) -> bool:
+    """
+    Fix Spectre .raw file header to be compatible with spicelib.
+    Spectre puts the first variable on the same line as 'Variables:',
+    but spicelib expects 'Variables:' on its own line.
+
+    Args:
+        raw_file: Path to the .raw file to fix
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with open(raw_file, 'rb') as f:
+            content = f.read()
+
+        # Find the header/binary split
+        binary_marker = b'Binary:\n'
+        if binary_marker not in content:
+            return False
+
+        header, binary_data = content.split(binary_marker, 1)
+        header_text = header.decode('ascii', errors='ignore')
+
+        # Fix the Variables: line
+        lines = header_text.split('\n')
+        fixed_lines = []
+
+        for line in lines:
+            if line.startswith('Variables:') and len(line.strip()) > len('Variables:'):
+                # Split "Variables:    0    time    s" into two lines
+                fixed_lines.append('Variables:')
+                var_def = line[len('Variables:'):]
+                fixed_lines.append(var_def)
+            else:
+                fixed_lines.append(line)
+
+        # Reconstruct and write back
+        fixed_header = '\n'.join(fixed_lines).encode('ascii')
+        fixed_content = fixed_header + binary_marker + binary_data
+
+        with open(raw_file, 'wb') as f:
+            f.write(fixed_content)
+
+        return True
+
+    except Exception:
+        return False
+
+
 def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, license_server: str) -> Tuple[str, bool, float]:
     """
     Run a single Spectre simulation.
@@ -138,6 +188,10 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
 
         success = result.returncode == 0 and 'completes with 0 errors' in result.stdout
         elapsed = time.time() - start_time
+
+        # Fix .raw file header for spicelib compatibility
+        if success and raw_file.exists():
+            correct_spectre_raw(raw_file)
 
         return name, success, elapsed
 

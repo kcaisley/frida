@@ -206,6 +206,31 @@ sim:
 		--license-server="$(LICENSE_SERVER)" \
 		--spectre-path="$(SPECTRE_PATH)" </dev/null
 
+# View waveforms interactively: make waveform <family_cellname>
+waveform:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make waveform <family_cellname>"; \
+		echo "This will launch an interactive waveform viewer for simulation results in $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Note: Run 'make sim <family_cellname>' first to generate .raw files"; \
+		echo "Examples:"; \
+		echo "  make waveform samp_tgate"; \
+		echo "  make waveform comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ ! -d "$${outdir}" ]; then \
+		echo "Error: Directory $${outdir} not found. Run 'make sim $${family_cellname}' first."; \
+		exit 1; \
+	fi; \
+	raw_count=$$(find "$${outdir}" -name "*.raw" -type f 2>/dev/null | wc -l); \
+	if [ "$$raw_count" -eq 0 ]; then \
+		echo "Error: No .raw files found in $${outdir}. Run 'make sim $${family_cellname}' first."; \
+		exit 1; \
+	fi; \
+	echo "Launching waveform viewer for $${family_cellname} ($$raw_count .raw files)..."; \
+	$(VENV_PYTHON) src/plot_waveforms.py "$${family_cellname}"
+
 # Clean simulation results: make clean_sim <family_cellname>
 clean_sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
