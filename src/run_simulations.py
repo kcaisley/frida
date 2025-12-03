@@ -95,9 +95,18 @@ def check_license_server():
 
 def correct_spectre_raw(raw_file: Path) -> bool:
     """
-    Fix Spectre .raw file header to be compatible with spicelib.
-    Spectre puts the first variable on the same line as 'Variables:',
-    but spicelib expects 'Variables:' on its own line.
+    Post-process Spectre raw file to be compatible with ngspice ASCII format.
+
+    Converts Spectre nutascii format to ngspice ASCII format:
+    1. Variables section:
+       - time variable gets type 'time' instead of 's'
+       - Voltage nodes wrapped in v(...) with type 'voltage'
+       - Current branches wrapped in i(...) with type 'current'
+       - Removes 'plot=0 grid=0' annotations
+    2. Values section:
+       - Point index on first line with first value
+       - All other values on separate lines starting with tab
+       - One value per line
 
     Args:
         raw_file: Path to the .raw file to fix
@@ -109,30 +118,108 @@ def correct_spectre_raw(raw_file: Path) -> bool:
         with open(raw_file, 'rb') as f:
             content = f.read()
 
-        # Find the header/binary split
-        binary_marker = b'Binary:\n'
-        if binary_marker not in content:
+        # Find the header/data split (nutbin uses "Binary:", nutascii uses "Values:")
+        data_marker = None
+        is_ascii = False
+        if b'Binary:\n' in content:
+            data_marker = b'Binary:\n'
+            is_ascii = False
+        elif b'Values:\n' in content:
+            data_marker = b'Values:\n'
+            is_ascii = True
+        else:
             return False
 
-        header, binary_data = content.split(binary_marker, 1)
+        header, data_section = content.split(data_marker, 1)
         header_text = header.decode('ascii', errors='ignore')
 
-        # Fix the Variables: line
+        # Fix the header to match ngspice format
         lines = header_text.split('\n')
         fixed_lines = []
 
         for line in lines:
             if line.startswith('Variables:') and len(line.strip()) > len('Variables:'):
-                # Split "Variables:    0    time    s" into two lines
+                # Split "Variables:\t0\ttime\ts" into two lines
                 fixed_lines.append('Variables:')
                 var_def = line[len('Variables:'):]
                 fixed_lines.append(var_def)
+            elif line.strip() and '\t' in line:
+                # Variable definition line - convert to ngspice format
+                parts = [p.strip() for p in line.split('\t') if p.strip()]
+
+                if len(parts) >= 3 and parts[0].isdigit():
+                    idx = parts[0]
+                    name = parts[1]
+                    unit = parts[2].split()[0]  # Remove 'plot=0 grid=0' if present
+
+                    # Convert to ngspice format
+                    if name.lower() == 'time' or unit.lower() == 's':
+                        # Time variable
+                        fixed_lines.append(f'\t{idx}\t{name}\ttime')
+                    elif unit.upper() == 'V':
+                        # Voltage - wrap in v(...)
+                        # Remove hierarchy prefix (e.g., xtb.in -> in)
+                        simple_name = name.split('.')[-1]
+                        fixed_lines.append(f'\t{idx}\tv({simple_name})\tvoltage')
+                    elif unit.upper() == 'A':
+                        # Current - wrap in i(...)
+                        simple_name = name.split('.')[-1]
+                        fixed_lines.append(f'\t{idx}\ti({simple_name})\tcurrent')
+                    else:
+                        # Unknown type - keep as-is
+                        fixed_lines.append(f'\t{idx}\t{name}\t{unit}')
+                else:
+                    fixed_lines.append(line)
             else:
                 fixed_lines.append(line)
 
-        # Reconstruct and write back
         fixed_header = '\n'.join(fixed_lines).encode('ascii')
-        fixed_content = fixed_header + binary_marker + binary_data
+
+        # Fix ASCII data section to ngspice format
+        if is_ascii:
+            data_text = data_section.decode('ascii', errors='ignore')
+            data_lines = data_text.split('\n')
+
+            # Parse Spectre format (wrapped lines) into data points
+            data_points = []
+            current_point = []
+
+            for line in data_lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                # Lines starting with space + digit are new data points
+                if line.startswith(' ') and stripped and stripped[0].isdigit():
+                    # Save previous point if exists
+                    if current_point:
+                        data_points.append(current_point)
+                    # Start new point
+                    current_point = stripped.split()
+                elif line.startswith('\t'):
+                    # Continuation line
+                    current_point.extend(stripped.split())
+
+            # Don't forget the last point
+            if current_point:
+                data_points.append(current_point)
+
+            # Convert to ngspice format: point index + first value on first line,
+            # remaining values on subsequent lines with leading tab
+            fixed_data_lines = []
+            for point in data_points:
+                if len(point) >= 2:
+                    # First line: point_index<tab>first_value
+                    fixed_data_lines.append(f'{point[0]}\t{point[1]}')
+                    # Subsequent lines: <tab>value
+                    for value in point[2:]:
+                        fixed_data_lines.append(f'\t{value}')
+
+            fixed_data = '\n'.join(fixed_data_lines) + '\n'
+            fixed_content = fixed_header + data_marker + fixed_data.encode('ascii')
+        else:
+            # Binary format - just fix header
+            fixed_content = fixed_header + data_marker + data_section
 
         with open(raw_file, 'wb') as f:
             f.write(fixed_content)
@@ -143,7 +230,44 @@ def correct_spectre_raw(raw_file: Path) -> bool:
         return False
 
 
-def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, license_server: str) -> Tuple[str, bool, float]:
+def test_raw(raw_file: Path) -> bool:
+    """
+    Lightweight test to verify a raw file is parseable by spicelib.
+
+    Args:
+        raw_file: Path to the .raw file to test
+
+    Returns:
+        True if file loads successfully, False otherwise
+    """
+    try:
+        from spicelib import RawRead
+        import numpy as np
+
+        # Try to load the file
+        raw = RawRead(str(raw_file), traces_to_read='*', dialect='ngspice', verbose=False)
+
+        # Get basic info
+        traces = raw.get_trace_names()
+        time = raw.get_axis()
+
+        # Verify data is finite
+        if not np.all(np.isfinite(time)):
+            return False
+
+        # Check first voltage trace if available
+        if len(traces) > 1:
+            voltage = raw.get_wave(traces[1])
+            if not np.all(np.isfinite(voltage)):
+                return False
+
+        return True
+
+    except Exception:
+        return False
+
+
+def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, license_server: str, raw_format: str = 'nutascii') -> Tuple[str, bool, float]:
     """
     Run a single Spectre simulation.
 
@@ -152,6 +276,7 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
         outdir: Output directory
         spectre_path: Path to Spectre binary
         license_server: License server address
+        raw_format: Output format ('nutbin' or 'nutascii')
 
     Returns:
         Tuple of (name, success, elapsed_time)
@@ -168,7 +293,7 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
         spectre_path, '-64',
         tb_wrapper.name,  # Just the filename, since we're cd'd to outdir
         '+log', log_file.name,
-        '-format', 'nutbin',
+        '-format', raw_format,
         '-raw', raw_file.name
     ]
 
@@ -284,6 +409,14 @@ def main():
         help='Path to Spectre binary'
     )
 
+    parser.add_argument(
+        '--raw-format',
+        type=str,
+        default='nutascii',
+        choices=['nutbin', 'nutascii'],
+        help='Spectre raw output format: nutbin (binary) or nutascii (ASCII, default)'
+    )
+
     args = parser.parse_args()
     
     # Find all files
@@ -364,11 +497,12 @@ def main():
     failed = []
     total_time = 0.0
     start_time = time.time()
+    raw_format_test_result = None
 
     with ProcessPoolExecutor(max_workers=used_licenses) as executor:
-        futures = {executor.submit(run_spectre_simulation, tb, args.outdir, args.spectre_path, args.license_server): tb.stem
+        futures = {executor.submit(run_spectre_simulation, tb, args.outdir, args.spectre_path, args.license_server, args.raw_format): tb.stem
                    for tb in tb_wrappers}
-        
+
         completed = 0
         for future in as_completed(futures):
             tb_name = futures[future]
@@ -376,10 +510,16 @@ def main():
                 name, success, elapsed = future.result()
                 completed += 1
                 total_time += elapsed
-                
+
                 if success:
                     successful.append(name)
                     logger.info(f"✓ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)")
+
+                    # Test first raw file to verify format conversion (store result for summary)
+                    if raw_format_test_result is None:
+                        raw_file = args.outdir / f"{name}.raw"
+                        if raw_file.exists():
+                            raw_format_test_result = test_raw(raw_file)
                 else:
                     failed.append(name)
                     logger.info(f"✗ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)")
@@ -404,6 +544,15 @@ def main():
         logger.info(f"Speedup:            {total_time/wall_time:.2f}x")
     logger.info(f"Avg time/sim:       {total_time/len(tb_wrappers):.1f}s")
     logger.info("")
+
+    # Display raw format test result
+    if raw_format_test_result is not None:
+        if raw_format_test_result:
+            logger.info("Data integrity:     ✓ Verified (.raw files parseable by spicelib)")
+        else:
+            logger.info("Data integrity:     ✗ Warning (.raw files not parseable by spicelib)")
+        logger.info("")
+
     logger.info(f"Output directory:   {args.outdir}")
     logger.info(f"  Raw files:        {args.outdir}/*.raw")
     logger.info(f"  Log files:        {args.outdir}/*.log")

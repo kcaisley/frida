@@ -1,25 +1,66 @@
 #!/usr/bin/env python3
+# %%
 """
 Interactive waveform viewer for Spectre simulation results.
-Usage: python plot_waveforms.py <design_name>
+
+Usage in VSCode:
+1. Open this file in VSCode
+2. Click "Run Current File in Interactive Window" (Shift+Enter)
+3. Use terminal commands to interact: add, rm, list, files, quit
+
+Usage from command line:
+python plot_waveforms.py <design_name>
 Example: python plot_waveforms.py samp_tgate
 """
 
+# Configure matplotlib for Jupyter interactive plotting
 import sys
 from pathlib import Path
-import matplotlib
-matplotlib.use('TkAgg')  # Use TkAgg backend for better remote session support
+
+# Try to use ipympl for interactive Jupyter plots
+try:
+    get_ipython()  # Check if running in IPython/Jupyter
+    get_ipython().run_line_magic('matplotlib', 'widget')
+    JUPYTER_MODE = True
+except:
+    # Not in Jupyter - print instructions and exit
+    JUPYTER_MODE = False
+    print("\n" + "="*70)
+    print("ERROR: This script requires VSCode Jupyter Interactive Window for interactive plotting")
+    print("="*70)
+    print("\nTo use the waveform viewer:")
+    print("  1. Open src/plot_waveforms.py in VSCode")
+    print("  2. Press Shift+Enter to run in Interactive Window")
+    print("  3. Enter design name when prompted (e.g., samp_tgate)")
+    print("\nInteractive features (pan, zoom, trace selection) only work in Jupyter mode.")
+    print("="*70 + "\n")
+    sys.exit(1)
+
 import matplotlib.pyplot as plt
 from spicelib.raw.raw_read import RawRead
+
+# %%
 
 class WaveformViewer:
     def __init__(self, design_name):
         self.design_name = design_name
-        self.results_dir = Path("results") / design_name
+
+        # Find project root (look for results directory)
+        project_root = Path.cwd()
+        if not (project_root / "results").exists():
+            # We might be in src/, go up one level
+            project_root = project_root.parent
+            if not (project_root / "results").exists():
+                print(f"ERROR: Cannot find results directory from {Path.cwd()}")
+                sys.exit(1)
+
+        self.results_dir = project_root / "results" / design_name
         self.raw_files = sorted(self.results_dir.glob("*.raw"))
 
         if not self.raw_files:
             print(f"ERROR: No .raw files found in {self.results_dir}")
+            print(f"Current working directory: {Path.cwd()}")
+            print(f"Looking in: {self.results_dir.absolute()}")
             sys.exit(1)
 
         self.current_file_idx = 0
@@ -72,11 +113,40 @@ class WaveformViewer:
             # Get the x-axis (time or frequency)
             x = self.current_raw.get_axis()
 
+            # Check for data issues and filter to valid data only
+            import numpy as np
+            valid_mask = np.isfinite(x)
+
+            if not np.all(valid_mask):
+                print(f"Warning: X-axis has {(~valid_mask).sum()} non-finite values, filtering...")
+                x = x[valid_mask]
+
+            if len(x) == 0:
+                self.ax.text(0.5, 0.5, 'No valid data points to display',
+                            ha='center', va='center', transform=self.ax.transAxes)
+                return
+
             # Plot each visible trace
             for trace_name in self.visible_traces:
                 try:
                     y = self.current_raw.get_wave(trace_name)
-                    self.ax.plot(x, y, label=trace_name, alpha=0.8)
+
+                    # Apply same mask to y values
+                    if not np.all(valid_mask):
+                        y = y[valid_mask]
+
+                    # Check for remaining issues in y
+                    y_valid_mask = np.isfinite(y)
+                    if not np.all(y_valid_mask):
+                        print(f"Warning: {trace_name} has {(~y_valid_mask).sum()} non-finite values, filtering...")
+                        x_plot = x[y_valid_mask]
+                        y_plot = y[y_valid_mask]
+                    else:
+                        x_plot = x
+                        y_plot = y
+
+                    if len(x_plot) > 0:
+                        self.ax.plot(x_plot, y_plot, label=trace_name, alpha=0.8)
                 except Exception as e:
                     print(f"Warning: Could not plot {trace_name}: {e}")
 
@@ -88,7 +158,11 @@ class WaveformViewer:
         if self.visible_traces:
             self.ax.legend(loc='best', fontsize=8)
 
-        plt.draw()
+        # Force plot update for both Jupyter and standard matplotlib
+        if self.fig.canvas:
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+        plt.pause(0.01)  # Allow GUI to update
 
     def show_status(self):
         """Display current status and available commands"""
@@ -251,15 +325,25 @@ class WaveformViewer:
 
         plt.close('all')
 
+# %%
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python plot_waveforms.py <design_name>")
-        print("Example: python plot_waveforms.py samp_tgate")
-        sys.exit(1)
+    # In Jupyter, sys.argv contains kernel info, so prompt for input
+    if JUPYTER_MODE:
+        design_name = input("Enter design name (e.g., samp_tgate): ").strip()
+        if not design_name:
+            print("Error: Design name required")
+            return
+    else:
+        # Command line usage (shouldn't reach here due to earlier exit)
+        if len(sys.argv) != 2:
+            print("Usage: python plot_waveforms.py <design_name>")
+            print("Example: python plot_waveforms.py samp_tgate")
+            sys.exit(1)
+        design_name = sys.argv[1]
 
-    design_name = sys.argv[1]
     viewer = WaveformViewer(design_name)
     viewer.run()
 
-if __name__ == "__main__":
+# Only auto-run if not in Jupyter (in Jupyter, user runs cells manually)
+if __name__ == "__main__" and not JUPYTER_MODE:
     main()

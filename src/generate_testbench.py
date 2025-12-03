@@ -13,7 +13,6 @@ Each DUT netlist gets its own testbench wrapper in the results directory.
 """
 
 import argparse
-import datetime
 import logging
 import re
 import tomllib
@@ -223,15 +222,7 @@ def generate_testbench_wrapper(
     va_relative = Path("../../") / va_testbench
 
     # Build the testbench content
-    content = f"""* ========================================================================
-* Testbench Wrapper
-* ========================================================================
-* Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-* DUT:       {dut_netlist.name}
-* Testbench: {va_testbench.name}
-* Tech:      {tech}
-* Corner:    {corner} -> {corner_section}
-* ========================================================================
+    content = f"""* {dut_netlist.name} | {va_testbench.name} | {tech} | {corner} -> {corner_section}
 
 simulator lang=spice
 {lib_includes}

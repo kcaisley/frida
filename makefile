@@ -64,7 +64,7 @@ setup:
 	@echo "Creating Python virtual environment with Python 3.14..."
 	uv venv --python 3.14 .venv
 	@echo "Installing packages with uv..."
-	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2
+	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2 ipympl
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
 
 
@@ -204,7 +204,8 @@ sim:
 		--outdir="$$outdir" \
 		--tech-filter="$$tech_filter" \
 		--license-server="$(LICENSE_SERVER)" \
-		--spectre-path="$(SPECTRE_PATH)" </dev/null
+		--spectre-path="$(SPECTRE_PATH)" \
+		--raw-format=nutascii </dev/null
 
 # View waveforms interactively: make waveform <family_cellname>
 waveform:
@@ -212,6 +213,12 @@ waveform:
 		echo "Usage: make waveform <family_cellname>"; \
 		echo "This will launch an interactive waveform viewer for simulation results in $(RESULTS_DIR)/<family_cellname>/"; \
 		echo "Note: Run 'make sim <family_cellname>' first to generate .raw files"; \
+		echo ""; \
+		echo "For interactive plots in VSCode:"; \
+		echo "  1. Open src/plot_waveforms.py in VSCode"; \
+		echo "  2. Click 'Run Current File in Interactive Window' (Shift+Enter)"; \
+		echo "  3. When prompted, enter the design name (e.g., samp_tgate)"; \
+		echo ""; \
 		echo "Examples:"; \
 		echo "  make waveform samp_tgate"; \
 		echo "  make waveform comp_doubletail"; \
@@ -228,8 +235,14 @@ waveform:
 		echo "Error: No .raw files found in $${outdir}. Run 'make sim $${family_cellname}' first."; \
 		exit 1; \
 	fi; \
-	echo "Launching waveform viewer for $${family_cellname} ($$raw_count .raw files)..."; \
-	$(VENV_PYTHON) src/plot_waveforms.py "$${family_cellname}"
+	echo ""; \
+	echo "Found $$raw_count .raw files for $${family_cellname}"; \
+	echo ""; \
+	echo "To view waveforms interactively in VSCode:"; \
+	echo "  1. Open src/plot_waveforms.py in VSCode"; \
+	echo "  2. Press Shift+Enter to run in Interactive Window"; \
+	echo "  3. Enter '$${family_cellname}' when prompted for design name"; \
+	echo ""
 
 # Clean simulation results: make clean_sim <family_cellname>
 clean_sim:
@@ -247,6 +260,8 @@ clean_sim:
 		echo "Cleaning simulation results from $${outdir}..."; \
 		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log "$${outdir}"/*.error; \
 		find "$${outdir}" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
+		find "$${outdir}" -name "*.ns@*" -exec rm -rf {} + 2>/dev/null || true; \
+		find "$${outdir}" -name "*.psf" -type d -exec rm -rf {} + 2>/dev/null || true; \
 		echo "Cleaned simulation results for $${family_cellname}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
