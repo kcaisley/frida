@@ -95,18 +95,15 @@ def check_license_server():
 
 def correct_spectre_raw(raw_file: Path) -> bool:
     """
-    Post-process Spectre raw file to be compatible with ngspice ASCII format.
+    Post-process Spectre raw file to be compatible with ngspice format.
+    Then convert to binary format using spicelib for GAW compatibility.
 
-    Converts Spectre nutascii format to ngspice ASCII format:
-    1. Variables section:
-       - time variable gets type 'time' instead of 's'
-       - Voltage nodes wrapped in v(...) with type 'voltage'
-       - Current branches wrapped in i(...) with type 'current'
-       - Removes 'plot=0 grid=0' annotations
-    2. Values section:
-       - Point index on first line with first value
-       - All other values on separate lines starting with tab
-       - One value per line
+    Processing steps:
+    1. Convert Spectre nutascii format to ngspice ASCII format:
+       - Fix variable names and types
+       - Fix data section formatting
+    2. Read with spicelib
+    3. Write back as binary with all doubles (GAW-compatible)
 
     Args:
         raw_file: Path to the .raw file to fix
@@ -115,6 +112,11 @@ def correct_spectre_raw(raw_file: Path) -> bool:
         True if successful, False otherwise
     """
     try:
+        from spicelib import RawRead
+        from spicelib.raw.raw_write import RawWrite, Trace
+        import numpy as np
+
+        # ===== STEP 1: Fix Spectre format to ngspice ASCII =====
         with open(raw_file, 'rb') as f:
             content = f.read()
 
@@ -221,12 +223,46 @@ def correct_spectre_raw(raw_file: Path) -> bool:
             # Binary format - just fix header
             fixed_content = fixed_header + data_marker + data_section
 
+        # Write temporary fixed ASCII file
         with open(raw_file, 'wb') as f:
             f.write(fixed_content)
 
+        # ===== STEP 2: Read with spicelib =====
+        raw_read = RawRead(str(raw_file), traces_to_read='*', dialect='ngspice', verbose=False)
+        time = raw_read.get_axis()
+        trace_names = raw_read.get_trace_names()
+
+        # ===== STEP 3: Write back as binary with all doubles =====
+        raw_write = RawWrite(fastacces=False, encoding='utf_8')  # Normal interleaved, not FastAccess
+
+        # Add time axis with double precision
+        raw_write.add_trace(Trace('time', time, whattype='time', numerical_type='double'))
+
+        # Add all other traces with double precision
+        for name in trace_names:
+            if name.lower() == 'time':
+                continue  # Skip time, already added
+
+            data = raw_read.get_wave(name)
+
+            # Determine trace type from name
+            if name.startswith('v(') or name.startswith('V('):
+                whattype = 'voltage'
+            elif name.startswith('i(') or name.startswith('I('):
+                whattype = 'current'
+            else:
+                whattype = 'voltage'  # Default
+
+            # Force double precision for GAW compatibility
+            raw_write.add_trace(Trace(name, data, whattype=whattype, numerical_type='double'))
+
+        # Overwrite with binary format
+        raw_write.save(raw_file)
+
         return True
 
-    except Exception:
+    except Exception as e:
+        # If conversion fails, at least try to keep the ASCII version
         return False
 
 
