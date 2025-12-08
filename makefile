@@ -22,7 +22,7 @@ AHDL_DIR := ahdl
 RESULTS_DIR := results
 
 # Default target
-.PHONY: all setup netlist clean_netlist testbench clean_testbench sim clean_sim clean_all
+.PHONY: all setup netlist clean_netlist testbench clean_testbench sim clean_sim clean_all analyze clean_analyze waves
 
 # Setup Python virtual environment and install dependencies using uv
 setup:
@@ -217,6 +217,75 @@ clean_all:
 	$(MAKE) -s clean_testbench $${family_cellname}; \
 	$(MAKE) -s clean_netlist $${family_cellname}; \
 	echo "All generated files cleaned for $${family_cellname}"
+
+# Analyze simulation results: make analyze <family_cellname> [analysis=waveforms]
+analyze:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make analyze <family_cellname> [analysis=<type>]"; \
+		echo "This will analyze simulation results in $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Analysis types: waveforms (default)"; \
+		echo "Examples:"; \
+		echo "  make analyze samp_tgate"; \
+		echo "  make analyze samp_tgate analysis=waveforms"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	analysis_type="$(analysis)"; \
+	if [ -z "$$analysis_type" ]; then \
+		analysis_type="waveforms"; \
+	fi; \
+	if [ ! -d "$(RESULTS_DIR)/$${family_cellname}" ]; then \
+		echo "Error: Directory $(RESULTS_DIR)/$${family_cellname} not found."; \
+		echo "Run 'make sim $${family_cellname}' first."; \
+		exit 1; \
+	fi; \
+	echo "Running $$analysis_type analysis on $${family_cellname}..."; \
+	$(VENV_PYTHON) src/analyze_results.py $${family_cellname} $${analysis_type}
+
+# Open waveforms: make waves <family_cellname>
+waves:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make waves <family_cellname>"; \
+		echo "This will open the first .raw file in $(RESULTS_DIR)/<family_cellname>/ using bspwave"; \
+		echo "Examples:"; \
+		echo "  make waves samp_tgate"; \
+		echo "  make waves comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ ! -d "$${outdir}" ]; then \
+		echo "Error: Directory $${outdir} not found."; \
+		echo "Run 'make sim $${family_cellname}' first."; \
+		exit 1; \
+	fi; \
+	raw_file=$$(find "$${outdir}" -name "*.raw" -type f | head -n 1); \
+	if [ -z "$$raw_file" ]; then \
+		echo "Error: No .raw files found in $${outdir}"; \
+		exit 1; \
+	fi; \
+	echo "Opening $$raw_file with bspwave..."; \
+	/home/kcaisley/.local/bspwave/bin/bspwave "$$raw_file"
+
+# Clean analysis results: make clean_analyze <family_cellname>
+clean_analyze:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_analyze <family_cellname>"; \
+		echo "This will remove analysis outputs (*_waveforms.pdf) from $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Examples:"; \
+		echo "  make clean_analyze samp_tgate"; \
+		echo "  make clean_analyze comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ -d "$${outdir}" ]; then \
+		echo "Cleaning analysis results from $${outdir}..."; \
+		rm -f "$${outdir}"/*_waveforms.pdf; \
+		echo "Cleaned analysis results for $${family_cellname}"; \
+	else \
+		echo "Directory $${outdir} does not exist, nothing to clean"; \
+	fi
 
 # Catch-all pattern rule to prevent make from treating arguments as targets
 %:
