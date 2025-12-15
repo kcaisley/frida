@@ -22,7 +22,7 @@ AHDL_DIR := ahdl
 RESULTS_DIR := results
 
 # Default target
-.PHONY: all setup netlist clean_netlist testbench clean_testbench sim clean_sim clean_all analyze clean_analyze waves
+.PHONY: setup clean_all netlist clean_netlist testbench clean_testbench sim clean_sim analysis clean_analysis waves
 
 # Setup Python virtual environment and install dependencies using uv
 setup:
@@ -39,6 +39,23 @@ setup:
 	@echo "Installing packages with uv..."
 	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2 ipympl
 	@echo "Setup complete! Activate with: source .venv/bin/activate"
+
+# Clean everything: make clean_all <family_cellname>
+clean_all:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_all <family_cellname>"; \
+		echo "This will remove testbench wrappers, simulation results, and netlists"; \
+		echo "Examples:"; \
+		echo "  make clean_all samp_tgate"; \
+		echo "  make clean_all comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	echo "Cleaning all generated files for $${family_cellname}..."; \
+	$(MAKE) -s clean_sim $${family_cellname}; \
+	$(MAKE) -s clean_testbench $${family_cellname}; \
+	$(MAKE) -s clean_netlist $${family_cellname}; \
+	echo "All generated files cleaned for $${family_cellname}"
 
 # Generate SPICE netlist variants: make netlist <family_cellname>
 netlist:
@@ -176,7 +193,10 @@ sim:
 		--tech-filter="$$tech_filter" \
 		--license-server="$(LICENSE_SERVER)" \
 		--spectre-path="$(SPECTRE_PATH)" \
-		--raw-format=nutascii </dev/null
+		--raw-format=nutascii </dev/null; \
+	find "$$outdir" -name "*.ns@0" -type f -delete 2>/dev/null || true; \
+	find "$$outdir" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
+	find "$$outdir" -name "*.raw.psf" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Clean simulation results: make clean_sim <family_cellname>
 clean_sim:
@@ -193,60 +213,79 @@ clean_sim:
 	if [ -d "$${outdir}" ]; then \
 		echo "Cleaning simulation results from $${outdir}..."; \
 		rm -f "$${outdir}"/*.log "$${outdir}"/*.raw "$${outdir}"/*.scs "$${outdir}"/batch_sim_*.log "$${outdir}"/netlist_gen_*.log "$${outdir}"/*.error; \
+		find "$${outdir}" -name "*.ns@0" -type f -delete 2>/dev/null || true; \
 		find "$${outdir}" -name "*.ahdlSimDB" -type d -exec rm -rf {} + 2>/dev/null || true; \
 		find "$${outdir}" -name "*.ns@*" -exec rm -rf {} + 2>/dev/null || true; \
+		find "$${outdir}" -name "*.raw.psf" -type d -exec rm -rf {} + 2>/dev/null || true; \
 		find "$${outdir}" -name "*.psf" -type d -exec rm -rf {} + 2>/dev/null || true; \
 		echo "Cleaned simulation results for $${family_cellname}"; \
 	else \
 		echo "Directory $${outdir} does not exist, nothing to clean"; \
 	fi
 
-# Clean everything: make clean_all <family_cellname>
-clean_all:
+# Run circuit-specific analysis: make analysis <family_cellname>
+analysis:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make clean_all <family_cellname>"; \
-		echo "This will remove testbench wrappers, simulation results, and netlists"; \
+		echo "Usage: make analysis <family_cellname>"; \
+		echo "This will run circuit-specific analysis from $(SPICE_DIR)/<family_cellname>.py"; \
 		echo "Examples:"; \
-		echo "  make clean_all samp_tgate"; \
-		echo "  make clean_all comp_doubletail"; \
+		echo "  make analysis samp_tgate"; \
+		echo "  make analysis comp_doubletail"; \
 		exit 1; \
 	fi
 	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	echo "Cleaning all generated files for $${family_cellname}..."; \
-	$(MAKE) -s clean_sim $${family_cellname}; \
-	$(MAKE) -s clean_testbench $${family_cellname}; \
-	$(MAKE) -s clean_netlist $${family_cellname}; \
-	echo "All generated files cleaned for $${family_cellname}"
-
-# Analyze simulation results: make analyze <family_cellname> [analysis=waveforms]
-analyze:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make analyze <family_cellname> [analysis=<type>]"; \
-		echo "This will analyze simulation results in $(RESULTS_DIR)/<family_cellname>/"; \
-		echo "Analysis types: waveforms (default)"; \
-		echo "Examples:"; \
-		echo "  make analyze samp_tgate"; \
-		echo "  make analyze samp_tgate analysis=waveforms"; \
+	analysis_file="$(SPICE_DIR)/$${family_cellname}.py"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ ! -f "$$analysis_file" ]; then \
+		echo "Error: Analysis script $$analysis_file not found."; \
+		echo "Create $(SPICE_DIR)/$${family_cellname}.py first."; \
 		exit 1; \
-	fi
-	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	analysis_type="$(analysis)"; \
-	if [ -z "$$analysis_type" ]; then \
-		analysis_type="waveforms"; \
 	fi; \
-	if [ ! -d "$(RESULTS_DIR)/$${family_cellname}" ]; then \
-		echo "Error: Directory $(RESULTS_DIR)/$${family_cellname} not found."; \
+	if [ ! -d "$$outdir" ]; then \
+		echo "Error: Directory $$outdir not found."; \
 		echo "Run 'make sim $${family_cellname}' first."; \
 		exit 1; \
 	fi; \
-	echo "Running $$analysis_type analysis on $${family_cellname}..."; \
-	$(VENV_PYTHON) src/analyze_results.py $${family_cellname} $${analysis_type}
+	echo "Running analysis for $${family_cellname}..."; \
+	for raw_file in "$$outdir"/*.raw; do \
+		if [ ! -f "$$raw_file" ]; then continue; fi; \
+		base=$$(basename "$$raw_file" .raw); \
+		dut_base=$${base#tb_}; \
+		netlist_file="$$outdir/$${dut_base}.sp"; \
+		if [ ! -f "$$netlist_file" ]; then \
+			echo "Warning: DUT netlist $$netlist_file not found for $$raw_file, skipping..."; \
+			continue; \
+		fi; \
+		echo "  Processing: $$raw_file"; \
+		$(VENV_PYTHON) src/run_analysis.py "$$raw_file" "$$netlist_file" "$$analysis_file"; \
+	done; \
+	echo "Analysis complete for $${family_cellname}"
+
+# Clean analysis results: make clean_analysis <family_cellname>
+clean_analysis:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make clean_analysis <family_cellname>"; \
+		echo "This will remove analysis outputs (*.raw_a, *.pkl) from $(RESULTS_DIR)/<family_cellname>/"; \
+		echo "Examples:"; \
+		echo "  make clean_analysis samp_tgate"; \
+		echo "  make clean_analysis comp_doubletail"; \
+		exit 1; \
+	fi
+	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
+	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
+	if [ -d "$${outdir}" ]; then \
+		echo "Cleaning analysis results from $${outdir}..."; \
+		rm -f "$${outdir}"/*.raw_a "$${outdir}"/*.pkl; \
+		echo "Cleaned analysis results for $${family_cellname}"; \
+	else \
+		echo "Directory $${outdir} does not exist, nothing to clean"; \
+	fi
 
 # Open waveforms: make waves <family_cellname>
 waves:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "Usage: make waves <family_cellname>"; \
-		echo "This will open the first .raw file in $(RESULTS_DIR)/<family_cellname>/ using bspwave"; \
+		echo "This will check and open the first .raw file (alphabetically) using gaw"; \
 		echo "Examples:"; \
 		echo "  make waves samp_tgate"; \
 		echo "  make waves comp_doubletail"; \
@@ -259,32 +298,18 @@ waves:
 		echo "Run 'make sim $${family_cellname}' first."; \
 		exit 1; \
 	fi; \
-	raw_file=$$(find "$${outdir}" -name "*.raw" -type f | head -n 1); \
+	raw_file=$$(ls -1 "$${outdir}"/*.raw 2>/dev/null | head -n 1); \
 	if [ -z "$$raw_file" ]; then \
 		echo "Error: No .raw files found in $${outdir}"; \
 		exit 1; \
 	fi; \
-	echo "Opening $$raw_file with bspwave..."; \
-	/home/kcaisley/.local/bspwave/bin/bspwave "$$raw_file"
-
-# Clean analysis results: make clean_analyze <family_cellname>
-clean_analyze:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make clean_analyze <family_cellname>"; \
-		echo "This will remove analysis outputs (*_waveforms.pdf) from $(RESULTS_DIR)/<family_cellname>/"; \
-		echo "Examples:"; \
-		echo "  make clean_analyze samp_tgate"; \
-		echo "  make clean_analyze comp_doubletail"; \
-		exit 1; \
-	fi
-	@family_cellname="$(filter-out $@,$(MAKECMDGOALS))"; \
-	outdir="$(RESULTS_DIR)/$${family_cellname}"; \
-	if [ -d "$${outdir}" ]; then \
-		echo "Cleaning analysis results from $${outdir}..."; \
-		rm -f "$${outdir}"/*_waveforms.pdf; \
-		echo "Cleaned analysis results for $${family_cellname}"; \
+	echo "Checking raw file integrity..."; \
+	$(VENV_PYTHON) src/run_waves.py "$$raw_file"; \
+	if [ -n "$$DISPLAY" ]; then \
+		echo "Launching gaw..."; \
+		gaw "$$raw_file" & \
 	else \
-		echo "Directory $${outdir} does not exist, nothing to clean"; \
+		echo "X11 forwarding not available (DISPLAY not set), skipping gaw"; \
 	fi
 
 # Catch-all pattern rule to prevent make from treating arguments as targets

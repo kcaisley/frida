@@ -233,6 +233,7 @@ def correct_spectre_raw(raw_file: Path) -> bool:
         trace_names = raw_read.get_trace_names()
 
         # ===== STEP 3: Write back as binary with all doubles =====
+        # WARNING: 'fastacces' typo is in the spicelib library itself!
         raw_write = RawWrite(fastacces=False, encoding='utf_8')  # Normal interleaved, not FastAccess
 
         # Add time axis with double precision

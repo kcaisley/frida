@@ -75,6 +75,51 @@ flowchart LR
 
 ### 3. Analyze results
 
+The analysis depends on a `.raw` file containing simulation traces as individual numpy arrays, which can be fetch by name.
+
+When you create: `raw = RawRead('file.raw', traces_to_read='*', dialect='ngspice')`
+
+You get an object with:
+
+```
+PROPERTIES (read-only attributes):
+  raw.nPoints        : int - Number of data points
+  raw.nVariables     : int - Number of traces/signals
+  raw.dialect        : str - 'ngspice', 'ltspice', 'qspice', or 'xyce'
+  raw.encoding       : str - 'utf_8' or 'utf_16_le'
+  raw.raw_type       : str - 'binary:' or 'values:'
+  raw.has_axis       : bool - True if time/freq axis exists
+  raw.steps          : list or None - Step numbers if stepped simulation
+  raw.flags          : list - Flags used in the plot
+  raw.plots          : list - List of plot objects (for multi-plot files)
+  raw.backannotations: list - Backannotations from header
+  raw.aliases        : dict - QSpice trace aliases
+
+METHODS (functions you can call):
+  raw.get_trace_names()           -> list[str]
+  raw.get_axis(step=0)            -> np.ndarray (time or frequency)
+  raw.get_wave(name, step=0)      -> np.ndarray (signal data)
+  raw.get_trace(name)             -> TraceRead object
+  raw.get_plot_name()             -> str ('Transient Analysis', etc.)
+  raw.get_plot_names()            -> list[str]
+  raw.get_len(step=0)             -> int
+  raw.get_steps(**kwargs)         -> list[int]
+  raw.get_raw_property(name)      -> str
+  raw.get_raw_properties()        -> dict[str, str]
+  raw.to_dataframe(columns, step) -> pandas.DataFrame
+  raw.to_csv(filename, ...)       -> None
+  raw.to_excel(filename, ...)     -> None
+```
+
+And, when you call: `trace = raw.get_trace('v(out)')`
+
+You get a TraceRead object with:
+```
+  trace.name          : str - Trace name
+  trace.data          : np.ndarray - The waveform data
+  trace.whattype      : str - 'voltage', 'current', 'time', etc.
+```
+
 ```mermaid
 flowchart LR
     %% Input files
