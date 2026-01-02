@@ -1,10 +1,158 @@
+"""
+Capacitor DAC (CDAC) generator for SAR ADC.
+
+Generates capacitor arrays with different bit resolutions, physical cap counts,
+and weighting strategies. The topology varies with m_caps (number of physical
+capacitors), so this generates multiple configurations.
+"""
+
 import math
 
+
+def subcircuit():
+    """
+    Generate CDAC topologies for all N/M/strategy combinations.
+
+    Sweeps:
+        n_bits: DAC resolution (7, 9, 11, 13)
+        m_caps: Number of physical capacitors (9, 11, 13, 15)
+        strategy: Weight distribution ('binary', 'split_msb', 'subradix2')
+
+    Returns:
+        List of (topology, sweep) tuples, one per configuration (4 x 4 x 3 = 48 total)
+    """
+
+    def calc_weights(n_bits, m_caps, strategy):
+        """
+        Calculate capacitor weights for CDAC.
+
+        Args:
+            n_bits: DAC resolution in bits
+            m_caps: Number of physical capacitors (> n_bits for redundancy)
+            strategy: 'binary', 'split_msb', 'subradix2'
+
+        Returns:
+            List of m_caps integer weights (in units of Cu)
+        """
+        if strategy == 'binary':
+            # Standard binary weighting: [2^(n-1), 2^(n-2), ..., 2, 1]
+            # Pad with unit caps if m_caps > n_bits
+            weights = [2**i for i in range(n_bits - 1, -1, -1)]
+            if m_caps > n_bits:
+                weights.extend([1] * (m_caps - n_bits))
+            return weights
+
+        elif strategy == 'split_msb':
+            # Binary with MSB redistribution for redundancy
+            # Split 2^n_redist from MSB and redistribute as pairs
+            n_redist = m_caps - n_bits + 2  # Extra caps determine redistribution
+
+            # Base binary weights
+            weights = [2**i for i in range(n_bits - 1, -1, -1)]
+            weights[0] -= 2**n_redist  # Subtract from MSB
+
+            # Redundant weights as paired powers of 2
+            w_redun = [2**i for i in range(n_redist - 2, -1, -1) for _ in range(2)]
+            w_redun += [1, 1]  # Final unit pair
+
+            # Merge: add redundant weights offset by 1 position
+            result = [0] * m_caps
+            for i, w in enumerate(weights):
+                if i < m_caps:
+                    result[i] += w
+            for i, w in enumerate(w_redun):
+                if i + 1 < m_caps:
+                    result[i + 1] += w
+
+            return result
+
+        elif strategy == 'subradix2':
+            # Sub-radix-2 with unit quantization
+            # Radix < 2 provides redundancy for error correction
+            radix = 2 ** (n_bits / m_caps)
+            weights = [max(1, int(radix**(m_caps - 1 - i))) for i in range(m_caps)]
+            return weights
+
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+    # Sweep parameters
+    n_bits_list = [7, 9, 11, 13]
+    m_caps_list = [9, 11, 13, 15]  # m_caps > n_bits for redundancy
+    strategies = ['binary', 'split_msb', 'subradix2']
+
+    # Generate all 48 configurations
+    configurations = []
+
+    for n_bits in n_bits_list:
+        for m_caps in m_caps_list:
+            for strategy in strategies:
+
+                # Calculate weights for this configuration
+                weights = calc_weights(n_bits, m_caps, strategy)
+
+                # Build ports: top plate + m_caps bottom plates + supplies
+                ports = {'top': 'B', 'vdd': 'B', 'vss': 'B'}
+                for i in range(m_caps):
+                    ports[f'bot[{i}]'] = 'I'
+
+                # Build devices: m_caps capacitors
+                devices = {}
+                for i, w in enumerate(weights):
+                    devices[f'C{i}'] = {
+                        'dev': 'mom_cap',
+                        'pins': {'p': 'top', 'n': f'bot[{i}]'},
+                        'weight': w,
+                    }
+
+                topology = {
+                    'subckt': f'cdac_{n_bits}b_{m_caps}c_{strategy}',
+                    'ports': ports,
+                    'devices': devices,
+                    'meta': {
+                        'n_bits': n_bits,
+                        'm_caps': m_caps,
+                        'strategy': strategy,
+                        'weights': weights,
+                        'total_weight': sum(weights),
+                    }
+                }
+
+                sweep = {
+                    'tech': ['tsmc65', 'tsmc28', 'tower180'],
+                }
+
+                configurations.append((topology, sweep))
+
+    return configurations
+
+
+def testbench():
+    """CDAC testbench for DNL/INL characterization."""
+
+    topology = {
+        'testbench': 'tb_cdac',
+        'devices': {
+            'Vvdd': {'dev': 'vsource', 'pins': {'p': 'vdd', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Vvss': {'dev': 'vsource', 'pins': {'p': 'vss', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+        },
+        'analyses': {
+            'mc1': {
+                'type': 'montecarlo',
+                'numruns': 100,
+                'seed': 12345,
+                'variations': 'all'
+            },
+        }
+    }
+
+    return topology
+
+
+# Utility functions for weight analysis
+
 def partition_weights(weights, coarse_weight):
-    """
-    Splits each weight into chunks of unary_weight, with a possible remainder at the end.
-    Returns a list of lists.
-    """
+    """Split each weight into chunks of coarse_weight with remainder."""
     result = []
     for w in weights:
         chunks = [coarse_weight] * (w // coarse_weight)
@@ -14,92 +162,39 @@ def partition_weights(weights, coarse_weight):
         result.append(chunks)
     return result
 
-def generate_weights(n_dac, n_redist, w_regroup, w_offset):
-    """
-    Generates DAC weights with redundancy, which also satify some nice properties like:
-    - Weights are all integers
-    - Sum total of weights is still 2**Ndac
-    - Each weight is eath a power of 2, or a sum or difference between two powers of 2
-    - Effective radix along the chain is relatively consistent, i.e. avoiding 'peaks' in remaining redundancy
-
-    Args:
-        n_dac (int): DAC resolution in bits 
-        n_redist (int): 2*n_redist bit weights split off MSB and redistributed, expressed as integer  bits (must be at least 2 less than n_dac).
-        w_regroup (list of int): Regroup positions, each integer from n_redist-2 down to 0.
-        w_offset (int): Offset for redundant weights in the output array.
-
-    Returns:
-        weights (list): of final calculated weights
-    """
-
-    # Generate basic weights w_base as powers of 2, from n_dac-1 down to 0
-    w_base = [2**w for w in range(n_dac-1, -1, -1)]
-
-    # Next break off 2**n_redist bits from MSB weight for redistribtuion
-    w_base[0] -= 2**n_redist
-
-    # Create w_redun as a list of weights broken into pairs of equal powers of two, descending
-    w_redun = [2**i for i in range(n_redist - 2, -1, -1) for _ in range(2)]
-    w_redun += [2**0, 2**0]   # Add [1,1] weights at end of array to ensure sum is 2**n_redist
-    
-    # Next, optionally recombine pairs in w_redun array at positions w_regroup, to compact it
-    # Iterate through w_regroup in reverse order to avoid index shifting issues
-    # TODO: update this so that the w_regroup points at 2**x values, rather than list indices
-    for regroup_pair in sorted(w_regroup, reverse=True):
-        w_redun[(2 * regroup_pair)] *= 2
-        w_redun.pop(2 * regroup_pair + 1)
-
-    weights = [0] * (len(w_redun) + w_offset)
-    
-    # Add base weights
-    for i in range(len(w_base)):
-        weights[i] += w_base[i]
-        
-    # Add redundant weights with offset
-    for i in range(len(w_redun)):
-        weights[i + w_offset] += w_redun[i]
-    
-    return weights, w_base, w_redun
-
 
 def analyze_weights(weights, coarse_weight):
-    """
-    Gives analysis of weights for where the main scaling structure ends and where fine adjustments (such as capacitor differences, Vref scaling with a resistive divider, or bridge capacitor scaling) begin. The output includes partitioned weights, ratios, and various metrics annotated for design insight. 
-    This function calculates and displays key metrics including the unit capacitor size (defining the transition from coarse to fine scaling), effective radix between weights, and the percentage of remaining redundancy.
-    """
-    # Print the list of weights
+    """Print analysis of weight distribution and redundancy."""
     print("Weights:", weights)
-    # Print the ratio of each weight to the coarse_weight (unit size)
     print("Weight ratios:", [w / coarse_weight for w in weights])
 
-    # Partition each weight into chunks of coarse_weight, with possible remainder
-    partitioned_weights = partition_weights(weights, coarse_weight)
-    print("Partitioned weights:", partitioned_weights)
-    # Print the total number of unit capacitors needed
-    print(f"Unit count: {sum([math.ceil(w / coarse_weight) for w in weights])}")
-    # Print the sum of all weights
-    print(f"Sum: {sum(weights)}")
-    # Print the number of weights
-    print(f"Length: {len(weights)}")
+    partitioned = partition_weights(weights, coarse_weight)
+    print("Partitioned:", partitioned)
+    print(f"Unit count: {sum(math.ceil(w / coarse_weight) for w in weights)}")
+    print(f"Sum: {sum(weights)}, Length: {len(weights)}")
 
-    # Calculate various metrics for each bit position
-    remaining = []  # Remaining total weight after each bit
-    method4 = []    # Difference between remaining and current weight
-    radix = []      # Ratio of current weight to next weight (effective radix)
-    bit = list(range(len(weights)))  # Bit indices
+    print("\nBit  Weight   Remaining  Radix")
+    print("-" * 36)
+    for i, w in enumerate(weights[:-1]):
+        remaining = sum(weights[i+1:])
+        radix = w / weights[i+1] if weights[i+1] > 0 else 0
+        print(f"{i:<5}{w:<9}{remaining:<11}{radix:<.2f}")
+    print(f"{len(weights)-1:<5}{weights[-1]:<9}{'--':<11}{'--'}")
 
-    # Loop through all but the last weight to compute metrics
-    for i, cap in enumerate(weights[:-1]):
-        remain = sum(weights[i+1:])  # Total weight remaining after this bit
-        remaining.append(remain)
-        method4.append(remain - weights[i])  # Difference between remaining and current
-        radix.append(weights[i] / weights[i+1])  # Effective radix between this and next
+    return partitioned
 
-    # Print a table of bit index, weight, method4, and radix
-    print("\nBit  Weight   Method4  Radix")
-    print("-" * 32)
-    for a, b, c, d in zip(bit, weights, method4 + [0], radix + [0]):
-        print(f"{a:<8} {b:<8} {c:<8.1f} {d:<8.1f}")
 
-    # Return the partitioned weights for further use
-    return partitioned_weights
+if __name__ == '__main__':
+    configs = subcircuit()
+    print(f"Generated {len(configs)} configurations\n")
+
+    # Print examples for each strategy
+    for strategy in ['binary', 'split_msb', 'subradix2']:
+        print(f"=== {strategy.upper()} ===")
+        for topo, _ in configs:
+            meta = topo['meta']
+            if meta['strategy'] == strategy and meta['n_bits'] == 11:
+                print(f"{topo['subckt']}:")
+                print(f"  weights = {meta['weights']}")
+                print(f"  sum = {meta['total_weight']}")
+        print()
