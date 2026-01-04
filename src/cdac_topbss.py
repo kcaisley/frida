@@ -34,9 +34,9 @@ def calc_weights(n_dac, n_extra, strategy):
 
     elif strategy == "subradix2_unbounded":
         # Each bit is equal to radix^bit up to bit M-1, where radix = 2^(N/M)
-        # No quantization to unit capacitors
+        # Round to nearest integer (not floor like normalized)
         radix = 2 ** (n_dac / m_caps)
-        weights = [radix ** (m_caps - 1 - i) for i in range(m_caps)]
+        weights = [round(radix ** (m_caps - 1 - i)) for i in range(m_caps)]
         return weights
 
     elif strategy == "subradix2_normalized":
