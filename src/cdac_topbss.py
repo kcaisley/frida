@@ -98,10 +98,17 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
     elif strategy == "subradix2_redist":
         # Binary with MSB redistribution for redundancy
         # Split 2^n_redist from MSB and redistribute as pairs
+        # TODO: This logic is broken for small n_dac with large n_extra (e.g., n_dac=7, n_extra=6)
+        # The MSB weight becomes negative, which is invalid for physical capacitors
         n_redist = n_extra + 2  # Extra caps determine redistribution
 
         # Base binary weights
         weights = [2**i for i in range(n_dac - 1, -1, -1)]
+        
+        # Check if MSB would become negative - skip invalid combinations
+        if weights[0] < 2**n_redist:
+            raise ValueError(f"subradix2_redist: n_dac={n_dac} too small for n_extra={n_extra}. MSB weight would be negative.")
+        
         weights[0] -= 2**n_redist  # Subtract from MSB
 
         # Redundant weights as paired powers of 2
@@ -160,157 +167,113 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
         raise ValueError(f"Unknown strategy: {strategy}")
 
 
-def generate_topology(base_name: str, weights: list[int], redun_strat: str, split_strat: str, scale: int) -> dict[str, Any]:
+def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_dac: int, n_extra: int) -> dict[str, Any]:
     """
     Generate physical CDAC topology for a given partition scheme.
 
     Args:
-        base_name: Base subcircuit name
         weights: List of integer weights from calc_weights
-        strategy: Weighting strategy (radix2, subradix2_*, etc.)
+        redun_strat: Weighting strategy (radix2, subradix2_*, etc.)
         split_strat: 'no_split', 'vdiv_split', or 'diffcap_split'
-        scale: Capacitance scale factor (1, 2, or 3)
+        n_dac: DAC resolution (number of bits)
+        n_extra: Number of extra physical capacitors for redundancy
 
     Returns:
         dict with 'subckt', 'ports', 'devices', 'meta'
     """
-    # Scale all weights by the scale factor
-    scaled_weights = [w * scale for w in weights]
-    threshold = 64 * scale  # Coarse/fine split threshold
-
-    # Split indices into coarse (w > threshold) and fine (w ≤ threshold)
-    coarse_indices = [i for i, w in enumerate(scaled_weights) if w > threshold]
-    fine_indices = [i for i, w in enumerate(scaled_weights) if w <= threshold]
+    threshold = 64  # Split threshold (unitless)
 
     # Initialize topology components
     devices = {}
     ports = {"top": "B", "vdd": "B", "vss": "B"}
 
+    # Generate resistor ladder for vdiv_split (all 64 taps)
+    if split_strat == "vdiv_split":
+        for i in range(64):
+            if i == 0:
+                devices[f"R{i}"] = {"dev": "res", "pins": {"p": "vdd", "n": f"tap[{i + 1}]"}, "r": 4}
+            elif i == 63:
+                devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": "vss"}, "r": 4}
+            else:
+                devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"}, "r": 4}
+
     # ================================================================
-    # COARSE SECTION (common to all split strategies)
-    # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
+    # UNIFIED STAGE LOOP - Process all weights regardless of magnitude
     # ================================================================
-    for idx in coarse_indices:
-        w = scaled_weights[idx]
-        driver_w = calc_driver_width(w)
+    for idx, w in enumerate(weights):
         ports[f"dac[{idx}]"] = "I"
 
-        # First inverter (w=1)
+        # First inverter (always unit sized)
         devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
         devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
-        # Second inverter (w=scaled)
-        devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-        devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-
-        # Capacitor (weight stored, actual value mapped in technology step)
-        devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
-
-    # ================================================================
-    # FINE SECTION (split_strat-specific implementations)
-    # ================================================================
-
-    if split_strat == "no_split":
-        # No Split: Same structure as coarse section for all weights
-        # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
-        for idx in fine_indices:
-            w = scaled_weights[idx]
-            driver_w = calc_driver_width(w)
-            ports[f"dac[{idx}]"] = "I"
-
-            # First inverter
-            devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
-            devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
-
-            # Second inverter
+        if split_strat == "no_split":
+            # No Split: c=1 (unit cap), m=weight (multiple instances)
+            driver_w = calc_driver_width(c=1, m=w)
             devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
             devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+            devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
 
-            # Capacitor
-            devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
+        elif split_strat == "vdiv_split":
+            # Voltage Divider Split: Decompose weight into coarse + fine parts
+            quotient = w // threshold  # Integer division
+            remainder = w % threshold   # Modulo
 
-    elif split_strat == "vdiv_split":
-        # Resistor Chain: Coarse array + 64-step resistor ladder + unit caps
-        # Topology:
-        #   Resistor chain: VDD → R → tap[1] → R → tap[2] → ... → tap[63] → R → VSS
-        #   Total resistance: 64 × 400Ω = 25.6kΩ (current ~47µA)
-        #   Fine caps: all unit-sized (1*scale), inverters tap different voltages
-
-        if fine_indices:
-            # Generate 64-step resistor ladder (tap[0] implicitly VDD, tap[64] implicitly VSS)
-            for i in range(64):
-                if i == 0:
-                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": "vdd", "n": f"tap[{i + 1}]"}, "r": 4}
-                elif i == 63:
-                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": "vss"}, "r": 4}
-                else:
-                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"}, "r": 4}
-
-            # Fine caps: all unit-sized, inverters use resistor chain taps as VDD
-            for tap_idx, idx in enumerate(fine_indices):
-                w = scale  # Unit cap
-                driver_w = calc_driver_width(w)
-                tap_node = f"tap[{tap_idx + 1}]"
-                ports[f"dac[{idx}]"] = "I"
-
-                # First inverter (uses chain voltage as VDD)
-                devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": tap_node, "b": tap_node}, "w": 1}
-                devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
-
-                # Second inverter (uses chain voltage as VDD)
-                devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w}
+            if quotient > 0:
+                # Main capacitor: m=quotient, c=threshold
+                driver_w = calc_driver_width(c=threshold, m=quotient)
+                devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
                 devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+                devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
 
-                # Unit capacitor
-                devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
+            if remainder > 0:
+                # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
+                tap_node = f"tap[{remainder}]"
+                driver_w_fine = calc_driver_width(c=1, m=1)
+                devices[f"MP2_{idx}_fine"] = {"dev": "pmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w_fine}
+                devices[f"MN2_{idx}_fine"] = {"dev": "nmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_fine}
+                devices[f"C{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_fine[{idx}]"}, "c": 1, "m": 1}
 
-    elif split_strat == "diffcap_split":
-        # Difference Capacitor: Coarse array + difference cap pairs
-        # Topology:
-        #   dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot_main[i] → Cmain
-        #                          ↓
-        #                       bot_diff[i] → Cdiff
-        # Capacitance formula (for weight w in fine section):
-        #   Cmain = 0.4 * (65 + w) fF
-        #   Cdiff = 0.4 * (65 - w) fF
-        #   Effective = Cmain - Cdiff = 0.4 * 2w = 0.8w fF
+        elif split_strat == "diffcap_split":
+            # Difference Capacitor Split: Decompose weight into coarse + fine parts
+            quotient = w // threshold
+            remainder = w % threshold
 
-        for idx in fine_indices:
-            w = scaled_weights[idx]
-            driver_w = calc_driver_width(w)
-            c_main = 0.4 * (65 + w)  # fF
-            c_diff = 0.4 * (65 - w)  # fF
-            ports[f"dac[{idx}]"] = "I"
+            if quotient > 0:
+                # Main coarse cap: m=quotient, c=threshold
+                driver_w_main = calc_driver_width(c=threshold, m=quotient)
+                devices[f"MP2_{idx}_main"] = {"dev": "pmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main}
+                devices[f"MN2_{idx}_main"] = {"dev": "nmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main}
+                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main[{idx}]"}, "c": threshold, "m": quotient}
+                
+                # Diff coarse cap: m=quotient, c=1, driven from intermediate node
+                devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": 1, "m": quotient}
 
-            # First inverter
-            devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
-            devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
-
-            # Second inverter (drives main cap)
-            devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-            devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-
-            # Main capacitor
-            devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main[{idx}]"}, "c": c_main * 1e-15, "m": 1}
-
-            # Diff capacitor (driven by intermediate node for opposite polarity)
-            devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff * 1e-15, "m": 1}
+            if remainder > 0:
+                # Main fine cap: m=1, c=(threshold+1+remainder)
+                c_main_fine = threshold + 1 + remainder
+                driver_w_main_fine = calc_driver_width(c=c_main_fine, m=1)
+                devices[f"MP2_{idx}_main_fine"] = {"dev": "pmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main_fine}
+                devices[f"MN2_{idx}_main_fine"] = {"dev": "nmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main_fine}
+                devices[f"Cmain{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main_fine[{idx}]"}, "c": c_main_fine, "m": 1}
+                
+                # Diff fine cap: m=1, c=(threshold+1-remainder), driven from intermediate node
+                c_diff_fine = threshold + 1 - remainder
+                devices[f"Cdiff{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff_fine, "m": 1}
 
     # Build final topology
     topology = {
-        "subckt": f"{base_name}_{split_strat}_{scale}x",
+        "subckt": "cdac",
         "ports": ports,
         "devices": devices,
         "meta": {
-            "n_dac": len(weights),
-            "split_strat": split_strat,
-            "scale": scale,
+            "n_dac": n_dac,
+            "n_extra": n_extra,
+            "m_caps": len(weights),
             "redun_strat": redun_strat,
+            "split_strat": split_strat,
             "weights": weights,
-            "scaled_weights": scaled_weights,
             "threshold": threshold,
-            "n_coarse": len(coarse_indices),
-            "n_fine": len(fine_indices),
         },
     }
 
@@ -353,25 +316,29 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
                     continue
 
                 # Calculate weights for this configuration
-                weights = calc_weights(n_dac, n_extra, redun_strat)
-                m_caps = n_dac + n_extra
-                base_name = f"cdac_{n_dac}bit_{m_caps}cap_{redun_strat}"
+                try:
+                    weights = calc_weights(n_dac, n_extra, redun_strat)
+                except ValueError:
+                    # Skip combinations that produce invalid weights (e.g., negative)
+                    continue
 
                 # Generate all split strategy combinations
                 for split_strat in split_strat_list:
-                    # Generate topology with scale=1 as base (will be swept via 'm' parameter)
+                    # Generate topology (no scale parameter - handled via cap type sweep)
                     topology = generate_topology(
-                        base_name, weights, redun_strat, split_strat, scale=1
+                        weights, redun_strat, split_strat, n_dac=n_dac, n_extra=n_extra
                     )
 
-                    # Technology sweep with 'm' parameter for capacitor multiplier
+                    # Technology sweep with cap type (1m, 2m, 3m layers)
                     sweep = {
                         "tech": ["tsmc65", "tsmc28", "tower180"],
                         "defaults": {
                             "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
                             "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                            "cap": {"dev": "momcap"},
+                            "res": {"dev": "polyres", "r": 4}
                         },
-                        "sweeps": [{"devices": "momcap", "m": [1, 2, 3]}],
+                        "sweeps": [{"devices": "cap", "type": ["1m", "2m", "3m"]}],
                     }
                     all_configurations.append((topology, sweep))
 
@@ -396,19 +363,21 @@ def testbench() -> dict[str, Any]:
 
 
 # Helper functions
-def calc_driver_width(cap_weight: int) -> int:
+def calc_driver_width(c: int, m: int) -> int:
     """
-    Calculate driver width based on capacitor weight.
+    Calculate driver width based on capacitor parameters.
 
     Args:
-        cap_weight: Capacitor weight in units of Cu
+        c: Capacitance value (unitless)
+        m: Multiplier (number of instances)
 
     Returns:
         Driver width in minimum units
     """
-    # Simple scaling: driver width proportional to sqrt(cap_weight)
-    # Minimum width is 1
-    return max(1, int(math.sqrt(cap_weight)))
+    # Total capacitance = c * m
+    # Driver width proportional to sqrt(total capacitance)
+    total_cap = c * m
+    return max(1, int(math.sqrt(total_cap)))
 
 
 def partition_weights(weights: list[int], threshold: int) -> tuple[list[int], list[int]]:

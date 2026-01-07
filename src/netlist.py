@@ -379,16 +379,15 @@ def map_technology(
     for dev_name, dev_info in topo_copy.get("devices", {}).items():
         dev = dev_info.get("dev")
 
-        # Handle MOM capacitors
-        if dev == "mom_cap":
-            mom_config = tech_config.get("mom_cap", {})
-            if mom_config:
-                dev_info["model"] = mom_config.get("model", "capacitor")
-                # Keep the weight, it will be converted to capacitance in generate_spice
+        # Handle capacitors
+        if dev == "cap":
+            # Capacitors get a model from defaults or techmap
+            # Keep c and m fields for SPICE generation
             continue
 
-        # Resistors need no technology mapping (already have r value)
+        # Handle resistors
         if dev == "res":
+            # Resistors keep their r value for SPICE generation
             continue
 
         meta = dev_info.get("meta")
@@ -587,10 +586,31 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
         ports = topology.get("ports", {})
         devices = topology.get("devices", {})
 
+        # Generate descriptive comment name from meta if available
+        if "meta" in topology:
+            meta = topology["meta"]
+            comment_parts = [subckt_name]
+            
+            # Add architecture-specific parameters if present
+            if "n_dac" in meta:
+                comment_parts.append(f"{meta['n_dac']}bit")
+            if "m_caps" in meta:
+                comment_parts.append(f"{meta['m_caps']}cap")
+            if "redun_strat" in meta:
+                comment_parts.append(meta["redun_strat"])
+            if "split_strat" in meta:
+                comment_parts.append(meta["split_strat"])
+            if "scale" in meta:
+                comment_parts.append(f"{meta['scale']}x")
+            if "tech" in meta:
+                comment_parts.append(meta["tech"])
+            
+            comment_name = "_".join(comment_parts)
+        else:
+            comment_name = subckt_name
+        
         # Header
-        lines.append("* " + "=" * 72)
-        lines.append(f"* {subckt_name}")
-        lines.append("* " + "=" * 72)
+        lines.append(f"* {comment_name}")
         lines.append("")
         lines.append("*.BUSDELIMITER [")
         lines.append("")
@@ -619,31 +639,25 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
                 line += f" nf={dev_info.get('nf', 1)}"
                 lines.append(line)
 
-            # MOM capacitors (for CDAC and similar structures)
-            elif dev == "mom_cap":
+            # Capacitors (generic cap devices)
+            elif dev == "cap":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
-                weight = dev_info.get("weight", 1)
+                c = dev_info.get("c", 1)  # Unitless capacitance value
+                m = dev_info.get("m", 1)  # Multiplier
                 cap_model = dev_info.get("model", "capacitor")
-                cap_value = dev_info.get("c", None)
+                
+                # Generate capacitor instance
+                # Note: c and m are unitless here, actual capacitance depends on PDK
+                lines.append(f"{dev_name} {p} {n} {cap_model} c={c} m={m}")
 
-                if cap_value is not None:
-                    # Explicit capacitance value provided
-                    lines.append(
-                        f"{dev_name} {p} {n} {cap_model} c={format_value(cap_value, 'F')}"
-                    )
-                else:
-                    # Use weight (for weighted capacitor arrays)
-                    lines.append(
-                        f"{dev_name} {p} {n} {cap_model} c={format_value(weight * 1e-15, 'F')}"
-                    )
-
-            # Resistors (for RDAC partition scheme)
+            # Resistors
             elif dev == "res":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
-                r = dev_info.get("r", 1000)  # resistance in ohms
-                lines.append(f"{dev_name} {p} {n} {format_value(r, 'Ohm')}")
+                r = dev_info.get("r", 4)  # Resistance multiplier
+                res_model = dev_info.get("model", "resistor")
+                lines.append(f"{dev_name} {p} {n} {res_model} r={r}")
 
         lines.append("")
         lines.append(f".ends {subckt_name}")
@@ -824,34 +838,56 @@ def generate_filename(
 ) -> str:
     """
     Generate filename for a netlist using meta values for parameters.
-
+    
     Args:
         topology: Topology dictionary with 'subckt' or 'testbench' key
         tech: Technology name (e.g., 'tsmc65', 'tsmc28', 'tower180')
         sweep_spec: Optional sweep specification dictionary
-
+        
     Returns:
         Filename string (e.g., 'cdac_7bit_7cap_radix2_tsmc65.sp')
     """
     if "subckt" in topology:
         base_name = topology["subckt"]
-        parts = [base_name, tech]
+        
+        # Check if this has top-level meta (e.g., CDAC with architecture parameters)
+        if "meta" in topology:
+            meta = topology["meta"]
+            parts = [base_name]
+            
+            # Add architecture-specific parameters if present
+            if "n_dac" in meta:
+                parts.append(f"{meta['n_dac']}bit")
+            if "m_caps" in meta:
+                parts.append(f"{meta['m_caps']}cap")
+            if "redun_strat" in meta:
+                parts.append(meta["redun_strat"])
+            if "split_strat" in meta:
+                parts.append(meta["split_strat"])
+            if "scale" in meta:
+                parts.append(f"{meta['scale']}x")
+            
+            parts.append(tech)
+            return "_".join(parts) + ".sp"
+        else:
+            # Fallback to old behavior for circuits without top-level meta
+            parts = [base_name, tech]
 
-        if sweep_spec and "sweeps" in sweep_spec:
-            for sweep in sweep_spec["sweeps"]:
-                devices = sweep["devices"]
-                meta = topology["devices"][devices[0]].get("meta", {})
+            if sweep_spec and "sweeps" in sweep_spec:
+                for sweep in sweep_spec["sweeps"]:
+                    devices = sweep["devices"]
+                    meta = topology["devices"][devices[0]].get("meta", {})
 
-                # Build param string for varying parameters
-                param_parts = []
-                for param in ["w", "l", "nf", "type"]:
-                    if param in sweep and len(sweep[param]) > 1:
-                        param_parts.append(f"{param}{meta.get(param, '')}")
+                    # Build param string for varying parameters
+                    param_parts = []
+                    for param in ["w", "l", "nf", "type"]:
+                        if param in sweep and len(sweep[param]) > 1:
+                            param_parts.append(f"{param}{meta.get(param, '')}")
 
-                if param_parts:
-                    parts.append("-".join(devices) + "-" + "-".join(param_parts))
+                    if param_parts:
+                        parts.append("-".join(devices) + "-" + "-".join(param_parts))
 
-        return "_".join(parts) + ".sp"
+            return "_".join(parts) + ".sp"
 
     else:
         return f"{topology.get('testbench', 'tb_unnamed')}_{tech}.sp"
