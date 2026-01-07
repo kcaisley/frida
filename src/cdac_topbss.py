@@ -144,45 +144,18 @@ def generate_topology(base_name, weights, strategy, partition, scale):
     for idx in coarse_indices:
         w = scaled_weights[idx]
         driver_w = calc_driver_width(w)
-
-        # Digital input port
         ports[f"dac[{idx}]"] = "I"
 
-        # First inverter (w=1, l=1)
-        devices[f"MP1_{idx}"] = {
-            "dev": "pmos",
-            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"},
-            "w": 1,
-            "l": 1,
-        }
-        devices[f"MN1_{idx}"] = {
-            "dev": "nmos",
-            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"},
-            "w": 1,
-            "l": 1,
-        }
+        # First inverter (w=1)
+        devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
+        devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
-        # Second inverter (w=scaled, l=1)
-        devices[f"MP2_{idx}"] = {
-            "dev": "pmos",
-            "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"},
-            "w": driver_w,
-            "l": 1,
-        }
-        devices[f"MN2_{idx}"] = {
-            "dev": "nmos",
-            "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"},
-            "w": driver_w,
-            "l": 1,
-        }
+        # Second inverter (w=scaled)
+        devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+        devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
 
         # Capacitor (weight stored, actual value mapped in technology step)
-        devices[f"C{idx}"] = {
-            "dev": "cap",
-            "pins": {"p": "top", "n": f"bot[{idx}]"},
-            "c": w,
-            "m": 1,
-        }
+        devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
     # ================================================================
     # FINE SECTION (partition-specific implementations)
@@ -194,64 +167,18 @@ def generate_topology(base_name, weights, strategy, partition, scale):
         for idx in fine_indices:
             w = scaled_weights[idx]
             driver_w = calc_driver_width(w)
-
             ports[f"dac[{idx}]"] = "I"
 
             # First inverter
-            devices[f"MP1_{idx}"] = {
-                "dev": "pmos",
-                "pins": {
-                    "d": f"inter[{idx}]",
-                    "g": f"dac[{idx}]",
-                    "s": "vdd",
-                    "b": "vdd",
-                },
-                "w": 1,
-                "l": 1,
-            }
-            devices[f"MN1_{idx}"] = {
-                "dev": "nmos",
-                "pins": {
-                    "d": f"inter[{idx}]",
-                    "g": f"dac[{idx}]",
-                    "s": "vss",
-                    "b": "vss",
-                },
-                "w": 1,
-                "l": 1,
-            }
+            devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
+            devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
             # Second inverter
-            devices[f"MP2_{idx}"] = {
-                "dev": "pmos",
-                "pins": {
-                    "d": f"bot[{idx}]",
-                    "g": f"inter[{idx}]",
-                    "s": "vdd",
-                    "b": "vdd",
-                },
-                "w": driver_w,
-                "l": 1,
-            }
-            devices[f"MN2_{idx}"] = {
-                "dev": "nmos",
-                "pins": {
-                    "d": f"bot[{idx}]",
-                    "g": f"inter[{idx}]",
-                    "s": "vss",
-                    "b": "vss",
-                },
-                "w": driver_w,
-                "l": 1,
-            }
+            devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+            devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
 
             # Capacitor
-            devices[f"C{idx}"] = {
-                "dev": "cap",
-                "pins": {"p": "top", "n": f"bot[{idx}]"},
-                "c": w,
-                "m": 1,
-            }
+            devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
     elif partition == "vdiv_split":
         # Resistor Chain: Coarse array + 64-step resistor ladder + unit caps
@@ -261,94 +188,32 @@ def generate_topology(base_name, weights, strategy, partition, scale):
         #   Fine caps: all unit-sized (1*scale), inverters tap different voltages
 
         if fine_indices:
-            # Generate 64-step resistor ladder
-            # tap[0] implicitly VDD, tap[64] implicitly VSS
+            # Generate 64-step resistor ladder (tap[0] implicitly VDD, tap[64] implicitly VSS)
             for i in range(64):
                 if i == 0:
-                    # First resistor: VDD → tap[1]
-                    devices[f"R{i}"] = {
-                        "dev": "res",
-                        "pins": {"p": "vdd", "n": f"tap[{i + 1}]"},
-                        "r": 4,
-                    }
+                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": "vdd", "n": f"tap[{i + 1}]"}, "r": 4}
                 elif i == 63:
-                    # Last resistor: tap[63] → VSS
-                    devices[f"R{i}"] = {
-                        "dev": "res",
-                        "pins": {"p": f"tap[{i}]", "n": "vss"},
-                        "r": 4,
-                    }
+                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": "vss"}, "r": 4}
                 else:
-                    # Middle resistors: tap[i] → tap[i+1]
-                    devices[f"R{i}"] = {
-                        "dev": "res",
-                        "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"},
-                        "r": 4,
-                    }
+                    devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"}, "r": 4}
 
             # Fine caps: all unit-sized, inverters use resistor chain taps as VDD
             for tap_idx, idx in enumerate(fine_indices):
                 w = scale  # Unit cap
                 driver_w = calc_driver_width(w)
-                tap_node = f"tap[{tap_idx + 1}]"  # Map to tap voltage
-
+                tap_node = f"tap[{tap_idx + 1}]"
                 ports[f"dac[{idx}]"] = "I"
 
                 # First inverter (uses chain voltage as VDD)
-                devices[f"MP1_{idx}"] = {
-                    "dev": "pmos",
-                    "pins": {
-                        "d": f"inter[{idx}]",
-                        "g": f"dac[{idx}]",
-                        "s": tap_node,
-                        "b": tap_node,
-                    },
-                    "w": 1,
-                    "l": 1,
-                }
-                devices[f"MN1_{idx}"] = {
-                    "dev": "nmos",
-                    "pins": {
-                        "d": f"inter[{idx}]",
-                        "g": f"dac[{idx}]",
-                        "s": "vss",
-                        "b": "vss",
-                    },
-                    "w": 1,
-                    "l": 1,
-                }
+                devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": tap_node, "b": tap_node}, "w": 1}
+                devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
                 # Second inverter (uses chain voltage as VDD)
-                devices[f"MP2_{idx}"] = {
-                    "dev": "pmos",
-                    "pins": {
-                        "d": f"bot[{idx}]",
-                        "g": f"inter[{idx}]",
-                        "s": tap_node,
-                        "b": tap_node,
-                    },
-                    "w": driver_w,
-                    "l": 1,
-                }
-                devices[f"MN2_{idx}"] = {
-                    "dev": "nmos",
-                    "pins": {
-                        "d": f"bot[{idx}]",
-                        "g": f"inter[{idx}]",
-                        "s": "vss",
-                        "b": "vss",
-                    },
-                    "w": driver_w,
-                    "l": 1,
-                }
+                devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w}
+                devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
 
                 # Unit capacitor
-                devices[f"C{idx}"] = {
-                    "dev": "cap",
-                    "pins": {"p": "top", "n": f"bot[{idx}]"},
-                    "c": w,
-                    "m": 1,
-                }
+                devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
     elif partition == "diffcap_split":
         # Difference Capacitor: Coarse array + difference cap pairs
@@ -364,76 +229,23 @@ def generate_topology(base_name, weights, strategy, partition, scale):
         for idx in fine_indices:
             w = scaled_weights[idx]
             driver_w = calc_driver_width(w)
-
-            # Difference cap formula
             c_main = 0.4 * (65 + w)  # fF
             c_diff = 0.4 * (65 - w)  # fF
-
             ports[f"dac[{idx}]"] = "I"
 
             # First inverter
-            devices[f"MP1_{idx}"] = {
-                "dev": "pmos",
-                "pins": {
-                    "d": f"inter[{idx}]",
-                    "g": f"dac[{idx}]",
-                    "s": "vdd",
-                    "b": "vdd",
-                },
-                "w": 1,
-                "l": 1,
-            }
-            devices[f"MN1_{idx}"] = {
-                "dev": "nmos",
-                "pins": {
-                    "d": f"inter[{idx}]",
-                    "g": f"dac[{idx}]",
-                    "s": "vss",
-                    "b": "vss",
-                },
-                "w": 1,
-                "l": 1,
-            }
+            devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
+            devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
             # Second inverter (drives main cap)
-            devices[f"MP2_{idx}"] = {
-                "dev": "pmos",
-                "pins": {
-                    "d": f"bot_main[{idx}]",
-                    "g": f"inter[{idx}]",
-                    "s": "vdd",
-                    "b": "vdd",
-                },
-                "w": driver_w,
-                "l": 1,
-            }
-            devices[f"MN2_{idx}"] = {
-                "dev": "nmos",
-                "pins": {
-                    "d": f"bot_main[{idx}]",
-                    "g": f"inter[{idx}]",
-                    "s": "vss",
-                    "b": "vss",
-                },
-                "w": driver_w,
-                "l": 1,
-            }
+            devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+            devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
 
             # Main capacitor
-            devices[f"Cmain{idx}"] = {
-                "dev": "cap",
-                "pins": {"p": "top", "n": f"bot_main[{idx}]"},
-                "c": c_main * 1e-15,
-                "m": 1,
-            }
+            devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main[{idx}]"}, "c": c_main * 1e-15, "m": 1}
 
             # Diff capacitor (driven by intermediate node for opposite polarity)
-            devices[f"Cdiff{idx}"] = {
-                "dev": "cap",
-                "pins": {"p": "top", "n": f"inter[{idx}]"},
-                "c": c_diff * 1e-15,
-                "m": 1,
-            }
+            devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff * 1e-15, "m": 1}
 
     # Build final topology
     topology = {
@@ -553,18 +365,8 @@ def testbench():
     topology = {
         "testbench": "tb_cdac_topbss",
         "devices": {
-            "Vvdd": {
-                "dev": "vsource",
-                "pins": {"p": "vdd", "n": "gnd"},
-                "wave": "dc",
-                "dc": 1.0,
-            },
-            "Vvss": {
-                "dev": "vsource",
-                "pins": {"p": "vss", "n": "gnd"},
-                "wave": "dc",
-                "dc": 0.0,
-            },
+            "Vvdd": {"dev": "vsource", "pins": {"p": "vdd", "n": "gnd"}, "wave": "dc", "dc": 1.0},
+            "Vvss": {"dev": "vsource", "pins": {"p": "vss", "n": "gnd"}, "wave": "dc", "dc": 0.0},
         },
     }
 
