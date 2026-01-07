@@ -1,3 +1,69 @@
+"""
+Converts Python circuit descriptions into SPICE netlists with
+technology-specific device mappings and parameter sweeps.
+
+Data Flow:
+----------
+1. Load circuit module (Python file with subcircuit()/testbench() functions)
+2. expand_sweeps() - Generate all parameter combinations from sweep specs
+3. map_technology() - Map generic devices to tech-specific models
+4. generate_spice() - Convert to SPICE netlist string
+5. Write .sp and .json files
+
+Key Data Structures:
+--------------------
+
+Topology Dictionary (from circuit modules):
+    {
+        "subckt": str,                      # Subcircuit name
+        "ports": dict[str, str],            # Port name -> direction ("I", "O", "B")
+        "devices": dict[str, DeviceDict],   # Device instances
+        "meta": dict[str, Any]              # Optional metadata
+    }
+
+DeviceDict (before technology mapping):
+    {
+        "dev": "nmos" | "pmos" | "cap" | "res",
+        "pins": dict[str, str],             # Pin connections
+        "w": int,                           # Width multiplier (transistors)
+        "l": int,                           # Length multiplier (transistors)
+        "c": int,                           # Capacitance weight (capacitors)
+        "m": int,                           # Multiplier (capacitors)
+        "r": int                            # Resistance multiplier (resistors)
+    }
+
+DeviceDict (after technology mapping):
+    {
+        "model": str,                       # Technology-specific model name
+        "pins": dict[str, str],
+        "w": float,                         # Absolute width in meters
+        "l": float,                         # Absolute length in meters
+        "nf": int,                          # Number of fingers
+        "meta": dict[str, Any]              # Original generic parameters
+    }
+
+Sweep Dictionary:
+    {
+        "tech": list[str],                  # Technologies to generate
+        "defaults": {
+            "nmos": {"type": str, "w": int, "l": int, "nf": int},
+            "pmos": {"type": str, "w": int, "l": int, "nf": int},
+            "cap": {"dev": str},            # e.g., "momcap"
+            "res": {"dev": str, "r": int}   # e.g., "polyres", 4
+        },
+        "sweeps": list[SweepSpec]           # Parameter sweep specs
+    }
+
+SweepSpec:
+    {
+        "devices": str | list[str],         # Device names or "cap"/"res" types
+        "w": list[int],                     # Width multipliers to sweep
+        "l": list[int],                     # Length multipliers to sweep
+        "m": list[int],                     # Cap multipliers to sweep
+        "type": list[str]                   # Transistor types to sweep
+    }
+"""
+
 import argparse
 import copy
 import importlib.util
@@ -169,7 +235,7 @@ scalemap = {
 # ========================================================================
 
 
-def compact_json(obj, indent=2, lvl=0):
+def compact_json(obj: Any, indent: int = 2, lvl: int = 0) -> str:
     """Format JSON with leaf dicts/lists on single lines."""
     pad, pad1 = " " * indent * lvl, " " * indent * (lvl + 1)
 
@@ -205,7 +271,7 @@ def compact_json(obj, indent=2, lvl=0):
     return json.dumps(obj)
 
 
-def load_circuit_module(circuit_file: Path):
+def load_circuit_module(circuit_file: Path) -> Any:
     """Dynamically load a circuit Python file."""
     spec = importlib.util.spec_from_file_location("circuit", circuit_file)
     if spec is None:
@@ -295,7 +361,7 @@ def expand_sweeps(
     return all_configurations
 
 
-def map_to_technology(
+def map_technology(
     topology: dict[str, Any], tech: str, techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """
@@ -318,7 +384,7 @@ def map_to_technology(
             mom_config = tech_config.get("mom_cap", {})
             if mom_config:
                 dev_info["model"] = mom_config.get("model", "capacitor")
-                # Keep the weight, it will be converted to capacitance in topology_to_spice
+                # Keep the weight, it will be converted to capacitance in generate_spice
             continue
 
         # Resistors need no technology mapping (already have r value)
@@ -345,7 +411,7 @@ def map_to_technology(
     return topo_copy
 
 
-def scale_testbench_values(
+def scale_testbench(
     topology: dict[str, Any], tech: str, techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """Scale voltage and time values in testbench topology using scalemap."""
@@ -395,7 +461,7 @@ def scale_testbench_values(
     return topo_copy
 
 
-def add_automatic_fields(
+def autoadd_fields(
     topology: dict[str, Any],
     tech: str,
     techmap: dict[str, Any],
@@ -490,7 +556,7 @@ def add_automatic_fields(
     return topo_copy
 
 
-def format_value(value: float, unit: str = "") -> str:
+def format_value(value: float | int, unit: str = "") -> str:
     """Format a value with appropriate SI prefix using unitmap."""
     if value == 0:
         return "0"
@@ -502,7 +568,7 @@ def format_value(value: float, unit: str = "") -> str:
     return f"{value:.6g}{unit}"
 
 
-def topology_to_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
+def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
     """
     Convert topology dict to SPICE netlist string.
 
@@ -753,10 +819,20 @@ def topology_to_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str
     return "\n".join(lines) + "\n"
 
 
-def generate_netlist_filename(
+def generate_filename(
     topology: dict[str, Any], tech: str, sweep_spec: dict[str, Any] | None = None
 ) -> str:
-    """Generate filename for a netlist using meta values for parameters."""
+    """
+    Generate filename for a netlist using meta values for parameters.
+
+    Args:
+        topology: Topology dictionary with 'subckt' or 'testbench' key
+        tech: Technology name (e.g., 'tsmc65', 'tsmc28', 'tower180')
+        sweep_spec: Optional sweep specification dictionary
+
+    Returns:
+        Filename string (e.g., 'cdac_7bit_7cap_radix2_tsmc65.sp')
+    """
     if "subckt" in topology:
         base_name = topology["subckt"]
         parts = [base_name, tech]
@@ -785,9 +861,16 @@ def generate_netlist_filename(
 
 
 def generate_subcircuits(
-    circuit_module, output_dir: Path, tech_list: list[str] | None = None
-):
-    """Generate subcircuit netlists."""
+    circuit_module: Any, output_dir: Path, tech_list: list[str] | None = None
+) -> None:
+    """
+    Generate subcircuit netlists from a circuit module.
+
+    Args:
+        circuit_module: Loaded Python module with subcircuit() function
+        output_dir: Directory to write output files
+        tech_list: Optional list of technologies to generate (uses module's list if None)
+    """
     result = circuit_module.subcircuit()
 
     # Handle both single (topology, sweep) and list of (topology, sweep) tuples
@@ -818,15 +901,15 @@ def generate_subcircuits(
         for tech in config_tech_list:
             for topo in topologies:
                 # Map to technology
-                tech_topo = map_to_technology(topo, tech, techmap)
+                tech_topo = map_technology(topo, tech, techmap)
 
                 # Generate filename
-                filename = generate_netlist_filename(tech_topo, tech, sweep)
+                filename = generate_filename(tech_topo, tech, sweep)
                 output_path = output_dir / filename
                 json_path = output_dir / filename.replace(".sp", ".json")
 
                 # Convert to SPICE
-                spice_str = topology_to_spice(tech_topo, mode="subcircuit")
+                spice_str = generate_spice(tech_topo, mode="subcircuit")
 
                 # Write SPICE file
                 output_path.write_text(spice_str)
@@ -840,13 +923,22 @@ def generate_subcircuits(
 
 
 def generate_testbenches(
-    circuit_module,
-    subckt_module,
+    circuit_module: Any,
+    subckt_module: Any,
     output_dir: Path,
     tech_list: list[str] | None = None,
     corner: str = "tt",
-):
-    """Generate testbench netlists."""
+) -> None:
+    """
+    Generate testbench netlists from a circuit module.
+
+    Args:
+        circuit_module: Loaded Python module with testbench() function
+        subckt_module: Loaded Python module with subcircuit() function
+        output_dir: Directory to write output files
+        tech_list: Optional list of technologies to generate
+        corner: Process corner (e.g., 'tt', 'ss', 'ff')
+    """
     tb_topology = circuit_module.testbench()
     subckt_topology, subckt_sweep = subckt_module.subcircuit()
 
@@ -865,20 +957,20 @@ def generate_testbenches(
         print(f"\nTechnology: {tech}")
 
         # Scale testbench values
-        scaled_tb = scale_testbench_values(tb_topology, tech, techmap)
+        scaled_tb = scale_testbench(tb_topology, tech, techmap)
 
         # Add automatic fields
-        complete_tb = add_automatic_fields(
+        complete_tb = autoadd_fields(
             scaled_tb, tech, techmap, subckt_topology, corner
         )
 
         # Generate filename
-        filename = generate_netlist_filename(complete_tb, tech)
+        filename = generate_filename(complete_tb, tech)
         output_path = output_dir / filename
         json_path = output_dir / filename.replace(".sp", ".json")
 
         # Convert to SPICE
-        spice_str = topology_to_spice(complete_tb, mode="testbench")
+        spice_str = generate_spice(complete_tb, mode="testbench")
 
         # Write SPICE file
         output_path.write_text(spice_str)
@@ -892,7 +984,7 @@ def generate_testbenches(
     print(f"\nTotal: {count} testbenches generated")
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Generate SPICE netlists from Python specifications"

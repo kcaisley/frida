@@ -4,12 +4,61 @@ Capacitor DAC (CDAC) generator for SAR ADC.
 Generates capacitor arrays with different bit resolutions, physical cap counts,
 and weighting strategies. The topology varies with m_caps (number of physical
 capacitors), so this generates multiple configurations.
+
+Type Definitions:
+-----------------
+
+Topology Dictionary Structure:
+    {
+        "subckt": str,                    # Subcircuit name
+        "ports": dict[str, str],          # Port name -> direction ("I", "O", "B")
+        "devices": dict[str, DeviceDict], # Device instances
+        "meta": dict[str, Any]            # Metadata about the circuit
+    }
+
+DeviceDict Structure:
+    For transistors (nmos/pmos):
+        {
+            "dev": "nmos" | "pmos",
+            "pins": {"d": str, "g": str, "s": str, "b": str},
+            "w": int,  # Width multiplier
+        }
+    
+    For capacitors:
+        {
+            "dev": "cap",
+            "pins": {"p": str, "n": str},
+            "c": int,  # Capacitance weight (integer)
+            "m": int   # Multiplier
+        }
+    
+    For resistors:
+        {
+            "dev": "res",
+            "pins": {"p": str, "n": str},
+            "r": int   # Resistance multiplier (e.g., 4 = 400 ohms)
+        }
+
+Sweep Dictionary Structure:
+    {
+        "tech": list[str],                # Technology nodes to sweep
+        "defaults": {
+            "nmos": {"type": str, "w": int, "l": int, "nf": int},
+            "pmos": {"type": str, "w": int, "l": int, "nf": int}
+        },
+        "sweeps": list[dict[str, Any]]    # Parameter sweep specifications
+    }
+
+Return from subcircuit():
+    list[tuple[dict[str, Any], dict[str, Any]]]
+    # List of (topology, sweep) tuples
 """
 
 import math
+from typing import Any
 
 
-def calc_weights(n_dac, n_extra, strategy):
+def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
     """
     Calculate capacitor weights for CDAC.
 
@@ -111,7 +160,7 @@ def calc_weights(n_dac, n_extra, strategy):
         raise ValueError(f"Unknown strategy: {strategy}")
 
 
-def generate_topology(base_name, weights, strategy, partition, scale):
+def generate_topology(base_name: str, weights: list[int], redun_strat: str, split_strat: str, scale: int) -> dict[str, Any]:
     """
     Generate physical CDAC topology for a given partition scheme.
 
@@ -119,7 +168,7 @@ def generate_topology(base_name, weights, strategy, partition, scale):
         base_name: Base subcircuit name
         weights: List of integer weights from calc_weights
         strategy: Weighting strategy (radix2, subradix2_*, etc.)
-        partition: 'no_split', 'vdiv_split', or 'diffcap_split'
+        split_strat: 'no_split', 'vdiv_split', or 'diffcap_split'
         scale: Capacitance scale factor (1, 2, or 3)
 
     Returns:
@@ -138,7 +187,7 @@ def generate_topology(base_name, weights, strategy, partition, scale):
     ports = {"top": "B", "vdd": "B", "vss": "B"}
 
     # ================================================================
-    # COARSE SECTION (common to all partition schemes)
+    # COARSE SECTION (common to all split strategies)
     # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
     # ================================================================
     for idx in coarse_indices:
@@ -158,10 +207,10 @@ def generate_topology(base_name, weights, strategy, partition, scale):
         devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
     # ================================================================
-    # FINE SECTION (partition-specific implementations)
+    # FINE SECTION (split_strat-specific implementations)
     # ================================================================
 
-    if partition == "no_split":
+    if split_strat == "no_split":
         # No Split: Same structure as coarse section for all weights
         # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
         for idx in fine_indices:
@@ -180,7 +229,7 @@ def generate_topology(base_name, weights, strategy, partition, scale):
             # Capacitor
             devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
-    elif partition == "vdiv_split":
+    elif split_strat == "vdiv_split":
         # Resistor Chain: Coarse array + 64-step resistor ladder + unit caps
         # Topology:
         #   Resistor chain: VDD → R → tap[1] → R → tap[2] → ... → tap[63] → R → VSS
@@ -215,7 +264,7 @@ def generate_topology(base_name, weights, strategy, partition, scale):
                 # Unit capacitor
                 devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": w, "m": 1}
 
-    elif partition == "diffcap_split":
+    elif split_strat == "diffcap_split":
         # Difference Capacitor: Coarse array + difference cap pairs
         # Topology:
         #   dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot_main[i] → Cmain
@@ -249,14 +298,14 @@ def generate_topology(base_name, weights, strategy, partition, scale):
 
     # Build final topology
     topology = {
-        "subckt": f"{base_name}_{partition}_{scale}x",
+        "subckt": f"{base_name}_{split_strat}_{scale}x",
         "ports": ports,
         "devices": devices,
         "meta": {
             "n_dac": len(weights),
-            "partition": partition,
+            "split_strat": split_strat,
             "scale": scale,
-            "strategy": strategy,
+            "redun_strat": redun_strat,
             "weights": weights,
             "scaled_weights": scaled_weights,
             "threshold": threshold,
@@ -268,78 +317,51 @@ def generate_topology(base_name, weights, strategy, partition, scale):
     return topology
 
 
-def subcircuit():
+def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """
     Generate CDAC topologies for all N/M/strategy/partition combinations.
 
     Sweeps:
         n_dac: DAC resolution (7, 9, 11, 13)
         n_extra: Number of extra physical capacitors (0 for radix2, 2/4/6 for others)
-        strategy: Weight distribution
+        redun_strat: Weight distribution
             - radix2: n_extra = 0 only (4 combinations)
             - subradix2_unbounded, subradix2_normalized, subradix2_redist, radix2_repeat:
               n_extra = 2, 4, 6 (48 combinations)
-        partition: Physical implementation ('no_split', 'vdiv_split', 'diffcap_split')
+        split_strat: Physical implementation ('no_split', 'vdiv_split', 'diffcap_split')
         m: Capacitance multiplier (1, 2, 3) - swept in sweep section
 
     Returns:
-        List of (topology, sweep) tuples (52 × 4 = 208 total base configs, swept over m)
+        List of (topology, sweep) tuples (52 × 3 = 156 total base configs, swept over m)
     """
     # Sweep parameters
     n_dac_list = [7, 9, 11, 13]
-    partition_list = ["no_split", "vdiv_split", "diffcap_split"]
+    n_extra_list = [0, 2, 4, 6]
+    redun_strat_list = ["radix2", "subradix2_redist", "subradix2_normalized", "subradix2_unbounded", "radix2_repeat"]
+    split_strat_list = ["no_split", "vdiv_split", "diffcap_split"]
 
     # Generate all base configurations (without scale sweep in topology generation)
     all_configurations = []
 
-    # First: radix2 with n_extra = 0 (4 base × 4 partitions = 16 configs)
-    for n_dac in n_dac_list:
-        n_extra = 0
-        strategy = "radix2"
-        weights = calc_weights(n_dac, n_extra, strategy)
-        m_caps = n_dac + n_extra
-        base_name = f"cdac_{n_dac}bit_{m_caps}cap_{strategy}"
-
-        # Generate all partition combinations
-        for partition in partition_list:
-            # Generate topology with scale=1 as base (will be swept via 'm' parameter)
-            topology = generate_topology(
-                base_name, weights, strategy, partition, scale=1
-            )
-
-            # Technology sweep with 'm' parameter for capacitor multiplier
-            sweep = {
-                "tech": ["tsmc65", "tsmc28", "tower180"],
-                "defaults": {
-                    "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                    "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                },
-                "sweeps": [{"devices": "momcap", "m": [1, 2, 3]}],
-            }
-            all_configurations.append((topology, sweep))
-
-    # Second: other strategies with n_extra > 0 (48 base × 4 partitions = 192 configs)
-    n_extra_list = [2, 4, 6]
-    redundant_strategies = [
-        "subradix2_redist",
-        "subradix2_normalized",
-        "subradix2_unbounded",
-        "radix2_repeat",
-    ]
-
     for n_dac in n_dac_list:
         for n_extra in n_extra_list:
-            for strategy in redundant_strategies:
-                # Calculate weights for this configuration
-                weights = calc_weights(n_dac, n_extra, strategy)
-                m_caps = n_dac + n_extra
-                base_name = f"cdac_{n_dac}bit_{m_caps}cap_{strategy}"
+            for redun_strat in redun_strat_list:
+                # Skip invalid combinations: radix2 only works with n_extra=0, others only with n_extra>0
+                if redun_strat == "radix2" and n_extra != 0:
+                    continue
+                if redun_strat != "radix2" and n_extra == 0:
+                    continue
 
-                # Generate all partition combinations
-                for partition in partition_list:
+                # Calculate weights for this configuration
+                weights = calc_weights(n_dac, n_extra, redun_strat)
+                m_caps = n_dac + n_extra
+                base_name = f"cdac_{n_dac}bit_{m_caps}cap_{redun_strat}"
+
+                # Generate all split strategy combinations
+                for split_strat in split_strat_list:
                     # Generate topology with scale=1 as base (will be swept via 'm' parameter)
                     topology = generate_topology(
-                        base_name, weights, strategy, partition, scale=1
+                        base_name, weights, redun_strat, split_strat, scale=1
                     )
 
                     # Technology sweep with 'm' parameter for capacitor multiplier
@@ -356,7 +378,7 @@ def subcircuit():
     return all_configurations
 
 
-def testbench():
+def testbench() -> dict[str, Any]:
     """
     Generate testbench for CDAC characterization.
 
@@ -374,7 +396,7 @@ def testbench():
 
 
 # Helper functions
-def calc_driver_width(cap_weight):
+def calc_driver_width(cap_weight: int) -> int:
     """
     Calculate driver width based on capacitor weight.
 
@@ -389,7 +411,7 @@ def calc_driver_width(cap_weight):
     return max(1, int(math.sqrt(cap_weight)))
 
 
-def partition_weights(weights, threshold):
+def partition_weights(weights: list[int], threshold: int) -> tuple[list[int], list[int]]:
     """
     Partition weights into coarse and fine sections.
 
@@ -405,7 +427,7 @@ def partition_weights(weights, threshold):
     return coarse, fine
 
 
-def analyze_weights(weights):
+def analyze_weights(weights: list[int]) -> dict[str, int]:
     """
     Analyze weight distribution for debugging.
 
