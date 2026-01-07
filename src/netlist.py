@@ -11,7 +11,6 @@ from typing import Any
 # Technology Configuration
 # ========================================================================
 
-
 techmap = {
     "tsmc65": {
         "libs": [
@@ -236,6 +235,9 @@ def expand_sweeps(
         """Get default meta values for a transistor type."""
         if dev not in ["nmos", "pmos"]:
             return {}
+        # Check if defaults exist in sweep (not all topologies use sweeps)
+        if "defaults" not in sweep:
+            return {}
         defaults = sweep["defaults"][dev]
         return {
             "dev": dev,
@@ -317,6 +319,10 @@ def map_to_technology(
             if mom_config:
                 dev_info["model"] = mom_config.get("model", "capacitor")
                 # Keep the weight, it will be converted to capacitance in topology_to_spice
+            continue
+
+        # Resistors need no technology mapping (already have r value)
+        if dev == "res":
             continue
 
         meta = dev_info.get("meta")
@@ -565,6 +571,13 @@ def topology_to_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str
                     lines.append(
                         f"{dev_name} {p} {n} {cap_model} c={format_value(weight * 1e-15, 'F')}"
                     )
+
+            # Resistors (for RDAC partition scheme)
+            elif dev == "res":
+                p = pins.get("p", "p")
+                n = pins.get("n", "n")
+                r = dev_info.get("r", 1000)  # resistance in ohms
+                lines.append(f"{dev_name} {p} {n} {format_value(r, 'Ohm')}")
 
         lines.append("")
         lines.append(f".ends {subckt_name}")

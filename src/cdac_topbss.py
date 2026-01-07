@@ -14,7 +14,7 @@ def calc_weights(n_dac, n_extra, strategy):
     Calculate capacitor weights for CDAC.
 
     Args:
-        n_dac: DAC resolution in bits
+
         n_extra: Number of extra physical capacitors for redundancy
         strategy: 'radix2', 'subradix2_unbounded', 'subradix2_normalized',
                   'subradix2_redist', 'radix2_repeat'
@@ -111,9 +111,354 @@ def calc_weights(n_dac, n_extra, strategy):
         raise ValueError(f"Unknown strategy: {strategy}")
 
 
+def generate_topology(base_name, weights, strategy, partition, scale):
+    """
+    Generate physical CDAC topology for a given partition scheme.
+
+    Args:
+        base_name: Base subcircuit name
+        weights: List of integer weights from calc_weights
+        strategy: Weighting strategy (radix2, subradix2_*, etc.)
+        partition: 'no_split', 'vdiv_split', or 'diffcap_split'
+        scale: Capacitance scale factor (1, 2, or 3)
+
+    Returns:
+        dict with 'subckt', 'ports', 'devices', 'meta'
+    """
+    # Scale all weights by the scale factor
+    scaled_weights = [w * scale for w in weights]
+    threshold = 64 * scale  # Coarse/fine split threshold
+
+    # Split indices into coarse (w > threshold) and fine (w ≤ threshold)
+    coarse_indices = [i for i, w in enumerate(scaled_weights) if w > threshold]
+    fine_indices = [i for i, w in enumerate(scaled_weights) if w <= threshold]
+
+    # Initialize topology components
+    devices = {}
+    ports = {"top": "B", "vdd": "B", "vss": "B"}
+
+    # ================================================================
+    # COARSE SECTION (common to all partition schemes)
+    # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
+    # ================================================================
+    for idx in coarse_indices:
+        w = scaled_weights[idx]
+        driver_w = calc_driver_width(w)
+
+        # Digital input port
+        ports[f"dac[{idx}]"] = "I"
+
+        # First inverter (w=1, l=1)
+        devices[f"MP1_{idx}"] = {
+            "dev": "pmos",
+            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"},
+            "w": 1,
+            "l": 1,
+        }
+        devices[f"MN1_{idx}"] = {
+            "dev": "nmos",
+            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"},
+            "w": 1,
+            "l": 1,
+        }
+
+        # Second inverter (w=scaled, l=1)
+        devices[f"MP2_{idx}"] = {
+            "dev": "pmos",
+            "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"},
+            "w": driver_w,
+            "l": 1,
+        }
+        devices[f"MN2_{idx}"] = {
+            "dev": "nmos",
+            "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"},
+            "w": driver_w,
+            "l": 1,
+        }
+
+        # Capacitor (weight stored, actual value mapped in technology step)
+        devices[f"C{idx}"] = {
+            "dev": "cap",
+            "pins": {"p": "top", "n": f"bot[{idx}]"},
+            "c": w,
+            "m": 1,
+        }
+
+    # ================================================================
+    # FINE SECTION (partition-specific implementations)
+    # ================================================================
+
+    if partition == "no_split":
+        # No Split: Same structure as coarse section for all weights
+        # Topology: dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot[i] → Cap
+        for idx in fine_indices:
+            w = scaled_weights[idx]
+            driver_w = calc_driver_width(w)
+
+            ports[f"dac[{idx}]"] = "I"
+
+            # First inverter
+            devices[f"MP1_{idx}"] = {
+                "dev": "pmos",
+                "pins": {
+                    "d": f"inter[{idx}]",
+                    "g": f"dac[{idx}]",
+                    "s": "vdd",
+                    "b": "vdd",
+                },
+                "w": 1,
+                "l": 1,
+            }
+            devices[f"MN1_{idx}"] = {
+                "dev": "nmos",
+                "pins": {
+                    "d": f"inter[{idx}]",
+                    "g": f"dac[{idx}]",
+                    "s": "vss",
+                    "b": "vss",
+                },
+                "w": 1,
+                "l": 1,
+            }
+
+            # Second inverter
+            devices[f"MP2_{idx}"] = {
+                "dev": "pmos",
+                "pins": {
+                    "d": f"bot[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vdd",
+                    "b": "vdd",
+                },
+                "w": driver_w,
+                "l": 1,
+            }
+            devices[f"MN2_{idx}"] = {
+                "dev": "nmos",
+                "pins": {
+                    "d": f"bot[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vss",
+                    "b": "vss",
+                },
+                "w": driver_w,
+                "l": 1,
+            }
+
+            # Capacitor
+            devices[f"C{idx}"] = {
+                "dev": "cap",
+                "pins": {"p": "top", "n": f"bot[{idx}]"},
+                "c": w,
+                "m": 1,
+            }
+
+    elif partition == "vdiv_split":
+        # Resistor Chain: Coarse array + 64-step resistor ladder + unit caps
+        # Topology:
+        #   Resistor chain: VDD → R → tap[1] → R → tap[2] → ... → tap[63] → R → VSS
+        #   Total resistance: 64 × 400Ω = 25.6kΩ (current ~47µA)
+        #   Fine caps: all unit-sized (1*scale), inverters tap different voltages
+
+        if fine_indices:
+            # Generate 64-step resistor ladder
+            # tap[0] implicitly VDD, tap[64] implicitly VSS
+            for i in range(64):
+                if i == 0:
+                    # First resistor: VDD → tap[1]
+                    devices[f"R{i}"] = {
+                        "dev": "res",
+                        "pins": {"p": "vdd", "n": f"tap[{i + 1}]"},
+                        "r": 4,
+                    }
+                elif i == 63:
+                    # Last resistor: tap[63] → VSS
+                    devices[f"R{i}"] = {
+                        "dev": "res",
+                        "pins": {"p": f"tap[{i}]", "n": "vss"},
+                        "r": 4,
+                    }
+                else:
+                    # Middle resistors: tap[i] → tap[i+1]
+                    devices[f"R{i}"] = {
+                        "dev": "res",
+                        "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"},
+                        "r": 4,
+                    }
+
+            # Fine caps: all unit-sized, inverters use resistor chain taps as VDD
+            for tap_idx, idx in enumerate(fine_indices):
+                w = scale  # Unit cap
+                driver_w = calc_driver_width(w)
+                tap_node = f"tap[{tap_idx + 1}]"  # Map to tap voltage
+
+                ports[f"dac[{idx}]"] = "I"
+
+                # First inverter (uses chain voltage as VDD)
+                devices[f"MP1_{idx}"] = {
+                    "dev": "pmos",
+                    "pins": {
+                        "d": f"inter[{idx}]",
+                        "g": f"dac[{idx}]",
+                        "s": tap_node,
+                        "b": tap_node,
+                    },
+                    "w": 1,
+                    "l": 1,
+                }
+                devices[f"MN1_{idx}"] = {
+                    "dev": "nmos",
+                    "pins": {
+                        "d": f"inter[{idx}]",
+                        "g": f"dac[{idx}]",
+                        "s": "vss",
+                        "b": "vss",
+                    },
+                    "w": 1,
+                    "l": 1,
+                }
+
+                # Second inverter (uses chain voltage as VDD)
+                devices[f"MP2_{idx}"] = {
+                    "dev": "pmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": tap_node,
+                        "b": tap_node,
+                    },
+                    "w": driver_w,
+                    "l": 1,
+                }
+                devices[f"MN2_{idx}"] = {
+                    "dev": "nmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vss",
+                        "b": "vss",
+                    },
+                    "w": driver_w,
+                    "l": 1,
+                }
+
+                # Unit capacitor
+                devices[f"C{idx}"] = {
+                    "dev": "cap",
+                    "pins": {"p": "top", "n": f"bot[{idx}]"},
+                    "c": w,
+                    "m": 1,
+                }
+
+    elif partition == "diffcap_split":
+        # Difference Capacitor: Coarse array + difference cap pairs
+        # Topology:
+        #   dac[i] → INV1(w=1) → inter[i] → INV2(w=scaled) → bot_main[i] → Cmain
+        #                          ↓
+        #                       bot_diff[i] → Cdiff
+        # Capacitance formula (for weight w in fine section):
+        #   Cmain = 0.4 * (65 + w) fF
+        #   Cdiff = 0.4 * (65 - w) fF
+        #   Effective = Cmain - Cdiff = 0.4 * 2w = 0.8w fF
+
+        for idx in fine_indices:
+            w = scaled_weights[idx]
+            driver_w = calc_driver_width(w)
+
+            # Difference cap formula
+            c_main = 0.4 * (65 + w)  # fF
+            c_diff = 0.4 * (65 - w)  # fF
+
+            ports[f"dac[{idx}]"] = "I"
+
+            # First inverter
+            devices[f"MP1_{idx}"] = {
+                "dev": "pmos",
+                "pins": {
+                    "d": f"inter[{idx}]",
+                    "g": f"dac[{idx}]",
+                    "s": "vdd",
+                    "b": "vdd",
+                },
+                "w": 1,
+                "l": 1,
+            }
+            devices[f"MN1_{idx}"] = {
+                "dev": "nmos",
+                "pins": {
+                    "d": f"inter[{idx}]",
+                    "g": f"dac[{idx}]",
+                    "s": "vss",
+                    "b": "vss",
+                },
+                "w": 1,
+                "l": 1,
+            }
+
+            # Second inverter (drives main cap)
+            devices[f"MP2_{idx}"] = {
+                "dev": "pmos",
+                "pins": {
+                    "d": f"bot_main[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vdd",
+                    "b": "vdd",
+                },
+                "w": driver_w,
+                "l": 1,
+            }
+            devices[f"MN2_{idx}"] = {
+                "dev": "nmos",
+                "pins": {
+                    "d": f"bot_main[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vss",
+                    "b": "vss",
+                },
+                "w": driver_w,
+                "l": 1,
+            }
+
+            # Main capacitor
+            devices[f"Cmain{idx}"] = {
+                "dev": "cap",
+                "pins": {"p": "top", "n": f"bot_main[{idx}]"},
+                "c": c_main * 1e-15,
+                "m": 1,
+            }
+
+            # Diff capacitor (driven by intermediate node for opposite polarity)
+            devices[f"Cdiff{idx}"] = {
+                "dev": "cap",
+                "pins": {"p": "top", "n": f"inter[{idx}]"},
+                "c": c_diff * 1e-15,
+                "m": 1,
+            }
+
+    # Build final topology
+    topology = {
+        "subckt": f"{base_name}_{partition}_{scale}x",
+        "ports": ports,
+        "devices": devices,
+        "meta": {
+            "n_dac": len(weights),
+            "partition": partition,
+            "scale": scale,
+            "strategy": strategy,
+            "weights": weights,
+            "scaled_weights": scaled_weights,
+            "threshold": threshold,
+            "n_coarse": len(coarse_indices),
+            "n_fine": len(fine_indices),
+        },
+    }
+
+    return topology
+
+
 def subcircuit():
     """
-    Generate CDAC topologies for all N/M/strategy combinations.
+    Generate CDAC topologies for all N/M/strategy/partition combinations.
 
     Sweeps:
         n_dac: DAC resolution (7, 9, 11, 13)
@@ -122,59 +467,46 @@ def subcircuit():
             - radix2: n_extra = 0 only (4 combinations)
             - subradix2_unbounded, subradix2_normalized, subradix2_redist, radix2_repeat:
               n_extra = 2, 4, 6 (48 combinations)
-
+        partition: Physical implementation ('no_split', 'vdiv_split', 'diffcap_split')
+        m: Capacitance multiplier (1, 2, 3) - swept in sweep section
 
     Returns:
-        List of (topology, sweep) tuples, one per configuration (52 total)
+        List of (topology, sweep) tuples (52 × 4 = 208 total base configs, swept over m)
     """
     # Sweep parameters
     n_dac_list = [7, 9, 11, 13]
+    partition_list = ["no_split", "vdiv_split", "diffcap_split"]
 
-    # Generate all configurations
-    configurations = []
+    # Generate all base configurations (without scale sweep in topology generation)
+    all_configurations = []
 
-    # First: radix2 with n_extra = 0 (4 combinations)
+    # First: radix2 with n_extra = 0 (4 base × 4 partitions = 16 configs)
     for n_dac in n_dac_list:
         n_extra = 0
         strategy = "radix2"
         weights = calc_weights(n_dac, n_extra, strategy)
         m_caps = n_dac + n_extra
+        base_name = f"cdac_{n_dac}bit_{m_caps}cap_{strategy}"
 
-        # Build ports: top plate + m_caps bottom plates + supplies
-        ports = {"top": "B", "vdd": "B", "vss": "B"}
-        for i in range(m_caps):
-            ports[f"bot[{i}]"] = "I"
+        # Generate all partition combinations
+        for partition in partition_list:
+            # Generate topology with scale=1 as base (will be swept via 'm' parameter)
+            topology = generate_topology(
+                base_name, weights, strategy, partition, scale=1
+            )
 
-        # Build devices: m_caps capacitors
-        devices = {}
-        for i, w in enumerate(weights):
-            devices[f"C{i}"] = {
-                "dev": "mom_cap",
-                "pins": {"p": "top", "n": f"bot[{i}]"},
-                "weight": w,
+            # Technology sweep with 'm' parameter for capacitor multiplier
+            sweep = {
+                "tech": ["tsmc65", "tsmc28", "tower180"],
+                "defaults": {
+                    "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                    "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                },
+                "sweeps": [{"devices": "momcap", "m": [1, 2, 3]}],
             }
+            all_configurations.append((topology, sweep))
 
-        topology = {
-            "subckt": f"cdac_{n_dac}bit_{m_caps}cap_{strategy}",
-            "ports": ports,
-            "devices": devices,
-            "meta": {
-                "n_dac": n_dac,
-                "n_extra": n_extra,
-                "m_caps": m_caps,
-                "strategy": strategy,
-                "weights": weights,
-                "total_weight": sum(weights),
-            },
-        }
-
-        sweep = {
-            "tech": ["tsmc65", "tsmc28", "tower180"],
-        }
-
-        configurations.append((topology, sweep))
-
-    # Second: other strategies with n_extra > 0 (48 combinations)
+    # Second: other strategies with n_extra > 0 (48 base × 4 partitions = 192 configs)
     n_extra_list = [2, 4, 6]
     redundant_strategies = [
         "subradix2_redist",
@@ -189,49 +521,37 @@ def subcircuit():
                 # Calculate weights for this configuration
                 weights = calc_weights(n_dac, n_extra, strategy)
                 m_caps = n_dac + n_extra
+                base_name = f"cdac_{n_dac}bit_{m_caps}cap_{strategy}"
 
-                # Build ports: top plate + m_caps bottom plates + supplies
-                ports = {"top": "B", "vdd": "B", "vss": "B"}
-                for i in range(m_caps):
-                    ports[f"bot[{i}]"] = "I"
+                # Generate all partition combinations
+                for partition in partition_list:
+                    # Generate topology with scale=1 as base (will be swept via 'm' parameter)
+                    topology = generate_topology(
+                        base_name, weights, strategy, partition, scale=1
+                    )
 
-                # Build devices: m_caps capacitors
-                devices = {}
-                for i, w in enumerate(weights):
-                    devices[f"C{i}"] = {
-                        "dev": "mom_cap",
-                        "pins": {"p": "top", "n": f"bot[{i}]"},
-                        "weight": w,
+                    # Technology sweep with 'm' parameter for capacitor multiplier
+                    sweep = {
+                        "tech": ["tsmc65", "tsmc28", "tower180"],
+                        "defaults": {
+                            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                        },
+                        "sweeps": [{"devices": "momcap", "m": [1, 2, 3]}],
                     }
+                    all_configurations.append((topology, sweep))
 
-                topology = {
-                    "subckt": f"cdac_{n_dac}bit_{m_caps}cap_{strategy}",
-                    "ports": ports,
-                    "devices": devices,
-                    "meta": {
-                        "n_dac": n_dac,
-                        "n_extra": n_extra,
-                        "m_caps": m_caps,
-                        "strategy": strategy,
-                        "weights": weights,
-                        "total_weight": sum(weights),
-                    },
-                }
-
-                sweep = {
-                    "tech": ["tsmc65", "tsmc28", "tower180"],
-                }
-
-                configurations.append((topology, sweep))
-
-    return configurations
+    return all_configurations
 
 
 def testbench():
-    """CDAC testbench for DNL/INL characterization."""
+    """
+    Generate testbench for CDAC characterization.
 
+    TODO: Add proper testbench topology
+    """
     topology = {
-        "testbench": "tb_cdac",
+        "testbench": "tb_cdac_topbss",
         "devices": {
             "Vvdd": {
                 "dev": "vsource",
@@ -246,66 +566,57 @@ def testbench():
                 "dc": 0.0,
             },
         },
-        "analyses": {
-            "mc1": {
-                "type": "montecarlo",
-                "numruns": 100,
-                "seed": 12345,
-                "variations": "all",
-            },
-        },
     }
 
     return topology
 
 
-# Utility functions for weight analysis
+# Helper functions
+def calc_driver_width(cap_weight):
+    """
+    Calculate driver width based on capacitor weight.
+
+    Args:
+        cap_weight: Capacitor weight in units of Cu
+
+    Returns:
+        Driver width in minimum units
+    """
+    # Simple scaling: driver width proportional to sqrt(cap_weight)
+    # Minimum width is 1
+    return max(1, int(math.sqrt(cap_weight)))
 
 
-def partition_weights(weights, coarse_weight):
-    """Split each weight into chunks of coarse_weight with remainder."""
-    result = []
-    for w in weights:
-        chunks = [coarse_weight] * (w // coarse_weight)
-        remainder = w % coarse_weight
-        if remainder > 0:
-            chunks.append(remainder)
-        result.append(chunks)
-    return result
+def partition_weights(weights, threshold):
+    """
+    Partition weights into coarse and fine sections.
+
+    Args:
+        weights: List of capacitor weights
+        threshold: Split threshold (weights > threshold are coarse)
+
+    Returns:
+        (coarse_indices, fine_indices)
+    """
+    coarse = [i for i, w in enumerate(weights) if w > threshold]
+    fine = [i for i, w in enumerate(weights) if w <= threshold]
+    return coarse, fine
 
 
-def analyze_weights(weights, coarse_weight):
-    """Print analysis of weight distribution and redundancy."""
-    print("Weights:", weights)
-    print("Weight ratios:", [w / coarse_weight for w in weights])
+def analyze_weights(weights):
+    """
+    Analyze weight distribution for debugging.
 
-    partitioned = partition_weights(weights, coarse_weight)
-    print("Partitioned:", partitioned)
-    print(f"Unit count: {sum(math.ceil(w / coarse_weight) for w in weights)}")
-    print(f"Sum: {sum(weights)}, Length: {len(weights)}")
+    Args:
+        weights: List of capacitor weights
 
-    print("\nBit  Weight   Remaining  Radix")
-    print("-" * 36)
-    for i, w in enumerate(weights[:-1]):
-        remaining = sum(weights[i + 1 :])
-        radix = w / weights[i + 1] if weights[i + 1] > 0 else 0
-        print(f"{i:<5}{w:<9}{remaining:<11}{radix:<.2f}")
-    print(f"{len(weights) - 1:<5}{weights[-1]:<9}{'--':<11}{'--'}")
-
-    return partitioned
-
-
-if __name__ == "__main__":
-    configs = subcircuit()
-    print(f"Generated {len(configs)} configurations\n")
-
-    # Print all configurations in order
-    for topo, sweep in configs:
-        meta = topo["meta"]
-        print(f"{topo['subckt']}:")
-        print(
-            f"  strategy={meta['strategy']}, n_dac={meta['n_dac']}, n_extra={meta['n_extra']}, m_caps={meta['m_caps']}"
-        )
-        print(f"  weights = {meta['weights']}")
-        print(f"  sum = {meta['total_weight']}")
-        print()
+    Returns:
+        Dict with statistics
+    """
+    return {
+        "count": len(weights),
+        "min": min(weights),
+        "max": max(weights),
+        "sum": sum(weights),
+        "unique": len(set(weights)),
+    }
