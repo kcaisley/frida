@@ -1,49 +1,56 @@
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+from run_plotting import configure_fonts_for_pdf, configure_fonts_for_svg, save_plot
 
-def configure_fonts_for_pdf():
-    """Configure LaTeX fonts for PDF output"""
-    plt.rcParams.update({
-        "text.usetex": True,       # Use LaTeX for text rendering
-        "font.family": "serif",   # Use serif (LaTeX default)
-        "font.serif": ["Computer Modern Roman"],  # LaTeX default font
-        "font.size": 11,          # Base font size
-        "axes.titlesize": 12,     # Title font size
-        "axes.labelsize": 11,     # Axis label font size
-        "xtick.labelsize": 10,    # X-tick label size
-        "ytick.labelsize": 10,    # Y-tick label size
-        "legend.fontsize": 10,    # Legend font size
-    })
 
-def configure_fonts_for_svg():
-    """Configure sans-serif fonts for SVG output"""
-    plt.rcParams.update({
-        "text.usetex": False,      # Disable LaTeX for SVG
-        "font.family": "sans-serif",  # Use sans-serif
-        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],  # Default sans-serif fonts
-        "font.size": 11,          # Base font size
-        "axes.titlesize": 12,     # Title font size
-        "axes.labelsize": 11,     # Axis label font size
-        "xtick.labelsize": 10,    # X-tick label size
-        "ytick.labelsize": 10,    # Y-tick label size
-        "legend.fontsize": 10,    # Legend font size
-    })
-
-def save_plot(filename_base):
-    """Save plot in both PDF and SVG formats with appropriate font settings"""
-    # Save PDF version with LaTeX fonts
-    configure_fonts_for_pdf()
-    plt.tight_layout()
-    plt.savefig(f'{filename_base}.pdf')
+def analyze_weights(weights: list[int], threshold: int = 64):
+    """
+    Gives analysis of weights for where the main scaling structure ends and where 
+    fine adjustments (such as capacitor differences, Vref scaling with a resistive 
+    divider, or bridge capacitor scaling) begin. The output includes weight 
+    ratios, and various metrics annotated for design insight.
     
-    # Save SVG version with sans-serif fonts
-    configure_fonts_for_svg()
-    plt.tight_layout()
-    plt.savefig(f'{filename_base}.svg')
+    This function calculates and displays key metrics including the unit capacitor 
+    size (defining the transition from coarse to fine scaling), effective radix 
+    between weights, and the percentage of remaining redundancy.
 
-# Start with PDF configuration as default
-configure_fonts_for_pdf()
+    Args:
+        weights: List of capacitor weights
+        threshold: Coarse/fine split threshold (default: 64)
+    """
+    # Print the list of weights
+    print("Weights:", weights)
+    
+    # Print the ratio of each weight to the threshold (unit size)
+    print("Weight ratios:", [w / threshold for w in weights])
+    
+    # Print the sum of all weights
+    print(f"Sum: {sum(weights)}")
+    
+    # Print the number of weights
+    print(f"Length: {len(weights)}")
+
+    # Calculate various metrics for each bit position
+    remaining = []  # Remaining total weight after each bit
+    method4 = []    # Difference between remaining and current weight
+    radix = []      # Ratio of current weight to next weight (effective radix)
+    bit = list(range(len(weights)))  # Bit indices
+
+    # Loop through all but the last weight to compute metrics
+    for i, cap in enumerate(weights[:-1]):
+        remain = sum(weights[i+1:])  # Total weight remaining after this bit
+        remaining.append(remain)
+        method4.append(remain - weights[i])  # Difference between remaining and current
+        radix.append(weights[i] / weights[i+1])  # Effective radix between this and next
+
+    # Print a table of bit index, weight, method4, and radix
+    print("\nBit  Weight   Method4  Radix")
+    print("-" * 32)
+    for a, b, c, d in zip(bit, weights, method4 + [0], radix + [0]):
+        print(f"{a:<8} {b:<8} {c:<8.1f} {d:<8.1f}")
+
+
 
 # We can estimate the RMS amplitude of the signal, by assuming it is a peak-to-peak sinusoid 
 def calc_signal_rms(Vref):

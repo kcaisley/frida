@@ -209,7 +209,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
 
         if split_strat == "no_split":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
-            driver_w = calc_driver_width(c=1, m=w)
+            driver_w = calc_driver_strength(c=1, m=w)
             devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
             devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
             devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
@@ -221,7 +221,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
 
             if quotient > 0:
                 # Main capacitor: m=quotient, c=threshold
-                driver_w = calc_driver_width(c=threshold, m=quotient)
+                driver_w = calc_driver_strength(c=threshold, m=quotient)
                 devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
                 devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
                 devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
@@ -229,7 +229,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
             if remainder > 0:
                 # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
                 tap_node = f"tap[{remainder}]"
-                driver_w_fine = calc_driver_width(c=1, m=1)
+                driver_w_fine = calc_driver_strength(c=1, m=1)
                 devices[f"MP2_{idx}_fine"] = {"dev": "pmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w_fine}
                 devices[f"MN2_{idx}_fine"] = {"dev": "nmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_fine}
                 devices[f"C{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_fine[{idx}]"}, "c": 1, "m": 1}
@@ -241,7 +241,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
 
             if quotient > 0:
                 # Main coarse cap: m=quotient, c=threshold
-                driver_w_main = calc_driver_width(c=threshold, m=quotient)
+                driver_w_main = calc_driver_strength(c=threshold, m=quotient)
                 devices[f"MP2_{idx}_main"] = {"dev": "pmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main}
                 devices[f"MN2_{idx}_main"] = {"dev": "nmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main}
                 devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main[{idx}]"}, "c": threshold, "m": quotient}
@@ -252,7 +252,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
             if remainder > 0:
                 # Main fine cap: m=1, c=(threshold+1+remainder)
                 c_main_fine = threshold + 1 + remainder
-                driver_w_main_fine = calc_driver_width(c=c_main_fine, m=1)
+                driver_w_main_fine = calc_driver_strength(c=c_main_fine, m=1)
                 devices[f"MP2_{idx}_main_fine"] = {"dev": "pmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main_fine}
                 devices[f"MN2_{idx}_main_fine"] = {"dev": "nmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main_fine}
                 devices[f"Cmain{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main_fine[{idx}]"}, "c": c_main_fine, "m": 1}
@@ -363,7 +363,13 @@ def testbench() -> dict[str, Any]:
 
 
 # Helper functions
-def calc_driver_width(c: int, m: int) -> int:
+
+
+# ========================================================================
+# Helper Functions
+# ========================================================================
+
+def calc_driver_strength(c: int, m: int) -> int:
     """
     Calculate driver width based on capacitor parameters.
 
@@ -380,36 +386,4 @@ def calc_driver_width(c: int, m: int) -> int:
     return max(1, int(math.sqrt(total_cap)))
 
 
-def partition_weights(weights: list[int], threshold: int) -> tuple[list[int], list[int]]:
-    """
-    Partition weights into coarse and fine sections.
 
-    Args:
-        weights: List of capacitor weights
-        threshold: Split threshold (weights > threshold are coarse)
-
-    Returns:
-        (coarse_indices, fine_indices)
-    """
-    coarse = [i for i, w in enumerate(weights) if w > threshold]
-    fine = [i for i, w in enumerate(weights) if w <= threshold]
-    return coarse, fine
-
-
-def analyze_weights(weights: list[int]) -> dict[str, int]:
-    """
-    Analyze weight distribution for debugging.
-
-    Args:
-        weights: List of capacitor weights
-
-    Returns:
-        Dict with statistics
-    """
-    return {
-        "count": len(weights),
-        "min": min(weights),
-        "max": max(weights),
-        "sum": sum(weights),
-        "unique": len(set(weights)),
-    }
