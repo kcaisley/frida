@@ -235,6 +235,33 @@ scalemap = {
 # ========================================================================
 
 
+def print_table(rows: list[dict], headers: list[str]) -> None:
+    """
+    Print a simple formatted table.
+    
+    Args:
+        rows: List of dictionaries with data to print
+        headers: List of column header names
+    """
+    if not rows:
+        return
+    
+    # Calculate column widths
+    col_widths = {h: len(h) for h in headers}
+    for row in rows:
+        for h in headers:
+            col_widths[h] = max(col_widths[h], len(str(row.get(h, ""))))
+    
+    # Print header
+    header = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
+    print(header)
+    print("-" * len(header))
+    
+    # Print rows
+    for row in rows:
+        print(" ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers))
+
+
 def compact_json(obj: Any, indent: int = 2, lvl: int = 0) -> str:
     """Format JSON with leaf dicts/lists on single lines."""
     pad, pad1 = " " * indent * lvl, " " * indent * (lvl + 1)
@@ -919,6 +946,10 @@ def generate_subcircuits(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     total_count = 0
+    
+    # Track unique configurations for summary
+    config_summary = {}
+    meta_fields = []  # Track which meta fields are present across all configs
 
     for topology, sweep in configurations:
         if tech_list is None:
@@ -928,10 +959,26 @@ def generate_subcircuits(
 
         # Expand sweeps
         topologies = expand_sweeps(topology, sweep)
-
-        print(
-            f"Configuration: {topology.get('subckt', 'unnamed')} - {len(topologies)} parameter combinations"
-        )
+        
+        # Extract configuration metadata for summary (generic approach)
+        meta = topology.get("meta", {})
+        if meta:
+            # Determine which fields to track (exclude lists, tech, and threshold)
+            for key in meta.keys():
+                if key not in meta_fields and key not in ["tech", "threshold", "weights", "scaled_weights"]:
+                    # Only include simple types (int, str, float)
+                    if isinstance(meta[key], (int, str, float)):
+                        meta_fields.append(key)
+            
+            # Create config key from meta values
+            config_key = tuple(meta.get(field) for field in meta_fields)
+            
+            if config_key not in config_summary:
+                config_summary[config_key] = {
+                    "param_combos": len(topologies),
+                    "techs": len(config_tech_list),
+                    "count": 0
+                }
 
         # Generate netlists for each technology
         for tech in config_tech_list:
@@ -954,7 +1001,30 @@ def generate_subcircuits(
                 json_path.write_text(compact_json(tech_topo))
 
                 total_count += 1
+                
+                # Update count for this configuration
+                if meta:
+                    config_summary[config_key]["count"] += 1
 
+    # Print summary (generic table based on detected meta fields)
+    if config_summary and meta_fields:
+        print("\nConfiguration Summary:")
+        
+        # Build rows as list of dicts
+        rows = []
+        for config_key, info in sorted(config_summary.items()):
+            row = {field: config_key[i] for i, field in enumerate(meta_fields)}
+            row.update({
+                "sweeps": info['param_combos'],
+                "techs": info['techs'],
+                "total": info['count']
+            })
+            rows.append(row)
+        
+        # Print table
+        headers = meta_fields + ["sweeps", "techs", "total"]
+        print_table(rows, headers)
+    
     print(f"\nTotal: {total_count} netlists generated")
 
 

@@ -203,16 +203,16 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
     for idx, w in enumerate(weights):
         ports[f"dac[{idx}]"] = "I"
 
-        # First inverter (always unit sized)
-        devices[f"MP1_{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
-        devices[f"MN1_{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
+        # First inverter (predriver - always unit sized)
+        devices[f"MPbuf{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
+        devices[f"MNbuf{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
         if split_strat == "no_split":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
             driver_w = calc_driver_strength(c=1, m=w)
-            devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-            devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-            devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
+            devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+            devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+            devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
 
         elif split_strat == "vdiv_split":
             # Voltage Divider Split: Decompose weight into coarse + fine parts
@@ -222,17 +222,17 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
             if quotient > 0:
                 # Main capacitor: m=quotient, c=threshold
                 driver_w = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MP2_{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-                devices[f"MN2_{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-                devices[f"C{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
+                devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+                devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
 
             if remainder > 0:
                 # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
                 tap_node = f"tap[{remainder}]"
-                driver_w_fine = calc_driver_strength(c=1, m=1)
-                devices[f"MP2_{idx}_fine"] = {"dev": "pmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w_fine}
-                devices[f"MN2_{idx}_fine"] = {"dev": "nmos", "pins": {"d": f"bot_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_fine}
-                devices[f"C{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_fine[{idx}]"}, "c": 1, "m": 1}
+                driver_w_rdiv = calc_driver_strength(c=1, m=1)
+                devices[f"MPrdiv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot_rdiv[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w_rdiv}
+                devices[f"MNrdiv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot_rdiv[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_rdiv}
+                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_rdiv[{idx}]"}, "c": 1, "m": 1}
 
         elif split_strat == "diffcap_split":
             # Difference Capacitor Split: Decompose weight into coarse + fine parts
@@ -241,25 +241,33 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
 
             if quotient > 0:
                 # Main coarse cap: m=quotient, c=threshold
-                driver_w_main = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MP2_{idx}_main"] = {"dev": "pmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main}
-                devices[f"MN2_{idx}_main"] = {"dev": "nmos", "pins": {"d": f"bot_main[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main}
-                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main[{idx}]"}, "c": threshold, "m": quotient}
+                driver_w = calc_driver_strength(c=threshold, m=quotient)
+                devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+                devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
                 
                 # Diff coarse cap: m=quotient, c=1, driven from intermediate node
                 devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": 1, "m": quotient}
 
             if remainder > 0:
-                # Main fine cap: m=1, c=(threshold+1+remainder)
-                c_main_fine = threshold + 1 + remainder
-                driver_w_main_fine = calc_driver_strength(c=c_main_fine, m=1)
-                devices[f"MP2_{idx}_main_fine"] = {"dev": "pmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w_main_fine}
-                devices[f"MN2_{idx}_main_fine"] = {"dev": "nmos", "pins": {"d": f"bot_main_fine[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_main_fine}
-                devices[f"Cmain{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_main_fine[{idx}]"}, "c": c_main_fine, "m": 1}
+                # Fine caps use difference capacitor approach
+                # Main cap: c=(threshold+1+remainder), diff cap: c=(threshold+1-remainder)
+                c_main = threshold + 1 + remainder
+                c_diff = threshold + 1 - remainder
                 
-                # Diff fine cap: m=1, c=(threshold+1-remainder), driven from intermediate node
-                c_diff_fine = threshold + 1 - remainder
-                devices[f"Cdiff{idx}_fine"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff_fine, "m": 1}
+                # Only need one driver since both caps share the same node structure
+                # Main cap driven to bot node, diff cap from inter node
+                if quotient == 0:
+                    # No coarse part, so add the main driver
+                    driver_w = calc_driver_strength(c=c_main, m=1)
+                    devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
+                    devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
+                    devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": c_main, "m": 1}
+                    devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff, "m": 1}
+                else:
+                    # Coarse part exists, add separate fine caps with different naming
+                    devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": c_main, "m": 1}
+                    devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff, "m": 1}
 
     # Build final topology
     topology = {

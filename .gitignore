@@ -4,6 +4,7 @@
 /pcb/frida_65a/frida65A-backups
 /results
 __pycache__
+.ruff_cache
 .venv*
 .vscode
 .cadence

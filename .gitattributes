@@ -1,5 +1,6 @@
 # Set filetype of .sp files to something that won't use wrong syntax highlighting
 *.sp linguist-language=SPICE
+*.cdl linguist-language=SPICE
 
 # Exclude .sp files, since mine are SPICE netlists, but linguist thinks they are 'SourcePrawn' whatever that is lol
 *.sp linguist-detectable=false
