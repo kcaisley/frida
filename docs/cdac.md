@@ -119,3 +119,237 @@ Lower radixes create more overlap tolerance to prevent missing levels
 
 Radix $\beta$ and min. steps vs unit cap mismatch $\sigma_{C_{unit}}$ (A. Hsu 2013)
 
+
+## CDAC Weight Calculation Algorithms
+
+### Overview
+
+The CDAC weight calculation determines the capacitance values for each bit in the capacitor array. Different strategies provide trade-offs between area, matching, and redundancy for error correction.
+
+**Key Parameters:**
+- $N$: Number of DAC bits (resolution)
+- $M$: Number of physical capacitors ($M = N + N_{extra}$)
+- $N_{extra}$: Number of extra capacitors for redundancy
+- $W_i$: Weight of capacitor $i$ (in units of $C_u$)
+- $C_u$: Unit capacitance
+
+### Strategy 1: Radix-2 (Binary Weighted)
+
+Classic binary weighting with no redundancy.
+
+**Algorithm:**
+```
+FOR i = 0 TO N-1:
+    W[i] = 2^(N-1-i)
+END FOR
+
+IF N_extra > 0:
+    FOR i = N TO N+N_extra-1:
+        W[i] = 1
+    END FOR
+END IF
+```
+
+**Mathematical Form:**
+$$W_i = 2^{N-1-i} \quad \text{for } i \in [0, N-1]$$
+
+**Properties:**
+- Total capacitance: $C_{total} = (2^N - 1) \cdot C_u$
+- Radix: $\beta = 2.0$ (exact)
+- Redundancy: None ($N_{extra} = 0$ only)
+- Calibratability: Not inherently calibratable
+
+**Example (7-bit):**
+$$W = [64, 32, 16, 8, 4, 2, 1]$$
+
+---
+
+### Strategy 2: Sub-Radix-2 (Normalized)
+
+Uses radix $\beta < 2$ to provide redundancy through overlapping decision ranges.
+
+**Algorithm:**
+```
+radix = 2^(N / M)
+FOR i = 0 TO M-1:
+    W[i] = max(1, floor(radix^(M-1-i)))
+END FOR
+```
+
+**Mathematical Form:**
+$$\beta = 2^{N/M}$$
+$$W_i = \max(1, \lfloor \beta^{M-1-i} \rfloor) \quad \text{for } i \in [0, M-1]$$
+
+**Properties:**
+- Total capacitance: $C_{total} \approx (2^N - 1) \cdot C_u$ (slightly higher due to quantization)
+- Radix: $\beta < 2.0$
+- Redundancy: Overlapping ranges provide $\beta - 1$ LSB tolerance per bit
+- Calibratability: Inherent due to overlapping decision ranges
+
+**Example (9-bit, 11 caps):**
+$$\beta = 2^{9/11} \approx 1.78$$
+$$W = [290, 164, 93, 52, 30, 17, 9, 5, 3, 1, 1]$$
+
+**Error Tolerance:**
+$$\text{Overlap}_i = W_i - \sum_{j=i+1}^{M-1} W_j$$
+
+---
+
+### Strategy 3: Sub-Radix-2 (Unbounded)
+
+Similar to normalized but uses rounding instead of flooring, allowing better radix approximation.
+
+**Algorithm:**
+```
+radix = 2^(N / M)
+FOR i = 0 TO M-1:
+    W[i] = round(radix^(M-1-i))
+END FOR
+```
+
+**Mathematical Form:**
+$$W_i = \text{round}(\beta^{M-1-i}) \quad \text{where } \beta = 2^{N/M}$$
+
+**Properties:**
+- More accurate radix approximation than normalized
+- Total capacitance may slightly exceed binary equivalent
+- Better preserves exponential relationship between weights
+
+---
+
+### Strategy 4: Sub-Radix-2 with Redistribution
+
+Redistributes a portion of the MSB into paired redundant weights.
+
+**Algorithm:**
+```
+n_redist = N_extra + 2
+
+// Base binary weights
+FOR i = 0 TO N-1:
+    W[i] = 2^(N-1-i)
+END FOR
+
+// Subtract from MSB
+W[0] = W[0] - 2^n_redist
+
+// Generate paired redundant weights
+FOR i = n_redist-2 DOWN TO 0:
+    FOR j = 0 TO 1:  // Two copies of each weight
+        W_redun[k] = 2^i
+        k = k + 1
+    END FOR
+END FOR
+W_redun[k] = 1  // Final unit pair
+W_redun[k+1] = 1
+
+// Merge: offset redundant weights by 1 position
+FOR i = 0 TO N-1:
+    result[i] = result[i] + W[i]
+END FOR
+FOR i = 0 TO length(W_redun)-1:
+    result[i+1] = result[i+1] + W_redun[i]
+END FOR
+```
+
+**Mathematical Form:**
+$$W_0 = 2^{N-1} - 2^{n_{redist}}$$
+$$W_{redun} = [2^{n_{redist}-2}, 2^{n_{redist}-2}, \ldots, 2^0, 2^0, 1, 1]$$
+
+**Properties:**
+- Maintains binary total: $\sum W_i = 2^N - 1$
+- Paired redundancy at specific bit positions
+- Suitable for foreground calibration
+
+**Constraint:**
+$$2^{N-1} \geq 2^{n_{redist}} \quad \text{(MSB must not go negative)}$$
+
+---
+
+### Strategy 5: Radix-2 Repeat
+
+Inserts duplicated capacitors at regular intervals in a binary array.
+
+**Algorithm:**
+```
+// Base radix-2 array
+FOR i = 0 TO N-1:
+    W_base[i] = 2^(N-1-i)
+END FOR
+
+// Calculate spacing
+spacing = N / N_extra
+
+// Identify positions to duplicate
+FOR k = 0 TO N_extra-1:
+    pos_from_end = 1 + k * spacing
+    idx = N - 1 - pos_from_end
+    duplicate_positions[k] = idx
+END FOR
+
+// Build result with duplicates
+j = 0
+dup_idx = 0
+FOR i = 0 TO N-1:
+    W[j] = W_base[i]
+    j = j + 1
+    IF i in duplicate_positions:
+        W[j] = W_base[i]  // Insert duplicate
+        j = j + 1
+    END IF
+END FOR
+```
+
+**Mathematical Form:**
+$$W_i = 2^{N-1-i} \quad \text{(base weights)}$$
+$$\text{Duplicate at positions: } \{N-1-s, N-1-2s, \ldots\} \quad \text{where } s = \lfloor N/N_{extra} \rfloor$$
+
+**Properties:**
+- Redundancy concentrated at specific weights
+- Maintains binary structure with localized redundancy
+- Useful for targeted error correction at critical bits
+
+---
+
+### Coarse-Fine Partitioning
+
+For weights above a threshold $T$ (typically 64), the implementation is straightforward. For weights $W \leq T$, three split strategies decompose the capacitance:
+
+#### No Split
+$$C_{main} = 1 \cdot C_u, \quad m = W$$
+
+Simple array of unit capacitors.
+
+#### Voltage Divider Split
+$$W = q \cdot T + r \quad \text{where } q = \lfloor W/T \rfloor, \; r = W \mod T$$
+
+- **Coarse part** (if $q > 0$): $C = T \cdot C_u$, $m = q$, driven by $V_{DD}$
+- **Fine part** (if $r > 0$): $C = 1 \cdot C_u$, $m = 1$, driven by $V_{DD} \cdot r/T$ via resistor divider
+
+#### Difference Capacitor Split
+$$W = q \cdot T + r$$
+
+- **Coarse part** (if $q > 0$): 
+  - Main: $C_{main} = T \cdot C_u$, $m = q$
+  - Diff: $C_{diff} = 1 \cdot C_u$, $m = q$
+  - Effective: $(T - 1) \cdot q \cdot C_u$
+
+- **Fine part** (if $r > 0$):
+  - Main: $C_{main} = (T + 1 + r) \cdot C_u$, $m = 1$
+  - Diff: $C_{diff} = (T + 1 - r) \cdot C_u$, $m = 1$
+  - Effective: $2r \cdot C_u$
+
+**Effective capacitance:**
+$$C_{eff} = C_{main} - C_{diff}$$
+
+This approach trades increased total capacitance for improved matching by using difference operation.
+
+---
+
+### Driver Sizing
+
+Driver transistor width is scaled by the square root of total capacitance to maintain consistent RC time constants:
+
+$$W_{driver} = \max\left(1, \left\lfloor \sqrt{C \cdot m} \right\rfloor\right)$$
+
+where $C$ is the capacitance value and $m$ is the multiplier.
