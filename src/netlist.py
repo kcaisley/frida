@@ -73,6 +73,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from tqdm import tqdm
 
 # ========================================================================
 # Technology Configuration
@@ -938,7 +939,7 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
     config_summary: dict[tuple[Any, ...], dict[str, int]] = {}
     meta_fields: list[str] = []  # Track which meta fields are present across all configs
 
-    for topology, sweep in configurations:
+    for topology, sweep in tqdm(configurations, desc="Generating netlists"):
         # Tech list must be in sweep
         if "tech" not in sweep:
             raise ValueError("Sweep specification missing required 'tech' field")
@@ -978,7 +979,7 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
                 if "meta" not in topo:
                     topo["meta"] = {}
                 topo["meta"]["tech"] = tech
-
+                
                 # Map to technology
                 tech_topo = map_technology(topo, tech, techmap)
 
