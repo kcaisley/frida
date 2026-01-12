@@ -1,59 +1,3 @@
-"""
-Capacitor DAC (CDAC) generator for SAR ADC.
-
-Generates capacitor arrays with different bit resolutions, physical cap counts,
-and weighting strategies. The topology varies with m_caps (number of physical
-capacitors), so this generates multiple configurations.
-
-Type Definitions:
------------------
-
-Topology Dictionary Structure:
-    {
-        "subckt": str,                    # Subcircuit name
-        "ports": dict[str, str],          # Port name -> direction ("I", "O", "B")
-        "devices": dict[str, DeviceDict], # Device instances
-        "meta": dict[str, Any]            # Metadata about the circuit
-    }
-
-DeviceDict Structure:
-    For transistors (nmos/pmos):
-        {
-            "dev": "nmos" | "pmos",
-            "pins": {"d": str, "g": str, "s": str, "b": str},
-            "w": int,  # Width multiplier
-        }
-    
-    For capacitors:
-        {
-            "dev": "cap",
-            "pins": {"p": str, "n": str},
-            "c": int,  # Capacitance weight (integer)
-            "m": int   # Multiplier
-        }
-    
-    For resistors:
-        {
-            "dev": "res",
-            "pins": {"p": str, "n": str},
-            "r": int   # Resistance multiplier (e.g., 4 = 400 ohms)
-        }
-
-Sweep Dictionary Structure:
-    {
-        "tech": list[str],                # Technology nodes to sweep
-        "defaults": {
-            "nmos": {"type": str, "w": int, "l": int, "nf": int},
-            "pmos": {"type": str, "w": int, "l": int, "nf": int}
-        },
-        "sweeps": list[dict[str, Any]]    # Parameter sweep specifications
-    }
-
-Return from subcircuit():
-    list[tuple[dict[str, Any], dict[str, Any]]]
-    # List of (topology, sweep) tuples
-"""
-
 import math
 from typing import Any
 
@@ -104,11 +48,11 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
 
         # Base binary weights
         weights = [2**i for i in range(n_dac - 1, -1, -1)]
-        
+
         # Check if MSB would become negative - skip invalid combinations
         if weights[0] < 2**n_redist:
             raise ValueError(f"subradix2_redist: n_dac={n_dac} too small for n_extra={n_extra}. MSB weight would be negative.")
-        
+
         weights[0] -= 2**n_redist  # Subtract from MSB
 
         # Redundant weights as paired powers of 2
@@ -197,9 +141,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
             else:
                 devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"}, "r": 4}
 
-    # ================================================================
     # UNIFIED STAGE LOOP - Process all weights regardless of magnitude
-    # ================================================================
     for idx, w in enumerate(weights):
         ports[f"dac[{idx}]"] = "I"
 
@@ -245,7 +187,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
                 devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
                 devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
                 devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
-                
+
                 # Diff coarse cap: m=quotient, c=1, driven from intermediate node
                 devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": 1, "m": quotient}
 
@@ -254,7 +196,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
                 # Main cap: c=(threshold+1+remainder), diff cap: c=(threshold+1-remainder)
                 c_main = threshold + 1 + remainder
                 c_diff = threshold + 1 - remainder
-                
+
                 # Only need one driver since both caps share the same node structure
                 # Main cap driven to bot node, diff cap from inter node
                 if quotient == 0:
@@ -392,6 +334,3 @@ def calc_driver_strength(c: int, m: int) -> int:
     # Driver width proportional to sqrt(total capacitance)
     total_cap = c * m
     return max(1, int(math.sqrt(total_cap)))
-
-
-

@@ -66,6 +66,7 @@ SweepSpec:
 
 import argparse
 import copy
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -230,33 +231,29 @@ scalemap = {
     },
 }
 
-# ========================================================================
 # Netlist Generation Flow
-# ========================================================================
-
-
 def print_table(rows: list[dict], headers: list[str]) -> None:
     """
     Print a simple formatted table.
-    
+
     Args:
         rows: List of dictionaries with data to print
         headers: List of column header names
     """
     if not rows:
         return
-    
+
     # Calculate column widths
     col_widths = {h: len(h) for h in headers}
     for row in rows:
         for h in headers:
             col_widths[h] = max(col_widths[h], len(str(row.get(h, ""))))
-    
+
     # Print header
     header = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
     print(header)
     print("-" * len(header))
-    
+
     # Print rows
     for row in rows:
         print(" ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers))
@@ -613,29 +610,16 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
         ports = topology.get("ports", {})
         devices = topology.get("devices", {})
 
-        # Generate descriptive comment name from meta if available
-        if "meta" in topology:
-            meta = topology["meta"]
-            comment_parts = [subckt_name]
-            
-            # Add architecture-specific parameters if present
-            if "n_dac" in meta:
-                comment_parts.append(f"{meta['n_dac']}bit")
-            if "m_caps" in meta:
-                comment_parts.append(f"{meta['m_caps']}cap")
-            if "redun_strat" in meta:
-                comment_parts.append(meta["redun_strat"])
-            if "split_strat" in meta:
-                comment_parts.append(meta["split_strat"])
-            if "scale" in meta:
-                comment_parts.append(f"{meta['scale']}x")
-            if "tech" in meta:
-                comment_parts.append(meta["tech"])
-            
-            comment_name = "_".join(comment_parts)
-        else:
-            comment_name = subckt_name
-        
+        # Generate descriptive comment from meta
+        meta = topology["meta"]
+        param_strs = []
+        for key, value in meta.items():
+            # Only include scalar types
+            if isinstance(value, (int, str, float, bool)):
+                param_strs.append(f"{key}: {value}")
+
+        comment_name = f"{subckt_name}  ({', '.join(param_strs)})"
+
         # Header
         lines.append(f"* {comment_name}")
         lines.append("")
@@ -673,7 +657,7 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
                 c = dev_info.get("c", 1)  # Unitless capacitance value
                 m = dev_info.get("m", 1)  # Multiplier
                 cap_model = dev_info.get("model", "capacitor")
-                
+
                 # Generate capacitor instance
                 # Note: c and m are unitless here, actual capacitance depends on PDK
                 lines.append(f"{dev_name} {p} {n} {cap_model} c={c} m={m}")
@@ -860,79 +844,82 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_filename(
-    topology: dict[str, Any], tech: str, sweep_spec: dict[str, Any] | None = None
-) -> str:
+def generate_filename(topology: dict[str, Any]) -> str:
     """
     Generate filename for a netlist using meta values for parameters.
-    
+
     Args:
-        topology: Topology dictionary with 'subckt' or 'testbench' key
-        tech: Technology name (e.g., 'tsmc65', 'tsmc28', 'tower180')
-        sweep_spec: Optional sweep specification dictionary
-        
+        topology: Topology dictionary with 'subckt' or 'testbench' key and meta field containing tech
+
     Returns:
         Filename string (e.g., 'cdac_7bit_7cap_radix2_tsmc65.sp')
     """
     if "subckt" in topology:
         base_name = topology["subckt"]
-        
-        # Check if this has top-level meta (e.g., CDAC with architecture parameters)
-        if "meta" in topology:
-            meta = topology["meta"]
-            parts = [base_name]
-            
-            # Add architecture-specific parameters if present
-            if "n_dac" in meta:
-                parts.append(f"{meta['n_dac']}bit")
-            if "m_caps" in meta:
-                parts.append(f"{meta['m_caps']}cap")
-            if "redun_strat" in meta:
-                parts.append(meta["redun_strat"])
-            if "split_strat" in meta:
-                parts.append(meta["split_strat"])
-            if "scale" in meta:
-                parts.append(f"{meta['scale']}x")
-            
-            parts.append(tech)
-            return "_".join(parts) + ".sp"
-        else:
-            # Fallback to old behavior for circuits without top-level meta
-            parts = [base_name, tech]
 
-            if sweep_spec and "sweeps" in sweep_spec:
-                for sweep in sweep_spec["sweeps"]:
-                    devices = sweep["devices"]
-                    meta = topology["devices"][devices[0]].get("meta", {})
+        # Meta should always be present with tech field
+        if "meta" not in topology:
+            raise ValueError(f"Topology for subckt '{base_name}' missing required 'meta' field")
 
-                    # Build param string for varying parameters
-                    param_parts = []
-                    for param in ["w", "l", "nf", "type"]:
-                        if param in sweep and len(sweep[param]) > 1:
-                            param_parts.append(f"{param}{meta.get(param, '')}")
+        meta = topology["meta"]
 
-                    if param_parts:
-                        parts.append("-".join(devices) + "-" + "-".join(param_parts))
+        # Extract tech from meta
+        if "tech" not in meta:
+            raise ValueError(f"Topology meta for subckt '{base_name}' missing required 'tech' field")
 
-            return "_".join(parts) + ".sp"
+        tech = meta["tech"]
+        parts = [base_name]
 
+        # Add all meta parameters except tech (only scalar types)
+        for key, value in meta.items():
+            if key != "tech" and isinstance(value, (int, str, float, bool)):
+                parts.append(str(value))
+
+        # Add hash of device parameters to make filename unique for sweeps
+        devices = topology.get("devices", {})
+        device_params = []
+        for dev_name in sorted(devices.keys()):
+            dev = devices[dev_name]
+            if "meta" in dev:
+                dev_meta = dev["meta"]
+                # Create a string representation of swept parameters
+                param_str = f"{dev_name}:"
+                for param in sorted(dev_meta.keys()):
+                    param_str += f"{param}={dev_meta[param]},"
+                device_params.append(param_str)
+
+        if device_params:
+            # Create hash of all device parameters
+            params_string = "|".join(device_params)
+            hash_obj = hashlib.sha256(params_string.encode())
+            hash_hex = hash_obj.hexdigest()[:8]  # Use first 8 chars of hash
+            parts.append(hash_hex)
+
+        parts.append(tech)
+        return "_".join(parts) + ".sp"
     else:
+        # Testbench
+        if "meta" not in topology:
+            raise ValueError("Topology for testbench missing required 'meta' field")
+
+        meta = topology["meta"]
+        if "tech" not in meta:
+            raise ValueError("Topology meta for testbench missing required 'tech' field")
+
+        tech = meta["tech"]
         return f"{topology.get('testbench', 'tb_unnamed')}_{tech}.sp"
 
 
 # Main flow functions
 
 
-def generate_subcircuits(
-    circuit_module: Any, output_dir: Path, tech_list: list[str] | None = None
-) -> None:
+def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
     """
     Generate subcircuit netlists from a circuit module.
 
     Args:
         circuit_module: Loaded Python module with subcircuit() function
         output_dir: Directory to write output files
-        tech_list: Optional list of technologies to generate (uses module's list if None)
     """
     result = circuit_module.subcircuit()
 
@@ -946,48 +933,57 @@ def generate_subcircuits(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     total_count = 0
-    
+
     # Track unique configurations for summary
-    config_summary = {}
-    meta_fields = []  # Track which meta fields are present across all configs
+    config_summary: dict[tuple[Any, ...], dict[str, int]] = {}
+    meta_fields: list[str] = []  # Track which meta fields are present across all configs
 
     for topology, sweep in configurations:
-        if tech_list is None:
-            config_tech_list = sweep.get("tech", ["tsmc65"])
-        else:
-            config_tech_list = tech_list
+        # Tech list must be in sweep
+        if "tech" not in sweep:
+            raise ValueError("Sweep specification missing required 'tech' field")
+
+        config_tech_list = sweep["tech"]
 
         # Expand sweeps
         topologies = expand_sweeps(topology, sweep)
-        
+
         # Extract configuration metadata for summary (generic approach)
-        meta = topology.get("meta", {})
-        if meta:
-            # Determine which fields to track (exclude lists, tech, and threshold)
-            for key in meta.keys():
-                if key not in meta_fields and key not in ["tech", "threshold", "weights", "scaled_weights"]:
-                    # Only include simple types (int, str, float)
-                    if isinstance(meta[key], (int, str, float)):
-                        meta_fields.append(key)
-            
-            # Create config key from meta values
-            config_key = tuple(meta.get(field) for field in meta_fields)
-            
-            if config_key not in config_summary:
-                config_summary[config_key] = {
-                    "param_combos": len(topologies),
-                    "techs": len(config_tech_list),
-                    "count": 0
-                }
+        if "meta" not in topology:
+            raise ValueError("Topology missing required 'meta' field")
+
+        meta = topology["meta"]
+
+        # Determine which fields to track (exclude lists, tech, and threshold)
+        for key in meta.keys():
+            if key not in meta_fields and key not in ["tech", "threshold", "weights", "scaled_weights"]:
+                # Only include simple types (int, str, float)
+                if isinstance(meta[key], (int, str, float)):
+                    meta_fields.append(key)
+
+        # Create config key from meta values
+        config_key = tuple(meta.get(field) for field in meta_fields)
+
+        if config_key not in config_summary:
+            config_summary[config_key] = {
+                "param_combos": len(topologies),
+                "techs": len(config_tech_list),
+                "count": 0
+            }
 
         # Generate netlists for each technology
         for tech in config_tech_list:
             for topo in topologies:
+                # Add tech to meta before mapping
+                if "meta" not in topo:
+                    topo["meta"] = {}
+                topo["meta"]["tech"] = tech
+
                 # Map to technology
                 tech_topo = map_technology(topo, tech, techmap)
 
-                # Generate filename
-                filename = generate_filename(tech_topo, tech, sweep)
+                # Generate filename (tech now in meta)
+                filename = generate_filename(tech_topo)
                 output_path = output_dir / filename
                 json_path = output_dir / filename.replace(".sp", ".json")
 
@@ -1001,15 +997,13 @@ def generate_subcircuits(
                 json_path.write_text(compact_json(tech_topo))
 
                 total_count += 1
-                
-                # Update count for this configuration
-                if meta:
-                    config_summary[config_key]["count"] += 1
 
+                # Update count for this configuration
+                config_summary[config_key]["count"] += 1
     # Print summary (generic table based on detected meta fields)
     if config_summary and meta_fields:
         print("\nConfiguration Summary:")
-        
+
         # Build rows as list of dicts
         rows = []
         for config_key, info in sorted(config_summary.items()):
@@ -1020,11 +1014,21 @@ def generate_subcircuits(
                 "total": info['count']
             })
             rows.append(row)
-        
+
         # Print table
         headers = meta_fields + ["sweeps", "techs", "total"]
         print_table(rows, headers)
-    
+
+    # Verify actual file count matches expected count
+    actual_sp_files = list(output_dir.glob("*.sp"))
+    actual_count = len(actual_sp_files)
+
+    if actual_count != total_count:
+        raise ValueError(
+            f"File count mismatch! Expected {total_count} netlists but found {actual_count} .sp files in {output_dir}. "
+            f"Files may have been overwritten due to duplicate filenames."
+        )
+
     print(f"\nTotal: {total_count} netlists generated")
 
 
@@ -1032,7 +1036,6 @@ def generate_testbenches(
     circuit_module: Any,
     subckt_module: Any,
     output_dir: Path,
-    tech_list: list[str] | None = None,
     corner: str = "tt",
 ) -> None:
     """
@@ -1042,18 +1045,22 @@ def generate_testbenches(
         circuit_module: Loaded Python module with testbench() function
         subckt_module: Loaded Python module with subcircuit() function
         output_dir: Directory to write output files
-        tech_list: Optional list of technologies to generate
         corner: Process corner (e.g., 'tt', 'ss', 'ff')
     """
     tb_topology = circuit_module.testbench()
-    subckt_topology, subckt_sweep = subckt_module.subcircuit()
 
-    if tech_list is None:
-        tech_list = subckt_sweep.get("tech", ["tsmc65"])
+    # Handle both single and list of configurations
+    result = subckt_module.subcircuit()
+    if isinstance(result, list):
+        subckt_topology, subckt_sweep = result[0]
+    else:
+        subckt_topology, subckt_sweep = result
 
-    # Ensure tech_list is a list (should always be true after the above check)
-    if not tech_list:
-        tech_list = ["tsmc65"]
+    # Tech list must be in sweep
+    if "tech" not in subckt_sweep:
+        raise ValueError("Sweep specification missing required 'tech' field")
+
+    tech_list = subckt_sweep["tech"]
 
     # Generate testbenches for each technology
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1070,8 +1077,13 @@ def generate_testbenches(
             scaled_tb, tech, techmap, subckt_topology, corner
         )
 
+        # Add tech to meta before generating filename
+        if "meta" not in complete_tb:
+            complete_tb["meta"] = {}
+        complete_tb["meta"]["tech"] = tech
+
         # Generate filename
-        filename = generate_filename(complete_tb, tech)
+        filename = generate_filename(complete_tb)
         output_path = output_dir / filename
         json_path = output_dir / filename.replace(".sp", ".json")
 
@@ -1105,9 +1117,6 @@ def main() -> None:
         "-o", "--output", type=Path, required=True, help="Output directory"
     )
     parser.add_argument(
-        "-t", "--tech", nargs="+", help="Technology list (default: from circuit file)"
-    )
-    parser.add_argument(
         "-c",
         "--corner",
         default="tt",
@@ -1120,11 +1129,11 @@ def main() -> None:
     circuit_module = load_circuit_module(args.circuit)
 
     if args.mode == "subckt":
-        generate_subcircuits(circuit_module, args.output, args.tech)
+        generate_subcircuits(circuit_module, args.output)
     else:
         # For testbench mode, we also need the subcircuit definition
         generate_testbenches(
-            circuit_module, circuit_module, args.output, args.tech, args.corner
+            circuit_module, circuit_module, args.output, args.corner
         )
 
 
