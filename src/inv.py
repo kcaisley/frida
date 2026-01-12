@@ -1,17 +1,50 @@
-def subcircuit():
+from typing import Any
 
-    # Tech agnostic subcircuit netlist description
-    topology = {
-        'subckt': 'gate_inv',
-        'ports': {'in': 'I', 'out': 'O', 'vdd': 'B', 'vss': 'B'},
-        'devices': {
-            # NMOS pull-down (conducts when in is high)
-            'MN': {'dev': 'nmos', 'pins': {'d': 'out', 'g': 'in', 's': 'vss', 'b': 'vss'}},
 
-            # PMOS pull-up (conducts when in is low)
-            'MP': {'dev': 'pmos', 'pins': {'d': 'out', 'g': 'in', 's': 'vdd', 'b': 'vdd'}}
-        }
+def generate_topology() -> dict[str, Any]:
+    """
+    Generate inverter gate topology.
+
+    Returns:
+        dict with 'subckt', 'ports', 'devices', 'meta'
+    """
+
+    # Initialize topology components
+    ports = {"in": "I", "out": "O", "vdd": "B", "vss": "B"}
+
+    devices = {
+        # NMOS pull-down (conducts when in is high)
+        'MN': {'dev': 'nmos', 'pins': {'d': 'out', 'g': 'in', 's': 'vss', 'b': 'vss'}},
+
+        # PMOS pull-up (conducts when in is low)
+        'MP': {'dev': 'pmos', 'pins': {'d': 'out', 'g': 'in', 's': 'vdd', 'b': 'vdd'}}
     }
+
+    # Build final topology
+    topology = {
+        "subckt": "gate_inv",
+        "ports": ports,
+        "devices": devices,
+        "meta": {
+            "gate_type": "inv",
+        },
+    }
+
+    return topology
+
+
+def subcircuit():
+    """
+    Generate inverter gate topology.
+
+    Returns:
+        List of (topology, sweep) tuples (1 configuration)
+    """
+    # Generate all configurations
+    all_configurations = []
+
+    # Generate topology
+    topology = generate_topology()
 
     # Technology agnostic device sweeps
     sweep = {
@@ -21,16 +54,19 @@ def subcircuit():
             'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
         },
         'sweeps': [
-            {'devices': ['MN', 'MP'], 'w': [1, 2, 4, 8]}
+            {'devices': ['MN', 'MP'], 'w': [1, 2, 4, 8, 12, 16], 'type': ['lvt', 'svt']}
         ]
     }
 
-    return topology, sweep
+    all_configurations.append((topology, sweep))
+
+    return all_configurations
 
 
 def testbench():
-
-    # Tech agnostic testbench netlist description
+    """
+    Tech agnostic testbench netlist description.
+    """
     topology = {
         'testbench': 'tb_gate_inv',
         'devices': {
