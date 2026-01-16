@@ -1,6 +1,85 @@
 from typing import Any
 
 
+def subcircuit():
+    """
+    Generate all comparator topologies for all parameter combinations.
+
+    Sweeps:
+        preamp_diffpair: 'nmosinput' or 'pmosinput'
+        preamp_bias: 'stdbias' or 'dynbias'
+        comp_stages: 'singlestage' or 'doublestage'
+        latch_pwrgate_ctl: 'clocked' or 'signalled'
+        latch_pwrgate_node: 'external' or 'internal'
+        latch_rst_extern_ctl: 'clocked', 'signalled', or 'noreset'
+        latch_rst_intern_ctl: 'clocked' or 'signalled'
+
+    Returns:
+        List of (topology, sweep) tuples
+    """
+    # Sweep parameters
+    preamp_diffpair_list = ['nmosinput', 'pmosinput']
+    preamp_bias_list = ['stdbias', 'dynbias']
+    comp_stages_list = ['singlestage', 'doublestage']
+    latch_pwrgate_ctl_list = ['clocked', 'signalled']
+    latch_pwrgate_node_list = ['external', 'internal']
+    latch_rst_extern_ctl_list = ['clocked', 'signalled', 'noreset']
+    latch_rst_intern_ctl_list = ['clocked', 'signalled']
+
+    # Generate all configurations
+    all_configurations = []
+
+    for preamp_diffpair in preamp_diffpair_list:
+        for preamp_bias in preamp_bias_list:
+            for comp_stages in comp_stages_list:
+                for latch_pwrgate_ctl in latch_pwrgate_ctl_list:
+                    for latch_pwrgate_node in latch_pwrgate_node_list:
+                        for latch_rst_extern_ctl in latch_rst_extern_ctl_list:
+                            for latch_rst_intern_ctl in latch_rst_intern_ctl_list:
+                                # Skip invalid combinations
+                                if comp_stages == 'singlestage':
+                                    # For single stage, latch params don't matter, only generate once
+                                    if latch_pwrgate_ctl != 'clocked' or latch_pwrgate_node != 'external' or latch_rst_extern_ctl != 'clocked' or latch_rst_intern_ctl != 'clocked':
+                                        continue
+                                elif comp_stages == 'doublestage':
+                                    # For double stage, external reset only valid if powergate is external
+                                    if latch_pwrgate_node == 'internal' and latch_rst_extern_ctl != 'noreset':
+                                        continue
+                                    # If powergate is external, must have some kind of external reset or noreset is valid
+                                    # (actually noreset is valid for external powergate)
+
+                                # Generate topology for this configuration
+                                topology = generate_topology(
+                                    preamp_diffpair=preamp_diffpair,
+                                    preamp_bias=preamp_bias,
+                                    comp_stages=comp_stages,
+                                    latch_pwrgate_ctl=latch_pwrgate_ctl,
+                                    latch_pwrgate_node=latch_pwrgate_node,
+                                    latch_rst_extern_ctl=latch_rst_extern_ctl,
+                                    latch_rst_intern_ctl=latch_rst_intern_ctl
+                                )
+
+                                # Technology agnostic device sweeps
+                                sweep = {
+                                    'tech': ['tsmc65', 'tsmc28', 'tower180'],
+                                    'globals': {
+                                        'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+                                        'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+                                        'cap': {'c': 1, 'm': 1}
+                                    },
+                                    'selections': [
+                                        {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
+                                        {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
+                                        {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
+                                        {'devices': ['Ma_latch+', 'Ma_latch-', 'Mb_latch+', 'Mb_latch-'], 'w': [1, 2, 4], 'type': ['lvt']}
+                                    ]
+                                }
+
+                                all_configurations.append((topology, sweep))
+
+    return all_configurations
+
+
 def generate_topology(
     preamp_diffpair: str,
     preamp_bias: str,
@@ -189,85 +268,6 @@ def generate_topology(
     return topology
 
 
-def subcircuit():
-    """
-    Generate all comparator topologies for all parameter combinations.
-
-    Sweeps:
-        preamp_diffpair: 'nmosinput' or 'pmosinput'
-        preamp_bias: 'stdbias' or 'dynbias'
-        comp_stages: 'singlestage' or 'doublestage'
-        latch_pwrgate_ctl: 'clocked' or 'signalled'
-        latch_pwrgate_node: 'external' or 'internal'
-        latch_rst_extern_ctl: 'clocked', 'signalled', or 'noreset'
-        latch_rst_intern_ctl: 'clocked' or 'signalled'
-
-    Returns:
-        List of (topology, sweep) tuples
-    """
-    # Sweep parameters
-    preamp_diffpair_list = ['nmosinput', 'pmosinput']
-    preamp_bias_list = ['stdbias', 'dynbias']
-    comp_stages_list = ['singlestage', 'doublestage']
-    latch_pwrgate_ctl_list = ['clocked', 'signalled']
-    latch_pwrgate_node_list = ['external', 'internal']
-    latch_rst_extern_ctl_list = ['clocked', 'signalled', 'noreset']
-    latch_rst_intern_ctl_list = ['clocked', 'signalled']
-
-    # Generate all configurations
-    all_configurations = []
-
-    for preamp_diffpair in preamp_diffpair_list:
-        for preamp_bias in preamp_bias_list:
-            for comp_stages in comp_stages_list:
-                for latch_pwrgate_ctl in latch_pwrgate_ctl_list:
-                    for latch_pwrgate_node in latch_pwrgate_node_list:
-                        for latch_rst_extern_ctl in latch_rst_extern_ctl_list:
-                            for latch_rst_intern_ctl in latch_rst_intern_ctl_list:
-                                # Skip invalid combinations
-                                if comp_stages == 'singlestage':
-                                    # For single stage, latch params don't matter, only generate once
-                                    if latch_pwrgate_ctl != 'clocked' or latch_pwrgate_node != 'external' or latch_rst_extern_ctl != 'clocked' or latch_rst_intern_ctl != 'clocked':
-                                        continue
-                                elif comp_stages == 'doublestage':
-                                    # For double stage, external reset only valid if powergate is external
-                                    if latch_pwrgate_node == 'internal' and latch_rst_extern_ctl != 'noreset':
-                                        continue
-                                    # If powergate is external, must have some kind of external reset or noreset is valid
-                                    # (actually noreset is valid for external powergate)
-
-                                # Generate topology for this configuration
-                                topology = generate_topology(
-                                    preamp_diffpair=preamp_diffpair,
-                                    preamp_bias=preamp_bias,
-                                    comp_stages=comp_stages,
-                                    latch_pwrgate_ctl=latch_pwrgate_ctl,
-                                    latch_pwrgate_node=latch_pwrgate_node,
-                                    latch_rst_extern_ctl=latch_rst_extern_ctl,
-                                    latch_rst_intern_ctl=latch_rst_intern_ctl
-                                )
-
-                                # Technology agnostic device sweeps
-                                sweep = {
-                                    'tech': ['tsmc65', 'tsmc28', 'tower180'],
-                                    'globals': {
-                                        'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-                                        'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-                                        'cap': {'c': 1, 'm': 1}
-                                    },
-                                    'selections': [
-                                        {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
-                                        {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
-                                        {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
-                                        {'devices': ['Ma_latch+', 'Ma_latch-', 'Mb_latch+', 'Mb_latch-'], 'w': [1, 2, 4], 'type': ['lvt']}
-                                    ]
-                                }
-
-                                all_configurations.append((topology, sweep))
-
-    return all_configurations
-
-
 def testbench():
     """
     Tech agnostic testbench netlist description.
@@ -423,7 +423,7 @@ def testbench():
     return topology
 
 
-def measure(raw, netlist, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file):
     """
     Measure comparator simulation results using statistical method.
 

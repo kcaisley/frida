@@ -147,7 +147,7 @@ def testbench():
     return topology
 
 
-def measure(raw, netlist, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file):
     """
     Measure sampling switch simulation results.
 

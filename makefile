@@ -1,6 +1,10 @@
 # Configuration
 VENV_PYTHON := .venv/bin/python
-RESULTS_DIR := results
+CKT_DIR := ckt
+TB_DIR := results/tb
+SIM_DIR := results/sim
+MEAS_DIR := results/meas
+PLOT_DIR := results/plot
 NETLIST_SCRIPT := flow/netlist.py
 SIM_SCRIPT := flow/simulate.py
 VIZ_SCRIPT := flow/visualize.py
@@ -28,64 +32,94 @@ setup:
 clean_all:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	$(MAKE) -s clean_sim $$cell; $(MAKE) -s clean_tb $$cell; $(MAKE) -s clean_ckt $$cell; \
+	$(MAKE) -s clean_plot $$cell; $(MAKE) -s clean_meas $$cell; $(MAKE) -s clean_sim $$cell; $(MAKE) -s clean_tb $$cell; $(MAKE) -s clean_ckt $$cell; \
 	echo "Cleaned: $$cell"
 
 ckt:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-	$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$${cell}.py" -o "$(RESULTS_DIR)/$$cell"
+	if [ -z "$$cell" ]; then \
+		echo "Running ckt generation for all blocks..."; \
+		for block in blocks/*.py; do \
+			[ -f "$$block" ] || continue; \
+			cell_name=$$(basename "$$block" .py); \
+			echo ""; \
+			echo "Generating subcircuits: $$cell_name"; \
+			$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "$$block" -o "$(CKT_DIR)" || exit 1; \
+		done; \
+		echo ""; \
+		echo "All subcircuits generated successfully"; \
+	else \
+		if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
+		$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$${cell}.py" -o "$(CKT_DIR)"; \
+	fi
 
 clean_ckt:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -rf "$(RESULTS_DIR)/$$cell"; echo "Cleaned: $(RESULTS_DIR)/$$cell"
+	rm -f "$(CKT_DIR)"/ckt_$${cell}*.sp "$(CKT_DIR)"/ckt_$${cell}*.json; echo "Cleaned: $(CKT_DIR)/ckt_$$cell*"
 
 tb:
-	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell> [corner=tt]"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; corner="$${corner:-tt}"; \
-	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-	$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$${cell}.py" -o "$(RESULTS_DIR)/$$cell" -c "$$corner"
+	if [ -z "$$cell" ]; then \
+		echo "Running tb generation for all blocks..."; \
+		echo "First ensuring all subcircuits are generated..."; \
+		$(MAKE) -s ckt || exit 1; \
+		echo ""; \
+		echo "Now generating testbenches..."; \
+		for block in blocks/*.py; do \
+			[ -f "$$block" ] || continue; \
+			cell_name=$$(basename "$$block" .py); \
+			echo ""; \
+			echo "Generating testbench: $$cell_name (corner=$$corner)"; \
+			$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "$$block" -o "$(TB_DIR)" --ckt-dir "$(CKT_DIR)" -c "$$corner" || exit 1; \
+		done; \
+		echo ""; \
+		echo "All testbenches generated successfully"; \
+	else \
+		if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
+		$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$${cell}.py" -o "$(TB_DIR)" --ckt-dir "$(CKT_DIR)" -c "$$corner"; \
+	fi
 
 clean_tb:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -f "$(RESULTS_DIR)/$$cell"/tb_*.sp "$(RESULTS_DIR)/$$cell"/tb_*.json; echo "Cleaned: tb_$$cell"
+	rm -f "$(TB_DIR)"/tb_$${cell}*.sp "$(TB_DIR)"/tb_$${cell}*.json; echo "Cleaned: $(TB_DIR)/tb_$$cell*"
 
 sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell> [tech=<tech>]"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -d "$(RESULTS_DIR)/$$cell" ]; then echo "Error: Run 'make ckt $$cell' first"; exit 1; fi; \
+	if [ ! -d "$(CKT_DIR)" ]; then echo "Error: Run 'make ckt $$cell' first"; exit 1; fi; \
+	if [ ! -d "$(TB_DIR)" ]; then echo "Error: Run 'make tb $$cell' first"; exit 1; fi; \
+	mkdir -p "$(SIM_DIR)"; \
 	export CDS_LIC_FILE="$(LICENSE_SERVER)"; \
 	. $(CADENCE_SPECTRE_SETUP); . $(CADENCE_PVS_SETUP); \
 	$(VENV_PYTHON) $(SIM_SCRIPT) \
-		--dut-netlists="$(RESULTS_DIR)/$$cell/$${cell}_*.sp" \
-		--tb-wrappers="$(RESULTS_DIR)/$$cell/tb_$${cell}_*.sp" \
-		--outdir="$(RESULTS_DIR)/$$cell" \
+		--dut-netlists="$(CKT_DIR)/$${cell}_*.sp" \
+		--tb-wrappers="$(TB_DIR)/tb_$${cell}_*.sp" \
+		--outdir="$(SIM_DIR)" \
 		--tech-filter="$(tech)" \
 		--license-server="$(LICENSE_SERVER)" \
 		--spectre-path="$(SPECTRE_PATH)" \
 		--raw-format=nutascii </dev/null; \
-	find "$(RESULTS_DIR)/$$cell" -name "*.ns@0" -delete 2>/dev/null || true; \
-	find "$(RESULTS_DIR)/$$cell" -name "*.ahdlSimDB" -exec rm -rf {} + 2>/dev/null || true; \
-	find "$(RESULTS_DIR)/$$cell" -name "*.raw.psf" -exec rm -rf {} + 2>/dev/null || true
+	find "$(SIM_DIR)" -name "*.ns@0" -delete 2>/dev/null || true; \
+	find "$(SIM_DIR)" -name "*.ahdlSimDB" -exec rm -rf {} + 2>/dev/null || true; \
+	find "$(SIM_DIR)" -name "*.raw.psf" -exec rm -rf {} + 2>/dev/null || true
 
 clean_sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
-	@cell="$(filter-out $@,$(MAKECMDGOALS))"; dir="$(RESULTS_DIR)/$$cell"; \
-	rm -f "$$dir"/*.log "$$dir"/*.raw "$$dir"/*.scs "$$dir"/*.error 2>/dev/null || true; \
-	find "$$dir" -name "*.ns@*" -exec rm -rf {} + 2>/dev/null || true; \
-	find "$$dir" -name "*.ahdlSimDB" -exec rm -rf {} + 2>/dev/null || true; \
-	find "$$dir" -name "*.psf" -exec rm -rf {} + 2>/dev/null || true; \
+	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
+	rm -f "$(SIM_DIR)"/sim_$${cell}*.log "$(SIM_DIR)"/sim_$${cell}*.raw "$(SIM_DIR)"/sim_$${cell}*.scs "$(SIM_DIR)"/sim_$${cell}*.error 2>/dev/null || true; \
+	find "$(SIM_DIR)" -name "sim_$${cell}*.ns@*" -exec rm -rf {} + 2>/dev/null || true; \
+	find "$(SIM_DIR)" -name "sim_$${cell}*.ahdlSimDB" -exec rm -rf {} + 2>/dev/null || true; \
+	find "$(SIM_DIR)" -name "sim_$${cell}*.psf" -exec rm -rf {} + 2>/dev/null || true; \
 	echo "Cleaned: sim results for $$cell"
 
 viz:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
-	@cell="$(filter-out $@,$(MAKECMDGOALS))"; dir="$(RESULTS_DIR)/$$cell"; \
-	if [ ! -d "$$dir" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
-	raw=$$(ls -1 "$$dir"/*.raw 2>/dev/null | head -1); \
-	if [ -z "$$raw" ]; then echo "Error: No .raw files in $$dir"; exit 1; fi; \
+	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ ! -d "$(SIM_DIR)" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
+	raw=$$(ls -1 "$(SIM_DIR)"/sim_$${cell}*.raw 2>/dev/null | head -1); \
+	if [ -z "$$raw" ]; then echo "Error: No .raw files for $$cell in $(SIM_DIR)"; exit 1; fi; \
 	$(VENV_PYTHON) $(VIZ_SCRIPT) "$$raw"; \
 	[ -n "$$DISPLAY" ] && gaw "$$raw" & || echo "No DISPLAY, skipping gaw"
 
@@ -96,33 +130,30 @@ clean_viz:
 
 meas:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
-	@cell="$(filter-out $@,$(MAKECMDGOALS))"; dir="$(RESULTS_DIR)/$$cell"; \
+	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-	if [ ! -d "$$dir" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
-	for raw in "$$dir"/*.raw; do \
-		[ -f "$$raw" ] || continue; \
-		base=$$(basename "$$raw" .raw); dut=$${base#tb_}; \
-		[ -f "$$dir/$${dut}.sp" ] || continue; \
-		$(VENV_PYTHON) $(MEAS_SCRIPT) "$$raw" "$$dir/$${dut}.sp" "blocks/$${cell}.py"; \
-	done; echo "Measurement complete: $$cell"
+	if [ ! -d "$(SIM_DIR)" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
+	mkdir -p "$(MEAS_DIR)"; \
+	$(VENV_PYTHON) $(MEAS_SCRIPT) "blocks/$${cell}.py" "$(SIM_DIR)" "$(CKT_DIR)" "$(TB_DIR)" "$(MEAS_DIR)"
 
 clean_meas:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -f "$(RESULTS_DIR)/$$cell"/*.raw_a "$(RESULTS_DIR)/$$cell"/*.pkl; echo "Cleaned: measurements for $$cell"
+	rm -f "$(MEAS_DIR)"/meas_$${cell}*.json "$(MEAS_DIR)"/meas_$${cell}*.csv; echo "Cleaned: measurements for $$cell"
 
 plot:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
-	@cell="$(filter-out $@,$(MAKECMDGOALS))"; dir="$(RESULTS_DIR)/$$cell"; \
+	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-	if [ ! -d "$$dir" ]; then echo "Error: Run 'make meas $$cell' first"; exit 1; fi; \
-	$(VENV_PYTHON) $(PLOT_SCRIPT) "blocks/$${cell}.py" "$$dir"; \
+	if [ ! -d "$(MEAS_DIR)" ]; then echo "Error: Run 'make meas $$cell' first"; exit 1; fi; \
+	mkdir -p "$(PLOT_DIR)"; \
+	$(VENV_PYTHON) $(PLOT_SCRIPT) "blocks/$${cell}.py" "$(MEAS_DIR)" --outdir="$(PLOT_DIR)"; \
 	echo "Plotting complete: $$cell"
 
 clean_plot:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -f "$(RESULTS_DIR)/$$cell"/*.pdf "$(RESULTS_DIR)/$$cell"/*.svg; echo "Cleaned: plots for $$cell"
+	rm -f "$(PLOT_DIR)/$${cell}"*.pdf "$(PLOT_DIR)/$${cell}"*.svg; echo "Cleaned: plots for $$cell"
 
 %:
 	@:

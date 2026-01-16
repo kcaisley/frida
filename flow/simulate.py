@@ -319,7 +319,8 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
         Tuple of (name, success, elapsed_time)
     """
     start_time = time.time()
-    name = tb_wrapper.stem
+    # Replace tb_ prefix with sim_ for simulation output files
+    name = tb_wrapper.stem.replace('tb_', 'sim_', 1)
 
     # Output files
     log_file = outdir / f"{name}.log"

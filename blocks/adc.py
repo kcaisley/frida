@@ -375,7 +375,7 @@ def testbench() -> dict[str, Any]:
     return topology
 
 
-def measure(raw, netlist, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file):
     """
     Measure ADC linearity from simulation results.
 
@@ -449,16 +449,6 @@ def measure(raw, netlist, raw_file):
     # Calculate linearity error
     linearity_error, error_rms = calculate_linearity_error(vin, dout_analog, return_stats=True)
 
-    # Print summary statistics
-    print("\nADC Linearity Analysis Results:")
-    print(f"  INL RMS: {inl_rms:.4f} LSB")
-    print(f"  INL Max: {inl_max:.4f} LSB")
-    print(f"  DNL RMS (step-based): {dnl_rms:.4f} LSB")
-    print(f"  DNL Max (step-based): {dnl_max:.4f} LSB")
-    print(f"  DNL RMS (histogram): {dnl_hist_rms:.4f} LSB")
-    print(f"  DNL Max (histogram): {dnl_hist_max:.4f} LSB")
-    print(f"  Linearity Error RMS: {error_rms:.4f}")
-
     # Save all results (arrays + scalars) for plotting
     write_analysis(
         raw_file,
@@ -467,5 +457,3 @@ def measure(raw, netlist, raw_file):
         inl_rms, inl_max, dnl_rms, dnl_max,
         dnl_hist_rms, dnl_hist_max, error_rms
     )
-
-    print(f"\nMeasurement complete. Results saved to {raw_file}.pkl and {raw_file}.raw_a")

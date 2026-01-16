@@ -920,15 +920,16 @@ def generate_filename(topology: dict[str, Any]) -> str:
                     param_str += f"{param}={dev_meta[param]},"
                 device_params.append(param_str)
 
+        parts.append(tech)
+
         if device_params:
             # Create hash of all device parameters
             params_string = "|".join(device_params)
             hash_obj = hashlib.sha256(params_string.encode())
-            hash_hex = hash_obj.hexdigest()[:8]  # Use first 8 chars of hash
+            hash_hex = hash_obj.hexdigest()[:12]  # Use first 12 chars of hash (increased from 8 to reduce collisions)
             parts.append(hash_hex)
 
-        parts.append(tech)
-        return "_".join(parts) + ".sp"
+        return "ckt_" + "_".join(parts) + ".sp"
     else:
         # Testbench
         if "meta" not in topology:

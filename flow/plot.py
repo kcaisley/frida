@@ -408,3 +408,278 @@ def plot_code_density(dout_codes, bins='auto', title='Code Density'):
     
     plt.tight_layout()
     return fig, ax
+
+
+def main():
+    """Main entry point for plotting."""
+    import argparse
+    import sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description='Generate plots from measurement results')
+    parser.add_argument('analysis_file', type=Path, help='Path to analysis.py script (e.g., blocks/comp.py)')
+    parser.add_argument('meas_dir', type=Path, help='Directory containing .pkl measurement files')
+    parser.add_argument('--outdir', type=Path, default=None, help='Output directory for plots (default: same as meas_dir)')
+    args = parser.parse_args()
+
+    # Load analysis module
+    analysis_module = load_analysis_module(args.analysis_file)
+
+    # Check if plot() function exists
+    if not hasattr(analysis_module, 'plot'):
+        print(f"Warning: {args.analysis_file} does not have a plot() function")
+        print("No plots generated.")
+        return 0
+
+    # Set output directory
+    outdir = args.outdir if args.outdir else args.meas_dir
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Store outdir in sys for access by plot functions
+    sys._plot_outdir = str(outdir)
+
+    # Call the plot function
+    analysis_module.plot(str(args.meas_dir), str(outdir))
+
+    print(f"Plots saved to: {outdir}")
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    sys.exit(main())
+
+
+# ========================================================================
+# Analytic Plot Functions - from src/analytic.py
+# ========================================================================
+
+def plot_qnoise_vs_bits(Nbits_range, Vrefs, outdir='build', filename='qnoise'):
+    """
+    Plot quantization noise vs number of bits for different reference voltages.
+    
+    Args:
+        Nbits_range: List of bit resolutions to plot
+        Vrefs: List of reference voltages
+        outdir: Output directory
+        filename: Output filename (without extension)
+    """
+    from flow.measure import analyze_qnoise
+    
+    labels = [f"Vref = {v} V" for v in Vrefs]
+    
+    plt.figure()
+    for Vref_val, label in zip(Vrefs, labels):
+        Vqnoise_vals = [analyze_qnoise(Vref_val, n)[0] * 1e6 for n in Nbits_range]  # µV
+        plt.plot(Nbits_range, Vqnoise_vals, label=label)
+        # Annotate y-values at N=10 and N=12
+        y10 = analyze_qnoise(Vref_val, 10)[0] * 1e6
+        y12 = analyze_qnoise(Vref_val, 12)[0] * 1e6
+        plt.annotate(f"{y10:.1f} µV", xy=(10, y10), xytext=(5, -3), textcoords='offset points')
+        plt.annotate(f"{y12:.1f} µV", xy=(12, y12), xytext=(5, -3), textcoords='offset points')
+        plt.plot([10, 12], [y10, y12], 'o', markersize=4, 
+                color=plt.gca().lines[-1].get_color(), label='_nolegend_')
+
+    plt.xlabel(r"Number of Bits ($N_{\mathrm{bits}}$)")
+    plt.ylabel(r"Quantization Noise RMS ($\mu$V)")
+    plt.title(r'$\sigma_{V_{\mathrm{qnoise}}}$ vs. Bit Resolution')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.legend()
+    plt.yscale("log")
+    save_plot(f'{outdir}/{filename}')
+    plt.close()
+
+
+def plot_sampnoise_vs_capacitance(Ctot_range, outdir='build', filename='sampnoise'):
+    """
+    Plot sampling noise vs total capacitance.
+    
+    Args:
+        Ctot_range: Array of capacitance values (F)
+        outdir: Output directory
+        filename: Output filename (without extension)
+    """
+    from flow.measure import analyze_sampnoise
+    
+    Vsampnoise_vals = [analyze_sampnoise(C) * 1e6 for C in Ctot_range]  # µV
+    
+    plt.figure()
+    annotate_Cs = [200e-15, 500e-15, 1e-12, 2e-12, 4e-12]  # 200fF, 500fF, 1pF, 2pF, 4pF
+    plt.plot(Ctot_range * 1e15, Vsampnoise_vals)
+    for C in annotate_Cs:
+        x = C * 1e15  # fF
+        y = analyze_sampnoise(C) * 1e6  # µV
+        plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
+        plt.annotate(f"{y:.1f} µV", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"Sampling Noise RMS ($\mu$V)")
+    plt.title(r'$\sigma_{V_{\mathrm{samp}}}$ vs. Total Capacitance')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.yscale("log")
+    save_plot(f'{outdir}/{filename}')
+    plt.close()
+
+
+def plot_enob_vs_capacitance(Ctot_range, Vrefs, Nbits, outdir='build', filename_prefix='enob_vs_Ctot'):
+    """
+    Plot ENOB vs capacitance for different reference voltages.
+    
+    Args:
+        Ctot_range: Array of capacitance values (F)
+        Vrefs: List of reference voltages
+        Nbits: Number of bits
+        outdir: Output directory
+        filename_prefix: Output filename prefix
+    """
+    from flow.measure import analyze_enob_from_vref_Ctot_Nbits
+    
+    labels = [f"Vref = {v} V" for v in Vrefs]
+    
+    plt.figure()
+    for Vref_val, label in zip(Vrefs, labels):
+        enob_vals = [analyze_enob_from_vref_Ctot_Nbits(Vref_val, C, Nbits) for C in Ctot_range]
+        plt.plot(Ctot_range * 1e15, enob_vals, label=label)
+        # Annotate ENOB at specific capacitances
+        for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
+            x = C_annot * 1e15  # fF
+            y = analyze_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits)
+            plt.plot(x, y, 'o', color=plt.gca().lines[-1].get_color(), label='_nolegend_')
+            plt.annotate(f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords='offset points')
+
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"ENOB (reduced by sampling noise)")
+    plt.title(rf'Degradation of ENOB vs. Sampling Capacitance ($N_{{\mathrm{{bits}}}}={Nbits}$)')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend()
+    save_plot(f'{outdir}/{filename_prefix}_{Nbits}bit')
+    plt.close()
+
+
+def plot_midcode_bounds_vs_capacitance(Ctot_range, Nbits, Acap, outdir='build', 
+                                       filename_prefix='expected_mismatch'):
+    """
+    Plot 3-sigma and 4-sigma mid-code bounds vs capacitance.
+    
+    Args:
+        Ctot_range: Array of capacitance values (F)
+        Nbits: Number of bits
+        Acap: Mismatch coefficient
+        outdir: Output directory
+        filename_prefix: Output filename prefix
+    """
+    from flow.measure import analyze_midcode_sigma_bounds
+    
+    bounds_1sigma = []
+    bounds_3sigma = []
+    bounds_4sigma = []
+    
+    for cap in Ctot_range:
+        b1, b3, b4, Cu, sigmaCu = analyze_midcode_sigma_bounds(cap, Nbits, Acap)
+        bounds_1sigma.append(b1)
+        bounds_3sigma.append(b3)
+        bounds_4sigma.append(b4)
+
+    plt.figure()
+    plt.plot(Ctot_range * 1e15, bounds_1sigma, label=r"1$\sigma$ Bound")
+    plt.plot(Ctot_range * 1e15, bounds_3sigma, label=r"3$\sigma$ Bound")
+    plt.plot(Ctot_range * 1e15, bounds_4sigma, label=r"4$\sigma$ Bound")
+
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"Max DNL [LSB] (expected at mid-code)")
+    plt.title(rf'1$\sigma$, 3$\sigma$, and 4$\sigma$ Mid-code LSB vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}}}={Nbits}$)')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend()
+    save_plot(f'{outdir}/{filename_prefix}_{Nbits}bit')
+    plt.close()
+
+
+def plot_mismatch_dnl_noise_vs_capacitance(Ctot_range, Nbits, Acap, Vref, outdir='build', 
+                                           filename_prefix='mismatch_dnl_noise'):
+    """
+    Plot mismatch DNL noise vs capacitance.
+    
+    Args:
+        Ctot_range: Array of capacitance values (F)
+        Nbits: Number of bits
+        Acap: Mismatch coefficient
+        Vref: Reference voltage
+        outdir: Output directory
+        filename_prefix: Output filename prefix
+    """
+    from flow.measure import analyze_mismatch_dnl_noise
+    
+    dnl_noise_1sigma = []
+    dnl_noise_3sigma = []
+    dnl_noise_4sigma = []
+    for cap in Ctot_range:
+        d1, d3, d4 = analyze_mismatch_dnl_noise(cap, Nbits, Acap, Vref)
+        dnl_noise_1sigma.append(d1*1e6)
+        dnl_noise_3sigma.append(d3*1e6)
+        dnl_noise_4sigma.append(d4*1e6)
+
+    plt.figure()
+    plt.plot(Ctot_range * 1e15, dnl_noise_1sigma, label=r"1$\sigma$ DNL Noise")
+    plt.plot(Ctot_range * 1e15, dnl_noise_3sigma, label=r"3$\sigma$ DNL Noise")
+    plt.plot(Ctot_range * 1e15, dnl_noise_4sigma, label=r"4$\sigma$ DNL Noise")
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"Mismatch DNL Noise [$\mu$V]")
+    plt.title(rf'Mismatch DNL Noise vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}}}={Nbits}$)')
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend()
+    save_plot(f'{outdir}/{filename_prefix}_{Nbits}bit')
+    plt.close()
+
+
+def plot_enob_comparison(Ctot_range, Vref, Nbits, Acap, outdir='build', 
+                        filename_prefix='enob_vs_Ctot'):
+    """
+    Plot ENOB comparison: sampling noise vs mismatch noise.
+    
+    Args:
+        Ctot_range: Array of capacitance values (F)
+        Vref: Reference voltage
+        Nbits: Number of bits
+        Acap: Mismatch coefficient
+        outdir: Output directory
+        filename_prefix: Output filename prefix
+    """
+    from flow.measure import analyze_enob_from_vref_Ctot_Nbits, analyze_enob_from_mismatch
+    
+    enob_vals_sampnoise = []
+    for Ctot in Ctot_range:
+        enob = analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits)
+        enob_vals_sampnoise.append(enob)
+
+    enob_vals_mismatchdnl_noise = [] 
+    for Ctot in Ctot_range:
+        enob = analyze_enob_from_mismatch(Ctot, Nbits, Acap, Vref)
+        enob_vals_mismatchdnl_noise.append(enob)
+
+    plt.figure()
+    plt.plot(Ctot_range * 1e15, enob_vals_sampnoise, label="ENOB due to Sampling noise")
+    plt.plot(Ctot_range * 1e15, enob_vals_mismatchdnl_noise, label="ENOB due to Mismatch DNL noise")
+
+    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
+    plt.ylabel(r"ENOB")
+    plt.title(rf'ENOB vs. $C_{{\mathrm{{tot}}}}$: from Sampling or Mismatch DNL Noise')
+
+    plt.annotate(
+        rf"$N_{{\mathrm{{bits}}}}={Nbits}$" "\n"
+        rf"$V_{{\mathrm{{ref}}}}={Vref}$ V" "\n"
+        rf"$A_{{C}}={Acap}$",
+        xy=(1, 0), xycoords='axes fraction',
+        va='top',
+        xytext=(-60, 75), textcoords='offset points', fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.7)
+    )
+
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.xscale("log")
+    plt.legend(loc='lower right', bbox_to_anchor=(1, 0), frameon=True)
+    save_plot(f'{outdir}/{filename_prefix}_{Nbits}bit_compare')
+    plt.close()

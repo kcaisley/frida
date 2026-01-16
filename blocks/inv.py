@@ -1,6 +1,36 @@
 from typing import Any
 
 
+def subcircuit():
+    """
+    Generate inverter gate topology.
+
+    Returns:
+        List of (topology, sweep) tuples (1 configuration)
+    """
+    # Generate all configurations
+    all_configurations = []
+
+    # Generate topology
+    topology = generate_topology()
+
+    # Technology agnostic device sweeps
+    sweep = {
+        'tech': ['tsmc65', 'tsmc28', 'tower180'],
+        'globals': {
+            'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+            'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
+        },
+        'selections': [
+            {'devices': ['MN', 'MP'], 'w': [1, 2, 4, 8, 12, 16], 'type': ['lvt', 'svt']}
+        ]
+    }
+
+    all_configurations.append((topology, sweep))
+
+    return all_configurations
+
+
 def generate_topology() -> dict[str, Any]:
     """
     Generate inverter gate topology.
@@ -33,36 +63,6 @@ def generate_topology() -> dict[str, Any]:
     return topology
 
 
-def subcircuit():
-    """
-    Generate inverter gate topology.
-
-    Returns:
-        List of (topology, sweep) tuples (1 configuration)
-    """
-    # Generate all configurations
-    all_configurations = []
-
-    # Generate topology
-    topology = generate_topology()
-
-    # Technology agnostic device sweeps
-    sweep = {
-        'tech': ['tsmc65', 'tsmc28', 'tower180'],
-        'globals': {
-            'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-            'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
-        },
-        'selections': [
-            {'devices': ['MN', 'MP'], 'w': [1, 2, 4, 8, 12, 16], 'type': ['lvt', 'svt']}
-        ]
-    }
-
-    all_configurations.append((topology, sweep))
-
-    return all_configurations
-
-
 def testbench():
     """
     Tech agnostic testbench netlist description.
@@ -86,3 +86,20 @@ def testbench():
     }
 
     return topology
+
+
+def measure(raw, subckt_json, tb_json, raw_file):
+    """
+    Measure inverter simulation results.
+
+    TODO: Implement measurement logic using flow/measure functions
+    """
+    from flow.measure import write_analysis
+
+    # TODO: Read traces, calculate metrics (delay, rise/fall times, power, etc.)
+    # TODO: Use calc_*() functions from flow/measure
+
+    results = {}
+    write_analysis(raw_file, results)
+
+    return results

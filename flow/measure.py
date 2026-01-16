@@ -1,7 +1,7 @@
 import numpy as np
+import pandas as pd
 from pathlib import Path
-from spicelib import RawRead, SpiceEditor
-from spicelib.raw.raw_write import RawWrite, Trace
+from spicelib import RawRead
 
 """
 Measurement entails reading in the .raw files created by simulation, and performing a series of post-processing and calculations
@@ -16,7 +16,7 @@ def read_traces(raw):
     traces = tuple(raw.get_wave(name) for name in raw.get_trace_names() if name.lower() != 'time')
     return (time,) + traces
 
-def write_analysis(raw_file, *variables):
+def write_analysis(raw_file, *variables, outdir=None):
     """
     Write arrays to .raw_a file and all variables to .pkl file.
 
@@ -25,10 +25,15 @@ def write_analysis(raw_file, *variables):
 
     The first variable must be the time array.
 
+    Args:
+        raw_file: Path to the raw file (used for naming output files)
+        *variables: Variable-length argument list of numpy arrays and scalars
+        outdir: Optional output directory. If None, writes to same directory as raw_file
+
     Usage:
         write_analysis(raw_file, time, vin, vout, qvclk, vdiff, max_error_V, rms_error_V)
+        write_analysis(raw_file, time, vin, vout, outdir='/path/to/meas')
     """
-    import pickle
     import inspect
     import numpy as np
 
@@ -58,47 +63,46 @@ def write_analysis(raw_file, *variables):
         if isinstance(value, np.ndarray) and len(value) == time_len:
             arrays[name] = value
 
-    # Write .raw_a file with arrays only
-    raw_a_path = Path(raw_file).with_suffix('.raw_a')
-    # WARNING: 'fastacces' typo is in the spicelib library itself!
-    raw_write = RawWrite(fastacces=False, encoding='utf_8')
+    # Determine output paths
+    import sys
+    import json
 
-    # Find and add time trace first
-    time_name = None
-    for name, data in arrays.items():
-        if name.lower() == 'time':
-            time_name = name
-            raw_write.add_trace(Trace('time', data, whattype='time', numerical_type='double'))
-            break
+    raw_path = Path(raw_file)
 
-    # Add other array traces
-    for name, data in arrays.items():
-        if name == time_name:
-            continue
+    # Check for outdir from CLI argument (stored in sys._measure_outdir)
+    if outdir is None and hasattr(sys, '_measure_outdir'):
+        outdir = sys._measure_outdir
 
-        # Determine trace type from name
-        if name.startswith('v') or name.startswith('V'):
-            whattype = 'voltage'
-        elif name.startswith('i') or name.startswith('I'):
-            whattype = 'current'
-        else:
-            whattype = 'voltage'
+    if outdir is not None:
+        # Write to specified output directory
+        # Replace sim_ prefix with meas_ for measurement files
+        outdir_path = Path(outdir)
+        outdir_path.mkdir(parents=True, exist_ok=True)
+        base_name = raw_path.stem.replace('sim_', 'meas_', 1)
+        json_path = outdir_path / f"{base_name}.json"
+        csv_path = outdir_path / f"{base_name}.csv"
+    else:
+        # Write to same directory as raw_file
+        base_name = raw_path.stem.replace('sim_', 'meas_', 1)
+        json_path = raw_path.parent / f"{base_name}.json"
+        csv_path = raw_path.parent / f"{base_name}.csv"
 
-        raw_write.add_trace(Trace(name, data, whattype=whattype, numerical_type='double'))
+    # Separate arrays from scalars for CSV
+    scalars = {}
+    for name, value in var_dict.items():
+        if not isinstance(value, np.ndarray) or len(value) != time_len:
+            scalars[name] = value
 
-    raw_write.save(str(raw_a_path))
+    # Write .json file with scalar metrics only
+    with open(json_path, 'w') as f:
+        json.dump(scalars, f, indent=2, default=str)
 
-    # Write .pkl file with all data (arrays and scalars)
-    pkl_path = Path(raw_file).with_suffix('.pkl')
-    with open(pkl_path, 'wb') as f:
-        pickle.dump(var_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # Write .csv file with time-series data (arrays)
+    if arrays:
+        df = pd.DataFrame(arrays)
+        df.to_csv(csv_path, index=False)
 
-    import pprint
-    print(f"\nSaved {len(arrays)} arrays to {raw_a_path}")
-    print(f"Saved {len(var_dict)} variables to {pkl_path}:")
-    pprint.pprint(var_dict)
-
-    return raw_a_path, pkl_path
+    return json_path, csv_path
 
 
 def quantize(signal, bits=1, max=1.2, min=0):
@@ -374,22 +378,385 @@ def rds(raw, netlist, device_name):
     return (vd - vs) / id
 
 
+
+
+# ========================================================================
+# Analytic Functions - compute metrics from circuit parameters
+# ========================================================================
+
+def analyze_weights(weights: list[int], threshold: int = 64):
+    """
+    Gives analysis of weights for where the main scaling structure ends and where
+    fine adjustments (such as capacitor differences, Vref scaling with a resistive
+    divider, or bridge capacitor scaling) begin. The output includes weight
+    ratios, and various metrics annotated for design insight.
+
+    This function calculates and displays key metrics including the unit capacitor
+    size (defining the transition from coarse to fine scaling), effective radix
+    between weights, and the percentage of remaining redundancy.
+
+    Args:
+        weights: List of capacitor weights
+        threshold: Coarse/fine split threshold (default: 64)
+
+    Returns:
+        dict: Dictionary containing analysis results
+    """
+
+    # Calculate various metrics for each bit position
+    remaining = []  # Remaining total weight after each bit
+    method4 = []    # Difference between remaining and current weight
+    radix = []      # Ratio of current weight to next weight (effective radix)
+    bit = list(range(len(weights)))  # Bit indices
+
+    # Loop through all but the last weight to compute metrics
+    for i, cap in enumerate(weights[:-1]):
+        remain = sum(weights[i+1:])  # Total weight remaining after this bit
+        remaining.append(remain)
+        method4.append(remain - weights[i])  # Difference between remaining and current
+        radix.append(weights[i] / weights[i+1])  # Effective radix between this and next
+
+    return {
+        'weights': weights,
+        'weight_ratios': [w / threshold for w in weights],
+        'sum': sum(weights),
+        'length': len(weights),
+        'bit': bit,
+        'method4': method4 + [0],
+        'radix': radix + [0],
+        'remaining': remaining
+    }
+
+
+def analyze_signal_rms(Vref):
+    """
+    Estimate RMS amplitude of signal assuming peak-to-peak sinusoid.
+
+    Args:
+        Vref: Reference voltage
+
+    Returns:
+        float: RMS signal voltage
+    """
+    import math
+    return Vref * 2 / (2 * math.sqrt(2))
+
+
+def analyze_qnoise(Vref, Nbits):
+    """
+    Calculate quantization noise for ADC.
+
+    Args:
+        Vref: Reference voltage
+        Nbits: Number of bits
+
+    Returns:
+        tuple: (Vqnoise_rms, Vlsb)
+    """
+    import math
+    Vlsb = (Vref*2) / (2**Nbits)
+    Vqnoise_rms = Vlsb/math.sqrt(12)
+    return Vqnoise_rms, Vlsb
+
+
+def analyze_sampnoise(Ctot):
+    """
+    Calculate sampling noise from total capacitance.
+
+    Args:
+        Ctot: Total sampling capacitance (F)
+
+    Returns:
+        float: RMS sampling noise voltage
+    """
+    import math
+    kB = 1.38065e-23    # Boltzmann's constant
+    T = 300  # roughly 27 deg C
+    Vsampnoise_rms = math.sqrt(kB*T/Ctot)
+    return Vsampnoise_rms
+
+
+def analyze_snr_volts(Vsignal, Vnoise):
+    """
+    Calculate SNR in dB from signal and noise voltages.
+
+    Args:
+        Vsignal: RMS signal voltage
+        Vnoise: RMS noise voltage
+
+    Returns:
+        float: SNR in dB
+    """
+    import math
+    return 10 * math.log10((Vsignal / Vnoise)**2)
+
+
+def analyze_enob(SNR):
+    """
+    Calculate ENOB from SNR.
+
+    Args:
+        SNR: Signal-to-noise ratio in dB
+
+    Returns:
+        float: Effective number of bits
+    """
+    return (SNR - 1.76)/6.02
+
+
+def analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
+    """
+    Calculate effective number of bits (ENOB) due to sampling noise.
+
+    Args:
+        Vref: Reference voltage of the ADC
+        Ctot: Total sampling capacitance (F)
+        Nbits: Number of ADC bits
+
+    Returns:
+        float: ENOB, reduced only due to sampling noise
+    """
+    import math
+    Vinpp_rms = analyze_signal_rms(Vref)
+    Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
+    Vsampnoise_rms = analyze_sampnoise(Ctot)
+    Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vsampnoise_rms**2)
+    snr = analyze_snr_volts(Vinpp_rms, Vnoise_rms)
+    enob = analyze_enob(snr)
+    return enob
+
+
+def analyze_midcode_sigma_bounds(Ctot, Nbits, Acap):
+    """
+    Calculate 3-sigma and 4-sigma bounds for mid-code variation due to capacitor mismatch.
+
+    Args:
+        Ctot: Total capacitance of the array (F)
+        Nbits: Number of design bits
+        Acap: Mismatch coefficient per sqrt(C fF), from Pelgrom pg. 768
+
+    Returns:
+        tuple: (sigma, 3sigma, 4sigma, Cu, Cu_sigma_norm) in LSB units or Farads
+    """
+    import math
+    Cu = Ctot / (2 ** Nbits)
+    Cu_delta_sigma_norm = Acap / math.sqrt(Cu * 1e15)
+    Cu_sigma_norm = Cu_delta_sigma_norm / math.sqrt(2)
+    Cmsb_delta_sigma_norm = Cu_sigma_norm * math.sqrt(2**(Nbits-1) + (2**(Nbits-1)- 1))
+    Cmsb_delta_3sigma_norm = 3 * Cmsb_delta_sigma_norm
+    Cmsb_delta_4sigma_norm = 4 * Cmsb_delta_sigma_norm
+    return Cmsb_delta_sigma_norm, Cmsb_delta_3sigma_norm, Cmsb_delta_4sigma_norm, Cu, Cu_sigma_norm
+
+
+def analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref):
+    """
+    Calculate mismatch-induced DNL noise.
+
+    Args:
+        Ctot: Total capacitance (F)
+        Nbits: Number of bits
+        Acap: Mismatch coefficient
+        Vref: Reference voltage
+
+    Returns:
+        tuple: (1sigma, 3sigma, 4sigma) DNL noise voltages
+    """
+    import math
+    Vqnoise, Vlsb = analyze_qnoise(Vref, Nbits)
+    Cmsb_delta_1sigma_norm, Cmsb_delta_3sigma_norm, Cmsb_delta_4sigma_norm, Cu, Cu_sigma_norm = \
+        analyze_midcode_sigma_bounds(Ctot, Nbits, Acap)
+
+    Vmmdnl_noise_1sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_1sigma_norm**2)))
+    Vmmdnl_noise_3sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_3sigma_norm**2)))
+    Vmmdnl_noise_4sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_4sigma_norm**2)))
+
+    return Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma
+
+
+def analyze_enob_from_mismatch(Ctot, Nbits, Acap, Vref):
+    """
+    Calculate ENOB considering capacitor mismatch.
+
+    Args:
+        Ctot: Total capacitance (F)
+        Nbits: Number of bits
+        Acap: Mismatch coefficient
+        Vref: Reference voltage
+
+    Returns:
+        float: ENOB reduced by mismatch
+    """
+    import math
+    Vinpp_rms = analyze_signal_rms(Vref)
+    Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
+    Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma = \
+        analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref)
+    Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vmmdnl_noise_3sigma**2)
+    snr = analyze_snr_volts(Vinpp_rms, Vnoise_rms)
+    enob = analyze_enob(snr)
+    return enob
+
+
+def analyze_area(netlist_json):
+    """
+    Calculate total device area from netlist.
+
+    Args:
+        netlist_json: Dictionary containing device parameters
+
+    Returns:
+        dict: Dictionary with per-device areas and total area
+    """
+    device_areas = {}
+    total_area = 0.0
+
+    devices = netlist_json.get('devices', {})
+    for dev_name, dev_info in devices.items():
+        if 'w' in dev_info and 'l' in dev_info:
+            area = dev_info['w'] * dev_info['l']
+            nf = dev_info.get('nf', 1)
+            device_areas[dev_name] = area * nf
+            total_area += area * nf
+
+    return {
+        'device_areas': device_areas,
+        'total_area': total_area
+    }
+
+
 def main():
+    """Main entry point for measurement script."""
     import argparse
+    import sys
+    import json
+    import re
+    from glob import glob
+    from tqdm import tqdm
     from flow.plot import load_analysis_module
 
-    parser = argparse.ArgumentParser(description='Run SPICE analysis')
-    parser.add_argument('raw_file', type=Path, help='Path to .raw file')
-    parser.add_argument('netlist_file', type=Path, help='Path to .sp netlist file')
-    parser.add_argument('analysis_file', type=Path, help='Path to analysis.py script')
+    parser = argparse.ArgumentParser(description='Run measurements on simulation results')
+    parser.add_argument('block_file', type=Path, help='Path to block script (e.g., blocks/comp.py)')
+    parser.add_argument('sim_dir', type=Path, help='Directory containing .raw files (e.g., results/sim)')
+    parser.add_argument('ckt_dir', type=Path, help='Directory containing subcircuit .json files (e.g., ckt)')
+    parser.add_argument('tb_dir', type=Path, help='Directory containing testbench .json files (e.g., results/tb)')
+    parser.add_argument('meas_dir', type=Path, help='Output directory for measurements (e.g., results/meas)')
     args = parser.parse_args()
 
-    raw = RawRead(str(args.raw_file), traces_to_read='*', dialect='ngspice', verbose=False)
-    netlist = SpiceEditor(str(args.netlist_file))
+    # Extract cell name from block file (e.g., blocks/comp.py -> comp)
+    cell = args.block_file.stem
 
-    analysis_module = load_analysis_module(args.analysis_file)
-    analysis_module.measure(raw, netlist, str(args.raw_file))
+    # Load analysis module
+    analysis_module = load_analysis_module(args.block_file)
+    if not hasattr(analysis_module, 'measure'):
+        print(f"Error: {args.block_file} does not have a measure() function")
+        sys.exit(1)
+
+    # Set output directory in sys for write_analysis() to access
+    sys._measure_outdir = str(args.meas_dir)
+    args.meas_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find all .raw files for this cell in sim_dir (now with sim_ prefix)
+    raw_pattern = str(args.sim_dir / f"sim_{cell}*.raw")
+    raw_files = sorted(glob(raw_pattern))
+
+    if not raw_files:
+        print(f"No .raw files found matching: {raw_pattern}")
+        sys.exit(0)
+
+    print(f"\n{'='*80}")
+    print(f"Measuring {cell}")
+    print(f"{'='*80}")
+    print(f"Found {len(raw_files)} simulation results\n")
+    print(f"{'File':<50} {'Status':<10}")
+    print(f"{'-'*80}")
+
+    # Process each raw file
+    successful = 0
+    failed = []
+
+    for raw_file in raw_files:
+        raw_path = Path(raw_file)
+        filename = raw_path.name
+
+        try:
+            # Parse filename: sim_<cell>_<params>_<tech>_<hash>.raw
+            # Example: sim_comp_nmosinput_stdbias_tsmc65_a1b2c3d4e5f6.raw
+            stem = raw_path.stem  # Remove .raw extension
+
+            # Extract tech and hash (12 hex chars) from filename
+            # Tech is alphanumeric, hash is 12 hex characters at the end
+            match = re.search(r'_(\w+)_([0-9a-f]{12})$', stem)
+            if not match:
+                print(f"{filename:<50} {'✗ No hash':<10}")
+                failed.append(raw_path.name)
+                continue
+
+            tech = match.group(1)
+            hash_hex = match.group(2)
+
+            # Find matching subcircuit .json: ckt_<cell>_<params>_<tech>_<hash>.json
+            subckt_pattern = str(args.ckt_dir / f"ckt_{cell}_*_{tech}_{hash_hex}.json")
+            subckt_matches = glob(subckt_pattern)
+
+            if not subckt_matches:
+                print(f"{filename:<50} {'✗ No subckt':<10}")
+                failed.append(raw_path.name)
+                continue
+
+            subckt_json_path = Path(subckt_matches[0])
+
+            # Find matching testbench .json: tb_<cell>_<tech>.json
+            tb_json_path = args.tb_dir / f"tb_{cell}_{tech}.json"
+
+            if not tb_json_path.exists():
+                print(f"{filename:<50} {'✗ No TB':<10}")
+                failed.append(raw_path.name)
+                continue
+
+            # Load data
+            raw = RawRead(str(raw_path), traces_to_read='*', dialect='ngspice', verbose=False)
+
+            with open(subckt_json_path, 'r') as f:
+                subckt_json = json.load(f)
+
+            with open(tb_json_path, 'r') as f:
+                tb_json = json.load(f)
+
+            # Call measure function
+            analysis_module.measure(raw, subckt_json, tb_json, str(raw_path))
+
+            print(f"{filename:<50} {'✓':<10}")
+            successful += 1
+
+        except Exception as e:
+            print(f"{filename:<50} {'✗ Error':<10}")
+            failed.append((raw_path.name, str(e)))
+            continue
+
+    # Print summary
+    print(f"{'-'*80}")
+    print(f"\n{'='*80}")
+    print("Measurement Summary")
+    print(f"{'='*80}")
+    print(f"Total files:     {len(raw_files)}")
+    print(f"Successful:      {successful} ({100*successful/len(raw_files):.1f}%)")
+    print(f"Failed:          {len(failed)} ({100*len(failed)/len(raw_files):.1f}%)")
+
+    if failed:
+        print("\nFailed files:")
+        for item in failed:
+            if isinstance(item, tuple):
+                name, error = item
+                print(f"  - {name}: {error}")
+            else:
+                print(f"  - {item}")
+
+    print(f"\nResults saved to: {args.meas_dir}")
+    print(f"{'='*80}")
+
+    return 0 if len(failed) == 0 else 1
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    sys.exit(main())
