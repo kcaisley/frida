@@ -33,7 +33,10 @@ def write_analysis(raw_file, *variables):
     import numpy as np
 
     # Get variable names from caller's frame
-    frame = inspect.currentframe().f_back
+    frame = inspect.currentframe()
+    if frame is None or frame.f_back is None:
+        raise RuntimeError("Could not inspect calling frame. Variable names unavailable.")
+    frame = frame.f_back
     var_dict = {}
     for var in variables:
         found = False

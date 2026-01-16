@@ -2,8 +2,6 @@
 """Quick inspection tool for raw files."""
 
 import sys
-import numpy as np
-from pathlib import Path
 from spicelib import RawRead
 
 

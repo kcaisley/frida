@@ -42,6 +42,8 @@ def load_analysis_module(analysis_file):
         sys.path.insert(0, str(project_root))
 
     spec = importlib.util.spec_from_file_location("analysis", analysis_file)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load analysis module from {analysis_file}")
     module = importlib.util.module_from_spec(spec)
     sys.modules["analysis"] = module
     spec.loader.exec_module(module)
