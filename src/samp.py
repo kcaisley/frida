@@ -69,24 +69,24 @@ def subcircuit():
         # Technology agnostic device sweeps
         sweep = {
             'tech': ['tsmc65', 'tsmc28', 'tower180'],
-            'defaults': {
+            'globals': {
                 'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
                 'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
             },
-            'sweeps': []
+            'selections': []
         }
 
         # Device-specific sweeps based on switch type
         if switch_type == 'nmos':
-            sweep['sweeps'] = [
+            sweep['selections'] = [
                 {'devices': ['MN'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
             ]
         elif switch_type == 'pmos':
-            sweep['sweeps'] = [
+            sweep['selections'] = [
                 {'devices': ['MP'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
             ]
         elif switch_type == 'tgate':
-            sweep['sweeps'] = [
+            sweep['selections'] = [
                 {'devices': ['MN', 'MP'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
             ]
 

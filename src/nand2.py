@@ -51,11 +51,11 @@ def subcircuit():
     # Technology agnostic device sweeps
     sweep = {
         'tech': ['tsmc65', 'tsmc28', 'tower180'],
-        'defaults': {
+        'globals': {
             'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
             'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
         },
-        'sweeps': [
+        'selections': [
             {'devices': ['MNa', 'MNb', 'MPa', 'MPb'], 'w': [1, 2, 4, 8, 12, 16], 'type': ['lvt', 'svt']}
         ]
     }

@@ -1,67 +1,6 @@
 """
 Converts Python circuit descriptions into SPICE netlists with
 technology-specific device mappings and parameter sweeps.
-
-Data Flow:
-----------
-1. Load circuit module (Python file with subcircuit()/testbench() functions)
-2. expand_sweeps() - Generate all parameter combinations from sweep specs
-3. map_technology() - Map generic devices to tech-specific models
-4. generate_spice() - Convert to SPICE netlist string
-5. Write .sp and .json files
-
-Key Data Structures:
---------------------
-
-Topology Dictionary (from circuit modules):
-    {
-        "subckt": str,                      # Subcircuit name
-        "ports": dict[str, str],            # Port name -> direction ("I", "O", "B")
-        "devices": dict[str, DeviceDict],   # Device instances
-        "meta": dict[str, Any]              # Optional metadata
-    }
-
-DeviceDict (before technology mapping):
-    {
-        "dev": "nmos" | "pmos" | "cap" | "res",
-        "pins": dict[str, str],             # Pin connections
-        "w": int,                           # Width multiplier (transistors)
-        "l": int,                           # Length multiplier (transistors)
-        "c": int,                           # Capacitance weight (capacitors)
-        "m": int,                           # Multiplier (capacitors)
-        "r": int                            # Resistance multiplier (resistors)
-    }
-
-DeviceDict (after technology mapping):
-    {
-        "model": str,                       # Technology-specific model name
-        "pins": dict[str, str],
-        "w": float,                         # Absolute width in meters
-        "l": float,                         # Absolute length in meters
-        "nf": int,                          # Number of fingers
-        "meta": dict[str, Any]              # Original generic parameters
-    }
-
-Sweep Dictionary:
-    {
-        "tech": list[str],                  # Technologies to generate
-        "defaults": {
-            "nmos": {"type": str, "w": int, "l": int, "nf": int},
-            "pmos": {"type": str, "w": int, "l": int, "nf": int},
-            "cap": {"dev": str},            # e.g., "momcap"
-            "res": {"dev": str, "r": int}   # e.g., "polyres", 4
-        },
-        "sweeps": list[SweepSpec]           # Parameter sweep specs
-    }
-
-SweepSpec:
-    {
-        "devices": str | list[str],         # Device names or "cap"/"res" types
-        "w": list[int],                     # Width multipliers to sweep
-        "l": list[int],                     # Length multipliers to sweep
-        "m": list[int],                     # Cap multipliers to sweep
-        "type": list[str]                   # Transistor types to sweep
-    }
 """
 
 import argparse
@@ -103,6 +42,10 @@ techmap = {
             "pmos_lvt": {"model": "pch_lvt", "w": 100e-9, "l": 60e-9},
             "pmos_svt": {"model": "pch", "w": 100e-9, "l": 60e-9},
             "pmos_hvt": {"model": "pch_hvt", "w": 100e-9, "l": 60e-9},
+            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "polyres": {"model": "polyres", "rsh": 50},
         },
         "mom_cap": {
             "unit_cap": 1e-15,  # 1 fF unit capacitance
@@ -140,6 +83,10 @@ techmap = {
             "pmos_lvt": {"model": "pch_lvt_mac", "w": 40e-9, "l": 30e-9},
             "pmos_svt": {"model": "pch_svt_mac", "w": 40e-9, "l": 30e-9},
             "pmos_hvt": {"model": "pch_hvt_mac", "w": 40e-9, "l": 30e-9},
+            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "polyres": {"model": "polyres", "rsh": 50},
         },
         "mom_cap": {
             "unit_cap": 1e-15,  # 1 fF unit capacitance
@@ -184,6 +131,10 @@ techmap = {
             "pmos_lvt": {"model": "p18lvt", "w": 220e-9, "l": 180e-9},
             "pmos_svt": {"model": "p18", "w": 220e-9, "l": 180e-9},
             "pmos_hvt": {"model": "p18hvt", "w": 220e-9, "l": 180e-9},
+            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "polyres": {"model": "polyres", "rsh": 50},
         },
         "mom_cap": {
             "unit_cap": 1e-15,  # 1 fF unit capacitance
@@ -315,69 +266,128 @@ def expand_sweeps(
     """
     Expand parameter sweeps to generate all combinations of topology structs.
 
+    Sweep structure:
+      - globals: Device-wide defaults that can be swept (e.g., {"nmos": {...}, "cap": {...}})
+      - selections: Device-specific parameter sweeps (e.g., [{"devices": ["M1", "M2"], "w": [2, 4]}])
+
     Stores generic parameters in 'meta' subfield:
-      - dev: 'nmos' or 'pmos'
-      - type: 'lvt', 'svt', or 'hvt'
-      - w, l: multipliers
-      - nf: number of fingers
+      - For transistors: dev, type, w, l, nf
+      - For capacitors: dev, type, c, m
+      - For resistors: dev, r, w
     """
 
-    def get_defaults(dev: str) -> dict[str, Any]:
-        """Get default meta values for a transistor type."""
-        if dev not in ["nmos", "pmos"]:
+    def get_global_defaults(dev: str, global_config: dict[str, Any]) -> dict[str, Any]:
+        """Get default meta values for a device type from globals."""
+        if dev not in ["nmos", "pmos", "cap", "res"]:
             return {}
-        # Check if defaults exist in sweep (not all topologies use sweeps)
-        if "defaults" not in sweep:
-            return {}
-        defaults = sweep["defaults"][dev]
-        return {
-            "dev": dev,
-            "type": defaults.get("type", "svt"),
-            "w": defaults["w"],
-            "l": defaults["l"],
-            "nf": defaults.get("nf", 1),
-        }
 
-    # Generate combinations for each sweep group
-    if "sweeps" not in sweep or not sweep["sweeps"]:
+        # Check if globals exist in sweep
+        if "globals" not in sweep:
+            return {}
+
+        if dev not in sweep["globals"]:
+            return {}
+
+        defaults = sweep["globals"][dev]
+        meta = {"dev": dev}
+
+        if dev in ["nmos", "pmos"]:
+            meta.update({
+                "type": defaults.get("type", "svt") if "type" not in global_config else global_config["type"],
+                "w": defaults.get("w", 1) if "w" not in global_config else global_config["w"],
+                "l": defaults.get("l", 1) if "l" not in global_config else global_config["l"],
+                "nf": defaults.get("nf", 1) if "nf" not in global_config else global_config["nf"],
+            })
+        elif dev == "cap":
+            meta.update({
+                "type": defaults.get("type", "1m") if "type" not in global_config else global_config["type"],
+            })
+            if "c" in defaults:
+                meta["c"] = defaults["c"] if "c" not in global_config else global_config["c"]
+            if "m" in defaults:
+                meta["m"] = defaults["m"] if "m" not in global_config else global_config["m"]
+        elif dev == "res":
+            if "r" in defaults:
+                meta["r"] = defaults["r"] if "r" not in global_config else global_config["r"]
+            if "w" in defaults:
+                meta["w"] = defaults["w"] if "w" not in global_config else global_config["w"]
+
+        return meta
+
+    # Build global sweep combinations
+    global_sweep_groups = []
+    if "globals" in sweep:
+        for dev_type, dev_globals in sweep["globals"].items():
+            # Check if this device type has any sweepable parameters
+            param_lists = {
+                p: dev_globals[p] for p in ["w", "l", "nf", "type", "c", "m", "r"]
+                if p in dev_globals and isinstance(dev_globals[p], list)
+            }
+
+            if param_lists:
+                param_names = list(param_lists.keys())
+                group_combos = []
+                for combo in itertools.product(*[param_lists[p] for p in param_names]):
+                    group_config = {dev_type: dict(zip(param_names, combo))}
+                    group_combos.append(group_config)
+                global_sweep_groups.append(group_combos)
+
+    # Build selection sweep combinations per group
+    selection_sweep_groups = []
+    if "selections" in sweep:
+        for sweep_spec in sweep["selections"]:
+            sweep_devices = sweep_spec["devices"]
+            param_lists = {
+                p: sweep_spec[p] for p in ["w", "l", "nf", "type", "c", "m", "r"] if p in sweep_spec
+            }
+            param_names = list(param_lists.keys())
+
+            group_combos = []
+            for combo in itertools.product(*[param_lists[p] for p in param_names]):
+                group_config = {dev: dict(zip(param_names, combo)) for dev in sweep_devices}
+                group_combos.append(group_config)
+            selection_sweep_groups.append(group_combos)
+
+    # Combine global and selection sweeps via Cartesian product
+    all_sweep_groups = global_sweep_groups + selection_sweep_groups
+
+    if not all_sweep_groups:
+        # No sweeps, just apply globals
         topo_copy = copy.deepcopy(topology)
         for dev_name, dev_info in topo_copy["devices"].items():
-            meta = get_defaults(dev_info.get("dev", ""))
+            meta = get_global_defaults(dev_info.get("dev", ""), {})
             if meta:
                 dev_info["meta"] = meta
         return [topo_copy]
 
-    # Build sweep combinations per group
-    sweep_groups = []
-    for sweep_spec in sweep["sweeps"]:
-        sweep_devices = sweep_spec["devices"]
-        param_lists = {
-            p: sweep_spec[p] for p in ["w", "l", "nf", "type"] if p in sweep_spec
-        }
-        param_names = list(param_lists.keys())
-
-        group_combos = []
-        for combo in itertools.product(*[param_lists[p] for p in param_names]):
-            group_config = {dev: dict(zip(param_names, combo)) for dev in sweep_devices}
-            group_combos.append(group_config)
-        sweep_groups.append(group_combos)
-
-    # Combine all sweep groups via Cartesian product
     all_configurations = []
-    for combo in itertools.product(*sweep_groups):
-        config = {}
+    for combo in itertools.product(*all_sweep_groups):
+        # Merge all configs (global + selections)
+        global_config = {}
+        selection_config = {}
+
         for sweep_config in combo:
-            config.update(sweep_config)
+            # Check if this is a global config (has device type keys) or selection config (has device name keys)
+            for key in sweep_config.keys():
+                if key in ["nmos", "pmos", "cap", "res"]:
+                    global_config.update(sweep_config)
+                else:
+                    selection_config.update(sweep_config)
 
         topo_copy = copy.deepcopy(topology)
         for dev_name, dev_info in topo_copy["devices"].items():
-            meta = get_defaults(dev_info.get("dev", ""))
+            dev_type = dev_info.get("dev", "")
+
+            # Get global defaults for this device type, applying global sweep overrides
+            global_overrides = global_config.get(dev_type, {})
+            meta = get_global_defaults(dev_type, global_overrides)
+
             if not meta:
                 continue
 
-            # Apply sweep overrides
-            if dev_name in config:
-                meta.update(config[dev_name])
+            # Apply selection overrides for specific devices
+            if dev_name in selection_config:
+                meta.update(selection_config[dev_name])
 
             dev_info["meta"] = meta
 
@@ -402,35 +412,50 @@ def map_technology(
     topo_copy["meta"]["tech"] = tech
 
     for dev_name, dev_info in topo_copy.get("devices", {}).items():
-        dev = dev_info.get("dev")
-
-        # Handle capacitors
-        if dev == "cap":
-            # Capacitors get a model from defaults or techmap
-            # Keep c and m fields for SPICE generation
-            continue
-
-        # Handle resistors
-        if dev == "res":
-            # Resistors keep their r value for SPICE generation
-            continue
-
         meta = dev_info.get("meta")
         if not meta:
             continue
 
-        # Combine dev + type for devmap lookup (e.g., 'nmos_lvt')
-        device_key = f"{meta['dev']}_{meta['type']}"
+        dev = meta.get("dev")
+        if not dev:
+            continue
+
+        # Combine dev + type for devmap lookup
+        # For transistors: nmos_lvt, pmos_svt (dev + type)
+        # For caps/res: momcap_1m, polyres (type already includes category)
+        if dev in ["nmos", "pmos"] and "type" in meta:
+            device_key = f"{dev}_{meta['type']}"
+        elif "type" in meta:
+            device_key = meta['type']
+        else:
+            device_key = dev
+
         dev_map = tech_config["devmap"].get(device_key)
         if not dev_map:
             continue
 
-        # Remove generic 'dev' field, replace with tech-specific 'model'
-        del dev_info["dev"]
-        dev_info["model"] = dev_map["model"]
-        dev_info["w"] = meta["w"] * dev_map["w"]
-        dev_info["l"] = meta["l"] * dev_map["l"]
-        dev_info["nf"] = meta.get("nf", 1)
+        # Remove generic 'dev' field from device info
+        if "dev" in dev_info:
+            del dev_info["dev"]
+
+        # Map transistors
+        if dev in ["nmos", "pmos"]:
+            dev_info["model"] = dev_map["model"]
+            dev_info["w"] = meta["w"] * dev_map["w"]
+            dev_info["l"] = meta["l"] * dev_map["l"]
+            dev_info["nf"] = meta.get("nf", 1)
+
+        # Map capacitors
+        elif dev == "cap":
+            dev_info["model"] = dev_map["model"]
+            # Keep c and m from device definition for SPICE generation
+
+        # Map resistors
+        elif dev == "res":
+            dev_info["model"] = dev_map["model"]
+            # Keep r from device definition for SPICE generation
+            if "rsh" in dev_map:
+                dev_info["rsh"] = dev_map["rsh"]
 
     return topo_copy
 
@@ -638,12 +663,18 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
 
         # Devices
         for dev_name, dev_info in devices.items():
-            dev = dev_info.get("dev")
             model = dev_info.get("model")
             pins = dev_info.get("pins", {})
 
-            # Transistors have a 'meta' field
+            # Determine device type from meta if available, otherwise from dev field
+            dev_type = None
             if "meta" in dev_info:
+                dev_type = dev_info["meta"].get("dev")
+            if not dev_type:
+                dev_type = dev_info.get("dev")
+
+            # Transistors
+            if dev_type in ["nmos", "pmos"]:
                 pin_list = " ".join(pins.get(p, "0") for p in ["d", "g", "s", "b"])
                 line = f"{dev_name} {pin_list} {model}"
                 line += f" W={format_value(dev_info['w'])}"
@@ -651,8 +682,8 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
                 line += f" nf={dev_info.get('nf', 1)}"
                 lines.append(line)
 
-            # Capacitors (generic cap devices)
-            elif dev == "cap":
+            # Capacitors
+            elif dev_type == "cap":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
                 c = dev_info.get("c", 1)  # Unitless capacitance value
@@ -664,7 +695,7 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
                 lines.append(f"{dev_name} {p} {n} {cap_model} c={c} m={m}")
 
             # Resistors
-            elif dev == "res":
+            elif dev_type == "res":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
                 r = dev_info.get("r", 4)  # Resistance multiplier
@@ -979,7 +1010,7 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
                 if "meta" not in topo:
                     topo["meta"] = {}
                 topo["meta"]["tech"] = tech
-                
+
                 # Map to technology
                 tech_topo = map_technology(topo, tech, techmap)
 
@@ -1020,8 +1051,8 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
         headers = meta_fields + ["sweeps", "techs", "total"]
         print_table(rows, headers)
 
-    # Verify actual file count matches expected count
-    actual_sp_files = list(output_dir.glob("*.sp"))
+    # Verify actual file count matches expected count (exclude testbench files)
+    actual_sp_files = [f for f in output_dir.glob("*.sp") if not f.name.startswith("tb_")]
     actual_count = len(actual_sp_files)
 
     if actual_count != total_count:

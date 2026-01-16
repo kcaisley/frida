@@ -250,12 +250,12 @@ def subcircuit():
                                 # Technology agnostic device sweeps
                                 sweep = {
                                     'tech': ['tsmc65', 'tsmc28', 'tower180'],
-                                    'defaults': {
+                                    'globals': {
                                         'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
                                         'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
                                         'cap': {'c': 1, 'm': 1}
                                     },
-                                    'sweeps': [
+                                    'selections': [
                                         {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
                                         {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
                                         {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
@@ -271,27 +271,263 @@ def subcircuit():
 def testbench():
     """
     Tech agnostic testbench netlist description.
+
+    Comparator testbench for characterization (per Practical Hint 12.2):
+
+    IMPORTANT: Source impedances (Zin) on both inputs are critical!
+    Ideal voltage sources suppress kick-back -> over-optimistic results.
+
+    Test structure:
+    - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 × VDD
+    - 10 differential voltages at each: -50mV to +50mV (~11mV steps)
+    - 10 clock cycles (samples) at each point
+    - 10 Monte Carlo runs
+
+    Total: 5 × 10 × 10 = 500 comparisons per MC run
+    Clock period: 10 time units → 5000 time units total per run
     """
+    # Test parameters
+    n_common_modes = 5
+    n_diff_voltages = 10
+    n_samples = 10
+    clk_period = 10
+
+    # Common-mode voltages (fractions of VDD)
+    cm_voltages = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+    # Differential voltages (in volts, relative to VDD=1.0)
+    diff_min = -0.05   # -50mV
+    diff_max = 0.05    # +50mV
+    diff_step = (diff_max - diff_min) / (n_diff_voltages - 1)
+    diff_voltages = [diff_min + i * diff_step for i in range(n_diff_voltages)]
+
+    # Build PWL points for common-mode sweep
+    # Format: [t0, v0, t1, v1, ...]
+    vcm_points = []
+    t = 0
+    cycles_per_diff = n_samples
+    cycles_per_cm = n_diff_voltages * cycles_per_diff
+
+    for cm in cm_voltages:
+        # Hold this common mode for all differential sweeps
+        duration = cycles_per_cm * clk_period
+        vcm_points.extend([t, cm, t + duration, cm])
+        t += duration
+
+    # Build PWL points for differential voltage sweep
+    vdiff_points = []
+    t = 0
+
+    for cm_idx in range(n_common_modes):
+        for diff in diff_voltages:
+            # Hold this differential for n_samples clock cycles
+            duration = cycles_per_diff * clk_period
+            vdiff_points.extend([t, diff, t + duration, diff])
+            t += duration
+
+    total_time = t
+
     topology = {
         'testbench': 'tb_comp',
         'devices': {
+            # Power supplies
             'Vvdd': {'dev': 'vsource', 'pins': {'p': 'vdd', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
             'Vvss': {'dev': 'vsource', 'pins': {'p': 'vss', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-            'Xdut': {'dev': 'comp', 'pins': {'in+': 'in+', 'in-': 'in-', 'out+': 'out+', 'out-': 'out-', 'clk': 'clk', 'clkb': 'clkb', 'vdd': 'vdd', 'vss': 'vss'}}
+
+            # Common-mode voltage source (swept across 5 levels)
+            'Vcm': {
+                'dev': 'vsource',
+                'pins': {'p': 'vcm', 'n': 'gnd'},
+                'wave': 'pwl',
+                'points': vcm_points
+            },
+
+            # === INPUT SIGNAL PATH (Vin side) ===
+            # Differential input: in+ = vcm + vdiff (swept across 10 levels per CM)
+            'Vdiff': {
+                'dev': 'vsource',
+                'pins': {'p': 'vin_src', 'n': 'vcm'},
+                'wave': 'pwl',
+                'points': vdiff_points
+            },
+
+            # Source impedance on signal input (models DAC/SHA output impedance)
+            # Critical for accurate kick-back modeling!
+            'Rsrc_p': {'dev': 'res', 'pins': {'p': 'vin_src', 'n': 'in+'}, 'params': {'r': 1e3}},
+            'Csrc_p': {'dev': 'cap', 'pins': {'p': 'in+', 'n': 'gnd'}, 'params': {'c': 100e-15}},
+
+            # === REFERENCE PATH (Vref side) ===
+            # Reference: in- = vcm (no differential offset on reference side)
+            'Vref': {'dev': 'vsource', 'pins': {'p': 'vref_src', 'n': 'vcm'}, 'wave': 'dc', 'dc': 0.0},
+
+            # Source impedance on reference input (must match signal side!)
+            'Rsrc_n': {'dev': 'res', 'pins': {'p': 'vref_src', 'n': 'in-'}, 'params': {'r': 1e3}},
+            'Csrc_n': {'dev': 'cap', 'pins': {'p': 'in-', 'n': 'gnd'}, 'params': {'c': 100e-15}},
+
+            # === CLOCK SIGNALS ===
+            'Vclk': {
+                'dev': 'vsource',
+                'pins': {'p': 'clk', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 0, 'v2': 1.0,
+                'td': 0.5,
+                'tr': 0.1, 'tf': 0.1,
+                'pw': 4,            # 40% duty cycle high (evaluation phase)
+                'per': clk_period
+            },
+
+            # Complementary clock (inverted)
+            'Vclkb': {
+                'dev': 'vsource',
+                'pins': {'p': 'clkb', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 1.0, 'v2': 0,
+                'td': 0.5,
+                'tr': 0.1, 'tf': 0.1,
+                'pw': 4,
+                'per': clk_period
+            },
+
+            # === OUTPUT LOADING ===
+            'Cload_p': {'dev': 'cap', 'pins': {'p': 'out+', 'n': 'vss'}, 'params': {'c': 10e-15}},
+            'Cload_n': {'dev': 'cap', 'pins': {'p': 'out-', 'n': 'vss'}, 'params': {'c': 10e-15}},
+
+            # === DUT ===
+            'Xdut': {
+                'dev': 'comp',
+                'pins': {
+                    'in+': 'in+', 'in-': 'in-',
+                    'out+': 'out+', 'out-': 'out-',
+                    'clk': 'clk', 'clkb': 'clkb',
+                    'vdd': 'vdd', 'vss': 'vss'
+                }
+            }
         },
         'analyses': {
             'mc1': {
                 'type': 'montecarlo',
-                'numruns': 20,
+                'numruns': 10,
                 'seed': 12345,
                 'variations': 'all'
             },
             'tran1': {
                 'type': 'tran',
-                'stop': 35000,
-                'step': 1
+                'stop': total_time,
+                'strobeperiod': clk_period / 2,
+                'noisefmax': 10e9,
+                'noiseseed': 1
             }
         }
     }
 
     return topology
+
+
+def analyze(raw, netlist, raw_file):
+    """
+    Analyze comparator simulation results using statistical method.
+
+    Per Section 6.4 "Simulation of Comparator Noise":
+    - At each (Vcm, Vdiff) test point, count ONEs vs ZEROs across samples
+    - n0/n1 ratio maps to Gaussian CDF at -Vdiff, revealing noise σ
+    - Offset is where n0 ≈ n1 (50% threshold)
+
+    Test structure: 5 CM × 10 Vdiff × 10 samples = 500 comparisons per MC run
+    """
+    from src.run_analysis import read_traces, quantize, write_analysis
+    import numpy as np
+    from scipy import special  # For inverse error function
+
+    # Test parameters (must match testbench)
+    n_common_modes = 5
+    n_diff_voltages = 10
+    n_samples = 10
+    cm_voltages = [0.3, 0.4, 0.5, 0.6, 0.7]
+    diff_min, diff_max = -0.05, 0.05
+    diff_voltages = np.linspace(diff_min, diff_max, n_diff_voltages)
+
+    # Read simulation traces
+    time, vinp, vinn, voutp, voutn, vclk, vclkb, vdda, vssa = read_traces(raw)
+
+    # Quantize signals for digital analysis
+    vth = vdda / 2  # Decision threshold
+    qvclk = quantize(vclk, bits=1, max=vdda, min=0)
+    qvout_diff = (voutp - voutn) > 0  # True = ONE (out+ > out-)
+
+    # Find clock falling edges (end of evaluation phase, sample output here)
+    clk_falling = np.where(np.diff(qvclk) < 0)[0]
+
+    # Organize decisions by test point
+    # decisions[cm_idx][diff_idx] = list of binary decisions (True/False)
+    decisions = [[[] for _ in range(n_diff_voltages)] for _ in range(n_common_modes)]
+
+    for i, sample_idx in enumerate(clk_falling):
+        if sample_idx >= len(qvout_diff):
+            continue
+
+        # Determine which test point this sample belongs to
+        cycle = i
+        cm_idx = cycle // (n_diff_voltages * n_samples)
+        diff_idx = (cycle % (n_diff_voltages * n_samples)) // n_samples
+
+        if cm_idx < n_common_modes and diff_idx < n_diff_voltages:
+            decisions[cm_idx][diff_idx].append(qvout_diff[sample_idx])
+
+    # Analyze each common-mode voltage
+    results = {
+        'cm_voltages': cm_voltages,
+        'diff_voltages': list(diff_voltages),
+        'offset_mV': [],      # Offset at each CM
+        'sigma_mV': [],       # Estimated noise σ at each CM
+        'one_counts': [],     # n1 counts at each test point
+    }
+
+    for cm_idx, cm in enumerate(cm_voltages):
+        # Count ONEs at each differential voltage
+        one_counts = []
+        for diff_idx in range(n_diff_voltages):
+            n1 = sum(decisions[cm_idx][diff_idx])
+            n_total = len(decisions[cm_idx][diff_idx])
+            one_counts.append((n1, n_total))
+
+        results['one_counts'].append(one_counts)
+
+        # Find offset: interpolate where P(ONE) = 0.5
+        p_one = [n1 / max(n_total, 1) for n1, n_total in one_counts]
+
+        offset = 0.0
+        for j in range(1, len(p_one)):
+            if (p_one[j-1] - 0.5) * (p_one[j] - 0.5) <= 0:
+                # Linear interpolation
+                v1, p1 = diff_voltages[j-1], p_one[j-1]
+                v2, p2 = diff_voltages[j], p_one[j]
+                if p2 != p1:
+                    offset = v1 + (0.5 - p1) * (v2 - v1) / (p2 - p1)
+                break
+
+        results['offset_mV'].append(float(offset * 1000))
+
+        # Estimate noise σ from transition slope
+        # P(ONE) = Φ((Vdiff - offset) / σ) where Φ is Gaussian CDF
+        # Use points near 50% transition for best estimate
+        sigma_estimates = []
+        for j, (p, vdiff) in enumerate(zip(p_one, diff_voltages)):
+            if 0.1 < p < 0.9:  # Avoid extremes
+                # Φ^(-1)(p) = (Vdiff - offset) / σ
+                # σ = (Vdiff - offset) / Φ^(-1)(p)
+                phi_inv = np.sqrt(2) * special.erfinv(2 * p - 1)
+                if abs(phi_inv) > 0.1:  # Avoid division by small numbers
+                    sigma = abs((vdiff - offset) / phi_inv)
+                    sigma_estimates.append(sigma)
+
+        sigma = np.median(sigma_estimates) if sigma_estimates else 0.0
+        results['sigma_mV'].append(float(sigma * 1000))
+
+    # Summary statistics
+    results['mean_offset_mV'] = float(np.mean(results['offset_mV']))
+    results['std_offset_mV'] = float(np.std(results['offset_mV']))
+    results['mean_sigma_mV'] = float(np.mean(results['sigma_mV']))
+
+    write_analysis(raw_file, results)
+
+    return results

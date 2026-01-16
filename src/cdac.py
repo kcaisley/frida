@@ -279,16 +279,15 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
                         weights, redun_strat, split_strat, n_dac=n_dac, n_extra=n_extra
                     )
 
-                    # Technology sweep with cap type (1m, 2m, 3m layers)
+                    # Technology sweep with cap type (momcap with 1m, 2m, 3m metal layers)
                     sweep = {
                         "tech": ["tsmc65", "tsmc28", "tower180"],
-                        "defaults": {
+                        "globals": {
                             "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
                             "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                            "cap": {"dev": "momcap"},
-                            "res": {"dev": "polyres", "r": 4}
+                            "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
+                            "res": {"type": "polyres", "r": 4}
                         },
-                        "sweeps": [{"devices": "cap", "type": ["1m", "2m", "3m"]}],
                     }
                     all_configurations.append((topology, sweep))
 
@@ -299,14 +298,64 @@ def testbench() -> dict[str, Any]:
     """
     Generate testbench for CDAC characterization.
 
-    TODO: Add proper testbench topology
+    Creates a testbench with:
+    - DUT instantiation (generic, works with any CDAC configuration)
+    - DAC input bit sources (PWL waveforms to sweep through codes)
+    - Load capacitor on output
+    - Transient analysis to measure DAC linearity
     """
+    # Generate DAC input bit sources
+    # Use PWL to sweep through DAC codes: 0, 1/4, 1/2, 3/4, full scale
+    n_bits = 11  # Generic testbench for typical 11-bit DAC
+    devices = {
+        "Vvdd": {"dev": "vsource", "pins": {"p": "vdd", "n": "gnd"}, "wave": "dc", "dc": 1.0},
+        "Vvss": {"dev": "vsource", "pins": {"p": "vss", "n": "gnd"}, "wave": "dc", "dc": 0.0},
+    }
+
+    # Add DAC bit sources - sweep through key codes
+    # Code sequence: 0 -> 256 -> 512 -> 768 -> 1024 (for 11-bit)
+    for i in range(n_bits):
+        bit_mask = 1 << i
+        # PWL: time,val pairs for codes: 0, 256, 512, 768, 1024
+        # Times: 0ns, 100ns, 200ns, 300ns, 400ns
+        pwl_points = []
+        for code_idx, code in enumerate([0, 256, 512, 768, 1024]):
+            t = code_idx * 100
+            val = 1.0 if (code & bit_mask) else 0.0
+            pwl_points.extend([t, val])
+
+        devices[f"Vdac{i}"] = {
+            "dev": "vsource",
+            "pins": {"p": f"dac[{i}]", "n": "gnd"},
+            "wave": "pwl",
+            "points": pwl_points
+        }
+
+    # Add load capacitor on top node
+    devices["Cload"] = {
+        "dev": "cap",
+        "pins": {"p": "top", "n": "gnd"},
+        "c": 1,
+        "m": 100  # 100 fF load
+    }
+
+    # Add DUT instantiation - generic, will match any cdac subcircuit
+    dut_pins = {"top": "top", "vdd": "vdd", "vss": "vss"}
+    for i in range(n_bits):
+        dut_pins[f"dac[{i}]"] = f"dac[{i}]"
+
+    devices["Xdut"] = {"dev": "cdac", "pins": dut_pins}
+
     topology = {
         "testbench": "tb_cdac_topbss",
-        "devices": {
-            "Vvdd": {"dev": "vsource", "pins": {"p": "vdd", "n": "gnd"}, "wave": "dc", "dc": 1.0},
-            "Vvss": {"dev": "vsource", "pins": {"p": "vss", "n": "gnd"}, "wave": "dc", "dc": 0.0},
-        },
+        "devices": devices,
+        "analyses": {
+            "tran1": {
+                "type": "tran",
+                "stop": 500,  # 500 time units
+                "step": 0.1
+            }
+        }
     }
 
     return topology
