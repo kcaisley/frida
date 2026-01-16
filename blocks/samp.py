@@ -147,13 +147,13 @@ def testbench():
     return topology
 
 
-def analyze(raw, netlist, raw_file):
+def measure(raw, netlist, raw_file):
     """
-    Analyze sampling switch simulation results.
+    Measure sampling switch simulation results.
 
     TODO: This function needs to be fleshed out and completed.
     """
-    from src.run_analysis import read_traces, quantize, diff, comm, write_analysis
+    from flow.measure import read_traces, quantize, diff, comm, write_analysis
     import numpy as np
 
     time, vin, vout, vclk, vclkb, vdda, vssa = read_traces(raw)

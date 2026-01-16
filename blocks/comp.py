@@ -423,9 +423,9 @@ def testbench():
     return topology
 
 
-def analyze(raw, netlist, raw_file):
+def measure(raw, netlist, raw_file):
     """
-    Analyze comparator simulation results using statistical method.
+    Measure comparator simulation results using statistical method.
 
     Per Section 6.4 "Simulation of Comparator Noise":
     - At each (Vcm, Vdiff) test point, count ONEs vs ZEROs across samples
@@ -434,7 +434,7 @@ def analyze(raw, netlist, raw_file):
 
     Test structure: 5 CM × 10 Vdiff × 10 samples = 500 comparisons per MC run
     """
-    from src.run_analysis import read_traces, quantize, write_analysis
+    from flow.measure import read_traces, quantize, write_analysis
     import numpy as np
     from scipy import special  # For inverse error function
 

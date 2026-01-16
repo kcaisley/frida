@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-from run_plotting import configure_fonts_for_pdf, configure_fonts_for_svg, save_plot
+from flow.plot import configure_fonts_for_pdf, configure_fonts_for_svg, save_plot
 
 
 def analyze_weights(weights: list[int], threshold: int = 64):

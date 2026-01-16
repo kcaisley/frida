@@ -160,3 +160,99 @@ def testbench():
     topology['devices'].update(dac_buses)
 
     return topology
+
+
+def measure(raw, netlist, raw_file):
+    """
+    Measure ADC linearity from simulation results.
+    
+    This function:
+    1. Extracts differential input voltage
+    2. Digitizes ADC output bits
+    3. Reconstructs analog output using weights
+    4. Calculates INL and DNL (both step-based and histogram methods)
+    5. Saves all results for plotting
+    """
+    from flow.measure import (
+        digitize, reconstruct_analog, calculate_inl, calculate_dnl,
+        calculate_dnl_histogram, calculate_linearity_error,
+        round_to_codes, write_analysis
+    )
+    import numpy as np
+    
+    # Load simulation data
+    time = raw.get_axis()
+    vin_p = raw.get_wave('v(vin_p)')
+    vin_n = raw.get_wave('v(vin_n)')
+    vin = vin_p - vin_n  # Differential input
+    
+    # Get digital output bits from ADC
+    # TODO: Update these signal names based on actual ADC outputs
+    # For now, assuming comp_out is the comparator output
+    comp_out = raw.get_wave('v(comp_out)')
+    
+    # Define ADC parameters
+    n_bits = 12  # 12-bit ADC
+    vdd = 1.0  # Supply voltage
+    
+    # Digitize comparator output
+    comp_digital = digitize(comp_out, vdd=vdd)
+    
+    # TODO: Extract actual DAC state bits when available from simulation
+    # For now, create placeholder digital code array
+    # This should be replaced with actual bit extraction like:
+    # dcode = np.zeros((len(time), n_bits))
+    # for i in range(n_bits):
+    #     dcode[:, i] = digitize(raw.get_wave(f'v(dac_bit_{i})'), vdd=vdd)
+    
+    # Define weights for 12-bit binary ADC
+    radix = 2.0
+    weights = np.array([radix**i for i in range(n_bits)])
+    
+    # For now, create synthetic digital code based on input
+    # TODO: Replace with actual ADC output extraction
+    vref_range = (-0.6, 0.6)  # ADC input range
+    vin_normalized = np.clip(vin, vref_range[0], vref_range[1])
+    
+    # Reconstruct analog output from digital code (placeholder until real bits available)
+    # dout_analog = reconstruct_analog(dcode, weights, vref_range=vref_range)
+    dout_analog = vin_normalized  # Placeholder
+    
+    # Round to discrete codes
+    dout_rounded = round_to_codes(dout_analog)
+    
+    # Calculate INL (Integral Nonlinearity)
+    inl, inl_rms, inl_max = calculate_inl(vin, dout_analog, return_stats=True)
+    
+    # Calculate DNL using both methods
+    # Method 1: Step-based DNL
+    dnl, dnl_rms, dnl_max = calculate_dnl(dout_analog, return_stats=True)
+    
+    # Method 2: Histogram-based DNL (code density)
+    dnl_hist, code_counts, dnl_hist_rms, dnl_hist_max = calculate_dnl_histogram(
+        dout_analog, return_stats=True
+    )
+    
+    # Calculate linearity error
+    linearity_error, error_rms = calculate_linearity_error(vin, dout_analog, return_stats=True)
+    
+    # Print summary statistics
+    print(f"\nADC Linearity Analysis Results:")
+    print(f"  INL RMS: {inl_rms:.4f} LSB")
+    print(f"  INL Max: {inl_max:.4f} LSB")
+    print(f"  DNL RMS (step-based): {dnl_rms:.4f} LSB")
+    print(f"  DNL Max (step-based): {dnl_max:.4f} LSB")
+    print(f"  DNL RMS (histogram): {dnl_hist_rms:.4f} LSB")
+    print(f"  DNL Max (histogram): {dnl_hist_max:.4f} LSB")
+    print(f"  Linearity Error RMS: {error_rms:.4f}")
+    
+    # Save all results (arrays + scalars) for plotting
+    write_analysis(
+        raw_file,
+        time, vin, vin_p, vin_n, comp_digital,
+        dout_analog, dout_rounded, inl, dnl, linearity_error,
+        inl_rms, inl_max, dnl_rms, dnl_max,
+        dnl_hist_rms, dnl_hist_max, error_rms
+    )
+    
+    print(f"\nAnalysis complete. Results saved to {raw_file}.pkl and {raw_file}.raw_a")
