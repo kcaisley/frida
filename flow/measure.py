@@ -1,7 +1,11 @@
+import datetime
+import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from spicelib import RawRead
+
+from flow.common import setup_logging
 
 """
 Measurement entails reading in the .raw files created by simulation, and performing a series of post-processing and calculations
@@ -631,7 +635,6 @@ def main():
     import json
     import re
     from glob import glob
-    from tqdm import tqdm
     from flow.plot import load_analysis_module
 
     parser = argparse.ArgumentParser(description='Run measurements on simulation results')
@@ -645,10 +648,17 @@ def main():
     # Extract cell name from block file (e.g., blocks/comp.py -> comp)
     cell = args.block_file.stem
 
+    # Setup logging
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"meas_{cell}_{timestamp}.log"
+    logger = setup_logging(log_file)
+
     # Load analysis module
     analysis_module = load_analysis_module(args.block_file)
     if not hasattr(analysis_module, 'measure'):
-        print(f"Error: {args.block_file} does not have a measure() function")
+        logger.error(f"{args.block_file} does not have a measure() function")
         sys.exit(1)
 
     # Set output directory in sys for write_analysis() to access
@@ -660,21 +670,22 @@ def main():
     raw_files = sorted(glob(raw_pattern))
 
     if not raw_files:
-        print(f"No .raw files found matching: {raw_pattern}")
+        logger.warning(f"No .raw files found matching: {raw_pattern}")
         sys.exit(0)
 
-    print(f"\n{'='*80}")
-    print(f"Measuring {cell}")
-    print(f"{'='*80}")
-    print(f"Found {len(raw_files)} simulation results\n")
-    print(f"{'File':<50} {'Status':<10}")
-    print(f"{'-'*80}")
+    logger.info("=" * 80)
+    logger.info(f"Measuring {cell}")
+    logger.info("=" * 80)
+    logger.info(f"Found {len(raw_files)} simulation results")
+    logger.info(f"Log file: {log_file}\n")
+    logger.info(f"{'File':<50} {'Status':<10}")
+    logger.info("-" * 80)
 
     # Process each raw file
     successful = 0
     failed = []
 
-    for raw_file in tqdm(raw_files, desc="Processing simulations"):
+    for idx, raw_file in enumerate(raw_files, 1):
         raw_path = Path(raw_file)
         filename = raw_path.name
 
@@ -687,7 +698,7 @@ def main():
             # Tech is alphanumeric, hash is 12 hex characters at the end
             match = re.search(r'_(\w+)_([0-9a-f]{12})$', stem)
             if not match:
-                print(f"{filename:<50} {'✗ No hash':<10}")
+                logger.info(f"{filename:<50} {'✗ No hash':<10}")
                 failed.append(raw_path.name)
                 continue
 
@@ -699,7 +710,7 @@ def main():
             subckt_matches = glob(subckt_pattern)
 
             if not subckt_matches:
-                print(f"{filename:<50} {'✗ No subckt':<10}")
+                logger.info(f"{filename:<50} {'✗ No subckt':<10}")
                 failed.append(raw_path.name)
                 continue
 
@@ -709,7 +720,7 @@ def main():
             tb_json_path = args.tb_dir / f"tb_{cell}_{tech}.json"
 
             if not tb_json_path.exists():
-                print(f"{filename:<50} {'✗ No TB':<10}")
+                logger.info(f"{filename:<50} {'✗ No TB':<10}")
                 failed.append(raw_path.name)
                 continue
 
@@ -725,34 +736,38 @@ def main():
             # Call measure function
             analysis_module.measure(raw, subckt_json, tb_json, str(raw_path))
 
-            print(f"{filename:<50} {'✓':<10}")
+            logger.info(f"{filename:<50} {'✓':<10}")
             successful += 1
 
+            # Log progress every 100 files or on last file
+            if idx % 100 == 0 or idx == len(raw_files):
+                logger.info(f"  Progress: {idx}/{len(raw_files)} files processed")
+
         except Exception as e:
-            print(f"{filename:<50} {'✗ Error':<10}")
+            logger.info(f"{filename:<50} {'✗ Error':<10}")
             failed.append((raw_path.name, str(e)))
             continue
 
     # Print summary
-    print(f"{'-'*80}")
-    print(f"\n{'='*80}")
-    print("Measurement Summary")
-    print(f"{'='*80}")
-    print(f"Total files:     {len(raw_files)}")
-    print(f"Successful:      {successful} ({100*successful/len(raw_files):.1f}%)")
-    print(f"Failed:          {len(failed)} ({100*len(failed)/len(raw_files):.1f}%)")
+    logger.info("-" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Measurement Summary")
+    logger.info("=" * 80)
+    logger.info(f"Total files:     {len(raw_files)}")
+    logger.info(f"Successful:      {successful} ({100*successful/len(raw_files):.1f}%)")
+    logger.info(f"Failed:          {len(failed)} ({100*len(failed)/len(raw_files):.1f}%)")
 
     if failed:
-        print("\nFailed files:")
+        logger.info("\nFailed files:")
         for item in failed:
             if isinstance(item, tuple):
                 name, error = item
-                print(f"  - {name}: {error}")
+                logger.info(f"  - {name}: {error}")
             else:
-                print(f"  - {item}")
+                logger.info(f"  - {item}")
 
-    print(f"\nResults saved to: {args.meas_dir}")
-    print(f"{'='*80}")
+    logger.info(f"\nResults saved to: {args.meas_dir}")
+    logger.info("=" * 80)
 
     return 0 if len(failed) == 0 else 1
 

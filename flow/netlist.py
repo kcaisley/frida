@@ -5,14 +5,17 @@ technology-specific device mappings and parameter sweeps.
 
 import argparse
 import copy
+import datetime
 import hashlib
 import importlib.util
 import itertools
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
-from tqdm import tqdm
+
+from flow.common import setup_logging
 
 # ========================================================================
 # Technology Configuration
@@ -186,12 +189,14 @@ scalemap = {
 # Netlist Generation Flow
 def print_table(rows: list[dict], headers: list[str]) -> None:
     """
-    Print a simple formatted table.
+    Print a simple formatted table using logging.
 
     Args:
         rows: List of dictionaries with data to print
         headers: List of column header names
     """
+    logger = logging.getLogger(__name__)
+
     if not rows:
         return
 
@@ -203,12 +208,12 @@ def print_table(rows: list[dict], headers: list[str]) -> None:
 
     # Print header
     header = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
-    print(header)
-    print("-" * len(header))
+    logger.info(header)
+    logger.info("-" * len(header))
 
     # Print rows
     for row in rows:
-        print(" ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers))
+        logger.info(" ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers))
 
 
 def compact_json(obj: Any, indent: int = 2, lvl: int = 0) -> str:
@@ -954,6 +959,7 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
         circuit_module: Loaded Python module with subcircuit() function
         output_dir: Directory to write output files
     """
+    logger = logging.getLogger(__name__)
     result = circuit_module.subcircuit()
 
     # Handle both single (topology, sweep) and list of (topology, sweep) tuples
@@ -971,7 +977,9 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
     config_summary: dict[tuple[Any, ...], dict[str, int]] = {}
     meta_fields: list[str] = []  # Track which meta fields are present across all configs
 
-    for topology, sweep in tqdm(configurations, desc="Generating netlists"):
+    logger.info(f"\nGenerating subcircuits for {len(configurations)} configurations...\n")
+
+    for config_idx, (topology, sweep) in enumerate(configurations, 1):
         # Tech list must be in sweep
         if "tech" not in sweep:
             raise ValueError("Sweep specification missing required 'tech' field")
@@ -1005,6 +1013,7 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
             }
 
         # Generate netlists for each technology
+        config_count = 0
         for tech in config_tech_list:
             for topo in topologies:
                 # Add tech to meta before mapping
@@ -1030,12 +1039,17 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
                 json_path.write_text(compact_json(tech_topo))
 
                 total_count += 1
+                config_count += 1
 
                 # Update count for this configuration
                 config_summary[config_key]["count"] += 1
+
+        # Log progress after each configuration
+        meta_str = ", ".join(f"{k}={meta.get(k)}" for k in meta_fields if k in meta)
+        logger.info(f"[{config_idx}/{len(configurations)}] Generated {config_count} netlists: {meta_str}")
     # Print summary (generic table based on detected meta fields)
     if config_summary and meta_fields:
-        print("\nConfiguration Summary:")
+        logger.info("\nConfiguration Summary:")
 
         # Build rows as list of dicts
         rows = []
@@ -1063,13 +1077,14 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
         actual_count = len(actual_sp_files)
 
         if actual_count != total_count:
-            raise ValueError(
+            logger.error(
                 f"File count mismatch! Expected {total_count} netlists but found {actual_count} .sp files "
                 f"matching pattern '{pattern}' in {output_dir}. "
                 f"Files may have been overwritten due to duplicate filenames."
             )
+            raise ValueError("File count mismatch")
 
-    print(f"\nTotal: {total_count} netlists generated")
+    logger.info(f"\nTotal: {total_count} netlists generated")
 
 
 def verify_testbench_pins(
@@ -1131,6 +1146,7 @@ def generate_testbenches(
         output_dir: Directory to write testbench files
         corner: Process corner (e.g., 'tt', 'ss', 'ff')
     """
+    logger = logging.getLogger(__name__)
     tb_topology = circuit_module.testbench()
 
     # Get subcircuit name from first configuration
@@ -1146,7 +1162,7 @@ def generate_testbenches(
     ckt_json_files = sorted(ckt_dir.glob(f"ckt_{subckt_name}_*.json"))
 
     if not ckt_json_files:
-        print(f"Warning: No subcircuit files found matching pattern: ckt_{subckt_name}_*.json")
+        logger.warning(f"No subcircuit files found matching pattern: ckt_{subckt_name}_*.json")
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1154,16 +1170,16 @@ def generate_testbenches(
     # Track summary by technology for table
     tech_summary = {}
 
-    print(f"\nGenerating testbenches for {len(ckt_json_files)} subcircuits...")
+    logger.info(f"\nGenerating testbenches for {len(ckt_json_files)} subcircuits...")
 
-    for ckt_json_path in tqdm(ckt_json_files, desc="Generating testbenches"):
+    for idx, ckt_json_path in enumerate(ckt_json_files, 1):
         # Read subcircuit JSON
         with open(ckt_json_path, 'r') as f:
             subckt_data = json.load(f)
 
         tech = subckt_data.get("meta", {}).get("tech")
         if not tech:
-            print(f"Warning: No tech found in {ckt_json_path.name}, skipping")
+            logger.warning(f"No tech found in {ckt_json_path.name}, skipping")
             continue
 
         # Scale testbench values for this technology
@@ -1214,8 +1230,12 @@ def generate_testbenches(
             }
         tech_summary[tech]["count"] += 1
 
+        # Log progress
+        if idx % 100 == 0 or idx == len(ckt_json_files):
+            logger.info(f"  [{idx}/{len(ckt_json_files)}] testbenches generated")
+
     # Print summary table
-    print("\nTestbench Summary:")
+    logger.info("\nTestbench Summary:")
     rows = []
     for tech in sorted(tech_summary.keys()):
         info = tech_summary[tech]
@@ -1233,12 +1253,13 @@ def generate_testbenches(
 
     # Verify count matches number of subcircuits
     if total_count != len(ckt_json_files):
-        raise ValueError(
+        logger.error(
             f"Testbench count mismatch! Generated {total_count} testbenches "
             f"but found {len(ckt_json_files)} subcircuit files."
         )
+        raise ValueError("Testbench count mismatch")
 
-    print(f"\nTotal: {total_count} testbenches generated")
+    logger.info(f"\nTotal: {total_count} testbenches generated")
 
 
 def main() -> None:
@@ -1267,18 +1288,46 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Load circuit module
-    circuit_module = load_circuit_module(args.circuit)
+    # Setup logging with log file
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    cell_name = args.circuit.stem
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
+    logger = setup_logging(log_file)
 
-    if args.mode == "subckt":
-        generate_subcircuits(circuit_module, args.output)
-    else:
-        # For testbench mode, we need the subcircuit directory
-        if not args.ckt_dir:
-            parser.error("--ckt-dir is required for testbench generation")
-        generate_testbenches(
-            circuit_module, circuit_module, args.ckt_dir, args.output, args.corner
-        )
+    logger.info("=" * 70)
+    logger.info(f"Netlist Generation - {args.mode.upper()} mode")
+    logger.info("=" * 70)
+    logger.info(f"Circuit:      {args.circuit}")
+    logger.info(f"Output dir:   {args.output}")
+    if args.mode == "tb" and args.ckt_dir:
+        logger.info(f"CKT dir:      {args.ckt_dir}")
+        logger.info(f"Corner:       {args.corner}")
+    logger.info(f"Log file:     {log_file}")
+    logger.info("=" * 70)
+
+    try:
+        # Load circuit module
+        circuit_module = load_circuit_module(args.circuit)
+
+        if args.mode == "subckt":
+            generate_subcircuits(circuit_module, args.output)
+        else:
+            # For testbench mode, we need the subcircuit directory
+            if not args.ckt_dir:
+                parser.error("--ckt-dir is required for testbench generation")
+            generate_testbenches(
+                circuit_module, circuit_module, args.ckt_dir, args.output, args.corner
+            )
+
+        logger.info("=" * 70)
+        logger.info("Generation completed successfully")
+        logger.info("=" * 70)
+
+    except Exception as e:
+        logger.error(f"\nGeneration failed: {e}")
+        raise
 
 
 if __name__ == "__main__":

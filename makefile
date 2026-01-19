@@ -1,5 +1,5 @@
 # Configuration
-VENV_PYTHON := .venv/bin/python
+VENV_PYTHON := PYTHONPATH=. .venv/bin/python
 CKT_DIR := results/ckt
 TB_DIR := results/tb
 SIM_DIR := results/sim

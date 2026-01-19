@@ -18,6 +18,8 @@ from glob import glob
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from flow.common import setup_logging
+
 
 def check_license_server():
     """
@@ -29,14 +31,16 @@ def check_license_server():
     Raises:
         SystemExit: If CDS_LIC_FILE is not set or license server doesn't respond
     """
+    logger = logging.getLogger(__name__)
+
     # Check if CDS_LIC_FILE environment variable is set
     license_server = os.environ.get('CDS_LIC_FILE')
     if not license_server:
-        print("ERROR: CDS_LIC_FILE environment variable is not set")
-        print("Please set it with: export CDS_LIC_FILE=<port>@<server>")
+        logger.error("CDS_LIC_FILE environment variable is not set")
+        logger.error("Please set it with: export CDS_LIC_FILE=<port>@<server>")
         sys.exit(1)
 
-    print(f"License server: {license_server}")
+    logger.info(f"License server: {license_server}")
 
     # Run lmstat to check license availability
     try:
@@ -48,18 +52,18 @@ def check_license_server():
         )
 
         if result.returncode != 0:
-            print(f"ERROR: lmstat command failed with return code {result.returncode}")
-            print(f"Output: {result.stderr}")
+            logger.error(f"lmstat command failed with return code {result.returncode}")
+            logger.error(f"Output: {result.stderr}")
             sys.exit(1)
 
     except subprocess.TimeoutExpired:
-        print("ERROR: License server check timed out after 10 seconds")
+        logger.error("License server check timed out after 10 seconds")
         sys.exit(1)
     except FileNotFoundError:
-        print("ERROR: lmstat command not found. Please ensure Cadence tools are in PATH")
+        logger.error("lmstat command not found. Please ensure Cadence tools are in PATH")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Failed to check license server: {e}")
+        logger.error(f"Failed to check license server: {e}")
         sys.exit(1)
 
     # Parse lmstat output to find Spectre licenses
@@ -83,12 +87,12 @@ def check_license_server():
             break
 
     if total_licenses == 0:
-        print("ERROR: Could not parse license information from lmstat output")
-        print("Please check that the license server is configured correctly")
+        logger.error("Could not parse license information from lmstat output")
+        logger.error("Please check that the license server is configured correctly")
         sys.exit(1)
 
-    print(f"Total licenses: {total_licenses}")
-    print(f"Busy licenses: {busy_licenses}")
+    logger.info(f"Total licenses: {total_licenses}")
+    logger.info(f"Busy licenses: {busy_licenses}")
 
     return total_licenses, busy_licenses
 
@@ -369,16 +373,18 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
 def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -> bool:
     """
     Validate that DUT netlists and testbench wrappers match.
-    
+
     Args:
         dut_netlists: List of DUT netlist paths
         tb_wrappers: List of testbench wrapper paths
-        
+
     Returns:
         True if validation passes, False otherwise
     """
+    logger = logging.getLogger(__name__)
+
     if len(dut_netlists) != len(tb_wrappers):
-        print(f"Error: Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches")
+        logger.error(f"Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches")
         return False
     
     # Extract base names (remove ckt_ prefix from DUTs and tb_ prefix from wrappers)
@@ -388,11 +394,11 @@ def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -
     if dut_names != tb_names:
         missing_in_tb = dut_names - tb_names
         missing_in_dut = tb_names - dut_names
-        
+
         if missing_in_tb:
-            print(f"Error: DUTs without testbenches: {missing_in_tb}")
+            logger.error(f"DUTs without testbenches: {missing_in_tb}")
         if missing_in_dut:
-            print(f"Error: Testbenches without DUTs: {missing_in_dut}")
+            logger.error(f"Testbenches without DUTs: {missing_in_dut}")
         return False
     
     return True
@@ -461,42 +467,34 @@ def main():
     dut_netlists = sorted([Path(f) for f in glob(args.dut_netlists)])
     tb_wrappers = sorted([Path(f) for f in glob(args.tb_wrappers)])
     
+    # Setup logging early so we can log errors
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = args.outdir / f"batch_sim_{timestamp}.log"
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    logger = setup_logging(log_file)
+
     if not dut_netlists:
-        print(f"Error: No DUT netlists found matching: {args.dut_netlists}")
+        logger.error(f"No DUT netlists found matching: {args.dut_netlists}")
         sys.exit(1)
-    
+
     if not tb_wrappers:
-        print(f"Error: No testbench wrappers found matching: {args.tb_wrappers}")
-        print(f"Did you run 'make testbench' first?")
+        logger.error(f"No testbench wrappers found matching: {args.tb_wrappers}")
+        logger.error("Did you run 'make testbench' first?")
         sys.exit(1)
     
     # Apply tech filter if specified
     if args.tech_filter:
         dut_netlists = [f for f in dut_netlists if args.tech_filter in f.name]
         tb_wrappers = [f for f in tb_wrappers if args.tech_filter in f.name]
-        
+
+
         if not dut_netlists:
-            print(f"No netlists match tech filter: {args.tech_filter}")
+            logger.error(f"No netlists match tech filter: {args.tech_filter}")
             sys.exit(1)
     
     # Validate matching pairs
     if not validate_matching_pairs(dut_netlists, tb_wrappers):
         sys.exit(1)
-    
-    # Setup logging
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = args.outdir / f"batch_sim_{timestamp}.log"
-    args.outdir.mkdir(parents=True, exist_ok=True)
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
-    logger = logging.getLogger(__name__)
     
     logger.info("=" * 70)
     logger.info("Batch Spectre Simulation")

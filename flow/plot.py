@@ -1,10 +1,14 @@
 """Utilities for loading and plotting analysis results."""
 
+import datetime
 from pathlib import Path
 import importlib.util
+import logging
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+
+from flow.common import setup_logging
 
 
 def load_analysis(pkl_file):
@@ -422,13 +426,29 @@ def main():
     parser.add_argument('--outdir', type=Path, default=None, help='Output directory for plots (default: same as meas_dir)')
     args = parser.parse_args()
 
+    # Setup logging
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    cell_name = args.analysis_file.stem
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"plot_{cell_name}_{timestamp}.log"
+    logger = setup_logging(log_file)
+
+    logger.info("=" * 70)
+    logger.info("Plot Generation")
+    logger.info("=" * 70)
+    logger.info(f"Analysis file: {args.analysis_file}")
+    logger.info(f"Meas dir:      {args.meas_dir}")
+    logger.info(f"Log file:      {log_file}")
+    logger.info("=" * 70)
+
     # Load analysis module
     analysis_module = load_analysis_module(args.analysis_file)
 
     # Check if plot() function exists
     if not hasattr(analysis_module, 'plot'):
-        print(f"Warning: {args.analysis_file} does not have a plot() function")
-        print("No plots generated.")
+        logger.warning(f"{args.analysis_file} does not have a plot() function")
+        logger.info("No plots generated.")
         return 0
 
     # Set output directory
@@ -441,7 +461,8 @@ def main():
     # Call the plot function
     analysis_module.plot(str(args.meas_dir), str(outdir))
 
-    print(f"Plots saved to: {outdir}")
+    logger.info(f"\nPlots saved to: {outdir}")
+    logger.info("=" * 70)
     return 0
 
 
