@@ -674,7 +674,7 @@ def main():
     successful = 0
     failed = []
 
-    for raw_file in raw_files:
+    for raw_file in tqdm(raw_files, desc="Processing simulations"):
         raw_path = Path(raw_file)
         filename = raw_path.name
 

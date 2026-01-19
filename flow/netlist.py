@@ -1052,73 +1052,149 @@ def generate_subcircuits(circuit_module: Any, output_dir: Path) -> None:
         headers = meta_fields + ["sweeps", "techs", "total"]
         print_table(rows, headers)
 
-    # Verify actual file count matches expected count (exclude testbench files)
-    actual_sp_files = [f for f in output_dir.glob("*.sp") if not f.name.startswith("tb_")]
-    actual_count = len(actual_sp_files)
+    # Verify actual file count matches expected count
+    # Only count files for this specific subcircuit (get name from first topology)
+    if configurations:
+        first_topology, _ = configurations[0]
+        subckt_name = first_topology.get("subckt", "unknown")
+        # Count only files matching this subcircuit pattern: ckt_<subckt_name>_*.sp
+        pattern = f"ckt_{subckt_name}_*.sp"
+        actual_sp_files = list(output_dir.glob(pattern))
+        actual_count = len(actual_sp_files)
 
-    if actual_count != total_count:
-        raise ValueError(
-            f"File count mismatch! Expected {total_count} netlists but found {actual_count} .sp files in {output_dir}. "
-            f"Files may have been overwritten due to duplicate filenames."
-        )
+        if actual_count != total_count:
+            raise ValueError(
+                f"File count mismatch! Expected {total_count} netlists but found {actual_count} .sp files "
+                f"matching pattern '{pattern}' in {output_dir}. "
+                f"Files may have been overwritten due to duplicate filenames."
+            )
 
     print(f"\nTotal: {total_count} netlists generated")
+
+
+def verify_testbench_pins(
+    testbench_topology: dict[str, Any],
+    subckt_topology: dict[str, Any],
+    subckt_filename: str
+) -> None:
+    """
+    Verify that testbench DUT instance pins match subcircuit port order.
+
+    Args:
+        testbench_topology: Testbench topology with DUT instance
+        subckt_topology: Subcircuit topology with port definitions
+        subckt_filename: Filename for error reporting
+
+    Raises:
+        ValueError: If pin names or order don't match
+    """
+    # Find DUT instance in testbench
+    subckt_name = subckt_topology.get("subckt")
+    dut_instance = None
+
+    for dev_name, dev_info in testbench_topology.get("devices", {}).items():
+        if dev_info.get("dev") == subckt_name:
+            dut_instance = dev_info
+            break
+
+    if not dut_instance:
+        raise ValueError(f"No DUT instance found for subcircuit '{subckt_name}' in testbench")
+
+    # Get pin lists
+    tb_pins = list(dut_instance.get("pins", {}).keys())
+    subckt_ports = list(subckt_topology.get("ports", {}).keys())
+
+    # Verify they match
+    if tb_pins != subckt_ports:
+        raise ValueError(
+            f"Pin mismatch for {subckt_filename}!\n"
+            f"  Testbench DUT pins: {tb_pins}\n"
+            f"  Subcircuit ports:   {subckt_ports}\n"
+            f"  Pins must match in name and order."
+        )
 
 
 def generate_testbenches(
     circuit_module: Any,
     subckt_module: Any,
+    ckt_dir: Path,
     output_dir: Path,
     corner: str = "tt",
 ) -> None:
     """
-    Generate testbench netlists from a circuit module.
+    Generate testbench netlists - one per subcircuit file.
 
     Args:
         circuit_module: Loaded Python module with testbench() function
         subckt_module: Loaded Python module with subcircuit() function
-        output_dir: Directory to write output files
+        ckt_dir: Directory containing subcircuit files
+        output_dir: Directory to write testbench files
         corner: Process corner (e.g., 'tt', 'ss', 'ff')
     """
     tb_topology = circuit_module.testbench()
 
-    # Handle both single and list of configurations
+    # Get subcircuit name from first configuration
     result = subckt_module.subcircuit()
     if isinstance(result, list):
         subckt_topology, subckt_sweep = result[0]
     else:
         subckt_topology, subckt_sweep = result
 
-    # Tech list must be in sweep
-    if "tech" not in subckt_sweep:
-        raise ValueError("Sweep specification missing required 'tech' field")
+    subckt_name = subckt_topology.get("subckt", "unknown")
 
-    tech_list = subckt_sweep["tech"]
+    # Find all subcircuit .json files for this cell
+    ckt_json_files = sorted(ckt_dir.glob(f"ckt_{subckt_name}_*.json"))
 
-    # Generate testbenches for each technology
+    if not ckt_json_files:
+        print(f"Warning: No subcircuit files found matching pattern: ckt_{subckt_name}_*.json")
+        return
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
 
-    for tech in tech_list:
-        print(f"\nTechnology: {tech}")
+    # Track summary by technology for table
+    tech_summary = {}
 
-        # Scale testbench values
+    print(f"\nGenerating testbenches for {len(ckt_json_files)} subcircuits...")
+
+    for ckt_json_path in tqdm(ckt_json_files, desc="Generating testbenches"):
+        # Read subcircuit JSON
+        with open(ckt_json_path, 'r') as f:
+            subckt_data = json.load(f)
+
+        tech = subckt_data.get("meta", {}).get("tech")
+        if not tech:
+            print(f"Warning: No tech found in {ckt_json_path.name}, skipping")
+            continue
+
+        # Scale testbench values for this technology
         scaled_tb = scale_testbench(tb_topology, tech, techmap)
 
         # Add automatic fields
         complete_tb = autoadd_fields(
-            scaled_tb, tech, techmap, subckt_topology, corner
+            scaled_tb, tech, techmap, subckt_data, corner
         )
 
-        # Add tech to meta before generating filename
+        # Copy meta from subcircuit to testbench (for filename generation)
         if "meta" not in complete_tb:
             complete_tb["meta"] = {}
-        complete_tb["meta"]["tech"] = tech
+        complete_tb["meta"].update(subckt_data.get("meta", {}))
 
-        # Generate filename
-        filename = generate_filename(complete_tb)
-        output_path = output_dir / filename
-        json_path = output_dir / filename.replace(".sp", ".json")
+        # Verify pins match between testbench and subcircuit
+        verify_testbench_pins(complete_tb, subckt_data, ckt_json_path.name)
+
+        # Update includes to point to specific subcircuit file (relative path from TB dir to CKT dir)
+        ckt_sp_filename = ckt_json_path.name.replace(".json", ".sp")
+        # Use relative path: ../ckt/filename.sp (from results/tb/ to results/ckt/)
+        ckt_sp_path = f"../ckt/{ckt_sp_filename}"
+        complete_tb["includes"] = [ckt_sp_path]
+
+        # Generate testbench filename (tb_ prefix, matches subcircuit params)
+        ckt_filename = ckt_json_path.stem  # Remove .json extension
+        tb_filename = ckt_filename.replace("ckt_", "tb_") + ".sp"
+        tb_json_filename = ckt_filename.replace("ckt_", "tb_") + ".json"
+
+        output_path = output_dir / tb_filename
+        json_path = output_dir / tb_json_filename
 
         # Convert to SPICE
         spice_str = generate_spice(complete_tb, mode="testbench")
@@ -1129,10 +1205,40 @@ def generate_testbenches(
         # Write JSON file
         json_path.write_text(compact_json(complete_tb))
 
-        count += 1
-        print(f"  Generated testbench: {filename}")
+        # Update summary
+        if tech not in tech_summary:
+            tech_summary[tech] = {
+                "corner": corner,
+                "temp": complete_tb.get("options", {}).get("temp", 27),
+                "count": 0
+            }
+        tech_summary[tech]["count"] += 1
 
-    print(f"\nTotal: {count} testbenches generated")
+    # Print summary table
+    print("\nTestbench Summary:")
+    rows = []
+    for tech in sorted(tech_summary.keys()):
+        info = tech_summary[tech]
+        rows.append({
+            "tech": tech,
+            "corner": info["corner"],
+            "temp": f"{info['temp']}°C",
+            "count": info["count"]
+        })
+
+    headers = ["tech", "corner", "temp", "count"]
+    print_table(rows, headers)
+
+    total_count = sum(info["count"] for info in tech_summary.values())
+
+    # Verify count matches number of subcircuits
+    if total_count != len(ckt_json_files):
+        raise ValueError(
+            f"Testbench count mismatch! Generated {total_count} testbenches "
+            f"but found {len(ckt_json_files)} subcircuit files."
+        )
+
+    print(f"\nTotal: {total_count} testbenches generated")
 
 
 def main() -> None:
@@ -1144,10 +1250,13 @@ def main() -> None:
         "mode", choices=["subckt", "tb"], help="Generation mode: subckt or tb"
     )
     parser.add_argument(
-        "circuit", type=Path, help="Circuit Python file (e.g., src/samp_tgate.py)"
+        "circuit", type=Path, help="Circuit Python file (e.g., blocks/samp.py)"
     )
     parser.add_argument(
         "-o", "--output", type=Path, required=True, help="Output directory"
+    )
+    parser.add_argument(
+        "--ckt-dir", type=Path, help="Subcircuit directory (required for tb mode)"
     )
     parser.add_argument(
         "-c",
@@ -1164,9 +1273,11 @@ def main() -> None:
     if args.mode == "subckt":
         generate_subcircuits(circuit_module, args.output)
     else:
-        # For testbench mode, we also need the subcircuit definition
+        # For testbench mode, we need the subcircuit directory
+        if not args.ckt_dir:
+            parser.error("--ckt-dir is required for testbench generation")
         generate_testbenches(
-            circuit_module, circuit_module, args.output, args.corner
+            circuit_module, circuit_module, args.ckt_dir, args.output, args.corner
         )
 
 

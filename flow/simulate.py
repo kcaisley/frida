@@ -381,8 +381,8 @@ def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -
         print(f"Error: Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches")
         return False
     
-    # Extract base names (remove tb_ prefix from wrappers)
-    dut_names = {f.stem for f in dut_netlists}
+    # Extract base names (remove ckt_ prefix from DUTs and tb_ prefix from wrappers)
+    dut_names = {f.stem.replace('ckt_', '', 1) for f in dut_netlists}
     tb_names = {f.stem.replace('tb_', '', 1) for f in tb_wrappers}
     
     if dut_names != tb_names:

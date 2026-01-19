@@ -1,6 +1,6 @@
 # Configuration
 VENV_PYTHON := .venv/bin/python
-CKT_DIR := ckt
+CKT_DIR := results/ckt
 TB_DIR := results/tb
 SIM_DIR := results/sim
 MEAS_DIR := results/meas
