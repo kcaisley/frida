@@ -9,6 +9,16 @@ This project pursues the possibility of a single-reticle array larger than 1 Mpi
 
 ![](docs/images/arch.svg)
 
+## Prototypes
+
+Below are images from prototype designs showing the ADC architecture, top-level integration, and padring implementation:
+
+![ADC Design](docs/images/adc.png)
+
+![FRIDA Top Level](docs/images/frida_top.png)
+
+![Padring](docs/images/padring.png)
+
 ## Workflow
 
 The workflow below shows how the FRIDA ADC design progresses from specifications, to simulations, to implementation, and analysis:

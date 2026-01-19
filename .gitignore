@@ -3,13 +3,14 @@
 /tech/tsmc28/*
 /pcb/frida_65a/frida65A-backups
 /results
+/logs
+/gdsfactory
 __pycache__
 .ruff_cache
 .venv*
 .vscode
 .cadence
 .claude
-build/*
 *.log
 *.aux
 *.synctex.gz
