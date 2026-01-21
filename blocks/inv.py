@@ -6,16 +6,14 @@ def subcircuit():
     Generate inverter gate topology.
 
     Returns:
-        List of (topology, sweep) tuples (1 configuration)
+        Tuple of (topology_list, sweeps)
     """
-    # Generate all configurations
-    all_configurations = []
-
     # Generate topology
     topology = generate_topology()
+    topology_list = [topology]
 
     # Technology agnostic device sweeps
-    sweep = {
+    sweeps = {
         'tech': ['tsmc65', 'tsmc28', 'tower180'],
         'globals': {
             'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
@@ -26,9 +24,7 @@ def subcircuit():
         ]
     }
 
-    all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return (topology_list, sweeps)
 
 
 def generate_topology() -> dict[str, Any]:
@@ -66,6 +62,9 @@ def generate_topology() -> dict[str, Any]:
 def testbench():
     """
     Tech agnostic testbench netlist description.
+
+    Returns:
+        Tuple of (topology_list, sweeps)
     """
     topology = {
         'testbench': 'tb_gate_inv',
@@ -82,10 +81,24 @@ def testbench():
                 'stop': 200,
                 'step': 0.1
             }
+        },
+        'meta': {
+            'gate_type': 'inv'
+        }
+    }
+    topology_list = [topology]
+
+    # Testbench sweep: corner, temp, and device globals
+    sweeps = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
         }
     }
 
-    return topology
+    return (topology_list, sweeps)
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

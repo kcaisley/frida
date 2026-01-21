@@ -358,7 +358,18 @@ def testbench() -> dict[str, Any]:
         }
     }
 
-    return topology
+    # Testbench sweep: corner, temp, and device globals
+    sweep = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "cap": {"type": "1m", "c": 1, "m": 1},
+        }
+    }
+
+    return (topology, sweep)
 
 
 # Helper functions

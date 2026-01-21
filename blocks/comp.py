@@ -420,7 +420,17 @@ def testbench():
         }
     }
 
-    return topology
+    # Testbench sweep: corner, temp, and device globals
+    sweep = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        }
+    }
+
+    return (topology, sweep)
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

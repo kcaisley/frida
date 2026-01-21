@@ -198,7 +198,6 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
             "devices": devices,
             "meta": {
                 "m_caps": m_caps,
-                "description": f"SAR ADC with {m_caps}-cap CDAC arrays",
             }
         }
 
@@ -216,7 +215,7 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     return all_configurations
 
 
-def testbench() -> dict[str, Any]:
+def testbench():
     """
     ADC testbench for 2 complete conversions at 10 Msps.
 
@@ -226,153 +225,169 @@ def testbench() -> dict[str, Any]:
       - 5-15ns: seq_samp high
       - 15-100ns: seq_comp and seq_update alternate (2.5ns pulses)
 
-    Note: Testbench uses generic m_caps=16 for all ADC variants.
-    The actual caparray netlist included will determine the real number of caps.
+    Generates testbenches for different m_caps values (matching subcircuit variants).
     """
-    m_caps = 16  # Maximum for generic testbench
+    m_caps_list = [7, 9, 11, 13, 15, 17, 19]
+    all_configurations = []
 
-    # Generate DAC state bus signals (all tied high for normal operation)
-    devices = {}
+    for m_caps in m_caps_list:
+        # Generate DAC state bus signals (all tied high for normal operation)
+        devices = {}
 
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
-            for i in range(m_caps):
-                name = f'Vdac_{bus}{side}{i}'
-                devices[name] = {
-                    'dev': 'vsource',
-                    'pins': {'p': f'dac_{bus}{side}[{i}]', 'n': 'gnd'},
-                    'wave': 'dc',
-                    'dc': 1.0
+        for side in ['+', '-']:
+            for bus in ['astate', 'bstate']:
+                for i in range(m_caps):
+                    name = f'Vdac_{bus}{side}{i}'
+                    devices[name] = {
+                        'dev': 'vsource',
+                        'pins': {'p': f'dac_{bus}{side}[{i}]', 'n': 'gnd'},
+                        'wave': 'dc',
+                        'dc': 1.0
+                    }
+
+        # Power supplies
+        devices.update({
+            # Analog supply
+            'Vvdd_a': {'dev': 'vsource', 'pins': {'p': 'vdd_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Vvss_a': {'dev': 'vsource', 'pins': {'p': 'vss_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+
+            # Digital supply
+            'Vvdd_d': {'dev': 'vsource', 'pins': {'p': 'vdd_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Vvss_d': {'dev': 'vsource', 'pins': {'p': 'vss_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+
+            # DAC supply
+            'Vvdd_dac': {'dev': 'vsource', 'pins': {'p': 'vdd_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Vvss_dac': {'dev': 'vsource', 'pins': {'p': 'vss_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+
+            # Differential input signals - ramping voltages
+            'Vin+': {
+                'dev': 'vsource',
+                'pins': {'p': 'vin+', 'n': 'gnd'},
+                'wave': 'pwl',
+                'points': [0, 0.917, 210, 0.875]  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
+            },
+            'Vin-': {
+                'dev': 'vsource',
+                'pins': {'p': 'vin-', 'n': 'gnd'},
+                'wave': 'pwl',
+                'points': [0, 0.667, 210, 0.708]  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
+            },
+
+            # Sequencer timing signals
+            'Vseq_init': {
+                'dev': 'vsource',
+                'pins': {'p': 'seq_init', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 0, 'v2': 1.0, 'td': 10, 'tr': 0.1, 'tf': 0.1, 'pw': 4.8, 'per': 100
+            },
+            'Vseq_samp': {
+                'dev': 'vsource',
+                'pins': {'p': 'seq_samp', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 0, 'v2': 1.0, 'td': 15, 'tr': 0.1, 'tf': 0.1, 'pw': 9.8, 'per': 100
+            },
+            'Vseq_comp': {
+                'dev': 'vsource',
+                'pins': {'p': 'seq_comp', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 0, 'v2': 1.0, 'td': 25, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
+            },
+            'Vseq_update': {
+                'dev': 'vsource',
+                'pins': {'p': 'seq_update', 'n': 'gnd'},
+                'wave': 'pulse',
+                'v1': 0, 'v2': 1.0, 'td': 27.5, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
+            },
+
+            # Enable signals - tied high for normal operation
+            'Ven_init': {'dev': 'vsource', 'pins': {'p': 'en_init', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Ven_samp+': {'dev': 'vsource', 'pins': {'p': 'en_samp+', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Ven_samp-': {'dev': 'vsource', 'pins': {'p': 'en_samp-', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Ven_comp': {'dev': 'vsource', 'pins': {'p': 'en_comp', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Ven_update': {'dev': 'vsource', 'pins': {'p': 'en_update', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+
+            # DAC mode control signals
+            'Vdac_mode': {'dev': 'vsource', 'pins': {'p': 'dac_mode', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+            'Vdac_diffcaps': {'dev': 'vsource', 'pins': {'p': 'dac_diffcaps', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        })
+
+        # Build DUT pin mapping
+        dut_pins = {
+            'seq_init': 'seq_init',
+            'seq_samp': 'seq_samp',
+            'seq_comp': 'seq_comp',
+            'seq_update': 'seq_update',
+            'comp_out': 'comp_out',
+            'en_init': 'en_init',
+            'en_samp+': 'en_samp+',
+            'en_samp-': 'en_samp-',
+            'en_comp': 'en_comp',
+            'en_update': 'en_update',
+            'dac_mode': 'dac_mode',
+            'dac_diffcaps': 'dac_diffcaps',
+            'vin+': 'vin+',
+            'vin-': 'vin-',
+            'vdd_a': 'vdd_a',
+            'vss_a': 'vss_a',
+            'vdd_d': 'vdd_d',
+            'vss_d': 'vss_d',
+            'vdd_dac': 'vdd_dac',
+            'vss_dac': 'vss_dac',
+        }
+
+        # Add DAC state buses to DUT pins
+        for side in ['+', '-']:
+            for bus in ['astate', 'bstate']:
+                for i in range(m_caps):
+                    dut_pins[f'dac_{bus}{side}[{i}]'] = f'dac_{bus}{side}[{i}]'
+
+        devices['Xadc'] = {'dev': 'subckt', 'subckt': 'adc', 'pins': dut_pins}
+
+        topology = {
+            'testbench': 'tb_adc',
+            'devices': devices,
+            'analyses': {
+                'tran1': {
+                    'type': 'tran',
+                    'stop': 210,
+                    'step': 0.1
                 }
-
-    # Power supplies
-    devices.update({
-        # Analog supply
-        'Vvdd_a': {'dev': 'vsource', 'pins': {'p': 'vdd_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vvss_a': {'dev': 'vsource', 'pins': {'p': 'vss_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-        # Digital supply
-        'Vvdd_d': {'dev': 'vsource', 'pins': {'p': 'vdd_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vvss_d': {'dev': 'vsource', 'pins': {'p': 'vss_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-        # DAC supply
-        'Vvdd_dac': {'dev': 'vsource', 'pins': {'p': 'vdd_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vvss_dac': {'dev': 'vsource', 'pins': {'p': 'vss_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-        # Differential input signals - ramping voltages
-        'Vin+': {
-            'dev': 'vsource',
-            'pins': {'p': 'vin+', 'n': 'gnd'},
-            'wave': 'pwl',
-            'points': [0, 0.917, 210, 0.875]  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
-        },
-        'Vin-': {
-            'dev': 'vsource',
-            'pins': {'p': 'vin-', 'n': 'gnd'},
-            'wave': 'pwl',
-            'points': [0, 0.667, 210, 0.708]  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
-        },
-
-        # Sequencer timing signals
-        'Vseq_init': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_init', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 10, 'tr': 0.1, 'tf': 0.1, 'pw': 4.8, 'per': 100
-        },
-        'Vseq_samp': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_samp', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 15, 'tr': 0.1, 'tf': 0.1, 'pw': 9.8, 'per': 100
-        },
-        'Vseq_comp': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_comp', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 25, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-        },
-        'Vseq_update': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_update', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 27.5, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-        },
-
-        # Enable signals - tied high for normal operation
-        'Ven_init': {'dev': 'vsource', 'pins': {'p': 'en_init', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_samp+': {'dev': 'vsource', 'pins': {'p': 'en_samp+', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_samp-': {'dev': 'vsource', 'pins': {'p': 'en_samp-', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_comp': {'dev': 'vsource', 'pins': {'p': 'en_comp', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_update': {'dev': 'vsource', 'pins': {'p': 'en_update', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-
-        # DAC mode control signals
-        'Vdac_mode': {'dev': 'vsource', 'pins': {'p': 'dac_mode', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vdac_diffcaps': {'dev': 'vsource', 'pins': {'p': 'dac_diffcaps', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-    })
-
-    # Build DUT pin mapping
-    dut_pins = {
-        'seq_init': 'seq_init',
-        'seq_samp': 'seq_samp',
-        'seq_comp': 'seq_comp',
-        'seq_update': 'seq_update',
-        'comp_out': 'comp_out',
-        'en_init': 'en_init',
-        'en_samp+': 'en_samp+',
-        'en_samp-': 'en_samp-',
-        'en_comp': 'en_comp',
-        'en_update': 'en_update',
-        'dac_mode': 'dac_mode',
-        'dac_diffcaps': 'dac_diffcaps',
-        'vin+': 'vin+',
-        'vin-': 'vin-',
-        'vdd_a': 'vdd_a',
-        'vss_a': 'vss_a',
-        'vdd_d': 'vdd_d',
-        'vss_d': 'vss_d',
-        'vdd_dac': 'vdd_dac',
-        'vss_dac': 'vss_dac',
-    }
-
-    # Add DAC state buses to DUT pins
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
-            for i in range(m_caps):
-                dut_pins[f'dac_{bus}{side}[{i}]'] = f'dac_{bus}{side}[{i}]'
-
-    devices['Xadc'] = {'dev': 'subckt', 'subckt': 'adc', 'pins': dut_pins}
-
-    topology = {
-        'testbench': 'tb_adc',
-        'devices': devices,
-        'analyses': {
-            'tran1': {
-                'type': 'tran',
-                'stop': 210,
-                'step': 0.1
+            },
+            'extra_includes': [
+                # Standard cell libraries (TSMC65 specific)
+                '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi',
+                '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi',
+                # ADC sub-module netlists
+                'spice/sampswitch.cdl',
+                'spice/comp.cdl',
+                'spice/capdriver.cdl',
+                'spice/caparray.cdl',
+                'spice/adc_digital.cdl',
+                'spice/adc.cdl'
+            ],
+            'save': [
+                'v(vin+)', 'v(vin-)', 'v(comp_out)',
+                'v(seq_init)', 'v(seq_samp)', 'v(seq_comp)', 'v(seq_update)',
+                'v(en_init)', 'v(en_samp+)', 'v(en_samp-)', 'v(en_comp)', 'v(en_update)'
+            ],
+            'meta': {
+                'm_caps': m_caps
             }
-        },
-        'extra_includes': [
-            # Standard cell libraries (TSMC65 specific)
-            '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi',
-            '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi',
-            # ADC sub-module netlists
-            'spice/sampswitch.cdl',
-            'spice/comp.cdl',
-            'spice/capdriver.cdl',
-            'spice/caparray.cdl',
-            'spice/adc_digital.cdl',
-            'spice/adc.cdl'
-        ],
-        'save': [
-            'v(vin+)', 'v(vin-)', 'v(comp_out)',
-            'v(seq_init)', 'v(seq_samp)', 'v(seq_comp)', 'v(seq_update)',
-            'v(en_init)', 'v(en_samp+)', 'v(en_samp-)', 'v(en_comp)', 'v(en_update)'
-        ]
-    }
+        }
 
-    return topology
+        # Testbench sweep: corner, temp, and device globals
+        sweep = {
+            "corner": ["tt"],
+            "temp": [27],
+            "globals": {
+                "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            }
+        }
+
+        all_configurations.append((topology, sweep))
+
+    return all_configurations
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

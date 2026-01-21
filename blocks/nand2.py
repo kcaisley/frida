@@ -68,6 +68,9 @@ def subcircuit():
 def testbench():
     """
     Tech agnostic testbench netlist description.
+
+    Returns:
+        List of (topology, sweep) tuples
     """
     topology = {
         'testbench': 'tb_gate_nand2',
@@ -85,7 +88,20 @@ def testbench():
                 'stop': 400,
                 'step': 0.1
             }
+        },
+        'meta': {
+            'gate_type': 'nand2'
         }
     }
 
-    return topology
+    # Testbench sweep: corner, temp, and device globals
+    sweep = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        }
+    }
+
+    return [(topology, sweep)]
