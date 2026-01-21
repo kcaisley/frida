@@ -24,9 +24,9 @@ setup:
 		echo "uv installed. Run 'make setup' again."; exit 0; \
 	fi
 	uv python install 3.14
-	uv venv --python 3.14 .venv
-	uv pip install klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pandas tqdm jinja2 ipympl
-	@echo "Setup complete. Activate: source .venv/bin/activate"
+	uv venv --clear --python 3.14 .venv
+	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
+	@echo "Setup complete: .venv created with necessary packages"
 
 clean_all:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi

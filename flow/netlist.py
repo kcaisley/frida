@@ -193,19 +193,19 @@ def generate_netstruct(topology: dict[str, Any], sweep: dict[str, Any]) -> dict[
 
 
 def map_technology(
-    topology: dict[str, Any], techmap: dict[str, Any]
+    netstruct: dict[str, Any], techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """
     Map generic topology to technology-specific netlist.
 
-    Reads tech from topology["meta"]["tech"].
+    Reads tech from netstruct["meta"]["tech"].
     Uses device meta.dev ('nmos'/'pmos') + meta.type ('lvt'/'svt'/'hvt') to look up devmap.
     """
-    tech = topology["meta"]["tech"]
+    tech = netstruct["meta"]["tech"]
     tech_config = techmap[tech]
-    topo_copy = copy.deepcopy(topology)
+    netstruct_techmapped = copy.deepcopy(netstruct)
 
-    for dev_name, dev_info in topo_copy.get("devices", {}).items():
+    for dev_name, dev_info in netstruct_techmapped.get("devices", {}).items():
         meta = dev_info.get("meta")
         if not meta:
             continue
@@ -251,30 +251,30 @@ def map_technology(
             if "rsh" in dev_map:
                 dev_info["rsh"] = dev_map["rsh"]
 
-    return topo_copy
+    return netstruct_techmapped
 
 
 def scale_testbench(
-    topology: dict[str, Any], techmap: dict[str, Any]
+    netstruct: dict[str, Any], techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """
     Scale voltage and time values in testbench topology using scalemap.
 
-    Reads tech from topology["meta"]["tech"].
+    Reads tech from netstruct["meta"]["tech"].
     """
-    tech = topology["meta"]["tech"]
+    tech = netstruct["meta"]["tech"]
     tech_config = techmap[tech]
     vdd = tech_config["vdd"]
     tstep = tech_config.get("tstep", 1e-9)
 
-    topo_copy = copy.deepcopy(topology)
+    netstruct_scaled = copy.deepcopy(netstruct)
 
     # Add vdd and tstep to meta
-    topo_copy["meta"]["vsupply"] = vdd
-    topo_copy["meta"]["tstep"] = tstep
+    netstruct_scaled["meta"]["vsupply"] = vdd
+    netstruct_scaled["meta"]["tstep"] = tstep
 
     # Scale voltage sources using scalemap
-    for dev_name, dev_info in topo_copy.get("devices", {}).items():
+    for dev_name, dev_info in netstruct_scaled.get("devices", {}).items():
         if dev_info.get("dev") == "vsource":
             wave = dev_info.get("wave")
             if wave not in scalemap:
@@ -296,41 +296,41 @@ def scale_testbench(
                     ]
 
     # Scale analysis parameters
-    if "analyses" in topo_copy:
-        for analysis in topo_copy["analyses"].values():
+    if "analyses" in netstruct_scaled:
+        for analysis in netstruct_scaled["analyses"].values():
             if analysis.get("type") == "tran":
                 for param in ["stop", "step", "strobeperiod"]:
                     if param in analysis:
                         analysis[param] *= tstep
 
-    return topo_copy
+    return netstruct_scaled
 
 
 def autoadd_fields(
-    topology: dict[str, Any],
-    subckt_topology: dict[str, Any],
+    tb_netstruct: dict[str, Any],
+    subckt_netstruct: dict[str, Any],
     techmap: dict[str, Any],
 ) -> dict[str, Any]:
     """
     Add automatic fields to testbench topology.
 
-    Reads tech from topology["meta"]["tech"] and corner from topology["meta"]["corner"].
+    Reads tech from tb_netstruct["meta"]["tech"] and corner from tb_netstruct["meta"]["corner"].
 
     Args:
-        topology: Testbench topology
-        subckt_topology: Subcircuit topology (for generating save statements)
+        tb_netstruct: Testbench topology
+        subckt_netstruct: Subcircuit topology (for generating save statements)
         techmap: Technology mapping
 
     Returns:
         Topology with automatic fields added
     """
-    tech = topology["meta"]["tech"]
-    corner = topology["meta"].get("corner")
+    tech = tb_netstruct["meta"]["tech"]
+    corner = tb_netstruct["meta"].get("corner")
     tech_config = techmap[tech]
-    topo_copy = copy.deepcopy(topology)
+    netstruct_autofielded = copy.deepcopy(tb_netstruct)
 
     # Add simulator declaration
-    topo_copy["simulator"] = "lang=spice"
+    netstruct_autofielded["simulator"] = "lang=spice"
 
     # Add library statements
     libs = []
@@ -344,11 +344,11 @@ def autoadd_fields(
 
         libs.append({"path": lib_path, "section": section})
 
-    topo_copy["libs"] = libs
+    netstruct_autofielded["libs"] = libs
 
     # Add includes (scan for subcircuit instances)
     includes = []
-    for dev_name, dev_info in topology.get("devices", {}).items():
+    for dev_name, dev_info in tb_netstruct.get("devices", {}).items():
         dev = dev_info.get("dev")
         # Check if this is a subcircuit instance
         if dev not in ["vsource", "res", "cap", "nmos", "pmos"] and dev is not None:
@@ -357,26 +357,27 @@ def autoadd_fields(
             # The actual filename depends on the subcircuit parameters
             includes.append(f"{dev}_{tech}_*.sp")  # Placeholder
 
-    topo_copy["includes"] = includes
+    netstruct_autofielded["includes"] = includes
 
-    # Add options
-    topo_copy["options"] = {"temp": 27, "scale": 1.0}
+    # Add options (temp should come from sweep via meta)
+    temp = tb_netstruct["meta"]["temp"]
+    netstruct_autofielded["options"] = {"temp": temp, "scale": 1.0}
 
     # Add save statements
     save_stmts = ["all"]
 
     # Generate device-specific save statements from subcircuit
-    if subckt_topology:
+    if subckt_netstruct:
         # Find DUT instance name
         dut_instance = None
-        for dev_name, dev_info in topology.get("devices", {}).items():
-            if dev_info.get("dev") == subckt_topology.get("subckt"):
+        for dev_name, dev_info in tb_netstruct.get("devices", {}).items():
+            if dev_info.get("dev") == subckt_netstruct.get("subckt"):
                 dut_instance = dev_name
                 break
 
         if dut_instance:
             # Generate save statements for transistors (devices with meta field)
-            for dev_name, dev_info in subckt_topology.get("devices", {}).items():
+            for dev_name, dev_info in subckt_netstruct.get("devices", {}).items():
                 if "meta" in dev_info:
                     hier_name = f"{dut_instance}.{dev_name}"
                     save_stmts.append(f"{hier_name}:currents")
@@ -396,32 +397,32 @@ def autoadd_fields(
                     )
                     save_stmts.append(oppoint)
 
-    topo_copy["save"] = save_stmts
+    netstruct_autofielded["save"] = save_stmts
 
-    return topo_copy
+    return netstruct_autofielded
 
 
-def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
+def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
     """
     Convert topology dict to SPICE netlist string.
 
     Args:
-        topology: Topology dict (subcircuit or testbench)
-        mode: 'subcircuit' or 'testbench'
+        netstruct: Topology dict (subcircuit or testbench)
+        mode: 'subckt' or 'tb' (mandatory)
 
     Returns:
         SPICE netlist string
     """
     lines = []
 
-    if mode == "subcircuit":
+    if mode == "subckt":
         # Subcircuit mode
-        subckt_name = topology.get("subckt", "unnamed")
-        ports = topology.get("ports", {})
-        devices = topology.get("devices", {})
+        subckt_name = netstruct.get("subckt", "unnamed")
+        ports = netstruct.get("ports", {})
+        devices = netstruct.get("devices", {})
 
         # Generate descriptive comment from meta
-        meta = topology["meta"]
+        meta = netstruct["meta"]
         param_strs = []
         for key, value in meta.items():
             # Only include scalar types
@@ -440,7 +441,7 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
         port_list = " ".join(ports.keys())
         lines.append(f".subckt {subckt_name} {port_list}")
 
-        # PININFO comment
+        # Write PININFO (feature of CDL netlists: https://en.wikipedia.org/wiki/Circuit_design_language)
         pininfo = " ".join([f"{name}:{dir}" for name, dir in ports.items()])
         lines.append(f"*.PININFO {pininfo}")
         lines.append("")
@@ -491,23 +492,23 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
         lines.append("")
         lines.append(".end")
 
-    else:
+    elif mode == "tb":
         # Testbench mode
-        devices = topology.get("devices", {})
-        analyses = topology.get("analyses", {})
+        devices = netstruct.get("devices", {})
+        analyses = netstruct.get("analyses", {})
 
         # Simulator declaration
-        if "simulator" in topology:
-            lines.append(f"simulator {topology['simulator']}")
+        if "simulator" in netstruct:
+            lines.append(f"simulator {netstruct['simulator']}")
 
         # Library includes
-        if "libs" in topology:
-            for lib in topology["libs"]:
+        if "libs" in netstruct:
+            for lib in netstruct["libs"]:
                 lines.append(f'.lib "{lib["path"]}" {lib["section"]}')
 
         # Include files
-        if "includes" in topology:
-            for inc in topology["includes"]:
+        if "includes" in netstruct:
+            for inc in netstruct["includes"]:
                 lines.append(f'.include "{inc}"')
 
         lines.append("")
@@ -642,20 +643,23 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
         lines.append("")
 
         # Options
-        if "options" in topology:
-            opts = topology["options"]
+        if "options" in netstruct:
+            opts = netstruct["options"]
             opt_str = " ".join([f"{k}={v}" for k, v in opts.items()])
             lines.append(f".option {opt_str}")
 
         lines.append("")
 
         # Save statements
-        if "save" in topology:
-            for save in topology["save"]:
+        if "save" in netstruct:
+            for save in netstruct["save"]:
                 if save == "all":
                     lines.append(".save all")
                 else:
                     lines.append(f".save {save}")
+
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Expected 'subckt' or 'tb'.")
 
     return "\n".join(lines) + "\n"
 
@@ -982,7 +986,7 @@ def main() -> None:
 
                     # 10. Write SPICE netlist
                     sp_path = subckt_dir / f"subckt_{cfgname}.sp"
-                    spice_str = generate_spice(subckt, mode="subcircuit")
+                    spice_str = generate_spice(subckt, mode=args.mode)
                     sp_path.write_text(spice_str)
                     dbctx["subckt_netlist"] = f"subckt/subckt_{cfgname}.sp"
 
@@ -1070,7 +1074,7 @@ def main() -> None:
 
                     # 14. Write SPICE netlist
                     sp_path = tb_dir / f"tb_{tb_filename}.sp"
-                    spice_str = generate_spice(tb, mode="testbench")
+                    spice_str = generate_spice(tb, mode=args.mode)
                     sp_path.write_text(spice_str)
                     dbctx["tb_netlist"].append(f"tb/tb_{tb_filename}.sp")
 
