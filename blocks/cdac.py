@@ -230,7 +230,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
     return topology
 
 
-def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def subcircuit():
     """
     Generate CDAC topologies for all N/M/strategy/partition combinations.
 
@@ -245,7 +245,7 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
         m: Capacitance multiplier (1, 2, 3) - swept in sweep section
 
     Returns:
-        List of (topology, sweep) tuples (52 × 3 = 156 total base configs, swept over m)
+        Tuple of (topology_list, sweeps)
     """
     # Sweep parameters
     n_dac_list = [7, 9, 11, 13]
@@ -253,8 +253,19 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     redun_strat_list = ["radix2", "subradix2_redist", "subradix2_normalized", "subradix2_unbounded", "radix2_repeat"]
     split_strat_list = ["no_split", "vdiv_split", "diffcap_split"]
 
-    # Generate all base configurations (without scale sweep in topology generation)
-    all_configurations = []
+    # Technology sweep with cap type (momcap with 1m, 2m, 3m metal layers)
+    sweeps = {
+        "tech": ["tsmc65", "tsmc28", "tower180"],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
+            "res": {"type": "polyres", "r": 4}
+        },
+    }
+
+    # Generate all base configurations
+    topology_list = []
 
     for n_dac in n_dac_list:
         for n_extra in n_extra_list:
@@ -278,20 +289,9 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
                     topology = generate_topology(
                         weights, redun_strat, split_strat, n_dac=n_dac, n_extra=n_extra
                     )
+                    topology_list.append(topology)
 
-                    # Technology sweep with cap type (momcap with 1m, 2m, 3m metal layers)
-                    sweep = {
-                        "tech": ["tsmc65", "tsmc28", "tower180"],
-                        "globals": {
-                            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                            "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
-                            "res": {"type": "polyres", "r": 4}
-                        },
-                    }
-                    all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def testbench() -> dict[str, Any]:
@@ -359,7 +359,7 @@ def testbench() -> dict[str, Any]:
     }
 
     # Testbench sweep: corner, temp, and device globals
-    sweep = {
+    sweeps = {
         "corner": ["tt"],
         "temp": [27],
         "globals": {
@@ -369,7 +369,8 @@ def testbench() -> dict[str, Any]:
         }
     }
 
-    return (topology, sweep)
+    topology_list = [topology]
+    return topology_list, sweeps
 
 
 # Helper functions

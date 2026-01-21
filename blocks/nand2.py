@@ -40,16 +40,11 @@ def subcircuit():
     Generate NAND2 gate topology.
 
     Returns:
-        List of (topology, sweep) tuples (1 configuration)
+        Tuple of (topology_list, sweeps)
     """
-    # Generate all configurations
-    all_configurations = []
+    topology_list = [generate_topology()]
 
-    # Generate topology
-    topology = generate_topology()
-
-    # Technology agnostic device sweeps
-    sweep = {
+    sweeps = {
         'tech': ['tsmc65', 'tsmc28', 'tower180'],
         'globals': {
             'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
@@ -60,9 +55,7 @@ def subcircuit():
         ]
     }
 
-    all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def testbench():
@@ -95,7 +88,7 @@ def testbench():
     }
 
     # Testbench sweep: corner, temp, and device globals
-    sweep = {
+    sweeps = {
         "corner": ["tt"],
         "temp": [27],
         "globals": {
@@ -104,4 +97,5 @@ def testbench():
         }
     }
 
-    return [(topology, sweep)]
+    topology_list = [topology]
+    return topology_list, sweeps

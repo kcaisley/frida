@@ -15,7 +15,7 @@ def subcircuit():
         latch_rst_intern_ctl: 'clocked' or 'signalled'
 
     Returns:
-        List of (topology, sweep) tuples
+        Tuple of (topology_list, sweeps)
     """
     # Sweep parameters
     preamp_diffpair_list = ['nmosinput', 'pmosinput']
@@ -26,8 +26,24 @@ def subcircuit():
     latch_rst_extern_ctl_list = ['clocked', 'signalled', 'noreset']
     latch_rst_intern_ctl_list = ['clocked', 'signalled']
 
-    # Generate all configurations
-    all_configurations = []
+    # Technology agnostic device sweeps (same for all topologies)
+    sweeps = {
+        'tech': ['tsmc65', 'tsmc28', 'tower180'],
+        'globals': {
+            'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+            'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+            'cap': {'c': 1, 'm': 1}
+        },
+        'selections': [
+            {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
+            {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
+            {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
+            {'devices': ['Ma_latch+', 'Ma_latch-', 'Mb_latch+', 'Mb_latch-'], 'w': [1, 2, 4], 'type': ['lvt']}
+        ]
+    }
+
+    # Generate all topology configurations
+    topology_list = []
 
     for preamp_diffpair in preamp_diffpair_list:
         for preamp_bias in preamp_bias_list:
@@ -59,25 +75,9 @@ def subcircuit():
                                     latch_rst_intern_ctl=latch_rst_intern_ctl
                                 )
 
-                                # Technology agnostic device sweeps
-                                sweep = {
-                                    'tech': ['tsmc65', 'tsmc28', 'tower180'],
-                                    'globals': {
-                                        'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-                                        'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-                                        'cap': {'c': 1, 'm': 1}
-                                    },
-                                    'selections': [
-                                        {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
-                                        {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
-                                        {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
-                                        {'devices': ['Ma_latch+', 'Ma_latch-', 'Mb_latch+', 'Mb_latch-'], 'w': [1, 2, 4], 'type': ['lvt']}
-                                    ]
-                                }
+                                topology_list.append(topology)
 
-                                all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def generate_topology(
@@ -421,7 +421,7 @@ def testbench():
     }
 
     # Testbench sweep: corner, temp, and device globals
-    sweep = {
+    sweeps = {
         "corner": ["tt"],
         "temp": [27],
         "globals": {
@@ -430,7 +430,8 @@ def testbench():
         }
     }
 
-    return (topology, sweep)
+    topology_list = [topology]
+    return topology_list, sweeps
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

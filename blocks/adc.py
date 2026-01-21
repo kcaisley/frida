@@ -22,7 +22,7 @@ Naming conventions:
 from typing import Any
 
 
-def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def subcircuit():
     """
     Generate ADC subcircuits for all DAC capacitor array configurations.
 
@@ -36,10 +36,19 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     - 15, 17, 19 caps: higher resolution variants with redundancy
 
     Returns:
-        List of (topology, sweep) tuples, one per cap configuration
+        Tuple of (topology_list, sweeps)
     """
     m_caps_list = [7, 9, 11, 13, 15, 17, 19]
-    all_configurations = []
+    topology_list = []
+
+    # Technology sweep (same for all topologies)
+    sweeps = {
+        "tech": ["tsmc65"],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        },
+    }
 
     for m_caps in m_caps_list:
         # Generate port list for this configuration
@@ -201,18 +210,9 @@ def subcircuit() -> list[tuple[dict[str, Any], dict[str, Any]]]:
             }
         }
 
-        # Technology sweep (similar to other blocks)
-        sweep = {
-            "tech": ["tsmc65"],
-            "globals": {
-                "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            },
-        }
+        topology_list.append(topology)
 
-        all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def testbench():
@@ -228,7 +228,17 @@ def testbench():
     Generates testbenches for different m_caps values (matching subcircuit variants).
     """
     m_caps_list = [7, 9, 11, 13, 15, 17, 19]
-    all_configurations = []
+    topology_list = []
+
+    # Testbench sweep: corner, temp, and device globals
+    sweeps = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        }
+    }
 
     for m_caps in m_caps_list:
         # Generate DAC state bus signals (all tied high for normal operation)
@@ -375,19 +385,9 @@ def testbench():
             }
         }
 
-        # Testbench sweep: corner, temp, and device globals
-        sweep = {
-            "corner": ["tt"],
-            "temp": [27],
-            "globals": {
-                "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            }
-        }
+        topology_list.append(topology)
 
-        all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

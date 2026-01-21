@@ -54,45 +54,28 @@ def subcircuit():
         switch_type: 'nmos', 'pmos', or 'tgate'
 
     Returns:
-        List of (topology, sweep) tuples (3 configurations)
+        Tuple of (topology_list, sweeps)
     """
     # Sweep parameters
     switch_type_list = ['nmos', 'pmos', 'tgate']
 
-    # Generate all configurations
-    all_configurations = []
+    # Technology agnostic device sweeps (same for all topologies)
+    # Selections cover all device names across all switch types
+    sweeps = {
+        'tech': ['tsmc65', 'tsmc28', 'tower180'],
+        'globals': {
+            'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
+            'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
+        },
+        'selections': [
+            {'devices': ['MN', 'MP'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
+        ]
+    }
 
-    for switch_type in switch_type_list:
-        # Generate topology for this configuration
-        topology = generate_topology(switch_type=switch_type)
+    # Generate all topologies
+    topology_list = [generate_topology(switch_type=st) for st in switch_type_list]
 
-        # Technology agnostic device sweeps
-        sweep = {
-            'tech': ['tsmc65', 'tsmc28', 'tower180'],
-            'globals': {
-                'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-                'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1}
-            },
-            'selections': []
-        }
-
-        # Device-specific sweeps based on switch type
-        if switch_type == 'nmos':
-            sweep['selections'] = [
-                {'devices': ['MN'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
-            ]
-        elif switch_type == 'pmos':
-            sweep['selections'] = [
-                {'devices': ['MP'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
-            ]
-        elif switch_type == 'tgate':
-            sweep['selections'] = [
-                {'devices': ['MN', 'MP'], 'w': [5, 10, 20, 40], 'l': [1, 2]}
-            ]
-
-        all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def testbench():
@@ -103,10 +86,10 @@ def testbench():
     Generate separate testbench topology for each switch type to match with DUT.
 
     Returns:
-        List of (topology, sweep) tuples (3 configurations, one per switch type)
+        Tuple of (topology_list, sweeps)
     """
     switch_type_list = ['nmos', 'pmos', 'tgate']
-    all_configurations = []
+    topology_list = []
 
     for switch_type in switch_type_list:
         topology = {
@@ -152,20 +135,19 @@ def testbench():
                 'switch_type': switch_type
             }
         }
+        topology_list.append(topology)
 
-        # Testbench sweep: corner, temp, and device globals
-        sweep = {
-            "corner": ["tt"],
-            "temp": [27],
-            "globals": {
-                "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            }
+    # Testbench sweep: corner, temp, and device globals
+    sweeps = {
+        "corner": ["tt"],
+        "temp": [27],
+        "globals": {
+            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
         }
+    }
 
-        all_configurations.append((topology, sweep))
-
-    return all_configurations
+    return topology_list, sweeps
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

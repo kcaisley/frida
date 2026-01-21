@@ -12,62 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
-# ========================================================================
-# Logging Configuration
-# ========================================================================
-
-class CustomFormatter(logging.Formatter):
-    """Custom formatter that doesn't add [INFO] prefix for info messages."""
-
-    def format(self, record):
-        if record.levelno == logging.INFO:
-            # For INFO level, just output the message without level name
-            return record.getMessage()
-        elif record.levelno == logging.WARNING:
-            return f"[WARNING] {record.getMessage()}"
-        elif record.levelno == logging.ERROR:
-            return f"[ERROR] {record.getMessage()}"
-        else:
-            return record.getMessage()
-
-
-def setup_logging(log_file: Path | None = None, logger_name: str | None = None):
-    """
-    Setup logging with custom formatter.
-
-    Args:
-        log_file: Optional path to log file. If provided, logs to both file and console.
-        logger_name: Optional logger name. If None, configures root logger.
-
-    Returns:
-        Configured logger instance
-    """
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.INFO)
-
-    # Remove existing handlers to avoid duplicates
-    logger.handlers.clear()
-
-    # Console handler with custom formatter
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(CustomFormatter())
-    logger.addHandler(console_handler)
-
-    # File handler if log file specified
-    if log_file:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(CustomFormatter())
-        logger.addHandler(file_handler)
-
-    # Prevent propagation to avoid duplicate messages if not root logger
-    if logger_name:
-        logger.propagate = False
-
-    return logger
-
-
 # ========================================================================
 # Technology Configuration
 # ========================================================================
@@ -290,7 +234,7 @@ def compact_json(obj: Any, indent: int = 2, lvl: int = 0) -> str:
     return json.dumps(obj)
 
 
-def load_circuit_module(circuit_file: Path) -> Any:
+def load_cell_script(circuit_file: Path) -> Any:
     """Dynamically load a circuit Python file."""
     spec = importlib.util.spec_from_file_location("circuit", circuit_file)
     if spec is None:
@@ -302,30 +246,123 @@ def load_circuit_module(circuit_file: Path) -> Any:
     spec.loader.exec_module(module)
     return module
 
-
 # ========================================================================
-# Table Formatting Utilities
+# Logging Configuration
 # ========================================================================
 
-def build_headers_from_meta(sample_meta: dict, special_columns: list[str] | None = None) -> list[str]:
+class CustomFormatter(logging.Formatter):
+    """Custom formatter that doesn't add [INFO] prefix for info messages."""
+
+    def format(self, record):
+        if record.levelno == logging.INFO:
+            # For INFO level, just output the message without level name
+            return record.getMessage()
+        elif record.levelno == logging.WARNING:
+            return f"[WARNING] {record.getMessage()}"
+        elif record.levelno == logging.ERROR:
+            return f"[ERROR] {record.getMessage()}"
+        else:
+            return record.getMessage()
+
+
+def setup_logging(log_file: Path | None = None, logger_name: str | None = None):
     """
-    Build table headers from meta fields, excluding complex types, with special columns at end.
+    Setup logging with custom formatter.
 
     Args:
-        sample_meta: Sample meta dictionary to extract field names from
-        special_columns: Optional columns to append at end (default: None)
+        log_file: Optional path to log file. If provided, logs to both file and console.
+        logger_name: Optional logger name. If None, configures root logger.
 
     Returns:
-        List of header names
+        Configured logger instance
     """
-    if special_columns is None:
-        special_columns = []
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
 
+    # Remove existing handlers to avoid duplicates
+    logger.handlers.clear()
+
+    # Console handler with custom formatter
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(CustomFormatter())
+    logger.addHandler(console_handler)
+
+    # File handler if log file specified
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(CustomFormatter())
+        logger.addHandler(file_handler)
+
+    # Prevent propagation to avoid duplicate messages if not root logger
+    if logger_name:
+        logger.propagate = False
+
+    return logger
+
+# ========================================================================
+# Logging Output Functions
+# ========================================================================
+
+def print_flow_header(
+    cell: str,
+    flow: str,
+    script: Path | None = None,
+    outdir: Path | None = None,
+    log_file: Path | None = None,
+) -> None:
+    """
+    Print a standardized header for flow steps.
+
+    Args:
+        cell: Name of the cell being processed
+        flow: Name of the flow step, optionally with mode (e.g., 'netlist (subckt)', 'simulate', 'measure')
+        script: Optional path to the script being run
+        outdir: Optional output directory
+        log_file: Optional log file path
+    """
+    logger = logging.getLogger(__name__)
+
+    logger.info("")  # One blank line before block
+    logger.info("=" * 80)
+    logger.info(f"Cell:       {cell}")
+    logger.info(f"Flow:       {flow}")
+    if script:
+        logger.info(f"Script:     {script}")
+    if outdir:
+        logger.info(f"OutDir:     {outdir}")
+    if log_file:
+        logger.info(f"Log:        {log_file}")
+    logger.info("-" * 80)
+
+
+def calc_table_columns(struct: dict, sweeps: dict | None = None) -> tuple[list[str], dict[str, int]]:
+    """
+    Calculate table columns (headers and widths) from a struct's meta field.
+
+    Args:
+        struct: Dict with 'meta' field containing table data
+        sweeps: Optional sweeps dict to calculate max widths from all possible values
+
+    Returns:
+        Tuple of (headers list, col_widths dict)
+    """
+    MIN_COL_WIDTH = 20
+
+    meta = struct.get("meta", {})
     # Get fields that are simple types (not lists or dicts)
-    meta_headers = [k for k, v in sample_meta.items()
-                    if not isinstance(v, (list, dict))]
+    headers = [k for k, v in meta.items() if not isinstance(v, (list, dict))]
+    # Initialize widths as max of MIN_COL_WIDTH, header name, and current value
+    col_widths = {h: max(MIN_COL_WIDTH, len(h), len(str(meta.get(h, "")))) for h in headers}
 
-    return meta_headers + special_columns
+    # If sweeps provided, expand widths to accommodate all possible values
+    if sweeps:
+        for key, values in sweeps.items():
+            if key in col_widths and isinstance(values, list):
+                for val in values:
+                    col_widths[key] = max(col_widths[key], len(str(val)))
+
+    return headers, col_widths
 
 
 def print_table_header(headers: list[str], col_widths: dict[str, int]) -> None:
@@ -339,7 +376,7 @@ def print_table_header(headers: list[str], col_widths: dict[str, int]) -> None:
     logger = logging.getLogger(__name__)
     header_line = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
     logger.info(header_line)
-    logger.info("-" * len(header_line))
+    logger.info("-" * 80)
 
 
 def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -> None:
@@ -354,66 +391,6 @@ def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -
     logger = logging.getLogger(__name__)
     row_line = " ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers)
     logger.info(row_line)
-
-
-def print_table(rows: list[dict], headers: list[str]) -> None:
-    """
-    Print a simple formatted table using logging (prints all rows at once).
-
-    Args:
-        rows: List of dictionaries with data to print
-        headers: List of column header names
-    """
-    if not rows:
-        return
-
-    # Calculate column widths
-    col_widths = {h: len(h) for h in headers}
-    for row in rows:
-        for h in headers:
-            col_widths[h] = max(col_widths[h], len(str(row.get(h, ""))))
-
-    # Print header and rows
-    print_table_header(headers, col_widths)
-    for row in rows:
-        print_table_row(row, headers, col_widths)
-
-
-# ========================================================================
-# Flow Header Logging
-# ========================================================================
-
-def print_flow_header(
-    block: str,
-    flow: str,
-    script: Path | None = None,
-    outdir: Path | None = None,
-    log_file: Path | None = None,
-) -> None:
-    """
-    Print a standardized header for flow steps.
-
-    Args:
-        block: Name of the block/cell being processed
-        flow: Name of the flow step, optionally with mode (e.g., 'netlist (subckt)', 'simulate', 'measure')
-        script: Optional path to the script being run
-        outdir: Optional output directory
-        log_file: Optional log file path
-    """
-    logger = logging.getLogger(__name__)
-
-    logger.info("")  # One blank line before block
-    logger.info("=" * 70)
-    logger.info(f"Block:      {block}")
-    logger.info(f"Flow:       {flow}")
-    if script:
-        logger.info(f"Script:     {script}")
-    if outdir:
-        logger.info(f"Outdir:     {outdir}")
-    if log_file:
-        logger.info(f"Log:        {log_file}")
-    logger.info("-" * 70)
-
 
 # ========================================================================
 # Database Utilities

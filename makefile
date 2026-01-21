@@ -1,7 +1,6 @@
 # Configuration
 VENV_PYTHON := PYTHONPATH=. .venv/bin/python
-CKT_DIR := results/ckt
-TB_DIR := results/tb
+RESULTS_DIR := results
 SIM_DIR := results/sim
 MEAS_DIR := results/meas
 PLOT_DIR := results/plot
@@ -38,64 +37,51 @@ clean_all:
 ckt:
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$cell" ]; then \
-		echo "Running ckt generation for all blocks..."; \
 		for block in blocks/*.py; do \
 			[ -f "$$block" ] || continue; \
 			cell_name=$$(basename "$$block" .py); \
-			echo ""; \
-			echo "Generating subcircuits: $$cell_name"; \
-			$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "$$block" -o "$(CKT_DIR)" || exit 1; \
+			$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "$$block" -o "$(RESULTS_DIR)" || exit 1; \
 		done; \
-		echo ""; \
-		echo "All subcircuits generated successfully"; \
 	else \
 		if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-		$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$${cell}.py" -o "$(CKT_DIR)"; \
+		$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$${cell}.py" -o "$(RESULTS_DIR)"; \
 	fi
 
 clean_ckt:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -f "$(CKT_DIR)"/ckt_$${cell}*.sp "$(CKT_DIR)"/ckt_$${cell}*.json; echo "Cleaned: $(CKT_DIR)/ckt_$$cell*"
+	rm -rf "$(RESULTS_DIR)/$${cell}/ckt"; echo "Cleaned: $(RESULTS_DIR)/$$cell/ckt"
 
 tb:
-	@cell="$(filter-out $@,$(MAKECMDGOALS))"; corner="$${corner:-tt}"; \
+	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$cell" ]; then \
-		echo "Running tb generation for all blocks..."; \
-		echo "First ensuring all subcircuits are generated..."; \
 		$(MAKE) -s ckt || exit 1; \
-		echo ""; \
-		echo "Now generating testbenches..."; \
 		for block in blocks/*.py; do \
 			[ -f "$$block" ] || continue; \
 			cell_name=$$(basename "$$block" .py); \
-			echo ""; \
-			echo "Generating testbench: $$cell_name (corner=$$corner)"; \
-			$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "$$block" -o "$(TB_DIR)" --ckt-dir "$(CKT_DIR)" -c "$$corner" || exit 1; \
+			$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "$$block" -o "$(RESULTS_DIR)" || exit 1; \
 		done; \
-		echo ""; \
-		echo "All testbenches generated successfully"; \
 	else \
 		if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
-		$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$${cell}.py" -o "$(TB_DIR)" --ckt-dir "$(CKT_DIR)" -c "$$corner"; \
+		$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$${cell}.py" -o "$(RESULTS_DIR)"; \
 	fi
 
 clean_tb:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -f "$(TB_DIR)"/tb_$${cell}*.sp "$(TB_DIR)"/tb_$${cell}*.json; echo "Cleaned: $(TB_DIR)/tb_$$cell*"
+	rm -rf "$(RESULTS_DIR)/$${cell}/tb"; echo "Cleaned: $(RESULTS_DIR)/$$cell/tb"
 
 sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell> [tech=<tech>]"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -d "$(CKT_DIR)" ]; then echo "Error: Run 'make ckt $$cell' first"; exit 1; fi; \
-	if [ ! -d "$(TB_DIR)" ]; then echo "Error: Run 'make tb $$cell' first"; exit 1; fi; \
+	if [ ! -d "$(RESULTS_DIR)/$$cell/ckt" ]; then echo "Error: Run 'make ckt $$cell' first"; exit 1; fi; \
+	if [ ! -d "$(RESULTS_DIR)/$$cell/tb" ]; then echo "Error: Run 'make tb $$cell' first"; exit 1; fi; \
 	mkdir -p "$(SIM_DIR)"; \
 	export CDS_LIC_FILE="$(LICENSE_SERVER)"; \
 	. $(CADENCE_SPECTRE_SETUP); . $(CADENCE_PVS_SETUP); \
 	$(VENV_PYTHON) $(SIM_SCRIPT) \
-		--dut-netlists="$(CKT_DIR)/$${cell}_*.sp" \
-		--tb-wrappers="$(TB_DIR)/tb_$${cell}_*.sp" \
+		--dut-netlists="$(RESULTS_DIR)/$$cell/ckt/ckt_*.sp" \
+		--tb-wrappers="$(RESULTS_DIR)/$$cell/tb/tb_*.sp" \
 		--outdir="$(SIM_DIR)" \
 		--tech-filter="$(tech)" \
 		--license-server="$(LICENSE_SERVER)" \
@@ -134,7 +120,7 @@ meas:
 	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
 	if [ ! -d "$(SIM_DIR)" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
 	mkdir -p "$(MEAS_DIR)"; \
-	$(VENV_PYTHON) $(MEAS_SCRIPT) "blocks/$${cell}.py" "$(SIM_DIR)" "$(CKT_DIR)" "$(TB_DIR)" "$(MEAS_DIR)"
+	$(VENV_PYTHON) $(MEAS_SCRIPT) "blocks/$${cell}.py" "$(SIM_DIR)" "$(RESULTS_DIR)/$$cell/ckt" "$(RESULTS_DIR)/$$cell/tb" "$(MEAS_DIR)"
 
 clean_meas:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi

@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from flow.common import (
+    calc_table_columns,
     compact_json,
     format_value,
-    load_circuit_module,
+    load_cell_script,
     load_db,
     print_flow_header,
-    print_table,
     print_table_header,
     print_table_row,
     save_db,
@@ -767,43 +767,69 @@ def generate_filename(topology: dict[str, Any]) -> str:
 # ========================================================================
 
 
-def check_required_fields(topology: dict[str, Any], description: str = "Topology") -> None:
+def check_subckt(ckt: dict[str, Any]) -> None:
     """
-    Check that topology has required meta and tech fields.
+    Check that subcircuit has required fields.
 
-    Args:
-        topology: Topology dictionary to check
-        description: Description for error messages
+    Required structure:
+        - subckt: str (subcircuit name)
+        - ports: dict (port definitions)
+        - devices: dict of dicts (each with pins, meta, model)
+        - meta: dict with at least 'tech'
 
     Raises:
-        ValueError: If required fields are missing
+        ValueError: If required fields are missing or malformed
     """
-    if "meta" not in topology:
-        raise ValueError(f"{description} missing required 'meta' field")
+    if "subckt" not in ckt:
+        raise ValueError("Subcircuit missing required 'subckt' field")
 
-    meta = topology["meta"]
-    if "tech" not in meta:
-        raise ValueError(f"{description} meta missing required 'tech' field")
+    if "ports" not in ckt or not isinstance(ckt["ports"], dict):
+        raise ValueError("Subcircuit missing required 'ports' dict")
+
+    if "devices" not in ckt or not isinstance(ckt["devices"], dict):
+        raise ValueError("Subcircuit missing required 'devices' dict")
+
+    if "meta" not in ckt or not isinstance(ckt["meta"], dict):
+        raise ValueError("Subcircuit missing required 'meta' dict")
+
+    if "tech" not in ckt["meta"]:
+        raise ValueError("Subcircuit meta missing required 'tech' field")
 
 
-def check_testbench_requirements(topology: dict[str, Any]) -> None:
+def check_testbench(tb: dict[str, Any]) -> None:
     """
-    Verify testbench has required fields: corner, libs, analyses.
+    Check that testbench has required fields.
 
-    Args:
-        topology: Testbench topology to check
+    Required structure:
+        - testbench: str (testbench name)
+        - devices: dict (device definitions)
+        - analyses: dict (analysis definitions)
+        - libs: list (library includes)
+        - meta: dict with at least 'tech' and 'corner'
 
     Raises:
-        ValueError: If required testbench fields are missing
+        ValueError: If required fields are missing or malformed
     """
-    if "meta" not in topology or "corner" not in topology["meta"]:
-        raise ValueError("Testbench missing required 'corner' in meta")
+    if "testbench" not in tb:
+        raise ValueError("Testbench missing required 'testbench' field")
 
-    if "libs" not in topology or not topology["libs"]:
+    if "devices" not in tb or not isinstance(tb["devices"], dict):
+        raise ValueError("Testbench missing required 'devices' dict")
+
+    if "analyses" not in tb or not isinstance(tb["analyses"], dict):
+        raise ValueError("Testbench missing required 'analyses' dict")
+
+    if "libs" not in tb or not tb["libs"]:
         raise ValueError("Testbench missing required 'libs' field")
 
-    if "analyses" not in topology or not topology["analyses"]:
-        raise ValueError("Testbench missing required 'analyses' field")
+    if "meta" not in tb or not isinstance(tb["meta"], dict):
+        raise ValueError("Testbench missing required 'meta' dict")
+
+    if "tech" not in tb["meta"]:
+        raise ValueError("Testbench meta missing required 'tech' field")
+
+    if "corner" not in tb["meta"]:
+        raise ValueError("Testbench meta missing required 'corner' field")
 
 
 def check_subcircuit_instances(
@@ -889,10 +915,9 @@ def main() -> None:
     log_file = log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
     setup_logging(log_file)
 
-    mode_str = "subckt" if args.mode == "subckt" else "testbench"
     print_flow_header(
-        block=cell_name,
-        flow=f"netlist ({mode_str})",
+        cell=cell_name,
+        flow=args.mode,
         script=args.circuit,
         outdir=args.output / cell_name,
         log_file=log_file,
@@ -900,7 +925,7 @@ def main() -> None:
 
     try:
         # Load circuit module
-        circuit_module = load_circuit_module(args.circuit)
+        circuit_module = load_cell_script(args.circuit)
 
         if args.mode == "subckt":
             # ================================================================
@@ -913,26 +938,7 @@ def main() -> None:
             db: list[dict] = []
 
             # 2. Get topology list + sweeps dict from circuit module
-            configurations = circuit_module.subcircuit()
-
-            # Handle both old format [(topo, sweep), ...] and new format (topo_list, sweeps)
-            if isinstance(configurations, tuple) and len(configurations) == 2:
-                first, second = configurations
-                if isinstance(first, list) and isinstance(second, dict):
-                    # New format: (topology_list, sweeps)
-                    topology_list = first
-                    sweeps = second
-                else:
-                    # Old format: single (topology, sweep) tuple
-                    topology_list = [first]
-                    sweeps = second
-            elif isinstance(configurations, list):
-                # Old format: list of (topology, sweep) tuples
-                # For now, use first one's sweep as the common sweep
-                topology_list = [cfg[0] for cfg in configurations]
-                sweeps = configurations[0][1] if configurations else {}
-            else:
-                raise ValueError("subcircuit() must return (topology_list, sweeps) or [(topology, sweep), ...]")
+            topology_list, sweeps = circuit_module.subcircuit()
 
             # 3. Expand sweeps to get cartesian product
             sweep_list = expand_sweeps(sweeps)
@@ -948,7 +954,12 @@ def main() -> None:
                     ckt = map_technology(ckt, techmap)
 
                     # 7. Run checks
-                    check_required_fields(ckt, "Subcircuit")
+                    check_subckt(ckt)
+
+                    # Print table header on first iteration
+                    if total_count == 0:
+                        headers, col_widths = calc_table_columns(ckt, sweeps)
+                        print_table_header(headers, col_widths)
 
                     # 8. Create dbctx with cellname and cfgname
                     cfgname = generate_filename(ckt)
@@ -979,42 +990,23 @@ def main() -> None:
                     db.append(dbctx)
                     total_count += 1
 
-                    # Print progress
-                    meta = ckt.get("meta", {})
-                    logger.info(f"  {cfgname} (tech={meta.get('tech')})")
+                    # Print table row
+                    print_table_row(ckt["meta"], headers, col_widths)
 
             # 12. Write db.json and print summary
             db_path = args.output / cell_name / "db.json"
             save_db(db_path, db)
-            logger.info("-" * 70)
-            logger.info(f"Result: {total_count} configurations processed")
-            logger.info("-" * 70)
+            logger.info("-" * 80)
+            logger.info(f"Result: {total_count} subcircuits generated")
+            logger.info("-" * 80)
 
-        else:
+        elif args.mode == "tb":
             # ================================================================
             # TESTBENCH MODE
             # ================================================================
 
             # 1. Get topology list + sweeps dict from circuit module
-            configurations = circuit_module.testbench()
-
-            # Handle both old format [(topo, sweep), ...] and new format (topo_list, sweeps)
-            if isinstance(configurations, tuple) and len(configurations) == 2:
-                first, second = configurations
-                if isinstance(first, list) and isinstance(second, dict):
-                    # New format: (topology_list, sweeps)
-                    topology_list = first
-                    sweeps = second
-                else:
-                    # Old format: single (topology, sweep) tuple
-                    topology_list = [first]
-                    sweeps = second
-            elif isinstance(configurations, list):
-                # Old format: list of (topology, sweep) tuples
-                topology_list = [cfg[0] for cfg in configurations]
-                sweeps = configurations[0][1] if configurations else {}
-            else:
-                raise ValueError("testbench() must return (topology_list, sweeps) or [(topology, sweep), ...]")
+            topology_list, sweeps = circuit_module.testbench()
 
             # 2. Expand sweeps to get cartesian product (corner × temp × other params)
             sweep_list = expand_sweeps(sweeps)
@@ -1059,8 +1051,12 @@ def main() -> None:
                     tb = autoadd_fields(tb, ckt, techmap)
 
                     # 12. Run checks
-                    check_required_fields(tb, "Testbench")
-                    check_testbench_requirements(tb)
+                    check_testbench(tb)
+
+                    # Print table header on first iteration
+                    if total_count == 0:
+                        headers, col_widths = calc_table_columns(tb, sweeps)
+                        print_table_header(headers, col_widths)
 
                     # 13. Generate filename and write JSON
                     cfgname = dbctx["cfgname"]
@@ -1080,16 +1076,14 @@ def main() -> None:
 
                     total_count += 1
 
-                    # Print progress
-                    logger.info(f"  tb_{tb_filename} (corner={corner}, temp={temp})")
+                    # Print table row
+                    print_table_row(tb["meta"], headers, col_widths)
 
             # 15. Write updated db.json
             save_db(db_path, db)
-            logger.info("-" * 70)
+            logger.info("-" * 80)
             logger.info(f"Result: {total_count} testbenches generated")
-            logger.info("-" * 70)
-
-        logger.info("")  # One blank line after block
+            logger.info("-" * 80)
 
     except Exception as e:
         logging.error(f"\nGeneration failed: {e}")
