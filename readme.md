@@ -35,9 +35,9 @@ Given a generic netlist topology, a technology mapping, and list of parameters t
 ```mermaid
 flowchart LR
     %% Input files
-    ckt@{ shape: rect, label: "generic topology netlist
+    subckt@{ shape: rect, label: "generic topology netlist
     [cell].sp" }
-    ckt_toml@{ shape: rect, label: "size and type sweeps
+    subckt_toml@{ shape: rect, label: "size and type sweeps
     [cell].toml" }
     tech_toml@{ shape: rect, label: "technology params 
     tech.toml" }
@@ -48,8 +48,8 @@ flowchart LR
         generate_netlist@{ shape: rounded, label: "generate_netlist.py" }
     end
 
-    ckt --> generate_netlist
-    ckt_toml --> generate_netlist
+    subckt --> generate_netlist
+    subckt_toml --> generate_netlist
     tech_toml --> generate_netlist
 
     netlist@{ shape: processes, label: "sized .sp netlist" }

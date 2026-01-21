@@ -640,7 +640,7 @@ def main():
     parser = argparse.ArgumentParser(description='Run measurements on simulation results')
     parser.add_argument('block_file', type=Path, help='Path to block script (e.g., blocks/comp.py)')
     parser.add_argument('sim_dir', type=Path, help='Directory containing .raw files (e.g., results/sim)')
-    parser.add_argument('ckt_dir', type=Path, help='Directory containing subcircuit .json files (e.g., ckt)')
+    parser.add_argument('subckt_dir', type=Path, help='Directory containing subcircuit .json files (e.g., subckt)')
     parser.add_argument('tb_dir', type=Path, help='Directory containing testbench .json files (e.g., results/tb)')
     parser.add_argument('meas_dir', type=Path, help='Output directory for measurements (e.g., results/meas)')
     args = parser.parse_args()
@@ -705,8 +705,8 @@ def main():
             tech = match.group(1)
             hash_hex = match.group(2)
 
-            # Find matching subcircuit .json: ckt_<cell>_<params>_<tech>_<hash>.json
-            subckt_pattern = str(args.ckt_dir / f"ckt_{cell}_*_{tech}_{hash_hex}.json")
+            # Find matching subcircuit .json: subckt_<cell>_<params>_<tech>_<hash>.json
+            subckt_pattern = str(args.subckt_dir / f"subckt_{cell}_*_{tech}_{hash_hex}.json")
             subckt_matches = glob(subckt_pattern)
 
             if not subckt_matches:

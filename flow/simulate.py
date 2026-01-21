@@ -388,7 +388,7 @@ def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -
         return False
     
     # Extract base names (remove ckt_ prefix from DUTs and tb_ prefix from wrappers)
-    dut_names = {f.stem.replace('ckt_', '', 1) for f in dut_netlists}
+    dut_names = {f.stem.replace('subckt_', '', 1) for f in dut_netlists}
     tb_names = {f.stem.replace('tb_', '', 1) for f in tb_wrappers}
     
     if dut_names != tb_names:

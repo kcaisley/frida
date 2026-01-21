@@ -6,7 +6,7 @@ Available components:
     bjt505*          bjt505t*         bjt3500*         bjt3500t*        bjtd504*         bjtd504t*        bjtd505*         bjtd505t*        bjtd3500*
     bjtd3500t*       bsim1            bsim2            bsim3            bsim3v3          bsim4            bsim6            bsimbulk         bsimcmg
     bsimimg          bsimsoi          bsimsoi_s        bsource_capacitor bsource_resistor capacitor        capq             capsim           cccs
-    ccvs             cktrom           conductor        core             corner           cross            curve            d2a              dcblock
+    ccvs             subcktrom           conductor        core             corner           cross            curve            d2a              dcblock
     dcfeed           delay            delta_gate       dielectric       dio500*          diode            diode_cmc        ekv              ekv3
     ekv3_nqs         ekv3_r4          ekv3_rf          ekv3_s           fourier          fracpole         gaas             hbt              hemt
     hisim2           hisim_diode      hisim_hv         hisim_igbt       hisimhmg         hisimsoi         hisimsoi_bt      hisimsoi_fb      hvmos

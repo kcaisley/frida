@@ -16,7 +16,7 @@ CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup clean_all ckt clean_ckt tb clean_tb sim clean_sim viz clean_viz meas clean_meas plot clean_plot
+.PHONY: setup clean_all subckt clean_subckt tb clean_tb sim clean_sim viz clean_viz meas clean_meas plot clean_plot
 
 setup:
 	@if ! command -v uv >/dev/null 2>&1; then \
@@ -31,10 +31,10 @@ setup:
 clean_all:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	$(MAKE) -s clean_plot $$cell; $(MAKE) -s clean_meas $$cell; $(MAKE) -s clean_sim $$cell; $(MAKE) -s clean_tb $$cell; $(MAKE) -s clean_ckt $$cell; \
+	$(MAKE) -s clean_plot $$cell; $(MAKE) -s clean_meas $$cell; $(MAKE) -s clean_sim $$cell; $(MAKE) -s clean_tb $$cell; $(MAKE) -s clean_subckt $$cell; \
 	echo "Cleaned: $$cell"
 
-ckt:
+subckt:
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$cell" ]; then \
 		for block in blocks/*.py; do \
@@ -47,15 +47,15 @@ ckt:
 		$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$${cell}.py" -o "$(RESULTS_DIR)"; \
 	fi
 
-clean_ckt:
+clean_subckt:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	rm -rf "$(RESULTS_DIR)/$${cell}/ckt"; echo "Cleaned: $(RESULTS_DIR)/$$cell/ckt"
+	rm -rf "$(RESULTS_DIR)/$${cell}/subckt"; echo "Cleaned: $(RESULTS_DIR)/$$cell/subckt"
 
 tb:
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$cell" ]; then \
-		$(MAKE) -s ckt || exit 1; \
+		$(MAKE) -s subckt || exit 1; \
 		for block in blocks/*.py; do \
 			[ -f "$$block" ] || continue; \
 			cell_name=$$(basename "$$block" .py); \
@@ -74,13 +74,13 @@ clean_tb:
 sim:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell> [tech=<tech>]"; exit 1; fi
 	@cell="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ ! -d "$(RESULTS_DIR)/$$cell/ckt" ]; then echo "Error: Run 'make ckt $$cell' first"; exit 1; fi; \
+	if [ ! -d "$(RESULTS_DIR)/$$cell/subckt" ]; then echo "Error: Run 'make subckt $$cell' first"; exit 1; fi; \
 	if [ ! -d "$(RESULTS_DIR)/$$cell/tb" ]; then echo "Error: Run 'make tb $$cell' first"; exit 1; fi; \
 	mkdir -p "$(SIM_DIR)"; \
 	export CDS_LIC_FILE="$(LICENSE_SERVER)"; \
 	. $(CADENCE_SPECTRE_SETUP); . $(CADENCE_PVS_SETUP); \
 	$(VENV_PYTHON) $(SIM_SCRIPT) \
-		--dut-netlists="$(RESULTS_DIR)/$$cell/ckt/ckt_*.sp" \
+		--dut-netlists="$(RESULTS_DIR)/$$cell/subckt/subckt_*.sp" \
 		--tb-wrappers="$(RESULTS_DIR)/$$cell/tb/tb_*.sp" \
 		--outdir="$(SIM_DIR)" \
 		--tech-filter="$(tech)" \
@@ -120,7 +120,7 @@ meas:
 	if [ ! -f "blocks/$${cell}.py" ]; then echo "Error: blocks/$${cell}.py not found"; exit 1; fi; \
 	if [ ! -d "$(SIM_DIR)" ]; then echo "Error: Run 'make sim $$cell' first"; exit 1; fi; \
 	mkdir -p "$(MEAS_DIR)"; \
-	$(VENV_PYTHON) $(MEAS_SCRIPT) "blocks/$${cell}.py" "$(SIM_DIR)" "$(RESULTS_DIR)/$$cell/ckt" "$(RESULTS_DIR)/$$cell/tb" "$(MEAS_DIR)"
+	$(VENV_PYTHON) $(MEAS_SCRIPT) "blocks/$${cell}.py" "$(SIM_DIR)" "$(RESULTS_DIR)/$$cell/subckt" "$(RESULTS_DIR)/$$cell/tb" "$(MEAS_DIR)"
 
 clean_meas:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi

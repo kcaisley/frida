@@ -325,7 +325,7 @@ def autoadd_fields(
         Topology with automatic fields added
     """
     tech = topology["meta"]["tech"]
-    corner = topology["meta"].get("corner", "tt")
+    corner = topology["meta"].get("corner")
     tech_config = techmap[tech]
     topo_copy = copy.deepcopy(topology)
 
@@ -660,23 +660,23 @@ def generate_spice(topology: dict[str, Any], mode: str = "subcircuit") -> str:
     return "\n".join(lines) + "\n"
 
 
-def find_matching_topo(topology_list: list[dict[str, Any]], ckt: dict[str, Any]) -> dict[str, Any] | None:
+def find_matching_topo(topology_list: list[dict[str, Any]], subckt: dict[str, Any]) -> dict[str, Any] | None:
     """
-    Find topology with meta values matching ckt meta (excluding tech, corner, temp).
+    Find topology with meta values matching subckt meta (excluding tech, corner, temp).
 
     Args:
         topology_list: List of topology dicts to search
-        ckt: Circuit struct with meta values to match
+        subckt: Circuit struct with meta values to match
 
     Returns:
         Matching topology or None if not found
     """
-    ckt_meta = ckt.get("meta", {})
+    subckt_meta = subckt.get("meta", {})
     for topo in topology_list:
         topo_meta = topo.get("meta", {})
         # Match on shared keys (excluding tech, corner, temp)
-        shared_keys = set(topo_meta.keys()) & set(ckt_meta.keys()) - {"tech", "corner", "temp"}
-        if all(topo_meta.get(k) == ckt_meta.get(k) for k in shared_keys):
+        shared_keys = set(topo_meta.keys()) & set(subckt_meta.keys()) - {"tech", "corner", "temp"}
+        if all(topo_meta.get(k) == subckt_meta.get(k) for k in shared_keys):
             return topo
     return None
 
@@ -685,7 +685,7 @@ def generate_filename(topology: dict[str, Any]) -> str:
     """
     Generate base filename for a netlist using meta values for parameters.
 
-    Returns base name WITHOUT prefix (ckt_/tb_) and WITHOUT extension (.sp/.json).
+    Returns base name WITHOUT prefix (subckt_/tb_) and WITHOUT extension (.sp/.json).
     Callers add prefix and extension as needed.
 
     Args:
@@ -767,7 +767,7 @@ def generate_filename(topology: dict[str, Any]) -> str:
 # ========================================================================
 
 
-def check_subckt(ckt: dict[str, Any]) -> None:
+def check_subckt(subckt: dict[str, Any]) -> None:
     """
     Check that subcircuit has required fields.
 
@@ -780,19 +780,19 @@ def check_subckt(ckt: dict[str, Any]) -> None:
     Raises:
         ValueError: If required fields are missing or malformed
     """
-    if "subckt" not in ckt:
+    if "subckt" not in subckt:
         raise ValueError("Subcircuit missing required 'subckt' field")
 
-    if "ports" not in ckt or not isinstance(ckt["ports"], dict):
+    if "ports" not in subckt or not isinstance(subckt["ports"], dict):
         raise ValueError("Subcircuit missing required 'ports' dict")
 
-    if "devices" not in ckt or not isinstance(ckt["devices"], dict):
+    if "devices" not in subckt or not isinstance(subckt["devices"], dict):
         raise ValueError("Subcircuit missing required 'devices' dict")
 
-    if "meta" not in ckt or not isinstance(ckt["meta"], dict):
+    if "meta" not in subckt or not isinstance(subckt["meta"], dict):
         raise ValueError("Subcircuit missing required 'meta' dict")
 
-    if "tech" not in ckt["meta"]:
+    if "tech" not in subckt["meta"]:
         raise ValueError("Subcircuit meta missing required 'tech' field")
 
 
@@ -834,7 +834,7 @@ def check_testbench(tb: dict[str, Any]) -> None:
 
 def check_subcircuit_instances(
     topology: dict[str, Any],
-    ckt_base_dir: Path,
+    subckt_base_dir: Path,
     netlist_filename: str
 ) -> None:
     """
@@ -842,7 +842,7 @@ def check_subcircuit_instances(
 
     Args:
         topology: Testbench topology to check
-        ckt_base_dir: Base directory for subcircuit files
+        subckt_base_dir: Base directory for subcircuit files
         netlist_filename: Filename for error messages
 
     Raises:
@@ -858,12 +858,12 @@ def check_subcircuit_instances(
 
         # This is a subcircuit instance - find its definition
         subckt_name = dev
-        subckt_dir = ckt_base_dir / subckt_name
+        subckt_dir = subckt_base_dir / subckt_name
         if not subckt_dir.exists():
             logger.warning(f"No subcircuit directory found for '{subckt_name}' at {subckt_dir}")
             continue
 
-        pattern = f"ckt_{subckt_name}_*.json"
+        pattern = f"subckt_{subckt_name}_*.json"
         subckt_files = list(subckt_dir.glob(pattern))
 
         if not subckt_files:
@@ -933,8 +933,8 @@ def main() -> None:
             # ================================================================
 
             # 1. Create results dir and empty db list
-            ckt_dir = args.output / cell_name / "ckt"
-            ckt_dir.mkdir(parents=True, exist_ok=True)
+            subckt_dir = args.output / cell_name / "subckt"
+            subckt_dir.mkdir(parents=True, exist_ok=True)
             db: list[dict] = []
 
             # 2. Get topology list + sweeps dict from circuit module
@@ -947,27 +947,27 @@ def main() -> None:
             total_count = 0
             for topo in topology_list:
                 for sweep in sweep_list:
-                    # 5. Generate ckt struct (apply sweep globals/selections/tech)
-                    ckt = generate_netstruct(topo, sweep)
+                    # 5. Generate subckt struct (apply sweep globals/selections/tech)
+                    subckt = generate_netstruct(topo, sweep)
 
                     # 6. Map to technology (convert generic to PDK-specific)
-                    ckt = map_technology(ckt, techmap)
+                    subckt = map_technology(subckt, techmap)
 
                     # 7. Run checks
-                    check_subckt(ckt)
+                    check_subckt(subckt)
 
                     # Print table header on first iteration
                     if total_count == 0:
-                        headers, col_widths = calc_table_columns(ckt, sweeps)
+                        headers, col_widths = calc_table_columns(subckt, sweeps)
                         print_table_header(headers, col_widths)
 
                     # 8. Create dbctx with cellname and cfgname
-                    cfgname = generate_filename(ckt)
+                    cfgname = generate_filename(subckt)
                     dbctx = {
                         "cellname": cell_name,
                         "cfgname": cfgname,
-                        "ckt_db": None,
-                        "ckt_netlist": None,
+                        "subckt_db": None,
+                        "subckt_netlist": None,
                         "tb_db": [],
                         "tb_netlist": [],
                         "sim_raw": [],
@@ -976,22 +976,22 @@ def main() -> None:
                     }
 
                     # 9. Write JSON struct
-                    json_path = ckt_dir / f"ckt_{cfgname}.json"
-                    json_path.write_text(compact_json(ckt))
-                    dbctx["ckt_db"] = f"ckt/ckt_{cfgname}.json"
+                    json_path = subckt_dir / f"subckt_{cfgname}.json"
+                    json_path.write_text(compact_json(subckt))
+                    dbctx["subckt_db"] = f"subckt/subckt_{cfgname}.json"
 
                     # 10. Write SPICE netlist
-                    sp_path = ckt_dir / f"ckt_{cfgname}.sp"
-                    spice_str = generate_spice(ckt, mode="subcircuit")
+                    sp_path = subckt_dir / f"subckt_{cfgname}.sp"
+                    spice_str = generate_spice(subckt, mode="subcircuit")
                     sp_path.write_text(spice_str)
-                    dbctx["ckt_netlist"] = f"ckt/ckt_{cfgname}.sp"
+                    dbctx["subckt_netlist"] = f"subckt/subckt_{cfgname}.sp"
 
                     # 11. Append dbctx to db list
                     db.append(dbctx)
                     total_count += 1
 
                     # Print table row
-                    print_table_row(ckt["meta"], headers, col_widths)
+                    print_table_row(subckt["meta"], headers, col_widths)
 
             # 12. Write db.json and print summary
             db_path = args.output / cell_name / "db.json"
@@ -1022,24 +1022,24 @@ def main() -> None:
 
             total_count = 0
 
-            # 4. Loop over each ckt entry in db
+            # 4. Loop over each subckt entry in db
             for dbctx in db:
-                # 5. Load the ckt struct from ckt_db path
-                ckt_path = args.output / cell_name / dbctx["ckt_db"]
-                with open(ckt_path) as f:
-                    ckt = json.load(f)
+                # 5. Load the subckt struct from subckt_db path
+                subckt_path = args.output / cell_name / dbctx["subckt_db"]
+                with open(subckt_path) as f:
+                    subckt = json.load(f)
 
-                # 6. Find matching tb topology based on meta params in ckt
-                topo = find_matching_topo(topology_list, ckt)
+                # 6. Find matching tb topology based on meta params in subckt
+                topo = find_matching_topo(topology_list, subckt)
                 if not topo:
                     logger.warning(f"No matching testbench for {dbctx['cfgname']}")
                     continue
 
                 # 7. Loop over sweep combinations
                 for sweep in sweep_list:
-                    # 8. Generate testbench struct (apply sweep, inherit tech from ckt)
-                    sweep_with_ckt_tech = {**sweep, "tech": ckt["meta"]["tech"]}
-                    tb = generate_netstruct(topo, sweep_with_ckt_tech)
+                    # 8. Generate testbench struct (apply sweep, inherit tech from subckt)
+                    sweep_with_subckt_tech = {**sweep, "tech": subckt["meta"]["tech"]}
+                    tb = generate_netstruct(topo, sweep_with_subckt_tech)
 
                     # 9. Map to technology (tech is in tb.meta.tech)
                     tb = map_technology(tb, techmap)
@@ -1048,7 +1048,7 @@ def main() -> None:
                     tb = scale_testbench(tb, techmap)
 
                     # 11. Add auto fields (libs, includes, options, save)
-                    tb = autoadd_fields(tb, ckt, techmap)
+                    tb = autoadd_fields(tb, subckt, techmap)
 
                     # 12. Run checks
                     check_testbench(tb)
