@@ -9,15 +9,15 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
     Args:
 
         n_extra: Number of extra physical capacitors for redundancy
-        strategy: 'radix2', 'subradix2_unbounded', 'subradix2_normalized',
-                  'subradix2_redist', 'radix2_repeat'
+        strategy: 'rdx2', 'subrdx2', 'subrdx2lim',
+                  'subrdx2rdst', 'rdx2rpt'
 
     Returns:
         List of (n_dac + n_extra) integer weights (in units of Cu)
     """
     m_caps = n_dac + n_extra
 
-    if strategy == "radix2":
+    if strategy == "rdx2":
         # Standard binary weighting: [2^(n-1), 2^(n-2), ..., 2, 1]
         # Pad with unit caps if n_extra > 0
         weights = [2**i for i in range(n_dac - 1, -1, -1)]
@@ -25,21 +25,21 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
             weights.extend([1] * n_extra)
         return weights
 
-    elif strategy == "subradix2_unbounded":
+    elif strategy == "subrdx2":
         # Each bit is equal to radix^bit up to bit M-1, where radix = 2^(N/M)
         # Round to nearest integer (not floor like normalized)
         radix = 2 ** (n_dac / m_caps)
         weights = [round(radix ** (m_caps - 1 - i)) for i in range(m_caps)]
         return weights
 
-    elif strategy == "subradix2_normalized":
+    elif strategy == "subrdx2lim":
         # Sub-radix-2 with unit quantization
         # Radix < 2 provides redundancy for error correction
         radix = 2 ** (n_dac / m_caps)
         weights = [max(1, int(radix ** (m_caps - 1 - i))) for i in range(m_caps)]
         return weights
 
-    elif strategy == "subradix2_redist":
+    elif strategy == "subrdx2rdst":
         # Binary with MSB redistribution for redundancy
         # Split 2^n_redist from MSB and redistribute as pairs
         # TODO: This logic is broken for small n_dac with large n_extra (e.g., n_dac=7, n_extra=6)
@@ -51,7 +51,7 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
 
         # Check if MSB would become negative - skip invalid combinations
         if weights[0] < 2**n_redist:
-            raise ValueError(f"subradix2_redist: n_dac={n_dac} too small for n_extra={n_extra}. MSB weight would be negative.")
+            raise ValueError(f"subrdx2rdst: n_dac={n_dac} too small for n_extra={n_extra}. MSB weight would be negative.")
 
         weights[0] -= 2**n_redist  # Subtract from MSB
 
@@ -70,7 +70,7 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
 
         return result
 
-    elif strategy == "radix2_repeat":
+    elif strategy == "rdx2rpt":
         # Generate base radix-2 array, then insert repeated capacitors
         # Extra capacitors are inserted at regular intervals
 
@@ -117,8 +117,8 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
 
     Args:
         weights: List of integer weights from calc_weights
-        redun_strat: Weighting strategy (radix2, subradix2_*, etc.)
-        split_strat: 'no_split', 'vdiv_split', or 'diffcap_split'
+        redun_strat: Weighting strategy (rdx2, subrdx2*, etc.)
+        split_strat: 'nosplit', 'vdivsplit', or 'diffcapsplit'
         n_dac: DAC resolution (number of bits)
         n_extra: Number of extra physical capacitors for redundancy
 
@@ -131,8 +131,8 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
     devices = {}
     ports = {"top": "B", "vdd": "B", "vss": "B"}
 
-    # Generate resistor ladder for vdiv_split (all 64 taps)
-    if split_strat == "vdiv_split":
+    # Generate resistor ladder for vdivsplit (all 64 taps)
+    if split_strat == "vdivsplit":
         for i in range(64):
             if i == 0:
                 devices[f"R{i}"] = {"dev": "res", "pins": {"p": "vdd", "n": f"tap[{i + 1}]"}, "r": 4}
@@ -149,14 +149,14 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
         devices[f"MPbuf{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
         devices[f"MNbuf{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
 
-        if split_strat == "no_split":
+        if split_strat == "nosplit":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
             driver_w = calc_driver_strength(c=1, m=w)
             devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
             devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
             devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
 
-        elif split_strat == "vdiv_split":
+        elif split_strat == "vdivsplit":
             # Voltage Divider Split: Decompose weight into coarse + fine parts
             quotient = w // threshold  # Integer division
             remainder = w % threshold   # Modulo
@@ -176,7 +176,7 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
                 devices[f"MNrdiv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot_rdiv[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_rdiv}
                 devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_rdiv[{idx}]"}, "c": 1, "m": 1}
 
-        elif split_strat == "diffcap_split":
+        elif split_strat == "diffcapsplit":
             # Difference Capacitor Split: Decompose weight into coarse + fine parts
             quotient = w // threshold
             remainder = w % threshold
@@ -236,12 +236,12 @@ def subcircuit():
 
     Sweeps:
         n_dac: DAC resolution (7, 9, 11, 13)
-        n_extra: Number of extra physical capacitors (0 for radix2, 2/4/6 for others)
+        n_extra: Number of extra physical capacitors (0 for rdx2, 2/4/6 for others)
         redun_strat: Weight distribution
-            - radix2: n_extra = 0 only (4 combinations)
-            - subradix2_unbounded, subradix2_normalized, subradix2_redist, radix2_repeat:
+            - rdx2: n_extra = 0 only (4 combinations)
+            - subrdx2, subrdx2lim, subrdx2rdst, rdx2rpt:
               n_extra = 2, 4, 6 (48 combinations)
-        split_strat: Physical implementation ('no_split', 'vdiv_split', 'diffcap_split')
+        split_strat: Physical implementation ('nosplit', 'vdivsplit', 'diffcapsplit')
         m: Capacitance multiplier (1, 2, 3) - swept in sweep section
 
     Returns:
@@ -250,8 +250,8 @@ def subcircuit():
     # Sweep parameters
     n_dac_list = [7, 9, 11, 13]
     n_extra_list = [0, 2, 4, 6]
-    redun_strat_list = ["radix2", "subradix2_redist", "subradix2_normalized", "subradix2_unbounded", "radix2_repeat"]
-    split_strat_list = ["no_split", "vdiv_split", "diffcap_split"]
+    redun_strat_list = ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"]
+    split_strat_list = ["no_split", "vdivsplit", "diffcapsplit"]
 
     # Technology sweep with cap type (momcap with 1m, 2m, 3m metal layers)
     sweeps = {
@@ -270,10 +270,10 @@ def subcircuit():
     for n_dac in n_dac_list:
         for n_extra in n_extra_list:
             for redun_strat in redun_strat_list:
-                # Skip invalid combinations: radix2 only works with n_extra=0, others only with n_extra>0
-                if redun_strat == "radix2" and n_extra != 0:
+                # Skip invalid combinations: rdx2 only works with n_extra=0, others only with n_extra>0
+                if redun_strat == "rdx2" and n_extra != 0:
                     continue
-                if redun_strat != "radix2" and n_extra == 0:
+                if redun_strat != "rdx2" and n_extra == 0:
                     continue
 
                 # Calculate weights for this configuration
