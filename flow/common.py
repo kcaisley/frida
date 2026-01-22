@@ -186,6 +186,7 @@ scalemap = {
 # Utility Functions
 # ========================================================================
 
+
 def format_value(value: float | int, unit: str = "") -> str:
     """Format a value with appropriate SI prefix using unitmap."""
     if value == 0:
@@ -246,9 +247,11 @@ def load_cell_script(circuit_file: Path) -> Any:
     spec.loader.exec_module(module)
     return module
 
+
 # ========================================================================
 # Logging Configuration
 # ========================================================================
+
 
 class CustomFormatter(logging.Formatter):
     """Custom formatter that doesn't add [INFO] prefix for info messages."""
@@ -300,9 +303,11 @@ def setup_logging(log_file: Path | None = None, logger_name: str | None = None):
 
     return logger
 
+
 # ========================================================================
 # Logging Output Functions
 # ========================================================================
+
 
 def print_flow_header(
     cell: str,
@@ -336,7 +341,9 @@ def print_flow_header(
     logger.info("-" * 80)
 
 
-def calc_table_columns(struct: dict, varying_params: list[tuple[str, str]] | None = None) -> tuple[list[str], dict[str, int]]:
+def calc_table_columns(
+    struct: dict, varying_params: list[tuple[str, str]] | None = None
+) -> tuple[list[str], dict[str, int]]:
     """
     Calculate table columns (headers and widths) from struct fields.
 
@@ -381,7 +388,9 @@ def calc_table_columns(struct: dict, varying_params: list[tuple[str, str]] | Non
                 dev_params = devices[dev_name].get("params", {})
                 if param_name in dev_params:
                     val_str = str(dev_params[param_name])
-                    col_widths[col_name] = max(MIN_COL_WIDTH, len(col_name), len(val_str))
+                    col_widths[col_name] = max(
+                        MIN_COL_WIDTH, len(col_name), len(val_str)
+                    )
                 else:
                     col_widths[col_name] = max(MIN_COL_WIDTH, len(col_name))
             else:
@@ -417,9 +426,11 @@ def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -
     row_line = " ".join(f"{str(row.get(h, '')):<{col_widths[h]}}" for h in headers)
     logger.info(row_line)
 
+
 # ========================================================================
 # Database Utilities
 # ========================================================================
+
 
 def load_files_list(files_db_path: Path) -> list[dict]:
     """
@@ -450,10 +461,7 @@ def save_files_list(files_db_path: Path, files: list[dict]) -> None:
 
 
 def find_child_dep(
-    child_type: str,
-    parent_tech: str,
-    db_base: Path,
-    child_params: dict | None = None
+    child_type: str, parent_tech: str, db_base: Path, child_params: dict | None = None
 ) -> dict | None:
     """
     Find matching child subcircuit netlist from child's files.json.
@@ -503,8 +511,7 @@ def find_child_dep(
         if child_params and "topo_params" in child_params:
             child_meta = child_subckt.get("meta", {})
             match = all(
-                child_meta.get(k) == v
-                for k, v in child_params["topo_params"].items()
+                child_meta.get(k) == v for k, v in child_params["topo_params"].items()
             )
             if not match:
                 continue
@@ -513,17 +520,13 @@ def find_child_dep(
         return {
             "child_name": child_type,
             "child_json": f"{child_type}/{entry['subckt_json']}",
-            "child_spice": f"{child_type}/{entry['subckt_spice']}"
+            "child_spice": f"{child_type}/{entry['subckt_spice']}",
         }
 
     return None
 
 
-def find_all_child_deps(
-    child_type: str,
-    parent_tech: str,
-    db_base: Path
-) -> list[dict]:
+def find_all_child_deps(child_type: str, parent_tech: str, db_base: Path) -> list[dict]:
     """
     Find all child subcircuits of a given type matching the parent's tech.
 
@@ -556,10 +559,12 @@ def find_all_child_deps(
         if child_subckt.get("tech") != parent_tech:
             continue
 
-        results.append({
-            "child_name": child_type,
-            "child_json": f"{child_type}/{entry['subckt_json']}",
-            "child_spice": f"{child_type}/{entry['subckt_spice']}"
-        })
+        results.append(
+            {
+                "child_name": child_type,
+                "child_json": f"{child_type}/{entry['subckt_json']}",
+                "child_spice": f"{child_type}/{entry['subckt_spice']}",
+            }
+        )
 
     return results

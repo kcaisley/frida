@@ -16,23 +16,23 @@ import math
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
     "cellname": "cdac",
-    "ports": {},      # Empty - computed by generate_topology()
-    "devices": {},    # Empty - computed by generate_topology()
+    "ports": {},  # Empty - computed by generate_topology()
+    "devices": {},  # Empty - computed by generate_topology()
     "meta": {},
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "topo_params": {
         "n_dac": [7, 9, 11, 13],
         "n_extra": [0, 2, 4, 6],
         "redun_strat": ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"],
-        "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"]
+        "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"],
     },
     "dev_params": {
         "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
         "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
         "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
-        "res": {"type": "polyres", "r": 4}
+        "res": {"type": "polyres", "r": 4},
     },
-    "inst_params": []
+    "inst_params": [],
 }
 
 
@@ -143,10 +143,7 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int] | None:
 
 
 def generate_topology(
-    n_dac: int,
-    n_extra: int,
-    redun_strat: str,
-    split_strat: str
+    n_dac: int, n_extra: int, redun_strat: str, split_strat: str
 ) -> tuple[dict, dict] | tuple[None, None]:
     """
     Compute ports and devices for given topo_params combination.
@@ -184,46 +181,135 @@ def generate_topology(
     if split_strat == "vdivsplit":
         for i in range(64):
             if i == 0:
-                devices[f"R{i}"] = {"dev": "res", "pins": {"p": "vdd", "n": f"tap[{i + 1}]"}, "r": 4}
+                devices[f"R{i}"] = {
+                    "dev": "res",
+                    "pins": {"p": "vdd", "n": f"tap[{i + 1}]"},
+                    "r": 4,
+                }
             elif i == 63:
-                devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": "vss"}, "r": 4}
+                devices[f"R{i}"] = {
+                    "dev": "res",
+                    "pins": {"p": f"tap[{i}]", "n": "vss"},
+                    "r": 4,
+                }
             else:
-                devices[f"R{i}"] = {"dev": "res", "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"}, "r": 4}
+                devices[f"R{i}"] = {
+                    "dev": "res",
+                    "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"},
+                    "r": 4,
+                }
 
     # UNIFIED STAGE LOOP - Process all weights regardless of magnitude
     for idx, w in enumerate(weights):
         ports[f"dac[{idx}]"] = "I"
 
         # First inverter (predriver - always unit sized)
-        devices[f"MPbuf{idx}"] = {"dev": "pmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"}, "w": 1}
-        devices[f"MNbuf{idx}"] = {"dev": "nmos", "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"}, "w": 1}
+        devices[f"MPbuf{idx}"] = {
+            "dev": "pmos",
+            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"},
+            "w": 1,
+        }
+        devices[f"MNbuf{idx}"] = {
+            "dev": "nmos",
+            "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"},
+            "w": 1,
+        }
 
         if split_strat == "nosplit":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
             driver_w = calc_driver_strength(c=1, m=w)
-            devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-            devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-            devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": 1, "m": w}
+            devices[f"MPdrv{idx}"] = {
+                "dev": "pmos",
+                "pins": {
+                    "d": f"bot[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vdd",
+                    "b": "vdd",
+                },
+                "w": driver_w,
+            }
+            devices[f"MNdrv{idx}"] = {
+                "dev": "nmos",
+                "pins": {
+                    "d": f"bot[{idx}]",
+                    "g": f"inter[{idx}]",
+                    "s": "vss",
+                    "b": "vss",
+                },
+                "w": driver_w,
+            }
+            devices[f"Cmain{idx}"] = {
+                "dev": "cap",
+                "pins": {"p": "top", "n": f"bot[{idx}]"},
+                "c": 1,
+                "m": w,
+            }
 
         elif split_strat == "vdivsplit":
             # Voltage Divider Split: Decompose weight into coarse + fine parts
             quotient = w // threshold  # Integer division
-            remainder = w % threshold   # Modulo
+            remainder = w % threshold  # Modulo
 
             if quotient > 0:
                 # Main capacitor: m=quotient, c=threshold
                 driver_w = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-                devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
+                devices[f"MPdrv{idx}"] = {
+                    "dev": "pmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vdd",
+                        "b": "vdd",
+                    },
+                    "w": driver_w,
+                }
+                devices[f"MNdrv{idx}"] = {
+                    "dev": "nmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vss",
+                        "b": "vss",
+                    },
+                    "w": driver_w,
+                }
+                devices[f"Cmain{idx}"] = {
+                    "dev": "cap",
+                    "pins": {"p": "top", "n": f"bot[{idx}]"},
+                    "c": threshold,
+                    "m": quotient,
+                }
 
             if remainder > 0:
                 # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
                 tap_node = f"tap[{remainder}]"
                 driver_w_rdiv = calc_driver_strength(c=1, m=1)
-                devices[f"MPrdiv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot_rdiv[{idx}]", "g": f"inter[{idx}]", "s": tap_node, "b": tap_node}, "w": driver_w_rdiv}
-                devices[f"MNrdiv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot_rdiv[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w_rdiv}
-                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot_rdiv[{idx}]"}, "c": 1, "m": 1}
+                devices[f"MPrdiv{idx}"] = {
+                    "dev": "pmos",
+                    "pins": {
+                        "d": f"bot_rdiv[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": tap_node,
+                        "b": tap_node,
+                    },
+                    "w": driver_w_rdiv,
+                }
+                devices[f"MNrdiv{idx}"] = {
+                    "dev": "nmos",
+                    "pins": {
+                        "d": f"bot_rdiv[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vss",
+                        "b": "vss",
+                    },
+                    "w": driver_w_rdiv,
+                }
+                devices[f"Cmain{idx}"] = {
+                    "dev": "cap",
+                    "pins": {"p": "top", "n": f"bot_rdiv[{idx}]"},
+                    "c": 1,
+                    "m": 1,
+                }
 
         elif split_strat == "diffcapsplit":
             # Difference Capacitor Split: Decompose weight into coarse + fine parts
@@ -233,12 +319,40 @@ def generate_topology(
             if quotient > 0:
                 # Main coarse cap: m=quotient, c=threshold
                 driver_w = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-                devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-                devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": threshold, "m": quotient}
+                devices[f"MPdrv{idx}"] = {
+                    "dev": "pmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vdd",
+                        "b": "vdd",
+                    },
+                    "w": driver_w,
+                }
+                devices[f"MNdrv{idx}"] = {
+                    "dev": "nmos",
+                    "pins": {
+                        "d": f"bot[{idx}]",
+                        "g": f"inter[{idx}]",
+                        "s": "vss",
+                        "b": "vss",
+                    },
+                    "w": driver_w,
+                }
+                devices[f"Cmain{idx}"] = {
+                    "dev": "cap",
+                    "pins": {"p": "top", "n": f"bot[{idx}]"},
+                    "c": threshold,
+                    "m": quotient,
+                }
 
                 # Diff coarse cap: m=quotient, c=1, driven from intermediate node
-                devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": 1, "m": quotient}
+                devices[f"Cdiff{idx}"] = {
+                    "dev": "cap",
+                    "pins": {"p": "top", "n": f"inter[{idx}]"},
+                    "c": 1,
+                    "m": quotient,
+                }
 
             if remainder > 0:
                 # Fine caps use difference capacitor approach
@@ -251,14 +365,52 @@ def generate_topology(
                 if quotient == 0:
                     # No coarse part, so add the main driver
                     driver_w = calc_driver_strength(c=c_main, m=1)
-                    devices[f"MPdrv{idx}"] = {"dev": "pmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vdd", "b": "vdd"}, "w": driver_w}
-                    devices[f"MNdrv{idx}"] = {"dev": "nmos", "pins": {"d": f"bot[{idx}]", "g": f"inter[{idx}]", "s": "vss", "b": "vss"}, "w": driver_w}
-                    devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": c_main, "m": 1}
-                    devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff, "m": 1}
+                    devices[f"MPdrv{idx}"] = {
+                        "dev": "pmos",
+                        "pins": {
+                            "d": f"bot[{idx}]",
+                            "g": f"inter[{idx}]",
+                            "s": "vdd",
+                            "b": "vdd",
+                        },
+                        "w": driver_w,
+                    }
+                    devices[f"MNdrv{idx}"] = {
+                        "dev": "nmos",
+                        "pins": {
+                            "d": f"bot[{idx}]",
+                            "g": f"inter[{idx}]",
+                            "s": "vss",
+                            "b": "vss",
+                        },
+                        "w": driver_w,
+                    }
+                    devices[f"Cmain{idx}"] = {
+                        "dev": "cap",
+                        "pins": {"p": "top", "n": f"bot[{idx}]"},
+                        "c": c_main,
+                        "m": 1,
+                    }
+                    devices[f"Cdiff{idx}"] = {
+                        "dev": "cap",
+                        "pins": {"p": "top", "n": f"inter[{idx}]"},
+                        "c": c_diff,
+                        "m": 1,
+                    }
                 else:
                     # Coarse part exists, add separate fine caps with different naming
-                    devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": c_main, "m": 1}
-                    devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff, "m": 1}
+                    devices[f"Cmain{idx}"] = {
+                        "dev": "cap",
+                        "pins": {"p": "top", "n": f"bot[{idx}]"},
+                        "c": c_main,
+                        "m": 1,
+                    }
+                    devices[f"Cdiff{idx}"] = {
+                        "dev": "cap",
+                        "pins": {"p": "top", "n": f"inter[{idx}]"},
+                        "c": c_diff,
+                        "m": 1,
+                    }
 
     return ports, devices
 
@@ -279,19 +431,13 @@ The number of DAC input bits matches the CDAC topology (n_dac).
 
 # Monolithic testbench struct (dynamic topology - uses n_dac topo_param)
 tb = {
-    "devices": {},      # Empty - computed by generate_tb_topology()
-    "analyses": {
-        "tran1": {
-            "type": "tran",
-            "stop": 500,
-            "step": 0.1
-        }
-    },
+    "devices": {},  # Empty - computed by generate_tb_topology()
+    "analyses": {"tran1": {"type": "tran", "stop": 500, "step": 0.1}},
     "corner": ["tt"],
     "temp": [27],
     "topo_params": {
         "n_dac": [7, 9, 11, 13]  # Match subckt n_dac values
-    }
+    },
 }
 
 
@@ -308,8 +454,18 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
     ports = {}  # Testbenches have no ports (top-level)
 
     devices = {
-        "Vvdd": {"dev": "vsource", "pins": {"p": "vdd", "n": "gnd"}, "wave": "dc", "dc": 1.0},
-        "Vvss": {"dev": "vsource", "pins": {"p": "vss", "n": "gnd"}, "wave": "dc", "dc": 0.0},
+        "Vvdd": {
+            "dev": "vsource",
+            "pins": {"p": "vdd", "n": "gnd"},
+            "wave": "dc",
+            "dc": 1.0,
+        },
+        "Vvss": {
+            "dev": "vsource",
+            "pins": {"p": "vss", "n": "gnd"},
+            "wave": "dc",
+            "dc": 0.0,
+        },
     }
 
     # Add DAC bit sources - sweep through key codes
@@ -331,7 +487,7 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
             "dev": "vsource",
             "pins": {"p": f"dac[{i}]", "n": "gnd"},
             "wave": "pwl",
-            "points": pwl_points
+            "points": pwl_points,
         }
 
     # Add load capacitor on top node
@@ -339,7 +495,7 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
         "dev": "cap",
         "pins": {"p": "top", "n": "gnd"},
         "c": 1,
-        "m": 100  # 100 fF load
+        "m": 100,  # 100 fF load
     }
 
     # Add DUT instantiation
@@ -358,6 +514,7 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
 # ========================================================================
 # Helper Functions
 # ========================================================================
+
 
 def calc_driver_strength(c: int, m: int) -> int:
     """

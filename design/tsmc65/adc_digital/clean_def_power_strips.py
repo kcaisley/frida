@@ -51,7 +51,7 @@ def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
              is_routed=True if line starts with "+ ROUTED"
     """
     # Try matching "+ ROUTED M1" pattern first
-    routed_pattern = r'\+\s+ROUTED\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)'
+    routed_pattern = r"\+\s+ROUTED\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)"
     match = re.search(routed_pattern, line)
     if match:
         width = int(match.group(1))
@@ -63,7 +63,7 @@ def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
             return (width, x1, y1, x2, True)  # is_routed=True
 
     # Try matching "NEW M1" pattern
-    new_pattern = r'NEW\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)'
+    new_pattern = r"NEW\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)"
     match = re.search(new_pattern, line)
     if match:
         width = int(match.group(1))
@@ -115,7 +115,9 @@ def compute_segments(y: int, x_min: int, x_max: int) -> List[Tuple[int, int]]:
     return segments
 
 
-def create_m1_followpin_lines(width: int, y: int, segments: List[Tuple[int, int]], is_routed: bool = False) -> List[str]:
+def create_m1_followpin_lines(
+    width: int, y: int, segments: List[Tuple[int, int]], is_routed: bool = False
+) -> List[str]:
     """
     Create M1 FOLLOWPIN line(s) for the given segments.
 
@@ -149,7 +151,7 @@ def process_def_file(input_path: str) -> None:
         input_path: Path to input DEF file
     """
     # Read the entire file
-    with open(input_path, 'r') as f:
+    with open(input_path, "r") as f:
         lines = f.readlines()
 
     # No preprocessing needed - we'll handle + ROUTED lines specially during processing
@@ -162,12 +164,12 @@ def process_def_file(input_path: str) -> None:
 
     for i, line in enumerate(lines):
         # Check if we're entering or leaving SPECIALNETS section
-        if 'SPECIALNETS' in line and ';' in line:
+        if "SPECIALNETS" in line and ";" in line:
             in_specialnets = True
             output_lines.append(line)
             continue
 
-        if in_specialnets and 'END SPECIALNETS' in line:
+        if in_specialnets and "END SPECIALNETS" in line:
             in_specialnets = False
             output_lines.append(line)
             continue
@@ -192,11 +194,15 @@ def process_def_file(input_path: str) -> None:
                     stripes_created += len(segments)
 
                     y_um = y / DBU_PER_UM
-                    print(f"  Split stripe at Y={y} ({y_um:.1f}µm): {len(segments)} segments")
+                    print(
+                        f"  Split stripe at Y={y} ({y_um:.1f}µm): {len(segments)} segments"
+                    )
                     for j, (xs, xe) in enumerate(segments):
                         xs_um = xs / DBU_PER_UM
                         xe_um = xe / DBU_PER_UM
-                        print(f"    Segment {j+1}: X={xs} to {xe} ({xs_um:.1f}µm to {xe_um:.1f}µm)")
+                        print(
+                            f"    Segment {j + 1}: X={xs} to {xe} ({xs_um:.1f}µm to {xe_um:.1f}µm)"
+                        )
 
                 continue
 
@@ -204,13 +210,13 @@ def process_def_file(input_path: str) -> None:
         output_lines.append(line)
 
     # Create backup of original file
-    backup_path = input_path.replace('.def', '_badpdn.def')
+    backup_path = input_path.replace(".def", "_badpdn.def")
     print(f"\nRenaming original file to: {backup_path}")
     os.rename(input_path, backup_path)
 
     # Write modified content to original filename
     print(f"Writing cleaned DEF to: {input_path}")
-    with open(input_path, 'w') as f:
+    with open(input_path, "w") as f:
         f.writelines(output_lines)
 
     print(f"\nSummary:")
@@ -230,7 +236,7 @@ def main():
         print(f"Error: File not found: {input_path}")
         sys.exit(1)
 
-    if not input_path.endswith('.def'):
+    if not input_path.endswith(".def"):
         print("Warning: Input file doesn't have .def extension")
 
     print(f"Processing DEF file: {input_path}")
@@ -238,9 +244,13 @@ def main():
     for i, (x_min, x_max) in enumerate(BLOCKAGE_X_RANGES, 1):
         x_min_um = x_min / DBU_PER_UM
         x_max_um = x_max / DBU_PER_UM
-        print(f"  Blockage {i}: X={x_min} to {x_max} ({x_min_um:.1f}µm to {x_max_um:.1f}µm)")
+        print(
+            f"  Blockage {i}: X={x_min} to {x_max} ({x_min_um:.1f}µm to {x_max_um:.1f}µm)"
+        )
 
-    print(f"\nBlockage Y range: {BLOCKAGE_Y_MIN} to {BLOCKAGE_Y_MAX} ({BLOCKAGE_Y_MIN/DBU_PER_UM:.1f}µm to {BLOCKAGE_Y_MAX/DBU_PER_UM:.1f}µm)")
+    print(
+        f"\nBlockage Y range: {BLOCKAGE_Y_MIN} to {BLOCKAGE_Y_MAX} ({BLOCKAGE_Y_MIN / DBU_PER_UM:.1f}µm to {BLOCKAGE_Y_MAX / DBU_PER_UM:.1f}µm)"
+    )
     print(f"\nProcessing M1 FOLLOWPIN stripes...\n")
 
     process_def_file(input_path)
@@ -248,5 +258,5 @@ def main():
     print("\nDone!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -24,18 +24,16 @@ from typing import Any
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
     "cellname": "adc",
-    "ports": {},      # Empty - computed by generate_topology()
-    "devices": {},    # Empty - computed by generate_topology()
+    "ports": {},  # Empty - computed by generate_topology()
+    "devices": {},  # Empty - computed by generate_topology()
     "meta": {},
     "tech": ["tsmc65"],
-    "topo_params": {
-        "m_caps": [7, 9, 11, 13, 15, 17, 19]
-    },
+    "topo_params": {"m_caps": [7, 9, 11, 13, 15, 17, 19]},
     "dev_params": {
         "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
         "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
     },
-    "inst_params": []
+    "inst_params": [],
 }
 
 
@@ -69,20 +67,22 @@ def generate_topology(m_caps: int) -> tuple[dict, dict]:
     }
 
     # DAC state bus inputs (2 buses per side: astate and bstate, m_caps bits each)
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
+    for side in ["+", "-"]:
+        for bus in ["astate", "bstate"]:
             for i in range(m_caps):
                 ports[f"{bus}{side}[{i}]"] = "I"
 
     # Analog inputs and supplies
-    ports.update({
-        "vin+": "B",
-        "vin-": "B",
-        "vdd_a": "B",
-        "vss_a": "B",
-        "vdd_d": "B",
-        "vss_d": "B",
-    })
+    ports.update(
+        {
+            "vin+": "B",
+            "vin-": "B",
+            "vdd_a": "B",
+            "vss_a": "B",
+            "vdd_d": "B",
+            "vss_d": "B",
+        }
+    )
 
     # Build device instances
     devices = {}
@@ -113,21 +113,25 @@ def generate_topology(m_caps: int) -> tuple[dict, dict]:
     }
 
     # Add DAC state input buses to digital block
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
+    for side in ["+", "-"]:
+        for bus in ["astate", "bstate"]:
             for i in range(m_caps):
                 digital_pins[f"{bus}{side}[{i}]"] = f"{bus}{side}[{i}]"
 
     # Add DAC control output buses from digital block to CDACs
-    for side in ['+', '-']:
+    for side in ["+", "-"]:
         for i in range(m_caps):
             digital_pins[f"dac_ctrl{side}[{i}]"] = f"dac_ctrl{side}[{i}]"
 
-    devices['Xadc_digital'] = {'dev': 'subckt', 'subckt': 'adc_digital', 'pins': digital_pins}
+    devices["Xadc_digital"] = {
+        "dev": "subckt",
+        "subckt": "adc_digital",
+        "pins": digital_pins,
+    }
 
     # CDAC instances (2 total: + and - sides)
     # CDACs now have integrated drivers, no separate capdriver needed
-    for side in ['+', '-']:
+    for side in ["+", "-"]:
         cdac_pins = {
             "top": f"vdac{side}",
             "vdd": "vdd_a",
@@ -136,32 +140,28 @@ def generate_topology(m_caps: int) -> tuple[dict, dict]:
         for i in range(m_caps):
             cdac_pins[f"dac[{i}]"] = f"dac_ctrl{side}[{i}]"
 
-        devices[f'Xcdac{side}'] = {
-            'dev': 'subckt',
-            'subckt': 'cdac',
-            'pins': cdac_pins
-        }
+        devices[f"Xcdac{side}"] = {"dev": "subckt", "subckt": "cdac", "pins": cdac_pins}
 
     # Sampling switch instances (2 total: + and - sides)
-    for side in ['+', '-']:
-        devices[f'Xsamp{side}'] = {
-            'dev': 'subckt',
-            'subckt': 'samp',
-            'pins': {
+    for side in ["+", "-"]:
+        devices[f"Xsamp{side}"] = {
+            "dev": "subckt",
+            "subckt": "samp",
+            "pins": {
                 "in": f"vin{side}",
                 "out": f"vdac{side}",
                 "clk": f"clk_samp{side}",
                 "clk_b": f"clk_samp{side}b",
                 "vdd": "vdd_a",
                 "vss": "vss_a",
-            }
+            },
         }
 
     # Comparator instance
-    devices['Xcomp'] = {
-        'dev': 'subckt',
-        'subckt': 'comp',
-        'pins': {
+    devices["Xcomp"] = {
+        "dev": "subckt",
+        "subckt": "comp",
+        "pins": {
             "in+": "vdac+",
             "in-": "vdac-",
             "out+": "comp_out+",
@@ -170,7 +170,7 @@ def generate_topology(m_caps: int) -> tuple[dict, dict]:
             "clkb": "clk_compb",
             "vdd": "vdd_a",
             "vss": "vss_a",
-        }
+        },
     }
 
     return ports, devices
@@ -198,14 +198,8 @@ The number of DAC state bus bits matches the ADC topology (m_caps).
 
 # Monolithic testbench struct (dynamic topology - uses m_caps topo_param)
 tb = {
-    "devices": {},      # Empty - computed by generate_tb_topology()
-    "analyses": {
-        "tran1": {
-            "type": "tran",
-            "stop": 210,
-            "step": 0.1
-        }
-    },
+    "devices": {},  # Empty - computed by generate_tb_topology()
+    "analyses": {"tran1": {"type": "tran", "stop": 210, "step": 0.1}},
     "corner": ["tt"],
     "temp": [27],
     "topo_params": {
@@ -213,14 +207,23 @@ tb = {
     },
     "extra_includes": [
         # Standard cell libraries (TSMC65 specific)
-        '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi',
-        '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi'
+        "/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi",
+        "/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi",
     ],
     "save": [
-        'v(vin+)', 'v(vin-)', 'v(comp_out)',
-        'v(seq_init)', 'v(seq_samp)', 'v(seq_comp)', 'v(seq_update)',
-        'v(en_init)', 'v(en_samp+)', 'v(en_samp-)', 'v(en_comp)', 'v(en_update)'
-    ]
+        "v(vin+)",
+        "v(vin-)",
+        "v(comp_out)",
+        "v(seq_init)",
+        "v(seq_samp)",
+        "v(seq_comp)",
+        "v(seq_update)",
+        "v(en_init)",
+        "v(en_samp+)",
+        "v(en_samp-)",
+        "v(en_comp)",
+        "v(en_update)",
+    ],
 }
 
 
@@ -239,102 +242,179 @@ def generate_tb_topology(m_caps: int) -> tuple[dict, dict]:
     devices = {}
 
     # Generate DAC state bus signals (all tied high for normal operation)
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
+    for side in ["+", "-"]:
+        for bus in ["astate", "bstate"]:
             for i in range(m_caps):
-                name = f'V{bus}{side}{i}'
+                name = f"V{bus}{side}{i}"
                 devices[name] = {
-                    'dev': 'vsource',
-                    'pins': {'p': f'{bus}{side}[{i}]', 'n': 'gnd'},
-                    'wave': 'dc',
-                    'dc': 1.0
+                    "dev": "vsource",
+                    "pins": {"p": f"{bus}{side}[{i}]", "n": "gnd"},
+                    "wave": "dc",
+                    "dc": 1.0,
                 }
 
     # Power supplies
-    devices.update({
-        # Analog supply
-        'Vvdd_a': {'dev': 'vsource', 'pins': {'p': 'vdd_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vvss_a': {'dev': 'vsource', 'pins': {'p': 'vss_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-        # Digital supply
-        'Vvdd_d': {'dev': 'vsource', 'pins': {'p': 'vdd_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Vvss_d': {'dev': 'vsource', 'pins': {'p': 'vss_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-        # Differential input signals - ramping voltages
-        'Vin+': {
-            'dev': 'vsource',
-            'pins': {'p': 'vin+', 'n': 'gnd'},
-            'wave': 'pwl',
-            'points': [0, 0.917, 210, 0.875]  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
-        },
-        'Vin-': {
-            'dev': 'vsource',
-            'pins': {'p': 'vin-', 'n': 'gnd'},
-            'wave': 'pwl',
-            'points': [0, 0.667, 210, 0.708]  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
-        },
-
-        # Sequencer timing signals
-        'Vseq_init': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_init', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 10, 'tr': 0.1, 'tf': 0.1, 'pw': 4.8, 'per': 100
-        },
-        'Vseq_samp': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_samp', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 15, 'tr': 0.1, 'tf': 0.1, 'pw': 9.8, 'per': 100
-        },
-        'Vseq_comp': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_comp', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 25, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-        },
-        'Vseq_update': {
-            'dev': 'vsource',
-            'pins': {'p': 'seq_update', 'n': 'gnd'},
-            'wave': 'pulse',
-            'v1': 0, 'v2': 1.0, 'td': 27.5, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-        },
-
-        # Enable signals - tied high for normal operation
-        'Ven_init': {'dev': 'vsource', 'pins': {'p': 'en_init', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_samp+': {'dev': 'vsource', 'pins': {'p': 'en_samp+', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_samp-': {'dev': 'vsource', 'pins': {'p': 'en_samp-', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_comp': {'dev': 'vsource', 'pins': {'p': 'en_comp', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        'Ven_update': {'dev': 'vsource', 'pins': {'p': 'en_update', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-    })
+    devices.update(
+        {
+            # Analog supply
+            "Vvdd_a": {
+                "dev": "vsource",
+                "pins": {"p": "vdd_a", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Vvss_a": {
+                "dev": "vsource",
+                "pins": {"p": "vss_a", "n": "gnd"},
+                "wave": "dc",
+                "dc": 0.0,
+            },
+            # Digital supply
+            "Vvdd_d": {
+                "dev": "vsource",
+                "pins": {"p": "vdd_d", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Vvss_d": {
+                "dev": "vsource",
+                "pins": {"p": "vss_d", "n": "gnd"},
+                "wave": "dc",
+                "dc": 0.0,
+            },
+            # Differential input signals - ramping voltages
+            "Vin+": {
+                "dev": "vsource",
+                "pins": {"p": "vin+", "n": "gnd"},
+                "wave": "pwl",
+                "points": [
+                    0,
+                    0.917,
+                    210,
+                    0.875,
+                ],  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
+            },
+            "Vin-": {
+                "dev": "vsource",
+                "pins": {"p": "vin-", "n": "gnd"},
+                "wave": "pwl",
+                "points": [
+                    0,
+                    0.667,
+                    210,
+                    0.708,
+                ],  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
+            },
+            # Sequencer timing signals
+            "Vseq_init": {
+                "dev": "vsource",
+                "pins": {"p": "seq_init", "n": "gnd"},
+                "wave": "pulse",
+                "v1": 0,
+                "v2": 1.0,
+                "td": 10,
+                "tr": 0.1,
+                "tf": 0.1,
+                "pw": 4.8,
+                "per": 100,
+            },
+            "Vseq_samp": {
+                "dev": "vsource",
+                "pins": {"p": "seq_samp", "n": "gnd"},
+                "wave": "pulse",
+                "v1": 0,
+                "v2": 1.0,
+                "td": 15,
+                "tr": 0.1,
+                "tf": 0.1,
+                "pw": 9.8,
+                "per": 100,
+            },
+            "Vseq_comp": {
+                "dev": "vsource",
+                "pins": {"p": "seq_comp", "n": "gnd"},
+                "wave": "pulse",
+                "v1": 0,
+                "v2": 1.0,
+                "td": 25,
+                "tr": 0.1,
+                "tf": 0.1,
+                "pw": 2.4,
+                "per": 5,
+            },
+            "Vseq_update": {
+                "dev": "vsource",
+                "pins": {"p": "seq_update", "n": "gnd"},
+                "wave": "pulse",
+                "v1": 0,
+                "v2": 1.0,
+                "td": 27.5,
+                "tr": 0.1,
+                "tf": 0.1,
+                "pw": 2.4,
+                "per": 5,
+            },
+            # Enable signals - tied high for normal operation
+            "Ven_init": {
+                "dev": "vsource",
+                "pins": {"p": "en_init", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Ven_samp+": {
+                "dev": "vsource",
+                "pins": {"p": "en_samp+", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Ven_samp-": {
+                "dev": "vsource",
+                "pins": {"p": "en_samp-", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Ven_comp": {
+                "dev": "vsource",
+                "pins": {"p": "en_comp", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+            "Ven_update": {
+                "dev": "vsource",
+                "pins": {"p": "en_update", "n": "gnd"},
+                "wave": "dc",
+                "dc": 1.0,
+            },
+        }
+    )
 
     # Build DUT pin mapping
     dut_pins = {
-        'seq_init': 'seq_init',
-        'seq_samp': 'seq_samp',
-        'seq_comp': 'seq_comp',
-        'seq_update': 'seq_update',
-        'comp_out': 'comp_out',
-        'en_init': 'en_init',
-        'en_samp+': 'en_samp+',
-        'en_samp-': 'en_samp-',
-        'en_comp': 'en_comp',
-        'en_update': 'en_update',
-        'vin+': 'vin+',
-        'vin-': 'vin-',
-        'vdd_a': 'vdd_a',
-        'vss_a': 'vss_a',
-        'vdd_d': 'vdd_d',
-        'vss_d': 'vss_d',
+        "seq_init": "seq_init",
+        "seq_samp": "seq_samp",
+        "seq_comp": "seq_comp",
+        "seq_update": "seq_update",
+        "comp_out": "comp_out",
+        "en_init": "en_init",
+        "en_samp+": "en_samp+",
+        "en_samp-": "en_samp-",
+        "en_comp": "en_comp",
+        "en_update": "en_update",
+        "vin+": "vin+",
+        "vin-": "vin-",
+        "vdd_a": "vdd_a",
+        "vss_a": "vss_a",
+        "vdd_d": "vdd_d",
+        "vss_d": "vss_d",
     }
 
     # Add DAC state buses to DUT pins
-    for side in ['+', '-']:
-        for bus in ['astate', 'bstate']:
+    for side in ["+", "-"]:
+        for bus in ["astate", "bstate"]:
             for i in range(m_caps):
-                dut_pins[f'{bus}{side}[{i}]'] = f'{bus}{side}[{i}]'
+                dut_pins[f"{bus}{side}[{i}]"] = f"{bus}{side}[{i}]"
 
-    devices['Xadc'] = {'dev': 'subckt', 'subckt': 'adc', 'pins': dut_pins}
+    devices["Xadc"] = {"dev": "subckt", "subckt": "adc", "pins": dut_pins}
 
     return ports, devices
 
@@ -351,22 +431,27 @@ def measure(raw, subckt_json, tb_json, raw_file):
     5. Saves all results for plotting
     """
     from flow.measure import (
-        digitize, reconstruct_analog, calculate_inl, calculate_dnl,
-        calculate_dnl_histogram, calculate_linearity_error,
-        round_to_codes, write_analysis
+        digitize,
+        reconstruct_analog,
+        calculate_inl,
+        calculate_dnl,
+        calculate_dnl_histogram,
+        calculate_linearity_error,
+        round_to_codes,
+        write_analysis,
     )
     import numpy as np
 
     # Load simulation data
     time = raw.get_axis()
-    vin_p = raw.get_wave('v(vin+)')
-    vin_n = raw.get_wave('v(vin-)')
+    vin_p = raw.get_wave("v(vin+)")
+    vin_n = raw.get_wave("v(vin-)")
     vin = vin_p - vin_n  # Differential input
 
     # Get digital output bits from ADC
     # TODO: Update these signal names based on actual ADC outputs
     # For now, assuming comp_out is the comparator output
-    comp_out = raw.get_wave('v(comp_out)')
+    comp_out = raw.get_wave("v(comp_out)")
 
     # Define ADC parameters
     n_bits = 12  # 12-bit ADC
@@ -411,13 +496,28 @@ def measure(raw, subckt_json, tb_json, raw_file):
     )
 
     # Calculate linearity error
-    linearity_error, error_rms = calculate_linearity_error(vin, dout_analog, return_stats=True)
+    linearity_error, error_rms = calculate_linearity_error(
+        vin, dout_analog, return_stats=True
+    )
 
     # Save all results (arrays + scalars) for plotting
     write_analysis(
         raw_file,
-        time, vin, vin_p, vin_n, comp_digital,
-        dout_analog, dout_rounded, inl, dnl, linearity_error,
-        inl_rms, inl_max, dnl_rms, dnl_max,
-        dnl_hist_rms, dnl_hist_max, error_rms
+        time,
+        vin,
+        vin_p,
+        vin_n,
+        comp_digital,
+        dout_analog,
+        dout_rounded,
+        inl,
+        dnl,
+        linearity_error,
+        inl_rms,
+        inl_max,
+        dnl_rms,
+        dnl_max,
+        dnl_hist_rms,
+        dnl_hist_max,
+        error_rms,
     )

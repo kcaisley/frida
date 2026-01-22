@@ -33,7 +33,7 @@ from flow.common import (
 
 def expand_topo_params(
     netstruct: dict[str, Any],
-    generate_topology_fn: Callable[..., tuple[dict, dict]] | None = None
+    generate_topology_fn: Callable[..., tuple[dict, dict]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Stage 1: Expand topo_params cartesian product and fill ports/devices.
@@ -177,9 +177,7 @@ def expand_dev_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def apply_dev_params(
-    netstruct: dict[str, Any],
-    paths: list[tuple],
-    values: tuple
+    netstruct: dict[str, Any], paths: list[tuple], values: tuple
 ) -> dict[str, Any]:
     """
     Apply one expansion combination to netstruct.
@@ -190,8 +188,8 @@ def apply_dev_params(
 
     # Build parameter lookup dicts from this combination
     tech = None
-    dev_defaults = {}      # {dev_type: {param: value}}
-    inst_overrides = {}    # {idx: {param: value, "devices": [...]}}
+    dev_defaults = {}  # {dev_type: {param: value}}
+    inst_overrides = {}  # {idx: {param: value, "devices": [...]}}
 
     for path, value in zip(paths, values):
         if path[0] == "tech":
@@ -277,7 +275,7 @@ def map_technology(
         if dev in ["nmos", "pmos"] and "type" in params:
             device_key = f"{dev}_{params['type']}"
         elif "type" in params:
-            device_key = params['type']
+            device_key = params["type"]
         else:
             device_key = dev
 
@@ -311,9 +309,7 @@ def map_technology(
     return netstruct_techmapped
 
 
-def scale_testbench(
-    tb: dict[str, Any], techmap: dict[str, Any]
-) -> dict[str, Any]:
+def scale_testbench(tb: dict[str, Any], techmap: dict[str, Any]) -> dict[str, Any]:
     """
     Scale voltage and time values in testbench using scalemap.
 
@@ -739,7 +735,9 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def detect_varying_device_params(netstructs: list[dict[str, Any]]) -> list[tuple[str, str]]:
+def detect_varying_device_params(
+    netstructs: list[dict[str, Any]],
+) -> list[tuple[str, str]]:
     """
     Detect which device parameters vary across a list of netstructs.
 
@@ -762,7 +760,9 @@ def detect_varying_device_params(netstructs: list[dict[str, Any]]) -> list[tuple
     # For each device, check which params vary (across configs where device exists)
     for dev_name in sorted(device_names):
         # Get configs where this device exists
-        configs_with_device = [ns for ns in netstructs if dev_name in ns.get("devices", {})]
+        configs_with_device = [
+            ns for ns in netstructs if dev_name in ns.get("devices", {})
+        ]
 
         if len(configs_with_device) < 2:
             continue  # Need at least 2 configs to detect variation
@@ -792,7 +792,9 @@ def detect_varying_device_params(netstructs: list[dict[str, Any]]) -> list[tuple
     return varying_params
 
 
-def find_matching_topo(netstructs: list[dict[str, Any]], netstruct: dict[str, Any]) -> dict[str, Any] | None:
+def find_matching_topo(
+    netstructs: list[dict[str, Any]], netstruct: dict[str, Any]
+) -> dict[str, Any] | None:
     """
     Find netstruct with topo_param values matching target netstruct (excluding tech, corner, temp).
 
@@ -807,8 +809,13 @@ def find_matching_topo(netstructs: list[dict[str, Any]], netstruct: dict[str, An
     for candidate in netstructs:
         candidate_topo_params = candidate.get("meta", {})
         # Match on shared keys (excluding tech, corner, temp)
-        shared_keys = set(candidate_topo_params.keys()) & set(target_topo_params.keys()) - {"tech", "corner", "temp"}
-        if all(candidate_topo_params.get(k) == target_topo_params.get(k) for k in shared_keys):
+        shared_keys = set(candidate_topo_params.keys()) & set(
+            target_topo_params.keys()
+        ) - {"tech", "corner", "temp"}
+        if all(
+            candidate_topo_params.get(k) == target_topo_params.get(k)
+            for k in shared_keys
+        ):
             return candidate
     return None
 
@@ -875,7 +882,7 @@ def generate_filename(netstruct: dict[str, Any]) -> str:
             raise ValueError(msg)
 
         tech = netstruct["tech"]
-        tb_name = netstruct.get('testbench', 'tb_unnamed')
+        tb_name = netstruct.get("testbench", "tb_unnamed")
         parts = [tb_name, tech]
 
         # Add corner and temp if present
@@ -885,8 +892,6 @@ def generate_filename(netstruct: dict[str, Any]) -> str:
             parts.append(str(netstruct["temp"]))
 
         return "_".join(parts)
-
-
 
 
 # ========================================================================
@@ -1016,7 +1021,7 @@ def main() -> None:
             subckt_template = circuit_module.subckt
 
             # 3. Stage 1: Expand topo_params, fill ports/devices
-            generate_topology_fn = getattr(circuit_module, 'generate_topology', None)
+            generate_topology_fn = getattr(circuit_module, "generate_topology", None)
             subckts_stage1 = expand_topo_params(subckt_template, generate_topology_fn)
 
             # 4. Stage 2: Expand tech, inst_params, dev_params
@@ -1128,13 +1133,15 @@ def main() -> None:
             tb_template = circuit_module.tb
 
             # 3. Stage 1: Expand topo_params, fill ports/devices
-            generate_topology_fn = getattr(circuit_module, 'generate_tb_topology', None)
+            generate_topology_fn = getattr(circuit_module, "generate_tb_topology", None)
             tbs_stage1 = expand_topo_params(tb_template, generate_topology_fn)
 
             # 4. Get corner and temp lists from template
             corner_list = tb_template.get("corner", ["tt"])
             temp_list = tb_template.get("temp", [27])
-            corner_list = corner_list if isinstance(corner_list, list) else [corner_list]
+            corner_list = (
+                corner_list if isinstance(corner_list, list) else [corner_list]
+            )
             temp_list = temp_list if isinstance(temp_list, list) else [temp_list]
 
             total_count = 0
@@ -1150,7 +1157,9 @@ def main() -> None:
                 # 7. Find matching tb netstruct based on topo_param values in subckt.meta
                 tb_topo = find_matching_topo(tbs_stage1, subckt)
                 if not tb_topo:
-                    logger.warning(f"No matching testbench netstruct for {file_ctx['cfgname']}")
+                    logger.warning(
+                        f"No matching testbench netstruct for {file_ctx['cfgname']}"
+                    )
                     continue
 
                 # 8. Loop over corner × temp combinations

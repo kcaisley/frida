@@ -17,8 +17,11 @@ a .npz file, while reduced dimensional results (including scalar quantities) are
 def read_traces(raw):
     """Return time and all traces as tuple of numpy arrays."""
     time = raw.get_axis()
-    traces = tuple(raw.get_wave(name) for name in raw.get_trace_names() if name.lower() != 'time')
+    traces = tuple(
+        raw.get_wave(name) for name in raw.get_trace_names() if name.lower() != "time"
+    )
     return (time,) + traces
+
 
 def write_analysis(raw_file, *variables, outdir=None):
     """
@@ -44,7 +47,9 @@ def write_analysis(raw_file, *variables, outdir=None):
     # Get variable names from caller's frame
     frame = inspect.currentframe()
     if frame is None or frame.f_back is None:
-        raise RuntimeError("Could not inspect calling frame. Variable names unavailable.")
+        raise RuntimeError(
+            "Could not inspect calling frame. Variable names unavailable."
+        )
     frame = frame.f_back
     var_dict = {}
     for var in variables:
@@ -55,11 +60,11 @@ def write_analysis(raw_file, *variables, outdir=None):
                 found = True
                 break
         if not found:
-            var_dict[f'var_{len(var_dict)}'] = var
+            var_dict[f"var_{len(var_dict)}"] = var
 
     # Assume first variable is time
     time = variables[0]
-    time_len = len(time) if hasattr(time, '__len__') else 0
+    time_len = len(time) if hasattr(time, "__len__") else 0
 
     # Separate arrays (same length as time) from scalars
     arrays = {}
@@ -74,7 +79,7 @@ def write_analysis(raw_file, *variables, outdir=None):
     raw_path = Path(raw_file)
 
     # Check for outdir from CLI argument (stored in sys._measure_outdir)
-    if outdir is None and hasattr(sys, '_measure_outdir'):
+    if outdir is None and hasattr(sys, "_measure_outdir"):
         outdir = sys._measure_outdir
 
     if outdir is not None:
@@ -82,12 +87,12 @@ def write_analysis(raw_file, *variables, outdir=None):
         # Replace sim_ prefix with meas_ for measurement files
         outdir_path = Path(outdir)
         outdir_path.mkdir(parents=True, exist_ok=True)
-        base_name = raw_path.stem.replace('sim_', 'meas_', 1)
+        base_name = raw_path.stem.replace("sim_", "meas_", 1)
         json_path = outdir_path / f"{base_name}.json"
         csv_path = outdir_path / f"{base_name}.csv"
     else:
         # Write to same directory as raw_file
-        base_name = raw_path.stem.replace('sim_', 'meas_', 1)
+        base_name = raw_path.stem.replace("sim_", "meas_", 1)
         json_path = raw_path.parent / f"{base_name}.json"
         csv_path = raw_path.parent / f"{base_name}.csv"
 
@@ -98,7 +103,7 @@ def write_analysis(raw_file, *variables, outdir=None):
             scalars[name] = value
 
     # Write .json file with scalar metrics only
-    with open(json_path, 'w') as f:
+    with open(json_path, "w") as f:
         json.dump(scalars, f, indent=2, default=str)
 
     # Write .csv file with time-series data (arrays)
@@ -368,8 +373,8 @@ def comm(v1, v2):
 def lookup_device(netlist, device_name):
     """Return voltage and current signal names for device terminals [d, g, s, b]."""
     nodes = netlist.get_component_nodes(device_name)
-    v_names = [f'v({node})' for node in nodes]
-    i_names = [f'i({device_name.lower()}:{t})' for t in ['d', 'g', 's', 'b']]
+    v_names = [f"v({node})" for node in nodes]
+    i_names = [f"i({device_name.lower()}:{t})" for t in ["d", "g", "s", "b"]]
     return v_names, i_names
 
 
@@ -382,11 +387,10 @@ def rds(raw, netlist, device_name):
     return (vd - vs) / id
 
 
-
-
 # ========================================================================
 # Analytic Functions - compute metrics from circuit parameters
 # ========================================================================
+
 
 def analyze_weights(weights: list[int], threshold: int = 64):
     """
@@ -409,26 +413,28 @@ def analyze_weights(weights: list[int], threshold: int = 64):
 
     # Calculate various metrics for each bit position
     remaining = []  # Remaining total weight after each bit
-    method4 = []    # Difference between remaining and current weight
-    radix = []      # Ratio of current weight to next weight (effective radix)
+    method4 = []  # Difference between remaining and current weight
+    radix = []  # Ratio of current weight to next weight (effective radix)
     bit = list(range(len(weights)))  # Bit indices
 
     # Loop through all but the last weight to compute metrics
     for i, cap in enumerate(weights[:-1]):
-        remain = sum(weights[i+1:])  # Total weight remaining after this bit
+        remain = sum(weights[i + 1 :])  # Total weight remaining after this bit
         remaining.append(remain)
         method4.append(remain - weights[i])  # Difference between remaining and current
-        radix.append(weights[i] / weights[i+1])  # Effective radix between this and next
+        radix.append(
+            weights[i] / weights[i + 1]
+        )  # Effective radix between this and next
 
     return {
-        'weights': weights,
-        'weight_ratios': [w / threshold for w in weights],
-        'sum': sum(weights),
-        'length': len(weights),
-        'bit': bit,
-        'method4': method4 + [0],
-        'radix': radix + [0],
-        'remaining': remaining
+        "weights": weights,
+        "weight_ratios": [w / threshold for w in weights],
+        "sum": sum(weights),
+        "length": len(weights),
+        "bit": bit,
+        "method4": method4 + [0],
+        "radix": radix + [0],
+        "remaining": remaining,
     }
 
 
@@ -443,6 +449,7 @@ def analyze_signal_rms(Vref):
         float: RMS signal voltage
     """
     import math
+
     return Vref * 2 / (2 * math.sqrt(2))
 
 
@@ -458,8 +465,9 @@ def analyze_qnoise(Vref, Nbits):
         tuple: (Vqnoise_rms, Vlsb)
     """
     import math
-    Vlsb = (Vref*2) / (2**Nbits)
-    Vqnoise_rms = Vlsb/math.sqrt(12)
+
+    Vlsb = (Vref * 2) / (2**Nbits)
+    Vqnoise_rms = Vlsb / math.sqrt(12)
     return Vqnoise_rms, Vlsb
 
 
@@ -474,9 +482,10 @@ def analyze_sampnoise(Ctot):
         float: RMS sampling noise voltage
     """
     import math
-    kB = 1.38065e-23    # Boltzmann's constant
+
+    kB = 1.38065e-23  # Boltzmann's constant
     T = 300  # roughly 27 deg C
-    Vsampnoise_rms = math.sqrt(kB*T/Ctot)
+    Vsampnoise_rms = math.sqrt(kB * T / Ctot)
     return Vsampnoise_rms
 
 
@@ -492,7 +501,8 @@ def analyze_snr_volts(Vsignal, Vnoise):
         float: SNR in dB
     """
     import math
-    return 10 * math.log10((Vsignal / Vnoise)**2)
+
+    return 10 * math.log10((Vsignal / Vnoise) ** 2)
 
 
 def analyze_enob(SNR):
@@ -505,7 +515,7 @@ def analyze_enob(SNR):
     Returns:
         float: Effective number of bits
     """
-    return (SNR - 1.76)/6.02
+    return (SNR - 1.76) / 6.02
 
 
 def analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
@@ -521,6 +531,7 @@ def analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
         float: ENOB, reduced only due to sampling noise
     """
     import math
+
     Vinpp_rms = analyze_signal_rms(Vref)
     Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
     Vsampnoise_rms = analyze_sampnoise(Ctot)
@@ -543,13 +554,22 @@ def analyze_midcode_sigma_bounds(Ctot, Nbits, Acap):
         tuple: (sigma, 3sigma, 4sigma, Cu, Cu_sigma_norm) in LSB units or Farads
     """
     import math
-    Cu = Ctot / (2 ** Nbits)
+
+    Cu = Ctot / (2**Nbits)
     Cu_delta_sigma_norm = Acap / math.sqrt(Cu * 1e15)
     Cu_sigma_norm = Cu_delta_sigma_norm / math.sqrt(2)
-    Cmsb_delta_sigma_norm = Cu_sigma_norm * math.sqrt(2**(Nbits-1) + (2**(Nbits-1)- 1))
+    Cmsb_delta_sigma_norm = Cu_sigma_norm * math.sqrt(
+        2 ** (Nbits - 1) + (2 ** (Nbits - 1) - 1)
+    )
     Cmsb_delta_3sigma_norm = 3 * Cmsb_delta_sigma_norm
     Cmsb_delta_4sigma_norm = 4 * Cmsb_delta_sigma_norm
-    return Cmsb_delta_sigma_norm, Cmsb_delta_3sigma_norm, Cmsb_delta_4sigma_norm, Cu, Cu_sigma_norm
+    return (
+        Cmsb_delta_sigma_norm,
+        Cmsb_delta_3sigma_norm,
+        Cmsb_delta_4sigma_norm,
+        Cu,
+        Cu_sigma_norm,
+    )
 
 
 def analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref):
@@ -566,9 +586,15 @@ def analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref):
         tuple: (1sigma, 3sigma, 4sigma) DNL noise voltages
     """
     import math
+
     Vqnoise, Vlsb = analyze_qnoise(Vref, Nbits)
-    Cmsb_delta_1sigma_norm, Cmsb_delta_3sigma_norm, Cmsb_delta_4sigma_norm, Cu, Cu_sigma_norm = \
-        analyze_midcode_sigma_bounds(Ctot, Nbits, Acap)
+    (
+        Cmsb_delta_1sigma_norm,
+        Cmsb_delta_3sigma_norm,
+        Cmsb_delta_4sigma_norm,
+        Cu,
+        Cu_sigma_norm,
+    ) = analyze_midcode_sigma_bounds(Ctot, Nbits, Acap)
 
     Vmmdnl_noise_1sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_1sigma_norm**2)))
     Vmmdnl_noise_3sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_3sigma_norm**2)))
@@ -591,10 +617,12 @@ def analyze_enob_from_mismatch(Ctot, Nbits, Acap, Vref):
         float: ENOB reduced by mismatch
     """
     import math
+
     Vinpp_rms = analyze_signal_rms(Vref)
     Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
-    Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma = \
+    Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma = (
         analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref)
+    )
     Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vmmdnl_noise_3sigma**2)
     snr = analyze_snr_volts(Vinpp_rms, Vnoise_rms)
     enob = analyze_enob(snr)
@@ -614,18 +642,15 @@ def analyze_area(netlist_json):
     device_areas = {}
     total_area = 0.0
 
-    devices = netlist_json.get('devices', {})
+    devices = netlist_json.get("devices", {})
     for dev_name, dev_info in devices.items():
-        if 'w' in dev_info and 'l' in dev_info:
-            area = dev_info['w'] * dev_info['l']
-            nf = dev_info.get('nf', 1)
+        if "w" in dev_info and "l" in dev_info:
+            area = dev_info["w"] * dev_info["l"]
+            nf = dev_info.get("nf", 1)
             device_areas[dev_name] = area * nf
             total_area += area * nf
 
-    return {
-        'device_areas': device_areas,
-        'total_area': total_area
-    }
+    return {"device_areas": device_areas, "total_area": total_area}
 
 
 def main():
@@ -637,12 +662,30 @@ def main():
     from glob import glob
     from flow.plot import load_analysis_module
 
-    parser = argparse.ArgumentParser(description='Run measurements on simulation results')
-    parser.add_argument('block_file', type=Path, help='Path to block script (e.g., blocks/comp.py)')
-    parser.add_argument('sim_dir', type=Path, help='Directory containing .raw files (e.g., results/sim)')
-    parser.add_argument('subckt_dir', type=Path, help='Directory containing subcircuit .json files (e.g., subckt)')
-    parser.add_argument('tb_dir', type=Path, help='Directory containing testbench .json files (e.g., results/tb)')
-    parser.add_argument('meas_dir', type=Path, help='Output directory for measurements (e.g., results/meas)')
+    parser = argparse.ArgumentParser(
+        description="Run measurements on simulation results"
+    )
+    parser.add_argument(
+        "block_file", type=Path, help="Path to block script (e.g., blocks/comp.py)"
+    )
+    parser.add_argument(
+        "sim_dir", type=Path, help="Directory containing .raw files (e.g., results/sim)"
+    )
+    parser.add_argument(
+        "subckt_dir",
+        type=Path,
+        help="Directory containing subcircuit .json files (e.g., subckt)",
+    )
+    parser.add_argument(
+        "tb_dir",
+        type=Path,
+        help="Directory containing testbench .json files (e.g., results/tb)",
+    )
+    parser.add_argument(
+        "meas_dir",
+        type=Path,
+        help="Output directory for measurements (e.g., results/meas)",
+    )
     args = parser.parse_args()
 
     # Extract cell name from block file (e.g., blocks/comp.py -> comp)
@@ -657,7 +700,7 @@ def main():
 
     # Load analysis module
     analysis_module = load_analysis_module(args.block_file)
-    if not hasattr(analysis_module, 'measure'):
+    if not hasattr(analysis_module, "measure"):
         logger.error(f"{args.block_file} does not have a measure() function")
         sys.exit(1)
 
@@ -696,7 +739,7 @@ def main():
 
             # Extract tech and hash (12 hex chars) from filename
             # Tech is alphanumeric, hash is 12 hex characters at the end
-            match = re.search(r'_(\w+)_([0-9a-f]{12})$', stem)
+            match = re.search(r"_(\w+)_([0-9a-f]{12})$", stem)
             if not match:
                 logger.info(f"{filename:<50} {'✗ No hash':<10}")
                 failed.append(raw_path.name)
@@ -706,7 +749,9 @@ def main():
             hash_hex = match.group(2)
 
             # Find matching subcircuit .json: subckt_<cell>_<params>_<tech>_<hash>.json
-            subckt_pattern = str(args.subckt_dir / f"subckt_{cell}_*_{tech}_{hash_hex}.json")
+            subckt_pattern = str(
+                args.subckt_dir / f"subckt_{cell}_*_{tech}_{hash_hex}.json"
+            )
             subckt_matches = glob(subckt_pattern)
 
             if not subckt_matches:
@@ -725,12 +770,14 @@ def main():
                 continue
 
             # Load data
-            raw = RawRead(str(raw_path), traces_to_read='*', dialect='ngspice', verbose=False)
+            raw = RawRead(
+                str(raw_path), traces_to_read="*", dialect="ngspice", verbose=False
+            )
 
-            with open(subckt_json_path, 'r') as f:
+            with open(subckt_json_path, "r") as f:
                 subckt_json = json.load(f)
 
-            with open(tb_json_path, 'r') as f:
+            with open(tb_json_path, "r") as f:
                 tb_json = json.load(f)
 
             # Call measure function
@@ -754,8 +801,12 @@ def main():
     logger.info("Measurement Summary")
     logger.info("=" * 80)
     logger.info(f"Total files:     {len(raw_files)}")
-    logger.info(f"Successful:      {successful} ({100*successful/len(raw_files):.1f}%)")
-    logger.info(f"Failed:          {len(failed)} ({100*len(failed)/len(raw_files):.1f}%)")
+    logger.info(
+        f"Successful:      {successful} ({100 * successful / len(raw_files):.1f}%)"
+    )
+    logger.info(
+        f"Failed:          {len(failed)} ({100 * len(failed) / len(raw_files):.1f}%)"
+    )
 
     if failed:
         logger.info("\nFailed files:")
@@ -772,6 +823,7 @@ def main():
     return 0 if len(failed) == 0 else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
+
     sys.exit(main())

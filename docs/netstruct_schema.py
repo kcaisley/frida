@@ -9,17 +9,15 @@ subckts = {
     "ports": {},  # in all the most simple cases, will be computed from params
     "devices": [],  # in all the most simple cases, will be computed from params
     "tech": ["tsmc65", "tsmc28", "tower180"],  # top level must list technologies
-    
     # always a dict of lists, parameters used by generate_topology()
-    "topo_params": {  
+    "topo_params": {
         "A": [7, 9, 11, 13],
         "B": [0, 2, 4, 6],
         "C": ["sdf", "ddd", "dsa", "ags", "adc"],
-        "D": ["abd", "adc", "sdgs"]
+        "D": ["abd", "adc", "sdgs"],
     },
-    
     # Used by expand_sweeps(), always a dict of dicts (of lists/scalar depending on if there are just defaults or some combinations)
-    # default params, generate_topology() or not specifically in inst_params for all devices matching these types. 
+    # default params, generate_topology() or not specifically in inst_params for all devices matching these types.
     # At least one default for all devices param field is required
     "dev_params": {  # considered last, after inst_params, by expand_sweeps
         "nmos": {"type": ["lvt", "svt"], "w": 1, "l": 1, "nf": 1},
@@ -29,7 +27,7 @@ subckts = {
             # In this example, only made of transistors, so not too hard to write out
             # note how reference to dependant cells need to specify parameters for lookup
             # but technology, name, ports, devices, etc are left out, as these were calculated in an earlier step
-            # critically: topo_, dev_, and inst_param values can mirror those in the dependant cells script e.g. dependant_cellB.py, 
+            # critically: topo_, dev_, and inst_param values can mirror those in the dependant cells script e.g. dependant_cellB.py,
             # or can be a subset, if you don't want to consider all combinations
             # but can't be a superset, as any extra combinations wouldn't have files
             # These will be used by a merged version of the expand_sweeps() function when run on higher_cellA
@@ -39,39 +37,36 @@ subckts = {
             ],
             "dev_params": {  # applies as defaults/sweeps to all devices of one class
                 "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1}
-            }
-        }
+                "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+            },
+        },
     },
-    
-    # Used by expand_sweeps(), considered actually before dev_params(), 
+    # Used by expand_sweeps(), considered actually before dev_params(),
     # but after generate_topology() and doesn't overwrite dev params manually specified in the generate_topology() function.
     "inst_params": [
         {"devices": ["MNA", "MNB", "MNB"], "w": [20, 40], "l": [1, 2]},
-        
-        # apply a specific set of parameters to on instance of dependant_cellB, preempting the values set for all the other instances 
-        { 
+        # apply a specific set of parameters to on instance of dependant_cellB, preempting the values set for all the other instances
+        {
             "inst": ["XdependentcellB_1"],
             "topo_params": {"A": ["topo3"]},
             "inst_params": [],
             "dev_params": {
                 "nmos": {"type": "lvt", "w": [10, 20], "l": 1, "nf": 1},
-                "pmos": {"type": "lvt", "w": 10, "l": 1, "nf": 1}
-            }
-        }
-    ]
+                "pmos": {"type": "lvt", "w": 10, "l": 1, "nf": 1},
+            },
+        },
+    ],
 }
 
-# After generate_topology() loops across the cartesian product of topo_params, we have a list of subckt struct objects, 
-# and after expand_sweeps() acts on inst_params, dev_params, and tech, we have a much longer list of subckt structs. 
-# This is because every one of the lists in these structs is expanded as a cartesian product. 
-# At the end, the devices and ports list of every subckt struct in a big list should be fully filled out, 
+# After generate_topology() loops across the cartesian product of topo_params, we have a list of subckt struct objects,
+# and after expand_sweeps() acts on inst_params, dev_params, and tech, we have a much longer list of subckt structs.
+# This is because every one of the lists in these structs is expanded as a cartesian product.
+# At the end, the devices and ports list of every subckt struct in a big list should be fully filled out,
 # with every single device with its inline params specified
 
 
-
 def generate_topology(subckts):
-    #.... some calculations, depending on subckts.topo_params
+    # .... some calculations, depending on subckts.topo_params
 
     # returns with devices and ports started to be filled in!
     return list_of_subckts

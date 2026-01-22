@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+
+matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
@@ -28,18 +29,20 @@ class CDAC:
         self.register_n = 0
         self.consumed_charge = 0
 
-    def update_parameters(self):  #FIXME: how is this even called at the beginning?
+    def update_parameters(self):  # FIXME: how is this even called at the beginning?
         self.build_capacitor_array()
         if self.params["settling_time"] > 0:
-            self.settling_time_error = np.exp( # Decaying exponential model (percent decay)
+            self.settling_time_error = np.exp(  # Decaying exponential model (percent decay)
                 -1
                 / (
-                    self.params["settling_time"] # This is tau; the time constant
+                    self.params["settling_time"]  # This is tau; the time constant
                     * self.parent.params["sampling_frequency"]
-                    * (self.params["array_size"] + 1) # This divides the sampling frequency to find the settling error
+                    * (
+                        self.params["array_size"] + 1
+                    )  # This divides the sampling frequency to find the settling error
                 )
             )
-        else:                   
+        else:
             self.settling_time_error = 0
         self.lsb_size = (
             self.params["positive_reference_voltage"]
@@ -62,7 +65,9 @@ class CDAC:
     def build_capacitor_array(self):
         raise NotImplementedError
 
-    def calculate_nonlinearity(self, do_plot=False, values_per_bin=10):    #FIXME: there is also an ADC top nonlinearity function?
+    def calculate_nonlinearity(
+        self, do_plot=False, values_per_bin=10
+    ):  # FIXME: there is also an ADC top nonlinearity function?
         reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
         dac_data = np.zeros(len(reg_data))
         dnl_data = np.zeros(len(reg_data) - 1)
@@ -141,7 +146,7 @@ class CDAC_BSS(CDAC):
 
         else:  # construct array according to given radix and desired resolution
             if self.params[
-                "array_N_M_expansion"   #FIXME: I've deleted this option
+                "array_N_M_expansion"  # FIXME: I've deleted this option
             ]:  # If you want array size to be computed, instead of manually supplied
                 self.params["array_size"] = (
                     self.parent.params["resolution"] - 1
@@ -270,7 +275,7 @@ class CDAC_BSS(CDAC):
             # delta_output_voltage * total capacitance connected to GND  (for positive delta_output_voltage)
 
             # TODO: This can/should be simplified into just two cases, not two if-else
-            # NOTE: Even though only one register bit has been updated, is it correct that we need to examine all caps? 
+            # NOTE: Even though only one register bit has been updated, is it correct that we need to examine all caps?
             for i in range(self.params["array_size"]):
                 current_capacitor_p = self.capacitor_array_p[i]
                 current_capacitor_n = self.capacitor_array_n[i]
@@ -323,8 +328,8 @@ class CDAC_BSS(CDAC):
         noise_n = voltage_noise_sample * capacitance_at_vref_n / self.capacitance_sum_n
 
         # calculate how much of the voltage step is resolved, as a voltage with same sign
-        settling_error_p = delta_output_voltage_p * self.settling_time_error # 
-        settling_error_n = delta_output_voltage_n * self.settling_time_error #
+        settling_error_p = delta_output_voltage_p * self.settling_time_error  #
+        settling_error_n = delta_output_voltage_n * self.settling_time_error  #
 
         # add noise and subtract the unresolved voltage step
         return (self.output_voltage_p + noise_p - settling_error_p), (
@@ -356,23 +361,34 @@ class COMPARATOR:
 class SAR_ADC:
     def __init__(self, params):
         # dictionary with parameters
-        self.params = params["ADC"].copy()  # need .copy() to make sure modifiying one won't also change the other
+        self.params = params[
+            "ADC"
+        ].copy()  # need .copy() to make sure modifiying one won't also change the other
         self.sampling_frequency = self.params["sampling_frequency"]
         self.dac = CDAC_BSS(params, self)
         self.cycles = self.dac.params["array_size"] + 1
         self.clock_period = 1 / (self.sampling_frequency * self.cycles)
-        self.redundancy = self.cycles - self.params["resolution"] #FIXME: remove, not a useful metric. Won't break code.
-        self.diff_input_voltage_range = 2 * ( #FIXME: depends on parasitics... also CDAC update seems to have the same code?
-            self.dac.params["positive_reference_voltage"]
-            - self.dac.params["negative_reference_voltage"]
+        self.redundancy = (
+            self.cycles - self.params["resolution"]
+        )  # FIXME: remove, not a useful metric. Won't break code.
+        self.diff_input_voltage_range = (
+            2
+            * (  # FIXME: depends on parasitics... also CDAC update seems to have the same code?
+                self.dac.params["positive_reference_voltage"]
+                - self.dac.params["negative_reference_voltage"]
+            )
         )
-        self.lsb_size = self.diff_input_voltage_range / 2 ** self.params["resolution"]  #FIXME: this isn't true for non-binary??
+        self.lsb_size = (
+            self.diff_input_voltage_range / 2 ** self.params["resolution"]
+        )  # FIXME: this isn't true for non-binary??
         self.comparator = COMPARATOR(params)
         self.input_voltage_p = 0
         self.input_voltage_n = 0
         self.comp_result = []
         self.conversion_energy = 0
-        self.midscale = 2 ** (self.params["resolution"] - 1) #FIXME: this isn't true for non-binary, right?
+        self.midscale = 2 ** (
+            self.params["resolution"] - 1
+        )  # FIXME: this isn't true for non-binary, right?
 
         # performance metrics
         self.dnl = 0
@@ -382,7 +398,7 @@ class SAR_ADC:
         self.fom = 0
 
     def update_parameters(self):  # FIXME: I think this is never called?
-        self.dac.update_parameters()    # FIXME: This is also called in CDAC_BSS subclass?
+        self.dac.update_parameters()  # FIXME: This is also called in CDAC_BSS subclass?
         self.cycles = self.dac.params["array_size"] + 1
         self.clock_period = 1 / (self.sampling_frequency * self.cycles)
         self.redundancy = self.cycles - self.params["resolution"]
@@ -403,16 +419,16 @@ class SAR_ADC:
         parameters = ""
         parameters += "Design parameters\n"
         parameters += f" Resolution   {self.params['resolution']}\n"
-        parameters += f" Sample freq. {self.sampling_frequency/1.0e6:.0f} Msps\n"
-        parameters += f" LSB size     {self.lsb_size/1.0e-3:.3f} mV\n"
+        parameters += f" Sample freq. {self.sampling_frequency / 1.0e6:.0f} Msps\n"
+        parameters += f" LSB size     {self.lsb_size / 1.0e-3:.3f} mV\n"
         parameters += f" Redundancy   {self.redundancy}\n"
         if not self.dac.use_individual_weights:
             parameters += f" DAC radix    {self.dac.radix:.1f}\n"
         parameters += f" DAC capacitor array size  {self.dac.params['array_size']}\n"
-        parameters += f" DAC unit capacitance      {self.dac.params['unit_capacitance']/1e-15:.1f} fF\n"
-        parameters += f" DAC parasitic capacitance {self.dac.params['parasitic_capacitance']/1e-15:.1f} fF\n"
+        parameters += f" DAC unit capacitance      {self.dac.params['unit_capacitance'] / 1e-15:.1f} fF\n"
+        parameters += f" DAC parasitic capacitance {self.dac.params['parasitic_capacitance'] / 1e-15:.1f} fF\n"
         parameters += (
-            f" DAC total capacitance     {self.dac.capacitance_sum_p/1e-12:.2f} pF\n"
+            f" DAC total capacitance     {self.dac.capacitance_sum_p / 1e-12:.2f} pF\n"
         )
         # TBD
         # if self.dac.use_systematic_errors:
@@ -434,7 +450,6 @@ class SAR_ADC:
         Like the other functions starting with calculate_*, this function is non-physical
         in the sense that it just analyzes the data produced by the physical ADC hardware modeled by the other code.
         """
-
 
         # initialize result
         result = 0
@@ -483,7 +498,9 @@ class SAR_ADC:
         """
         # values_per_bin is now passed as parameter
         lower_excluded_bins = 4  # lower bound for DNL/INL calculation in LSB
-        upper_excluded_bins = 4  # upper bound for DNL/INL calculation in LSB distance from full scale
+        upper_excluded_bins = (
+            4  # upper bound for DNL/INL calculation in LSB distance from full scale
+        )
 
         # helper variables
         min_code = -(
@@ -545,7 +562,7 @@ class SAR_ADC:
                 min_code, max_code + 10, 2 ** (self.params["resolution"] - 3)
             )
             plot_title = "ADC Nonlinearity"
-            figure, plot = plt.subplots(4, 1, sharex=True, figsize = (10,16))
+            figure, plot = plt.subplots(4, 1, sharex=True, figsize=(10, 16))
             # figure.tight_layout()
             # figure.suptitle(plot_title)
             plot[0].title.set_text("ADC Transfer Function")
@@ -592,10 +609,12 @@ class SAR_ADC:
         amplitude = 0.55
         offset = 0
         # num_samples is now passed as parameter
-        adc_gain = self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"] # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
+        adc_gain = (
+            self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"]
+        )  # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
-        time_array = np.arange( # For 100ns sampling times, this means we have 1ms worth of capture
+        time_array = np.arange(  # For 100ns sampling times, this means we have 1ms worth of capture
             start=0,
             stop=num_samples / self.sampling_frequency,
             step=1 / self.sampling_frequency,
@@ -605,7 +624,7 @@ class SAR_ADC:
 
         # sample sine wave
         # Calculating ENOB - progress shown by tqdm
-        for i in tqdm(range(len(time_array))):      #Q: So one cycle of the sine wave?
+        for i in tqdm(range(len(time_array))):  # Q: So one cycle of the sine wave?
             input_voltage = offset + amplitude * np.sin(
                 2 * np.pi * frequency * time_array[i]
             )
@@ -619,12 +638,14 @@ class SAR_ADC:
         noise_std = np.std(residual_array)
         noise_percent = noise_std / 2 ** self.params["resolution"] * 100
         # ENOB (ideal resolution minus noise gives effective resolution)
-        self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12)) # log10 is Decibels,
+        self.enob = self.params["resolution"] - np.log10(
+            noise_std * np.sqrt(12)
+        )  # log10 is Decibels,
         # ENOB result now reported in structured output
 
         if do_plot:
             plot_title = "ENOB Calculation"
-            figure, ax = plt.subplots(2, 1, sharex=True, figsize = (10,8))
+            figure, ax = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
             figure.suptitle(plot_title)
             # Disabled to fit in the redundancy chart on the dashboard view
             # plot adc data
@@ -646,7 +667,7 @@ class SAR_ADC:
             )
             ax[1].legend(loc="upper right")
             ax[1].grid(True)
-            ax[1].set_ylim(-6,6)
+            ax[1].set_ylim(-6, 6)
             return figure, ax
 
     def calculate_conversion_energy(self, do_plot=False, samples_per_bin=1):
@@ -678,7 +699,7 @@ class SAR_ADC:
         # Conversion energy and FOM results now reported in structured output
 
         if do_plot:
-            figure, ax = plt.subplots(2, 1, sharex=True, figsize = (10,8))
+            figure, ax = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
             # figure.subplots_adjust(bottom=0.5)
             y_ticks = range(
                 -(2 ** (self.params["resolution"] - 1)),
@@ -715,18 +736,20 @@ class SAR_ADC:
         # Calculate the cumulative sum from the end, then subtract the current value
         self.redundancy = []
         step_ticks = []
-        for i,value in enumerate(weights[:-1]):
-            self.redundancy.append((sum(weights[i+1:]) - weights[i])/sum(weights[i:])*100)
+        for i, value in enumerate(weights[:-1]):
+            self.redundancy.append(
+                (sum(weights[i + 1 :]) - weights[i]) / sum(weights[i:]) * 100
+            )
             step_ticks.append(i)
         # Error tolerance array now summarized as scalar average in structured output
 
         if do_plot:
-            figure, ax = plt.subplots(1, 1, figsize = (10,8))
+            figure, ax = plt.subplots(1, 1, figsize=(10, 8))
             figure.suptitle("Error Tolerance @ step [i] in percent [%]")
             ax.plot(step_ticks, self.redundancy, label="Error tolerance [%]")
             ax.set_xlabel("Conversion Step [i]")
             ax.set_ylabel("Error Tolerance [%]")
-            ax.set_ylim(-35,55)
+            ax.set_ylim(-35, 55)
             ax.grid(True)
             ax.legend(loc="upper right")
 
@@ -788,20 +811,28 @@ class SAR_ADC:
         ax[1].grid(True)
         ax[1].legend(loc="upper right")
 
-    def compile_results(self, builddir=None, testcase="default", values_per_bin=10, num_samples=1000, samples_per_bin=1):
+    def compile_results(
+        self,
+        builddir=None,
+        testcase="default",
+        values_per_bin=10,
+        num_samples=1000,
+        samples_per_bin=1,
+    ):
         # Create results directory if not specified
         if builddir is None:
             builddir = os.path.join(os.getcwd(), "results")
-        
+
         # Ensure builddir exists
         os.makedirs(builddir, exist_ok=True)
-        
+
         # Ensure builddir ends with /
-        if not builddir.endswith('/'):
-            builddir += '/'
+        if not builddir.endswith("/"):
+            builddir += "/"
 
         # Create unified output function
         markdown_lines = []
+
         def output_both(text, markdown_only=False):
             """Output text to both STDOUT and markdown report"""
             if not markdown_only:
@@ -809,7 +840,9 @@ class SAR_ADC:
             markdown_lines.append(text)
 
         # Helper function to format aligned tables for terminal
-        def format_table_row(col1, col2, col3, col1_width=35, col2_width=15, col3_width=8):
+        def format_table_row(
+            col1, col2, col3, col1_width=35, col2_width=15, col3_width=8
+        ):
             """Format a table row with proper spacing for terminal alignment"""
             return f"| {col1:<{col1_width}} | {col2:<{col2_width}} | {col3:<{col3_width}} |"
 
@@ -833,7 +866,7 @@ class SAR_ADC:
         print("-" * 60)
         print(format_table_row("Parameter", "Value", "Unit"))
         print(format_table_row("-" * 35, "-" * 15, "-" * 8))
-        
+
         # Collect all parameters including the scattered ones
         params_data = [
             ("Simulation Type", "Behavioral Model Only", ""),
@@ -842,18 +875,50 @@ class SAR_ADC:
             ("LSB size", f"{self.lsb_size / 1.0e-3:.3f}", "mV"),
             ("Cycles", self.dac.params["array_size"] + 1, ""),
             ("DAC array size", self.dac.params["array_size"], "bits"),
-            ("DAC unit capacitance", f'{self.dac.params["unit_capacitance"] / 1e-15:.3f}', "fF"),
-            ("DAC parasitic capacitance", f'{self.dac.params["parasitic_capacitance"] / 1e-15:.3f}', "fF"),
-            ("DAC total capacitance", f'{self.dac.capacitance_sum_p / 1e-12:.3f}', "pF"),
+            (
+                "DAC unit capacitance",
+                f"{self.dac.params['unit_capacitance'] / 1e-15:.3f}",
+                "fF",
+            ),
+            (
+                "DAC parasitic capacitance",
+                f"{self.dac.params['parasitic_capacitance'] / 1e-15:.3f}",
+                "fF",
+            ),
+            (
+                "DAC total capacitance",
+                f"{self.dac.capacitance_sum_p / 1e-12:.3f}",
+                "pF",
+            ),
             ("DAC weights array", str(self.dac.weights_array), ""),
             ("DAC weights sum", self.dac.weights_sum, ""),
-            ("DAC settling error", f'{self.dac.settling_time_error/100:.2f}', "%"),
+            ("DAC settling error", f"{self.dac.settling_time_error / 100:.2f}", "%"),
             ("DAC switching strategy", self.dac.params["switching_strat"], ""),
-            ("Comparator noise", f'{self.comparator.params["threshold_voltage_noise"] * 1000:.3f}', "mV"),
-            ("Comparator offset", f'{self.comparator.params["offset_voltage"] * 1000:.3f}', "mV"),
-            ("Reference positive voltage", f'{self.dac.params["positive_reference_voltage"]:.1f}', "V"),
-            ("Reference negative voltage", f'{self.dac.params["negative_reference_voltage"]:.1f}', "V"),
-            ("Reference voltage noise", f'{self.dac.params["reference_voltage_noise"] * 1000:.3f}', "mV"),
+            (
+                "Comparator noise",
+                f"{self.comparator.params['threshold_voltage_noise'] * 1000:.3f}",
+                "mV",
+            ),
+            (
+                "Comparator offset",
+                f"{self.comparator.params['offset_voltage'] * 1000:.3f}",
+                "mV",
+            ),
+            (
+                "Reference positive voltage",
+                f"{self.dac.params['positive_reference_voltage']:.1f}",
+                "V",
+            ),
+            (
+                "Reference negative voltage",
+                f"{self.dac.params['negative_reference_voltage']:.1f}",
+                "V",
+            ),
+            (
+                "Reference voltage noise",
+                f"{self.dac.params['reference_voltage_noise'] * 1000:.3f}",
+                "mV",
+            ),
         ]
 
         # Output parameters with aligned formatting for terminal and markdown table for report
@@ -876,34 +941,43 @@ class SAR_ADC:
         print("-" * 60)
         output_both("## Analysis Execution", markdown_only=True)
         output_both("", markdown_only=True)
-        
+
         # Run analyses and collect results
-        figure1, ax1 = self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
+        figure1, ax1 = self.calculate_nonlinearity(
+            do_plot=True, values_per_bin=values_per_bin
+        )
         plt.tight_layout()
         plot_path = f"{builddir}{testcase}_nonlinearity.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.savefig(plot_path, dpi=300, bbox_inches="tight")
         plt.close()
 
-        figure2, ax2 = self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
+        figure2, ax2 = self.calculate_conversion_energy(
+            do_plot=True, samples_per_bin=samples_per_bin
+        )
         plt.tight_layout()
         plot_path2 = f"{builddir}{testcase}_energy.png"
-        plt.savefig(plot_path2, dpi=300, bbox_inches='tight')
+        plt.savefig(plot_path2, dpi=300, bbox_inches="tight")
         plt.close()
 
         figure3, ax3 = self.calculate_enob(do_plot=True, num_samples=num_samples)
         plt.tight_layout()
         plot_path3 = f"{builddir}{testcase}_enob.png"
-        plt.savefig(plot_path3, dpi=300, bbox_inches='tight')
+        plt.savefig(plot_path3, dpi=300, bbox_inches="tight")
         plt.close()
 
         figure4, ax4 = self.calculate_redundancy(do_plot=True)
         plt.tight_layout()
         plot_path4 = f"{builddir}{testcase}_redundancy.png"
-        plt.savefig(plot_path4, dpi=300, bbox_inches='tight')
+        plt.savefig(plot_path4, dpi=300, bbox_inches="tight")
         plt.close()
 
         # Calculate average redundancy for scalar summary
-        avg_redundancy = sum([x for x in self.redundancy if x > 0]) / len([x for x in self.redundancy if x > 0]) if any(x > 0 for x in self.redundancy) else 0
+        avg_redundancy = (
+            sum([x for x in self.redundancy if x > 0])
+            / len([x for x in self.redundancy if x > 0])
+            if any(x > 0 for x in self.redundancy)
+            else 0
+        )
 
         # Performance results with aligned formatting
         print()
@@ -911,14 +985,18 @@ class SAR_ADC:
         print("-" * 60)
         print(format_table_row("Parameter", "Value", "Unit"))
         print(format_table_row("-" * 35, "-" * 15, "-" * 8))
-        
+
         results_data = [
             ("DNL", f"{self.dnl:.3f}", "LSB"),
             ("INL", f"{self.inl:.3f}", "LSB"),
             ("ENOB", f"{self.enob:.2f}", "bits"),
-            ("Conversion Energy", f'{self.average_conversion_energy * 1e12:.3f}', "pJ"),
-            ("FOM (energy/conversion)", f'{self.average_conversion_energy / self.params["resolution"] / 1e-12:.2f}', "pJ"),
-            ("Average Error Tolerance", f'{avg_redundancy:.1f}', "%"),
+            ("Conversion Energy", f"{self.average_conversion_energy * 1e12:.3f}", "pJ"),
+            (
+                "FOM (energy/conversion)",
+                f"{self.average_conversion_energy / self.params['resolution'] / 1e-12:.2f}",
+                "pJ",
+            ),
+            ("Average Error Tolerance", f"{avg_redundancy:.1f}", "%"),
         ]
 
         # Terminal output
@@ -939,7 +1017,9 @@ class SAR_ADC:
         output_both(f"Generated nonlinearity plot: {plot_path}", markdown_only=True)
         output_both(f"Generated energy analysis plot: {plot_path2}", markdown_only=True)
         output_both(f"Generated ENOB analysis plot: {plot_path3}", markdown_only=True)
-        output_both(f"Generated redundancy analysis plot: {plot_path4}", markdown_only=True)
+        output_both(
+            f"Generated redundancy analysis plot: {plot_path4}", markdown_only=True
+        )
         output_both("", markdown_only=True)
 
         output_both("## Performance Results", markdown_only=True)
@@ -956,7 +1036,9 @@ class SAR_ADC:
         output_both("## Analysis Plots", markdown_only=True)
         output_both("", markdown_only=True)
         output_both("### Nonlinearity Analysis", markdown_only=True)
-        output_both(f"![Nonlinearity Analysis]({testcase}_nonlinearity.png)", markdown_only=True)
+        output_both(
+            f"![Nonlinearity Analysis]({testcase}_nonlinearity.png)", markdown_only=True
+        )
         output_both("", markdown_only=True)
         output_both("### Energy Analysis", markdown_only=True)
         output_both(f"![Energy Analysis]({testcase}_energy.png)", markdown_only=True)
@@ -965,16 +1047,18 @@ class SAR_ADC:
         output_both(f"![ENOB Analysis]({testcase}_enob.png)", markdown_only=True)
         output_both("", markdown_only=True)
         output_both("### Redundancy Analysis", markdown_only=True)
-        output_both(f"![Redundancy Analysis]({testcase}_redundancy.png)", markdown_only=True)
+        output_both(
+            f"![Redundancy Analysis]({testcase}_redundancy.png)", markdown_only=True
+        )
         output_both("", markdown_only=True)
         output_both("---", markdown_only=True)
         output_both("*Generated by SAR ADC Behavioral Model*", markdown_only=True)
 
         # Write markdown file
         markdown_file = f"{builddir}{testcase}_report.md"
-        with open(markdown_file, 'w') as f:
-            f.write('\n'.join(markdown_lines))
-        
+        with open(markdown_file, "w") as f:
+            f.write("\n".join(markdown_lines))
+
         output_both(f"Report saved to: {markdown_file}")
         return markdown_file
 
@@ -1059,7 +1143,6 @@ class SAR_ADC:
         for i in range(
             self.dac.params["array_size"]
         ):  # SAR loop, bidirectional single side switching (BSS)
-
             # update DAC register depending on the previous conversion
             if (
                 reset_value & 1 << (self.dac.params["array_size"] - i - 1) == 0

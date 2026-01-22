@@ -34,7 +34,7 @@ def check_license_server():
     logger = logging.getLogger(__name__)
 
     # Check if CDS_LIC_FILE environment variable is set
-    license_server = os.environ.get('CDS_LIC_FILE')
+    license_server = os.environ.get("CDS_LIC_FILE")
     if not license_server:
         logger.error("CDS_LIC_FILE environment variable is not set")
         logger.error("Please set it with: export CDS_LIC_FILE=<port>@<server>")
@@ -45,10 +45,10 @@ def check_license_server():
     # Run lmstat to check license availability
     try:
         result = subprocess.run(
-            ['lmstat', '-c', license_server, '-a'],
+            ["lmstat", "-c", license_server, "-a"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
@@ -60,7 +60,9 @@ def check_license_server():
         logger.error("License server check timed out after 10 seconds")
         sys.exit(1)
     except FileNotFoundError:
-        logger.error("lmstat command not found. Please ensure Cadence tools are in PATH")
+        logger.error(
+            "lmstat command not found. Please ensure Cadence tools are in PATH"
+        )
         sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to check license server: {e}")
@@ -71,13 +73,14 @@ def check_license_server():
     total_licenses = 0
     busy_licenses = 0
 
-    for line in result.stdout.split('\n'):
+    for line in result.stdout.split("\n"):
         # Match the Spectre/Multi-mode simulation license
-        if 'Virtuoso_Multi_mode_Simulation' in line or 'MMSIM' in line:
+        if "Virtuoso_Multi_mode_Simulation" in line or "MMSIM" in line:
             # Parse: "Users of Virtuoso_Multi_mode_Simulation:  (Total of 120 licenses issued;  Total of 23 licenses in use)"
             import re
-            issued_match = re.search(r'Total of (\d+) licenses? issued', line)
-            in_use_match = re.search(r'Total of (\d+) licenses? in use', line)
+
+            issued_match = re.search(r"Total of (\d+) licenses? issued", line)
+            in_use_match = re.search(r"Total of (\d+) licenses? in use", line)
 
             if issued_match:
                 total_licenses = int(issued_match.group(1))
@@ -121,37 +124,37 @@ def correct_spectre_raw(raw_file: Path) -> bool:
         import numpy as np
 
         # ===== STEP 1: Fix Spectre format to ngspice ASCII =====
-        with open(raw_file, 'rb') as f:
+        with open(raw_file, "rb") as f:
             content = f.read()
 
         # Find the header/data split (nutbin uses "Binary:", nutascii uses "Values:")
         data_marker = None
         is_ascii = False
-        if b'Binary:\n' in content:
-            data_marker = b'Binary:\n'
+        if b"Binary:\n" in content:
+            data_marker = b"Binary:\n"
             is_ascii = False
-        elif b'Values:\n' in content:
-            data_marker = b'Values:\n'
+        elif b"Values:\n" in content:
+            data_marker = b"Values:\n"
             is_ascii = True
         else:
             return False
 
         header, data_section = content.split(data_marker, 1)
-        header_text = header.decode('ascii', errors='ignore')
+        header_text = header.decode("ascii", errors="ignore")
 
         # Fix the header to match ngspice format
-        lines = header_text.split('\n')
+        lines = header_text.split("\n")
         fixed_lines = []
 
         for line in lines:
-            if line.startswith('Variables:') and len(line.strip()) > len('Variables:'):
+            if line.startswith("Variables:") and len(line.strip()) > len("Variables:"):
                 # Split "Variables:\t0\ttime\ts" into two lines
-                fixed_lines.append('Variables:')
-                var_def = line[len('Variables:'):]
+                fixed_lines.append("Variables:")
+                var_def = line[len("Variables:") :]
                 fixed_lines.append(var_def)
-            elif line.strip() and '\t' in line:
+            elif line.strip() and "\t" in line:
                 # Variable definition line - convert to ngspice format
-                parts = [p.strip() for p in line.split('\t') if p.strip()]
+                parts = [p.strip() for p in line.split("\t") if p.strip()]
 
                 if len(parts) >= 3 and parts[0].isdigit():
                     idx = parts[0]
@@ -159,32 +162,32 @@ def correct_spectre_raw(raw_file: Path) -> bool:
                     unit = parts[2].split()[0]  # Remove 'plot=0 grid=0' if present
 
                     # Convert to ngspice format
-                    if name.lower() == 'time' or unit.lower() == 's':
+                    if name.lower() == "time" or unit.lower() == "s":
                         # Time variable
-                        fixed_lines.append(f'\t{idx}\t{name}\ttime')
-                    elif unit.upper() == 'V':
+                        fixed_lines.append(f"\t{idx}\t{name}\ttime")
+                    elif unit.upper() == "V":
                         # Voltage - wrap in v(...)
                         # Remove hierarchy prefix (e.g., xtb.in -> in)
-                        simple_name = name.split('.')[-1]
-                        fixed_lines.append(f'\t{idx}\tv({simple_name})\tvoltage')
-                    elif unit.upper() == 'A':
+                        simple_name = name.split(".")[-1]
+                        fixed_lines.append(f"\t{idx}\tv({simple_name})\tvoltage")
+                    elif unit.upper() == "A":
                         # Current - wrap in i(...)
-                        simple_name = name.split('.')[-1]
-                        fixed_lines.append(f'\t{idx}\ti({simple_name})\tcurrent')
+                        simple_name = name.split(".")[-1]
+                        fixed_lines.append(f"\t{idx}\ti({simple_name})\tcurrent")
                     else:
                         # Unknown type - keep as-is
-                        fixed_lines.append(f'\t{idx}\t{name}\t{unit}')
+                        fixed_lines.append(f"\t{idx}\t{name}\t{unit}")
                 else:
                     fixed_lines.append(line)
             else:
                 fixed_lines.append(line)
 
-        fixed_header = '\n'.join(fixed_lines).encode('ascii')
+        fixed_header = "\n".join(fixed_lines).encode("ascii")
 
         # Fix ASCII data section to ngspice format
         if is_ascii:
-            data_text = data_section.decode('ascii', errors='ignore')
-            data_lines = data_text.split('\n')
+            data_text = data_section.decode("ascii", errors="ignore")
+            data_lines = data_text.split("\n")
 
             # Parse Spectre format (wrapped lines) into data points
             data_points = []
@@ -196,13 +199,13 @@ def correct_spectre_raw(raw_file: Path) -> bool:
                     continue
 
                 # Lines starting with space + digit are new data points
-                if line.startswith(' ') and stripped and stripped[0].isdigit():
+                if line.startswith(" ") and stripped and stripped[0].isdigit():
                     # Save previous point if exists
                     if current_point:
                         data_points.append(current_point)
                     # Start new point
                     current_point = stripped.split()
-                elif line.startswith('\t'):
+                elif line.startswith("\t"):
                     # Continuation line
                     current_point.extend(stripped.split())
 
@@ -216,50 +219,58 @@ def correct_spectre_raw(raw_file: Path) -> bool:
             for point in data_points:
                 if len(point) >= 2:
                     # First line: point_index<tab>first_value
-                    fixed_data_lines.append(f'{point[0]}\t{point[1]}')
+                    fixed_data_lines.append(f"{point[0]}\t{point[1]}")
                     # Subsequent lines: <tab>value
                     for value in point[2:]:
-                        fixed_data_lines.append(f'\t{value}')
+                        fixed_data_lines.append(f"\t{value}")
 
-            fixed_data = '\n'.join(fixed_data_lines) + '\n'
-            fixed_content = fixed_header + data_marker + fixed_data.encode('ascii')
+            fixed_data = "\n".join(fixed_data_lines) + "\n"
+            fixed_content = fixed_header + data_marker + fixed_data.encode("ascii")
         else:
             # Binary format - just fix header
             fixed_content = fixed_header + data_marker + data_section
 
         # Write temporary fixed ASCII file
-        with open(raw_file, 'wb') as f:
+        with open(raw_file, "wb") as f:
             f.write(fixed_content)
 
         # ===== STEP 2: Read with spicelib =====
-        raw_read = RawRead(str(raw_file), traces_to_read='*', dialect='ngspice', verbose=False)
+        raw_read = RawRead(
+            str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
+        )
         time = raw_read.get_axis()
         trace_names = raw_read.get_trace_names()
 
         # ===== STEP 3: Write back as binary with all doubles =====
         # WARNING: 'fastacces' typo is in the spicelib library itself!
-        raw_write = RawWrite(fastacces=False, encoding='utf_8')  # Normal interleaved, not FastAccess
+        raw_write = RawWrite(
+            fastacces=False, encoding="utf_8"
+        )  # Normal interleaved, not FastAccess
 
         # Add time axis with double precision
-        raw_write.add_trace(Trace('time', time, whattype='time', numerical_type='double'))
+        raw_write.add_trace(
+            Trace("time", time, whattype="time", numerical_type="double")
+        )
 
         # Add all other traces with double precision
         for name in trace_names:
-            if name.lower() == 'time':
+            if name.lower() == "time":
                 continue  # Skip time, already added
 
             data = raw_read.get_wave(name)
 
             # Determine trace type from name
-            if name.startswith('v(') or name.startswith('V('):
-                whattype = 'voltage'
-            elif name.startswith('i(') or name.startswith('I('):
-                whattype = 'current'
+            if name.startswith("v(") or name.startswith("V("):
+                whattype = "voltage"
+            elif name.startswith("i(") or name.startswith("I("):
+                whattype = "current"
             else:
-                whattype = 'voltage'  # Default
+                whattype = "voltage"  # Default
 
             # Force double precision for GAW compatibility
-            raw_write.add_trace(Trace(name, data, whattype=whattype, numerical_type='double'))
+            raw_write.add_trace(
+                Trace(name, data, whattype=whattype, numerical_type="double")
+            )
 
         # Overwrite with binary format
         raw_write.save(raw_file)
@@ -286,7 +297,9 @@ def test_raw(raw_file: Path) -> bool:
         import numpy as np
 
         # Try to load the file
-        raw = RawRead(str(raw_file), traces_to_read='*', dialect='ngspice', verbose=False)
+        raw = RawRead(
+            str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
+        )
 
         # Get basic info
         traces = raw.get_trace_names()
@@ -308,7 +321,13 @@ def test_raw(raw_file: Path) -> bool:
         return False
 
 
-def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, license_server: str, raw_format: str = 'nutascii') -> Tuple[str, bool, float]:
+def run_spectre_simulation(
+    tb_wrapper: Path,
+    outdir: Path,
+    spectre_path: str,
+    license_server: str,
+    raw_format: str = "nutascii",
+) -> Tuple[str, bool, float]:
     """
     Run a single Spectre simulation.
 
@@ -324,7 +343,7 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
     """
     start_time = time.time()
     # Replace tb_ prefix with sim_ for simulation output files
-    name = tb_wrapper.stem.replace('tb_', 'sim_', 1)
+    name = tb_wrapper.stem.replace("tb_", "sim_", 1)
 
     # Output files
     log_file = outdir / f"{name}.log"
@@ -332,16 +351,20 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
 
     # Run Spectre
     cmd = [
-        spectre_path, '-64',
+        spectre_path,
+        "-64",
         tb_wrapper.name,  # Just the filename, since we're cd'd to outdir
-        '+log', log_file.name,
-        '-format', raw_format,
-        '-raw', raw_file.name
+        "+log",
+        log_file.name,
+        "-format",
+        raw_format,
+        "-raw",
+        raw_file.name,
     ]
 
     # Set up environment with license server
     env = os.environ.copy()
-    env['CDS_LIC_FILE'] = license_server
+    env["CDS_LIC_FILE"] = license_server
 
     try:
         result = subprocess.run(
@@ -350,10 +373,10 @@ def run_spectre_simulation(tb_wrapper: Path, outdir: Path, spectre_path: str, li
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
-            env=env
+            env=env,
         )
 
-        success = result.returncode == 0 and 'completes with 0 errors' in result.stdout
+        success = result.returncode == 0 and "completes with 0 errors" in result.stdout
         elapsed = time.time() - start_time
 
         # Fix .raw file header for spicelib compatibility
@@ -384,13 +407,15 @@ def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -
     logger = logging.getLogger(__name__)
 
     if len(dut_netlists) != len(tb_wrappers):
-        logger.error(f"Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches")
+        logger.error(
+            f"Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches"
+        )
         return False
-    
+
     # Extract base names (remove ckt_ prefix from DUTs and tb_ prefix from wrappers)
-    dut_names = {f.stem.replace('subckt_', '', 1) for f in dut_netlists}
-    tb_names = {f.stem.replace('tb_', '', 1) for f in tb_wrappers}
-    
+    dut_names = {f.stem.replace("subckt_", "", 1) for f in dut_netlists}
+    tb_names = {f.stem.replace("tb_", "", 1) for f in tb_wrappers}
+
     if dut_names != tb_names:
         missing_in_tb = dut_names - tb_names
         missing_in_dut = tb_names - dut_names
@@ -400,73 +425,71 @@ def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -
         if missing_in_dut:
             logger.error(f"Testbenches without DUTs: {missing_in_dut}")
         return False
-    
+
     return True
 
 
 def main():
     """Main entry point for simulation runner."""
     parser = argparse.ArgumentParser(
-        description='Run Spectre simulations using pre-generated testbench wrappers.',
-        epilog='Example: %(prog)s --dut-netlists "results/samp_tgate/samp_tgate_*.sp" --tb-wrappers "results/samp_tgate/tb_samp_tgate_*.sp" -o results/samp_tgate'
+        description="Run Spectre simulations using pre-generated testbench wrappers.",
+        epilog='Example: %(prog)s --dut-netlists "results/samp_tgate/samp_tgate_*.sp" --tb-wrappers "results/samp_tgate/tb_samp_tgate_*.sp" -o results/samp_tgate',
     )
-    
+
     parser.add_argument(
-        '--dut-netlists',
+        "--dut-netlists",
         type=str,
         required=True,
-        help='Glob pattern for DUT netlists (e.g., "results/samp_tgate/samp_tgate_*.sp")'
+        help='Glob pattern for DUT netlists (e.g., "results/samp_tgate/samp_tgate_*.sp")',
     )
-    
+
     parser.add_argument(
-        '--tb-wrappers',
+        "--tb-wrappers",
         type=str,
         required=True,
-        help='Glob pattern for testbench wrappers (e.g., "results/samp_tgate/tb_samp_tgate_*.sp")'
+        help='Glob pattern for testbench wrappers (e.g., "results/samp_tgate/tb_samp_tgate_*.sp")',
     )
-    
+
     parser.add_argument(
-        '-o', '--outdir',
+        "-o",
+        "--outdir",
         type=Path,
         required=True,
-        help='Output directory for simulation results'
+        help="Output directory for simulation results",
     )
 
     parser.add_argument(
-        '--tech-filter',
+        "--tech-filter",
         type=str,
-        default='',
-        help='Only run simulations for this technology (e.g., "tsmc65")'
+        default="",
+        help='Only run simulations for this technology (e.g., "tsmc65")',
     )
 
     parser.add_argument(
-        '--license-server',
-        type=str,
-        required=True,
-        help='License server address (e.g., "27500@nexus.physik.uni-bonn.de")'
-    )
-
-    parser.add_argument(
-        '--spectre-path',
+        "--license-server",
         type=str,
         required=True,
-        help='Path to Spectre binary'
+        help='License server address (e.g., "27500@nexus.physik.uni-bonn.de")',
     )
 
     parser.add_argument(
-        '--raw-format',
+        "--spectre-path", type=str, required=True, help="Path to Spectre binary"
+    )
+
+    parser.add_argument(
+        "--raw-format",
         type=str,
-        default='nutascii',
-        choices=['nutbin', 'nutascii'],
-        help='Spectre raw output format: nutbin (binary) or nutascii (ASCII, default)'
+        default="nutascii",
+        choices=["nutbin", "nutascii"],
+        help="Spectre raw output format: nutbin (binary) or nutascii (ASCII, default)",
     )
 
     args = parser.parse_args()
-    
+
     # Find all files
     dut_netlists = sorted([Path(f) for f in glob(args.dut_netlists)])
     tb_wrappers = sorted([Path(f) for f in glob(args.tb_wrappers)])
-    
+
     # Setup logging early so we can log errors
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = args.outdir / f"batch_sim_{timestamp}.log"
@@ -481,21 +504,20 @@ def main():
         logger.error(f"No testbench wrappers found matching: {args.tb_wrappers}")
         logger.error("Did you run 'make testbench' first?")
         sys.exit(1)
-    
+
     # Apply tech filter if specified
     if args.tech_filter:
         dut_netlists = [f for f in dut_netlists if args.tech_filter in f.name]
         tb_wrappers = [f for f in tb_wrappers if args.tech_filter in f.name]
 
-
         if not dut_netlists:
             logger.error(f"No netlists match tech filter: {args.tech_filter}")
             sys.exit(1)
-    
+
     # Validate matching pairs
     if not validate_matching_pairs(dut_netlists, tb_wrappers):
         sys.exit(1)
-    
+
     logger.info("=" * 70)
     logger.info("Batch Spectre Simulation")
     logger.info("=" * 70)
@@ -519,14 +541,20 @@ def main():
     colleague_upset_threshold = 40
     licenses_per_worker = 2
 
-    max_licenses = max(1, (free_licenses - colleague_upset_threshold) // licenses_per_worker)
+    max_licenses = max(
+        1, (free_licenses - colleague_upset_threshold) // licenses_per_worker
+    )
     used_licenses = min(max_licenses, len(tb_wrappers))
 
-    logger.info(f"License calculation: ({free_licenses} - {colleague_upset_threshold}) / {licenses_per_worker} = {max_licenses}")
+    logger.info(
+        f"License calculation: ({free_licenses} - {colleague_upset_threshold}) / {licenses_per_worker} = {max_licenses}"
+    )
     logger.info(f"Auto-calculated workers: {used_licenses}")
 
     # Run simulations
-    logger.info(f"\nStarting {len(tb_wrappers)} simulations with {used_licenses} workers...")
+    logger.info(
+        f"\nStarting {len(tb_wrappers)} simulations with {used_licenses} workers..."
+    )
     logger.info("-" * 70)
 
     successful = []
@@ -536,8 +564,17 @@ def main():
     raw_format_test_result = None
 
     with ProcessPoolExecutor(max_workers=used_licenses) as executor:
-        futures = {executor.submit(run_spectre_simulation, tb, args.outdir, args.spectre_path, args.license_server, args.raw_format): tb.stem
-                   for tb in tb_wrappers}
+        futures = {
+            executor.submit(
+                run_spectre_simulation,
+                tb,
+                args.outdir,
+                args.spectre_path,
+                args.license_server,
+                args.raw_format,
+            ): tb.stem
+            for tb in tb_wrappers
+        }
 
         completed = 0
         for future in as_completed(futures):
@@ -549,7 +586,9 @@ def main():
 
                 if success:
                     successful.append(name)
-                    logger.info(f"✓ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)")
+                    logger.info(
+                        f"✓ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)"
+                    )
 
                     # Test first raw file to verify format conversion (store result for summary)
                     if raw_format_test_result is None:
@@ -558,50 +597,62 @@ def main():
                             raw_format_test_result = test_raw(raw_file)
                 else:
                     failed.append(name)
-                    logger.info(f"✗ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)")
-                    
+                    logger.info(
+                        f"✗ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)"
+                    )
+
             except Exception as e:
                 failed.append(tb_name)
-                logger.error(f"✗ [{completed}/{len(tb_wrappers)}] {tb_name} exception: {e}")
+                logger.error(
+                    f"✗ [{completed}/{len(tb_wrappers)}] {tb_name} exception: {e}"
+                )
                 completed += 1
-    
+
     wall_time = time.time() - start_time
-    
+
     # Print summary
     logger.info("=" * 70)
     logger.info("Batch Simulation Summary")
     logger.info("=" * 70)
     logger.info(f"Total simulations:  {len(tb_wrappers)}")
-    logger.info(f"Successful:         {len(successful)} ({100*len(successful)/len(tb_wrappers):.1f}%)")
-    logger.info(f"Failed:             {len(failed)} ({100*len(failed)/len(tb_wrappers):.1f}%)")
-    logger.info(f"Wall clock time:    {wall_time:.1f}s ({wall_time/60:.1f} min)")
-    logger.info(f"Total CPU time:     {total_time:.1f}s ({total_time/60:.1f} min)")
+    logger.info(
+        f"Successful:         {len(successful)} ({100 * len(successful) / len(tb_wrappers):.1f}%)"
+    )
+    logger.info(
+        f"Failed:             {len(failed)} ({100 * len(failed) / len(tb_wrappers):.1f}%)"
+    )
+    logger.info(f"Wall clock time:    {wall_time:.1f}s ({wall_time / 60:.1f} min)")
+    logger.info(f"Total CPU time:     {total_time:.1f}s ({total_time / 60:.1f} min)")
     if wall_time > 0:
-        logger.info(f"Speedup:            {total_time/wall_time:.2f}x")
-    logger.info(f"Avg time/sim:       {total_time/len(tb_wrappers):.1f}s")
+        logger.info(f"Speedup:            {total_time / wall_time:.2f}x")
+    logger.info(f"Avg time/sim:       {total_time / len(tb_wrappers):.1f}s")
     logger.info("")
 
     # Display raw format test result
     if raw_format_test_result is not None:
         if raw_format_test_result:
-            logger.info("Data integrity:     ✓ Verified (.raw files parseable by spicelib)")
+            logger.info(
+                "Data integrity:     ✓ Verified (.raw files parseable by spicelib)"
+            )
         else:
-            logger.info("Data integrity:     ✗ Warning (.raw files not parseable by spicelib)")
+            logger.info(
+                "Data integrity:     ✗ Warning (.raw files not parseable by spicelib)"
+            )
         logger.info("")
 
     logger.info(f"Output directory:   {args.outdir}")
     logger.info(f"  Raw files:        {args.outdir}/*.raw")
     logger.info(f"  Log files:        {args.outdir}/*.log")
     logger.info("=" * 70)
-    
+
     if failed:
         logger.info("\nFailed simulations:")
         for name in failed:
             logger.info(f"  - {name}")
         logger.info("")
-    
+
     return 0 if len(failed) == 0 else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
