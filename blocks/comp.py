@@ -651,7 +651,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     time, vinp, vinn, voutp, voutn, vclk, vclkb, vdda, vssa = read_traces(raw)
 
     # Quantize signals for digital analysis
-    vth = vdda / 2  # Decision threshold
     qvclk = quantize(vclk, bits=1, max=vdda, min=0)
     qvout_diff = (voutp - voutn) > 0  # True = ONE (out+ > out-)
 

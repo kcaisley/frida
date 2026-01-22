@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from glob import glob
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from flow.common import setup_logging
 
@@ -44,7 +44,7 @@ def check_license_server():
 
     # Run lmstat to check license availability
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # type: ignore[call-overload]
             ["lmstat", "-c", license_server, "-a"],
             capture_output=True,
             text=True,
@@ -121,7 +121,6 @@ def correct_spectre_raw(raw_file: Path) -> bool:
     try:
         from spicelib import RawRead
         from spicelib.raw.raw_write import RawWrite, Trace
-        import numpy as np
 
         # ===== STEP 1: Fix Spectre format to ngspice ASCII =====
         with open(raw_file, "rb") as f:
@@ -277,7 +276,7 @@ def correct_spectre_raw(raw_file: Path) -> bool:
 
         return True
 
-    except Exception as e:
+    except Exception:
         # If conversion fails, at least try to keep the ASCII version
         return False
 
@@ -388,7 +387,7 @@ def run_spectre_simulation(
     except subprocess.TimeoutExpired:
         elapsed = time.time() - start_time
         return name, False, elapsed
-    except Exception as e:
+    except Exception:
         elapsed = time.time() - start_time
         return name, False, elapsed
 
@@ -530,7 +529,7 @@ def main():
     logger.info("=" * 70)
 
     # Check license server and get actual counts
-    logger.info(f"\nChecking license server...")
+    logger.info("\nChecking license server...")
     total_licenses, busy_licenses = check_license_server()
     free_licenses = total_licenses - busy_licenses
     logger.info(f"Free licenses:    {free_licenses}")

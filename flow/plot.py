@@ -3,7 +3,6 @@
 import datetime
 from pathlib import Path
 import importlib.util
-import logging
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
@@ -282,7 +281,7 @@ def plot_dnl_histogram_legacy_compare(datasets, labels, title="DNL Comparison"):
     fig.suptitle(title)
 
     axes = axes.flatten()
-    colors = plt.cm.tab10(range(len(datasets)))
+    colors = plt.colormaps["tab10"](range(len(datasets)))
 
     # Plot 1: Horizontal bar chart of DNL per code (overlaid)
     ax = axes[0]
@@ -368,7 +367,7 @@ def plot_inl_dnl_compare(datasets, labels, title="ADC/DAC Linearity Comparison")
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     fig.suptitle(title)
 
-    colors = plt.cm.tab10(range(len(datasets)))
+    colors = plt.colormaps["tab10"](range(len(datasets)))
 
     # Plot 1: Transfer functions
     ax = axes[0, 0]
@@ -537,7 +536,7 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     # Store outdir in sys for access by plot functions
-    sys._plot_outdir = str(outdir)
+    setattr(sys, "_plot_outdir", str(outdir))
 
     # Call the plot function
     analysis_module.plot(str(args.meas_dir), str(outdir))
@@ -806,7 +805,7 @@ def plot_enob_comparison(
 
     plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
     plt.ylabel(r"ENOB")
-    plt.title(rf"ENOB vs. $C_{{\mathrm{{tot}}}}$: from Sampling or Mismatch DNL Noise")
+    plt.title(r"ENOB vs. $C_{\mathrm{tot}}$: from Sampling or Mismatch DNL Noise")
 
     plt.annotate(
         rf"$N_{{\mathrm{{bits}}}}={Nbits}$"

@@ -19,7 +19,6 @@ Naming conventions:
 - Supply domains: vdd_a/vss_a (analog), vdd_d/vss_d (digital)
 """
 
-from typing import Any
 
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
@@ -432,7 +431,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     """
     from flow.measure import (
         digitize,
-        reconstruct_analog,
         calculate_inl,
         calculate_dnl,
         calculate_dnl_histogram,
@@ -454,7 +452,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     comp_out = raw.get_wave("v(comp_out)")
 
     # Define ADC parameters
-    n_bits = 12  # 12-bit ADC
     vdd = 1.0  # Supply voltage
 
     # Digitize comparator output
@@ -466,10 +463,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     # dcode = np.zeros((len(time), n_bits))
     # for i in range(n_bits):
     #     dcode[:, i] = digitize(raw.get_wave(f'v(dac_bit_{i})'), vdd=vdd)
-
-    # Define weights for 12-bit binary ADC
-    radix = 2.0
-    weights = np.array([radix**i for i in range(n_bits)])
 
     # For now, create synthetic digital code based on input
     # TODO: Replace with actual ADC output extraction

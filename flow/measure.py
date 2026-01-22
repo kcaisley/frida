@@ -1,7 +1,6 @@
 import datetime
-import logging
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 from pathlib import Path
 from spicelib import RawRead
 
@@ -705,7 +704,7 @@ def main():
         sys.exit(1)
 
     # Set output directory in sys for write_analysis() to access
-    sys._measure_outdir = str(args.meas_dir)
+    setattr(sys, "_measure_outdir", str(args.meas_dir))
     args.meas_dir.mkdir(parents=True, exist_ok=True)
 
     # Find all .raw files for this cell in sim_dir (now with sim_ prefix)

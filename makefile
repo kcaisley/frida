@@ -16,7 +16,7 @@ CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup clean_all subckt clean_subckt tb clean_tb sim clean_sim viz clean_viz meas clean_meas plot clean_plot
+.PHONY: setup check clean_all subckt clean_subckt tb clean_tb sim clean_sim viz clean_viz meas clean_meas plot clean_plot
 
 setup:
 	@if ! command -v uv >/dev/null 2>&1; then \
@@ -27,6 +27,10 @@ setup:
 	uv venv --clear --python 3.14 .venv
 	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
 	@echo "Setup complete: .venv created with necessary packages"
+
+check:
+	uvx ruff check flow blocks
+	uvx ty check flow blocks
 
 clean_all:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi
