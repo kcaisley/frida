@@ -336,31 +336,56 @@ def print_flow_header(
     logger.info("-" * 80)
 
 
-def calc_table_columns(struct: dict, sweeps: dict | None = None) -> tuple[list[str], dict[str, int]]:
+def calc_table_columns(struct: dict, varying_params: list[tuple[str, str]] | None = None) -> tuple[list[str], dict[str, int]]:
     """
-    Calculate table columns (headers and widths) from a struct's meta field.
+    Calculate table columns (headers and widths) from struct fields.
+
+    Looks for:
+    - Top-level fields: tech, corner, temp
+    - Topo_param values (stored in 'meta' field)
+    - Varying device parameters (if provided)
 
     Args:
-        struct: Dict with 'meta' field containing table data
-        sweeps: Optional sweeps dict to calculate max widths from all possible values
+        struct: Dict with potential 'tech', 'corner', 'temp' at top level and topo_param values in 'meta' field
+        varying_params: Optional list of (device_name, param_name) tuples for device params that vary
 
     Returns:
         Tuple of (headers list, col_widths dict)
     """
     MIN_COL_WIDTH = 20
 
-    meta = struct.get("meta", {})
-    # Get fields that are simple types (not lists or dicts)
-    headers = [k for k, v in meta.items() if not isinstance(v, (list, dict))]
-    # Initialize widths as max of MIN_COL_WIDTH, header name, and current value
-    col_widths = {h: max(MIN_COL_WIDTH, len(h), len(str(meta.get(h, "")))) for h in headers}
+    headers = []
+    col_widths = {}
 
-    # If sweeps provided, expand widths to accommodate all possible values
-    if sweeps:
-        for key, values in sweeps.items():
-            if key in col_widths and isinstance(values, list):
-                for val in values:
-                    col_widths[key] = max(col_widths[key], len(str(val)))
+    # Add top-level fields if they exist
+    for field in ["tech", "corner", "temp"]:
+        if field in struct:
+            headers.append(field)
+            col_widths[field] = max(MIN_COL_WIDTH, len(field), len(str(struct[field])))
+
+    # Add topo_param values (stored in meta field) that are simple types
+    topo_params_dict = struct.get("meta", {})
+    for k, v in topo_params_dict.items():
+        if not isinstance(v, (list, dict)):
+            headers.append(k)
+            col_widths[k] = max(MIN_COL_WIDTH, len(k), len(str(v)))
+
+    # Add varying device parameters
+    if varying_params:
+        for dev_name, param_name in varying_params:
+            col_name = f"{dev_name}.{param_name}"
+            headers.append(col_name)
+            # Get value from struct if available
+            devices = struct.get("devices", {})
+            if dev_name in devices:
+                dev_params = devices[dev_name].get("params", {})
+                if param_name in dev_params:
+                    val_str = str(dev_params[param_name])
+                    col_widths[col_name] = max(MIN_COL_WIDTH, len(col_name), len(val_str))
+                else:
+                    col_widths[col_name] = max(MIN_COL_WIDTH, len(col_name))
+            else:
+                col_widths[col_name] = max(MIN_COL_WIDTH, len(col_name))
 
     return headers, col_widths
 
@@ -396,29 +421,145 @@ def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -
 # Database Utilities
 # ========================================================================
 
-def load_db(db_path: Path) -> list[dict]:
+def load_files_list(files_db_path: Path) -> list[dict]:
     """
-    Load database from JSON file.
+    Load file tracking list from JSON file.
 
     Args:
-        db_path: Path to db.json file
+        files_db_path: Path to files.json file
 
     Returns:
-        List of database entries, or empty list if file doesn't exist
+        List of file context entries, or empty list if file doesn't exist
     """
-    if not db_path.exists():
+    if not files_db_path.exists():
         return []
-    with open(db_path) as f:
+    with open(files_db_path) as f:
         return json.load(f)
 
 
-def save_db(db_path: Path, db: list[dict]) -> None:
+def save_files_list(files_db_path: Path, files: list[dict]) -> None:
     """
-    Save database to JSON file with compact formatting.
+    Save file tracking list to JSON file with compact formatting.
 
     Args:
-        db_path: Path to db.json file
-        db: List of database entries
+        files_db_path: Path to files.json file
+        files: List of file context entries
     """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    db_path.write_text(compact_json(db))
+    files_db_path.parent.mkdir(parents=True, exist_ok=True)
+    files_db_path.write_text(compact_json(files))
+
+
+def find_child_dep(
+    child_type: str,
+    parent_tech: str,
+    db_base: Path,
+    child_params: dict | None = None
+) -> dict | None:
+    """
+    Find matching child subcircuit netlist from child's files.json.
+
+    Searches the child cell's database for a subcircuit that matches:
+    1. Technology (must match parent's tech)
+    2. Optional topo_params and other constraints
+
+    Args:
+        child_type: Child cell name (e.g., "cdac", "comp", "samp")
+        parent_tech: Technology to match (inherited from parent)
+        db_base: Base directory for results (e.g., Path("results"))
+        child_params: Optional dict with matching constraints:
+            - topo_params: dict of topo_param values to match
+            - dev_params: dict of device param values to match
+
+    Returns:
+        Dict with child info if found, None otherwise:
+        {
+            "child_name": "cdac",
+            "child_json": "cdac/subckt/subckt_cdac_7_0_rdx2_nosplit_tsmc65_xxx.json",
+            "child_spice": "cdac/subckt/subckt_cdac_7_0_rdx2_nosplit_tsmc65_xxx.sp"
+        }
+    """
+    child_files_db_path = db_base / child_type / "files.json"
+    if not child_files_db_path.exists():
+        return None
+
+    child_files_db = load_files_list(child_files_db_path)
+    if not child_files_db:
+        return None
+
+    for entry in child_files_db:
+        # Load the child subcircuit JSON to check meta values
+        subckt_json_path = db_base / child_type / entry.get("subckt_json", "")
+        if not subckt_json_path.exists():
+            continue
+
+        with open(subckt_json_path) as f:
+            child_subckt = json.load(f)
+
+        # Match tech (must match parent's tech, now at top level)
+        if child_subckt.get("tech") != parent_tech:
+            continue
+
+        # Match topo_params if specified (topo_param values stored in meta)
+        if child_params and "topo_params" in child_params:
+            child_meta = child_subckt.get("meta", {})
+            match = all(
+                child_meta.get(k) == v
+                for k, v in child_params["topo_params"].items()
+            )
+            if not match:
+                continue
+
+        # Found a match
+        return {
+            "child_name": child_type,
+            "child_json": f"{child_type}/{entry['subckt_json']}",
+            "child_spice": f"{child_type}/{entry['subckt_spice']}"
+        }
+
+    return None
+
+
+def find_all_child_deps(
+    child_type: str,
+    parent_tech: str,
+    db_base: Path
+) -> list[dict]:
+    """
+    Find all child subcircuits of a given type matching the parent's tech.
+
+    Args:
+        child_type: Child cell name (e.g., "cdac", "comp", "samp")
+        parent_tech: Technology to match (inherited from parent)
+        db_base: Base directory for results
+
+    Returns:
+        List of child info dicts (see find_child_dep for format)
+    """
+    child_files_db_path = db_base / child_type / "files.json"
+    if not child_files_db_path.exists():
+        return []
+
+    child_files_db = load_files_list(child_files_db_path)
+    if not child_files_db:
+        return []
+
+    results = []
+    for entry in child_files_db:
+        subckt_json_path = db_base / child_type / entry.get("subckt_json", "")
+        if not subckt_json_path.exists():
+            continue
+
+        with open(subckt_json_path) as f:
+            child_subckt = json.load(f)
+
+        # Match tech (now at top level)
+        if child_subckt.get("tech") != parent_tech:
+            continue
+
+        results.append({
+            "child_name": child_type,
+            "child_json": f"{child_type}/{entry['subckt_json']}",
+            "child_spice": f"{child_type}/{entry['subckt_spice']}"
+        })
+
+    return results

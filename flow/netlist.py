@@ -13,214 +13,271 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from typing import Callable
+
 from flow.common import (
     calc_table_columns,
     compact_json,
     format_value,
     load_cell_script,
-    load_db,
+    load_files_list,
     print_flow_header,
     print_table_header,
     print_table_row,
-    save_db,
+    save_files_list,
     scalemap,
     setup_logging,
     techmap,
 )
 
 
-def expand_sweeps(sweeps: dict[str, Any]) -> list[dict[str, Any]]:
+def expand_topo_params(
+    netstruct: dict[str, Any],
+    generate_topology_fn: Callable[..., tuple[dict, dict]] | None = None
+) -> list[dict[str, Any]]:
     """
-    Expand sweep dict into list of scalar sweep combinations (cartesian product).
+    Stage 1: Expand topo_params cartesian product and fill ports/devices.
 
-    Takes a sweep dict with lists of values and returns the cartesian product
-    as a list of dicts, each with scalar values.
+    If ports/devices are already filled, returns [netstruct] unchanged.
+    Otherwise, requires generate_topology_fn from the block module.
 
     Args:
-        sweeps: Sweep dict with potentially list values for tech, corner, temp,
-                globals, selections
+        netstruct: Merged struct with potential topo_params
+        generate_topology_fn: Block's generate_topology(**topo_params) function
 
     Returns:
-        List of scalar sweep dicts
-
-    Example:
-        Input:  {"tech": ["tsmc65", "tsmc28"], "globals": {"nmos": {"w": [1, 2]}}}
-        Output: [
-            {"tech": "tsmc65", "globals": {"nmos": {"w": 1}}},
-            {"tech": "tsmc65", "globals": {"nmos": {"w": 2}}},
-            {"tech": "tsmc28", "globals": {"nmos": {"w": 1}}},
-            {"tech": "tsmc28", "globals": {"nmos": {"w": 2}}},
-        ]
+        List of structs with ports/devices filled and topo_param values in meta
     """
-    # Collect all sweepable parameters and their values
-    sweep_axes = []  # List of (path, values) tuples
+    # If devices already filled, skip Stage 1
+    # (ports may be empty for top-level testbenches)
+    if netstruct.get("devices"):
+        result = copy.deepcopy(netstruct)
+        if "meta" not in result:
+            result["meta"] = {}
+        # Set subckt name from cellname for static topologies
+        base_name = netstruct.get("cellname", "unnamed")
+        result["subckt"] = base_name
+        return [result]
 
-    # Top-level list parameters: tech, corner, temp
-    for key in ["tech", "corner", "temp"]:
-        if key in sweeps:
-            val = sweeps[key]
-            if isinstance(val, list):
-                sweep_axes.append(((key,), val))
-            else:
-                sweep_axes.append(((key,), [val]))
+    topo_params = netstruct.get("topo_params", {})
+    if not topo_params:
+        msg = f"Struct '{netstruct.get('name')}' has empty ports/devices but no topo_params"
+        logging.error(msg)
+        raise ValueError(msg)
 
-    # Global device parameters
-    if "globals" in sweeps:
-        for dev_type, dev_params in sweeps["globals"].items():
-            for param, val in dev_params.items():
-                path = ("globals", dev_type, param)
-                if isinstance(val, list):
-                    sweep_axes.append((path, val))
-                else:
-                    sweep_axes.append((path, [val]))
+    if generate_topology_fn is None:
+        msg = "Block must define generate_topology() when using topo_params"
+        logging.error(msg)
+        raise ValueError(msg)
 
-    # Selection parameters
-    if "selections" in sweeps:
-        for i, sel in enumerate(sweeps["selections"]):
-            devices = sel.get("devices", [])
-            for param, val in sel.items():
+    # Cartesian product of topo_params
+    param_names = list(topo_params.keys())
+    param_lists = [
+        topo_params[k] if isinstance(topo_params[k], list) else [topo_params[k]]
+        for k in param_names
+    ]
+
+    result_list = []
+    base_name = netstruct.get("cellname", "unnamed")
+
+    for combo in itertools.product(*param_lists):
+        param_dict = dict(zip(param_names, combo))
+
+        # Call block's generate_topology() with scalar params
+        ports, devices = generate_topology_fn(**param_dict)
+
+        # Skip invalid combinations (generate_topology returns None, None)
+        if ports is None or devices is None:
+            continue
+
+        result = copy.deepcopy(netstruct)
+        result["ports"] = ports
+        result["devices"] = devices
+
+        # Subcircuit name is always the base name (topology-independent)
+        result["subckt"] = base_name
+
+        # Store topo_param values in meta
+        if "meta" not in result:
+            result["meta"] = {}
+        result["meta"].update(param_dict)
+
+        # Clear topo_params (already expanded)
+        result.pop("topo_params", None)
+
+        result_list.append(result)
+
+    return result_list
+
+
+def expand_dev_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Stage 2: Expand tech, inst_params, dev_params into scalar structs.
+
+    Takes list of structs from expand_topo_params() and expands:
+    - tech (list of technologies)
+    - dev_params (device-type defaults, applied LAST)
+    - inst_params (instance-specific overrides, applied BEFORE dev_params)
+
+    Priority order:
+    1. Values set in devices by generate_topology() - NEVER overwritten
+    2. inst_params - applied next
+    3. dev_params - applied last as defaults
+
+    Args:
+        netstructs: List of structs from expand_topo_params()
+
+    Returns:
+        List of fully expanded structs with all params scalar and applied to devices
+    """
+    result_list = []
+
+    for netstruct in netstructs:
+        sweep_axes = []  # List of (path, values)
+
+        # 1. Tech axis
+        tech = netstruct.get("tech")
+        if tech is not None:
+            sweep_axes.append((("tech",), tech if isinstance(tech, list) else [tech]))
+
+        # 2. dev_params axes (device-type defaults)
+        for dev_type, params in netstruct.get("dev_params", {}).items():
+            # Skip child subcircuit params for now (handled later)
+            if isinstance(params, dict) and "topo_params" in params:
+                continue
+            for param, val in params.items():
+                path = ("dev_params", dev_type, param)
+                sweep_axes.append((path, val if isinstance(val, list) else [val]))
+
+        # 3. inst_params axes (instance-specific overrides)
+        for idx, inst_spec in enumerate(netstruct.get("inst_params", [])):
+            # Skip subcircuit instance overrides for now
+            if "inst" in inst_spec:
+                continue
+            for param, val in inst_spec.items():
                 if param == "devices":
                     continue
-                path = ("selections", i, param)
-                if isinstance(val, list):
-                    sweep_axes.append((path, val))
-                else:
-                    sweep_axes.append((path, [val]))
+                path = ("inst_params", idx, param)
+                sweep_axes.append((path, val if isinstance(val, list) else [val]))
 
-    # If no sweep axes, return single sweep with original values
-    if not sweep_axes:
-        return [copy.deepcopy(sweeps)]
+        # If no sweep axes, return single struct
+        if not sweep_axes:
+            result_list.append(copy.deepcopy(netstruct))
+            continue
 
-    # Generate cartesian product
-    paths = [axis[0] for axis in sweep_axes]
-    value_lists = [axis[1] for axis in sweep_axes]
+        # 4. Cartesian product
+        paths = [axis[0] for axis in sweep_axes]
+        value_lists = [axis[1] for axis in sweep_axes]
 
-    result = []
-    for combo in itertools.product(*value_lists):
-        # Build scalar sweep dict
-        scalar_sweep = {}
+        for combo in itertools.product(*value_lists):
+            expanded = apply_dev_params(netstruct, paths, combo)
+            result_list.append(expanded)
 
-        # Set values at each path
-        for path, value in zip(paths, combo):
-            if len(path) == 1:
-                # Top-level key
-                scalar_sweep[path[0]] = value
-            elif path[0] == "globals":
-                # globals.dev_type.param
-                if "globals" not in scalar_sweep:
-                    scalar_sweep["globals"] = {}
-                dev_type = path[1]
-                param = path[2]
-                if dev_type not in scalar_sweep["globals"]:
-                    scalar_sweep["globals"][dev_type] = {}
-                scalar_sweep["globals"][dev_type][param] = value
-            elif path[0] == "selections":
-                # selections[i].param
-                if "selections" not in scalar_sweep:
-                    # Copy devices from original selections
-                    scalar_sweep["selections"] = [
-                        {"devices": sel.get("devices", [])}
-                        for sel in sweeps.get("selections", [])
-                    ]
-                idx = path[1]
-                param = path[2]
-                scalar_sweep["selections"][idx][param] = value
-
-        result.append(scalar_sweep)
-
-    return result
+    return result_list
 
 
-def generate_netstruct(topology: dict[str, Any], sweep: dict[str, Any]) -> dict[str, Any]:
+def apply_dev_params(
+    netstruct: dict[str, Any],
+    paths: list[tuple],
+    values: tuple
+) -> dict[str, Any]:
     """
-    Apply sweep globals/selections to topology, add tech/corner/temp to meta.
+    Apply one expansion combination to netstruct.
 
-    This fills in generic device dimensions, values, and types from the sweep,
-    but keeps everything technology-agnostic. The map_technology() function
-    then converts these to PDK-specific models and scaled dimensions.
-
-    Args:
-        topology: Base topology dict
-        sweep: Scalar sweep dict (one combination from expand_sweeps)
-               Contains 'tech', 'globals', 'selections', 'corner', 'temp', etc.
-
-    Returns:
-        Topology with generic device values filled in and sweep params in meta
+    Priority: topology-set values > inst_params > dev_params
     """
-    result = copy.deepcopy(topology)
+    netstruct_expanded = copy.deepcopy(netstruct)
 
-    # Ensure meta exists
-    if "meta" not in result:
-        result["meta"] = {}
+    # Build parameter lookup dicts from this combination
+    tech = None
+    dev_defaults = {}      # {dev_type: {param: value}}
+    inst_overrides = {}    # {idx: {param: value, "devices": [...]}}
 
-    # Add tech, corner, temp to meta
-    if "tech" in sweep:
-        result["meta"]["tech"] = sweep["tech"]
-    if "corner" in sweep:
-        result["meta"]["corner"] = sweep["corner"]
-    if "temp" in sweep:
-        result["meta"]["temp"] = sweep["temp"]
+    for path, value in zip(paths, values):
+        if path[0] == "tech":
+            tech = value
+        elif path[0] == "dev_params":
+            dev_type, param = path[1], path[2]
+            if dev_type not in dev_defaults:
+                dev_defaults[dev_type] = {}
+            dev_defaults[dev_type][param] = value
+        elif path[0] == "inst_params":
+            idx, param = path[1], path[2]
+            if idx not in inst_overrides:
+                # Copy devices list from original inst_params
+                orig_inst = netstruct.get("inst_params", [])[idx]
+                inst_overrides[idx] = {"devices": orig_inst.get("devices", [])}
+            inst_overrides[idx][param] = value
 
-    # Apply globals (device dimension defaults like nmos.w, pmos.l, cap.value)
-    if "globals" in sweep:
-        for dev_type, defaults in sweep["globals"].items():
-            for dev_name, dev_info in result.get("devices", {}).items():
-                # Match device by dev field
-                if dev_info.get("dev") == dev_type:
-                    # Ensure device has meta
-                    if "meta" not in dev_info:
-                        dev_info["meta"] = {"dev": dev_type}
-                    # Apply defaults (don't override explicit values)
-                    for param, value in defaults.items():
-                        if param not in dev_info["meta"]:
-                            dev_info["meta"][param] = value
+    # Set tech at top level
+    if tech is not None:
+        netstruct_expanded["tech"] = tech
 
-    # Apply selections (device-specific parameter overrides)
-    if "selections" in sweep:
-        for sel in sweep["selections"]:
-            devices = sel.get("devices", [])
-            for dev_name in devices:
-                if dev_name in result.get("devices", {}):
-                    dev_info = result["devices"][dev_name]
-                    if "meta" not in dev_info:
-                        dev_info["meta"] = {}
-                    # Apply selection params (override globals)
-                    for param, value in sel.items():
-                        if param != "devices":
-                            dev_info["meta"][param] = value
+    # Apply to devices
+    devices = netstruct_expanded.get("devices", {})
 
-    return result
+    # Step 1: Apply dev_params as defaults (lowest priority)
+    for dev_name, dev_info in devices.items():
+        dev_type = dev_info.get("dev")
+        if dev_type and dev_type in dev_defaults:
+            if "params" not in dev_info:
+                dev_info["params"] = {"dev": dev_type}
+            for param, val in dev_defaults[dev_type].items():
+                # Only set if not already present
+                if param not in dev_info["params"]:
+                    dev_info["params"][param] = val
+
+    # Step 2: Apply inst_params overrides (higher priority than dev_params)
+    for idx, overrides in inst_overrides.items():
+        target_devices = overrides.get("devices", [])
+        for dev_name in target_devices:
+            if dev_name in devices:
+                dev_info = devices[dev_name]
+                if "params" not in dev_info:
+                    dev_type = dev_info.get("dev")
+                    dev_info["params"] = {"dev": dev_type} if dev_type else {}
+                for param, val in overrides.items():
+                    if param != "devices":
+                        # Override dev_params values
+                        dev_info["params"][param] = val
+
+    # Clean up intermediate fields
+    netstruct_expanded.pop("topo_params", None)
+    netstruct_expanded.pop("dev_params", None)
+    netstruct_expanded.pop("inst_params", None)
+
+    return netstruct_expanded
 
 
 def map_technology(
     netstruct: dict[str, Any], techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Map generic topology to technology-specific netlist.
+    Map generic netstruct to technology-specific netlist.
 
-    Reads tech from netstruct["meta"]["tech"].
-    Uses device meta.dev ('nmos'/'pmos') + meta.type ('lvt'/'svt'/'hvt') to look up devmap.
+    Reads tech from netstruct["tech"] (top-level field).
+    Uses device params.dev ('nmos'/'pmos') + params.type ('lvt'/'svt'/'hvt') to look up devmap.
     """
-    tech = netstruct["meta"]["tech"]
+    tech = netstruct["tech"]
     tech_config = techmap[tech]
     netstruct_techmapped = copy.deepcopy(netstruct)
 
     for dev_name, dev_info in netstruct_techmapped.get("devices", {}).items():
-        meta = dev_info.get("meta")
-        if not meta:
+        params = dev_info.get("params")
+        if not params:
             continue
 
-        dev = meta.get("dev")
+        dev = params.get("dev")
         if not dev:
             continue
 
         # Combine dev + type for devmap lookup
         # For transistors: nmos_lvt, pmos_svt (dev + type)
         # For caps/res: momcap_1m, polyres (type already includes category)
-        if dev in ["nmos", "pmos"] and "type" in meta:
-            device_key = f"{dev}_{meta['type']}"
-        elif "type" in meta:
-            device_key = meta['type']
+        if dev in ["nmos", "pmos"] and "type" in params:
+            device_key = f"{dev}_{params['type']}"
+        elif "type" in params:
+            device_key = params['type']
         else:
             device_key = dev
 
@@ -235,9 +292,9 @@ def map_technology(
         # Map transistors
         if dev in ["nmos", "pmos"]:
             dev_info["model"] = dev_map["model"]
-            dev_info["w"] = meta["w"] * dev_map["w"]
-            dev_info["l"] = meta["l"] * dev_map["l"]
-            dev_info["nf"] = meta.get("nf", 1)
+            dev_info["w"] = params["w"] * dev_map["w"]
+            dev_info["l"] = params["l"] * dev_map["l"]
+            dev_info["nf"] = params.get("nf", 1)
 
         # Map capacitors
         elif dev == "cap":
@@ -255,26 +312,22 @@ def map_technology(
 
 
 def scale_testbench(
-    netstruct: dict[str, Any], techmap: dict[str, Any]
+    tb: dict[str, Any], techmap: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Scale voltage and time values in testbench topology using scalemap.
+    Scale voltage and time values in testbench using scalemap.
 
-    Reads tech from netstruct["meta"]["tech"].
+    Reads tech from tb["tech"].
     """
-    tech = netstruct["meta"]["tech"]
+    tech = tb["tech"]
     tech_config = techmap[tech]
     vdd = tech_config["vdd"]
     tstep = tech_config.get("tstep", 1e-9)
 
-    netstruct_scaled = copy.deepcopy(netstruct)
-
-    # Add vdd and tstep to meta
-    netstruct_scaled["meta"]["vsupply"] = vdd
-    netstruct_scaled["meta"]["tstep"] = tstep
+    tb_scaled = copy.deepcopy(tb)
 
     # Scale voltage sources using scalemap
-    for dev_name, dev_info in netstruct_scaled.get("devices", {}).items():
+    for dev_name, dev_info in tb_scaled.get("devices", {}).items():
         if dev_info.get("dev") == "vsource":
             wave = dev_info.get("wave")
             if wave not in scalemap:
@@ -296,41 +349,43 @@ def scale_testbench(
                     ]
 
     # Scale analysis parameters
-    if "analyses" in netstruct_scaled:
-        for analysis in netstruct_scaled["analyses"].values():
+    if "analyses" in tb_scaled:
+        for analysis in tb_scaled["analyses"].values():
             if analysis.get("type") == "tran":
                 for param in ["stop", "step", "strobeperiod"]:
                     if param in analysis:
                         analysis[param] *= tstep
 
-    return netstruct_scaled
+    return tb_scaled
 
 
 def autoadd_fields(
-    tb_netstruct: dict[str, Any],
-    subckt_netstruct: dict[str, Any],
+    tb: dict[str, Any],
+    subckt: dict[str, Any],
     techmap: dict[str, Any],
+    file_ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Add automatic fields to testbench topology.
+    Add automatic fields to testbench.
 
-    Reads tech from tb_netstruct["meta"]["tech"] and corner from tb_netstruct["meta"]["corner"].
+    Reads tech, corner, and temp from top-level fields in tb.
 
     Args:
-        tb_netstruct: Testbench topology
-        subckt_netstruct: Subcircuit topology (for generating save statements)
+        tb: Testbench struct
+        subckt: Subcircuit struct (for generating save statements)
         techmap: Technology mapping
+        file_ctx: File context with subckt_spice and subckt_children paths
 
     Returns:
-        Topology with automatic fields added
+        Testbench with automatic fields added
     """
-    tech = tb_netstruct["meta"]["tech"]
-    corner = tb_netstruct["meta"].get("corner")
+    tech = tb["tech"]
+    corner = tb.get("corner")
     tech_config = techmap[tech]
-    netstruct_autofielded = copy.deepcopy(tb_netstruct)
+    tb_autofielded = copy.deepcopy(tb)
 
     # Add simulator declaration
-    netstruct_autofielded["simulator"] = "lang=spice"
+    tb_autofielded["simulator"] = "lang=spice"
 
     # Add library statements
     libs = []
@@ -344,41 +399,46 @@ def autoadd_fields(
 
         libs.append({"path": lib_path, "section": section})
 
-    netstruct_autofielded["libs"] = libs
+    tb_autofielded["libs"] = libs
 
-    # Add includes (scan for subcircuit instances)
+    # Add includes from files.json paths
     includes = []
-    for dev_name, dev_info in tb_netstruct.get("devices", {}).items():
-        dev = dev_info.get("dev")
-        # Check if this is a subcircuit instance
-        if dev not in ["vsource", "res", "cap", "nmos", "pmos"] and dev is not None:
-            # This is a subcircuit - need to determine the filename
-            # For now, we'll add a placeholder that needs to be filled in
-            # The actual filename depends on the subcircuit parameters
-            includes.append(f"{dev}_{tech}_*.sp")  # Placeholder
+    if file_ctx:
+        # Add DUT subcircuit netlist
+        if "subckt_spice" in file_ctx:
+            includes.append(file_ctx["subckt_spice"])
 
-    netstruct_autofielded["includes"] = includes
+        # Add child subcircuit netlists (hierarchical dependencies)
+        for child in file_ctx.get("subckt_children", []):
+            if "child_spice" in child:
+                includes.append(child["child_spice"])
 
-    # Add options (temp should come from sweep via meta)
-    temp = tb_netstruct["meta"]["temp"]
-    netstruct_autofielded["options"] = {"temp": temp, "scale": 1.0}
+    # Merge with any extra_includes from tb template
+    if "extra_includes" in tb:
+        includes.extend(tb["extra_includes"])
+
+    tb_autofielded["includes"] = includes
+
+    # Add options (temp from top-level field)
+    temp = tb["temp"]
+    tb_autofielded["options"] = {"temp": temp, "scale": 1.0}
 
     # Add save statements
     save_stmts = ["all"]
 
     # Generate device-specific save statements from subcircuit
-    if subckt_netstruct:
+    if subckt:
         # Find DUT instance name
         dut_instance = None
-        for dev_name, dev_info in tb_netstruct.get("devices", {}).items():
-            if dev_info.get("dev") == subckt_netstruct.get("subckt"):
+        for dev_name, dev_info in tb.get("devices", {}).items():
+            if dev_info.get("dev") == subckt.get("subckt"):
                 dut_instance = dev_name
                 break
 
         if dut_instance:
-            # Generate save statements for transistors (devices with meta field)
-            for dev_name, dev_info in subckt_netstruct.get("devices", {}).items():
-                if "meta" in dev_info:
+            # Generate save statements for transistors (devices with params field)
+            for dev_name, dev_info in subckt.get("devices", {}).items():
+                if "params" in dev_info:
                     hier_name = f"{dut_instance}.{dev_name}"
                     save_stmts.append(f"{hier_name}:currents")
                     save_stmts.append(f"{hier_name}:d:q {hier_name}:s:q")
@@ -397,17 +457,17 @@ def autoadd_fields(
                     )
                     save_stmts.append(oppoint)
 
-    netstruct_autofielded["save"] = save_stmts
+    tb_autofielded["save"] = save_stmts
 
-    return netstruct_autofielded
+    return tb_autofielded
 
 
 def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
     """
-    Convert topology dict to SPICE netlist string.
+    Convert netstruct dict to SPICE netlist string.
 
     Args:
-        netstruct: Topology dict (subcircuit or testbench)
+        netstruct: Netstruct dict (subcircuit or testbench)
         mode: 'subckt' or 'tb' (mandatory)
 
     Returns:
@@ -421,10 +481,17 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
         ports = netstruct.get("ports", {})
         devices = netstruct.get("devices", {})
 
-        # Generate descriptive comment from meta
-        meta = netstruct["meta"]
+        # Generate descriptive comment from top-level and meta fields
         param_strs = []
-        for key, value in meta.items():
+
+        # Add top-level fields (tech, corner, temp)
+        for field in ["tech", "corner", "temp"]:
+            if field in netstruct:
+                param_strs.append(f"{field}: {netstruct[field]}")
+
+        # Add topo_param values (stored in meta field)
+        topo_params_dict = netstruct.get("meta", {})
+        for key, value in topo_params_dict.items():
             # Only include scalar types
             if isinstance(value, (int, str, float, bool)):
                 param_strs.append(f"{key}: {value}")
@@ -451,10 +518,10 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
             model = dev_info.get("model")
             pins = dev_info.get("pins", {})
 
-            # Determine device type from meta if available, otherwise from dev field
+            # Determine device type from params if available, otherwise from dev field
             dev_type = None
-            if "meta" in dev_info:
-                dev_type = dev_info["meta"].get("dev")
+            if "params" in dev_info:
+                dev_type = dev_info["params"].get("dev")
             if not dev_type:
                 dev_type = dev_info.get("dev")
 
@@ -486,6 +553,12 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
                 r = dev_info.get("r", 4)  # Resistance multiplier
                 res_model = dev_info.get("model", "resistor")
                 lines.append(f"{dev_name} {p} {n} {res_model} r={r}")
+
+            # Subcircuit instances (hierarchical)
+            elif dev_type == "subckt":
+                subckt_ref = dev_info.get("subckt", "unknown")
+                pin_list = " ".join(pins.values())
+                lines.append(f"{dev_name} {pin_list} {subckt_ref}")
 
         lines.append("")
         lines.append(f".ends {subckt_name}")
@@ -659,77 +732,129 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
                     lines.append(f".save {save}")
 
     else:
-        raise ValueError(f"Invalid mode '{mode}'. Expected 'subckt' or 'tb'.")
+        msg = f"Invalid mode '{mode}'. Expected 'subckt' or 'tb'."
+        logging.error(msg)
+        raise ValueError(msg)
 
     return "\n".join(lines) + "\n"
 
 
-def find_matching_topo(topology_list: list[dict[str, Any]], subckt: dict[str, Any]) -> dict[str, Any] | None:
+def detect_varying_device_params(netstructs: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """
-    Find topology with meta values matching subckt meta (excluding tech, corner, temp).
+    Detect which device parameters vary across a list of netstructs.
 
     Args:
-        topology_list: List of topology dicts to search
-        subckt: Circuit struct with meta values to match
+        netstructs: List of expanded netstructs with devices
 
     Returns:
-        Matching topology or None if not found
+        List of (device_name, param_name) tuples for params that vary
     """
-    subckt_meta = subckt.get("meta", {})
-    for topo in topology_list:
-        topo_meta = topo.get("meta", {})
+    if not netstructs:
+        return []
+
+    # Get all device names that exist in any config
+    device_names = set()
+    for ns in netstructs:
+        device_names.update(ns.get("devices", {}).keys())
+
+    varying_params = []
+
+    # For each device, check which params vary (across configs where device exists)
+    for dev_name in sorted(device_names):
+        # Get configs where this device exists
+        configs_with_device = [ns for ns in netstructs if dev_name in ns.get("devices", {})]
+
+        if len(configs_with_device) < 2:
+            continue  # Need at least 2 configs to detect variation
+
+        # Get all param names for this device
+        param_names = set()
+        for ns in configs_with_device:
+            dev_params = ns["devices"][dev_name].get("params", {})
+            param_names.update(dev_params.keys())
+
+        # Check each param to see if it varies
+        for param_name in sorted(param_names):
+            if param_name == "dev" or param_name == "type":  # Skip device type fields
+                continue
+
+            # Collect all values for this param
+            values = set()
+            for ns in configs_with_device:
+                dev_params = ns["devices"][dev_name].get("params", {})
+                if param_name in dev_params:
+                    values.add(dev_params[param_name])
+
+            # If more than one unique value, this param varies
+            if len(values) > 1:
+                varying_params.append((dev_name, param_name))
+
+    return varying_params
+
+
+def find_matching_topo(netstructs: list[dict[str, Any]], netstruct: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Find netstruct with topo_param values matching target netstruct (excluding tech, corner, temp).
+
+    Args:
+        netstructs: List of netstructs to search
+        netstruct: Target netstruct with topo_param values to match
+
+    Returns:
+        Matching netstruct or None if not found
+    """
+    target_topo_params = netstruct.get("meta", {})
+    for candidate in netstructs:
+        candidate_topo_params = candidate.get("meta", {})
         # Match on shared keys (excluding tech, corner, temp)
-        shared_keys = set(topo_meta.keys()) & set(subckt_meta.keys()) - {"tech", "corner", "temp"}
-        if all(topo_meta.get(k) == subckt_meta.get(k) for k in shared_keys):
-            return topo
+        shared_keys = set(candidate_topo_params.keys()) & set(target_topo_params.keys()) - {"tech", "corner", "temp"}
+        if all(candidate_topo_params.get(k) == target_topo_params.get(k) for k in shared_keys):
+            return candidate
     return None
 
 
-def generate_filename(topology: dict[str, Any]) -> str:
+def generate_filename(netstruct: dict[str, Any]) -> str:
     """
-    Generate base filename for a netlist using meta values for parameters.
+    Generate base filename for a netlist using topo_param values from meta.
 
     Returns base name WITHOUT prefix (subckt_/tb_) and WITHOUT extension (.sp/.json).
     Callers add prefix and extension as needed.
 
     Args:
-        topology: Topology dictionary with 'subckt' or 'testbench' key and meta field containing tech
+        netstruct: Netstruct dictionary with 'subckt' or 'testbench' key and tech field
 
     Returns:
         Base filename string (e.g., 'gate_inv_inv_tsmc65_abc123def456')
     """
-    if "subckt" in topology:
-        base_name = topology["subckt"]
+    if "subckt" in netstruct:
+        base_name = netstruct["subckt"]
 
-        # Meta should always be present with tech field
-        if "meta" not in topology:
-            raise ValueError(f"Topology for subckt '{base_name}' missing required 'meta' field")
+        # Tech should be at top level
+        if "tech" not in netstruct:
+            msg = f"Subckt netstruct '{base_name}' missing required 'tech' field"
+            logging.error(msg)
+            raise ValueError(msg)
 
-        meta = topology["meta"]
-
-        # Extract tech from meta
-        if "tech" not in meta:
-            raise ValueError(f"Topology meta for subckt '{base_name}' missing required 'tech' field")
-
-        tech = meta["tech"]
+        tech = netstruct["tech"]
         parts = [base_name]
 
-        # Add all meta parameters except tech (only scalar types)
-        for key, value in meta.items():
-            if key != "tech" and isinstance(value, (int, str, float, bool)):
+        # Add all topo_param values (stored in meta field, only scalar types)
+        topo_params_dict = netstruct.get("meta", {})
+        for key, value in topo_params_dict.items():
+            if isinstance(value, (int, str, float, bool)):
                 parts.append(str(value))
 
-        # Add hash of device parameters to make filename unique for sweeps
-        devices = topology.get("devices", {})
+        # Add hash of device parameters to make filename unique
+        devices = netstruct.get("devices", {})
         device_params = []
         for dev_name in sorted(devices.keys()):
             dev = devices[dev_name]
-            if "meta" in dev:
-                dev_meta = dev["meta"]
-                # Create a string representation of swept parameters
+            if "params" in dev:
+                dev_params = dev["params"]
+                # Create a string representation of device parameters
                 param_str = f"{dev_name}:"
-                for param in sorted(dev_meta.keys()):
-                    param_str += f"{param}={dev_meta[param]},"
+                for param in sorted(dev_params.keys()):
+                    param_str += f"{param}={dev_params[param]},"
                 device_params.append(param_str)
 
         parts.append(tech)
@@ -744,22 +869,20 @@ def generate_filename(topology: dict[str, Any]) -> str:
         return "_".join(parts)
     else:
         # Testbench
-        if "meta" not in topology:
-            raise ValueError("Topology for testbench missing required 'meta' field")
+        if "tech" not in netstruct:
+            msg = "Testbench netstruct missing required 'tech' field"
+            logging.error(msg)
+            raise ValueError(msg)
 
-        meta = topology["meta"]
-        if "tech" not in meta:
-            raise ValueError("Topology meta for testbench missing required 'tech' field")
-
-        tech = meta["tech"]
-        tb_name = topology.get('testbench', 'tb_unnamed')
+        tech = netstruct["tech"]
+        tb_name = netstruct.get('testbench', 'tb_unnamed')
         parts = [tb_name, tech]
 
         # Add corner and temp if present
-        if "corner" in meta:
-            parts.append(str(meta["corner"]))
-        if "temp" in meta:
-            parts.append(str(meta["temp"]))
+        if "corner" in netstruct:
+            parts.append(str(netstruct["corner"]))
+        if "temp" in netstruct:
+            parts.append(str(netstruct["temp"]))
 
         return "_".join(parts)
 
@@ -771,125 +894,73 @@ def generate_filename(topology: dict[str, Any]) -> str:
 # ========================================================================
 
 
-def check_subckt(subckt: dict[str, Any]) -> None:
+def check_subckt(subckt: dict[str, Any]) -> list[str]:
     """
     Check that subcircuit has required fields.
 
     Required structure:
         - subckt: str (subcircuit name)
+        - tech: str (technology)
         - ports: dict (port definitions)
-        - devices: dict of dicts (each with pins, meta, model)
-        - meta: dict with at least 'tech'
+        - devices: dict of dicts (each with pins, params, model)
 
-    Raises:
-        ValueError: If required fields are missing or malformed
+    Returns:
+        List of error messages (empty if no errors)
     """
+    errors = []
+
     if "subckt" not in subckt:
-        raise ValueError("Subcircuit missing required 'subckt' field")
+        errors.append("Subcircuit missing required 'subckt' field")
+
+    if "tech" not in subckt:
+        errors.append("Subcircuit missing required 'tech' field")
 
     if "ports" not in subckt or not isinstance(subckt["ports"], dict):
-        raise ValueError("Subcircuit missing required 'ports' dict")
+        errors.append("Subcircuit missing required 'ports' dict")
 
     if "devices" not in subckt or not isinstance(subckt["devices"], dict):
-        raise ValueError("Subcircuit missing required 'devices' dict")
+        errors.append("Subcircuit missing required 'devices' dict")
 
-    if "meta" not in subckt or not isinstance(subckt["meta"], dict):
-        raise ValueError("Subcircuit missing required 'meta' dict")
-
-    if "tech" not in subckt["meta"]:
-        raise ValueError("Subcircuit meta missing required 'tech' field")
+    return errors
 
 
-def check_testbench(tb: dict[str, Any]) -> None:
+def check_testbench(tb: dict[str, Any]) -> list[str]:
     """
     Check that testbench has required fields.
 
     Required structure:
         - testbench: str (testbench name)
+        - tech: str (technology)
+        - corner: str (process corner)
+        - temp: int/float (temperature)
         - devices: dict (device definitions)
         - analyses: dict (analysis definitions)
         - libs: list (library includes)
-        - meta: dict with at least 'tech' and 'corner'
 
-    Raises:
-        ValueError: If required fields are missing or malformed
+    Returns:
+        List of error messages (empty if no errors)
     """
-    if "testbench" not in tb:
-        raise ValueError("Testbench missing required 'testbench' field")
+    errors = []
+
+    if "tech" not in tb:
+        errors.append("Testbench missing required 'tech' field")
+
+    if "corner" not in tb:
+        errors.append("Testbench missing required 'corner' field")
+
+    if "temp" not in tb:
+        errors.append("Testbench missing required 'temp' field")
 
     if "devices" not in tb or not isinstance(tb["devices"], dict):
-        raise ValueError("Testbench missing required 'devices' dict")
+        errors.append("Testbench missing required 'devices' dict")
 
     if "analyses" not in tb or not isinstance(tb["analyses"], dict):
-        raise ValueError("Testbench missing required 'analyses' dict")
+        errors.append("Testbench missing required 'analyses' dict")
 
     if "libs" not in tb or not tb["libs"]:
-        raise ValueError("Testbench missing required 'libs' field")
+        errors.append("Testbench missing required 'libs' field")
 
-    if "meta" not in tb or not isinstance(tb["meta"], dict):
-        raise ValueError("Testbench missing required 'meta' dict")
-
-    if "tech" not in tb["meta"]:
-        raise ValueError("Testbench meta missing required 'tech' field")
-
-    if "corner" not in tb["meta"]:
-        raise ValueError("Testbench meta missing required 'corner' field")
-
-
-def check_subcircuit_instances(
-    topology: dict[str, Any],
-    subckt_base_dir: Path,
-    netlist_filename: str
-) -> None:
-    """
-    Verify that subcircuit instances in topology have matching port definitions.
-
-    Args:
-        topology: Testbench topology to check
-        subckt_base_dir: Base directory for subcircuit files
-        netlist_filename: Filename for error messages
-
-    Raises:
-        ValueError: If pin mismatch is detected
-    """
-    logger = logging.getLogger(__name__)
-
-    for dev_name, dev_info in topology.get("devices", {}).items():
-        dev = dev_info.get("dev")
-        # Skip built-in devices
-        if dev in ["vsource", "res", "cap", "nmos", "pmos"] or dev is None:
-            continue
-
-        # This is a subcircuit instance - find its definition
-        subckt_name = dev
-        subckt_dir = subckt_base_dir / subckt_name
-        if not subckt_dir.exists():
-            logger.warning(f"No subcircuit directory found for '{subckt_name}' at {subckt_dir}")
-            continue
-
-        pattern = f"subckt_{subckt_name}_*.json"
-        subckt_files = list(subckt_dir.glob(pattern))
-
-        if not subckt_files:
-            logger.warning(f"No subcircuit definition found for '{subckt_name}' (searched: {subckt_dir}/{pattern})")
-            continue
-
-        # Read first matching subcircuit to get port definition
-        with open(subckt_files[0], 'r') as f:
-            subckt_data = json.load(f)
-
-        # Get pin lists
-        instance_pins = list(dev_info.get("pins", {}).keys())
-        subckt_ports = list(subckt_data.get("ports", {}).keys())
-
-        # Verify they match
-        if instance_pins != subckt_ports:
-            raise ValueError(
-                f"Pin mismatch in {netlist_filename} for instance '{dev_name}' of subcircuit '{subckt_name}'!\n"
-                f"  Instance pins: {instance_pins}\n"
-                f"  Subcircuit ports: {subckt_ports}\n"
-                f"  Pins must match in name and order."
-            )
+    return errors
 
 
 def main() -> None:
@@ -933,160 +1004,221 @@ def main() -> None:
 
         if args.mode == "subckt":
             # ================================================================
-            # SUBCIRCUIT MODE
+            # SUBCIRCUIT MODE (new merged struct flow)
             # ================================================================
 
-            # 1. Create results dir and empty db list
+            # 1. Create results dir and empty files list
             subckt_dir = args.output / cell_name / "subckt"
             subckt_dir.mkdir(parents=True, exist_ok=True)
-            db: list[dict] = []
+            files: list[dict] = []
 
-            # 2. Get topology list + sweeps dict from circuit module
-            topology_list, sweeps = circuit_module.subcircuit()
+            # 2. Get merged subckt struct from circuit module
+            subckt_template = circuit_module.subckt
 
-            # 3. Expand sweeps to get cartesian product
-            sweep_list = expand_sweeps(sweeps)
+            # 3. Stage 1: Expand topo_params, fill ports/devices
+            generate_topology_fn = getattr(circuit_module, 'generate_topology', None)
+            subckts_stage1 = expand_topo_params(subckt_template, generate_topology_fn)
 
-            # 4. Loop over topologies and sweeps
+            # 4. Stage 2: Expand tech, inst_params, dev_params
+            subckts_expanded = expand_dev_params(subckts_stage1)
+
+            # 5. Detect varying device parameters for table columns
+            varying_params = detect_varying_device_params(subckts_expanded)
+
+            # 6. Process each expanded subcircuit
             total_count = 0
-            for topo in topology_list:
-                for sweep in sweep_list:
-                    # 5. Generate subckt struct (apply sweep globals/selections/tech)
-                    subckt = generate_netstruct(topo, sweep)
+            all_errors = []
+            for subckt in subckts_expanded:
+                # 7. Map to technology (convert generic to PDK-specific)
+                subckt = map_technology(subckt, techmap)
 
-                    # 6. Map to technology (convert generic to PDK-specific)
-                    subckt = map_technology(subckt, techmap)
-
-                    # 7. Run checks
-                    check_subckt(subckt)
-
-                    # Print table header on first iteration
-                    if total_count == 0:
-                        headers, col_widths = calc_table_columns(subckt, sweeps)
-                        print_table_header(headers, col_widths)
-
-                    # 8. Create dbctx with cellname and cfgname
+                # 8. Run checks
+                errors = check_subckt(subckt)
+                if errors:
                     cfgname = generate_filename(subckt)
-                    dbctx = {
-                        "cellname": cell_name,
-                        "cfgname": cfgname,
-                        "subckt_db": None,
-                        "subckt_netlist": None,
-                        "tb_db": [],
-                        "tb_netlist": [],
-                        "sim_raw": [],
-                        "meas_db": None,
-                        "plot_img": [],
-                    }
+                    all_errors.append((cfgname, errors))
 
-                    # 9. Write JSON struct
-                    json_path = subckt_dir / f"subckt_{cfgname}.json"
-                    json_path.write_text(compact_json(subckt))
-                    dbctx["subckt_db"] = f"subckt/subckt_{cfgname}.json"
+                # Print table header on first iteration
+                if total_count == 0:
+                    headers, col_widths = calc_table_columns(subckt, varying_params)
+                    print_table_header(headers, col_widths)
 
-                    # 10. Write SPICE netlist
-                    sp_path = subckt_dir / f"subckt_{cfgname}.sp"
-                    spice_str = generate_spice(subckt, mode=args.mode)
-                    sp_path.write_text(spice_str)
-                    dbctx["subckt_netlist"] = f"subckt/subckt_{cfgname}.sp"
+                # 8. Create file_ctx with cellname and cfgname
+                cfgname = generate_filename(subckt)
+                file_ctx = {
+                    "cellname": cell_name,
+                    "cfgname": cfgname,
+                    "subckt_json": None,
+                    "subckt_spice": None,
+                    "subckt_children": [],
+                    "tb_json": [],
+                    "tb_spice": [],
+                    "sim_raw": [],
+                    "meas_db": None,
+                    "plot_img": [],
+                }
 
-                    # 11. Append dbctx to db list
-                    db.append(dbctx)
-                    total_count += 1
+                # 9. Write JSON struct
+                json_path = subckt_dir / f"{cfgname}.json"
+                json_path.write_text(compact_json(subckt))
+                file_ctx["subckt_json"] = f"subckt/{cfgname}.json"
 
-                    # Print table row
-                    print_table_row(subckt["meta"], headers, col_widths)
+                # 10. Write SPICE netlist
+                sp_path = subckt_dir / f"{cfgname}.sp"
+                spice_str = generate_spice(subckt, mode=args.mode)
+                sp_path.write_text(spice_str)
+                file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
 
-            # 12. Write db.json and print summary
-            db_path = args.output / cell_name / "db.json"
-            save_db(db_path, db)
+                # 11. Append file_ctx to files list
+                files.append(file_ctx)
+                total_count += 1
+
+                # Print table row
+                # Build row data from top-level, meta, and device params
+                row_data = {}
+                for field in ["tech", "corner", "temp"]:
+                    if field in subckt:
+                        row_data[field] = subckt[field]
+                row_data.update(subckt.get("meta", {}))
+                # Add varying device params
+                for dev_name, param_name in varying_params:
+                    col_name = f"{dev_name}.{param_name}"
+                    devices = subckt.get("devices", {})
+                    if dev_name in devices:
+                        dev_params = devices[dev_name].get("params", {})
+                        if param_name in dev_params:
+                            row_data[col_name] = dev_params[param_name]
+                        else:
+                            row_data[col_name] = "-"
+                    else:
+                        row_data[col_name] = "-"
+                print_table_row(row_data, headers, col_widths)
+
+            # 12. Write files.json and print summary
+            files_db_path = args.output / cell_name / "files.json"
+            save_files_list(files_db_path, files)
             logger.info("-" * 80)
             logger.info(f"Result: {total_count} subcircuits generated")
+
+            # Print collected errors/warnings
+            if all_errors:
+                for cfgname, errors in all_errors:
+                    for error in errors:
+                        logger.error(f"{cfgname}: {error}")
+
             logger.info("-" * 80)
 
         elif args.mode == "tb":
             # ================================================================
-            # TESTBENCH MODE
+            # TESTBENCH MODE (new merged struct flow)
             # ================================================================
 
-            # 1. Get topology list + sweeps dict from circuit module
-            topology_list, sweeps = circuit_module.testbench()
-
-            # 2. Expand sweeps to get cartesian product (corner × temp × other params)
-            sweep_list = expand_sweeps(sweeps)
-
-            # 3. Load existing db.json (created by subckt step)
-            db_path = args.output / cell_name / "db.json"
-            db = load_db(db_path)
-            if not db:
-                raise ValueError(f"No db.json found at {db_path}. Run subckt mode first.")
+            # 1. Load existing files.json (created by subckt mode)
+            files_db_path = args.output / cell_name / "files.json"
+            files = load_files_list(files_db_path)
+            if not files:
+                msg = f"No files.json found at {files_db_path}. Run subckt mode first."
+                logger.error(msg)
+                raise ValueError(msg)
 
             tb_dir = args.output / cell_name / "tb"
             tb_dir.mkdir(parents=True, exist_ok=True)
 
-            total_count = 0
+            # 2. Get merged tb struct from circuit module
+            tb_template = circuit_module.tb
 
-            # 4. Loop over each subckt entry in db
-            for dbctx in db:
-                # 5. Load the subckt struct from subckt_db path
-                subckt_path = args.output / cell_name / dbctx["subckt_db"]
+            # 3. Stage 1: Expand topo_params, fill ports/devices
+            generate_topology_fn = getattr(circuit_module, 'generate_tb_topology', None)
+            tbs_stage1 = expand_topo_params(tb_template, generate_topology_fn)
+
+            # 4. Get corner and temp lists from template
+            corner_list = tb_template.get("corner", ["tt"])
+            temp_list = tb_template.get("temp", [27])
+            corner_list = corner_list if isinstance(corner_list, list) else [corner_list]
+            temp_list = temp_list if isinstance(temp_list, list) else [temp_list]
+
+            total_count = 0
+            all_errors = []
+
+            # 5. Loop over each subckt entry in files
+            for file_ctx in files:
+                # 6. Load the subckt struct from subckt_json path
+                subckt_path = args.output / cell_name / file_ctx["subckt_json"]
                 with open(subckt_path) as f:
                     subckt = json.load(f)
 
-                # 6. Find matching tb topology based on meta params in subckt
-                topo = find_matching_topo(topology_list, subckt)
-                if not topo:
-                    logger.warning(f"No matching testbench for {dbctx['cfgname']}")
+                # 7. Find matching tb netstruct based on topo_param values in subckt.meta
+                tb_topo = find_matching_topo(tbs_stage1, subckt)
+                if not tb_topo:
+                    logger.warning(f"No matching testbench netstruct for {file_ctx['cfgname']}")
                     continue
 
-                # 7. Loop over sweep combinations
-                for sweep in sweep_list:
-                    # 8. Generate testbench struct (apply sweep, inherit tech from subckt)
-                    sweep_with_subckt_tech = {**sweep, "tech": subckt["meta"]["tech"]}
-                    tb = generate_netstruct(topo, sweep_with_subckt_tech)
+                # 8. Loop over corner × temp combinations
+                for corner, temp in itertools.product(corner_list, temp_list):
+                    # 9. Create testbench struct with tech from subckt, corner/temp from tb
+                    tb = copy.deepcopy(tb_topo)
+                    tb["tech"] = subckt["tech"]  # Inherit tech from subckt
+                    tb["corner"] = corner
+                    tb["temp"] = temp
 
-                    # 9. Map to technology (tech is in tb.meta.tech)
+                    # 10. Map to technology
                     tb = map_technology(tb, techmap)
 
-                    # 10. Scale testbench values
+                    # 11. Scale testbench values
                     tb = scale_testbench(tb, techmap)
 
-                    # 11. Add auto fields (libs, includes, options, save)
-                    tb = autoadd_fields(tb, subckt, techmap)
+                    # 12. Add auto fields (libs, includes, options, save)
+                    tb = autoadd_fields(tb, subckt, techmap, file_ctx)
 
-                    # 12. Run checks
-                    check_testbench(tb)
+                    # 13. Run checks
+                    errors = check_testbench(tb)
+                    if errors:
+                        cfgname = file_ctx["cfgname"]
+                        tb_filename = f"{cfgname}_{corner}_{temp}"
+                        all_errors.append((tb_filename, errors))
 
                     # Print table header on first iteration
                     if total_count == 0:
-                        headers, col_widths = calc_table_columns(tb, sweeps)
+                        # Use full tb struct for column calculation
+                        headers, col_widths = calc_table_columns(tb)
                         print_table_header(headers, col_widths)
 
-                    # 13. Generate filename and write JSON
-                    cfgname = dbctx["cfgname"]
-                    corner = tb["meta"].get("corner", "tt")
-                    temp = tb["meta"].get("temp", 27)
+                    # 14. Generate filename and write JSON
+                    cfgname = file_ctx["cfgname"]
                     tb_filename = f"{cfgname}_{corner}_{temp}"
 
-                    json_path = tb_dir / f"tb_{tb_filename}.json"
+                    json_path = tb_dir / f"{tb_filename}.json"
                     json_path.write_text(compact_json(tb))
-                    dbctx["tb_db"].append(f"tb/tb_{tb_filename}.json")
+                    file_ctx["tb_json"].append(f"tb/{tb_filename}.json")
 
-                    # 14. Write SPICE netlist
-                    sp_path = tb_dir / f"tb_{tb_filename}.sp"
+                    # 15. Write SPICE netlist
+                    sp_path = tb_dir / f"{tb_filename}.sp"
                     spice_str = generate_spice(tb, mode=args.mode)
                     sp_path.write_text(spice_str)
-                    dbctx["tb_netlist"].append(f"tb/tb_{tb_filename}.sp")
+                    file_ctx["tb_spice"].append(f"tb/{tb_filename}.sp")
 
                     total_count += 1
 
                     # Print table row
-                    print_table_row(tb["meta"], headers, col_widths)
+                    # Build row data from top-level and meta fields
+                    row_data = {}
+                    for field in ["tech", "corner", "temp"]:
+                        if field in tb:
+                            row_data[field] = tb[field]
+                    row_data.update(tb.get("meta", {}))
+                    print_table_row(row_data, headers, col_widths)
 
-            # 15. Write updated db.json
-            save_db(db_path, db)
+            # 16. Write updated files.json
+            save_files_list(files_db_path, files)
             logger.info("-" * 80)
             logger.info(f"Result: {total_count} testbenches generated")
+
+            # Print collected errors/warnings
+            if all_errors:
+                for tb_filename, errors in all_errors:
+                    for error in errors:
+                        logger.error(f"{tb_filename}: {error}")
+
             logger.info("-" * 80)
 
     except Exception as e:

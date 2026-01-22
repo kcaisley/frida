@@ -1,19 +1,52 @@
+"""
+CDAC subcircuit definition.
+
+Dynamic topology using topo_params - generate_topology() computes ports/devices
+for each CDAC configuration.
+
+Topo params:
+    n_dac: DAC resolution (7, 9, 11, 13)
+    n_extra: Number of extra physical capacitors (0, 2, 4, 6)
+    redun_strat: Weight distribution strategy (rdx2, subrdx2, etc.)
+    split_strat: Physical implementation (nosplit, vdivsplit, diffcapsplit)
+"""
+
 import math
-from typing import Any
+
+# Merged subckt struct with topology params and sweeps combined
+subckt = {
+    "cellname": "cdac",
+    "ports": {},      # Empty - computed by generate_topology()
+    "devices": {},    # Empty - computed by generate_topology()
+    "meta": {},
+    "tech": ["tsmc65", "tsmc28", "tower180"],
+    "topo_params": {
+        "n_dac": [7, 9, 11, 13],
+        "n_extra": [0, 2, 4, 6],
+        "redun_strat": ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"],
+        "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"]
+    },
+    "dev_params": {
+        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
+        "res": {"type": "polyres", "r": 4}
+    },
+    "inst_params": []
+}
 
 
-def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
+def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int] | None:
     """
     Calculate capacitor weights for CDAC.
 
     Args:
-
+        n_dac: DAC resolution (number of bits)
         n_extra: Number of extra physical capacitors for redundancy
-        strategy: 'rdx2', 'subrdx2', 'subrdx2lim',
-                  'subrdx2rdst', 'rdx2rpt'
+        strategy: 'rdx2', 'subrdx2', 'subrdx2lim', 'subrdx2rdst', 'rdx2rpt'
 
     Returns:
-        List of (n_dac + n_extra) integer weights (in units of Cu)
+        List of (n_dac + n_extra) integer weights (in units of Cu), or None for invalid combos
     """
     m_caps = n_dac + n_extra
 
@@ -42,16 +75,14 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
     elif strategy == "subrdx2rdst":
         # Binary with MSB redistribution for redundancy
         # Split 2^n_redist from MSB and redistribute as pairs
-        # TODO: This logic is broken for small n_dac with large n_extra (e.g., n_dac=7, n_extra=6)
-        # The MSB weight becomes negative, which is invalid for physical capacitors
         n_redist = n_extra + 2  # Extra caps determine redistribution
 
         # Base binary weights
         weights = [2**i for i in range(n_dac - 1, -1, -1)]
 
-        # Check if MSB would become negative - skip invalid combinations
+        # Check if MSB would become negative - return None for invalid combinations
         if weights[0] < 2**n_redist:
-            raise ValueError(f"subrdx2rdst: n_dac={n_dac} too small for n_extra={n_extra}. MSB weight would be negative.")
+            return None
 
         weights[0] -= 2**n_redist  # Subtract from MSB
 
@@ -108,23 +139,41 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int]:
         return result
 
     else:
-        raise ValueError(f"Unknown strategy: {strategy}")
+        return None  # Unknown strategy
 
 
-def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_dac: int, n_extra: int) -> dict[str, Any]:
+def generate_topology(
+    n_dac: int,
+    n_extra: int,
+    redun_strat: str,
+    split_strat: str
+) -> tuple[dict, dict] | tuple[None, None]:
     """
-    Generate physical CDAC topology for a given partition scheme.
+    Compute ports and devices for given topo_params combination.
+
+    Called by expand_topo_params() for each cartesian product combo.
+    Returns (None, None) for invalid combinations to skip.
 
     Args:
-        weights: List of integer weights from calc_weights
-        redun_strat: Weighting strategy (rdx2, subrdx2*, etc.)
-        split_strat: 'nosplit', 'vdivsplit', or 'diffcapsplit'
         n_dac: DAC resolution (number of bits)
         n_extra: Number of extra physical capacitors for redundancy
+        redun_strat: Weighting strategy (rdx2, subrdx2*, etc.)
+        split_strat: 'nosplit', 'vdivsplit', or 'diffcapsplit'
 
     Returns:
-        dict with 'subckt', 'ports', 'devices', 'meta'
+        Tuple of (ports, devices) or (None, None) for invalid combinations
     """
+    # Skip invalid combinations: rdx2 only works with n_extra=0, others only with n_extra>0
+    if redun_strat == "rdx2" and n_extra != 0:
+        return None, None
+    if redun_strat != "rdx2" and n_extra == 0:
+        return None, None
+
+    # Calculate weights for this configuration
+    weights = calc_weights(n_dac, n_extra, redun_strat)
+    if weights is None:
+        return None, None
+
     threshold = 64  # Split threshold (unitless)
 
     # Initialize topology components
@@ -211,115 +260,69 @@ def generate_topology(weights: list[int], redun_strat: str, split_strat: str, n_
                     devices[f"Cmain{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"bot[{idx}]"}, "c": c_main, "m": 1}
                     devices[f"Cdiff{idx}"] = {"dev": "cap", "pins": {"p": "top", "n": f"inter[{idx}]"}, "c": c_diff, "m": 1}
 
-    # Build final topology
-    topology = {
-        "subckt": "cdac",
-        "ports": ports,
-        "devices": devices,
-        "meta": {
-            "n_dac": n_dac,
-            "n_extra": n_extra,
-            "m_caps": len(weights),
-            "redun_strat": redun_strat,
-            "split_strat": split_strat,
-            "weights": weights,
-            "threshold": threshold,
-        },
+    return ports, devices
+
+
+"""
+CDAC Testbench:
+
+Characterizes CDAC linearity by sweeping through DAC codes.
+
+Test structure:
+- DAC input bit sources with PWL waveforms
+- Code sequence: 0 -> 1/4 -> 1/2 -> 3/4 -> full scale
+- Load capacitor on top node
+- Transient analysis to measure DAC transfer function
+
+The number of DAC input bits matches the CDAC topology (n_dac).
+"""
+
+# Monolithic testbench struct (dynamic topology - uses n_dac topo_param)
+tb = {
+    "devices": {},      # Empty - computed by generate_tb_topology()
+    "analyses": {
+        "tran1": {
+            "type": "tran",
+            "stop": 500,
+            "step": 0.1
+        }
+    },
+    "corner": ["tt"],
+    "temp": [27],
+    "topo_params": {
+        "n_dac": [7, 9, 11, 13]  # Match subckt n_dac values
     }
+}
 
-    return topology
 
-
-def subcircuit():
+def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
     """
-    Generate CDAC topologies for all N/M/strategy/partition combinations.
+    Generate testbench topology for given n_dac.
 
-    Sweeps:
-        n_dac: DAC resolution (7, 9, 11, 13)
-        n_extra: Number of extra physical capacitors (0 for rdx2, 2/4/6 for others)
-        redun_strat: Weight distribution
-            - rdx2: n_extra = 0 only (4 combinations)
-            - subrdx2, subrdx2lim, subrdx2rdst, rdx2rpt:
-              n_extra = 2, 4, 6 (48 combinations)
-        split_strat: Physical implementation ('nosplit', 'vdivsplit', 'diffcapsplit')
-        m: Capacitance multiplier (1, 2, 3) - swept in sweep section
+    Args:
+        n_dac: DAC resolution (number of bits)
 
     Returns:
-        Tuple of (topology_list, sweeps)
+        Tuple of (ports, devices) - ports is empty for top-level TB
     """
-    # Sweep parameters
-    n_dac_list = [7, 9, 11, 13]
-    n_extra_list = [0, 2, 4, 6]
-    redun_strat_list = ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"]
-    split_strat_list = ["no_split", "vdivsplit", "diffcapsplit"]
+    ports = {}  # Testbenches have no ports (top-level)
 
-    # Technology sweep with cap type (momcap with 1m, 2m, 3m metal layers)
-    sweeps = {
-        "tech": ["tsmc65", "tsmc28", "tower180"],
-        "globals": {
-            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
-            "res": {"type": "polyres", "r": 4}
-        },
-    }
-
-    # Generate all base configurations
-    topology_list = []
-
-    for n_dac in n_dac_list:
-        for n_extra in n_extra_list:
-            for redun_strat in redun_strat_list:
-                # Skip invalid combinations: rdx2 only works with n_extra=0, others only with n_extra>0
-                if redun_strat == "rdx2" and n_extra != 0:
-                    continue
-                if redun_strat != "rdx2" and n_extra == 0:
-                    continue
-
-                # Calculate weights for this configuration
-                try:
-                    weights = calc_weights(n_dac, n_extra, redun_strat)
-                except ValueError:
-                    # Skip combinations that produce invalid weights (e.g., negative)
-                    continue
-
-                # Generate all split strategy combinations
-                for split_strat in split_strat_list:
-                    # Generate topology (no scale parameter - handled via cap type sweep)
-                    topology = generate_topology(
-                        weights, redun_strat, split_strat, n_dac=n_dac, n_extra=n_extra
-                    )
-                    topology_list.append(topology)
-
-    return topology_list, sweeps
-
-
-def testbench() -> dict[str, Any]:
-    """
-    Generate testbench for CDAC characterization.
-
-    Creates a testbench with:
-    - DUT instantiation (generic, works with any CDAC configuration)
-    - DAC input bit sources (PWL waveforms to sweep through codes)
-    - Load capacitor on output
-    - Transient analysis to measure DAC linearity
-    """
-    # Generate DAC input bit sources
-    # Use PWL to sweep through DAC codes: 0, 1/4, 1/2, 3/4, full scale
-    n_bits = 11  # Generic testbench for typical 11-bit DAC
     devices = {
         "Vvdd": {"dev": "vsource", "pins": {"p": "vdd", "n": "gnd"}, "wave": "dc", "dc": 1.0},
         "Vvss": {"dev": "vsource", "pins": {"p": "vss", "n": "gnd"}, "wave": "dc", "dc": 0.0},
     }
 
     # Add DAC bit sources - sweep through key codes
-    # Code sequence: 0 -> 256 -> 512 -> 768 -> 1024 (for 11-bit)
-    for i in range(n_bits):
+    # Code sequence: 0 -> 1/4 -> 1/2 -> 3/4 -> full_scale
+    max_code = (1 << n_dac) - 1
+    test_codes = [0, max_code // 4, max_code // 2, 3 * max_code // 4, max_code]
+
+    for i in range(n_dac):
         bit_mask = 1 << i
-        # PWL: time,val pairs for codes: 0, 256, 512, 768, 1024
+        # PWL: time,val pairs for each test code
         # Times: 0ns, 100ns, 200ns, 300ns, 400ns
         pwl_points = []
-        for code_idx, code in enumerate([0, 256, 512, 768, 1024]):
+        for code_idx, code in enumerate(test_codes):
             t = code_idx * 100
             val = 1.0 if (code & bit_mask) else 0.0
             pwl_points.extend([t, val])
@@ -339,38 +342,14 @@ def testbench() -> dict[str, Any]:
         "m": 100  # 100 fF load
     }
 
-    # Add DUT instantiation - generic, will match any cdac subcircuit
+    # Add DUT instantiation
     dut_pins = {"top": "top", "vdd": "vdd", "vss": "vss"}
-    for i in range(n_bits):
+    for i in range(n_dac):
         dut_pins[f"dac[{i}]"] = f"dac[{i}]"
 
     devices["Xdut"] = {"dev": "cdac", "pins": dut_pins}
 
-    topology = {
-        "testbench": "tb_cdac_topbss",
-        "devices": devices,
-        "analyses": {
-            "tran1": {
-                "type": "tran",
-                "stop": 500,  # 500 time units
-                "step": 0.1
-            }
-        }
-    }
-
-    # Testbench sweep: corner, temp, and device globals
-    sweeps = {
-        "corner": ["tt"],
-        "temp": [27],
-        "globals": {
-            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "cap": {"type": "1m", "c": 1, "m": 1},
-        }
-    }
-
-    topology_list = [topology]
-    return topology_list, sweeps
+    return ports, devices
 
 
 # Helper functions

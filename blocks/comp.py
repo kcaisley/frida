@@ -1,83 +1,47 @@
-from typing import Any
+"""
+Comparator subcircuit definition.
 
+Dynamic topology using topo_params - generate_topology() computes ports/devices
+for each comparator configuration.
 
-def subcircuit():
-    """
-    Generate all comparator topologies for all parameter combinations.
+Topo params:
+    preamp_diffpair: 'nmosinput' or 'pmosinput' - input differential pair type
+    preamp_bias: 'stdbias' or 'dynbias' - whether to use dynamic biasing
+    comp_stages: 'singlestage' or 'doublestage' - comparator architecture
+    latch_pwrgate_ctl: 'clocked' or 'signalled' - powergate control type
+    latch_pwrgate_node: 'external' or 'internal' - powergate position
+    latch_rst_extern_ctl: 'clocked', 'signalled', or 'noreset' - external reset type
+    latch_rst_intern_ctl: 'clocked' or 'signalled' - internal reset type
+"""
 
-    Sweeps:
-        preamp_diffpair: 'nmosinput' or 'pmosinput'
-        preamp_bias: 'stdbias' or 'dynbias'
-        comp_stages: 'singlestage' or 'doublestage'
-        latch_pwrgate_ctl: 'clocked' or 'signalled'
-        latch_pwrgate_node: 'external' or 'internal'
-        latch_rst_extern_ctl: 'clocked', 'signalled', or 'noreset'
-        latch_rst_intern_ctl: 'clocked' or 'signalled'
-
-    Returns:
-        Tuple of (topology_list, sweeps)
-    """
-    # Sweep parameters
-    preamp_diffpair_list = ['nmosinput', 'pmosinput']
-    preamp_bias_list = ['stdbias', 'dynbias']
-    comp_stages_list = ['singlestage', 'doublestage']
-    latch_pwrgate_ctl_list = ['clocked', 'signalled']
-    latch_pwrgate_node_list = ['external', 'internal']
-    latch_rst_extern_ctl_list = ['clocked', 'signalled', 'noreset']
-    latch_rst_intern_ctl_list = ['clocked', 'signalled']
-
-    # Technology agnostic device sweeps (same for all topologies)
-    sweeps = {
-        'tech': ['tsmc65', 'tsmc28', 'tower180'],
-        'globals': {
-            'nmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-            'pmos': {'type': 'lvt', 'w': 1, 'l': 1, 'nf': 1},
-            'cap': {'c': 1, 'm': 1}
-        },
-        'selections': [
-            {'devices': ['M_preamp_diff+', 'M_preamp_diff-'], 'w': [4, 8], 'type': ['lvt']},
-            {'devices': ['M_preamp_tail', 'M_preamp_bias'], 'w': [2, 4], 'l': [2]},
-            {'devices': ['M_preamp_rst+', 'M_preamp_rst-'], 'w': [2], 'type': ['lvt']},
-            {'devices': ['Ma_latch+', 'Ma_latch-', 'Mb_latch+', 'Mb_latch-'], 'w': [1, 2, 4], 'type': ['lvt']}
-        ]
-    }
-
-    # Generate all topology configurations
-    topology_list = []
-
-    for preamp_diffpair in preamp_diffpair_list:
-        for preamp_bias in preamp_bias_list:
-            for comp_stages in comp_stages_list:
-                for latch_pwrgate_ctl in latch_pwrgate_ctl_list:
-                    for latch_pwrgate_node in latch_pwrgate_node_list:
-                        for latch_rst_extern_ctl in latch_rst_extern_ctl_list:
-                            for latch_rst_intern_ctl in latch_rst_intern_ctl_list:
-                                # Skip invalid combinations
-                                if comp_stages == 'singlestage':
-                                    # For single stage, latch params don't matter, only generate once
-                                    if latch_pwrgate_ctl != 'clocked' or latch_pwrgate_node != 'external' or latch_rst_extern_ctl != 'clocked' or latch_rst_intern_ctl != 'clocked':
-                                        continue
-                                elif comp_stages == 'doublestage':
-                                    # For double stage, external reset only valid if powergate is external
-                                    if latch_pwrgate_node == 'internal' and latch_rst_extern_ctl != 'noreset':
-                                        continue
-                                    # If powergate is external, must have some kind of external reset or noreset is valid
-                                    # (actually noreset is valid for external powergate)
-
-                                # Generate topology for this configuration
-                                topology = generate_topology(
-                                    preamp_diffpair=preamp_diffpair,
-                                    preamp_bias=preamp_bias,
-                                    comp_stages=comp_stages,
-                                    latch_pwrgate_ctl=latch_pwrgate_ctl,
-                                    latch_pwrgate_node=latch_pwrgate_node,
-                                    latch_rst_extern_ctl=latch_rst_extern_ctl,
-                                    latch_rst_intern_ctl=latch_rst_intern_ctl
-                                )
-
-                                topology_list.append(topology)
-
-    return topology_list, sweeps
+# Merged subckt struct with topology params and sweeps combined
+subckt = {
+    "cellname": "comp",
+    "ports": {},      # Empty - computed by generate_topology()
+    "devices": {},    # Empty - computed by generate_topology()
+    "meta": {},
+    "tech": ["tsmc65", "tsmc28", "tower180"],
+    "topo_params": {
+        "preamp_diffpair": ["nmosinput", "pmosinput"],
+        "preamp_bias": ["stdbias", "dynbias"],
+        "comp_stages": ["singlestage", "doublestage"],
+        "latch_pwrgate_ctl": ["clocked", "signalled"],
+        "latch_pwrgate_node": ["external", "internal"],
+        "latch_rst_extern_ctl": ["clocked", "signalled", "noreset"],
+        "latch_rst_intern_ctl": ["clocked", "signalled"]
+    },
+    "dev_params": {
+        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "cap": {"c": 1, "m": 1}
+    },
+    "inst_params": [
+        {"devices": ["M_preamp_diff+", "M_preamp_diff-"], "w": [4, 8], "type": ["lvt"]},
+        {"devices": ["M_preamp_tail", "M_preamp_bias"], "w": [2, 4], "l": [2]},
+        {"devices": ["M_preamp_rst+", "M_preamp_rst-"], "w": [2], "type": ["lvt"]},
+        {"devices": ["Ma_latch+", "Ma_latch-", "Mb_latch+", "Mb_latch-"], "w": [1, 2, 4], "type": ["lvt"]}
+    ]
+}
 
 
 def generate_topology(
@@ -88,9 +52,12 @@ def generate_topology(
     latch_pwrgate_node: str,
     latch_rst_extern_ctl: str,
     latch_rst_intern_ctl: str
-) -> dict[str, Any]:
+) -> tuple[dict, dict] | tuple[None, None]:
     """
-    Generate comparator topology based on parameters.
+    Compute ports and devices for given topo_params combination.
+
+    Called by expand_topo_params() for each cartesian product combo.
+    Returns (None, None) for invalid combinations to skip.
 
     Args:
         preamp_diffpair: 'nmosinput' or 'pmosinput' - determines input differential pair type
@@ -102,8 +69,18 @@ def generate_topology(
         latch_rst_intern_ctl: 'clocked' or 'signalled' - internal reset type (always present)
 
     Returns:
-        dict with 'subckt', 'ports', 'devices', 'meta'
+        Tuple of (ports, devices) or (None, None) for invalid combinations
     """
+    # Skip invalid combinations
+    if comp_stages == 'singlestage':
+        # For single stage, latch params don't matter, only generate once
+        if (latch_pwrgate_ctl != 'clocked' or latch_pwrgate_node != 'external' or
+                latch_rst_extern_ctl != 'clocked' or latch_rst_intern_ctl != 'clocked'):
+            return None, None
+    elif comp_stages == 'doublestage':
+        # For double stage, external reset only valid if powergate is external
+        if latch_pwrgate_node == 'internal' and latch_rst_extern_ctl != 'noreset':
+            return None, None
 
     # Initialize topology components
     devices = {}
@@ -249,189 +226,155 @@ def generate_topology(
 
         devices = swapped_devices
 
-    # Build final topology
-    topology = {
-        "subckt": "comp",
-        "ports": ports,
-        "devices": devices,
-        "meta": {
-            "preamp_diffpair": preamp_diffpair,
-            "preamp_bias": preamp_bias,
-            "comp_stages": comp_stages,
-            "latch_pwrgate_ctl": latch_pwrgate_ctl,
-            "latch_pwrgate_node": latch_pwrgate_node,
-            "latch_rst_extern_ctl": latch_rst_extern_ctl,
-            "latch_rst_intern_ctl": latch_rst_intern_ctl,
+    return ports, devices
+
+
+# Compute testbench PWL waveforms (static, computed at module load)
+_n_common_modes = 5
+_n_diff_voltages = 10
+_n_samples = 10
+_clk_period = 10
+
+# Common-mode voltages (fractions of VDD)
+_cm_voltages = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+# Differential voltages (in volts, relative to VDD=1.0)
+_diff_min = -0.05   # -50mV
+_diff_max = 0.05    # +50mV
+_diff_step = (_diff_max - _diff_min) / (_n_diff_voltages - 1)
+_diff_voltages = [_diff_min + i * _diff_step for i in range(_n_diff_voltages)]
+
+# Build PWL points for common-mode sweep
+_vcm_points = []
+_t = 0
+_cycles_per_diff = _n_samples
+_cycles_per_cm = _n_diff_voltages * _cycles_per_diff
+
+for _cm in _cm_voltages:
+    _duration = _cycles_per_cm * _clk_period
+    _vcm_points.extend([_t, _cm, _t + _duration, _cm])
+    _t += _duration
+
+# Build PWL points for differential voltage sweep
+_vdiff_points = []
+_t = 0
+
+for _cm_idx in range(_n_common_modes):
+    for _diff in _diff_voltages:
+        _duration = _cycles_per_diff * _clk_period
+        _vdiff_points.extend([_t, _diff, _t + _duration, _diff])
+        _t += _duration
+
+_total_time = _t
+
+
+# Monolithic testbench struct (static topology - no topo_params)
+# Comparator testbench for characterization (per Practical Hint 12.2):
+#
+# IMPORTANT: Source impedances (Zin) on both inputs are critical!
+# Ideal voltage sources suppress kick-back -> over-optimistic results.
+#
+# Test structure:
+# - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 × VDD
+# - 10 differential voltages at each: -50mV to +50mV (~11mV steps)
+# - 10 clock cycles (samples) at each point
+# - 10 Monte Carlo runs
+#
+# Total: 5 × 10 × 10 = 500 comparisons per MC run
+# Clock period: 10 time units → 5000 time units total per run
+tb = {
+    "devices": {
+        # Power supplies
+        'Vvdd': {'dev': 'vsource', 'pins': {'p': 'vdd', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Vvss': {'dev': 'vsource', 'pins': {'p': 'vss', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+
+        # Common-mode voltage source (swept across 5 levels)
+        'Vcm': {
+            'dev': 'vsource',
+            'pins': {'p': 'vcm', 'n': 'gnd'},
+            'wave': 'pwl',
+            'points': _vcm_points
         },
-    }
 
-    return topology
-
-
-def testbench():
-    """
-    Tech agnostic testbench netlist description.
-
-    Comparator testbench for characterization (per Practical Hint 12.2):
-
-    IMPORTANT: Source impedances (Zin) on both inputs are critical!
-    Ideal voltage sources suppress kick-back -> over-optimistic results.
-
-    Test structure:
-    - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 × VDD
-    - 10 differential voltages at each: -50mV to +50mV (~11mV steps)
-    - 10 clock cycles (samples) at each point
-    - 10 Monte Carlo runs
-
-    Total: 5 × 10 × 10 = 500 comparisons per MC run
-    Clock period: 10 time units → 5000 time units total per run
-    """
-    # Test parameters
-    n_common_modes = 5
-    n_diff_voltages = 10
-    n_samples = 10
-    clk_period = 10
-
-    # Common-mode voltages (fractions of VDD)
-    cm_voltages = [0.3, 0.4, 0.5, 0.6, 0.7]
-
-    # Differential voltages (in volts, relative to VDD=1.0)
-    diff_min = -0.05   # -50mV
-    diff_max = 0.05    # +50mV
-    diff_step = (diff_max - diff_min) / (n_diff_voltages - 1)
-    diff_voltages = [diff_min + i * diff_step for i in range(n_diff_voltages)]
-
-    # Build PWL points for common-mode sweep
-    # Format: [t0, v0, t1, v1, ...]
-    vcm_points = []
-    t = 0
-    cycles_per_diff = n_samples
-    cycles_per_cm = n_diff_voltages * cycles_per_diff
-
-    for cm in cm_voltages:
-        # Hold this common mode for all differential sweeps
-        duration = cycles_per_cm * clk_period
-        vcm_points.extend([t, cm, t + duration, cm])
-        t += duration
-
-    # Build PWL points for differential voltage sweep
-    vdiff_points = []
-    t = 0
-
-    for cm_idx in range(n_common_modes):
-        for diff in diff_voltages:
-            # Hold this differential for n_samples clock cycles
-            duration = cycles_per_diff * clk_period
-            vdiff_points.extend([t, diff, t + duration, diff])
-            t += duration
-
-    total_time = t
-
-    topology = {
-        'testbench': 'tb_comp',
-        'devices': {
-            # Power supplies
-            'Vvdd': {'dev': 'vsource', 'pins': {'p': 'vdd', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Vvss': {'dev': 'vsource', 'pins': {'p': 'vss', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
-
-            # Common-mode voltage source (swept across 5 levels)
-            'Vcm': {
-                'dev': 'vsource',
-                'pins': {'p': 'vcm', 'n': 'gnd'},
-                'wave': 'pwl',
-                'points': vcm_points
-            },
-
-            # === INPUT SIGNAL PATH (Vin side) ===
-            # Differential input: in+ = vcm + vdiff (swept across 10 levels per CM)
-            'Vdiff': {
-                'dev': 'vsource',
-                'pins': {'p': 'vin_src', 'n': 'vcm'},
-                'wave': 'pwl',
-                'points': vdiff_points
-            },
-
-            # Source impedance on signal input (models DAC/SHA output impedance)
-            # Critical for accurate kick-back modeling!
-            'Rsrc_p': {'dev': 'res', 'pins': {'p': 'vin_src', 'n': 'in+'}, 'params': {'r': 1e3}},
-            'Csrc_p': {'dev': 'cap', 'pins': {'p': 'in+', 'n': 'gnd'}, 'params': {'c': 100e-15}},
-
-            # === REFERENCE PATH (Vref side) ===
-            # Reference: in- = vcm (no differential offset on reference side)
-            'Vref': {'dev': 'vsource', 'pins': {'p': 'vref_src', 'n': 'vcm'}, 'wave': 'dc', 'dc': 0.0},
-
-            # Source impedance on reference input (must match signal side!)
-            'Rsrc_n': {'dev': 'res', 'pins': {'p': 'vref_src', 'n': 'in-'}, 'params': {'r': 1e3}},
-            'Csrc_n': {'dev': 'cap', 'pins': {'p': 'in-', 'n': 'gnd'}, 'params': {'c': 100e-15}},
-
-            # === CLOCK SIGNALS ===
-            'Vclk': {
-                'dev': 'vsource',
-                'pins': {'p': 'clk', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 0, 'v2': 1.0,
-                'td': 0.5,
-                'tr': 0.1, 'tf': 0.1,
-                'pw': 4,            # 40% duty cycle high (evaluation phase)
-                'per': clk_period
-            },
-
-            # Complementary clock (inverted)
-            'Vclkb': {
-                'dev': 'vsource',
-                'pins': {'p': 'clkb', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 1.0, 'v2': 0,
-                'td': 0.5,
-                'tr': 0.1, 'tf': 0.1,
-                'pw': 4,
-                'per': clk_period
-            },
-
-            # === OUTPUT LOADING ===
-            'Cload_p': {'dev': 'cap', 'pins': {'p': 'out+', 'n': 'vss'}, 'params': {'c': 10e-15}},
-            'Cload_n': {'dev': 'cap', 'pins': {'p': 'out-', 'n': 'vss'}, 'params': {'c': 10e-15}},
-
-            # === DUT ===
-            'Xdut': {
-                'dev': 'comp',
-                'pins': {
-                    'in+': 'in+', 'in-': 'in-',
-                    'out+': 'out+', 'out-': 'out-',
-                    'clk': 'clk', 'clkb': 'clkb',
-                    'vdd': 'vdd', 'vss': 'vss'
-                }
-            }
+        # === INPUT SIGNAL PATH (Vin side) ===
+        # Differential input: in+ = vcm + vdiff (swept across 10 levels per CM)
+        'Vdiff': {
+            'dev': 'vsource',
+            'pins': {'p': 'vin_src', 'n': 'vcm'},
+            'wave': 'pwl',
+            'points': _vdiff_points
         },
-        'analyses': {
-            'mc1': {
-                'type': 'montecarlo',
-                'numruns': 10,
-                'seed': 12345,
-                'variations': 'all'
-            },
-            'tran1': {
-                'type': 'tran',
-                'stop': total_time,
-                'strobeperiod': clk_period / 2,
-                'noisefmax': 10e9,
-                'noiseseed': 1
+
+        # Source impedance on signal input (models DAC/SHA output impedance)
+        # Critical for accurate kick-back modeling!
+        'Rsrc_p': {'dev': 'res', 'pins': {'p': 'vin_src', 'n': 'in+'}, 'params': {'r': 1e3}},
+        'Csrc_p': {'dev': 'cap', 'pins': {'p': 'in+', 'n': 'gnd'}, 'params': {'c': 100e-15}},
+
+        # === REFERENCE PATH (Vref side) ===
+        # Reference: in- = vcm (no differential offset on reference side)
+        'Vref': {'dev': 'vsource', 'pins': {'p': 'vref_src', 'n': 'vcm'}, 'wave': 'dc', 'dc': 0.0},
+
+        # Source impedance on reference input (must match signal side!)
+        'Rsrc_n': {'dev': 'res', 'pins': {'p': 'vref_src', 'n': 'in-'}, 'params': {'r': 1e3}},
+        'Csrc_n': {'dev': 'cap', 'pins': {'p': 'in-', 'n': 'gnd'}, 'params': {'c': 100e-15}},
+
+        # === CLOCK SIGNALS ===
+        'Vclk': {
+            'dev': 'vsource',
+            'pins': {'p': 'clk', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 0, 'v2': 1.0,
+            'td': 0.5,
+            'tr': 0.1, 'tf': 0.1,
+            'pw': 4,            # 40% duty cycle high (evaluation phase)
+            'per': _clk_period
+        },
+
+        # Complementary clock (inverted)
+        'Vclkb': {
+            'dev': 'vsource',
+            'pins': {'p': 'clkb', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 1.0, 'v2': 0,
+            'td': 0.5,
+            'tr': 0.1, 'tf': 0.1,
+            'pw': 4,
+            'per': _clk_period
+        },
+
+        # === OUTPUT LOADING ===
+        'Cload_p': {'dev': 'cap', 'pins': {'p': 'out+', 'n': 'vss'}, 'params': {'c': 10e-15}},
+        'Cload_n': {'dev': 'cap', 'pins': {'p': 'out-', 'n': 'vss'}, 'params': {'c': 10e-15}},
+
+        # === DUT ===
+        'Xdut': {
+            'dev': 'comp',
+            'pins': {
+                'in+': 'in+', 'in-': 'in-',
+                'out+': 'out+', 'out-': 'out-',
+                'clk': 'clk', 'clkb': 'clkb',
+                'vdd': 'vdd', 'vss': 'vss'
             }
         }
-    }
-
-    # Testbench sweep: corner, temp, and device globals
-    sweeps = {
-        "corner": ["tt"],
-        "temp": [27],
-        "globals": {
-            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+    },
+    "analyses": {
+        'mc1': {
+            'type': 'montecarlo',
+            'numruns': 10,
+            'seed': 12345,
+            'variations': 'all'
+        },
+        'tran1': {
+            'type': 'tran',
+            'stop': _total_time,
+            'strobeperiod': _clk_period / 2,
+            'noisefmax': 10e9,
+            'noiseseed': 1
         }
-    }
-
-    topology_list = [topology]
-    return topology_list, sweeps
+    },
+    "corner": ["tt"],
+    "temp": [27]
+}
 
 
 def measure(raw, subckt_json, tb_json, raw_file):

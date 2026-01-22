@@ -1,6 +1,6 @@
 # FRIDA: Fast Radiation Imaging Digitizer Array
 
-> [!WARNING]  
+> [!WARNING]
 > This project is currently under very active development, and is subject to change.
 
 Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high, spatial resolution should be maximized with simple pixels, and energy resolution is needed, but particles need not be individually discriminated in time, space, or spectrum. In an experimental setting, fast frame rates allow for real-time in-situ observations. Potential subjects include rapid chemical processes, molecular dynamics of proteins, crystal nucleation and growth, material phase transitions, thermal conductivity, charge transfer, and mechanical strain.
@@ -19,144 +19,165 @@ Below are images from prototype designs showing the ADC architecture, top-level 
 
 ![Padring](docs/images/padring.png)
 
-## Workflow
+## Setup
 
-The workflow below shows how the FRIDA ADC design progresses from specifications, to simulations, to implementation, and analysis:
+The FRIDA analog design flow uses a Python-based netlist generation system that creates parameterized subcircuits and testbenches, runs SPICE simulations, and analyzes results.
 
+Run `make setup` to check dependencies and install missing packages.
 
-### 0. Configuration and setup
+This project is a "workspace", and relies on a mixture of open and closed source tools, so 'make' fufills the needs better than a `requirements.txt` or `pyproject.toml` file.
 
-Run `make setup` to check dependencys, and install (some) if they are missing.
+## Flow commands
 
-### 1. Netlist generation
+Generate parameterized subcircuit netlists from block definitions:
 
-Given a generic netlist topology, a technology mapping, and list of parameters to sweep, sized netlists for each technology can be generated.
-
-```mermaid
-flowchart LR
-    %% Input files
-    subckt@{ shape: rect, label: "generic topology netlist
-    [cell].sp" }
-    subckt_toml@{ shape: rect, label: "size and type sweeps
-    [cell].toml" }
-    tech_toml@{ shape: rect, label: "technology params 
-    tech.toml" }
-
-    %% Netlist generation process
-    subgraph make_netlist["make netlist [cell]
-    make clean_netlist [cell]"]
-        generate_netlist@{ shape: rounded, label: "generate_netlist.py" }
-    end
-
-    subckt --> generate_netlist
-    subckt_toml --> generate_netlist
-    tech_toml --> generate_netlist
-
-    netlist@{ shape: processes, label: "sized .sp netlist" }
-    generate_netlist --> netlist
+```bash
+make subckt [cell]          # Generate subcircuits for a cell
+make subckt                 # Generate all cells
 ```
 
-### 2. Run simulation
+Input: Block definition in `blocks/[cell].py` containing:
+- `subckt` struct with topology parameters, device parameters, and sweep specifications
+- Optional `generate_topology()` function for dynamic topologies
 
+Output: `results/[cell]/subckt/`
+- `[cell]_[tech]_[hash].sp` - SPICE subcircuit netlists
+- `[cell]_[tech]_[hash].json` - Netlist metadata
+- `files.json` - File tracking database
 
+Process:
+- Topology Expansion: `expand_topo_params()` creates cartesian product of `topo_params`, calls `generate_topology()` to compute ports/devices
+- Device Parameter Expansion:** `expand_dev_params()` creates cartesian product of tech, inst_params, dev_params
+- Maps generic device types to technology-specific models
+- Writes SPICE and JSON files, updates db.json
 
-```mermaid
-flowchart LR
-    %% Input files
-    netlists@{ shape: processes, label: "sized .sp netlist" }
-    tb_va@{ shape: rect, label: "behavioral testbench 
-    tb_[cell].va" }
-    tb_sp@{ shape: rect, label: "simulation wrapper 
-    tb_[cell].sp" }
+Generate testbenches that reference the subcircuit variants:
 
-    %% Simulation process
-    subgraph run_sim["make sim [cell]
-    make clean_sim [cell]"]
-        run_simulation@{ shape: rounded, label: "run_simulation.py" }
-    end
-
-    tb_va --> run_simulation
-    tb_sp --> run_simulation
-    netlists --> run_simulation
-
-    results@{ shape: processes, label: ".raw results" }
-    run_simulation --> results
+```bash
+make tb [cell]              # Generate testbenches for a cell
+make tb                     # Generate all cells
 ```
 
-### 3. Analyze results
+Input: Block definition `blocks/[cell].py` containing:
+- `tb` struct with testbench devices, analyses, corner/temp sweeps, and optional `topo_params`
+- Optional `generate_tb_topology()` function for dynamic testbenches
 
-The analysis depends on a `.raw` file containing simulation traces as individual numpy arrays, which can be fetch by name.
+Output: `results/[cell]/tb/`
+- `[cell]_[tech]_[hash]_[corner]_[temp].sp` - SPICE testbench netlists
+- `[cell]_[tech]_[hash]_[corner]_[temp].json` - Testbench metadata
 
-When you create: `raw = RawRead('file.raw', traces_to_read='*', dialect='ngspice')`
+Process:
+- Reads `files.json` to find all generated subcircuits
+- For each subcircuit, generates testbenches across corner × temp combinations
+- Matches testbench topology to subcircuit using `topo_params`
+- Auto-adds includes (from files.json paths), libs, options, save statements
+- Updates files.json with testbench paths
 
-You get an object with:
+## Netlist Structs
 
-```
-PROPERTIES (read-only attributes):
-  raw.nPoints        : int - Number of data points
-  raw.nVariables     : int - Number of traces/signals
-  raw.dialect        : str - 'ngspice', 'ltspice', 'qspice', or 'xyce'
-  raw.encoding       : str - 'utf_8' or 'utf_16_le'
-  raw.raw_type       : str - 'binary:' or 'values:'
-  raw.has_axis       : bool - True if time/freq axis exists
-  raw.steps          : list or None - Step numbers if stepped simulation
-  raw.flags          : list - Flags used in the plot
-  raw.plots          : list - List of plot objects (for multi-plot files)
-  raw.backannotations: list - Backannotations from header
-  raw.aliases        : dict - QSpice trace aliases
+The netlist schema provides a way to describe many different combinations of subcircuits and testbenches withou having to write procedural code.
 
-METHODS (functions you can call):
-  raw.get_trace_names()           -> list[str]
-  raw.get_axis(step=0)            -> np.ndarray (time or frequency)
-  raw.get_wave(name, step=0)      -> np.ndarray (signal data)
-  raw.get_trace(name)             -> TraceRead object
-  raw.get_plot_name()             -> str ('Transient Analysis', etc.)
-  raw.get_plot_names()            -> list[str]
-  raw.get_len(step=0)             -> int
-  raw.get_steps(**kwargs)         -> list[int]
-  raw.get_raw_property(name)      -> str
-  raw.get_raw_properties()        -> dict[str, str]
-  raw.to_dataframe(columns, step) -> pandas.DataFrame
-  raw.to_csv(filename, ...)       -> None
-  raw.to_excel(filename, ...)     -> None
-```
+Here is an example subcircuit netlist struct:
 
-And, when you call: `trace = raw.get_trace('v(out)')`
-
-You get a TraceRead object with:
-```
-  trace.name          : str - Trace name
-  trace.data          : np.ndarray - The waveform data
-  trace.whattype      : str - 'voltage', 'current', 'time', etc.
+```python
+subckt = {
+    "cellname": "comp",                    # Cell name
+    "ports": {},                           # Port definitions (or empty for dynamic)
+    "devices": {},                         # Device instances (or empty for dynamic)
+    "tech": ["tsmc65", "tsmc28"],         # Technologies to generate
+    "topo_params": {                       # Topology parameters (optional)
+        "param_A": [val1, val2],          # Cartesian product in Stage 1
+    },
+    "dev_params": {                        # Device defaults (applied last)
+        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+    },
+    "inst_params": [                       # Instance overrides (applied before dev_params)
+        {"devices": ["MN1", "MN2"], "w": [20, 40], "l": [1, 2]},
+    ]
+}
 ```
 
-```mermaid
-flowchart LR
-    %% Input files
-    results@{ shape: processes, label: ".raw results" }
-    analysis_config@{ shape: rect, label: "analysis config
-    [cell].toml" }
+To generate the ports and devices list based on topology paramters, we can write a function called `generate_topology()`:
 
-    %% Analysis process
-    subgraph analyze["make analyze [cell]
-    make clean_analyze [cell]"]
-        run_analysis@{ shape: rounded, label: "run_analysis.py" }
-        analyses@{ shape: processes, label: "analyses.py" }
-        run_analysis --> analyses
-    end
-
-    results --> run_analysis
-    analysis_config --> run_analysis
-
-    %% Output files
-    figures@{ shape: processes, label: "figures
-    [analysis]_[cell].png" }
-    reports@{ shape: processes, label: "reports
-    [analysis]_[cell].md" }
-
-    analyses --> figures
-    analyses --> reports
+```python
+def generate_topology(**topo_params) -> tuple[dict, dict]:
+    """Generate (ports, devices) for given topo_param combination."""
+    # Compute ports and devices based on topo_params
+    return ports, devices
 ```
+
+Device parameters are applied in **priority order** (later values override earlier):
+
+1. Topology-set values, from `generate_topology()` using `topo_params`, are never overwritten
+2. `inst_params`, are applied to specific device instances
+3. `dev_params` - are applied last as defaults to all devices of matching type
+
+All list-valued parameters create cartesian products. For example `tech: ["tsmc65", "tsmc28"]` × `dev_params.nmos.w: [1, 2]` yeilds 4 variants.
+
+To simulate a circuit, you also can (and should!) create a corresponding tesbench netlist struct, with it's generation function:
+
+```python
+tb = {
+    "devices": {                           # Testbench devices (or empty for dynamic)
+        'Vvdd': {'dev': 'vsource', ...},
+        'Xdut': {'dev': 'cellname', ...}   # References subcircuit
+    },
+    "analyses": {                          # Simulation analyses
+        'tran1': {'type': 'tran', 'stop': 100}
+    },
+    "corner": ["tt", "ss", "ff"],         # Process corners
+    "temp": [27, -40, 125],               # Temperatures
+    "topo_params": {                       # For matching with subcircuits (optional)
+        "switch_type": ["nmos", "pmos"]
+    },
+    "extra_includes": [...]                # Additional includes (e.g., standard cells)
+}
+
+def generate_tb_topology(**topo_params) -> tuple[dict, dict]:
+    """Generate testbench devices for given topo_param combination."""
+    return {}, devices  # Ports always empty for top-level TB
+```
+
+## Output files and their management
+
+The output of each flow step writes to a subdirectory inside `/results`:
+
+```
+results/
+└── [cell]/
+    ├── files.json             # File tracking database
+    ├── subckt/
+    │   ├── *.sp               # SPICE subcircuits
+    │   └── *.json             # Subcircuit metadata
+    └── tb/
+        ├── *.sp               # SPICE testbenches
+        └── *.json             # Testbench metadata
+```
+
+Furthermore, each cell has a `results/[cell]/files.json` automatically written and update to track all generated files. Here's a single entry:
+
+```json
+[
+  {
+    "cellname": "samp",
+    "cfgname": "samp_nmos_tsmc65_dfe2429be6c3",
+    "subckt_json": "subckt/samp_nmos_tsmc65_dfe2429be6c3.json",
+    "subckt_spice": "subckt/samp_nmos_tsmc65_dfe2429be6c3.sp",
+    "subckt_children": [],
+    "tb_json": ["tb/samp_nmos_tsmc65_dfe2429be6c3_tt_27.json"],
+    "tb_spice": ["tb/samp_nmos_tsmc65_dfe2429be6c3_tt_27.sp"],
+    "sim_raw": [],
+    "meas_db": null,
+    "plot_img": []
+  }
+  // plus many more
+]
+```
+
+Subsequent flow steps read files.json to find exact file paths without inferring from filenames. For example, testbench generation reads `subckt_spice` to add `.include` statements.
+
+
 
 ## Past Designs vs Current Target
 
@@ -173,13 +194,7 @@ The table below compares previous ADC designs with the current FRIDA target, hig
 | FOM_csa (conv/sec/area) | 3125 Hz/μm² | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² | 5000 Hz/μm² |
 | FOM_wal (J/conv-step)   | 487 fJ      | 26 fJ      | 608 fJ     | 14 fJ       | 10 fJ       |
 
-## Installation
-
-This project is a "workspace", and relies on a mixture of open and closed source tools, so instead of in a `requirements.txt` or `pyproject.toml` file, a `make setup` target which creates a Python virtual environment (tested with Python 3.9–3.13) and installs the following packages:
-
-```
-klayout spicelib blosc2 wavedrom PyQt5 numpy matplotlib pytest cocotb cocotbext-spi
-```
+## Additional software
 
 The following are also necessary in `$PATH`, using a mixture of `oss-cad-suite` or `apt` or `dnf` installs from distribution repos:
 
@@ -193,7 +208,7 @@ Ensure `spectre` is installed and available in your `$PATH`. This is the Cadence
 which spectre
 ```
 
-ngspice 45 should be installed, which when compiled depends on the following packages on Ubuntu 22 LTS:
+I also plan to support `ngspice` version 45+, which when compiled depends on the following packages on Ubuntu 22 LTS:
 
 ```bash
 sudo apt install bison flex libx11-6 libx11-dev libxaw7 libxaw7-dev libxmu-dev libxext6 libxext-dev libxft2 libxft-dev libfontconfig1 libfontconfig1-dev libxrender1 libxrender-dev libfreetype6 libfreetype-dev libreadline8 libreadline-dev
@@ -201,20 +216,36 @@ sudo apt install bison flex libx11-6 libx11-dev libxaw7 libxaw7-dev libxmu-dev l
 sudo ./compile_linux.sh
 ```
 
-For waveform viewing, use [`gaw`](https://www.rvq.fr/linux/gaw.php).
+For waveform viewing, I've found some success using [`gaw`](https://www.rvq.fr/linux/gaw.php).
 
 When producing raw binary files, ensure `utf_8` encoding is used for the plaintext section.
 
 ## Directory Structure
-Summarized below is the directory structure with source code, documentation, RTL, netlists, scripts, and pointer to the process design kit (PDK) configuration files.
+
+Finally, here's a overview of the project directories at large:
 
 ```
-├── build       # collateral from hdl + src
-├── docs        # notes & documentation
-├── hdl         # rtl and spice netlists 
-├── src         # scripts and utils
-└── tech        # PDK-specific config files, added as symlinks
-    ├── nopdk
-    ├── tsmc28
-    └── tsmc65
+├── blocks/         # Cell definitions (subckt + tb structs)
+│   ├── inv.py
+│   ├── nand2.py
+│   ├── samp.py
+│   ├── comp.py
+│   ├── cdac.py
+│   └── adc.py
+├── flow/           # Netlist generation and analysis scripts
+│   ├── netlist.py  # Main netlist generator
+│   ├── common.py   # Shared utilities
+│   └── measure.py  # Simulation analysis
+├── results/        # Generated netlists and simulation data
+│   └── [cell]/
+│       ├── db.json
+│       ├── subckt/
+│       └── tb/
+├── tech/           # PDK configuration files
+│   ├── tsmc65/
+│   ├── tsmc28/
+│   └── tower180/
+├── docs/           # Documentation
+├── logs/           # Flow execution logs
+└── makefile        # Build targets
 ```

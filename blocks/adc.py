@@ -1,393 +1,342 @@
 """
-SAR ADC specification with hierarchical CDAC integration.
+SAR ADC subcircuit definition.
+
+Dynamic topology using topo_params - generate_topology() computes ports/devices
+for each m_caps configuration.
 
 The ADC is a hierarchical design composed of:
-- Digital control logic (adc_digital.cdl)
-- Capacitor drivers (capdriver.cdl)
-- Capacitor arrays (caparray.cdl from CDAC module)
-- Sampling switches (sampswitch.cdl)
-- Comparator (comp.cdl)
+- Digital control logic (adc_digital)
+- Capacitor arrays with integrated drivers (cdac)
+- Sampling switches (samp)
+- Comparator (comp)
 
 Architecture variations:
-- Resolution: 8, 10, 12, 14 bits (determined by digital block configuration)
-- DAC stages: 7, 9, 11, 13, 15, 17, 19 capacitors per side
-- The same ADC subcircuit name is used for all configs; only the included
-  caparray netlist varies based on the number of caps
+- m_caps: 7, 9, 11, 13, 15, 17, 19 capacitors per side
+- Resolution depends on m_caps and redundancy strategy
 
 Naming conventions:
 - Use +/- suffixes for differential signals (consistent with comp.py)
-- Supply domains: vdd_a/vss_a (analog), vdd_d/vss_d (digital), vdd_dac/vss_dac (DAC drivers)
+- Supply domains: vdd_a/vss_a (analog), vdd_d/vss_d (digital)
 """
 
 from typing import Any
 
+# Merged subckt struct with topology params and sweeps combined
+subckt = {
+    "cellname": "adc",
+    "ports": {},      # Empty - computed by generate_topology()
+    "devices": {},    # Empty - computed by generate_topology()
+    "meta": {},
+    "tech": ["tsmc65"],
+    "topo_params": {
+        "m_caps": [7, 9, 11, 13, 15, 17, 19]
+    },
+    "dev_params": {
+        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+    },
+    "inst_params": []
+}
 
-def subcircuit():
+
+def generate_topology(m_caps: int) -> tuple[dict, dict]:
     """
-    Generate ADC subcircuits for all DAC capacitor array configurations.
+    Compute ports and devices for given m_caps configuration.
 
-    The ADC architecture is fixed, but we generate 7 different netlists
-    based on the number of capacitors in each CDAC array (7, 9, 11, 13, 15, 17, 19).
-    Each configuration corresponds to different bit resolutions:
-    - 7 caps: 8-bit ADC
-    - 9 caps: 10-bit ADC
-    - 11 caps: 12-bit ADC
-    - 13 caps: 14-bit ADC
-    - 15, 17, 19 caps: higher resolution variants with redundancy
+    Called by expand_topo_params() for each topo_params combination.
+
+    Args:
+        m_caps: Total number of physical capacitors per side (n_dac + n_extra)
 
     Returns:
-        Tuple of (topology_list, sweeps)
+        Tuple of (ports, devices)
     """
-    m_caps_list = [7, 9, 11, 13, 15, 17, 19]
-    topology_list = []
-
-    # Technology sweep (same for all topologies)
-    sweeps = {
-        "tech": ["tsmc65"],
-        "globals": {
-            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        },
+    # Build port list
+    ports = {
+        # Sequencer control signals
+        "seq_init": "I",
+        "seq_samp": "I",
+        "seq_comp": "I",
+        "seq_update": "I",
+        # Comparator output
+        "comp_out": "O",
+        # Enable signals
+        "en_init": "I",
+        "en_samp+": "I",
+        "en_samp-": "I",
+        "en_comp": "I",
+        "en_update": "I",
     }
 
-    for m_caps in m_caps_list:
-        # Generate port list for this configuration
-        # Digital control signals
-        ports = {
-            "seq_init": "I",
-            "seq_samp": "I",
-            "seq_comp": "I",
-            "seq_update": "I",
-            "comp_out": "O",
-            "en_init": "I",
-            "en_samp+": "I",
-            "en_samp-": "I",
-            "en_comp": "I",
-            "en_update": "I",
-            "dac_mode": "I",
-            "dac_diffcaps": "I",
+    # DAC state bus inputs (2 buses per side: astate and bstate, m_caps bits each)
+    for side in ['+', '-']:
+        for bus in ['astate', 'bstate']:
+            for i in range(m_caps):
+                ports[f"{bus}{side}[{i}]"] = "I"
+
+    # Analog inputs and supplies
+    ports.update({
+        "vin+": "B",
+        "vin-": "B",
+        "vdd_a": "B",
+        "vss_a": "B",
+        "vdd_d": "B",
+        "vss_d": "B",
+    })
+
+    # Build device instances
+    devices = {}
+
+    # Digital control block instance
+    # Generates internal clock signals and DAC control signals
+    digital_pins = {
+        "seq_init": "seq_init",
+        "seq_samp": "seq_samp",
+        "seq_comp": "seq_comp",
+        "seq_update": "seq_update",
+        "en_init": "en_init",
+        "en_samp+": "en_samp+",
+        "en_samp-": "en_samp-",
+        "en_comp": "en_comp",
+        "en_update": "en_update",
+        "comp_out": "comp_out",
+        "comp_out+": "comp_out+",
+        "comp_out-": "comp_out-",
+        "clk_samp+": "clk_samp+",
+        "clk_samp+b": "clk_samp+b",
+        "clk_samp-": "clk_samp-",
+        "clk_samp-b": "clk_samp-b",
+        "clk_comp": "clk_comp",
+        "clk_compb": "clk_compb",
+        "vdd_d": "vdd_d",
+        "vss_d": "vss_d",
+    }
+
+    # Add DAC state input buses to digital block
+    for side in ['+', '-']:
+        for bus in ['astate', 'bstate']:
+            for i in range(m_caps):
+                digital_pins[f"{bus}{side}[{i}]"] = f"{bus}{side}[{i}]"
+
+    # Add DAC control output buses from digital block to CDACs
+    for side in ['+', '-']:
+        for i in range(m_caps):
+            digital_pins[f"dac_ctrl{side}[{i}]"] = f"dac_ctrl{side}[{i}]"
+
+    devices['Xadc_digital'] = {'dev': 'subckt', 'subckt': 'adc_digital', 'pins': digital_pins}
+
+    # CDAC instances (2 total: + and - sides)
+    # CDACs now have integrated drivers, no separate capdriver needed
+    for side in ['+', '-']:
+        cdac_pins = {
+            "top": f"vdac{side}",
+            "vdd": "vdd_a",
+            "vss": "vss_a",
         }
+        for i in range(m_caps):
+            cdac_pins[f"dac[{i}]"] = f"dac_ctrl{side}[{i}]"
 
-        # DAC state bus inputs (2 buses per side: astate and bstate, m_caps bits each)
-        # For diffcap DAC, drivers are internal, so only N inputs per side
-        for side in ['+', '-']:
-            for bus in ['astate', 'bstate']:
-                for i in range(m_caps):
-                    ports[f"dac_{bus}{side}[{i}]"] = "I"
-
-        # Analog inputs and supplies
-        ports.update({
-            "vin+": "B",
-            "vin-": "B",
-            "vdd_a": "B",
-            "vss_a": "B",
-            "vdd_d": "B",
-            "vss_d": "B",
-            "vdd_dac": "B",
-            "vss_dac": "B",
-        })
-
-        # Device instances
-        devices = {}
-
-        # Digital control block instance
-        # Generates internal clock signals and DAC state/invert signals
-        digital_pins = {
-            "seq_init": "seq_init",
-            "seq_samp": "seq_samp",
-            "seq_comp": "seq_comp",
-            "seq_update": "seq_update",
-            "en_init": "en_init",
-            "en_samp+": "en_samp+",
-            "en_samp-": "en_samp-",
-            "en_comp": "en_comp",
-            "en_update": "en_update",
-            "dac_mode": "dac_mode",
-            "dac_diffcaps": "dac_diffcaps",
-            "comp_out": "comp_out",
-            "comp_out+": "comp_out+",
-            "comp_out-": "comp_out-",
-            "clk_samp+": "clk_samp+",
-            "clk_samp+b": "clk_samp+b",
-            "clk_samp-": "clk_samp-",
-            "clk_samp-b": "clk_samp-b",
-            "clk_comp": "clk_comp",
-            "dac_invert+_main": "dac_invert+_main",
-            "dac_invert+_diff": "dac_invert+_diff",
-            "dac_invert-_main": "dac_invert-_main",
-            "dac_invert-_diff": "dac_invert-_diff",
-            "vdd_d": "vdd_d",
-            "vss_d": "vss_d",
-        }
-
-        # Add DAC state input/output buses to digital block
-        for side in ['+', '-']:
-            for bus in ['astate', 'bstate']:
-                for i in range(m_caps):
-                    # Input: external DAC state
-                    digital_pins[f"dac_{bus}{side}[{i}]"] = f"dac_{bus}{side}[{i}]"
-
-        for side in ['+', '-']:
-            for array in ['main', 'diff']:
-                for i in range(m_caps):
-                    # Output: internal DAC state to drivers
-                    digital_pins[f"dac_state{side}_{array}[{i}]"] = f"dac_state{side}_{array}[{i}]"
-
-        devices['Xadc_digital'] = {'dev': 'subckt', 'subckt': 'adc_digital', 'pins': digital_pins}
-
-        # Capacitor driver instances (4 total: +/- sides × main/diff arrays)
-        for side in ['+', '-']:
-            for array in ['main', 'diff']:
-                driver_pins = {
-                    "dac_invert": f"dac_invert{side}_{array}",
-                    "vdd_dac": "vdd_dac",
-                    "vss_dac": "vss_dac",
-                }
-                for i in range(m_caps):
-                    driver_pins[f"dac_state[{i}]"] = f"dac_state{side}_{array}[{i}]"
-                    driver_pins[f"dac_drive[{i}]"] = f"dac_drive{side}_{array}[{i}]"
-
-                devices[f'Xcapdriver{side}_{array}'] = {
-                    'dev': 'subckt',
-                    'subckt': 'capdriver',
-                    'pins': driver_pins
-                }
-
-        # Capacitor array instances (2 total: + and - sides)
-        for side in ['+', '-']:
-            caparray_pins = {
-                "vdac": f"vdac{side}",
-                "vshield": "vss_a",
-            }
-            for array in ['main', 'diff']:
-                for i in range(m_caps):
-                    caparray_pins[f"bot_{array}[{i}]"] = f"dac_drive{side}_{array}[{i}]"
-
-            devices[f'Xcaparray{side}'] = {
-                'dev': 'subckt',
-                'subckt': 'caparray',
-                'pins': caparray_pins
-            }
-
-        # Sampling switch instances (2 total: + and - sides)
-        for side in ['+', '-']:
-            devices[f'Xsampswitch{side}'] = {
-                'dev': 'subckt',
-                'subckt': 'sampswitch',
-                'pins': {
-                    "vin": f"vin{side}",
-                    "vdac": f"vdac{side}",
-                    "clk": f"clk_samp{side}",
-                    "clkb": f"clk_samp{side}b",
-                    "vdd": "vdd_a",
-                    "vss": "vss_a",
-                }
-            }
-
-        # Comparator instance
-        devices['Xcomp'] = {
+        devices[f'Xcdac{side}'] = {
             'dev': 'subckt',
-            'subckt': 'comp',
+            'subckt': 'cdac',
+            'pins': cdac_pins
+        }
+
+    # Sampling switch instances (2 total: + and - sides)
+    for side in ['+', '-']:
+        devices[f'Xsamp{side}'] = {
+            'dev': 'subckt',
+            'subckt': 'samp',
             'pins': {
-                "in+": "vdac+",
-                "in-": "vdac-",
-                "out+": "comp_out+",
-                "out-": "comp_out-",
-                "clk": "clk_comp",
-                "clkb": "clk_compb",
+                "in": f"vin{side}",
+                "out": f"vdac{side}",
+                "clk": f"clk_samp{side}",
+                "clk_b": f"clk_samp{side}b",
                 "vdd": "vdd_a",
                 "vss": "vss_a",
             }
         }
 
-        # Build topology
-        topology = {
-            "subckt": "adc",
-            "ports": ports,
-            "devices": devices,
-            "meta": {
-                "m_caps": m_caps,
-            }
-        }
-
-        topology_list.append(topology)
-
-    return topology_list, sweeps
-
-
-def testbench():
-    """
-    ADC testbench for 2 complete conversions at 10 Msps.
-
-    Timing: 10ns settling + 2x 100ns conversions = 210ns total
-    Each conversion cycle:
-      - 0-5ns: seq_init high
-      - 5-15ns: seq_samp high
-      - 15-100ns: seq_comp and seq_update alternate (2.5ns pulses)
-
-    Generates testbenches for different m_caps values (matching subcircuit variants).
-    """
-    m_caps_list = [7, 9, 11, 13, 15, 17, 19]
-    topology_list = []
-
-    # Testbench sweep: corner, temp, and device globals
-    sweeps = {
-        "corner": ["tt"],
-        "temp": [27],
-        "globals": {
-            "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-            "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+    # Comparator instance
+    devices['Xcomp'] = {
+        'dev': 'subckt',
+        'subckt': 'comp',
+        'pins': {
+            "in+": "vdac+",
+            "in-": "vdac-",
+            "out+": "comp_out+",
+            "out-": "comp_out-",
+            "clk": "clk_comp",
+            "clkb": "clk_compb",
+            "vdd": "vdd_a",
+            "vss": "vss_a",
         }
     }
 
-    for m_caps in m_caps_list:
-        # Generate DAC state bus signals (all tied high for normal operation)
-        devices = {}
+    return ports, devices
 
-        for side in ['+', '-']:
-            for bus in ['astate', 'bstate']:
-                for i in range(m_caps):
-                    name = f'Vdac_{bus}{side}{i}'
-                    devices[name] = {
-                        'dev': 'vsource',
-                        'pins': {'p': f'dac_{bus}{side}[{i}]', 'n': 'gnd'},
-                        'wave': 'dc',
-                        'dc': 1.0
-                    }
 
-        # Power supplies
-        devices.update({
-            # Analog supply
-            'Vvdd_a': {'dev': 'vsource', 'pins': {'p': 'vdd_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Vvss_a': {'dev': 'vsource', 'pins': {'p': 'vss_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+"""
+ADC Testbench:
 
-            # Digital supply
-            'Vvdd_d': {'dev': 'vsource', 'pins': {'p': 'vdd_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Vvss_d': {'dev': 'vsource', 'pins': {'p': 'vss_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+Tests ADC with 2 complete conversions at 10 Msps.
 
-            # DAC supply
-            'Vvdd_dac': {'dev': 'vsource', 'pins': {'p': 'vdd_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Vvss_dac': {'dev': 'vsource', 'pins': {'p': 'vss_dac', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+Timing: 10ns settling + 2x 100ns conversions = 210ns total
+Each conversion cycle:
+  - 0-5ns: seq_init high
+  - 5-15ns: seq_samp high
+  - 15-100ns: seq_comp and seq_update alternate (2.5ns pulses)
 
-            # Differential input signals - ramping voltages
-            'Vin+': {
-                'dev': 'vsource',
-                'pins': {'p': 'vin+', 'n': 'gnd'},
-                'wave': 'pwl',
-                'points': [0, 0.917, 210, 0.875]  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
-            },
-            'Vin-': {
-                'dev': 'vsource',
-                'pins': {'p': 'vin-', 'n': 'gnd'},
-                'wave': 'pwl',
-                'points': [0, 0.667, 210, 0.708]  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
-            },
+Test structure:
+- Differential input signals (ramping voltages)
+- DAC state buses (astate+/-, bstate+/-) tied high for normal operation
+- Sequencer and enable signals
+- Transient analysis to capture ADC behavior
 
-            # Sequencer timing signals
-            'Vseq_init': {
-                'dev': 'vsource',
-                'pins': {'p': 'seq_init', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 0, 'v2': 1.0, 'td': 10, 'tr': 0.1, 'tf': 0.1, 'pw': 4.8, 'per': 100
-            },
-            'Vseq_samp': {
-                'dev': 'vsource',
-                'pins': {'p': 'seq_samp', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 0, 'v2': 1.0, 'td': 15, 'tr': 0.1, 'tf': 0.1, 'pw': 9.8, 'per': 100
-            },
-            'Vseq_comp': {
-                'dev': 'vsource',
-                'pins': {'p': 'seq_comp', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 0, 'v2': 1.0, 'td': 25, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-            },
-            'Vseq_update': {
-                'dev': 'vsource',
-                'pins': {'p': 'seq_update', 'n': 'gnd'},
-                'wave': 'pulse',
-                'v1': 0, 'v2': 1.0, 'td': 27.5, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
-            },
+The number of DAC state bus bits matches the ADC topology (m_caps).
+"""
 
-            # Enable signals - tied high for normal operation
-            'Ven_init': {'dev': 'vsource', 'pins': {'p': 'en_init', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Ven_samp+': {'dev': 'vsource', 'pins': {'p': 'en_samp+', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Ven_samp-': {'dev': 'vsource', 'pins': {'p': 'en_samp-', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Ven_comp': {'dev': 'vsource', 'pins': {'p': 'en_comp', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Ven_update': {'dev': 'vsource', 'pins': {'p': 'en_update', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-
-            # DAC mode control signals
-            'Vdac_mode': {'dev': 'vsource', 'pins': {'p': 'dac_mode', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-            'Vdac_diffcaps': {'dev': 'vsource', 'pins': {'p': 'dac_diffcaps', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
-        })
-
-        # Build DUT pin mapping
-        dut_pins = {
-            'seq_init': 'seq_init',
-            'seq_samp': 'seq_samp',
-            'seq_comp': 'seq_comp',
-            'seq_update': 'seq_update',
-            'comp_out': 'comp_out',
-            'en_init': 'en_init',
-            'en_samp+': 'en_samp+',
-            'en_samp-': 'en_samp-',
-            'en_comp': 'en_comp',
-            'en_update': 'en_update',
-            'dac_mode': 'dac_mode',
-            'dac_diffcaps': 'dac_diffcaps',
-            'vin+': 'vin+',
-            'vin-': 'vin-',
-            'vdd_a': 'vdd_a',
-            'vss_a': 'vss_a',
-            'vdd_d': 'vdd_d',
-            'vss_d': 'vss_d',
-            'vdd_dac': 'vdd_dac',
-            'vss_dac': 'vss_dac',
+# Monolithic testbench struct (dynamic topology - uses m_caps topo_param)
+tb = {
+    "devices": {},      # Empty - computed by generate_tb_topology()
+    "analyses": {
+        "tran1": {
+            "type": "tran",
+            "stop": 210,
+            "step": 0.1
         }
+    },
+    "corner": ["tt"],
+    "temp": [27],
+    "topo_params": {
+        "m_caps": [7, 9, 11, 13, 15, 17, 19]  # Match subckt m_caps values
+    },
+    "extra_includes": [
+        # Standard cell libraries (TSMC65 specific)
+        '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi',
+        '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi'
+    ],
+    "save": [
+        'v(vin+)', 'v(vin-)', 'v(comp_out)',
+        'v(seq_init)', 'v(seq_samp)', 'v(seq_comp)', 'v(seq_update)',
+        'v(en_init)', 'v(en_samp+)', 'v(en_samp-)', 'v(en_comp)', 'v(en_update)'
+    ]
+}
 
-        # Add DAC state buses to DUT pins
-        for side in ['+', '-']:
-            for bus in ['astate', 'bstate']:
-                for i in range(m_caps):
-                    dut_pins[f'dac_{bus}{side}[{i}]'] = f'dac_{bus}{side}[{i}]'
 
-        devices['Xadc'] = {'dev': 'subckt', 'subckt': 'adc', 'pins': dut_pins}
+def generate_tb_topology(m_caps: int) -> tuple[dict, dict]:
+    """
+    Generate testbench topology for given m_caps.
 
-        topology = {
-            'testbench': 'tb_adc',
-            'devices': devices,
-            'analyses': {
-                'tran1': {
-                    'type': 'tran',
-                    'stop': 210,
-                    'step': 0.1
+    Args:
+        m_caps: Number of DAC state bus bits (matches ADC topology)
+
+    Returns:
+        Tuple of (ports, devices) - ports is empty for top-level TB
+    """
+    ports = {}  # Testbenches have no ports (top-level)
+
+    devices = {}
+
+    # Generate DAC state bus signals (all tied high for normal operation)
+    for side in ['+', '-']:
+        for bus in ['astate', 'bstate']:
+            for i in range(m_caps):
+                name = f'V{bus}{side}{i}'
+                devices[name] = {
+                    'dev': 'vsource',
+                    'pins': {'p': f'{bus}{side}[{i}]', 'n': 'gnd'},
+                    'wave': 'dc',
+                    'dc': 1.0
                 }
-            },
-            'extra_includes': [
-                # Standard cell libraries (TSMC65 specific)
-                '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi',
-                '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi',
-                # ADC sub-module netlists
-                'spice/sampswitch.cdl',
-                'spice/comp.cdl',
-                'spice/capdriver.cdl',
-                'spice/caparray.cdl',
-                'spice/adc_digital.cdl',
-                'spice/adc.cdl'
-            ],
-            'save': [
-                'v(vin+)', 'v(vin-)', 'v(comp_out)',
-                'v(seq_init)', 'v(seq_samp)', 'v(seq_comp)', 'v(seq_update)',
-                'v(en_init)', 'v(en_samp+)', 'v(en_samp-)', 'v(en_comp)', 'v(en_update)'
-            ],
-            'meta': {
-                'm_caps': m_caps
-            }
-        }
 
-        topology_list.append(topology)
+    # Power supplies
+    devices.update({
+        # Analog supply
+        'Vvdd_a': {'dev': 'vsource', 'pins': {'p': 'vdd_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Vvss_a': {'dev': 'vsource', 'pins': {'p': 'vss_a', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
 
-    return topology_list, sweeps
+        # Digital supply
+        'Vvdd_d': {'dev': 'vsource', 'pins': {'p': 'vdd_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Vvss_d': {'dev': 'vsource', 'pins': {'p': 'vss_d', 'n': 'gnd'}, 'wave': 'dc', 'dc': 0.0},
+
+        # Differential input signals - ramping voltages
+        'Vin+': {
+            'dev': 'vsource',
+            'pins': {'p': 'vin+', 'n': 'gnd'},
+            'wave': 'pwl',
+            'points': [0, 0.917, 210, 0.875]  # Ramps from 1.1V to 1.05V (normalized to 1.2V supply)
+        },
+        'Vin-': {
+            'dev': 'vsource',
+            'pins': {'p': 'vin-', 'n': 'gnd'},
+            'wave': 'pwl',
+            'points': [0, 0.667, 210, 0.708]  # Ramps from 0.8V to 0.85V (normalized to 1.2V supply)
+        },
+
+        # Sequencer timing signals
+        'Vseq_init': {
+            'dev': 'vsource',
+            'pins': {'p': 'seq_init', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 0, 'v2': 1.0, 'td': 10, 'tr': 0.1, 'tf': 0.1, 'pw': 4.8, 'per': 100
+        },
+        'Vseq_samp': {
+            'dev': 'vsource',
+            'pins': {'p': 'seq_samp', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 0, 'v2': 1.0, 'td': 15, 'tr': 0.1, 'tf': 0.1, 'pw': 9.8, 'per': 100
+        },
+        'Vseq_comp': {
+            'dev': 'vsource',
+            'pins': {'p': 'seq_comp', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 0, 'v2': 1.0, 'td': 25, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
+        },
+        'Vseq_update': {
+            'dev': 'vsource',
+            'pins': {'p': 'seq_update', 'n': 'gnd'},
+            'wave': 'pulse',
+            'v1': 0, 'v2': 1.0, 'td': 27.5, 'tr': 0.1, 'tf': 0.1, 'pw': 2.4, 'per': 5
+        },
+
+        # Enable signals - tied high for normal operation
+        'Ven_init': {'dev': 'vsource', 'pins': {'p': 'en_init', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Ven_samp+': {'dev': 'vsource', 'pins': {'p': 'en_samp+', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Ven_samp-': {'dev': 'vsource', 'pins': {'p': 'en_samp-', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Ven_comp': {'dev': 'vsource', 'pins': {'p': 'en_comp', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+        'Ven_update': {'dev': 'vsource', 'pins': {'p': 'en_update', 'n': 'gnd'}, 'wave': 'dc', 'dc': 1.0},
+    })
+
+    # Build DUT pin mapping
+    dut_pins = {
+        'seq_init': 'seq_init',
+        'seq_samp': 'seq_samp',
+        'seq_comp': 'seq_comp',
+        'seq_update': 'seq_update',
+        'comp_out': 'comp_out',
+        'en_init': 'en_init',
+        'en_samp+': 'en_samp+',
+        'en_samp-': 'en_samp-',
+        'en_comp': 'en_comp',
+        'en_update': 'en_update',
+        'vin+': 'vin+',
+        'vin-': 'vin-',
+        'vdd_a': 'vdd_a',
+        'vss_a': 'vss_a',
+        'vdd_d': 'vdd_d',
+        'vss_d': 'vss_d',
+    }
+
+    # Add DAC state buses to DUT pins
+    for side in ['+', '-']:
+        for bus in ['astate', 'bstate']:
+            for i in range(m_caps):
+                dut_pins[f'{bus}{side}[{i}]'] = f'{bus}{side}[{i}]'
+
+    devices['Xadc'] = {'dev': 'subckt', 'subckt': 'adc', 'pins': dut_pins}
+
+    return ports, devices
 
 
 def measure(raw, subckt_json, tb_json, raw_file):
