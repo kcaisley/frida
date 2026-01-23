@@ -267,7 +267,7 @@ tb = {
 }
 
 
-def measure(raw, subckt_json, tb_json, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
     """
     Measure sampling switch simulation results.
 
@@ -299,4 +299,5 @@ def measure(raw, subckt_json, tb_json, raw_file):
         vcomm,
         max_error_V,
         rms_error_V,
+        outdir=meas_dir,
     )

@@ -457,7 +457,7 @@ def generate_tb_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
     return ports, instances
 
 
-def measure(raw, subckt_json, tb_json, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
     """
     Measure ADC linearity from simulation results.
 
@@ -552,4 +552,5 @@ def measure(raw, subckt_json, tb_json, raw_file):
         dnl_hist_rms,
         dnl_hist_max,
         error_rms,
+        outdir=meas_dir,
     )

@@ -1115,7 +1115,16 @@ def main() -> None:
         "circuit", type=Path, help="Circuit Python file (e.g., blocks/samp.py)"
     )
     parser.add_argument(
-        "-o", "--output", type=Path, required=True, help="Output directory"
+        "-o", "--output", type=Path, required=True, help="Base output directory"
+    )
+    parser.add_argument(
+        "--subckt-dir", type=Path, default=None, help="Subcircuit output directory (default: <output>/<cell>/subckt)"
+    )
+    parser.add_argument(
+        "--tb-dir", type=Path, default=None, help="Testbench output directory (default: <output>/<cell>/tb)"
+    )
+    parser.add_argument(
+        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
     )
 
     args = parser.parse_args()
@@ -1123,16 +1132,21 @@ def main() -> None:
     # Setup logging with log file
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     cell_name = args.circuit.stem
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
+    args.log_dir.mkdir(exist_ok=True)
+    log_file = args.log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
     setup_logging(log_file)
+
+    # Set default directories if not specified
+    if args.subckt_dir is None:
+        args.subckt_dir = args.output / cell_name / "subckt"
+    if args.tb_dir is None:
+        args.tb_dir = args.output / cell_name / "tb"
 
     print_flow_header(
         cell=cell_name,
         flow=args.mode,
         script_file=args.circuit,
-        outdir=args.output / cell_name,
+        outdir=args.subckt_dir if args.mode == "subckt" else args.tb_dir,
         log_file=log_file,
     )
 
@@ -1146,8 +1160,7 @@ def main() -> None:
             # ================================================================
 
             # 1. Create results dir and empty files dict
-            subckt_dir = args.output / cell_name / "subckt"
-            subckt_dir.mkdir(parents=True, exist_ok=True)
+            args.subckt_dir.mkdir(parents=True, exist_ok=True)
             files: dict[str, dict] = {}
 
             # 2. Get subckt template from circuit module
@@ -1208,12 +1221,12 @@ def main() -> None:
                 }
 
                 # 9. Write JSON struct
-                json_path = subckt_dir / f"{cfgname}.json"
+                json_path = args.subckt_dir / f"{cfgname}.json"
                 json_path.write_text(compact_json(subckt))
                 file_ctx["subckt_json"] = f"subckt/{cfgname}.json"
 
                 # 10. Write SPICE netlist
-                sp_path = subckt_dir / f"{cfgname}.sp"
+                sp_path = args.subckt_dir / f"{cfgname}.sp"
                 spice_str = generate_spice(subckt, mode=args.mode)
                 sp_path.write_text(spice_str)
                 file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
@@ -1274,8 +1287,7 @@ def main() -> None:
                 logger.error(msg)
                 raise ValueError(msg)
 
-            tb_dir = args.output / cell_name / "tb"
-            tb_dir.mkdir(parents=True, exist_ok=True)
+            args.tb_dir.mkdir(parents=True, exist_ok=True)
 
             # 2. Get tb template from circuit module
             tb_template = circuit_module.tb
@@ -1347,12 +1359,12 @@ def main() -> None:
                     cfgname = file_ctx["cfgname"]
                     tb_filename = f"{cfgname}_{corner}_{temp}"
 
-                    json_path = tb_dir / f"{tb_filename}.json"
+                    json_path = args.tb_dir / f"{tb_filename}.json"
                     json_path.write_text(compact_json(tb))
                     file_ctx["tb_json"].append(f"tb/{tb_filename}.json")
 
                     # 15. Write SPICE netlist
-                    sp_path = tb_dir / f"{tb_filename}.sp"
+                    sp_path = args.tb_dir / f"{tb_filename}.sp"
                     spice_str = generate_spice(tb, mode=args.mode)
                     sp_path.write_text(spice_str)
                     file_ctx["tb_spice"].append(f"tb/{tb_filename}.sp")

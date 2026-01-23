@@ -72,14 +72,9 @@ def write_analysis(raw_file, *variables, outdir=None):
             arrays[name] = value
 
     # Determine output paths
-    import sys
     import json
 
     raw_path = Path(raw_file)
-
-    # Check for outdir from CLI argument (stored in sys._measure_outdir)
-    if outdir is None and hasattr(sys, "_measure_outdir"):
-        outdir = sys._measure_outdir
 
     if outdir is not None:
         # Write to specified output directory
@@ -685,6 +680,9 @@ def main():
         type=Path,
         help="Output directory for measurements (e.g., results/meas)",
     )
+    parser.add_argument(
+        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
+    )
     args = parser.parse_args()
 
     # Extract cell name from block file (e.g., blocks/comp.py -> comp)
@@ -692,9 +690,8 @@ def main():
 
     # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"meas_{cell}_{timestamp}.log"
+    args.log_dir.mkdir(exist_ok=True)
+    log_file = args.log_dir / f"meas_{cell}_{timestamp}.log"
     logger = setup_logging(log_file)
 
     # Load analysis module
@@ -703,8 +700,6 @@ def main():
         logger.error(f"{args.block_file} does not have a measure() function")
         sys.exit(1)
 
-    # Set output directory in sys for write_analysis() to access
-    setattr(sys, "_measure_outdir", str(args.meas_dir))
     args.meas_dir.mkdir(parents=True, exist_ok=True)
 
     # Find all .raw files for this cell in sim_dir (now with sim_ prefix)
@@ -780,7 +775,7 @@ def main():
                 tb_json = json.load(f)
 
             # Call measure function
-            analysis_module.measure(raw, subckt_json, tb_json, str(raw_path))
+            analysis_module.measure(raw, subckt_json, tb_json, str(raw_path), str(args.meas_dir))
 
             logger.info(f"{filename:<50} {'✓':<10}")
             successful += 1

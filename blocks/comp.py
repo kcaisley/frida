@@ -622,7 +622,7 @@ tb = {
 }
 
 
-def measure(raw, subckt_json, tb_json, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
     """
     Measure comparator simulation results using statistical method.
 
@@ -728,6 +728,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     results["std_offset_mV"] = float(np.std(results["offset_mV"]))
     results["mean_sigma_mV"] = float(np.mean(results["sigma_mV"]))
 
-    write_analysis(raw_file, results)
+    write_analysis(raw_file, results, outdir=meas_dir)
 
     return results

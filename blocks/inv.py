@@ -80,7 +80,7 @@ tb = {
 }
 
 
-def measure(raw, subckt_json, tb_json, raw_file):
+def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
     """
     Measure inverter simulation results.
 
@@ -92,6 +92,6 @@ def measure(raw, subckt_json, tb_json, raw_file):
     # TODO: Use calc_*() functions from flow/measure
 
     results = {}
-    write_analysis(raw_file, results)
+    write_analysis(raw_file, results, outdir=meas_dir)
 
     return results

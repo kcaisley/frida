@@ -504,14 +504,16 @@ def main():
         default=None,
         help="Output directory for plots (default: same as meas_dir)",
     )
+    parser.add_argument(
+        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
+    )
     args = parser.parse_args()
 
     # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     cell_name = args.analysis_file.stem
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"plot_{cell_name}_{timestamp}.log"
+    args.log_dir.mkdir(exist_ok=True)
+    log_file = args.log_dir / f"plot_{cell_name}_{timestamp}.log"
     logger = setup_logging(log_file)
 
     logger.info("=" * 70)
