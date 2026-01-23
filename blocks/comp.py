@@ -18,8 +18,7 @@ Topo params:
 subckt = {
     "cellname": "comp",
     "ports": {},  # Empty - computed by generate_topology()
-    "devices": {},  # Empty - computed by generate_topology()
-    "meta": {},
+    "instances": {},  # Empty - computed by generate_topology()
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "topo_params": {
         "preamp_diffpair": ["nmosinput", "pmosinput"],
@@ -30,17 +29,16 @@ subckt = {
         "latch_rst_extern_ctl": ["clocked", "signalled", "noreset"],
         "latch_rst_intern_ctl": ["clocked", "signalled"],
     },
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "cap": {"c": 1, "m": 1},
-    },
     "inst_params": [
-        {"devices": ["M_preamp_diff+", "M_preamp_diff-"], "w": [4, 8], "type": ["lvt"]},
-        {"devices": ["M_preamp_tail", "M_preamp_bias"], "w": [2, 4], "l": [2]},
-        {"devices": ["M_preamp_rst+", "M_preamp_rst-"], "w": [2], "type": ["lvt"]},
+        # Defaults for all nmos/pmos/cap instances
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        {"instances": {"cap": "all"}, "c": 1, "m": 1},
+        # Override specific instances with sweeps
+        {"instances": {"nmos": ["M_preamp_diff+", "M_preamp_diff-"], "pmos": ["M_preamp_diff+", "M_preamp_diff-"]}, "w": [4, 8], "type": ["lvt"]},
+        {"instances": {"nmos": ["M_preamp_tail", "M_preamp_bias"], "pmos": ["M_preamp_tail", "M_preamp_bias"]}, "w": [2, 4], "l": [2]},
+        {"instances": {"nmos": ["M_preamp_rst+", "M_preamp_rst-"], "pmos": ["M_preamp_rst+", "M_preamp_rst-"]}, "w": [2], "type": ["lvt"]},
         {
-            "devices": ["Ma_latch+", "Ma_latch-", "Mb_latch+", "Mb_latch-"],
+            "instances": {"nmos": ["Ma_latch+", "Ma_latch-", "Mb_latch+", "Mb_latch-"], "pmos": ["Ma_latch+", "Ma_latch-", "Mb_latch+", "Mb_latch-"]},
             "w": [1, 2, 4],
             "type": ["lvt"],
         },
@@ -58,9 +56,9 @@ def generate_topology(
     latch_rst_intern_ctl: str,
 ) -> tuple[dict, dict] | tuple[None, None]:
     """
-    Compute ports and devices for given topo_params combination.
+    Compute ports and instances for given topo_params combination.
 
-    Called by expand_topo_params() for each cartesian product combo.
+    Called by generate_topology() for each cartesian product combo.
     Returns (None, None) for invalid combinations to skip.
 
     Args:
@@ -91,7 +89,7 @@ def generate_topology(
             return None, None
 
     # Initialize topology components
-    devices = {}
+    instances = {}
     ports = {
         "in+": "I",
         "in-": "I",
@@ -108,48 +106,48 @@ def generate_topology(
     # INPUT DIFFERENTIAL PAIR (assuming NMOS)
     if preamp_bias == "stdbias":
         # NMOS input, no dynamic biasing
-        devices["M_preamp_diff+"] = {
+        instances["M_preamp_diff+"] = {
             "dev": "nmos",
             "pins": {"d": "out-", "g": "in+", "s": "tail", "b": "vss"},
         }
-        devices["M_preamp_diff-"] = {
+        instances["M_preamp_diff-"] = {
             "dev": "nmos",
             "pins": {"d": "out+", "g": "in-", "s": "tail", "b": "vss"},
         }
-        devices["M_preamp_tail"] = {
+        instances["M_preamp_tail"] = {
             "dev": "nmos",
             "pins": {"d": "tail", "g": "clk", "s": "vss", "b": "vss"},
         }
     elif preamp_bias == "dynbias":
         # NMOS input, with dynamic biasing
-        devices["M_preamp_diff+"] = {
+        instances["M_preamp_diff+"] = {
             "dev": "nmos",
             "pins": {"d": "out-", "g": "in+", "s": "tail", "b": "vss"},
         }
-        devices["M_preamp_diff-"] = {
+        instances["M_preamp_diff-"] = {
             "dev": "nmos",
             "pins": {"d": "out+", "g": "in-", "s": "tail", "b": "vss"},
         }
-        devices["M_preamp_tail"] = {
+        instances["M_preamp_tail"] = {
             "dev": "nmos",
             "pins": {"d": "tail", "g": "clk", "s": "vcap", "b": "vss"},
         }
-        devices["M_preamp_bias"] = {
+        instances["M_preamp_bias"] = {
             "dev": "nmos",
             "pins": {"d": "vcap", "g": "clk", "s": "vss", "b": "vss"},
         }
-        devices["C_preamp_bias"] = {
+        instances["C_preamp_bias"] = {
             "dev": "cap",
             "pins": {"p": "vcap", "n": "vdd"},
             "c": 1,
         }
 
     # LOAD DEVICES (clocked, opposite type from input pair - PMOS for NMOS input)
-    devices["M_preamp_rst+"] = {
+    instances["M_preamp_rst+"] = {
         "dev": "pmos",
         "pins": {"d": "out-", "g": "clk", "s": "vdd", "b": "vdd"},
     }
-    devices["M_preamp_rst-"] = {
+    instances["M_preamp_rst-"] = {
         "dev": "pmos",
         "pins": {"d": "out+", "g": "clk", "s": "vdd", "b": "vdd"},
     }
@@ -158,58 +156,58 @@ def generate_topology(
     if comp_stages == "singlestage":
         # Strong-arm configuration: direct connection with cross-coupled latch and clocked pullup reset
         # Cross-coupled PMOS latch
-        devices["Ma_latch+"] = {
+        instances["Ma_latch+"] = {
             "dev": "pmos",
             "pins": {"d": "out-", "g": "out+", "s": "vdd", "b": "vdd"},
         }
-        devices["Ma_latch-"] = {
+        instances["Ma_latch-"] = {
             "dev": "pmos",
             "pins": {"d": "out+", "g": "out-", "s": "vdd", "b": "vdd"},
         }
         # Cross-coupled NMOS latch
-        devices["Mb_latch+"] = {
+        instances["Mb_latch+"] = {
             "dev": "nmos",
             "pins": {"d": "out-", "g": "out+", "s": "vss", "b": "vss"},
         }
-        devices["Mb_latch-"] = {
+        instances["Mb_latch-"] = {
             "dev": "nmos",
             "pins": {"d": "out+", "g": "out-", "s": "vss", "b": "vss"},
         }
         # Clocked reset (PMOS pullups, active low on clkb)
-        devices["M_latch_int_rst+"] = {
+        instances["M_latch_int_rst+"] = {
             "dev": "pmos",
             "pins": {"d": "out-", "g": "clkb", "s": "vdd", "b": "vdd"},
         }
-        devices["M_latch_int_rst-"] = {
+        instances["M_latch_int_rst-"] = {
             "dev": "pmos",
             "pins": {"d": "out+", "g": "clkb", "s": "vdd", "b": "vdd"},
         }
     elif comp_stages == "doublestage":
         # Double-stage configuration with powergate options
         # Core cross-coupled CMOS latch (always present)
-        devices["Ma_latch+"] = {
+        instances["Ma_latch+"] = {
             "dev": "pmos",
             "pins": {"d": "latch-", "g": "latch+", "s": "latch_vdd", "b": "vdd"},
         }
-        devices["Ma_latch-"] = {
+        instances["Ma_latch-"] = {
             "dev": "pmos",
             "pins": {"d": "latch+", "g": "latch-", "s": "latch_vdd", "b": "vdd"},
         }
-        devices["Mb_latch+"] = {
+        instances["Mb_latch+"] = {
             "dev": "nmos",
             "pins": {"d": "latch-", "g": "latch+", "s": "latch_vss", "b": "vss"},
         }
-        devices["Mb_latch-"] = {
+        instances["Mb_latch-"] = {
             "dev": "nmos",
             "pins": {"d": "latch+", "g": "latch-", "s": "latch_vss", "b": "vss"},
         }
 
         # Connection from preamp to latch
-        devices["M_preamp_to_latch+"] = {
+        instances["M_preamp_to_latch+"] = {
             "dev": "nmos",
             "pins": {"d": "latch-", "g": "out-", "s": "vss", "b": "vss"},
         }
-        devices["M_preamp_to_latch-"] = {
+        instances["M_preamp_to_latch-"] = {
             "dev": "nmos",
             "pins": {"d": "latch+", "g": "out+", "s": "vss", "b": "vss"},
         }
@@ -218,35 +216,35 @@ def generate_topology(
         if latch_pwrgate_node == "external":
             # Powergate at external node (between preamp and latch or at supply)
             if latch_pwrgate_ctl == "clocked":
-                devices["M_latch_ext_powergate+"] = {
+                instances["M_latch_ext_powergate+"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch_vdd", "g": "clk", "s": "vdd", "b": "vdd"},
                 }
-                devices["M_latch_ext_powergate-"] = {
+                instances["M_latch_ext_powergate-"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch_vdd", "g": "clk", "s": "vdd", "b": "vdd"},
                 }
             elif latch_pwrgate_ctl == "signalled":
-                devices["M_latch_ext_powergate+"] = {
+                instances["M_latch_ext_powergate+"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch_vdd", "g": "latch-", "s": "vdd", "b": "vdd"},
                 }
-                devices["M_latch_ext_powergate-"] = {
+                instances["M_latch_ext_powergate-"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch_vdd", "g": "latch+", "s": "vdd", "b": "vdd"},
                 }
             # External reset (if not noreset)
             if latch_rst_extern_ctl == "clocked":
-                devices["M_latch_ext_rst+"] = {
+                instances["M_latch_ext_rst+"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch-", "g": "clkb", "s": "latch_vdd", "b": "vdd"},
                 }
-                devices["M_latch_ext_rst-"] = {
+                instances["M_latch_ext_rst-"] = {
                     "dev": "pmos",
                     "pins": {"d": "latch+", "g": "clkb", "s": "latch_vdd", "b": "vdd"},
                 }
             elif latch_rst_extern_ctl == "signalled":
-                devices["M_latch_ext_rst+"] = {
+                instances["M_latch_ext_rst+"] = {
                     "dev": "pmos",
                     "pins": {
                         "d": "latch-",
@@ -255,7 +253,7 @@ def generate_topology(
                         "b": "vdd",
                     },
                 }
-                devices["M_latch_ext_rst-"] = {
+                instances["M_latch_ext_rst-"] = {
                     "dev": "pmos",
                     "pins": {
                         "d": "latch+",
@@ -265,11 +263,11 @@ def generate_topology(
                     },
                 }
             # No vss connection needed, use direct vss
-            devices["M_latch_vss_conn+"] = {
+            instances["M_latch_vss_conn+"] = {
                 "dev": "nmos",
                 "pins": {"d": "latch_vss", "g": "vdd", "s": "vss", "b": "vss"},
             }
-            devices["M_latch_vss_conn-"] = {
+            instances["M_latch_vss_conn-"] = {
                 "dev": "nmos",
                 "pins": {"d": "latch_vss", "g": "vdd", "s": "vss", "b": "vss"},
             }
@@ -277,26 +275,26 @@ def generate_topology(
         elif latch_pwrgate_node == "internal":
             # Powergate at internal node (no external reset, stacking at bottom)
             # Direct vdd connection
-            devices["M_latch_vdd_conn+"] = {
+            instances["M_latch_vdd_conn+"] = {
                 "dev": "pmos",
                 "pins": {"d": "latch_vdd", "g": "vss", "s": "vdd", "b": "vdd"},
             }
-            devices["M_latch_vdd_conn-"] = {
+            instances["M_latch_vdd_conn-"] = {
                 "dev": "pmos",
                 "pins": {"d": "latch_vdd", "g": "vss", "s": "vdd", "b": "vdd"},
             }
             # Powergate at vss side
             if latch_pwrgate_ctl == "clocked":
-                devices["M_latch_int_powergate"] = {
+                instances["M_latch_int_powergate"] = {
                     "dev": "nmos",
                     "pins": {"d": "latch_vss", "g": "clk", "s": "vss", "b": "vss"},
                 }
             elif latch_pwrgate_ctl == "signalled":
-                devices["M_latch_int_powergate+"] = {
+                instances["M_latch_int_powergate+"] = {
                     "dev": "nmos",
                     "pins": {"d": "latch_vss+", "g": "latch+", "s": "vss", "b": "vss"},
                 }
-                devices["M_latch_int_powergate-"] = {
+                instances["M_latch_int_powergate-"] = {
                     "dev": "nmos",
                     "pins": {"d": "latch_vss-", "g": "latch-", "s": "vss", "b": "vss"},
                 }
@@ -305,7 +303,7 @@ def generate_topology(
         if latch_rst_intern_ctl == "clocked":
             if latch_pwrgate_node == "internal" and latch_pwrgate_ctl == "signalled":
                 # Stack reset on top of signalled powergate
-                devices["M_latch_int_rst+"] = {
+                instances["M_latch_int_rst+"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch_vss",
@@ -314,7 +312,7 @@ def generate_topology(
                         "b": "vss",
                     },
                 }
-                devices["M_latch_int_rst-"] = {
+                instances["M_latch_int_rst-"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch_vss",
@@ -326,18 +324,18 @@ def generate_topology(
             elif not (
                 latch_pwrgate_node == "internal" and latch_pwrgate_ctl == "signalled"
             ):
-                devices["M_latch_int_rst+"] = {
+                instances["M_latch_int_rst+"] = {
                     "dev": "nmos",
                     "pins": {"d": "latch-", "g": "clkb", "s": "latch_vss", "b": "vss"},
                 }
-                devices["M_latch_int_rst-"] = {
+                instances["M_latch_int_rst-"] = {
                     "dev": "nmos",
                     "pins": {"d": "latch+", "g": "clkb", "s": "latch_vss", "b": "vss"},
                 }
         elif latch_rst_intern_ctl == "signalled":
             if latch_pwrgate_node == "internal" and latch_pwrgate_ctl == "signalled":
                 # Stack reset on top of signalled powergate
-                devices["M_latch_int_rst+"] = {
+                instances["M_latch_int_rst+"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch_vss",
@@ -346,7 +344,7 @@ def generate_topology(
                         "b": "vss",
                     },
                 }
-                devices["M_latch_int_rst-"] = {
+                instances["M_latch_int_rst-"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch_vss",
@@ -358,7 +356,7 @@ def generate_topology(
             elif not (
                 latch_pwrgate_node == "internal" and latch_pwrgate_ctl == "signalled"
             ):
-                devices["M_latch_int_rst+"] = {
+                instances["M_latch_int_rst+"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch-",
@@ -367,7 +365,7 @@ def generate_topology(
                         "b": "vss",
                     },
                 }
-                devices["M_latch_int_rst-"] = {
+                instances["M_latch_int_rst-"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": "latch+",
@@ -378,27 +376,27 @@ def generate_topology(
                 }
 
         # Output buffers from latch to final output
-        devices["Ma_latch_out+"] = {
+        instances["Ma_latch_out+"] = {
             "dev": "pmos",
             "pins": {"d": "out-", "g": "latch-", "s": "vdd", "b": "vdd"},
         }
-        devices["Ma_latch_out-"] = {
+        instances["Ma_latch_out-"] = {
             "dev": "pmos",
             "pins": {"d": "out+", "g": "latch+", "s": "vdd", "b": "vdd"},
         }
-        devices["Mb_latch_out+"] = {
+        instances["Mb_latch_out+"] = {
             "dev": "nmos",
             "pins": {"d": "out-", "g": "latch-", "s": "vss", "b": "vss"},
         }
-        devices["Mb_latch_out-"] = {
+        instances["Mb_latch_out-"] = {
             "dev": "nmos",
             "pins": {"d": "out+", "g": "latch+", "s": "vss", "b": "vss"},
         }
 
     # If PMOS input, swap everything
     if preamp_diffpair == "pmosinput":
-        swapped_devices = {}
-        for dev_name, dev_info in devices.items():
+        swapped_instances = {}
+        for dev_name, dev_info in instances.items():
             # Swap device name prefix Ma <-> Mb for cross-coupled pairs
             if dev_name.startswith("Ma_"):
                 new_dev_name = "Mb_" + dev_name[3:]
@@ -431,11 +429,11 @@ def generate_topology(
                         new_pins[pin_name] = pin_conn
                 new_dev_info["pins"] = new_pins
 
-            swapped_devices[new_dev_name] = new_dev_info
+            swapped_instances[new_dev_name] = new_dev_info
 
-        devices = swapped_devices
+        instances = swapped_instances
 
-    return ports, devices
+    return ports, instances
 
 
 # Compute testbench PWL waveforms (static, computed at module load)
@@ -492,7 +490,7 @@ _total_time = _t
 # Total: 5 × 10 × 10 = 500 comparisons per MC run
 # Clock period: 10 time units → 5000 time units total per run
 tb = {
-    "devices": {
+    "instances": {
         # Power supplies
         "Vvdd": {
             "dev": "vsource",
@@ -591,7 +589,7 @@ tb = {
         },
         # === DUT ===
         "Xdut": {
-            "dev": "comp",
+            "cell": "comp",
             "pins": {
                 "in+": "in+",
                 "in-": "in-",
@@ -635,6 +633,8 @@ def measure(raw, subckt_json, tb_json, raw_file):
 
     Test structure: 5 CM × 10 Vdiff × 10 samples = 500 comparisons per MC run
     """
+    from typing import Any
+
     from flow.measure import read_traces, quantize, write_analysis
     import numpy as np
     from scipy import special  # For inverse error function
@@ -674,7 +674,7 @@ def measure(raw, subckt_json, tb_json, raw_file):
             decisions[cm_idx][diff_idx].append(qvout_diff[sample_idx])
 
     # Analyze each common-mode voltage
-    results = {
+    results: dict[str, Any] = {
         "cm_voltages": cm_voltages,
         "diff_voltages": list(diff_voltages),
         "offset_mV": [],  # Offset at each CM

@@ -1,7 +1,7 @@
 // ADC Module - with configurable resolution
 
 module adc (
-   
+
     // Sequencing signals
     input  wire seq_init,                     // Initialization sequence timing
     input  wire seq_samp,                     // Sampling sequence timing
@@ -19,17 +19,17 @@ module adc (
     input  wire dac_mode,                     // DAC mode control (shared for both sides)
     input  wire [15:0] dac_astate_p,          // DAC A state positive side
     input  wire [15:0] dac_bstate_p,          // DAC B state positive side
-    
+
     // DAC config - negative side
     input  wire [15:0] dac_astate_n,          // DAC A state negative side
     input  wire [15:0] dac_bstate_n,          // DAC B state negative side
 
     // DAC diff caps (for unit length caps!)
     input wire dac_diffcaps,                  // Enable differential capacitor mode.
-    
+
     // Analog inputs
-    inout  wire vin_p,                        // Analog input positive
-    inout  wire vin_n,                        // Analog input negative
+    inout wire vin_p,                        // Analog input positive
+    inout wire vin_n,                        // Analog input negative
 
     // Output
     output wire comp_out,                      // Comparator output
@@ -51,7 +51,7 @@ module adc (
     wire clk_comp;                            // Comparator clock
     wire clk_update;                          // Logic clock signal
     wire [15:0] dac_state_p, dac_state_n;     // SAR logic output buses
-    
+
     // Four 16-bit capacitor driver outputs (keeping same signal names at top level)
     wire [15:0] dac_drive_botplate_main_p; // Positive capacitor driver outputs
     wire [15:0] dac_drive_botplate_diff_p; // Positive capacitor driver outputs, difference caps
@@ -126,7 +126,7 @@ module adc (
 `endif
     );
 
-    // P-side diff capacitor driver (active low: 1 = no invert)  
+    // P-side diff capacitor driver (active low: 1 = no invert)
     capdriver capdriver_p_diff (
         .dac_state(dac_state_p),              // SAR logic positive output
         .dac_drive_invert(dac_diffcaps),      // No inversion for positive side diff caps (active low)
@@ -139,7 +139,7 @@ module adc (
 
     // N-side main capacitor driver (active low: 1 = no invert)
     capdriver capdriver_n_main (
-        .dac_state(dac_state_n),              // SAR logic negative output  
+        .dac_state(dac_state_n),              // SAR logic negative output
         .dac_drive_invert(1'b1),              // Main drivers: no inversion (active low)
         .dac_drive(dac_drive_botplate_main_n) // To negative main capacitor array
 `ifdef USE_POWER_PINS
@@ -172,7 +172,7 @@ module adc (
         .vss_d(vss_d)
 `endif
     );
-    
+
     sampdriver sampdriver_n (
         .clk_in(clk_samp_n_raw),              // Input raw gated sampling clock negative
         .clk_out(clk_samp_n),                 // Buffered output clock negative

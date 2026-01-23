@@ -31,6 +31,8 @@ setup:
 check:
 	uvx ruff check flow blocks
 	uvx ty check flow blocks
+	# Check for unused functions
+	uvx vulture flow blocks
 
 clean_all:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then echo "Usage: make $@ <cell>"; exit 1; fi

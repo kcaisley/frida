@@ -462,7 +462,7 @@ def plot_code_density(dout_codes, bins="auto", title="Code Density"):
     )
 
     # Calculate average count and mark deviations
-    avg_count = np.mean(counts)
+    avg_count = float(np.mean(counts))
     ax.axhline(
         avg_count,
         color="r",

@@ -10,10 +10,9 @@ import hashlib
 import itertools
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from typing import Callable
+from typing import Any, Callable
 
 from flow.common import (
     calc_table_columns,
@@ -31,220 +30,347 @@ from flow.common import (
 )
 
 
-def expand_topo_params(
-    netstruct: dict[str, Any],
-    generate_topology_fn: Callable[..., tuple[dict, dict]] | None = None,
-) -> list[dict[str, Any]]:
+@dataclass
+class ParamAxis:
+    """A single sweepable parameter axis with its location."""
+
+    path: tuple[str | int, ...]  # e.g., ("inst_params", 0) or ("inst_params", 2, "inst_params", 0)
+    key: str  # e.g., "w", "l", "type"
+    values: list  # e.g., [1, 2, 4]
+
+
+def set_nested(obj: dict, path: tuple[str | int, ...], key: str, value: Any) -> None:
+    """Set a nested value in a dict using a path tuple and final key."""
+    current = obj
+    for p in path:
+        current = current[p]
+    current[key] = value
+
+
+def compute_params_hash(
+    topo_params: dict,
+    inst_params: list,
+    tech: str,
+) -> str:
     """
-    Stage 1: Expand topo_params cartesian product and fill ports/devices.
+    Compute SHA256 hash of config params for unique identification.
 
-    If ports/devices are already filled, returns [netstruct] unchanged.
-    Otherwise, requires generate_topology_fn from the block module.
-
-    Args:
-        netstruct: Merged struct with potential topo_params
-        generate_topology_fn: Block's generate_topology(**topo_params) function
-
-    Returns:
-        List of structs with ports/devices filled and topo_param values in meta
+    Order: topo_params, inst_params, tech
+    Returns: 12-char hex string
     """
-    # If devices already filled, skip Stage 1
-    # (ports may be empty for top-level testbenches)
-    if netstruct.get("devices"):
-        result = copy.deepcopy(netstruct)
-        if "meta" not in result:
-            result["meta"] = {}
-        # Set subckt name from cellname for static topologies
-        base_name = netstruct.get("cellname", "unnamed")
-        result["subckt"] = base_name
-        return [result]
-
-    topo_params = netstruct.get("topo_params", {})
-    if not topo_params:
-        msg = f"Struct '{netstruct.get('name')}' has empty ports/devices but no topo_params"
-        logging.error(msg)
-        raise ValueError(msg)
-
-    if generate_topology_fn is None:
-        msg = "Block must define generate_topology() when using topo_params"
-        logging.error(msg)
-        raise ValueError(msg)
-
-    # Cartesian product of topo_params
-    param_names = list(topo_params.keys())
-    param_lists = [
-        topo_params[k] if isinstance(topo_params[k], list) else [topo_params[k]]
-        for k in param_names
+    parts = [
+        json.dumps(topo_params, sort_keys=True),
+        json.dumps(inst_params, sort_keys=True),
+        tech,
     ]
+    combined = "|".join(parts)
+    hash_obj = hashlib.sha256(combined.encode())
+    return hash_obj.hexdigest()[:12]
+
+
+def discover_param_axes(
+    netstruct: dict[str, Any],
+    mode: str,
+    path_prefix: tuple[str | int, ...] = (),
+) -> list[ParamAxis]:
+    """Recursively discover all sweepable params for the given mode."""
+    axes = []
+
+    if mode == "topo_params":
+        # Direct topo_params at this level
+        for key, val in netstruct.get("topo_params", {}).items():
+            if isinstance(val, list):
+                axes.append(ParamAxis(path_prefix + ("topo_params",), key, val))
+
+        # Child topo_params in inst_params entries (for subcells)
+        for idx, inst_spec in enumerate(netstruct.get("inst_params", [])):
+            if isinstance(inst_spec, dict) and "topo_params" in inst_spec:
+                # This targets subcells - recurse into child topo_params
+                for key, val in inst_spec.get("topo_params", {}).items():
+                    if isinstance(val, list):
+                        axes.append(
+                            ParamAxis(
+                                path_prefix + ("inst_params", idx, "topo_params"),
+                                key,
+                                val,
+                            )
+                        )
+
+    elif mode == "inst_params":
+        for idx, inst_spec in enumerate(netstruct.get("inst_params", [])):
+            if not isinstance(inst_spec, dict):
+                continue
+
+            # Check if this targets subcells (has nested topo_params or inst_params)
+            is_subcell_spec = any(k in inst_spec for k in ("topo_params", "inst_params"))
+
+            if is_subcell_spec:
+                # Recurse into nested inst_params for subcell lookup params
+                nested_inst_params = inst_spec.get("inst_params", [])
+                for nested_idx, nested_spec in enumerate(nested_inst_params):
+                    if not isinstance(nested_spec, dict):
+                        continue
+                    for key, val in nested_spec.items():
+                        if key == "instances":
+                            continue
+                        if isinstance(val, list):
+                            axes.append(
+                                ParamAxis(
+                                    path_prefix
+                                    + ("inst_params", idx, "inst_params", nested_idx),
+                                    key,
+                                    val,
+                                )
+                            )
+            else:
+                # Regular instance params (for primitives)
+                for key, val in inst_spec.items():
+                    if key == "instances":
+                        continue
+                    if isinstance(val, list):
+                        axes.append(
+                            ParamAxis(
+                                path_prefix + ("inst_params", idx),
+                                key,
+                                val,
+                            )
+                        )
+
+    elif mode == "tech_params":
+        tech = netstruct.get("tech")
+        if isinstance(tech, list):
+            axes.append(ParamAxis(path_prefix, "tech", tech))
+
+    return axes
+
+
+def expand_params(
+    netstructs: list[dict[str, Any]] | dict[str, Any],
+    mode: str,
+) -> list[dict[str, Any]]:
+    """Unified parameter expansion with nested child support."""
+    if isinstance(netstructs, dict):
+        netstructs = [netstructs]
 
     result_list = []
-    base_name = netstruct.get("cellname", "unnamed")
+    for netstruct in netstructs:
+        axes = discover_param_axes(netstruct, mode)
 
-    for combo in itertools.product(*param_lists):
-        param_dict = dict(zip(param_names, combo))
+        if not axes:
+            result_list.append(copy.deepcopy(netstruct))
+            continue
 
-        # Call block's generate_topology() with scalar params
-        ports, devices = generate_topology_fn(**param_dict)
+        value_lists = [axis.values for axis in axes]
+        for combo in itertools.product(*value_lists):
+            result = copy.deepcopy(netstruct)
+            for i, axis in enumerate(axes):
+                set_nested(result, axis.path, axis.key, combo[i])
+            result_list.append(result)
 
-        # Skip invalid combinations (generate_topology returns None, None)
-        if ports is None or devices is None:
+    return result_list
+
+
+def generate_topology(
+    netstructs: list[dict[str, Any]],
+    generate_fn: Callable[..., tuple[dict, dict]] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Fill ports/instances by calling generate_fn with scalar topo_params.
+    Only operates on parent level.
+    """
+    if generate_fn is None:
+        return netstructs
+
+    result_list = []
+    for netstruct in netstructs:
+        # Skip if instances already filled
+        if netstruct.get("instances"):
+            result_list.append(netstruct)
+            continue
+
+        topo_params = netstruct.get("topo_params", {})
+        ports, instances = generate_fn(**topo_params)
+
+        # Skip invalid combinations (generate_fn returns None, None)
+        if ports is None or instances is None:
             continue
 
         result = copy.deepcopy(netstruct)
         result["ports"] = ports
-        result["devices"] = devices
-
-        # Subcircuit name is always the base name (topology-independent)
-        result["subckt"] = base_name
-
-        # Store topo_param values in meta
-        if "meta" not in result:
-            result["meta"] = {}
-        result["meta"].update(param_dict)
-
-        # Clear topo_params (already expanded)
-        result.pop("topo_params", None)
-
+        result["instances"] = instances
         result_list.append(result)
 
     return result_list
 
 
-def expand_dev_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def apply_inst_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Stage 2: Expand tech, inst_params, dev_params into scalar structs.
+    Apply inst_params to parent's primitive instances only.
 
-    Takes list of structs from expand_topo_params() and expands:
-    - tech (list of technologies)
-    - dev_params (device-type defaults, applied LAST)
-    - inst_params (instance-specific overrides, applied BEFORE dev_params)
-
-    Priority order:
-    1. Values set in devices by generate_topology() - NEVER overwritten
-    2. inst_params - applied next
-    3. dev_params - applied last as defaults
-
-    Args:
-        netstructs: List of structs from expand_topo_params()
-
-    Returns:
-        List of fully expanded structs with all params scalar and applied to devices
+    Rules:
+    - Later entries override earlier entries
+    - Specific selectors (list) override "all" selectors
+    - Entries with topo_params/inst_params target subcells (skipped here, used for lookup)
     """
     result_list = []
-
     for netstruct in netstructs:
-        sweep_axes = []  # List of (path, values)
+        result = copy.deepcopy(netstruct)
+        instances = result.get("instances", {})
+        inst_params = result.get("inst_params", [])
 
-        # 1. Tech axis
-        tech = netstruct.get("tech")
-        if tech is not None:
-            sweep_axes.append((("tech",), tech if isinstance(tech, list) else [tech]))
+        # Build index: instance_name -> dev_type (or cell_type)
+        inst_to_type: dict[str, str] = {}
+        for inst_name, inst_info in instances.items():
+            if "dev" in inst_info:
+                inst_to_type[inst_name] = inst_info["dev"]
+            elif "cell" in inst_info:
+                inst_to_type[inst_name] = inst_info["cell"]
 
-        # 2. dev_params axes (device-type defaults)
-        for dev_type, params in netstruct.get("dev_params", {}).items():
-            # Skip child subcircuit params for now (handled later)
-            if isinstance(params, dict) and "topo_params" in params:
+        # Process inst_params in order (later overrides earlier)
+        for inst_spec in inst_params:
+            if not isinstance(inst_spec, dict):
                 continue
-            for param, val in params.items():
-                path = ("dev_params", dev_type, param)
-                sweep_axes.append((path, val if isinstance(val, list) else [val]))
 
-        # 3. inst_params axes (instance-specific overrides)
-        for idx, inst_spec in enumerate(netstruct.get("inst_params", [])):
-            # Skip subcircuit instance overrides for now
-            if "inst" in inst_spec:
+            # Skip subcell specs (used for lookup, not application)
+            if any(k in inst_spec for k in ("topo_params", "inst_params")):
                 continue
-            for param, val in inst_spec.items():
-                if param == "devices":
-                    continue
-                path = ("inst_params", idx, param)
-                sweep_axes.append((path, val if isinstance(val, list) else [val]))
 
-        # If no sweep axes, return single struct
-        if not sweep_axes:
-            result_list.append(copy.deepcopy(netstruct))
-            continue
+            selector = inst_spec.get("instances", {})
 
-        # 4. Cartesian product
-        paths = [axis[0] for axis in sweep_axes]
-        value_lists = [axis[1] for axis in sweep_axes]
+            # Find matching instances
+            matched_instances = []
+            for dev_type, targets in selector.items():
+                if targets == "all":
+                    # All instances of this type
+                    matched_instances.extend(
+                        name for name, typ in inst_to_type.items() if typ == dev_type
+                    )
+                elif isinstance(targets, list):
+                    # Specific instances
+                    matched_instances.extend(
+                        name for name in targets if name in instances
+                    )
 
-        for combo in itertools.product(*value_lists):
-            expanded = apply_dev_params(netstruct, paths, combo)
-            result_list.append(expanded)
+            # Apply params to matched instances
+            for inst_name in matched_instances:
+                inst_info = instances[inst_name]
+                if "params" not in inst_info:
+                    inst_info["params"] = {}
 
+                for param, val in inst_spec.items():
+                    if param == "instances":
+                        continue
+                    inst_info["params"][param] = val
+
+        result_list.append(result)
     return result_list
 
 
-def apply_dev_params(
-    netstruct: dict[str, Any], paths: list[tuple], values: tuple
-) -> dict[str, Any]:
+def resolve_child_deps(
+    subckt: dict[str, Any],
+    results_dir: Path,
+) -> dict[str, dict[str, str]]:
     """
-    Apply one expansion combination to netstruct.
+    Resolve child subcircuit dependencies for a parent subckt.
 
-    Priority: topology-set values > inst_params > dev_params
+    Computes child config hashes directly from:
+    - Parent's tech (inherited by children)
+    - Child topo_params from instance definition (set by generate_topology)
+    - Child inst_params from parent's inst_params targeting that child
+
+    Then looks up the hash in the child's files.json - no need to load child JSONs.
+
+    Args:
+        subckt: Parent subcircuit netstruct (fully expanded, single config)
+        results_dir: Base results directory (e.g., Path("results"))
+
+    Returns:
+        Dict mapping child config_hash to {"child_cellname", "child_json", "child_spice"}
     """
-    netstruct_expanded = copy.deepcopy(netstruct)
+    children: dict[str, dict[str, str]] = {}
+    parent_tech = subckt.get("tech")
+    if not parent_tech:
+        return children
 
-    # Build parameter lookup dicts from this combination
-    tech = None
-    dev_defaults = {}  # {dev_type: {param: value}}
-    inst_overrides = {}  # {idx: {param: value, "devices": [...]}}
+    instances = subckt.get("instances", {})
+    parent_inst_params = subckt.get("inst_params", [])
 
-    for path, value in zip(paths, values):
-        if path[0] == "tech":
-            tech = value
-        elif path[0] == "dev_params":
-            dev_type, param = path[1], path[2]
-            if dev_type not in dev_defaults:
-                dev_defaults[dev_type] = {}
-            dev_defaults[dev_type][param] = value
-        elif path[0] == "inst_params":
-            idx, param = path[1], path[2]
-            if idx not in inst_overrides:
-                # Copy devices list from original inst_params
-                orig_inst = netstruct.get("inst_params", [])[idx]
-                inst_overrides[idx] = {"devices": orig_inst.get("devices", [])}
-            inst_overrides[idx][param] = value
+    # Collect child cells and their topo_params from instance definitions
+    # cell_name -> {"inst_names": [...], "topo_params": {...}, "inst_params": [...]}
+    child_cells: dict[str, dict[str, Any]] = {}
+    for inst_name, inst_info in instances.items():
+        if "cell" in inst_info:
+            cell_name = inst_info["cell"]
+            if cell_name not in child_cells:
+                child_cells[cell_name] = {"inst_names": [], "topo_params": {}, "inst_params": []}
+            child_cells[cell_name]["inst_names"].append(inst_name)
+            # Merge topo_params from instance definition (set by generate_topology)
+            if "topo_params" in inst_info:
+                child_cells[cell_name]["topo_params"].update(inst_info["topo_params"])
 
-    # Set tech at top level
-    if tech is not None:
-        netstruct_expanded["tech"] = tech
+    # Extract child topo_params and inst_params from parent's inst_params
+    for inst_spec in parent_inst_params:
+        if not isinstance(inst_spec, dict):
+            continue
 
-    # Apply to devices
-    devices = netstruct_expanded.get("devices", {})
+        selector = inst_spec.get("instances", {})
 
-    # Step 1: Apply dev_params as defaults (lowest priority)
-    for dev_name, dev_info in devices.items():
-        dev_type = dev_info.get("dev")
-        if dev_type and dev_type in dev_defaults:
-            if "params" not in dev_info:
-                dev_info["params"] = {"dev": dev_type}
-            for param, val in dev_defaults[dev_type].items():
-                # Only set if not already present
-                if param not in dev_info["params"]:
-                    dev_info["params"][param] = val
+        for cell_name, cell_info in child_cells.items():
+            inst_names = cell_info["inst_names"]
+            targets_child = False
 
-    # Step 2: Apply inst_params overrides (higher priority than dev_params)
-    for idx, overrides in inst_overrides.items():
-        target_devices = overrides.get("devices", [])
-        for dev_name in target_devices:
-            if dev_name in devices:
-                dev_info = devices[dev_name]
-                if "params" not in dev_info:
-                    dev_type = dev_info.get("dev")
-                    dev_info["params"] = {"dev": dev_type} if dev_type else {}
-                for param, val in overrides.items():
-                    if param != "devices":
-                        # Override dev_params values
-                        dev_info["params"][param] = val
+            for dev_type, targets in selector.items():
+                if dev_type == cell_name:
+                    targets_child = True
+                    break
+                if isinstance(targets, list):
+                    for target in targets:
+                        if target in inst_names:
+                            targets_child = True
+                            break
 
-    # Clean up intermediate fields
-    netstruct_expanded.pop("topo_params", None)
-    netstruct_expanded.pop("dev_params", None)
-    netstruct_expanded.pop("inst_params", None)
+            if not targets_child:
+                continue
 
-    return netstruct_expanded
+            # Extract child topo_params if present
+            if "topo_params" in inst_spec:
+                cell_info["topo_params"].update(inst_spec["topo_params"])
+
+            # Extract child inst_params if present
+            if "inst_params" in inst_spec:
+                cell_info["inst_params"].extend(inst_spec["inst_params"])
+
+    # For each child cell, compute hash and look up in files.json
+    for cell_name, cell_info in child_cells.items():
+        child_files_path = results_dir / cell_name / "files.json"
+        if not child_files_path.exists():
+            logging.warning(f"Child files.json not found: {child_files_path}")
+            continue
+
+        child_files = load_files_list(child_files_path)
+        if not child_files:
+            continue
+
+        # Compute child's config hash directly
+        child_topo_params = cell_info["topo_params"]
+        child_inst_params = cell_info["inst_params"]
+        child_hash = compute_params_hash(child_topo_params, child_inst_params, parent_tech)
+
+        # Look up in child's files.json
+        if child_hash in child_files:
+            entry = child_files[child_hash]
+            children[child_hash] = {
+                "child_cellname": cell_name,
+                "child_json": f"{cell_name}/{entry['subckt_json']}",
+                "child_spice": f"{cell_name}/{entry['subckt_spice']}",
+            }
+        else:
+            logging.warning(
+                f"Child {cell_name} hash {child_hash} not found "
+                f"(topo_params={child_topo_params}, inst_params={child_inst_params})"
+            )
+
+    return children
 
 
 def map_technology(
@@ -254,18 +380,19 @@ def map_technology(
     Map generic netstruct to technology-specific netlist.
 
     Reads tech from netstruct["tech"] (top-level field).
-    Uses device params.dev ('nmos'/'pmos') + params.type ('lvt'/'svt'/'hvt') to look up devmap.
+    Uses instance params.dev ('nmos'/'pmos') + params.type ('lvt'/'svt'/'hvt') to look up devmap.
     """
     tech = netstruct["tech"]
     tech_config = techmap[tech]
     netstruct_techmapped = copy.deepcopy(netstruct)
 
-    for dev_name, dev_info in netstruct_techmapped.get("devices", {}).items():
-        params = dev_info.get("params")
+    for inst_name, inst_info in netstruct_techmapped.get("instances", {}).items():
+        params = inst_info.get("params")
         if not params:
             continue
 
-        dev = params.get("dev")
+        # Device type is stored directly on inst_info, not in params
+        dev = inst_info.get("dev")
         if not dev:
             continue
 
@@ -283,28 +410,29 @@ def map_technology(
         if not dev_map:
             continue
 
-        # Remove generic 'dev' field from device info
-        if "dev" in dev_info:
-            del dev_info["dev"]
+        # Save device type in params for generate_spice(), then remove from inst_info
+        params["dev"] = dev
+        if "dev" in inst_info:
+            del inst_info["dev"]
 
         # Map transistors
         if dev in ["nmos", "pmos"]:
-            dev_info["model"] = dev_map["model"]
-            dev_info["w"] = params["w"] * dev_map["w"]
-            dev_info["l"] = params["l"] * dev_map["l"]
-            dev_info["nf"] = params.get("nf", 1)
+            inst_info["model"] = dev_map["model"]
+            inst_info["w"] = params["w"] * dev_map["w"]
+            inst_info["l"] = params["l"] * dev_map["l"]
+            inst_info["nf"] = params.get("nf", 1)
 
         # Map capacitors
         elif dev == "cap":
-            dev_info["model"] = dev_map["model"]
-            # Keep c and m from device definition for SPICE generation
+            inst_info["model"] = dev_map["model"]
+            # Keep c and m from instance definition for SPICE generation
 
         # Map resistors
         elif dev == "res":
-            dev_info["model"] = dev_map["model"]
-            # Keep r from device definition for SPICE generation
+            inst_info["model"] = dev_map["model"]
+            # Keep r from instance definition for SPICE generation
             if "rsh" in dev_map:
-                dev_info["rsh"] = dev_map["rsh"]
+                inst_info["rsh"] = dev_map["rsh"]
 
     return netstruct_techmapped
 
@@ -323,25 +451,25 @@ def scale_testbench(tb: dict[str, Any], techmap: dict[str, Any]) -> dict[str, An
     tb_scaled = copy.deepcopy(tb)
 
     # Scale voltage sources using scalemap
-    for dev_name, dev_info in tb_scaled.get("devices", {}).items():
-        if dev_info.get("dev") == "vsource":
-            wave = dev_info.get("wave")
+    for inst_name, inst_info in tb_scaled.get("instances", {}).items():
+        if inst_info.get("dev") == "vsource":
+            wave = inst_info.get("wave")
             if wave not in scalemap:
                 continue
 
             for param, scale_type in scalemap[wave].items():
-                if param not in dev_info:
+                if param not in inst_info:
                     continue
 
                 if scale_type == "voltage":
-                    dev_info[param] *= vdd
+                    inst_info[param] *= vdd
                 elif scale_type == "time":
-                    dev_info[param] *= tstep
+                    inst_info[param] *= tstep
                 elif scale_type == "pwl":
                     # Alternating time/voltage pairs
-                    dev_info[param] = [
+                    inst_info[param] = [
                         val * (tstep if i % 2 == 0 else vdd)
-                        for i, val in enumerate(dev_info[param])
+                        for i, val in enumerate(inst_info[param])
                     ]
 
     # Scale analysis parameters
@@ -422,20 +550,24 @@ def autoadd_fields(
     # Add save statements
     save_stmts = ["all"]
 
-    # Generate device-specific save statements from subcircuit
+    # Generate instance-specific save statements from subcircuit
     if subckt:
-        # Find DUT instance name
+        # Find DUT instance name (look for "cell" key matching cellname, or "dev" for backwards compat)
         dut_instance = None
-        for dev_name, dev_info in tb.get("devices", {}).items():
-            if dev_info.get("dev") == subckt.get("subckt"):
-                dut_instance = dev_name
+        for inst_name, inst_info in tb.get("instances", {}).items():
+            if inst_info.get("cell") == subckt.get("cellname"):
+                dut_instance = inst_name
+                break
+            # Backwards compatibility: check "dev" field too
+            if inst_info.get("dev") == subckt.get("cellname"):
+                dut_instance = inst_name
                 break
 
         if dut_instance:
-            # Generate save statements for transistors (devices with params field)
-            for dev_name, dev_info in subckt.get("devices", {}).items():
-                if "params" in dev_info:
-                    hier_name = f"{dut_instance}.{dev_name}"
+            # Generate save statements for transistors (instances with params field)
+            for inst_name, inst_info in subckt.get("instances", {}).items():
+                if "params" in inst_info:
+                    hier_name = f"{dut_instance}.{inst_name}"
                     save_stmts.append(f"{hier_name}:currents")
                     save_stmts.append(f"{hier_name}:d:q {hier_name}:s:q")
                     oppoint = " ".join(
@@ -473,11 +605,11 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
     if mode == "subckt":
         # Subcircuit mode
-        subckt_name = netstruct.get("subckt", "unnamed")
+        subckt_name = netstruct.get("cellname", "unnamed")
         ports = netstruct.get("ports", {})
-        devices = netstruct.get("devices", {})
+        instances = netstruct.get("instances", {})
 
-        # Generate descriptive comment from top-level and meta fields
+        # Generate descriptive comment from top-level and topo_params fields
         param_strs = []
 
         # Add top-level fields (tech, corner, temp)
@@ -485,8 +617,8 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
             if field in netstruct:
                 param_strs.append(f"{field}: {netstruct[field]}")
 
-        # Add topo_param values (stored in meta field)
-        topo_params_dict = netstruct.get("meta", {})
+        # Add topo_param values
+        topo_params_dict = netstruct.get("topo_params", {})
         for key, value in topo_params_dict.items():
             # Only include scalar types
             if isinstance(value, (int, str, float, bool)):
@@ -509,52 +641,58 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
         lines.append(f"*.PININFO {pininfo}")
         lines.append("")
 
-        # Devices
-        for dev_name, dev_info in devices.items():
-            model = dev_info.get("model")
-            pins = dev_info.get("pins", {})
+        # Instances
+        for inst_name, inst_info in instances.items():
+            pins = inst_info.get("pins", {})
 
-            # Determine device type from params if available, otherwise from dev field
+            # Case 1: Subcircuit instance (child cell) - identified by "cell" key
+            if "cell" in inst_info:
+                cell_ref = inst_info["cell"]
+                pin_list = " ".join(pins.values())
+                lines.append(f"{inst_name} {pin_list} {cell_ref}")
+                continue
+
+            # Case 2: Primitive device - identified by "dev" key
+            # Device type may be in params.dev (after map_technology) or inst_info.dev
             dev_type = None
-            if "params" in dev_info:
-                dev_type = dev_info["params"].get("dev")
+            if "params" in inst_info:
+                dev_type = inst_info["params"].get("dev")
             if not dev_type:
-                dev_type = dev_info.get("dev")
+                dev_type = inst_info.get("dev")
 
-            # Transistors
+            if not dev_type:
+                # Skip instances without device type
+                continue
+
+            # Get params dict (nested under 'params' key after apply_inst_params)
+            params = inst_info.get("params", {})
+            model = inst_info.get("model")
+
+            # Transistors (nmos, pmos)
             if dev_type in ["nmos", "pmos"]:
                 pin_list = " ".join(pins.get(p, "0") for p in ["d", "g", "s", "b"])
-                line = f"{dev_name} {pin_list} {model}"
-                line += f" W={format_value(dev_info['w'])}"
-                line += f" L={format_value(dev_info['l'])}"
-                line += f" nf={dev_info.get('nf', 1)}"
+                line = f"{inst_name} {pin_list} {model}"
+                line += f" W={format_value(params['w'])}"
+                line += f" L={format_value(params['l'])}"
+                line += f" nf={params.get('nf', 1)}"
                 lines.append(line)
 
             # Capacitors
             elif dev_type == "cap":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
-                c = dev_info.get("c", 1)  # Unitless capacitance value
-                m = dev_info.get("m", 1)  # Multiplier
-                cap_model = dev_info.get("model", "capacitor")
-
-                # Generate capacitor instance
-                # Note: c and m are unitless here, actual capacitance depends on PDK
-                lines.append(f"{dev_name} {p} {n} {cap_model} c={c} m={m}")
+                c = params.get("c", 1)  # Unitless capacitance value
+                m = params.get("m", 1)  # Multiplier
+                cap_model = inst_info.get("model", "capacitor")
+                lines.append(f"{inst_name} {p} {n} {cap_model} c={c} m={m}")
 
             # Resistors
             elif dev_type == "res":
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
-                r = dev_info.get("r", 4)  # Resistance multiplier
-                res_model = dev_info.get("model", "resistor")
-                lines.append(f"{dev_name} {p} {n} {res_model} r={r}")
-
-            # Subcircuit instances (hierarchical)
-            elif dev_type == "subckt":
-                subckt_ref = dev_info.get("subckt", "unknown")
-                pin_list = " ".join(pins.values())
-                lines.append(f"{dev_name} {pin_list} {subckt_ref}")
+                r = params.get("r", 4)  # Resistance multiplier
+                res_model = inst_info.get("model", "resistor")
+                lines.append(f"{inst_name} {p} {n} {res_model} r={r}")
 
         lines.append("")
         lines.append(f".ends {subckt_name}")
@@ -563,7 +701,7 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
     elif mode == "tb":
         # Testbench mode
-        devices = netstruct.get("devices", {})
+        instances = netstruct.get("instances", {})
         analyses = netstruct.get("analyses", {})
 
         # Simulator declaration
@@ -582,25 +720,33 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
         lines.append("")
 
-        # Devices
-        for dev_name, dev_info in devices.items():
-            dev = dev_info.get("dev")
+        # Instances
+        for inst_name, inst_info in instances.items():
+            # Check for "cell" (subcircuit instance) first
+            if "cell" in inst_info:
+                cell_ref = inst_info["cell"]
+                pins = inst_info.get("pins", {})
+                pin_list = " ".join([pins[p] for p in pins.keys()])
+                lines.append(f"{inst_name} {pin_list} {cell_ref}")
+                continue
+
+            dev = inst_info.get("dev")
 
             if dev == "vsource":
                 # Voltage source
-                pins = dev_info.get("pins", {})
+                pins = inst_info.get("pins", {})
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
-                wave = dev_info.get("wave", "dc")
+                wave = inst_info.get("wave", "dc")
 
-                line = f"{dev_name} {p} {n}"
+                line = f"{inst_name} {p} {n}"
 
                 if wave == "dc":
-                    dc_val = dev_info.get("dc", 0)
+                    dc_val = inst_info.get("dc", 0)
                     line += f" DC {format_value(dc_val, 'V')}"
 
                 elif wave == "pwl":
-                    points = dev_info.get("points", [])
+                    points = inst_info.get("points", [])
                     pwl_str = " ".join(
                         [
                             format_value(v, "s" if i % 2 == 0 else "V")
@@ -610,45 +756,45 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
                     line += f" PWL({pwl_str})"
 
                 elif wave == "sine":
-                    dc = format_value(dev_info.get("dc", 0), "V")
-                    ampl = format_value(dev_info.get("ampl", 0), "V")
-                    freq = format_value(dev_info.get("freq", 1e6), "Hz")
-                    delay = format_value(dev_info.get("delay", 0), "s")
+                    dc = format_value(inst_info.get("dc", 0), "V")
+                    ampl = format_value(inst_info.get("ampl", 0), "V")
+                    freq = format_value(inst_info.get("freq", 1e6), "Hz")
+                    delay = format_value(inst_info.get("delay", 0), "s")
                     line += f" SIN({dc} {ampl} {freq} {delay})"
 
                 elif wave == "pulse":
-                    v1 = format_value(dev_info.get("v1", 0), "V")
-                    v2 = format_value(dev_info.get("v2", 1), "V")
-                    td = format_value(dev_info.get("td", 0), "s")
-                    tr = format_value(dev_info.get("tr", 0), "s")
-                    tf = format_value(dev_info.get("tf", 0), "s")
-                    pw = format_value(dev_info.get("pw", 1e-9), "s")
-                    per = format_value(dev_info.get("per", 2e-9), "s")
+                    v1 = format_value(inst_info.get("v1", 0), "V")
+                    v2 = format_value(inst_info.get("v2", 1), "V")
+                    td = format_value(inst_info.get("td", 0), "s")
+                    tr = format_value(inst_info.get("tr", 0), "s")
+                    tf = format_value(inst_info.get("tf", 0), "s")
+                    pw = format_value(inst_info.get("pw", 1e-9), "s")
+                    per = format_value(inst_info.get("per", 2e-9), "s")
                     line += f" PULSE({v1} {v2} {td} {tr} {tf} {pw} {per})"
 
                 lines.append(line)
 
             elif dev == "res":
-                pins = dev_info.get("pins", {})
-                params = dev_info.get("params", {})
+                pins = inst_info.get("pins", {})
+                params = inst_info.get("params", {})
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
                 r = params.get("r", 1000)
-                lines.append(f"{dev_name} {p} {n} {format_value(r, 'Ohm')}")
+                lines.append(f"{inst_name} {p} {n} {format_value(r, 'Ohm')}")
 
             elif dev == "cap":
-                pins = dev_info.get("pins", {})
-                params = dev_info.get("params", {})
+                pins = inst_info.get("pins", {})
+                params = inst_info.get("params", {})
                 p = pins.get("p", "p")
                 n = pins.get("n", "n")
                 c = params.get("c", 1e-12)
-                lines.append(f"{dev_name} {p} {n} {format_value(c, 'F')}")
+                lines.append(f"{inst_name} {p} {n} {format_value(c, 'F')}")
 
             else:
-                # Subcircuit instance
-                pins = dev_info.get("pins", {})
+                # Subcircuit instance (backwards compatibility via "dev" field)
+                pins = inst_info.get("pins", {})
                 pin_list = " ".join([pins[p] for p in pins.keys()])
-                lines.append(f"{dev_name} {pin_list} {dev}")
+                lines.append(f"{inst_name} {pin_list} {dev}")
 
         lines.append("")
 
@@ -735,43 +881,43 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def detect_varying_device_params(
+def detect_varying_inst_params(
     netstructs: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
     """
-    Detect which device parameters vary across a list of netstructs.
+    Detect which instance parameters vary across a list of netstructs.
 
     Args:
-        netstructs: List of expanded netstructs with devices
+        netstructs: List of expanded netstructs with instances
 
     Returns:
-        List of (device_name, param_name) tuples for params that vary
+        List of (instance_name, param_name) tuples for params that vary
     """
     if not netstructs:
         return []
 
-    # Get all device names that exist in any config
-    device_names = set()
+    # Get all instance names that exist in any config
+    inst_names = set()
     for ns in netstructs:
-        device_names.update(ns.get("devices", {}).keys())
+        inst_names.update(ns.get("instances", {}).keys())
 
     varying_params = []
 
-    # For each device, check which params vary (across configs where device exists)
-    for dev_name in sorted(device_names):
-        # Get configs where this device exists
-        configs_with_device = [
-            ns for ns in netstructs if dev_name in ns.get("devices", {})
+    # For each instance, check which params vary (across configs where instance exists)
+    for inst_name in sorted(inst_names):
+        # Get configs where this instance exists
+        configs_with_inst = [
+            ns for ns in netstructs if inst_name in ns.get("instances", {})
         ]
 
-        if len(configs_with_device) < 2:
+        if len(configs_with_inst) < 2:
             continue  # Need at least 2 configs to detect variation
 
-        # Get all param names for this device
+        # Get all param names for this instance
         param_names = set()
-        for ns in configs_with_device:
-            dev_params = ns["devices"][dev_name].get("params", {})
-            param_names.update(dev_params.keys())
+        for ns in configs_with_inst:
+            inst_params = ns["instances"][inst_name].get("params", {})
+            param_names.update(inst_params.keys())
 
         # Check each param to see if it varies
         for param_name in sorted(param_names):
@@ -780,14 +926,14 @@ def detect_varying_device_params(
 
             # Collect all values for this param
             values = set()
-            for ns in configs_with_device:
-                dev_params = ns["devices"][dev_name].get("params", {})
-                if param_name in dev_params:
-                    values.add(dev_params[param_name])
+            for ns in configs_with_inst:
+                inst_params = ns["instances"][inst_name].get("params", {})
+                if param_name in inst_params:
+                    values.add(inst_params[param_name])
 
             # If more than one unique value, this param varies
             if len(values) > 1:
-                varying_params.append((dev_name, param_name))
+                varying_params.append((inst_name, param_name))
 
     return varying_params
 
@@ -805,9 +951,9 @@ def find_matching_topo(
     Returns:
         Matching netstruct or None if not found
     """
-    target_topo_params = netstruct.get("meta", {})
+    target_topo_params = netstruct.get("topo_params", {})
     for candidate in netstructs:
-        candidate_topo_params = candidate.get("meta", {})
+        candidate_topo_params = candidate.get("topo_params", {})
         # Match on shared keys (excluding tech, corner, temp)
         shared_keys = set(candidate_topo_params.keys()) & set(
             target_topo_params.keys()
@@ -822,19 +968,19 @@ def find_matching_topo(
 
 def generate_filename(netstruct: dict[str, Any]) -> str:
     """
-    Generate base filename for a netlist using topo_param values from meta.
+    Generate base filename for a netlist using topo_param values and config hash.
 
     Returns base name WITHOUT prefix (subckt_/tb_) and WITHOUT extension (.sp/.json).
     Callers add prefix and extension as needed.
 
     Args:
-        netstruct: Netstruct dictionary with 'subckt' or 'testbench' key and tech field
+        netstruct: Netstruct dictionary with 'cellname' and tech field
 
     Returns:
-        Base filename string (e.g., 'gate_inv_inv_tsmc65_abc123def456')
+        Base filename string (e.g., 'samp_tgate_tsmc65_abc123def456')
     """
-    if "subckt" in netstruct:
-        base_name = netstruct["subckt"]
+    if "cellname" in netstruct:
+        base_name = netstruct["cellname"]
 
         # Tech should be at top level
         if "tech" not in netstruct:
@@ -845,33 +991,21 @@ def generate_filename(netstruct: dict[str, Any]) -> str:
         tech = netstruct["tech"]
         parts = [base_name]
 
-        # Add all topo_param values (stored in meta field, only scalar types)
-        topo_params_dict = netstruct.get("meta", {})
-        for key, value in topo_params_dict.items():
+        # Add all topo_param values (only scalar types)
+        topo_params = netstruct.get("topo_params", {})
+        for key, value in topo_params.items():
             if isinstance(value, (int, str, float, bool)):
                 parts.append(str(value))
 
-        # Add hash of device parameters to make filename unique
-        devices = netstruct.get("devices", {})
-        device_params = []
-        for dev_name in sorted(devices.keys()):
-            dev = devices[dev_name]
-            if "params" in dev:
-                dev_params = dev["params"]
-                # Create a string representation of device parameters
-                param_str = f"{dev_name}:"
-                for param in sorted(dev_params.keys()):
-                    param_str += f"{param}={dev_params[param]},"
-                device_params.append(param_str)
-
         parts.append(tech)
 
-        if device_params:
-            # Create hash of all device parameters
-            params_string = "|".join(device_params)
-            hash_obj = hashlib.sha256(params_string.encode())
-            hash_hex = hash_obj.hexdigest()[:12]  # Use first 12 chars of hash
-            parts.append(hash_hex)
+        # Add config hash
+        config_hash = compute_params_hash(
+            topo_params,
+            netstruct.get("inst_params", []),
+            tech,
+        )
+        parts.append(config_hash)
 
         return "_".join(parts)
     else:
@@ -904,18 +1038,18 @@ def check_subckt(subckt: dict[str, Any]) -> list[str]:
     Check that subcircuit has required fields.
 
     Required structure:
-        - subckt: str (subcircuit name)
+        - cellname: str (subcircuit name)
         - tech: str (technology)
         - ports: dict (port definitions)
-        - devices: dict of dicts (each with pins, params, model)
+        - instances: dict of dicts (each with pins, params, model)
 
     Returns:
         List of error messages (empty if no errors)
     """
     errors = []
 
-    if "subckt" not in subckt:
-        errors.append("Subcircuit missing required 'subckt' field")
+    if "cellname" not in subckt:
+        errors.append("Subcircuit missing required 'cellname' field")
 
     if "tech" not in subckt:
         errors.append("Subcircuit missing required 'tech' field")
@@ -923,8 +1057,8 @@ def check_subckt(subckt: dict[str, Any]) -> list[str]:
     if "ports" not in subckt or not isinstance(subckt["ports"], dict):
         errors.append("Subcircuit missing required 'ports' dict")
 
-    if "devices" not in subckt or not isinstance(subckt["devices"], dict):
-        errors.append("Subcircuit missing required 'devices' dict")
+    if "instances" not in subckt or not isinstance(subckt["instances"], dict):
+        errors.append("Subcircuit missing required 'instances' dict")
 
     return errors
 
@@ -934,11 +1068,10 @@ def check_testbench(tb: dict[str, Any]) -> list[str]:
     Check that testbench has required fields.
 
     Required structure:
-        - testbench: str (testbench name)
         - tech: str (technology)
         - corner: str (process corner)
         - temp: int/float (temperature)
-        - devices: dict (device definitions)
+        - instances: dict (instance definitions)
         - analyses: dict (analysis definitions)
         - libs: list (library includes)
 
@@ -956,8 +1089,8 @@ def check_testbench(tb: dict[str, Any]) -> list[str]:
     if "temp" not in tb:
         errors.append("Testbench missing required 'temp' field")
 
-    if "devices" not in tb or not isinstance(tb["devices"], dict):
-        errors.append("Testbench missing required 'devices' dict")
+    if "instances" not in tb or not isinstance(tb["instances"], dict):
+        errors.append("Testbench missing required 'instances' dict")
 
     if "analyses" not in tb or not isinstance(tb["analyses"], dict):
         errors.append("Testbench missing required 'analyses' dict")
@@ -998,7 +1131,7 @@ def main() -> None:
     print_flow_header(
         cell=cell_name,
         flow=args.mode,
-        script=args.circuit,
+        script_file=args.circuit,
         outdir=args.output / cell_name,
         log_file=log_file,
     )
@@ -1009,35 +1142,40 @@ def main() -> None:
 
         if args.mode == "subckt":
             # ================================================================
-            # SUBCIRCUIT MODE (new merged struct flow)
+            # SUBCIRCUIT MODE (unified expand_params flow)
             # ================================================================
 
-            # 1. Create results dir and empty files list
+            # 1. Create results dir and empty files dict
             subckt_dir = args.output / cell_name / "subckt"
             subckt_dir.mkdir(parents=True, exist_ok=True)
-            files: list[dict] = []
+            files: dict[str, dict] = {}
 
-            # 2. Get merged subckt struct from circuit module
+            # 2. Get subckt template from circuit module
             subckt_template = circuit_module.subckt
+            generate_fn = getattr(circuit_module, "generate_topology", None)
 
-            # 3. Stage 1: Expand topo_params, fill ports/devices
-            generate_topology_fn = getattr(circuit_module, "generate_topology", None)
-            subckts_stage1 = expand_topo_params(subckt_template, generate_topology_fn)
+            # 3. Unified expansion flow
+            subckts = expand_params(subckt_template, mode="topo_params")
+            subckts = generate_topology(subckts, generate_fn)
 
-            # 4. Stage 2: Expand tech, inst_params, dev_params
-            subckts_expanded = expand_dev_params(subckts_stage1)
+            subckts = expand_params(subckts, mode="inst_params")
+            subckts = apply_inst_params(subckts)
 
-            # 5. Detect varying device parameters for table columns
-            varying_params = detect_varying_device_params(subckts_expanded)
+            subckts = expand_params(subckts, mode="tech_params")
 
-            # 6. Process each expanded subcircuit
+            # 4. Detect varying instance params for table columns
+            varying_params = detect_varying_inst_params(subckts)
+
+            # 5. Process each expanded subcircuit
             total_count = 0
             all_errors = []
-            for subckt in subckts_expanded:
-                # 7. Map to technology (convert generic to PDK-specific)
+            headers: list[str] = []
+            col_widths: dict[str, int] = {}
+            for subckt in subckts:
+                # 6. Map to technology, convert generic to PDK-specific
                 subckt = map_technology(subckt, techmap)
 
-                # 8. Run checks
+                # 7. Check subcircuit
                 errors = check_subckt(subckt)
                 if errors:
                     cfgname = generate_filename(subckt)
@@ -1048,14 +1186,20 @@ def main() -> None:
                     headers, col_widths = calc_table_columns(subckt, varying_params)
                     print_table_header(headers, col_widths)
 
-                # 8. Create file_ctx with cellname and cfgname
+                # 8. Compute config hash and create file_ctx
+                topo_params = subckt.get("topo_params", {})
+                inst_params = subckt.get("inst_params", [])
+                tech = subckt["tech"]
+
+                config_hash = compute_params_hash(topo_params, inst_params, tech)
                 cfgname = generate_filename(subckt)
+
                 file_ctx = {
                     "cellname": cell_name,
                     "cfgname": cfgname,
                     "subckt_json": None,
                     "subckt_spice": None,
-                    "subckt_children": [],
+                    "subckt_children": {},
                     "tb_json": [],
                     "tb_spice": [],
                     "sim_raw": [],
@@ -1074,25 +1218,29 @@ def main() -> None:
                 sp_path.write_text(spice_str)
                 file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
 
-                # 11. Append file_ctx to files list
-                files.append(file_ctx)
+                # 11. Resolve child subcircuit dependencies
+                child_deps = resolve_child_deps(subckt, args.output)
+                file_ctx["subckt_children"] = child_deps
+
+                # 12. Add file_ctx to files dict with config_hash as key
+                files[config_hash] = file_ctx
                 total_count += 1
 
                 # Print table row
-                # Build row data from top-level, meta, and device params
+                # Build row data from top-level, topo_params, and instance params
                 row_data = {}
                 for field in ["tech", "corner", "temp"]:
                     if field in subckt:
                         row_data[field] = subckt[field]
-                row_data.update(subckt.get("meta", {}))
-                # Add varying device params
-                for dev_name, param_name in varying_params:
-                    col_name = f"{dev_name}.{param_name}"
-                    devices = subckt.get("devices", {})
-                    if dev_name in devices:
-                        dev_params = devices[dev_name].get("params", {})
-                        if param_name in dev_params:
-                            row_data[col_name] = dev_params[param_name]
+                row_data.update(subckt.get("topo_params", {}))
+                # Add varying instance params
+                for inst_name, param_name in varying_params:
+                    col_name = f"{inst_name}.{param_name}"
+                    instances = subckt.get("instances", {})
+                    if inst_name in instances:
+                        inst_params_dict = instances[inst_name].get("params", {})
+                        if param_name in inst_params_dict:
+                            row_data[col_name] = inst_params_dict[param_name]
                         else:
                             row_data[col_name] = "-"
                     else:
@@ -1115,7 +1263,7 @@ def main() -> None:
 
         elif args.mode == "tb":
             # ================================================================
-            # TESTBENCH MODE (new merged struct flow)
+            # TESTBENCH MODE (unified expand_params flow)
             # ================================================================
 
             # 1. Load existing files.json (created by subckt mode)
@@ -1129,12 +1277,13 @@ def main() -> None:
             tb_dir = args.output / cell_name / "tb"
             tb_dir.mkdir(parents=True, exist_ok=True)
 
-            # 2. Get merged tb struct from circuit module
+            # 2. Get tb template from circuit module
             tb_template = circuit_module.tb
+            generate_fn = getattr(circuit_module, "generate_tb_topology", None)
 
-            # 3. Stage 1: Expand topo_params, fill ports/devices
-            generate_topology_fn = getattr(circuit_module, "generate_tb_topology", None)
-            tbs_stage1 = expand_topo_params(tb_template, generate_topology_fn)
+            # 3. Expand topo_params, fill ports/instances
+            tbs_stage1 = expand_params(tb_template, mode="topo_params")
+            tbs_stage1 = generate_topology(tbs_stage1, generate_fn)
 
             # 4. Get corner and temp lists from template
             corner_list = tb_template.get("corner", ["tt"])
@@ -1146,9 +1295,11 @@ def main() -> None:
 
             total_count = 0
             all_errors = []
+            headers = []
+            col_widths = {}
 
-            # 5. Loop over each subckt entry in files
-            for file_ctx in files:
+            # 5. Loop over each subckt entry in files dict
+            for config_hash, file_ctx in files.items():
                 # 6. Load the subckt struct from subckt_json path
                 subckt_path = args.output / cell_name / file_ctx["subckt_json"]
                 with open(subckt_path) as f:
@@ -1209,12 +1360,12 @@ def main() -> None:
                     total_count += 1
 
                     # Print table row
-                    # Build row data from top-level and meta fields
+                    # Build row data from top-level and topo_params fields
                     row_data = {}
                     for field in ["tech", "corner", "temp"]:
                         if field in tb:
                             row_data[field] = tb[field]
-                    row_data.update(tb.get("meta", {}))
+                    row_data.update(tb.get("topo_params", {}))
                     print_table_row(row_data, headers, col_widths)
 
             # 16. Write updated files.json

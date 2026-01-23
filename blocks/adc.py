@@ -1,8 +1,8 @@
 """
 SAR ADC subcircuit definition.
 
-Dynamic topology using topo_params - generate_topology() computes ports/devices
-for each m_caps configuration.
+Dynamic topology using topo_params - generate_topology() computes ports/instances
+for each num_caps configuration.
 
 The ADC is a hierarchical design composed of:
 - Digital control logic (adc_digital)
@@ -11,8 +11,8 @@ The ADC is a hierarchical design composed of:
 - Comparator (comp)
 
 Architecture variations:
-- m_caps: 7, 9, 11, 13, 15, 17, 19 capacitors per side
-- Resolution depends on m_caps and redundancy strategy
+- num_caps: 7, 9, 11, 13, 15, 17, 19 capacitors per side
+- Resolution depends on num_caps and redundancy strategy
 
 Naming conventions:
 - Use +/- suffixes for differential signals (consistent with comp.py)
@@ -24,108 +24,119 @@ Naming conventions:
 subckt = {
     "cellname": "adc",
     "ports": {},  # Empty - computed by generate_topology()
-    "devices": {},  # Empty - computed by generate_topology()
-    "meta": {},
+    "instances": {},  # Empty - computed by generate_topology()
     "tech": ["tsmc65"],
-    "topo_params": {"m_caps": [7, 9, 11, 13, 15, 17, 19]},
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
+    "topo_params": {
+        "n_cycles": [8, 12, 14, 16, 18, 20],
+        "n_adc": [8, 12, 14],
     },
-    "inst_params": [],
+    "inst_params": [
+        # Defaults for all nmos/pmos instances in the ADC itself
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        # Child cdac config - sweep redun_strat and split_strat
+        {
+            "instances": {"cdac": "all"},
+            "topo_params": {
+                "redun_strat": ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"],
+                "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"],
+            },
+        },
+        # Child samp config - use default sizing
+        {
+            "instances": {"samp": "all"},
+            "inst_params": [
+                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+                {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": 5, "l": 1},
+            ],
+        },
+        # Child inv config - use default sizing
+        {
+            "instances": {"inv": "all"},
+            "inst_params": [
+                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+                {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": 1, "type": "lvt"},
+            ],
+        },
+        # Child comp config - use default sizing
+        {
+            "instances": {"comp": "all"},
+            "inst_params": [
+                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+                {"instances": {"cap": "all"}, "c": 1, "m": 1},
+            ],
+        },
+    ],
 }
 
 
-def generate_topology(m_caps: int) -> tuple[dict, dict]:
+def generate_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
     """
-    Compute ports and devices for given m_caps configuration.
+    Compute ports and instances for given n_cycles/n_adc configuration.
 
-    Called by expand_topo_params() for each topo_params combination.
+    Called by generate_topology() for each topo_params combination.
 
     Args:
-        m_caps: Total number of physical capacitors per side (n_dac + n_extra)
+        n_cycles: Number of SAR conversion cycles
+        n_adc: ADC resolution in bits
 
     Returns:
-        Tuple of (ports, devices)
+        Tuple of (ports, instances)
     """
+    # Compute child cdac topo_params from parent topo_params
+    n_dac = n_adc - 1
+    n_extra = n_cycles - n_adc
+
+    # Number of physical capacitors per side (used for port/signal counts)
+    num_caps = n_dac + n_extra
     # Build port list
     ports = {
-        # Sequencer control signals
-        "seq_init": "I",
-        "seq_samp": "I",
-        "seq_comp": "I",
-        "seq_update": "I",
-        # Comparator output
-        "comp_out": "O",
-        # Enable signals
-        "en_init": "I",
-        "en_samp+": "I",
-        "en_samp-": "I",
-        "en_comp": "I",
-        "en_update": "I",
+        # Clock/control signals for salogic
+        "clk_init": "I",
+        "clk_update": "I",
+        "clk_samp": "I",
+        "clk_samp_b": "I",
+        "dac_mode": "I",
+        # Analog inputs
+        "vin+": "B",
+        "vin-": "B",
+        # Supplies
+        "vdd_a": "B",
+        "vss_a": "B",
+        "vdd_d": "B",
+        "vss_d": "B",
     }
 
-    # DAC state bus inputs (2 buses per side: astate and bstate, m_caps bits each)
+    # DAC state bus inputs (2 buses per side: astate and bstate, num_caps bits each)
     for side in ["+", "-"]:
         for bus in ["astate", "bstate"]:
-            for i in range(m_caps):
-                ports[f"{bus}{side}[{i}]"] = "I"
+            for i in range(num_caps):
+                ports[f"dac_{bus}{side}[{i}]"] = "I"
 
-    # Analog inputs and supplies
-    ports.update(
-        {
-            "vin+": "B",
-            "vin-": "B",
-            "vdd_a": "B",
-            "vss_a": "B",
-            "vdd_d": "B",
-            "vss_d": "B",
-        }
-    )
+    # Build instances
+    instances = {}
 
-    # Build device instances
-    devices = {}
-
-    # Digital control block instance
-    # Generates internal clock signals and DAC control signals
-    digital_pins = {
-        "seq_init": "seq_init",
-        "seq_samp": "seq_samp",
-        "seq_comp": "seq_comp",
-        "seq_update": "seq_update",
-        "en_init": "en_init",
-        "en_samp+": "en_samp+",
-        "en_samp-": "en_samp-",
-        "en_comp": "en_comp",
-        "en_update": "en_update",
-        "comp_out": "comp_out",
-        "comp_out+": "comp_out+",
-        "comp_out-": "comp_out-",
-        "clk_samp+": "clk_samp+",
-        "clk_samp+b": "clk_samp+b",
-        "clk_samp-": "clk_samp-",
-        "clk_samp-b": "clk_samp-b",
-        "clk_comp": "clk_comp",
-        "clk_compb": "clk_compb",
+    # SAR Logic block - manages DAC state based on comparator outputs
+    salogic_pins = {
+        "clk_init": "clk_init",
+        "clk_update": "clk_update",
+        "dac_mode": "dac_mode",
+        "comp_p": "comp_p",
+        "comp_n": "comp_n",
         "vdd_d": "vdd_d",
         "vss_d": "vss_d",
     }
 
-    # Add DAC state input buses to digital block
-    for side in ["+", "-"]:
+    # Add DAC state input buses (from external SPI) and output buses (to CDACs)
+    for side, suffix in [("p", "+"), ("n", "-")]:
         for bus in ["astate", "bstate"]:
-            for i in range(m_caps):
-                digital_pins[f"{bus}{side}[{i}]"] = f"{bus}{side}[{i}]"
+            for i in range(num_caps):
+                salogic_pins[f"dac_{bus}_{side}[{i}]"] = f"dac_{bus}{suffix}[{i}]"
+        for i in range(num_caps):
+            salogic_pins[f"dac_state_{side}[{i}]"] = f"dac_state{suffix}[{i}]"
 
-    # Add DAC control output buses from digital block to CDACs
-    for side in ["+", "-"]:
-        for i in range(m_caps):
-            digital_pins[f"dac_ctrl{side}[{i}]"] = f"dac_ctrl{side}[{i}]"
-
-    devices["Xadc_digital"] = {
-        "dev": "subckt",
-        "subckt": "adc_digital",
-        "pins": digital_pins,
+    instances["Xsalogic"] = {
+        "cell": "salogic",
+        "pins": salogic_pins,
     }
 
     # CDAC instances (2 total: + and - sides)
@@ -136,43 +147,66 @@ def generate_topology(m_caps: int) -> tuple[dict, dict]:
             "vdd": "vdd_a",
             "vss": "vss_a",
         }
-        for i in range(m_caps):
-            cdac_pins[f"dac[{i}]"] = f"dac_ctrl{side}[{i}]"
+        for i in range(num_caps):
+            cdac_pins[f"dac[{i}]"] = f"dac_state{side}[{i}]"
 
-        devices[f"Xcdac{side}"] = {"dev": "subckt", "subckt": "cdac", "pins": cdac_pins}
+        instances[f"Xcdac{side}"] = {
+            "cell": "cdac",
+            "pins": cdac_pins,
+            "topo_params": {"n_dac": n_dac, "n_extra": n_extra},
+        }
 
     # Sampling switch instances (2 total: + and - sides)
     for side in ["+", "-"]:
-        devices[f"Xsamp{side}"] = {
-            "dev": "subckt",
-            "subckt": "samp",
+        instances[f"Xsamp{side}"] = {
+            "cell": "samp",
             "pins": {
                 "in": f"vin{side}",
                 "out": f"vdac{side}",
-                "clk": f"clk_samp{side}",
-                "clk_b": f"clk_samp{side}b",
+                "clk": "clk_samp",
+                "clk_b": "clk_samp_b",
                 "vdd": "vdd_a",
                 "vss": "vss_a",
             },
+            "topo_params": {"switch_type": "nmos"},  # Use nmos switch
         }
 
-    # Comparator instance
-    devices["Xcomp"] = {
-        "dev": "subckt",
-        "subckt": "comp",
+    # Inverter to generate clkb from clk_update
+    instances["Xinv_clk"] = {
+        "cell": "inv",
         "pins": {
-            "in+": "vdac+",
-            "in-": "vdac-",
-            "out+": "comp_out+",
-            "out-": "comp_out-",
-            "clk": "clk_comp",
-            "clkb": "clk_compb",
-            "vdd": "vdd_a",
-            "vss": "vss_a",
+            "in": "clk_update",
+            "out": "clk_update_b",
+            "vdd": "vdd_d",
+            "vss": "vss_d",
         },
     }
 
-    return ports, devices
+    # Comparator instance - outputs feed back to salogic
+    instances["Xcomp"] = {
+        "cell": "comp",
+        "pins": {
+            "in+": "vdac+",
+            "in-": "vdac-",
+            "out+": "comp_p",
+            "out-": "comp_n",
+            "clk": "clk_update",
+            "clkb": "clk_update_b",
+            "vdd": "vdd_a",
+            "vss": "vss_a",
+        },
+        "topo_params": {
+            "preamp_diffpair": "nmosinput",
+            "preamp_bias": "dynbias",
+            "comp_stages": "doublestage",
+            "latch_pwrgate_ctl": "signalled",
+            "latch_pwrgate_node": "internal",
+            "latch_rst_extern_ctl": "noreset",
+            "latch_rst_intern_ctl": "signalled",
+        },
+    }
+
+    return ports, instances
 
 
 """
@@ -192,17 +226,18 @@ Test structure:
 - Sequencer and enable signals
 - Transient analysis to capture ADC behavior
 
-The number of DAC state bus bits matches the ADC topology (m_caps).
+The number of DAC state bus bits matches the ADC topology (num_caps = n_cycles - 1).
 """
 
-# Monolithic testbench struct (dynamic topology - uses m_caps topo_param)
+# Monolithic testbench struct (dynamic topology - uses n_cycles/n_adc topo_params)
 tb = {
-    "devices": {},  # Empty - computed by generate_tb_topology()
+    "instances": {},  # Empty - computed by generate_tb_topology()
     "analyses": {"tran1": {"type": "tran", "stop": 210, "step": 0.1}},
     "corner": ["tt"],
     "temp": [27],
     "topo_params": {
-        "m_caps": [7, 9, 11, 13, 15, 17, 19]  # Match subckt m_caps values
+        "n_cycles": [8, 12, 14, 16, 18, 20],  # Match subckt n_cycles values
+        "n_adc": [8, 12, 14],  # Match subckt n_adc values
     },
     "extra_includes": [
         # Standard cell libraries (TSMC65 specific)
@@ -226,26 +261,30 @@ tb = {
 }
 
 
-def generate_tb_topology(m_caps: int) -> tuple[dict, dict]:
+def generate_tb_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
     """
-    Generate testbench topology for given m_caps.
+    Generate testbench topology for given n_cycles/n_adc.
 
     Args:
-        m_caps: Number of DAC state bus bits (matches ADC topology)
+        n_cycles: Number of SAR conversion cycles
+        n_adc: ADC resolution in bits
 
     Returns:
-        Tuple of (ports, devices) - ports is empty for top-level TB
+        Tuple of (ports, instances) - ports is empty for top-level TB
     """
+    # Compute num_caps from n_cycles (same as in generate_topology)
+    num_caps = n_cycles - 1
+
     ports = {}  # Testbenches have no ports (top-level)
 
-    devices = {}
+    instances = {}
 
     # Generate DAC state bus signals (all tied high for normal operation)
     for side in ["+", "-"]:
         for bus in ["astate", "bstate"]:
-            for i in range(m_caps):
+            for i in range(num_caps):
                 name = f"V{bus}{side}{i}"
-                devices[name] = {
+                instances[name] = {
                     "dev": "vsource",
                     "pins": {"p": f"{bus}{side}[{i}]", "n": "gnd"},
                     "wave": "dc",
@@ -253,7 +292,7 @@ def generate_tb_topology(m_caps: int) -> tuple[dict, dict]:
                 }
 
     # Power supplies
-    devices.update(
+    instances.update(
         {
             # Analog supply
             "Vvdd_a": {
@@ -410,12 +449,12 @@ def generate_tb_topology(m_caps: int) -> tuple[dict, dict]:
     # Add DAC state buses to DUT pins
     for side in ["+", "-"]:
         for bus in ["astate", "bstate"]:
-            for i in range(m_caps):
+            for i in range(num_caps):
                 dut_pins[f"{bus}{side}[{i}]"] = f"{bus}{side}[{i}]"
 
-    devices["Xadc"] = {"dev": "subckt", "subckt": "adc", "pins": dut_pins}
+    instances["Xadc"] = {"cell": "adc", "pins": dut_pins}
 
-    return ports, devices
+    return ports, instances
 
 
 def measure(raw, subckt_json, tb_json, raw_file):
@@ -484,7 +523,7 @@ def measure(raw, subckt_json, tb_json, raw_file):
     dnl, dnl_rms, dnl_max = calculate_dnl(dout_analog, return_stats=True)
 
     # Method 2: Histogram-based DNL (code density)
-    dnl_hist, code_counts, dnl_hist_rms, dnl_hist_max = calculate_dnl_histogram(
+    dnl_hist, code_counts, dnl_hist_rms, dnl_hist_max = calculate_dnl_histogram(  # pyright: ignore[reportAssignmentType]
         dout_analog, return_stats=True
     )
 

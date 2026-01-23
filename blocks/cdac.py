@@ -12,13 +12,13 @@ Topo params:
 """
 
 import math
+from typing import Any
 
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
     "cellname": "cdac",
     "ports": {},  # Empty - computed by generate_topology()
-    "devices": {},  # Empty - computed by generate_topology()
-    "meta": {},
+    "instances": {},  # Empty - computed by generate_topology()
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "topo_params": {
         "n_dac": [7, 9, 11, 13],
@@ -26,13 +26,12 @@ subckt = {
         "redun_strat": ["rdx2", "subrdx2rdst", "subrdx2lim", "subrdx2", "rdx2rpt"],
         "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"],
     },
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "cap": {"type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
-        "res": {"type": "polyres", "r": 4},
-    },
-    "inst_params": [],
+    "inst_params": [
+        # Defaults for all nmos/pmos/cap/res instances
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        {"instances": {"cap": "all"}, "type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
+        {"instances": {"res": "all"}, "type": "polyres", "r": 4},
+    ],
 }
 
 
@@ -144,11 +143,11 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int] | None:
 
 def generate_topology(
     n_dac: int, n_extra: int, redun_strat: str, split_strat: str
-) -> tuple[dict, dict] | tuple[None, None]:
+) -> tuple[dict[str, Any], dict[str, Any]] | tuple[None, None]:
     """
-    Compute ports and devices for given topo_params combination.
+    Compute ports and instances for given topo_params combination.
 
-    Called by expand_topo_params() for each cartesian product combo.
+    Called by generate_topology() for each cartesian product combo.
     Returns (None, None) for invalid combinations to skip.
 
     Args:
@@ -158,7 +157,7 @@ def generate_topology(
         split_strat: 'nosplit', 'vdivsplit', or 'diffcapsplit'
 
     Returns:
-        Tuple of (ports, devices) or (None, None) for invalid combinations
+        Tuple of (ports, instances) or (None, None) for invalid combinations
     """
     # Skip invalid combinations: rdx2 only works with n_extra=0, others only with n_extra>0
     if redun_strat == "rdx2" and n_extra != 0:
@@ -174,26 +173,26 @@ def generate_topology(
     threshold = 64  # Split threshold (unitless)
 
     # Initialize topology components
-    devices = {}
+    instances = {}
     ports = {"top": "B", "vdd": "B", "vss": "B"}
 
     # Generate resistor ladder for vdivsplit (all 64 taps)
     if split_strat == "vdivsplit":
         for i in range(64):
             if i == 0:
-                devices[f"R{i}"] = {
+                instances[f"R{i}"] = {
                     "dev": "res",
                     "pins": {"p": "vdd", "n": f"tap[{i + 1}]"},
                     "r": 4,
                 }
             elif i == 63:
-                devices[f"R{i}"] = {
+                instances[f"R{i}"] = {
                     "dev": "res",
                     "pins": {"p": f"tap[{i}]", "n": "vss"},
                     "r": 4,
                 }
             else:
-                devices[f"R{i}"] = {
+                instances[f"R{i}"] = {
                     "dev": "res",
                     "pins": {"p": f"tap[{i}]", "n": f"tap[{i + 1}]"},
                     "r": 4,
@@ -204,12 +203,12 @@ def generate_topology(
         ports[f"dac[{idx}]"] = "I"
 
         # First inverter (predriver - always unit sized)
-        devices[f"MPbuf{idx}"] = {
+        instances[f"MPbuf{idx}"] = {
             "dev": "pmos",
             "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vdd", "b": "vdd"},
             "w": 1,
         }
-        devices[f"MNbuf{idx}"] = {
+        instances[f"MNbuf{idx}"] = {
             "dev": "nmos",
             "pins": {"d": f"inter[{idx}]", "g": f"dac[{idx}]", "s": "vss", "b": "vss"},
             "w": 1,
@@ -218,7 +217,7 @@ def generate_topology(
         if split_strat == "nosplit":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
             driver_w = calc_driver_strength(c=1, m=w)
-            devices[f"MPdrv{idx}"] = {
+            instances[f"MPdrv{idx}"] = {
                 "dev": "pmos",
                 "pins": {
                     "d": f"bot[{idx}]",
@@ -228,7 +227,7 @@ def generate_topology(
                 },
                 "w": driver_w,
             }
-            devices[f"MNdrv{idx}"] = {
+            instances[f"MNdrv{idx}"] = {
                 "dev": "nmos",
                 "pins": {
                     "d": f"bot[{idx}]",
@@ -238,7 +237,7 @@ def generate_topology(
                 },
                 "w": driver_w,
             }
-            devices[f"Cmain{idx}"] = {
+            instances[f"Cmain{idx}"] = {
                 "dev": "cap",
                 "pins": {"p": "top", "n": f"bot[{idx}]"},
                 "c": 1,
@@ -253,7 +252,7 @@ def generate_topology(
             if quotient > 0:
                 # Main capacitor: m=quotient, c=threshold
                 driver_w = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MPdrv{idx}"] = {
+                instances[f"MPdrv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
                         "d": f"bot[{idx}]",
@@ -263,7 +262,7 @@ def generate_topology(
                     },
                     "w": driver_w,
                 }
-                devices[f"MNdrv{idx}"] = {
+                instances[f"MNdrv{idx}"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": f"bot[{idx}]",
@@ -273,7 +272,7 @@ def generate_topology(
                     },
                     "w": driver_w,
                 }
-                devices[f"Cmain{idx}"] = {
+                instances[f"Cmain{idx}"] = {
                     "dev": "cap",
                     "pins": {"p": "top", "n": f"bot[{idx}]"},
                     "c": threshold,
@@ -284,7 +283,7 @@ def generate_topology(
                 # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
                 tap_node = f"tap[{remainder}]"
                 driver_w_rdiv = calc_driver_strength(c=1, m=1)
-                devices[f"MPrdiv{idx}"] = {
+                instances[f"MPrdiv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
                         "d": f"bot_rdiv[{idx}]",
@@ -294,7 +293,7 @@ def generate_topology(
                     },
                     "w": driver_w_rdiv,
                 }
-                devices[f"MNrdiv{idx}"] = {
+                instances[f"MNrdiv{idx}"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": f"bot_rdiv[{idx}]",
@@ -304,7 +303,7 @@ def generate_topology(
                     },
                     "w": driver_w_rdiv,
                 }
-                devices[f"Cmain{idx}"] = {
+                instances[f"Cmain{idx}"] = {
                     "dev": "cap",
                     "pins": {"p": "top", "n": f"bot_rdiv[{idx}]"},
                     "c": 1,
@@ -319,7 +318,7 @@ def generate_topology(
             if quotient > 0:
                 # Main coarse cap: m=quotient, c=threshold
                 driver_w = calc_driver_strength(c=threshold, m=quotient)
-                devices[f"MPdrv{idx}"] = {
+                instances[f"MPdrv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
                         "d": f"bot[{idx}]",
@@ -329,7 +328,7 @@ def generate_topology(
                     },
                     "w": driver_w,
                 }
-                devices[f"MNdrv{idx}"] = {
+                instances[f"MNdrv{idx}"] = {
                     "dev": "nmos",
                     "pins": {
                         "d": f"bot[{idx}]",
@@ -339,7 +338,7 @@ def generate_topology(
                     },
                     "w": driver_w,
                 }
-                devices[f"Cmain{idx}"] = {
+                instances[f"Cmain{idx}"] = {
                     "dev": "cap",
                     "pins": {"p": "top", "n": f"bot[{idx}]"},
                     "c": threshold,
@@ -347,7 +346,7 @@ def generate_topology(
                 }
 
                 # Diff coarse cap: m=quotient, c=1, driven from intermediate node
-                devices[f"Cdiff{idx}"] = {
+                instances[f"Cdiff{idx}"] = {
                     "dev": "cap",
                     "pins": {"p": "top", "n": f"inter[{idx}]"},
                     "c": 1,
@@ -365,7 +364,7 @@ def generate_topology(
                 if quotient == 0:
                     # No coarse part, so add the main driver
                     driver_w = calc_driver_strength(c=c_main, m=1)
-                    devices[f"MPdrv{idx}"] = {
+                    instances[f"MPdrv{idx}"] = {
                         "dev": "pmos",
                         "pins": {
                             "d": f"bot[{idx}]",
@@ -375,7 +374,7 @@ def generate_topology(
                         },
                         "w": driver_w,
                     }
-                    devices[f"MNdrv{idx}"] = {
+                    instances[f"MNdrv{idx}"] = {
                         "dev": "nmos",
                         "pins": {
                             "d": f"bot[{idx}]",
@@ -385,13 +384,13 @@ def generate_topology(
                         },
                         "w": driver_w,
                     }
-                    devices[f"Cmain{idx}"] = {
+                    instances[f"Cmain{idx}"] = {
                         "dev": "cap",
                         "pins": {"p": "top", "n": f"bot[{idx}]"},
                         "c": c_main,
                         "m": 1,
                     }
-                    devices[f"Cdiff{idx}"] = {
+                    instances[f"Cdiff{idx}"] = {
                         "dev": "cap",
                         "pins": {"p": "top", "n": f"inter[{idx}]"},
                         "c": c_diff,
@@ -399,20 +398,20 @@ def generate_topology(
                     }
                 else:
                     # Coarse part exists, add separate fine caps with different naming
-                    devices[f"Cmain{idx}"] = {
+                    instances[f"Cmain{idx}"] = {
                         "dev": "cap",
                         "pins": {"p": "top", "n": f"bot[{idx}]"},
                         "c": c_main,
                         "m": 1,
                     }
-                    devices[f"Cdiff{idx}"] = {
+                    instances[f"Cdiff{idx}"] = {
                         "dev": "cap",
                         "pins": {"p": "top", "n": f"inter[{idx}]"},
                         "c": c_diff,
                         "m": 1,
                     }
 
-    return ports, devices
+    return ports, instances
 
 
 """
@@ -431,7 +430,7 @@ The number of DAC input bits matches the CDAC topology (n_dac).
 
 # Monolithic testbench struct (dynamic topology - uses n_dac topo_param)
 tb = {
-    "devices": {},  # Empty - computed by generate_tb_topology()
+    "instances": {},  # Empty - computed by generate_tb_topology()
     "analyses": {"tran1": {"type": "tran", "stop": 500, "step": 0.1}},
     "corner": ["tt"],
     "temp": [27],
@@ -441,7 +440,7 @@ tb = {
 }
 
 
-def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
+def generate_tb_topology(n_dac: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Generate testbench topology for given n_dac.
 
@@ -449,11 +448,11 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
         n_dac: DAC resolution (number of bits)
 
     Returns:
-        Tuple of (ports, devices) - ports is empty for top-level TB
+        Tuple of (ports, instances) - ports is empty for top-level TB
     """
-    ports = {}  # Testbenches have no ports (top-level)
+    ports: dict[str, Any] = {}  # Testbenches have no ports (top-level)
 
-    devices = {
+    instances: dict[str, Any] = {
         "Vvdd": {
             "dev": "vsource",
             "pins": {"p": "vdd", "n": "gnd"},
@@ -483,7 +482,7 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
             val = 1.0 if (code & bit_mask) else 0.0
             pwl_points.extend([t, val])
 
-        devices[f"Vdac{i}"] = {
+        instances[f"Vdac{i}"] = {
             "dev": "vsource",
             "pins": {"p": f"dac[{i}]", "n": "gnd"},
             "wave": "pwl",
@@ -491,7 +490,7 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
         }
 
     # Add load capacitor on top node
-    devices["Cload"] = {
+    instances["Cload"] = {
         "dev": "cap",
         "pins": {"p": "top", "n": "gnd"},
         "c": 1,
@@ -503,9 +502,9 @@ def generate_tb_topology(n_dac: int) -> tuple[dict, dict]:
     for i in range(n_dac):
         dut_pins[f"dac[{i}]"] = f"dac[{i}]"
 
-    devices["Xdut"] = {"dev": "cdac", "pins": dut_pins}
+    instances["Xdut"] = {"cell": "cdac", "pins": dut_pins}
 
-    return ports, devices
+    return ports, instances
 
 
 # Helper functions

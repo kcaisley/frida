@@ -188,14 +188,14 @@ scalemap = {
 
 
 def format_value(value: float | int, unit: str = "") -> str:
-    """Format a value with appropriate SI prefix using unitmap."""
+    """Format a value with appropriate SI suffix using unitmap."""
     if value == 0:
         return "0"
 
     abs_val = abs(value)
-    for mult, prefix in unitmap:
+    for mult, suffix in unitmap:
         if abs_val >= mult:
-            return f"{value / mult:.6g}{prefix}{unit}"
+            return f"{value / mult:.6g}{suffix}{unit}"
     return f"{value:.6g}{unit}"
 
 
@@ -312,7 +312,7 @@ def setup_logging(log_file: Path | None = None, logger_name: str | None = None):
 def print_flow_header(
     cell: str,
     flow: str,
-    script: Path | None = None,
+    script_file: Path | None = None,
     outdir: Path | None = None,
     log_file: Path | None = None,
 ) -> None:
@@ -322,7 +322,7 @@ def print_flow_header(
     Args:
         cell: Name of the cell being processed
         flow: Name of the flow step, optionally with mode (e.g., 'netlist (subckt)', 'simulate', 'measure')
-        script: Optional path to the script being run
+        script_file: Optional path to the script being run
         outdir: Optional output directory
         log_file: Optional log file path
     """
@@ -332,8 +332,8 @@ def print_flow_header(
     logger.info("=" * 80)
     logger.info(f"Cell:       {cell}")
     logger.info(f"Flow:       {flow}")
-    if script:
-        logger.info(f"Script:     {script}")
+    if script_file:
+        logger.info(f"Script:     {script_file}")
     if outdir:
         logger.info(f"OutDir:     {outdir}")
     if log_file:
@@ -342,19 +342,19 @@ def print_flow_header(
 
 
 def calc_table_columns(
-    struct: dict, varying_params: list[tuple[str, str]] | None = None
+    netstruct: dict, varying_params: list[tuple[str, str]] | None = None
 ) -> tuple[list[str], dict[str, int]]:
     """
-    Calculate table columns (headers and widths) from struct fields.
+    Calculate table columns (headers and widths) from netstruct fields.
 
     Looks for:
     - Top-level fields: tech, corner, temp
-    - Topo_param values (stored in 'meta' field)
-    - Varying device parameters (if provided)
+    - Topo_param values (stored in 'topo_params' field)
+    - Varying instance parameters (if provided)
 
     Args:
-        struct: Dict with potential 'tech', 'corner', 'temp' at top level and topo_param values in 'meta' field
-        varying_params: Optional list of (device_name, param_name) tuples for device params that vary
+        netstruct: Dict with potential 'tech', 'corner', 'temp' at top level and 'topo_params'
+        varying_params: Optional list of (inst_name, param_name) tuples for instance params that vary
 
     Returns:
         Tuple of (headers list, col_widths dict)
@@ -366,28 +366,28 @@ def calc_table_columns(
 
     # Add top-level fields if they exist
     for field in ["tech", "corner", "temp"]:
-        if field in struct:
+        if field in netstruct:
             headers.append(field)
-            col_widths[field] = max(MIN_COL_WIDTH, len(field), len(str(struct[field])))
+            col_widths[field] = max(MIN_COL_WIDTH, len(field), len(str(netstruct[field])))
 
-    # Add topo_param values (stored in meta field) that are simple types
-    topo_params_dict = struct.get("meta", {})
+    # Add topo_param values that are simple types
+    topo_params_dict = netstruct.get("topo_params", {})
     for k, v in topo_params_dict.items():
         if not isinstance(v, (list, dict)):
             headers.append(k)
             col_widths[k] = max(MIN_COL_WIDTH, len(k), len(str(v)))
 
-    # Add varying device parameters
+    # Add varying instance parameters
     if varying_params:
-        for dev_name, param_name in varying_params:
-            col_name = f"{dev_name}.{param_name}"
+        for inst_name, param_name in varying_params:
+            col_name = f"{inst_name}.{param_name}"
             headers.append(col_name)
-            # Get value from struct if available
-            devices = struct.get("devices", {})
-            if dev_name in devices:
-                dev_params = devices[dev_name].get("params", {})
-                if param_name in dev_params:
-                    val_str = str(dev_params[param_name])
+            # Get value from netstruct if available
+            instances = netstruct.get("instances", {})
+            if inst_name in instances:
+                inst_params = instances[inst_name].get("params", {})
+                if param_name in inst_params:
+                    val_str = str(inst_params[param_name])
                     col_widths[col_name] = max(
                         MIN_COL_WIDTH, len(col_name), len(val_str)
                     )
@@ -432,139 +432,29 @@ def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -
 # ========================================================================
 
 
-def load_files_list(files_db_path: Path) -> list[dict]:
+def load_files_list(files_db_path: Path) -> dict[str, dict]:
     """
-    Load file tracking list from JSON file.
+    Load file tracking dict from JSON file.
 
     Args:
         files_db_path: Path to files.json file
 
     Returns:
-        List of file context entries, or empty list if file doesn't exist
+        Dict keyed by config_hash, or empty dict if file doesn't exist
     """
     if not files_db_path.exists():
-        return []
+        return {}
     with open(files_db_path) as f:
         return json.load(f)
 
 
-def save_files_list(files_db_path: Path, files: list[dict]) -> None:
+def save_files_list(files_db_path: Path, files: dict[str, dict]) -> None:
     """
-    Save file tracking list to JSON file with compact formatting.
+    Save file tracking dict to JSON file with compact formatting.
 
     Args:
         files_db_path: Path to files.json file
-        files: List of file context entries
+        files: Dict keyed by config_hash
     """
     files_db_path.parent.mkdir(parents=True, exist_ok=True)
     files_db_path.write_text(compact_json(files))
-
-
-def find_child_dep(
-    child_type: str, parent_tech: str, db_base: Path, child_params: dict | None = None
-) -> dict | None:
-    """
-    Find matching child subcircuit netlist from child's files.json.
-
-    Searches the child cell's database for a subcircuit that matches:
-    1. Technology (must match parent's tech)
-    2. Optional topo_params and other constraints
-
-    Args:
-        child_type: Child cell name (e.g., "cdac", "comp", "samp")
-        parent_tech: Technology to match (inherited from parent)
-        db_base: Base directory for results (e.g., Path("results"))
-        child_params: Optional dict with matching constraints:
-            - topo_params: dict of topo_param values to match
-            - dev_params: dict of device param values to match
-
-    Returns:
-        Dict with child info if found, None otherwise:
-        {
-            "child_name": "cdac",
-            "child_json": "cdac/subckt/subckt_cdac_7_0_rdx2_nosplit_tsmc65_xxx.json",
-            "child_spice": "cdac/subckt/subckt_cdac_7_0_rdx2_nosplit_tsmc65_xxx.sp"
-        }
-    """
-    child_files_db_path = db_base / child_type / "files.json"
-    if not child_files_db_path.exists():
-        return None
-
-    child_files_db = load_files_list(child_files_db_path)
-    if not child_files_db:
-        return None
-
-    for entry in child_files_db:
-        # Load the child subcircuit JSON to check meta values
-        subckt_json_path = db_base / child_type / entry.get("subckt_json", "")
-        if not subckt_json_path.exists():
-            continue
-
-        with open(subckt_json_path) as f:
-            child_subckt = json.load(f)
-
-        # Match tech (must match parent's tech, now at top level)
-        if child_subckt.get("tech") != parent_tech:
-            continue
-
-        # Match topo_params if specified (topo_param values stored in meta)
-        if child_params and "topo_params" in child_params:
-            child_meta = child_subckt.get("meta", {})
-            match = all(
-                child_meta.get(k) == v for k, v in child_params["topo_params"].items()
-            )
-            if not match:
-                continue
-
-        # Found a match
-        return {
-            "child_name": child_type,
-            "child_json": f"{child_type}/{entry['subckt_json']}",
-            "child_spice": f"{child_type}/{entry['subckt_spice']}",
-        }
-
-    return None
-
-
-def find_all_child_deps(child_type: str, parent_tech: str, db_base: Path) -> list[dict]:
-    """
-    Find all child subcircuits of a given type matching the parent's tech.
-
-    Args:
-        child_type: Child cell name (e.g., "cdac", "comp", "samp")
-        parent_tech: Technology to match (inherited from parent)
-        db_base: Base directory for results
-
-    Returns:
-        List of child info dicts (see find_child_dep for format)
-    """
-    child_files_db_path = db_base / child_type / "files.json"
-    if not child_files_db_path.exists():
-        return []
-
-    child_files_db = load_files_list(child_files_db_path)
-    if not child_files_db:
-        return []
-
-    results = []
-    for entry in child_files_db:
-        subckt_json_path = db_base / child_type / entry.get("subckt_json", "")
-        if not subckt_json_path.exists():
-            continue
-
-        with open(subckt_json_path) as f:
-            child_subckt = json.load(f)
-
-        # Match tech (now at top level)
-        if child_subckt.get("tech") != parent_tech:
-            continue
-
-        results.append(
-            {
-                "child_name": child_type,
-                "child_json": f"{child_type}/{entry['subckt_json']}",
-                "child_spice": f"{child_type}/{entry['subckt_spice']}",
-            }
-        )
-
-    return results

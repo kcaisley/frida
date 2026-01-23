@@ -9,40 +9,40 @@ for each switch_type variant.
 subckt = {
     "cellname": "samp",
     "ports": {},  # Empty - computed by generate_topology()
-    "devices": {},  # Empty - computed by generate_topology()
-    "meta": {},
+    "instances": {},  # Empty - computed by generate_topology()
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "topo_params": {"switch_type": ["nmos", "pmos", "tgate"]},
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-    },
-    "inst_params": [{"devices": ["MN", "MP"], "w": [5, 10, 20, 40], "l": [1, 2]}],
+    "inst_params": [
+        # Defaults for all nmos/pmos instances
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        # Override specific instances with sweeps
+        {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": [5, 10, 20, 40], "l": [1, 2]},
+    ],
 }
 
 
 def generate_topology(switch_type: str) -> tuple[dict, dict]:
     """
-    Compute ports and devices for given switch_type.
+    Compute ports and instances for given switch_type.
 
-    Called by expand_topo_params() for each topo_params combination.
+    Called by generate_topology() for each topo_params combination.
 
     Args:
         switch_type: 'nmos', 'pmos', or 'tgate' - determines switch implementation
 
     Returns:
-        Tuple of (ports, devices)
+        Tuple of (ports, instances)
     """
     # Common ports for all switch types
     ports = {"in": "I", "out": "O", "clk": "I", "clk_b": "I", "vdd": "B", "vss": "B"}
 
-    # Initialize devices
-    devices = {}
+    # Initialize instances
+    instances = {}
 
     if switch_type == "nmos":
         # NMOS pass transistor (conducts when clk is high)
         # Note: clk_b pin unused (left floating for interface compatibility)
-        devices["MN"] = {
+        instances["MN"] = {
             "dev": "nmos",
             "pins": {"d": "out", "g": "clk", "s": "in", "b": "vss"},
         }
@@ -50,23 +50,23 @@ def generate_topology(switch_type: str) -> tuple[dict, dict]:
     elif switch_type == "pmos":
         # PMOS pass transistor (conducts when clk_b is low)
         # Note: clk pin unused (left floating for interface compatibility)
-        devices["MP"] = {
+        instances["MP"] = {
             "dev": "pmos",
             "pins": {"d": "out", "g": "clk_b", "s": "in", "b": "vdd"},
         }
 
     elif switch_type == "tgate":
         # Transmission gate (NMOS + PMOS in parallel)
-        devices["MN"] = {
+        instances["MN"] = {
             "dev": "nmos",
             "pins": {"d": "out", "g": "clk", "s": "in", "b": "vss"},
         }
-        devices["MP"] = {
+        instances["MP"] = {
             "dev": "pmos",
             "pins": {"d": "out", "g": "clk_b", "s": "in", "b": "vdd"},
         }
 
-    return ports, devices
+    return ports, instances
 
 
 """
@@ -85,7 +85,7 @@ Characterizes switch performance: bandwidth, THD, settling time
 
 # Monolithic testbench struct (static topology - uses switch_type for matching only)
 tb = {
-    "devices": {
+    "instances": {
         "Vvdd": {
             "dev": "vsource",
             "pins": {"p": "vdd", "n": "gnd"},
@@ -233,7 +233,7 @@ tb = {
             "per": 100,
         },
         "Xdut": {
-            "dev": "samp",
+            "cell": "samp",
             "pins": {
                 "in": "in",
                 "out": "out",

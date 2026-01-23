@@ -9,7 +9,7 @@ No generate_topology() needed - expand_topo_params() will skip Stage 1.
 subckt = {
     "cellname": "nand2",
     "ports": {"a": "I", "b": "I", "out": "O", "vdd": "B", "vss": "B"},
-    "devices": {
+    "instances": {
         # NMOS pull-down network (series - both must be high for low output)
         "MNa": {"dev": "nmos", "pins": {"d": "net1", "g": "a", "s": "vss", "b": "vss"}},
         "MNb": {"dev": "nmos", "pins": {"d": "out", "g": "b", "s": "net1", "b": "vss"}},
@@ -17,20 +17,16 @@ subckt = {
         "MPa": {"dev": "pmos", "pins": {"d": "out", "g": "a", "s": "vdd", "b": "vdd"}},
         "MPb": {"dev": "pmos", "pins": {"d": "out", "g": "b", "s": "vdd", "b": "vdd"}},
     },
-    "meta": {
-        "gate_type": "nand2",
-    },
     "tech": ["tsmc65", "tsmc28", "tower180"],
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-    },
     "inst_params": [
+        # Defaults for all nmos/pmos instances
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        # Override specific instances with sweeps
         {
-            "devices": ["MNa", "MNb", "MPa", "MPb"],
+            "instances": {"nmos": ["MNa", "MNb"], "pmos": ["MPa", "MPb"]},
             "w": [1, 2, 4, 8, 12, 16],
             "type": ["lvt", "svt"],
-        }
+        },
     ],
 }
 
@@ -50,7 +46,7 @@ Verifies truth table: out = ~(a & b)
 
 # Monolithic testbench struct (static topology - no topo_params)
 tb = {
-    "devices": {
+    "instances": {
         "Vvdd": {
             "dev": "vsource",
             "pins": {"p": "vdd", "n": "gnd"},
@@ -93,7 +89,7 @@ tb = {
             "params": {"c": 1e-15},
         },
         "Xdut": {
-            "dev": "nand2",
+            "cell": "nand2",
             "pins": {"a": "a", "b": "b", "out": "out", "vdd": "vdd", "vss": "vss"},
         },
     },

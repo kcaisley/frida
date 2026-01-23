@@ -8,20 +8,18 @@ Static topology - ports/devices pre-filled (no generate_topology needed).
 subckt = {
     "cellname": "inv",
     "ports": {"in": "I", "out": "O", "vdd": "B", "vss": "B"},
-    "devices": {
+    "instances": {
         # NMOS pull-down (conducts when in is high)
         "MN": {"dev": "nmos", "pins": {"d": "out", "g": "in", "s": "vss", "b": "vss"}},
         # PMOS pull-up (conducts when in is low)
         "MP": {"dev": "pmos", "pins": {"d": "out", "g": "in", "s": "vdd", "b": "vdd"}},
     },
-    "meta": {},
     "tech": ["tsmc65", "tsmc28", "tower180"],
-    "dev_params": {
-        "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-        "pmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
-    },
     "inst_params": [
-        {"devices": ["MN", "MP"], "w": [1, 2, 4, 8, 12, 16], "type": ["lvt", "svt"]}
+        # Defaults for all nmos/pmos instances
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        # Override specific instances with sweeps
+        {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": [1, 2, 4, 8, 12, 16], "type": ["lvt", "svt"]},
     ],
 }
 
@@ -41,7 +39,7 @@ Verifies basic inverter operation: out = ~in
 
 # Monolithic testbench struct (static topology - no topo_params)
 tb = {
-    "devices": {
+    "instances": {
         "Vvdd": {
             "dev": "vsource",
             "pins": {"p": "vdd", "n": "gnd"},
@@ -72,7 +70,7 @@ tb = {
             "params": {"c": 1e-15},
         },
         "Xdut": {
-            "dev": "inv",
+            "cell": "inv",
             "pins": {"in": "in", "out": "out", "vdd": "vdd", "vss": "vss"},
         },
     },

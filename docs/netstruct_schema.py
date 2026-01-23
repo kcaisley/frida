@@ -4,7 +4,7 @@
 # and several instances of a subckt 'depedant_cellB', each named XdependentcellB_1, XdependentcellB_2, etc..
 # which iteself internally contains several mosfets, e.g. MN1, MN2, MP2, MP2, MP3
 
-subckts = {
+subckt = {
     "name": "higher_cellA",
     "ports": {},  # in all the most simple cases, will be computed from params
     "devices": [],  # in all the most simple cases, will be computed from params
