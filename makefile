@@ -22,9 +22,10 @@ setup:
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 		echo "uv installed. Run 'make setup' again."; exit 0; \
 	fi
-	uv python install 3.14
-	uv venv --clear --python 3.14 .venv
+	uv python install 3.13
+	uv venv --clear --python 3.13 .venv
 	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
+	uv pip install https://fides.fe.uni-lj.si/pyopus/download/0.12/pyopus-0.12-cp313-cp313-linux_x86_64.whl
 	@echo "Setup complete: .venv created with necessary packages"
 
 check:
