@@ -70,21 +70,47 @@ else
 endif
 
 # ============================================================
-# Simulation (PyOPUS-based batch runner)
+# Simulation (remote execution on jupiter)
 # ============================================================
+
+# Remote configuration
+REMOTE_HOST := jupiter.physik.uni-bonn.de
+REMOTE_USER := kcaisley
+REMOTE_PROJECT := /tmp/kcaisley/frida
+REMOTE_VENV := $(REMOTE_PROJECT)/.venv/bin/python
+
+# Sync local results to remote before simulation
+sync_to_remote:
+ifndef cell
+	$(error Usage: make sync_to_remote cell=<cellname>)
+endif
+	rsync -avz --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/results/$(cell)/
+
+# Sync remote results back to local after simulation
+sync_from_remote:
+ifndef cell
+	$(error Usage: make sync_from_remote cell=<cellname>)
+endif
+	rsync -avz $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/results/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
 
 sim:
 ifndef cell
-	$(error Usage: make sim cell=<cellname> [tech=<tech>] [REMOTE=1])
+	$(error Usage: make sim cell=<cellname> [tech=<tech>])
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
-	@export CDS_LIC_FILE="$(LICENSE_SERVER)"; \
-	export SPECTRE_PATH="$(SPECTRE_PATH)"; \
-	. $(CADENCE_SPECTRE_SETUP); . $(CADENCE_PVS_SETUP); \
-	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o "$(RESULTS_DIR)" \
-		$(if $(tech),--tech=$(tech)) \
-		$(if $(REMOTE),--remote) </dev/null
+	@echo "=== Syncing to remote ==="
+	$(MAKE) sync_to_remote cell=$(cell)
+	@echo "=== Running simulation on $(REMOTE_HOST) ==="
+	ssh -t $(REMOTE_USER)@$(REMOTE_HOST) "\
+		cd $(REMOTE_PROJECT) && \
+		source $(CADENCE_SPECTRE_SETUP) && \
+		source $(CADENCE_PVS_SETUP) && \
+		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
+		$(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o results $(if $(tech),--tech=$(tech))"
+	@echo "=== Syncing results back ==="
+	$(MAKE) sync_from_remote cell=$(cell)
+	@echo "=== Simulation complete ==="
 
 clean_sim:
 ifdef cell

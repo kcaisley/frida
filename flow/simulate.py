@@ -90,16 +90,13 @@ def check_license_server() -> tuple[int, int]:
     return total_licenses, busy_licenses
 
 
-def run_batch_pyopus(
-    jobs: list[dict], sim_dir: Path, remote: bool = False
-) -> dict[str, Path]:
+def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
     """
     Run all jobs using PyOPUS Spectre interface.
 
     Args:
         jobs: List of PyOPUS job dicts from build_pyopus_jobs()
         sim_dir: Output directory for .raw files
-        remote: Use remote execution on jupiter/juno
 
     Returns:
         Dict mapping job name to raw file path
@@ -109,30 +106,12 @@ def run_batch_pyopus(
     try:
         from pyopus.simulator import simulatorClass
     except ImportError:
-        logger.error("PyOPUS not installed. Using fallback Spectre runner.")
+        logger.info("PyOPUS simulator not available. Using fallback Spectre runner.")
         return run_batch_fallback(jobs, sim_dir)
 
     # Create Spectre simulator instance
     Spectre = simulatorClass("Spectre")
     sim = Spectre(debug=1)
-
-    # Configure remote execution if enabled
-    if remote:
-        try:
-            from pyopus.parallel.cooperative import cOS
-            from pyopus.parallel.mpi import MPI
-
-            # Simple setup for juno + jupiter (max 40 slots)
-            vm = MPI(
-                mirrorMap={"*": "."},  # Mirror current dir to workers
-                startupDir=os.getcwd(),
-                debug=1,
-            )
-            cOS.setVM(vm)
-            logger.info("Remote execution enabled via MPI")
-        except ImportError:
-            logger.warning("MPI not available, running locally")
-            remote = False
 
     # Strip metadata before sending to simulator
     clean_jobs = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
@@ -162,14 +141,6 @@ def run_batch_pyopus(
                 logger.warning(f"  Failed: {sim_name}")
 
     sim.cleanup()
-    if remote:
-        try:
-            from pyopus.parallel.cooperative import cOS
-
-            cOS.finalize()
-        except Exception:
-            pass
-
     return results
 
 
@@ -278,11 +249,6 @@ def main():
         help="Results directory (default: results)",
     )
     parser.add_argument(
-        "--remote",
-        action="store_true",
-        help="Enable remote execution on jupiter/juno",
-    )
-    parser.add_argument(
         "--tech",
         type=str,
         default=None,
@@ -344,7 +310,7 @@ def main():
 
     # Run simulations
     start_time = datetime.datetime.now()
-    results = run_batch_pyopus(jobs, sim_dir, remote=args.remote)
+    results = run_batch_pyopus(jobs, sim_dir)
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Update files.json with simulation results

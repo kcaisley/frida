@@ -474,6 +474,9 @@ def build_pyopus_jobs(
     Each testbench becomes one job. No PyOPUS corners used - corner/tech/temp
     info is already baked into each testbench netlist.
 
+    Uses relative paths from project root for MPI compatibility - when
+    mirrorMap copies files to workers, relative paths resolve correctly.
+
     Args:
         files: Dict from files.json keyed by config_hash
         cell_dir: Path to cell results directory (e.g., results/comp)
@@ -489,6 +492,16 @@ def build_pyopus_jobs(
     for config_hash, file_ctx in files.items():
         for tb_spice_rel in file_ctx.get("tb_spice", []):
             tb_path = cell_dir / tb_spice_rel
+
+            # Use relative path from project root for MPI mirrorMap compatibility
+            # This ensures paths work when files are mirrored to remote workers
+            tb_path_rel = str(tb_path)
+            try:
+                # Try to make path relative to current working directory
+                tb_path_rel = str(tb_path.relative_to(Path.cwd()))
+            except ValueError:
+                # If not relative to cwd, use the path as-is
+                pass
 
             # Parse metadata from filename: <cell>_<topo>_<tech>_<hash>_<corner>_<temp>.sp
             # Example: comp_nmosinput_stdbias_tsmc65_a1b2c3d4e5f6_tt_27.sp
@@ -516,7 +529,7 @@ def build_pyopus_jobs(
 
             job = {
                 "name": tb_path.stem,
-                "definitions": [{"file": str(tb_path)}],
+                "definitions": [{"file": tb_path_rel}],
                 "params": {},  # Params already in netlist
                 "options": {},
                 "saves": default_analysis.get("saves", ["all()"]),

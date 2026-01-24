@@ -526,16 +526,18 @@ def autoadd_fields(
     tb_autofielded["libs"] = libs
 
     # Add includes from files.json paths
+    # Paths in files.json are relative to cell_dir (e.g., "subckt/foo.sp")
+    # Testbenches are in tb/ so includes need "../" prefix to reach siblings
     includes = []
     if file_ctx:
         # Add DUT subcircuit netlist
         if "subckt_spice" in file_ctx:
-            includes.append(file_ctx["subckt_spice"])
+            includes.append("../" + file_ctx["subckt_spice"])
 
         # Add child subcircuit netlists (hierarchical dependencies)
         for child in file_ctx.get("subckt_children", []):
             if "child_spice" in child:
-                includes.append(child["child_spice"])
+                includes.append("../" + child["child_spice"])
 
     # Merge with any extra_includes from tb template
     if "extra_includes" in tb:
