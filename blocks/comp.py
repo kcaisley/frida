@@ -731,3 +731,176 @@ def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
     write_analysis(raw_file, results, outdir=meas_dir)
 
     return results
+
+
+# ========================================================================
+# PyOPUS Analyses Configuration
+# ========================================================================
+
+# PyOPUS analyses for comparator (transient only)
+analyses = {
+    "tran": {
+        "saves": [
+            "all()",  # Save all node voltages
+        ],
+        "command": "tran(stop=param['sim_stop'], errpreset='conservative')",
+    }
+}
+
+# Variables accessible in measure expressions
+variables = {
+    "vdd": 1.8,  # Will be overridden from testbench params
+    "sim_stop": _total_time,
+}
+
+
+# ========================================================================
+# PyOPUS Measures Configuration
+# ========================================================================
+
+# Measures use PyOPUS expression syntax with access to:
+#   v('nodename') - voltage accessor
+#   i('devname') - current accessor
+#   scale() - time axis
+#   param - parameter dictionary
+#   m. - built-in measure functions (Tdelay, TsettlingTime, etc.)
+
+measures = {
+    # Offset requires custom logic (decision statistics)
+    "offset_mV": {
+        "analysis": "tran",
+        "expression": """
+# Custom: offset from comparator decision statistics
+from flow.measure import comparator_offset_mV
+__result = comparator_offset_mV(v, scale, param)
+""",
+    },
+    # Delay - USE BUILT-IN m.Tdelay
+    "delay_ns": {
+        "analysis": "tran",
+        "expression": """
+# Use built-in Tdelay: delay between clk rising and output crossing
+vclk = v('clk')
+voutp = v('outp')
+vdd = param.get('vdd', 1.8)
+
+# m.Tdelay(y, x, level, edge, skip, t1, t2)
+delay_s = m.Tdelay(voutp, scale(), vdd/2, 'rising')
+__result = delay_s * 1e9 if delay_s is not None else float('nan')
+""",
+    },
+    # Settling time - USE BUILT-IN m.TsettlingTime
+    "settling_ns": {
+        "analysis": "tran",
+        "expression": """
+voutp = v('outp')
+vdd = param.get('vdd', 1.8)
+
+# m.TsettlingTime(y, x, final, level, t1, t2)
+tsettle = m.TsettlingTime(voutp, scale(), vdd, 0.01)  # 1% tolerance
+__result = tsettle * 1e9 if tsettle is not None else float('nan')
+""",
+    },
+    # Overshoot - USE BUILT-IN m.Tovershoot
+    "overshoot_pct": {
+        "analysis": "tran",
+        "expression": """
+voutp = v('outp')
+vdd = param.get('vdd', 1.8)
+
+# m.Tovershoot(y, x, final, t1, t2)
+__result = m.Tovershoot(voutp, scale(), vdd) * 100
+""",
+    },
+    # Power - simple integration (custom)
+    "power_uW": {
+        "analysis": "tran",
+        "expression": """
+import numpy as np
+time = scale()
+ivdd = -i('vdd')
+vdd = param.get('vdd', 1.8)
+
+# Average power over simulation
+__result = np.mean(ivdd) * vdd * 1e6
+""",
+    },
+    # Slew rate - USE BUILT-IN m.TslewRate
+    "slew_Vns": {
+        "analysis": "tran",
+        "expression": """
+voutp = v('outp')
+
+# m.TslewRate(edge, y, x, level1, level2, t1, t2)
+slew = m.TslewRate('rising', voutp, scale(), 0.2, 0.8)
+__result = slew * 1e-9 if slew is not None else float('nan')  # V/ns
+""",
+    },
+}
+
+
+# ========================================================================
+# PyOPUS Visualisation Configuration
+# ========================================================================
+
+visualisation = {
+    "graphs": {
+        "transient": {
+            "title": "Comparator Transient Response",
+            "shape": {"figsize": (10, 6), "dpi": 100},
+            "axes": {
+                "signals": {
+                    "subplot": (2, 1, 1),
+                    "xlabel": "Time [s]",
+                    "ylabel": "Voltage [V]",
+                    "legend": True,
+                    "grid": True,
+                },
+                "clock": {
+                    "subplot": (2, 1, 2),
+                    "xlabel": "Time [s]",
+                    "ylabel": "Voltage [V]",
+                    "grid": True,
+                },
+            },
+        },
+        "summary": {
+            "title": "Performance Summary",
+            "shape": {"figsize": (8, 6)},
+            "axes": {
+                "bar": {
+                    "subplot": (1, 1, 1),
+                    "xlabel": "Configuration",
+                    "ylabel": "Offset [mV]",
+                    "grid": True,
+                }
+            },
+        },
+    },
+    "styles": [
+        {
+            "pattern": ("^.*", "^.*", "^.*", "^.*"),
+            "style": {"color": "blue", "linestyle": "-"},
+        },
+    ],
+    "traces": {
+        "inp": {
+            "graph": "transient",
+            "axes": "signals",
+            "xresult": "time",
+            "yresult": "v_inp",
+        },
+        "outp": {
+            "graph": "transient",
+            "axes": "signals",
+            "xresult": "time",
+            "yresult": "v_outp",
+        },
+        "clk": {
+            "graph": "transient",
+            "axes": "clock",
+            "xresult": "time",
+            "yresult": "v_clk",
+        },
+    },
+}

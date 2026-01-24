@@ -458,3 +458,150 @@ def save_files_list(files_db_path: Path, files: dict[str, dict]) -> None:
     """
     files_db_path.parent.mkdir(parents=True, exist_ok=True)
     files_db_path.write_text(compact_json(files))
+
+
+# ========================================================================
+# PyOPUS Integration Utilities
+# ========================================================================
+
+
+def build_pyopus_jobs(
+    files: dict[str, dict], cell_dir: Path, cell_module: Any
+) -> list[dict]:
+    """
+    Build PyOPUS job list from files.json testbench entries.
+
+    Each testbench becomes one job. No PyOPUS corners used - corner/tech/temp
+    info is already baked into each testbench netlist.
+
+    Args:
+        files: Dict from files.json keyed by config_hash
+        cell_dir: Path to cell results directory (e.g., results/comp)
+        cell_module: Loaded cell module with analyses dict
+
+    Returns:
+        List of PyOPUS job dicts ready for simulation
+    """
+    jobs = []
+    analyses = getattr(cell_module, "analyses", {})
+    default_analysis = list(analyses.values())[0] if analyses else {}
+
+    for config_hash, file_ctx in files.items():
+        for tb_spice_rel in file_ctx.get("tb_spice", []):
+            tb_path = cell_dir / tb_spice_rel
+
+            # Parse metadata from filename: <cell>_<topo>_<tech>_<hash>_<corner>_<temp>.sp
+            # Example: comp_nmosinput_stdbias_tsmc65_a1b2c3d4e5f6_tt_27.sp
+            parts = tb_path.stem.split("_")
+
+            # Extract tech, corner, temp from filename parts
+            # Filename format: tb_<cell>_<topo_params...>_<tech>_<hash>_<corner>_<temp>
+            tech = "unknown"
+            corner = "tt"
+            temp = 27
+
+            if len(parts) >= 3:
+                # Last two parts are corner and temp
+                try:
+                    temp = int(parts[-1])
+                    corner = parts[-2]
+                except (ValueError, IndexError):
+                    pass
+
+                # Tech is before hash (12 hex chars)
+                for i, part in enumerate(parts):
+                    if part in ["tsmc65", "tsmc28", "tower180"]:
+                        tech = part
+                        break
+
+            job = {
+                "name": tb_path.stem,
+                "definitions": [{"file": str(tb_path)}],
+                "params": {},  # Params already in netlist
+                "options": {},
+                "saves": default_analysis.get("saves", ["all()"]),
+                "command": default_analysis.get(
+                    "command", "tran(stop=1e-6, errpreset='conservative')"
+                ),
+                # Metadata for result filtering (not sent to simulator)
+                "_metadata": {
+                    "config_hash": config_hash,
+                    "tech": tech,
+                    "corner": corner,
+                    "temp": temp,
+                    "cfgname": file_ctx.get("cfgname", ""),
+                },
+            }
+            jobs.append(job)
+
+    return jobs
+
+
+def filter_results(all_results: dict, **filters) -> dict:
+    """
+    Filter measurement results by metadata.
+
+    Args:
+        all_results: Dict of all measurement results (key -> {measures, metadata})
+        **filters: Key-value filters (tech='tsmc65', corner='tt', temp=27, etc.)
+
+    Returns:
+        Filtered subset of results matching all provided filters
+    """
+    filtered = {}
+    for key, data in all_results.items():
+        meta = data.get("metadata", {})
+        match = all(
+            meta.get(k) == v for k, v in filters.items() if v is not None
+        )
+        if match:
+            filtered[key] = data
+    return filtered
+
+
+def parse_testbench_filename(filename: str) -> dict:
+    """
+    Parse testbench filename to extract metadata.
+
+    Expected format: tb_<cell>_<topo_params...>_<tech>_<hash>_<corner>_<temp>.sp
+
+    Args:
+        filename: Testbench filename or stem
+
+    Returns:
+        Dict with parsed metadata (tech, corner, temp, hash)
+    """
+    stem = Path(filename).stem
+    parts = stem.split("_")
+
+    result = {
+        "tech": "unknown",
+        "corner": "tt",
+        "temp": 27,
+        "hash": "",
+    }
+
+    if len(parts) >= 3:
+        # Last part is temperature
+        try:
+            result["temp"] = int(parts[-1])
+        except ValueError:
+            pass
+
+        # Second to last is corner
+        if len(parts) >= 2:
+            result["corner"] = parts[-2]
+
+        # Find tech in parts
+        for part in parts:
+            if part in ["tsmc65", "tsmc28", "tower180"]:
+                result["tech"] = part
+                break
+
+        # Find 12-char hex hash
+        for part in parts:
+            if len(part) == 12 and all(c in "0123456789abcdef" for c in part):
+                result["hash"] = part
+                break
+
+    return result

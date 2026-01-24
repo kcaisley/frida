@@ -1,20 +1,43 @@
+"""
+PyOPUS-based measurement extraction.
+
+Runs measurements on simulation results using PyOPUS PerformanceEvaluator
+or custom helper functions. Results are saved as JSON files with metadata.
+"""
+
+import argparse
 import datetime
-import numpy as np
-import pandas as pd  # type: ignore[import-untyped]
+import json
+import logging
+import sys
 from pathlib import Path
-from spicelib import RawRead
 
-from flow.common import setup_logging
+import numpy as np
 
-"""
-Measurement entails reading in the .raw files created by simulation, and performing a series of post-processing and calculations
-to find the performance of the circuit block under test. Columnar results are saved along with the original simulation data back to
-a .npz file, while reduced dimensional results (including scalar quantities) are written to a .json struct.
-"""
+from flow.common import (
+    filter_results,
+    load_cell_script,
+    load_files_list,
+    save_files_list,
+    setup_logging,
+)
+
+
+# ============================================================
+# Waveform Reading Utilities
+# ============================================================
 
 
 def read_traces(raw):
-    """Return time and all traces as tuple of numpy arrays."""
+    """
+    Return time and all traces as tuple of numpy arrays.
+
+    Args:
+        raw: RawRead object from spicelib
+
+    Returns:
+        Tuple of (time, trace1, trace2, ...) numpy arrays
+    """
     time = raw.get_axis()
     traces = tuple(
         raw.get_wave(name) for name in raw.get_trace_names() if name.lower() != "time"
@@ -22,110 +45,33 @@ def read_traces(raw):
     return (time,) + traces
 
 
-def write_analysis(raw_file, *variables, outdir=None):
+def quantize(signal, bits=1, max_val=1.2, min_val=0):
     """
-    Write arrays to .raw_a file and all variables to .pkl file.
-
-    Arrays (same length as time) are written to both .raw_a and .pkl
-    Scalars are only written to .pkl
-
-    The first variable must be the time array.
+    Quantize signal to N bits between min and max.
 
     Args:
-        raw_file: Path to the raw file (used for naming output files)
-        *variables: Variable-length argument list of numpy arrays and scalars
-        outdir: Optional output directory. If None, writes to same directory as raw_file
+        signal: numpy array of analog values
+        bits: number of quantization bits
+        max_val: maximum value
+        min_val: minimum value
 
-    Usage:
-        write_analysis(raw_file, time, vin, vout, qvclk, vdiff, max_error_V, rms_error_V)
-        write_analysis(raw_file, time, vin, vout, outdir='/path/to/meas')
+    Returns:
+        Quantized numpy array
     """
-    import inspect
-    import numpy as np
-
-    # Get variable names from caller's frame
-    frame = inspect.currentframe()
-    if frame is None or frame.f_back is None:
-        raise RuntimeError(
-            "Could not inspect calling frame. Variable names unavailable."
-        )
-    frame = frame.f_back
-    var_dict = {}
-    for var in variables:
-        found = False
-        for var_name, var_value in frame.f_locals.items():
-            if var_value is var:
-                var_dict[var_name] = var
-                found = True
-                break
-        if not found:
-            var_dict[f"var_{len(var_dict)}"] = var
-
-    # Assume first variable is time
-    time = variables[0]
-    time_len = len(time) if hasattr(time, "__len__") else 0
-
-    # Separate arrays (same length as time) from scalars
-    arrays = {}
-    for name, value in var_dict.items():
-        if isinstance(value, np.ndarray) and len(value) == time_len:
-            arrays[name] = value
-
-    # Determine output paths
-    import json
-
-    raw_path = Path(raw_file)
-
-    if outdir is not None:
-        # Write to specified output directory
-        # Replace sim_ prefix with meas_ for measurement files
-        outdir_path = Path(outdir)
-        outdir_path.mkdir(parents=True, exist_ok=True)
-        base_name = raw_path.stem.replace("sim_", "meas_", 1)
-        json_path = outdir_path / f"{base_name}.json"
-        csv_path = outdir_path / f"{base_name}.csv"
-    else:
-        # Write to same directory as raw_file
-        base_name = raw_path.stem.replace("sim_", "meas_", 1)
-        json_path = raw_path.parent / f"{base_name}.json"
-        csv_path = raw_path.parent / f"{base_name}.csv"
-
-    # Separate arrays from scalars for CSV
-    scalars = {}
-    for name, value in var_dict.items():
-        if not isinstance(value, np.ndarray) or len(value) != time_len:
-            scalars[name] = value
-
-    # Write .json file with scalar metrics only
-    with open(json_path, "w") as f:
-        json.dump(scalars, f, indent=2, default=str)
-
-    # Write .csv file with time-series data (arrays)
-    if arrays:
-        df = pd.DataFrame(arrays)
-        df.to_csv(csv_path, index=False)
-
-    return json_path, csv_path
-
-
-def quantize(signal, bits=1, max=1.2, min=0):
-    """Quantize signal to N bits between min and max."""
     levels = 2**bits
-    step = (max - min) / levels
-    quantized = np.floor((signal - min) / step) * step + min
-    return np.clip(quantized, min, max)
+    step = (max_val - min_val) / levels
+    quantized = np.floor((signal - min_val) / step) * step + min_val
+    return np.clip(quantized, min_val, max_val)
 
 
 def digitize(signal, threshold=None, vdd=1.2):
     """
     Digitize analog signal to binary (1 or 0) based on threshold.
 
-    This is a 1-bit quantizer that converts analog voltages to digital levels.
-
-    Parameters:
+    Args:
         signal: numpy array of analog voltages
         threshold: voltage threshold (default: vdd/2)
-        vdd: supply voltage (default: 1.2V)
+        vdd: supply voltage
 
     Returns:
         numpy array of 1s and 0s
@@ -135,689 +81,441 @@ def digitize(signal, threshold=None, vdd=1.2):
     return np.where(signal > threshold, 1, 0)
 
 
-def reconstruct_analog(dcode, weights, vref_range=None):
+# ============================================================
+# Comparator-specific Measurements (Custom - not in PyOPUS)
+# ============================================================
+
+
+def comparator_offset_mV(v_func, scale_func, param, n_samples=100):
     """
-    Reconstruct analog voltage from digital code using DAC weights.
+    Measure comparator input-referred offset from decision statistics.
 
-    Converts a digital code (array of bits) to analog voltage by multiplying
-    each bit by its corresponding weight. Useful for analyzing ADC/DAC linearity.
+    Custom function - not available in PyOPUS built-ins.
+    Uses repeated sampling at threshold to estimate offset.
 
-    Parameters:
-        dcode: 2D numpy array of shape (n_samples, n_bits) with digital codes (0s and 1s)
-               or 1D array if analyzing a single code
-        weights: 1D numpy array of length n_bits with weight for each bit position
-                 May include mismatch/non-idealities
-        vref_range: tuple of (vmin, vmax) for normalization. If None, returns raw weighted sum
+    Args:
+        v_func: Voltage accessor function v('nodename')
+        scale_func: Time scale function
+        param: Parameter dictionary with 'vdd' etc.
+        n_samples: Number of samples per test point
 
     Returns:
-        numpy array of reconstructed analog values
-
-    Example:
-        >>> dcode = np.array([[0, 0, 1], [0, 1, 0], [1, 1, 1]])  # 3 samples, 3 bits
-        >>> weights = np.array([1, 2, 4])  # Binary weights
-        >>> reconstruct_analog(dcode, weights)
-        array([4, 2, 7])
+        Offset in millivolts
     """
-    # Handle 1D case
-    if dcode.ndim == 1:
-        dcode = dcode.reshape(1, -1)
+    _ = scale_func()  # Time axis (unused but required for interface)
+    voutp = v_func("outp")
+    voutn = v_func("outn")
+    vclk = v_func("clk")
+    vdd = param.get("vdd", 1.8)
 
-    # Convert bits to bipolar (-1, +1) for differential signaling
-    # Or just use (0, 1) for unipolar - keeping it flexible
-    analog = np.dot(dcode, weights)
+    # Find clock falling edges (decision sampling moments)
+    above = vclk > vdd / 2
+    clk_fall = np.where(np.diff(above.astype(int)) < 0)[0]
 
-    # Normalize to voltage range if specified
-    if vref_range is not None:
-        vmin, vmax = vref_range
-        # Scale from code range to voltage range
-        code_min = np.dot(np.zeros_like(weights), weights)
-        code_max = np.dot(np.ones_like(weights), weights)
-        analog = vmin + (analog - code_min) * (vmax - vmin) / (code_max - code_min)
+    # Get decisions at each sample
+    decisions = [(voutp[idx] > voutn[idx]) for idx in clk_fall if idx < len(voutp)]
 
-    return analog.squeeze()
+    # Offset estimation from P(ONE) deviation from 0.5
+    if not decisions:
+        return float("nan")
+
+    p_one = np.mean(decisions)
+    # Rough mV estimate (simplified - full implementation uses binary search)
+    offset_mV = (p_one - 0.5) * 100
+
+    return float(offset_mV)
 
 
-def calculate_inl(vin, dout_analog, return_stats=True):
+# ============================================================
+# CDAC/ADC Linearity Measurements (Custom - not in PyOPUS)
+# ============================================================
+
+
+def calculate_inl(vin, vout):
     """
-    Calculate Integral Nonlinearity (INL) for ADC/DAC transfer function.
+    Calculate Integral Nonlinearity from best-fit line.
 
-    INL measures the deviation of the actual transfer function from the best-fit line.
+    INL measures deviation from ideal linear transfer function.
 
-    Parameters:
-        vin: numpy array of input voltages (analog reference)
-        dout_analog: numpy array of reconstructed output voltages from digital code
-        return_stats: if True, also return RMS and worst-case INL
+    Args:
+        vin: Input voltage array (ideal ramp)
+        vout: Output voltage array (measured)
 
     Returns:
-        If return_stats=False:
-            inl: numpy array of INL values (same length as vin)
-        If return_stats=True:
-            inl, inl_rms, inl_max: (array, float, float)
-
-    Example:
-        >>> vin = np.linspace(-0.6, 0.6, 100)
-        >>> dout = reconstruct_analog(dcode, weights)
-        >>> inl, inl_rms, inl_max = calculate_inl(vin, dout)
+        Tuple of (inl_array, inl_max) - INL at each code and maximum |INL|
     """
-    # Compute best-fit line using least squares
-    coeffs = np.polyfit(vin, dout_analog, 1)  # Linear fit: slope and intercept
-    dout_linear = np.polyval(coeffs, vin)
-
-    # INL is deviation from best-fit line
-    inl = dout_analog - dout_linear
-
-    # Calculate statistics
-    if return_stats:
-        inl_rms = np.std(inl)  # RMS INL
-        inl_max = np.max(np.abs(inl))  # Worst-case (peak) INL
-        return inl, inl_rms, inl_max
-
-    return inl
+    coeffs = np.polyfit(vin, vout, 1)
+    ideal = np.polyval(coeffs, vin)
+    inl = vout - ideal
+    return inl, float(np.max(np.abs(inl)))
 
 
-def calculate_dnl(dout_analog, ideal_lsb=None, return_stats=True):
+def calculate_dnl(vout, ideal_lsb=None):
     """
-    Calculate Differential Nonlinearity (DNL) for ADC/DAC.
+    Calculate Differential Nonlinearity.
 
-    DNL measures the difference between actual and ideal code step sizes.
-    DNL[i] = (actual_step[i] - ideal_step) / ideal_step
+    DNL measures difference between actual and ideal step sizes.
 
-    Parameters:
-        dout_analog: numpy array of reconstructed analog values (sorted by code)
-        ideal_lsb: ideal LSB step size. If None, computed as mean of all steps
-        return_stats: if True, also return RMS and worst-case DNL
+    Args:
+        vout: Output voltage array
+        ideal_lsb: Expected step size (if None, uses mean step)
 
     Returns:
-        If return_stats=False:
-            dnl: numpy array of DNL values in LSB units (length = len(dout_analog) - 1)
-        If return_stats=True:
-            dnl, dnl_rms, dnl_max: (array, float, float)
-
-    Example:
-        >>> dout = reconstruct_analog(dcode, weights)
-        >>> dnl, dnl_rms, dnl_max = calculate_dnl(dout)
+        Tuple of (dnl_array, dnl_max) - DNL at each step and maximum |DNL|
     """
-    # Calculate actual step sizes
-    actual_steps = np.diff(dout_analog)
-
-    # Ideal LSB is the average step size (or specified)
+    steps = np.diff(vout)
     if ideal_lsb is None:
-        ideal_lsb = np.mean(actual_steps)
-
-    # DNL in LSB units
-    dnl = (actual_steps - ideal_lsb) / ideal_lsb
-
-    # Calculate statistics
-    if return_stats:
-        dnl_rms = np.std(dnl)  # RMS DNL
-        dnl_max = np.max(np.abs(dnl))  # Worst-case (peak) DNL
-        return dnl, dnl_rms, dnl_max
-
-    return dnl
+        ideal_lsb = np.mean(steps)
+    if ideal_lsb == 0:
+        return np.zeros(len(steps)), 0.0
+    dnl = (steps - ideal_lsb) / ideal_lsb
+    return dnl, float(np.max(np.abs(dnl)))
 
 
-def calculate_dnl_histogram(dout_analog, return_stats=True):
+def extract_settled_values(vout, time, n_codes, settle_fraction=0.9):
     """
-    Calculate DNL using histogram/code density method.
+    Extract settled output values from stepped waveform.
 
-    This method rounds the output to nearest integer codes, counts occurrences
-    of each code, and compares to the ideal uniform distribution. This is the
-    method used in the legacy spice.py code.
-
-    DNL[code] = (actual_count[code] / average_count) - 1
-
-    Parameters:
-        dout_analog: numpy array of reconstructed analog values
-        return_stats: if True, also return RMS and worst-case DNL
-
-    Returns:
-        If return_stats=False:
-            dnl_hist, code_counts: (DNL array, histogram counts)
-        If return_stats=True:
-            dnl_hist, code_counts, dnl_rms, dnl_max: (array, dict, float, float)
-
-    Example:
-        >>> dout = reconstruct_analog(dcode, weights)
-        >>> dnl, counts, dnl_rms, dnl_max = calculate_dnl_histogram(dout)
-    """
-    # Round to nearest integer code
-    dout_rounded = np.round(dout_analog)
-
-    # Count occurrences of each code
-    unique_codes, counts = np.unique(dout_rounded, return_counts=True)
-
-    # Calculate ideal count (uniform distribution)
-    total_samples = len(dout_analog)
-    num_codes = len(unique_codes)
-    ideal_count = total_samples / num_codes
-
-    # DNL in LSB units
-    dnl_hist = (counts / ideal_count) - 1
-
-    # Create dict for easier lookup by code
-    code_counts = dict(zip(unique_codes, counts))
-
-    # Calculate statistics
-    if return_stats:
-        dnl_rms = np.std(dnl_hist)  # RMS DNL
-        dnl_max = np.max(np.abs(dnl_hist))  # Worst-case (peak) DNL
-        return dnl_hist, code_counts, dnl_rms, dnl_max
-
-    return dnl_hist, code_counts
-
-
-def calculate_linearity_error(vin, dout_analog, return_stats=True):
-    """
-    Calculate linearity error (deviation from best-fit line).
-
-    This is similar to INL but returns the raw error in output units
-    rather than normalized to LSB. Useful for visualizing transfer function error.
-
-    Parameters:
-        vin: numpy array of input voltages
-        dout_analog: numpy array of output values
-        return_stats: if True, also return RMS error
-
-    Returns:
-        If return_stats=False:
-            error: numpy array of errors
-        If return_stats=True:
-            error, error_rms: (array, float)
-    """
-    # Compute best-fit line
-    coeffs = np.polyfit(vin, dout_analog, 1)
-    dout_linear = np.polyval(coeffs, vin)
-
-    # Error is deviation from best-fit
-    error = dout_analog - dout_linear
-
-    if return_stats:
-        error_rms = np.std(error)
-        return error, error_rms
-
-    return error
-
-
-def round_to_codes(dout_analog):
-    """
-    Round continuous analog output to discrete integer codes.
-
-    This is useful for analyzing ADC outputs that may have some analog
-    variation but should ideally be discrete codes.
-
-    Parameters:
-        dout_analog: numpy array of analog output values
-
-    Returns:
-        dout_rounded: numpy array of integer codes
-    """
-    return np.round(dout_analog).astype(int)
-
-
-def diff(v1, v2):
-    """Return differential signal (v1 - v2)."""
-    return v1 - v2
-
-
-def comm(v1, v2):
-    """Return common mode signal ((v1 + v2) / 2)."""
-    return (v1 + v2) / 2
-
-
-def lookup_device(netlist, device_name):
-    """Return voltage and current signal names for device terminals [d, g, s, b]."""
-    nodes = netlist.get_component_nodes(device_name)
-    v_names = [f"v({node})" for node in nodes]
-    i_names = [f"i({device_name.lower()}:{t})" for t in ["d", "g", "s", "b"]]
-    return v_names, i_names
-
-
-def rds(raw, netlist, device_name):
-    """Calculate output resistance (Vd - Vs) / Id."""
-    v_names, i_names = lookup_device(netlist, device_name)
-    vd = raw.get_wave(v_names[0])
-    vs = raw.get_wave(v_names[2])
-    id = raw.get_wave(i_names[0])
-    return (vd - vs) / id
-
-
-# ========================================================================
-# Analytic Functions - compute metrics from circuit parameters
-# ========================================================================
-
-
-def analyze_weights(weights: list[int], threshold: int = 64):
-    """
-    Gives analysis of weights for where the main scaling structure ends and where
-    fine adjustments (such as capacitor differences, Vref scaling with a resistive
-    divider, or bridge capacitor scaling) begin. The output includes weight
-    ratios, and various metrics annotated for design insight.
-
-    This function calculates and displays key metrics including the unit capacitor
-    size (defining the transition from coarse to fine scaling), effective radix
-    between weights, and the percentage of remaining redundancy.
+    Assumes vout has n_codes steps, samples at settle_fraction of each period.
 
     Args:
-        weights: List of capacitor weights
-        threshold: Coarse/fine split threshold (default: 64)
+        vout: Output voltage waveform
+        time: Time array
+        n_codes: Number of DAC codes
+        settle_fraction: Fraction of period to wait for settling
 
     Returns:
-        dict: Dictionary containing analysis results
+        Array of settled values at each code
     """
-
-    # Calculate various metrics for each bit position
-    remaining = []  # Remaining total weight after each bit
-    method4 = []  # Difference between remaining and current weight
-    radix = []  # Ratio of current weight to next weight (effective radix)
-    bit = list(range(len(weights)))  # Bit indices
-
-    # Loop through all but the last weight to compute metrics
-    for i, cap in enumerate(weights[:-1]):
-        remain = sum(weights[i + 1 :])  # Total weight remaining after this bit
-        remaining.append(remain)
-        method4.append(remain - weights[i])  # Difference between remaining and current
-        radix.append(
-            weights[i] / weights[i + 1]
-        )  # Effective radix between this and next
-
-    return {
-        "weights": weights,
-        "weight_ratios": [w / threshold for w in weights],
-        "sum": sum(weights),
-        "length": len(weights),
-        "bit": bit,
-        "method4": method4 + [0],
-        "radix": radix + [0],
-        "remaining": remaining,
-    }
+    period = time[-1] / n_codes
+    settled_times = [(i + settle_fraction) * period for i in range(n_codes)]
+    settled_values = np.interp(settled_times, time, vout)
+    return settled_values
 
 
-def analyze_signal_rms(Vref):
+# ============================================================
+# PyOPUS PerformanceEvaluator Wrapper
+# ============================================================
+
+
+def run_measurements_pyopus(
+    cell: str, results_dir: Path, cell_module
+) -> dict:
     """
-    Estimate RMS amplitude of signal assuming peak-to-peak sinusoid.
+    Run measurements on all simulation results using PyOPUS PerformanceEvaluator.
 
     Args:
-        Vref: Reference voltage
+        cell: Cell name
+        results_dir: Results directory
+        cell_module: Loaded cell module with 'measures' dict
 
     Returns:
-        float: RMS signal voltage
+        Dict of all measurement results
     """
-    import math
+    logger = logging.getLogger(__name__)
 
-    return Vref * 2 / (2 * math.sqrt(2))
+    try:
+        from pyopus.evaluator.performance import PerformanceEvaluator
+    except ImportError:
+        logger.warning("PyOPUS not available, using fallback measurement runner")
+        return run_measurements_fallback(cell, results_dir, cell_module)
+
+    measures = getattr(cell_module, "measures", {})
+    analyses = getattr(cell_module, "analyses", {})
+    variables = getattr(cell_module, "variables", {})
+
+    sim_dir = results_dir / cell / "sim"
+    meas_dir = results_dir / cell / "meas"
+    meas_dir.mkdir(exist_ok=True)
+
+    all_results = {}
+
+    for raw_file in sorted(sim_dir.glob("sim_*.raw")):
+        result_key = raw_file.stem.replace("sim_", "")
+
+        # Load metadata
+        meta_file = raw_file.with_suffix(".meta.json")
+        if meta_file.exists():
+            metadata = json.loads(meta_file.read_text())
+        else:
+            metadata = {}
+
+        try:
+            # Build minimal PyOPUS config for this single result
+            heads = {
+                "local": {
+                    "simulator": "Spectre",
+                    "moddefs": {"result": {"file": str(raw_file)}},
+                }
+            }
+
+            # Single "nominal" corner - no multi-corner complexity
+            corners = {"nominal": {"modules": ["result"], "params": {}}}
+
+            # Create evaluator
+            pe = PerformanceEvaluator(
+                heads, analyses, measures, corners,
+                variables=variables,
+                debug=0,
+            )
+
+            # Run (no input params needed - results already computed)
+            results, _ = pe({})
+
+            # Extract scalar values from results
+            scalar_results = {}
+            for k, v in results.items():
+                if isinstance(v, dict) and "nominal" in v:
+                    scalar_results[k] = v["nominal"]
+                else:
+                    scalar_results[k] = v
+
+            # Store with metadata
+            all_results[result_key] = {
+                "measures": scalar_results,
+                "metadata": metadata,
+            }
+
+            # Save individual result file
+            meas_file = meas_dir / f"meas_{result_key}.json"
+            meas_file.write_text(
+                json.dumps(
+                    {"measures": scalar_results, "metadata": metadata},
+                    indent=2,
+                    default=str,
+                )
+            )
+
+            pe.finalize()
+            logger.info(f"  Measured: {result_key}")
+
+        except Exception as e:
+            logger.warning(f"  Failed: {result_key} - {e}")
+            continue
+
+    return all_results
 
 
-def analyze_qnoise(Vref, Nbits):
+def run_measurements_fallback(
+    cell: str, results_dir: Path, cell_module
+) -> dict:
     """
-    Calculate quantization noise for ADC.
+    Fallback measurement runner when PyOPUS is unavailable.
+
+    Uses spicelib to read raw files and calls cell-specific measure() function.
 
     Args:
-        Vref: Reference voltage
-        Nbits: Number of bits
+        cell: Cell name
+        results_dir: Results directory
+        cell_module: Loaded cell module
 
     Returns:
-        tuple: (Vqnoise_rms, Vlsb)
+        Dict of all measurement results
     """
-    import math
+    logger = logging.getLogger(__name__)
 
-    Vlsb = (Vref * 2) / (2**Nbits)
-    Vqnoise_rms = Vlsb / math.sqrt(12)
-    return Vqnoise_rms, Vlsb
+    try:
+        from spicelib import RawRead
+    except ImportError:
+        logger.error("spicelib not installed")
+        return {}
 
+    sim_dir = results_dir / cell / "sim"
+    meas_dir = results_dir / cell / "meas"
+    meas_dir.mkdir(exist_ok=True)
 
-def analyze_sampnoise(Ctot):
-    """
-    Calculate sampling noise from total capacitance.
+    # Check if cell has custom measure() function
+    has_custom_measure = hasattr(cell_module, "measure")
 
-    Args:
-        Ctot: Total sampling capacitance (F)
+    all_results = {}
 
-    Returns:
-        float: RMS sampling noise voltage
-    """
-    import math
+    for raw_file in sorted(sim_dir.glob("sim_*.raw")):
+        result_key = raw_file.stem.replace("sim_", "")
 
-    kB = 1.38065e-23  # Boltzmann's constant
-    T = 300  # roughly 27 deg C
-    Vsampnoise_rms = math.sqrt(kB * T / Ctot)
-    return Vsampnoise_rms
+        # Load metadata
+        meta_file = raw_file.with_suffix(".meta.json")
+        if meta_file.exists():
+            metadata = json.loads(meta_file.read_text())
+        else:
+            metadata = {}
 
+        try:
+            # Read raw file
+            raw = RawRead(
+                str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
+            )
 
-def analyze_snr_volts(Vsignal, Vnoise):
-    """
-    Calculate SNR in dB from signal and noise voltages.
+            if has_custom_measure:
+                # Use cell-specific measure function
+                # Find matching subckt and tb JSON files
+                subckt_dir = results_dir / cell / "subckt"
+                tb_dir = results_dir / cell / "tb"
 
-    Args:
-        Vsignal: RMS signal voltage
-        Vnoise: RMS noise voltage
+                subckt_json = {}
+                tb_json = {}
 
-    Returns:
-        float: SNR in dB
-    """
-    import math
+                # Try to load subckt json based on metadata
+                config_hash = metadata.get("config_hash", "")
+                if config_hash:
+                    subckt_files = list(subckt_dir.glob(f"*{config_hash}*.json"))
+                    if subckt_files:
+                        subckt_json = json.loads(subckt_files[0].read_text())
 
-    return 10 * math.log10((Vsignal / Vnoise) ** 2)
+                    tb_files = list(tb_dir.glob(f"*{config_hash}*.json"))
+                    if tb_files:
+                        tb_json = json.loads(tb_files[0].read_text())
 
+                # Call cell-specific measure function
+                results = cell_module.measure(raw, subckt_json, tb_json, str(raw_file))
+            else:
+                # Basic measurements
+                time = raw.get_axis()
+                trace_names = raw.get_trace_names()
 
-def analyze_enob(SNR):
-    """
-    Calculate ENOB from SNR.
+                results = {
+                    "sim_time_ns": float(time[-1] * 1e9) if len(time) > 0 else 0,
+                    "num_traces": len(trace_names),
+                    "num_points": len(time),
+                }
 
-    Args:
-        SNR: Signal-to-noise ratio in dB
+            # Store with metadata
+            all_results[result_key] = {
+                "measures": results,
+                "metadata": metadata,
+            }
 
-    Returns:
-        float: Effective number of bits
-    """
-    return (SNR - 1.76) / 6.02
+            # Save individual result file
+            meas_file = meas_dir / f"meas_{result_key}.json"
+            meas_file.write_text(
+                json.dumps(
+                    {"measures": results, "metadata": metadata},
+                    indent=2,
+                    default=str,
+                )
+            )
 
+            logger.info(f"  Measured: {result_key}")
 
-def analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits):
-    """
-    Calculate effective number of bits (ENOB) due to sampling noise.
+        except Exception as e:
+            logger.warning(f"  Failed: {result_key} - {e}")
+            continue
 
-    Args:
-        Vref: Reference voltage of the ADC
-        Ctot: Total sampling capacitance (F)
-        Nbits: Number of ADC bits
-
-    Returns:
-        float: ENOB, reduced only due to sampling noise
-    """
-    import math
-
-    Vinpp_rms = analyze_signal_rms(Vref)
-    Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
-    Vsampnoise_rms = analyze_sampnoise(Ctot)
-    Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vsampnoise_rms**2)
-    snr = analyze_snr_volts(Vinpp_rms, Vnoise_rms)
-    enob = analyze_enob(snr)
-    return enob
-
-
-def analyze_midcode_sigma_bounds(Ctot, Nbits, Acap):
-    """
-    Calculate 3-sigma and 4-sigma bounds for mid-code variation due to capacitor mismatch.
-
-    Args:
-        Ctot: Total capacitance of the array (F)
-        Nbits: Number of design bits
-        Acap: Mismatch coefficient per sqrt(C fF), from Pelgrom pg. 768
-
-    Returns:
-        tuple: (sigma, 3sigma, 4sigma, Cu, Cu_sigma_norm) in LSB units or Farads
-    """
-    import math
-
-    Cu = Ctot / (2**Nbits)
-    Cu_delta_sigma_norm = Acap / math.sqrt(Cu * 1e15)
-    Cu_sigma_norm = Cu_delta_sigma_norm / math.sqrt(2)
-    Cmsb_delta_sigma_norm = Cu_sigma_norm * math.sqrt(
-        2 ** (Nbits - 1) + (2 ** (Nbits - 1) - 1)
-    )
-    Cmsb_delta_3sigma_norm = 3 * Cmsb_delta_sigma_norm
-    Cmsb_delta_4sigma_norm = 4 * Cmsb_delta_sigma_norm
-    return (
-        Cmsb_delta_sigma_norm,
-        Cmsb_delta_3sigma_norm,
-        Cmsb_delta_4sigma_norm,
-        Cu,
-        Cu_sigma_norm,
-    )
-
-
-def analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref):
-    """
-    Calculate mismatch-induced DNL noise.
-
-    Args:
-        Ctot: Total capacitance (F)
-        Nbits: Number of bits
-        Acap: Mismatch coefficient
-        Vref: Reference voltage
-
-    Returns:
-        tuple: (1sigma, 3sigma, 4sigma) DNL noise voltages
-    """
-    import math
-
-    Vqnoise, Vlsb = analyze_qnoise(Vref, Nbits)
-    (
-        Cmsb_delta_1sigma_norm,
-        Cmsb_delta_3sigma_norm,
-        Cmsb_delta_4sigma_norm,
-        Cu,
-        Cu_sigma_norm,
-    ) = analyze_midcode_sigma_bounds(Ctot, Nbits, Acap)
-
-    Vmmdnl_noise_1sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_1sigma_norm**2)))
-    Vmmdnl_noise_3sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_3sigma_norm**2)))
-    Vmmdnl_noise_4sigma = math.sqrt((Vlsb**2 * (Cmsb_delta_4sigma_norm**2)))
-
-    return Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma
-
-
-def analyze_enob_from_mismatch(Ctot, Nbits, Acap, Vref):
-    """
-    Calculate ENOB considering capacitor mismatch.
-
-    Args:
-        Ctot: Total capacitance (F)
-        Nbits: Number of bits
-        Acap: Mismatch coefficient
-        Vref: Reference voltage
-
-    Returns:
-        float: ENOB reduced by mismatch
-    """
-    import math
-
-    Vinpp_rms = analyze_signal_rms(Vref)
-    Vqnoise_rms, Vlsb = analyze_qnoise(Vref, Nbits)
-    Vmmdnl_noise_1sigma, Vmmdnl_noise_3sigma, Vmmdnl_noise_4sigma = (
-        analyze_mismatch_dnl_noise(Ctot, Nbits, Acap, Vref)
-    )
-    Vnoise_rms = math.sqrt(Vqnoise_rms**2 + Vmmdnl_noise_3sigma**2)
-    snr = analyze_snr_volts(Vinpp_rms, Vnoise_rms)
-    enob = analyze_enob(snr)
-    return enob
-
-
-def analyze_area(netlist_json):
-    """
-    Calculate total device area from netlist.
-
-    Args:
-        netlist_json: Dictionary containing device parameters
-
-    Returns:
-        dict: Dictionary with per-device areas and total area
-    """
-    device_areas = {}
-    total_area = 0.0
-
-    devices = netlist_json.get("devices", {})
-    for dev_name, dev_info in devices.items():
-        if "w" in dev_info and "l" in dev_info:
-            area = dev_info["w"] * dev_info["l"]
-            nf = dev_info.get("nf", 1)
-            device_areas[dev_name] = area * nf
-            total_area += area * nf
-
-    return {"device_areas": device_areas, "total_area": total_area}
+    return all_results
 
 
 def main():
     """Main entry point for measurement script."""
-    import argparse
-    import sys
-    import json
-    import re
-    from glob import glob
-    from flow.plot import load_analysis_module
-
     parser = argparse.ArgumentParser(
         description="Run measurements on simulation results"
     )
+    parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
     parser.add_argument(
-        "block_file", type=Path, help="Path to block script (e.g., blocks/comp.py)"
-    )
-    parser.add_argument(
-        "sim_dir", type=Path, help="Directory containing .raw files (e.g., results/sim)"
-    )
-    parser.add_argument(
-        "subckt_dir",
+        "-o",
+        "--outdir",
         type=Path,
-        help="Directory containing subcircuit .json files (e.g., subckt)",
+        default=Path("results"),
+        help="Results directory (default: results)",
     )
     parser.add_argument(
-        "tb_dir",
-        type=Path,
-        help="Directory containing testbench .json files (e.g., results/tb)",
+        "--tech",
+        type=str,
+        default=None,
+        help="Filter by technology (e.g., tsmc65)",
     )
     parser.add_argument(
-        "meas_dir",
-        type=Path,
-        help="Output directory for measurements (e.g., results/meas)",
+        "--corner",
+        type=str,
+        default=None,
+        help="Filter by corner (e.g., tt, ss, ff)",
     )
     parser.add_argument(
-        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
+        "--temp",
+        type=int,
+        default=None,
+        help="Filter by temperature (e.g., 27)",
     )
+
     args = parser.parse_args()
 
-    # Extract cell name from block file (e.g., blocks/comp.py -> comp)
-    cell = args.block_file.stem
+    # Setup paths
+    cell_dir = args.outdir / args.cell
+    sim_dir = cell_dir / "sim"
+    meas_dir = cell_dir / "meas"
 
     # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    args.log_dir.mkdir(exist_ok=True)
-    log_file = args.log_dir / f"meas_{cell}_{timestamp}.log"
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"meas_{args.cell}_{timestamp}.log"
     logger = setup_logging(log_file)
 
-    # Load analysis module
-    analysis_module = load_analysis_module(args.block_file)
-    if not hasattr(analysis_module, "measure"):
-        logger.error(f"{args.block_file} does not have a measure() function")
-        sys.exit(1)
+    # Check prerequisites
+    if not sim_dir.exists():
+        logger.error(f"Simulation directory not found: {sim_dir}")
+        logger.error(f"Run 'make sim cell={args.cell}' first")
+        return 1
 
-    args.meas_dir.mkdir(parents=True, exist_ok=True)
+    block_file = Path(f"blocks/{args.cell}.py")
+    if not block_file.exists():
+        logger.error(f"Block file not found: {block_file}")
+        return 1
 
-    # Find all .raw files for this cell in sim_dir (now with sim_ prefix)
-    raw_pattern = str(args.sim_dir / f"sim_{cell}*.raw")
-    raw_files = sorted(glob(raw_pattern))
+    # Load cell module
+    cell_module = load_cell_script(block_file)
 
+    # Count raw files
+    raw_files = list(sim_dir.glob("sim_*.raw"))
     if not raw_files:
-        logger.warning(f"No .raw files found matching: {raw_pattern}")
-        sys.exit(0)
+        logger.warning(f"No simulation results found in {sim_dir}")
+        return 0
 
     logger.info("=" * 80)
-    logger.info(f"Measuring {cell}")
+    logger.info(f"Cell:       {args.cell}")
+    logger.info("Flow:       measure")
+    logger.info(f"Raw files:  {len(raw_files)}")
+    logger.info(f"Output:     {meas_dir}")
+    logger.info(f"Log:        {log_file}")
+    logger.info("-" * 80)
+
+    # Run measurements
+    start_time = datetime.datetime.now()
+    all_results = run_measurements_pyopus(args.cell, args.outdir, cell_module)
+    elapsed = (datetime.datetime.now() - start_time).total_seconds()
+
+    # Apply filters if specified
+    if args.tech or args.corner or args.temp:
+        filtered = filter_results(
+            all_results,
+            tech=args.tech,
+            corner=args.corner,
+            temp=args.temp,
+        )
+        logger.info(f"Filtered: {len(filtered)} of {len(all_results)} results")
+    else:
+        filtered = all_results
+
+    # Update files.json with measurement paths
+    files_db_path = cell_dir / "files.json"
+    if files_db_path.exists():
+        files = load_files_list(files_db_path)
+        for config_hash, file_ctx in files.items():
+            matching_meas = list(meas_dir.glob(f"meas_*{config_hash}*.json"))
+            if matching_meas:
+                file_ctx["meas_db"] = f"meas/{matching_meas[0].name}"
+        save_files_list(files_db_path, files)
+
+    # Summary
     logger.info("=" * 80)
-    logger.info(f"Found {len(raw_files)} simulation results")
-    logger.info(f"Log file: {log_file}\n")
-    logger.info(f"{'File':<50} {'Status':<10}")
-    logger.info("-" * 80)
-
-    # Process each raw file
-    successful = 0
-    failed = []
-
-    for idx, raw_file in enumerate(raw_files, 1):
-        raw_path = Path(raw_file)
-        filename = raw_path.name
-
-        try:
-            # Parse filename: sim_<cell>_<params>_<tech>_<hash>.raw
-            # Example: sim_comp_nmosinput_stdbias_tsmc65_a1b2c3d4e5f6.raw
-            stem = raw_path.stem  # Remove .raw extension
-
-            # Extract tech and hash (12 hex chars) from filename
-            # Tech is alphanumeric, hash is 12 hex characters at the end
-            match = re.search(r"_(\w+)_([0-9a-f]{12})$", stem)
-            if not match:
-                logger.info(f"{filename:<50} {'✗ No hash':<10}")
-                failed.append(raw_path.name)
-                continue
-
-            tech = match.group(1)
-            hash_hex = match.group(2)
-
-            # Find matching subcircuit .json: subckt_<cell>_<params>_<tech>_<hash>.json
-            subckt_pattern = str(
-                args.subckt_dir / f"subckt_{cell}_*_{tech}_{hash_hex}.json"
-            )
-            subckt_matches = glob(subckt_pattern)
-
-            if not subckt_matches:
-                logger.info(f"{filename:<50} {'✗ No subckt':<10}")
-                failed.append(raw_path.name)
-                continue
-
-            subckt_json_path = Path(subckt_matches[0])
-
-            # Find matching testbench .json: tb_<cell>_<tech>.json
-            tb_json_path = args.tb_dir / f"tb_{cell}_{tech}.json"
-
-            if not tb_json_path.exists():
-                logger.info(f"{filename:<50} {'✗ No TB':<10}")
-                failed.append(raw_path.name)
-                continue
-
-            # Load data
-            raw = RawRead(
-                str(raw_path), traces_to_read="*", dialect="ngspice", verbose=False
-            )
-
-            with open(subckt_json_path, "r") as f:
-                subckt_json = json.load(f)
-
-            with open(tb_json_path, "r") as f:
-                tb_json = json.load(f)
-
-            # Call measure function
-            analysis_module.measure(raw, subckt_json, tb_json, str(raw_path), str(args.meas_dir))
-
-            logger.info(f"{filename:<50} {'✓':<10}")
-            successful += 1
-
-            # Log progress every 100 files or on last file
-            if idx % 100 == 0 or idx == len(raw_files):
-                logger.info(f"  Progress: {idx}/{len(raw_files)} files processed")
-
-        except Exception as e:
-            logger.info(f"{filename:<50} {'✗ Error':<10}")
-            failed.append((raw_path.name, str(e)))
-            continue
-
-    # Print summary
-    logger.info("-" * 80)
-    logger.info("\n" + "=" * 80)
     logger.info("Measurement Summary")
     logger.info("=" * 80)
-    logger.info(f"Total files:     {len(raw_files)}")
-    logger.info(
-        f"Successful:      {successful} ({100 * successful / len(raw_files):.1f}%)"
-    )
-    logger.info(
-        f"Failed:          {len(failed)} ({100 * len(failed) / len(raw_files):.1f}%)"
-    )
-
-    if failed:
-        logger.info("\nFailed files:")
-        for item in failed:
-            if isinstance(item, tuple):
-                name, error = item
-                logger.info(f"  - {name}: {error}")
-            else:
-                logger.info(f"  - {item}")
-
-    logger.info(f"\nResults saved to: {args.meas_dir}")
+    logger.info(f"Total raw files:   {len(raw_files)}")
+    logger.info(f"Measured:          {len(all_results)}")
+    logger.info(f"Elapsed time:      {elapsed:.1f}s")
+    logger.info(f"Output:            {meas_dir}")
     logger.info("=" * 80)
 
-    return 0 if len(failed) == 0 else 1
+    return 0
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main())

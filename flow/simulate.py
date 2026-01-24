@@ -1,39 +1,41 @@
-#!/usr/bin/env python3
 """
-Run Spectre simulations using pre-generated testbench wrappers.
+PyOPUS-based Spectre batch simulation runner.
 
-This script validates matching pairs of DUT netlists and testbench wrappers,
-then runs Spectre simulations in parallel with license management.
+Runs all testbenches for a cell in batch using PyOPUS Spectre interface,
+with optional remote execution on jupiter/juno servers.
 """
 
 import argparse
 import datetime
+import json
 import logging
 import os
+import re
 import subprocess
 import sys
-import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from glob import glob
 from pathlib import Path
-from typing import List, Tuple
 
-from flow.common import setup_logging
+from flow.common import (
+    build_pyopus_jobs,
+    load_cell_script,
+    load_files_list,
+    save_files_list,
+    setup_logging,
+)
 
 
-def check_license_server():
+def check_license_server() -> tuple[int, int]:
     """
     Check Spectre license server availability and parse license usage.
 
     Returns:
-        Tuple of (total_licenses, busy_licenses) or None if server unavailable
+        Tuple of (total_licenses, busy_licenses)
 
     Raises:
         SystemExit: If CDS_LIC_FILE is not set or license server doesn't respond
     """
     logger = logging.getLogger(__name__)
 
-    # Check if CDS_LIC_FILE environment variable is set
     license_server = os.environ.get("CDS_LIC_FILE")
     if not license_server:
         logger.error("CDS_LIC_FILE environment variable is not set")
@@ -42,9 +44,8 @@ def check_license_server():
 
     logger.info(f"License server: {license_server}")
 
-    # Run lmstat to check license availability
     try:
-        result = subprocess.run(  # type: ignore[call-overload]
+        result = subprocess.run(
             ["lmstat", "-c", license_server, "-a"],
             capture_output=True,
             text=True,
@@ -52,33 +53,24 @@ def check_license_server():
         )
 
         if result.returncode != 0:
-            logger.error(f"lmstat command failed with return code {result.returncode}")
-            logger.error(f"Output: {result.stderr}")
+            logger.error(f"lmstat command failed: {result.stderr}")
             sys.exit(1)
 
     except subprocess.TimeoutExpired:
-        logger.error("License server check timed out after 10 seconds")
+        logger.error("License server check timed out")
         sys.exit(1)
     except FileNotFoundError:
-        logger.error(
-            "lmstat command not found. Please ensure Cadence tools are in PATH"
-        )
+        logger.error("lmstat command not found. Ensure Cadence tools are in PATH")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to check license server: {e}")
         sys.exit(1)
 
-    # Parse lmstat output to find Spectre licenses
-    # Look for lines like: "Users of Virtuoso_Multi_mode_Simulation:  (Total of 120 licenses issued;  Total of 23 licenses in use)"
     total_licenses = 0
     busy_licenses = 0
 
     for line in result.stdout.split("\n"):
-        # Match the Spectre/Multi-mode simulation license
         if "Virtuoso_Multi_mode_Simulation" in line or "MMSIM" in line:
-            # Parse: "Users of Virtuoso_Multi_mode_Simulation:  (Total of 120 licenses issued;  Total of 23 licenses in use)"
-            import re
-
             issued_match = re.search(r"Total of (\d+) licenses? issued", line)
             in_use_match = re.search(r"Total of (\d+) licenses? in use", line)
 
@@ -86,12 +78,10 @@ def check_license_server():
                 total_licenses = int(issued_match.group(1))
             if in_use_match:
                 busy_licenses = int(in_use_match.group(1))
-
             break
 
     if total_licenses == 0:
         logger.error("Could not parse license information from lmstat output")
-        logger.error("Please check that the license server is configured correctly")
         sys.exit(1)
 
     logger.info(f"Total licenses: {total_licenses}")
@@ -100,557 +90,287 @@ def check_license_server():
     return total_licenses, busy_licenses
 
 
-def correct_spectre_raw(raw_file: Path) -> bool:
+def run_batch_pyopus(
+    jobs: list[dict], sim_dir: Path, remote: bool = False
+) -> dict[str, Path]:
     """
-    Post-process Spectre raw file to be compatible with ngspice format.
-    Then convert to binary format using spicelib for GAW compatibility.
-
-    Processing steps:
-    1. Convert Spectre nutascii format to ngspice ASCII format:
-       - Fix variable names and types
-       - Fix data section formatting
-    2. Read with spicelib
-    3. Write back as binary with all doubles (GAW-compatible)
+    Run all jobs using PyOPUS Spectre interface.
 
     Args:
-        raw_file: Path to the .raw file to fix
+        jobs: List of PyOPUS job dicts from build_pyopus_jobs()
+        sim_dir: Output directory for .raw files
+        remote: Use remote execution on jupiter/juno
 
     Returns:
-        True if successful, False otherwise
-    """
-    try:
-        from spicelib import RawRead
-        from spicelib.raw.raw_write import RawWrite, Trace
-
-        # ===== STEP 1: Fix Spectre format to ngspice ASCII =====
-        with open(raw_file, "rb") as f:
-            content = f.read()
-
-        # Find the header/data split (nutbin uses "Binary:", nutascii uses "Values:")
-        data_marker = None
-        is_ascii = False
-        if b"Binary:\n" in content:
-            data_marker = b"Binary:\n"
-            is_ascii = False
-        elif b"Values:\n" in content:
-            data_marker = b"Values:\n"
-            is_ascii = True
-        else:
-            return False
-
-        header, data_section = content.split(data_marker, 1)
-        header_text = header.decode("ascii", errors="ignore")
-
-        # Fix the header to match ngspice format
-        lines = header_text.split("\n")
-        fixed_lines = []
-
-        for line in lines:
-            if line.startswith("Variables:") and len(line.strip()) > len("Variables:"):
-                # Split "Variables:\t0\ttime\ts" into two lines
-                fixed_lines.append("Variables:")
-                var_def = line[len("Variables:") :]
-                fixed_lines.append(var_def)
-            elif line.strip() and "\t" in line:
-                # Variable definition line - convert to ngspice format
-                parts = [p.strip() for p in line.split("\t") if p.strip()]
-
-                if len(parts) >= 3 and parts[0].isdigit():
-                    idx = parts[0]
-                    name = parts[1]
-                    unit = parts[2].split()[0]  # Remove 'plot=0 grid=0' if present
-
-                    # Convert to ngspice format
-                    if name.lower() == "time" or unit.lower() == "s":
-                        # Time variable
-                        fixed_lines.append(f"\t{idx}\t{name}\ttime")
-                    elif unit.upper() == "V":
-                        # Voltage - wrap in v(...)
-                        # Remove hierarchy prefix (e.g., xtb.in -> in)
-                        simple_name = name.split(".")[-1]
-                        fixed_lines.append(f"\t{idx}\tv({simple_name})\tvoltage")
-                    elif unit.upper() == "A":
-                        # Current - wrap in i(...)
-                        simple_name = name.split(".")[-1]
-                        fixed_lines.append(f"\t{idx}\ti({simple_name})\tcurrent")
-                    else:
-                        # Unknown type - keep as-is
-                        fixed_lines.append(f"\t{idx}\t{name}\t{unit}")
-                else:
-                    fixed_lines.append(line)
-            else:
-                fixed_lines.append(line)
-
-        fixed_header = "\n".join(fixed_lines).encode("ascii")
-
-        # Fix ASCII data section to ngspice format
-        if is_ascii:
-            data_text = data_section.decode("ascii", errors="ignore")
-            data_lines = data_text.split("\n")
-
-            # Parse Spectre format (wrapped lines) into data points
-            data_points = []
-            current_point = []
-
-            for line in data_lines:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-
-                # Lines starting with space + digit are new data points
-                if line.startswith(" ") and stripped and stripped[0].isdigit():
-                    # Save previous point if exists
-                    if current_point:
-                        data_points.append(current_point)
-                    # Start new point
-                    current_point = stripped.split()
-                elif line.startswith("\t"):
-                    # Continuation line
-                    current_point.extend(stripped.split())
-
-            # Don't forget the last point
-            if current_point:
-                data_points.append(current_point)
-
-            # Convert to ngspice format: point index + first value on first line,
-            # remaining values on subsequent lines with leading tab
-            fixed_data_lines = []
-            for point in data_points:
-                if len(point) >= 2:
-                    # First line: point_index<tab>first_value
-                    fixed_data_lines.append(f"{point[0]}\t{point[1]}")
-                    # Subsequent lines: <tab>value
-                    for value in point[2:]:
-                        fixed_data_lines.append(f"\t{value}")
-
-            fixed_data = "\n".join(fixed_data_lines) + "\n"
-            fixed_content = fixed_header + data_marker + fixed_data.encode("ascii")
-        else:
-            # Binary format - just fix header
-            fixed_content = fixed_header + data_marker + data_section
-
-        # Write temporary fixed ASCII file
-        with open(raw_file, "wb") as f:
-            f.write(fixed_content)
-
-        # ===== STEP 2: Read with spicelib =====
-        raw_read = RawRead(
-            str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
-        )
-        time = raw_read.get_axis()
-        trace_names = raw_read.get_trace_names()
-
-        # ===== STEP 3: Write back as binary with all doubles =====
-        # WARNING: 'fastacces' typo is in the spicelib library itself!
-        raw_write = RawWrite(
-            fastacces=False, encoding="utf_8"
-        )  # Normal interleaved, not FastAccess
-
-        # Add time axis with double precision
-        raw_write.add_trace(
-            Trace("time", time, whattype="time", numerical_type="double")
-        )
-
-        # Add all other traces with double precision
-        for name in trace_names:
-            if name.lower() == "time":
-                continue  # Skip time, already added
-
-            data = raw_read.get_wave(name)
-
-            # Determine trace type from name
-            if name.startswith("v(") or name.startswith("V("):
-                whattype = "voltage"
-            elif name.startswith("i(") or name.startswith("I("):
-                whattype = "current"
-            else:
-                whattype = "voltage"  # Default
-
-            # Force double precision for GAW compatibility
-            raw_write.add_trace(
-                Trace(name, data, whattype=whattype, numerical_type="double")
-            )
-
-        # Overwrite with binary format
-        raw_write.save(raw_file)
-
-        return True
-
-    except Exception:
-        # If conversion fails, at least try to keep the ASCII version
-        return False
-
-
-def test_raw(raw_file: Path) -> bool:
-    """
-    Lightweight test to verify a raw file is parseable by spicelib.
-
-    Args:
-        raw_file: Path to the .raw file to test
-
-    Returns:
-        True if file loads successfully, False otherwise
-    """
-    try:
-        from spicelib import RawRead
-        import numpy as np
-
-        # Try to load the file
-        raw = RawRead(
-            str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
-        )
-
-        # Get basic info
-        traces = raw.get_trace_names()
-        time = raw.get_axis()
-
-        # Verify data is finite
-        if not np.all(np.isfinite(time)):
-            return False
-
-        # Check first voltage trace if available
-        if len(traces) > 1:
-            voltage = raw.get_wave(traces[1])
-            if not np.all(np.isfinite(voltage)):
-                return False
-
-        return True
-
-    except Exception:
-        return False
-
-
-def run_spectre_simulation(
-    tb_wrapper: Path,
-    outdir: Path,
-    spectre_path: str,
-    license_server: str,
-    raw_format: str = "nutascii",
-) -> Tuple[str, bool, float]:
-    """
-    Run a single Spectre simulation.
-
-    Args:
-        tb_wrapper: Path to testbench wrapper file
-        outdir: Output directory
-        spectre_path: Path to Spectre binary
-        license_server: License server address
-        raw_format: Output format ('nutbin' or 'nutascii')
-
-    Returns:
-        Tuple of (name, success, elapsed_time)
-    """
-    start_time = time.time()
-    # Replace tb_ prefix with sim_ for simulation output files
-    name = tb_wrapper.stem.replace("tb_", "sim_", 1)
-
-    # Output files
-    log_file = outdir / f"{name}.log"
-    raw_file = outdir / f"{name}.raw"
-
-    # Run Spectre
-    cmd = [
-        spectre_path,
-        "-64",
-        tb_wrapper.name,  # Just the filename, since we're cd'd to outdir
-        "+log",
-        log_file.name,
-        "-format",
-        raw_format,
-        "-raw",
-        raw_file.name,
-    ]
-
-    # Set up environment with license server
-    env = os.environ.copy()
-    env["CDS_LIC_FILE"] = license_server
-
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(outdir),
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout
-            env=env,
-        )
-
-        success = result.returncode == 0 and "completes with 0 errors" in result.stdout
-        elapsed = time.time() - start_time
-
-        # Fix .raw file header for spicelib compatibility
-        if success and raw_file.exists():
-            correct_spectre_raw(raw_file)
-
-        return name, success, elapsed
-
-    except subprocess.TimeoutExpired:
-        elapsed = time.time() - start_time
-        return name, False, elapsed
-    except Exception:
-        elapsed = time.time() - start_time
-        return name, False, elapsed
-
-
-def validate_matching_pairs(dut_netlists: List[Path], tb_wrappers: List[Path]) -> bool:
-    """
-    Validate that DUT netlists and testbench wrappers match.
-
-    Args:
-        dut_netlists: List of DUT netlist paths
-        tb_wrappers: List of testbench wrapper paths
-
-    Returns:
-        True if validation passes, False otherwise
+        Dict mapping job name to raw file path
     """
     logger = logging.getLogger(__name__)
 
-    if len(dut_netlists) != len(tb_wrappers):
-        logger.error(
-            f"Mismatch in counts - {len(dut_netlists)} DUTs vs {len(tb_wrappers)} testbenches"
-        )
-        return False
+    try:
+        from pyopus.simulator import simulatorClass
+    except ImportError:
+        logger.error("PyOPUS not installed. Using fallback Spectre runner.")
+        return run_batch_fallback(jobs, sim_dir)
 
-    # Extract base names (remove ckt_ prefix from DUTs and tb_ prefix from wrappers)
-    dut_names = {f.stem.replace("subckt_", "", 1) for f in dut_netlists}
-    tb_names = {f.stem.replace("tb_", "", 1) for f in tb_wrappers}
+    # Create Spectre simulator instance
+    Spectre = simulatorClass("Spectre")
+    sim = Spectre(debug=1)
 
-    if dut_names != tb_names:
-        missing_in_tb = dut_names - tb_names
-        missing_in_dut = tb_names - dut_names
+    # Configure remote execution if enabled
+    if remote:
+        try:
+            from pyopus.parallel.cooperative import cOS
+            from pyopus.parallel.mpi import MPI
 
-        if missing_in_tb:
-            logger.error(f"DUTs without testbenches: {missing_in_tb}")
-        if missing_in_dut:
-            logger.error(f"Testbenches without DUTs: {missing_in_dut}")
-        return False
+            # Simple setup for juno + jupiter (max 40 slots)
+            vm = MPI(
+                mirrorMap={"*": "."},  # Mirror current dir to workers
+                startupDir=os.getcwd(),
+                debug=1,
+            )
+            cOS.setVM(vm)
+            logger.info("Remote execution enabled via MPI")
+        except ImportError:
+            logger.warning("MPI not available, running locally")
+            remote = False
 
-    return True
+    # Strip metadata before sending to simulator
+    clean_jobs = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
+    sim.setJobList(clean_jobs)
+
+    results = {}
+    for i in range(sim.jobGroupCount()):
+        job_indices, status = sim.runJobGroup(i)
+
+        for j in job_indices:
+            job_name = jobs[j]["name"]
+            # Replace tb_ prefix with sim_ for output files
+            sim_name = job_name.replace("tb_", "sim_", 1)
+            raw_path = sim_dir / f"{sim_name}.raw"
+
+            res = sim.readResults(j, status)
+            if res is not None:
+                results[job_name] = raw_path
+
+                # Store metadata alongside
+                meta_path = sim_dir / f"{sim_name}.meta.json"
+                meta = jobs[j].get("_metadata", {})
+                meta_path.write_text(json.dumps(meta, indent=2))
+
+                logger.info(f"  Completed: {sim_name}")
+            else:
+                logger.warning(f"  Failed: {sim_name}")
+
+    sim.cleanup()
+    if remote:
+        try:
+            from pyopus.parallel.cooperative import cOS
+
+            cOS.finalize()
+        except Exception:
+            pass
+
+    return results
+
+
+def run_batch_fallback(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
+    """
+    Fallback batch runner using direct Spectre calls when PyOPUS is unavailable.
+
+    Args:
+        jobs: List of job dicts
+        sim_dir: Output directory
+
+    Returns:
+        Dict mapping job name to raw file path
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    logger = logging.getLogger(__name__)
+    spectre_path = os.environ.get("SPECTRE_PATH", "spectre")
+    license_server = os.environ.get("CDS_LIC_FILE", "")
+
+    # Check available licenses
+    total_lic, busy_lic = check_license_server()
+    free_lic = total_lic - busy_lic
+
+    # Calculate workers (leave some licenses for colleagues)
+    colleague_threshold = 40
+    licenses_per_worker = 2
+    max_workers = max(1, (free_lic - colleague_threshold) // licenses_per_worker)
+    num_workers = min(max_workers, len(jobs))
+
+    logger.info(f"Running {len(jobs)} simulations with {num_workers} workers")
+
+    results = {}
+
+    def run_single(job: dict) -> tuple[str, bool, Path | None]:
+        job_name = job["name"]
+        sim_name = job_name.replace("tb_", "sim_", 1)
+        tb_file = job["definitions"][0]["file"]
+
+        log_file = sim_dir / f"{sim_name}.log"
+        raw_file = sim_dir / f"{sim_name}.raw"
+
+        cmd = [
+            spectre_path,
+            "-64",
+            tb_file,
+            "+log",
+            str(log_file),
+            "-format",
+            "nutascii",
+            "-raw",
+            str(raw_file),
+        ]
+
+        env = os.environ.copy()
+        env["CDS_LIC_FILE"] = license_server
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(sim_dir),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=env,
+            )
+            success = result.returncode == 0
+            return job_name, success, raw_file if success else None
+        except Exception:
+            return job_name, False, None
+
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = {executor.submit(run_single, job): job for job in jobs}
+
+        for future in as_completed(futures):
+            job = futures[future]
+            job_name, success, raw_path = future.result()
+
+            if success and raw_path:
+                results[job_name] = raw_path
+
+                # Save metadata
+                sim_name = job_name.replace("tb_", "sim_", 1)
+                meta_path = sim_dir / f"{sim_name}.meta.json"
+                meta = job.get("_metadata", {})
+                meta_path.write_text(json.dumps(meta, indent=2))
+
+                logger.info(f"  Completed: {sim_name}")
+            else:
+                logger.warning(f"  Failed: {job_name}")
+
+    return results
 
 
 def main():
     """Main entry point for simulation runner."""
     parser = argparse.ArgumentParser(
-        description="Run Spectre simulations using pre-generated testbench wrappers.",
-        epilog='Example: %(prog)s --dut-netlists "results/samp_tgate/samp_tgate_*.sp" --tb-wrappers "results/samp_tgate/tb_samp_tgate_*.sp" -o results/samp_tgate',
+        description="Run PyOPUS-based Spectre batch simulations"
     )
-
-    parser.add_argument(
-        "--dut-netlists",
-        type=str,
-        required=True,
-        help='Glob pattern for DUT netlists (e.g., "results/samp_tgate/samp_tgate_*.sp")',
-    )
-
-    parser.add_argument(
-        "--tb-wrappers",
-        type=str,
-        required=True,
-        help='Glob pattern for testbench wrappers (e.g., "results/samp_tgate/tb_samp_tgate_*.sp")',
-    )
-
+    parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
     parser.add_argument(
         "-o",
         "--outdir",
         type=Path,
-        required=True,
-        help="Output directory for simulation results",
+        default=Path("results"),
+        help="Results directory (default: results)",
     )
-
     parser.add_argument(
-        "--tech-filter",
+        "--remote",
+        action="store_true",
+        help="Enable remote execution on jupiter/juno",
+    )
+    parser.add_argument(
+        "--tech",
         type=str,
-        default="",
-        help='Only run simulations for this technology (e.g., "tsmc65")',
-    )
-
-    parser.add_argument(
-        "--license-server",
-        type=str,
-        required=True,
-        help='License server address (e.g., "27500@nexus.physik.uni-bonn.de")',
-    )
-
-    parser.add_argument(
-        "--spectre-path", type=str, required=True, help="Path to Spectre binary"
-    )
-
-    parser.add_argument(
-        "--raw-format",
-        type=str,
-        default="nutascii",
-        choices=["nutbin", "nutascii"],
-        help="Spectre raw output format: nutbin (binary) or nutascii (ASCII, default)",
+        default=None,
+        help="Filter by technology (e.g., tsmc65)",
     )
 
     args = parser.parse_args()
 
-    # Find all files
-    dut_netlists = sorted([Path(f) for f in glob(args.dut_netlists)])
-    tb_wrappers = sorted([Path(f) for f in glob(args.tb_wrappers)])
+    # Setup paths
+    cell_dir = args.outdir / args.cell
+    sim_dir = cell_dir / "sim"
+    files_db_path = cell_dir / "files.json"
 
-    # Setup logging early so we can log errors
+    # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = args.outdir / f"batch_sim_{timestamp}.log"
-    args.outdir.mkdir(parents=True, exist_ok=True)
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"sim_{args.cell}_{timestamp}.log"
     logger = setup_logging(log_file)
 
-    if not dut_netlists:
-        logger.error(f"No DUT netlists found matching: {args.dut_netlists}")
-        sys.exit(1)
+    # Check prerequisites
+    if not files_db_path.exists():
+        logger.error(f"files.json not found at {files_db_path}")
+        logger.error(f"Run 'make subckt cell={args.cell}' and 'make tb cell={args.cell}' first")
+        return 1
 
-    if not tb_wrappers:
-        logger.error(f"No testbench wrappers found matching: {args.tb_wrappers}")
-        logger.error("Did you run 'make testbench' first?")
-        sys.exit(1)
+    block_file = Path(f"blocks/{args.cell}.py")
+    if not block_file.exists():
+        logger.error(f"Block file not found: {block_file}")
+        return 1
+
+    # Load files database and cell module
+    files = load_files_list(files_db_path)
+    cell_module = load_cell_script(block_file)
+
+    # Build job list
+    jobs = build_pyopus_jobs(files, cell_dir, cell_module)
 
     # Apply tech filter if specified
-    if args.tech_filter:
-        dut_netlists = [f for f in dut_netlists if args.tech_filter in f.name]
-        tb_wrappers = [f for f in tb_wrappers if args.tech_filter in f.name]
+    if args.tech:
+        jobs = [j for j in jobs if j["_metadata"].get("tech") == args.tech]
 
-        if not dut_netlists:
-            logger.error(f"No netlists match tech filter: {args.tech_filter}")
-            sys.exit(1)
+    if not jobs:
+        logger.warning("No testbenches to simulate")
+        return 0
 
-    # Validate matching pairs
-    if not validate_matching_pairs(dut_netlists, tb_wrappers):
-        sys.exit(1)
+    logger.info("=" * 80)
+    logger.info(f"Cell:       {args.cell}")
+    logger.info("Flow:       simulate (PyOPUS batch)")
+    logger.info(f"Jobs:       {len(jobs)}")
+    logger.info(f"Output:     {sim_dir}")
+    logger.info(f"Log:        {log_file}")
+    if args.tech:
+        logger.info(f"Tech:       {args.tech}")
+    logger.info("-" * 80)
 
-    logger.info("=" * 70)
-    logger.info("Batch Spectre Simulation")
-    logger.info("=" * 70)
-    logger.info(f"DUT netlists:     {len(dut_netlists)}")
-    logger.info(f"TB wrappers:      {len(tb_wrappers)}")
-    logger.info(f"Output dir:       {args.outdir}")
-    if args.tech_filter:
-        logger.info(f"Tech filter:      {args.tech_filter}")
-    logger.info(f"Log file:         {log_file}")
-    logger.info("=" * 70)
-
-    # Check license server and get actual counts
-    logger.info("\nChecking license server...")
-    total_licenses, busy_licenses = check_license_server()
-    free_licenses = total_licenses - busy_licenses
-    logger.info(f"Free licenses:    {free_licenses}")
-
-    # Auto-calculate workers based on license availability
-    # Formula: (free_licenses - colleague_upset_threshold) / licenses_per_worker
-    # Then take the minimum of that and the number of simulations to run
-    colleague_upset_threshold = 40
-    licenses_per_worker = 2
-
-    max_licenses = max(
-        1, (free_licenses - colleague_upset_threshold) // licenses_per_worker
-    )
-    used_licenses = min(max_licenses, len(tb_wrappers))
-
-    logger.info(
-        f"License calculation: ({free_licenses} - {colleague_upset_threshold}) / {licenses_per_worker} = {max_licenses}"
-    )
-    logger.info(f"Auto-calculated workers: {used_licenses}")
+    # Create output directory
+    sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Run simulations
-    logger.info(
-        f"\nStarting {len(tb_wrappers)} simulations with {used_licenses} workers..."
-    )
-    logger.info("-" * 70)
+    start_time = datetime.datetime.now()
+    results = run_batch_pyopus(jobs, sim_dir, remote=args.remote)
+    elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
-    successful = []
-    failed = []
-    total_time = 0.0
-    start_time = time.time()
-    raw_format_test_result = None
+    # Update files.json with simulation results
+    for config_hash, file_ctx in files.items():
+        matching = []
+        for job_name, raw_path in results.items():
+            if config_hash in job_name:
+                # Store relative path
+                matching.append(f"sim/{raw_path.name}")
+        if matching:
+            file_ctx["sim_raw"] = matching
 
-    with ProcessPoolExecutor(max_workers=used_licenses) as executor:
-        futures = {
-            executor.submit(
-                run_spectre_simulation,
-                tb,
-                args.outdir,
-                args.spectre_path,
-                args.license_server,
-                args.raw_format,
-            ): tb.stem
-            for tb in tb_wrappers
-        }
+    save_files_list(files_db_path, files)
 
-        completed = 0
-        for future in as_completed(futures):
-            tb_name = futures[future]
-            try:
-                name, success, elapsed = future.result()
-                completed += 1
-                total_time += elapsed
+    # Summary
+    logger.info("=" * 80)
+    logger.info("Simulation Summary")
+    logger.info("=" * 80)
+    logger.info(f"Total jobs:    {len(jobs)}")
+    logger.info(f"Successful:    {len(results)}")
+    logger.info(f"Failed:        {len(jobs) - len(results)}")
+    logger.info(f"Elapsed time:  {elapsed:.1f}s")
+    logger.info(f"Output:        {sim_dir}")
+    logger.info("=" * 80)
 
-                if success:
-                    successful.append(name)
-                    logger.info(
-                        f"✓ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)"
-                    )
-
-                    # Test first raw file to verify format conversion (store result for summary)
-                    if raw_format_test_result is None:
-                        raw_file = args.outdir / f"{name}.raw"
-                        if raw_file.exists():
-                            raw_format_test_result = test_raw(raw_file)
-                else:
-                    failed.append(name)
-                    logger.info(
-                        f"✗ [{completed}/{len(tb_wrappers)}] {name} ({elapsed:.1f}s)"
-                    )
-
-            except Exception as e:
-                failed.append(tb_name)
-                logger.error(
-                    f"✗ [{completed}/{len(tb_wrappers)}] {tb_name} exception: {e}"
-                )
-                completed += 1
-
-    wall_time = time.time() - start_time
-
-    # Print summary
-    logger.info("=" * 70)
-    logger.info("Batch Simulation Summary")
-    logger.info("=" * 70)
-    logger.info(f"Total simulations:  {len(tb_wrappers)}")
-    logger.info(
-        f"Successful:         {len(successful)} ({100 * len(successful) / len(tb_wrappers):.1f}%)"
-    )
-    logger.info(
-        f"Failed:             {len(failed)} ({100 * len(failed) / len(tb_wrappers):.1f}%)"
-    )
-    logger.info(f"Wall clock time:    {wall_time:.1f}s ({wall_time / 60:.1f} min)")
-    logger.info(f"Total CPU time:     {total_time:.1f}s ({total_time / 60:.1f} min)")
-    if wall_time > 0:
-        logger.info(f"Speedup:            {total_time / wall_time:.2f}x")
-    logger.info(f"Avg time/sim:       {total_time / len(tb_wrappers):.1f}s")
-    logger.info("")
-
-    # Display raw format test result
-    if raw_format_test_result is not None:
-        if raw_format_test_result:
-            logger.info(
-                "Data integrity:     ✓ Verified (.raw files parseable by spicelib)"
-            )
-        else:
-            logger.info(
-                "Data integrity:     ✗ Warning (.raw files not parseable by spicelib)"
-            )
-        logger.info("")
-
-    logger.info(f"Output directory:   {args.outdir}")
-    logger.info(f"  Raw files:        {args.outdir}/*.raw")
-    logger.info(f"  Log files:        {args.outdir}/*.log")
-    logger.info("=" * 70)
-
-    if failed:
-        logger.info("\nFailed simulations:")
-        for name in failed:
-            logger.info(f"  - {name}")
-        logger.info("")
-
-    return 0 if len(failed) == 0 else 1
+    return 0 if len(results) == len(jobs) else 1
 
 
 if __name__ == "__main__":

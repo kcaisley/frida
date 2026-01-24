@@ -1,831 +1,547 @@
-"""Utilities for loading and plotting analysis results."""
+"""
+PyOPUS-based plotting with query-based filtering.
 
+Generates plots from measurement results using PyOPUS EvalPlotter
+or matplotlib fallback. Supports filtering by tech/corner/temp.
+"""
+
+import argparse
 import datetime
-from pathlib import Path
-import importlib.util
+import json
+import logging
 import sys
-import numpy as np
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
 
-from flow.common import setup_logging
-
-
-def load_analysis(pkl_file):
-    """
-    Load analysis file and return dict of all variables.
-
-    Usage:
-        data = load_analysis('results_analysis.pkl')
-        locals().update(data)
-    """
-    import pickle
-
-    with open(pkl_file, "rb") as f:
-        return pickle.load(f)
+from flow.common import (
+    filter_results,
+    load_cell_script,
+    load_files_list,
+    save_files_list,
+    setup_logging,
+)
 
 
-def load_analysis_vars(pkl_file, globals_dict=None, locals_dict=None):
-    """
-    Load analysis and inject variables into namespace.
-
-    Usage:
-        load_analysis_vars('results_analysis.pkl', globals(), locals())
-    """
-    data = load_analysis(pkl_file)
-    if locals_dict is not None:
-        locals_dict.update(data)
-    if globals_dict is not None:
-        globals_dict.update(data)
-    return data
-
-
-def load_analysis_module(analysis_file):
-    """Load analysis module from file path."""
-    project_root = Path(__file__).parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-
-    spec = importlib.util.spec_from_file_location("analysis", analysis_file)
-    if spec is None or spec.loader is None:
-        raise ValueError(f"Could not load analysis module from {analysis_file}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["analysis"] = module
-    spec.loader.exec_module(module)
-    return module
+# ============================================================
+# Font Configuration
+# ============================================================
 
 
 def configure_fonts_for_pdf():
-    """Configure LaTeX fonts for PDF output"""
+    """Configure LaTeX fonts for PDF output."""
     plt.rcParams.update(
         {
-            "text.usetex": True,  # Use LaTeX for text rendering
-            "font.family": "serif",  # Use serif (LaTeX default)
-            "font.serif": ["Computer Modern Roman"],  # LaTeX default font
-            "font.size": 11,  # Base font size
-            "axes.titlesize": 12,  # Title font size
-            "axes.labelsize": 11,  # Axis label font size
-            "xtick.labelsize": 10,  # X-tick label size
-            "ytick.labelsize": 10,  # Y-tick label size
-            "legend.fontsize": 10,  # Legend font size
+            "text.usetex": True,
+            "font.family": "serif",
+            "font.serif": ["Computer Modern Roman"],
+            "font.size": 11,
+            "axes.titlesize": 12,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 10,
+            "ytick.labelsize": 10,
+            "legend.fontsize": 10,
         }
     )
 
 
 def configure_fonts_for_svg():
-    """Configure sans-serif fonts for SVG output"""
+    """Configure sans-serif fonts for SVG output."""
     plt.rcParams.update(
         {
-            "text.usetex": False,  # Disable LaTeX for SVG
-            "font.family": "sans-serif",  # Use sans-serif
-            "font.sans-serif": [
-                "DejaVu Sans",
-                "Arial",
-                "Helvetica",
-            ],  # Default sans-serif fonts
-            "font.size": 11,  # Base font size
-            "axes.titlesize": 12,  # Title font size
-            "axes.labelsize": 11,  # Axis label font size
-            "xtick.labelsize": 10,  # X-tick label size
-            "ytick.labelsize": 10,  # Y-tick label size
-            "legend.fontsize": 10,  # Legend font size
+            "text.usetex": False,
+            "font.family": "sans-serif",
+            "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+            "font.size": 11,
+            "axes.titlesize": 12,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 10,
+            "ytick.labelsize": 10,
+            "legend.fontsize": 10,
         }
     )
 
 
-def save_plot(filename_base):
+def save_plot(filename_base: str):
     """
-    Save plot in both PDF and SVG formats with appropriate font settings.
+    Save plot in both PDF and SVG formats.
 
     Args:
-        filename_base: Base filename without extension (e.g., 'build/figure_name')
+        filename_base: Base filename without extension
     """
-    # Save PDF version with LaTeX fonts
     configure_fonts_for_pdf()
     plt.tight_layout()
     plt.savefig(f"{filename_base}.pdf")
 
-    # Save SVG version with sans-serif fonts
     configure_fonts_for_svg()
     plt.tight_layout()
     plt.savefig(f"{filename_base}.svg")
 
 
-# Initialize with PDF configuration as default
-configure_fonts_for_pdf()
+# ============================================================
+# Result Loading
+# ============================================================
 
 
-def plot_dnl_histogram_legacy(
-    dout_rounded, dnl_hist, code_counts, dnl_rms, title="DNL Code Density"
+def load_all_measurements(meas_dir: Path) -> dict:
+    """
+    Load all measurement results from meas directory.
+
+    Args:
+        meas_dir: Directory containing meas_*.json files
+
+    Returns:
+        Dict mapping result key to {measures, metadata}
+    """
+    all_results = {}
+    for meas_file in sorted(meas_dir.glob("meas_*.json")):
+        try:
+            data = json.loads(meas_file.read_text())
+            key = meas_file.stem.replace("meas_", "")
+            all_results[key] = data
+        except Exception:
+            continue
+    return all_results
+
+
+# ============================================================
+# PyOPUS EvalPlotter Integration
+# ============================================================
+
+
+def plot_with_evalplotter(
+    results: dict, visualisation: dict, plot_dir: Path, cell: str
 ):
     """
-    Plot DNL using histogram/code density (legacy spice.py style).
+    Plot results using PyOPUS EvalPlotter.
 
-    Creates a 2x2 subplot with width ratios [1, 2]:
-    - Left: horizontal bar chart of DNL per code
-    - Right: transfer function and error plots
-
-    Parameters:
-        dout_rounded: numpy array of rounded output codes
-        dnl_hist: numpy array of DNL values per code (from calculate_dnl_histogram)
-        code_counts: dict mapping code -> count
-        dnl_rms: RMS DNL value
-        title: plot title
-
-    Returns:
-        fig, axes: matplotlib figure and axes objects
+    Args:
+        results: Measurement results dict
+        visualisation: Visualisation config from cell module
+        plot_dir: Output directory for plots
+        cell: Cell name
     """
-    fig, axes = plt.subplots(
-        2, 2, figsize=(12, 8), gridspec_kw={"width_ratios": [1, 2]}
-    )
-    fig.suptitle(title)
+    logger = logging.getLogger(__name__)
 
-    axes = axes.flatten()
+    try:
+        from pyopus.plotter.evalplotter import EvalPlotter  # noqa: F401
+        from pyopus.plotter import interface as pyplt  # noqa: F401
+    except ImportError:
+        logger.warning("PyOPUS EvalPlotter not available, using matplotlib fallback")
+        plot_with_matplotlib(results, visualisation, plot_dir, cell)
+        return
 
-    # Plot 1: Horizontal bar chart of DNL per code (legacy style)
-    ax = axes[0]
-    codes = sorted(code_counts.keys())
-    dnl_by_code = []
-    for code in codes:
-        idx = list(code_counts.keys()).index(code)
-        dnl_by_code.append(dnl_hist[idx])
-
-    ax.barh(codes, dnl_by_code, label=f"DNL (RMS = {dnl_rms:.4f})")
-    ax.axvline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_ylabel("Output Code")
-    ax.set_xlabel("DNL [LSB]")
-    ax.set_title("DNL per Code")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Plot 2: Transfer function (shares y-axis with plot 1)
-    ax = axes[1]
-    ax.plot(range(len(dout_rounded)), dout_rounded, "b-", linewidth=0.5)
-    ax.sharey(axes[0])
-    ax.set_xlabel("Sample Index")
-    ax.set_ylabel("Output Code")
-    ax.set_title("Transfer Function")
-    ax.grid(True, alpha=0.3)
-
-    # Plot 3: Turn off (legacy style)
-    axes[2].axis("off")
-
-    # Plot 4: Error plot (shares x-axis with plot 2)
-    ax = axes[3]
-    # Calculate error from linear fit
-    sample_idx = np.arange(len(dout_rounded))
-    coeffs = np.polyfit(sample_idx, dout_rounded, 1)
-    dout_linear = np.polyval(coeffs, sample_idx)
-    error = dout_rounded - dout_linear
-
-    ax.plot(sample_idx, error, "r-", linewidth=0.5, label="Error")
-    ax.sharex(axes[1])
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Sample Index")
-    ax.set_ylabel("Error [LSB]")
-    ax.set_title("Linearity Error")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    return fig, axes
+    # EvalPlotter requires a PerformanceEvaluator instance
+    # For post-processing, we'd need to wrap our results
+    # Falling back to matplotlib for simplicity
+    logger.info("Using matplotlib for plotting (EvalPlotter requires live evaluator)")
+    plot_with_matplotlib(results, visualisation, plot_dir, cell)
 
 
-def plot_inl_dnl(
-    vin,
-    dout_analog,
-    inl,
-    dnl,
-    inl_rms,
-    inl_max,
-    dnl_rms,
-    dnl_max,
-    title="ADC/DAC Linearity",
+# ============================================================
+# Matplotlib Fallback Plotting
+# ============================================================
+
+
+def plot_with_matplotlib(
+    results: dict, visualisation: dict, plot_dir: Path, cell: str
 ):
     """
-    Plot INL and DNL analysis results.
+    Plot results using matplotlib.
 
-    Parameters:
-        vin: numpy array of input voltages
-        dout_analog: numpy array of reconstructed analog output
-        inl: numpy array of INL values
-        dnl: numpy array of DNL values (length = len(vin) - 1)
-        inl_rms: RMS INL value
-        inl_max: worst-case INL value
-        dnl_rms: RMS DNL value
-        dnl_max: worst-case DNL value
-        title: plot title
+    Args:
+        results: Measurement results dict
+        visualisation: Visualisation config from cell module
+        plot_dir: Output directory for plots
+        cell: Cell name
+    """
+    logger = logging.getLogger(__name__)
+
+    if not results:
+        logger.warning("No results to plot")
+        return
+
+    # Extract measures from all results
+    all_measures = {}
+    for key, data in results.items():
+        measures = data.get("measures", {})
+        metadata = data.get("metadata", {})
+        for measure_name, value in measures.items():
+            if measure_name not in all_measures:
+                all_measures[measure_name] = []
+            all_measures[measure_name].append({
+                "key": key,
+                "value": value,
+                "metadata": metadata,
+            })
+
+    # Create summary bar plots for scalar measures
+    scalar_measures = {}
+    for name, entries in all_measures.items():
+        # Check if values are scalar
+        values = [e["value"] for e in entries if e["value"] is not None]
+        if values and all(isinstance(v, (int, float)) for v in values):
+            scalar_measures[name] = entries
+
+    if scalar_measures:
+        # Group by technology
+        techs = set()
+        for entries in scalar_measures.values():
+            for e in entries:
+                techs.add(e["metadata"].get("tech", "unknown"))
+        techs = sorted(techs)
+
+        # Create a summary plot for each measure
+        for measure_name, entries in scalar_measures.items():
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # Group by tech
+            tech_values = {t: [] for t in techs}
+            for e in entries:
+                tech = e["metadata"].get("tech", "unknown")
+                val = e["value"]
+                if isinstance(val, (int, float)) and not np.isnan(val):
+                    tech_values[tech].append(val)
+
+            # Create box plot or bar plot
+            data = [tech_values[t] for t in techs if tech_values[t]]
+            labels = [t for t in techs if tech_values[t]]
+
+            if all(len(d) > 1 for d in data):
+                ax.boxplot(data, labels=labels)
+            else:
+                means = [np.mean(d) if d else 0 for d in data]
+                ax.bar(labels, means)
+
+            ax.set_xlabel("Technology")
+            ax.set_ylabel(measure_name)
+            ax.set_title(f"{cell}: {measure_name} by Technology")
+            ax.grid(True, alpha=0.3)
+
+            # Save plot
+            plot_path = plot_dir / f"{cell}_{measure_name}"
+            save_plot(str(plot_path))
+            plt.close(fig)
+            logger.info(f"  Saved: {plot_path}.pdf")
+
+    # Create comparison plots if visualisation config provided
+    graphs = visualisation.get("graphs", {})
+    for graph_name, graph_config in graphs.items():
+        try:
+            fig, axes = create_graph_from_config(
+                graph_config, results, visualisation.get("traces", {})
+            )
+            if fig is not None:
+                plot_path = plot_dir / f"{cell}_{graph_name}"
+                save_plot(str(plot_path))
+                plt.close(fig)
+                logger.info(f"  Saved: {plot_path}.pdf")
+        except Exception as e:
+            logger.warning(f"  Failed to create {graph_name}: {e}")
+
+
+def create_graph_from_config(
+    graph_config: dict, results: dict, traces_config: dict
+) -> tuple:
+    """
+    Create a matplotlib figure from visualisation config.
+
+    Args:
+        graph_config: Graph configuration dict
+        results: Measurement results
+        traces_config: Trace definitions
 
     Returns:
-        fig, axes: matplotlib figure and axes objects
+        Tuple of (fig, axes) or (None, None) if failed
     """
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-    fig.suptitle(title)
+    shape = graph_config.get("shape", {"figsize": (10, 6)})
+    axes_config = graph_config.get("axes", {})
 
-    # Plot 1: Transfer function (Dout vs Vin)
-    ax = axes[0, 0]
-    ax.plot(vin, dout_analog, "b-", linewidth=1, label="Actual")
-    ax.set_xlabel("Input Voltage [V]")
-    ax.set_ylabel("Output Code [V or LSB]")
-    ax.set_title("Transfer Function")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    if not axes_config:
+        return None, None
 
-    # Plot 2: INL vs Vin
-    ax = axes[0, 1]
-    ax.plot(vin, inl, "r-", linewidth=1)
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Input Voltage [V]")
-    ax.set_ylabel("INL [LSB]")
-    ax.set_title(f"INL (RMS={inl_rms:.4f}, Max={inl_max:.4f})")
-    ax.grid(True, alpha=0.3)
+    # Determine subplot layout
+    subplots = []
+    for ax_name, ax_cfg in axes_config.items():
+        subplot = ax_cfg.get("subplot", (1, 1, 1))
+        subplots.append((ax_name, subplot, ax_cfg))
 
-    # Plot 3: DNL histogram
-    ax = axes[1, 0]
-    ax.hist(dnl, bins=50, edgecolor="black", alpha=0.7)
-    ax.axvline(0, color="r", linestyle="--", linewidth=1, label="Ideal")
-    ax.set_xlabel("DNL [LSB]")
-    ax.set_ylabel("Count")
-    ax.set_title(f"DNL Histogram (RMS={dnl_rms:.4f}, Max={dnl_max:.4f})")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    # Create figure
+    fig = plt.figure(**shape)
+    fig.suptitle(graph_config.get("title", ""))
 
-    # Plot 4: DNL vs Code
-    ax = axes[1, 1]
-    ax.plot(dnl, "g-", linewidth=1)
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Code Index")
-    ax.set_ylabel("DNL [LSB]")
-    ax.set_title("DNL vs Code")
-    ax.grid(True, alpha=0.3)
+    axes = {}
+    for ax_name, subplot, ax_cfg in subplots:
+        ax = fig.add_subplot(*subplot)
+        ax.set_xlabel(ax_cfg.get("xlabel", ""))
+        ax.set_ylabel(ax_cfg.get("ylabel", ""))
+        ax.set_title(ax_cfg.get("title", ""))
+        if ax_cfg.get("grid", False):
+            ax.grid(True, alpha=0.3)
+        axes[ax_name] = ax
 
     plt.tight_layout()
     return fig, axes
 
 
-def plot_dnl_histogram_legacy_compare(datasets, labels, title="DNL Comparison"):
+# ============================================================
+# Corner Comparison Plots
+# ============================================================
+
+
+def plot_corner_comparison(
+    results: dict, measure_name: str, plot_dir: Path, cell: str
+):
     """
-    Compare DNL histograms from multiple datasets (legacy spice.py style).
+    Create corner comparison plot for a specific measure.
 
-    Parameters:
-        datasets: list of dicts, each containing:
-            {'dout_rounded', 'dnl_hist', 'code_counts', 'dnl_rms'}
-        labels: list of strings for legend labels
-        title: plot title
-
-    Returns:
-        fig, axes: matplotlib figure and axes objects
+    Args:
+        results: Filtered measurement results
+        measure_name: Name of measure to plot
+        plot_dir: Output directory
+        cell: Cell name
     """
-    fig, axes = plt.subplots(
-        2, 2, figsize=(12, 8), gridspec_kw={"width_ratios": [1, 2]}
-    )
-    fig.suptitle(title)
+    logger = logging.getLogger(__name__)
 
-    axes = axes.flatten()
-    colors = plt.colormaps["tab10"](range(len(datasets)))
+    # Group by corner
+    corners = {}
+    for key, data in results.items():
+        corner = data.get("metadata", {}).get("corner", "unknown")
+        value = data.get("measures", {}).get(measure_name)
+        if value is not None and isinstance(value, (int, float)):
+            if corner not in corners:
+                corners[corner] = []
+            corners[corner].append(value)
 
-    # Plot 1: Horizontal bar chart of DNL per code (overlaid)
-    ax = axes[0]
-    for i, (data, label, color) in enumerate(zip(datasets, labels, colors)):
-        codes = sorted(data["code_counts"].keys())
-        dnl_by_code = []
-        for code in codes:
-            idx = list(data["code_counts"].keys()).index(code)
-            dnl_by_code.append(data["dnl_hist"][idx])
+    if not corners:
+        return
 
-        ax.barh(
-            codes,
-            dnl_by_code,
-            alpha=0.6,
-            color=color,
-            label=f"{label} (RMS={data['dnl_rms']:.4f})",
-        )
+    fig, ax = plt.subplots(figsize=(8, 6))
 
-    ax.axvline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_ylabel("Output Code")
-    ax.set_xlabel("DNL [LSB]")
-    ax.set_title("DNL per Code")
-    ax.legend()
+    corner_names = sorted(corners.keys())
+    means = [np.mean(corners[c]) for c in corner_names]
+    stds = [np.std(corners[c]) for c in corner_names]
+
+    x = np.arange(len(corner_names))
+    ax.bar(x, means, yerr=stds, capsize=5)
+    ax.set_xticks(x)
+    ax.set_xticklabels(corner_names)
+    ax.set_xlabel("Corner")
+    ax.set_ylabel(measure_name)
+    ax.set_title(f"{cell}: {measure_name} by Corner")
     ax.grid(True, alpha=0.3)
 
-    # Plot 2: Transfer functions (shares y-axis with plot 1)
-    ax = axes[1]
-    for i, (data, label, color) in enumerate(zip(datasets, labels, colors)):
-        ax.plot(
-            range(len(data["dout_rounded"])),
-            data["dout_rounded"],
-            color=color,
-            linewidth=0.5,
-            label=label,
-            alpha=0.7,
-        )
-    ax.sharey(axes[0])
-    ax.set_xlabel("Sample Index")
-    ax.set_ylabel("Output Code")
-    ax.set_title("Transfer Functions")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Plot 3: Turn off (legacy style)
-    axes[2].axis("off")
-
-    # Plot 4: Error plots (shares x-axis with plot 2)
-    ax = axes[3]
-    for i, (data, label, color) in enumerate(zip(datasets, labels, colors)):
-        dout_rounded = data["dout_rounded"]
-        sample_idx = np.arange(len(dout_rounded))
-        coeffs = np.polyfit(sample_idx, dout_rounded, 1)
-        dout_linear = np.polyval(coeffs, sample_idx)
-        error = dout_rounded - dout_linear
-
-        ax.plot(sample_idx, error, color=color, linewidth=0.5, label=label, alpha=0.7)
-
-    ax.sharex(axes[1])
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Sample Index")
-    ax.set_ylabel("Error [LSB]")
-    ax.set_title("Linearity Error")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    return fig, axes
+    plot_path = plot_dir / f"{cell}_{measure_name}_corners"
+    save_plot(str(plot_path))
+    plt.close(fig)
+    logger.info(f"  Saved: {plot_path}.pdf")
 
 
-def plot_inl_dnl_compare(datasets, labels, title="ADC/DAC Linearity Comparison"):
+# ============================================================
+# Temperature Sweep Plots
+# ============================================================
+
+
+def plot_temp_sweep(
+    results: dict, measure_name: str, plot_dir: Path, cell: str
+):
     """
-    Compare INL and DNL from multiple datasets on the same plots.
+    Create temperature sweep plot for a specific measure.
 
-    Parameters:
-        datasets: list of dicts, each containing:
-            {'vin', 'dout_analog', 'inl', 'dnl', 'inl_rms', 'inl_max', 'dnl_rms', 'dnl_max'}
-        labels: list of strings for legend labels
-        title: plot title
-
-    Returns:
-        fig, axes: matplotlib figure and axes objects
+    Args:
+        results: Measurement results
+        measure_name: Name of measure to plot
+        plot_dir: Output directory
+        cell: Cell name
     """
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-    fig.suptitle(title)
+    logger = logging.getLogger(__name__)
 
-    colors = plt.colormaps["tab10"](range(len(datasets)))
+    # Group by temperature
+    temps = {}
+    for key, data in results.items():
+        temp = data.get("metadata", {}).get("temp")
+        value = data.get("measures", {}).get(measure_name)
+        if temp is not None and value is not None and isinstance(value, (int, float)):
+            if temp not in temps:
+                temps[temp] = []
+            temps[temp].append(value)
 
-    # Plot 1: Transfer functions
-    ax = axes[0, 0]
-    for i, (data, label) in enumerate(zip(datasets, labels)):
-        ax.plot(
-            data["vin"],
-            data["dout_analog"],
-            color=colors[i],
-            linewidth=1,
-            label=label,
-            alpha=0.7,
-        )
-    ax.set_xlabel("Input Voltage [V]")
-    ax.set_ylabel("Output Code [V or LSB]")
-    ax.set_title("Transfer Function")
+    if len(temps) < 2:
+        return  # Need at least 2 temperatures for sweep
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    temp_values = sorted(temps.keys())
+    means = [np.mean(temps[t]) for t in temp_values]
+    stds = [np.std(temps[t]) for t in temp_values]
+
+    ax.errorbar(temp_values, means, yerr=stds, marker="o", capsize=5)
+    ax.set_xlabel("Temperature [C]")
+    ax.set_ylabel(measure_name)
+    ax.set_title(f"{cell}: {measure_name} vs Temperature")
     ax.grid(True, alpha=0.3)
-    ax.legend()
 
-    # Plot 2: INL comparison
-    ax = axes[0, 1]
-    for i, (data, label) in enumerate(zip(datasets, labels)):
-        ax.plot(
-            data["vin"],
-            data["inl"],
-            color=colors[i],
-            linewidth=1,
-            label=f"{label} (RMS={data['inl_rms']:.4f})",
-            alpha=0.7,
-        )
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Input Voltage [V]")
-    ax.set_ylabel("INL [LSB]")
-    ax.set_title("INL Comparison")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    # Plot 3: DNL comparison (histogram overlay)
-    ax = axes[1, 0]
-    for i, (data, label) in enumerate(zip(datasets, labels)):
-        ax.hist(
-            data["dnl"],
-            bins=30,
-            alpha=0.5,
-            label=label,
-            color=colors[i],
-            edgecolor="black",
-        )
-    ax.axvline(0, color="r", linestyle="--", linewidth=1)
-    ax.set_xlabel("DNL [LSB]")
-    ax.set_ylabel("Count")
-    ax.set_title("DNL Histogram")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    # Plot 4: DNL vs Code comparison
-    ax = axes[1, 1]
-    for i, (data, label) in enumerate(zip(datasets, labels)):
-        ax.plot(
-            data["dnl"],
-            color=colors[i],
-            linewidth=1,
-            label=f"{label} (RMS={data['dnl_rms']:.4f})",
-            alpha=0.7,
-        )
-    ax.axhline(0, color="k", linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Code Index")
-    ax.set_ylabel("DNL [LSB]")
-    ax.set_title("DNL vs Code")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    plt.tight_layout()
-    return fig, axes
+    plot_path = plot_dir / f"{cell}_{measure_name}_temp"
+    save_plot(str(plot_path))
+    plt.close(fig)
+    logger.info(f"  Saved: {plot_path}.pdf")
 
 
-def plot_code_density(dout_codes, bins="auto", title="Code Density"):
-    """
-    Plot histogram showing code density (useful for DNL visualization).
-
-    Parameters:
-        dout_codes: numpy array of output codes (integers or rounded values)
-        bins: number of bins or 'auto'
-        title: plot title
-
-    Returns:
-        fig, ax: matplotlib figure and axis objects
-    """
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    counts, edges, patches = ax.hist(
-        dout_codes, bins=bins, edgecolor="black", alpha=0.7
-    )
-
-    # Calculate average count and mark deviations
-    avg_count = float(np.mean(counts))
-    ax.axhline(
-        avg_count,
-        color="r",
-        linestyle="--",
-        linewidth=1,
-        label=f"Average ({avg_count:.1f})",
-    )
-
-    ax.set_xlabel("Output Code")
-    ax.set_ylabel("Count")
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    plt.tight_layout()
-    return fig, ax
+# ============================================================
+# Main Entry Point
+# ============================================================
 
 
 def main():
-    """Main entry point for plotting."""
-    import argparse
-    import sys
-    from pathlib import Path
-
+    """Main entry point for plotting script."""
     parser = argparse.ArgumentParser(
         description="Generate plots from measurement results"
     )
+    parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
     parser.add_argument(
-        "analysis_file",
-        type=Path,
-        help="Path to analysis.py script (e.g., blocks/comp.py)",
-    )
-    parser.add_argument(
-        "meas_dir", type=Path, help="Directory containing .pkl measurement files"
-    )
-    parser.add_argument(
+        "-o",
         "--outdir",
         type=Path,
-        default=None,
-        help="Output directory for plots (default: same as meas_dir)",
+        default=Path("results"),
+        help="Results directory (default: results)",
     )
     parser.add_argument(
-        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
+        "--tech",
+        type=str,
+        default=None,
+        help="Filter by technology (e.g., tsmc65)",
     )
+    parser.add_argument(
+        "--corner",
+        type=str,
+        default=None,
+        help="Filter by corner (e.g., tt, ss, ff)",
+    )
+    parser.add_argument(
+        "--temp",
+        type=int,
+        default=None,
+        help="Filter by temperature (e.g., 27)",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Show interactive plots instead of saving",
+    )
+
     args = parser.parse_args()
+
+    # Setup paths
+    cell_dir = args.outdir / args.cell
+    meas_dir = cell_dir / "meas"
+    plot_dir = cell_dir / "plot"
 
     # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    cell_name = args.analysis_file.stem
-    args.log_dir.mkdir(exist_ok=True)
-    log_file = args.log_dir / f"plot_{cell_name}_{timestamp}.log"
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"plot_{args.cell}_{timestamp}.log"
     logger = setup_logging(log_file)
 
-    logger.info("=" * 70)
-    logger.info("Plot Generation")
-    logger.info("=" * 70)
-    logger.info(f"Analysis file: {args.analysis_file}")
-    logger.info(f"Meas dir:      {args.meas_dir}")
-    logger.info(f"Log file:      {log_file}")
-    logger.info("=" * 70)
+    # Check prerequisites
+    if not meas_dir.exists():
+        logger.error(f"Measurement directory not found: {meas_dir}")
+        logger.error(f"Run 'make meas cell={args.cell}' first")
+        return 1
 
-    # Load analysis module
-    analysis_module = load_analysis_module(args.analysis_file)
+    block_file = Path(f"blocks/{args.cell}.py")
+    if not block_file.exists():
+        logger.error(f"Block file not found: {block_file}")
+        return 1
 
-    # Check if plot() function exists
-    if not hasattr(analysis_module, "plot"):
-        logger.warning(f"{args.analysis_file} does not have a plot() function")
-        logger.info("No plots generated.")
+    # Load cell module for visualisation config
+    cell_module = load_cell_script(block_file)
+    visualisation = getattr(cell_module, "visualisation", {})
+
+    # Load all measurement results
+    all_results = load_all_measurements(meas_dir)
+
+    if not all_results:
+        logger.warning(f"No measurement results found in {meas_dir}")
         return 0
 
-    # Set output directory
-    outdir = args.outdir if args.outdir else args.meas_dir
-    outdir.mkdir(parents=True, exist_ok=True)
+    # Apply filters
+    filtered = filter_results(
+        all_results,
+        tech=args.tech,
+        corner=args.corner,
+        temp=args.temp,
+    )
 
-    # Store outdir in sys for access by plot functions
-    setattr(sys, "_plot_outdir", str(outdir))
+    logger.info("=" * 80)
+    logger.info(f"Cell:       {args.cell}")
+    logger.info("Flow:       plot")
+    logger.info(f"Results:    {len(filtered)} (filtered from {len(all_results)})")
+    logger.info(f"Output:     {plot_dir}")
+    logger.info(f"Log:        {log_file}")
+    if args.tech:
+        logger.info(f"Tech:       {args.tech}")
+    if args.corner:
+        logger.info(f"Corner:     {args.corner}")
+    if args.temp:
+        logger.info(f"Temp:       {args.temp}")
+    logger.info("-" * 80)
 
-    # Call the plot function
-    analysis_module.plot(str(args.meas_dir), str(outdir))
+    if not filtered:
+        logger.error("No results match the specified filters")
+        return 1
 
-    logger.info(f"\nPlots saved to: {outdir}")
-    logger.info("=" * 70)
+    # Create output directory
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    # Configure matplotlib
+    if not args.interactive:
+        plt.switch_backend("Agg")
+
+    # Generate plots
+    start_time = datetime.datetime.now()
+
+    if visualisation:
+        plot_with_evalplotter(filtered, visualisation, plot_dir, args.cell)
+    else:
+        plot_with_matplotlib(filtered, {}, plot_dir, args.cell)
+
+    # Generate corner comparison plots
+    measures = set()
+    for data in filtered.values():
+        measures.update(data.get("measures", {}).keys())
+
+    for measure_name in measures:
+        plot_corner_comparison(filtered, measure_name, plot_dir, args.cell)
+        plot_temp_sweep(filtered, measure_name, plot_dir, args.cell)
+
+    elapsed = (datetime.datetime.now() - start_time).total_seconds()
+
+    # Update files.json with plot paths
+    files_db_path = cell_dir / "files.json"
+    if files_db_path.exists():
+        files = load_files_list(files_db_path)
+        for config_hash, file_ctx in files.items():
+            matching_plots = list(plot_dir.glob(f"*{config_hash}*.pdf"))
+            if matching_plots:
+                file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
+        save_files_list(files_db_path, files)
+
+    # Summary
+    logger.info("=" * 80)
+    logger.info("Plotting Summary")
+    logger.info("=" * 80)
+    logger.info(f"Results plotted: {len(filtered)}")
+    logger.info(f"Elapsed time:    {elapsed:.1f}s")
+    logger.info(f"Output:          {plot_dir}")
+    logger.info("=" * 80)
+
+    if args.interactive:
+        plt.show()
+
     return 0
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main())
-
-
-# ========================================================================
-# Analytic Plot Functions - from src/analytic.py
-# ========================================================================
-
-
-def plot_qnoise_vs_bits(Nbits_range, Vrefs, outdir="build", filename="qnoise"):
-    """
-    Plot quantization noise vs number of bits for different reference voltages.
-
-    Args:
-        Nbits_range: List of bit resolutions to plot
-        Vrefs: List of reference voltages
-        outdir: Output directory
-        filename: Output filename (without extension)
-    """
-    from flow.measure import analyze_qnoise
-
-    labels = [f"Vref = {v} V" for v in Vrefs]
-
-    plt.figure()
-    for Vref_val, label in zip(Vrefs, labels):
-        Vqnoise_vals = [analyze_qnoise(Vref_val, n)[0] * 1e6 for n in Nbits_range]  # µV
-        plt.plot(Nbits_range, Vqnoise_vals, label=label)
-        # Annotate y-values at N=10 and N=12
-        y10 = analyze_qnoise(Vref_val, 10)[0] * 1e6
-        y12 = analyze_qnoise(Vref_val, 12)[0] * 1e6
-        plt.annotate(
-            f"{y10:.1f} µV", xy=(10, y10), xytext=(5, -3), textcoords="offset points"
-        )
-        plt.annotate(
-            f"{y12:.1f} µV", xy=(12, y12), xytext=(5, -3), textcoords="offset points"
-        )
-        plt.plot(
-            [10, 12],
-            [y10, y12],
-            "o",
-            markersize=4,
-            color=plt.gca().lines[-1].get_color(),
-            label="_nolegend_",
-        )
-
-    plt.xlabel(r"Number of Bits ($N_{\mathrm{bits}}$)")
-    plt.ylabel(r"Quantization Noise RMS ($\mu$V)")
-    plt.title(r"$\sigma_{V_{\mathrm{qnoise}}}$ vs. Bit Resolution")
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.legend()
-    plt.yscale("log")
-    save_plot(f"{outdir}/{filename}")
-    plt.close()
-
-
-def plot_sampnoise_vs_capacitance(Ctot_range, outdir="build", filename="sampnoise"):
-    """
-    Plot sampling noise vs total capacitance.
-
-    Args:
-        Ctot_range: Array of capacitance values (F)
-        outdir: Output directory
-        filename: Output filename (without extension)
-    """
-    from flow.measure import analyze_sampnoise
-
-    Vsampnoise_vals = [analyze_sampnoise(C) * 1e6 for C in Ctot_range]  # µV
-
-    plt.figure()
-    annotate_Cs = [200e-15, 500e-15, 1e-12, 2e-12, 4e-12]  # 200fF, 500fF, 1pF, 2pF, 4pF
-    plt.plot(Ctot_range * 1e15, Vsampnoise_vals)
-    for C in annotate_Cs:
-        x = C * 1e15  # fF
-        y = analyze_sampnoise(C) * 1e6  # µV
-        plt.plot(x, y, "o", color=plt.gca().lines[-1].get_color(), label="_nolegend_")
-        plt.annotate(
-            f"{y:.1f} µV", xy=(x, y), xytext=(5, -3), textcoords="offset points"
-        )
-
-    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-    plt.ylabel(r"Sampling Noise RMS ($\mu$V)")
-    plt.title(r"$\sigma_{V_{\mathrm{samp}}}$ vs. Total Capacitance")
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.xscale("log")
-    plt.yscale("log")
-    save_plot(f"{outdir}/{filename}")
-    plt.close()
-
-
-def plot_enob_vs_capacitance(
-    Ctot_range, Vrefs, Nbits, outdir="build", filename_prefix="enob_vs_Ctot"
-):
-    """
-    Plot ENOB vs capacitance for different reference voltages.
-
-    Args:
-        Ctot_range: Array of capacitance values (F)
-        Vrefs: List of reference voltages
-        Nbits: Number of bits
-        outdir: Output directory
-        filename_prefix: Output filename prefix
-    """
-    from flow.measure import analyze_enob_from_vref_Ctot_Nbits
-
-    labels = [f"Vref = {v} V" for v in Vrefs]
-
-    plt.figure()
-    for Vref_val, label in zip(Vrefs, labels):
-        enob_vals = [
-            analyze_enob_from_vref_Ctot_Nbits(Vref_val, C, Nbits) for C in Ctot_range
-        ]
-        plt.plot(Ctot_range * 1e15, enob_vals, label=label)
-        # Annotate ENOB at specific capacitances
-        for C_annot in [200e-15, 500e-15, 1e-12, 2e-12]:
-            x = C_annot * 1e15  # fF
-            y = analyze_enob_from_vref_Ctot_Nbits(Vref_val, C_annot, Nbits)
-            plt.plot(
-                x, y, "o", color=plt.gca().lines[-1].get_color(), label="_nolegend_"
-            )
-            plt.annotate(
-                f"{y:.2f}", xy=(x, y), xytext=(5, -3), textcoords="offset points"
-            )
-
-    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-    plt.ylabel(r"ENOB (reduced by sampling noise)")
-    plt.title(
-        rf"Degradation of ENOB vs. Sampling Capacitance ($N_{{\mathrm{{bits}}}}={Nbits}$)"
-    )
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.xscale("log")
-    plt.legend()
-    save_plot(f"{outdir}/{filename_prefix}_{Nbits}bit")
-    plt.close()
-
-
-def plot_midcode_bounds_vs_capacitance(
-    Ctot_range, Nbits, Acap, outdir="build", filename_prefix="expected_mismatch"
-):
-    """
-    Plot 3-sigma and 4-sigma mid-code bounds vs capacitance.
-
-    Args:
-        Ctot_range: Array of capacitance values (F)
-        Nbits: Number of bits
-        Acap: Mismatch coefficient
-        outdir: Output directory
-        filename_prefix: Output filename prefix
-    """
-    from flow.measure import analyze_midcode_sigma_bounds
-
-    bounds_1sigma = []
-    bounds_3sigma = []
-    bounds_4sigma = []
-
-    for cap in Ctot_range:
-        b1, b3, b4, Cu, sigmaCu = analyze_midcode_sigma_bounds(cap, Nbits, Acap)
-        bounds_1sigma.append(b1)
-        bounds_3sigma.append(b3)
-        bounds_4sigma.append(b4)
-
-    plt.figure()
-    plt.plot(Ctot_range * 1e15, bounds_1sigma, label=r"1$\sigma$ Bound")
-    plt.plot(Ctot_range * 1e15, bounds_3sigma, label=r"3$\sigma$ Bound")
-    plt.plot(Ctot_range * 1e15, bounds_4sigma, label=r"4$\sigma$ Bound")
-
-    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-    plt.ylabel(r"Max DNL [LSB] (expected at mid-code)")
-    plt.title(
-        rf"1$\sigma$, 3$\sigma$, and 4$\sigma$ Mid-code LSB vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}}}={Nbits}$)"
-    )
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.xscale("log")
-    plt.legend()
-    save_plot(f"{outdir}/{filename_prefix}_{Nbits}bit")
-    plt.close()
-
-
-def plot_mismatch_dnl_noise_vs_capacitance(
-    Ctot_range, Nbits, Acap, Vref, outdir="build", filename_prefix="mismatch_dnl_noise"
-):
-    """
-    Plot mismatch DNL noise vs capacitance.
-
-    Args:
-        Ctot_range: Array of capacitance values (F)
-        Nbits: Number of bits
-        Acap: Mismatch coefficient
-        Vref: Reference voltage
-        outdir: Output directory
-        filename_prefix: Output filename prefix
-    """
-    from flow.measure import analyze_mismatch_dnl_noise
-
-    dnl_noise_1sigma = []
-    dnl_noise_3sigma = []
-    dnl_noise_4sigma = []
-    for cap in Ctot_range:
-        d1, d3, d4 = analyze_mismatch_dnl_noise(cap, Nbits, Acap, Vref)
-        dnl_noise_1sigma.append(d1 * 1e6)
-        dnl_noise_3sigma.append(d3 * 1e6)
-        dnl_noise_4sigma.append(d4 * 1e6)
-
-    plt.figure()
-    plt.plot(Ctot_range * 1e15, dnl_noise_1sigma, label=r"1$\sigma$ DNL Noise")
-    plt.plot(Ctot_range * 1e15, dnl_noise_3sigma, label=r"3$\sigma$ DNL Noise")
-    plt.plot(Ctot_range * 1e15, dnl_noise_4sigma, label=r"4$\sigma$ DNL Noise")
-    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-    plt.ylabel(r"Mismatch DNL Noise [$\mu$V]")
-    plt.title(
-        rf"Mismatch DNL Noise vs. $C_{{\mathrm{{tot}}}}$ ($N_{{\mathrm{{bits}}}}={Nbits}$)"
-    )
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.xscale("log")
-    plt.legend()
-    save_plot(f"{outdir}/{filename_prefix}_{Nbits}bit")
-    plt.close()
-
-
-def plot_enob_comparison(
-    Ctot_range, Vref, Nbits, Acap, outdir="build", filename_prefix="enob_vs_Ctot"
-):
-    """
-    Plot ENOB comparison: sampling noise vs mismatch noise.
-
-    Args:
-        Ctot_range: Array of capacitance values (F)
-        Vref: Reference voltage
-        Nbits: Number of bits
-        Acap: Mismatch coefficient
-        outdir: Output directory
-        filename_prefix: Output filename prefix
-    """
-    from flow.measure import (
-        analyze_enob_from_vref_Ctot_Nbits,
-        analyze_enob_from_mismatch,
-    )
-
-    enob_vals_sampnoise = []
-    for Ctot in Ctot_range:
-        enob = analyze_enob_from_vref_Ctot_Nbits(Vref, Ctot, Nbits)
-        enob_vals_sampnoise.append(enob)
-
-    enob_vals_mismatchdnl_noise = []
-    for Ctot in Ctot_range:
-        enob = analyze_enob_from_mismatch(Ctot, Nbits, Acap, Vref)
-        enob_vals_mismatchdnl_noise.append(enob)
-
-    plt.figure()
-    plt.plot(Ctot_range * 1e15, enob_vals_sampnoise, label="ENOB due to Sampling noise")
-    plt.plot(
-        Ctot_range * 1e15,
-        enob_vals_mismatchdnl_noise,
-        label="ENOB due to Mismatch DNL noise",
-    )
-
-    plt.xlabel(r"Total Capacitance ($C_{\mathrm{tot}}$) [fF]")
-    plt.ylabel(r"ENOB")
-    plt.title(r"ENOB vs. $C_{\mathrm{tot}}$: from Sampling or Mismatch DNL Noise")
-
-    plt.annotate(
-        rf"$N_{{\mathrm{{bits}}}}={Nbits}$"
-        "\n"
-        rf"$V_{{\mathrm{{ref}}}}={Vref}$ V"
-        "\n"
-        rf"$A_{{C}}={Acap}$",
-        xy=(1, 0),
-        xycoords="axes fraction",
-        va="top",
-        xytext=(-60, 75),
-        textcoords="offset points",
-        fontsize=10,
-        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.7),
-    )
-
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.xscale("log")
-    plt.legend(loc="lower right", bbox_to_anchor=(1, 0), frameon=True)
-    save_plot(f"{outdir}/{filename_prefix}_{Nbits}bit_compare")
-    plt.close()

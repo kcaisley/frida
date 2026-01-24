@@ -530,3 +530,245 @@ def calc_driver_strength(c: int, m: int) -> int:
     # Driver width proportional to sqrt(total capacitance)
     total_cap = c * m
     return max(1, int(math.sqrt(total_cap)))
+
+
+# ========================================================================
+# PyOPUS Analyses Configuration
+# ========================================================================
+
+analyses = {
+    "tran": {
+        "saves": ["all()"],
+        "command": "tran(stop=param['sim_stop'], errpreset='conservative')",
+    }
+}
+
+# Variables accessible in measure expressions
+variables = {
+    "vdd": 1.2,
+    "vref": 1.2,
+    "sim_stop": 500,  # ns, matches tb analysis
+}
+
+
+# ========================================================================
+# PyOPUS Measures Configuration
+# ========================================================================
+
+measures = {
+    "inl_max_lsb": {
+        "analysis": "tran",
+        "expression": """
+import numpy as np
+from flow.measure import calculate_inl, extract_settled_values
+
+vout = v('top')
+time = scale()
+n_bits = param.get('n_dac', 10)
+vref = param.get('vref', 1.2)
+
+# Number of test codes (matches testbench: 0, 1/4, 1/2, 3/4, full)
+n_codes = 5
+
+# Extract settled values
+vout_settled = extract_settled_values(vout, time, n_codes)
+
+# Create ideal input voltages for test codes
+max_code = (1 << n_bits) - 1
+test_codes = [0, max_code // 4, max_code // 2, 3 * max_code // 4, max_code]
+vin_ideal = np.array(test_codes) / max_code * vref
+
+# Calculate INL
+inl, inl_max = calculate_inl(vin_ideal, vout_settled)
+
+vlsb = vref / (2 ** n_bits)
+__result = inl_max / vlsb if vlsb > 0 else 0.0
+""",
+    },
+    "dnl_max_lsb": {
+        "analysis": "tran",
+        "expression": """
+import numpy as np
+from flow.measure import calculate_dnl, extract_settled_values
+
+vout = v('top')
+time = scale()
+n_bits = param.get('n_dac', 10)
+vref = param.get('vref', 1.2)
+
+# Number of test codes
+n_codes = 5
+
+# Extract settled values
+vout_settled = extract_settled_values(vout, time, n_codes)
+
+vlsb = vref / (2 ** n_bits)
+dnl, dnl_max = calculate_dnl(vout_settled, ideal_lsb=vlsb)
+
+__result = dnl_max
+""",
+    },
+    "settling_ns": {
+        "analysis": "tran",
+        "expression": """
+vout = v('top')
+vref = param.get('vref', 1.2)
+
+# m.TsettlingTime(y, x, final, level, t1, t2)
+tsettle = m.TsettlingTime(vout, scale(), vref, 0.01)  # 1% of final
+__result = tsettle * 1e9 if tsettle is not None else float('nan')
+""",
+    },
+    "glitch_mV": {
+        "analysis": "tran",
+        "expression": """
+import numpy as np
+
+vout = v('top')
+time = scale()
+vref = param.get('vref', 1.2)
+
+# Detect glitches: high-frequency transients
+# Compute derivative and find peaks
+dvdt = np.abs(np.diff(vout) / np.diff(time))
+glitch_threshold = vref / 100  # 1% of Vref per time unit
+
+# Maximum glitch amplitude
+glitch_max = np.max(dvdt) * np.mean(np.diff(time)) * 1000  # mV
+__result = float(glitch_max)
+""",
+    },
+}
+
+
+# ========================================================================
+# Custom measure() function for fallback mode
+# ========================================================================
+
+
+def measure(raw, subckt_json, tb_json, raw_file):
+    """
+    Measure CDAC simulation results.
+
+    Extracts INL, DNL, and settling time from DAC transfer function.
+    """
+    import numpy as np
+    from flow.measure import (
+        read_traces,
+        calculate_inl,
+        calculate_dnl,
+        extract_settled_values,
+    )
+
+    # Read simulation traces
+    traces = read_traces(raw)
+    time = traces[0]
+
+    # Get trace names to find 'top' node
+    trace_names = raw.get_trace_names()
+    vout = None
+    for name in trace_names:
+        if "top" in name.lower():
+            vout = raw.get_wave(name)
+            break
+
+    if vout is None:
+        return {"error": "Could not find 'top' node in traces"}
+
+    # Get parameters from subckt_json
+    n_bits = subckt_json.get("topo_params", {}).get("n_dac", 10)
+    vref = 1.2  # Default
+
+    # Number of test codes (matches testbench)
+    n_codes = 5
+    max_code = (1 << n_bits) - 1
+    test_codes = [0, max_code // 4, max_code // 2, 3 * max_code // 4, max_code]
+
+    # Extract settled values
+    vout_settled = extract_settled_values(vout, time, n_codes)
+
+    # Calculate ideal input voltages
+    vin_ideal = np.array(test_codes) / max_code * vref
+
+    # Calculate INL and DNL
+    inl, inl_max = calculate_inl(vin_ideal, vout_settled)
+    vlsb = vref / (2**n_bits)
+    dnl, dnl_max = calculate_dnl(vout_settled, ideal_lsb=vlsb)
+
+    results = {
+        "n_bits": n_bits,
+        "vref": vref,
+        "vlsb_mV": float(vlsb * 1000),
+        "inl_max_lsb": float(inl_max / vlsb) if vlsb > 0 else 0.0,
+        "dnl_max_lsb": float(dnl_max),
+        "settled_values": [float(v) for v in vout_settled],
+    }
+
+    return results
+
+
+# ========================================================================
+# PyOPUS Visualisation Configuration
+# ========================================================================
+
+visualisation = {
+    "graphs": {
+        "transfer": {
+            "title": "CDAC Transfer Function",
+            "shape": {"figsize": (10, 6), "dpi": 100},
+            "axes": {
+                "tf": {
+                    "subplot": (2, 1, 1),
+                    "xlabel": "Code",
+                    "ylabel": "Output Voltage [V]",
+                    "legend": True,
+                    "grid": True,
+                },
+                "error": {
+                    "subplot": (2, 1, 2),
+                    "xlabel": "Code",
+                    "ylabel": "Error [LSB]",
+                    "grid": True,
+                },
+            },
+        },
+        "linearity": {
+            "title": "DAC Linearity",
+            "shape": {"figsize": (10, 4)},
+            "axes": {
+                "inl": {
+                    "subplot": (1, 2, 1),
+                    "xlabel": "Code",
+                    "ylabel": "INL [LSB]",
+                    "grid": True,
+                },
+                "dnl": {
+                    "subplot": (1, 2, 2),
+                    "xlabel": "Code",
+                    "ylabel": "DNL [LSB]",
+                    "grid": True,
+                },
+            },
+        },
+    },
+    "traces": {
+        "output": {
+            "graph": "transfer",
+            "axes": "tf",
+            "xresult": "code",
+            "yresult": "v_top",
+        },
+        "inl": {
+            "graph": "linearity",
+            "axes": "inl",
+            "xresult": "code",
+            "yresult": "inl",
+        },
+        "dnl": {
+            "graph": "linearity",
+            "axes": "dnl",
+            "xresult": "code",
+            "yresult": "dnl",
+        },
+    },
+}
