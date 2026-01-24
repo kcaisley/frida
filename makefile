@@ -5,15 +5,13 @@ NETLIST_SCRIPT := flow/netlist.py
 SIM_SCRIPT := flow/simulate.py
 MEAS_SCRIPT := flow/measure.py
 PLOT_SCRIPT := flow/plot.py
-VIZ_SCRIPT := flow/visualize.py
-
 # Cadence tools
 CADENCE_SPECTRE_SETUP := /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh
 CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas plot clean_plot viz clean_viz all clean_all
+.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas plot clean_plot all clean_all
 
 # ============================================================
 # Setup and Maintenance
@@ -24,9 +22,10 @@ setup:
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 		echo "uv installed. Run 'make setup' again."; exit 0; \
 	fi
-	uv python install 3.14
-	uv venv --clear --python 3.14 .venv
+	uv python install 3.13
+	uv venv --clear --python 3.13 .venv
 	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
+	uv pip install https://fides.fe.uni-lj.si/pyopus/download/0.12/pyopus-0.12-cp313-cp313-linux_x86_64.whl
 	@echo "Setup complete: .venv created with necessary packages"
 
 check:
@@ -153,27 +152,6 @@ else
 endif
 
 # ============================================================
-# Visualization (raw waveform viewer)
-# ============================================================
-
-viz:
-ifndef cell
-	$(error Usage: make viz cell=<cellname>)
-endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/sim" ]; then echo "Error: Run 'make sim cell=$(cell)' first"; exit 1; fi
-	@raw=$$(ls -1 "$(RESULTS_DIR)/$(cell)/sim"/sim_*.raw 2>/dev/null | head -1); \
-	if [ -z "$$raw" ]; then echo "Error: No .raw files for $(cell)"; exit 1; fi; \
-	$(VENV_PYTHON) $(VIZ_SCRIPT) "$$raw"; \
-	[ -n "$$DISPLAY" ] && gaw "$$raw" & || echo "No DISPLAY, skipping gaw"
-
-clean_viz:
-ifdef cell
-	@echo "Cleaned: viz for $(cell)"
-else
-	@echo "Cleaned: all viz"
-endif
-
-# ============================================================
 # Full Flow
 # ============================================================
 
@@ -211,7 +189,6 @@ help:
 	@echo "  sim           Run Spectre simulations (PyOPUS batch)"
 	@echo "  meas          Extract measurements from results"
 	@echo "  plot          Generate plots from measurements"
-	@echo "  viz           View raw waveforms"
 	@echo "  all           Run full flow (subckt -> tb -> sim -> meas -> plot)"
 	@echo ""
 	@echo "Clean targets:"
