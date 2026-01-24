@@ -22,10 +22,10 @@ setup:
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 		echo "uv installed. Run 'make setup' again."; exit 0; \
 	fi
-	uv python install 3.13
-	uv venv --clear --python 3.13 .venv
+	uv python install 3.11
+	uv venv --clear --python 3.11 .venv
 	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
-	uv pip install https://fides.fe.uni-lj.si/pyopus/download/0.12/pyopus-0.12-cp313-cp313-linux_x86_64.whl
+	uv pip install https://fides.fe.uni-lj.si/pyopus/download/0.11.2/PyOPUS-0.11.2-cp311-cp311-linux_x86_64.whl
 	@echo "Setup complete: .venv created with necessary packages"
 
 check:
@@ -107,7 +107,7 @@ endif
 		source $(CADENCE_SPECTRE_SETUP) && \
 		source $(CADENCE_PVS_SETUP) && \
 		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
-		$(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o results $(if $(tech),--tech=$(tech))"
+		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o results $(if $(tech),--tech=$(tech))"
 	@echo "=== Syncing results back ==="
 	$(MAKE) sync_from_remote cell=$(cell)
 	@echo "=== Simulation complete ==="
