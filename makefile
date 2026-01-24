@@ -24,7 +24,7 @@ setup:
 	fi
 	uv python install 3.11
 	uv venv --clear --python 3.11 .venv
-	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5
+	uv pip install numpy matplotlib scipy klayout spicelib schemdraw PyQt5 mpi4py
 	uv pip install https://fides.fe.uni-lj.si/pyopus/download/0.11.2/PyOPUS-0.11.2-cp311-cp311-linux_x86_64.whl
 	@echo "Setup complete: .venv created with necessary packages"
 
@@ -70,47 +70,33 @@ else
 endif
 
 # ============================================================
-# Simulation (remote execution on jupiter)
+# Simulation (MPI-based remote execution on jupiter/juno)
 # ============================================================
 
-# Remote configuration
-REMOTE_HOST := jupiter.physik.uni-bonn.de
-REMOTE_USER := kcaisley
-REMOTE_PROJECT := /tmp/kcaisley/frida
-REMOTE_VENV := $(REMOTE_PROJECT)/.venv/bin/python
+# MPI configuration
+HOSTFILE := hosts.openmpi
+NUM_PROCS := 40
+MPI_WRAPPER := scripts/mpi_worker.sh
 
-# Sync local results to remote before simulation
-sync_to_remote:
-ifndef cell
-	$(error Usage: make sync_to_remote cell=<cellname>)
-endif
-	rsync -avz --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/results/$(cell)/
-
-# Sync remote results back to local after simulation
-sync_from_remote:
-ifndef cell
-	$(error Usage: make sync_from_remote cell=<cellname>)
-endif
-	rsync -avz $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/results/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
-
+# Simulation using mpirun for distributed execution
 sim:
 ifndef cell
 	$(error Usage: make sim cell=<cellname> [tech=<tech>])
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
-	@echo "=== Syncing to remote ==="
-	$(MAKE) sync_to_remote cell=$(cell)
-	@echo "=== Running simulation on $(REMOTE_HOST) ==="
-	ssh -t $(REMOTE_USER)@$(REMOTE_HOST) "\
-		cd $(REMOTE_PROJECT) && \
-		source $(CADENCE_SPECTRE_SETUP) && \
-		source $(CADENCE_PVS_SETUP) && \
-		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
-		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o results $(if $(tech),--tech=$(tech))"
-	@echo "=== Syncing results back ==="
-	$(MAKE) sync_from_remote cell=$(cell)
-	@echo "=== Simulation complete ==="
+	@echo "=== Running MPI simulation with $(NUM_PROCS) processes ==="
+	mpirun -n $(NUM_PROCS) --hostfile $(HOSTFILE) --prefix /usr/lib64/openmpi \
+		$(MPI_WRAPPER) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) $(if $(tech),--tech=$(tech))
+
+# Local-only simulation (for testing without MPI)
+sim_local:
+ifndef cell
+	$(error Usage: make sim_local cell=<cellname> [tech=<tech>])
+endif
+	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
+	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
+	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) $(if $(tech),--tech=$(tech))
 
 clean_sim:
 ifdef cell
@@ -230,7 +216,7 @@ help:
 	@echo "  tech=<tech>   Filter by technology (tsmc65, tsmc28, tower180)"
 	@echo "  corner=<c>    Filter by corner (tt, ss, ff, sf, fs)"
 	@echo "  temp=<t>      Filter by temperature (27, etc.)"
-	@echo "  REMOTE=1      Enable remote execution for sim"
+	@echo "  NUM_PROCS=N   Number of MPI processes (default: 40)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make subckt cell=comp"

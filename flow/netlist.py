@@ -515,11 +515,15 @@ def autoadd_fields(
     libs = []
     for lib_entry in tech_config.get("libs", []):
         lib_path = lib_entry["path"]
-        sections = lib_entry["sections"]
 
-        # Map corner to section
-        corner_map = tech_config.get("corners", {})
-        section = corner_map.get(corner, sections[0] if sections else "tt_lib")
+        # If lib has a fixed "section", use that (not corner-dependent)
+        # Otherwise, map corner to section using the "sections" list
+        if "section" in lib_entry:
+            section = lib_entry["section"]
+        else:
+            sections = lib_entry.get("sections", [])
+            corner_map = tech_config.get("corners", {})
+            section = corner_map.get(corner, sections[0] if sections else "tt_lib")
 
         libs.append({"path": lib_path, "section": section})
 

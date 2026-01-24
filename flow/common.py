@@ -117,7 +117,7 @@ techmap = {
             },
             {
                 "path": "/eda/kits/TOWER/ts18is_Rev_6.3.6/HOTCODE/models/ts18sl/v5.6.00/spectre/global.scs",
-                "sections": ["BSIM", "PSP"],
+                "section": "BSIM",  # Fixed section, not corner-dependent
             },
         ],
         "vdd": 1.8,

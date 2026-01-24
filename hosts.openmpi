@@ -1,2 +1,3 @@
-jupiter.physik.uni-bonn.de slots=20                                                                                                                                                   
+# MPI hostfile for jupiter/juno cluster
+jupiter.physik.uni-bonn.de slots=20
 juno.physik.uni-bonn.de slots=20

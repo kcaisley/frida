@@ -1,8 +1,16 @@
 """
 PyOPUS-based Spectre batch simulation runner.
 
-Runs all testbenches for a cell in batch using PyOPUS Spectre interface,
-with optional remote execution on jupiter/juno servers.
+Runs all testbenches for a cell in batch using PyOPUS Spectre interface.
+When run via mpirun, automatically distributes work to remote workers
+with file mirroring via mirrorMap.
+
+Usage:
+    # Local only (for testing)
+    python -m flow.simulate comp
+
+    # With MPI (production)
+    mpirun --hostfile hosts.openmpi python -m flow.simulate comp
 """
 
 import argparse
@@ -90,9 +98,70 @@ def check_license_server() -> tuple[int, int]:
     return total_licenses, busy_licenses
 
 
+def setup_mpi_vm():
+    """
+    Initialize PyOPUS MPI virtual machine for distributed execution.
+
+    When run via mpirun, this sets up the cooperative OS with file mirroring
+    so that netlists are automatically copied to remote workers.
+
+    Returns:
+        True if MPI is active, False if running locally only
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from pyopus.parallel.cooperative import cOS
+        from pyopus.parallel.mpi import MPI
+    except ImportError:
+        logger.info("PyOPUS MPI not available, running locally")
+        return False
+
+    # Check if we're running under mpirun (MPI_COMM_WORLD size > 1)
+    try:
+        from mpi4py import MPI as mpi4py_MPI
+
+        comm = mpi4py_MPI.COMM_WORLD
+        if comm.Get_size() <= 1:
+            logger.info("Not running under mpirun, using local execution")
+            return False
+    except ImportError:
+        logger.info("mpi4py not available, running locally")
+        return False
+
+    # Initialize MPI virtual machine with file mirroring
+    # mirrorMap copies files from local to remote workers' local storage
+    # startupDir sets the working directory on remote workers
+    logger.info(f"Initializing MPI with {comm.Get_size()} processes")
+    logger.info(f"Working directory: {os.getcwd()}")
+
+    vm = MPI(
+        mirrorMap={"*": "."},  # Mirror current dir to all workers
+        startupDir=os.getcwd(),
+        debug=1,
+    )
+    cOS.setVM(vm)
+
+    logger.info(f"MPI VM initialized with {cOS.slots()} slots")
+    return True
+
+
+def finalize_mpi_vm():
+    """Clean up MPI virtual machine."""
+    try:
+        from pyopus.parallel.cooperative import cOS
+
+        cOS.finalize()
+    except Exception:
+        pass
+
+
 def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
     """
     Run all jobs using PyOPUS Spectre interface.
+
+    When running under mpirun, work is automatically distributed to remote
+    workers and files are mirrored via mirrorMap.
 
     Args:
         jobs: List of PyOPUS job dicts from build_pyopus_jobs()
@@ -108,6 +177,13 @@ def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
     except ImportError:
         logger.info("PyOPUS simulator not available. Using fallback Spectre runner.")
         return run_batch_fallback(jobs, sim_dir)
+
+    # Setup MPI if running under mpirun
+    mpi_active = setup_mpi_vm()
+    if mpi_active:
+        logger.info("Running with MPI distributed execution")
+    else:
+        logger.info("Running with local execution only")
 
     # Create Spectre simulator instance
     Spectre = simulatorClass("Spectre")
@@ -141,6 +217,11 @@ def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
                 logger.warning(f"  Failed: {sim_name}")
 
     sim.cleanup()
+
+    # Finalize MPI if it was active
+    if mpi_active:
+        finalize_mpi_vm()
+
     return results
 
 
