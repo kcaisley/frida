@@ -474,9 +474,6 @@ def build_pyopus_jobs(
     Each testbench becomes one job. No PyOPUS corners used - corner/tech/temp
     info is already baked into each testbench netlist.
 
-    Uses relative paths from project root for MPI compatibility - when
-    mirrorMap copies files to workers, relative paths resolve correctly.
-
     Args:
         files: Dict from files.json keyed by config_hash
         cell_dir: Path to cell results directory (e.g., results/comp)
@@ -493,8 +490,6 @@ def build_pyopus_jobs(
         for tb_spice_rel in file_ctx.get("tb_spice", []):
             tb_path = cell_dir / tb_spice_rel
 
-            # Use relative path from project root for MPI mirrorMap compatibility
-            # This ensures paths work when files are mirrored to remote workers
             tb_path_rel = str(tb_path)
             try:
                 # Try to make path relative to current working directory

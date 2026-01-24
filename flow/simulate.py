@@ -1,16 +1,11 @@
 """
 PyOPUS-based Spectre batch simulation runner.
 
-Runs all testbenches for a cell in batch using PyOPUS Spectre interface.
-When run via mpirun, automatically distributes work to remote workers
-with file mirroring via mirrorMap.
+Runs all testbenches for a cell in batch using PyOPUS Spectre interface
+or parallel ProcessPoolExecutor fallback.
 
 Usage:
-    # Local only (for testing)
-    python -m flow.simulate comp
-
-    # With MPI (production)
-    mpirun --hostfile hosts.openmpi python -m flow.simulate comp
+    python -m flow.simulate comp -j 20
 """
 
 import argparse
@@ -98,74 +93,14 @@ def check_license_server() -> tuple[int, int]:
     return total_licenses, busy_licenses
 
 
-def setup_mpi_vm():
-    """
-    Initialize PyOPUS MPI virtual machine for distributed execution.
-
-    When run via mpirun, this sets up the cooperative OS with file mirroring
-    so that netlists are automatically copied to remote workers.
-
-    Returns:
-        True if MPI is active, False if running locally only
-    """
-    logger = logging.getLogger(__name__)
-
-    try:
-        from pyopus.parallel.cooperative import cOS
-        from pyopus.parallel.mpi import MPI
-    except ImportError:
-        logger.info("PyOPUS MPI not available, running locally")
-        return False
-
-    # Check if we're running under mpirun (MPI_COMM_WORLD size > 1)
-    try:
-        from mpi4py import MPI as mpi4py_MPI
-
-        comm = mpi4py_MPI.COMM_WORLD
-        if comm.Get_size() <= 1:
-            logger.info("Not running under mpirun, using local execution")
-            return False
-    except ImportError:
-        logger.info("mpi4py not available, running locally")
-        return False
-
-    # Initialize MPI virtual machine with file mirroring
-    # mirrorMap copies files from local to remote workers' local storage
-    # startupDir sets the working directory on remote workers
-    logger.info(f"Initializing MPI with {comm.Get_size()} processes")
-    logger.info(f"Working directory: {os.getcwd()}")
-
-    vm = MPI(
-        mirrorMap={"*": "."},  # Mirror current dir to all workers
-        startupDir=os.getcwd(),
-        debug=1,
-    )
-    cOS.setVM(vm)
-
-    logger.info(f"MPI VM initialized with {cOS.slots()} slots")
-    return True
-
-
-def finalize_mpi_vm():
-    """Clean up MPI virtual machine."""
-    try:
-        from pyopus.parallel.cooperative import cOS
-
-        cOS.finalize()
-    except Exception:
-        pass
-
-
-def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
+def run_batch_pyopus(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
     """
     Run all jobs using PyOPUS Spectre interface.
-
-    When running under mpirun, work is automatically distributed to remote
-    workers and files are mirrored via mirrorMap.
 
     Args:
         jobs: List of PyOPUS job dicts from build_pyopus_jobs()
         sim_dir: Output directory for .raw files
+        num_workers: Number of parallel processes
 
     Returns:
         Dict mapping job name to raw file path
@@ -176,14 +111,9 @@ def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
         from pyopus.simulator import simulatorClass
     except ImportError:
         logger.info("PyOPUS simulator not available. Using fallback Spectre runner.")
-        return run_batch_fallback(jobs, sim_dir)
+        return run_batch_parallel(jobs, sim_dir, num_workers)
 
-    # Setup MPI if running under mpirun
-    mpi_active = setup_mpi_vm()
-    if mpi_active:
-        logger.info("Running with MPI distributed execution")
-    else:
-        logger.info("Running with local execution only")
+    logger.info(f"Running with PyOPUS (up to {num_workers} parallel jobs)")
 
     # Create Spectre simulator instance
     Spectre = simulatorClass("Spectre")
@@ -218,20 +148,17 @@ def run_batch_pyopus(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
 
     sim.cleanup()
 
-    # Finalize MPI if it was active
-    if mpi_active:
-        finalize_mpi_vm()
-
     return results
 
 
-def run_batch_fallback(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
+def run_batch_parallel(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
     """
-    Fallback batch runner using direct Spectre calls when PyOPUS is unavailable.
+    Run simulations in parallel using ProcessPoolExecutor.
 
     Args:
-        jobs: List of job dicts
-        sim_dir: Output directory
+        jobs: List of job dicts with netlist paths
+        sim_dir: Output directory for .raw files
+        num_workers: Number of parallel Spectre processes
 
     Returns:
         Dict mapping job name to raw file path
@@ -242,15 +169,15 @@ def run_batch_fallback(jobs: list[dict], sim_dir: Path) -> dict[str, Path]:
     spectre_path = os.environ.get("SPECTRE_PATH", "spectre")
     license_server = os.environ.get("CDS_LIC_FILE", "")
 
-    # Check available licenses
+    # Check available licenses and adjust workers if needed
     total_lic, busy_lic = check_license_server()
     free_lic = total_lic - busy_lic
 
-    # Calculate workers (leave some licenses for colleagues)
+    # Leave some licenses for colleagues
     colleague_threshold = 40
     licenses_per_worker = 2
-    max_workers = max(1, (free_lic - colleague_threshold) // licenses_per_worker)
-    num_workers = min(max_workers, len(jobs))
+    max_by_license = max(1, (free_lic - colleague_threshold) // licenses_per_worker)
+    num_workers = min(num_workers, max_by_license, len(jobs))
 
     logger.info(f"Running {len(jobs)} simulations with {num_workers} workers")
 
@@ -335,6 +262,13 @@ def main():
         default=None,
         help="Filter by technology (e.g., tsmc65)",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=40,
+        help="Number of parallel processes (default: 40)",
+    )
 
     args = parser.parse_args()
 
@@ -378,8 +312,9 @@ def main():
 
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
-    logger.info("Flow:       simulate (PyOPUS batch)")
+    logger.info("Flow:       simulate (parallel batch)")
     logger.info(f"Jobs:       {len(jobs)}")
+    logger.info(f"Workers:    {args.jobs}")
     logger.info(f"Output:     {sim_dir}")
     logger.info(f"Log:        {log_file}")
     if args.tech:
@@ -391,7 +326,7 @@ def main():
 
     # Run simulations
     start_time = datetime.datetime.now()
-    results = run_batch_pyopus(jobs, sim_dir)
+    results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Update files.json with simulation results
