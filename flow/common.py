@@ -165,23 +165,6 @@ unitmap = [
     (1e-18, "a"),
 ]
 
-# Waveform parameter scaling: param -> 'voltage' or 'time'
-scalemap = {
-    "dc": {"dc": "voltage"},
-    "pwl": {"points": "pwl"},  # alternating time/voltage pairs
-    "sine": {"dc": "voltage", "ampl": "voltage", "delay": "time"},
-    "pulse": {
-        "v1": "voltage",
-        "v2": "voltage",
-        "td": "time",
-        "tr": "time",
-        "tf": "time",
-        "pw": "time",
-        "per": "time",
-    },
-}
-
-
 # ========================================================================
 # Utility Functions
 # ========================================================================
@@ -484,6 +467,7 @@ def build_pyopus_jobs(
     """
     jobs = []
     analyses = getattr(cell_module, "analyses", {})
+    variables = getattr(cell_module, "variables", {})
     default_analysis = list(analyses.values())[0] if analyses else {}
 
     for config_hash, file_ctx in files.items():
@@ -527,6 +511,7 @@ def build_pyopus_jobs(
                 "definitions": [{"file": tb_path_rel}],
                 "params": {},  # Params already in netlist
                 "options": {},
+                "variables": variables,  # Variables for command expression evaluation
                 "saves": default_analysis.get("saves", ["all()"]),
                 "command": default_analysis.get(
                     "command", "tran(stop=1e-6, errpreset='conservative')"
@@ -565,6 +550,294 @@ def filter_results(all_results: dict, **filters) -> dict:
         if match:
             filtered[key] = data
     return filtered
+
+
+# ========================================================================
+# Cell Script Validation
+# ========================================================================
+
+# Standard attributes expected in cell scripts
+_CELL_STANDARD_ATTRS = {
+    # Required structures
+    "subckt",
+    "tb",
+    "analyses",
+    "measures",
+    # Optional structures
+    "visualisation",
+    # Generator functions
+    "gen_topo_subckt",
+    "gen_topo_tb",
+    # Python builtins/internals to ignore
+    "__name__",
+    "__doc__",
+    "__package__",
+    "__loader__",
+    "__spec__",
+    "__file__",
+    "__cached__",
+    "__builtins__",
+    "__annotations__",
+    # Common imports to ignore
+    "np",
+    "numpy",
+    "Path",
+    "Any",
+    "Dict",
+    "List",
+    "Tuple",
+    "Optional",
+}
+
+
+def check_all_cells(blocks_dir: Path | str = "blocks", cells: str | None = None) -> int:
+    """
+    Validate cell scripts in a directory and print results as a table.
+
+    Args:
+        blocks_dir: Path to blocks directory
+        cells: Comma-separated list of cell names, or "all" for all cells
+
+    Returns:
+        Number of cells that failed validation (0 = all passed)
+    """
+    blocks_path = Path(blocks_dir)
+    if not blocks_path.exists():
+        print(f"Error: {blocks_dir}/ directory not found")
+        return 1
+
+    # Determine which cells to check
+    if cells is None or cells == "all" or cells == "":
+        cell_files = sorted(blocks_path.glob("*.py"))
+    else:
+        cell_names = [c.strip() for c in cells.split(",") if c.strip() and c.strip() != "all"]
+        cell_files = []
+        for name in cell_names:
+            cell_file = blocks_path / f"{name}.py"
+            if cell_file.exists():
+                cell_files.append(cell_file)
+            else:
+                print(f"Warning: {name}.py not found, skipping")
+        cell_files = sorted(cell_files)
+
+    if not cell_files:
+        print("No cell files found")
+        return 1
+
+    # Collect data for all cells
+    rows = []
+    errors_list = []
+
+    for cell_file in cell_files:
+        cell_name = cell_file.stem
+        try:
+            cell_module = load_cell_script(cell_file)
+            errors, info = check_cell_script(cell_module, cell_name)
+
+            rows.append({
+                "cell": cell_name,
+                "subckt": info.get("has_subckt", False),
+                "gen_subckt": info.get("has_gen_topo_subckt", False),
+                "tb": info.get("has_tb", False),
+                "gen_tb": info.get("has_gen_topo_tb", False),
+                "analyses": info.get("has_analyses", False),
+                "measures": info.get("has_measures", False),
+                "visual": info.get("has_visualisation", False),
+                "helpers": info.get("helper_functions", []),
+                "errors": errors,
+            })
+
+            if errors:
+                errors_list.append((cell_name, errors))
+
+        except Exception as e:
+            rows.append({
+                "cell": cell_name,
+                "subckt": False,
+                "gen_subckt": False,
+                "tb": False,
+                "gen_tb": False,
+                "analyses": False,
+                "measures": False,
+                "visual": False,
+                "helpers": [],
+                "errors": [f"Failed to load: {e}"],
+            })
+            errors_list.append((cell_name, [f"Failed to load: {e}"]))
+
+    # Print table header
+    print(f"{'cell':<10} {'subckt':<7} {'gen subckt':<7} {'tb':<4} {'gen tb':<7} {'anlys':<6} {'meas':<6} {'visual':<7} {'other functions'}")
+    print("-" * 95)
+
+    # Print rows
+    for row in rows:
+        def mark(val: bool) -> str:
+            return "y" if val else "-"
+
+        helpers_str = ", ".join(row["helpers"]) if row["helpers"] else "-"
+        if len(helpers_str) > 30:
+            helpers_str = helpers_str[:27] + "..."
+
+        print(
+            f"{row['cell']:<10} "
+            f"{mark(row['subckt']):<7} "
+            f"{mark(row['gen_subckt']):<7} "
+            f"{mark(row['tb']):<4} "
+            f"{mark(row['gen_tb']):<7} "
+            f"{mark(row['analyses']):<6} "
+            f"{mark(row['measures']):<6} "
+            f"{mark(row['visual']):<7} "
+            f"{helpers_str}"
+        )
+
+    # Print errors if any
+    if errors_list:
+        print()
+        print("Errors:")
+        for cell_name, errors in errors_list:
+            for err in errors:
+                print(f"  {cell_name}: {err}")
+
+    return len(errors_list)
+
+
+def check_cell_script(cell_module: Any, cell_name: str) -> tuple[list[str], dict[str, Any]]:
+    """
+    Validate cell script has required structures and follows conventions.
+
+    Checks:
+    1. Must have 'subckt' dict
+    2. Must have 'tb' dict (or None for pure digital blocks)
+    3. If tb is defined:
+       - Must have 'analyses' dict
+       - Must have 'measures' dict
+       - Each measure must have 'analysis' and 'expression' keys
+       - Measure expressions must be single-line
+    4. Must NOT have 'variables' dict (vdd etc. should come from techmap)
+    5. 'visualisation' dict is optional but noted if present
+
+    Also detects helper functions (generate_topology, generate_tb_topology, etc.)
+
+    Args:
+        cell_module: Loaded cell module
+        cell_name: Name of cell for error messages
+
+    Returns:
+        Tuple of (errors list, info dict with has_* booleans and helper_functions list)
+    """
+    errors = []
+    info: dict[str, Any] = {
+        "has_subckt": False,
+        "has_gen_topo_subckt": False,
+        "has_tb": False,
+        "has_gen_topo_tb": False,
+        "has_analyses": False,
+        "has_measures": False,
+        "has_visualisation": False,
+        "helper_functions": [],
+    }
+
+    # Check for required 'subckt' dict
+    subckt = getattr(cell_module, "subckt", None)
+    if subckt is None:
+        errors.append("Missing required 'subckt' dict")
+    elif not isinstance(subckt, dict):
+        errors.append("'subckt' must be a dict")
+    else:
+        info["has_subckt"] = True
+
+    # Check for gen_topo_subckt function
+    gen_topo_subckt = getattr(cell_module, "gen_topo_subckt", None)
+    if gen_topo_subckt is not None and callable(gen_topo_subckt):
+        info["has_gen_topo_subckt"] = True
+
+    # Check for 'tb' (required attribute, but can be None for pure digital blocks)
+    if not hasattr(cell_module, "tb"):
+        errors.append("Missing 'tb' attribute (set to None for digital-only blocks)")
+    else:
+        tb = getattr(cell_module, "tb", None)
+        info["has_tb"] = tb is not None
+
+        # Check for gen_topo_tb function
+        gen_topo_tb = getattr(cell_module, "gen_topo_tb", None)
+        if gen_topo_tb is not None and callable(gen_topo_tb):
+            info["has_gen_topo_tb"] = True
+
+        # If tb is defined, check for analyses and measures
+        if tb is not None:
+            # Check for required 'analyses' dict
+            analyses = getattr(cell_module, "analyses", None)
+            if analyses is None:
+                errors.append("Missing 'analyses' dict (required when tb is defined)")
+            elif not isinstance(analyses, dict):
+                errors.append("'analyses' must be a dict")
+            elif len(analyses) == 0:
+                errors.append("'analyses' dict is empty")
+            else:
+                info["has_analyses"] = True
+
+            # Check for required 'measures' dict
+            measures = getattr(cell_module, "measures", None)
+            if measures is None:
+                errors.append("Missing 'measures' dict (required when tb is defined)")
+            elif not isinstance(measures, dict):
+                errors.append("'measures' must be a dict")
+            elif len(measures) == 0:
+                errors.append("'measures' dict is empty")
+            else:
+                info["has_measures"] = True
+                # Check each measure entry
+                for measure_name, measure_def in measures.items():
+                    if not isinstance(measure_def, dict):
+                        errors.append(f"measures['{measure_name}']: must be a dict")
+                        continue
+
+                    if "analysis" not in measure_def:
+                        errors.append(f"measures['{measure_name}']: missing 'analysis' key")
+
+                    if "expression" not in measure_def:
+                        errors.append(f"measures['{measure_name}']: missing 'expression' key")
+                    else:
+                        expr = measure_def["expression"]
+                        if isinstance(expr, str) and expr.strip().startswith(('"""', "'''")):
+                            errors.append(
+                                f"measures['{measure_name}']: multi-line expressions not allowed"
+                            )
+                        elif isinstance(expr, str) and "\n" in expr.strip():
+                            errors.append(
+                                f"measures['{measure_name}']: multi-line expressions not allowed"
+                            )
+
+    # Check that 'variables' dict does NOT exist
+    variables = getattr(cell_module, "variables", None)
+    if variables is not None:
+        errors.append("'variables' dict not allowed - use techmap for vdd etc.")
+
+    # Check for visualisation (required when tb is defined)
+    visualisation = getattr(cell_module, "visualisation", None)
+    if visualisation is not None:
+        if not isinstance(visualisation, dict):
+            errors.append("'visualisation' must be a dict")
+        else:
+            info["has_visualisation"] = True
+    elif info["has_tb"]:
+        errors.append("Missing 'visualisation' dict (required when tb is defined)")
+
+    # Detect helper functions
+    helper_functions = []
+    for attr_name in dir(cell_module):
+        if attr_name in _CELL_STANDARD_ATTRS:
+            continue
+        if attr_name.startswith("_"):
+            continue
+
+        attr = getattr(cell_module, attr_name)
+        if callable(attr) and not isinstance(attr, type):
+            helper_functions.append(attr_name)
+
+    info["helper_functions"] = helper_functions
+
+    return errors, info
 
 
 def parse_testbench_filename(filename: str) -> dict:

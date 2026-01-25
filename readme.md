@@ -7,17 +7,11 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 
 This project pursues the possibility of a single-reticle array larger than 1 Mpixel with a continuous frame rate surpassing 100,000 fps. For the conjunction of these two specifications to be met, one must have a compact and power-efficient bank of column-parallel data converters, which at 10–12 bit resolution churn out data at a rate in excess of 1000 Gbps. To fit within the constraints of a chip bottom, the converter fabric must respect a restricted metric of 1 W/cm² while exceeding a 5 ksps/µm² sampling rate density. Successive-approximation ADCs are identified as the optimal choice, and various topologies and techniques will be analyzed to meet our goals.
 
-![](docs/images/arch.svg)
+![](docs/images/arch.png)
 
-## Prototypes
-
-Below are images from prototype designs showing the ADC architecture, top-level integration, and padring implementation:
-
-![ADC Design](docs/images/adc.png)
+Seen below is the initial prototype, designed in 65nm and measuring 1x1 mm. On the prototype are 16 ADCs, each measuring 60x60um. The tapeout was submitted in Oct 2025, and will be tested upon arrival this Spring 2026.
 
 ![FRIDA Top Level](docs/images/frida_top.png)
-
-![Padring](docs/images/padring.png)
 
 ## Setup
 
@@ -25,7 +19,7 @@ The FRIDA analog design flow uses a Python-based netlist generation system that 
 
 Run `make setup` to check dependencies and install missing packages.
 
-This project is a "workspace", and relies on a mixture of open and closed source tools, so 'make' fufills the needs better than a `requirements.txt` or `pyproject.toml` file.
+This project is a "workspace", and relies on a mixture of tools (mostly open, some commercial) which don't all have a decent Python interfance. Therefore 'make' fufills the needs better than a `requirements.txt` or `pyproject.toml` file.
 
 ## Flow commands
 
@@ -123,15 +117,11 @@ tb = {
         'Vvdd': {'dev': 'vsource', ...},
         'Xdut': {'dev': 'cellname', ...}   # References subcircuit
     },
-    "analyses": {                          # Simulation analyses
-        'tran1': {'type': 'tran', 'stop': 100}
-    },
     "corner": ["tt", "ss", "ff"],         # Process corners
     "temp": [27, -40, 125],               # Temperatures
     "topo_params": {                       # For matching with subcircuits (optional)
         "switch_type": ["nmos", "pmos"]
     },
-    "extra_includes": [...]                # Additional includes (e.g., standard cells)
 }
 
 def generate_tb_topology(**topo_params) -> tuple[dict, dict]:

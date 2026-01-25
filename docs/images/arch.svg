@@ -8,7 +8,10 @@
    version="1.1"
    id="svg5"
    sodipodi:docname="arch.svg"
-   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
+   inkscape:version="1.4.3 (fcd0343856, 2026-01-01)"
+   inkscape:export-filename="arch.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -24,20 +27,22 @@
      inkscape:pagecheckerboard="false"
      inkscape:document-units="mm"
      showgrid="true"
-     inkscape:zoom="0.92025896"
-     inkscape:cx="889.42356"
-     inkscape:cy="503.66258"
-     inkscape:window-width="2793"
-     inkscape:window-height="1644"
-     inkscape:window-x="600"
-     inkscape:window-y="283"
-     inkscape:window-maximized="0"
+     inkscape:zoom="0.46012948"
+     inkscape:cx="876.92708"
+     inkscape:cy="736.74914"
+     inkscape:window-width="1854"
+     inkscape:window-height="1011"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
      inkscape:current-layer="layer5"
      units="px"
      inkscape:showpageshadow="false"
      objecttolerance="10000"
      inkscape:snap-object-midpoints="false"
-     inkscape:snap-center="true">
+     inkscape:snap-center="true"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:export-bgcolor="#ffffffff">
     <inkscape:grid
        type="xygrid"
        id="grid285"
@@ -45,7 +50,9 @@
        spacingx="1"
        spacingy="1"
        dotted="false"
-       enabled="true" />
+       enabled="true"
+       originx="0"
+       originy="0" />
   </sodipodi:namedview>
   <defs
      id="defs2">
@@ -93,7 +100,8 @@
        apply_no_radius="true"
        apply_with_radius="true"
        only_selected="false"
-       hide_knots="false" />
+       hide_knots="false"
+       nodesatellites_param="F,0,0,1,0,0,0,1 @ F,0,0,1,0,0,0,1 @ F,0,0,1,0,0,0,1 @ F,0,0,1,0,0,0,1" />
     <marker
        style="overflow:visible"
        id="TriangleInM"

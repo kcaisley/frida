@@ -69,7 +69,7 @@ subckt = {
 }
 
 
-def generate_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
+def gen_topo_subckt(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
     """
     Compute ports and instances for given n_cycles/n_adc configuration.
 
@@ -232,9 +232,6 @@ The number of DAC state bus bits matches the ADC topology (num_caps = n_cycles -
 # Monolithic testbench struct (dynamic topology - uses n_cycles/n_adc topo_params)
 tb = {
     "instances": {},  # Empty - computed by generate_tb_topology()
-    "analyses": {"tran1": {"type": "tran", "stop": 210, "step": 0.1}},
-    "corner": ["tt"],
-    "temp": [27],
     "topo_params": {
         "n_cycles": [8, 12, 14, 16, 18, 20],  # Match subckt n_cycles values
         "n_adc": [8, 12, 14],  # Match subckt n_adc values
@@ -261,7 +258,41 @@ tb = {
 }
 
 
-def generate_tb_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
+# ========================================================================
+# PyOPUS analyses configuration
+# Simulation time: 210ns (settling + 2 conversion cycles)
+analyses = {
+    "tran": {
+        "saves": ["all()"],
+        "command": "tran(stop=210e-9, errpreset='conservative')",
+    }
+}
+
+
+# PyOPUS measures configuration
+# Measure functions are defined in flow/measure.py
+# Note: n_bits parameter should match n_adc from topo_params
+measures = {
+    "inl_max_lsb": {
+        "analysis": "tran",
+        "expression": "m.adc_inl_max_lsb(v, scale, 'vin+', 'vin-', 'comp_out', 12)",
+    },
+    "dnl_max_lsb": {
+        "analysis": "tran",
+        "expression": "m.adc_dnl_max_lsb(v, scale, 'vin+', 'vin-', 'comp_out', 12)",
+    },
+    "enob": {
+        "analysis": "tran",
+        "expression": "m.adc_enob(v, scale, 'vin+', 'vin-', 'comp_out', 12)",
+    },
+    "power_uW": {
+        "analysis": "tran",
+        "expression": "m.adc_power_uW(v, i, scale, 'vdd_a', 'vdd_d')",
+    },
+}
+
+
+def gen_topo_tb(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
     """
     Generate testbench topology for given n_cycles/n_adc.
 
@@ -456,101 +487,3 @@ def generate_tb_topology(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
 
     return ports, instances
 
-
-def measure(raw, subckt_json, tb_json, raw_file, meas_dir):
-    """
-    Measure ADC linearity from simulation results.
-
-    This function:
-    1. Extracts differential input voltage
-    2. Digitizes ADC output bits
-    3. Reconstructs analog output using weights
-    4. Calculates INL and DNL (both step-based and histogram methods)
-    5. Saves all results for plotting
-    """
-    from flow.measure import (
-        digitize,
-        calculate_inl,
-        calculate_dnl,
-        calculate_dnl_histogram,
-        calculate_linearity_error,
-        round_to_codes,
-        write_analysis,
-    )
-    import numpy as np
-
-    # Load simulation data
-    time = raw.get_axis()
-    vin_p = raw.get_wave("v(vin+)")
-    vin_n = raw.get_wave("v(vin-)")
-    vin = vin_p - vin_n  # Differential input
-
-    # Get digital output bits from ADC
-    # TODO: Update these signal names based on actual ADC outputs
-    # For now, assuming comp_out is the comparator output
-    comp_out = raw.get_wave("v(comp_out)")
-
-    # Define ADC parameters
-    vdd = 1.0  # Supply voltage
-
-    # Digitize comparator output
-    comp_digital = digitize(comp_out, vdd=vdd)
-
-    # TODO: Extract actual DAC state bits when available from simulation
-    # For now, create placeholder digital code array
-    # This should be replaced with actual bit extraction like:
-    # dcode = np.zeros((len(time), n_bits))
-    # for i in range(n_bits):
-    #     dcode[:, i] = digitize(raw.get_wave(f'v(dac_bit_{i})'), vdd=vdd)
-
-    # For now, create synthetic digital code based on input
-    # TODO: Replace with actual ADC output extraction
-    vref_range = (-0.6, 0.6)  # ADC input range
-    vin_normalized = np.clip(vin, vref_range[0], vref_range[1])
-
-    # Reconstruct analog output from digital code (placeholder until real bits available)
-    # dout_analog = reconstruct_analog(dcode, weights, vref_range=vref_range)
-    dout_analog = vin_normalized  # Placeholder
-
-    # Round to discrete codes
-    dout_rounded = round_to_codes(dout_analog)
-
-    # Calculate INL (Integral Nonlinearity)
-    inl, inl_rms, inl_max = calculate_inl(vin, dout_analog, return_stats=True)
-
-    # Calculate DNL using both methods
-    # Method 1: Step-based DNL
-    dnl, dnl_rms, dnl_max = calculate_dnl(dout_analog, return_stats=True)
-
-    # Method 2: Histogram-based DNL (code density)
-    dnl_hist, code_counts, dnl_hist_rms, dnl_hist_max = calculate_dnl_histogram(  # pyright: ignore[reportAssignmentType]
-        dout_analog, return_stats=True
-    )
-
-    # Calculate linearity error
-    linearity_error, error_rms = calculate_linearity_error(
-        vin, dout_analog, return_stats=True
-    )
-
-    # Save all results (arrays + scalars) for plotting
-    write_analysis(
-        raw_file,
-        time,
-        vin,
-        vin_p,
-        vin_n,
-        comp_digital,
-        dout_analog,
-        dout_rounded,
-        inl,
-        dnl,
-        linearity_error,
-        inl_rms,
-        inl_max,
-        dnl_rms,
-        dnl_max,
-        dnl_hist_rms,
-        dnl_hist_max,
-        error_rms,
-        outdir=meas_dir,
-    )

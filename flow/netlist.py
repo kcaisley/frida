@@ -24,10 +24,314 @@ from flow.common import (
     print_table_header,
     print_table_row,
     save_files_list,
-    scalemap,
     setup_logging,
     techmap,
 )
+
+def main() -> None:
+    """Main entry point."""
+    logger = logging.getLogger(__name__)
+
+    parser = argparse.ArgumentParser(
+        description="Generate SPICE netlists from Python specifications"
+    )
+    parser.add_argument(
+        "mode", choices=["subckt", "tb"], help="Generation mode: subckt or tb"
+    )
+    parser.add_argument(
+        "circuit", type=Path, help="Circuit Python file (e.g., blocks/samp.py)"
+    )
+    parser.add_argument(
+        "-o", "--output", type=Path, required=True, help="Base output directory"
+    )
+    parser.add_argument(
+        "--subckt-dir", type=Path, default=None, help="Subcircuit output directory (default: <output>/<cell>/subckt)"
+    )
+    parser.add_argument(
+        "--tb-dir", type=Path, default=None, help="Testbench output directory (default: <output>/<cell>/tb)"
+    )
+    parser.add_argument(
+        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
+    )
+
+    args = parser.parse_args()
+
+    # Setup logging with log file
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    cell_name = args.circuit.stem
+    args.log_dir.mkdir(exist_ok=True)
+    log_file = args.log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
+    setup_logging(log_file)
+
+    # Set default directories if not specified
+    if args.subckt_dir is None:
+        args.subckt_dir = args.output / cell_name / "subckt"
+    if args.tb_dir is None:
+        args.tb_dir = args.output / cell_name / "tb"
+
+    print_flow_header(
+        cell=cell_name,
+        flow=args.mode,
+        script_file=args.circuit,
+        outdir=args.subckt_dir if args.mode == "subckt" else args.tb_dir,
+        log_file=log_file,
+    )
+
+    try:
+        # Load circuit module
+        circuit_module = load_cell_script(args.circuit)
+
+        if args.mode == "subckt":
+            # ================================================================
+            # SUBCIRCUIT MODE (unified expand_params flow)
+            # ================================================================
+
+            # 1. Create results dir and empty files dict
+            args.subckt_dir.mkdir(parents=True, exist_ok=True)
+            files: dict[str, dict] = {}
+
+            # 2. Get subckt template from circuit module
+            subckt_template = circuit_module.subckt
+            generate_fn = getattr(circuit_module, "gen_topo_subckt", None)
+
+            # 3. Unified expansion flow
+            subckts = expand_params(subckt_template, mode="topo_params")
+            subckts = generate_topology(subckts, generate_fn)
+
+            subckts = expand_params(subckts, mode="inst_params")
+            subckts = apply_inst_params(subckts)
+
+            subckts = expand_params(subckts, mode="tech_params")
+
+            # 4. Detect varying instance params for table columns
+            varying_params = detect_varying_inst_params(subckts)
+
+            # 5. Process each expanded subcircuit
+            total_count = 0
+            all_errors = []
+            headers: list[str] = []
+            col_widths: dict[str, int] = {}
+            for subckt in subckts:
+                # 6. Map to technology, convert generic to PDK-specific
+                subckt = map_technology(subckt, techmap)
+
+                # 7. Check subcircuit
+                errors = check_subckt(subckt)
+                if errors:
+                    cfgname = generate_filename(subckt)
+                    all_errors.append((cfgname, errors))
+
+                # Print table header on first iteration
+                if total_count == 0:
+                    headers, col_widths = calc_table_columns(subckt, varying_params)
+                    print_table_header(headers, col_widths)
+
+                # 8. Compute config hash and create file_ctx
+                topo_params = subckt.get("topo_params", {})
+                inst_params = subckt.get("inst_params", [])
+                tech = subckt["tech"]
+
+                config_hash = compute_params_hash(topo_params, inst_params, tech)
+                cfgname = generate_filename(subckt)
+
+                file_ctx = {
+                    "cellname": cell_name,
+                    "cfgname": cfgname,
+                    "subckt_json": None,
+                    "subckt_spice": None,
+                    "subckt_children": {},
+                    "tb_json": [],
+                    "tb_spice": [],
+                    "sim_raw": [],
+                    "meas_db": None,
+                    "plot_img": [],
+                }
+
+                # 9. Write JSON struct
+                json_path = args.subckt_dir / f"{cfgname}.json"
+                json_path.write_text(compact_json(subckt))
+                file_ctx["subckt_json"] = f"subckt/{cfgname}.json"
+
+                # 10. Write SPICE netlist
+                sp_path = args.subckt_dir / f"{cfgname}.sp"
+                spice_str = generate_spice(subckt, mode=args.mode)
+                sp_path.write_text(spice_str)
+                file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
+
+                # 11. Resolve child subcircuit dependencies
+                child_deps = resolve_child_deps(subckt, args.output)
+                file_ctx["subckt_children"] = child_deps
+
+                # 12. Add file_ctx to files dict with config_hash as key
+                files[config_hash] = file_ctx
+                total_count += 1
+
+                # Print table row
+                # Build row data from top-level, topo_params, and instance params
+                row_data = {}
+                for field in ["tech", "corner", "temp"]:
+                    if field in subckt:
+                        row_data[field] = subckt[field]
+                row_data.update(subckt.get("topo_params", {}))
+                # Add varying instance params
+                for inst_name, param_name in varying_params:
+                    col_name = f"{inst_name}.{param_name}"
+                    instances = subckt.get("instances", {})
+                    if inst_name in instances:
+                        inst_params_dict = instances[inst_name].get("params", {})
+                        if param_name in inst_params_dict:
+                            row_data[col_name] = inst_params_dict[param_name]
+                        else:
+                            row_data[col_name] = "-"
+                    else:
+                        row_data[col_name] = "-"
+                print_table_row(row_data, headers, col_widths)
+
+            # 12. Write files.json and print summary
+            files_db_path = args.output / cell_name / "files.json"
+            save_files_list(files_db_path, files)
+            logger.info("-" * 80)
+            logger.info(f"Result: {total_count} subcircuits generated")
+
+            # Print collected errors/warnings
+            if all_errors:
+                for cfgname, errors in all_errors:
+                    for error in errors:
+                        logger.error(f"{cfgname}: {error}")
+
+            logger.info("-" * 80)
+
+        elif args.mode == "tb":
+            # ================================================================
+            # TESTBENCH MODE (unified expand_params flow)
+            # ================================================================
+
+            # 1. Load existing files.json (created by subckt mode)
+            files_db_path = args.output / cell_name / "files.json"
+            files = load_files_list(files_db_path)
+            if not files:
+                msg = f"No files.json found at {files_db_path}. Run subckt mode first."
+                logger.error(msg)
+                raise ValueError(msg)
+
+            args.tb_dir.mkdir(parents=True, exist_ok=True)
+
+            # 2. Get tb template from circuit module
+            tb_template = circuit_module.tb
+            generate_fn = getattr(circuit_module, "gen_topo_tb", None)
+
+            # 3. Expand topo_params, fill ports/instances
+            tbs_stage1 = expand_params(tb_template, mode="topo_params")
+            tbs_stage1 = generate_topology(tbs_stage1, generate_fn)
+
+            # 4. Get corner and temp lists from template
+            # TODO: I don't like the defaults here.
+            corner_list = tb_template.get("corner", ["tt"])
+            temp_list = tb_template.get("temp", [27])
+            corner_list = (
+                corner_list if isinstance(corner_list, list) else [corner_list]
+            )
+            temp_list = temp_list if isinstance(temp_list, list) else [temp_list]
+
+            total_count = 0
+            all_errors = []
+            headers = []
+            col_widths = {}
+
+            # 5. Loop over each subckt entry in files dict
+            for config_hash, file_ctx in files.items():
+                # Clear tb lists to avoid duplicates on re-runs
+                file_ctx["tb_json"] = []
+                file_ctx["tb_spice"] = []
+
+                # 6. Load the subckt struct from subckt_json path
+                subckt_path = args.output / cell_name / file_ctx["subckt_json"]
+                with open(subckt_path) as f:
+                    subckt = json.load(f)
+
+                # 7. Find matching tb netstruct based on topo_param values in subckt.meta
+                tb_topo = find_matching_topo(tbs_stage1, subckt)
+                if not tb_topo:
+                    logger.warning(
+                        f"No matching testbench netstruct for {file_ctx['cfgname']}"
+                    )
+                    continue
+
+                # 8. Loop over corner × temp combinations
+                # TODO: we should extends the expand_params function, and use that to get
+                # the cartesian product of corners and temps, instead of doing it manually!
+                for corner, temp in itertools.product(corner_list, temp_list):
+                    # 9. Create testbench struct with tech from subckt, corner/temp from tb
+                    tb = copy.deepcopy(tb_topo)
+                    tb["tech"] = subckt["tech"]  # Inherit tech from subckt
+                    tb["corner"] = corner
+                    tb["temp"] = temp
+
+                    # 10. Expand declarative vsource params to concrete values
+                    tb = generate_v_i_source_values(tb)
+
+                    # 11. Map to technology (includes vsource scaling)
+                    tb = map_technology(tb, techmap)
+
+                    # 12. Add auto fields (libs, includes, options, save)
+                    # TODO: Auto add fields shouldn't add save statement, as these are provided
+                    # by the
+                    tb = autoadd_fields(tb, subckt, techmap, file_ctx)
+
+                    # 13. Run checks
+                    errors = check_testbench(tb)
+                    if errors:
+                        cfgname = file_ctx["cfgname"]
+                        tb_filename = f"{cfgname}_{corner}_{temp}"
+                        all_errors.append((tb_filename, errors))
+
+                    # Print table header on first iteration
+                    if total_count == 0:
+                        # Use full tb struct for column calculation
+                        headers, col_widths = calc_table_columns(tb)
+                        print_table_header(headers, col_widths)
+
+                    # 14. Generate filename and write JSON
+                    cfgname = file_ctx["cfgname"]
+                    tb_filename = f"{cfgname}_{corner}_{temp}"
+
+                    json_path = args.tb_dir / f"{tb_filename}.json"
+                    json_path.write_text(compact_json(tb))
+                    file_ctx["tb_json"].append(f"tb/{tb_filename}.json")
+
+                    # 15. Write SPICE netlist
+                    sp_path = args.tb_dir / f"{tb_filename}.sp"
+                    spice_str = generate_spice(tb, mode=args.mode)
+                    sp_path.write_text(spice_str)
+                    file_ctx["tb_spice"].append(f"tb/{tb_filename}.sp")
+
+                    total_count += 1
+
+                    # Print table row
+                    # Build row data from top-level and topo_params fields
+                    row_data = {}
+                    for field in ["tech", "corner", "temp"]:
+                        if field in tb:
+                            row_data[field] = tb[field]
+                    row_data.update(tb.get("topo_params", {}))
+                    print_table_row(row_data, headers, col_widths)
+
+            # 16. Write updated files.json
+            save_files_list(files_db_path, files)
+            logger.info("-" * 80)
+            logger.info(f"Result: {total_count} testbenches generated")
+
+            # Print collected errors/warnings
+            if all_errors:
+                for tb_filename, errors in all_errors:
+                    for error in errors:
+                        logger.error(f"{tb_filename}: {error}")
+
+            logger.info("-" * 80)
+
+    except Exception as e:
+        logging.error(f"\nGeneration failed: {e}")
+        raise
 
 
 @dataclass
@@ -373,6 +677,125 @@ def resolve_child_deps(
     return children
 
 
+# ========================================================================
+# Voltage/Current Source Value Generation
+# ========================================================================
+
+
+def _expand_step_pwl(params: dict) -> list[float]:
+    """
+    Generate staircase PWL points from params (normalized units).
+
+    Each step holds voltage for tstep duration before stepping to next level.
+
+    Args:
+        params: Dict with vstart, vstep/vstop, count, tstep, td
+
+    Returns:
+        Points array [t0, v0, t1, v1, ...] in normalized units
+    """
+    vstart = params.get("vstart", 0)
+    tstep = params["tstep"]
+    td = params.get("td", 0)
+
+    # Resolve count/vstep/vstop (handle overconstrained)
+    vstep = params.get("vstep")
+    vstop = params.get("vstop")
+    count: int | None = params.get("count")
+
+    if vstep is not None and count is not None:
+        # Mode A: vstart + vstep + count
+        pass  # vstep and count already set
+    elif vstop is not None and count is not None:
+        # Mode B: vstart + vstop + count
+        vstep = (vstop - vstart) / (count - 1) if count > 1 else 0
+    else:
+        raise ValueError("PWL step requires (vstep + count) or (vstop + count)")
+
+    # After validation, count and vstep are guaranteed to be set
+    assert count is not None
+    assert vstep is not None
+
+    points: list[float] = []
+    t = td
+    for i in range(count):
+        v = vstart + i * vstep
+        points.extend([t, v])
+        t += tstep
+        if i < count - 1:
+            points.extend([t, v])  # hold before next step
+
+    return points
+
+
+def _expand_ramp_pwl(params: dict) -> list[float]:
+    """
+    Generate linear ramp PWL points from params (normalized units).
+
+    Args:
+        params: Dict with vstart, vstop, tstep (total ramp time), td
+
+    Returns:
+        Points array [t0, v0, t1, v1, ...] in normalized units
+    """
+    vstart = params.get("vstart", 0)
+    vstop = params["vstop"]
+    tstep = params["tstep"]  # total ramp time
+    td = params.get("td", 0)
+
+    points = []
+    if td > 0:
+        points.extend([0, vstart, td, vstart])
+    points.extend([td, vstart, td + tstep, vstop])
+
+    return points
+
+
+def generate_v_i_source_values(netstruct: dict[str, Any]) -> dict[str, Any]:
+    """
+    Expand declarative vsource params to concrete values.
+
+    For PWL sources with params dict containing type="step" or type="ramp",
+    generates the "points" list. Called BEFORE map_technology() - values
+    are still in normalized units.
+
+    Args:
+        netstruct: Netlist structure (typically testbench)
+
+    Returns:
+        Netlist with PWL params expanded to points arrays
+    """
+    result = copy.deepcopy(netstruct)
+
+    for inst_name, inst_info in result.get("instances", {}).items():
+        if inst_info.get("dev") != "vsource":
+            continue
+        if inst_info.get("wave") != "pwl":
+            continue
+        if "points" in inst_info:  # explicit points already exist, skip
+            continue
+
+        params = inst_info.get("params")
+        if not params:
+            continue
+
+        pwl_type = params.get("type")
+        if pwl_type is None:
+            continue  # No type specified, assume explicit points will be added
+
+        if pwl_type == "step":
+            points = _expand_step_pwl(params)
+        elif pwl_type == "ramp":
+            points = _expand_ramp_pwl(params)
+        else:
+            raise ValueError(f"{inst_name}: Unknown PWL type '{pwl_type}'. Expected 'step' or 'ramp'.")
+
+        # Store points in params (will be moved to top-level by map_technology)
+        params["points"] = points
+
+    return result
+
+
 def map_technology(
     netstruct: dict[str, Any], techmap: dict[str, Any]
 ) -> dict[str, Any]:
@@ -380,20 +803,72 @@ def map_technology(
     Map generic netstruct to technology-specific netlist.
 
     Reads tech from netstruct["tech"] (top-level field).
-    Uses instance params.dev ('nmos'/'pmos') + params.type ('lvt'/'svt'/'hvt') to look up devmap.
+    For transistors/caps/res: uses params.dev + params.type to look up devmap.
+    For vsources: scales voltage and time parameters using vdd and tstep.
     """
     tech = netstruct["tech"]
     tech_config = techmap[tech]
+    vdd = tech_config["vdd"]
+    tstep = tech_config.get("tstep", 1e-9)
     netstruct_techmapped = copy.deepcopy(netstruct)
 
     for inst_name, inst_info in netstruct_techmapped.get("instances", {}).items():
-        params = inst_info.get("params")
-        if not params:
-            continue
-
-        # Device type is stored directly on inst_info, not in params
+        # Device type is stored directly on inst_info
         dev = inst_info.get("dev")
         if not dev:
+            continue
+
+        # Handle voltage/current sources - scale by vdd and tstep
+        if dev == "vsource":
+            wave = inst_info.get("wave")
+            params = inst_info.get("params", {})
+
+            if wave == "dc":
+                # DC voltage: scale by vdd
+                dc_val = params.get("dc", inst_info.get("dc", 0))
+                inst_info["dc"] = dc_val * vdd
+
+            elif wave == "pwl":
+                # PWL: scale points (alternating time/voltage)
+                points = params.get("points", inst_info.get("points", []))
+                inst_info["points"] = [
+                    val * (tstep if i % 2 == 0 else vdd)
+                    for i, val in enumerate(points)
+                ]
+                # Scale optional r (repeat) and td (delay)
+                r_val = params.get("r", inst_info.get("r"))
+                if r_val is not None and r_val >= 0:
+                    inst_info["r"] = r_val * tstep
+                td_val = params.get("td", inst_info.get("td"))
+                if td_val is not None and td_val > 0:
+                    inst_info["td"] = td_val * tstep
+
+            elif wave == "pulse":
+                # Pulse: scale voltages by vdd, times by tstep
+                inst_info["v1"] = params.get("v1", inst_info.get("v1", 0)) * vdd
+                inst_info["v2"] = params.get("v2", inst_info.get("v2", 1)) * vdd
+                inst_info["td"] = params.get("td", inst_info.get("td", 0)) * tstep
+                inst_info["tr"] = params.get("tr", inst_info.get("tr", 0.01)) * tstep
+                inst_info["tf"] = params.get("tf", inst_info.get("tf", 0.01)) * tstep
+                inst_info["pw"] = params.get("pw", inst_info.get("pw", 0.5)) * tstep
+                inst_info["per"] = params.get("per", inst_info.get("per", 1)) * tstep
+
+            elif wave == "sine":
+                # Sine: scale voltages by vdd, delay by tstep, freq stays in Hz
+                inst_info["dc"] = params.get("dc", inst_info.get("dc", 0.5)) * vdd
+                inst_info["ampl"] = params.get("ampl", inst_info.get("ampl", 0.5)) * vdd
+                inst_info["freq"] = params.get("freq", inst_info.get("freq", 1e6))
+                inst_info["delay"] = params.get("delay", inst_info.get("delay", 0)) * tstep
+
+            # Remove params dict (consumed)
+            if "params" in inst_info:
+                del inst_info["params"]
+
+            continue  # Skip devmap lookup for vsources
+
+        # For devices requiring devmap lookup (transistors, caps, res)
+        params = inst_info.get("params")
+        if not params:
             continue
 
         # Combine dev + type for devmap lookup
@@ -435,52 +910,6 @@ def map_technology(
                 inst_info["rsh"] = dev_map["rsh"]
 
     return netstruct_techmapped
-
-
-def scale_testbench(tb: dict[str, Any], techmap: dict[str, Any]) -> dict[str, Any]:
-    """
-    Scale voltage and time values in testbench using scalemap.
-
-    Reads tech from tb["tech"].
-    """
-    tech = tb["tech"]
-    tech_config = techmap[tech]
-    vdd = tech_config["vdd"]
-    tstep = tech_config.get("tstep", 1e-9)
-
-    tb_scaled = copy.deepcopy(tb)
-
-    # Scale voltage sources using scalemap
-    for inst_name, inst_info in tb_scaled.get("instances", {}).items():
-        if inst_info.get("dev") == "vsource":
-            wave = inst_info.get("wave")
-            if wave not in scalemap:
-                continue
-
-            for param, scale_type in scalemap[wave].items():
-                if param not in inst_info:
-                    continue
-
-                if scale_type == "voltage":
-                    inst_info[param] *= vdd
-                elif scale_type == "time":
-                    inst_info[param] *= tstep
-                elif scale_type == "pwl":
-                    # Alternating time/voltage pairs
-                    inst_info[param] = [
-                        val * (tstep if i % 2 == 0 else vdd)
-                        for i, val in enumerate(inst_info[param])
-                    ]
-
-    # Scale analysis parameters
-    if "analyses" in tb_scaled:
-        for analysis in tb_scaled["analyses"].values():
-            if analysis.get("type") == "tran":
-                for param in ["stop", "step", "strobeperiod"]:
-                    if param in analysis:
-                        analysis[param] *= tstep
-
-    return tb_scaled
 
 
 def autoadd_fields(
@@ -553,45 +982,9 @@ def autoadd_fields(
     temp = tb["temp"]
     tb_autofielded["options"] = {"temp": temp, "scale": 1.0}
 
-    # Add save statements
-    save_stmts = ["all"]
-
-    # Generate instance-specific save statements from subcircuit
-    if subckt:
-        # Find DUT instance name (look for "cell" key matching cellname, or "dev" for backwards compat)
-        dut_instance = None
-        for inst_name, inst_info in tb.get("instances", {}).items():
-            if inst_info.get("cell") == subckt.get("cellname"):
-                dut_instance = inst_name
-                break
-            # Backwards compatibility: check "dev" field too
-            if inst_info.get("dev") == subckt.get("cellname"):
-                dut_instance = inst_name
-                break
-
-        if dut_instance:
-            # Generate save statements for transistors (instances with params field)
-            for inst_name, inst_info in subckt.get("instances", {}).items():
-                if "params" in inst_info:
-                    hier_name = f"{dut_instance}.{inst_name}"
-                    save_stmts.append(f"{hier_name}:currents")
-                    save_stmts.append(f"{hier_name}:d:q {hier_name}:s:q")
-                    oppoint = " ".join(
-                        f"{hier_name}:{p}"
-                        for p in [
-                            "vth",
-                            "gds",
-                            "gm",
-                            "vdsat",
-                            "cdb",
-                            "cdg",
-                            "csg",
-                            "csb",
-                        ]
-                    )
-                    save_stmts.append(oppoint)
-
-    tb_autofielded["save"] = save_stmts
+    # Note: save statements are NOT added here - they are provided at the PyOPUS
+    # simulation level, same as analyses. This keeps the testbench generation
+    # focused on circuit topology and stimulus only.
 
     return tb_autofielded
 
@@ -871,13 +1264,8 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
         lines.append("")
 
-        # Save statements
-        if "save" in netstruct:
-            for save in netstruct["save"]:
-                if save == "all":
-                    lines.append(".save all")
-                else:
-                    lines.append(f".save {save}")
+        # Note: save statements are NOT generated here - they are provided at
+        # the PyOPUS simulation level, same as analyses.
 
     else:
         msg = f"Invalid mode '{mode}'. Expected 'subckt' or 'tb'."
@@ -1098,311 +1486,13 @@ def check_testbench(tb: dict[str, Any]) -> list[str]:
     if "instances" not in tb or not isinstance(tb["instances"], dict):
         errors.append("Testbench missing required 'instances' dict")
 
-    if "analyses" not in tb or not isinstance(tb["analyses"], dict):
-        errors.append("Testbench missing required 'analyses' dict")
+    # Note: 'analyses' is no longer required in tb dict - it's defined separately
+    # in the cell module per PyOPUS migration
 
     if "libs" not in tb or not tb["libs"]:
         errors.append("Testbench missing required 'libs' field")
 
     return errors
-
-
-def main() -> None:
-    """Main entry point."""
-    logger = logging.getLogger(__name__)
-
-    parser = argparse.ArgumentParser(
-        description="Generate SPICE netlists from Python specifications"
-    )
-    parser.add_argument(
-        "mode", choices=["subckt", "tb"], help="Generation mode: subckt or tb"
-    )
-    parser.add_argument(
-        "circuit", type=Path, help="Circuit Python file (e.g., blocks/samp.py)"
-    )
-    parser.add_argument(
-        "-o", "--output", type=Path, required=True, help="Base output directory"
-    )
-    parser.add_argument(
-        "--subckt-dir", type=Path, default=None, help="Subcircuit output directory (default: <output>/<cell>/subckt)"
-    )
-    parser.add_argument(
-        "--tb-dir", type=Path, default=None, help="Testbench output directory (default: <output>/<cell>/tb)"
-    )
-    parser.add_argument(
-        "--log-dir", type=Path, default=Path("logs"), help="Log directory"
-    )
-
-    args = parser.parse_args()
-
-    # Setup logging with log file
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    cell_name = args.circuit.stem
-    args.log_dir.mkdir(exist_ok=True)
-    log_file = args.log_dir / f"{args.mode}_{cell_name}_{timestamp}.log"
-    setup_logging(log_file)
-
-    # Set default directories if not specified
-    if args.subckt_dir is None:
-        args.subckt_dir = args.output / cell_name / "subckt"
-    if args.tb_dir is None:
-        args.tb_dir = args.output / cell_name / "tb"
-
-    print_flow_header(
-        cell=cell_name,
-        flow=args.mode,
-        script_file=args.circuit,
-        outdir=args.subckt_dir if args.mode == "subckt" else args.tb_dir,
-        log_file=log_file,
-    )
-
-    try:
-        # Load circuit module
-        circuit_module = load_cell_script(args.circuit)
-
-        if args.mode == "subckt":
-            # ================================================================
-            # SUBCIRCUIT MODE (unified expand_params flow)
-            # ================================================================
-
-            # 1. Create results dir and empty files dict
-            args.subckt_dir.mkdir(parents=True, exist_ok=True)
-            files: dict[str, dict] = {}
-
-            # 2. Get subckt template from circuit module
-            subckt_template = circuit_module.subckt
-            generate_fn = getattr(circuit_module, "generate_topology", None)
-
-            # 3. Unified expansion flow
-            subckts = expand_params(subckt_template, mode="topo_params")
-            subckts = generate_topology(subckts, generate_fn)
-
-            subckts = expand_params(subckts, mode="inst_params")
-            subckts = apply_inst_params(subckts)
-
-            subckts = expand_params(subckts, mode="tech_params")
-
-            # 4. Detect varying instance params for table columns
-            varying_params = detect_varying_inst_params(subckts)
-
-            # 5. Process each expanded subcircuit
-            total_count = 0
-            all_errors = []
-            headers: list[str] = []
-            col_widths: dict[str, int] = {}
-            for subckt in subckts:
-                # 6. Map to technology, convert generic to PDK-specific
-                subckt = map_technology(subckt, techmap)
-
-                # 7. Check subcircuit
-                errors = check_subckt(subckt)
-                if errors:
-                    cfgname = generate_filename(subckt)
-                    all_errors.append((cfgname, errors))
-
-                # Print table header on first iteration
-                if total_count == 0:
-                    headers, col_widths = calc_table_columns(subckt, varying_params)
-                    print_table_header(headers, col_widths)
-
-                # 8. Compute config hash and create file_ctx
-                topo_params = subckt.get("topo_params", {})
-                inst_params = subckt.get("inst_params", [])
-                tech = subckt["tech"]
-
-                config_hash = compute_params_hash(topo_params, inst_params, tech)
-                cfgname = generate_filename(subckt)
-
-                file_ctx = {
-                    "cellname": cell_name,
-                    "cfgname": cfgname,
-                    "subckt_json": None,
-                    "subckt_spice": None,
-                    "subckt_children": {},
-                    "tb_json": [],
-                    "tb_spice": [],
-                    "sim_raw": [],
-                    "meas_db": None,
-                    "plot_img": [],
-                }
-
-                # 9. Write JSON struct
-                json_path = args.subckt_dir / f"{cfgname}.json"
-                json_path.write_text(compact_json(subckt))
-                file_ctx["subckt_json"] = f"subckt/{cfgname}.json"
-
-                # 10. Write SPICE netlist
-                sp_path = args.subckt_dir / f"{cfgname}.sp"
-                spice_str = generate_spice(subckt, mode=args.mode)
-                sp_path.write_text(spice_str)
-                file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
-
-                # 11. Resolve child subcircuit dependencies
-                child_deps = resolve_child_deps(subckt, args.output)
-                file_ctx["subckt_children"] = child_deps
-
-                # 12. Add file_ctx to files dict with config_hash as key
-                files[config_hash] = file_ctx
-                total_count += 1
-
-                # Print table row
-                # Build row data from top-level, topo_params, and instance params
-                row_data = {}
-                for field in ["tech", "corner", "temp"]:
-                    if field in subckt:
-                        row_data[field] = subckt[field]
-                row_data.update(subckt.get("topo_params", {}))
-                # Add varying instance params
-                for inst_name, param_name in varying_params:
-                    col_name = f"{inst_name}.{param_name}"
-                    instances = subckt.get("instances", {})
-                    if inst_name in instances:
-                        inst_params_dict = instances[inst_name].get("params", {})
-                        if param_name in inst_params_dict:
-                            row_data[col_name] = inst_params_dict[param_name]
-                        else:
-                            row_data[col_name] = "-"
-                    else:
-                        row_data[col_name] = "-"
-                print_table_row(row_data, headers, col_widths)
-
-            # 12. Write files.json and print summary
-            files_db_path = args.output / cell_name / "files.json"
-            save_files_list(files_db_path, files)
-            logger.info("-" * 80)
-            logger.info(f"Result: {total_count} subcircuits generated")
-
-            # Print collected errors/warnings
-            if all_errors:
-                for cfgname, errors in all_errors:
-                    for error in errors:
-                        logger.error(f"{cfgname}: {error}")
-
-            logger.info("-" * 80)
-
-        elif args.mode == "tb":
-            # ================================================================
-            # TESTBENCH MODE (unified expand_params flow)
-            # ================================================================
-
-            # 1. Load existing files.json (created by subckt mode)
-            files_db_path = args.output / cell_name / "files.json"
-            files = load_files_list(files_db_path)
-            if not files:
-                msg = f"No files.json found at {files_db_path}. Run subckt mode first."
-                logger.error(msg)
-                raise ValueError(msg)
-
-            args.tb_dir.mkdir(parents=True, exist_ok=True)
-
-            # 2. Get tb template from circuit module
-            tb_template = circuit_module.tb
-            generate_fn = getattr(circuit_module, "generate_tb_topology", None)
-
-            # 3. Expand topo_params, fill ports/instances
-            tbs_stage1 = expand_params(tb_template, mode="topo_params")
-            tbs_stage1 = generate_topology(tbs_stage1, generate_fn)
-
-            # 4. Get corner and temp lists from template
-            corner_list = tb_template.get("corner", ["tt"])
-            temp_list = tb_template.get("temp", [27])
-            corner_list = (
-                corner_list if isinstance(corner_list, list) else [corner_list]
-            )
-            temp_list = temp_list if isinstance(temp_list, list) else [temp_list]
-
-            total_count = 0
-            all_errors = []
-            headers = []
-            col_widths = {}
-
-            # 5. Loop over each subckt entry in files dict
-            for config_hash, file_ctx in files.items():
-                # 6. Load the subckt struct from subckt_json path
-                subckt_path = args.output / cell_name / file_ctx["subckt_json"]
-                with open(subckt_path) as f:
-                    subckt = json.load(f)
-
-                # 7. Find matching tb netstruct based on topo_param values in subckt.meta
-                tb_topo = find_matching_topo(tbs_stage1, subckt)
-                if not tb_topo:
-                    logger.warning(
-                        f"No matching testbench netstruct for {file_ctx['cfgname']}"
-                    )
-                    continue
-
-                # 8. Loop over corner × temp combinations
-                for corner, temp in itertools.product(corner_list, temp_list):
-                    # 9. Create testbench struct with tech from subckt, corner/temp from tb
-                    tb = copy.deepcopy(tb_topo)
-                    tb["tech"] = subckt["tech"]  # Inherit tech from subckt
-                    tb["corner"] = corner
-                    tb["temp"] = temp
-
-                    # 10. Map to technology
-                    tb = map_technology(tb, techmap)
-
-                    # 11. Scale testbench values
-                    tb = scale_testbench(tb, techmap)
-
-                    # 12. Add auto fields (libs, includes, options, save)
-                    tb = autoadd_fields(tb, subckt, techmap, file_ctx)
-
-                    # 13. Run checks
-                    errors = check_testbench(tb)
-                    if errors:
-                        cfgname = file_ctx["cfgname"]
-                        tb_filename = f"{cfgname}_{corner}_{temp}"
-                        all_errors.append((tb_filename, errors))
-
-                    # Print table header on first iteration
-                    if total_count == 0:
-                        # Use full tb struct for column calculation
-                        headers, col_widths = calc_table_columns(tb)
-                        print_table_header(headers, col_widths)
-
-                    # 14. Generate filename and write JSON
-                    cfgname = file_ctx["cfgname"]
-                    tb_filename = f"{cfgname}_{corner}_{temp}"
-
-                    json_path = args.tb_dir / f"{tb_filename}.json"
-                    json_path.write_text(compact_json(tb))
-                    file_ctx["tb_json"].append(f"tb/{tb_filename}.json")
-
-                    # 15. Write SPICE netlist
-                    sp_path = args.tb_dir / f"{tb_filename}.sp"
-                    spice_str = generate_spice(tb, mode=args.mode)
-                    sp_path.write_text(spice_str)
-                    file_ctx["tb_spice"].append(f"tb/{tb_filename}.sp")
-
-                    total_count += 1
-
-                    # Print table row
-                    # Build row data from top-level and topo_params fields
-                    row_data = {}
-                    for field in ["tech", "corner", "temp"]:
-                        if field in tb:
-                            row_data[field] = tb[field]
-                    row_data.update(tb.get("topo_params", {}))
-                    print_table_row(row_data, headers, col_widths)
-
-            # 16. Write updated files.json
-            save_files_list(files_db_path, files)
-            logger.info("-" * 80)
-            logger.info(f"Result: {total_count} testbenches generated")
-
-            # Print collected errors/warnings
-            if all_errors:
-                for tb_filename, errors in all_errors:
-                    for error in errors:
-                        logger.error(f"{tb_filename}: {error}")
-
-            logger.info("-" * 80)
-
-    except Exception as e:
-        logging.error(f"\nGeneration failed: {e}")
-        raise
-
 
 if __name__ == "__main__":
     main()

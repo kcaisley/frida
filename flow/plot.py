@@ -209,9 +209,9 @@ def plot_with_matplotlib(
             labels = [t for t in techs if tech_values[t]]
 
             if all(len(d) > 1 for d in data):
-                ax.boxplot(data, labels=labels)
+                ax.boxplot(data, tick_labels=labels)
             else:
-                means = [np.mean(d) if d else 0 for d in data]
+                means = np.array([np.mean(d) if d else 0.0 for d in data])
                 ax.bar(labels, means)
 
             ax.set_xlabel("Technology")
@@ -242,7 +242,7 @@ def plot_with_matplotlib(
 
 
 def create_graph_from_config(
-    graph_config: dict, results: dict, traces_config: dict
+    graph_config: dict, results: dict, _traces_config: dict
 ) -> tuple:
     """
     Create a matplotlib figure from visualisation config.
@@ -250,11 +250,16 @@ def create_graph_from_config(
     Args:
         graph_config: Graph configuration dict
         results: Measurement results
-        traces_config: Trace definitions
+        _traces_config: Trace definitions (unused - trace plotting not yet implemented)
 
     Returns:
         Tuple of (fig, axes) or (None, None) if failed
+
+    TODO: Implement trace plotting using _traces_config to plot data on axes.
+          Each trace in _traces_config specifies graph, axes, xresult, yresult.
+          Need to extract the corresponding data from results and plot it.
     """
+    # TODO: Use _traces_config to plot actual data on axes
     shape = graph_config.get("shape", {"figsize": (10, 6)})
     axes_config = graph_config.get("axes", {})
 

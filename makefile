@@ -29,10 +29,18 @@ setup:
 	@echo "Setup complete: .venv created with necessary packages"
 
 check:
-	uvx ruff check flow blocks
-	uvx ty check flow blocks
-	uvx vulture flow blocks
+	@$(VENV_PYTHON) -c "import sys; from flow.common import check_all_cells; sys.exit(check_all_cells(cells='$(cell)'))"
 
+lint:
+	@echo "=== Running ruff ==="
+	uvx ruff check flow blocks
+	@echo ""
+	@echo "=== Running ty ==="
+	uvx ty check flow blocks
+	@echo ""
+	@echo "=== Running basedpyright ==="
+    uvx basedpyright blocks
+    uvx basedpyright flow
 # ============================================================
 # Netlist Generation (subckt and tb)
 # ============================================================
@@ -81,12 +89,17 @@ REMOTE_VENV := $(REMOTE_PROJECT)/.venv/bin/python
 NUM_PROCS := 40
 
 # Simulation: rsync code to juno, run parallel simulations, rsync results back
+# Use host=dryrun to generate input files locally without running simulator
 sim:
 ifndef cell
-	$(error Usage: make sim cell=<cellname> [tech=<tech>])
+	$(error Usage: make sim cell=<cellname> [tech=<tech>] [host=dryrun])
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
+ifeq ($(host),dryrun)
+	@echo "=== DRYRUN MODE: Generating input files only ==="
+	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --dryrun $(if $(tech),--tech=$(tech))
+else
 	@echo "=== Syncing to $(REMOTE_HOST) ==="
 	rsync -az --delete --exclude='.venv' --exclude='*.raw' ./ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/
 	@echo "=== Running simulation with $(NUM_PROCS) parallel processes ==="
@@ -98,6 +111,7 @@ endif
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
 	@echo "=== Simulation complete ==="
+endif
 
 # Local simulation (run directly on current machine - use after SSH to juno)
 # Usage: ssh juno, cd /local/kcaisley/frida, source spectre env, make sim_local cell=inv

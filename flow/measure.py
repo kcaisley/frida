@@ -86,7 +86,7 @@ def digitize(signal, threshold=None, vdd=1.2):
 # ============================================================
 
 
-def comparator_offset_mV(v_func, scale_func, param, n_samples=100):
+def comparator_offset_mV(v_func, scale_func, param, _n_samples=100):
     """
     Measure comparator input-referred offset from decision statistics.
 
@@ -191,6 +191,521 @@ def extract_settled_values(vout, time, n_codes, settle_fraction=0.9):
     settled_times = [(i + settle_fraction) * period for i in range(n_codes)]
     settled_values = np.interp(settled_times, time, vout)
     return settled_values
+
+
+# ============================================================
+# Digital Gate Timing Measurements
+# ============================================================
+
+
+def _find_crossings(signal, time, threshold, rising=True):
+    """
+    Find time points where signal crosses threshold.
+
+    Args:
+        signal: Voltage waveform array
+        time: Time array
+        threshold: Crossing threshold voltage
+        rising: True for rising edge, False for falling edge
+
+    Returns:
+        List of crossing times (interpolated)
+    """
+    crossings = []
+    for i in range(len(signal) - 1):
+        if rising:
+            if signal[i] < threshold <= signal[i + 1]:
+                # Linear interpolation
+                t_cross = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
+                crossings.append(t_cross)
+        else:
+            if signal[i] > threshold >= signal[i + 1]:
+                t_cross = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
+                crossings.append(t_cross)
+    return crossings
+
+
+def inv_tphl_ns(v_func, scale_func, inp, out, vdd=None):
+    """
+    Measure inverter propagation delay high-to-low (input rising -> output falling).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp: Input node name
+        out: Output node name
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Propagation delay in nanoseconds
+    """
+    time = scale_func()
+    vin = v_func(inp)
+    vout = v_func(out)
+
+    if vdd is None:
+        vdd = max(np.max(vin), np.max(vout))
+    threshold = vdd / 2
+
+    in_rising = _find_crossings(vin, time, threshold, rising=True)
+    out_falling = _find_crossings(vout, time, threshold, rising=False)
+
+    if not in_rising or not out_falling:
+        return float('nan')
+
+    # Find first output falling after first input rising
+    for t_in in in_rising:
+        for t_out in out_falling:
+            if t_out > t_in:
+                return float((t_out - t_in) * 1e9)
+
+    return float('nan')
+
+
+def inv_tplh_ns(v_func, scale_func, inp, out, vdd=None):
+    """
+    Measure inverter propagation delay low-to-high (input falling -> output rising).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp: Input node name
+        out: Output node name
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Propagation delay in nanoseconds
+    """
+    time = scale_func()
+    vin = v_func(inp)
+    vout = v_func(out)
+
+    if vdd is None:
+        vdd = max(np.max(vin), np.max(vout))
+    threshold = vdd / 2
+
+    in_falling = _find_crossings(vin, time, threshold, rising=False)
+    out_rising = _find_crossings(vout, time, threshold, rising=True)
+
+    if not in_falling or not out_rising:
+        return float('nan')
+
+    # Find first output rising after first input falling
+    for t_in in in_falling:
+        for t_out in out_rising:
+            if t_out > t_in:
+                return float((t_out - t_in) * 1e9)
+
+    return float('nan')
+
+
+def rise_time_ns(v_func, scale_func, node, low_frac=0.1, high_frac=0.9, vdd=None):
+    """
+    Measure rise time (10% to 90% by default).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        node: Node name to measure
+        low_frac: Low threshold as fraction of vdd
+        high_frac: High threshold as fraction of vdd
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Rise time in nanoseconds
+    """
+    time = scale_func()
+    v = v_func(node)
+
+    if vdd is None:
+        vdd = np.max(v)
+
+    low_thresh = vdd * low_frac
+    high_thresh = vdd * high_frac
+
+    low_crossings = _find_crossings(v, time, low_thresh, rising=True)
+    high_crossings = _find_crossings(v, time, high_thresh, rising=True)
+
+    if not low_crossings or not high_crossings:
+        return float('nan')
+
+    # Find first high crossing after first low crossing
+    t_low = low_crossings[0]
+    for t_high in high_crossings:
+        if t_high > t_low:
+            return float((t_high - t_low) * 1e9)
+
+    return float('nan')
+
+
+def fall_time_ns(v_func, scale_func, node, high_frac=0.9, low_frac=0.1, vdd=None):
+    """
+    Measure fall time (90% to 10% by default).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        node: Node name to measure
+        high_frac: High threshold as fraction of vdd
+        low_frac: Low threshold as fraction of vdd
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Fall time in nanoseconds
+    """
+    time = scale_func()
+    v = v_func(node)
+
+    if vdd is None:
+        vdd = np.max(v)
+
+    high_thresh = vdd * high_frac
+    low_thresh = vdd * low_frac
+
+    high_crossings = _find_crossings(v, time, high_thresh, rising=False)
+    low_crossings = _find_crossings(v, time, low_thresh, rising=False)
+
+    if not high_crossings or not low_crossings:
+        return float('nan')
+
+    # Find first low crossing after first high crossing
+    t_high = high_crossings[0]
+    for t_low in low_crossings:
+        if t_low > t_high:
+            return float((t_low - t_high) * 1e9)
+
+    return float('nan')
+
+
+def avg_power_uW(v_func, i_func, scale_func, supply_node):
+    """
+    Measure average power consumption.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        i_func: Current accessor i('source')
+        scale_func: Time scale function
+        supply_node: Supply voltage source name
+
+    Returns:
+        Average power in microwatts
+    """
+    time = scale_func()
+    v = v_func(supply_node)
+    i = i_func(supply_node)
+
+    # Power = V * I, integrate over time and divide by total time
+    if len(time) < 2:
+        return float('nan')
+
+    power = v * np.abs(i)  # Use abs since current may be negative
+    avg_power = np.trapz(power, time) / (time[-1] - time[0])
+
+    return float(avg_power * 1e6)  # Convert to uW
+
+
+def voh_V(v_func, node):
+    """
+    Measure output high voltage (maximum output).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        node: Output node name
+
+    Returns:
+        VOH in volts
+    """
+    v = v_func(node)
+    return float(np.max(v))
+
+
+def vol_V(v_func, node):
+    """
+    Measure output low voltage (minimum output).
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        node: Output node name
+
+    Returns:
+        VOL in volts
+    """
+    v = v_func(node)
+    return float(np.min(v))
+
+
+def nand2_tphl_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
+    """
+    Measure NAND2 propagation delay high-to-low.
+
+    Output goes low when both inputs are high.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp_a: Input A node name
+        inp_b: Input B node name
+        out: Output node name
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Propagation delay in nanoseconds
+    """
+    time = scale_func()
+    va = v_func(inp_a)
+    vb = v_func(inp_b)
+    vout = v_func(out)
+
+    if vdd is None:
+        vdd = max(np.max(va), np.max(vb), np.max(vout))
+    threshold = vdd / 2
+
+    # NAND output falls when BOTH inputs are high
+    # Find when the second input goes high (AND condition met)
+    both_high = (va > threshold) & (vb > threshold)
+    out_falling = _find_crossings(vout, time, threshold, rising=False)
+
+    if not out_falling:
+        return float('nan')
+
+    # Find transitions into both-high state
+    both_high_edges = []
+    for i in range(len(both_high) - 1):
+        if not both_high[i] and both_high[i + 1]:
+            both_high_edges.append(time[i])
+
+    if not both_high_edges:
+        return float('nan')
+
+    # Find first output falling after first both-high
+    t_trigger = both_high_edges[0]
+    for t_out in out_falling:
+        if t_out > t_trigger:
+            return float((t_out - t_trigger) * 1e9)
+
+    return float('nan')
+
+
+def nand2_tplh_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
+    """
+    Measure NAND2 propagation delay low-to-high.
+
+    Output goes high when either input goes low.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp_a: Input A node name
+        inp_b: Input B node name
+        out: Output node name
+        vdd: Supply voltage (if None, estimated from signal max)
+
+    Returns:
+        Propagation delay in nanoseconds
+    """
+    time = scale_func()
+    va = v_func(inp_a)
+    vb = v_func(inp_b)
+    vout = v_func(out)
+
+    if vdd is None:
+        vdd = max(np.max(va), np.max(vb), np.max(vout))
+    threshold = vdd / 2
+
+    # NAND output rises when either input goes low
+    out_rising = _find_crossings(vout, time, threshold, rising=True)
+
+    if not out_rising:
+        return float('nan')
+
+    # Find when both-high state ends (either input falls)
+    both_high = (va > threshold) & (vb > threshold)
+    exit_both_high = []
+    for i in range(len(both_high) - 1):
+        if both_high[i] and not both_high[i + 1]:
+            exit_both_high.append(time[i])
+
+    if not exit_both_high:
+        return float('nan')
+
+    # Find first output rising after first exit from both-high
+    t_trigger = exit_both_high[0]
+    for t_out in out_rising:
+        if t_out > t_trigger:
+            return float((t_out - t_trigger) * 1e9)
+
+    return float('nan')
+
+
+# ============================================================
+# ADC Linearity Measurements
+# ============================================================
+
+
+def adc_inl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
+    """
+    Measure ADC maximum Integral Nonlinearity.
+
+    INL measures deviation from ideal linear transfer function.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp_p: Positive input node name
+        inp_n: Negative input node name
+        out: Comparator output node name
+        n_bits: ADC resolution
+        vref: Reference voltage
+
+    Returns:
+        Maximum INL in LSBs
+    """
+    scale_func()  # Called for side effects (time axis setup)
+    vin_p = v_func(inp_p)
+    vin_n = v_func(inp_n)
+    vin_diff = vin_p - vin_n
+
+    # Get the comparator output (digitized)
+    vout = v_func(out)
+    vout_digital = digitize(vout, vdd=vref)
+
+    # For full INL calculation, we need to sweep through all codes
+    # This is a simplified measurement - assumes input is ramping
+    lsb = vref / (2**n_bits)
+
+    # Calculate ideal and actual transfer function
+    vin_normalized = np.clip(vin_diff, -vref/2, vref/2) + vref/2
+    ideal_code = vin_normalized / lsb
+
+    # Use linear fit to find actual transfer
+    coeffs = np.polyfit(vin_normalized, vout_digital * (2**n_bits - 1), 1)
+    actual_code = np.polyval(coeffs, vin_normalized)
+
+    # INL is deviation from ideal
+    inl = actual_code - ideal_code
+    return float(np.max(np.abs(inl)))
+
+
+def adc_dnl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
+    """
+    Measure ADC maximum Differential Nonlinearity.
+
+    DNL measures deviation of code widths from ideal 1 LSB.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp_p: Positive input node name
+        inp_n: Negative input node name
+        out: Comparator output node name
+        n_bits: ADC resolution
+        vref: Reference voltage
+
+    Returns:
+        Maximum DNL in LSBs
+    """
+    time = scale_func()
+    vin_p = v_func(inp_p)
+    vin_n = v_func(inp_n)
+    vin_diff = vin_p - vin_n
+
+    vout = v_func(out)
+    _ = digitize(vout, vdd=vref)  # Available for future use
+
+    lsb = vref / (2**n_bits)
+
+    # Simplified DNL - measure step widths
+    vin_normalized = np.clip(vin_diff, -vref/2, vref/2) + vref/2
+
+    # Find code transitions
+    transitions = []
+    for code in range(1, 2**n_bits):
+        threshold = code * lsb
+        # Find where input crosses this threshold
+        crossings = _find_crossings(vin_normalized, time, threshold, rising=True)
+        if crossings:
+            transitions.append(crossings[0])
+
+    if len(transitions) < 2:
+        return float('nan')
+
+    # DNL = (actual step width - ideal step width) / ideal step width
+    step_widths = np.diff(transitions)
+    ideal_width = np.mean(step_widths)  # or (time[-1] - time[0]) / (2**n_bits - 1)
+    dnl = (step_widths - ideal_width) / ideal_width
+
+    return float(np.max(np.abs(dnl)))
+
+
+def adc_enob(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
+    """
+    Measure ADC Effective Number of Bits.
+
+    ENOB accounts for all noise and distortion sources.
+    ENOB = (SINAD - 1.76) / 6.02
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        scale_func: Time scale function
+        inp_p: Positive input node name
+        inp_n: Negative input node name
+        out: Comparator output node name
+        n_bits: Nominal ADC resolution
+        vref: Reference voltage
+
+    Returns:
+        Effective number of bits
+    """
+    # Simplified ENOB based on INL/DNL
+    # Full ENOB requires FFT-based SINAD calculation
+    inl_max = adc_inl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref)
+    dnl_max = adc_dnl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref)
+
+    if np.isnan(inl_max) or np.isnan(dnl_max):
+        return float('nan')
+
+    # Approximate ENOB reduction from INL/DNL
+    # This is a rough estimate - proper ENOB needs sine wave input and FFT
+    quantization_noise_lsb = max(inl_max, dnl_max)
+    snr_loss = 20 * np.log10(quantization_noise_lsb + 1)  # dB
+    enob = n_bits - snr_loss / 6.02
+
+    return float(enob)
+
+
+def adc_power_uW(v_func, i_func, scale_func, supply_a, supply_d):
+    """
+    Measure total ADC power consumption.
+
+    Args:
+        v_func: Voltage accessor v('nodename')
+        i_func: Current accessor i('source')
+        scale_func: Time scale function
+        supply_a: Analog supply node name
+        supply_d: Digital supply node name
+
+    Returns:
+        Total power in microwatts
+    """
+    time = scale_func()
+
+    # Analog power
+    v_a = v_func(supply_a)
+    i_a = i_func(supply_a)
+    power_a = v_a * np.abs(i_a)
+
+    # Digital power
+    v_d = v_func(supply_d)
+    i_d = i_func(supply_d)
+    power_d = v_d * np.abs(i_d)
+
+    # Total average power
+    total_power = power_a + power_d
+    if len(time) < 2:
+        return float('nan')
+
+    avg_power = np.trapz(total_power, time) / (time[-1] - time[0])
+    return float(avg_power * 1e6)  # Convert to uW
 
 
 # ============================================================

@@ -93,7 +93,49 @@ tb = {
             "pins": {"a": "a", "b": "b", "out": "out", "vdd": "vdd", "vss": "vss"},
         },
     },
-    "analyses": {"tran1": {"type": "tran", "stop": 400, "step": 0.1}},
-    "corner": ["tt"],
-    "temp": [27],
+}
+
+
+# ========================================================================
+# PyOPUS analyses configuration
+# Simulation time: 400ns (covers 2 full cycles of both inputs)
+analyses = {
+    "tran": {
+        "saves": ["all()"],
+        "command": "tran(stop=400e-9, errpreset='conservative')",
+    }
+}
+
+
+# PyOPUS measures configuration
+# Measure functions are defined in flow/measure.py
+measures = {
+    "tphl_ns": {
+        "analysis": "tran",
+        "expression": "m.nand2_tphl_ns(v, scale, 'a', 'b', 'out')",
+    },
+    "tplh_ns": {
+        "analysis": "tran",
+        "expression": "m.nand2_tplh_ns(v, scale, 'a', 'b', 'out')",
+    },
+    "trise_ns": {
+        "analysis": "tran",
+        "expression": "m.rise_time_ns(v, scale, 'out', 0.1, 0.9)",
+    },
+    "tfall_ns": {
+        "analysis": "tran",
+        "expression": "m.fall_time_ns(v, scale, 'out', 0.1, 0.9)",
+    },
+    "power_uW": {
+        "analysis": "tran",
+        "expression": "m.avg_power_uW(v, i, scale, 'vdd')",
+    },
+    "voh_V": {
+        "analysis": "tran",
+        "expression": "m.voh_V(v, 'out')",
+    },
+    "vol_V": {
+        "analysis": "tran",
+        "expression": "m.vol_V(v, 'out')",
+    },
 }

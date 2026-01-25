@@ -19,7 +19,7 @@ Ports:
 """
 
 
-def _build_ports(n_bits: int) -> dict[str, str]:
+def calc_ports(n_bits: int) -> dict[str, str]:
     """Build port dict for salogic with n_bits DAC width."""
     ports = {
         # Clock and control
@@ -52,7 +52,7 @@ def _build_ports(n_bits: int) -> dict[str, str]:
 # The actual implementation comes from HDL synthesis
 subckt = {
     "cellname": "salogic",
-    "ports": _build_ports(16),  # 16-bit DAC width
+    "ports": calc_ports(16),  # 16-bit DAC width
     "instances": {},  # Empty - this is a black box referencing synthesized netlist
     "tech": ["tsmc65"],
     "topo_params": {},

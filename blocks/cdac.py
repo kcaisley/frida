@@ -141,7 +141,7 @@ def calc_weights(n_dac: int, n_extra: int, strategy: str) -> list[int] | None:
         return None  # Unknown strategy
 
 
-def generate_topology(
+def gen_topo_subckt(
     n_dac: int, n_extra: int, redun_strat: str, split_strat: str
 ) -> tuple[dict[str, Any], dict[str, Any]] | tuple[None, None]:
     """
@@ -431,16 +431,13 @@ The number of DAC input bits matches the CDAC topology (n_dac).
 # Monolithic testbench struct (dynamic topology - uses n_dac topo_param)
 tb = {
     "instances": {},  # Empty - computed by generate_tb_topology()
-    "analyses": {"tran1": {"type": "tran", "stop": 500, "step": 0.1}},
-    "corner": ["tt"],
-    "temp": [27],
     "topo_params": {
         "n_dac": [7, 9, 11, 13]  # Match subckt n_dac values
     },
 }
 
 
-def generate_tb_topology(n_dac: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def gen_topo_tb(n_dac: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Generate testbench topology for given n_dac.
 
@@ -457,13 +454,13 @@ def generate_tb_topology(n_dac: int) -> tuple[dict[str, Any], dict[str, Any]]:
             "dev": "vsource",
             "pins": {"p": "vdd", "n": "gnd"},
             "wave": "dc",
-            "dc": 1.0,
+            "params": {"dc": 1.0},
         },
         "Vvss": {
             "dev": "vsource",
             "pins": {"p": "vss", "n": "gnd"},
             "wave": "dc",
-            "dc": 0.0,
+            "params": {"dc": 0.0},
         },
     }
 
@@ -532,179 +529,36 @@ def calc_driver_strength(c: int, m: int) -> int:
     return max(1, int(math.sqrt(total_cap)))
 
 
-# ========================================================================
-# PyOPUS Analyses Configuration
-# ========================================================================
-
+# PyOPUS analyses configuration
+# Simulation time: 500ns to cover all DAC code transitions
 analyses = {
     "tran": {
         "saves": ["all()"],
-        "command": "tran(stop=param['sim_stop'], errpreset='conservative')",
+        "command": "tran(stop=500e-9, errpreset='conservative')",
     }
 }
 
-# Variables accessible in measure expressions
-variables = {
-    "vdd": 1.2,
-    "vref": 1.2,
-    "sim_stop": 500,  # ns, matches tb analysis
-}
 
-
-# ========================================================================
-# PyOPUS Measures Configuration
-# ========================================================================
-
+# PyOPUS measures configuration
+# Measure functions are defined in flow/measure.py
 measures = {
     "inl_max_lsb": {
         "analysis": "tran",
-        "expression": """
-import numpy as np
-from flow.measure import calculate_inl, extract_settled_values
-
-vout = v('top')
-time = scale()
-n_bits = param.get('n_dac', 10)
-vref = param.get('vref', 1.2)
-
-# Number of test codes (matches testbench: 0, 1/4, 1/2, 3/4, full)
-n_codes = 5
-
-# Extract settled values
-vout_settled = extract_settled_values(vout, time, n_codes)
-
-# Create ideal input voltages for test codes
-max_code = (1 << n_bits) - 1
-test_codes = [0, max_code // 4, max_code // 2, 3 * max_code // 4, max_code]
-vin_ideal = np.array(test_codes) / max_code * vref
-
-# Calculate INL
-inl, inl_max = calculate_inl(vin_ideal, vout_settled)
-
-vlsb = vref / (2 ** n_bits)
-__result = inl_max / vlsb if vlsb > 0 else 0.0
-""",
+        "expression": "m.cdac_inl_max_lsb(v, scale, 'top', 10, 5)",
     },
     "dnl_max_lsb": {
         "analysis": "tran",
-        "expression": """
-import numpy as np
-from flow.measure import calculate_dnl, extract_settled_values
-
-vout = v('top')
-time = scale()
-n_bits = param.get('n_dac', 10)
-vref = param.get('vref', 1.2)
-
-# Number of test codes
-n_codes = 5
-
-# Extract settled values
-vout_settled = extract_settled_values(vout, time, n_codes)
-
-vlsb = vref / (2 ** n_bits)
-dnl, dnl_max = calculate_dnl(vout_settled, ideal_lsb=vlsb)
-
-__result = dnl_max
-""",
+        "expression": "m.cdac_dnl_max_lsb(v, scale, 'top', 10, 5)",
     },
     "settling_ns": {
         "analysis": "tran",
-        "expression": """
-vout = v('top')
-vref = param.get('vref', 1.2)
-
-# m.TsettlingTime(y, x, final, level, t1, t2)
-tsettle = m.TsettlingTime(vout, scale(), vref, 0.01)  # 1% of final
-__result = tsettle * 1e9 if tsettle is not None else float('nan')
-""",
+        "expression": "m.cdac_settling_ns(v, scale, 'top', 0.01)",
     },
     "glitch_mV": {
         "analysis": "tran",
-        "expression": """
-import numpy as np
-
-vout = v('top')
-time = scale()
-vref = param.get('vref', 1.2)
-
-# Detect glitches: high-frequency transients
-# Compute derivative and find peaks
-dvdt = np.abs(np.diff(vout) / np.diff(time))
-glitch_threshold = vref / 100  # 1% of Vref per time unit
-
-# Maximum glitch amplitude
-glitch_max = np.max(dvdt) * np.mean(np.diff(time)) * 1000  # mV
-__result = float(glitch_max)
-""",
+        "expression": "m.cdac_glitch_mV(v, scale, 'top')",
     },
 }
-
-
-# ========================================================================
-# Custom measure() function for fallback mode
-# ========================================================================
-
-
-def measure(raw, subckt_json, tb_json, raw_file):
-    """
-    Measure CDAC simulation results.
-
-    Extracts INL, DNL, and settling time from DAC transfer function.
-    """
-    import numpy as np
-    from flow.measure import (
-        read_traces,
-        calculate_inl,
-        calculate_dnl,
-        extract_settled_values,
-    )
-
-    # Read simulation traces
-    traces = read_traces(raw)
-    time = traces[0]
-
-    # Get trace names to find 'top' node
-    trace_names = raw.get_trace_names()
-    vout = None
-    for name in trace_names:
-        if "top" in name.lower():
-            vout = raw.get_wave(name)
-            break
-
-    if vout is None:
-        return {"error": "Could not find 'top' node in traces"}
-
-    # Get parameters from subckt_json
-    n_bits = subckt_json.get("topo_params", {}).get("n_dac", 10)
-    vref = 1.2  # Default
-
-    # Number of test codes (matches testbench)
-    n_codes = 5
-    max_code = (1 << n_bits) - 1
-    test_codes = [0, max_code // 4, max_code // 2, 3 * max_code // 4, max_code]
-
-    # Extract settled values
-    vout_settled = extract_settled_values(vout, time, n_codes)
-
-    # Calculate ideal input voltages
-    vin_ideal = np.array(test_codes) / max_code * vref
-
-    # Calculate INL and DNL
-    inl, inl_max = calculate_inl(vin_ideal, vout_settled)
-    vlsb = vref / (2**n_bits)
-    dnl, dnl_max = calculate_dnl(vout_settled, ideal_lsb=vlsb)
-
-    results = {
-        "n_bits": n_bits,
-        "vref": vref,
-        "vlsb_mV": float(vlsb * 1000),
-        "inl_max_lsb": float(inl_max / vlsb) if vlsb > 0 else 0.0,
-        "dnl_max_lsb": float(dnl_max),
-        "settled_values": [float(v) for v in vout_settled],
-    }
-
-    return results
 
 
 # ========================================================================

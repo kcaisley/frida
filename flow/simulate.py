@@ -20,6 +20,7 @@ from pathlib import Path
 
 from flow.common import (
     build_pyopus_jobs,
+    check_cell_script,
     load_cell_script,
     load_files_list,
     save_files_list,
@@ -48,10 +49,10 @@ def check_license_server() -> tuple[int, int]:
     logger.info(f"License server: {license_server}")
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # type: ignore[call-overload]
             ["lmstat", "-c", license_server, "-a"],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             timeout=10,
         )
 
@@ -269,6 +270,11 @@ def main():
         default=40,
         help="Number of parallel processes (default: 40)",
     )
+    parser.add_argument(
+        "--dryrun",
+        action="store_true",
+        help="Generate input files without running simulator",
+    )
 
     args = parser.parse_args()
 
@@ -312,9 +318,10 @@ def main():
 
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
-    logger.info("Flow:       simulate (parallel batch)")
+    logger.info(f"Flow:       simulate {'(DRYRUN)' if args.dryrun else '(parallel batch)'}")
     logger.info(f"Jobs:       {len(jobs)}")
-    logger.info(f"Workers:    {args.jobs}")
+    if not args.dryrun:
+        logger.info(f"Workers:    {args.jobs}")
     logger.info(f"Output:     {sim_dir}")
     logger.info(f"Log:        {log_file}")
     if args.tech:
@@ -323,6 +330,54 @@ def main():
 
     # Create output directory
     sim_dir.mkdir(parents=True, exist_ok=True)
+
+    # Dryrun mode: generate PyOPUS simulator input files without running
+    if args.dryrun:
+        # Validate cell script structure
+        script_errors, _ = check_cell_script(cell_module, args.cell)
+        if script_errors:
+            logger.error("Cell script validation failed:")
+            for err in script_errors:
+                logger.error(f"  {err}")
+            return 1
+
+        logger.info("DRYRUN MODE: Generating simulator input files only")
+
+        try:
+            from pyopus.simulator import simulatorClass
+        except ImportError:
+            logger.error("PyOPUS not available - cannot generate simulator input files")
+            return 1
+
+        # Create Spectre simulator instance
+        Spectre = simulatorClass("Spectre")
+        sim = Spectre(debug=0)
+
+        # Strip metadata before sending to simulator
+        clean_jobs = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
+        sim.setJobList(clean_jobs)
+
+        # Change to sim directory for file generation
+        import os
+        orig_dir = os.getcwd()
+        os.chdir(sim_dir)
+
+        try:
+            # Generate input files for each job group
+            for i in range(sim.jobGroupCount()):
+                input_file = sim.writeFile(i)
+                logger.info(f"  Generated: {input_file}")
+        finally:
+            os.chdir(orig_dir)
+
+        logger.info("=" * 80)
+        logger.info("Dryrun Summary")
+        logger.info("=" * 80)
+        logger.info(f"Total jobs:    {len(jobs)}")
+        logger.info(f"Job groups:    {sim.jobGroupCount()}")
+        logger.info(f"Input files:   {sim_dir}")
+        logger.info("=" * 80)
+        return 0
 
     # Run simulations
     start_time = datetime.datetime.now()
