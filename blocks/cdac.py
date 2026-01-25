@@ -216,7 +216,7 @@ def gen_topo_subckt(
 
         if split_strat == "nosplit":
             # No Split: c=1 (unit cap), m=weight (multiple instances)
-            driver_w = calc_driver_strength(c=1, m=w)
+            driver_w = calc_drivers(c=1, m=w)
             instances[f"MPdrv{idx}"] = {
                 "dev": "pmos",
                 "pins": {
@@ -251,7 +251,7 @@ def gen_topo_subckt(
 
             if quotient > 0:
                 # Main capacitor: m=quotient, c=threshold
-                driver_w = calc_driver_strength(c=threshold, m=quotient)
+                driver_w = calc_drivers(c=threshold, m=quotient)
                 instances[f"MPdrv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
@@ -282,7 +282,7 @@ def gen_topo_subckt(
             if remainder > 0:
                 # Fine capacitor: m=1, c=1, driven with reduced voltage from resistor tap
                 tap_node = f"tap[{remainder}]"
-                driver_w_rdiv = calc_driver_strength(c=1, m=1)
+                driver_w_rdiv = calc_drivers(c=1, m=1)
                 instances[f"MPrdiv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
@@ -317,7 +317,7 @@ def gen_topo_subckt(
 
             if quotient > 0:
                 # Main coarse cap: m=quotient, c=threshold
-                driver_w = calc_driver_strength(c=threshold, m=quotient)
+                driver_w = calc_drivers(c=threshold, m=quotient)
                 instances[f"MPdrv{idx}"] = {
                     "dev": "pmos",
                     "pins": {
@@ -363,7 +363,7 @@ def gen_topo_subckt(
                 # Main cap driven to bot node, diff cap from inter node
                 if quotient == 0:
                     # No coarse part, so add the main driver
-                    driver_w = calc_driver_strength(c=c_main, m=1)
+                    driver_w = calc_drivers(c=c_main, m=1)
                     instances[f"MPdrv{idx}"] = {
                         "dev": "pmos",
                         "pins": {
@@ -512,7 +512,7 @@ def gen_topo_tb(n_dac: int) -> tuple[dict[str, Any], dict[str, Any]]:
 # ========================================================================
 
 
-def calc_driver_strength(c: int, m: int) -> int:
+def calc_drivers(c: int, m: int) -> int:
     """
     Calculate driver width based on capacitor parameters.
 

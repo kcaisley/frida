@@ -666,7 +666,7 @@ def check_all_cells(blocks_dir: Path | str = "blocks", cells: str | None = None)
             errors_list.append((cell_name, [f"Failed to load: {e}"]))
 
     # Print table header
-    print(f"{'cell':<10} {'subckt':<7} {'gen subckt':<7} {'tb':<4} {'gen tb':<7} {'anlys':<6} {'meas':<6} {'visual':<7} {'other functions'}")
+    print(f"{'cell':<10} {'subckt':<7} {'gen-subckt':<11} {'tb':<4} {'gen-tb':<7} {'anlys':<6} {'meas':<6} {'visual':<7} {'other-funcs'}")
     print("-" * 95)
 
     # Print rows
@@ -681,7 +681,7 @@ def check_all_cells(blocks_dir: Path | str = "blocks", cells: str | None = None)
         print(
             f"{row['cell']:<10} "
             f"{mark(row['subckt']):<7} "
-            f"{mark(row['gen_subckt']):<7} "
+            f"{mark(row['gen_subckt']):<11} "
             f"{mark(row['tb']):<4} "
             f"{mark(row['gen_tb']):<7} "
             f"{mark(row['analyses']):<6} "
