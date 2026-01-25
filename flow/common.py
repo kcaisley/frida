@@ -325,7 +325,7 @@ def print_flow_header(
 
 
 def calc_table_columns(
-    netstruct: dict, varying_params: list[tuple[str, str]] | None = None
+    netstruct: dict[str, Any], varying_params: list[tuple[str, str]] | None = None
 ) -> tuple[list[str], dict[str, int]]:
     """
     Calculate table columns (headers and widths) from netstruct fields.
@@ -396,7 +396,7 @@ def print_table_header(headers: list[str], col_widths: dict[str, int]) -> None:
     logger.info("-" * 80)
 
 
-def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -> None:
+def print_table_row(row: dict[str, Any], headers: list[str], col_widths: dict[str, int]) -> None:
     """
     Print a single table row.
 
@@ -415,7 +415,7 @@ def print_table_row(row: dict, headers: list[str], col_widths: dict[str, int]) -
 # ========================================================================
 
 
-def load_files_list(files_db_path: Path) -> dict[str, dict]:
+def load_files_list(files_db_path: Path) -> dict[str, dict[str, Any]]:
     """
     Load file tracking dict from JSON file.
 
@@ -431,7 +431,7 @@ def load_files_list(files_db_path: Path) -> dict[str, dict]:
         return json.load(f)
 
 
-def save_files_list(files_db_path: Path, files: dict[str, dict]) -> None:
+def save_files_list(files_db_path: Path, files: dict[str, dict[str, Any]]) -> None:
     """
     Save file tracking dict to JSON file with compact formatting.
 
@@ -449,8 +449,8 @@ def save_files_list(files_db_path: Path, files: dict[str, dict]) -> None:
 
 
 def build_pyopus_jobs(
-    files: dict[str, dict], cell_dir: Path, cell_module: Any
-) -> list[dict]:
+    files: dict[str, dict[str, Any]], cell_dir: Path, cell_module: Any
+) -> list[dict[str, Any]]:
     """
     Build PyOPUS job list from files.json testbench entries.
 
@@ -530,7 +530,7 @@ def build_pyopus_jobs(
     return jobs
 
 
-def filter_results(all_results: dict, **filters) -> dict:
+def filter_results(all_results: dict[str, dict[str, Any]], **filters: Any) -> dict[str, dict[str, Any]]:
     """
     Filter measurement results by metadata.
 
@@ -840,7 +840,7 @@ def check_cell_script(cell_module: Any, cell_name: str) -> tuple[list[str], dict
     return errors, info
 
 
-def parse_testbench_filename(filename: str) -> dict:
+def parse_testbench_filename(filename: str) -> dict[str, Any]:
     """
     Parse testbench filename to extract metadata.
 

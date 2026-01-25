@@ -11,6 +11,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -714,8 +715,8 @@ def adc_power_uW(v_func, i_func, scale_func, supply_a, supply_d):
 
 
 def run_measurements_pyopus(
-    cell: str, results_dir: Path, cell_module
-) -> dict:
+    cell: str, results_dir: Path, cell_module: Any
+) -> dict[str, Any]:
     """
     Run measurements on all simulation results using PyOPUS PerformanceEvaluator.
 
@@ -812,8 +813,8 @@ def run_measurements_pyopus(
 
 
 def run_measurements_fallback(
-    cell: str, results_dir: Path, cell_module
-) -> dict:
+    cell: str, results_dir: Path, cell_module: Any
+) -> dict[str, Any]:
     """
     Fallback measurement runner when PyOPUS is unavailable.
 

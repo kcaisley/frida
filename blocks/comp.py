@@ -14,6 +14,8 @@ Topo params:
     latch_rst_intern_ctl: 'clocked' or 'signalled' - internal reset type
 """
 
+from typing import Any
+
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
     "cellname": "comp",
@@ -54,7 +56,7 @@ def gen_topo_subckt(
     latch_pwrgate_node: str,
     latch_rst_extern_ctl: str,
     latch_rst_intern_ctl: str,
-) -> tuple[dict, dict] | tuple[None, None]:
+) -> tuple[dict[str, str], dict[str, Any]] | tuple[None, None]:
     """
     Compute ports and instances for given topo_params combination.
 

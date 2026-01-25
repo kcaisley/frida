@@ -88,7 +88,7 @@ def main() -> None:
 
             # 1. Create results dir and empty files dict
             args.subckt_dir.mkdir(parents=True, exist_ok=True)
-            files: dict[str, dict] = {}
+            files: dict[str, dict[str, Any]] = {}
 
             # 2. Get subckt template from circuit module
             subckt_template = circuit_module.subckt
@@ -340,20 +340,20 @@ class ParamAxis:
 
     path: tuple[str | int, ...]  # e.g., ("inst_params", 0) or ("inst_params", 2, "inst_params", 0)
     key: str  # e.g., "w", "l", "type"
-    values: list  # e.g., [1, 2, 4]
+    values: list[Any]  # e.g., [1, 2, 4]
 
 
-def set_nested(obj: dict, path: tuple[str | int, ...], key: str, value: Any) -> None:
+def set_nested(obj: Any, path: tuple[str | int, ...], key: str, value: Any) -> None:
     """Set a nested value in a dict using a path tuple and final key."""
-    current = obj
+    current: Any = obj
     for p in path:
         current = current[p]
     current[key] = value
 
 
 def compute_params_hash(
-    topo_params: dict,
-    inst_params: list,
+    topo_params: dict[str, Any],
+    inst_params: list[dict[str, Any]],
     tech: str,
 ) -> str:
     """
@@ -476,7 +476,7 @@ def expand_params(
 
 def generate_topology(
     netstructs: list[dict[str, Any]],
-    generate_fn: Callable[..., tuple[dict, dict]] | None = None,
+    generate_fn: Callable[..., tuple[dict[str, str], dict[str, Any]] | tuple[None, None]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Fill ports/instances by calling generate_fn with scalar topo_params.
@@ -682,7 +682,7 @@ def resolve_child_deps(
 # ========================================================================
 
 
-def _expand_step_pwl(params: dict) -> list[float]:
+def _expand_step_pwl(params: dict[str, Any]) -> list[float]:
     """
     Generate staircase PWL points from params (normalized units).
 
@@ -728,7 +728,7 @@ def _expand_step_pwl(params: dict) -> list[float]:
     return points
 
 
-def _expand_ramp_pwl(params: dict) -> list[float]:
+def _expand_ramp_pwl(params: dict[str, Any]) -> list[float]:
     """
     Generate linear ramp PWL points from params (normalized units).
 

@@ -19,6 +19,8 @@ Naming conventions:
 - Supply domains: vdd_a/vss_a (analog), vdd_d/vss_d (digital)
 """
 
+from typing import Any
+
 
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
@@ -69,7 +71,7 @@ subckt = {
 }
 
 
-def gen_topo_subckt(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
+def gen_topo_subckt(n_cycles: int, n_adc: int) -> tuple[dict[str, str], dict[str, Any]]:
     """
     Compute ports and instances for given n_cycles/n_adc configuration.
 
@@ -292,7 +294,7 @@ measures = {
 }
 
 
-def gen_topo_tb(n_cycles: int, n_adc: int) -> tuple[dict, dict]:
+def gen_topo_tb(n_cycles: int, _n_adc: int) -> tuple[dict[str, str], dict[str, Any]]:
     """
     Generate testbench topology for given n_cycles/n_adc.
 

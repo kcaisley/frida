@@ -39,8 +39,7 @@ lint:
 	uvx ty check flow blocks
 	@echo ""
 	@echo "=== Running basedpyright ==="
-    uvx basedpyright blocks
-    uvx basedpyright flow
+	uvx basedpyright flow blocks --level error
 # ============================================================
 # Netlist Generation (subckt and tb)
 # ============================================================

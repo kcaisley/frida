@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from flow.common import (
     build_pyopus_jobs,
@@ -94,7 +95,7 @@ def check_license_server() -> tuple[int, int]:
     return total_licenses, busy_licenses
 
 
-def run_batch_pyopus(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
+def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
     """
     Run all jobs using PyOPUS Spectre interface.
 
@@ -152,7 +153,7 @@ def run_batch_pyopus(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -> 
     return results
 
 
-def run_batch_parallel(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
+def run_batch_parallel(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
     """
     Run simulations in parallel using ProcessPoolExecutor.
 
@@ -184,7 +185,7 @@ def run_batch_parallel(jobs: list[dict], sim_dir: Path, num_workers: int = 20) -
 
     results = {}
 
-    def run_single(job: dict) -> tuple[str, bool, Path | None]:
+    def run_single(job: dict[str, Any]) -> tuple[str, bool, Path | None]:
         job_name = job["name"]
         sim_name = job_name.replace("tb_", "sim_", 1)
         tb_file = job["definitions"][0]["file"]

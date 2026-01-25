@@ -5,6 +5,8 @@ Dynamic topology using topo_params - generate_topology() computes ports/devices
 for each switch_type variant.
 """
 
+from typing import Any
+
 # Merged subckt struct with topology params and sweeps combined
 subckt = {
     "cellname": "samp",
@@ -21,7 +23,7 @@ subckt = {
 }
 
 
-def gen_topo_subckt(switch_type: str) -> tuple[dict, dict]:
+def gen_topo_subckt(switch_type: str) -> tuple[dict[str, str], dict[str, Any]]:
     """
     Compute ports and instances for given switch_type.
 

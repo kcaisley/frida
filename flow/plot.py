@@ -11,6 +11,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -84,7 +85,7 @@ def save_plot(filename_base: str):
 # ============================================================
 
 
-def load_all_measurements(meas_dir: Path) -> dict:
+def load_all_measurements(meas_dir: Path) -> dict[str, dict[str, Any]]:
     """
     Load all measurement results from meas directory.
 
@@ -111,8 +112,8 @@ def load_all_measurements(meas_dir: Path) -> dict:
 
 
 def plot_with_evalplotter(
-    results: dict, visualisation: dict, plot_dir: Path, cell: str
-):
+    results: dict[str, Any], visualisation: dict[str, Any], plot_dir: Path, cell: str
+) -> None:
     """
     Plot results using PyOPUS EvalPlotter.
 
@@ -145,8 +146,8 @@ def plot_with_evalplotter(
 
 
 def plot_with_matplotlib(
-    results: dict, visualisation: dict, plot_dir: Path, cell: str
-):
+    results: dict[str, Any], visualisation: dict[str, Any], plot_dir: Path, cell: str
+) -> None:
     """
     Plot results using matplotlib.
 
@@ -242,8 +243,8 @@ def plot_with_matplotlib(
 
 
 def create_graph_from_config(
-    graph_config: dict, results: dict, _traces_config: dict
-) -> tuple:
+    graph_config: dict[str, Any], results: dict[str, Any], _traces_config: dict[str, Any]
+) -> tuple[Any, Any]:
     """
     Create a matplotlib figure from visualisation config.
 
@@ -296,8 +297,8 @@ def create_graph_from_config(
 
 
 def plot_corner_comparison(
-    results: dict, measure_name: str, plot_dir: Path, cell: str
-):
+    results: dict[str, Any], measure_name: str, plot_dir: Path, cell: str
+) -> None:
     """
     Create corner comparison plot for a specific measure.
 
@@ -349,8 +350,8 @@ def plot_corner_comparison(
 
 
 def plot_temp_sweep(
-    results: dict, measure_name: str, plot_dir: Path, cell: str
-):
+    results: dict[str, Any], measure_name: str, plot_dir: Path, cell: str
+) -> None:
     """
     Create temperature sweep plot for a specific measure.
 
