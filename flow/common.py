@@ -35,12 +35,13 @@ techmap = {
         "vdd": 1.2,
         "tstep": 1e-9,
         "devmap": {
-            "nmos_lvt": {"model": "nch_lvt", "w": 100e-9, "l": 60e-9},
-            "nmos_svt": {"model": "nch", "w": 100e-9, "l": 60e-9},
-            "nmos_hvt": {"model": "nch_hvt", "w": 100e-9, "l": 60e-9},
-            "pmos_lvt": {"model": "pch_lvt", "w": 100e-9, "l": 60e-9},
-            "pmos_svt": {"model": "pch", "w": 100e-9, "l": 60e-9},
-            "pmos_hvt": {"model": "pch_hvt", "w": 100e-9, "l": 60e-9},
+            # PDK Wmin=120nm, Lmin=60nm
+            "nmos_lvt": {"model": "nch_lvt", "w": 120e-9, "l": 60e-9},
+            "nmos_svt": {"model": "nch", "w": 120e-9, "l": 60e-9},
+            "nmos_hvt": {"model": "nch_hvt", "w": 120e-9, "l": 60e-9},
+            "pmos_lvt": {"model": "pch_lvt", "w": 120e-9, "l": 60e-9},
+            "pmos_svt": {"model": "pch", "w": 120e-9, "l": 60e-9},
+            "pmos_hvt": {"model": "pch_hvt", "w": 120e-9, "l": 60e-9},
             # TODO: Verify momcap model names against actual PDK
             "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
             "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
