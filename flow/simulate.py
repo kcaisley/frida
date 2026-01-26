@@ -127,6 +127,13 @@ def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int
 
     results = {}
     for i in range(sim.jobGroupCount()):
+        # TODO: This is a hack - we override simulatorID per job group so .scs/.log
+        # files match the testbench name. This may break if PyOPUS changes how it
+        # uses simulatorID internally. Revisit if issues arise.
+        job_indices = sim.jobGroup(i)
+        job_name = jobs[job_indices[0]]["name"]
+        sim.simulatorID = str(sim_dir / job_name)
+
         job_indices, status = sim.runJobGroup(i)
 
         for j in job_indices:
@@ -383,14 +390,9 @@ def main():
         logger.info("SINGLE MODE: Running first simulation only (for debugging)")
         jobs = jobs[:1]
 
-    # Run simulations (change to sim_dir so PyOPUS generates files there)
+    # Run simulations
     start_time = datetime.datetime.now()
-    orig_dir = os.getcwd()
-    os.chdir(sim_dir)
-    try:
-        results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
-    finally:
-        os.chdir(orig_dir)
+    results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Update files.json with simulation results
