@@ -22,6 +22,7 @@ from flow.common import (
     save_files_list,
     setup_logging,
 )
+from flow import expression as m  # User-defined measurement functions
 
 
 # ============================================================
@@ -80,51 +81,6 @@ def digitize(signal, threshold=None, vdd=1.2):
     if threshold is None:
         threshold = vdd / 2
     return np.where(signal > threshold, 1, 0)
-
-
-# ============================================================
-# Comparator-specific Measurements (Custom - not in PyOPUS)
-# ============================================================
-
-
-def comparator_offset_mV(v_func, scale_func, param, _n_samples=100):
-    """
-    Measure comparator input-referred offset from decision statistics.
-
-    Custom function - not available in PyOPUS built-ins.
-    Uses repeated sampling at threshold to estimate offset.
-
-    Args:
-        v_func: Voltage accessor function v('nodename')
-        scale_func: Time scale function
-        param: Parameter dictionary with 'vdd' etc.
-        n_samples: Number of samples per test point
-
-    Returns:
-        Offset in millivolts
-    """
-    _ = scale_func()  # Time axis (unused but required for interface)
-    voutp = v_func("outp")
-    voutn = v_func("outn")
-    vclk = v_func("clk")
-    vdd = param.get("vdd", 1.8)
-
-    # Find clock falling edges (decision sampling moments)
-    above = vclk > vdd / 2
-    clk_fall = np.where(np.diff(above.astype(int)) < 0)[0]
-
-    # Get decisions at each sample
-    decisions = [(voutp[idx] > voutn[idx]) for idx in clk_fall if idx < len(voutp)]
-
-    # Offset estimation from P(ONE) deviation from 0.5
-    if not decisions:
-        return float("nan")
-
-    p_one = np.mean(decisions)
-    # Rough mV estimate (simplified - full implementation uses binary search)
-    offset_mV = (p_one - 0.5) * 100
-
-    return float(offset_mV)
 
 
 # ============================================================
@@ -199,33 +155,6 @@ def extract_settled_values(vout, time, n_codes, settle_fraction=0.9):
 # ============================================================
 
 
-def _find_crossings(signal, time, threshold, rising=True):
-    """
-    Find time points where signal crosses threshold.
-
-    Args:
-        signal: Voltage waveform array
-        time: Time array
-        threshold: Crossing threshold voltage
-        rising: True for rising edge, False for falling edge
-
-    Returns:
-        List of crossing times (interpolated)
-    """
-    crossings = []
-    for i in range(len(signal) - 1):
-        if rising:
-            if signal[i] < threshold <= signal[i + 1]:
-                # Linear interpolation
-                t_cross = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
-                crossings.append(t_cross)
-        else:
-            if signal[i] > threshold >= signal[i + 1]:
-                t_cross = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
-                crossings.append(t_cross)
-    return crossings
-
-
 def inv_tphl_ns(v_func, scale_func, inp, out, vdd=None):
     """
     Measure inverter propagation delay high-to-low (input rising -> output falling).
@@ -248,8 +177,8 @@ def inv_tphl_ns(v_func, scale_func, inp, out, vdd=None):
         vdd = max(np.max(vin), np.max(vout))
     threshold = vdd / 2
 
-    in_rising = _find_crossings(vin, time, threshold, rising=True)
-    out_falling = _find_crossings(vout, time, threshold, rising=False)
+    in_rising = m._find_crossings(vin, time, threshold, rising=True)
+    out_falling = m._find_crossings(vout, time, threshold, rising=False)
 
     if not in_rising or not out_falling:
         return float('nan')
@@ -285,8 +214,8 @@ def inv_tplh_ns(v_func, scale_func, inp, out, vdd=None):
         vdd = max(np.max(vin), np.max(vout))
     threshold = vdd / 2
 
-    in_falling = _find_crossings(vin, time, threshold, rising=False)
-    out_rising = _find_crossings(vout, time, threshold, rising=True)
+    in_falling = m._find_crossings(vin, time, threshold, rising=False)
+    out_rising = m._find_crossings(vout, time, threshold, rising=True)
 
     if not in_falling or not out_rising:
         return float('nan')
@@ -324,8 +253,8 @@ def rise_time_ns(v_func, scale_func, node, low_frac=0.1, high_frac=0.9, vdd=None
     low_thresh = vdd * low_frac
     high_thresh = vdd * high_frac
 
-    low_crossings = _find_crossings(v, time, low_thresh, rising=True)
-    high_crossings = _find_crossings(v, time, high_thresh, rising=True)
+    low_crossings = m._find_crossings(v, time, low_thresh, rising=True)
+    high_crossings = m._find_crossings(v, time, high_thresh, rising=True)
 
     if not low_crossings or not high_crossings:
         return float('nan')
@@ -363,8 +292,8 @@ def fall_time_ns(v_func, scale_func, node, high_frac=0.9, low_frac=0.1, vdd=None
     high_thresh = vdd * high_frac
     low_thresh = vdd * low_frac
 
-    high_crossings = _find_crossings(v, time, high_thresh, rising=False)
-    low_crossings = _find_crossings(v, time, low_thresh, rising=False)
+    high_crossings = m._find_crossings(v, time, high_thresh, rising=False)
+    low_crossings = m._find_crossings(v, time, low_thresh, rising=False)
 
     if not high_crossings or not low_crossings:
         return float('nan')
@@ -464,7 +393,7 @@ def nand2_tphl_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
     # NAND output falls when BOTH inputs are high
     # Find when the second input goes high (AND condition met)
     both_high = (va > threshold) & (vb > threshold)
-    out_falling = _find_crossings(vout, time, threshold, rising=False)
+    out_falling = m._find_crossings(vout, time, threshold, rising=False)
 
     if not out_falling:
         return float('nan')
@@ -514,7 +443,7 @@ def nand2_tplh_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
     threshold = vdd / 2
 
     # NAND output rises when either input goes low
-    out_rising = _find_crossings(vout, time, threshold, rising=True)
+    out_rising = m._find_crossings(vout, time, threshold, rising=True)
 
     if not out_rising:
         return float('nan')
@@ -623,7 +552,7 @@ def adc_dnl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
     for code in range(1, 2**n_bits):
         threshold = code * lsb
         # Find where input crosses this threshold
-        crossings = _find_crossings(vin_normalized, time, threshold, rising=True)
+        crossings = m._find_crossings(vin_normalized, time, threshold, rising=True)
         if crossings:
             transitions.append(crossings[0])
 
@@ -733,12 +662,15 @@ def run_measurements_pyopus(
     try:
         from pyopus.evaluator.performance import PerformanceEvaluator
     except ImportError:
-        logger.warning("PyOPUS not available, using fallback measurement runner")
-        return run_measurements_fallback(cell, results_dir, cell_module)
+        logger.error("PyOPUS not available - cannot run measurements")
+        return {}
 
     measures = getattr(cell_module, "measures", {})
     analyses = getattr(cell_module, "analyses", {})
     variables = getattr(cell_module, "variables", {})
+
+    # Add expression module to variables for measure evaluation
+    variables = {**variables, "m": m}
 
     sim_dir = results_dir / cell / "sim"
     meas_dir = results_dir / cell / "meas"
@@ -803,113 +735,6 @@ def run_measurements_pyopus(
             )
 
             pe.finalize()
-            logger.info(f"  Measured: {result_key}")
-
-        except Exception as e:
-            logger.warning(f"  Failed: {result_key} - {e}")
-            continue
-
-    return all_results
-
-
-def run_measurements_fallback(
-    cell: str, results_dir: Path, cell_module: Any
-) -> dict[str, Any]:
-    """
-    Fallback measurement runner when PyOPUS is unavailable.
-
-    Uses spicelib to read raw files and calls cell-specific measure() function.
-
-    Args:
-        cell: Cell name
-        results_dir: Results directory
-        cell_module: Loaded cell module
-
-    Returns:
-        Dict of all measurement results
-    """
-    logger = logging.getLogger(__name__)
-
-    try:
-        from spicelib import RawRead
-    except ImportError:
-        logger.error("spicelib not installed")
-        return {}
-
-    sim_dir = results_dir / cell / "sim"
-    meas_dir = results_dir / cell / "meas"
-    meas_dir.mkdir(exist_ok=True)
-
-    # Check if cell has custom measure() function
-    has_custom_measure = hasattr(cell_module, "measure")
-
-    all_results = {}
-
-    for raw_file in sorted(sim_dir.glob("sim_*.raw")):
-        result_key = raw_file.stem.replace("sim_", "")
-
-        # Load metadata
-        meta_file = raw_file.with_suffix(".meta.json")
-        if meta_file.exists():
-            metadata = json.loads(meta_file.read_text())
-        else:
-            metadata = {}
-
-        try:
-            # Read raw file
-            raw = RawRead(
-                str(raw_file), traces_to_read="*", dialect="ngspice", verbose=False
-            )
-
-            if has_custom_measure:
-                # Use cell-specific measure function
-                # Find matching subckt and tb JSON files
-                subckt_dir = results_dir / cell / "subckt"
-                tb_dir = results_dir / cell / "tb"
-
-                subckt_json = {}
-                tb_json = {}
-
-                # Try to load subckt json based on metadata
-                config_hash = metadata.get("config_hash", "")
-                if config_hash:
-                    subckt_files = list(subckt_dir.glob(f"*{config_hash}*.json"))
-                    if subckt_files:
-                        subckt_json = json.loads(subckt_files[0].read_text())
-
-                    tb_files = list(tb_dir.glob(f"*{config_hash}*.json"))
-                    if tb_files:
-                        tb_json = json.loads(tb_files[0].read_text())
-
-                # Call cell-specific measure function
-                results = cell_module.measure(raw, subckt_json, tb_json, str(raw_file))
-            else:
-                # Basic measurements
-                time = raw.get_axis()
-                trace_names = raw.get_trace_names()
-
-                results = {
-                    "sim_time_ns": float(time[-1] * 1e9) if len(time) > 0 else 0,
-                    "num_traces": len(trace_names),
-                    "num_points": len(time),
-                }
-
-            # Store with metadata
-            all_results[result_key] = {
-                "measures": results,
-                "metadata": metadata,
-            }
-
-            # Save individual result file
-            meas_file = meas_dir / f"meas_{result_key}.json"
-            meas_file.write_text(
-                json.dumps(
-                    {"measures": results, "metadata": metadata},
-                    indent=2,
-                    default=str,
-                )
-            )
-
             logger.info(f"  Measured: {result_key}")
 
         except Exception as e:

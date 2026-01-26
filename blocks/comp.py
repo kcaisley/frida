@@ -438,34 +438,23 @@ def gen_topo_subckt(
     return ports, instances
 
 
-# Testbench parameters
-_n_common_modes = 5
-_n_diff_voltages = 10
-_n_samples = 10
-_clk_period = 10
-
-# Derived timing: each CM level holds for (n_diff * n_samples * clk_period) time units
-_cycles_per_diff = _n_samples
-_cycles_per_cm = _n_diff_voltages * _cycles_per_diff
-_tstep_per_cm = _cycles_per_cm * _clk_period  # 1000 time units per CM level
-_tstep_per_diff = _cycles_per_diff * _clk_period  # 100 time units per diff level
-_total_diff_steps = _n_common_modes * _n_diff_voltages  # 50 total diff steps
-_total_time = _n_common_modes * _tstep_per_cm  # 5000 time units total
-
-
-# Monolithic testbench struct (static topology - no topo_params)
-# Comparator testbench for characterization (per Practical Hint 12.2):
+# Comparator testbench for characterization (per Practical Hint 12.2)
 #
 # IMPORTANT: Source impedances (Zin) on both inputs are critical!
 # Ideal voltage sources suppress kick-back -> over-optimistic results.
 #
 # Test structure:
-# - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 × VDD
-# - 10 differential voltages at each: -50mV to +50mV (~11mV steps)
+# - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 V
+# - 11 differential voltages at each: -50mV to +50mV (10mV steps)
 # - 10 clock cycles (samples) at each point
 #
-# Total: 5 × 10 × 10 = 500 comparisons per run
-# Clock period: 10 time units → 5000 time units total per run
+# Timing (normalized units, 1 unit = 1ns):
+# - Clock period: 10
+# - Each diff level: 10 cycles × 10 = 100
+# - Each CM level: 11 diff × 100 = 1100
+# - Total: 5 CM × 1100 = 5500
+#
+# Total: 5 × 11 × 10 = 550 comparison cycles
 tb = {
     "instances": {
         # Power supplies
@@ -481,8 +470,7 @@ tb = {
             "wave": "dc",
             "params": {"dc": 0.0},
         },
-        # Common-mode voltage source (swept across 5 levels)
-        # Each level held for 1000 time units (10 diff × 10 samples × 10 clk)
+        # Common-mode voltage: 5 levels from 0.3V to 0.7V
         "Vcm": {
             "dev": "vsource",
             "pins": {"p": "vcm", "n": "gnd"},
@@ -491,13 +479,12 @@ tb = {
                 "type": "step",
                 "vstart": 0.3,
                 "vstep": 0.1,
-                "tstep": _tstep_per_cm,
-                "count": _n_common_modes,
+                "tstep": 1100,
+                "count": 5,
             },
         },
-        # === INPUT SIGNAL PATH (Vin side) ===
-        # Differential input: in+ = vcm + vdiff (swept across 10 levels per CM)
-        # Sweeps -0.05 to +0.05 (normalized), 50 total steps (5 CM × 10 diff)
+        # Differential input: -50mV to +50mV in 10mV steps (11 levels)
+        # Repeats for each CM level: 55 total steps
         "Vdiff": {
             "dev": "vsource",
             "pins": {"p": "vin_src", "n": "vcm"},
@@ -506,12 +493,11 @@ tb = {
                 "type": "step",
                 "vstart": -0.05,
                 "vstop": 0.05,
-                "tstep": _tstep_per_diff,
-                "count": _total_diff_steps,
+                "tstep": 100,
+                "count": 55,
             },
         },
         # Source impedance on signal input (models DAC/SHA output impedance)
-        # Critical for accurate kick-back modeling!
         "Rsrc_p": {
             "dev": "res",
             "pins": {"p": "vin_src", "n": "in+"},
@@ -522,15 +508,14 @@ tb = {
             "pins": {"p": "in+", "n": "gnd"},
             "params": {"c": 100e-15},
         },
-        # === REFERENCE PATH (Vref side) ===
-        # Reference: in- = vcm (no differential offset on reference side)
+        # Reference: in- = vcm (no differential offset)
         "Vref": {
             "dev": "vsource",
             "pins": {"p": "vref_src", "n": "vcm"},
             "wave": "dc",
             "params": {"dc": 0.0},
         },
-        # Source impedance on reference input (must match signal side!)
+        # Source impedance on reference input (must match signal side)
         "Rsrc_n": {
             "dev": "res",
             "pins": {"p": "vref_src", "n": "in-"},
@@ -541,7 +526,7 @@ tb = {
             "pins": {"p": "in-", "n": "gnd"},
             "params": {"c": 100e-15},
         },
-        # === CLOCK SIGNALS ===
+        # Clock: 10ns period, 40% duty cycle high (evaluation phase)
         "Vclk": {
             "dev": "vsource",
             "pins": {"p": "clk", "n": "gnd"},
@@ -552,8 +537,8 @@ tb = {
                 "td": 0.5,
                 "tr": 0.1,
                 "tf": 0.1,
-                "pw": 4,  # 40% duty cycle high (evaluation phase)
-                "per": _clk_period,
+                "pw": 4,
+                "per": 10,
             },
         },
         # Complementary clock (inverted)
@@ -568,10 +553,10 @@ tb = {
                 "tr": 0.1,
                 "tf": 0.1,
                 "pw": 4,
-                "per": _clk_period,
+                "per": 10,
             },
         },
-        # === OUTPUT LOADING ===
+        # Output loading
         "Cload_p": {
             "dev": "cap",
             "pins": {"p": "out+", "n": "vss"},
@@ -582,7 +567,7 @@ tb = {
             "pins": {"p": "out-", "n": "vss"},
             "params": {"c": 10e-15},
         },
-        # === DUT ===
+        # DUT
         "Xdut": {
             "cell": "comp",
             "pins": {
@@ -603,42 +588,68 @@ tb = {
 # PyOPUS Analyses Configuration
 # ========================================================================
 
-# PyOPUS analyses for comparator (transient only)
 analyses = {
+    "mc": {
+        "type": "montecarlo",
+        "numruns": 10,
+        "seed": 12345,
+        "variations": "all",  # "all", "process", or "mismatch"
+    },
     "tran": {
-        "saves": ["all()"],
-        # Total time: 5 common modes × 1000 tstep = 5000 normalized units = 5µs
-        "command": "tran(stop=5e-6, errpreset='conservative')",
-    }
+        "type": "tran",
+        "stop": 5.5e-6,
+        "saves": [
+            "v(in+)", "v(in-)",      # Differential inputs (after source impedance)
+            "v(out+)", "v(out-)",    # Differential outputs
+            "v(clk)",                # Clock for timing reference
+            "i(Vvdd)",               # Supply current for power measurement
+        ],
+    },
 }
 
 
-# PyOPUS measures configuration
-# Measure functions are defined in flow/measure.py
+# ========================================================================
+# PyOPUS Measures Configuration
+# ========================================================================
+#
+# Expression functions defined in flow/expression.py
+# Each measure extracts a scalar metric from the transient waveforms.
+
 measures = {
+    # Input-referred offset: differential voltage where P(out+ > out-) = 50%
     "offset_mV": {
         "analysis": "tran",
         "expression": "m.comp_offset_mV(v, scale, 'in+', 'in-', 'out+', 'out-')",
     },
+    # Input-referred noise sigma from S-curve width
+    "noise_sigma_mV": {
+        "analysis": "tran",
+        "expression": "m.comp_noise_sigma_mV(v, scale, 'in+', 'in-', 'out+', 'out-')",
+    },
+    # Decision delay: time from clock edge to output crossing VDD/2
     "delay_ns": {
         "analysis": "tran",
         "expression": "m.comp_delay_ns(v, scale, 'clk', 'out+', 'out-')",
     },
+    # Settling time: time for output to reach within 1% of final value
     "settling_ns": {
         "analysis": "tran",
         "expression": "m.comp_settling_ns(v, scale, 'out+', 'out-', 0.01)",
     },
+    # Overshoot: peak excursion beyond rail as percentage of swing
     "overshoot_pct": {
         "analysis": "tran",
         "expression": "m.comp_overshoot_pct(v, scale, 'out+', 'out-')",
     },
+    # Average power consumption
     "power_uW": {
         "analysis": "tran",
-        "expression": "m.avg_power_uW(v, i, scale, 'vdd')",
+        "expression": "m.avg_power_uW(v, i, scale, 'Vvdd')",
     },
+    # Output slew rate at 50% crossing
     "slew_Vns": {
         "analysis": "tran",
-        "expression": "m.slew_rate_Vns(v, scale, 'out+', 'rising')",
+        "expression": "m.comp_slew_Vns(v, scale, 'out+')",
     },
 }
 

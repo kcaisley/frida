@@ -292,6 +292,73 @@ def create_graph_from_config(
 
 
 # ============================================================
+# Monte Carlo Overlay Plots
+# ============================================================
+
+
+def plot_mc_overlay(raw_file: Path, output_file: Path, signals: list[str]) -> None:
+    """
+    Plot all Monte Carlo runs overlaid on single figure.
+
+    Reads a .raw file containing multiple MC plots (nominal + N MC runs)
+    and overlays them with nominal highlighted.
+
+    Args:
+        raw_file: Path to .raw file with multiple MC plots
+        output_file: Where to save the MC overlay plot (without extension)
+        signals: List of signal names to plot (e.g., ['v(out+)', 'v(out-)'])
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from pyopus.simulator.rawfile import raw_read
+    except ImportError:
+        logger.warning("PyOPUS raw_read not available for MC overlay plot")
+        return
+
+    try:
+        plots = raw_read(str(raw_file), reverse=1)
+    except Exception as e:
+        logger.warning(f"Failed to read raw file for MC overlay: {e}")
+        return
+
+    if not plots:
+        logger.warning("No plots found in raw file")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for plot_idx, plot_data in enumerate(plots):
+        vectors, scale_name, scales, title, date, name = plot_data
+
+        # Get time axis
+        time = vectors.get(scale_name)
+        if time is None:
+            time = scales.get(scale_name)
+        if time is None:
+            continue
+
+        # Nominal is first plot (solid), MC runs are faded
+        alpha = 1.0 if plot_idx == 0 else 0.3
+        linewidth = 1.5 if plot_idx == 0 else 0.8
+
+        for sig in signals:
+            if sig in vectors:
+                label = f"{sig} (nominal)" if plot_idx == 0 else None
+                ax.plot(time, vectors[sig], alpha=alpha, linewidth=linewidth, label=label)
+
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Voltage [V]')
+    ax.set_title(f'Monte Carlo Overlay ({len(plots)} runs)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    save_plot(str(output_file))
+    plt.close(fig)
+    logger.info(f"  Saved MC overlay: {output_file}.pdf")
+
+
+# ============================================================
 # Corner Comparison Plots
 # ============================================================
 
