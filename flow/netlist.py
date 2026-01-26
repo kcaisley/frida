@@ -144,7 +144,10 @@ def main() -> None:
                     "subckt_children": {},
                     "tb_json": [],
                     "tb_spice": [],
+                    "sim_spice": [],
                     "sim_raw": [],
+                    "sim_log": [],
+                    "sim_pkl": [],
                     "meas_db": None,
                     "plot_img": [],
                 }

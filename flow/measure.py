@@ -1,14 +1,19 @@
 """
-PyOPUS-based measurement extraction.
+PyOPUS-based measurement and plotting.
 
-Runs measurements on simulation results using PyOPUS PerformanceEvaluator
-or custom helper functions. Results are saved as JSON files with metadata.
+Loads simulation results from .pkl files, extracts measurements using
+PostEvaluator, and generates plots using pyopus.plotter.interface.
+
+Usage:
+    python -m flow.measure comp              # Run measurements and plots
+    python -m flow.measure comp --no-plot    # Measurements only
 """
 
 import argparse
 import datetime
 import json
 import logging
+import pickle
 import sys
 from pathlib import Path
 from typing import Any
@@ -151,519 +156,101 @@ def extract_settled_values(vout, time, n_codes, settle_fraction=0.9):
 
 
 # ============================================================
-# Digital Gate Timing Measurements
+# Plotting Utilities
 # ============================================================
 
 
-def inv_tphl_ns(v_func, scale_func, inp, out, vdd=None):
+def configure_matplotlib():
+    """Configure matplotlib for non-interactive plotting."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({
+        "text.usetex": False,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+        "font.size": 11,
+        "axes.titlesize": 12,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    })
+    return plt
+
+
+def save_plot_dual_format(fig, filename_base: str, plt_module) -> list[str]:
     """
-    Measure inverter propagation delay high-to-low (input rising -> output falling).
+    Save plot in both PDF and SVG formats.
 
     Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp: Input node name
-        out: Output node name
-        vdd: Supply voltage (if None, estimated from signal max)
+        fig: matplotlib figure
+        filename_base: Base filename without extension
+        plt_module: matplotlib.pyplot module
 
     Returns:
-        Propagation delay in nanoseconds
+        List of saved file paths
     """
-    time = scale_func()
-    vin = v_func(inp)
-    vout = v_func(out)
-
-    if vdd is None:
-        vdd = max(np.max(vin), np.max(vout))
-    threshold = vdd / 2
-
-    in_rising = m._find_crossings(vin, time, threshold, rising=True)
-    out_falling = m._find_crossings(vout, time, threshold, rising=False)
-
-    if not in_rising or not out_falling:
-        return float('nan')
-
-    # Find first output falling after first input rising
-    for t_in in in_rising:
-        for t_out in out_falling:
-            if t_out > t_in:
-                return float((t_out - t_in) * 1e9)
-
-    return float('nan')
-
-
-def inv_tplh_ns(v_func, scale_func, inp, out, vdd=None):
-    """
-    Measure inverter propagation delay low-to-high (input falling -> output rising).
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp: Input node name
-        out: Output node name
-        vdd: Supply voltage (if None, estimated from signal max)
-
-    Returns:
-        Propagation delay in nanoseconds
-    """
-    time = scale_func()
-    vin = v_func(inp)
-    vout = v_func(out)
-
-    if vdd is None:
-        vdd = max(np.max(vin), np.max(vout))
-    threshold = vdd / 2
-
-    in_falling = m._find_crossings(vin, time, threshold, rising=False)
-    out_rising = m._find_crossings(vout, time, threshold, rising=True)
-
-    if not in_falling or not out_rising:
-        return float('nan')
-
-    # Find first output rising after first input falling
-    for t_in in in_falling:
-        for t_out in out_rising:
-            if t_out > t_in:
-                return float((t_out - t_in) * 1e9)
-
-    return float('nan')
-
-
-def rise_time_ns(v_func, scale_func, node, low_frac=0.1, high_frac=0.9, vdd=None):
-    """
-    Measure rise time (10% to 90% by default).
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        node: Node name to measure
-        low_frac: Low threshold as fraction of vdd
-        high_frac: High threshold as fraction of vdd
-        vdd: Supply voltage (if None, estimated from signal max)
-
-    Returns:
-        Rise time in nanoseconds
-    """
-    time = scale_func()
-    v = v_func(node)
-
-    if vdd is None:
-        vdd = np.max(v)
-
-    low_thresh = vdd * low_frac
-    high_thresh = vdd * high_frac
-
-    low_crossings = m._find_crossings(v, time, low_thresh, rising=True)
-    high_crossings = m._find_crossings(v, time, high_thresh, rising=True)
-
-    if not low_crossings or not high_crossings:
-        return float('nan')
-
-    # Find first high crossing after first low crossing
-    t_low = low_crossings[0]
-    for t_high in high_crossings:
-        if t_high > t_low:
-            return float((t_high - t_low) * 1e9)
-
-    return float('nan')
-
-
-def fall_time_ns(v_func, scale_func, node, high_frac=0.9, low_frac=0.1, vdd=None):
-    """
-    Measure fall time (90% to 10% by default).
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        node: Node name to measure
-        high_frac: High threshold as fraction of vdd
-        low_frac: Low threshold as fraction of vdd
-        vdd: Supply voltage (if None, estimated from signal max)
-
-    Returns:
-        Fall time in nanoseconds
-    """
-    time = scale_func()
-    v = v_func(node)
-
-    if vdd is None:
-        vdd = np.max(v)
-
-    high_thresh = vdd * high_frac
-    low_thresh = vdd * low_frac
-
-    high_crossings = m._find_crossings(v, time, high_thresh, rising=False)
-    low_crossings = m._find_crossings(v, time, low_thresh, rising=False)
-
-    if not high_crossings or not low_crossings:
-        return float('nan')
-
-    # Find first low crossing after first high crossing
-    t_high = high_crossings[0]
-    for t_low in low_crossings:
-        if t_low > t_high:
-            return float((t_low - t_high) * 1e9)
-
-    return float('nan')
-
-
-def avg_power_uW(v_func, i_func, scale_func, supply_node):
-    """
-    Measure average power consumption.
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        i_func: Current accessor i('source')
-        scale_func: Time scale function
-        supply_node: Supply voltage source name
-
-    Returns:
-        Average power in microwatts
-    """
-    time = scale_func()
-    v = v_func(supply_node)
-    i = i_func(supply_node)
-
-    # Power = V * I, integrate over time and divide by total time
-    if len(time) < 2:
-        return float('nan')
-
-    power = v * np.abs(i)  # Use abs since current may be negative
-    avg_power = np.trapz(power, time) / (time[-1] - time[0])
-
-    return float(avg_power * 1e6)  # Convert to uW
-
-
-def voh_V(v_func, node):
-    """
-    Measure output high voltage (maximum output).
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        node: Output node name
-
-    Returns:
-        VOH in volts
-    """
-    v = v_func(node)
-    return float(np.max(v))
-
-
-def vol_V(v_func, node):
-    """
-    Measure output low voltage (minimum output).
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        node: Output node name
-
-    Returns:
-        VOL in volts
-    """
-    v = v_func(node)
-    return float(np.min(v))
-
-
-def nand2_tphl_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
-    """
-    Measure NAND2 propagation delay high-to-low.
-
-    Output goes low when both inputs are high.
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp_a: Input A node name
-        inp_b: Input B node name
-        out: Output node name
-        vdd: Supply voltage (if None, estimated from signal max)
-
-    Returns:
-        Propagation delay in nanoseconds
-    """
-    time = scale_func()
-    va = v_func(inp_a)
-    vb = v_func(inp_b)
-    vout = v_func(out)
-
-    if vdd is None:
-        vdd = max(np.max(va), np.max(vb), np.max(vout))
-    threshold = vdd / 2
-
-    # NAND output falls when BOTH inputs are high
-    # Find when the second input goes high (AND condition met)
-    both_high = (va > threshold) & (vb > threshold)
-    out_falling = m._find_crossings(vout, time, threshold, rising=False)
-
-    if not out_falling:
-        return float('nan')
-
-    # Find transitions into both-high state
-    both_high_edges = []
-    for i in range(len(both_high) - 1):
-        if not both_high[i] and both_high[i + 1]:
-            both_high_edges.append(time[i])
-
-    if not both_high_edges:
-        return float('nan')
-
-    # Find first output falling after first both-high
-    t_trigger = both_high_edges[0]
-    for t_out in out_falling:
-        if t_out > t_trigger:
-            return float((t_out - t_trigger) * 1e9)
-
-    return float('nan')
-
-
-def nand2_tplh_ns(v_func, scale_func, inp_a, inp_b, out, vdd=None):
-    """
-    Measure NAND2 propagation delay low-to-high.
-
-    Output goes high when either input goes low.
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp_a: Input A node name
-        inp_b: Input B node name
-        out: Output node name
-        vdd: Supply voltage (if None, estimated from signal max)
-
-    Returns:
-        Propagation delay in nanoseconds
-    """
-    time = scale_func()
-    va = v_func(inp_a)
-    vb = v_func(inp_b)
-    vout = v_func(out)
-
-    if vdd is None:
-        vdd = max(np.max(va), np.max(vb), np.max(vout))
-    threshold = vdd / 2
-
-    # NAND output rises when either input goes low
-    out_rising = m._find_crossings(vout, time, threshold, rising=True)
-
-    if not out_rising:
-        return float('nan')
-
-    # Find when both-high state ends (either input falls)
-    both_high = (va > threshold) & (vb > threshold)
-    exit_both_high = []
-    for i in range(len(both_high) - 1):
-        if both_high[i] and not both_high[i + 1]:
-            exit_both_high.append(time[i])
-
-    if not exit_both_high:
-        return float('nan')
-
-    # Find first output rising after first exit from both-high
-    t_trigger = exit_both_high[0]
-    for t_out in out_rising:
-        if t_out > t_trigger:
-            return float((t_out - t_trigger) * 1e9)
-
-    return float('nan')
+    saved = []
+    try:
+        fig.tight_layout()
+        pdf_path = f"{filename_base}.pdf"
+        fig.savefig(pdf_path)
+        saved.append(pdf_path)
+    except Exception:
+        pass
+
+    try:
+        svg_path = f"{filename_base}.svg"
+        fig.savefig(svg_path)
+        saved.append(svg_path)
+    except Exception:
+        pass
+
+    plt_module.close(fig)
+    return saved
 
 
 # ============================================================
-# ADC Linearity Measurements
+# PyOPUS PostEvaluator Integration
 # ============================================================
 
 
-def adc_inl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
+def load_pkl_waveforms(pkl_path: Path) -> dict[str, Any] | None:
     """
-    Measure ADC maximum Integral Nonlinearity.
-
-    INL measures deviation from ideal linear transfer function.
+    Load waveform data from .pkl file.
 
     Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp_p: Positive input node name
-        inp_n: Negative input node name
-        out: Comparator output node name
-        n_bits: ADC resolution
-        vref: Reference voltage
+        pkl_path: Path to .pkl file
 
     Returns:
-        Maximum INL in LSBs
+        Dict with waveform data or None if failed
     """
-    scale_func()  # Called for side effects (time axis setup)
-    vin_p = v_func(inp_p)
-    vin_n = v_func(inp_n)
-    vin_diff = vin_p - vin_n
-
-    # Get the comparator output (digitized)
-    vout = v_func(out)
-    vout_digital = digitize(vout, vdd=vref)
-
-    # For full INL calculation, we need to sweep through all codes
-    # This is a simplified measurement - assumes input is ramping
-    lsb = vref / (2**n_bits)
-
-    # Calculate ideal and actual transfer function
-    vin_normalized = np.clip(vin_diff, -vref/2, vref/2) + vref/2
-    ideal_code = vin_normalized / lsb
-
-    # Use linear fit to find actual transfer
-    coeffs = np.polyfit(vin_normalized, vout_digital * (2**n_bits - 1), 1)
-    actual_code = np.polyval(coeffs, vin_normalized)
-
-    # INL is deviation from ideal
-    inl = actual_code - ideal_code
-    return float(np.max(np.abs(inl)))
-
-
-def adc_dnl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
-    """
-    Measure ADC maximum Differential Nonlinearity.
-
-    DNL measures deviation of code widths from ideal 1 LSB.
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp_p: Positive input node name
-        inp_n: Negative input node name
-        out: Comparator output node name
-        n_bits: ADC resolution
-        vref: Reference voltage
-
-    Returns:
-        Maximum DNL in LSBs
-    """
-    time = scale_func()
-    vin_p = v_func(inp_p)
-    vin_n = v_func(inp_n)
-    vin_diff = vin_p - vin_n
-
-    vout = v_func(out)
-    _ = digitize(vout, vdd=vref)  # Available for future use
-
-    lsb = vref / (2**n_bits)
-
-    # Simplified DNL - measure step widths
-    vin_normalized = np.clip(vin_diff, -vref/2, vref/2) + vref/2
-
-    # Find code transitions
-    transitions = []
-    for code in range(1, 2**n_bits):
-        threshold = code * lsb
-        # Find where input crosses this threshold
-        crossings = m._find_crossings(vin_normalized, time, threshold, rising=True)
-        if crossings:
-            transitions.append(crossings[0])
-
-    if len(transitions) < 2:
-        return float('nan')
-
-    # DNL = (actual step width - ideal step width) / ideal step width
-    step_widths = np.diff(transitions)
-    ideal_width = np.mean(step_widths)  # or (time[-1] - time[0]) / (2**n_bits - 1)
-    dnl = (step_widths - ideal_width) / ideal_width
-
-    return float(np.max(np.abs(dnl)))
-
-
-def adc_enob(v_func, scale_func, inp_p, inp_n, out, n_bits, vref=1.0):
-    """
-    Measure ADC Effective Number of Bits.
-
-    ENOB accounts for all noise and distortion sources.
-    ENOB = (SINAD - 1.76) / 6.02
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        scale_func: Time scale function
-        inp_p: Positive input node name
-        inp_n: Negative input node name
-        out: Comparator output node name
-        n_bits: Nominal ADC resolution
-        vref: Reference voltage
-
-    Returns:
-        Effective number of bits
-    """
-    # Simplified ENOB based on INL/DNL
-    # Full ENOB requires FFT-based SINAD calculation
-    inl_max = adc_inl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref)
-    dnl_max = adc_dnl_max_lsb(v_func, scale_func, inp_p, inp_n, out, n_bits, vref)
-
-    if np.isnan(inl_max) or np.isnan(dnl_max):
-        return float('nan')
-
-    # Approximate ENOB reduction from INL/DNL
-    # This is a rough estimate - proper ENOB needs sine wave input and FFT
-    quantization_noise_lsb = max(inl_max, dnl_max)
-    snr_loss = 20 * np.log10(quantization_noise_lsb + 1)  # dB
-    enob = n_bits - snr_loss / 6.02
-
-    return float(enob)
-
-
-def adc_power_uW(v_func, i_func, scale_func, supply_a, supply_d):
-    """
-    Measure total ADC power consumption.
-
-    Args:
-        v_func: Voltage accessor v('nodename')
-        i_func: Current accessor i('source')
-        scale_func: Time scale function
-        supply_a: Analog supply node name
-        supply_d: Digital supply node name
-
-    Returns:
-        Total power in microwatts
-    """
-    time = scale_func()
-
-    # Analog power
-    v_a = v_func(supply_a)
-    i_a = i_func(supply_a)
-    power_a = v_a * np.abs(i_a)
-
-    # Digital power
-    v_d = v_func(supply_d)
-    i_d = i_func(supply_d)
-    power_d = v_d * np.abs(i_d)
-
-    # Total average power
-    total_power = power_a + power_d
-    if len(time) < 2:
-        return float('nan')
-
-    avg_power = np.trapz(total_power, time) / (time[-1] - time[0])
-    return float(avg_power * 1e6)  # Convert to uW
-
-
-# ============================================================
-# PyOPUS PerformanceEvaluator Wrapper
-# ============================================================
+    try:
+        with open(pkl_path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        return None
 
 
 def run_measurements_pyopus(
-    cell: str, results_dir: Path, cell_module: Any
+    cell: str, results_dir: Path, cell_module: Any, files: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Run measurements on all simulation results using PyOPUS PerformanceEvaluator.
+    Run measurements on simulation results using PyOPUS PostEvaluator.
+
+    Loads .pkl files from simulate.py, extracts measures, and returns results.
 
     Args:
         cell: Cell name
         results_dir: Results directory
         cell_module: Loaded cell module with 'measures' dict
+        files: Files database from files.json
 
     Returns:
         Dict of all measurement results
     """
     logger = logging.getLogger(__name__)
-
-    try:
-        from pyopus.evaluator.performance import PerformanceEvaluator
-    except ImportError:
-        logger.error("PyOPUS not available - cannot run measurements")
-        return {}
 
     measures = getattr(cell_module, "measures", {})
     analyses = getattr(cell_module, "analyses", {})
@@ -672,51 +259,90 @@ def run_measurements_pyopus(
     # Add expression module to variables for measure evaluation
     variables = {**variables, "m": m}
 
-    sim_dir = results_dir / cell / "sim"
-    meas_dir = results_dir / cell / "meas"
+    cell_dir = results_dir / cell
+    meas_dir = cell_dir / "meas"
     meas_dir.mkdir(exist_ok=True)
 
     all_results = {}
 
-    for raw_file in sorted(sim_dir.glob("sim_*.raw")):
-        result_key = raw_file.stem.replace("sim_", "")
+    # Try to use PyOPUS PostEvaluator if available
+    try:
+        from pyopus.evaluator.auxfunc import PostEvaluator
+        use_pyopus = True
+        logger.info("Using PyOPUS PostEvaluator for measurements")
+    except ImportError:
+        use_pyopus = False
+        logger.info("PyOPUS PostEvaluator not available, using fallback")
 
-        # Load metadata
-        meta_file = raw_file.with_suffix(".meta.json")
-        if meta_file.exists():
-            metadata = json.loads(meta_file.read_text())
-        else:
-            metadata = {}
+    # Collect pkl files from files.json
+    pkl_files = []
+    for config_hash, file_ctx in files.items():
+        for pkl_path_rel in file_ctx.get("sim_pkl", []):
+            pkl_path = cell_dir / pkl_path_rel
+            if pkl_path.exists():
+                pkl_files.append((config_hash, pkl_path, file_ctx))
+
+    # Fallback: also check for raw files if no pkl files
+    if not pkl_files:
+        for config_hash, file_ctx in files.items():
+            for raw_path_rel in file_ctx.get("sim_raw", []):
+                raw_path = cell_dir / raw_path_rel
+                if raw_path.exists():
+                    pkl_files.append((config_hash, raw_path, file_ctx))
+
+    for config_hash, data_path, file_ctx in sorted(pkl_files, key=lambda x: x[1]):
+        # Remove _group<N> suffix if present to get base name
+        result_key = data_path.stem
+        if "_group" in result_key:
+            result_key = result_key.rsplit("_group", 1)[0]
+
+        # Get metadata from file_ctx
+        metadata = {
+            "tech": file_ctx.get("tech"),
+            "corner": file_ctx.get("corner"),
+            "temp": file_ctx.get("temp"),
+            "cfgname": file_ctx.get("cfgname"),
+        }
+
+        # Parse metadata from filename if not in file_ctx
+        if not metadata["tech"]:
+            parts = data_path.stem.split("_")
+            for part in parts:
+                if part in ["tsmc65", "tsmc28", "tower180"]:
+                    metadata["tech"] = part
+                    break
+            # Extract corner and temp from end of filename
+            if len(parts) >= 2:
+                try:
+                    metadata["temp"] = int(parts[-1])
+                    metadata["corner"] = parts[-2]
+                except (ValueError, IndexError):
+                    pass
 
         try:
-            # Build minimal PyOPUS config for this single result
-            heads = {
-                "local": {
-                    "simulator": "Spectre",
-                    "moddefs": {"result": {"file": str(raw_file)}},
-                }
-            }
+            if use_pyopus and data_path.suffix == ".pkl":
+                # Load pkl data
+                pkl_data = load_pkl_waveforms(data_path)
+                if pkl_data is None:
+                    logger.warning(f"  Failed to load: {data_path.name}")
+                    continue
 
-            # Single "nominal" corner - no multi-corner complexity
-            corners = {"nominal": {"modules": ["result"], "params": {}}}
-
-            # Create evaluator
-            pe = PerformanceEvaluator(
-                heads, analyses, measures, corners,
-                variables=variables,
-                debug=0,
-            )
-
-            # Run (no input params needed - results already computed)
-            results, _ = pe({})
-
-            # Extract scalar values from results
-            scalar_results = {}
-            for k, v in results.items():
-                if isinstance(v, dict) and "nominal" in v:
-                    scalar_results[k] = v["nominal"]
+                # Extract results from pkl (already computed by simulate.py)
+                if "results" in pkl_data:
+                    scalar_results = {}
+                    for k, v in pkl_data["results"].items():
+                        if isinstance(v, dict) and "nominal" in v:
+                            scalar_results[k] = v["nominal"]
+                        else:
+                            scalar_results[k] = v
                 else:
-                    scalar_results[k] = v
+                    scalar_results = {}
+
+            else:
+                # Fallback: use raw file reading
+                scalar_results = run_measurements_fallback(
+                    data_path, measures, variables
+                )
 
             # Store with metadata
             all_results[result_key] = {
@@ -734,7 +360,6 @@ def run_measurements_pyopus(
                 )
             )
 
-            pe.finalize()
             logger.info(f"  Measured: {result_key}")
 
         except Exception as e:
@@ -744,10 +369,359 @@ def run_measurements_pyopus(
     return all_results
 
 
+def run_measurements_fallback(
+    raw_path: Path, measures: dict[str, Any], variables: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Fallback measurement extraction using raw file reading.
+
+    Args:
+        raw_path: Path to .raw file
+        measures: Measures configuration
+        variables: Variables for expression evaluation
+
+    Returns:
+        Dict of scalar measurement results
+    """
+    try:
+        from pyopus.simulator.rawfile import raw_read
+    except ImportError:
+        return {}
+
+    try:
+        plots = raw_read(str(raw_path), reverse=1)
+        if not plots:
+            return {}
+
+        # Get first plot (nominal)
+        vectors, scale_name, scales, title, date, name = plots[0]
+
+        # Build v() and i() accessor functions
+        def v(node):
+            key = f"v({node})"
+            if key in vectors:
+                return np.array(vectors[key])
+            # Try alternate names
+            for k in vectors:
+                if k.lower() == key.lower():
+                    return np.array(vectors[k])
+            return np.zeros(len(scales.get(scale_name, [])))
+
+        def i(source):
+            key = f"i({source})"
+            if key in vectors:
+                return np.array(vectors[key])
+            for k in vectors:
+                if k.lower() == key.lower():
+                    return np.array(vectors[k])
+            return np.zeros(len(scales.get(scale_name, [])))
+
+        def scale():
+            return np.array(scales.get(scale_name, vectors.get(scale_name, [])))
+
+        # Evaluate each measure
+        results = {}
+        local_vars = {**variables, "v": v, "i": i, "scale": scale, "np": np}
+
+        for measure_name, measure_def in measures.items():
+            try:
+                expr = measure_def.get("expression", "0")
+                value = eval(expr, {"__builtins__": {}}, local_vars)
+                results[measure_name] = float(value) if value is not None else None
+            except Exception:
+                results[measure_name] = None
+
+        return results
+
+    except Exception:
+        return {}
+
+
+# ============================================================
+# Plotting Functions
+# ============================================================
+
+
+def generate_plots(
+    cell: str,
+    results_dir: Path,
+    all_results: dict[str, Any],
+    cell_module: Any,
+    files: dict[str, Any],
+) -> list[str]:
+    """
+    Generate plots from measurement results.
+
+    Args:
+        cell: Cell name
+        results_dir: Results directory
+        all_results: Measurement results
+        cell_module: Loaded cell module with visualisation config
+        files: Files database
+
+    Returns:
+        List of generated plot file paths
+    """
+    logger = logging.getLogger(__name__)
+    plt = configure_matplotlib()
+
+    cell_dir = results_dir / cell
+    plot_dir = cell_dir / "plot"
+    plot_dir.mkdir(exist_ok=True)
+
+    visualisation = getattr(cell_module, "visualisation", {})
+    generated_plots = []
+
+    if not all_results:
+        logger.warning("No results to plot")
+        return generated_plots
+
+    # Extract measures from all results
+    all_measures = {}
+    for key, data in all_results.items():
+        measures = data.get("measures", {})
+        metadata = data.get("metadata", {})
+        for measure_name, value in measures.items():
+            if measure_name not in all_measures:
+                all_measures[measure_name] = []
+            all_measures[measure_name].append({
+                "key": key,
+                "value": value,
+                "metadata": metadata,
+            })
+
+    # Create summary bar plots for scalar measures
+    scalar_measures = {}
+    for name, entries in all_measures.items():
+        values = [e["value"] for e in entries if e["value"] is not None]
+        if values and all(isinstance(v, (int, float)) for v in values):
+            scalar_measures[name] = entries
+
+    if scalar_measures:
+        # Group by technology
+        techs = set()
+        for entries in scalar_measures.values():
+            for e in entries:
+                techs.add(e["metadata"].get("tech", "unknown"))
+        techs = sorted(t for t in techs if t)
+
+        # Create a summary plot for each measure
+        for measure_name, entries in scalar_measures.items():
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # Group by tech
+            tech_values = {t: [] for t in techs}
+            for e in entries:
+                tech = e["metadata"].get("tech", "unknown")
+                val = e["value"]
+                if tech in tech_values and isinstance(val, (int, float)) and not np.isnan(val):
+                    tech_values[tech].append(val)
+
+            # Create box plot or bar plot
+            data = [tech_values[t] for t in techs if tech_values.get(t)]
+            labels = [t for t in techs if tech_values.get(t)]
+
+            if data and labels:
+                if all(len(d) > 1 for d in data):
+                    ax.boxplot(data, tick_labels=labels)
+                else:
+                    means = np.array([np.mean(d) if d else 0.0 for d in data])
+                    ax.bar(labels, means)
+
+                ax.set_xlabel("Technology")
+                ax.set_ylabel(measure_name)
+                ax.set_title(f"{cell}: {measure_name} by Technology")
+                ax.grid(True, alpha=0.3)
+
+                plot_path = plot_dir / f"{cell}_{measure_name}"
+                saved = save_plot_dual_format(fig, str(plot_path), plt)
+                generated_plots.extend(saved)
+                logger.info(f"  Saved: {plot_path}.pdf")
+            else:
+                plt.close(fig)
+
+    # Create corner comparison plots
+    for measure_name in scalar_measures.keys():
+        plots = plot_corner_comparison(all_results, measure_name, plot_dir, cell, plt)
+        generated_plots.extend(plots)
+
+    # Create temperature sweep plots
+    for measure_name in scalar_measures.keys():
+        plots = plot_temp_sweep(all_results, measure_name, plot_dir, cell, plt)
+        generated_plots.extend(plots)
+
+    # Create custom graphs from visualisation config
+    graphs = visualisation.get("graphs", {})
+    for graph_name, graph_config in graphs.items():
+        try:
+            fig, axes = create_graph_from_config(graph_config, all_results, plt)
+            if fig is not None:
+                plot_path = plot_dir / f"{cell}_{graph_name}"
+                saved = save_plot_dual_format(fig, str(plot_path), plt)
+                generated_plots.extend(saved)
+                logger.info(f"  Saved: {plot_path}.pdf")
+        except Exception as e:
+            logger.warning(f"  Failed to create {graph_name}: {e}")
+
+    return generated_plots
+
+
+def plot_corner_comparison(
+    results: dict[str, Any], measure_name: str, plot_dir: Path, cell: str, plt
+) -> list[str]:
+    """
+    Create corner comparison plot for a specific measure.
+
+    Args:
+        results: Measurement results
+        measure_name: Name of measure to plot
+        plot_dir: Output directory
+        cell: Cell name
+        plt: matplotlib.pyplot module
+
+    Returns:
+        List of saved plot paths
+    """
+    logger = logging.getLogger(__name__)
+
+    # Group by corner
+    corners = {}
+    for key, data in results.items():
+        corner = data.get("metadata", {}).get("corner", "unknown")
+        value = data.get("measures", {}).get(measure_name)
+        if value is not None and isinstance(value, (int, float)):
+            if corner not in corners:
+                corners[corner] = []
+            corners[corner].append(value)
+
+    if len(corners) < 2:
+        return []
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    corner_names = sorted(corners.keys())
+    means = [np.mean(corners[c]) for c in corner_names]
+    stds = [np.std(corners[c]) if len(corners[c]) > 1 else 0 for c in corner_names]
+
+    x = np.arange(len(corner_names))
+    ax.bar(x, means, yerr=stds, capsize=5)
+    ax.set_xticks(x)
+    ax.set_xticklabels(corner_names)
+    ax.set_xlabel("Corner")
+    ax.set_ylabel(measure_name)
+    ax.set_title(f"{cell}: {measure_name} by Corner")
+    ax.grid(True, alpha=0.3)
+
+    plot_path = plot_dir / f"{cell}_{measure_name}_corners"
+    saved = save_plot_dual_format(fig, str(plot_path), plt)
+    if saved:
+        logger.info(f"  Saved: {plot_path}.pdf")
+    return saved
+
+
+def plot_temp_sweep(
+    results: dict[str, Any], measure_name: str, plot_dir: Path, cell: str, plt
+) -> list[str]:
+    """
+    Create temperature sweep plot for a specific measure.
+
+    Args:
+        results: Measurement results
+        measure_name: Name of measure to plot
+        plot_dir: Output directory
+        cell: Cell name
+        plt: matplotlib.pyplot module
+
+    Returns:
+        List of saved plot paths
+    """
+    logger = logging.getLogger(__name__)
+
+    # Group by temperature
+    temps = {}
+    for key, data in results.items():
+        temp = data.get("metadata", {}).get("temp")
+        value = data.get("measures", {}).get(measure_name)
+        if temp is not None and value is not None and isinstance(value, (int, float)):
+            if temp not in temps:
+                temps[temp] = []
+            temps[temp].append(value)
+
+    if len(temps) < 2:
+        return []
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    temp_values = sorted(temps.keys())
+    means = [np.mean(temps[t]) for t in temp_values]
+    stds = [np.std(temps[t]) if len(temps[t]) > 1 else 0 for t in temp_values]
+
+    ax.errorbar(temp_values, means, yerr=stds, marker="o", capsize=5)
+    ax.set_xlabel("Temperature [C]")
+    ax.set_ylabel(measure_name)
+    ax.set_title(f"{cell}: {measure_name} vs Temperature")
+    ax.grid(True, alpha=0.3)
+
+    plot_path = plot_dir / f"{cell}_{measure_name}_temp"
+    saved = save_plot_dual_format(fig, str(plot_path), plt)
+    if saved:
+        logger.info(f"  Saved: {plot_path}.pdf")
+    return saved
+
+
+def create_graph_from_config(
+    graph_config: dict[str, Any], results: dict[str, Any], plt
+) -> tuple[Any, Any]:
+    """
+    Create a matplotlib figure from visualisation config.
+
+    Args:
+        graph_config: Graph configuration dict
+        results: Measurement results
+        plt: matplotlib.pyplot module
+
+    Returns:
+        Tuple of (fig, axes) or (None, None) if failed
+    """
+    shape = graph_config.get("shape", {"figsize": (10, 6)})
+    axes_config = graph_config.get("axes", {})
+
+    if not axes_config:
+        return None, None
+
+    # Determine subplot layout
+    subplots = []
+    for ax_name, ax_cfg in axes_config.items():
+        subplot = ax_cfg.get("subplot", (1, 1, 1))
+        subplots.append((ax_name, subplot, ax_cfg))
+
+    # Create figure
+    fig = plt.figure(**shape)
+    fig.suptitle(graph_config.get("title", ""))
+
+    axes = {}
+    for ax_name, subplot, ax_cfg in subplots:
+        ax = fig.add_subplot(*subplot)
+        ax.set_xlabel(ax_cfg.get("xlabel", ""))
+        ax.set_ylabel(ax_cfg.get("ylabel", ""))
+        ax.set_title(ax_cfg.get("title", ""))
+        if ax_cfg.get("grid", False):
+            ax.grid(True, alpha=0.3)
+        axes[ax_name] = ax
+
+    plt.tight_layout()
+    return fig, axes
+
+
+# ============================================================
+# Main Entry Point
+# ============================================================
+
+
 def main():
-    """Main entry point for measurement script."""
+    """Main entry point for measurement and plotting script."""
     parser = argparse.ArgumentParser(
-        description="Run measurements on simulation results"
+        description="Run measurements and generate plots from simulation results"
     )
     parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
     parser.add_argument(
@@ -775,13 +749,18 @@ def main():
         default=None,
         help="Filter by temperature (e.g., 27)",
     )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Skip plot generation (measurements only)",
+    )
 
     args = parser.parse_args()
 
     # Setup paths
     cell_dir = args.outdir / args.cell
-    sim_dir = cell_dir / "sim"
     meas_dir = cell_dir / "meas"
+    plot_dir = cell_dir / "plot"
 
     # Setup logging
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -791,9 +770,10 @@ def main():
     logger = setup_logging(log_file)
 
     # Check prerequisites
-    if not sim_dir.exists():
-        logger.error(f"Simulation directory not found: {sim_dir}")
-        logger.error(f"Run 'make sim cell={args.cell}' first")
+    files_db_path = cell_dir / "files.json"
+    if not files_db_path.exists():
+        logger.error(f"files.json not found at {files_db_path}")
+        logger.error(f"Run 'make subckt cell={args.cell}' first")
         return 1
 
     block_file = Path(f"blocks/{args.cell}.py")
@@ -801,27 +781,34 @@ def main():
         logger.error(f"Block file not found: {block_file}")
         return 1
 
-    # Load cell module
+    # Load cell module and files database
     cell_module = load_cell_script(block_file)
+    files = load_files_list(files_db_path)
 
-    # Count raw files
-    raw_files = list(sim_dir.glob("sim_*.raw"))
-    if not raw_files:
-        logger.warning(f"No simulation results found in {sim_dir}")
+    # Count data files from files.json (prefer pkl, fallback to raw)
+    pkl_count = sum(len(ctx.get("sim_pkl", [])) for ctx in files.values())
+    raw_count = sum(len(ctx.get("sim_raw", [])) for ctx in files.values())
+    data_file_count = pkl_count if pkl_count > 0 else raw_count
+
+    if data_file_count == 0:
+        logger.warning("No simulation results found in files.json")
+        logger.warning(f"Run 'make sim cell={args.cell}' first")
         return 0
 
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
-    logger.info("Flow:       measure")
-    logger.info(f"Raw files:  {len(raw_files)}")
+    logger.info("Flow:       measure" + (" + plot" if not args.no_plot else ""))
+    logger.info(f"Data files: {data_file_count} ({'pkl' if pkl_count > 0 else 'raw'})")
     logger.info(f"Output:     {meas_dir}")
+    if not args.no_plot:
+        logger.info(f"Plots:      {plot_dir}")
     logger.info(f"Log:        {log_file}")
     logger.info("-" * 80)
 
     # Run measurements
     start_time = datetime.datetime.now()
-    all_results = run_measurements_pyopus(args.cell, args.outdir, cell_module)
-    elapsed = (datetime.datetime.now() - start_time).total_seconds()
+    all_results = run_measurements_pyopus(args.cell, args.outdir, cell_module, files)
+    meas_elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Apply filters if specified
     if args.tech or args.corner or args.temp:
@@ -835,24 +822,45 @@ def main():
     else:
         filtered = all_results
 
-    # Update files.json with measurement paths
-    files_db_path = cell_dir / "files.json"
-    if files_db_path.exists():
-        files = load_files_list(files_db_path)
-        for config_hash, file_ctx in files.items():
-            matching_meas = list(meas_dir.glob(f"meas_*{config_hash}*.json"))
-            if matching_meas:
-                file_ctx["meas_db"] = f"meas/{matching_meas[0].name}"
-        save_files_list(files_db_path, files)
+    # Generate plots if requested
+    plot_count = 0
+    plot_elapsed = 0.0
+    if not args.no_plot and filtered:
+        plot_start = datetime.datetime.now()
+        generated_plots = generate_plots(
+            args.cell, args.outdir, filtered, cell_module, files
+        )
+        plot_count = len(generated_plots)
+        plot_elapsed = (datetime.datetime.now() - plot_start).total_seconds()
+
+    # Update files.json with measurement and plot paths
+    for config_hash, file_ctx in files.items():
+        # Find matching measurement files
+        matching_meas = list(meas_dir.glob(f"meas_*{config_hash}*.json"))
+        if matching_meas:
+            file_ctx["meas_db"] = f"meas/{matching_meas[0].name}"
+
+        # Find matching plot files
+        if not args.no_plot:
+            matching_plots = list(plot_dir.glob(f"*.pdf")) if plot_dir.exists() else []
+            if matching_plots:
+                file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
+
+    save_files_list(files_db_path, files)
 
     # Summary
+    total_elapsed = meas_elapsed + plot_elapsed
     logger.info("=" * 80)
     logger.info("Measurement Summary")
     logger.info("=" * 80)
-    logger.info(f"Total raw files:   {len(raw_files)}")
-    logger.info(f"Measured:          {len(all_results)}")
-    logger.info(f"Elapsed time:      {elapsed:.1f}s")
-    logger.info(f"Output:            {meas_dir}")
+    logger.info(f"Data files:      {data_file_count}")
+    logger.info(f"Measured:        {len(all_results)}")
+    logger.info(f"Meas time:       {meas_elapsed:.1f}s")
+    if not args.no_plot:
+        logger.info(f"Plots created:   {plot_count}")
+        logger.info(f"Plot time:       {plot_elapsed:.1f}s")
+    logger.info(f"Total time:      {total_elapsed:.1f}s")
+    logger.info(f"Output:          {meas_dir}")
     logger.info("=" * 80)
 
     return 0

@@ -1,18 +1,19 @@
 """
-PyOPUS-based Spectre batch simulation runner.
+PyOPUS-based Spectre simulation runner using PerformanceEvaluator.
 
-Runs all testbenches for a cell in batch using PyOPUS Spectre interface
-or parallel ProcessPoolExecutor fallback.
+Runs all testbenches for a cell using PyOPUS PerformanceEvaluator and
+saves waveform results as .pkl files for later measurement/plotting.
 
 Usage:
     python -m flow.simulate comp -j 20
+    python -m flow.simulate comp --mode single  # Test single config
 """
 
 import argparse
 import datetime
-import json
 import logging
 import os
+import pickle
 import re
 import subprocess
 import sys
@@ -20,8 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from flow.common import (
-    build_pyopus_jobs,
-    check_cell_script,
     load_cell_script,
     load_files_list,
     save_files_list,
@@ -95,92 +94,144 @@ def check_license_server() -> tuple[int, int]:
     return total_licenses, busy_licenses
 
 
-def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
+def run_simulation_pyopus(
+    config_hash: str,
+    tb_path: Path,
+    sim_dir: Path,
+    analyses: dict[str, Any],
+    measures: dict[str, Any],
+    variables: dict[str, Any],
+) -> dict[str, Path] | None:
     """
-    Run all jobs using PyOPUS Spectre interface.
+    Run simulation for a single testbench using PyOPUS PerformanceEvaluator.
 
     Args:
-        jobs: List of PyOPUS job dicts from build_pyopus_jobs()
-        sim_dir: Output directory for .raw files
-        num_workers: Number of parallel processes
+        config_hash: Configuration hash for naming output files
+        tb_path: Path to testbench .sp file
+        sim_dir: Output directory for simulation files
+        analyses: PyOPUS analyses configuration from cell module
+        measures: PyOPUS measures configuration from cell module
+        variables: Variables dict for expression evaluation
 
     Returns:
-        Dict mapping job name to raw file path
+        Dict of output file paths (scs, log, raw, pkl) or None if failed
     """
     logger = logging.getLogger(__name__)
 
     try:
-        from pyopus.simulator import simulatorClass
+        from pyopus.evaluator.performance import PerformanceEvaluator
     except ImportError:
-        logger.info("PyOPUS simulator not available. Using fallback Spectre runner.")
-        return run_batch_parallel(jobs, sim_dir, num_workers)
+        logger.error("PyOPUS not available")
+        return None
 
-    logger.info(f"Running with PyOPUS (up to {num_workers} parallel jobs)")
+    # Build heads dynamically pointing to this testbench
+    heads = {
+        "spectre": {
+            "simulator": "Spectre",
+            "settings": {
+                "debug": 0,
+            },
+            "moddefs": {
+                "tb": {"file": str(tb_path)}
+            },
+        }
+    }
 
-    # Create Spectre simulator instance
-    Spectre = simulatorClass("Spectre")
-    sim = Spectre(debug=1)
+    # Single nominal corner - PVT info is already baked into .sp file
+    corners = {
+        "nominal": {
+            "modules": ["tb"],
+            "params": {},
+        }
+    }
 
-    # Strip metadata before sending to simulator
-    clean_jobs = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
-    sim.setJobList(clean_jobs)
+    # Build sim_name from tb filename
+    sim_name = tb_path.stem.replace("tb_", "sim_", 1) if tb_path.stem.startswith("tb_") else f"sim_{tb_path.stem}"
 
-    results = {}
-    for i in range(sim.jobGroupCount()):
-        # TODO: This is a hack - we override simulatorID and cmdline per job group
-        # so .scs/.log/.raw files match the testbench name. This may break if PyOPUS
-        # changes how it uses these internally. Revisit if issues arise.
-        job_indices = sim.jobGroup(i)
-        job_name = jobs[job_indices[0]]["name"]
-        sim.simulatorID = str(sim_dir / job_name)
-        sim.cmdline = [
+    # Output file paths
+    scs_path = sim_dir / f"{sim_name}.scs"
+    log_path = sim_dir / f"{sim_name}.log"
+    raw_path = sim_dir / f"{sim_name}.raw"
+    pkl_path = sim_dir / f"{sim_name}.pkl"
+
+    try:
+        # Create PerformanceEvaluator
+        pe = PerformanceEvaluator(
+            heads=heads,
+            analyses=analyses,
+            measures=measures,
+            corners=corners,
+            variables=variables,
+            debug=0,
+        )
+
+        # Configure simulator output paths
+        pe.simulator.simulatorID = str(sim_dir / sim_name)
+        pe.simulator.cmdline = [
             "-64",
             "+preset=mx",  # Spectre X mx mode (balanced accuracy/performance)
-            "+log", str(sim_dir / f"{job_name}_group{i}.log"),
-            "-raw", str(sim_dir / f"{job_name}_group{i}.raw"),
+            "+log", str(log_path),
+            "-raw", str(raw_path),
         ]
 
-        job_indices, status = sim.runJobGroup(i)
+        # Run simulation and compute measures
+        results, an_count = pe({})
 
-        for j in job_indices:
-            job_name = jobs[j]["name"]
-            # Replace tb_ prefix with sim_ for output files
-            sim_name = job_name.replace("tb_", "sim_", 1)
-            raw_path = sim_dir / f"{sim_name}.raw"
+        # Save waveform data as pickle for later measurement/plotting
+        # Extract waveform vectors from the evaluator
+        waveform_data = {
+            "results": results,
+            "an_count": an_count,
+            "config_hash": config_hash,
+            "tb_path": str(tb_path),
+        }
 
-            res = sim.readResults(j, status)
-            if res is not None:
-                results[job_name] = raw_path
+        # Try to extract raw waveform vectors if available
+        if hasattr(pe, 'res') and pe.res is not None:
+            waveform_data["vectors"] = pe.res
 
-                # Store metadata alongside
-                meta_path = sim_dir / f"{sim_name}.meta.json"
-                meta = jobs[j].get("_metadata", {})
-                meta_path.write_text(json.dumps(meta, indent=2))
+        with open(pkl_path, "wb") as f:
+            pickle.dump(waveform_data, f)
 
-                logger.info(f"  Completed: {sim_name}")
-            else:
-                logger.warning(f"  Failed: {sim_name}")
+        pe.finalize()
 
-    return results
+        return {
+            "scs": scs_path,
+            "log": log_path,
+            "raw": raw_path,
+            "pkl": pkl_path,
+        }
+
+    except Exception as e:
+        logger.warning(f"Simulation failed for {tb_path.name}: {e}")
+        return None
 
 
-def run_batch_parallel(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int = 20) -> dict[str, Path]:
+def run_batch_parallel(
+    jobs: list[dict[str, Any]],
+    sim_dir: Path,
+    analyses: dict[str, Any],
+    measures: dict[str, Any],
+    variables: dict[str, Any],
+    num_workers: int = 20,
+) -> dict[str, dict[str, Path]]:
     """
     Run simulations in parallel using ProcessPoolExecutor.
 
     Args:
-        jobs: List of job dicts with netlist paths
-        sim_dir: Output directory for .raw files
+        jobs: List of job dicts with config_hash and tb_path
+        sim_dir: Output directory for simulation files
+        analyses: PyOPUS analyses configuration
+        measures: PyOPUS measures configuration
+        variables: Variables dict for expression evaluation
         num_workers: Number of parallel Spectre processes
 
     Returns:
-        Dict mapping job name to raw file path
+        Dict mapping config_hash to dict of file paths (scs, log, raw, pkl)
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
     logger = logging.getLogger(__name__)
-    spectre_path = os.environ.get("SPECTRE_PATH", "spectre")
-    license_server = os.environ.get("CDS_LIC_FILE", "")
 
     # Check available licenses and adjust workers if needed
     total_lic, busy_lic = check_license_server()
@@ -196,62 +247,64 @@ def run_batch_parallel(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: i
 
     results = {}
 
-    def run_single(job: dict[str, Any]) -> tuple[str, bool, Path | None]:
-        job_name = job["name"]
-        sim_name = job_name.replace("tb_", "sim_", 1)
-        tb_file = job["definitions"][0]["file"]
-
-        log_file = sim_dir / f"{sim_name}.log"
-        raw_file = sim_dir / f"{sim_name}.raw"
-
-        cmd = [
-            spectre_path,
-            "-64",
-            tb_file,
-            "+log",
-            str(log_file),
-            "-format",
-            "nutascii",
-            "-raw",
-            str(raw_file),
-        ]
-
-        env = os.environ.copy()
-        env["CDS_LIC_FILE"] = license_server
-
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=str(sim_dir),
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=env,
-            )
-            success = result.returncode == 0
-            return job_name, success, raw_file if success else None
-        except Exception:
-            return job_name, False, None
+    def run_single(job: dict[str, Any]) -> tuple[str, dict[str, Path] | None]:
+        config_hash = job["config_hash"]
+        tb_path = Path(job["tb_path"])
+        return config_hash, run_simulation_pyopus(
+            config_hash, tb_path, sim_dir, analyses, measures, variables
+        )
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = {executor.submit(run_single, job): job for job in jobs}
+        futures = [executor.submit(run_single, job) for job in jobs]
 
         for future in as_completed(futures):
-            job = futures[future]
-            job_name, success, raw_path = future.result()
+            config_hash, paths = future.result()
 
-            if success and raw_path:
-                results[job_name] = raw_path
-
-                # Save metadata
-                sim_name = job_name.replace("tb_", "sim_", 1)
-                meta_path = sim_dir / f"{sim_name}.meta.json"
-                meta = job.get("_metadata", {})
-                meta_path.write_text(json.dumps(meta, indent=2))
-
-                logger.info(f"  Completed: {sim_name}")
+            if paths:
+                results[config_hash] = paths
+                logger.info(f"  Completed: {paths['pkl'].stem}")
             else:
-                logger.warning(f"  Failed: {job_name}")
+                logger.warning(f"  Failed: {config_hash}")
+
+    return results
+
+
+def run_batch_sequential(
+    jobs: list[dict[str, Any]],
+    sim_dir: Path,
+    analyses: dict[str, Any],
+    measures: dict[str, Any],
+    variables: dict[str, Any],
+) -> dict[str, dict[str, Path]]:
+    """
+    Run simulations sequentially (for debugging or single mode).
+
+    Args:
+        jobs: List of job dicts with config_hash and tb_path
+        sim_dir: Output directory for simulation files
+        analyses: PyOPUS analyses configuration
+        measures: PyOPUS measures configuration
+        variables: Variables dict for expression evaluation
+
+    Returns:
+        Dict mapping config_hash to dict of file paths (scs, log, raw, pkl)
+    """
+    logger = logging.getLogger(__name__)
+    results = {}
+
+    for job in jobs:
+        config_hash = job["config_hash"]
+        tb_path = Path(job["tb_path"])
+
+        paths = run_simulation_pyopus(
+            config_hash, tb_path, sim_dir, analyses, measures, variables
+        )
+
+        if paths:
+            results[config_hash] = paths
+            logger.info(f"  Completed: {paths['pkl'].stem}")
+        else:
+            logger.warning(f"  Failed: {config_hash}")
 
     return results
 
@@ -259,7 +312,7 @@ def run_batch_parallel(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: i
 def main():
     """Main entry point for simulation runner."""
     parser = argparse.ArgumentParser(
-        description="Run PyOPUS-based Spectre batch simulations"
+        description="Run PyOPUS-based Spectre simulations"
     )
     parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
     parser.add_argument(
@@ -318,12 +371,38 @@ def main():
     files = load_files_list(files_db_path)
     cell_module = load_cell_script(block_file)
 
-    # Build job list
-    jobs = build_pyopus_jobs(files, cell_dir, cell_module)
+    # Get analyses and measures from cell module
+    analyses = getattr(cell_module, "analyses", {})
+    measures = getattr(cell_module, "measures", {})
+    variables = getattr(cell_module, "variables", {})
 
-    # Apply tech filter if specified
-    if args.tech:
-        jobs = [j for j in jobs if j["_metadata"].get("tech") == args.tech]
+    # Import expression module for measure evaluation
+    from flow import expression as m
+    variables = {**variables, "m": m}
+
+    # Build job list from files.json
+    jobs = []
+    for config_hash, file_ctx in files.items():
+        for tb_spice_rel in file_ctx.get("tb_spice", []):
+            tb_path = cell_dir / tb_spice_rel
+
+            # Apply tech filter if specified
+            if args.tech:
+                # Parse tech from filename
+                parts = tb_path.stem.split("_")
+                tech = "unknown"
+                for part in parts:
+                    if part in ["tsmc65", "tsmc28", "tower180"]:
+                        tech = part
+                        break
+                if tech != args.tech:
+                    continue
+
+            jobs.append({
+                "config_hash": config_hash,
+                "tb_path": str(tb_path),
+                "cfgname": file_ctx.get("cfgname", ""),
+            })
 
     if not jobs:
         logger.warning("No testbenches to simulate")
@@ -347,50 +426,13 @@ def main():
         shutil.rmtree(sim_dir)
     sim_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dryrun mode: generate PyOPUS simulator input files without running
+    # Dryrun mode: just show what would be simulated
     if args.mode == "dryrun":
-        # Validate cell script structure
-        script_errors, _ = check_cell_script(cell_module, args.cell)
-        if script_errors:
-            logger.error("Cell script validation failed:")
-            for err in script_errors:
-                logger.error(f"  {err}")
-            return 1
-
-        logger.info("DRYRUN MODE: Generating simulator input files only")
-
-        try:
-            from pyopus.simulator import simulatorClass
-        except ImportError:
-            logger.error("PyOPUS not available - cannot generate simulator input files")
-            return 1
-
-        # Create Spectre simulator instance
-        Spectre = simulatorClass("Spectre")
-        sim = Spectre(debug=0)
-
-        # Strip metadata before sending to simulator
-        clean_jobs = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
-        sim.setJobList(clean_jobs)
-
-        # Change to sim directory for file generation
-        orig_dir = os.getcwd()
-        os.chdir(sim_dir)
-
-        try:
-            # Generate input files for each job group
-            for i in range(sim.jobGroupCount()):
-                input_file = sim.writeFile(i)
-                logger.info(f"  Generated: {input_file}")
-        finally:
-            os.chdir(orig_dir)
-
+        logger.info("DRYRUN MODE: Showing simulation plan only")
+        for job in jobs:
+            logger.info(f"  Would simulate: {Path(job['tb_path']).name}")
         logger.info("=" * 80)
-        logger.info("Dryrun Summary")
-        logger.info("=" * 80)
-        logger.info(f"Total jobs:    {len(jobs)}")
-        logger.info(f"Job groups:    {sim.jobGroupCount()}")
-        logger.info(f"Input files:   {sim_dir}")
+        logger.info(f"Total jobs: {len(jobs)}")
         logger.info("=" * 80)
         return 0
 
@@ -401,18 +443,37 @@ def main():
 
     # Run simulations
     start_time = datetime.datetime.now()
-    results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
+
+    if args.mode == "single" or len(jobs) == 1:
+        results = run_batch_sequential(jobs, sim_dir, analyses, measures, variables)
+    else:
+        results = run_batch_parallel(jobs, sim_dir, analyses, measures, variables, num_workers=args.jobs)
+
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Update files.json with simulation results
     for config_hash, file_ctx in files.items():
-        matching = []
-        for job_name, raw_path in results.items():
-            if config_hash in job_name:
-                # Store relative path
-                matching.append(f"sim/{raw_path.name}")
-        if matching:
-            file_ctx["sim_raw"] = matching
+        sim_spice = []
+        sim_raw = []
+        sim_log = []
+        sim_pkl = []
+
+        if config_hash in results:
+            paths = results[config_hash]
+            # Store relative paths
+            if paths.get("scs") and paths["scs"].exists():
+                sim_spice.append(f"sim/{paths['scs'].name}")
+            if paths.get("raw") and paths["raw"].exists():
+                sim_raw.append(f"sim/{paths['raw'].name}")
+            if paths.get("log") and paths["log"].exists():
+                sim_log.append(f"sim/{paths['log'].name}")
+            if paths.get("pkl") and paths["pkl"].exists():
+                sim_pkl.append(f"sim/{paths['pkl'].name}")
+
+        file_ctx["sim_spice"] = sim_spice
+        file_ctx["sim_raw"] = sim_raw
+        file_ctx["sim_log"] = sim_log
+        file_ctx["sim_pkl"] = sim_pkl
 
     save_files_list(files_db_path, files)
 

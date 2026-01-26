@@ -4,14 +4,13 @@ RESULTS_DIR := results
 NETLIST_SCRIPT := flow/netlist.py
 SIM_SCRIPT := flow/simulate.py
 MEAS_SCRIPT := flow/measure.py
-PLOT_SCRIPT := flow/plot.py
 # Cadence tools
 CADENCE_SPECTRE_SETUP := /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh
 CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas plot clean_plot all clean_all help
+.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas clean_plot all clean_all help
 
 # ============================================================
 # Setup and Maintenance
@@ -145,18 +144,19 @@ else
 endif
 
 # ============================================================
-# Measurement (PyOPUS PerformanceEvaluator wrapper)
+# Measurement and Plotting (combined in measure.py)
 # ============================================================
 
 meas:
 ifndef cell
-	$(error Usage: make meas cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>])
+	$(error Usage: make meas cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>] [no_plot=1])
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/sim" ]; then echo "Error: Run 'make sim cell=$(cell)' first"; exit 1; fi
 	$(VENV_PYTHON) $(MEAS_SCRIPT) $(cell) -o "$(RESULTS_DIR)" \
 		$(if $(tech),--tech=$(tech)) \
 		$(if $(corner),--corner=$(corner)) \
-		$(if $(temp),--temp=$(temp))
+		$(if $(temp),--temp=$(temp)) \
+		$(if $(no_plot),--no-plot)
 
 clean_meas:
 ifdef cell
@@ -166,30 +166,6 @@ else
 	rm -rf $(RESULTS_DIR)/*/meas
 	@echo "Cleaned: all meas directories"
 endif
-
-# ============================================================
-# Plotting (with query filtering)
-# ============================================================
-
-plot:
-ifndef cell
-	$(error Usage: make plot cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>])
-endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/meas" ]; then echo "Error: Run 'make meas cell=$(cell)' first"; exit 1; fi
-	$(VENV_PYTHON) $(PLOT_SCRIPT) $(cell) -o "$(RESULTS_DIR)" \
-		$(if $(tech),--tech=$(tech)) \
-		$(if $(corner),--corner=$(corner)) \
-		$(if $(temp),--temp=$(temp))
-
-plot_interactive:
-ifndef cell
-	$(error Usage: make plot_interactive cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>])
-endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/meas" ]; then echo "Error: Run 'make meas cell=$(cell)' first"; exit 1; fi
-	$(VENV_PYTHON) $(PLOT_SCRIPT) $(cell) -o "$(RESULTS_DIR)" --interactive \
-		$(if $(tech),--tech=$(tech)) \
-		$(if $(corner),--corner=$(corner)) \
-		$(if $(temp),--temp=$(temp))
 
 clean_plot:
 ifdef cell
@@ -210,9 +186,8 @@ ifndef cell
 endif
 	$(MAKE) subckt cell=$(cell)
 	$(MAKE) tb cell=$(cell)
-	$(MAKE) sim cell=$(cell)
+	$(MAKE) sim cell=$(cell) mode=all host=local
 	$(MAKE) meas cell=$(cell)
-	$(MAKE) plot cell=$(cell)
 
 clean_all:
 ifdef cell
@@ -235,10 +210,9 @@ help:
 	@echo "Targets:"
 	@echo "  subckt        Generate subcircuit netlists"
 	@echo "  tb            Generate testbench netlists"
-	@echo "  sim           Run simulations"
-	@echo "  meas          Extract measurements from results"
-	@echo "  plot          Generate plots from measurements"
-	@echo "  all           Run full flow (subckt -> tb -> sim -> meas -> plot)"
+	@echo "  sim           Run simulations (saves .pkl files)"
+	@echo "  meas          Extract measurements and generate plots"
+	@echo "  all           Run full flow (subckt -> tb -> sim -> meas)"
 	@echo ""
 	@echo "Clean targets:"
 	@echo "  clean_subckt  Remove subcircuit files"
@@ -255,6 +229,7 @@ help:
 	@echo "  tech=<tech>   Filter by technology (tsmc65, tsmc28, tower180)"
 	@echo "  corner=<c>    Filter by corner (tt, ss, ff, sf, fs)"
 	@echo "  temp=<t>      Filter by temperature (27, etc.)"
+	@echo "  no_plot=1     Skip plot generation in meas target"
 	@echo "  NUM_PROCS=N   Number of parallel processes (default: 40)"
 	@echo ""
 	@echo "Simulation examples:"
@@ -267,5 +242,5 @@ help:
 	@echo "  make subckt cell=comp"
 	@echo "  make tb cell=comp"
 	@echo "  make meas cell=comp"
-	@echo "  make plot cell=comp tech=tsmc65 corner=tt"
+	@echo "  make meas cell=comp no_plot=1                # Measurements only"
 	@echo "  make all cell=comp"
