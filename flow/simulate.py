@@ -135,6 +135,7 @@ def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int
         sim.simulatorID = str(sim_dir / job_name)
         sim.cmdline = [
             "-64",
+            "+preset=mx",  # Spectre X mx mode (balanced accuracy/performance)
             "+log", str(sim_dir / f"{job_name}_group{i}.log"),
             "-raw", str(sim_dir / f"{job_name}_group{i}.raw"),
         ]
