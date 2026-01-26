@@ -117,7 +117,8 @@ else ifeq ($(host),remote)
 	@echo "=== Syncing results to $(REMOTE_HOST) ==="
 	rsync -az --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
 	@echo "=== Running REMOTE simulation (mode=$(mode)) ==="
-	ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
+	# The - prefix ignores exit status so we can sync results back even if simulation fails
+	-ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
 		cd $(REMOTE_PROJECT) && \
 		git pull && \
 		source /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh && \
@@ -125,6 +126,10 @@ else ifeq ($(host),remote)
 		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))"
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
+ifeq ($(mode),single)
+	@echo "=== Simulation log ==="
+	@cat $(RESULTS_DIR)/$(cell)/sim/*.log 2>/dev/null || echo "No log file found"
+endif
 	@echo "=== Simulation complete ==="
 else
 	$(error Invalid host '$(host)'. Use: local or remote)

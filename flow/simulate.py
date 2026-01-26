@@ -383,9 +383,14 @@ def main():
         logger.info("SINGLE MODE: Running first simulation only (for debugging)")
         jobs = jobs[:1]
 
-    # Run simulations
+    # Run simulations (change to sim_dir so PyOPUS generates files there)
     start_time = datetime.datetime.now()
-    results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
+    orig_dir = os.getcwd()
+    os.chdir(sim_dir)
+    try:
+        results = run_batch_pyopus(jobs, sim_dir, num_workers=args.jobs)
+    finally:
+        os.chdir(orig_dir)
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Update files.json with simulation results
