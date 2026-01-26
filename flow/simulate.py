@@ -148,8 +148,6 @@ def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int
             else:
                 logger.warning(f"  Failed: {sim_name}")
 
-    sim.cleanup()
-
     return results
 
 
