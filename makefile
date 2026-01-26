@@ -115,7 +115,7 @@ else ifeq ($(host),remote)
 		exit 1; \
 	fi
 	@echo "=== Syncing results to $(REMOTE_HOST) ==="
-	rsync -az --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
+	rsync -az --mkpath --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
 	@echo "=== Running REMOTE simulation (mode=$(mode)) ==="
 	# The - prefix ignores exit status so we can sync results back even if simulation fails
 	-ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
