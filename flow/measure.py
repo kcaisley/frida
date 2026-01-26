@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import datetime
-import json
 import logging
 import pickle
 import sys
@@ -27,148 +26,27 @@ from flow.common import (
     save_files_list,
     setup_logging,
 )
-from flow import expression as m  # User-defined measurement functions
-
-
-# ============================================================
-# Waveform Reading Utilities
-# ============================================================
-
-
-def read_traces(raw):
-    """
-    Return time and all traces as tuple of numpy arrays.
-
-    Args:
-        raw: RawRead object from spicelib
-
-    Returns:
-        Tuple of (time, trace1, trace2, ...) numpy arrays
-    """
-    time = raw.get_axis()
-    traces = tuple(
-        raw.get_wave(name) for name in raw.get_trace_names() if name.lower() != "time"
-    )
-    return (time,) + traces
-
-
-def quantize(signal, bits=1, max_val=1.2, min_val=0):
-    """
-    Quantize signal to N bits between min and max.
-
-    Args:
-        signal: numpy array of analog values
-        bits: number of quantization bits
-        max_val: maximum value
-        min_val: minimum value
-
-    Returns:
-        Quantized numpy array
-    """
-    levels = 2**bits
-    step = (max_val - min_val) / levels
-    quantized = np.floor((signal - min_val) / step) * step + min_val
-    return np.clip(quantized, min_val, max_val)
-
-
-def digitize(signal, threshold=None, vdd=1.2):
-    """
-    Digitize analog signal to binary (1 or 0) based on threshold.
-
-    Args:
-        signal: numpy array of analog voltages
-        threshold: voltage threshold (default: vdd/2)
-        vdd: supply voltage
-
-    Returns:
-        numpy array of 1s and 0s
-    """
-    if threshold is None:
-        threshold = vdd / 2
-    return np.where(signal > threshold, 1, 0)
-
-
-# ============================================================
-# CDAC/ADC Linearity Measurements (Custom - not in PyOPUS)
-# ============================================================
-
-
-def calculate_inl(vin, vout):
-    """
-    Calculate Integral Nonlinearity from best-fit line.
-
-    INL measures deviation from ideal linear transfer function.
-
-    Args:
-        vin: Input voltage array (ideal ramp)
-        vout: Output voltage array (measured)
-
-    Returns:
-        Tuple of (inl_array, inl_max) - INL at each code and maximum |INL|
-    """
-    coeffs = np.polyfit(vin, vout, 1)
-    ideal = np.polyval(coeffs, vin)
-    inl = vout - ideal
-    return inl, float(np.max(np.abs(inl)))
-
-
-def calculate_dnl(vout, ideal_lsb=None):
-    """
-    Calculate Differential Nonlinearity.
-
-    DNL measures difference between actual and ideal step sizes.
-
-    Args:
-        vout: Output voltage array
-        ideal_lsb: Expected step size (if None, uses mean step)
-
-    Returns:
-        Tuple of (dnl_array, dnl_max) - DNL at each step and maximum |DNL|
-    """
-    steps = np.diff(vout)
-    if ideal_lsb is None:
-        ideal_lsb = np.mean(steps)
-    if ideal_lsb == 0:
-        return np.zeros(len(steps)), 0.0
-    dnl = (steps - ideal_lsb) / ideal_lsb
-    return dnl, float(np.max(np.abs(dnl)))
-
-
-def extract_settled_values(vout, time, n_codes, settle_fraction=0.9):
-    """
-    Extract settled output values from stepped waveform.
-
-    Assumes vout has n_codes steps, samples at settle_fraction of each period.
-
-    Args:
-        vout: Output voltage waveform
-        time: Time array
-        n_codes: Number of DAC codes
-        settle_fraction: Fraction of period to wait for settling
-
-    Returns:
-        Array of settled values at each code
-    """
-    period = time[-1] / n_codes
-    settled_times = [(i + settle_fraction) * period for i in range(n_codes)]
-    settled_values = np.interp(settled_times, time, vout)
-    return settled_values
 
 
 # ============================================================
 # Plotting Utilities
 # ============================================================
 
+# TODO: PyOPUS offers pyopus.plotter for interactive visualization, but we had
+# issues using PyQt5 headlessly (Qt GUI thread starts at import, segfaults with
+# offscreen platform). For now, using matplotlib Agg backend directly. Could
+# revisit if headless Qt support improves or if interactive viz is needed.
+
 
 def configure_matplotlib():
-    """Configure matplotlib for non-interactive plotting."""
+    """Configure matplotlib for headless plotting with LaTeX."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     plt.rcParams.update({
-        "text.usetex": False,
-        "font.family": "sans-serif",
-        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman"],
         "font.size": 11,
         "axes.titlesize": 12,
         "axes.labelsize": 11,
@@ -216,30 +94,14 @@ def save_plot_dual_format(fig, filename_base: str, plt_module) -> list[str]:
 # ============================================================
 
 
-def load_pkl_waveforms(pkl_path: Path) -> dict[str, Any] | None:
-    """
-    Load waveform data from .pkl file.
-
-    Args:
-        pkl_path: Path to .pkl file
-
-    Returns:
-        Dict with waveform data or None if failed
-    """
-    try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
-    except Exception:
-        return None
-
-
 def run_measurements_pyopus(
     cell: str, results_dir: Path, cell_module: Any, files: dict[str, Any]
 ) -> dict[str, Any]:
     """
     Run measurements on simulation results using PyOPUS PostEvaluator.
 
-    Loads .pkl files from simulate.py, extracts measures, and returns results.
+    Loads resFiles mapping from simulate.py, uses PostEvaluator to extract
+    measures from native PyOPUS pickle files.
 
     Args:
         cell: Cell name
@@ -253,48 +115,30 @@ def run_measurements_pyopus(
     logger = logging.getLogger(__name__)
 
     measures = getattr(cell_module, "measures", {})
-    analyses = getattr(cell_module, "analyses", {})
-    variables = getattr(cell_module, "variables", {})
-
-    # Add expression module to variables for measure evaluation
-    variables = {**variables, "m": m}
 
     cell_dir = results_dir / cell
-    meas_dir = cell_dir / "meas"
-    meas_dir.mkdir(exist_ok=True)
-
     all_results = {}
 
-    # Try to use PyOPUS PostEvaluator if available
+    # Try to import PyOPUS PostEvaluator
     try:
-        from pyopus.evaluator.auxfunc import PostEvaluator
-        use_pyopus = True
+        from pyopus.evaluator.posteval import PostEvaluator
         logger.info("Using PyOPUS PostEvaluator for measurements")
     except ImportError:
-        use_pyopus = False
-        logger.info("PyOPUS PostEvaluator not available, using fallback")
+        logger.error("PyOPUS PostEvaluator not available")
+        return all_results
 
-    # Collect pkl files from files.json
-    pkl_files = []
     for config_hash, file_ctx in files.items():
-        for pkl_path_rel in file_ctx.get("sim_pkl", []):
-            pkl_path = cell_dir / pkl_path_rel
-            if pkl_path.exists():
-                pkl_files.append((config_hash, pkl_path, file_ctx))
+        resfiles_path_rel = file_ctx.get("sim_resfiles")
+        if not resfiles_path_rel:
+            continue
 
-    # Fallback: also check for raw files if no pkl files
-    if not pkl_files:
-        for config_hash, file_ctx in files.items():
-            for raw_path_rel in file_ctx.get("sim_raw", []):
-                raw_path = cell_dir / raw_path_rel
-                if raw_path.exists():
-                    pkl_files.append((config_hash, raw_path, file_ctx))
+        resfiles_path = cell_dir / resfiles_path_rel
+        if not resfiles_path.exists():
+            logger.warning(f"  resfiles not found: {resfiles_path}")
+            continue
 
-    for config_hash, data_path, file_ctx in sorted(pkl_files, key=lambda x: x[1]):
-        # Remove _group<N> suffix if present to get base name
-        result_key = data_path.stem
-        if "_group" in result_key:
-            result_key = result_key.rsplit("_group", 1)[0]
+        # Build result key from resfiles path
+        result_key = resfiles_path.stem.replace("_resfiles", "")
 
         # Get metadata from file_ctx
         metadata = {
@@ -306,7 +150,7 @@ def run_measurements_pyopus(
 
         # Parse metadata from filename if not in file_ctx
         if not metadata["tech"]:
-            parts = data_path.stem.split("_")
+            parts = result_key.split("_")
             for part in parts:
                 if part in ["tsmc65", "tsmc28", "tower180"]:
                     metadata["tech"] = part
@@ -320,121 +164,49 @@ def run_measurements_pyopus(
                     pass
 
         try:
-            if use_pyopus and data_path.suffix == ".pkl":
-                # Load pkl data
-                pkl_data = load_pkl_waveforms(data_path)
-                if pkl_data is None:
-                    logger.warning(f"  Failed to load: {data_path.name}")
-                    continue
+            # Load resFiles mapping saved by simulate.py
+            with open(resfiles_path, "rb") as f:
+                res_files = pickle.load(f)
 
-                # Extract results from pkl (already computed by simulate.py)
-                if "results" in pkl_data:
-                    scalar_results = {}
-                    for k, v in pkl_data["results"].items():
-                        if isinstance(v, dict) and "nominal" in v:
-                            scalar_results[k] = v["nominal"]
-                        else:
-                            scalar_results[k] = v
+            # Use PostEvaluator to extract measures
+            posteval = PostEvaluator(
+                files=res_files,
+                measures=measures,
+                resultsFolder=str(cell_dir / "sim"),
+                debug=0,
+            )
+
+            # Load results and evaluate all measures
+            scalar_results = posteval.evaluateMeasures()
+
+            # Handle None or empty results
+            if scalar_results is None:
+                scalar_results = {}
+
+            # Flatten corner results if present (e.g., {"nominal": value} -> value)
+            flat_results = {}
+            for k, v in scalar_results.items():
+                if isinstance(v, dict) and "nominal" in v:
+                    flat_results[k] = v["nominal"]
                 else:
-                    scalar_results = {}
-
-            else:
-                # Fallback: use raw file reading
-                scalar_results = run_measurements_fallback(
-                    data_path, measures, variables
-                )
+                    flat_results[k] = v
 
             # Store with metadata
             all_results[result_key] = {
-                "measures": scalar_results,
+                "measures": flat_results,
                 "metadata": metadata,
             }
 
-            # Save individual result file
-            meas_file = meas_dir / f"meas_{result_key}.json"
-            meas_file.write_text(
-                json.dumps(
-                    {"measures": scalar_results, "metadata": metadata},
-                    indent=2,
-                    default=str,
-                )
-            )
-
             logger.info(f"  Measured: {result_key}")
+            for measure_name, value in flat_results.items():
+                if value is not None:
+                    logger.info(f"    {measure_name}: {value}")
 
         except Exception as e:
             logger.warning(f"  Failed: {result_key} - {e}")
             continue
 
     return all_results
-
-
-def run_measurements_fallback(
-    raw_path: Path, measures: dict[str, Any], variables: dict[str, Any]
-) -> dict[str, Any]:
-    """
-    Fallback measurement extraction using raw file reading.
-
-    Args:
-        raw_path: Path to .raw file
-        measures: Measures configuration
-        variables: Variables for expression evaluation
-
-    Returns:
-        Dict of scalar measurement results
-    """
-    try:
-        from pyopus.simulator.rawfile import raw_read
-    except ImportError:
-        return {}
-
-    try:
-        plots = raw_read(str(raw_path), reverse=1)
-        if not plots:
-            return {}
-
-        # Get first plot (nominal)
-        vectors, scale_name, scales, title, date, name = plots[0]
-
-        # Build v() and i() accessor functions
-        def v(node):
-            key = f"v({node})"
-            if key in vectors:
-                return np.array(vectors[key])
-            # Try alternate names
-            for k in vectors:
-                if k.lower() == key.lower():
-                    return np.array(vectors[k])
-            return np.zeros(len(scales.get(scale_name, [])))
-
-        def i(source):
-            key = f"i({source})"
-            if key in vectors:
-                return np.array(vectors[key])
-            for k in vectors:
-                if k.lower() == key.lower():
-                    return np.array(vectors[k])
-            return np.zeros(len(scales.get(scale_name, [])))
-
-        def scale():
-            return np.array(scales.get(scale_name, vectors.get(scale_name, [])))
-
-        # Evaluate each measure
-        results = {}
-        local_vars = {**variables, "v": v, "i": i, "scale": scale, "np": np}
-
-        for measure_name, measure_def in measures.items():
-            try:
-                expr = measure_def.get("expression", "0")
-                value = eval(expr, {"__builtins__": {}}, local_vars)
-                results[measure_name] = float(value) if value is not None else None
-            except Exception:
-                results[measure_name] = None
-
-        return results
-
-    except Exception:
-        return {}
 
 
 # ============================================================
@@ -759,7 +531,6 @@ def main():
 
     # Setup paths
     cell_dir = args.outdir / args.cell
-    meas_dir = cell_dir / "meas"
     plot_dir = cell_dir / "plot"
 
     # Setup logging
@@ -785,10 +556,9 @@ def main():
     cell_module = load_cell_script(block_file)
     files = load_files_list(files_db_path)
 
-    # Count data files from files.json (prefer pkl, fallback to raw)
-    pkl_count = sum(len(ctx.get("sim_pkl", [])) for ctx in files.values())
-    raw_count = sum(len(ctx.get("sim_raw", [])) for ctx in files.values())
-    data_file_count = pkl_count if pkl_count > 0 else raw_count
+    # Count resfiles from files.json
+    resfiles_count = sum(1 for ctx in files.values() if ctx.get("sim_resfiles"))
+    data_file_count = resfiles_count
 
     if data_file_count == 0:
         logger.warning("No simulation results found in files.json")
@@ -798,8 +568,7 @@ def main():
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
     logger.info("Flow:       measure" + (" + plot" if not args.no_plot else ""))
-    logger.info(f"Data files: {data_file_count} ({'pkl' if pkl_count > 0 else 'raw'})")
-    logger.info(f"Output:     {meas_dir}")
+    logger.info(f"Data files: {data_file_count} (resfiles)")
     if not args.no_plot:
         logger.info(f"Plots:      {plot_dir}")
     logger.info(f"Log:        {log_file}")
@@ -833,20 +602,13 @@ def main():
         plot_count = len(generated_plots)
         plot_elapsed = (datetime.datetime.now() - plot_start).total_seconds()
 
-    # Update files.json with measurement and plot paths
-    for config_hash, file_ctx in files.items():
-        # Find matching measurement files
-        matching_meas = list(meas_dir.glob(f"meas_*{config_hash}*.json"))
-        if matching_meas:
-            file_ctx["meas_db"] = f"meas/{matching_meas[0].name}"
-
-        # Find matching plot files
-        if not args.no_plot:
-            matching_plots = list(plot_dir.glob(f"*.pdf")) if plot_dir.exists() else []
-            if matching_plots:
+    # Update files.json with plot paths (no more JSON measurement files)
+    if not args.no_plot and plot_dir.exists():
+        matching_plots = list(plot_dir.glob("*.pdf"))
+        if matching_plots:
+            for config_hash, file_ctx in files.items():
                 file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
-
-    save_files_list(files_db_path, files)
+        save_files_list(files_db_path, files)
 
     # Summary
     total_elapsed = meas_elapsed + plot_elapsed
@@ -860,7 +622,6 @@ def main():
         logger.info(f"Plots created:   {plot_count}")
         logger.info(f"Plot time:       {plot_elapsed:.1f}s")
     logger.info(f"Total time:      {total_elapsed:.1f}s")
-    logger.info(f"Output:          {meas_dir}")
     logger.info("=" * 80)
 
     return 0

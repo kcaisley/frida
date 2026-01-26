@@ -97,6 +97,7 @@ def check_license_server() -> tuple[int, int]:
 def run_simulation_pyopus(
     config_hash: str,
     tb_path: Path,
+    tb_json_path: Path | None,
     sim_dir: Path,
     analyses: dict[str, Any],
     measures: dict[str, Any],
@@ -108,14 +109,19 @@ def run_simulation_pyopus(
     Args:
         config_hash: Configuration hash for naming output files
         tb_path: Path to testbench .sp file
+        tb_json_path: Path to tb_json file for tech info (or None)
         sim_dir: Output directory for simulation files
         analyses: PyOPUS analyses configuration from cell module
         measures: PyOPUS measures configuration from cell module
         variables: Variables dict for expression evaluation
 
     Returns:
-        Dict of output file paths (scs, log, raw, pkl) or None if failed
+        Dict of output file paths (scs, log, raw, resfiles) or None if failed
     """
+    import json
+
+    from flow.common import techmap
+
     logger = logging.getLogger(__name__)
 
     try:
@@ -124,16 +130,54 @@ def run_simulation_pyopus(
         logger.error("PyOPUS not available")
         return None
 
-    # Build heads dynamically pointing to this testbench
+    # Build sim_name from tb filename (needed for paths)
+    sim_name = tb_path.stem.replace("tb_", "sim_", 1) if tb_path.stem.startswith("tb_") else f"sim_{tb_path.stem}"
+
+    # Output file paths
+    scs_path = sim_dir / f"{sim_name}.scs"
+    log_path = sim_dir / f"{sim_name}.log"
+    raw_path = sim_dir / f"{sim_name}.raw"
+
+    # Load tb_json to get tech info (no filename parsing!)
+    tech = None
+    if tb_json_path and tb_json_path.exists():
+        with open(tb_json_path) as f:
+            tb_config = json.load(f)
+        tech = tb_config.get("tech")
+
+    # Get MC model path and section from techmap
+    mc_lib_path = None
+    mc_lib_section = None
+    if tech and tech in techmap:
+        tech_cfg = techmap[tech]
+        # Get MC section name from corners dict (e.g., "mc_lib")
+        mc_section = tech_cfg.get("corners", {}).get("mc")
+        if mc_section:
+            # Find lib that has this section
+            libs = tech_cfg.get("libs", [])
+            if libs and mc_section in libs[0].get("sections", []):
+                mc_lib_path = libs[0]["path"]
+                mc_lib_section = mc_section
+
+    # Build moddefs with MC if available
+    moddefs = {"tb": {"file": str(tb_path)}}
+    if mc_lib_path and mc_lib_section:
+        moddefs["mc"] = {"file": mc_lib_path, "section": mc_lib_section}
+
+    # Heads config - args becomes self.cmdline internally
     heads = {
         "spectre": {
             "simulator": "Spectre",
             "settings": {
                 "debug": 0,
+                "args": [
+                    "-64",
+                    "+preset=mx",  # Spectre X mx mode (balanced accuracy/performance)
+                    "+log", str(log_path),
+                    "-raw", str(raw_path),
+                ],
             },
-            "moddefs": {
-                "tb": {"file": str(tb_path)}
-            },
+            "moddefs": moddefs,
         }
     }
 
@@ -145,53 +189,51 @@ def run_simulation_pyopus(
         }
     }
 
-    # Build sim_name from tb filename
-    sim_name = tb_path.stem.replace("tb_", "sim_", 1) if tb_path.stem.startswith("tb_") else f"sim_{tb_path.stem}"
+    # Override head/modules in analyses to use our dynamic head
+    # (the block file has placeholders that we replace at runtime)
+    # Note: corners already specifies ["tb"], so analyses should only add
+    # additional modules (like "mc") to avoid duplicates
+    runtime_analyses = {}
+    for name, cfg in analyses.items():
+        # Only add modules beyond the base "tb" that corner provides
+        modules = []
+        if "mc" in cfg.get("modules", []) and mc_lib_path:
+            modules.append("mc")
 
-    # Output file paths
-    scs_path = sim_dir / f"{sim_name}.scs"
-    log_path = sim_dir / f"{sim_name}.log"
-    raw_path = sim_dir / f"{sim_name}.raw"
-    pkl_path = sim_dir / f"{sim_name}.pkl"
+        runtime_analyses[name] = {
+            "head": "spectre",
+            "modules": modules,
+            "command": cfg.get("command", ""),
+            "saves": cfg.get("saves", [])
+        }
+    analyses = runtime_analyses
 
     try:
-        # Create PerformanceEvaluator
+        # Create PerformanceEvaluator with native pickle storage
         pe = PerformanceEvaluator(
             heads=heads,
             analyses=analyses,
             measures=measures,
             corners=corners,
             variables=variables,
+            storeResults=True,              # Enable native pickle storage
+            resultsFolder=str(sim_dir),     # Where to store .pck files
             debug=0,
         )
 
-        # Configure simulator output paths
+        # Set simulatorID for predictable output file names
+        # (not an __init__ param, must be set after creation)
+        # Without this, files get auto-generated names in random locations
         pe.simulator.simulatorID = str(sim_dir / sim_name)
-        pe.simulator.cmdline = [
-            "-64",
-            "+preset=mx",  # Spectre X mx mode (balanced accuracy/performance)
-            "+log", str(log_path),
-            "-raw", str(raw_path),
-        ]
 
         # Run simulation and compute measures
         results, an_count = pe({})
 
-        # Save waveform data as pickle for later measurement/plotting
-        # Extract waveform vectors from the evaluator
-        waveform_data = {
-            "results": results,
-            "an_count": an_count,
-            "config_hash": config_hash,
-            "tb_path": str(tb_path),
-        }
-
-        # Try to extract raw waveform vectors if available
-        if hasattr(pe, 'res') and pe.res is not None:
-            waveform_data["vectors"] = pe.res
-
-        with open(pkl_path, "wb") as f:
-            pickle.dump(waveform_data, f)
+        # Save resFiles mapping for PostEvaluator
+        # resFiles is a dict: {(corner, analysis): filepath}
+        resfiles_path = sim_dir / f"{sim_name}_resfiles.pck"
+        with open(resfiles_path, "wb") as f:
+            pickle.dump(pe.resFiles, f)
 
         pe.finalize()
 
@@ -199,7 +241,7 @@ def run_simulation_pyopus(
             "scs": scs_path,
             "log": log_path,
             "raw": raw_path,
-            "pkl": pkl_path,
+            "resfiles": resfiles_path,
         }
 
     except Exception as e:
@@ -227,7 +269,7 @@ def run_batch_parallel(
         num_workers: Number of parallel Spectre processes
 
     Returns:
-        Dict mapping config_hash to dict of file paths (scs, log, raw, pkl)
+        Dict mapping config_hash to dict of file paths (scs, log, raw, resfiles)
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -250,8 +292,9 @@ def run_batch_parallel(
     def run_single(job: dict[str, Any]) -> tuple[str, dict[str, Path] | None]:
         config_hash = job["config_hash"]
         tb_path = Path(job["tb_path"])
+        tb_json_path = Path(job["tb_json_path"]) if job.get("tb_json_path") else None
         return config_hash, run_simulation_pyopus(
-            config_hash, tb_path, sim_dir, analyses, measures, variables
+            config_hash, tb_path, tb_json_path, sim_dir, analyses, measures, variables
         )
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -262,7 +305,7 @@ def run_batch_parallel(
 
             if paths:
                 results[config_hash] = paths
-                logger.info(f"  Completed: {paths['pkl'].stem}")
+                logger.info(f"  Completed: {paths['resfiles'].stem}")
             else:
                 logger.warning(f"  Failed: {config_hash}")
 
@@ -287,7 +330,7 @@ def run_batch_sequential(
         variables: Variables dict for expression evaluation
 
     Returns:
-        Dict mapping config_hash to dict of file paths (scs, log, raw, pkl)
+        Dict mapping config_hash to dict of file paths (scs, log, raw, resfiles)
     """
     logger = logging.getLogger(__name__)
     results = {}
@@ -295,14 +338,15 @@ def run_batch_sequential(
     for job in jobs:
         config_hash = job["config_hash"]
         tb_path = Path(job["tb_path"])
+        tb_json_path = Path(job["tb_json_path"]) if job.get("tb_json_path") else None
 
         paths = run_simulation_pyopus(
-            config_hash, tb_path, sim_dir, analyses, measures, variables
+            config_hash, tb_path, tb_json_path, sim_dir, analyses, measures, variables
         )
 
         if paths:
             results[config_hash] = paths
-            logger.info(f"  Completed: {paths['pkl'].stem}")
+            logger.info(f"  Completed: {paths['resfiles'].stem}")
         else:
             logger.warning(f"  Failed: {config_hash}")
 
@@ -383,8 +427,13 @@ def main():
     # Build job list from files.json
     jobs = []
     for config_hash, file_ctx in files.items():
-        for tb_spice_rel in file_ctx.get("tb_spice", []):
+        tb_spice_list = file_ctx.get("tb_spice", [])
+        tb_json_list = file_ctx.get("tb_json", [])
+
+        for idx, tb_spice_rel in enumerate(tb_spice_list):
             tb_path = cell_dir / tb_spice_rel
+            # Get corresponding tb_json from files.json
+            tb_json_rel = tb_json_list[idx] if idx < len(tb_json_list) else None
 
             # Apply tech filter if specified
             if args.tech:
@@ -401,6 +450,7 @@ def main():
             jobs.append({
                 "config_hash": config_hash,
                 "tb_path": str(tb_path),
+                "tb_json_path": str(cell_dir / tb_json_rel) if tb_json_rel else None,
                 "cfgname": file_ctx.get("cfgname", ""),
             })
 
@@ -456,7 +506,7 @@ def main():
         sim_spice = []
         sim_raw = []
         sim_log = []
-        sim_pkl = []
+        sim_resfiles = None
 
         if config_hash in results:
             paths = results[config_hash]
@@ -467,13 +517,13 @@ def main():
                 sim_raw.append(f"sim/{paths['raw'].name}")
             if paths.get("log") and paths["log"].exists():
                 sim_log.append(f"sim/{paths['log'].name}")
-            if paths.get("pkl") and paths["pkl"].exists():
-                sim_pkl.append(f"sim/{paths['pkl'].name}")
+            if paths.get("resfiles") and paths["resfiles"].exists():
+                sim_resfiles = f"sim/{paths['resfiles'].name}"
 
         file_ctx["sim_spice"] = sim_spice
         file_ctx["sim_raw"] = sim_raw
         file_ctx["sim_log"] = sim_log
-        file_ctx["sim_pkl"] = sim_pkl
+        file_ctx["sim_resfiles"] = sim_resfiles
 
     save_files_list(files_db_path, files)
 

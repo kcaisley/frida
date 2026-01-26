@@ -600,24 +600,41 @@ tb = {
 # ========================================================================
 # PyOPUS Analyses Configuration
 # ========================================================================
+#
+# Format required by PerformanceEvaluator:
+#   head: simulator head name (set at runtime by simulate.py)
+#   modules: module list (set at runtime by simulate.py)
+#   command: analysis command string (eval'd by PyOPUS)
+#   saves: list of save directives (eval'd by PyOPUS)
+
+# MC configuration (user-selected defaults for Spectre native Monte Carlo)
+mc_config = {
+    "numruns": 10,              # Default: 10 runs for quick characterization
+    "seed": 12345,              # Fixed seed for reproducibility
+    "variations": "mismatch",   # Default: mismatch only (most relevant for comparator)
+}
 
 analyses = {
-    "mc": {
-        "type": "montecarlo",
-        "numruns": 10,
-        "seed": 12345,
-        "variations": "all",  # "all", "process", or "mismatch"
-    },
+    # Deterministic transient analysis
     "tran": {
-        "type": "tran",
-        "stop": 5.5e-6,
+        "head": "spectre",      # Placeholder - overridden at runtime
+        "modules": ["tb"],      # Placeholder - overridden at runtime
+        "command": "tran(stop=5.5e-6)",
         "saves": [
-            "v(in+)", "v(in-)",      # Differential inputs (after source impedance)
-            "v(out+)", "v(out-)",    # Differential outputs
-            "v(clk)",                # Clock for timing reference
-            "i(Vvdd)",               # Supply current for power measurement
-        ],
+            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            "i(['Vvdd'])"
+        ]
     },
+    # Monte Carlo wrapped transient (uses foundry mismatch models)
+    "mc_tran": {
+        "head": "spectre",      # Placeholder - overridden at runtime
+        "modules": ["tb", "mc"],  # Include MC models from PDK
+        "command": "'montecarlo numruns=10 seed=12345 variations=mismatch savefamilyplots=yes { inner_tran tran stop=5.5e-6 }'",
+        "saves": [
+            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            "i(['Vvdd'])"
+        ]
+    }
 }
 
 

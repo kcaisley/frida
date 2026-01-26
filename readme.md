@@ -167,7 +167,152 @@ Furthermore, each cell has a `results/[cell]/files.json` automatically written a
 
 Subsequent flow steps read files.json to find exact file paths without inferring from filenames. For example, testbench generation reads `subckt_spice` to add `.include` statements.
 
+## Simulation Flow
 
+Run Spectre simulations using PyOPUS PerformanceEvaluator:
+
+```bash
+make sim cell=comp mode=single host=local   # Run one testbench locally
+make sim cell=comp mode=all host=remote     # Run all on remote server
+```
+
+The simulation supports both local and remote execution with automatic file synchronization:
+
+```mermaid
+flowchart TB
+    subgraph LOCAL1 [Local Machine]
+        A[make subckt cell=comp] --> B[results/comp/subckt/*.sp]
+        C[make tb cell=comp] --> D[results/comp/tb/*.sp]
+        B & D --> E[make sim cell=comp mode=all host=remote]
+        E --> F{Check git status}
+        F -->|clean| G[rsync results/comp/ → remote]
+    end
+
+    G --> H
+
+    subgraph REMOTE [Remote Server - juno]
+        H[git pull] --> I[source Cadence setup]
+        I --> J[PyOPUS PerformanceEvaluator]
+        J --> K[Run Spectre simulations\n up to 40 parallel]
+        K --> L[Write .scs, .log, .raw, .pkl]
+    end
+
+    L --> M
+
+    subgraph LOCAL2 [Local Machine]
+        M[rsync results/comp/sim/ ← remote] --> N[make meas cell=comp]
+        N --> O[Read .raw files]
+        O --> P[Evaluate measure expressions]
+        P --> Q[Write meas/*.json]
+        P --> R[Generate plot/*.pdf]
+    end
+```
+
+## Analyses and Measures
+
+Each cell defines its analyses and measures in `blocks/[cell].py`. These are evaluated by PyOPUS PerformanceEvaluator.
+
+### Analyses Configuration
+
+Analyses specify what simulations to run:
+
+```python
+analyses = {
+    # Standard transient analysis
+    "tran": {
+        "head": "spectre",
+        "modules": ["tb"],
+        "command": "tran(stop=5.5e-6)",
+        "saves": [
+            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            "i(['Vvdd'])"
+        ]
+    },
+    # Monte Carlo wrapped transient (uses foundry mismatch models)
+    "mc_tran": {
+        "head": "spectre",
+        "modules": ["tb", "mc"],  # Include MC models from PDK
+        "command": "'montecarlo numruns=10 seed=12345 variations=mismatch savefamilyplots=yes { inner_tran tran stop=5.5e-6 }'",
+        "saves": [
+            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            "i(['Vvdd'])"
+        ]
+    }
+}
+```
+
+### Measures Configuration
+
+Measures define scalar values extracted from simulation waveforms:
+
+```python
+measures = {
+    "offset_mV": {
+        "analysis": "tran",
+        "expression": "m.comp_offset_mV(v, scale, 'in+', 'in-', 'out+', 'out-')",
+    },
+    "delay_ns": {
+        "analysis": "tran",
+        "expression": "m.comp_delay_ns(v, scale, 'clk', 'out+', 'out-')",
+    },
+    "power_uW": {
+        "analysis": "tran",
+        "expression": "m.avg_power_uW(v, i, scale, 'Vvdd')",
+    },
+}
+```
+
+The expression has access to:
+- `v(node)` - Returns voltage waveform array for a node
+- `i(source)` - Returns current waveform array for a source
+- `scale()` - Returns the time axis array
+- `m` - The `flow/expression.py` module with measurement functions
+- `np` - NumPy for array operations
+
+Custom measurement functions are defined in `flow/expression.py` and should return a single scalar value.
+
+## Monte Carlo Measurement Extraction
+
+For Monte Carlo simulations, the measurement system automatically handles multiple runs and computes statistics:
+
+```mermaid
+flowchart TB
+    A[MC Raw File\nN runs] --> B
+
+    subgraph B [For each run in raw file]
+        direction TB
+        C[Create v, i, scale accessors\nfor this run's waveform data]
+        C --> D[Evaluate ALL measure expressions\neach returns a scalar]
+        D --> E[Store results for this run]
+    end
+
+    B --> F
+
+    subgraph F [Aggregate across runs]
+        direction TB
+        G[Collect N scalar values\none per run]
+        G --> H[Compute mean, std, min, max]
+    end
+
+    F --> I[MC Statistics Output]
+```
+
+The same measure expressions work unchanged for both deterministic and MC simulations. For MC, the output includes statistics:
+
+```json
+{
+  "offset_mV": {
+    "mean": 0.45,
+    "std": 1.2,
+    "min": -1.5,
+    "max": 2.3,
+    "values": [2.3, -1.1, 0.8, ...],
+    "numruns": 10
+  }
+}
+```
+
+The MC models (mismatch, process variation) come from the foundry PDK and are automatically included when an analysis specifies `"modules": ["tb", "mc"]`.
 
 ## Past Designs vs Current Target
 
@@ -215,26 +360,38 @@ When producing raw binary files, ensure `utf_8` encoding is used for the plainte
 Finally, here's a overview of the project directories at large:
 
 ```
-├── blocks/         # Cell definitions (subckt + tb structs)
+├── blocks/         # Cell definitions (subckt + tb + analyses + measures)
 │   ├── inv.py
 │   ├── nand2.py
 │   ├── samp.py
 │   ├── comp.py
 │   ├── cdac.py
 │   └── adc.py
-├── flow/           # Netlist generation and analysis scripts
-│   ├── netlist.py  # Main netlist generator
-│   ├── common.py   # Shared utilities
-│   └── measure.py  # Simulation analysis
+├── flow/           # Flow scripts
+│   ├── netlist.py  # Subcircuit and testbench generation
+│   ├── simulate.py # PyOPUS-based Spectre simulation
+│   ├── measure.py  # Measurement extraction and plotting
+│   ├── expression.py # Custom measurement functions
+│   └── common.py   # Shared utilities and techmap
 ├── results/        # Generated netlists and simulation data
 │   └── [cell]/
-│       ├── db.json
-│       ├── subckt/
-│       └── tb/
-├── tech/           # PDK configuration files
-│   ├── tsmc65/
-│   ├── tsmc28/
-│   └── tower180/
+│       ├── files.json  # File tracking database
+│       ├── subckt/     # Generated subcircuit netlists
+│       │   ├── *.sp
+│       │   └── *.json
+│       ├── tb/         # Generated testbench netlists
+│       │   ├── *.sp
+│       │   └── *.json
+│       ├── sim/        # Simulation outputs (after make sim)
+│       │   ├── *.scs   # PyOPUS-generated Spectre input
+│       │   ├── *.log   # Simulation log
+│       │   ├── *.raw   # Waveform data
+│       │   └── *.pkl   # Pickled results
+│       ├── meas/       # Measurement results (after make meas)
+│       │   └── *.json
+│       └── plot/       # Generated plots (after make meas)
+│           ├── *.pdf
+│           └── *.svg
 ├── docs/           # Documentation
 ├── logs/           # Flow execution logs
 └── makefile        # Build targets
