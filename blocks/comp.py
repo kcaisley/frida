@@ -481,6 +481,7 @@ tb = {
                 "vstep": 0.1,
                 "tstep": 1100,
                 "count": 5,
+                "trise": 0.1,
             },
         },
         # Differential input: -50mV to +50mV in 10mV steps (11 levels)
@@ -495,6 +496,7 @@ tb = {
                 "vstop": 0.05,
                 "tstep": 100,
                 "count": 55,
+                "trise": 0.1,
             },
         },
         # Source impedance on signal input (models DAC/SHA output impedance)

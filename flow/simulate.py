@@ -336,7 +336,10 @@ def main():
         logger.info(f"Tech:       {args.tech}")
     logger.info("-" * 80)
 
-    # Create output directory
+    # Create output directory (clean old files first)
+    if sim_dir.exists():
+        import shutil
+        shutil.rmtree(sim_dir)
     sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Dryrun mode: generate PyOPUS simulator input files without running

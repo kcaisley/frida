@@ -686,10 +686,10 @@ def _expand_step_pwl(params: dict[str, Any]) -> list[float]:
     """
     Generate staircase PWL points from params (normalized units).
 
-    Each step holds voltage for tstep duration before stepping to next level.
+    Each step holds voltage for tstep duration, then ramps over trise to next level.
 
     Args:
-        params: Dict with vstart, vstep/vstop, count, tstep, td
+        params: Dict with vstart, vstep/vstop, count, tstep, td, trise
 
     Returns:
         Points array [t0, v0, t1, v1, ...] in normalized units
@@ -697,6 +697,7 @@ def _expand_step_pwl(params: dict[str, Any]) -> list[float]:
     vstart = params.get("vstart", 0)
     tstep = params["tstep"]
     td = params.get("td", 0)
+    trise = params.get("trise", 1e-12)  # Default to 1ps if not specified
 
     # Resolve count/vstep/vstop (handle overconstrained)
     vstep = params.get("vstep")
@@ -724,6 +725,7 @@ def _expand_step_pwl(params: dict[str, Any]) -> list[float]:
         t += tstep
         if i < count - 1:
             points.extend([t, v])  # hold before next step
+            t += trise  # rise time to next voltage level
 
     return points
 
@@ -1146,12 +1148,8 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
                 elif wave == "pwl":
                     points = inst_info.get("points", [])
-                    pwl_str = " ".join(
-                        [
-                            format_value(v, "s" if i % 2 == 0 else "V")
-                            for i, v in enumerate(points)
-                        ]
-                    )
+                    # Spectre PWL uses bare SI prefixes without unit suffixes
+                    pwl_str = " ".join([format_value(v, "") for v in points])
                     line += f" PWL({pwl_str})"
 
                 elif wave == "sine":
