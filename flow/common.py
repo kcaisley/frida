@@ -474,13 +474,9 @@ def build_pyopus_jobs(
         for tb_spice_rel in file_ctx.get("tb_spice", []):
             tb_path = cell_dir / tb_spice_rel
 
-            tb_path_rel = str(tb_path)
-            try:
-                # Try to make path relative to current working directory
-                tb_path_rel = str(tb_path.relative_to(Path.cwd()))
-            except ValueError:
-                # If not relative to cwd, use the path as-is
-                pass
+            # Compute path relative to sim_dir (cell_dir/sim) since that's where .scs files live
+            sim_dir = cell_dir / "sim"
+            tb_path_rel = os.path.relpath(tb_path, sim_dir)
 
             # Parse metadata from filename: <cell>_<topo>_<tech>_<hash>_<corner>_<temp>.sp
             # Example: comp_nmosinput_stdbias_tsmc65_a1b2c3d4e5f6_tt_27.sp
