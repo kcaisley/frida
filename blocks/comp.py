@@ -32,10 +32,7 @@ subckt = {
         "latch_rst_intern_ctl": ["clocked", "signalled"],
     },
     "inst_params": [
-        # Defaults for all nmos/pmos/cap instances
-        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
-        {"instances": {"cap": "all"}, "c": 1, "m": 1},
-        # Override specific instances with sweeps
+        # Specific instance sweeps (first applied wins)
         {"instances": {"nmos": ["M_preamp_diff+", "M_preamp_diff-"], "pmos": ["M_preamp_diff+", "M_preamp_diff-"]}, "w": [4, 8], "type": ["lvt"]},
         {"instances": {"nmos": ["M_preamp_tail", "M_preamp_bias"], "pmos": ["M_preamp_tail", "M_preamp_bias"]}, "w": [2, 4], "l": [2]},
         {"instances": {"nmos": ["M_preamp_rst+", "M_preamp_rst-"], "pmos": ["M_preamp_rst+", "M_preamp_rst-"]}, "w": [2], "type": ["lvt"]},
@@ -44,6 +41,9 @@ subckt = {
             "w": [1, 2, 4],
             "type": ["lvt"],
         },
+        # Defaults for all instances (applied last, only fills in unset params)
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
+        {"instances": {"cap": "all"}, "type": "cap_mom1", "c": 1, "m": 1},
     ],
 }
 
@@ -500,15 +500,19 @@ tb = {
             },
         },
         # Source impedance on signal input (models DAC/SHA output impedance)
+        # r in Ohms (ideal_res rsh=1), c in fF (ideal_cap unit_cap=1fF)
         "Rsrc_p": {
             "dev": "res",
             "pins": {"p": "vin_src", "n": "in+"},
-            "params": {"r": 1e3},
+            "type": "res_ideal",
+            "r": 1000,
         },
         "Csrc_p": {
             "dev": "cap",
             "pins": {"p": "in+", "n": "gnd"},
-            "params": {"c": 100e-15},
+            "type": "cap_ideal",
+            "c": 100,
+            "m": 1,
         },
         # Reference: in- = vcm (no differential offset)
         "Vref": {
@@ -521,12 +525,15 @@ tb = {
         "Rsrc_n": {
             "dev": "res",
             "pins": {"p": "vref_src", "n": "in-"},
-            "params": {"r": 1e3},
+            "type": "res_ideal",
+            "r": 1000,
         },
         "Csrc_n": {
             "dev": "cap",
             "pins": {"p": "in-", "n": "gnd"},
-            "params": {"c": 100e-15},
+            "type": "cap_ideal",
+            "c": 100,
+            "m": 1,
         },
         # Clock: 10ns period, 40% duty cycle high (evaluation phase)
         "Vclk": {
@@ -558,16 +565,20 @@ tb = {
                 "per": 10,
             },
         },
-        # Output loading
+        # Output loading (c in fF)
         "Cload_p": {
             "dev": "cap",
             "pins": {"p": "out+", "n": "vss"},
-            "params": {"c": 10e-15},
+            "type": "cap_ideal",
+            "c": 10,
+            "m": 1,
         },
         "Cload_n": {
             "dev": "cap",
             "pins": {"p": "out-", "n": "vss"},
-            "params": {"c": 10e-15},
+            "type": "cap_ideal",
+            "c": 10,
+            "m": 1,
         },
         # DUT
         "Xdut": {

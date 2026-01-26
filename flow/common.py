@@ -41,14 +41,13 @@ techmap = {
             "pmos_lvt": {"model": "pch_lvt", "w": 100e-9, "l": 60e-9},
             "pmos_svt": {"model": "pch", "w": 100e-9, "l": 60e-9},
             "pmos_hvt": {"model": "pch_hvt", "w": 100e-9, "l": 60e-9},
-            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
-            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
-            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "polyres": {"model": "polyres", "rsh": 50},
-        },
-        "mom_cap": {
-            "unit_cap": 1e-15,  # 1 fF unit capacitance
-            "model": "mimcap",
+            # TODO: Verify momcap model names against actual PDK
+            "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "res_poly": {"model": "polyres", "rsh": 50},
+            "res_ideal": {"model": "resistor", "rsh": 1},
         },
         "corners": {
             "tt": "tt_lib",
@@ -82,14 +81,13 @@ techmap = {
             "pmos_lvt": {"model": "pch_lvt_mac", "w": 40e-9, "l": 30e-9},
             "pmos_svt": {"model": "pch_svt_mac", "w": 40e-9, "l": 30e-9},
             "pmos_hvt": {"model": "pch_hvt_mac", "w": 40e-9, "l": 30e-9},
-            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
-            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
-            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "polyres": {"model": "polyres", "rsh": 50},
-        },
-        "mom_cap": {
-            "unit_cap": 1e-15,  # 1 fF unit capacitance
-            "model": "mimcap",
+            # TODO: Verify momcap model names against actual PDK
+            "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "res_poly": {"model": "polyres", "rsh": 50},
+            "res_ideal": {"model": "resistor", "rsh": 1},
         },
         "corners": {
             "tt": "att_pt",
@@ -130,14 +128,13 @@ techmap = {
             "pmos_lvt": {"model": "p18lvt", "w": 220e-9, "l": 180e-9},
             "pmos_svt": {"model": "p18", "w": 220e-9, "l": 180e-9},
             "pmos_hvt": {"model": "p18hvt", "w": 220e-9, "l": 180e-9},
-            "momcap_1m": {"model": "mimcap_1m", "unit_cap": 1e-15},
-            "momcap_2m": {"model": "mimcap_2m", "unit_cap": 1e-15},
-            "momcap_3m": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "polyres": {"model": "polyres", "rsh": 50},
-        },
-        "mom_cap": {
-            "unit_cap": 1e-15,  # 1 fF unit capacitance
-            "model": "mimcap",
+            # TODO: Verify momcap model names against actual PDK
+            "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
+            "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
+            "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "res_poly": {"model": "polyres", "rsh": 50},
+            "res_ideal": {"model": "resistor", "rsh": 1},
         },
         "corners": {
             "tt": "NOM",

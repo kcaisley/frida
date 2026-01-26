@@ -27,10 +27,10 @@ subckt = {
         "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"],
     },
     "inst_params": [
-        # Defaults for all nmos/pmos/cap/res instances
+        # Defaults for all instances (cap type is a sweep over mom cap variants)
+        {"instances": {"cap": "all"}, "type": ["cap_mom1", "cap_mom2", "cap_mom3"]},
+        {"instances": {"res": "all"}, "type": "res_poly", "r": 4},
         {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
-        {"instances": {"cap": "all"}, "type": ["momcap_1m", "momcap_2m", "momcap_3m"]},
-        {"instances": {"res": "all"}, "type": "polyres", "r": 4},
     ],
 }
 

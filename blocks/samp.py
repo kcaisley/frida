@@ -15,10 +15,10 @@ subckt = {
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "topo_params": {"switch_type": ["nmos", "pmos", "tgate"]},
     "inst_params": [
-        # Defaults for all nmos/pmos instances
-        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
-        # Override specific instances with sweeps
+        # Specific instance sweeps (first applied wins)
         {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": [5, 10, 20, 40], "l": [1, 2]},
+        # Defaults for all instances (applied last, only fills in unset params)
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
     ],
 }
 
@@ -153,12 +153,14 @@ tb = {
         "Rsrc": {
             "dev": "res",
             "pins": {"p": "in_driver", "n": "in"},
-            "params": {"r": 1e3},
+            "type": "res_ideal",
+            "params": {"r": 1e3},  # 1k Ohm (res_ideal rsh = 1)
         },
         "Cload": {
             "dev": "cap",
             "pins": {"p": "out", "n": "vss"},
-            "params": {"c": 1e-12},
+            "type": "cap_ideal",
+            "params": {"c": 1e3},  # 1 pF = 1000 fF (cap_ideal unit_cap = 1e-15)
         },
         "Vclk": {
             "dev": "vsource",

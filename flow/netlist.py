@@ -99,6 +99,8 @@ def main() -> None:
             subckts = generate_topology(subckts, generate_fn)
 
             subckts = expand_params(subckts, mode="inst_params")
+            # Normalize first (move top-level fields to params), then apply defaults
+            subckts = normalize_inst_params(subckts)
             subckts = apply_inst_params(subckts)
 
             subckts = expand_params(subckts, mode="tech_params")
@@ -267,10 +269,13 @@ def main() -> None:
                     tb["corner"] = corner
                     tb["temp"] = temp
 
-                    # 10. Expand declarative vsource params to concrete values
+                    # 10. Normalize instance params (move top-level fields to params)
+                    tb = normalize_inst_params([tb])[0]
+
+                    # 11. Expand declarative vsource params to concrete values
                     tb = generate_v_i_source_values(tb)
 
-                    # 11. Map to technology (includes vsource scaling)
+                    # 12. Map to technology (includes vsource scaling)
                     tb = map_technology(tb, techmap)
 
                     # 12. Add auto fields (libs, includes, options, save)
@@ -555,7 +560,7 @@ def apply_inst_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         name for name in targets if name in instances
                     )
 
-            # Apply params to matched instances
+            # Apply params to matched instances (don't overwrite existing values)
             for inst_name in matched_instances:
                 inst_info = instances[inst_name]
                 if "params" not in inst_info:
@@ -564,7 +569,52 @@ def apply_inst_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 for param, val in inst_spec.items():
                     if param == "instances":
                         continue
-                    inst_info["params"][param] = val
+                    # Only set if not already present (instance-specific values take priority)
+                    if param not in inst_info["params"]:
+                        inst_info["params"][param] = val
+
+        result_list.append(result)
+    return result_list
+
+
+def normalize_inst_params(netstructs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Normalize instance parameters by moving device-specific fields into params dict.
+
+    For each primitive instance, fields like c, m, r, w, l, nf, type are moved from
+    the top level into the params dict. Also sets defaults (e.g., m=1 for caps).
+
+    This should be called BEFORE apply_inst_params so that instance-specific values
+    take priority over defaults from inst_params list.
+    """
+    result_list = []
+    for netstruct in netstructs:
+        result = copy.deepcopy(netstruct)
+        instances = result.get("instances", {})
+
+        # Fields that should be moved into params (device-specific parameters)
+        param_fields = {"c", "m", "r", "w", "l", "nf", "type"}
+
+        for inst_info in instances.values():
+            dev = inst_info.get("dev")
+            if not dev or dev == "vsource":
+                continue  # Skip non-devices and vsources (handled separately)
+
+            # Ensure params dict exists
+            if "params" not in inst_info:
+                inst_info["params"] = {}
+            params = inst_info["params"]
+
+            # Move param fields from top level into params
+            for field in list(inst_info.keys()):
+                if field in param_fields:
+                    if field not in params:  # Don't override if already in params
+                        params[field] = inst_info[field]
+                    del inst_info[field]
+
+            # Set defaults based on device type
+            if dev == "cap" and "m" not in params:
+                params["m"] = 1
 
         result_list.append(result)
     return result_list
@@ -862,35 +912,30 @@ def map_technology(
                 inst_info["freq"] = params.get("freq", inst_info.get("freq", 1e6))
                 inst_info["delay"] = params.get("delay", inst_info.get("delay", 0)) * tstep
 
-            # Remove params dict (consumed)
-            if "params" in inst_info:
-                del inst_info["params"]
+            # Keep params dict for debugging in JSON output
 
             continue  # Skip devmap lookup for vsources
 
         # For devices requiring devmap lookup (transistors, caps, res)
+        # All values should be in params after normalize_inst_params
         params = inst_info.get("params")
         if not params:
             continue
 
         # Combine dev + type for devmap lookup
         # For transistors: nmos_lvt, pmos_svt (dev + type)
-        # For caps/res: momcap_1m, polyres (type already includes category)
-        if dev in ["nmos", "pmos"] and "type" in params:
-            device_key = f"{dev}_{params['type']}"
-        elif "type" in params:
-            device_key = params["type"]
+        # For caps/res: cap_ideal, res_poly (type already includes category)
+        dev_type = params.get("type")
+        if dev in ["nmos", "pmos"] and dev_type:
+            device_key = f"{dev}_{dev_type}"
+        elif dev_type:
+            device_key = dev_type
         else:
             device_key = dev
 
         dev_map = tech_config["devmap"].get(device_key)
         if not dev_map:
             continue
-
-        # Save device type in params for generate_spice(), then remove from inst_info
-        params["dev"] = dev
-        if "dev" in inst_info:
-            del inst_info["dev"]
 
         # Map transistors
         if dev in ["nmos", "pmos"]:
@@ -902,14 +947,15 @@ def map_technology(
         # Map capacitors
         elif dev == "cap":
             inst_info["model"] = dev_map["model"]
-            # Keep c and m from instance definition for SPICE generation
+            # Scale c by unit_cap, m is a generic scalar (no scaling)
+            inst_info["c"] = params["c"] * dev_map["unit_cap"]
+            inst_info["m"] = params["m"]
 
         # Map resistors
         elif dev == "res":
             inst_info["model"] = dev_map["model"]
-            # Keep r from instance definition for SPICE generation
-            if "rsh" in dev_map:
-                inst_info["rsh"] = dev_map["rsh"]
+            # Scale r by rsh (sheet resistance)
+            inst_info["r"] = params["r"] * dev_map["rsh"]
 
     return netstruct_techmapped
 
@@ -1003,12 +1049,104 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
         SPICE netlist string
     """
     lines = []
+    instances = netstruct.get("instances", {})
 
+    # =========================================================================
+    # Render instances (shared between subckt and tb modes)
+    # =========================================================================
+    def render_instance(inst_name: str, inst_info: dict) -> str | None:
+        """Render a single instance to SPICE. Returns None if not renderable."""
+        pins = inst_info.get("pins", {})
+
+        # Case 1: Subcircuit instance (child cell) - identified by "cell" key
+        if "cell" in inst_info:
+            cell_ref = inst_info["cell"]
+            pin_list = " ".join(pins.values())
+            return f"{inst_name} {pin_list} {cell_ref}"
+
+        # Case 2: Primitive device - identified by "dev" key
+        dev_type = inst_info.get("dev")
+        if not dev_type:
+            return None
+
+        model = inst_info.get("model")
+
+        # Transistors (nmos, pmos)
+        if dev_type in ["nmos", "pmos"]:
+            pin_list = " ".join(pins.get(p, "0") for p in ["d", "g", "s", "b"])
+            line = f"{inst_name} {pin_list} {model}"
+            # W/L are stored in inst_info (set by map_technology)
+            line += f" W={format_value(inst_info['w'])}"
+            line += f" L={format_value(inst_info['l'])}"
+            line += f" nf={inst_info.get('nf', 1)}"
+            return line
+
+        # Capacitors
+        if dev_type == "cap":
+            p = pins.get("p", "p")
+            n = pins.get("n", "n")
+            c = format_value(inst_info["c"])
+            m = inst_info["m"]
+            # Ideal caps (no model or "capacitor") use bare value syntax
+            if model and model != "capacitor":
+                return f"{inst_name} {p} {n} {model} c={c} m={m}"
+            return f"{inst_name} {p} {n} {c}"
+
+        # Resistors
+        if dev_type == "res":
+            p = pins.get("p", "p")
+            n = pins.get("n", "n")
+            r = format_value(inst_info["r"])
+            # Ideal resistors (no model or "resistor") use bare value syntax
+            if model and model != "resistor":
+                return f"{inst_name} {p} {n} {model} r={r}"
+            return f"{inst_name} {p} {n} {r}"
+
+        # Voltage sources (testbench only)
+        # After map_technology(), all params are at top-level inst_info
+        if dev_type == "vsource":
+            p = pins.get("p", "p")
+            n = pins.get("n", "n")
+            wave = inst_info.get("wave", "dc")
+
+            line = f"{inst_name} {p} {n}"
+
+            if wave == "dc":
+                line += f" DC {format_value(inst_info['dc'])}"
+
+            elif wave == "pwl":
+                points = inst_info.get("points", [])
+                pwl_str = " ".join([format_value(v) for v in points])
+                line += f" PWL({pwl_str})"
+
+            elif wave == "sine":
+                dc = format_value(inst_info["dc"])
+                ampl = format_value(inst_info["ampl"])
+                freq = format_value(inst_info["freq"])
+                delay = format_value(inst_info["delay"])
+                line += f" SIN({dc} {ampl} {freq} {delay})"
+
+            elif wave == "pulse":
+                v1 = format_value(inst_info["v1"])
+                v2 = format_value(inst_info["v2"])
+                td = format_value(inst_info["td"])
+                tr = format_value(inst_info["tr"])
+                tf = format_value(inst_info["tf"])
+                pw = format_value(inst_info["pw"])
+                per = format_value(inst_info["per"])
+                line += f" PULSE({v1} {v2} {td} {tr} {tf} {pw} {per})"
+
+            return line
+
+        return None
+
+    # =========================================================================
+    # Mode-specific output
+    # =========================================================================
     if mode == "subckt":
         # Subcircuit mode
         subckt_name = netstruct.get("cellname", "unnamed")
         ports = netstruct.get("ports", {})
-        instances = netstruct.get("instances", {})
 
         # Generate descriptive comment from top-level and topo_params fields
         param_strs = []
@@ -1044,56 +1182,9 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
         # Instances
         for inst_name, inst_info in instances.items():
-            pins = inst_info.get("pins", {})
-
-            # Case 1: Subcircuit instance (child cell) - identified by "cell" key
-            if "cell" in inst_info:
-                cell_ref = inst_info["cell"]
-                pin_list = " ".join(pins.values())
-                lines.append(f"{inst_name} {pin_list} {cell_ref}")
-                continue
-
-            # Case 2: Primitive device - identified by "dev" key
-            # Device type may be in params.dev (after map_technology) or inst_info.dev
-            dev_type = None
-            if "params" in inst_info:
-                dev_type = inst_info["params"].get("dev")
-            if not dev_type:
-                dev_type = inst_info.get("dev")
-
-            if not dev_type:
-                # Skip instances without device type
-                continue
-
-            # Get params dict (nested under 'params' key after apply_inst_params)
-            params = inst_info.get("params", {})
-            model = inst_info.get("model")
-
-            # Transistors (nmos, pmos)
-            if dev_type in ["nmos", "pmos"]:
-                pin_list = " ".join(pins.get(p, "0") for p in ["d", "g", "s", "b"])
-                line = f"{inst_name} {pin_list} {model}"
-                line += f" W={format_value(params['w'])}"
-                line += f" L={format_value(params['l'])}"
-                line += f" nf={params.get('nf', 1)}"
+            line = render_instance(inst_name, inst_info)
+            if line:
                 lines.append(line)
-
-            # Capacitors
-            elif dev_type == "cap":
-                p = pins.get("p", "p")
-                n = pins.get("n", "n")
-                c = params.get("c", 1)  # Unitless capacitance value
-                m = params.get("m", 1)  # Multiplier
-                cap_model = inst_info.get("model", "capacitor")
-                lines.append(f"{inst_name} {p} {n} {cap_model} c={c} m={m}")
-
-            # Resistors
-            elif dev_type == "res":
-                p = pins.get("p", "p")
-                n = pins.get("n", "n")
-                r = params.get("r", 4)  # Resistance multiplier
-                res_model = inst_info.get("model", "resistor")
-                lines.append(f"{inst_name} {p} {n} {res_model} r={r}")
 
         lines.append("")
         lines.append(f".ends {subckt_name}")
@@ -1102,8 +1193,6 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
     elif mode == "tb":
         # Testbench mode
-        instances = netstruct.get("instances", {})
-        analyses = netstruct.get("analyses", {})
 
         # Simulator declaration
         if "simulator" in netstruct:
@@ -1123,134 +1212,9 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
 
         # Instances
         for inst_name, inst_info in instances.items():
-            # Check for "cell" (subcircuit instance) first
-            if "cell" in inst_info:
-                cell_ref = inst_info["cell"]
-                pins = inst_info.get("pins", {})
-                pin_list = " ".join([pins[p] for p in pins.keys()])
-                lines.append(f"{inst_name} {pin_list} {cell_ref}")
-                continue
-
-            dev = inst_info.get("dev")
-
-            if dev == "vsource":
-                # Voltage source
-                pins = inst_info.get("pins", {})
-                p = pins.get("p", "p")
-                n = pins.get("n", "n")
-                wave = inst_info.get("wave", "dc")
-
-                line = f"{inst_name} {p} {n}"
-
-                if wave == "dc":
-                    dc_val = inst_info.get("dc", 0)
-                    line += f" DC {format_value(dc_val, 'V')}"
-
-                elif wave == "pwl":
-                    points = inst_info.get("points", [])
-                    # Spectre PWL uses bare SI prefixes without unit suffixes
-                    pwl_str = " ".join([format_value(v, "") for v in points])
-                    line += f" PWL({pwl_str})"
-
-                elif wave == "sine":
-                    dc = format_value(inst_info.get("dc", 0), "V")
-                    ampl = format_value(inst_info.get("ampl", 0), "V")
-                    freq = format_value(inst_info.get("freq", 1e6), "Hz")
-                    delay = format_value(inst_info.get("delay", 0), "s")
-                    line += f" SIN({dc} {ampl} {freq} {delay})"
-
-                elif wave == "pulse":
-                    v1 = format_value(inst_info.get("v1", 0), "V")
-                    v2 = format_value(inst_info.get("v2", 1), "V")
-                    td = format_value(inst_info.get("td", 0), "s")
-                    tr = format_value(inst_info.get("tr", 0), "s")
-                    tf = format_value(inst_info.get("tf", 0), "s")
-                    pw = format_value(inst_info.get("pw", 1e-9), "s")
-                    per = format_value(inst_info.get("per", 2e-9), "s")
-                    line += f" PULSE({v1} {v2} {td} {tr} {tf} {pw} {per})"
-
+            line = render_instance(inst_name, inst_info)
+            if line:
                 lines.append(line)
-
-            elif dev == "res":
-                pins = inst_info.get("pins", {})
-                params = inst_info.get("params", {})
-                p = pins.get("p", "p")
-                n = pins.get("n", "n")
-                r = params.get("r", 1000)
-                lines.append(f"{inst_name} {p} {n} {format_value(r, 'Ohm')}")
-
-            elif dev == "cap":
-                pins = inst_info.get("pins", {})
-                params = inst_info.get("params", {})
-                p = pins.get("p", "p")
-                n = pins.get("n", "n")
-                c = params.get("c", 1e-12)
-                lines.append(f"{inst_name} {p} {n} {format_value(c, 'F')}")
-
-            else:
-                # Subcircuit instance (backwards compatibility via "dev" field)
-                pins = inst_info.get("pins", {})
-                pin_list = " ".join([pins[p] for p in pins.keys()])
-                lines.append(f"{inst_name} {pin_list} {dev}")
-
-        lines.append("")
-
-        # Analysis
-        if analyses:
-            # Check if there's a montecarlo analysis
-            mc_analysis = None
-            tran_analysis = None
-
-            for name, spec in analyses.items():
-                if spec.get("type") == "montecarlo":
-                    mc_analysis = (name, spec)
-                elif spec.get("type") == "tran":
-                    tran_analysis = (name, spec)
-
-            if mc_analysis and tran_analysis:
-                # Wrap tran in montecarlo
-                mc_name, mc_spec = mc_analysis
-                tran_name, tran_spec = tran_analysis
-
-                stop = format_value(tran_spec.get("stop", 1e-6), "s")
-                step = (
-                    format_value(tran_spec.get("step", 1e-9), "s")
-                    if "step" in tran_spec
-                    else None
-                )
-
-                lines.append(
-                    f"{mc_name} montecarlo numruns={mc_spec.get('numruns', 20)} "
-                    + f"seed={mc_spec.get('seed', 12345)} "
-                    + f"variations={mc_spec.get('variations', 'all')} {{"
-                )
-
-                tran_line = f"    {tran_name} tran stop={stop}"
-                if "strobeperiod" in tran_spec:
-                    tran_line += (
-                        f" strobeperiod={format_value(tran_spec['strobeperiod'], 's')}"
-                    )
-                if "noisefmax" in tran_spec:
-                    tran_line += (
-                        f" noisefmax={format_value(tran_spec['noisefmax'], 'Hz')}"
-                    )
-                if "noiseseed" in tran_spec:
-                    tran_line += f" noiseseed={tran_spec['noiseseed']}"
-                if "param" in tran_spec:
-                    tran_line += f" param={tran_spec['param']}"
-                if "param_vec" in tran_spec:
-                    vec_str = " ".join([str(v) for v in tran_spec["param_vec"]])
-                    tran_line += f" param_vec=[{vec_str}]"
-
-                lines.append(tran_line)
-                lines.append("}")
-
-            elif tran_analysis:
-                # Just transient
-                tran_name, tran_spec = tran_analysis
-                stop = format_value(tran_spec.get("stop", 1e-6), "s")
-                step = format_value(tran_spec.get("step", 1e-9), "s")
-                lines.append(f".tran {step} {stop}")
 
         lines.append("")
 
@@ -1261,9 +1225,6 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
             lines.append(f".option {opt_str}")
 
         lines.append("")
-
-        # Note: save statements are NOT generated here - they are provided at
-        # the PyOPUS simulation level, same as analyses.
 
     else:
         msg = f"Invalid mode '{mode}'. Expected 'subckt' or 'tb'."
@@ -1385,7 +1346,7 @@ def generate_filename(netstruct: dict[str, Any]) -> str:
 
         # Add all topo_param values (only scalar types)
         topo_params = netstruct.get("topo_params", {})
-        for key, value in topo_params.items():
+        for value in topo_params.values():
             if isinstance(value, (int, str, float, bool)):
                 parts.append(str(value))
 

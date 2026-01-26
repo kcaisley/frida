@@ -19,14 +19,14 @@ subckt = {
     },
     "tech": ["tsmc65", "tsmc28", "tower180"],
     "inst_params": [
-        # Defaults for all nmos/pmos instances
-        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
-        # Override specific instances with sweeps
+        # Specific instance sweeps (first applied wins)
         {
             "instances": {"nmos": ["MNa", "MNb"], "pmos": ["MPa", "MPb"]},
             "w": [1, 2, 4, 8, 12, 16],
             "type": ["lvt", "svt"],
         },
+        # Defaults for all instances (applied last, only fills in unset params)
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
     ],
 }
 
@@ -86,7 +86,8 @@ tb = {
         "Cload": {
             "dev": "cap",
             "pins": {"p": "out", "n": "vss"},
-            "params": {"c": 1e-15},
+            "type": "cap_ideal",
+            "params": {"c": 1},  # 1 fF (cap_ideal unit_cap = 1e-15)
         },
         "Xdut": {
             "cell": "nand2",

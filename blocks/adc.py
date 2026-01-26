@@ -33,8 +33,6 @@ subckt = {
         "n_adc": [8, 12, 14],
     },
     "inst_params": [
-        # Defaults for all nmos/pmos instances in the ADC itself
-        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
         # Child cdac config - sweep redun_strat and split_strat
         {
             "instances": {"cdac": "all"},
@@ -43,30 +41,32 @@ subckt = {
                 "split_strat": ["nosplit", "vdivsplit", "diffcapsplit"],
             },
         },
-        # Child samp config - use default sizing
+        # Child samp config (specific sweeps first, then defaults)
         {
             "instances": {"samp": "all"},
             "inst_params": [
-                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
                 {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": 5, "l": 1},
+                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
             ],
         },
-        # Child inv config - use default sizing
+        # Child inv config (specific sweeps first, then defaults)
         {
             "instances": {"inv": "all"},
             "inst_params": [
-                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
                 {"instances": {"nmos": ["MN"], "pmos": ["MP"]}, "w": 1, "type": "lvt"},
+                {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
             ],
         },
-        # Child comp config - use default sizing
+        # Child comp config (specific sweeps first, then defaults)
         {
             "instances": {"comp": "all"},
             "inst_params": [
+                {"instances": {"cap": "all"}, "type": "cap_mom1", "c": 1, "m": 1},
                 {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
-                {"instances": {"cap": "all"}, "c": 1, "m": 1},
             ],
         },
+        # Defaults for all nmos/pmos instances in the ADC itself (applied last)
+        {"instances": {"nmos": "all", "pmos": "all"}, "type": "lvt", "w": 1, "l": 1, "nf": 1},
     ],
 }
 
