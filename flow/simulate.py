@@ -272,9 +272,10 @@ def main():
         help="Number of parallel processes (default: 40)",
     )
     parser.add_argument(
-        "--dryrun",
-        action="store_true",
-        help="Generate input files without running simulator",
+        "--mode",
+        choices=["dryrun", "single", "all"],
+        default="all",
+        help="Simulation mode: dryrun (generate files only), single (run first sim only), all (run all)",
     )
 
     args = parser.parse_args()
@@ -319,9 +320,9 @@ def main():
 
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
-    logger.info(f"Flow:       simulate {'(DRYRUN)' if args.dryrun else '(parallel batch)'}")
+    logger.info(f"Flow:       simulate (mode={args.mode})")
     logger.info(f"Jobs:       {len(jobs)}")
-    if not args.dryrun:
+    if args.mode != "dryrun":
         logger.info(f"Workers:    {args.jobs}")
     logger.info(f"Output:     {sim_dir}")
     logger.info(f"Log:        {log_file}")
@@ -333,7 +334,7 @@ def main():
     sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Dryrun mode: generate PyOPUS simulator input files without running
-    if args.dryrun:
+    if args.mode == "dryrun":
         # Validate cell script structure
         script_errors, _ = check_cell_script(cell_module, args.cell)
         if script_errors:
@@ -359,7 +360,6 @@ def main():
         sim.setJobList(clean_jobs)
 
         # Change to sim directory for file generation
-        import os
         orig_dir = os.getcwd()
         os.chdir(sim_dir)
 
@@ -379,6 +379,11 @@ def main():
         logger.info(f"Input files:   {sim_dir}")
         logger.info("=" * 80)
         return 0
+
+    # Single mode: run only the first job (for debugging)
+    if args.mode == "single":
+        logger.info("SINGLE MODE: Running first simulation only (for debugging)")
+        jobs = jobs[:1]
 
     # Run simulations
     start_time = datetime.datetime.now()

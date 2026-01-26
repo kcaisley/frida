@@ -11,7 +11,7 @@ CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas plot clean_plot all clean_all
+.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas plot clean_plot all clean_all help
 
 # ============================================================
 # Setup and Maintenance
@@ -77,7 +77,7 @@ else
 endif
 
 # ============================================================
-# Simulation (remote execution on juno)
+# Simulation
 # ============================================================
 
 # Remote configuration
@@ -87,40 +87,48 @@ REMOTE_PROJECT := /local/kcaisley/frida
 REMOTE_VENV := $(REMOTE_PROJECT)/.venv/bin/python
 NUM_PROCS := 40
 
-# Simulation: rsync code to juno, run parallel simulations, rsync results back
-# Use host=dryrun to generate input files locally without running simulator
+# Simulation
+# Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>
 sim:
 ifndef cell
-	$(error Usage: make sim cell=<cellname> [tech=<tech>] [host=dryrun])
+	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
+endif
+ifndef mode
+	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
+endif
+ifndef host
+	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
-ifeq ($(host),dryrun)
-	@echo "=== DRYRUN MODE: Generating input files only ==="
-	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --dryrun $(if $(tech),--tech=$(tech))
-else
-	@echo "=== Syncing to $(REMOTE_HOST) ==="
-	rsync -az --delete --exclude='.venv' --exclude='*.raw' ./ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/
-	@echo "=== Running simulation with $(NUM_PROCS) parallel processes ==="
+ifeq ($(host),local)
+	@echo "=== Running LOCAL simulation (mode=$(mode)) ==="
+	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))
+else ifeq ($(host),remote)
+	@echo "=== Checking for uncommitted or unpushed changes ==="
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Error: You have uncommitted changes. Please commit before running remote simulation."; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git log @{u}.. 2>/dev/null)" ]; then \
+		echo "Error: You have unpushed commits. Please push before running remote simulation."; \
+		exit 1; \
+	fi
+	@echo "=== Syncing results to $(REMOTE_HOST) ==="
+	rsync -az --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
+	@echo "=== Running REMOTE simulation (mode=$(mode)) ==="
 	ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
 		cd $(REMOTE_PROJECT) && \
+		git pull && \
 		source /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh && \
 		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
-		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))"
+		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))"
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
 	@echo "=== Simulation complete ==="
+else
+	$(error Invalid host '$(host)'. Use: local or remote)
 endif
-
-# Local simulation (run directly on current machine - use after SSH to juno)
-# Usage: ssh juno, cd /local/kcaisley/frida, source spectre env, make sim_local cell=inv
-sim_local:
-ifndef cell
-	$(error Usage: make sim_local cell=<cellname> [tech=<tech>] [NUM_PROCS=N])
-endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
-	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))
 
 clean_sim:
 ifdef cell
@@ -222,8 +230,7 @@ help:
 	@echo "Targets:"
 	@echo "  subckt        Generate subcircuit netlists"
 	@echo "  tb            Generate testbench netlists"
-	@echo "  sim           Run simulations (rsync to juno, run, rsync back)"
-	@echo "  sim_local     Run simulations locally (use after SSH to juno)"
+	@echo "  sim           Run simulations"
 	@echo "  meas          Extract measurements from results"
 	@echo "  plot          Generate plots from measurements"
 	@echo "  all           Run full flow (subckt -> tb -> sim -> meas -> plot)"
@@ -238,25 +245,22 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  cell=<name>   Cell name (required for most targets)"
+	@echo "  mode=<mode>   Simulation mode: dryrun, single, all (required for sim)"
+	@echo "  host=<host>   Simulation host: local, remote (required for sim)"
 	@echo "  tech=<tech>   Filter by technology (tsmc65, tsmc28, tower180)"
 	@echo "  corner=<c>    Filter by corner (tt, ss, ff, sf, fs)"
 	@echo "  temp=<t>      Filter by temperature (27, etc.)"
 	@echo "  NUM_PROCS=N   Number of parallel processes (default: 40)"
 	@echo ""
-	@echo "Examples:"
+	@echo "Simulation examples:"
+	@echo "  make sim cell=comp mode=dryrun host=local    # Generate input files only"
+	@echo "  make sim cell=comp mode=single host=local    # Run locally"
+	@echo "  make sim cell=comp mode=single host=remote   # Run on juno"
+	@echo "  make sim cell=all mode=all host=remote       # Run all cells on juno"
+	@echo ""
+	@echo "Other examples:"
 	@echo "  make subckt cell=comp"
 	@echo "  make tb cell=comp"
-	@echo "  make sim cell=comp tech=tsmc65"
 	@echo "  make meas cell=comp"
 	@echo "  make plot cell=comp tech=tsmc65 corner=tt"
 	@echo "  make all cell=comp"
-	@echo ""
-	@echo "Manual simulation workflow (if 'make sim' times out):"
-	@echo "  1. rsync -az --exclude='.venv' --exclude='*.raw' ./ juno:/local/kcaisley/frida/"
-	@echo "  2. ssh juno"
-	@echo "  3. cd /local/kcaisley/frida"
-	@echo "  4. source /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh"
-	@echo "  5. export CDS_LIC_FILE=27500@nexus.physik.uni-bonn.de"
-	@echo "  6. make sim_local cell=inv tech=tower180"
-	@echo "  7. exit"
-	@echo "  8. rsync -az juno:/local/kcaisley/frida/results/inv/sim/ results/inv/sim/"
