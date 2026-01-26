@@ -128,12 +128,16 @@ def run_batch_pyopus(jobs: list[dict[str, Any]], sim_dir: Path, num_workers: int
     results = {}
     for i in range(sim.jobGroupCount()):
         # TODO: This is a hack - we override simulatorID and cmdline per job group
-        # so .scs/.log files match the testbench name. This may break if PyOPUS
+        # so .scs/.log/.raw files match the testbench name. This may break if PyOPUS
         # changes how it uses these internally. Revisit if issues arise.
         job_indices = sim.jobGroup(i)
         job_name = jobs[job_indices[0]]["name"]
         sim.simulatorID = str(sim_dir / job_name)
-        sim.cmdline = ["-64", "+log", str(sim_dir / f"{job_name}_group{i}.log")]
+        sim.cmdline = [
+            "-64",
+            "+log", str(sim_dir / f"{job_name}_group{i}.log"),
+            "-raw", str(sim_dir / f"{job_name}_group{i}.raw"),
+        ]
 
         job_indices, status = sim.runJobGroup(i)
 
