@@ -8,6 +8,7 @@ used across netlist generation, simulation, measurement, and plotting scripts.
 import importlib.util
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
