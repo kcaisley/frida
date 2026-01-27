@@ -1,4 +1,18 @@
 """
+################################################################################
+# TODO: RENAME ALL NETS AND PORTS TO NOT USE + AND - SUFFIXES!
+#
+# Spectre doesn't parse + and - in net names correctly, and Verilog identifiers
+# also cannot contain these characters. Change naming convention:
+#   in+  -> inp  (or in_p)
+#   in-  -> inn  (or in_n)
+#   out+ -> outp (or out_p)
+#   out- -> outn (or out_n)
+#   etc.
+#
+# This affects: ports dict, pins dict in instances, and all net references.
+################################################################################
+
 CDAC subcircuit definition.
 
 Dynamic topology using topo_params - generate_topology() computes ports/devices

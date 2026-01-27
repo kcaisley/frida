@@ -159,6 +159,7 @@ def main() -> None:
                     "cfgname": cfgname,
                     "subckt_json": None,
                     "subckt_spice": None,
+                    "subckt_verilog": None,
                     "subckt_children": {},
                     "tb_json": [],
                     "tb_spice": [],
@@ -181,11 +182,17 @@ def main() -> None:
                 sp_path.write_text(spice_str)
                 file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
 
-                # 13. Resolve child subcircuit dependencies
+                # 13. Write Verilog netlist
+                v_path = args.subckt_dir / f"{cfgname}.v"
+                verilog_str = generate_verilog(subckt)
+                v_path.write_text(verilog_str)
+                file_ctx["subckt_verilog"] = f"subckt/{cfgname}.v"
+
+                # 14. Resolve child subcircuit dependencies
                 child_deps = resolve_child_deps(subckt, args.output)
                 file_ctx["subckt_children"] = child_deps
 
-                # 14. Add file_ctx to files dict with config_hash as key
+                # 15. Add file_ctx to files dict with config_hash as key
                 files[config_hash] = file_ctx
                 total_count += 1
 
@@ -211,13 +218,14 @@ def main() -> None:
                             row_data[col_name] = "-"
                     print_table_row(row_data, headers, col_widths)
 
-            # 15. Write files.json and print summary
+            # 16. Write files.json and print summary
             files_db_path = args.output / cell_name / "files.json"
             save_files_list(files_db_path, files)
             elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
             logger.info("-" * 80)
-            logger.info(f"Result:      {total_count} subcircuits generated")
+            logger.info(f"Result:      {total_count} SPICE netlists generated")
+            logger.info(f"             {total_count} Verilog netlists generated")
             if expected_total > 0 and total_count < expected_total:
                 logger.info(f"Note:        {total_count}/{expected_total} param combinations valid, as not all topo_params combine")
             logger.info(f"Wall Time:   {format_wall_time(elapsed)}")
@@ -1417,6 +1425,86 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
         raise ValueError(msg)
 
     return "\n".join(lines) + "\n"
+
+
+def generate_verilog(netstruct: dict[str, Any]) -> str:
+    """
+    Convert netstruct dict to Verilog module string.
+
+    Generates a purely hierarchical Verilog representation where all devices
+    are treated as black box modules with their port connections.
+
+    Args:
+        netstruct: Netstruct dict (subcircuit only)
+
+    Returns:
+        Verilog module string
+    """
+    lines = []
+    instances = netstruct.get("instances", {})
+    ports = netstruct.get("ports", {})
+    module_name = netstruct.get("cellname", "unnamed")
+
+    # Collect all nets (from ports and instance connections)
+    all_nets: set[str] = set(ports.keys())
+    for inst_info in instances.values():
+        pins = inst_info.get("pins", {})
+        all_nets.update(pins.values())
+
+    # Module declaration
+    port_list = ", ".join(ports.keys())
+    lines.append(f"module {module_name} ({port_list});")
+    lines.append("")
+
+    # Port declarations
+    for port_name, direction in ports.items():
+        # Map port directions: I->input, O->output, B->inout
+        if direction in ("I", "input"):
+            lines.append(f"    input {port_name};")
+        elif direction in ("O", "output"):
+            lines.append(f"    output {port_name};")
+        elif direction in ("B", "inout"):
+            lines.append(f"    inout {port_name};")
+        else:
+            # Default to inout for unknown directions
+            lines.append(f"    inout {port_name};")
+
+    lines.append("")
+
+    # Wire declarations for internal nets (nets that aren't ports)
+    internal_nets = all_nets - set(ports.keys())
+    for net in sorted(internal_nets):
+        lines.append(f"    wire {net};")
+
+    if internal_nets:
+        lines.append("")
+
+    # Instance declarations
+    for inst_name, inst_info in instances.items():
+        pins = inst_info.get("pins", {})
+
+        # Determine module type
+        if "cell" in inst_info:
+            # Subcircuit instance
+            mod_type = inst_info["cell"]
+        elif "model" in inst_info:
+            # Mapped device with model
+            mod_type = inst_info["model"]
+        elif "dev" in inst_info:
+            # Generic device type
+            mod_type = inst_info["dev"]
+        else:
+            mod_type = "unknown"
+
+        # Build port connections
+        port_conns = ", ".join(f".{pin}({net})" for pin, net in pins.items())
+        lines.append(f"    {mod_type} {inst_name} ({port_conns});")
+
+    lines.append("")
+    lines.append("endmodule")
+    lines.append("")
+
+    return "\n".join(lines)
 
 
 def detect_varying_inst_params(
