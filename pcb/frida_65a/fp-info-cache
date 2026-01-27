@@ -1,4 +1,4 @@
-26788697175577386
+26779979775481928
 Audio_Module
 Reverb_BTDR-1H
 Digital Reverberation Unit, http://www.belton.co.kr/inc/downfile.php?seq=17&file=pdf (footprint from http://www.uk-electronic.de/PDF/BTDR-1.pdf)
@@ -106364,27 +106364,6 @@ Varistor VF
 0
 2
 2
-dmaps
-LF-Monopix2
-
-
-0
-86
-74
-dmaps
-TJ-Monopix2
-
-
-0
-118
-63
-dmaps
-Untitled
-
-
-0
-0
-0
 frida65A
 CONN_SD-46991-001_04_MOL
 
@@ -106393,6 +106372,13 @@ CONN_SD-46991-001_04_MOL
 4
 4
 frida65A
+Molex_Mini-Fit_Jr_5569-08A1_2x04_P4.20mm_Horizontal
+Molex Mini-Fit Jr. Power Connectors, old mpn/engineering number: 5569-08A1, example for new mpn: 39-29-4089, 4 Pins per row, Mounting: PCB Mounting Flange (http://www.molex.com/pdm_docs/sd/039291047_sd.pdf), generated with kicad-footprint-generator
+connector Molex Mini-Fit_Jr top entryscrew_flange
+0
+8
+8
+frida65A
 QFN50P300X300X100-17N
 
 
@@ -106400,37 +106386,16 @@ QFN50P300X300X100-17N
 22
 22
 frida65A
+displayport
+47272-0024
+Connector
+0
+24
+24
+frida65A
 frida
 
 
 0
 28
 28
-silab
-DP_Molex_47272-0024
-47272-0024
-Connector
-0
-24
-24
-silab
-LEMO_EPL.00.250.NTN
-EPL.00.250.NTN
-Connector
-0
-5
-2
-silab
-Molex_Mini-Fit_Jr_02x04_horizontal
-Molex Mini-Fit Jr. Power Connectors, old mpn/engineering number: 5569-08A1, example for new mpn: 39-29-4089, 4 Pins per row, Mounting: PCB Mounting Flange (http://www.molex.com/pdm_docs/sd/039291047_sd.pdf), generated with kicad-footprint-generator
-connector Molex Mini-Fit_Jr top entryscrew_flange
-0
-8
-8
-silab
-MountingHole_3.2mm_M3_DIN965_Pad_small
-Mounting Hole 3.2mm, M3, DIN965 with small pad
-mounting hole 3.2mm m3 din965
-0
-1
-1

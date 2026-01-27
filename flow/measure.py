@@ -200,7 +200,7 @@ def main():
 
 
 # ============================================================
-# PyOPUS PostEvaluator Integration
+# Direct Pickle Loading for Measurements
 # ============================================================
 
 
@@ -208,10 +208,11 @@ def run_measurements_pyopus(
     cell: str, results_dir: Path, cell_module: Any, files: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Run measurements on simulation results using PyOPUS PostEvaluator.
+    Run measurements on simulation results by loading PyOPUS pickle files directly.
 
-    Loads resFiles mapping from simulate.py, uses PostEvaluator to extract
-    measures from native PyOPUS pickle files.
+    Loads resFiles mapping from simulate.py, loads .pck files containing
+    SimulationResults objects, and evaluates measure expressions with our
+    custom flow.expression module.
 
     Args:
         cell: Cell name
@@ -224,34 +225,29 @@ def run_measurements_pyopus(
     """
     logger = logging.getLogger(__name__)
 
+    # Import our expression module as 'm' for use in eval
+    from flow import expression as m
+
     logger.debug(f"[MEAS-10] run_measurements_pyopus: cell={cell}, results_dir={results_dir}")
 
     measures = getattr(cell_module, "measures", {})
-    variables = getattr(cell_module, "variables", {})
     logger.debug(f"[MEAS-11] measures keys: {list(measures.keys())}")
-    logger.debug(f"[MEAS-12] variables keys: {list(variables.keys())}")
     if measures:
         first_measure = list(measures.keys())[0]
-        logger.debug(f"[MEAS-13] First measure '{first_measure}': {measures[first_measure]}")
+        logger.debug(f"[MEAS-12] First measure '{first_measure}': {measures[first_measure]}")
 
     cell_dir = results_dir / cell
+    sim_dir = cell_dir / "sim"
     all_results = {}
 
-    # Try to import PyOPUS PostEvaluator
-    try:
-        from pyopus.evaluator.posteval import PostEvaluator
-        logger.debug("[MEAS-14] PyOPUS PostEvaluator imported successfully")
-        logger.info("Using PyOPUS PostEvaluator for measurements")
-    except ImportError:
-        logger.error("PyOPUS PostEvaluator not available")
-        return all_results
+    logger.info("Using direct pickle loading for measurements")
+    logger.debug(f"[MEAS-13] Processing {len(files)} file contexts from files.json")
 
-    logger.debug(f"[MEAS-15] Processing {len(files)} file contexts from files.json")
-
+    skipped_count = 0
     for _config_hash, file_ctx in files.items():
         resfiles_path_rel = file_ctx.get("sim_resfiles")
         if not resfiles_path_rel:
-            logger.debug(f"[MEAS-16] Skipping {_config_hash}: no sim_resfiles")
+            skipped_count += 1
             continue
 
         resfiles_path = cell_dir / resfiles_path_rel
@@ -261,7 +257,7 @@ def run_measurements_pyopus(
 
         # Build result key from resfiles path
         result_key = resfiles_path.stem.replace("_resfiles", "")
-        logger.debug(f"[MEAS-17] Processing {result_key}")
+        logger.debug(f"[MEAS-14] Processing {result_key}")
 
         # Get metadata from file_ctx
         metadata = {
@@ -288,60 +284,55 @@ def run_measurements_pyopus(
 
         try:
             # Load resFiles mapping saved by simulate.py
-            logger.debug(f"[MEAS-18] Loading resFiles from {resfiles_path}")
+            logger.debug(f"[MEAS-15] Loading resFiles from {resfiles_path}")
             with open(resfiles_path, "rb") as f:
                 res_files = pickle.load(f)
-            logger.debug(f"[MEAS-19] res_files raw: {res_files}")
+            logger.debug(f"[MEAS-16] res_files raw: {res_files}")
 
-            # PerformanceEvaluator.resFiles uses keys (hostID, (corner, analysis))
-            # PostEvaluator expects keys (corner, analysis) - strip the hostID
-            # Also extract just basename since stored paths may be from remote server
-            posteval_files = {}
-            for key, filepath in res_files.items():
-                _host_id, corner_analysis = key
-                posteval_files[corner_analysis] = Path(filepath).name
-            logger.debug(f"[MEAS-20] posteval_files (transformed): {posteval_files}")
-
-            # TODO: PyOPUS bug workaround - PostEvaluator.evaluateMeasures() at line 242
-            # in pyopus/evaluator/posteval.py iterates measure['depends'] without checking
-            # if the key exists (unlike line 89 which properly checks). The 'depends' key
-            # is only needed for derived measures that compute from other measures, not for
-            # measures that compute directly from waveforms. Fix PyOPUS, then remove this.
-            patched_measures = {}
-            for name, meas in measures.items():
-                patched_measures[name] = dict(meas)
-                if "depends" not in patched_measures[name]:
-                    patched_measures[name]["depends"] = []
-            logger.debug(f"[MEAS-21] patched_measures keys: {list(patched_measures.keys())}")
-
-            # Use PostEvaluator to extract measures
-            logger.debug(f"[MEAS-22] Creating PostEvaluator (resultsFolder={cell_dir / 'sim'})")
-            posteval = PostEvaluator(
-                files=posteval_files,
-                measures=patched_measures,
-                resultsFolder=str(cell_dir / "sim"),
-                debug=0,
-            )
-            logger.debug("[MEAS-23] PostEvaluator created")
-
-            # Load results and evaluate all measures
-            logger.debug("[MEAS-24] Calling posteval.evaluateMeasures()...")
-            scalar_results = posteval.evaluateMeasures()
-            logger.debug(f"[MEAS-25] evaluateMeasures returned: {scalar_results}")
-
-            # Handle None or empty results
-            if scalar_results is None:
-                logger.debug("[MEAS-26] scalar_results is None, using empty dict")
-                scalar_results = {}
-
-            # Flatten corner results if present (e.g., {"nominal": value} -> value)
+            # Evaluate measures from each .pck file
             flat_results = {}
-            for k, v in scalar_results.items():
-                if isinstance(v, dict) and "nominal" in v:
-                    flat_results[k] = v["nominal"]
-                else:
-                    flat_results[k] = v
-            logger.debug(f"[MEAS-27] flat_results: {flat_results}")
+
+            for key, filepath in res_files.items():
+                _host_id, (corner, analysis) = key
+                pck_path = sim_dir / Path(filepath).name
+
+                if not pck_path.exists():
+                    logger.warning(f"    Pickle not found: {pck_path}")
+                    continue
+
+                logger.debug(f"[MEAS-17] Loading pickle: {pck_path}")
+
+                # Load the pickle (contains SimulationResults object)
+                with open(pck_path, "rb") as f:
+                    sim_results = pickle.load(f)
+
+                # Get eval environment (provides v, scale, i, param, etc.)
+                eval_env = sim_results.evalEnvironment()
+                logger.debug(f"[MEAS-18] evalEnvironment keys: {list(eval_env.keys())}")
+
+                # Add our flow.expression module as 'm' and numpy as 'np'
+                eval_env["m"] = m
+                eval_env["np"] = np
+
+                # Evaluate each measure expression that matches this analysis
+                for measure_name, measure_cfg in measures.items():
+                    if measure_cfg.get("analysis") != analysis:
+                        continue
+
+                    expression = measure_cfg.get("expression", "")
+                    if not expression:
+                        continue
+
+                    try:
+                        logger.debug(f"[MEAS-19] Evaluating {measure_name}: {expression}")
+                        value = eval(expression, {"__builtins__": {}}, eval_env)
+                        flat_results[measure_name] = value
+                        logger.debug(f"[MEAS-20] {measure_name} = {value}")
+                    except Exception as e:
+                        logger.warning(f"    {measure_name} eval failed: {e}")
+                        flat_results[measure_name] = None
+
+            logger.debug(f"[MEAS-21] flat_results: {list(flat_results.keys())}")
 
             # Store with metadata
             all_results[result_key] = {
@@ -352,7 +343,15 @@ def run_measurements_pyopus(
             logger.info(f"  Measured: {result_key}")
             for measure_name, value in flat_results.items():
                 if value is not None:
-                    logger.info(f"    {measure_name}: {value}")
+                    # Format output based on type
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        logger.info(f"    {measure_name}: {value:.4g}")
+                    elif isinstance(value, np.ndarray):
+                        logger.info(f"    {measure_name}: array({len(value)} elements)")
+                    elif isinstance(value, dict):
+                        logger.info(f"    {measure_name}: dict({list(value.keys())})")
+                    else:
+                        logger.info(f"    {measure_name}: {value}")
 
         except Exception as e:
             import traceback
@@ -360,7 +359,9 @@ def run_measurements_pyopus(
             logger.debug(f"[MEAS-ERR] Traceback:\n{traceback.format_exc()}")
             continue
 
-    logger.debug(f"[MEAS-28] Returning {len(all_results)} results")
+    if skipped_count > 0:
+        logger.debug(f"[MEAS-22] Skipped {skipped_count} configs (no sim_resfiles)")
+    logger.debug(f"[MEAS-23] Returning {len(all_results)} results")
     return all_results
 
 
@@ -538,7 +539,14 @@ def generate_plots(
 
 def configure_matplotlib():
     """Configure matplotlib for headless plotting with LaTeX."""
+    import logging
     import matplotlib
+
+    # Suppress matplotlib's verbose debug output (font finding, etc.)
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
+    logging.getLogger("matplotlib.type1font").setLevel(logging.WARNING)
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     plt.rcParams.update({

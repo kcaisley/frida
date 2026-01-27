@@ -6,6 +6,7 @@ SIM_SCRIPT := flow/simulate.py
 MEAS_SCRIPT := flow/measure.py
 # Cadence tools
 CADENCE_SPECTRE_SETUP := /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh
+CADENCE_IC_SETUP := /eda/cadence/2024-25/scripts/IC_23.10.070_RHELx86.sh
 CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
@@ -86,42 +87,45 @@ REMOTE_PROJECT := /local/kcaisley/frida
 REMOTE_VENV := $(REMOTE_PROJECT)/.venv/bin/python
 NUM_PROCS := 40
 
+# Hosts that have Spectre installed (run locally on these)
+SPECTRE_HOSTS := juno jupiter
+
+# Detect current hostname (strip domain)
+CURRENT_HOST := $(shell hostname -s)
+
+# Check if current host has Spectre
+HAS_SPECTRE := $(filter $(CURRENT_HOST),$(SPECTRE_HOSTS))
+
 # Simulation
-# Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>
+# Usage: make sim cell=<cellname> mode=<dryrun|single|all>
+# Automatically runs remotely if current host doesn't have Spectre
 sim:
 ifndef cell
-	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
+	$(error Usage: make sim cell=<cellname> mode=<dryrun|single|all>)
 endif
 ifndef mode
-	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
-endif
-ifndef host
-	$(error Usage: make sim cell=<cellname|all> mode=<dryrun|single|all> host=<local|remote>)
+	$(error Usage: make sim cell=<cellname> mode=<dryrun|single|all>)
 endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
-ifeq ($(host),local)
-	@echo "=== Running LOCAL simulation (mode=$(mode)) ==="
+ifneq ($(HAS_SPECTRE),)
+	@echo "=== Running LOCAL simulation on $(CURRENT_HOST) (mode=$(mode)) ==="
 	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)
-else ifeq ($(host),remote)
-	@echo "=== Checking for uncommitted or unpushed changes ==="
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "Error: You have uncommitted changes. Please commit before running remote simulation."; \
-		exit 1; \
-	fi
-	@if [ -n "$$(git log @{u}.. 2>/dev/null)" ]; then \
-		echo "Error: You have unpushed commits. Please push before running remote simulation."; \
-		exit 1; \
-	fi
-	@echo "=== Syncing results to $(REMOTE_HOST) ==="
+else
+	@echo "=== $(CURRENT_HOST) not in SPECTRE_HOSTS, using remote ==="
+	@echo "=== Syncing code and results to $(REMOTE_HOST) ==="
+	rsync -az --mkpath flow/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/flow/
+	rsync -az --mkpath blocks/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/blocks/
+	rsync -az makefile $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/makefile
 	rsync -az --mkpath --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
-	@echo "=== Running REMOTE simulation (mode=$(mode)) ==="
+	@echo "=== Running REMOTE simulation on $(REMOTE_HOST) (mode=$(mode)) ==="
 	# The - prefix ignores exit status so we can sync results back even if simulation fails
 	-ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
 		cd $(REMOTE_PROJECT) && \
-		git pull && \
-		source /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh && \
 		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
+		source $(CADENCE_SPECTRE_SETUP) && \
+		source $(CADENCE_IC_SETUP) && \
+		source $(CADENCE_PVS_SETUP) && \
 		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)"
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
@@ -131,8 +135,6 @@ ifeq ($(mode),single)
 	@cat $(RESULTS_DIR)/$(cell)/sim/*.log 2>/dev/null || echo "No log file found"
 endif
 	@echo "=== Simulation complete ==="
-else
-	$(error Invalid host '$(host)'. Use: local or remote)
 endif
 
 clean_sim:
@@ -182,16 +184,17 @@ endif
 # Full Flow
 # ============================================================
 
-# Usage: make all cell=<cellname> [host=local|remote] [mode=single|all] [debug=1]
-# Defaults: host=remote, mode=single, debug=1
+# Usage: make all cell=<cellname> [mode=single|all] [debug=1]
+# Defaults: mode=single, debug=1
+# Automatically uses remote if current host doesn't have Spectre
 all:
 ifndef cell
-	$(error Usage: make all cell=<cellname> [host=local|remote] [mode=single|all] [debug=1])
+	$(error Usage: make all cell=<cellname> [mode=single|all] [debug=1])
 endif
 	$(MAKE) clean_all cell=$(cell)
 	$(MAKE) subckt cell=$(cell)
 	$(MAKE) tb cell=$(cell)
-	$(MAKE) sim cell=$(cell) mode=$(or $(mode),single) host=$(or $(host),remote) debug=$(or $(debug),1)
+	$(MAKE) sim cell=$(cell) mode=$(or $(mode),single) debug=$(or $(debug),1)
 	$(MAKE) meas cell=$(cell) debug=$(or $(debug),1)
 
 clean_all:
@@ -230,7 +233,6 @@ help:
 	@echo "Options:"
 	@echo "  cell=<name>   Cell name (required for most targets)"
 	@echo "  mode=<mode>   Simulation mode: dryrun, single, all (required for sim)"
-	@echo "  host=<host>   Simulation host: local, remote (required for sim)"
 	@echo "  tech=<tech>   Filter by technology (tsmc65, tsmc28, tower180)"
 	@echo "  corner=<c>    Filter by corner (tt, ss, ff, sf, fs)"
 	@echo "  temp=<t>      Filter by temperature (27, etc.)"
@@ -238,19 +240,22 @@ help:
 	@echo "  debug=1       Enable debug logging for sim/meas"
 	@echo "  NUM_PROCS=N   Number of parallel processes (default: 40)"
 	@echo ""
+	@echo "Simulation auto-detects host:"
+	@echo "  Runs locally on: $(SPECTRE_HOSTS)"
+	@echo "  Otherwise SSHs to $(REMOTE_HOST)"
+	@echo ""
 	@echo "Simulation examples:"
-	@echo "  make sim cell=comp mode=dryrun host=local    # Generate input files only"
-	@echo "  make sim cell=comp mode=single host=local    # Run locally"
-	@echo "  make sim cell=comp mode=single host=remote   # Run on juno"
-	@echo "  make sim cell=all mode=all host=remote       # Run all cells on juno"
+	@echo "  make sim cell=comp mode=dryrun    # Show what would be simulated"
+	@echo "  make sim cell=comp mode=single    # Run one sim (auto local/remote)"
+	@echo "  make sim cell=comp mode=all       # Run all sims (auto local/remote)"
 	@echo ""
 	@echo "Other examples:"
 	@echo "  make subckt cell=comp"
 	@echo "  make tb cell=comp"
 	@echo "  make meas cell=comp"
-	@echo "  make meas cell=comp no_plot=1                # Measurements only"
+	@echo "  make meas cell=comp no_plot=1     # Measurements only"
 	@echo ""
 	@echo "Full flow examples:"
-	@echo "  make all cell=comp                           # clean+subckt+tb+sim(remote,single)+meas with debug"
-	@echo "  make all cell=comp host=local                # Same but simulate locally"
-	@echo "  make all cell=comp mode=all debug=0          # All sims, no debug"
+	@echo "  make all cell=comp                # clean+subckt+tb+sim(single)+meas with debug"
+	@echo "  make all cell=comp mode=all       # Run all sims"
+	@echo "  make all cell=comp debug=0        # Without debug output"

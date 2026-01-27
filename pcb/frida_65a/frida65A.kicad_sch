@@ -5487,7 +5487,7 @@
 	)
 	(wire
 		(pts
-			(xy 219.71 148.59) (xy 226.06 148.59)
+			(xy 219.71 148.59) (xy 227.33 148.59)
 		)
 		(stroke
 			(width 0)
@@ -5604,6 +5604,16 @@
 			(type default)
 		)
 		(uuid "1642c2b6-3cbc-4887-91c0-6124de5ba63b")
+	)
+	(wire
+		(pts
+			(xy 227.33 133.35) (xy 227.33 148.59)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "16eedd2b-bda9-495b-bc57-2002de81c102")
 	)
 	(wire
 		(pts
@@ -8427,7 +8437,7 @@
 	)
 	(wire
 		(pts
-			(xy 226.06 133.35) (xy 228.6 133.35)
+			(xy 227.33 133.35) (xy 228.6 133.35)
 		)
 		(stroke
 			(width 0)
@@ -8764,16 +8774,6 @@
 			(type default)
 		)
 		(uuid "debdeb36-69a8-418c-ad53-70cf341cc7f3")
-	)
-	(wire
-		(pts
-			(xy 226.06 133.35) (xy 226.06 148.59)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "df0db240-bac1-4899-89c2-ac1330fa8778")
 	)
 	(wire
 		(pts
@@ -9346,7 +9346,7 @@
 		(uuid "41f2dd76-dbd9-4fc5-8567-793d29ae2d9e")
 	)
 	(label "VIN_P_EXT"
-		(at 228.6 53.34 180)
+		(at 227.33 54.61 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -9406,7 +9406,7 @@
 		(uuid "74dfff55-5a16-4ff8-99a3-f6c8eeabdc99")
 	)
 	(label "RST_B"
-		(at 226.06 139.7 0)
+		(at 227.33 148.59 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -9699,7 +9699,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3_Pad_Via"
 			(at 34.29 165.1 0)
 			(effects
 				(font
@@ -10013,7 +10013,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "CONN_SD-46991-001_04_MOL"
+		(property "Footprint" "frida65A:CONN_SD-46991-001_04_MOL"
 			(at 19.304 102.616 0)
 			(effects
 				(font
@@ -10709,7 +10709,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Silab:Molex_Mini-Fit_Jr_02x04_horizontal"
+		(property "Footprint" "frida65A:Molex_Mini-Fit_Jr_5569-08A1_2x04_P4.20mm_Horizontal"
 			(at 76.2 133.35 0)
 			(effects
 				(font
@@ -11533,7 +11533,7 @@
 				)
 			)
 		)
-		(property "Footprint" "import:TE_3-1478978-1"
+		(property "Footprint" "Connector_Coaxial:SMA_Amphenol_901-143_Horizontal"
 			(at 154.94 54.61 0)
 			(effects
 				(font
@@ -12157,7 +12157,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
 			(at 52.07 72.39 0)
 			(effects
 				(font
@@ -12297,7 +12297,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "CONN_SD-46991-001_04_MOL"
+		(property "Footprint" "frida65A:CONN_SD-46991-001_04_MOL"
 			(at 19.304 133.096 0)
 			(effects
 				(font
@@ -12711,7 +12711,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "silab:DP_Molex_47272-0024"
+		(property "Footprint" "frida65A:displayport"
 			(at 16.51 105.156 0)
 			(effects
 				(font
@@ -12970,7 +12970,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3_Pad_Via"
 			(at 24.13 182.88 0)
 			(effects
 				(font
@@ -13170,7 +13170,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "frida65A:Molex_Mini-Fit_Jr_5569-08A1_2x04_P4.20mm_Horizontal"
 			(at 236.22 57.15 0)
 			(effects
 				(font
@@ -13379,7 +13379,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "CONN_SD-46991-001_04_MOL"
+		(property "Footprint" "frida65A:CONN_SD-46991-001_04_MOL"
 			(at 19.304 117.856 0)
 			(effects
 				(font
@@ -14009,7 +14009,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3_Pad_Via"
 			(at 24.13 165.1 0)
 			(effects
 				(font
@@ -14888,7 +14888,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3_Pad_Via"
 			(at 34.29 182.88 0)
 			(effects
 				(font
@@ -16269,7 +16269,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "frida65A:displayport"
 			(at 237.49 73.66 0)
 			(effects
 				(font

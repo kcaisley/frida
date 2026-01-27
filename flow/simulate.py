@@ -44,56 +44,73 @@ from flow.common import (
 )
 
 
-def check_license_server() -> tuple[int, int]:
+def check_tools() -> tuple[int, int]:
     """
-    Check Spectre license server availability and parse license usage.
+    Verify Cadence environment and return license availability.
+
+    Checks:
+        - CDS_LIC_FILE environment variable is set
+        - lmstat command is available (Cadence tools in PATH)
+        - spectre command is available
+        - License server responds and has licenses
 
     Returns:
         Tuple of (total_licenses, busy_licenses)
 
     Raises:
-        SystemExit: If CDS_LIC_FILE is not set or license server doesn't respond
+        SystemExit: If any check fails
     """
     logger = logging.getLogger(__name__)
 
+    # Check CDS_LIC_FILE
     license_server = os.environ.get("CDS_LIC_FILE")
     if not license_server:
         logger.error("CDS_LIC_FILE environment variable is not set")
-        logger.error("Please set it with: export CDS_LIC_FILE=<port>@<server>")
+        logger.error("Set it with: export CDS_LIC_FILE=<port>@<server>")
         sys.exit(1)
-
     logger.info(f"License server: {license_server}")
 
+    # Check lmstat is available
     try:
-        result = subprocess.run(  # type: ignore[call-overload]
+        subprocess.run(["which", "lmstat"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.error("lmstat not found - Cadence tools not in PATH")
+        logger.error("Source the Cadence setup script first")
+        sys.exit(1)
+
+    # Check spectre is available
+    try:
+        subprocess.run(["which", "spectre"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.error("spectre not found - Cadence Spectre not in PATH")
+        logger.error("Source the Cadence setup script first")
+        sys.exit(1)
+
+    # Query license usage
+    try:
+        result = subprocess.run(
             ["lmstat", "-c", license_server, "-a"],
             capture_output=True,
             encoding="utf-8",
             timeout=10,
         )
-
         if result.returncode != 0:
-            logger.error(f"lmstat command failed: {result.stderr}")
+            logger.error(f"lmstat query failed: {result.stderr}")
             sys.exit(1)
-
     except subprocess.TimeoutExpired:
-        logger.error("License server check timed out")
-        sys.exit(1)
-    except FileNotFoundError:
-        logger.error("lmstat command not found. Ensure Cadence tools are in PATH")
+        logger.error("License server query timed out")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Failed to check license server: {e}")
+        logger.error(f"License query failed: {e}")
         sys.exit(1)
 
+    # Parse license info
     total_licenses = 0
     busy_licenses = 0
-
     for line in result.stdout.split("\n"):
         if "Virtuoso_Multi_mode_Simulation" in line or "MMSIM" in line:
             issued_match = re.search(r"Total of (\d+) licenses? issued", line)
             in_use_match = re.search(r"Total of (\d+) licenses? in use", line)
-
             if issued_match:
                 total_licenses = int(issued_match.group(1))
             if in_use_match:
@@ -101,12 +118,10 @@ def check_license_server() -> tuple[int, int]:
             break
 
     if total_licenses == 0:
-        logger.error("Could not parse license information from lmstat output")
+        logger.error("Could not parse license info from lmstat output")
         sys.exit(1)
 
-    logger.info(f"Total licenses: {total_licenses}")
-    logger.info(f"Busy licenses: {busy_licenses}")
-
+    logger.info(f"Licenses: {busy_licenses}/{total_licenses} in use")
     return total_licenses, busy_licenses
 
 
@@ -184,14 +199,12 @@ def run_simulation_pyopus(
 
     # Heads config - args becomes self.cmdline internally
     #
-    # NOTE: How PyOPUS handles Spectre output files internally:
-    #   - Raw format: PyOPUS writes "rawfmt=nutbin" to the .scs file (binary format)
-    #   - Raw path: PyOPUS uses "{simulatorID}_group{N}.raw" naming scheme
-    #   - The simulatorID is auto-generated (e.g., "juno.physik.uni-bonn.de_2da779_1")
-    #   - readResults() in spectre.py line 990 looks for this exact pattern
-    #   - If we pass -raw to override the path, readResults() can't find the file,
-    #     causing storeResults pickle files to contain None (4 bytes)
-    #   - Solution: Don't pass -raw, let PyOPUS manage it, then move the file after
+    # TODO: PyOPUS doesn't expose Spectre's output directory control. The Spectre
+    # CLI supports `-raw <path>` to specify where raw files are written, but
+    # PyOPUS's spectre.py hardcodes the raw file naming as {simulatorID}_group{N}.raw
+    # in the current working directory, and readResults() expects this exact path.
+    # As a workaround, we let PyOPUS write to project root, then move files after.
+    # Future improvement: patch PyOPUS or use os.chdir() with absolute paths.
     #
     heads = {
         "spectre": {
@@ -238,38 +251,58 @@ def run_simulation_pyopus(
     try:
         logger.debug(f"[SIM-04] Creating PerformanceEvaluator (resultsFolder={sim_dir})")
         # Create PerformanceEvaluator with native pickle storage
+        # NOTE: Pass empty variables to avoid "cannot pickle module" error.
+        # We don't need measure evaluation here - PostEvaluator handles that later.
+        # Measures are still passed for their 'saves' directives.
         pe = PerformanceEvaluator(
             heads=heads,
             analyses=analyses,
             measures=measures,
             corners=corners,
-            variables=variables,
+            variables={},                   # Empty - avoid unpicklable module
             storeResults=True,              # Enable native pickle storage
             resultsFolder=str(sim_dir),     # Where to store .pck files
+            cleanupAfterJob=False,          # Keep .scs/.raw until we move them
             debug=0,
         )
         logger.debug("[SIM-05] PerformanceEvaluator created")
 
-        # Run simulation and compute measures (results discarded - we use PostEvaluator later)
+        # Run simulation (measure evaluation will fail without variables, but we don't need it)
         logger.debug("[SIM-06] Running pe({})...")
         _results, _an_count = pe({})
         logger.debug(f"[SIM-07] pe() done: an_count={_an_count}, results={list(_results.keys()) if _results else None}")
 
-        # Find PyOPUS's raw file path (uses its own naming scheme)
+        # TODO: Workaround for PyOPUS output location limitation (see TODO above).
+        # PyOPUS writes .scs and .raw to cwd (project root). We move them to sim_dir
+        # so they're organized with other results and get synced back properly.
+        # This is a PyOPUS limitation, not a Spectre CLI limitation.
+        import shutil
         simulator = pe.simulatorForHead["spectre"]
-        raw_path = Path(f"{simulator.simulatorID}_group0.raw")
-        logger.debug(f"[SIM-08] simulatorID={simulator.simulatorID}, raw exists={raw_path.exists()}")
+        pyopus_scs = Path(f"{simulator.simulatorID}_group0.scs")
+        pyopus_raw = Path(f"{simulator.simulatorID}_group0.raw")
+        logger.debug(f"[SIM-08] simulatorID={simulator.simulatorID}")
+
+        # Move .scs file to sim_dir with our naming
+        if pyopus_scs.exists():
+            shutil.move(str(pyopus_scs), str(scs_path))
+            logger.debug(f"[SIM-09] Moved {pyopus_scs} -> {scs_path}")
+
+        # Move .raw file to sim_dir with our naming
+        raw_path = sim_dir / f"{sim_name}.raw"
+        if pyopus_raw.exists():
+            shutil.move(str(pyopus_raw), str(raw_path))
+            logger.debug(f"[SIM-10] Moved {pyopus_raw} -> {raw_path}")
 
         # Save resFiles mapping for PostEvaluator
         # resFiles is a dict: {(hostID, (corner, analysis)): filepath}
         resfiles_path = sim_dir / f"{sim_name}_resfiles.pck"
-        logger.debug(f"[SIM-09] pe.resFiles={pe.resFiles}")
+        logger.debug(f"[SIM-11] pe.resFiles={pe.resFiles}")
         with open(resfiles_path, "wb") as f:
             pickle.dump(pe.resFiles, f)
-        logger.debug(f"[SIM-10] Pickled resFiles ({resfiles_path.stat().st_size} bytes)")
+        logger.debug(f"[SIM-12] Pickled resFiles ({resfiles_path.stat().st_size} bytes)")
 
         pe.finalize()
-        logger.debug("[SIM-11] Finalized, returning paths")
+        logger.debug("[SIM-13] Finalized, returning paths")
 
         return {
             "scs": scs_path,
@@ -292,6 +325,7 @@ def run_batch_parallel(
     measures: dict[str, Any],
     variables: dict[str, Any],
     num_workers: int = 20,
+    license_info: tuple[int, int] | None = None,
 ) -> dict[str, dict[str, Path]]:
     """
     Run simulations in parallel using ProcessPoolExecutor.
@@ -303,6 +337,7 @@ def run_batch_parallel(
         measures: PyOPUS measures configuration
         variables: Variables dict for expression evaluation
         num_workers: Number of parallel Spectre processes
+        license_info: Tuple of (total_licenses, busy_licenses) from check_tools()
 
     Returns:
         Dict mapping config_hash to dict of file paths (scs, log, raw, resfiles)
@@ -311,15 +346,15 @@ def run_batch_parallel(
 
     logger = logging.getLogger(__name__)
 
-    # Check available licenses and adjust workers if needed
-    total_lic, busy_lic = check_license_server()
-    free_lic = total_lic - busy_lic
-
-    # Leave some licenses for colleagues
-    colleague_threshold = 40
-    licenses_per_worker = 2
-    max_by_license = max(1, (free_lic - colleague_threshold) // licenses_per_worker)
-    num_workers = min(num_workers, max_by_license, len(jobs))
+    # Adjust workers based on available licenses
+    if license_info:
+        total_lic, busy_lic = license_info
+        free_lic = total_lic - busy_lic
+        # Leave some licenses for colleagues
+        colleague_threshold = 40
+        licenses_per_worker = 2
+        max_by_license = max(1, (free_lic - colleague_threshold) // licenses_per_worker)
+        num_workers = min(num_workers, max_by_license, len(jobs))
 
     logger.info(f"Running {len(jobs)} simulations with {num_workers} workers")
 
@@ -540,6 +575,9 @@ def main():
         logger.info("=" * 80)
         return 0
 
+    # Verify Cadence environment and get license counts
+    total_lic, busy_lic = check_tools()
+
     # Single mode: run only the first job (for debugging)
     if args.mode == "single":
         logger.info("SINGLE MODE: Running first simulation only (for debugging)")
@@ -552,7 +590,7 @@ def main():
     if args.mode == "single" or len(jobs) == 1:
         results = run_batch_sequential(jobs, sim_dir, analyses, measures, variables)
     else:
-        results = run_batch_parallel(jobs, sim_dir, analyses, measures, variables, num_workers=args.jobs)
+        results = run_batch_parallel(jobs, sim_dir, analyses, measures, variables, num_workers=args.jobs, license_info=(total_lic, busy_lic))
 
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
     logger.debug(f"[MAIN-10] Simulation done: {len(results)} successful, elapsed={elapsed:.1f}s")
