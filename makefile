@@ -125,6 +125,7 @@ else ifeq ($(host),remote)
 		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))"
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
+	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/files.json $(RESULTS_DIR)/$(cell)/files.json
 ifeq ($(mode),single)
 	@echo "=== Simulation log ==="
 	@cat $(RESULTS_DIR)/$(cell)/sim/*.log 2>/dev/null || echo "No log file found"
