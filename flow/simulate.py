@@ -221,11 +221,6 @@ def run_simulation_pyopus(
             debug=0,
         )
 
-        # Set simulatorID for predictable output file names
-        # (not an __init__ param, must be set after creation)
-        # Without this, files get auto-generated names in random locations
-        pe.simulator.simulatorID = str(sim_dir / sim_name)
-
         # Run simulation and compute measures
         results, an_count = pe({})
 
