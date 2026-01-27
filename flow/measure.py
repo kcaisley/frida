@@ -29,64 +29,145 @@ from flow.common import (
 
 
 # ============================================================
-# Plotting Utilities
+# Main Entry Point
 # ============================================================
 
-# TODO: PyOPUS offers pyopus.plotter for interactive visualization, but we had
-# issues using PyQt5 headlessly (Qt GUI thread starts at import, segfaults with
-# offscreen platform). For now, using matplotlib Agg backend directly. Could
-# revisit if headless Qt support improves or if interactive viz is needed.
 
+def main():
+    """Main entry point for measurement and plotting script."""
+    parser = argparse.ArgumentParser(
+        description="Run measurements and generate plots from simulation results"
+    )
+    parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        type=Path,
+        default=Path("results"),
+        help="Results directory (default: results)",
+    )
+    parser.add_argument(
+        "--tech",
+        type=str,
+        default=None,
+        help="Filter by technology (e.g., tsmc65)",
+    )
+    parser.add_argument(
+        "--corner",
+        type=str,
+        default=None,
+        help="Filter by corner (e.g., tt, ss, ff)",
+    )
+    parser.add_argument(
+        "--temp",
+        type=int,
+        default=None,
+        help="Filter by temperature (e.g., 27)",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Skip plot generation (measurements only)",
+    )
 
-def configure_matplotlib():
-    """Configure matplotlib for headless plotting with LaTeX."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif",
-        "font.serif": ["Computer Modern Roman"],
-        "font.size": 11,
-        "axes.titlesize": 12,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
-    })
-    return plt
+    args = parser.parse_args()
 
+    # Setup paths
+    cell_dir = args.outdir / args.cell
+    plot_dir = cell_dir / "plot"
 
-def save_plot_dual_format(fig, filename_base: str, plt_module) -> list[str]:
-    """
-    Save plot in both PDF and SVG formats.
+    # Setup logging
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"meas_{args.cell}_{timestamp}.log"
+    logger = setup_logging(log_file)
 
-    Args:
-        fig: matplotlib figure
-        filename_base: Base filename without extension
-        plt_module: matplotlib.pyplot module
+    # Check prerequisites
+    files_db_path = cell_dir / "files.json"
+    if not files_db_path.exists():
+        logger.error(f"files.json not found at {files_db_path}")
+        logger.error(f"Run 'make subckt cell={args.cell}' first")
+        return 1
 
-    Returns:
-        List of saved file paths
-    """
-    saved = []
-    try:
-        fig.tight_layout()
-        pdf_path = f"{filename_base}.pdf"
-        fig.savefig(pdf_path)
-        saved.append(pdf_path)
-    except Exception:
-        pass
+    block_file = Path(f"blocks/{args.cell}.py")
+    if not block_file.exists():
+        logger.error(f"Block file not found: {block_file}")
+        return 1
 
-    try:
-        svg_path = f"{filename_base}.svg"
-        fig.savefig(svg_path)
-        saved.append(svg_path)
-    except Exception:
-        pass
+    # Load cell module and files database
+    cell_module = load_cell_script(block_file)
+    files = load_files_list(files_db_path)
 
-    plt_module.close(fig)
-    return saved
+    # Count resfiles from files.json
+    resfiles_count = sum(1 for ctx in files.values() if ctx.get("sim_resfiles"))
+    data_file_count = resfiles_count
+
+    if data_file_count == 0:
+        logger.warning("No simulation results found in files.json")
+        logger.warning(f"Run 'make sim cell={args.cell}' first")
+        return 0
+
+    logger.info("=" * 80)
+    logger.info(f"Cell:       {args.cell}")
+    logger.info("Flow:       measure" + (" + plot" if not args.no_plot else ""))
+    logger.info(f"Data files: {data_file_count} (resfiles)")
+    if not args.no_plot:
+        logger.info(f"Plots:      {plot_dir}")
+    logger.info(f"Log:        {log_file}")
+    logger.info("-" * 80)
+
+    # Run measurements
+    start_time = datetime.datetime.now()
+    all_results = run_measurements_pyopus(args.cell, args.outdir, cell_module, files)
+    meas_elapsed = (datetime.datetime.now() - start_time).total_seconds()
+
+    # Apply filters if specified
+    if args.tech or args.corner or args.temp:
+        filtered = filter_results(
+            all_results,
+            tech=args.tech,
+            corner=args.corner,
+            temp=args.temp,
+        )
+        logger.info(f"Filtered: {len(filtered)} of {len(all_results)} results")
+    else:
+        filtered = all_results
+
+    # Generate plots if requested
+    plot_count = 0
+    plot_elapsed = 0.0
+    if not args.no_plot and filtered:
+        plot_start = datetime.datetime.now()
+        generated_plots = generate_plots(
+            args.cell, args.outdir, filtered, cell_module, files
+        )
+        plot_count = len(generated_plots)
+        plot_elapsed = (datetime.datetime.now() - plot_start).total_seconds()
+
+    # Update files.json with plot paths (no more JSON measurement files)
+    if not args.no_plot and plot_dir.exists():
+        matching_plots = list(plot_dir.glob("*.pdf"))
+        if matching_plots:
+            for _config_hash, file_ctx in files.items():
+                file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
+        save_files_list(files_db_path, files)
+
+    # Summary
+    total_elapsed = meas_elapsed + plot_elapsed
+    logger.info("=" * 80)
+    logger.info("Measurement Summary")
+    logger.info("=" * 80)
+    logger.info(f"Data files:      {data_file_count}")
+    logger.info(f"Measured:        {len(all_results)}")
+    logger.info(f"Meas time:       {meas_elapsed:.1f}s")
+    if not args.no_plot:
+        logger.info(f"Plots created:   {plot_count}")
+        logger.info(f"Plot time:       {plot_elapsed:.1f}s")
+    logger.info(f"Total time:      {total_elapsed:.1f}s")
+    logger.info("=" * 80)
+
+    return 0
 
 
 # ============================================================
@@ -371,6 +452,67 @@ def generate_plots(
     return generated_plots
 
 
+# ============================================================
+# Plotting Utilities
+# ============================================================
+
+# TODO: PyOPUS offers pyopus.plotter for interactive visualization, but we had
+# issues using PyQt5 headlessly (Qt GUI thread starts at import, segfaults with
+# offscreen platform). For now, using matplotlib Agg backend directly. Could
+# revisit if headless Qt support improves or if interactive viz is needed.
+
+
+def configure_matplotlib():
+    """Configure matplotlib for headless plotting with LaTeX."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman"],
+        "font.size": 11,
+        "axes.titlesize": 12,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    })
+    return plt
+
+
+def save_plot_dual_format(fig, filename_base: str, plt_module) -> list[str]:
+    """
+    Save plot in both PDF and SVG formats.
+
+    Args:
+        fig: matplotlib figure
+        filename_base: Base filename without extension
+        plt_module: matplotlib.pyplot module
+
+    Returns:
+        List of saved file paths
+    """
+    saved = []
+    try:
+        fig.tight_layout()
+        pdf_path = f"{filename_base}.pdf"
+        fig.savefig(pdf_path)
+        saved.append(pdf_path)
+    except Exception:
+        pass
+
+    try:
+        svg_path = f"{filename_base}.svg"
+        fig.savefig(svg_path)
+        saved.append(svg_path)
+    except Exception:
+        pass
+
+    plt_module.close(fig)
+    return saved
+
+
 def plot_corner_comparison(
     results: dict[str, Any], measure_name: str, plot_dir: Path, cell: str, plt
 ) -> list[str]:
@@ -647,148 +789,6 @@ def render_cycle_diagram(
     ax.axvline(x=0, color="gray", linestyle="--", linewidth=0.5)
 
     return fig
-
-
-# ============================================================
-# Main Entry Point
-# ============================================================
-
-
-def main():
-    """Main entry point for measurement and plotting script."""
-    parser = argparse.ArgumentParser(
-        description="Run measurements and generate plots from simulation results"
-    )
-    parser.add_argument("cell", help="Cell name (e.g., comp, cdac)")
-    parser.add_argument(
-        "-o",
-        "--outdir",
-        type=Path,
-        default=Path("results"),
-        help="Results directory (default: results)",
-    )
-    parser.add_argument(
-        "--tech",
-        type=str,
-        default=None,
-        help="Filter by technology (e.g., tsmc65)",
-    )
-    parser.add_argument(
-        "--corner",
-        type=str,
-        default=None,
-        help="Filter by corner (e.g., tt, ss, ff)",
-    )
-    parser.add_argument(
-        "--temp",
-        type=int,
-        default=None,
-        help="Filter by temperature (e.g., 27)",
-    )
-    parser.add_argument(
-        "--no-plot",
-        action="store_true",
-        help="Skip plot generation (measurements only)",
-    )
-
-    args = parser.parse_args()
-
-    # Setup paths
-    cell_dir = args.outdir / args.cell
-    plot_dir = cell_dir / "plot"
-
-    # Setup logging
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"meas_{args.cell}_{timestamp}.log"
-    logger = setup_logging(log_file)
-
-    # Check prerequisites
-    files_db_path = cell_dir / "files.json"
-    if not files_db_path.exists():
-        logger.error(f"files.json not found at {files_db_path}")
-        logger.error(f"Run 'make subckt cell={args.cell}' first")
-        return 1
-
-    block_file = Path(f"blocks/{args.cell}.py")
-    if not block_file.exists():
-        logger.error(f"Block file not found: {block_file}")
-        return 1
-
-    # Load cell module and files database
-    cell_module = load_cell_script(block_file)
-    files = load_files_list(files_db_path)
-
-    # Count resfiles from files.json
-    resfiles_count = sum(1 for ctx in files.values() if ctx.get("sim_resfiles"))
-    data_file_count = resfiles_count
-
-    if data_file_count == 0:
-        logger.warning("No simulation results found in files.json")
-        logger.warning(f"Run 'make sim cell={args.cell}' first")
-        return 0
-
-    logger.info("=" * 80)
-    logger.info(f"Cell:       {args.cell}")
-    logger.info("Flow:       measure" + (" + plot" if not args.no_plot else ""))
-    logger.info(f"Data files: {data_file_count} (resfiles)")
-    if not args.no_plot:
-        logger.info(f"Plots:      {plot_dir}")
-    logger.info(f"Log:        {log_file}")
-    logger.info("-" * 80)
-
-    # Run measurements
-    start_time = datetime.datetime.now()
-    all_results = run_measurements_pyopus(args.cell, args.outdir, cell_module, files)
-    meas_elapsed = (datetime.datetime.now() - start_time).total_seconds()
-
-    # Apply filters if specified
-    if args.tech or args.corner or args.temp:
-        filtered = filter_results(
-            all_results,
-            tech=args.tech,
-            corner=args.corner,
-            temp=args.temp,
-        )
-        logger.info(f"Filtered: {len(filtered)} of {len(all_results)} results")
-    else:
-        filtered = all_results
-
-    # Generate plots if requested
-    plot_count = 0
-    plot_elapsed = 0.0
-    if not args.no_plot and filtered:
-        plot_start = datetime.datetime.now()
-        generated_plots = generate_plots(
-            args.cell, args.outdir, filtered, cell_module, files
-        )
-        plot_count = len(generated_plots)
-        plot_elapsed = (datetime.datetime.now() - plot_start).total_seconds()
-
-    # Update files.json with plot paths (no more JSON measurement files)
-    if not args.no_plot and plot_dir.exists():
-        matching_plots = list(plot_dir.glob("*.pdf"))
-        if matching_plots:
-            for _config_hash, file_ctx in files.items():
-                file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
-        save_files_list(files_db_path, files)
-
-    # Summary
-    total_elapsed = meas_elapsed + plot_elapsed
-    logger.info("=" * 80)
-    logger.info("Measurement Summary")
-    logger.info("=" * 80)
-    logger.info(f"Data files:      {data_file_count}")
-    logger.info(f"Measured:        {len(all_results)}")
-    logger.info(f"Meas time:       {meas_elapsed:.1f}s")
-    if not args.no_plot:
-        logger.info(f"Plots created:   {plot_count}")
-        logger.info(f"Plot time:       {plot_elapsed:.1f}s")
-    logger.info(f"Total time:      {total_elapsed:.1f}s")
-    logger.info("=" * 80)
-
-    return 0
 
 
 if __name__ == "__main__":
