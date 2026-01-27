@@ -4,6 +4,14 @@ RESULTS_DIR := results
 NETLIST_SCRIPT := flow/netlist.py
 SIM_SCRIPT := flow/simulate.py
 MEAS_SCRIPT := flow/measure.py
+
+# Quiet mode: suppress command echo unless debug=1
+ifeq ($(filter 1,$(debug)),)
+  Q := @
+  MAKEFLAGS += --no-print-directory
+else
+  Q :=
+endif
 # Cadence tools
 CADENCE_SPECTRE_SETUP := /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh
 CADENCE_IC_SETUP := /eda/cadence/2024-25/scripts/IC_23.10.070_RHELx86.sh
@@ -48,32 +56,32 @@ subckt:
 ifndef cell
 	$(error Usage: make subckt cell=<cellname>)
 endif
-	@if [ ! -f "blocks/$(cell).py" ]; then echo "Error: blocks/$(cell).py not found"; exit 1; fi
-	$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$(cell).py" -o "$(RESULTS_DIR)"
+	$(Q)if [ ! -f "blocks/$(cell).py" ]; then echo "Error: blocks/$(cell).py not found"; exit 1; fi
+	$(Q)$(VENV_PYTHON) $(NETLIST_SCRIPT) subckt "blocks/$(cell).py" -o "$(RESULTS_DIR)" $(if $(filter 1,$(debug)),--debug)
 
 clean_subckt:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)/subckt"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)/subckt"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)/subckt"
+	$(Q)echo "Cleaned: $(RESULTS_DIR)/$(cell)/subckt"
 else
-	rm -rf $(RESULTS_DIR)/*/subckt
-	@echo "Cleaned: all subckt directories"
+	$(Q)rm -rf $(RESULTS_DIR)/*/subckt
+	$(Q)echo "Cleaned: all subckt directories"
 endif
 
 tb:
 ifndef cell
 	$(error Usage: make tb cell=<cellname>)
 endif
-	@if [ ! -f "blocks/$(cell).py" ]; then echo "Error: blocks/$(cell).py not found"; exit 1; fi
-	$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$(cell).py" -o "$(RESULTS_DIR)"
+	$(Q)if [ ! -f "blocks/$(cell).py" ]; then echo "Error: blocks/$(cell).py not found"; exit 1; fi
+	$(Q)$(VENV_PYTHON) $(NETLIST_SCRIPT) tb "blocks/$(cell).py" -o "$(RESULTS_DIR)" $(if $(filter 1,$(debug)),--debug)
 
 clean_tb:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)/tb"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)/tb"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)/tb"
+	$(Q)echo "Cleaned: $(RESULTS_DIR)/$(cell)/tb"
 else
-	rm -rf $(RESULTS_DIR)/*/tb
-	@echo "Cleaned: all tb directories"
+	$(Q)rm -rf $(RESULTS_DIR)/*/tb
+	$(Q)echo "Cleaned: all tb directories"
 endif
 
 # ============================================================
@@ -106,44 +114,38 @@ endif
 ifndef mode
 	$(error Usage: make sim cell=<cellname> mode=<dryrun|single|all>)
 endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
+	$(Q)if [ ! -d "$(RESULTS_DIR)/$(cell)/subckt" ]; then echo "Error: Run 'make subckt cell=$(cell)' first"; exit 1; fi
+	$(Q)if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
 ifneq ($(HAS_SPECTRE),)
-	@echo "=== Running LOCAL simulation on $(CURRENT_HOST) (mode=$(mode)) ==="
-	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)
+	$(Q)$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(filter 1,$(debug)),--debug)
 else
-	@echo "=== $(CURRENT_HOST) not in SPECTRE_HOSTS, using remote ==="
-	@echo "=== Syncing code and results to $(REMOTE_HOST) ==="
-	rsync -az --mkpath flow/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/flow/
-	rsync -az --mkpath blocks/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/blocks/
-	rsync -az makefile $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/makefile
-	rsync -az --mkpath --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
-	@echo "=== Running REMOTE simulation on $(REMOTE_HOST) (mode=$(mode)) ==="
-	# The - prefix ignores exit status so we can sync results back even if simulation fails
-	-ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
+	$(Q)rsync -az --mkpath flow/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/flow/
+	$(Q)rsync -az --mkpath blocks/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/blocks/
+	$(Q)rsync -az makefile $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/makefile
+	$(Q)rsync -az --mkpath --delete $(RESULTS_DIR)/$(cell)/ $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/
+	@# The - prefix ignores exit status so we can sync results back even if simulation fails
+	$(Q)-ssh $(REMOTE_USER)@$(REMOTE_HOST) "\
 		cd $(REMOTE_PROJECT) && \
 		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
 		source $(CADENCE_SPECTRE_SETUP) && \
 		source $(CADENCE_IC_SETUP) && \
 		source $(CADENCE_PVS_SETUP) && \
-		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)"
-	@echo "=== Syncing results back ==="
-	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
-	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/files.json $(RESULTS_DIR)/$(cell)/files.json
-ifeq ($(mode),single)
+		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(filter 1,$(debug)),--debug)"
+	$(Q)rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
+	$(Q)rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/files.json $(RESULTS_DIR)/$(cell)/files.json
+ifeq ($(debug),1)
 	@echo "=== Simulation log ==="
 	@cat $(RESULTS_DIR)/$(cell)/sim/*.log 2>/dev/null || echo "No log file found"
 endif
-	@echo "=== Simulation complete ==="
 endif
 
 clean_sim:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)/sim"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)/sim"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)/sim"
+	$(Q)echo "Cleaned: $(RESULTS_DIR)/$(cell)/sim"
 else
-	rm -rf $(RESULTS_DIR)/*/sim
-	@echo "Cleaned: all sim directories"
+	$(Q)rm -rf $(RESULTS_DIR)/*/sim
+	$(Q)echo "Cleaned: all sim directories"
 endif
 
 # ============================================================
@@ -154,30 +156,25 @@ meas:
 ifndef cell
 	$(error Usage: make meas cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>] [no_plot=1])
 endif
-	@if [ ! -d "$(RESULTS_DIR)/$(cell)/sim" ]; then echo "Error: Run 'make sim cell=$(cell)' first"; exit 1; fi
-	$(VENV_PYTHON) $(MEAS_SCRIPT) $(cell) -o "$(RESULTS_DIR)" \
-		$(if $(tech),--tech=$(tech)) \
-		$(if $(corner),--corner=$(corner)) \
-		$(if $(temp),--temp=$(temp)) \
-		$(if $(no_plot),--no-plot) \
-		$(if $(debug),--debug)
+	$(Q)if [ ! -d "$(RESULTS_DIR)/$(cell)/sim" ]; then echo "Error: Run 'make sim cell=$(cell)' first"; exit 1; fi
+	$(Q)$(VENV_PYTHON) $(MEAS_SCRIPT) $(cell) -o "$(RESULTS_DIR)" $(if $(tech),--tech=$(tech)) $(if $(corner),--corner=$(corner)) $(if $(temp),--temp=$(temp)) $(if $(no_plot),--no-plot) $(if $(filter 1,$(debug)),--debug)
 
 clean_meas:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)/meas"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)/meas"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)/meas"
+	$(Q)echo "Cleaned: $(RESULTS_DIR)/$(cell)/meas"
 else
-	rm -rf $(RESULTS_DIR)/*/meas
-	@echo "Cleaned: all meas directories"
+	$(Q)rm -rf $(RESULTS_DIR)/*/meas
+	$(Q)echo "Cleaned: all meas directories"
 endif
 
 clean_plot:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)/plot"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)/plot"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)/plot"
+	$(Q)echo "Cleaned: $(RESULTS_DIR)/$(cell)/plot"
 else
-	rm -rf $(RESULTS_DIR)/*/plot
-	@echo "Cleaned: all plot directories"
+	$(Q)rm -rf $(RESULTS_DIR)/*/plot
+	$(Q)echo "Cleaned: all plot directories"
 endif
 
 # ============================================================
@@ -185,25 +182,23 @@ endif
 # ============================================================
 
 # Usage: make all cell=<cellname> [mode=single|all] [debug=1]
-# Defaults: mode=single, debug=1
+# Defaults: mode=single
 # Automatically uses remote if current host doesn't have Spectre
 all:
 ifndef cell
 	$(error Usage: make all cell=<cellname> [mode=single|all] [debug=1])
 endif
-	$(MAKE) clean_all cell=$(cell)
-	$(MAKE) subckt cell=$(cell)
-	$(MAKE) tb cell=$(cell)
-	$(MAKE) sim cell=$(cell) mode=$(or $(mode),single) debug=$(or $(debug),1)
-	$(MAKE) meas cell=$(cell) debug=$(or $(debug),1)
+	$(Q)$(MAKE) clean_all cell=$(cell) $(if $(filter 1,$(debug)),debug=1)
+	$(Q)$(MAKE) subckt cell=$(cell) $(if $(filter 1,$(debug)),debug=1)
+	$(Q)$(MAKE) tb cell=$(cell) $(if $(filter 1,$(debug)),debug=1)
+	$(Q)$(MAKE) sim cell=$(cell) mode=$(or $(mode),single) $(if $(filter 1,$(debug)),debug=1)
+	$(Q)$(MAKE) meas cell=$(cell) $(if $(filter 1,$(debug)),debug=1)
 
 clean_all:
 ifdef cell
-	rm -rf "$(RESULTS_DIR)/$(cell)"
-	@echo "Cleaned: $(RESULTS_DIR)/$(cell)"
+	$(Q)rm -rf "$(RESULTS_DIR)/$(cell)"
 else
-	rm -rf $(RESULTS_DIR)/*
-	@echo "Cleaned: all results"
+	$(Q)rm -rf $(RESULTS_DIR)/*
 endif
 
 # ============================================================

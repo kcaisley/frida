@@ -18,11 +18,13 @@ from flow.common import (
     calc_table_columns,
     compact_json,
     format_value,
+    format_wall_time,
     load_cell_script,
     load_files_list,
-    print_flow_header,
+    print_subckt_header,
     print_table_header,
     print_table_row,
+    print_tb_header,
     save_files_list,
     setup_logging,
     techmap,
@@ -53,6 +55,11 @@ def main() -> None:
     parser.add_argument(
         "--log-dir", type=Path, default=Path("logs"), help="Log directory"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose output (print each config row)",
+    )
 
     args = parser.parse_args()
 
@@ -69,13 +76,14 @@ def main() -> None:
     if args.tb_dir is None:
         args.tb_dir = args.output / cell_name / "tb"
 
-    print_flow_header(
-        cell=cell_name,
-        flow=args.mode,
-        script_file=args.circuit,
-        outdir=args.subckt_dir if args.mode == "subckt" else args.tb_dir,
-        log_file=log_file,
-    )
+    # Print mode-specific header
+    if args.mode == "subckt":
+        print_subckt_header(cell_name, args.circuit, args.subckt_dir, log_file)
+    else:
+        print_tb_header(cell_name, args.circuit, args.tb_dir, log_file)
+
+    # Track start time for wall time
+    start_time = datetime.datetime.now()
 
     try:
         # Load circuit module
@@ -94,7 +102,12 @@ def main() -> None:
             subckt_template = circuit_module.subckt
             generate_fn = getattr(circuit_module, "gen_topo_subckt", None)
 
-            # 3. Unified expansion flow
+            # 3. Discover param axes BEFORE expansion (for compact table)
+            topo_axes = discover_param_axes(subckt_template, mode="topo_params")
+            inst_axes = discover_param_axes(subckt_template, mode="inst_params")
+            tech_axes = discover_param_axes(subckt_template, mode="tech_params")
+
+            # 4. Unified expansion flow
             subckts = expand_params(subckt_template, mode="topo_params")
             subckts = generate_topology(subckts, generate_fn)
 
@@ -105,30 +118,35 @@ def main() -> None:
 
             subckts = expand_params(subckts, mode="tech_params")
 
-            # 4. Detect varying instance params for table columns
+            # 5. Detect varying instance params for table columns
             varying_params = detect_varying_inst_params(subckts)
 
-            # 5. Process each expanded subcircuit
+            # 6. Print compact table header (if not debug mode)
+            expected_total = 0
+            if not args.debug:
+                expected_total = print_compact_table(tech_axes, topo_axes, inst_axes, varying_params)
+
+            # 7. Process each expanded subcircuit
             total_count = 0
             all_errors = []
             headers: list[str] = []
             col_widths: dict[str, int] = {}
             for subckt in subckts:
-                # 6. Map to technology, convert generic to PDK-specific
+                # 8. Map to technology, convert generic to PDK-specific
                 subckt = map_technology(subckt, techmap)
 
-                # 7. Check subcircuit
+                # 9. Check subcircuit
                 errors = check_subckt(subckt)
                 if errors:
                     cfgname = generate_filename(subckt)
                     all_errors.append((cfgname, errors))
 
-                # Print table header on first iteration
-                if total_count == 0:
+                # Print table header on first iteration (debug mode only)
+                if args.debug and total_count == 0:
                     headers, col_widths = calc_table_columns(subckt, varying_params)
                     print_table_header(headers, col_widths)
 
-                # 8. Compute config hash and create file_ctx
+                # 10. Compute config hash and create file_ctx
                 topo_params = subckt.get("topo_params", {})
                 inst_params = subckt.get("inst_params", [])
                 tech = subckt["tech"]
@@ -152,59 +170,65 @@ def main() -> None:
                     "plot_img": [],
                 }
 
-                # 9. Write JSON struct
+                # 11. Write JSON struct
                 json_path = args.subckt_dir / f"{cfgname}.json"
                 json_path.write_text(compact_json(subckt))
                 file_ctx["subckt_json"] = f"subckt/{cfgname}.json"
 
-                # 10. Write SPICE netlist
+                # 12. Write SPICE netlist
                 sp_path = args.subckt_dir / f"{cfgname}.sp"
                 spice_str = generate_spice(subckt, mode=args.mode)
                 sp_path.write_text(spice_str)
                 file_ctx["subckt_spice"] = f"subckt/{cfgname}.sp"
 
-                # 11. Resolve child subcircuit dependencies
+                # 13. Resolve child subcircuit dependencies
                 child_deps = resolve_child_deps(subckt, args.output)
                 file_ctx["subckt_children"] = child_deps
 
-                # 12. Add file_ctx to files dict with config_hash as key
+                # 14. Add file_ctx to files dict with config_hash as key
                 files[config_hash] = file_ctx
                 total_count += 1
 
-                # Print table row
-                # Build row data from top-level, topo_params, and instance params
-                row_data = {}
-                for field in ["tech", "corner", "temp"]:
-                    if field in subckt:
-                        row_data[field] = subckt[field]
-                row_data.update(subckt.get("topo_params", {}))
-                # Add varying instance params
-                for inst_name, param_name in varying_params:
-                    col_name = f"{inst_name}.{param_name}"
-                    instances = subckt.get("instances", {})
-                    if inst_name in instances:
-                        inst_params_dict = instances[inst_name].get("params", {})
-                        if param_name in inst_params_dict:
-                            row_data[col_name] = inst_params_dict[param_name]
+                # Print table row (debug mode only)
+                if args.debug:
+                    # Build row data from top-level, topo_params, and instance params
+                    row_data = {}
+                    for field in ["tech", "corner", "temp"]:
+                        if field in subckt:
+                            row_data[field] = subckt[field]
+                    row_data.update(subckt.get("topo_params", {}))
+                    # Add varying instance params
+                    for inst_name, param_name in varying_params:
+                        col_name = f"{inst_name}.{param_name}"
+                        instances = subckt.get("instances", {})
+                        if inst_name in instances:
+                            inst_params_dict = instances[inst_name].get("params", {})
+                            if param_name in inst_params_dict:
+                                row_data[col_name] = inst_params_dict[param_name]
+                            else:
+                                row_data[col_name] = "-"
                         else:
                             row_data[col_name] = "-"
-                    else:
-                        row_data[col_name] = "-"
-                print_table_row(row_data, headers, col_widths)
+                    print_table_row(row_data, headers, col_widths)
 
-            # 12. Write files.json and print summary
+            # 15. Write files.json and print summary
             files_db_path = args.output / cell_name / "files.json"
             save_files_list(files_db_path, files)
-            logger.info("-" * 80)
-            logger.info(f"Result: {total_count} subcircuits generated")
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
-            # Print collected errors/warnings
+            logger.info("-" * 80)
+            logger.info(f"Result:      {total_count} subcircuits generated")
+            if expected_total > 0 and total_count < expected_total:
+                logger.info(f"Note:        {total_count}/{expected_total} param combinations valid, as not all topo_params combine")
+            logger.info(f"Wall Time:   {format_wall_time(elapsed)}")
             if all_errors:
+                logger.info(f"Errors:      {len(all_errors)}")
                 for cfgname, errors in all_errors:
                     for error in errors:
-                        logger.error(f"{cfgname}: {error}")
-
-            logger.info("-" * 80)
+                        logger.error(f"  {cfgname}: {error}")
+            else:
+                logger.info("Errors:      [none]")
+            logger.info("")
 
         elif args.mode == "tb":
             # ================================================================
@@ -225,11 +249,14 @@ def main() -> None:
             tb_template = circuit_module.tb
             generate_fn = getattr(circuit_module, "gen_topo_tb", None)
 
-            # 3. Expand topo_params, fill ports/instances
+            # 3. Discover param axes BEFORE expansion (for compact table)
+            topo_axes = discover_param_axes(tb_template, mode="topo_params")
+
+            # 4. Expand topo_params, fill ports/instances
             tbs_stage1 = expand_params(tb_template, mode="topo_params")
             tbs_stage1 = generate_topology(tbs_stage1, generate_fn)
 
-            # 4. Get corner and temp lists from template
+            # 5. Get corner and temp lists from template
             # TODO: I don't like the defaults here.
             corner_list = tb_template.get("corner", ["tt"])
             temp_list = tb_template.get("temp", [27])
@@ -238,23 +265,27 @@ def main() -> None:
             )
             temp_list = temp_list if isinstance(temp_list, list) else [temp_list]
 
+            # 6. Print compact table (if not debug mode)
+            if not args.debug:
+                print_compact_tb_table(files, topo_axes, corner_list, temp_list)
+
             total_count = 0
             all_errors = []
             headers = []
             col_widths = {}
 
-            # 5. Loop over each subckt entry in files dict
+            # 7. Loop over each subckt entry in files dict
             for config_hash, file_ctx in files.items():
                 # Clear tb lists to avoid duplicates on re-runs
                 file_ctx["tb_json"] = []
                 file_ctx["tb_spice"] = []
 
-                # 6. Load the subckt struct from subckt_json path
+                # 8. Load the subckt struct from subckt_json path
                 subckt_path = args.output / cell_name / file_ctx["subckt_json"]
                 with open(subckt_path) as f:
                     subckt = json.load(f)
 
-                # 7. Find matching tb netstruct based on topo_param values in subckt.meta
+                # 9. Find matching tb netstruct based on topo_param values in subckt.meta
                 tb_topo = find_matching_topo(tbs_stage1, subckt)
                 if not tb_topo:
                     logger.warning(
@@ -262,44 +293,44 @@ def main() -> None:
                     )
                     continue
 
-                # 8. Loop over corner × temp combinations
+                # 10. Loop over corner × temp combinations
                 # TODO: we should extends the expand_params function, and use that to get
                 # the cartesian product of corners and temps, instead of doing it manually!
                 for corner, temp in itertools.product(corner_list, temp_list):
-                    # 9. Create testbench struct with tech from subckt, corner/temp from tb
+                    # 11. Create testbench struct with tech from subckt, corner/temp from tb
                     tb = copy.deepcopy(tb_topo)
                     tb["tech"] = subckt["tech"]  # Inherit tech from subckt
                     tb["corner"] = corner
                     tb["temp"] = temp
 
-                    # 10. Normalize instance params (move top-level fields to params)
+                    # 12. Normalize instance params (move top-level fields to params)
                     tb = normalize_inst_params([tb])[0]
 
-                    # 11. Expand declarative vsource params to concrete values
+                    # 13. Expand declarative vsource params to concrete values
                     tb = generate_v_i_source_values(tb)
 
-                    # 12. Map to technology (includes vsource scaling)
+                    # 14. Map to technology (includes vsource scaling)
                     tb = map_technology(tb, techmap)
 
-                    # 12. Add auto fields (libs, includes, options, save)
+                    # 15. Add auto fields (libs, includes, options, save)
                     # TODO: Auto add fields shouldn't add save statement, as these are provided
                     # by the
                     tb = autoadd_fields(tb, subckt, techmap, file_ctx)
 
-                    # 13. Run checks
+                    # 16. Run checks
                     errors = check_testbench(tb)
                     if errors:
                         cfgname = file_ctx["cfgname"]
                         tb_filename = f"{cfgname}_{corner}_{temp}"
                         all_errors.append((tb_filename, errors))
 
-                    # Print table header on first iteration
-                    if total_count == 0:
+                    # Print table header on first iteration (debug mode only)
+                    if args.debug and total_count == 0:
                         # Use full tb struct for column calculation
                         headers, col_widths = calc_table_columns(tb)
                         print_table_header(headers, col_widths)
 
-                    # 14. Generate filename and write JSON
+                    # 17. Generate filename and write JSON
                     cfgname = file_ctx["cfgname"]
                     tb_filename = f"{cfgname}_{corner}_{temp}"
 
@@ -307,7 +338,7 @@ def main() -> None:
                     json_path.write_text(compact_json(tb))
                     file_ctx["tb_json"].append(f"tb/{tb_filename}.json")
 
-                    # 15. Write SPICE netlist
+                    # 18. Write SPICE netlist
                     sp_path = args.tb_dir / f"{tb_filename}.sp"
                     spice_str = generate_spice(tb, mode=args.mode)
                     sp_path.write_text(spice_str)
@@ -315,27 +346,31 @@ def main() -> None:
 
                     total_count += 1
 
-                    # Print table row
-                    # Build row data from top-level and topo_params fields
-                    row_data = {}
-                    for field in ["tech", "corner", "temp"]:
-                        if field in tb:
-                            row_data[field] = tb[field]
-                    row_data.update(tb.get("topo_params", {}))
-                    print_table_row(row_data, headers, col_widths)
+                    # Print table row (debug mode only)
+                    if args.debug:
+                        # Build row data from top-level and topo_params fields
+                        row_data = {}
+                        for field in ["tech", "corner", "temp"]:
+                            if field in tb:
+                                row_data[field] = tb[field]
+                        row_data.update(tb.get("topo_params", {}))
+                        print_table_row(row_data, headers, col_widths)
 
-            # 16. Write updated files.json
+            # 19. Write updated files.json
             save_files_list(files_db_path, files)
-            logger.info("-" * 80)
-            logger.info(f"Result: {total_count} testbenches generated")
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
-            # Print collected errors/warnings
+            logger.info("-" * 80)
+            logger.info(f"Result:      {total_count} testbenches generated")
+            logger.info(f"Wall Time:   {format_wall_time(elapsed)}")
             if all_errors:
+                logger.info(f"Errors:      {len(all_errors)}")
                 for tb_filename, errors in all_errors:
                     for error in errors:
-                        logger.error(f"{tb_filename}: {error}")
-
-            logger.info("-" * 80)
+                        logger.error(f"  {tb_filename}: {error}")
+            else:
+                logger.info("Errors:      [none]")
+            logger.info("")
 
     except Exception as e:
         logging.error(f"\nGeneration failed: {e}")
@@ -349,6 +384,149 @@ class ParamAxis:
     path: tuple[str | int, ...]  # e.g., ("inst_params", 0) or ("inst_params", 2, "inst_params", 0)
     key: str  # e.g., "w", "l", "type"
     values: list[Any]  # e.g., [1, 2, 4]
+
+
+def print_compact_table(
+    tech_axes: list[ParamAxis],
+    topo_axes: list[ParamAxis],
+    inst_axes: list[ParamAxis],
+    varying_params: list[tuple[str, str]],
+) -> int:
+    """
+    Print compact summary table with one row per tech and value counts.
+
+    Example output:
+        tech       preamp_diffpair  preamp_bias  M_preamp.w  ...
+        --------------------------------------------------------------------------------
+        tsmc65     2×               2×           2×          ...
+        tsmc28     2×               2×           2×          ...
+        tower180   2×               2×           2×          ...
+
+    Returns:
+        Expected total (Cartesian product of all axes × tech count)
+    """
+    logger = logging.getLogger(__name__)
+
+    # Build column data: header -> (values list or count)
+    columns: list[tuple[str, int]] = []
+
+    # Add topo_params columns
+    for axis in topo_axes:
+        columns.append((axis.key, len(axis.values)))
+
+    # Add inst_params columns (use varying_params for column names)
+    # Match inst_axes to varying_params by looking at the key
+    inst_axis_by_key: dict[str, int] = {}
+    for axis in inst_axes:
+        inst_axis_by_key[axis.key] = len(axis.values)
+
+    for inst_name, param_name in varying_params:
+        col_name = f"{inst_name}.{param_name}"
+        count = inst_axis_by_key.get(param_name, 1)
+        columns.append((col_name, count))
+
+    # Get tech values
+    tech_values = tech_axes[0].values if tech_axes else ["unknown"]
+
+    # Calculate expected total from original axes
+    expected_per_tech = 1
+    for axis in topo_axes:
+        expected_per_tech *= len(axis.values)
+    for axis in inst_axes:
+        expected_per_tech *= len(axis.values)
+    expected_total = expected_per_tech * len(tech_values)
+
+    # Calculate column widths
+    MIN_COL_WIDTH = 12
+    col_widths: dict[str, int] = {}
+    col_widths["tech"] = max(MIN_COL_WIDTH, len("tech"), max(len(str(t)) for t in tech_values))
+    for header, count in columns:
+        val_str = f"{count}×"
+        col_widths[header] = max(MIN_COL_WIDTH, len(header), len(val_str))
+
+    # Build headers list
+    headers = ["tech"] + [h for h, _ in columns]
+
+    # Print header
+    header_line = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
+    logger.info(header_line)
+    logger.info("-" * 80)
+
+    # Print one row per tech
+    for tech in tech_values:
+        row_parts = [f"{str(tech):<{col_widths['tech']}}"]
+        for header, count in columns:
+            val_str = f"{count}×"
+            row_parts.append(f"{val_str:<{col_widths[header]}}")
+        logger.info(" ".join(row_parts))
+
+    return expected_total
+
+
+def print_compact_tb_table(
+    files: dict[str, dict[str, Any]],
+    topo_axes: list[ParamAxis],
+    corner_list: list[str],
+    temp_list: list[int | float],
+) -> None:
+    """
+    Print compact testbench summary table.
+
+    For testbenches, we show: tech, subckts count, topo_params counts, corner count, temp count.
+    The number of subckt configs comes from files dict.
+    """
+    logger = logging.getLogger(__name__)
+
+    # Group subckts by tech
+    tech_counts: dict[str, int] = {}
+    for file_ctx in files.values():
+        # Extract tech from cfgname (format: cellname_topo1_topo2_tech_hash)
+        cfgname = file_ctx.get("cfgname", "")
+        parts = cfgname.split("_")
+        # Tech is second-to-last part (before hash)
+        if len(parts) >= 2:
+            tech = parts[-2]
+            tech_counts[tech] = tech_counts.get(tech, 0) + 1
+
+    if not tech_counts:
+        return
+
+    # Build column data
+    columns: list[tuple[str, int]] = []
+
+    # Add topo_params columns
+    for axis in topo_axes:
+        columns.append((axis.key, len(axis.values)))
+
+    # Add corner and temp counts
+    columns.append(("corner", len(corner_list)))
+    columns.append(("temp", len(temp_list)))
+
+    # Calculate column widths
+    MIN_COL_WIDTH = 12
+    col_widths: dict[str, int] = {}
+    col_widths["tech"] = max(MIN_COL_WIDTH, len("tech"), max(len(str(t)) for t in tech_counts.keys()))
+    col_widths["subckts"] = max(MIN_COL_WIDTH, len("subckts"))
+    for header, count in columns:
+        val_str = f"{count}×"
+        col_widths[header] = max(MIN_COL_WIDTH, len(header), len(val_str))
+
+    # Build headers list
+    headers = ["tech", "subckts"] + [h for h, _ in columns]
+
+    # Print header
+    header_line = " ".join(f"{h:<{col_widths[h]}}" for h in headers)
+    logger.info(header_line)
+    logger.info("-" * 80)
+
+    # Print one row per tech
+    for tech, subckt_count in sorted(tech_counts.items()):
+        row_parts = [f"{tech:<{col_widths['tech']}}"]
+        row_parts.append(f"{subckt_count}×".ljust(col_widths["subckts"]))
+        for header, count in columns:
+            val_str = f"{count}×"
+            row_parts.append(f"{val_str:<{col_widths[header]}}")
+        logger.info(" ".join(row_parts))
 
 
 def set_nested(obj: Any, path: tuple[str | int, ...], key: str, value: Any) -> None:
@@ -1085,21 +1263,25 @@ def generate_spice(netstruct: dict[str, Any], mode: str) -> str:
             return line
 
         # Capacitors
+        # Values may be at top-level (after map_technology) or in params (ideal caps)
         if dev_type == "cap":
             p = pins.get("p", "p")
             n = pins.get("n", "n")
-            c = format_value(inst_info["c"])
-            m = inst_info["m"]
+            params = inst_info.get("params", {})
+            c = format_value(inst_info.get("c", params.get("c", 0)))
+            m = inst_info.get("m", params.get("m", 1))
             # Ideal caps (no model or "capacitor") use bare value syntax
             if model and model != "capacitor":
                 return f"{inst_name} {p} {n} {model} c={c} m={m}"
             return f"{inst_name} {p} {n} {c}"
 
         # Resistors
+        # Values may be at top-level (after map_technology) or in params (ideal resistors)
         if dev_type == "res":
             p = pins.get("p", "p")
             n = pins.get("n", "n")
-            r = format_value(inst_info["r"])
+            params = inst_info.get("params", {})
+            r = format_value(inst_info.get("r", params.get("r", 0)))
             # Ideal resistors (no model or "resistor") use bare value syntax
             if model and model != "resistor":
                 return f"{inst_name} {p} {n} {model} r={r}"
@@ -1277,7 +1459,7 @@ def detect_varying_inst_params(
 
         # Check each param to see if it varies
         for param_name in sorted(param_names):
-            if param_name == "dev" or param_name == "type":  # Skip device type fields
+            if param_name in ("dev", "pins"):  # Skip structural fields, not params
                 continue
 
             # Collect all values for this param

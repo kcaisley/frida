@@ -37,8 +37,10 @@ from pathlib import Path
 from typing import Any
 
 from flow.common import (
+    format_wall_time,
     load_cell_script,
     load_files_list,
+    print_sim_header,
     save_files_list,
     setup_logging,
 )
@@ -68,7 +70,7 @@ def check_tools() -> tuple[int, int]:
         logger.error("CDS_LIC_FILE environment variable is not set")
         logger.error("Set it with: export CDS_LIC_FILE=<port>@<server>")
         sys.exit(1)
-    logger.info(f"License server: {license_server}")
+    logger.debug(f"License server: {license_server}")
 
     # Check lmstat is available
     try:
@@ -121,7 +123,7 @@ def check_tools() -> tuple[int, int]:
         logger.error("Could not parse license info from lmstat output")
         sys.exit(1)
 
-    logger.info(f"Licenses: {busy_licenses}/{total_licenses} in use")
+    logger.info(f"Licenses:    {busy_licenses}/{total_licenses} in use")
     return total_licenses, busy_licenses
 
 
@@ -376,9 +378,9 @@ def run_batch_parallel(
 
             if paths:
                 results[config_hash] = paths
-                logger.info(f"  Completed: {paths['resfiles'].stem}")
+                logger.info(f"Completed:   {paths['resfiles'].stem}")
             else:
-                logger.warning(f"  Failed: {config_hash}")
+                logger.warning(f"Failed: {config_hash}")
 
     return results
 
@@ -417,9 +419,9 @@ def run_batch_sequential(
 
         if paths:
             results[config_hash] = paths
-            logger.info(f"  Completed: {paths['resfiles'].stem}")
+            logger.info(f"Completed:   {paths['resfiles'].stem}")
         else:
-            logger.warning(f"  Failed: {config_hash}")
+            logger.warning(f"Failed: {config_hash}")
 
     return results
 
@@ -547,17 +549,9 @@ def main():
     if jobs:
         logger.debug(f"[MAIN-08] First job: {jobs[0]}")
 
-    logger.info("=" * 80)
-    logger.info(f"Cell:       {args.cell}")
-    logger.info(f"Flow:       simulate (mode={args.mode})")
-    logger.info(f"Jobs:       {len(jobs)}")
-    if args.mode != "dryrun":
-        logger.info(f"Workers:    {args.jobs}")
-    logger.info(f"Output:     {sim_dir}")
-    logger.info(f"Log:        {log_file}")
-    if args.tech:
-        logger.info(f"Tech:       {args.tech}")
-    logger.info("-" * 80)
+    # Print header (get license server from env)
+    lic_server = os.environ.get("CDS_LIC_FILE")
+    print_sim_header(args.cell, args.mode, sim_dir, log_file, host="local", lic_server=lic_server)
 
     # Create output directory (clean old files first)
     if sim_dir.exists():
@@ -567,21 +561,27 @@ def main():
 
     # Dryrun mode: just show what would be simulated
     if args.mode == "dryrun":
-        logger.info("DRYRUN MODE: Showing simulation plan only")
+        logger.info("Dryrun mode - showing simulation plan only")
         for job in jobs:
             logger.info(f"  Would simulate: {Path(job['tb_path']).name}")
-        logger.info("=" * 80)
-        logger.info(f"Total jobs: {len(jobs)}")
-        logger.info("=" * 80)
+        logger.info("-" * 80)
+        logger.info(f"Total jobs:  {len(jobs)}")
         return 0
 
     # Verify Cadence environment and get license counts
+    total_jobs = len(jobs)
     total_lic, busy_lic = check_tools()
 
     # Single mode: run only the first job (for debugging)
     if args.mode == "single":
-        logger.info("SINGLE MODE: Running first simulation only (for debugging)")
         jobs = jobs[:1]
+
+    logger.info(f"Jobs:        {len(jobs)}/{total_jobs}")
+    logger.info(f"Workers:     {args.jobs}")
+    if args.tech:
+        logger.info(f"Tech:        {args.tech}")
+    logger.info("")
+    logger.info("Simulations starting...")
 
     # Run simulations
     start_time = datetime.datetime.now()
@@ -594,6 +594,8 @@ def main():
 
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
     logger.debug(f"[MAIN-10] Simulation done: {len(results)} successful, elapsed={elapsed:.1f}s")
+
+    logger.info("The spice has flowed.")
 
     # Update files.json with simulation results
     for config_hash, file_ctx in files.items():
@@ -624,15 +626,17 @@ def main():
     logger.debug("[MAIN-12] files.json saved")
 
     # Summary
-    logger.info("=" * 80)
-    logger.info("Simulation Summary")
-    logger.info("=" * 80)
-    logger.info(f"Total jobs:    {len(jobs)}")
-    logger.info(f"Successful:    {len(results)}")
-    logger.info(f"Failed:        {len(jobs) - len(results)}")
-    logger.info(f"Elapsed time:  {elapsed:.1f}s")
-    logger.info(f"Output:        {sim_dir}")
-    logger.info("=" * 80)
+    failed_count = len(jobs) - len(results)
+    logger.info("-" * 80)
+    logger.info(f"Total Sims:  {len(jobs)}")
+    logger.info(f"Successes:   {len(results)}")
+    logger.info(f"Failures:    {failed_count}")
+    logger.info(f"Wall Time:   {format_wall_time(elapsed)}")
+    if failed_count > 0:
+        logger.info(f"Errors:      {failed_count} simulations failed")
+    else:
+        logger.info("Errors:      [none]")
+    logger.info("")
 
     return 0 if len(results) == len(jobs) else 1
 

@@ -445,7 +445,8 @@ def gen_topo_subckt(
 #
 # Test structure:
 # - 5 common-mode voltages: 0.3, 0.4, 0.5, 0.6, 0.7 V
-# - 11 differential voltages at each: -50mV to +50mV (10mV steps)
+# - 11 differential voltages at each: -10mV to +10mV (2mV steps)
+#   Both inputs move symmetrically: in+ = CM + diff/2, in- = CM - diff/2
 # - 10 clock cycles (samples) at each point
 #
 # Timing (normalized units, 1 unit = 1ns):
@@ -484,16 +485,32 @@ tb = {
                 "trise": 0.1,
             },
         },
-        # Differential input: -50mV to +50mV in 10mV steps (11 levels)
+        # Symmetric differential inputs: both move around common mode
+        # Half-differential on in+: sweeps from -5mV to +5mV (11 levels)
+        # So total differential (in+ - in-) sweeps from -10mV to +10mV
         # Repeats for each CM level: 55 total steps
-        "Vdiff": {
+        "Vdiff_p": {
             "dev": "vsource",
             "pins": {"p": "vin_src", "n": "vcm"},
             "wave": "pwl",
             "params": {
                 "type": "step",
-                "vstart": -0.05,
-                "vstop": 0.05,
+                "vstart": -0.005,
+                "vstop": 0.005,
+                "tstep": 100,
+                "count": 55,
+                "trise": 0.1,
+            },
+        },
+        # Half-differential on in-: sweeps opposite direction (+5mV to -5mV)
+        "Vdiff_n": {
+            "dev": "vsource",
+            "pins": {"p": "vref_src", "n": "vcm"},
+            "wave": "pwl",
+            "params": {
+                "type": "step",
+                "vstart": 0.005,
+                "vstop": -0.005,
                 "tstep": 100,
                 "count": 55,
                 "trise": 0.1,
@@ -513,13 +530,6 @@ tb = {
             "type": "cap_ideal",
             "c": 100,
             "m": 1,
-        },
-        # Reference: in- = vcm (no differential offset)
-        "Vref": {
-            "dev": "vsource",
-            "pins": {"p": "vref_src", "n": "vcm"},
-            "wave": "dc",
-            "params": {"dc": 0.0},
         },
         # Source impedance on reference input (must match signal side)
         "Rsrc_n": {

@@ -46,7 +46,7 @@ techmap = {
             "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
             "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
             "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1},
             "res_poly": {"model": "polyres", "rsh": 50},
             "res_ideal": {"model": "resistor", "rsh": 1},
         },
@@ -86,7 +86,7 @@ techmap = {
             "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
             "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
             "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1},
             "res_poly": {"model": "polyres", "rsh": 50},
             "res_ideal": {"model": "resistor", "rsh": 1},
         },
@@ -133,7 +133,7 @@ techmap = {
             "cap_mom1": {"model": "mimcap_1m", "unit_cap": 1e-15},
             "cap_mom2": {"model": "mimcap_2m", "unit_cap": 1e-15},
             "cap_mom3": {"model": "mimcap_3m", "unit_cap": 1e-15},
-            "cap_ideal": {"model": "capacitor", "unit_cap": 1e-15},
+            "cap_ideal": {"model": "capacitor", "unit_cap": 1},
             "res_poly": {"model": "polyres", "rsh": 50},
             "res_ideal": {"model": "resistor", "rsh": 1},
         },
@@ -243,7 +243,8 @@ class CustomFormatter(logging.Formatter):
             # For INFO level, just output the message without level name
             return record.getMessage()
         elif record.levelno == logging.WARNING:
-            return f"[WARNING] {record.getMessage()}"
+            # 8 spaces after [WARNING] so message starts at column 17
+            return f"[WARNING]        {record.getMessage()}"
         elif record.levelno == logging.ERROR:
             return f"[ERROR] {record.getMessage()}"
         else:
@@ -292,36 +293,103 @@ def setup_logging(log_file: Path | None = None, logger_name: str | None = None, 
 # ========================================================================
 
 
-def print_flow_header(
-    cell: str,
-    flow: str,
-    script_file: Path | None = None,
-    outdir: Path | None = None,
-    log_file: Path | None = None,
-) -> None:
-    """
-    Print a standardized header for flow steps.
-
-    Args:
-        cell: Name of the cell being processed
-        flow: Name of the flow step, optionally with mode (e.g., 'netlist (subckt)', 'simulate', 'measure')
-        script_file: Optional path to the script being run
-        outdir: Optional output directory
-        log_file: Optional log file path
-    """
+def _print_centered_title(title: str) -> None:
+    """Print a centered title between === lines."""
     logger = logging.getLogger(__name__)
-
-    logger.info("")  # One blank line before block
+    logger.info("")
     logger.info("=" * 80)
-    logger.info(f"Cell:       {cell}")
-    logger.info(f"Flow:       {flow}")
-    if script_file:
-        logger.info(f"Script:     {script_file}")
-    if outdir:
-        logger.info(f"OutDir:     {outdir}")
-    if log_file:
-        logger.info(f"Log:        {log_file}")
+    # Center the title in 80 chars
+    logger.info(title.center(80))
+    logger.info("=" * 80)
+
+
+def format_wall_time(seconds: float) -> str:
+    """Format wall time with appropriate units (s or ms)."""
+    if seconds < 0.1:
+        return f"{seconds * 1000:.1f}ms"
+    else:
+        return f"{seconds:.1f}s"
+
+
+def print_subckt_header(
+    cell: str,
+    script_file: Path,
+    outdir: Path,
+    log_file: Path,
+) -> None:
+    """Print header for subcircuit netlisting step."""
+    logger = logging.getLogger(__name__)
+    _print_centered_title("SUBCIRCUIT NETLISTING")
+    logger.info(f"Cell:        {cell}")
+    logger.info(f"Script:      {script_file}")
+    logger.info(f"Step:        subckt")
+    logger.info(f"Script:      flow/netlist.py")
+    logger.info(f"OutDir:      {outdir}")
+    logger.info(f"Log:         {log_file}")
     logger.info("-" * 80)
+
+
+def print_tb_header(
+    cell: str,
+    script_file: Path,
+    outdir: Path,
+    log_file: Path,
+) -> None:
+    """Print header for testbench netlisting step."""
+    logger = logging.getLogger(__name__)
+    _print_centered_title("TESTBENCH NETLISTING")
+    logger.info(f"Cell:        {cell}")
+    logger.info(f"Script:      {script_file}")
+    logger.info(f"Step:        tb")
+    logger.info(f"Script:      flow/netlist.py")
+    logger.info(f"OutDir:      {outdir}")
+    logger.info(f"Log:         {log_file}")
+    logger.info("-" * 80)
+
+
+def print_sim_header(
+    cell: str,
+    mode: str,
+    outdir: Path,
+    log_file: Path,
+    host: str = "local",
+    lic_server: str | None = None,
+) -> None:
+    """Print header for simulation step."""
+    logger = logging.getLogger(__name__)
+    _print_centered_title("SPICE SIMULATION")
+    logger.info(f"Cell:        {cell}")
+    logger.info(f"Step:        simulate")
+    logger.info(f"Mode:        {mode}")
+    logger.info(f"OutDir:      {outdir}")
+    logger.info(f"Log:         {log_file}")
+    logger.info(f"Host:        {host}")
+    if lic_server:
+        logger.info(f"LicServer:   {lic_server}")
+    logger.info("-" * 80)
+
+
+def print_meas_header(
+    cell: str,
+    script_file: Path,
+    outdir: Path,
+    log_file: Path,
+    data_files: int,
+    no_plot: bool = False,
+) -> None:
+    """Print header for measurement and plotting step."""
+    logger = logging.getLogger(__name__)
+    _print_centered_title("MEASUREMENT & PLOTTING")
+    logger.info(f"Cell:        {cell}")
+    logger.info(f"Script:      {script_file}")
+    logger.info(f"Step:        measure & plot")
+    logger.info(f"Script:      flow/measure.py")
+    logger.info(f"Outdir:      {outdir}")
+    logger.info(f"Log:         {log_file}")
+    logger.info("-" * 80)
+    logger.info(f"Data files:      {data_files} (resfiles)")
+    if no_plot:
+        logger.info("Plots:           disabled")
 
 
 def calc_table_columns(

@@ -1,0 +1,112 @@
+kcaisley@lt177:~/frida$ make all cell=comp mode=single
+
+================================================================================
+                            SUBCIRCUIT NETLISTING
+================================================================================
+Cell:        comp
+Script:      blocks/comp.py
+Step:        subckt
+Script:      flow/netlist.py
+OutDir:      results/comp/subckt
+Log:         logs/subckt_comp_20260127_212812.log
+--------------------------------------------------------------------------------
+tech         preamp_diffpair preamp_bias  comp_stages  latch_pwrgate_ctl latch_pwrgate_node latch_rst_extern_ctl latch_rst_intern_ctl M_preamp_bias.w M_preamp_diff+.w M_preamp_diff-.w M_preamp_tail.w Ma_latch+.w  Ma_latch-.w  Mb_latch+.w  Mb_latch-.w
+--------------------------------------------------------------------------------
+tsmc65       2×              2×           2×           2×                2×                 3×                   2×                   3×              3×               3×               3×              3×           3×           3×           3×
+tsmc28       2×              2×           2×           2×                2×                 3×                   2×                   3×              3×               3×               3×              3×           3×           3×           3×
+tower180     2×              2×           2×           2×                2×                 3×                   2×                   3×              3×               3×               3×              3×           3×           3×           3×
+--------------------------------------------------------------------------------
+Result:      2448 subcircuits generated
+Note:        2448/6912 param combinations valid, as not all topo_params combine
+Wall Time:   2.1s
+Errors:      [none]
+
+
+================================================================================
+                            TESTBENCH NETLISTING
+================================================================================
+Cell:        comp
+Script:      blocks/comp.py
+Step:        tb
+Script:      flow/netlist.py
+OutDir:      results/comp/tb
+Log:         logs/tb_comp_20260127_212814.log
+--------------------------------------------------------------------------------
+tech         subckts      corner       temp
+--------------------------------------------------------------------------------
+tower180     816×         1×           1×
+tsmc28       816×         1×           1×
+tsmc65       816×         1×           1×
+--------------------------------------------------------------------------------
+Result:      2448 testbenches generated
+Wall Time:   0.4s
+Errors:      [none]
+
+
+================================================================================
+                            SPICE SIMULATION
+================================================================================
+Cell:        comp
+Step:        simulate
+Mode:        single
+OutDir:      results/comp/sim
+Log:         logs/sim_comp_20260127_212827.log
+Host:        remote
+LicServer:   27500@nexus.physik.uni-bonn.de
+--------------------------------------------------------------------------------
+Local host unable to simulate
+Transferring netlists to remote...
+Hostname:    jupiter.physik.uni-bonn.de
+Username:    kcaisley
+
+Working out simulation setup...
+Licenses:    0/120 in use
+Jobs:        1/2448
+Workers:     40
+
+Sourcing env scripts...
+Simulations starting...
+All jobs complete.
+Transfering results locally...
+The spice has flowed.
+--------------------------------------------------------------------------------
+Total Sims:  1
+Successes:   1
+Failures:    0
+Wall Time:   3.4s
+Errors:      [none]
+
+
+================================================================================
+                            MEASUREMENT & PLOTTING
+================================================================================
+Cell:        comp
+Script:      blocks/comp.py
+Step:        measure & plot
+Script:      flow/measure.py
+Outdir:      results/comp/plot
+Log:         logs/meas_comp_20260127_212834.log
+--------------------------------------------------------------------------------
+Data files:      1 (resfiles)
+[WARNING]        power_uW eval failed: Vector 'vdd' not found.
+Measured:        sim_comp_nmosinput_stdbias_singlestage_clocked_external_clocked_clocked_tsmc65_8af2d9cfe3c1_tt_27
+offset_mV:       1.778
+noise_sigma_mV:  0.1359
+delay_ns:        5.405
+settling_ns:     nan
+overshoot_pct:   19.34
+slew_Vns:        0.7492
+scurve_vin_mV:   array(25 elements)
+scurve_phigh:    array(25 elements)
+cycle_diagram:   dict(['type', 'window_ns', 'trigger', 'signals'])
+Saved scurve:    results/comp/plot/comp_sim_comp_nmosinput_stdbias_singlestage_clocked_external_clocked_clocked_tsmc65_8af2d9cfe3c1_tt_27_scurve.pdf
+Saved cycle:     results/comp/plot/comp_sim_comp_nmosinput_stdbias_singlestage_clocked_external_clocked_clocked_tsmc65_8af2d9cfe3c1_tt_27_cycle.pdf
+--------------------------------------------------------------------------------
+Data files:  1
+Measures:    1
+Meas time:   0.3s
+Plots:       4
+Plot time:   1.0s
+Wall time:   1.3s
+
+kcaisley@lt177:~/frida$

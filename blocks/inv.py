@@ -37,10 +37,6 @@ Test structure:
 Verifies basic inverter operation: out = ~in
 """
 
-# Testbench timing parameters
-_sim_stop = 200  # ns
-_clk_period = 100  # ns
-
 # Monolithic testbench struct (static topology - no topo_params)
 tb = {
     "instances": {
@@ -66,19 +62,19 @@ tb = {
             "tr": 1,
             "tf": 1,
             "pw": 50,
-            "per": _clk_period,
+            "per": 100,
         },
         "Cload": {
             "dev": "cap",
             "pins": {"p": "out", "n": "vss"},
-            "params": {"c": 1e-15},
+            "params": {"c": 1e-15, "type": "cap_ideal"},
         },
         "Xdut": {
             "cell": "inv",
             "pins": {"in": "in", "out": "out", "vdd": "vdd", "vss": "vss"},
         },
     },
-    "analyses": {"tran1": {"type": "tran", "stop": _sim_stop, "step": 0.1}},
+    "analyses": {"tran1": {"type": "tran", "stop": 200, "step": 0.1}},
     "corner": ["tt"],
     "temp": [27],
 }

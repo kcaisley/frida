@@ -35,8 +35,10 @@ import numpy as np
 
 from flow.common import (
     filter_results,
+    format_wall_time,
     load_cell_script,
     load_files_list,
+    print_meas_header,
     save_files_list,
     setup_logging,
 )
@@ -137,14 +139,8 @@ def main():
         logger.warning(f"Run 'make sim cell={args.cell}' first")
         return 0
 
-    logger.info("=" * 80)
-    logger.info(f"Cell:       {args.cell}")
-    logger.info("Flow:       measure" + (" + plot" if not args.no_plot else ""))
-    logger.info(f"Data files: {data_file_count} (resfiles)")
-    if not args.no_plot:
-        logger.info(f"Plots:      {plot_dir}")
-    logger.info(f"Log:        {log_file}")
-    logger.info("-" * 80)
+    # Print header
+    print_meas_header(args.cell, block_file, plot_dir, log_file, data_file_count, args.no_plot)
 
     # Run measurements
     start_time = datetime.datetime.now()
@@ -184,17 +180,15 @@ def main():
 
     # Summary
     total_elapsed = meas_elapsed + plot_elapsed
-    logger.info("=" * 80)
-    logger.info("Measurement Summary")
-    logger.info("=" * 80)
-    logger.info(f"Data files:      {data_file_count}")
-    logger.info(f"Measured:        {len(all_results)}")
-    logger.info(f"Meas time:       {meas_elapsed:.1f}s")
+    logger.info("-" * 80)
+    logger.info(f"Data files:  {data_file_count}")
+    logger.info(f"Measures:    {len(all_results)}")
+    logger.info(f"Meas time:   {format_wall_time(meas_elapsed)}")
     if not args.no_plot:
-        logger.info(f"Plots created:   {plot_count}")
-        logger.info(f"Plot time:       {plot_elapsed:.1f}s")
-    logger.info(f"Total time:      {total_elapsed:.1f}s")
-    logger.info("=" * 80)
+        logger.info(f"Plots:       {plot_count}")
+        logger.info(f"Plot time:   {format_wall_time(plot_elapsed)}")
+    logger.info(f"Wall time:   {format_wall_time(total_elapsed)}")
+    logger.info("")
 
     return 0
 
@@ -240,7 +234,7 @@ def run_measurements_pyopus(
     sim_dir = cell_dir / "sim"
     all_results = {}
 
-    logger.info("Using direct pickle loading for measurements")
+    logger.debug("Using direct pickle loading for measurements")
     logger.debug(f"[MEAS-13] Processing {len(files)} file contexts from files.json")
 
     skipped_count = 0
@@ -327,9 +321,16 @@ def run_measurements_pyopus(
                         logger.debug(f"[MEAS-19] Evaluating {measure_name}: {expression}")
                         value = eval(expression, {"__builtins__": {}}, eval_env)
                         flat_results[measure_name] = value
-                        logger.debug(f"[MEAS-20] {measure_name} = {value}")
+                        # Summarize value for debug output (avoid printing huge arrays)
+                        if isinstance(value, np.ndarray):
+                            val_summary = f"array({value.shape})"
+                        elif isinstance(value, dict):
+                            val_summary = f"dict({list(value.keys())})"
+                        else:
+                            val_summary = repr(value)[:80]
+                        logger.debug(f"[MEAS-20] {measure_name} = {val_summary}")
                     except Exception as e:
-                        logger.warning(f"    {measure_name} eval failed: {e}")
+                        logger.warning(f"{measure_name} eval failed: {e}")
                         flat_results[measure_name] = None
 
             logger.debug(f"[MEAS-21] flat_results: {list(flat_results.keys())}")
@@ -340,18 +341,19 @@ def run_measurements_pyopus(
                 "metadata": metadata,
             }
 
-            logger.info(f"  Measured: {result_key}")
+            logger.info(f"{'Measured:':<17}{result_key}")
             for measure_name, value in flat_results.items():
                 if value is not None:
-                    # Format output based on type
+                    # Format output based on type - align at column 17
+                    label = f"{measure_name}:"
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
-                        logger.info(f"    {measure_name}: {value:.4g}")
+                        logger.info(f"{label:<17}{value:.4g}")
                     elif isinstance(value, np.ndarray):
-                        logger.info(f"    {measure_name}: array({len(value)} elements)")
+                        logger.info(f"{label:<17}array({len(value)} elements)")
                     elif isinstance(value, dict):
-                        logger.info(f"    {measure_name}: dict({list(value.keys())})")
+                        logger.info(f"{label:<17}dict({list(value.keys())})")
                     else:
-                        logger.info(f"    {measure_name}: {value}")
+                        logger.info(f"{label:<17}{value}")
 
         except Exception as e:
             import traceback
@@ -418,14 +420,15 @@ def generate_plots(
                 "metadata": metadata,
             })
 
-    # Create summary bar plots for scalar measures
+    # Create summary bar plots for scalar measures (only when multiple results)
     scalar_measures = {}
     for name, entries in all_measures.items():
         values = [e["value"] for e in entries if e["value"] is not None]
         if values and all(isinstance(v, (int, float)) for v in values):
             scalar_measures[name] = entries
 
-    if scalar_measures:
+    # Skip summary/comparison plots if only 1 result - they're not meaningful
+    if len(all_results) > 1 and scalar_measures:
         # Group by technology
         techs = set()
         for entries in scalar_measures.values():
@@ -433,10 +436,8 @@ def generate_plots(
                 techs.add(e["metadata"].get("tech", "unknown"))
         techs = sorted(t for t in techs if t)
 
-        # Create a summary plot for each measure
+        # Create a summary plot for each measure (only if multiple techs or multiple values)
         for measure_name, entries in scalar_measures.items():
-            fig, ax = plt.subplots(figsize=(10, 6))
-
             # Group by tech
             tech_values = {t: [] for t in techs}
             for e in entries:
@@ -449,7 +450,11 @@ def generate_plots(
             data = [tech_values[t] for t in techs if tech_values.get(t)]
             labels = [t for t in techs if tech_values.get(t)]
 
-            if data and labels:
+            # Only plot if there's meaningful data to compare
+            total_values = sum(len(d) for d in data)
+            if data and labels and (len(labels) > 1 or total_values > 1):
+                fig, ax = plt.subplots(figsize=(10, 6))
+
                 if all(len(d) > 1 for d in data):
                     ax.boxplot(data, tick_labels=labels)
                 else:
@@ -465,18 +470,16 @@ def generate_plots(
                 saved = save_plot_dual_format(fig, str(plot_path), plt)
                 generated_plots.extend(saved)
                 logger.info(f"  Saved: {plot_path}.pdf")
-            else:
-                plt.close(fig)
 
-    # Create corner comparison plots
-    for measure_name in scalar_measures.keys():
-        plots = plot_corner_comparison(all_results, measure_name, plot_dir, cell, plt)
-        generated_plots.extend(plots)
+        # Create corner comparison plots
+        for measure_name in scalar_measures.keys():
+            plots = plot_corner_comparison(all_results, measure_name, plot_dir, cell, plt)
+            generated_plots.extend(plots)
 
-    # Create temperature sweep plots
-    for measure_name in scalar_measures.keys():
-        plots = plot_temp_sweep(all_results, measure_name, plot_dir, cell, plt)
-        generated_plots.extend(plots)
+        # Create temperature sweep plots
+        for measure_name in scalar_measures.keys():
+            plots = plot_temp_sweep(all_results, measure_name, plot_dir, cell, plt)
+            generated_plots.extend(plots)
 
     # Create graphs from visualisation config with traces
     graphs = visualisation.get("graphs", {})
@@ -507,22 +510,42 @@ def generate_plots(
                                 plot_path = plot_dir / f"{cell}_{result_key}_{graph_name}"
                                 saved = save_plot_dual_format(fig, str(plot_path), plt)
                                 generated_plots.extend(saved)
-                                logger.info(f"  Saved {graph_name}: {plot_path}.pdf")
+                                logger.info(f"{'Saved ' + graph_name + ':':<17}{plot_path}.pdf")
                         except Exception as e:
                             logger.warning(f"  Failed to create {graph_name}: {e}")
         else:
-            # Standard trace-based graph
-            try:
-                fig, _axes = plot_trace_graph(
-                    graph_name, graph_config, traces, all_measures, styles, plt
-                )
-                if fig is not None:
-                    plot_path = plot_dir / f"{cell}_{graph_name}"
-                    saved = save_plot_dual_format(fig, str(plot_path), plt)
-                    generated_plots.extend(saved)
-                    logger.info(f"  Saved: {plot_path}.pdf")
-            except Exception as e:
-                logger.warning(f"  Failed to create {graph_name}: {e}")
+            # Standard trace-based graph - create one per result_key
+            # Get all result keys that have data for this graph's traces
+            graph_traces = [t for t, cfg in traces.items() if cfg.get("graph") == graph_name]
+            result_keys = set()
+            for trace_name in graph_traces:
+                trace_cfg = traces.get(trace_name, {})
+                xresult = trace_cfg.get("xresult")
+                yresult = trace_cfg.get("yresult")
+                if xresult in all_measures:
+                    for entry in all_measures[xresult]:
+                        result_keys.add(entry.get("key", ""))
+                if yresult in all_measures:
+                    for entry in all_measures[yresult]:
+                        result_keys.add(entry.get("key", ""))
+
+            for result_key in sorted(result_keys):
+                try:
+                    # Filter measures to just this result
+                    filtered_measures = {}
+                    for mname, entries in all_measures.items():
+                        filtered_measures[mname] = [e for e in entries if e.get("key") == result_key]
+
+                    fig, _axes = plot_trace_graph(
+                        graph_name, graph_config, traces, filtered_measures, styles, plt
+                    )
+                    if fig is not None:
+                        plot_path = plot_dir / f"{cell}_{result_key}_{graph_name}"
+                        saved = save_plot_dual_format(fig, str(plot_path), plt)
+                        generated_plots.extend(saved)
+                        logger.info(f"{'Saved ' + graph_name + ':':<17}{plot_path}.pdf")
+                except Exception as e:
+                    logger.warning(f"  Failed to create {graph_name} for {result_key}: {e}")
 
     return generated_plots
 
@@ -540,15 +563,25 @@ def generate_plots(
 def configure_matplotlib():
     """Configure matplotlib for headless plotting with LaTeX."""
     import logging
-    import matplotlib
+    import os
+    import sys
+    from io import StringIO
 
-    # Suppress matplotlib's verbose debug output (font finding, etc.)
+    # Suppress matplotlib's verbose logging and print statements.
+    # Without this, terminal buffer fills up with floats lol. Wouldn't recommend removing.
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
     logging.getLogger("matplotlib.type1font").setLevel(logging.WARNING)
 
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    os.environ["MPLBACKEND"] = "Agg"
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    finally:
+        sys.stdout = old_stdout
     plt.rcParams.update({
         "text.usetex": True,
         "font.family": "serif",
