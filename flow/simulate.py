@@ -255,8 +255,8 @@ def run_simulation_pyopus(
         # Save resFiles mapping for PostEvaluator
         # resFiles is a dict: {(hostID, (corner, analysis)): filepath}
         resfiles_path = sim_dir / f"{sim_name}_resfiles.pck"
-        logger.info(f"resFiles contents: {pe.resFiles}")
-        logger.info(f"resFiles types: {[(type(k), type(v)) for k, v in pe.resFiles.items()]}")
+        print(f"DEBUG resFiles contents: {pe.resFiles}", flush=True)
+        print(f"DEBUG resFiles types: {[(type(k), type(v)) for k, v in pe.resFiles.items()]}", flush=True)
         with open(resfiles_path, "wb") as f:
             pickle.dump(pe.resFiles, f)
 
