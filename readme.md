@@ -26,8 +26,7 @@ This project is a "workspace", and relies on a mixture of tools (mostly open, so
 Generate parameterized subcircuit netlists from block definitions:
 
 ```bash
-make subckt [cell]          # Generate subcircuits for a cell
-make subckt                 # Generate all cells
+make subckt cell=<cellname> [debug=1]
 ```
 
 Input: Block definition in `blocks/[cell].py` containing:
@@ -48,8 +47,7 @@ Process:
 Generate testbenches that reference the subcircuit variants:
 
 ```bash
-make tb [cell]              # Generate testbenches for a cell
-make tb                     # Generate all cells
+make tb cell=<cellname> [debug=1]
 ```
 
 Input: Block definition `blocks/[cell].py` containing:
@@ -78,9 +76,9 @@ subckt = {
     "cellname": "comp",                    # Cell name
     "ports": {},                           # Port definitions (or empty for dynamic)
     "devices": {},                         # Device instances (or empty for dynamic)
-    "tech": ["tsmc65", "tsmc28"],         # Technologies to generate
+    "tech": ["tsmc65", "tsmc28"],          # Technologies to generate
     "topo_params": {                       # Topology parameters (optional)
-        "param_A": [val1, val2],          # Cartesian product in Stage 1
+        "param_A": [val1, val2],           # Cartesian product in Stage 1
     },
     "dev_params": {                        # Device defaults (applied last)
         "nmos": {"type": "lvt", "w": 1, "l": 1, "nf": 1},
@@ -117,8 +115,8 @@ tb = {
         'Vvdd': {'dev': 'vsource', ...},
         'Xdut': {'dev': 'cellname', ...}   # References subcircuit
     },
-    "corner": ["tt", "ss", "ff"],         # Process corners
-    "temp": [27, -40, 125],               # Temperatures
+    "corner": ["tt", "ss", "ff"],          # Process corners
+    "temp": [27, -40, 125],                # Temperatures
     "topo_params": {                       # For matching with subcircuits (optional)
         "switch_type": ["nmos", "pmos"]
     },
@@ -169,44 +167,65 @@ Subsequent flow steps read files.json to find exact file paths without inferring
 
 ## Simulation Flow
 
-Run Spectre simulations using PyOPUS PerformanceEvaluator:
+Run Spectre simulations (automatically uses remote server if local host lacks Spectre):
 
 ```bash
-make sim cell=comp mode=single host=local   # Run one testbench locally
-make sim cell=comp mode=all host=remote     # Run all on remote server
+make sim cell=<cellname> mode=<dryrun|single|all> [tech=<tech>] [debug=1]
 ```
 
-The simulation supports both local and remote execution with automatic file synchronization:
+- `mode=dryrun` - Show simulation plan only
+- `mode=single` - Run first testbench only (for debugging)
+- `mode=all` - Run all testbenches
 
 ```mermaid
-flowchart TB
-    subgraph LOCAL1 [Local Machine]
-        A[make subckt cell=comp] --> B[results/comp/subckt/*.sp]
-        C[make tb cell=comp] --> D[results/comp/tb/*.sp]
-        B & D --> E[make sim cell=comp mode=all host=remote]
-        E --> F{Check git status}
-        F -->|clean| G[rsync results/comp/ → remote]
-    end
-
-    G --> H
-
-    subgraph REMOTE [Remote Server - juno]
-        H[git pull] --> I[source Cadence setup]
-        I --> J[PyOPUS PerformanceEvaluator]
-        J --> K[Run Spectre simulations\n up to 40 parallel]
-        K --> L[Write .scs, .log, .raw, .pkl]
-    end
-
-    L --> M
-
-    subgraph LOCAL2 [Local Machine]
-        M[rsync results/comp/sim/ ← remote] --> N[make meas cell=comp]
-        N --> O[Read .raw files]
-        O --> P[Evaluate measure expressions]
-        P --> Q[Write meas/*.json]
-        P --> R[Generate plot/*.pdf]
-    end
+flowchart LR
+    A[tb/*.sp] --> B[simulate.py]
+    B --> C{local Spectre?}
+    C -->|yes| D[run locally]
+    C -->|no| E[rsync to remote]
+    E --> F[run on juno]
+    F --> G[rsync back]
+    D & G --> H[sim/*.raw]
 ```
+
+## Measurement Flow
+
+Extract measurements and generate plots from simulation results:
+
+```bash
+make meas cell=<cellname> [tech=<tech>] [corner=<corner>] [temp=<temp>] [no_plot=1] [debug=1]
+```
+
+```mermaid
+flowchart LR
+    A[sim/*.raw] --> B[measure.py]
+    B --> C[eval expressions]
+    C --> D[meas/*.json]
+    C --> E[plot/*.pdf]
+```
+
+## Full Flow
+
+Run the complete flow (subckt → tb → sim → meas) in one command:
+
+```bash
+make all cell=<cellname> [mode=single|all] [debug=1]
+```
+
+Defaults to `mode=single` for quick iteration.
+
+## Clean Targets
+
+```bash
+make clean_subckt cell=<cellname>   # Remove subcircuit outputs
+make clean_tb cell=<cellname>       # Remove testbench outputs
+make clean_sim cell=<cellname>      # Remove simulation outputs
+make clean_meas cell=<cellname>     # Remove measurement outputs
+make clean_plot cell=<cellname>     # Remove plot outputs
+make clean_all cell=<cellname>      # Remove all outputs for cell
+```
+
+Omit `cell=` to clean all cells.
 
 ## Analyses and Measures
 
@@ -276,25 +295,10 @@ Custom measurement functions are defined in `flow/expression.py` and should retu
 For Monte Carlo simulations, the measurement system automatically handles multiple runs and computes statistics:
 
 ```mermaid
-flowchart TB
-    A[MC Raw File\nN runs] --> B
-
-    subgraph B [For each run in raw file]
-        direction TB
-        C[Create v, i, scale accessors\nfor this run's waveform data]
-        C --> D[Evaluate ALL measure expressions\neach returns a scalar]
-        D --> E[Store results for this run]
-    end
-
-    B --> F
-
-    subgraph F [Aggregate across runs]
-        direction TB
-        G[Collect N scalar values\none per run]
-        G --> H[Compute mean, std, min, max]
-    end
-
-    F --> I[MC Statistics Output]
+flowchart LR
+    A[MC raw file] --> B[per-run eval]
+    B --> C[N scalar values]
+    C --> D[mean/std/min/max]
 ```
 
 The same measure expressions work unchanged for both deterministic and MC simulations. For MC, the output includes statistics:
