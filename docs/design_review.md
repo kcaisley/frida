@@ -185,7 +185,11 @@ $$W = q \cdot T + r \quad \text{where } q = \lfloor W/T \rfloor$$
 | Parameter | Options |
 |-----------|---------|
 | `preamp_diffpair` | nmosinput, pmosinput |
-| `preamp_bias` | stdbias, dynbias |
+| `preamp_bias` # Copied and reformatting from the Appendix of PH Wei's 2021 Thesis 
+
+
+
+| stdbias, dynbias |
 | `comp_stages` | singlestage, doublestage |
 | `latch_pwrgate_ctl` | clocked, signalled |
 | `latch_pwrgate_node` | external, internal |
