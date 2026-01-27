@@ -1,8 +1,22 @@
 """
 PyOPUS-based measurement and plotting.
 
-Loads simulation results from .pkl files, extracts measurements using
-PostEvaluator, and generates plots using pyopus.plotter.interface.
+Flow Overview
+=============
+This script is the second half of a split workflow (see simulate.py for part 1):
+
+    1. simulate.py ran on remote server, produced:
+       - .raw file (Spectre output, viewable in waveform viewer)
+       - .pck files (PyOPUS pickled waveforms with parsed time/voltage arrays)
+       - _resfiles.pck (mapping of (corner, analysis) -> .pck filepath)
+
+    2. rsync brought results back to local machine
+
+    3. measure.py (this script) runs locally:
+       - PostEvaluator loads .pck files (no Spectre needed)
+       - Provides v('signal') and scale('analysis') accessors to expressions
+       - Evaluates measure expressions defined in blocks/<cell>.py
+       - Generates plots from scalar and vector measure results
 
 Usage:
     python -m flow.measure comp              # Run measurements and plots
@@ -249,10 +263,29 @@ def run_measurements_pyopus(
             with open(resfiles_path, "rb") as f:
                 res_files = pickle.load(f)
 
+            # PerformanceEvaluator.resFiles uses keys (hostID, (corner, analysis))
+            # PostEvaluator expects keys (corner, analysis) - strip the hostID
+            # Also extract just basename since stored paths may be from remote server
+            posteval_files = {}
+            for key, filepath in res_files.items():
+                _host_id, corner_analysis = key
+                posteval_files[corner_analysis] = Path(filepath).name
+
+            # TODO: PyOPUS bug workaround - PostEvaluator.evaluateMeasures() at line 242
+            # in pyopus/evaluator/posteval.py iterates measure['depends'] without checking
+            # if the key exists (unlike line 89 which properly checks). The 'depends' key
+            # is only needed for derived measures that compute from other measures, not for
+            # measures that compute directly from waveforms. Fix PyOPUS, then remove this.
+            patched_measures = {}
+            for name, meas in measures.items():
+                patched_measures[name] = dict(meas)
+                if "depends" not in patched_measures[name]:
+                    patched_measures[name]["depends"] = []
+
             # Use PostEvaluator to extract measures
             posteval = PostEvaluator(
-                files=res_files,
-                measures=measures,
+                files=posteval_files,
+                measures=patched_measures,
                 resultsFolder=str(cell_dir / "sim"),
                 debug=0,
             )

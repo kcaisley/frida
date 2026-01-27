@@ -1,8 +1,24 @@
 """
 PyOPUS-based Spectre simulation runner using PerformanceEvaluator.
 
-Runs all testbenches for a cell using PyOPUS PerformanceEvaluator and
-saves waveform results as .pkl files for later measurement/plotting.
+Flow Overview
+=============
+The simulation and measurement steps are able to be performed
+on different machines, at different times:
+
+    1. simulate.py (runs on remote server with Spectre license)
+       - PerformanceEvaluator runs Spectre simulation
+       - Produces .raw file (Spectre native output with waveforms)
+       - storeResults=True saves parsed waveforms to .pck pickle files
+       - Saves resFiles mapping (which .pck file has which corner/analysis)
+
+    2. rsync results back to local machine
+
+    3. measure.py (runs locally, no Spectre needed)
+       - PostEvaluator loads .pck files (pre-parsed waveforms)
+       - Evaluates measure expressions using v() and scale() accessors
+       - Can iterate on measure expressions without re-simulating
+       - Generates plots from measure results
 
 Usage:
     python -m flow.simulate comp -j 20
@@ -133,10 +149,9 @@ def run_simulation_pyopus(
     # Build sim_name from tb filename (needed for paths)
     sim_name = tb_path.stem.replace("tb_", "sim_", 1) if tb_path.stem.startswith("tb_") else f"sim_{tb_path.stem}"
 
-    # Output file paths
+    # Output file paths (raw_path determined after simulation from PyOPUS simulatorID)
     scs_path = sim_dir / f"{sim_name}.scs"
     log_path = sim_dir / f"{sim_name}.log"
-    raw_path = sim_dir / f"{sim_name}.raw"
 
     # Load tb_json to get tech info (no filename parsing!)
     tech = None
@@ -165,6 +180,16 @@ def run_simulation_pyopus(
         moddefs["mc"] = {"file": mc_lib_path, "section": mc_lib_section}
 
     # Heads config - args becomes self.cmdline internally
+    #
+    # NOTE: How PyOPUS handles Spectre output files internally:
+    #   - Raw format: PyOPUS writes "rawfmt=nutbin" to the .scs file (binary format)
+    #   - Raw path: PyOPUS uses "{simulatorID}_group{N}.raw" naming scheme
+    #   - The simulatorID is auto-generated (e.g., "juno.physik.uni-bonn.de_2da779_1")
+    #   - readResults() in spectre.py line 990 looks for this exact pattern
+    #   - If we pass -raw to override the path, readResults() can't find the file,
+    #     causing storeResults pickle files to contain None (4 bytes)
+    #   - Solution: Don't pass -raw, let PyOPUS manage it, then move the file after
+    #
     heads = {
         "spectre": {
             "simulator": "Spectre",
@@ -174,7 +199,6 @@ def run_simulation_pyopus(
                     "-64",
                     "+preset=mx",  # Spectre X mx mode (balanced accuracy/performance)
                     "+log", str(log_path),
-                    "-raw", str(raw_path),
                 ],
             },
             "moddefs": moddefs,
@@ -221,11 +245,15 @@ def run_simulation_pyopus(
             debug=0,
         )
 
-        # Run simulation and compute measures
-        results, an_count = pe({})
+        # Run simulation and compute measures (results discarded - we use PostEvaluator later)
+        _results, _an_count = pe({})
+
+        # Find PyOPUS's raw file path (uses its own naming scheme)
+        simulator = pe.simulatorForHead["spectre"]
+        raw_path = Path(f"{simulator.simulatorID}_group0.raw")
 
         # Save resFiles mapping for PostEvaluator
-        # resFiles is a dict: {(corner, analysis): filepath}
+        # resFiles is a dict: {(hostID, (corner, analysis)): filepath}
         resfiles_path = sim_dir / f"{sim_name}_resfiles.pck"
         with open(resfiles_path, "wb") as f:
             pickle.dump(pe.resFiles, f)
