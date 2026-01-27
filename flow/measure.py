@@ -127,7 +127,7 @@ def run_measurements_pyopus(
         logger.error("PyOPUS PostEvaluator not available")
         return all_results
 
-    for config_hash, file_ctx in files.items():
+    for _config_hash, file_ctx in files.items():
         resfiles_path_rel = file_ctx.get("sim_resfiles")
         if not resfiles_path_rel:
             continue
@@ -229,7 +229,7 @@ def generate_plots(
         results_dir: Results directory
         all_results: Measurement results
         cell_module: Loaded cell module with visualisation config
-        files: Files database
+        files: Files database with paths to simulation pickle files
 
     Returns:
         List of generated plot file paths
@@ -322,18 +322,51 @@ def generate_plots(
         plots = plot_temp_sweep(all_results, measure_name, plot_dir, cell, plt)
         generated_plots.extend(plots)
 
-    # Create custom graphs from visualisation config
+    # Create graphs from visualisation config with traces
     graphs = visualisation.get("graphs", {})
+    traces = visualisation.get("traces", {})
+    styles = visualisation.get("styles", [])
+    special_plots = visualisation.get("special_plots", {})
+
     for graph_name, graph_config in graphs.items():
-        try:
-            fig, axes = create_graph_from_config(graph_config, all_results, plt)
-            if fig is not None:
-                plot_path = plot_dir / f"{cell}_{graph_name}"
-                saved = save_plot_dual_format(fig, str(plot_path), plt)
-                generated_plots.extend(saved)
-                logger.info(f"  Saved: {plot_path}.pdf")
-        except Exception as e:
-            logger.warning(f"  Failed to create {graph_name}: {e}")
+        # Check if this graph has a special_plot that handles it
+        special_handler = None
+        for sp_name, sp_cfg in special_plots.items():
+            if sp_cfg.get("graph") == graph_name:
+                special_handler = (sp_name, sp_cfg)
+                break
+
+        if special_handler:
+            # Handle special plot types (e.g., cycle_diagram)
+            sp_name, sp_cfg = special_handler
+            measure_name = sp_cfg.get("measure")
+            if measure_name and measure_name in all_measures:
+                for entry in all_measures[measure_name]:
+                    cycle_data = entry.get("value")
+                    if cycle_data is not None:
+                        try:
+                            fig = render_cycle_diagram(cycle_data, graph_config, styles, plt)
+                            if fig is not None:
+                                result_key = entry.get("key", "")
+                                plot_path = plot_dir / f"{cell}_{result_key}_{graph_name}"
+                                saved = save_plot_dual_format(fig, str(plot_path), plt)
+                                generated_plots.extend(saved)
+                                logger.info(f"  Saved {graph_name}: {plot_path}.pdf")
+                        except Exception as e:
+                            logger.warning(f"  Failed to create {graph_name}: {e}")
+        else:
+            # Standard trace-based graph
+            try:
+                fig, _axes = plot_trace_graph(
+                    graph_name, graph_config, traces, all_measures, styles, plt
+                )
+                if fig is not None:
+                    plot_path = plot_dir / f"{cell}_{graph_name}"
+                    saved = save_plot_dual_format(fig, str(plot_path), plt)
+                    generated_plots.extend(saved)
+                    logger.info(f"  Saved: {plot_path}.pdf")
+            except Exception as e:
+                logger.warning(f"  Failed to create {graph_name}: {e}")
 
     return generated_plots
 
@@ -358,7 +391,7 @@ def plot_corner_comparison(
 
     # Group by corner
     corners = {}
-    for key, data in results.items():
+    for _key, data in results.items():
         corner = data.get("metadata", {}).get("corner", "unknown")
         value = data.get("measures", {}).get(measure_name)
         if value is not None and isinstance(value, (int, float)):
@@ -411,7 +444,7 @@ def plot_temp_sweep(
 
     # Group by temperature
     temps = {}
-    for key, data in results.items():
+    for _key, data in results.items():
         temp = data.get("metadata", {}).get("temp")
         value = data.get("measures", {}).get(measure_name)
         if temp is not None and value is not None and isinstance(value, (int, float)):
@@ -441,38 +474,44 @@ def plot_temp_sweep(
     return saved
 
 
-def create_graph_from_config(
-    graph_config: dict[str, Any], results: dict[str, Any], plt
+def plot_trace_graph(
+    graph_name: str,
+    graph_config: dict[str, Any],
+    traces_config: dict[str, Any],
+    all_measures: dict[str, Any],
+    styles_config: list[dict[str, Any]],
+    plt,
 ) -> tuple[Any, Any]:
     """
-    Create a matplotlib figure from visualisation config.
+    Create a matplotlib figure from visualisation config and plot traces.
 
     Args:
-        graph_config: Graph configuration dict
-        results: Measurement results
+        graph_name: Name of the graph being created
+        graph_config: Graph configuration dict (shape, axes, title)
+        traces_config: Traces configuration dict (which traces to plot)
+        all_measures: All measure results {measure_name: [{key, value, metadata}, ...]}
+        styles_config: Styles configuration list
         plt: matplotlib.pyplot module
 
     Returns:
         Tuple of (fig, axes) or (None, None) if failed
     """
+    import re
+
     shape = graph_config.get("shape", {"figsize": (10, 6)})
     axes_config = graph_config.get("axes", {})
 
     if not axes_config:
         return None, None
 
-    # Determine subplot layout
-    subplots = []
-    for ax_name, ax_cfg in axes_config.items():
-        subplot = ax_cfg.get("subplot", (1, 1, 1))
-        subplots.append((ax_name, subplot, ax_cfg))
-
     # Create figure
     fig = plt.figure(**shape)
     fig.suptitle(graph_config.get("title", ""))
 
+    # Create axes
     axes = {}
-    for ax_name, subplot, ax_cfg in subplots:
+    for ax_name, ax_cfg in axes_config.items():
+        subplot = ax_cfg.get("subplot", (1, 1, 1))
         ax = fig.add_subplot(*subplot)
         ax.set_xlabel(ax_cfg.get("xlabel", ""))
         ax.set_ylabel(ax_cfg.get("ylabel", ""))
@@ -481,8 +520,133 @@ def create_graph_from_config(
             ax.grid(True, alpha=0.3)
         axes[ax_name] = ax
 
+    # Plot traces that belong to this graph
+    for trace_name, trace_cfg in traces_config.items():
+        if trace_cfg.get("graph") != graph_name:
+            continue
+
+        ax_name = trace_cfg.get("axes", "main")
+        if ax_name not in axes:
+            continue
+
+        ax = axes[ax_name]
+        xresult = trace_cfg.get("xresult")
+        yresult = trace_cfg.get("yresult")
+
+        if not xresult or not yresult:
+            continue
+
+        # Get x and y data from measures
+        x_entries = all_measures.get(xresult, [])
+        y_entries = all_measures.get(yresult, [])
+
+        if not x_entries or not y_entries:
+            continue
+
+        # Match style from styles_config
+        style = {"linestyle": "-", "color": "blue"}
+        for style_rule in styles_config:
+            pattern = style_rule.get("pattern", (".*", ".*", ".*", ".*"))
+            # Pattern: (graph, axes, corner, trace)
+            try:
+                if (re.match(pattern[0], graph_name) and
+                    re.match(pattern[1], ax_name) and
+                    re.match(pattern[3], trace_name)):
+                    style.update(style_rule.get("style", {}))
+            except (IndexError, TypeError):
+                pass
+
+        # Override with trace-specific style
+        style.update(trace_cfg.get("style", {}))
+
+        # Plot each corner's data
+        for x_entry, y_entry in zip(x_entries, y_entries):
+            x_val = x_entry.get("value")
+            y_val = y_entry.get("value")
+
+            if x_val is None or y_val is None:
+                continue
+
+            # Convert to numpy arrays if needed
+            x_arr = np.array(x_val) if not isinstance(x_val, np.ndarray) else x_val
+            y_arr = np.array(y_val) if not isinstance(y_val, np.ndarray) else y_val
+
+            if len(x_arr) == 0 or len(y_arr) == 0:
+                continue
+
+            ax.plot(x_arr, y_arr, label=trace_name, **style)
+
+        if trace_cfg.get("legend", axes_config.get(ax_name, {}).get("legend", False)):
+            ax.legend()
+
     plt.tight_layout()
     return fig, axes
+
+
+def render_cycle_diagram(
+    cycle_data: dict[str, Any],
+    graph_config: dict[str, Any],
+    styles_config: list[dict[str, Any]],
+    plt,
+) -> Any:
+    """
+    Render a cycle diagram from cycle_diagram measure data.
+
+    Args:
+        cycle_data: Data from cycle_diagram() measure
+        graph_config: Graph configuration
+        styles_config: Styles configuration
+        plt: matplotlib.pyplot module
+
+    Returns:
+        matplotlib figure or None
+    """
+    if cycle_data is None or not isinstance(cycle_data, dict):
+        return None
+
+    signals = cycle_data.get("signals", {})
+    if not signals:
+        return None
+
+    shape = graph_config.get("shape", {"figsize": (10, 6)})
+    axes_config = graph_config.get("axes", {})
+    ax_cfg = axes_config.get("main", {})
+
+    fig, ax = plt.subplots(**shape)
+
+    # Default colors for signals
+    colors = {"out+": "blue", "out-": "red"}
+
+    # Apply styles from config
+    import re
+    for style_rule in styles_config:
+        pattern = style_rule.get("pattern", (".*", ".*", ".*", ".*"))
+        for sig_name in signals.keys():
+            try:
+                if re.match(pattern[3], sig_name):
+                    if "color" in style_rule.get("style", {}):
+                        colors[sig_name] = style_rule["style"]["color"]
+            except (IndexError, TypeError):
+                pass
+
+    # Plot each signal's segments
+    for sig_name, segments in signals.items():
+        color = colors.get(sig_name, "gray")
+
+        for t_ns, v_seg in segments:
+            ax.plot(t_ns, v_seg, color=color, alpha=0.15, linewidth=0.5)
+
+        # Legend entry
+        ax.plot([], [], color=color, linewidth=1.5, label=sig_name)
+
+    ax.set_xlabel(ax_cfg.get("xlabel", "Time relative to clock edge [ns]"))
+    ax.set_ylabel(ax_cfg.get("ylabel", "Voltage [V]"))
+    ax.set_title(graph_config.get("title", "Cycle Diagram"))
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.3)
+    ax.axvline(x=0, color="gray", linestyle="--", linewidth=0.5)
+
+    return fig
 
 
 # ============================================================
@@ -606,7 +770,7 @@ def main():
     if not args.no_plot and plot_dir.exists():
         matching_plots = list(plot_dir.glob("*.pdf"))
         if matching_plots:
-            for config_hash, file_ctx in files.items():
+            for _config_hash, file_ctx in files.items():
                 file_ctx["plot_img"] = [f"plot/{p.name}" for p in matching_plots]
         save_files_list(files_db_path, files)
 

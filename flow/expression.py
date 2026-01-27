@@ -463,3 +463,107 @@ def avg_power_uW(v, i, scale, supply):
     avg_power = np.trapz(power, time) / (time[-1] - time[0])
 
     return float(avg_power * 1e6)  # Convert to µW
+
+
+# ============================================================
+# Waveform Plots (return plot data, not scalars)
+# ============================================================
+
+
+def _find_edges(signal, time, threshold, rising=True):
+    """Find edge times with interpolation."""
+    if rising:
+        below = signal[:-1] < threshold
+        above = signal[1:] >= threshold
+        cross_idx = np.where(below & above)[0]
+    else:
+        above = signal[:-1] >= threshold
+        below = signal[1:] < threshold
+        cross_idx = np.where(above & below)[0]
+
+    edges = []
+    for idx in cross_idx:
+        v0, v1 = signal[idx], signal[idx + 1]
+        t0, t1 = time[idx], time[idx + 1]
+        if v1 != v0:
+            t_cross = t0 + (threshold - v0) * (t1 - t0) / (v1 - v0)
+            edges.append(t_cross)
+    return edges
+
+
+def cycle_diagram(v, scale, trigger, outputs, window_ns=10.0, threshold=0.5):
+    """
+    Extract cycle-aligned waveform segments for overlay plotting.
+
+    Creates data for an "eye diagram" style plot where all decision cycles
+    are overlaid, time-aligned to the trigger signal edge.
+
+    Args:
+        v: Voltage accessor v('node')
+        scale: Time scale function
+        trigger: Trigger signal name (e.g., 'clk')
+        outputs: List of output signal names to plot (e.g., ['out+', 'out-'])
+        window_ns: Window duration in nanoseconds (default 10ns = one clock period)
+        threshold: Trigger threshold voltage (default VDD/2 = 0.5V)
+
+    Returns:
+        Dict with plot data:
+        {
+            'type': 'cycle_diagram',
+            'window_ns': window duration,
+            'signals': {
+                'out+': [(t_rel, v_seg), (t_rel, v_seg), ...],  # list of segments
+                'out-': [(t_rel, v_seg), (t_rel, v_seg), ...],
+            }
+        }
+    """
+    time = scale()
+    v_trig = v(trigger)
+
+    window_s = window_ns * 1e-9
+
+    # Find trigger rising edges
+    edges = _find_edges(v_trig, time, threshold, rising=True)
+
+    if len(edges) < 2:
+        return None
+
+    # Extract segments for each output signal
+    result = {
+        'type': 'cycle_diagram',
+        'window_ns': window_ns,
+        'trigger': trigger,
+        'signals': {},
+    }
+
+    for out_name in outputs:
+        try:
+            v_out = v(out_name)
+        except Exception:
+            continue
+
+        segments = []
+        for edge_time in edges:
+            # Window starts at edge, extends for window duration
+            t_start = edge_time
+            t_end = edge_time + window_s
+
+            # Skip if window extends beyond simulation
+            if t_end > time[-1]:
+                continue
+
+            # Find indices for this window
+            mask = (time >= t_start) & (time <= t_end)
+            if not np.any(mask):
+                continue
+
+            # Extract segment with time relative to edge
+            t_seg = time[mask] - edge_time
+            v_seg = v_out[mask]
+
+            segments.append((t_seg * 1e9, v_seg))  # Convert time to ns
+
+        if segments:
+            result['signals'][out_name] = segments
+
+    return result if result['signals'] else None

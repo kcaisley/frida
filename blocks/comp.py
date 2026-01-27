@@ -646,6 +646,9 @@ analyses = {
 # Each measure extracts a scalar metric from the transient waveforms.
 
 measures = {
+    # ====================================================================
+    # Scalar measures (return single values)
+    # ====================================================================
     # Input-referred offset: differential voltage where P(out+ > out-) = 50%
     "offset_mV": {
         "analysis": "tran",
@@ -681,6 +684,27 @@ measures = {
         "analysis": "tran",
         "expression": "m.comp_slew_Vns(v, scale, 'out+')",
     },
+    # ====================================================================
+    # Vector measures for S-curve plotting (return arrays)
+    # ====================================================================
+    "scurve_vin_mV": {
+        "analysis": "tran",
+        "expression": "m.comp_scurve(v, scale, 'in+', 'in-', 'out+', 'out-')[0]",
+        "vector": True,
+    },
+    "scurve_phigh": {
+        "analysis": "tran",
+        "expression": "m.comp_scurve(v, scale, 'in+', 'in-', 'out+', 'out-')[1]",
+        "vector": True,
+    },
+    # ====================================================================
+    # Vector measures for cycle diagram (return structured data)
+    # ====================================================================
+    "cycle_diagram": {
+        "analysis": "tran",
+        "expression": "m.cycle_diagram(v, scale, 'clk', ['out+', 'out-'], window_ns=10.0)",
+        "vector": True,
+    },
 }
 
 
@@ -690,62 +714,61 @@ measures = {
 
 visualisation = {
     "graphs": {
-        "transient": {
-            "title": "Comparator Transient Response",
-            "shape": {"figsize": (10, 6), "dpi": 100},
+        "scurve": {
+            "title": "Comparator S-Curve",
+            "shape": {"figsize": (8, 6), "dpi": 100},
             "axes": {
-                "signals": {
-                    "subplot": (2, 1, 1),
-                    "xlabel": "Time [s]",
-                    "ylabel": "Voltage [V]",
-                    "legend": True,
-                    "grid": True,
-                },
-                "clock": {
-                    "subplot": (2, 1, 2),
-                    "xlabel": "Time [s]",
-                    "ylabel": "Voltage [V]",
+                "main": {
+                    "subplot": (1, 1, 1),
+                    "xlabel": "Differential Input [mV]",
+                    "ylabel": "P(out+ > out-)",
+                    "legend": False,
                     "grid": True,
                 },
             },
         },
-        "summary": {
-            "title": "Performance Summary",
-            "shape": {"figsize": (8, 6)},
+        "cycle": {
+            "title": "Comparator Cycle Diagram",
+            "shape": {"figsize": (10, 6), "dpi": 100},
             "axes": {
-                "bar": {
+                "main": {
                     "subplot": (1, 1, 1),
-                    "xlabel": "Configuration",
-                    "ylabel": "Offset [mV]",
+                    "xlabel": "Time relative to clock edge [ns]",
+                    "ylabel": "Voltage [V]",
+                    "legend": True,
                     "grid": True,
-                }
+                },
             },
         },
     },
     "styles": [
         {
-            "pattern": ("^.*", "^.*", "^.*", "^.*"),
-            "style": {"color": "blue", "linestyle": "-"},
+            "pattern": ("^.*", "^.*", "^.*", "^scurve$"),
+            "style": {"color": "blue", "linestyle": "-", "marker": "o", "markersize": 4},
+        },
+        {
+            "pattern": ("^.*", "^.*", "^.*", "^out\\+$"),
+            "style": {"color": "blue"},
+        },
+        {
+            "pattern": ("^.*", "^.*", "^.*", "^out-$"),
+            "style": {"color": "red"},
         },
     ],
     "traces": {
-        "inp": {
-            "graph": "transient",
-            "axes": "signals",
-            "xresult": "time",
-            "yresult": "v_inp",
+        "scurve": {
+            "graph": "scurve",
+            "axes": "main",
+            "xresult": "scurve_vin_mV",
+            "yresult": "scurve_phigh",
         },
-        "outp": {
-            "graph": "transient",
-            "axes": "signals",
-            "xresult": "time",
-            "yresult": "v_outp",
-        },
-        "clk": {
-            "graph": "transient",
-            "axes": "clock",
-            "xresult": "time",
-            "yresult": "v_clk",
+    },
+    # Special plot types that need custom rendering (not standard x/y traces)
+    "special_plots": {
+        "cycle_diagram": {
+            "graph": "cycle",
+            "axes": "main",
+            "measure": "cycle_diagram",  # References the vector measure
         },
     },
 }
