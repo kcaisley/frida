@@ -250,19 +250,20 @@ class CustomFormatter(logging.Formatter):
             return record.getMessage()
 
 
-def setup_logging(log_file: Path | None = None, logger_name: str | None = None):
+def setup_logging(log_file: Path | None = None, logger_name: str | None = None, level: int = logging.INFO):
     """
     Setup logging with custom formatter.
 
     Args:
         log_file: Optional path to log file. If provided, logs to both file and console.
         logger_name: Optional logger name. If None, configures root logger.
+        level: Logging level (default: logging.INFO). Use logging.DEBUG for verbose output.
 
     Returns:
         Configured logger instance
     """
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
 
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()

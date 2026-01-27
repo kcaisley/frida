@@ -83,6 +83,11 @@ def main():
         action="store_true",
         help="Skip plot generation (measurements only)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
 
     args = parser.parse_args()
 
@@ -95,7 +100,11 @@ def main():
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"meas_{args.cell}_{timestamp}.log"
-    logger = setup_logging(log_file)
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logger = setup_logging(log_file, level=log_level)
+
+    logger.debug(f"[MEAS-01] Args: cell={args.cell}, outdir={args.outdir}, no_plot={args.no_plot}")
+    logger.debug(f"[MEAS-02] cell_dir={cell_dir}, plot_dir={plot_dir}")
 
     # Check prerequisites
     files_db_path = cell_dir / "files.json"
@@ -110,12 +119,18 @@ def main():
         return 1
 
     # Load cell module and files database
+    logger.debug(f"[MEAS-03] Loading cell module from {block_file}")
     cell_module = load_cell_script(block_file)
+    logger.debug(f"[MEAS-04] Cell module loaded, attrs: {[a for a in dir(cell_module) if not a.startswith('_')]}")
+
+    logger.debug(f"[MEAS-05] Loading files.json from {files_db_path}")
     files = load_files_list(files_db_path)
+    logger.debug(f"[MEAS-06] Loaded {len(files)} config hashes from files.json")
 
     # Count resfiles from files.json
     resfiles_count = sum(1 for ctx in files.values() if ctx.get("sim_resfiles"))
     data_file_count = resfiles_count
+    logger.debug(f"[MEAS-07] Found {resfiles_count} configs with sim_resfiles")
 
     if data_file_count == 0:
         logger.warning("No simulation results found in files.json")
@@ -209,7 +224,15 @@ def run_measurements_pyopus(
     """
     logger = logging.getLogger(__name__)
 
+    logger.debug(f"[MEAS-10] run_measurements_pyopus: cell={cell}, results_dir={results_dir}")
+
     measures = getattr(cell_module, "measures", {})
+    variables = getattr(cell_module, "variables", {})
+    logger.debug(f"[MEAS-11] measures keys: {list(measures.keys())}")
+    logger.debug(f"[MEAS-12] variables keys: {list(variables.keys())}")
+    if measures:
+        first_measure = list(measures.keys())[0]
+        logger.debug(f"[MEAS-13] First measure '{first_measure}': {measures[first_measure]}")
 
     cell_dir = results_dir / cell
     all_results = {}
@@ -217,14 +240,18 @@ def run_measurements_pyopus(
     # Try to import PyOPUS PostEvaluator
     try:
         from pyopus.evaluator.posteval import PostEvaluator
+        logger.debug("[MEAS-14] PyOPUS PostEvaluator imported successfully")
         logger.info("Using PyOPUS PostEvaluator for measurements")
     except ImportError:
         logger.error("PyOPUS PostEvaluator not available")
         return all_results
 
+    logger.debug(f"[MEAS-15] Processing {len(files)} file contexts from files.json")
+
     for _config_hash, file_ctx in files.items():
         resfiles_path_rel = file_ctx.get("sim_resfiles")
         if not resfiles_path_rel:
+            logger.debug(f"[MEAS-16] Skipping {_config_hash}: no sim_resfiles")
             continue
 
         resfiles_path = cell_dir / resfiles_path_rel
@@ -234,6 +261,7 @@ def run_measurements_pyopus(
 
         # Build result key from resfiles path
         result_key = resfiles_path.stem.replace("_resfiles", "")
+        logger.debug(f"[MEAS-17] Processing {result_key}")
 
         # Get metadata from file_ctx
         metadata = {
@@ -260,8 +288,10 @@ def run_measurements_pyopus(
 
         try:
             # Load resFiles mapping saved by simulate.py
+            logger.debug(f"[MEAS-18] Loading resFiles from {resfiles_path}")
             with open(resfiles_path, "rb") as f:
                 res_files = pickle.load(f)
+            logger.debug(f"[MEAS-19] res_files raw: {res_files}")
 
             # PerformanceEvaluator.resFiles uses keys (hostID, (corner, analysis))
             # PostEvaluator expects keys (corner, analysis) - strip the hostID
@@ -270,6 +300,7 @@ def run_measurements_pyopus(
             for key, filepath in res_files.items():
                 _host_id, corner_analysis = key
                 posteval_files[corner_analysis] = Path(filepath).name
+            logger.debug(f"[MEAS-20] posteval_files (transformed): {posteval_files}")
 
             # TODO: PyOPUS bug workaround - PostEvaluator.evaluateMeasures() at line 242
             # in pyopus/evaluator/posteval.py iterates measure['depends'] without checking
@@ -281,20 +312,26 @@ def run_measurements_pyopus(
                 patched_measures[name] = dict(meas)
                 if "depends" not in patched_measures[name]:
                     patched_measures[name]["depends"] = []
+            logger.debug(f"[MEAS-21] patched_measures keys: {list(patched_measures.keys())}")
 
             # Use PostEvaluator to extract measures
+            logger.debug(f"[MEAS-22] Creating PostEvaluator (resultsFolder={cell_dir / 'sim'})")
             posteval = PostEvaluator(
                 files=posteval_files,
                 measures=patched_measures,
                 resultsFolder=str(cell_dir / "sim"),
                 debug=0,
             )
+            logger.debug("[MEAS-23] PostEvaluator created")
 
             # Load results and evaluate all measures
+            logger.debug("[MEAS-24] Calling posteval.evaluateMeasures()...")
             scalar_results = posteval.evaluateMeasures()
+            logger.debug(f"[MEAS-25] evaluateMeasures returned: {scalar_results}")
 
             # Handle None or empty results
             if scalar_results is None:
+                logger.debug("[MEAS-26] scalar_results is None, using empty dict")
                 scalar_results = {}
 
             # Flatten corner results if present (e.g., {"nominal": value} -> value)
@@ -304,6 +341,7 @@ def run_measurements_pyopus(
                     flat_results[k] = v["nominal"]
                 else:
                     flat_results[k] = v
+            logger.debug(f"[MEAS-27] flat_results: {flat_results}")
 
             # Store with metadata
             all_results[result_key] = {
@@ -317,9 +355,12 @@ def run_measurements_pyopus(
                     logger.info(f"    {measure_name}: {value}")
 
         except Exception as e:
+            import traceback
             logger.warning(f"  Failed: {result_key} - {e}")
+            logger.debug(f"[MEAS-ERR] Traceback:\n{traceback.format_exc()}")
             continue
 
+    logger.debug(f"[MEAS-28] Returning {len(all_results)} results")
     return all_results
 
 

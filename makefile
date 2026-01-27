@@ -102,7 +102,7 @@ endif
 	@if [ ! -d "$(RESULTS_DIR)/$(cell)/tb" ]; then echo "Error: Run 'make tb cell=$(cell)' first"; exit 1; fi
 ifeq ($(host),local)
 	@echo "=== Running LOCAL simulation (mode=$(mode)) ==="
-	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))
+	$(VENV_PYTHON) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)
 else ifeq ($(host),remote)
 	@echo "=== Checking for uncommitted or unpushed changes ==="
 	@if [ -n "$$(git status --porcelain)" ]; then \
@@ -122,7 +122,7 @@ else ifeq ($(host),remote)
 		git pull && \
 		source /eda/cadence/2024-25/scripts/SPECTRE_24.10.078_RHELx86.sh && \
 		export CDS_LIC_FILE=$(LICENSE_SERVER) && \
-		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech))"
+		PYTHONPATH=. $(REMOTE_VENV) $(SIM_SCRIPT) $(cell) -o $(RESULTS_DIR) --mode $(mode) -j $(NUM_PROCS) $(if $(tech),--tech=$(tech)) $(if $(debug),--debug)"
 	@echo "=== Syncing results back ==="
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/sim/ $(RESULTS_DIR)/$(cell)/sim/
 	rsync -az $(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_PROJECT)/$(RESULTS_DIR)/$(cell)/files.json $(RESULTS_DIR)/$(cell)/files.json
@@ -157,7 +157,8 @@ endif
 		$(if $(tech),--tech=$(tech)) \
 		$(if $(corner),--corner=$(corner)) \
 		$(if $(temp),--temp=$(temp)) \
-		$(if $(no_plot),--no-plot)
+		$(if $(no_plot),--no-plot) \
+		$(if $(debug),--debug)
 
 clean_meas:
 ifdef cell
@@ -181,14 +182,17 @@ endif
 # Full Flow
 # ============================================================
 
+# Usage: make all cell=<cellname> [host=local|remote] [mode=single|all] [debug=1]
+# Defaults: host=remote, mode=single, debug=1
 all:
 ifndef cell
-	$(error Usage: make all cell=<cellname>)
+	$(error Usage: make all cell=<cellname> [host=local|remote] [mode=single|all] [debug=1])
 endif
+	$(MAKE) clean_all cell=$(cell)
 	$(MAKE) subckt cell=$(cell)
 	$(MAKE) tb cell=$(cell)
-	$(MAKE) sim cell=$(cell) mode=all host=local
-	$(MAKE) meas cell=$(cell)
+	$(MAKE) sim cell=$(cell) mode=$(or $(mode),single) host=$(or $(host),remote) debug=$(or $(debug),1)
+	$(MAKE) meas cell=$(cell) debug=$(or $(debug),1)
 
 clean_all:
 ifdef cell
@@ -213,7 +217,7 @@ help:
 	@echo "  tb            Generate testbench netlists"
 	@echo "  sim           Run simulations (saves .pkl files)"
 	@echo "  meas          Extract measurements and generate plots"
-	@echo "  all           Run full flow (subckt -> tb -> sim -> meas)"
+	@echo "  all           Run full flow (clean -> subckt -> tb -> sim -> meas)"
 	@echo ""
 	@echo "Clean targets:"
 	@echo "  clean_subckt  Remove subcircuit files"
@@ -231,6 +235,7 @@ help:
 	@echo "  corner=<c>    Filter by corner (tt, ss, ff, sf, fs)"
 	@echo "  temp=<t>      Filter by temperature (27, etc.)"
 	@echo "  no_plot=1     Skip plot generation in meas target"
+	@echo "  debug=1       Enable debug logging for sim/meas"
 	@echo "  NUM_PROCS=N   Number of parallel processes (default: 40)"
 	@echo ""
 	@echo "Simulation examples:"
@@ -244,4 +249,8 @@ help:
 	@echo "  make tb cell=comp"
 	@echo "  make meas cell=comp"
 	@echo "  make meas cell=comp no_plot=1                # Measurements only"
-	@echo "  make all cell=comp"
+	@echo ""
+	@echo "Full flow examples:"
+	@echo "  make all cell=comp                           # clean+subckt+tb+sim(remote,single)+meas with debug"
+	@echo "  make all cell=comp host=local                # Same but simulate locally"
+	@echo "  make all cell=comp mode=all debug=0          # All sims, no debug"

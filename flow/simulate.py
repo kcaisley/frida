@@ -140,6 +140,8 @@ def run_simulation_pyopus(
 
     logger = logging.getLogger(__name__)
 
+    logger.debug(f"[SIM-01] run_simulation_pyopus: tb={tb_path.name}, sim_dir={sim_dir}")
+
     try:
         from pyopus.evaluator.performance import PerformanceEvaluator
     except ImportError:
@@ -159,6 +161,7 @@ def run_simulation_pyopus(
         with open(tb_json_path) as f:
             tb_config = json.load(f)
         tech = tb_config.get("tech")
+    logger.debug(f"[SIM-02] tech={tech}, sim_name={sim_name}")
 
     # Get MC model path and section from techmap
     mc_lib_path = None
@@ -204,7 +207,6 @@ def run_simulation_pyopus(
             "moddefs": moddefs,
         }
     }
-
     # Single nominal corner - PVT info is already baked into .sp file
     corners = {
         "nominal": {
@@ -231,8 +233,10 @@ def run_simulation_pyopus(
             "saves": cfg.get("saves", [])
         }
     analyses = runtime_analyses
+    logger.debug(f"[SIM-03] analyses={list(analyses.keys())}, measures={list(measures.keys())}")
 
     try:
+        logger.debug(f"[SIM-04] Creating PerformanceEvaluator (resultsFolder={sim_dir})")
         # Create PerformanceEvaluator with native pickle storage
         pe = PerformanceEvaluator(
             heads=heads,
@@ -244,23 +248,28 @@ def run_simulation_pyopus(
             resultsFolder=str(sim_dir),     # Where to store .pck files
             debug=0,
         )
+        logger.debug("[SIM-05] PerformanceEvaluator created")
 
         # Run simulation and compute measures (results discarded - we use PostEvaluator later)
+        logger.debug("[SIM-06] Running pe({})...")
         _results, _an_count = pe({})
+        logger.debug(f"[SIM-07] pe() done: an_count={_an_count}, results={list(_results.keys()) if _results else None}")
 
         # Find PyOPUS's raw file path (uses its own naming scheme)
         simulator = pe.simulatorForHead["spectre"]
         raw_path = Path(f"{simulator.simulatorID}_group0.raw")
+        logger.debug(f"[SIM-08] simulatorID={simulator.simulatorID}, raw exists={raw_path.exists()}")
 
         # Save resFiles mapping for PostEvaluator
         # resFiles is a dict: {(hostID, (corner, analysis)): filepath}
         resfiles_path = sim_dir / f"{sim_name}_resfiles.pck"
-        print(f"DEBUG resFiles contents: {pe.resFiles}", flush=True)
-        print(f"DEBUG resFiles types: {[(type(k), type(v)) for k, v in pe.resFiles.items()]}", flush=True)
+        logger.debug(f"[SIM-09] pe.resFiles={pe.resFiles}")
         with open(resfiles_path, "wb") as f:
             pickle.dump(pe.resFiles, f)
+        logger.debug(f"[SIM-10] Pickled resFiles ({resfiles_path.stat().st_size} bytes)")
 
         pe.finalize()
+        logger.debug("[SIM-11] Finalized, returning paths")
 
         return {
             "scs": scs_path,
@@ -270,7 +279,9 @@ def run_simulation_pyopus(
         }
 
     except Exception as e:
+        import traceback
         logger.warning(f"Simulation failed for {tb_path.name}: {e}")
+        logger.debug(f"[SIM-ERR] Traceback:\n{traceback.format_exc()}")
         return None
 
 
@@ -410,6 +421,11 @@ def main():
         default="all",
         help="Simulation mode: dryrun (generate files only), single (run first sim only), all (run all)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
 
     args = parser.parse_args()
 
@@ -423,7 +439,10 @@ def main():
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"sim_{args.cell}_{timestamp}.log"
-    logger = setup_logging(log_file)
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logger = setup_logging(log_file, level=log_level)
+
+    logger.debug(f"[MAIN-01] Args: cell={args.cell}, mode={args.mode}, outdir={args.outdir}")
 
     # Check prerequisites
     if not files_db_path.exists():
@@ -437,17 +456,23 @@ def main():
         return 1
 
     # Load files database and cell module
+    logger.debug(f"[MAIN-02] Loading files.json from {files_db_path}")
     files = load_files_list(files_db_path)
+    logger.debug(f"[MAIN-03] Loaded {len(files)} config hashes from files.json")
+
     cell_module = load_cell_script(block_file)
+    logger.debug(f"[MAIN-04] Loaded cell module from {block_file}")
 
     # Get analyses and measures from cell module
     analyses = getattr(cell_module, "analyses", {})
     measures = getattr(cell_module, "measures", {})
     variables = getattr(cell_module, "variables", {})
+    logger.debug(f"[MAIN-05] Cell module: analyses={list(analyses.keys())}, measures={list(measures.keys())}")
 
     # Import expression module for measure evaluation
     from flow import expression as m
     variables = {**variables, "m": m}
+    logger.debug(f"[MAIN-06] Variables keys: {list(variables.keys())}")
 
     # Build job list from files.json
     jobs = []
@@ -482,6 +507,10 @@ def main():
     if not jobs:
         logger.warning("No testbenches to simulate")
         return 0
+
+    logger.debug(f"[MAIN-07] Built {len(jobs)} jobs from files.json")
+    if jobs:
+        logger.debug(f"[MAIN-08] First job: {jobs[0]}")
 
     logger.info("=" * 80)
     logger.info(f"Cell:       {args.cell}")
@@ -518,6 +547,7 @@ def main():
 
     # Run simulations
     start_time = datetime.datetime.now()
+    logger.debug(f"[MAIN-09] Starting simulation (sequential={args.mode == 'single' or len(jobs) == 1})")
 
     if args.mode == "single" or len(jobs) == 1:
         results = run_batch_sequential(jobs, sim_dir, analyses, measures, variables)
@@ -525,6 +555,7 @@ def main():
         results = run_batch_parallel(jobs, sim_dir, analyses, measures, variables, num_workers=args.jobs)
 
     elapsed = (datetime.datetime.now() - start_time).total_seconds()
+    logger.debug(f"[MAIN-10] Simulation done: {len(results)} successful, elapsed={elapsed:.1f}s")
 
     # Update files.json with simulation results
     for config_hash, file_ctx in files.items():
@@ -550,7 +581,9 @@ def main():
         file_ctx["sim_log"] = sim_log
         file_ctx["sim_resfiles"] = sim_resfiles
 
+    logger.debug(f"[MAIN-11] Saving updated files.json to {files_db_path}")
     save_files_list(files_db_path, files)
+    logger.debug("[MAIN-12] files.json saved")
 
     # Summary
     logger.info("=" * 80)
