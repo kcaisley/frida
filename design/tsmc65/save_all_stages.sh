@@ -20,6 +20,7 @@ gui::set_display_controls "Rows/*" visible true
 gui::set_display_controls "Misc/Instances/Pins" visible false
 gui::set_display_controls "Nets/*" visible false
 gui::set_display_controls "Instances/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
 gui::set_display_controls "Misc/Scale bar" visible true
 gui::fit
 save_image -width 3840 $OUTPUT_DIR/2_0_floorplan.png
@@ -27,27 +28,6 @@ puts "Saved 2_0_floorplan.png"
 exit
 TCLEOF
 $OPENROAD_EXE -gui /tmp/2_0_image.tcl
-
-# 2_3_floorplan_tapcell: pins and placement blockages, no tracks, no rows
-cat > /tmp/2_3_image.tcl <<TCLEOF
-puts "Processing 2_3_floorplan_tapcell..."
-read_db $RESULTS_DIR/2_3_floorplan_tapcell.odb
-gui::set_display_controls "Misc/Background" color white
-gui::set_display_controls "*" visible true
-gui::set_display_controls "Tracks/*" visible false
-gui::set_display_controls "Rows/*" visible false
-gui::set_display_controls "Nets/*" visible false
-gui::set_display_controls "Shape Types/*" visible false
-gui::set_display_controls "Instances/*" visible false
-gui::set_display_controls "Misc/Instances/Pins" visible true
-gui::set_display_controls "Misc/Instances/Blockages" visible true
-gui::set_display_controls "Misc/Scale bar" visible true
-gui::fit
-save_image -width 3840 $OUTPUT_DIR/2_3_floorplan_tapcell.png
-puts "Saved 2_3_floorplan_tapcell.png"
-exit
-TCLEOF
-$OPENROAD_EXE -gui /tmp/2_3_image.tcl
 
 # 2_4_floorplan_pdn: power grid, blockages, pins, no tracks, no rows
 cat > /tmp/2_4_image.tcl <<TCLEOF
@@ -60,6 +40,7 @@ gui::set_display_controls "Rows/*" visible false
 gui::set_display_controls "Instances/*" visible false
 gui::set_display_controls "Misc/Instances/Pins" visible true
 gui::set_display_controls "Misc/Instances/Blockages" visible true
+gui::set_display_controls "Misc/GCell grid" visible false
 gui::set_display_controls "Misc/Scale bar" visible true
 gui::fit
 save_image -width 3840 $OUTPUT_DIR/2_4_floorplan_pdn.png
@@ -76,6 +57,7 @@ gui::set_display_controls "Misc/Background" color white
 gui::set_display_controls "*" visible true
 gui::set_display_controls "Tracks/*" visible false
 gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
 gui::set_display_controls "Misc/Scale bar" visible true
 gui::fit
 save_image -width 3840 $OUTPUT_DIR/3_1_place_gp_skip_io.png
@@ -92,6 +74,7 @@ gui::set_display_controls "Misc/Background" color white
 gui::set_display_controls "*" visible true
 gui::set_display_controls "Tracks/*" visible false
 gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
 gui::set_display_controls "Misc/Scale bar" visible true
 gui::fit
 save_image -width 3840 $OUTPUT_DIR/3_3_place_gp.png
@@ -100,7 +83,7 @@ exit
 TCLEOF
 $OPENROAD_EXE -gui /tmp/3_3_image.tcl
 
-# 3_5_place_dp: show everything
+# 3_5_place_dp: show everything, no placement blockages
 cat > /tmp/3_5_image.tcl <<TCLEOF
 puts "Processing 3_5_place_dp..."
 read_db $RESULTS_DIR/3_5_place_dp.odb
@@ -108,6 +91,8 @@ gui::set_display_controls "Misc/Background" color white
 gui::set_display_controls "*" visible true
 gui::set_display_controls "Tracks/*" visible false
 gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
+gui::set_display_controls "Misc/Instances/Blockages" visible false
 gui::set_display_controls "Misc/Scale bar" visible true
 gui::fit
 save_image -width 3840 $OUTPUT_DIR/3_5_place_dp.png
@@ -116,7 +101,7 @@ exit
 TCLEOF
 $OPENROAD_EXE -gui /tmp/3_5_image.tcl
 
-# 4_1_cts: show clock tree with timing-based colored display
+# 4_1_cts: show clock tree with timing-based colored display, no placement blockages
 cat > /tmp/cts_image.tcl <<TCLEOF
 puts "Processing 4_1_cts..."
 read_liberty $FLOW_HOME/platforms/tsmc65/lib/tcbn65lplvtwc.lib
@@ -128,6 +113,8 @@ gui::set_display_controls "Misc/Background" color white
 gui::set_display_controls "*" visible true
 gui::set_display_controls "Tracks/*" visible false
 gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
+gui::set_display_controls "Misc/Instances/Blockages" visible false
 gui::set_display_controls "Nets/Clock" visible true
 gui::set_display_controls "Instances/StdCells/Clock tree/*" visible true
 gui::set_display_controls "Instances/StdCells/Sequential" visible true
@@ -145,22 +132,43 @@ $OPENROAD_EXE -gui /tmp/cts_image.tcl
 # NOTE: Route guides are not exposed in the TCL API.
 # The "Show Route Guides" button in the inspector calls gui->addRouteGuides(net)
 # but this function is not available via TCL commands.
-# cat > /tmp/grt_image.tcl <<TCLEOF
-# puts "Processing 5_1_grt..."
-# read_db $RESULTS_DIR/5_1_grt.odb
-# gui::set_display_controls "Misc/Background" color white
-# gui::set_display_controls "*" visible true
-# gui::set_display_controls "Tracks/*" visible false
-# gui::set_display_controls "Rows/*" visible false
-# gui::set_display_controls "Instances/*" visible false
-# gui::set_display_controls "Heat Maps/*" visible false
-# gui::set_display_controls "Misc/Scale bar" visible true
-# select -name clknet_2_1__leaf_clk_update -type Net
-# gui::fit
-# save_image -width 3840 $OUTPUT_DIR/5_1_grt.png
-# puts "Saved 5_1_grt.png"
-# exit
-# TCLEOF
-# $OPENROAD_EXE -gui /tmp/grt_image.tcl
+
+# 5_2_route: detailed routing, no placement blockages
+cat > /tmp/5_2_image.tcl <<TCLEOF
+puts "Processing 5_2_route..."
+read_db $RESULTS_DIR/5_2_route.odb
+gui::set_display_controls "Misc/Background" color white
+gui::set_display_controls "*" visible true
+gui::set_display_controls "Tracks/*" visible false
+gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Heat Maps/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
+gui::set_display_controls "Misc/Instances/Blockages" visible false
+gui::set_display_controls "Misc/Scale bar" visible true
+gui::fit
+save_image -width 3840 $OUTPUT_DIR/5_2_route.png
+puts "Saved 5_2_route.png"
+exit
+TCLEOF
+$OPENROAD_EXE -gui /tmp/5_2_image.tcl
+
+# 5_3_fillcell: fill cells added, no placement blockages
+cat > /tmp/5_3_image.tcl <<TCLEOF
+puts "Processing 5_3_fillcell..."
+read_db $RESULTS_DIR/5_3_fillcell.odb
+gui::set_display_controls "Misc/Background" color white
+gui::set_display_controls "*" visible true
+gui::set_display_controls "Tracks/*" visible false
+gui::set_display_controls "Rows/*" visible false
+gui::set_display_controls "Heat Maps/*" visible false
+gui::set_display_controls "Misc/GCell grid" visible false
+gui::set_display_controls "Misc/Instances/Blockages" visible false
+gui::set_display_controls "Misc/Scale bar" visible true
+gui::fit
+save_image -width 3840 $OUTPUT_DIR/5_3_fillcell.png
+puts "Saved 5_3_fillcell.png"
+exit
+TCLEOF
+$OPENROAD_EXE -gui /tmp/5_3_image.tcl
 
 echo "Done! Images saved to $OUTPUT_DIR"

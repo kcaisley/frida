@@ -364,20 +364,20 @@ When producing raw binary files, ensure `utf_8` encoding is used for the plainte
 Finally, here's a overview of the project directories at large:
 
 ```
-├── blocks/         # Cell definitions (subckt + tb + analyses + measures)
+├── blocks/             # Cell definitions (subckt + tb + analyses + measures)
 │   ├── inv.py
 │   ├── nand2.py
 │   ├── samp.py
 │   ├── comp.py
 │   ├── cdac.py
 │   └── adc.py
-├── flow/           # Flow scripts
-│   ├── netlist.py  # Subcircuit and testbench generation
-│   ├── simulate.py # PyOPUS-based Spectre simulation
-│   ├── measure.py  # Measurement extraction and plotting
-│   ├── expression.py # Custom measurement functions
-│   └── common.py   # Shared utilities and techmap
-├── results/        # Generated netlists and simulation data
+├── flow/               # Flow scripts
+│   ├── netlist.py      # Subcircuit and testbench generation
+│   ├── simulate.py     # PyOPUS-based Spectre simulation
+│   ├── measure.py      # Measurement extraction and plotting
+│   ├── expression.py   # Custom measurement functions
+│   └── common.py       # Shared utilities and techmap
+├── results/            # Generated netlists and simulation data
 │   └── [cell]/
 │       ├── files.json  # File tracking database
 │       ├── subckt/     # Generated subcircuit netlists
@@ -396,7 +396,7 @@ Finally, here's a overview of the project directories at large:
 │       └── plot/       # Generated plots (after make meas)
 │           ├── *.pdf
 │           └── *.svg
-├── docs/           # Documentation
-├── logs/           # Flow execution logs
-└── makefile        # Build targets
+├── docs/               # Documentation
+├── logs/               # Flow execution logs
+└── makefile            # Build targets
 ```
