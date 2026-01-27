@@ -621,7 +621,7 @@ analyses = {
         "modules": ["tb"],      # Placeholder - overridden at runtime
         "command": "tran(stop=5.5e-6)",
         "saves": [
-            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            r"v(['in\+', 'in\-', 'out\+', 'out\-', 'clk'])",
             "i(['Vvdd'])"
         ]
     },
@@ -631,7 +631,7 @@ analyses = {
         "modules": ["tb", "mc"],  # Include MC models from PDK
         "command": "'montecarlo numruns=10 seed=12345 variations=mismatch savefamilyplots=yes { inner_tran tran stop=5.5e-6 }'",
         "saves": [
-            "v(['in+', 'in-', 'out+', 'out-', 'clk'])",
+            r"v(['in\+', 'in\-', 'out\+', 'out\-', 'clk'])",
             "i(['Vvdd'])"
         ]
     }
