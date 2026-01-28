@@ -44,82 +44,22 @@
 \end{frame}
 
 %% ============================================================
-%% Outline
-%% ============================================================
-\begin{frame}
-  \frametitle{Outline}
-  \begin{enumerate}
-    \item ADC Target Specifications
-    \item ADC Floorplan Overview
-    \item OpenROAD Digital Flow
-    \item ADC Block Integration
-    \item Analog Building Blocks
-    \item Chip Assembly and Layout
-    \item Ongoing Work
-  \end{enumerate}
-\end{frame}
-
-%% ============================================================
 %% FRIDA Chip Overview
 %% ============================================================
 \begin{frame}
   \frametitle{FRIDA Chip Overview}
   \begin{columns}
-    \begin{column}{0.55\textwidth}
+    \begin{column}{0.65\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/adc_basic.pdf}
+      \end{center}
+    \end{column}
+    \begin{column}{0.35\textwidth}
       \begin{center}
         \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_65A.png}
       \end{center}
     \end{column}
-    \begin{column}{0.45\textwidth}
-      \small
-      \begin{tabular}{l|r}
-        \hline
-        \textbf{Parameter} & \textbf{Value} \\
-        \hline
-        Die size & 1 mm $\times$ 1 mm \\
-        Core area & 600 $\mu$m $\times$ 600 $\mu$m \\
-        DUT array & 4$\times$4 grid (16 ADCs) \\
-        Technology & TSMC 65nm LP \\
-        Submitted & October 2025 \\
-        \hline
-      \end{tabular}
-      \vspace{1em}
-      \begin{itemize}
-        \item Column-parallel SAR ADC array
-        \item Mixed-signal integration
-        \item Testing planned Spring 2026
-      \end{itemize}
-    \end{column}
   \end{columns}
-\end{frame}
-
-%% ============================================================
-%% ADC Target Specifications
-%% ============================================================
-\begin{frame}
-  \frametitle{ADC Target Specifications}
-  \begin{center}
-    \small
-    \begin{tabular}{l|ccccc}
-      \hline
-      \textbf{Parameter} & \textbf{DCD v1} & \textbf{CoRDIA} & \textbf{M} & \textbf{H} & \textbf{F (target)} \\
-      \hline
-      Resolution          & 8-bit       & 10-bit     & 8-bit      & 10-bit      & 12-bit      \\
-      ENOB                & 8.3         & 8.8        & 8.0        & 9.5?        & 11.0?       \\
-      Conversion rate     & 6.25 MHz    & 2.5 MHz    & 4.5 MHz    & 10 MHz      & 10 MHz      \\
-      ADC dimensions      & 40$\times$55 $\mu$m & 80$\times$330 $\mu$m & 60$\times$800 $\mu$m & 15$\times$100 $\mu$m & 50$\times$50 $\mu$m \\
-      ADC area            & 0.002 mm$^2$ & 0.026 mm$^2$ & 0.048 mm$^2$ & 0.0015 mm$^2$ & 0.0025 mm$^2$ \\
-      Power per ADC       & 960 $\mu$W  & 30 $\mu$W  & 700 $\mu$W & 100 $\mu$W  & 200 $\mu$W? \\
-      FOM$_{\mathrm{csa}}$ (Hz/$\mu$m$^2$) & 3125 & 95 & 105 & 5000 & 5000 \\
-      FOM$_{\mathrm{wal}}$ (fJ/conv-step) & 487 & 26 & 608 & 14 & 10 \\
-      \hline
-    \end{tabular}
-  \end{center}
-  \vspace{0.5em}
-  \begin{itemize}
-    \item \textbf{F} = FRIDA target: 12-bit, 10 MHz, 50$\times$50 $\mu$m footprint
-    \item FOM$_{\mathrm{csa}}$ = conversion rate / area; FOM$_{\mathrm{wal}}$ = energy per conversion step
-  \end{itemize}
 \end{frame}
 
 %% ============================================================
@@ -724,6 +664,7 @@ export USE_FILL = 0
   \frametitle{Unit Fringe Capacitor}
   \begin{columns}
     \begin{column}{0.5\textwidth}
+      \begin{center}
       \small
       \textbf{Capacitance Density:}\\
       1 layer: $0.31~\mathrm{fF}/\mu\mathrm{m}^2$ \\
@@ -743,6 +684,7 @@ export USE_FILL = 0
         1 (1) & 26.4 fF & 25.6 fF & 7.7\% & 2.4\% \\
         \hline
       \end{tabular}
+      \end{center}
     \end{column}
     \begin{column}{0.5\textwidth}
       \begin{center}
@@ -769,6 +711,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.65\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -791,6 +734,7 @@ export USE_FILL = 0
         \sigma_\mathrm{penalty} = \sqrt{\frac{C_\mathrm{tot}}{C_\mathrm{eff}}} = \sqrt{\frac{1880}{1638}} \approx 1.07
       \]
       Only 7\% mismatch penalty --- MSBs have $C_\mathrm{diff} \ll C_\mathrm{main}$
+      \end{center}
     \end{column}
   \end{columns}
 \end{frame}
@@ -841,13 +785,11 @@ export USE_FILL = 0
 %% ============================================================
 \begin{frame}
   \frametitle{Sampling Switch Layout}
-  \begin{columns}
-    \begin{column}{0.5\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_samp.png}
-      \end{center}
-    \end{column}
-    \begin{column}{0.5\textwidth}
+  \begin{columns}[c]
+    \begin{column}{0.42\textwidth}
+      \centering
+      \includegraphics[width=\linewidth,height=0.55\textheight,keepaspectratio]{images/frida_samp.png}
+      \vspace{0.3em}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -855,24 +797,36 @@ export USE_FILL = 0
         \hline
         Dimensions & 12$\times$12 $\mu$m \\
         Device size & W $\approx$ 3 $\mu$m, L$_{\min}$ \\
-        Worst-case $R_{\mathrm{on}}$ & $\sim$1 k$\Omega$ \\
-        $C_{\mathrm{samp}}$ & $\sim$1 pF \\
+        $R_{\mathrm{on}}$ & $\sim$1 k$\Omega$ \\
+        $C_{\mathrm{samp}}$ & 1.64 pF \\
         \hline
       \end{tabular}
-      \vspace{0.3em}
+    \end{column}
+    \begin{column}{0.58\textwidth}
+      \centering
+      \small
+      \textbf{1. Settling Time Requirement}
 
-      \textbf{Settling time:}
-      \[
-        \tau = R_{\mathrm{on}} \cdot C_{\mathrm{samp}} = 1~\mathrm{k}\Omega \cdot 1~\mathrm{pF} = 1~\mathrm{ns}
-      \]
-      For 12-bit accuracy ($<$0.5 LSB): $t_{\mathrm{settle}} \approx 9\tau \approx 9$ ns
+      \vspace{0.2em}
+      Time constant: $\tau = R_{\mathrm{on}} \cdot C = 1.64~\mathrm{ns}$
 
-      \textbf{kT/C sampling noise:}
+      \vspace{0.2em}
+      For 12-bit accuracy, settling error $< 0.5$ LSB:
       \[
-        \sigma_{\mathrm{samp}} = \sqrt{\frac{kT}{C}} = \sqrt{\frac{4.14 \times 10^{-21}}{10^{-12}}} \approx 64~\mu\mathrm{V}
+        e^{-n} < \frac{0.5}{4096} \quad \Rightarrow \quad n > 9
       \]
       \[
-        \text{Sampling noise} \approx \frac{64~\mu\mathrm{V}}{293~\mu\mathrm{V}} \approx 0.22~\mathrm{LSB}
+        \therefore~ t_{\mathrm{sample}} > 9 \times 1.64~\mathrm{ns} \approx \mathbf{15~\mathrm{ns}}
+      \]
+
+      \vspace{0.4em}
+      \textbf{2. kT/C Sampling Noise}
+      \[
+        \sigma_{\mathrm{samp}} = \sqrt{\frac{kT}{C}} = \sqrt{\frac{4.14 \times 10^{-21}}{1.64 \times 10^{-12}}} \approx 50~\mu\mathrm{V}
+      \]
+      With LSB $= 293~\mu$V:
+      \[
+        \text{Noise} \approx \frac{50~\mu\mathrm{V}}{293~\mu\mathrm{V/LSB}} \approx 0.17~\mathrm{LSB} \quad \textcolor{green!50!black}{\checkmark}
       \]
     \end{column}
   \end{columns}
@@ -888,7 +842,7 @@ export USE_FILL = 0
   \end{center}
   \vspace{0.3em}
   \small
-  Drivers scaled in width to match corresponding capacitor size (XOR gates for differential control):
+  Drivers scaled in width to match corresponding capacitor size:
   \vspace{0.3em}
   \begin{center}
     \begin{tabular}{l|c|c}
@@ -929,7 +883,7 @@ export USE_FILL = 0
       \begin{itemize}
         \item Digital logic in center/bottom
         \item Comparator at top center
-        \item Sampling switches on sides
+        \item Sampling switches on top sides
         \item Cap drivers at top/bottom edges
       \end{itemize}
     \end{column}
@@ -959,9 +913,9 @@ export USE_FILL = 0
       \vspace{1em}
       \begin{itemize}
         \item P and N cap arrays on left/right
-        \item Stacked above digital/analog
-        \item Vertical fringe capacitors
+        \item Stacked above digital/analog, with shield
         \item Direct connection to sampling nodes
+        \item Vias from top power grid between
       \end{itemize}
     \end{column}
   \end{columns}
@@ -1020,16 +974,18 @@ export USE_FILL = 0
         \hline
         Array size & 4$\times$4 ADCs \\
         Dimensions & 240$\times$240 $\mu$m \\
-        Total ADCs & 16 \\
-        Aggregate rate & 160 MS/s \\
+        Power Grid & M8-M9 \\
         Total power & $\sim$3.2 mW \\
         \hline
       \end{tabular}
       \vspace{1em}
       \begin{itemize}
-        \item Tiled ADC instances
+        \item Multiplexed inputs and outputs
         \item Shared clock distribution
-        \item Column-parallel readout
+         \textbf{SPI Register (180 bits):}
+        \item [179:176] Mux select (4b)
+        \item [175:64] Per-ADC ctrl (7b $\times$ 16)
+        \item [63:0] Shared DAC states (64b)
       \end{itemize}
     \end{column}
   \end{columns}
@@ -1057,15 +1013,17 @@ export USE_FILL = 0
         CMOS\_IO & 5 & SPI interface + reset \\
         PASSIVE & 2 & Analog input (diff) \\
         POWER & 4 & VDD (A, D, IO, DAC) \\
-        GROUND & 4 & VSS (A, D, IO, DAC) \\
+        GROUND & 4+1 & VSS (A, D, IO, DAC) \\
         \hline
-        \textbf{Total} & \textbf{22} & \\
+        \textbf{Total} & \textbf{21} & 7 per side\\
         \hline
       \end{tabular}
       \vspace{0.5em}
       \begin{itemize}
         \item Separate analog/digital supplies
-        \item ESD protection on all pads
+        \item ESD protection omitted on specific pads
+        \item $\sim$100 pF MOSCAP decoupling/rail
+        \item Die size 1$\times$1 mm
       \end{itemize}
     \end{column}
   \end{columns}
@@ -1082,54 +1040,274 @@ export USE_FILL = 0
         \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_65A.png}
       \end{center}
     \end{column}
-    \begin{column}{0.45\textwidth}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Analog Automation: Sampling Switch Definition
+%% ============================================================
+\begin{frame}[fragile]
+  \frametitle{Analog Automation: Sampling Switch Definition}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \scriptsize
+      \textbf{Netlist struct (\texttt{blocks/samp.py}):}
+      \begin{lstlisting}[language=python,basicstyle=\ttfamily\fontsize{4}{5}\selectfont]
+subckt = {
+    "cellname": "samp",
+    "ports": {},      # Computed by gen_topo_subckt()
+    "instances": {},  # Computed by gen_topo_subckt()
+    "tech": ["tsmc65", "tsmc28", "tower180"],
+    "topo_params": {
+        "switch_type": ["nmos", "pmos", "tgate"]
+    },
+    "inst_params": [
+        {"instances": {"nmos": ["MN"], "pmos": ["MP"]},
+         "w": [5, 10, 20, 40], "l": [1, 2]},
+        {"instances": {"nmos": "all", "pmos": "all"},
+         "type": "lvt", "w": 1, "l": 1, "nf": 1},
+    ],
+}
+      \end{lstlisting}
+      \vspace{0.3em}
+      \textbf{Topology generator:}
+      \begin{lstlisting}[language=python,basicstyle=\ttfamily\fontsize{4}{5}\selectfont]
+def gen_topo_subckt(switch_type: str):
+    ports = {"in": "I", "out": "O", "clk": "I",
+             "clk_b": "I", "vdd": "B", "vss": "B"}
+    instances = {}
+    if switch_type == "nmos":
+        instances["MN"] = {"dev": "nmos",
+            "pins": {"d":"out", "g":"clk", "s":"in", "b":"vss"}}
+    elif switch_type == "tgate":
+        instances["MN"] = ...
+        instances["MP"] = ...
+    return ports, instances
+      \end{lstlisting}
+    \end{column}
+    \begin{column}{0.5\textwidth}
       \small
-      \begin{tabular}{l|r}
-        \hline
-        \textbf{Parameter} & \textbf{Value} \\
-        \hline
-        Die size & 1$\times$1 mm \\
-        Process & TSMC 65nm LP \\
-        ADC count & 16 (4$\times$4) \\
-        Decoupling & $\sim$100 pF/rail \\
-        \hline
-      \end{tabular}
-      \vspace{1em}
+      \textbf{Flow Commands:}
+      \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+# Generate subcircuit netlists
+make subckt cell=samp
+
+# Generate testbench netlists
+make tb cell=samp
+
+# Run simulations
+make sim cell=samp mode=all
+
+# Extract measurements
+make meas cell=samp
+      \end{lstlisting}
+      \vspace{0.5em}
+      \textbf{Combinatorial Expansion:}
       \begin{itemize}
-        \item MOS capacitor decoupling on all power rails ($\sim$100 pF each)
-        \item Submitted Oct 2025
-        \item Testing planned Spring 2026
+        \item 3 technologies $\times$ 3 topologies
+        \item 4 widths $\times$ 2 lengths
+        \item = \textbf{72 netlist variants}
+      \end{itemize}
+      \vspace{0.3em}
+      \textbf{Output files:}
+      \begin{itemize}
+        \item \texttt{results/samp/subckt/*.sp}
+        \item \texttt{results/samp/subckt/*.v}
+        \item \texttt{results/samp/files.json}
       \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
 
 %% ============================================================
-%% ONGOING WORK SECTION
+%% Analog Automation: Subcircuit Generation Output
 %% ============================================================
+\begin{frame}[fragile]
+  \frametitle{Analog Automation: Subcircuit Generation}
+  \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+$ make subckt cell=samp
 
-%% ============================================================
-%% PCB and Testing System - Placeholder 1
-%% ============================================================
-\begin{frame}
-  \frametitle{Ongoing Work: PCB Design}
-  \begin{center}
-    \vspace{2em}
-    \textit{[Placeholder for PCB image]}
-    \vspace{2em}
-  \end{center}
+================================================================================
+                             SUBCIRCUIT NETLISTING
+================================================================================
+Cell:        samp
+Script:      blocks/samp.py
+Step:        subckt
+OutDir:      results/samp/subckt
+--------------------------------------------------------------------------------
+tech         switch_type  MN.l         MN.w         MP.l         MP.w
+--------------------------------------------------------------------------------
+tsmc65       3x           2x           4x           2x           4x
+tsmc28       3x           2x           4x           2x           4x
+tower180     3x           2x           4x           2x           4x
+--------------------------------------------------------------------------------
+Result:      72 SPICE netlists generated
+             72 Verilog netlists generated
+Wall Time:   16.9ms
+Errors:      [none]
+  \end{lstlisting}
+  \vspace{0.3em}
+  \begin{itemize}
+    \item Cross-technology sweep: same design across foundries
+    \item Device parameter sweep: automatic design space exploration
+    \item Parallel generation: fast iteration on analog IP blocks
+    \item Dual output: SPICE for simulation, Verilog for integration
+  \end{itemize}
 \end{frame}
 
 %% ============================================================
-%% PCB and Testing System - Placeholder 2
+%% Analog Automation: Comparator Topologies
 %% ============================================================
 \begin{frame}
-  \frametitle{Ongoing Work: Test System}
-  \begin{center}
-    \vspace{2em}
-    \textit{[Placeholder for test system image]}
-    \vspace{2em}
-  \end{center}
+  \frametitle{Analog Automation: Comparator Topologies}
+  \begin{columns}
+    \begin{column}{0.6\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/comparator_architectures.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.4\textwidth}
+      \scriptsize
+      \textbf{Topology Parameters:}
+      \vspace{0.3em}
+      \begin{tabular}{l|l}
+        \hline
+        \textbf{Parameter} & \textbf{Options} \\
+        \hline
+        \texttt{preamp\_diffpair} & nmos, pmos \\
+        \texttt{preamp\_bias} & std, dyn \\
+        \texttt{comp\_stages} & 1, 2 \\
+        \texttt{latch\_pwrgate\_ctl} & clk, sig \\
+        \texttt{latch\_pwrgate\_node} & ext, int \\
+        \texttt{latch\_rst\_ext\_ctl} & clk, sig, none \\
+        \texttt{latch\_rst\_int\_ctl} & clk, sig \\
+        \hline
+      \end{tabular}
+      \vspace{0.5em}
+      \begin{itemize}
+        \item Auto netlist from \texttt{blocks/comp.py}
+        \item Sweep device params \& corners
+        \item Can also vary topology \& tech node
+        \item Share testbench, simulation, and analysis code
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Analog Automation: Generated SPICE Netlists
+%% ============================================================
+\begin{frame}[fragile]
+  \frametitle{Analog Automation: Generated SPICE Netlists}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \scriptsize
+      \textbf{180nm Double-Stage (Tower):}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+.subckt comp in+ in- out+ out- clk clkb vdd vss
+
+M_preamp_diff+ out- in+ tail vss n18lvt W=880n L=180n
+M_preamp_diff- out+ in- tail vss n18lvt W=880n L=180n
+M_preamp_tail tail clk vss vss n18lvt W=440n L=360n
+M_preamp_rst+ out- clk vdd vdd p18lvt W=440n L=180n
+M_preamp_rst- out+ clk vdd vdd p18lvt W=440n L=180n
+Ma_latch+ latch- latch+ latch_vdd vdd p18lvt W=220n L=180n
+Ma_latch- latch+ latch- latch_vdd vdd p18lvt W=220n L=180n
+Mb_latch+ latch- latch+ latch_vss vss n18lvt W=220n L=180n
+Mb_latch- latch+ latch- latch_vss vss n18lvt W=220n L=180n
+M_preamp_to_latch+ latch- out- vss vss n18lvt W=220n L=180n
+M_preamp_to_latch- latch+ out+ vss vss n18lvt W=220n L=180n
+M_latch_ext_powergate+ latch_vdd clk vdd vdd p18lvt W=220n
+M_latch_ext_powergate- latch_vdd clk vdd vdd p18lvt W=220n
+M_latch_ext_rst+ latch- clkb latch_vdd vdd p18lvt W=220n
+M_latch_ext_rst- latch+ clkb latch_vdd vdd p18lvt W=220n
+M_latch_vss_conn+ latch_vss vdd vss vss n18lvt W=220n
+M_latch_vss_conn- latch_vss vdd vss vss n18lvt W=220n
+M_latch_int_rst+ latch- clkb latch_vss vss n18lvt W=220n
+M_latch_int_rst- latch+ clkb latch_vss vss n18lvt W=220n
+Ma_latch_out+ out- latch- vdd vdd p18lvt W=220n L=180n
+Ma_latch_out- out+ latch+ vdd vdd p18lvt W=220n L=180n
+Mb_latch_out+ out- latch- vss vss n18lvt W=220n L=180n
+Mb_latch_out- out+ latch+ vss vss n18lvt W=220n L=180n
+
+.ends comp
+      \end{lstlisting}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \scriptsize
+      \textbf{65nm Single-Stage (TSMC):}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+.subckt comp in+ in- out+ out- clk clkb vdd vss
+
+M_preamp_diff+ out- in+ tail vss nch_lvt W=480n L=60n
+M_preamp_diff- out+ in- tail vss nch_lvt W=480n L=60n
+M_preamp_tail tail clk vss vss nch_lvt W=240n L=120n
+M_preamp_rst+ out- clk vdd vdd pch_lvt W=240n L=60n
+M_preamp_rst- out+ clk vdd vdd pch_lvt W=240n L=60n
+Ma_latch+ out- out+ vdd vdd pch_lvt W=120n L=60n
+Ma_latch- out+ out- vdd vdd pch_lvt W=120n L=60n
+Mb_latch+ out- out+ vss vss nch_lvt W=120n L=60n
+Mb_latch- out+ out- vss vss nch_lvt W=120n L=60n
+M_latch_int_rst+ out- clkb vdd vdd pch_lvt W=120n L=60n
+M_latch_int_rst- out+ clkb vdd vdd pch_lvt W=120n L=60n
+
+.ends comp
+      \end{lstlisting}
+      \vspace{0.3em}
+      \textbf{Auto-Generated Verilog:}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+module comp (in+, in-, out+, out-, clk, clkb, vdd, vss);
+    input in+, in-;
+    output out+, out-;
+    input clk, clkb;
+    inout vdd, vss;
+    wire tail;
+    nch_lvt M_preamp_diff+ (.d(out-), .g(in+), .s(tail));
+    nch_lvt M_preamp_diff- (.d(out+), .g(in-), .s(tail));
+    // ... (structural Verilog for LVS)
+endmodule
+      \end{lstlisting}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Analog Automation: Layout Generation
+%% ============================================================
+\begin{frame}
+  \frametitle{Analog Automation: Layout Generation}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.75\textheight,keepaspectratio]{images/comp_layout_gen.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \small
+      \textbf{Automated Layout Flow:}
+      \begin{itemize}
+        \item Netlist $\rightarrow$ device placement
+        \item Symmetry constraints from topology
+        \item Auto-routing of internal nets
+        \item DRC-clean by construction
+      \end{itemize}
+      \vspace{0.5em}
+      \textbf{65nm Single-Stage Comparator:}
+      \begin{itemize}
+        \item 12 transistors (NMOS + PMOS)
+        \item Symmetric diff pair layout
+        \item Cross-coupled latch structure
+        \item Common centroid where needed
+      \end{itemize}
+      \vspace{0.5em}
+      \textbf{Benefits:}
+      \begin{itemize}
+        \item Rapid design iteration
+        \item Consistent layout style
+        \item Technology portability
+      \end{itemize}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 %% ============================================================
@@ -1180,41 +1358,32 @@ export USE_FILL = 0
 \end{frame}
 
 %% ============================================================
-%% Analog Automation: Comparator Topologies
+%% ADC Target Specifications
 %% ============================================================
 \begin{frame}
-  \frametitle{Analog Automation: Comparator Topologies}
-  \begin{columns}
-    \begin{column}{0.6\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/comparator_architectures.png}
-      \end{center}
-    \end{column}
-    \begin{column}{0.4\textwidth}
-      \scriptsize
-      \textbf{Topology Parameters:}
-      \vspace{0.3em}
-      \begin{tabular}{l|l}
-        \hline
-        \textbf{Parameter} & \textbf{Options} \\
-        \hline
-        \texttt{preamp\_diffpair} & nmos, pmos \\
-        \texttt{preamp\_bias} & std, dyn \\
-        \texttt{comp\_stages} & 1, 2 \\
-        \texttt{latch\_pwrgate\_ctl} & clk, sig \\
-        \texttt{latch\_pwrgate\_node} & ext, int \\
-        \texttt{latch\_rst\_ext\_ctl} & clk, sig, none \\
-        \texttt{latch\_rst\_int\_ctl} & clk, sig \\
-        \hline
-      \end{tabular}
-      \vspace{0.5em}
-      \begin{itemize}
-        \item Cartesian product of combinations
-        \item Auto netlist from \texttt{blocks/comp.py}
-        \item Sweep device params \& corners
-      \end{itemize}
-    \end{column}
-  \end{columns}
+  \frametitle{ADC Target Specifications}
+  \begin{center}
+    \small
+    \begin{tabular}{l|ccccc}
+      \hline
+      \textbf{Parameter} & \textbf{DCD v1} & \textbf{CoRDIA} & \textbf{M} & \textbf{H} & \textbf{F (target)} \\
+      \hline
+      Resolution          & 8-bit       & 10-bit     & 8-bit      & 10-bit      & 12-bit      \\
+      ENOB                & 8.3         & 8.8        & 8.0        & 9.5?        & 11.0?       \\
+      Conversion rate     & 6.25 MHz    & 2.5 MHz    & 4.5 MHz    & 10 MHz      & 10 MHz      \\
+      ADC dimensions      & 40$\times$55 $\mu$m & 80$\times$330 $\mu$m & 60$\times$800 $\mu$m & 15$\times$100 $\mu$m & 50$\times$50 $\mu$m \\
+      ADC area            & 0.002 mm$^2$ & 0.026 mm$^2$ & 0.048 mm$^2$ & 0.0015 mm$^2$ & 0.0025 mm$^2$ \\
+      Power per ADC       & 960 $\mu$W  & 30 $\mu$W  & 700 $\mu$W & 100 $\mu$W  & 200 $\mu$W? \\
+      FOM$_{\mathrm{csa}}$ (Hz/$\mu$m$^2$) & 3125 & 95 & 105 & 5000 & 5000 \\
+      FOM$_{\mathrm{wal}}$ (fJ/conv-step) & 487 & 26 & 608 & 14 & 10 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{F} = FRIDA target: 12-bit, 10 MHz, 50$\times$50 $\mu$m footprint
+    \item FOM$_{\mathrm{csa}}$ = conversion rate / area; FOM$_{\mathrm{wal}}$ = energy per conversion step
+  \end{itemize}
 \end{frame}
 
 \end{document}
