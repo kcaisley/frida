@@ -1,0 +1,23 @@
+\frametitle{OpenROAD Step 5.3: Fill Cells}
+  \begin{columns}
+    \begin{column}{0.45\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/5_3_fillcell.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.55\textwidth}
+      \begin{itemize}
+        \item Decap fill cells added (FEOL)
+        \item Metal fill disabled (BEOL)
+        \item Fills gaps in standard cell rows
+      \end{itemize}
+      \vspace{1em}
+      \textbf{config.mk}
+      \begin{lstlisting}[language=make]
+# Only disables metal fill
+# FILL_CELLS in routing step still
+# adds FEOL decap fill cells
+export USE_FILL = 0
+      \end{lstlisting}
+    \end{column}
+  \end{columns}

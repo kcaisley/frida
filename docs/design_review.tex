@@ -2,6 +2,7 @@
 \usepackage{graphicx}
 \usepackage{listings}
 \usepackage{xcolor}
+\usepackage{amsmath}
 % SVGs pre-converted to PDF via inkscape
 
 % Custom footline with slide numbers in bottom left
@@ -43,6 +44,56 @@
 \end{frame}
 
 %% ============================================================
+%% Outline
+%% ============================================================
+\begin{frame}
+  \frametitle{Outline}
+  \begin{enumerate}
+    \item ADC Target Specifications
+    \item ADC Floorplan Overview
+    \item OpenROAD Digital Flow
+    \item ADC Block Integration
+    \item Analog Building Blocks
+    \item Chip Assembly and Layout
+    \item Ongoing Work
+  \end{enumerate}
+\end{frame}
+
+%% ============================================================
+%% FRIDA Chip Overview
+%% ============================================================
+\begin{frame}
+  \frametitle{FRIDA Chip Overview}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_65A.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Die size & 1 mm $\times$ 1 mm \\
+        Core area & 600 $\mu$m $\times$ 600 $\mu$m \\
+        DUT array & 4$\times$4 grid (16 ADCs) \\
+        Technology & TSMC 65nm LP \\
+        Submitted & October 2025 \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item Column-parallel SAR ADC array
+        \item Mixed-signal integration
+        \item Testing planned Spring 2026
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
 %% ADC Target Specifications
 %% ============================================================
 \begin{frame}
@@ -76,7 +127,7 @@
 %% ============================================================
 \begin{frame}[fragile]
   \frametitle{Sketch of ADC Floorplan}
-  \begin{center}
+  \centering
   \begin{lstlisting}[basicstyle=\ttfamily\fontsize{4}{5}\selectfont,frame=none,backgroundcolor=\color{white}]
             Logic and Macro Placement (FEOL-M3)           Power Domain Placement (M3-M4)              Capacitor DAC Arrays (M5-M6)
             -----------------------------------           ------------------------------              ----------------------------
@@ -106,56 +157,6 @@
 2 Tr |     |        Cap Drivers (main)        |        |        vref_p  & vref_n          |        |    (pins)     |  |    (pins)     |
      +-    +----------------------------------+        +----------------------------------+        +---------------+  +---------------+
   \end{lstlisting}
-  \end{center}
-\end{frame}
-
-%% ============================================================
-%% Unit Fringe Capacitor
-%% ============================================================
-\begin{frame}
-  \frametitle{Unit Fringe Capacitor}
-  \begin{columns}
-    \begin{column}{0.5\textwidth}
-      1 layer: $0.31~\mathrm{fF}/\mu\mathrm{m}^2$ \\
-      2 layers: $0.62~\mathrm{fF}/\mu\mathrm{m}^2$ \\
-      3 layers: $0.93~\mathrm{fF}/\mu\mathrm{m}^2$ \\[1em]
-      Matching coefficient: $\sigma(\Delta C/C) = 0.85\% \times \sqrt{C~[\mathrm{fF}]}$
-      \vspace{2em}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.4\textheight,keepaspectratio]{images/cdac_unit_cell_3d.png}
-      \end{center}
-    \end{column}
-    \begin{column}{0.5\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.8\textheight,keepaspectratio]{images/cdac_unit_cell.png}
-      \end{center}
-    \end{column}
-  \end{columns}
-\end{frame}
-
-%% ============================================================
-%% CDAC Array Overview
-%% ============================================================
-\begin{frame}
-  \frametitle{CDAC Array Overview}
-  \begin{columns}
-    \begin{column}{0.5\textwidth}
-      \[
-        \text{Total Area} = 1940~\mu\mathrm{m}^2
-      \]
-      \[
-        C_\mathrm{tot} = 1.4~\mathrm{pF}
-      \]
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{images/cdac_array_3d.png}
-      \end{center}
-    \end{column}
-    \begin{column}{0.5\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/cdac_array.png}
-      \end{center}
-    \end{column}
-  \end{columns}
 \end{frame}
 
 %% ============================================================
@@ -236,7 +237,7 @@
       \begin{itemize}
         \item Total cells: 350
         \item Total area: 893.88 $\mu$m$^2$
-        \item Sequential elements: 49.6\% of area
+        \item Sequential elements: 49\% of area
         \item 48 flip-flops (DFQD1, EDFD2)
         \item 5 clock gates (CKLNQD1LVT)
       \end{itemize}
@@ -282,7 +283,7 @@ CKLNQD1LVT (clkgate)     5    32.40
         \item Die and core area: 60$\mu$m $\times$ 49$\mu$m
         \item Row height: 2.8$\mu$m (17 rows)
         \item Blockages reserve space for analog macros
-        \item Custom I/O pin placement for DAC interface
+        \item I/O pin and routing grid (0.2$\mu$m pitch)
       \end{itemize}
       \vspace{1em}
       \textbf{config.mk}
@@ -317,7 +318,7 @@ create_blockage -region {39 42.6 47.5 49}
     \begin{column}{0.55\textwidth}
       \begin{itemize}
         \item M4 vertical stripes at edges for vdd\_d/vss\_d
-        \item M1 horizontal stripes follow standard cell rows
+        \item M1 horizontal stripes follow cell rows
         \item M1-M4 connections for power delivery
       \end{itemize}
       \vspace{1em}
@@ -347,7 +348,7 @@ add_pdn_connect -grid "Core" -layers {M1 M4}
 %% OpenROAD Step 3.1 Global Placement (Skip IO)
 %% ============================================================
 \begin{frame}[fragile]
-  \frametitle{OpenROAD Step 3.1: Global Placement (Skip I/O)}
+  \frametitle{OpenROAD Step 3.1: Global Placement}
   \begin{columns}
     \begin{column}{0.45\textwidth}
       \begin{center}
@@ -356,17 +357,15 @@ add_pdn_connect -grid "Core" -layers {M1 M4}
     \end{column}
     \begin{column}{0.55\textwidth}
       \begin{itemize}
-        \item Initial cell spreading before I/O placement
-        \item Routability-driven placement disabled (OpenROAD bug)
-        \item 50\% target placement density
+        \item Initial cell location doesn't consider I/O
+        \item Instead routability-driven placement
+        \item 60\% target placement density
+        \item Placement avoids blockages
+        \
       \end{itemize}
       \vspace{1em}
       \textbf{config.mk}
       \begin{lstlisting}[language=make]
-# Disable routability-driven placement
-# due to OpenROAD crash in cutFillerCells()
-export GPL_ROUTABILITY_DRIVEN = 0
-
 # Standard cell placement density
 export PLACE_DENSITY = 0.50
 
@@ -382,7 +381,7 @@ export IO_PLACER_V = M2
 %% OpenROAD Step 3.2 Global Placement
 %% ============================================================
 \begin{frame}[fragile]
-  \frametitle{OpenROAD Step 3.2: Global Placement}
+  \frametitle{OpenROAD Step 3.2: Global Placement (I/O Aware)}
   \begin{columns}
     \begin{column}{0.45\textwidth}
       \begin{center}
@@ -391,28 +390,27 @@ export IO_PLACER_V = M2
     \end{column}
     \begin{column}{0.55\textwidth}
       \begin{itemize}
-        \item I/O pins now placed on die boundary
-        \item DAC pins on left/right edges (M3), 2.8$\mu$m spacing
-        \item Control signals on bottom (M2)
+        \item Cells migrated toward connected IO pins
+        \item 445 movable cells, 457 total instances
+        \item Timing-driven with Nesterov solver
+        \item 335 iterations to converge
       \end{itemize}
-      \vspace{1em}
-      \textbf{io.tcl}
-      \begin{lstlisting}[language=tcl]
-# Left side - DAC astate positive pins
-place_pin -pin_name dac_astate_p[0] \
-  -layer M3 -location {0.0 5.6} \
-  -force_to_die_boundary
-
-# Right side - DAC astate negative pins
-place_pin -pin_name dac_astate_n[0] \
-  -layer M3 -location {60.0 5.6} \
-  -force_to_die_boundary
-
-# Bottom - Control signals
-place_pin -pin_name seq_update \
-  -layer M2 -location {32.9 0.0} \
-  -force_to_die_boundary
-      \end{lstlisting}
+      \vspace{0.5em}
+      \begin{center}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Metric} & \textbf{Value} \\
+        \hline
+        Core area & 2916 $\mu$m$^2$ \\
+        Cell area & 1102 $\mu$m$^2$ \\
+        Utilization & 49\% \\
+        Final HPWL & 5125 $\mu$m \\
+        Worst slack & 4.49 ns \\
+        fmax achievable & 1975 MHz \\
+        \hline
+      \end{tabular}
+      \end{center}
     \end{column}
   \end{columns}
 \end{frame}
@@ -430,27 +428,31 @@ place_pin -pin_name seq_update \
     \end{column}
     \begin{column}{0.55\textwidth}
       \begin{itemize}
-        \item Cells snapped to placement grid
-        \item Critical buffers protected from removal
-        \item Clock gate and sample driver cells preserved
+        \item 424 cells legalized to row sites
+        \item Legalization adds 4\% HPWL
+        \item Optimization recovers 9.8\% HPWL
       \end{itemize}
-      \vspace{1em}
-      \textbf{dont\_touch.tcl}
-      \begin{lstlisting}[language=tcl]
-# Protect sampdriver instances
-set sampdriver_instances [get_cells -quiet \
-  -filter "full_name =~ sampdriver_*"]
-foreach inst $sampdriver_instances {
-    set_dont_touch $inst
-}
-
-# Protect clkgate cells (TSMC65 CKLNQD1LVT)
-set clkgate_cells [get_cells -quiet \
-  -filter "ref_name == CKLNQD1LVT"]
-foreach inst $clkgate_cells {
-    set_dont_touch $inst
-}
+      \vspace{0.5em}
+      \textbf{Optimization Passes}
+      \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+Independent set matching   0.35%
+Global swaps               2.36%
+Vertical swaps             0.34%
+Reordering                 0.96%
+Random improvement         3.09%
+Cell flipping              3.10%
       \end{lstlisting}
+      \vspace{0.3em}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Metric} & \textbf{Value} \\
+        \hline
+        Final HPWL & 4796 $\mu$m \\
+        Final area & 1102 $\mu$m$^2$ \\
+        Utilization & 38\% \\
+        \hline
+      \end{tabular}
     \end{column}
   \end{columns}
 \end{frame}
@@ -497,23 +499,24 @@ set_clock_uncertainty 0.05 [all_clocks]
   \begin{columns}
     \begin{column}{0.5\textwidth}
       \begin{center}
-        \includegraphics[width=0.9\linewidth,height=0.55\textheight,keepaspectratio]{images/4_1_cts_alt.png}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/4_1_cts_alt.png}
       \end{center}
     \end{column}
     \begin{column}{0.5\textwidth}
       \begin{center}
-        \includegraphics[width=0.9\linewidth,height=0.45\textheight,keepaspectratio]{images/4_1_treeview.png}
+        \includegraphics[width=0.9\linewidth,height=0.35\textheight,keepaspectratio]{images/4_1_treeview.png}
       \end{center}
+      \vspace{0.3em}
+      \small
+      \textbf{CTS Results:}
+      \begin{itemize}
+        \item 31 BUFFD2LVT cells across 4 clock paths
+        \item Domains unsynchronized within ADC (relies on upstream sequencer)
+        \item Clock power: 41\% of total
+        \item Setup skew: 0.07 ns
+      \end{itemize}
     \end{column}
   \end{columns}
-  \vspace{0.5em}
-  \begin{center}
-    \small
-    \textbf{CTS Results:} $f_{\mathrm{max}}$ = 1760 MHz \quad|\quad
-    Worst slack = 4.43 ns \quad|\quad
-    Setup skew = 0.07 ns \quad|\quad
-    Power = 182 $\mu$W
-  \end{center}
 \end{frame}
 
 %% ============================================================
@@ -569,15 +572,25 @@ odb::dbObstruction_create $block $layer_M2 \
         \item Final metal routing on M2/M3
         \item All signals routed to I/O pins
         \item DRC-clean routing around blockages
+        \item \textbf{Issue:} Multicut vias on large devices
       \end{itemize}
-      \vspace{1em}
-      \textbf{config.mk}
-      \begin{lstlisting}[language=make]
-# Based on TSMC65LP metal stack
-# from tcbn65lp_9lmT2.lef
-export MIN_ROUTING_LAYER = M2
-export MAX_ROUTING_LAYER = M3
-      \end{lstlisting}
+      \vspace{0.5em}
+      \begin{center}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Metric} & \textbf{Value} \\
+        \hline
+        Nets routed & 506 \\
+        Total wire length & 5717 $\mu$m \\
+        M2 wire length & 3183 $\mu$m \\
+        M3 wire length & 2625 $\mu$m \\
+        Total vias & 2058 \\
+        Clock skew & 0.07 ns \\
+        Worst slack & 4.37 ns \\
+        \hline
+      \end{tabular}
+      \end{center}
     \end{column}
   \end{columns}
 \end{frame}
@@ -623,12 +636,13 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.55\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{images/power.png}
-      \end{center}
+      \begin{flushleft}
+        \includegraphics[width=0.6\linewidth,height=0.25\textheight,keepaspectratio]{images/power.png}
+      \end{flushleft}
       \vspace{0.5em}
       \begin{itemize}
-        \item Spatial visualizations for IR drop, thermal dissipation, placement density, pin density, and power consumption are available
+        \item Spatial visualizations for IR drop, thermal dissipation, placement density, pin density, and power consumption
+        \item DRC and antenna violation views for debugging
       \end{itemize}
     \end{column}
   \end{columns}
@@ -645,6 +659,39 @@ export USE_FILL = 0
   \begin{center}
     \includegraphics[width=\linewidth,height=0.78\textheight,keepaspectratio]{images/openroad_gui.png}
   \end{center}
+\end{frame}
+
+%% ============================================================
+%% ADC Digital Layout
+%% ============================================================
+\begin{frame}
+  \frametitle{ADC Digital Block Layout}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_adc_dgital.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \begin{center}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Metric} & \textbf{Value} \\
+        \hline
+        Dimensions & 60$\times$49 $\mu$m \\
+        Cell count & 350 \\
+        Area & 894 $\mu$m$^2$ \\
+        Flip-flops & 48 \\
+        Clock gates & 5 \\
+        Wire length & 5717 $\mu$m \\
+        Vias & 2058 \\
+        Power & 18 $\mu$W \\
+        \hline
+      \end{tabular}
+      \end{center}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 %% ============================================================
@@ -666,8 +713,508 @@ export USE_FILL = 0
 \begin{frame}
   \frametitle{ADC Level Integration}
   \begin{center}
-    \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_status.pdf}
+    \includegraphics[width=\linewidth,height=0.92\textheight,keepaspectratio]{images/frida_status.pdf}
   \end{center}
+\end{frame}
+
+%% ============================================================
+%% Unit Fringe Capacitor
+%% ============================================================
+\begin{frame}
+  \frametitle{Unit Fringe Capacitor}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \small
+      \textbf{Capacitance Density:}\\
+      1 layer: $0.31~\mathrm{fF}/\mu\mathrm{m}^2$ \\
+      2 layers: $0.62~\mathrm{fF}/\mu\mathrm{m}^2$ \\
+      3 layers: $0.93~\mathrm{fF}/\mu\mathrm{m}^2$ \\[0.5em]
+      Matching: $\sigma(\Delta C/C) = 0.85\% / \sqrt{C~[\mathrm{fF}]}$
+      \vspace{0.5em}
+
+      \textbf{Per-Bit Mismatch:}
+      \scriptsize
+      \begin{tabular}{l|r|r|r|r}
+        \hline
+        \textbf{Bit} & $C_\mathrm{main}$ & $C_\mathrm{diff}$ & uncorr & $\rho$=0.9 \\
+        \hline
+        15 (768) & 619 fF & 4.8 fF & 0.04\% & 0.03\% \\
+        10 (64) & 51.6 fF & 0.4 fF & 0.12\% & 0.11\% \\
+        1 (1) & 26.4 fF & 25.6 fF & 7.7\% & 2.4\% \\
+        \hline
+      \end{tabular}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=0.8\linewidth,height=0.35\textheight,keepaspectratio]{images/cdac_unit_cell_3d.png}
+        \vspace{0.3em}
+
+        \includegraphics[width=\linewidth,height=0.45\textheight,keepaspectratio]{images/diffcaps.png}
+
+        \tiny [P. Harpe, ISSCC 2018]
+      \end{center}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Capacitor Array Layout
+%% ============================================================
+\begin{frame}
+  \frametitle{Capacitor Array Layout}
+  \begin{columns}
+    \begin{column}{0.35\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_caparray.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.65\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Dimensions & 17$\times$50 $\mu$m \\
+        $C_\mathrm{tot}$ & 1.88 pF \\
+        $C_\mathrm{eff}$ & 1.64 pF \\
+        Unit cap ($C_u$) & 0.8 fF \\
+        Layers & M5--M6--M7 fringe \\
+        \hline
+      \end{tabular}
+      \vspace{0.3em}
+
+      \textbf{Weights:} 768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1
+      \vspace{0.3em}
+
+      \textbf{Harpe Penalty Factor:}
+      \[
+        \sigma_\mathrm{penalty} = \sqrt{\frac{C_\mathrm{tot}}{C_\mathrm{eff}}} = \sqrt{\frac{1880}{1638}} \approx 1.07
+      \]
+      Only 7\% mismatch penalty --- MSBs have $C_\mathrm{diff} \ll C_\mathrm{main}$
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Comparator Layout
+%% ============================================================
+\begin{frame}
+  \frametitle{Comparator Layout}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_comp.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Pre-Extract} \\
+        \hline
+        Dimensions & 18$\times$18 $\mu$m \\
+        Topology & StrongARM latch \\
+        Input noise & $\sim$77 $\mu$V \\
+        Avg current & $\sim$4 $\mu$A \\
+        Peak current & $\sim$500 $\mu$A \\
+        \hline
+      \end{tabular}
+      \vspace{0.5em}
+
+      \textbf{Noise contribution to ENOB:}
+      \[
+        V_{\mathrm{LSB}} = \frac{2 V_{\mathrm{ref}}}{2^N} = \frac{1.2~\mathrm{V}}{4096} \approx 293~\mu\mathrm{V}
+      \]
+      \[
+        \text{Comparator noise} \approx \frac{77~\mu\mathrm{V}}{293~\mu\mathrm{V}} \approx 0.26~\mathrm{LSB}
+      \]
+      \begin{itemize}
+        \item Dynamic (no static power)
+        \item Regenerative latch output
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Sampling Switch Layout
+%% ============================================================
+\begin{frame}
+  \frametitle{Sampling Switch Layout}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_samp.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Dimensions & 12$\times$12 $\mu$m \\
+        Device size & W $\approx$ 3 $\mu$m, L$_{\min}$ \\
+        Worst-case $R_{\mathrm{on}}$ & $\sim$1 k$\Omega$ \\
+        $C_{\mathrm{samp}}$ & $\sim$1 pF \\
+        \hline
+      \end{tabular}
+      \vspace{0.3em}
+
+      \textbf{Settling time:}
+      \[
+        \tau = R_{\mathrm{on}} \cdot C_{\mathrm{samp}} = 1~\mathrm{k}\Omega \cdot 1~\mathrm{pF} = 1~\mathrm{ns}
+      \]
+      For 12-bit accuracy ($<$0.5 LSB): $t_{\mathrm{settle}} \approx 9\tau \approx 9$ ns
+
+      \textbf{kT/C sampling noise:}
+      \[
+        \sigma_{\mathrm{samp}} = \sqrt{\frac{kT}{C}} = \sqrt{\frac{4.14 \times 10^{-21}}{10^{-12}}} \approx 64~\mu\mathrm{V}
+      \]
+      \[
+        \text{Sampling noise} \approx \frac{64~\mu\mathrm{V}}{293~\mu\mathrm{V}} \approx 0.22~\mathrm{LSB}
+      \]
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Cap Driver Layout (wide - specs below)
+%% ============================================================
+\begin{frame}
+  \frametitle{Capacitor Driver Layout}
+  \begin{center}
+    \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{images/frida_capdriver.png}
+  \end{center}
+  \vspace{0.3em}
+  \small
+  Drivers scaled in width to match corresponding capacitor size (XOR gates for differential control):
+  \vspace{0.3em}
+  \begin{center}
+    \begin{tabular}{l|c|c}
+      \hline
+      \textbf{Bits} & \textbf{Output W (NMOS)} & \textbf{Output W (PMOS)} \\
+      \hline
+      15--14 (MSB) & 3.12 $\mu$m & 4.16 $\mu$m \\
+      13--12 & 1.56 $\mu$m & 2.08 $\mu$m \\
+      11--0 (LSBs) & 0.78 $\mu$m & 1.04 $\mu$m \\
+      \hline
+    \end{tabular}
+  \end{center}
+\end{frame}
+
+%% ============================================================
+%% ADC 3D View (Lower Metals)
+%% ============================================================
+\begin{frame}
+  \frametitle{ADC Layout: Lower Metals (3D)}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_adc_3d_lowermetals.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Layer} & \textbf{Usage} \\
+        \hline
+        M1 & Standard cell routing \\
+        M2--M3 & Signal routing \\
+        M4 & Power distribution \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item Digital logic in center/bottom
+        \item Comparator at top center
+        \item Sampling switches on sides
+        \item Cap drivers at top/bottom edges
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% ADC 3D View (With Cap Arrays)
+%% ============================================================
+\begin{frame}
+  \frametitle{ADC Layout: With Cap Arrays (3D)}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_adc_3d.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Layer} & \textbf{Usage} \\
+        \hline
+        M5--M6 & CDAC fringe caps \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item P and N cap arrays on left/right
+        \item Stacked above digital/analog
+        \item Vertical fringe capacitors
+        \item Direct connection to sampling nodes
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Full ADC Layout (2D)
+%% ============================================================
+\begin{frame}
+  \frametitle{Full ADC Layout}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_adc.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Dimensions & 60$\times$60 $\mu$m \\
+        Area & 0.0036 mm$^2$ \\
+        Resolution & 12-bit \\
+        Sample rate & 10 MS/s \\
+        Power & $\sim$200 $\mu$W \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item Fully differential SAR ADC
+        \item Mixed-signal integration
+        \item Column-parallel compatible
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% ADC Core Array (4x4)
+%% ============================================================
+\begin{frame}
+  \frametitle{ADC Core Array (4$\times$4)}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_core.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Array size & 4$\times$4 ADCs \\
+        Dimensions & 240$\times$240 $\mu$m \\
+        Total ADCs & 16 \\
+        Aggregate rate & 160 MS/s \\
+        Total power & $\sim$3.2 mW \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item Tiled ADC instances
+        \item Shared clock distribution
+        \item Column-parallel readout
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Pad Ring Layout
+%% ============================================================
+\begin{frame}
+  \frametitle{Pad Ring Layout}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_padring.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \small
+      \begin{tabular}{l|c|l}
+        \hline
+        \textbf{Pad Type} & \textbf{Count} & \textbf{Purpose} \\
+        \hline
+        LVDS\_RX & 4 & Sequencing clocks \\
+        LVDS\_TX & 1 & Comparator output \\
+        CMOS\_IO & 5 & SPI interface + reset \\
+        PASSIVE & 2 & Analog input (diff) \\
+        POWER & 4 & VDD (A, D, IO, DAC) \\
+        GROUND & 4 & VSS (A, D, IO, DAC) \\
+        \hline
+        \textbf{Total} & \textbf{22} & \\
+        \hline
+      \end{tabular}
+      \vspace{0.5em}
+      \begin{itemize}
+        \item Separate analog/digital supplies
+        \item ESD protection on all pads
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Full Chip Layout (FRIDA 65A)
+%% ============================================================
+\begin{frame}
+  \frametitle{Full Chip Layout (FRIDA 65A)}
+  \begin{columns}
+    \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_65A.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{tabular}{l|r}
+        \hline
+        \textbf{Parameter} & \textbf{Value} \\
+        \hline
+        Die size & 1$\times$1 mm \\
+        Process & TSMC 65nm LP \\
+        ADC count & 16 (4$\times$4) \\
+        Decoupling & $\sim$100 pF/rail \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+      \begin{itemize}
+        \item MOS capacitor decoupling on all power rails ($\sim$100 pF each)
+        \item Submitted Oct 2025
+        \item Testing planned Spring 2026
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% ONGOING WORK SECTION
+%% ============================================================
+
+%% ============================================================
+%% PCB and Testing System - Placeholder 1
+%% ============================================================
+\begin{frame}
+  \frametitle{Ongoing Work: PCB Design}
+  \begin{center}
+    \vspace{2em}
+    \textit{[Placeholder for PCB image]}
+    \vspace{2em}
+  \end{center}
+\end{frame}
+
+%% ============================================================
+%% PCB and Testing System - Placeholder 2
+%% ============================================================
+\begin{frame}
+  \frametitle{Ongoing Work: Test System}
+  \begin{center}
+    \vspace{2em}
+    \textit{[Placeholder for test system image]}
+    \vspace{2em}
+  \end{center}
+\end{frame}
+
+%% ============================================================
+%% Analog Automation: CDAC Weight Strategies
+%% ============================================================
+\begin{frame}
+  \frametitle{Analog Automation: CDAC Weight Strategies}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \small
+      \textbf{Five strategies in \texttt{blocks/cdac.py}:}
+      \vspace{0.5em}
+      \begin{tabular}{l|l|c}
+        \hline
+        \textbf{Strategy} & \textbf{Description} & \textbf{Radix} \\
+        \hline
+        \texttt{rdx2} & Standard binary & 2.0 \\
+        \texttt{subrdx2} & Sub-radix-2 rounded & $<$2.0 \\
+        \texttt{subrdx2lim} & Sub-radix-2 w/ floor & $<$2.0 \\
+        \texttt{subrdx2rdst} & MSB redistribution & $\sim$2.0 \\
+        \texttt{rdx2rpt} & Binary w/ repeated & 2.0 \\
+        \hline
+      \end{tabular}
+      \vspace{1em}
+
+      \textbf{Weight calculation:}
+      \[
+        \beta = 2^{N/M} \qquad W_i = \max(1, \lfloor \beta^{M-1-i} \rfloor)
+      \]
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \small
+      \textbf{Coarse-Fine Partitioning} (threshold $T=64$):
+      \[
+        W = q \cdot T + r \quad \text{where } q = \lfloor W/T \rfloor
+      \]
+      \vspace{0.5em}
+      \textbf{Difference Capacitor Split:}
+      \begin{itemize}
+        \item Coarse: $C_{\mathrm{main}} = T \cdot C_u$, $m = q$
+        \item Coarse diff: $C_{\mathrm{diff}} = 1 \cdot C_u$, $m = q$
+        \item Fine: $C_{\mathrm{main}} = (T+1+r)$, \\ $C_{\mathrm{diff}} = (T+1-r)$
+      \end{itemize}
+      \vspace{0.5em}
+      \textbf{Effective:} $C_{\mathrm{eff}} = C_{\mathrm{main}} - C_{\mathrm{diff}}$
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Analog Automation: Comparator Topologies
+%% ============================================================
+\begin{frame}
+  \frametitle{Analog Automation: Comparator Topologies}
+  \begin{columns}
+    \begin{column}{0.6\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/comparator_architectures.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.4\textwidth}
+      \scriptsize
+      \textbf{Topology Parameters:}
+      \vspace{0.3em}
+      \begin{tabular}{l|l}
+        \hline
+        \textbf{Parameter} & \textbf{Options} \\
+        \hline
+        \texttt{preamp\_diffpair} & nmos, pmos \\
+        \texttt{preamp\_bias} & std, dyn \\
+        \texttt{comp\_stages} & 1, 2 \\
+        \texttt{latch\_pwrgate\_ctl} & clk, sig \\
+        \texttt{latch\_pwrgate\_node} & ext, int \\
+        \texttt{latch\_rst\_ext\_ctl} & clk, sig, none \\
+        \texttt{latch\_rst\_int\_ctl} & clk, sig \\
+        \hline
+      \end{tabular}
+      \vspace{0.5em}
+      \begin{itemize}
+        \item Cartesian product of combinations
+        \item Auto netlist from \texttt{blocks/comp.py}
+        \item Sweep device params \& corners
+      \end{itemize}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \end{document}
