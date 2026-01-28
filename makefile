@@ -19,7 +19,7 @@ CADENCE_PVS_SETUP := /eda/cadence/2024-25/scripts/PVS_24.10.000_RHELx86.sh
 LICENSE_SERVER := 27500@nexus.physik.uni-bonn.de
 SPECTRE_PATH := /eda/cadence/2024-25/RHELx86/SPECTRE_24.10.078/bin/spectre
 
-.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas clean_plot all clean_all help
+.PHONY: setup check subckt clean_subckt tb clean_tb sim clean_sim meas clean_meas clean_plot all clean_all slides clean_slides help
 
 # ============================================================
 # Setup and Maintenance
@@ -202,6 +202,21 @@ else
 endif
 
 # ============================================================
+# Documentation / Slides
+# ============================================================
+
+TEXLIVE_BIN := /usr/local/texlive/2025/bin/x86_64-linux
+XELATEX := $(TEXLIVE_BIN)/xelatex
+
+slides:
+	$(Q)cd docs && $(XELATEX) -interaction=nonstopmode -shell-escape -output-directory=tex design_review.tex
+	@echo "Created docs/tex/design_review.pdf"
+
+clean_slides:
+	$(Q)rm -f docs/tex/*.aux docs/tex/*.log docs/tex/*.out docs/tex/*.nav docs/tex/*.snm docs/tex/*.toc docs/tex/*.vrb docs/tex/design_review.pdf
+	@echo "Cleaned: docs/tex slide artifacts"
+
+# ============================================================
 # Help
 # ============================================================
 
@@ -217,12 +232,16 @@ help:
 	@echo "  meas          Extract measurements and generate plots"
 	@echo "  all           Run full flow (clean -> subckt -> tb -> sim -> meas)"
 	@echo ""
+	@echo "Documentation:"
+	@echo "  slides        Build presentation slides (docs/tex/)"
+	@echo ""
 	@echo "Clean targets:"
 	@echo "  clean_subckt  Remove subcircuit files"
 	@echo "  clean_tb      Remove testbench files"
 	@echo "  clean_sim     Remove simulation results"
 	@echo "  clean_meas    Remove measurement results"
 	@echo "  clean_plot    Remove plot files"
+	@echo "  clean_slides  Remove slide build artifacts"
 	@echo "  clean_all     Remove all results for cell"
 	@echo ""
 	@echo "Options:"

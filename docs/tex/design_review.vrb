@@ -1,0 +1,28 @@
+\frametitle{OpenROAD Step 6.1: IR Drop / Thermal Analysis}
+  \begin{columns}
+    \begin{column}{0.45\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/6_2_thermal.png}
+      \end{center}
+    \end{column}
+    \begin{column}{0.55\textwidth}
+      \begin{itemize}
+        \item IR drop analysis across power grid
+        \item Validates PDN adequacy
+        \item Identifies potential hot spots
+      \end{itemize}
+      \vspace{1em}
+      \textbf{pdn.tcl}
+      \begin{lstlisting}[language=tcl]
+# Power nets
+add_global_connection -net {vdd_d} \
+  -pin_pattern VDD -power
+add_global_connection -net {vss_d} \
+  -pin_pattern VSS -ground
+
+# Vertical M4 stripes at edges
+# Horizontal M1 following std cells
+# M1-M4 via connections
+      \end{lstlisting}
+    \end{column}
+  \end{columns}
