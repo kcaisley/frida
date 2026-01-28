@@ -173,12 +173,27 @@ $OPENROAD_EXE -gui /tmp/5_3_image.tcl
 
 echo "Done generating images!"
 
-# Post-process: crop 600 pixels from left and right of all PNGs
-echo "Cropping images (removing 600px from left and right)..."
-for img in "$OUTPUT_DIR"/*.png; do
-    if [ -f "$img" ]; then
-        echo "  Cropping $(basename "$img")..."
-        convert "$img" -shave 600x0 "$img"
+# Post-process: crop 400 pixels from left and right
+echo "Cropping images (removing 400px from left and right)..."
+IMAGES_TO_CROP=(
+    "2_0_floorplan.png"
+    "2_4_floorplan_pdn.png"
+    "3_1_place_gp_skip_io.png"
+    "3_3_place_gp.png"
+    "3_5_place_dp.png"
+    "4_1_cts.png"
+    "4_1_cts_alt.png"
+    "5_1_globalroutguide.png"
+    "5_2_route.png"
+    "5_3_fillcell.png"
+    "6_2_thermal.png"
+)
+for img in "${IMAGES_TO_CROP[@]}"; do
+    if [ -f "$OUTPUT_DIR/$img" ]; then
+        echo "  Cropping $img..."
+        convert "$OUTPUT_DIR/$img" -shave 400x0 "$OUTPUT_DIR/$img"
+    else
+        echo "  Skipping $img (not found)"
     fi
 done
 
