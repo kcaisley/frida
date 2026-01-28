@@ -11,7 +11,7 @@ This project pursues the possibility of a single-reticle array larger than 1 Mpi
 
 Seen below is the initial prototype, designed in 65nm and measuring 1x1 mm. On the prototype are 16 ADCs, each measuring 60x60um. The tapeout was submitted in Oct 2025, and will be tested upon arrival this Spring 2026.
 
-![FRIDA Top Level](docs/images/frida_top.png)
+![FRIDA Top Level](docs/images/frida_65A.png)
 
 ## Setup
 

@@ -3,6 +3,8 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 % SVGs pre-converted to PDF via inkscape
 
 % Custom footline with slide numbers in bottom left
@@ -48,6 +50,12 @@
 %% ============================================================
 \begin{frame}
   \frametitle{FRIDA Chip Overview}
+  \begin{tikzpicture}[remember picture,overlay]
+    \draw[-{Stealth[length=3mm]},line width=1.5pt,structure.fg]
+      ([xshift=-1.5cm,yshift=-2.25cm]current page.north)
+      to[out=0,in=120]
+      ([xshift=2.5cm,yshift=-2.25cm]current page.north);
+  \end{tikzpicture}
   \begin{columns}
     \begin{column}{0.65\textwidth}
       \begin{center}
@@ -67,8 +75,8 @@
 %% ============================================================
 \begin{frame}[fragile]
   \frametitle{Sketch of ADC Floorplan}
-  \centering
-  \begin{lstlisting}[basicstyle=\ttfamily\fontsize{4}{5}\selectfont,frame=none,backgroundcolor=\color{white}]
+  \begin{center}
+  \begin{lstlisting}[basicstyle=\ttfamily\fontsize{4}{5}\selectfont]
             Logic and Macro Placement (FEOL-M3)           Power Domain Placement (M3-M4)              Capacitor DAC Arrays (M5-M6)
             -----------------------------------           ------------------------------              ----------------------------
 
@@ -97,6 +105,7 @@
 2 Tr |     |        Cap Drivers (main)        |        |        vref_p  & vref_n          |        |    (pins)     |  |    (pins)     |
      +-    +----------------------------------+        +----------------------------------+        +---------------+  +---------------+
   \end{lstlisting}
+  \end{center}
 \end{frame}
 
 %% ============================================================
@@ -383,6 +392,7 @@ Random improvement         3.09%
 Cell flipping              3.10%
       \end{lstlisting}
       \vspace{0.3em}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -393,6 +403,7 @@ Cell flipping              3.10%
         Utilization & 38\% \\
         \hline
       \end{tabular}
+      \end{center}
     \end{column}
   \end{columns}
 \end{frame}
@@ -751,6 +762,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.5\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -763,6 +775,7 @@ export USE_FILL = 0
         Peak current & $\sim$500 $\mu$A \\
         \hline
       \end{tabular}
+      \end{center}
       \vspace{0.5em}
 
       \textbf{Noise contribution to ENOB:}
@@ -838,7 +851,7 @@ export USE_FILL = 0
 \begin{frame}
   \frametitle{Capacitor Driver Layout}
   \begin{center}
-    \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{images/frida_capdriver.png}
+    \includegraphics[width=\linewidth,height=0.65\textheight,keepaspectratio]{images/frida_capdriver.png}
   \end{center}
   \vspace{0.3em}
   \small
@@ -869,6 +882,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.45\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -879,6 +893,7 @@ export USE_FILL = 0
         M4 & Power distribution \\
         \hline
       \end{tabular}
+      \end{center}
       \vspace{1em}
       \begin{itemize}
         \item Digital logic in center/bottom
@@ -902,6 +917,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.45\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -910,6 +926,7 @@ export USE_FILL = 0
         M5--M6 & CDAC fringe caps \\
         \hline
       \end{tabular}
+      \end{center}
       \vspace{1em}
       \begin{itemize}
         \item P and N cap arrays on left/right
@@ -933,6 +950,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.45\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -945,6 +963,7 @@ export USE_FILL = 0
         Power & $\sim$200 $\mu$W \\
         \hline
       \end{tabular}
+      \end{center}
       \vspace{1em}
       \begin{itemize}
         \item Fully differential SAR ADC
@@ -967,6 +986,7 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.45\textwidth}
+      \begin{center}
       \small
       \begin{tabular}{l|r}
         \hline
@@ -978,15 +998,26 @@ export USE_FILL = 0
         Total power & $\sim$3.2 mW \\
         \hline
       \end{tabular}
-      \vspace{1em}
+      \end{center}
+      \vspace{0.5em}
       \begin{itemize}
         \item Multiplexed inputs and outputs
         \item Shared clock distribution
-         \textbf{SPI Register (180 bits):}
-        \item [179:176] Mux select (4b)
-        \item [175:64] Per-ADC ctrl (7b $\times$ 16)
-        \item [63:0] Shared DAC states (64b)
       \end{itemize}
+      \vspace{0.3em}
+      \begin{center}
+      \textbf{SPI Register (180 bits):}
+      \scriptsize
+      \begin{tabular}{l|l}
+        \hline
+        \textbf{Bits} & \textbf{Function} \\
+        \hline
+        \textcolor{blue}{[179:176]} & Mux select (4b) \\
+        \textcolor{blue}{[175:64]} & Per-ADC ctrl (7b $\times$ 16) \\
+        \textcolor{blue}{[63:0]} & Shared DAC states (64b) \\
+        \hline
+      \end{tabular}
+      \end{center}
     \end{column}
   \end{columns}
 \end{frame}
@@ -1048,7 +1079,7 @@ export USE_FILL = 0
 %% ============================================================
 \begin{frame}[fragile]
   \frametitle{Analog Automation: Sampling Switch Definition}
-  \begin{columns}
+  \begin{columns}[t]
     \begin{column}{0.5\textwidth}
       \scriptsize
       \textbf{Netlist struct (\texttt{blocks/samp.py}):}
@@ -1109,12 +1140,6 @@ make meas cell=samp
         \item = \textbf{72 netlist variants}
       \end{itemize}
       \vspace{0.3em}
-      \textbf{Output files:}
-      \begin{itemize}
-        \item \texttt{results/samp/subckt/*.sp}
-        \item \texttt{results/samp/subckt/*.v}
-        \item \texttt{results/samp/files.json}
-      \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
@@ -1124,7 +1149,7 @@ make meas cell=samp
 %% ============================================================
 \begin{frame}[fragile]
   \frametitle{Analog Automation: Subcircuit Generation}
-  \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+  \begin{lstlisting}[basicstyle=\ttfamily\tiny]
 $ make subckt cell=samp
 
 ================================================================================
@@ -1147,6 +1172,7 @@ Wall Time:   16.9ms
 Errors:      [none]
   \end{lstlisting}
   \vspace{0.3em}
+  \small
   \begin{itemize}
     \item Cross-technology sweep: same design across foundries
     \item Device parameter sweep: automatic design space exploration
@@ -1275,7 +1301,7 @@ endmodule
 %% Analog Automation: Layout Generation
 %% ============================================================
 \begin{frame}
-  \frametitle{Analog Automation: Layout Generation}
+  \frametitle{Analog Automation: Layout with OpenROAD}
   \begin{columns}
     \begin{column}{0.5\textwidth}
       \begin{center}
@@ -1284,28 +1310,22 @@ endmodule
     \end{column}
     \begin{column}{0.5\textwidth}
       \small
-      \textbf{Automated Layout Flow:}
-      \begin{itemize}
-        \item Netlist $\rightarrow$ device placement
-        \item Symmetry constraints from topology
-        \item Auto-routing of internal nets
-        \item DRC-clean by construction
-      \end{itemize}
-      \vspace{0.5em}
-      \textbf{65nm Single-Stage Comparator:}
-      \begin{itemize}
-        \item 12 transistors (NMOS + PMOS)
-        \item Symmetric diff pair layout
-        \item Cross-coupled latch structure
-        \item Common centroid where needed
-      \end{itemize}
-      \vspace{0.5em}
-      \textbf{Benefits:}
-      \begin{itemize}
-        \item Rapid design iteration
-        \item Consistent layout style
-        \item Technology portability
-      \end{itemize}
+      \begin{enumerate}
+        \item \textbf{Parse SPICE $\rightarrow$ Verilog} \\
+              Structural netlist with transistor primitives
+        \item \textbf{Map to primitive cells} \\
+              NMOS/PMOS $\rightarrow$ stdcell-like wrapper LEFs
+        \item \textbf{Partition differential halves} \\
+              Split circuit at symmetry axis (P vs N)
+        \item \textbf{Explore with net weights} \\
+              Vary placement via \texttt{specifyNetWeight} \\
+              to generate layout candidates
+        \item \textbf{Reassemble with symmetry} \\
+              Mirror placement coordinates across axis; \\
+              lock cells with \texttt{LOCKED} status
+        \item \textbf{Route with guides} \\
+              Extract guides, mirror for paired nets
+      \end{enumerate}
     \end{column}
   \end{columns}
 \end{frame}

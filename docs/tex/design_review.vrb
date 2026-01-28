@@ -1,23 +1,71 @@
-\frametitle{OpenROAD Step 5.3: Fill Cells}
+\frametitle{Analog Automation: Generated SPICE Netlists}
   \begin{columns}
-    \begin{column}{0.45\textwidth}
-      \begin{center}
-        \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/5_3_fillcell.png}
-      \end{center}
+    \begin{column}{0.5\textwidth}
+      \scriptsize
+      \textbf{180nm Double-Stage (Tower):}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+.subckt comp in+ in- out+ out- clk clkb vdd vss
+
+M_preamp_diff+ out- in+ tail vss n18lvt W=880n L=180n
+M_preamp_diff- out+ in- tail vss n18lvt W=880n L=180n
+M_preamp_tail tail clk vss vss n18lvt W=440n L=360n
+M_preamp_rst+ out- clk vdd vdd p18lvt W=440n L=180n
+M_preamp_rst- out+ clk vdd vdd p18lvt W=440n L=180n
+Ma_latch+ latch- latch+ latch_vdd vdd p18lvt W=220n L=180n
+Ma_latch- latch+ latch- latch_vdd vdd p18lvt W=220n L=180n
+Mb_latch+ latch- latch+ latch_vss vss n18lvt W=220n L=180n
+Mb_latch- latch+ latch- latch_vss vss n18lvt W=220n L=180n
+M_preamp_to_latch+ latch- out- vss vss n18lvt W=220n L=180n
+M_preamp_to_latch- latch+ out+ vss vss n18lvt W=220n L=180n
+M_latch_ext_powergate+ latch_vdd clk vdd vdd p18lvt W=220n
+M_latch_ext_powergate- latch_vdd clk vdd vdd p18lvt W=220n
+M_latch_ext_rst+ latch- clkb latch_vdd vdd p18lvt W=220n
+M_latch_ext_rst- latch+ clkb latch_vdd vdd p18lvt W=220n
+M_latch_vss_conn+ latch_vss vdd vss vss n18lvt W=220n
+M_latch_vss_conn- latch_vss vdd vss vss n18lvt W=220n
+M_latch_int_rst+ latch- clkb latch_vss vss n18lvt W=220n
+M_latch_int_rst- latch+ clkb latch_vss vss n18lvt W=220n
+Ma_latch_out+ out- latch- vdd vdd p18lvt W=220n L=180n
+Ma_latch_out- out+ latch+ vdd vdd p18lvt W=220n L=180n
+Mb_latch_out+ out- latch- vss vss n18lvt W=220n L=180n
+Mb_latch_out- out+ latch+ vss vss n18lvt W=220n L=180n
+
+.ends comp
+      \end{lstlisting}
     \end{column}
-    \begin{column}{0.55\textwidth}
-      \begin{itemize}
-        \item Decap fill cells added (FEOL)
-        \item Metal fill disabled (BEOL)
-        \item Fills gaps in standard cell rows
-      \end{itemize}
-      \vspace{1em}
-      \textbf{config.mk}
-      \begin{lstlisting}[language=make]
-# Only disables metal fill
-# FILL_CELLS in routing step still
-# adds FEOL decap fill cells
-export USE_FILL = 0
+    \begin{column}{0.5\textwidth}
+      \scriptsize
+      \textbf{65nm Single-Stage (TSMC):}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+.subckt comp in+ in- out+ out- clk clkb vdd vss
+
+M_preamp_diff+ out- in+ tail vss nch_lvt W=480n L=60n
+M_preamp_diff- out+ in- tail vss nch_lvt W=480n L=60n
+M_preamp_tail tail clk vss vss nch_lvt W=240n L=120n
+M_preamp_rst+ out- clk vdd vdd pch_lvt W=240n L=60n
+M_preamp_rst- out+ clk vdd vdd pch_lvt W=240n L=60n
+Ma_latch+ out- out+ vdd vdd pch_lvt W=120n L=60n
+Ma_latch- out+ out- vdd vdd pch_lvt W=120n L=60n
+Mb_latch+ out- out+ vss vss nch_lvt W=120n L=60n
+Mb_latch- out+ out- vss vss nch_lvt W=120n L=60n
+M_latch_int_rst+ out- clkb vdd vdd pch_lvt W=120n L=60n
+M_latch_int_rst- out+ clkb vdd vdd pch_lvt W=120n L=60n
+
+.ends comp
+      \end{lstlisting}
+      \vspace{0.3em}
+      \textbf{Auto-Generated Verilog:}
+      \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
+module comp (in+, in-, out+, out-, clk, clkb, vdd, vss);
+    input in+, in-;
+    output out+, out-;
+    input clk, clkb;
+    inout vdd, vss;
+    wire tail;
+    nch_lvt M_preamp_diff+ (.d(out-), .g(in+), .s(tail));
+    nch_lvt M_preamp_diff- (.d(out+), .g(in-), .s(tail));
+    // ... (structural Verilog for LVS)
+endmodule
       \end{lstlisting}
     \end{column}
   \end{columns}
