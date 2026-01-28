@@ -171,4 +171,15 @@ exit
 TCLEOF
 $OPENROAD_EXE -gui /tmp/5_3_image.tcl
 
+echo "Done generating images!"
+
+# Post-process: crop 600 pixels from left and right of all PNGs
+echo "Cropping images (removing 600px from left and right)..."
+for img in "$OUTPUT_DIR"/*.png; do
+    if [ -f "$img" ]; then
+        echo "  Cropping $(basename "$img")..."
+        convert "$img" -shave 600x0 "$img"
+    fi
+done
+
 echo "Done! Images saved to $OUTPUT_DIR"
