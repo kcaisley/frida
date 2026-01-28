@@ -183,7 +183,7 @@ IMAGES_TO_CROP=(
     "3_5_place_dp.png"
     "4_1_cts.png"
     "4_1_cts_alt.png"
-    "5_1_globalroutguide.png"
+    "5_1_routeguides_global.png"
     "5_2_route.png"
     "5_3_fillcell.png"
     "6_2_thermal.png"
