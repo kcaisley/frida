@@ -43,12 +43,41 @@
 \end{frame}
 
 %% ============================================================
+%% ADC Target Specifications
+%% ============================================================
+\begin{frame}
+  \frametitle{ADC Target Specifications}
+  \begin{center}
+    \small
+    \begin{tabular}{l|ccccc}
+      \hline
+      \textbf{Parameter} & \textbf{DCD v1} & \textbf{CoRDIA} & \textbf{M} & \textbf{H} & \textbf{F (target)} \\
+      \hline
+      Resolution          & 8-bit       & 10-bit     & 8-bit      & 10-bit      & 12-bit      \\
+      ENOB                & 8.3         & 8.8        & 8.0        & 9.5?        & 11.0?       \\
+      Conversion rate     & 6.25 MHz    & 2.5 MHz    & 4.5 MHz    & 10 MHz      & 10 MHz      \\
+      ADC dimensions      & 40$\times$55 $\mu$m & 80$\times$330 $\mu$m & 60$\times$800 $\mu$m & 15$\times$100 $\mu$m & 50$\times$50 $\mu$m \\
+      ADC area            & 0.002 mm$^2$ & 0.026 mm$^2$ & 0.048 mm$^2$ & 0.0015 mm$^2$ & 0.0025 mm$^2$ \\
+      Power per ADC       & 960 $\mu$W  & 30 $\mu$W  & 700 $\mu$W & 100 $\mu$W  & 200 $\mu$W? \\
+      FOM$_{\mathrm{csa}}$ (Hz/$\mu$m$^2$) & 3125 & 95 & 105 & 5000 & 5000 \\
+      FOM$_{\mathrm{wal}}$ (fJ/conv-step) & 487 & 26 & 608 & 14 & 10 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{F} = FRIDA target: 12-bit, 10 MHz, 50$\times$50 $\mu$m footprint
+    \item FOM$_{\mathrm{csa}}$ = conversion rate / area; FOM$_{\mathrm{wal}}$ = energy per conversion step
+  \end{itemize}
+\end{frame}
+
+%% ============================================================
 %% Floorplan Overview (ASCII)
 %% ============================================================
 \begin{frame}[fragile]
-  \frametitle{ADC Floorplan Overview}
+  \frametitle{Sketch of ADC Floorplan}
   \begin{center}
-  \begin{lstlisting}[basicstyle=\ttfamily\fontsize{5}{6}\selectfont,frame=none,backgroundcolor=\color{white}]
+  \begin{lstlisting}[basicstyle=\ttfamily\fontsize{4}{5}\selectfont,frame=none,backgroundcolor=\color{white}]
             Logic and Macro Placement (FEOL-M3)           Power Domain Placement (M3-M4)              Capacitor DAC Arrays (M5-M6)
             -----------------------------------           ------------------------------              ----------------------------
 
@@ -127,16 +156,6 @@
       \end{center}
     \end{column}
   \end{columns}
-\end{frame}
-
-%% ============================================================
-%% ADC Top Netlist
-%% ============================================================
-\begin{frame}
-  \frametitle{ADC Top-Level Netlist}
-  \begin{center}
-    \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/adc_top_netlistsvg.pdf}
-  \end{center}
 \end{frame}
 
 %% ============================================================
@@ -261,6 +280,7 @@ CKLNQD1LVT (clkgate)     5    32.40
     \begin{column}{0.55\textwidth}
       \begin{itemize}
         \item Die and core area: 60$\mu$m $\times$ 49$\mu$m
+        \item Row height: 2.8$\mu$m (17 rows)
         \item Blockages reserve space for analog macros
         \item Custom I/O pin placement for DAC interface
       \end{itemize}
@@ -372,7 +392,7 @@ export IO_PLACER_V = M2
     \begin{column}{0.55\textwidth}
       \begin{itemize}
         \item I/O pins now placed on die boundary
-        \item DAC pins on left/right edges (M3)
+        \item DAC pins on left/right edges (M3), 2.8$\mu$m spacing
         \item Control signals on bottom (M2)
       \end{itemize}
       \vspace{1em}
@@ -477,15 +497,23 @@ set_clock_uncertainty 0.05 [all_clocks]
   \begin{columns}
     \begin{column}{0.5\textwidth}
       \begin{center}
-        \includegraphics[width=0.9\linewidth,height=0.7\textheight,keepaspectratio]{images/4_1_cts_alt.png}
+        \includegraphics[width=0.9\linewidth,height=0.55\textheight,keepaspectratio]{images/4_1_cts_alt.png}
       \end{center}
     \end{column}
     \begin{column}{0.5\textwidth}
       \begin{center}
-        \includegraphics[width=0.9\linewidth,height=0.7\textheight,keepaspectratio]{images/4_1_treeview.png}
+        \includegraphics[width=0.9\linewidth,height=0.45\textheight,keepaspectratio]{images/4_1_treeview.png}
       \end{center}
     \end{column}
   \end{columns}
+  \vspace{0.5em}
+  \begin{center}
+    \small
+    \textbf{CTS Results:} $f_{\mathrm{max}}$ = 1760 MHz \quad|\quad
+    Worst slack = 4.43 ns \quad|\quad
+    Setup skew = 0.07 ns \quad|\quad
+    Power = 182 $\mu$W
+  \end{center}
 \end{frame}
 
 %% ============================================================
@@ -584,10 +612,10 @@ export USE_FILL = 0
 \end{frame}
 
 %% ============================================================
-%% OpenROAD Step 6.1 IR Drop Analysis
+%% OpenROAD Step 6.1 Heat Maps
 %% ============================================================
-\begin{frame}[fragile]
-  \frametitle{OpenROAD Step 6.1: IR Drop / Thermal Analysis}
+\begin{frame}
+  \frametitle{OpenROAD Step 6.1: Heat Maps}
   \begin{columns}
     \begin{column}{0.45\textwidth}
       \begin{center}
@@ -595,24 +623,13 @@ export USE_FILL = 0
       \end{center}
     \end{column}
     \begin{column}{0.55\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{images/power.png}
+      \end{center}
+      \vspace{0.5em}
       \begin{itemize}
-        \item IR drop analysis across power grid
-        \item Validates PDN adequacy
-        \item Identifies potential hot spots
+        \item Spatial visualizations for IR drop, thermal dissipation, placement density, pin density, and power consumption are available
       \end{itemize}
-      \vspace{1em}
-      \textbf{pdn.tcl}
-      \begin{lstlisting}[language=tcl]
-# Power nets
-add_global_connection -net {vdd_d} \
-  -pin_pattern VDD -power
-add_global_connection -net {vss_d} \
-  -pin_pattern VSS -ground
-
-# Vertical M4 stripes at edges
-# Horizontal M1 following std cells
-# M1-M4 via connections
-      \end{lstlisting}
     \end{column}
   \end{columns}
 \end{frame}

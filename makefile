@@ -210,6 +210,7 @@ XELATEX := $(TEXLIVE_BIN)/xelatex
 
 slides:
 	$(Q)cd docs && $(XELATEX) -interaction=nonstopmode -shell-escape -output-directory=tex design_review.tex
+	$(Q)cd docs && $(XELATEX) -interaction=nonstopmode -shell-escape -output-directory=tex design_review.tex
 	@echo "Created docs/tex/design_review.pdf"
 
 clean_slides:
