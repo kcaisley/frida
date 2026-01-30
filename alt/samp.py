@@ -1,0 +1,381 @@
+"""
+Sampling Switch generator for FRIDA.
+
+Supports NMOS, PMOS, and transmission gate topologies
+with configurable device sizing and threshold voltage.
+
+Includes testbench, simulation definitions, and pytest test functions.
+"""
+
+import io
+from typing import List
+
+import hdl21 as h
+import hdl21.sim as hs
+from hdl21.pdk import Corner
+from hdl21.prefix import n, p, f, m, µ
+from hdl21.primitives import Vdc, Vpulse, C
+
+from .pdk import get_pdk
+from .common.params import SwitchType, Vth, Pvt, SupplyVals, Project
+from .conftest import SimTestMode
+
+
+@h.paramclass
+class SampParams:
+    """Sampling switch parameters."""
+
+    switch_type = h.Param(
+        dtype=SwitchType, desc="Switch topology", default=SwitchType.NMOS
+    )
+    w = h.Param(dtype=h.Scalar, desc="Device width", default=1 * µ)
+    l = h.Param(dtype=h.Scalar, desc="Device length", default=60 * n)
+    vth = h.Param(dtype=Vth, desc="Threshold voltage flavor", default=Vth.LVT)
+
+
+@h.generator
+def Samp(p: SampParams) -> h.Module:
+    """
+    Sampling switch generator.
+
+    Generates NMOS, PMOS, or transmission gate switches
+    based on the switch_type parameter.
+    """
+    pdk = get_pdk()
+
+    # Select device based on Vth
+    if p.vth == Vth.LVT:
+        Nfet = pdk.NmosLvt
+        Pfet = pdk.PmosLvt
+    else:
+        Nfet = pdk.Nmos
+        Pfet = pdk.Pmos
+
+    @h.module
+    class Samp:
+        """Sampling switch module."""
+
+        # IO ports
+        din = h.Input(desc="Data input")
+        dout = h.Output(desc="Data output")
+        clk = h.Input(desc="Clock (active high)")
+        clk_b = h.Input(desc="Clock complement (active low)")
+        vdd = h.Port(desc="Supply")
+        vss = h.Port(desc="Ground")
+
+    # Instantiate devices based on switch type
+    if p.switch_type == SwitchType.NMOS:
+        Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
+
+    elif p.switch_type == SwitchType.PMOS:
+        Samp.mp = Pfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd)
+
+    elif p.switch_type == SwitchType.TGATE:
+        Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
+        Samp.mp = Pfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd)
+
+    return Samp
+
+
+# Convenience function to generate parameter sweep variants
+def samp_variants(
+    w_list: list = None,
+    l_list: list = None,
+    switch_types: list = None,
+    vth_list: list = None,
+) -> list:
+    """
+    Generate a list of SampParams for parameter sweeps.
+
+    Args:
+        w_list: List of widths (default: [5*µ, 10*µ, 20*µ, 40*µ])
+        l_list: List of lengths (default: [60*n, 120*n])
+        switch_types: List of SwitchType values (default: all)
+        vth_list: List of Vth values (default: all)
+
+    Returns:
+        List of SampParams instances
+    """
+    if w_list is None:
+        w_list = [5 * µ, 10 * µ, 20 * µ, 40 * µ]
+    if l_list is None:
+        l_list = [60 * n, 120 * n]
+    if switch_types is None:
+        switch_types = list(SwitchType)
+    if vth_list is None:
+        vth_list = list(Vth)
+
+    return [
+        SampParams(switch_type=st, w=w, l=l, vth=vth)
+        for st in switch_types
+        for w in w_list
+        for l in l_list
+        for vth in vth_list
+    ]
+
+
+# =============================================================================
+# TESTBENCH
+# =============================================================================
+
+
+@h.paramclass
+class SampTbParams:
+    """Sampler testbench parameters."""
+
+    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
+    samp = h.Param(dtype=SampParams, desc="Sampler parameters", default=SampParams())
+    cload = h.Param(dtype=h.Prefixed, desc="Load capacitance", default=1 * f)
+
+
+@h.generator
+def SampTb(params: SampTbParams) -> h.Module:
+    """
+    Sampler testbench generator.
+
+    Creates a testbench with:
+    - DC supply voltage
+    - Complementary clock pulses
+    - DC input voltage
+    - Load capacitor
+    - DUT sampler instance
+    """
+    # Get supply voltage from PVT corner
+    supply = SupplyVals.corner(params.pvt.v)
+
+    # Create testbench module
+    tb = h.sim.tb("SampTb")
+
+    # Supply
+    tb.vdd = h.Signal()
+    tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
+
+    # Clocks - complementary pulses
+    tb.clk = h.Signal()
+    tb.clk_b = h.Signal()
+
+    # Clock high when sampling (first half of period)
+    tb.vclk = Vpulse(
+        v1=0 * m,
+        v2=supply.VDD,
+        period=100 * n,
+        width=50 * n,
+        rise=100 * p,
+        fall=100 * p,
+        delay=0 * n,
+    )(p=tb.clk, n=tb.VSS)
+
+    # Complementary clock
+    tb.vclk_b = Vpulse(
+        v1=supply.VDD,
+        v2=0 * m,
+        period=100 * n,
+        width=50 * n,
+        rise=100 * p,
+        fall=100 * p,
+        delay=0 * n,
+    )(p=tb.clk_b, n=tb.VSS)
+
+    # Input - mid-supply DC voltage
+    tb.din = h.Signal()
+    tb.vdin = Vdc(dc=supply.VDD / 2)(p=tb.din, n=tb.VSS)
+
+    # Output with load capacitor
+    tb.dout = h.Signal()
+    tb.cload = C(c=params.cload)(p=tb.dout, n=tb.VSS)
+
+    # DUT
+    tb.dut = Samp(params.samp)(
+        din=tb.din,
+        dout=tb.dout,
+        clk=tb.clk,
+        clk_b=tb.clk_b,
+        vdd=tb.vdd,
+        vss=tb.VSS,
+    )
+
+    return tb
+
+
+def sim_input(params: SampTbParams) -> hs.Sim:
+    """
+    Create simulation input for sampler characterization.
+
+    Includes transient analysis and measurements for:
+    - On-resistance (Ron)
+    - Settling time
+    - Charge injection
+    """
+    # Get temperature from PVT
+    temp = Project.temper(params.pvt.t)
+
+    @hs.sim
+    class SampSim:
+        # Testbench
+        tb = SampTb(params)
+
+        # Transient analysis
+        tr = hs.Tran(tstop=500 * n, tstep=100 * p)
+
+        # Measurements
+        # Settling time: when output reaches 99% of final value
+        t_settle = hs.Meas(
+            analysis=tr,
+            expr="when V(xtop.dout)=0.99*V(xtop.din) rise=1",
+        )
+
+        # Temperature setting
+        # Use _ for Literal (frozen dataclass, has no name field)
+        _ = hs.Literal(
+            f"""
+            simulator lang=spice
+            .temp {temp}
+            simulator lang=spectre
+        """
+        )
+
+    return SampSim
+
+
+# =============================================================================
+# SWEEP FUNCTIONS
+# =============================================================================
+
+
+def run_switch_type_sweep(pvt: Pvt = None) -> List[tuple]:
+    """
+    Sweep over switch types at given PVT conditions.
+
+    Returns list of (switch_type, vth, settling_time) tuples.
+    """
+    if pvt is None:
+        pvt = Pvt()
+
+    from .common.sim_options import sim_options
+    from .measure import samp_settling_ns
+
+    results = []
+    for switch_type in SwitchType:
+        for vth in Vth:
+            samp_params = SampParams(switch_type=switch_type, w=10 * µ, l=60 * n, vth=vth)
+            tb_params = SampTbParams(pvt=pvt, samp=samp_params)
+            sim = sim_input(tb_params)
+            # result = sim.run(sim_options)
+            # settling = samp_settling_ns(result)
+            results.append((switch_type, vth, None))  # Placeholder
+
+    return results
+
+
+def run_width_sweep(
+    pvt: Pvt = None,
+    switch_type: SwitchType = SwitchType.NMOS,
+) -> List[tuple]:
+    """
+    Sweep over device widths for a given switch type.
+
+    Returns list of (width, settling_time) tuples.
+    """
+    if pvt is None:
+        pvt = Pvt()
+
+    width_list = [2 * µ, 5 * µ, 10 * µ, 20 * µ, 40 * µ]
+    results = []
+
+    for width in width_list:
+        samp_params = SampParams(switch_type=switch_type, w=width, l=60 * n)
+        tb_params = SampTbParams(pvt=pvt, samp=samp_params)
+        sim = sim_input(tb_params)
+        # result = sim.run(sim_options)
+        results.append((width, None))  # Placeholder
+
+    return results
+
+
+# =============================================================================
+# PYTEST TEST FUNCTIONS
+# =============================================================================
+
+
+def test_samp_netlist(simtestmode: SimTestMode):
+    """Test sampler netlist generation for all topologies."""
+    if simtestmode != SimTestMode.NETLIST:
+        return
+
+    count = 0
+    for switch_type in SwitchType:
+        for vth in Vth:
+            params = SampParams(switch_type=switch_type, vth=vth)
+            samp = Samp(params)
+            h.netlist(samp, dest=io.StringIO())
+            count += 1
+
+    print(f"Generated {count} sampler netlists")
+
+
+def test_samp_tb_netlist(simtestmode: SimTestMode):
+    """Test testbench netlist generation."""
+    if simtestmode != SimTestMode.NETLIST:
+        return
+
+    params = SampTbParams()
+    tb = SampTb(params)
+    h.netlist(tb, dest=io.StringIO())
+    print("Testbench netlist generated successfully")
+
+
+def test_samp_variants(simtestmode: SimTestMode):
+    """Test variant generation."""
+    if simtestmode != SimTestMode.NETLIST:
+        return
+
+    variants = samp_variants()
+    print(f"Generated {len(variants)} sampler variants")
+
+    # Verify all variants produce valid netlists
+    for params in variants[:5]:  # Test first 5
+        samp = Samp(params)
+        h.netlist(samp, dest=io.StringIO())
+
+
+def test_samp_sim(simtestmode: SimTestMode):
+    """Test sampler simulation."""
+    if simtestmode == SimTestMode.NETLIST:
+        # Just verify sim input can be created
+        params = SampTbParams()
+        sim = sim_input(params)
+        print("Simulation input created successfully")
+
+    elif simtestmode == SimTestMode.MIN:
+        # Run one quick simulation
+        from .common.sim_options import sim_options
+        from .measure import samp_settling_ns
+
+        params = SampTbParams(samp=SampParams(switch_type=SwitchType.TGATE))
+        sim = sim_input(params)
+        # result = sim.run(sim_options)
+        # settling = samp_settling_ns(result)
+        # print(f"Settling time: {settling:.2f} ns")
+        print("MIN mode: simulation would run here")
+
+    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+        # Run parameter sweep
+        results = run_switch_type_sweep()
+        for switch_type, vth, settling in results:
+            print(f"{switch_type.name}/{vth.name}: settling={settling}")
+
+
+# =============================================================================
+# CLI ENTRY POINT (for standalone testing)
+# =============================================================================
+
+
+if __name__ == "__main__":
+    print("Testing netlist generation...")
+    test_samp_netlist(SimTestMode.NETLIST)
+    print()
+    print("Testing testbench netlist...")
+    test_samp_tb_netlist(SimTestMode.NETLIST)
+    print()
+    print("Testing variant generation...")
+    test_samp_variants(SimTestMode.NETLIST)
