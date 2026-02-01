@@ -16,12 +16,12 @@ from typing import List
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m
-from hdl21.primitives import Vdc, Vpulse, C, MosType, MosVth
+from hdl21.prefix import f, m, n, p
+from hdl21.primitives import C, MosType, MosVth, Vdc, Vpulse
 
-from .pdk import get_pdk
-from .common.params import SwitchType, Vth, Pvt, SupplyVals, Project
+from .common.params import Project, Pvt, SupplyVals, SwitchType, Vth
 from .conftest import SimTestMode
+from .pdk import get_pdk
 
 
 @h.paramclass

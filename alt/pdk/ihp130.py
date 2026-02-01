@@ -22,10 +22,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import hdl21 as h
-from hdl21.pdk import Corner, PdkInstallation
-from hdl21.prefix import n, m, NANO
-from hdl21.primitives import Mos, MosType, MosVth, MosParams
 import hdl21.sim as hs
+from hdl21.pdk import Corner, PdkInstallation
+from hdl21.prefix import NANO, m, n
+from hdl21.primitives import Mos, MosParams, MosType, MosVth
 from vlsirtools import SpiceType
 
 from .base import FridaPdk
@@ -33,8 +33,8 @@ from .base import FridaPdk
 PDK_NAME = "ihp130"
 
 # Process parameters
-W_MIN = 350 * n   # 350nm minimum width
-L_MIN = 130 * n   # 130nm minimum length (LV)
+W_MIN = 350 * n  # 350nm minimum width
+L_MIN = 130 * n  # 130nm minimum length (LV)
 L_MIN_HV = 450 * n  # 450nm minimum length (HV)
 VDD_NOM = 1200 * m  # 1.2V nominal supply
 
@@ -157,7 +157,9 @@ class Install(PdkInstallation):
             Corner.SLOW: "ss",
         }
         if corner not in corner_map:
-            raise ValueError(f"Invalid corner {corner}. Valid: {list(corner_map.keys())}")
+            raise ValueError(
+                f"Invalid corner {corner}. Valid: {list(corner_map.keys())}"
+            )
 
         return hs.Lib(
             path=self.model_path / "cornerMOSlv.lib",
@@ -180,7 +182,9 @@ class Install(PdkInstallation):
             Corner.SLOW: "ss",
         }
         if corner not in corner_map:
-            raise ValueError(f"Invalid corner {corner}. Valid: {list(corner_map.keys())}")
+            raise ValueError(
+                f"Invalid corner {corner}. Valid: {list(corner_map.keys())}"
+            )
 
         return hs.Lib(
             path=self.model_path / "cornerMOShv.lib",

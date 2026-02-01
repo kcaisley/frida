@@ -82,6 +82,7 @@ try:
         Returns the default Spectre simulation options.
         """
         from .common.sim_options import sim_options as opts
+
         return opts
 
 except ImportError:

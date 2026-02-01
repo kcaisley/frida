@@ -7,10 +7,11 @@ PDK-specific transistor models and compilation routines.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
+
 import hdl21 as h
-from hdl21.pdk import Corner
-from hdl21.prefix import n, m
 import hdl21.sim as hs
+from hdl21.pdk import Corner
+from hdl21.prefix import m, n
 
 
 class FridaPdk(ABC):
@@ -25,7 +26,7 @@ class FridaPdk(ABC):
 
     # Process parameters - override in subclasses
     W_MIN: h.Prefixed = 1000 * n  # Minimum transistor width
-    L_MIN: h.Prefixed = 100 * n   # Minimum transistor length
+    L_MIN: h.Prefixed = 100 * n  # Minimum transistor length
     VDD_NOM: h.Prefixed = 1200 * m  # Nominal supply voltage (in volts)
 
     @property

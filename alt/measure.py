@@ -5,10 +5,10 @@ Provides post-processing functions to extract metrics from simulation results.
 These functions work with HDL21 SimResult objects from vlsirtools.
 """
 
-from typing import Dict, Any, List, Tuple, Optional
-import numpy as np
-import hdl21.sim as hs
+from typing import Any, Dict, List, Optional, Tuple
 
+import hdl21.sim as hs
+import numpy as np
 
 # =============================================================================
 # Waveform Helpers
@@ -40,18 +40,24 @@ def _find_crossings(
             # Rising edge: signal goes from below to above threshold
             if signal[i] < threshold <= signal[i + 1]:
                 # Linear interpolation
-                t_cross = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
+                t_cross = time[i] + (threshold - signal[i]) / (
+                    signal[i + 1] - signal[i]
+                ) * (time[i + 1] - time[i])
                 crossings.append(t_cross)
         else:
             # Falling edge: signal goes from above to below threshold
             if signal[i] > threshold >= signal[i + 1]:
-                t_cross = time[i] + (signal[i] - threshold) / (signal[i] - signal[i + 1]) * (time[i + 1] - time[i])
+                t_cross = time[i] + (signal[i] - threshold) / (
+                    signal[i] - signal[i + 1]
+                ) * (time[i + 1] - time[i])
                 crossings.append(t_cross)
 
     return crossings
 
 
-def _get_waveform(result: hs.SimResult, name: str, analysis_idx: int = 0) -> Optional[np.ndarray]:
+def _get_waveform(
+    result: hs.SimResult, name: str, analysis_idx: int = 0
+) -> Optional[np.ndarray]:
     """
     Extract waveform from SimResult.
 

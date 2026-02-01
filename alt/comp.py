@@ -12,26 +12,27 @@ and pytest test functions.
 """
 
 import io
-from typing import List, Dict, Any
 from dataclasses import dataclass
+from typing import Any, Dict, List
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m
-from hdl21.primitives import Vdc, Vpulse, C, R, MosType, MosVth
+from hdl21.prefix import f, m, n, p
+from hdl21.primitives import C, MosType, MosVth, R, Vdc, Vpulse
+
 from .common.params import (
-    Vth,
-    PreampDiffpair,
-    PreampBias,
     CompStages,
     LatchPwrgateCtl,
     LatchPwrgateNode,
     LatchRstExternCtl,
     LatchRstInternCtl,
+    PreampBias,
+    PreampDiffpair,
+    Project,
     Pvt,
     SupplyVals,
-    Project,
+    Vth,
 )
 from .conftest import SimTestMode
 
@@ -48,13 +49,35 @@ class CompParams:
     """
 
     # Topology parameters
-    preamp_diffpair = h.Param(dtype=PreampDiffpair, desc="Input diff pair type", default=PreampDiffpair.NMOS_INPUT)
-    preamp_bias = h.Param(dtype=PreampBias, desc="Biasing type", default=PreampBias.STD_BIAS)
-    comp_stages = h.Param(dtype=CompStages, desc="Comparator stages", default=CompStages.SINGLE_STAGE)
-    latch_pwrgate_ctl = h.Param(dtype=LatchPwrgateCtl, desc="Powergate control", default=LatchPwrgateCtl.CLOCKED)
-    latch_pwrgate_node = h.Param(dtype=LatchPwrgateNode, desc="Powergate position", default=LatchPwrgateNode.EXTERNAL)
-    latch_rst_extern_ctl = h.Param(dtype=LatchRstExternCtl, desc="External reset control", default=LatchRstExternCtl.CLOCKED)
-    latch_rst_intern_ctl = h.Param(dtype=LatchRstInternCtl, desc="Internal reset control", default=LatchRstInternCtl.CLOCKED)
+    preamp_diffpair = h.Param(
+        dtype=PreampDiffpair,
+        desc="Input diff pair type",
+        default=PreampDiffpair.NMOS_INPUT,
+    )
+    preamp_bias = h.Param(
+        dtype=PreampBias, desc="Biasing type", default=PreampBias.STD_BIAS
+    )
+    comp_stages = h.Param(
+        dtype=CompStages, desc="Comparator stages", default=CompStages.SINGLE_STAGE
+    )
+    latch_pwrgate_ctl = h.Param(
+        dtype=LatchPwrgateCtl, desc="Powergate control", default=LatchPwrgateCtl.CLOCKED
+    )
+    latch_pwrgate_node = h.Param(
+        dtype=LatchPwrgateNode,
+        desc="Powergate position",
+        default=LatchPwrgateNode.EXTERNAL,
+    )
+    latch_rst_extern_ctl = h.Param(
+        dtype=LatchRstExternCtl,
+        desc="External reset control",
+        default=LatchRstExternCtl.CLOCKED,
+    )
+    latch_rst_intern_ctl = h.Param(
+        dtype=LatchRstInternCtl,
+        desc="Internal reset control",
+        default=LatchRstInternCtl.CLOCKED,
+    )
 
     # Device sizing (multipliers of Wmin/Lmin)
     diffpair_w = h.Param(dtype=int, desc="Diff pair width multiplier", default=40)
@@ -280,7 +303,10 @@ def _build_double_stage_latch(mod, p: CompParams, is_nmos_input: bool):
         d=mod.latch_vdd, g=clk_off, s=top_rail, b=top_rail
     )
     mod.mpg_vss = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
-        d=mod.latch_vss, g=mod.vdd, s=bot_rail, b=bot_rail  # Always on
+        d=mod.latch_vss,
+        g=mod.vdd,
+        s=bot_rail,
+        b=bot_rail,  # Always on
     )
 
     # Internal reset
@@ -383,7 +409,9 @@ class MCConfig:
 
     numruns: int = 10  # Default: 10 runs for quick characterization
     seed: int = 12345  # Fixed seed for reproducibility
-    variations: str = "mismatch"  # Default: mismatch only (most relevant for comparator)
+    variations: str = (
+        "mismatch"  # Default: mismatch only (most relevant for comparator)
+    )
 
 
 DEFAULT_MC_CONFIG = MCConfig()
@@ -400,7 +428,9 @@ class CompTbParams:
 
     pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
-    vin_diff = h.Param(dtype=h.Scalar, desc="Differential input voltage", default=10 * m)
+    vin_diff = h.Param(
+        dtype=h.Scalar, desc="Differential input voltage", default=10 * m
+    )
     vcm = h.Param(dtype=h.Scalar, desc="Common-mode voltage", default=600 * m)
 
 
@@ -702,6 +732,7 @@ def test_comp_netlist(simtestmode: SimTestMode):
         return
 
     from .pdk import get_pdk
+
     pdk = get_pdk()
 
     count = 0
@@ -719,6 +750,7 @@ def test_comp_tb_netlist(simtestmode: SimTestMode):
         return
 
     from .pdk import get_pdk
+
     pdk = get_pdk()
 
     params = CompTbParams()
@@ -780,7 +812,9 @@ def test_comp_sim(simtestmode: SimTestMode):
     elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
         results = run_topology_sweep()
         for comp_params, result in results:
-            print(f"{comp_params.preamp_bias.name}/{comp_params.comp_stages.name}: result={result}")
+            print(
+                f"{comp_params.preamp_bias.name}/{comp_params.comp_stages.name}: result={result}"
+            )
 
 
 # =============================================================================

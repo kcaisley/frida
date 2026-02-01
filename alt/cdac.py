@@ -11,20 +11,33 @@ Includes testbench, simulation definitions, and pytest test functions.
 
 import io
 import math
-from typing import Optional, List  # TODO: Optional[int] -> int | None; List[int] --> lst[int]
+from typing import (  # TODO: Optional[int] -> int | None; List[int] --> lst[int]
+    List,
+    Optional,
+)
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m
-from hdl21.primitives import Vdc, Vpulse, C, MosType, MosVth
+from hdl21.prefix import f, m, n, p
+from hdl21.primitives import C, MosType, MosVth, Vdc, Vpulse
 
-from .common.params import Vth, RedunStrat, SplitStrat, CapType, Pvt, SupplyVals, Project
+from .common.params import (
+    CapType,
+    Project,
+    Pvt,
+    RedunStrat,
+    SplitStrat,
+    SupplyVals,
+    Vth,
+)
 from .conftest import SimTestMode
+
 
 def _vth_to_mosvth(vth: Vth) -> MosVth:
     """Convert FRIDA Vth enum to HDL21 MosVth."""
     return MosVth.LOW if vth == Vth.LVT else MosVth.STD
+
 
 @h.paramclass
 class CdacParams:
@@ -32,8 +45,12 @@ class CdacParams:
 
     n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=8)
     n_extra = h.Param(dtype=int, desc="Extra caps for redundancy", default=0)
-    redun_strat = h.Param(dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.RDX2)
-    split_strat = h.Param(dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT)
+    redun_strat = h.Param(
+        dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.RDX2
+    )
+    split_strat = h.Param(
+        dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT
+    )
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
     vth = h.Param(dtype=Vth, desc="Transistor Vth", default=Vth.LVT)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
@@ -101,7 +118,9 @@ def _calc_driver_width(c: int, m: int) -> int:
     return max(10, int(math.sqrt(c * m)) * 10)
 
 
-def _build_dac_bit(mod, p: CdacParams, idx: int, weight: int, threshold: int, mosvth: MosVth):
+def _build_dac_bit(
+    mod, p: CdacParams, idx: int, weight: int, threshold: int, mosvth: MosVth
+):
     """Build one DAC bit: buffer + driver + capacitor(s)."""
 
     # Create intermediate signal for this bit
@@ -128,7 +147,9 @@ def _build_dac_bit(mod, p: CdacParams, idx: int, weight: int, threshold: int, mo
         _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)  # Simplified
 
 
-def _build_nosplit_bit(mod, p: CdacParams, idx: int, weight: int, inter, bot, mosvth: MosVth):
+def _build_nosplit_bit(
+    mod, p: CdacParams, idx: int, weight: int, inter, bot, mosvth: MosVth
+):
     """No split: c=1, m=weight (simplified using multiplier)."""
     driver_w = _calc_driver_width(1, weight)
 
@@ -191,7 +212,9 @@ def cdac_variants(
 # =============================================================================
 
 
-def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> Optional[List[int]]:
+def _calc_weights(
+    n_dac: int, n_extra: int, strategy: RedunStrat
+) -> Optional[List[int]]:
     """
     Calculate capacitor weights for CDAC.
 
@@ -437,8 +460,9 @@ def run_linearity_test(cdac_params: CdacParams = None, pvt: Pvt = None):
 
     Returns dict with INL, DNL arrays and max values.
     """
-    from .measure import compute_inl_dnl
     import numpy as np
+
+    from .measure import compute_inl_dnl
 
     code_sweep = run_code_sweep(cdac_params, pvt)
     codes = np.array([c for c, _ in code_sweep])
@@ -512,6 +536,7 @@ def test_cdac_netlist(simtestmode: SimTestMode):
         return
 
     from .pdk import get_pdk
+
     pdk = get_pdk()
 
     count = 0
@@ -529,6 +554,7 @@ def test_cdac_tb_netlist(simtestmode: SimTestMode):
         return
 
     from .pdk import get_pdk
+
     pdk = get_pdk()
 
     params = CdacTbParams(cdac=CdacParams(n_dac=8))
@@ -544,6 +570,7 @@ def test_cdac_variants(simtestmode: SimTestMode):
         return
 
     from .pdk import get_pdk
+
     pdk = get_pdk()
 
     variants = cdac_variants()

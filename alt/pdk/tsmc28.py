@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import hdl21 as h
-from hdl21.pdk import Corner, PdkInstallation
-from hdl21.prefix import n, m
-from hdl21.primitives import Mos, MosType, MosVth, MosParams
 import hdl21.sim as hs
+from hdl21.pdk import Corner, PdkInstallation
+from hdl21.prefix import m, n
+from hdl21.primitives import Mos, MosParams, MosType, MosVth
 from vlsirtools import SpiceType
 
 from .base import FridaPdk
@@ -120,7 +120,9 @@ class Install(PdkInstallation):
             Corner.SLOW: "ass_ps",
         }
         if corner not in corner_map:
-            raise ValueError(f"Invalid corner {corner}. Valid: {list(corner_map.keys())}")
+            raise ValueError(
+                f"Invalid corner {corner}. Valid: {list(corner_map.keys())}"
+            )
 
         return hs.Lib(
             path=self.model_path / "toplevel.scs",
@@ -149,10 +151,13 @@ class Install(PdkInstallation):
             "worst": "noise_worst",
         }
         if noise_corner not in noise_sections:
-            raise ValueError(f"Invalid noise corner {noise_corner}. Valid: {list(noise_sections.keys())}")
+            raise ValueError(
+                f"Invalid noise corner {noise_corner}. Valid: {list(noise_sections.keys())}"
+            )
 
         return hs.Lib(
-            path=self.model_path / "crn28ull_1d8_elk_v1d8_2p2_shrink0d9_embedded_usage.scs",
+            path=self.model_path
+            / "crn28ull_1d8_elk_v1d8_2p2_shrink0d9_embedded_usage.scs",
             section=noise_sections[noise_corner],
         )
 

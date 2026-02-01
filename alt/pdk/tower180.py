@@ -19,10 +19,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import hdl21 as h
-from hdl21.pdk import Corner, PdkInstallation
-from hdl21.prefix import n, m
-from hdl21.primitives import Mos, MosType, MosVth, MosParams
 import hdl21.sim as hs
+from hdl21.pdk import Corner, PdkInstallation
+from hdl21.prefix import m, n
+from hdl21.primitives import Mos, MosParams, MosType, MosVth
 from vlsirtools import SpiceType
 
 from .base import FridaPdk
@@ -122,7 +122,9 @@ class Install(PdkInstallation):
             Corner.SLOW: "SLOW",
         }
         if corner not in corner_map:
-            raise ValueError(f"Invalid corner {corner}. Valid: {list(corner_map.keys())}")
+            raise ValueError(
+                f"Invalid corner {corner}. Valid: {list(corner_map.keys())}"
+            )
 
         return hs.Lib(
             path=self.model_path / "fet.scs",

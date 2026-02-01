@@ -15,15 +15,16 @@ import copy
 from typing import Optional
 
 import hdl21 as h
-from hdl21.prefix import µ, n, m
-from hdl21.primitives import Mos, MosType, MosParams as PrimMosParams
+from hdl21.prefix import m, n, µ
+from hdl21.primitives import Mos, MosType
+from hdl21.primitives import MosParams as PrimMosParams
 from vlsirtools import SpiceType
 
 from .base import FridaPdk
 
 # Process parameters for generic PDK
-W_MIN = 100 * n   # 100nm minimum width
-L_MIN = 100 * n   # 100nm minimum length
+W_MIN = 100 * n  # 100nm minimum width
+L_MIN = 100 * n  # 100nm minimum length
 VDD_NOM = 1200 * m  # 1.2V nominal supply
 
 

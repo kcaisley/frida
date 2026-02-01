@@ -8,19 +8,18 @@ Provides utilities for:
 - Common testbench patterns
 """
 
-from typing import List, Dict, Any, Callable, Optional, Union
 from copy import copy
 from dataclasses import dataclass
-import numpy as np
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import hdl21 as h
 import hdl21.sim as hs
+import numpy as np
 from hdl21.pdk import Corner
-from hdl21.prefix import m, n, p, f, µ
-from hdl21.primitives import Vdc, Vpulse, C
+from hdl21.prefix import f, m, n, p, µ
+from hdl21.primitives import C, Vdc, Vpulse
 
-from .common.params import Pvt, SupplyVals, Project
-
+from .common.params import Project, Pvt, SupplyVals
 
 # Re-export HDL21 sim types for convenience
 LinearSweep = hs.LinearSweep
