@@ -17,11 +17,14 @@ Usage:
     # Get current PDK
     pdk = get_pdk()
     print(pdk.name, pdk.VDD_NOM)
+
+Note: Changing PDK resets generator caches to ensure fresh device instantiation.
 """
 
 from typing import Optional, Union, Dict, Type
 from .base import FridaPdk
 from .generic import GenericPdk
+from .ihp130 import Ihp130Pdk
 from .tsmc65 import Tsmc65Pdk
 from .tsmc28 import Tsmc28Pdk
 from .tower180 import Tower180Pdk
@@ -29,6 +32,7 @@ from .tower180 import Tower180Pdk
 # Registry of available PDKs by name
 _PDK_REGISTRY: Dict[str, Type[FridaPdk]] = {
     "generic": GenericPdk,
+    "ihp130": Ihp130Pdk,
     "tsmc65": Tsmc65Pdk,
     "tsmc28": Tsmc28Pdk,
     "tower180": Tower180Pdk,
@@ -36,6 +40,35 @@ _PDK_REGISTRY: Dict[str, Type[FridaPdk]] = {
 
 # Global PDK instance - set via set_pdk() or defaults to GenericPdk
 _active_pdk: Optional[FridaPdk] = None
+
+
+def _reset_generator_caches() -> None:
+    """Reset all FRIDA generator caches.
+
+    This is called automatically when PDK changes to ensure generators
+    create fresh modules with the new PDK's devices.
+    """
+    # Import generators lazily to avoid circular imports
+    try:
+        from ..samp import Samp, SampTb
+        Samp.Cache.reset()
+        SampTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from ..comp import Comp, CompTb
+        Comp.Cache.reset()
+        CompTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from ..cdac import Cdac, CdacTb
+        Cdac.Cache.reset()
+        CdacTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
 
 
 def get_pdk() -> FridaPdk:
@@ -49,6 +82,8 @@ def get_pdk() -> FridaPdk:
 def set_pdk(pdk: Union[str, FridaPdk]) -> None:
     """
     Set the active PDK for all FRIDA generators.
+
+    Also resets generator caches to ensure fresh device instantiation.
 
     Args:
         pdk: Either a PDK name string ("tsmc65", "tsmc28", "tower180", "generic")
@@ -70,6 +105,9 @@ def set_pdk(pdk: Union[str, FridaPdk]) -> None:
     else:
         raise TypeError(f"Expected str or FridaPdk, got {type(pdk).__name__}")
 
+    # Reset generator caches so new modules use the new PDK
+    _reset_generator_caches()
+
 
 def list_pdks() -> list:
     """Return list of available PDK names."""
@@ -79,6 +117,7 @@ def list_pdks() -> list:
 __all__ = [
     "FridaPdk",
     "GenericPdk",
+    "Ihp130Pdk",
     "Tsmc65Pdk",
     "Tsmc28Pdk",
     "Tower180Pdk",

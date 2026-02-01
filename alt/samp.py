@@ -5,6 +5,9 @@ Supports NMOS, PMOS, and transmission gate topologies
 with configurable device sizing and threshold voltage.
 
 Includes testbench, simulation definitions, and pytest test functions.
+
+Note: Generators use h.Mos primitives with MosType/MosVth parameters.
+Call pdk.compile(module) after generation to convert to PDK-specific devices.
 """
 
 import io
@@ -13,8 +16,8 @@ from typing import List
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m, µ
-from hdl21.primitives import Vdc, Vpulse, C
+from hdl21.prefix import n, p, f, m
+from hdl21.primitives import Vdc, Vpulse, C, MosType, MosVth
 
 from .pdk import get_pdk
 from .common.params import SwitchType, Vth, Pvt, SupplyVals, Project
@@ -23,14 +26,26 @@ from .conftest import SimTestMode
 
 @h.paramclass
 class SampParams:
-    """Sampling switch parameters."""
+    """Sampling switch parameters.
+
+    Device sizing uses multiplier-based scaling:
+    - w: Width multiplier (w=10 means 10×Wmin, e.g., 1.2µm for TSMC65)
+    - l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for TSMC65)
+
+    This approach allows the same design to be portable across PDKs.
+    """
 
     switch_type = h.Param(
         dtype=SwitchType, desc="Switch topology", default=SwitchType.NMOS
     )
-    w = h.Param(dtype=h.Scalar, desc="Device width", default=1 * µ)
-    l = h.Param(dtype=h.Scalar, desc="Device length", default=60 * n)
+    w = h.Param(dtype=int, desc="Width multiplier (× Wmin)", default=10)
+    l = h.Param(dtype=int, desc="Length multiplier (× Lmin)", default=1)
     vth = h.Param(dtype=Vth, desc="Threshold voltage flavor", default=Vth.LVT)
+
+
+def _vth_to_mosvth(vth: Vth) -> MosVth:
+    """Convert FRIDA Vth enum to HDL21 MosVth."""
+    return MosVth.LOW if vth == Vth.LVT else MosVth.STD
 
 
 @h.generator
@@ -40,16 +55,10 @@ def Samp(p: SampParams) -> h.Module:
 
     Generates NMOS, PMOS, or transmission gate switches
     based on the switch_type parameter.
-    """
-    pdk = get_pdk()
 
-    # Select device based on Vth
-    if p.vth == Vth.LVT:
-        Nfet = pdk.NmosLvt
-        Pfet = pdk.PmosLvt
-    else:
-        Nfet = pdk.Nmos
-        Pfet = pdk.Pmos
+    Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
+    """
+    mosvth = _vth_to_mosvth(p.vth)
 
     @h.module
     class Samp:
@@ -65,14 +74,22 @@ def Samp(p: SampParams) -> h.Module:
 
     # Instantiate devices based on switch type
     if p.switch_type == SwitchType.NMOS:
-        Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
+        Samp.mn = h.Mos(tp=MosType.NMOS, vth=mosvth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss
+        )
 
     elif p.switch_type == SwitchType.PMOS:
-        Samp.mp = Pfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd)
+        Samp.mp = h.Mos(tp=MosType.PMOS, vth=mosvth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
+        )
 
     elif p.switch_type == SwitchType.TGATE:
-        Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
-        Samp.mp = Pfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd)
+        Samp.mn = h.Mos(tp=MosType.NMOS, vth=mosvth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss
+        )
+        Samp.mp = h.Mos(tp=MosType.PMOS, vth=mosvth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
+        )
 
     return Samp
 
@@ -88,8 +105,8 @@ def samp_variants(
     Generate a list of SampParams for parameter sweeps.
 
     Args:
-        w_list: List of widths (default: [5*µ, 10*µ, 20*µ, 40*µ])
-        l_list: List of lengths (default: [60*n, 120*n])
+        w_list: List of width multipliers (default: [5, 10, 20, 40])
+        l_list: List of length multipliers (default: [1, 2])
         switch_types: List of SwitchType values (default: all)
         vth_list: List of Vth values (default: all)
 
@@ -97,9 +114,9 @@ def samp_variants(
         List of SampParams instances
     """
     if w_list is None:
-        w_list = [5 * µ, 10 * µ, 20 * µ, 40 * µ]
+        w_list = [5, 10, 20, 40]
     if l_list is None:
-        l_list = [60 * n, 120 * n]
+        l_list = [1, 2]
     if switch_types is None:
         switch_types = list(SwitchType)
     if vth_list is None:
@@ -257,7 +274,7 @@ def run_switch_type_sweep(pvt: Pvt = None) -> List[tuple]:
     results = []
     for switch_type in SwitchType:
         for vth in Vth:
-            samp_params = SampParams(switch_type=switch_type, w=10 * µ, l=60 * n, vth=vth)
+            samp_params = SampParams(switch_type=switch_type, w=10, l=1, vth=vth)
             tb_params = SampTbParams(pvt=pvt, samp=samp_params)
             sim = sim_input(tb_params)
             # result = sim.run(sim_options)
@@ -279,11 +296,11 @@ def run_width_sweep(
     if pvt is None:
         pvt = Pvt()
 
-    width_list = [2 * µ, 5 * µ, 10 * µ, 20 * µ, 40 * µ]
+    width_list = [2, 5, 10, 20, 40]
     results = []
 
     for width in width_list:
-        samp_params = SampParams(switch_type=switch_type, w=width, l=60 * n)
+        samp_params = SampParams(switch_type=switch_type, w=width, l=1)
         tb_params = SampTbParams(pvt=pvt, samp=samp_params)
         sim = sim_input(tb_params)
         # result = sim.run(sim_options)
@@ -302,11 +319,13 @@ def test_samp_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    pdk = get_pdk()
     count = 0
     for switch_type in SwitchType:
         for vth in Vth:
             params = SampParams(switch_type=switch_type, vth=vth)
             samp = Samp(params)
+            pdk.compile(samp)
             h.netlist(samp, dest=io.StringIO())
             count += 1
 
@@ -318,8 +337,10 @@ def test_samp_tb_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    pdk = get_pdk()
     params = SampTbParams()
     tb = SampTb(params)
+    pdk.compile(tb)
     h.netlist(tb, dest=io.StringIO())
     print("Testbench netlist generated successfully")
 
@@ -329,12 +350,14 @@ def test_samp_variants(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    pdk = get_pdk()
     variants = samp_variants()
     print(f"Generated {len(variants)} sampler variants")
 
     # Verify all variants produce valid netlists
     for params in variants[:5]:  # Test first 5
         samp = Samp(params)
+        pdk.compile(samp)
         h.netlist(samp, dest=io.StringIO())
 
 

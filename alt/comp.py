@@ -18,10 +18,8 @@ from dataclasses import dataclass
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m, µ
-from hdl21.primitives import Vdc, Vpulse, C, R
-
-from .pdk import get_pdk
+from hdl21.prefix import n, p, f, m
+from hdl21.primitives import Vdc, Vpulse, C, R, MosType, MosVth
 from .common.params import (
     Vth,
     PreampDiffpair,
@@ -40,7 +38,14 @@ from .conftest import SimTestMode
 
 @h.paramclass
 class CompParams:
-    """Comparator parameters."""
+    """Comparator parameters.
+
+    Device sizing uses multiplier-based scaling:
+    - w: Width multiplier (w=10 means 10×Wmin, e.g., 1.2µm for TSMC65)
+    - l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for TSMC65)
+
+    This approach allows the same design to be portable across PDKs.
+    """
 
     # Topology parameters
     preamp_diffpair = h.Param(dtype=PreampDiffpair, desc="Input diff pair type", default=PreampDiffpair.NMOS_INPUT)
@@ -51,19 +56,19 @@ class CompParams:
     latch_rst_extern_ctl = h.Param(dtype=LatchRstExternCtl, desc="External reset control", default=LatchRstExternCtl.CLOCKED)
     latch_rst_intern_ctl = h.Param(dtype=LatchRstInternCtl, desc="Internal reset control", default=LatchRstInternCtl.CLOCKED)
 
-    # Device sizing
-    diffpair_w = h.Param(dtype=h.Scalar, desc="Diff pair width", default=4 * µ)
-    diffpair_l = h.Param(dtype=h.Scalar, desc="Diff pair length", default=60 * n)
+    # Device sizing (multipliers of Wmin/Lmin)
+    diffpair_w = h.Param(dtype=int, desc="Diff pair width multiplier", default=40)
+    diffpair_l = h.Param(dtype=int, desc="Diff pair length multiplier", default=1)
     diffpair_vth = h.Param(dtype=Vth, desc="Diff pair Vth", default=Vth.LVT)
 
-    tail_w = h.Param(dtype=h.Scalar, desc="Tail width", default=2 * µ)
-    tail_l = h.Param(dtype=h.Scalar, desc="Tail length", default=120 * n)
+    tail_w = h.Param(dtype=int, desc="Tail width multiplier", default=20)
+    tail_l = h.Param(dtype=int, desc="Tail length multiplier", default=2)
     tail_vth = h.Param(dtype=Vth, desc="Tail Vth", default=Vth.SVT)
 
-    rst_w = h.Param(dtype=h.Scalar, desc="Reset device width", default=2 * µ)
+    rst_w = h.Param(dtype=int, desc="Reset device width multiplier", default=20)
     rst_vth = h.Param(dtype=Vth, desc="Reset Vth", default=Vth.LVT)
 
-    latch_w = h.Param(dtype=h.Scalar, desc="Latch device width", default=2 * µ)
+    latch_w = h.Param(dtype=int, desc="Latch device width multiplier", default=20)
     latch_vth = h.Param(dtype=Vth, desc="Latch Vth", default=Vth.LVT)
 
 
@@ -84,22 +89,20 @@ def is_valid_comp_params(p: CompParams) -> bool:
         return True
 
 
+def _vth_to_mosvth(vth: Vth) -> MosVth:
+    """Convert FRIDA Vth enum to HDL21 MosVth."""
+    return MosVth.LOW if vth == Vth.LVT else MosVth.STD
+
+
 @h.generator
 def Comp(p: CompParams) -> h.Module:
     """
     Comparator generator.
 
     Generates Strong-ARM or two-stage comparators based on parameters.
+
+    Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
-    pdk = get_pdk()
-
-    # Select devices based on Vth
-    def get_nfet(vth: Vth):
-        return pdk.NmosLvt if vth == Vth.LVT else pdk.Nmos
-
-    def get_pfet(vth: Vth):
-        return pdk.PmosLvt if vth == Vth.LVT else pdk.Pmos
-
     is_nmos_input = p.preamp_diffpair == PreampDiffpair.NMOS_INPUT
 
     @h.module
@@ -122,22 +125,27 @@ def Comp(p: CompParams) -> h.Module:
         outn_int = h.Signal()
 
     # Build preamp
-    _build_preamp(Comp, p, pdk, is_nmos_input, get_nfet, get_pfet)
+    _build_preamp(Comp, p, is_nmos_input)
 
     # Build latch
     if p.comp_stages == CompStages.SINGLE_STAGE:
-        _build_single_stage_latch(Comp, p, pdk, is_nmos_input, get_nfet, get_pfet)
+        _build_single_stage_latch(Comp, p, is_nmos_input)
     else:
-        _build_double_stage_latch(Comp, p, pdk, is_nmos_input, get_nfet, get_pfet)
+        _build_double_stage_latch(Comp, p, is_nmos_input)
 
     return Comp
 
 
-def _build_preamp(mod, p: CompParams, pdk, is_nmos_input: bool, get_nfet, get_pfet):
+def _build_preamp(mod, p: CompParams, is_nmos_input: bool):
     """Build input differential pair and load devices."""
-    FetDiff = get_nfet(p.diffpair_vth) if is_nmos_input else get_pfet(p.diffpair_vth)
-    FetLoad = get_pfet(p.rst_vth) if is_nmos_input else get_nfet(p.rst_vth)
-    FetTail = get_nfet(p.tail_vth) if is_nmos_input else get_pfet(p.tail_vth)
+    # Determine device types and polarities
+    diff_type = MosType.NMOS if is_nmos_input else MosType.PMOS
+    load_type = MosType.PMOS if is_nmos_input else MosType.NMOS
+    tail_type = MosType.NMOS if is_nmos_input else MosType.PMOS
+
+    diff_vth = _vth_to_mosvth(p.diffpair_vth)
+    load_vth = _vth_to_mosvth(p.rst_vth)
+    tail_vth = _vth_to_mosvth(p.tail_vth)
 
     diff_rail = mod.vss if is_nmos_input else mod.vdd
     load_rail = mod.vdd if is_nmos_input else mod.vss
@@ -145,99 +153,96 @@ def _build_preamp(mod, p: CompParams, pdk, is_nmos_input: bool, get_nfet, get_pf
     clk_off = mod.clkb if is_nmos_input else mod.clk
 
     # Differential pair
-    mod.mdiff_p = FetDiff(w=p.diffpair_w, l=p.diffpair_l)(
+    mod.mdiff_p = h.Mos(tp=diff_type, vth=diff_vth, w=p.diffpair_w, l=p.diffpair_l)(
         d=mod.outn_int, g=mod.inp, s=mod.tail, b=diff_rail
     )
-    mod.mdiff_n = FetDiff(w=p.diffpair_w, l=p.diffpair_l)(
+    mod.mdiff_n = h.Mos(tp=diff_type, vth=diff_vth, w=p.diffpair_w, l=p.diffpair_l)(
         d=mod.outp_int, g=mod.inn, s=mod.tail, b=diff_rail
     )
 
     # Tail current source
     if p.preamp_bias == PreampBias.STD_BIAS:
-        mod.mtail = FetTail(w=p.tail_w, l=p.tail_l)(
+        mod.mtail = h.Mos(tp=tail_type, vth=tail_vth, w=p.tail_w, l=p.tail_l)(
             d=mod.tail, g=clk_on, s=diff_rail, b=diff_rail
         )
     else:  # DYN_BIAS
         mod.vcap = h.Signal()
-        mod.mtail = FetTail(w=p.tail_w, l=p.tail_l)(
+        mod.mtail = h.Mos(tp=tail_type, vth=tail_vth, w=p.tail_w, l=p.tail_l)(
             d=mod.tail, g=clk_on, s=mod.vcap, b=diff_rail
         )
-        mod.mbias = FetTail(w=p.tail_w, l=p.tail_l)(
+        mod.mbias = h.Mos(tp=tail_type, vth=tail_vth, w=p.tail_w, l=p.tail_l)(
             d=mod.vcap, g=clk_on, s=diff_rail, b=diff_rail
         )
         mod.cbias = C(c=1 * f)(p=mod.vcap, n=load_rail)
 
-    # Load/reset devices
-    mod.mrst_p = FetLoad(w=p.rst_w, l=60 * n)(
+    # Load/reset devices (use minimum length = 1)
+    mod.mrst_p = h.Mos(tp=load_type, vth=load_vth, w=p.rst_w, l=1)(
         d=mod.outn_int, g=clk_off, s=load_rail, b=load_rail
     )
-    mod.mrst_n = FetLoad(w=p.rst_w, l=60 * n)(
+    mod.mrst_n = h.Mos(tp=load_type, vth=load_vth, w=p.rst_w, l=1)(
         d=mod.outp_int, g=clk_off, s=load_rail, b=load_rail
     )
 
 
-def _build_single_stage_latch(mod, p: CompParams, pdk, is_nmos_input: bool, get_nfet, get_pfet):
+def _build_single_stage_latch(mod, p: CompParams, is_nmos_input: bool):
     """Build Strong-ARM style single stage latch."""
-    FetTop = get_pfet(p.latch_vth) if is_nmos_input else get_nfet(p.latch_vth)
-    FetBot = get_nfet(p.latch_vth) if is_nmos_input else get_pfet(p.latch_vth)
+    top_type = MosType.PMOS if is_nmos_input else MosType.NMOS
+    bot_type = MosType.NMOS if is_nmos_input else MosType.PMOS
+    latch_vth = _vth_to_mosvth(p.latch_vth)
+
     top_rail = mod.vdd if is_nmos_input else mod.vss
     bot_rail = mod.vss if is_nmos_input else mod.vdd
     clk_off = mod.clkb if is_nmos_input else mod.clk
 
     # Connect internal outputs to final outputs
-    # In HDL21, we use the same signal - outp_int IS outp
-    # Actually need explicit connection - add instances that tie them
     mod.outp_conn = h.Signal()
     mod.outn_conn = h.Signal()
 
-    # Cross-coupled top devices
-    mod.ma_p = FetTop(w=p.latch_w, l=60 * n)(
+    # Cross-coupled top devices (use minimum length = 1)
+    mod.ma_p = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn_int, g=mod.outp_int, s=top_rail, b=top_rail
     )
-    mod.ma_n = FetTop(w=p.latch_w, l=60 * n)(
+    mod.ma_n = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp_int, g=mod.outn_int, s=top_rail, b=top_rail
     )
 
     # Cross-coupled bottom devices
-    mod.mb_p = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mb_p = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn_int, g=mod.outp_int, s=bot_rail, b=bot_rail
     )
-    mod.mb_n = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mb_n = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp_int, g=mod.outn_int, s=bot_rail, b=bot_rail
     )
 
     # Clocked reset
-    mod.mlatch_rst_p = FetTop(w=p.latch_w, l=60 * n)(
+    mod.mlatch_rst_p = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn_int, g=clk_off, s=top_rail, b=top_rail
     )
-    mod.mlatch_rst_n = FetTop(w=p.latch_w, l=60 * n)(
+    mod.mlatch_rst_n = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp_int, g=clk_off, s=top_rail, b=top_rail
     )
 
-    # Connect internal to external outputs via wire (dummy resistor with 0 ohms not needed)
-    # In HDL21, we directly use the signals - outp_int connects to outp through the module
-    # Add buffer inverters for output
-    FetBufTop = get_pfet(p.latch_vth)
-    FetBufBot = get_nfet(p.latch_vth)
-
-    mod.mbuf_outp_top = FetBufTop(w=p.latch_w, l=60 * n)(
+    # Output buffer inverters
+    mod.mbuf_outp_top = h.Mos(tp=MosType.PMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp, g=mod.outn_int, s=mod.vdd, b=mod.vdd
     )
-    mod.mbuf_outp_bot = FetBufBot(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outp_bot = h.Mos(tp=MosType.NMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp, g=mod.outn_int, s=mod.vss, b=mod.vss
     )
-    mod.mbuf_outn_top = FetBufTop(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outn_top = h.Mos(tp=MosType.PMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn, g=mod.outp_int, s=mod.vdd, b=mod.vdd
     )
-    mod.mbuf_outn_bot = FetBufBot(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outn_bot = h.Mos(tp=MosType.NMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn, g=mod.outp_int, s=mod.vss, b=mod.vss
     )
 
 
-def _build_double_stage_latch(mod, p: CompParams, pdk, is_nmos_input: bool, get_nfet, get_pfet):
+def _build_double_stage_latch(mod, p: CompParams, is_nmos_input: bool):
     """Build two-stage latch with separate preamp and latch."""
-    FetTop = get_pfet(p.latch_vth) if is_nmos_input else get_nfet(p.latch_vth)
-    FetBot = get_nfet(p.latch_vth) if is_nmos_input else get_pfet(p.latch_vth)
+    top_type = MosType.PMOS if is_nmos_input else MosType.NMOS
+    bot_type = MosType.NMOS if is_nmos_input else MosType.PMOS
+    latch_vth = _vth_to_mosvth(p.latch_vth)
+
     top_rail = mod.vdd if is_nmos_input else mod.vss
     bot_rail = mod.vss if is_nmos_input else mod.vdd
 
@@ -247,59 +252,56 @@ def _build_double_stage_latch(mod, p: CompParams, pdk, is_nmos_input: bool, get_
     mod.latch_vdd = h.Signal()
     mod.latch_vss = h.Signal()
 
-    # Core cross-coupled latch
-    mod.mla_p = FetTop(w=p.latch_w, l=60 * n)(
+    # Core cross-coupled latch (use minimum length = 1)
+    mod.mla_p = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_n, g=mod.latch_p, s=mod.latch_vdd, b=top_rail
     )
-    mod.mla_n = FetTop(w=p.latch_w, l=60 * n)(
+    mod.mla_n = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_p, g=mod.latch_n, s=mod.latch_vdd, b=top_rail
     )
-    mod.mlb_p = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mlb_p = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_n, g=mod.latch_p, s=mod.latch_vss, b=bot_rail
     )
-    mod.mlb_n = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mlb_n = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_p, g=mod.latch_n, s=mod.latch_vss, b=bot_rail
     )
 
     # Preamp to latch connection
-    mod.mconn_p = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mconn_p = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_n, g=mod.outn_int, s=bot_rail, b=bot_rail
     )
-    mod.mconn_n = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mconn_n = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_p, g=mod.outp_int, s=bot_rail, b=bot_rail
     )
 
     # Powergate - simplified version (clocked external)
     clk_off = mod.clkb if is_nmos_input else mod.clk
-    mod.mpg_vdd = FetTop(w=p.latch_w, l=60 * n)(
+    mod.mpg_vdd = h.Mos(tp=top_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_vdd, g=clk_off, s=top_rail, b=top_rail
     )
-    mod.mpg_vss = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mpg_vss = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_vss, g=mod.vdd, s=bot_rail, b=bot_rail  # Always on
     )
 
     # Internal reset
-    mod.mrst_int_p = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mrst_int_p = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_n, g=clk_off, s=mod.latch_vss, b=bot_rail
     )
-    mod.mrst_int_n = FetBot(w=p.latch_w, l=60 * n)(
+    mod.mrst_int_n = h.Mos(tp=bot_type, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.latch_p, g=clk_off, s=mod.latch_vss, b=bot_rail
     )
 
     # Output buffers
-    FetBufTop = get_pfet(p.latch_vth)
-    FetBufBot = get_nfet(p.latch_vth)
-
-    mod.mbuf_outp_top = FetBufTop(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outp_top = h.Mos(tp=MosType.PMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp, g=mod.latch_n, s=mod.vdd, b=mod.vdd
     )
-    mod.mbuf_outp_bot = FetBufBot(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outp_bot = h.Mos(tp=MosType.NMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outp, g=mod.latch_n, s=mod.vss, b=mod.vss
     )
-    mod.mbuf_outn_top = FetBufTop(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outn_top = h.Mos(tp=MosType.PMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn, g=mod.latch_p, s=mod.vdd, b=mod.vdd
     )
-    mod.mbuf_outn_bot = FetBufBot(w=p.latch_w, l=60 * n)(
+    mod.mbuf_outn_bot = h.Mos(tp=MosType.NMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn, g=mod.latch_p, s=mod.vss, b=mod.vss
     )
 
@@ -314,6 +316,9 @@ def comp_variants(
     Generate a list of valid CompParams for parameter sweeps.
 
     Only generates valid topology combinations.
+
+    Args:
+        diffpair_w_list: List of diff pair width multipliers (default: [40, 80])
     """
     if preamp_diffpairs is None:
         preamp_diffpairs = list(PreampDiffpair)
@@ -322,7 +327,7 @@ def comp_variants(
     if comp_stages_list is None:
         comp_stages_list = list(CompStages)
     if diffpair_w_list is None:
-        diffpair_w_list = [4 * µ, 8 * µ]
+        diffpair_w_list = [40, 80]
 
     variants = []
 
@@ -636,7 +641,7 @@ def run_topology_sweep(pvt: Pvt = None) -> List[tuple]:
         preamp_diffpairs=[PreampDiffpair.NMOS_INPUT],
         preamp_biases=list(PreampBias),
         comp_stages_list=list(CompStages),
-        diffpair_w_list=[4 * µ],
+        diffpair_w_list=[40],
     )
 
     for comp_params in variants:
@@ -696,9 +701,13 @@ def test_comp_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    from .pdk import get_pdk
+    pdk = get_pdk()
+
     count = 0
     for params in comp_variants():
         comp = Comp(params)
+        pdk.compile(comp)
         h.netlist(comp, dest=io.StringIO())
         count += 1
     print(f"Generated {count} valid comparator netlists")
@@ -709,8 +718,12 @@ def test_comp_tb_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    from .pdk import get_pdk
+    pdk = get_pdk()
+
     params = CompTbParams()
     tb = CompTb(params)
+    pdk.compile(tb)
     h.netlist(tb, dest=io.StringIO())
     print("Comparator testbench netlist generated successfully")
 

@@ -178,19 +178,68 @@ class Tsmc65Walker(h.HierarchyWalker):
         """
         Convert hdl21 MosParams to TSMC65-specific parameters.
 
+        Implements multiplier-based scaling:
+        - If w/l are integers or have UNIT prefix, treat as multipliers of W_MIN/L_MIN
+        - If w/l have physical prefixes (NANO, MICRO), use as absolute values
+
         Args:
             params: Generic MosParams.
 
         Returns:
             Tsmc65MosParams with appropriate values.
         """
-        defaults = Tsmc65MosParams.default_instance()
+        w = self._scale_dimension(params.w, Tsmc65Pdk.W_MIN, default_mult=10)
+        l = self._scale_dimension(params.l, Tsmc65Pdk.L_MIN, default_mult=1)
+
         return Tsmc65MosParams(
-            w=params.w if params.w is not None else defaults.w,
-            l=params.l if params.l is not None else defaults.l,
-            nf=params.nf if params.nf is not None else defaults.nf,
-            m=params.mult if params.mult is not None else defaults.m,
+            w=w,
+            l=l,
+            nf=params.nf if params.nf is not None else 1,
+            m=params.mult if params.mult is not None else 1,
         )
+
+    def _scale_dimension(
+        self,
+        value,
+        min_dim: h.Prefixed,
+        default_mult: int = 1,
+    ) -> h.Prefixed:
+        """
+        Scale a dimension value using multiplier-based approach.
+
+        Args:
+            value: The input value (could be int, Prefixed, or None)
+            min_dim: The minimum dimension (W_MIN or L_MIN)
+            default_mult: Default multiplier if value is None
+
+        Returns:
+            Physical dimension as h.Prefixed
+        """
+        if value is None:
+            return default_mult * min_dim
+
+        # If it's an integer, treat as multiplier
+        if isinstance(value, int):
+            return value * min_dim
+
+        # If it's a Prefixed value, check the prefix
+        if isinstance(value, h.Prefixed):
+            # Check if it has a physical prefix (NANO, MICRO, etc.)
+            # Values with UNIT prefix (1.0) or no prefix are treated as multipliers
+            if value.prefix == h.prefix.UNIT:
+                # Treat the number as a multiplier
+                return int(value.number) * min_dim
+            else:
+                # It's an absolute physical value - use as-is
+                return value
+
+        # For other numeric types, treat as multiplier
+        try:
+            mult = int(value)
+            return mult * min_dim
+        except (TypeError, ValueError):
+            # Fall back to using as-is
+            return value
 
     def mos_module_call(self, params: MosParams) -> h.ExternalModuleCall:
         """

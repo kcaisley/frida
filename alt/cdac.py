@@ -11,18 +11,20 @@ Includes testbench, simulation definitions, and pytest test functions.
 
 import io
 import math
-from typing import Optional, List
+from typing import Optional, List  # TODO: Optional[int] -> int | None; List[int] --> lst[int]
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner
-from hdl21.prefix import n, p, f, m, µ
-from hdl21.primitives import Vdc, Vpulse, C
+from hdl21.prefix import n, p, f, m
+from hdl21.primitives import Vdc, Vpulse, C, MosType, MosVth
 
-from .pdk import get_pdk
 from .common.params import Vth, RedunStrat, SplitStrat, CapType, Pvt, SupplyVals, Project
 from .conftest import SimTestMode
 
+def _vth_to_mosvth(vth: Vth) -> MosVth:
+    """Convert FRIDA Vth enum to HDL21 MosVth."""
+    return MosVth.LOW if vth == Vth.LVT else MosVth.STD
 
 @h.paramclass
 class CdacParams:
@@ -67,14 +69,12 @@ def Cdac(p: CdacParams) -> h.Module:
     Capacitor DAC generator.
 
     Generates a CDAC with variable bit width based on parameters.
+
+    Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
-    pdk = get_pdk()
     weights = get_cdac_weights(p)
     n_bits = len(weights)
-
-    # Select devices based on Vth
-    Nfet = pdk.NmosLvt if p.vth == Vth.LVT else pdk.Nmos
-    Pfet = pdk.PmosLvt if p.vth == Vth.LVT else pdk.Pmos
+    mosvth = _vth_to_mosvth(p.vth)
 
     @h.module
     class Cdac:
@@ -91,17 +91,17 @@ def Cdac(p: CdacParams) -> h.Module:
     threshold = 64  # Split threshold for vdiv/diffcap
 
     for idx, weight in enumerate(weights):
-        _build_dac_bit(Cdac, p, idx, weight, threshold, Nfet, Pfet)
+        _build_dac_bit(Cdac, p, idx, weight, threshold, mosvth)
 
     return Cdac
 
 
 def _calc_driver_width(c: int, m: int) -> int:
-    """Calculate driver width based on capacitor load (sqrt scaling)."""
-    return max(1, int(math.sqrt(c * m)))
+    """Calculate driver width multiplier based on capacitor load (sqrt scaling)."""
+    return max(10, int(math.sqrt(c * m)) * 10)
 
 
-def _build_dac_bit(mod, p: CdacParams, idx: int, weight: int, threshold: int, Nfet, Pfet):
+def _build_dac_bit(mod, p: CdacParams, idx: int, weight: int, threshold: int, mosvth: MosVth):
     """Build one DAC bit: buffer + driver + capacitor(s)."""
 
     # Create intermediate signal for this bit
@@ -110,27 +110,35 @@ def _build_dac_bit(mod, p: CdacParams, idx: int, weight: int, threshold: int, Nf
     setattr(mod, f"inter_{idx}", inter)
     setattr(mod, f"bot_{idx}", bot)
 
-    # First inverter (predriver - always unit sized)
-    mp_buf = Pfet(w=1 * µ, l=60 * n)(d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd)
-    mn_buf = Nfet(w=1 * µ, l=60 * n)(d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss)
+    # First inverter (predriver - use minimum sized devices: w=10, l=1)
+    mp_buf = h.Mos(tp=MosType.PMOS, vth=mosvth, w=10, l=1)(
+        d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd
+    )
+    mn_buf = h.Mos(tp=MosType.NMOS, vth=mosvth, w=10, l=1)(
+        d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss
+    )
     setattr(mod, f"mp_buf_{idx}", mp_buf)
     setattr(mod, f"mn_buf_{idx}", mn_buf)
 
     if p.split_strat == SplitStrat.NO_SPLIT:
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, Nfet, Pfet)
+        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)
     elif p.split_strat == SplitStrat.VDIV_SPLIT:
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, Nfet, Pfet)  # Simplified
+        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)  # Simplified
     else:  # DIFFCAP_SPLIT
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, Nfet, Pfet)  # Simplified
+        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)  # Simplified
 
 
-def _build_nosplit_bit(mod, p: CdacParams, idx: int, weight: int, inter, bot, Nfet, Pfet):
+def _build_nosplit_bit(mod, p: CdacParams, idx: int, weight: int, inter, bot, mosvth: MosVth):
     """No split: c=1, m=weight (simplified using multiplier)."""
-    driver_w = _calc_driver_width(1, weight) * µ
+    driver_w = _calc_driver_width(1, weight)
 
-    # Driver inverter
-    mp_drv = Pfet(w=driver_w, l=60 * n)(d=bot, g=inter, s=mod.vdd, b=mod.vdd)
-    mn_drv = Nfet(w=driver_w, l=60 * n)(d=bot, g=inter, s=mod.vss, b=mod.vss)
+    # Driver inverter (width scales with capacitor weight)
+    mp_drv = h.Mos(tp=MosType.PMOS, vth=mosvth, w=driver_w, l=1)(
+        d=bot, g=inter, s=mod.vdd, b=mod.vdd
+    )
+    mn_drv = h.Mos(tp=MosType.NMOS, vth=mosvth, w=driver_w, l=1)(
+        d=bot, g=inter, s=mod.vss, b=mod.vss
+    )
     setattr(mod, f"mp_drv_{idx}", mp_drv)
     setattr(mod, f"mn_drv_{idx}", mn_drv)
 
@@ -503,9 +511,13 @@ def test_cdac_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    from .pdk import get_pdk
+    pdk = get_pdk()
+
     count = 0
     for params in cdac_variants(n_dac_list=[8], n_extra_list=[0, 2]):
         cdac = Cdac(params)
+        pdk.compile(cdac)
         h.netlist(cdac, dest=io.StringIO())
         count += 1
     print(f"Generated {count} valid CDAC netlists")
@@ -516,8 +528,12 @@ def test_cdac_tb_netlist(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    from .pdk import get_pdk
+    pdk = get_pdk()
+
     params = CdacTbParams(cdac=CdacParams(n_dac=8))
     tb = CdacTb(params)
+    pdk.compile(tb)
     h.netlist(tb, dest=io.StringIO())
     print("CDAC testbench netlist generated successfully")
 
@@ -527,12 +543,16 @@ def test_cdac_variants(simtestmode: SimTestMode):
     if simtestmode != SimTestMode.NETLIST:
         return
 
+    from .pdk import get_pdk
+    pdk = get_pdk()
+
     variants = cdac_variants()
     print(f"Generated {len(variants)} valid CDAC variants")
 
     # Verify all variants produce valid netlists
     for params in variants[:5]:  # Test first 5
         cdac = Cdac(params)
+        pdk.compile(cdac)
         h.netlist(cdac, dest=io.StringIO())
 
 
