@@ -34,4 +34,5 @@ __pycache__
 *.test
 *.vcd
 *.vrb
+*.lck
 si.env
