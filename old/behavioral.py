@@ -5,7 +5,6 @@ matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
-import pandas as pd
 
 
 class CDAC:

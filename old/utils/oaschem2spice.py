@@ -23,7 +23,6 @@ Output Files:
 import re
 import sys
 import subprocess
-from time import sleep
 
 
 def create_si_env(simLibName, simCellName):

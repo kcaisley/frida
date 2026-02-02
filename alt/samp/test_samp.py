@@ -4,7 +4,6 @@ Sampler testbench and tests for FRIDA.
 Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
-import io
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -156,7 +155,8 @@ def run_switch_type_sweep(pvt: Pvt = None) -> list[tuple]:
         for vth in [MosVth.LOW, MosVth.STD]:
             samp_params = SampParams(switch_type=switch_type, w=10, l=1, vth=vth)
             tb_params = SampTbParams(pvt=pvt, samp=samp_params)
-            sim = sim_input(tb_params)
+            # TODO: run simulation and measure settling
+            sim = sim_input(tb_params)  # noqa: F841
             # result = sim.run(sim_options)
             # settling = samp_settling_ns(result)
             results.append((switch_type, vth, None))  # Placeholder
@@ -182,7 +182,8 @@ def run_width_sweep(
     for width in width_list:
         samp_params = SampParams(switch_type=switch_type, w=width, l=1)
         tb_params = SampTbParams(pvt=pvt, samp=samp_params)
-        sim = sim_input(tb_params)
+        # TODO: run simulation and extract result
+        sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         results.append((width, None))  # Placeholder
 
@@ -273,7 +274,8 @@ def test_samp_sim(simtestmode: SimTestMode):
     elif simtestmode == SimTestMode.MIN:
         # Run one quick simulation
         params = SampTbParams(samp=SampParams(switch_type=SwitchType.TGATE))
-        sim = sim_input(params)
+        # TODO: run simulation and measure settling
+        sim = sim_input(params)  # noqa: F841
         # result = sim.run(sim_options)
         # settling = samp_settling_ns(result)
         # print(f"Settling time: {settling:.2f} ns")

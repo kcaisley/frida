@@ -518,13 +518,13 @@ def main():
             lines, target_nets, target_instances, cell_locations
         )
 
-        print(f"\nCheck complete!")
+        print("\nCheck complete!")
         print(f"  Total issues found: {issues}")
         if issues > 0:
-            print(f"  Run without -check flag to fix these issues.")
+            print("  Run without -check flag to fix these issues.")
     else:
         # FIX MODE - Backup, fix, and write output
-        print(f"Backing up original DEF file...")
+        print("Backing up original DEF file...")
         print(f"  {input_file} -> {backup_file}")
         shutil.copy2(input_file, backup_file)
 

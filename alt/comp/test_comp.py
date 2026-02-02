@@ -5,7 +5,6 @@ Includes testbench generator, simulation definitions, Monte Carlo support,
 and pytest test functions.
 """
 
-import io
 from typing import Any
 
 import hdl21 as h
@@ -27,7 +26,7 @@ from ..flow import (
     write_sim_netlist,
 )
 from ..pdk import get_pdk
-from .comp import Comp, CompParams, comp_variants, is_valid_comp_params
+from .comp import Comp, CompParams, comp_variants
 
 
 # =============================================================================
@@ -251,7 +250,8 @@ def run_scurve_sweep(
                 vcm=vcm,
                 vin_diff=vdiff,
             )
-            sim = sim_input(tb_params)
+            # TODO: run simulation and extract result
+            sim = sim_input(tb_params)  # noqa: F841
             # result = sim.run(sim_options)
             results.append(((vcm, vdiff), None))  # Placeholder
 
@@ -277,7 +277,8 @@ def run_topology_sweep(pvt: Pvt = None) -> list[tuple]:
 
     for comp_params in variants:
         tb_params = CompTbParams(pvt=pvt, comp=comp_params)
-        sim = sim_input(tb_params)
+        # TODO: run simulation and extract result
+        sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         results.append((comp_params, None))  # Placeholder
 
@@ -305,7 +306,8 @@ def run_offset_monte_carlo(
 
     # Zero differential input for offset measurement
     tb_params = CompTbParams(pvt=pvt, comp=comp_params, vin_diff=0 * m)
-    sim = sim_input_with_mc(tb_params, mc_config=mc_config)
+    # TODO: run MC simulation and extract offsets
+    sim = sim_input_with_mc(tb_params, mc_config=mc_config)  # noqa: F841
 
     # Would run simulation and extract offset from each MC point
     # result = sim.run(sim_options)
@@ -379,7 +381,8 @@ def test_comp_mc_sim_structure(simtestmode: SimTestMode):
 
     params = CompTbParams(vin_diff=0 * m)
     mc_config = MCConfig(numruns=10)
-    sim = sim_input_with_mc(params, mc_config)
+    # TODO: run MC simulation
+    sim = sim_input_with_mc(params, mc_config)  # noqa: F841
     print(f"MC simulation created with {mc_config.numruns} runs")
     print(f"  seed={mc_config.seed}, variations={mc_config.variations}")
 
@@ -394,7 +397,8 @@ def test_comp_scurve(simtestmode: SimTestMode):
     elif simtestmode == SimTestMode.MIN:
         # Run single point
         params = CompTbParams(vcm=600 * m, vin_diff=0 * m)
-        sim = sim_input(params)
+        # TODO: run simulation
+        sim = sim_input(params)  # noqa: F841
         print("MIN mode: would run single S-curve point")
 
     elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
@@ -411,9 +415,9 @@ def test_comp_sim(simtestmode: SimTestMode):
         print("Simulation input created successfully")
 
     elif simtestmode == SimTestMode.MIN:
-
         params = CompTbParams()
-        sim = sim_input(params)
+        # TODO: run simulation and measure delay
+        sim = sim_input(params)  # noqa: F841
         # result = sim.run(sim_options)
         # delay = comp_delay_ns(result)
         # print(f"Decision delay: {delay:.2f} ns")

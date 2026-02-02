@@ -10,7 +10,6 @@ import matplotlib
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import behavioral
-import matplotlib.pyplot as plt
 
 params = {
     "ADC": {},

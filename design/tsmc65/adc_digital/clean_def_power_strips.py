@@ -219,7 +219,7 @@ def process_def_file(input_path: str) -> None:
     with open(input_path, "w") as f:
         f.writelines(output_lines)
 
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Modified {stripes_modified} M1 power stripes")
     print(f"  Created {stripes_created} total segments")
     print(f"  Original file backed up to: {backup_path}")
@@ -240,7 +240,7 @@ def main():
         print("Warning: Input file doesn't have .def extension")
 
     print(f"Processing DEF file: {input_path}")
-    print(f"\nBlockage regions (X ranges in DBU):")
+    print("\nBlockage regions (X ranges in DBU):")
     for i, (x_min, x_max) in enumerate(BLOCKAGE_X_RANGES, 1):
         x_min_um = x_min / DBU_PER_UM
         x_max_um = x_max / DBU_PER_UM
@@ -251,7 +251,7 @@ def main():
     print(
         f"\nBlockage Y range: {BLOCKAGE_Y_MIN} to {BLOCKAGE_Y_MAX} ({BLOCKAGE_Y_MIN / DBU_PER_UM:.1f}µm to {BLOCKAGE_Y_MAX / DBU_PER_UM:.1f}µm)"
     )
-    print(f"\nProcessing M1 FOLLOWPIN stripes...\n")
+    print("\nProcessing M1 FOLLOWPIN stripes...\n")
 
     process_def_file(input_path)
 

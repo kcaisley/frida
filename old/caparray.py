@@ -1,4 +1,3 @@
-import math
 import sys
 import klayout.db as db
 import cdac

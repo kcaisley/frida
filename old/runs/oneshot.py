@@ -3,10 +3,6 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import behavioral
-import spice
-import matplotlib.pyplot as plt
-import math
-import pandas as pd
 import time
 
 # eventually, need to pull the init code out, so that

@@ -4,7 +4,6 @@ CDAC testbench and tests for FRIDA.
 Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
-import io
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -131,7 +130,8 @@ def run_code_sweep(cdac_params: CdacParams = None, pvt: Pvt = None) -> list[tupl
 
     for code in range(n_codes):
         tb_params = CdacTbParams(pvt=pvt, cdac=cdac_params, code=code)
-        sim = sim_input(tb_params)
+        # TODO: run simulation and extract voltage
+        sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         # voltage = result.an[0].data["v(xtop.top)"]
         results.append((code, None))  # Placeholder
@@ -146,7 +146,8 @@ def run_linearity_test(cdac_params: CdacParams = None, pvt: Pvt = None):
     Returns dict with INL, DNL arrays and max values.
     """
     code_sweep = run_code_sweep(cdac_params, pvt)
-    codes = np.array([c for c, _ in code_sweep])
+    # TODO: use codes array for INL/DNL computation
+    codes = np.array([c for c, _ in code_sweep])  # noqa: F841
     # outputs = np.array([v for _, v in code_sweep])  # Would be real voltages
 
     # Placeholder - would compute real INL/DNL
@@ -287,7 +288,8 @@ def test_cdac_sim(simtestmode: SimTestMode):
     elif simtestmode == SimTestMode.MIN:
         # Run one quick simulation
         params = CdacTbParams(cdac=CdacParams(n_dac=8), code=128)
-        sim = sim_input_tran(params)
+        # TODO: run simulation and measure settling
+        sim = sim_input_tran(params)  # noqa: F841
         # result = sim.run(sim_options)
         # settling = cdac_settling_ns(result)
         # print(f"Settling time: {settling:.2f} ns")

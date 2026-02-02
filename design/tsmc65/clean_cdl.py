@@ -180,7 +180,7 @@ def reorder_cdl_subckt(input_cdl_path, output_cdl_path, module_name, ports, pini
         f.write(cdl)
 
     print(f"Reordered .SUBCKT {module_name}: {len(ports)} ports in Verilog order")
-    print(f"Cleaned fillers/decaps and hierarchical separators")
+    print("Cleaned fillers/decaps and hierarchical separators")
     print(f"Output written to: {output_cdl_path}")
 
 

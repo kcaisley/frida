@@ -24,6 +24,9 @@ dev = [
 [tool.basedpyright]
 typeCheckingMode = "off"
 
+[tool.ruff]
+exclude = ["old/", "flow/", "blocks/"]
+
 [tool.ruff.lint]
 ignore = ["E741"]  # Allow 'l' for transistor length
 
