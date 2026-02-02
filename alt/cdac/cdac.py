@@ -5,38 +5,15 @@ Supports multiple architectures including:
 - Various redundancy strategies (RDX2, sub-radix-2, etc.)
 - Different split strategies (no split, voltage divider, difference cap)
 - Variable bit widths with dynamic port generation
-
-Includes testbench, simulation definitions, and pytest test functions.
 """
 
-import io
 import math
-from typing import (  # TODO: Optional[int] -> int | None; List[int] --> lst[int]
-    List,
-    Optional,
-)
 
 import hdl21 as h
-import hdl21.sim as hs
-from hdl21.pdk import Corner
-from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, MosType, MosVth, Vdc, Vpulse
+from hdl21.prefix import f
+from hdl21.primitives import C, MosType, MosVth
 
-from .common.params import (
-    CapType,
-    Project,
-    Pvt,
-    RedunStrat,
-    SplitStrat,
-    SupplyVals,
-    Vth,
-)
-from .conftest import SimTestMode
-
-
-def _vth_to_mosvth(vth: Vth) -> MosVth:
-    """Convert FRIDA Vth enum to HDL21 MosVth."""
-    return MosVth.LOW if vth == Vth.LVT else MosVth.STD
+from ..flow.params import CapType, RedunStrat, SplitStrat
 
 
 @h.paramclass
@@ -52,7 +29,7 @@ class CdacParams:
         dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT
     )
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
-    vth = h.Param(dtype=Vth, desc="Transistor Vth", default=Vth.LVT)
+    vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
 
 
@@ -67,7 +44,7 @@ def is_valid_cdac_params(p: CdacParams) -> bool:
     return _calc_weights(p.n_dac, p.n_extra, p.redun_strat) is not None
 
 
-def get_cdac_weights(p: CdacParams) -> List[int]:
+def get_cdac_weights(p: CdacParams) -> list[int]:
     """Get the capacitor weights for a CDAC configuration."""
     weights = _calc_weights(p.n_dac, p.n_extra, p.redun_strat)
     if weights is None:
@@ -91,7 +68,7 @@ def Cdac(p: CdacParams) -> h.Module:
     """
     weights = get_cdac_weights(p)
     n_bits = len(weights)
-    mosvth = _vth_to_mosvth(p.vth)
+    mosvth = p.vth
 
     @h.module
     class Cdac:
@@ -212,9 +189,7 @@ def cdac_variants(
 # =============================================================================
 
 
-def _calc_weights(
-    n_dac: int, n_extra: int, strategy: RedunStrat
-) -> Optional[List[int]]:
+def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] | None:
     """
     Calculate capacitor weights for CDAC.
 
@@ -318,309 +293,3 @@ def _calc_weights(
 
     else:
         return None  # Unknown strategy
-
-
-# =============================================================================
-# TESTBENCH
-# =============================================================================
-
-
-@h.paramclass
-class CdacTbParams:
-    """CDAC testbench parameters."""
-
-    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
-    cdac = h.Param(dtype=CdacParams, desc="CDAC parameters", default=CdacParams())
-    code = h.Param(dtype=int, desc="DAC code to apply", default=128)
-
-
-@h.generator
-def CdacTb(params: CdacTbParams) -> h.Module:
-    """
-    CDAC testbench generator.
-
-    Creates a testbench with:
-    - DC supply
-    - DAC code inputs (static for single code test)
-    - Load capacitor on output
-    """
-    supply = SupplyVals.corner(params.pvt.v)
-    n_bits = get_cdac_n_bits(params.cdac)
-
-    tb = h.sim.tb("CdacTb")
-
-    # Supply
-    tb.vdd = h.Signal()
-    tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
-
-    # DAC output with load
-    tb.top = h.Signal()
-    tb.cload = C(c=100 * f)(p=tb.top, n=tb.VSS)
-
-    # DAC code inputs - generate bit values from code
-    tb.dac_bits = h.Signal(width=n_bits)
-    for i in range(n_bits):
-        bit_val = supply.VDD if (params.code >> i) & 1 else 0 * m
-        vbit = Vdc(dc=bit_val)(p=tb.dac_bits[i], n=tb.VSS)
-        setattr(tb, f"vbit_{i}", vbit)
-
-    # DUT
-    tb.dut = Cdac(params.cdac)(
-        top=tb.top,
-        dac=tb.dac_bits,
-        vdd=tb.vdd,
-        vss=tb.VSS,
-    )
-
-    return tb
-
-
-# =============================================================================
-# SIMULATION DEFINITIONS
-# =============================================================================
-
-
-def sim_input(params: CdacTbParams) -> hs.Sim:
-    """Create simulation input for single-code CDAC test."""
-    temp = Project.temper(params.pvt.t)
-
-    @hs.sim
-    class CdacSim:
-        tb = CdacTb(params)
-        op = hs.Op()  # DC operating point
-
-        # Use _ for Literal (frozen dataclass, has no name field)
-        _ = hs.Literal(
-            f"""
-            simulator lang=spice
-            .temp {temp}
-            simulator lang=spectre
-        """
-        )
-
-    return CdacSim
-
-
-def sim_input_tran(params: CdacTbParams) -> hs.Sim:
-    """Create transient simulation input for CDAC settling test."""
-    temp = Project.temper(params.pvt.t)
-
-    @hs.sim
-    class CdacTranSim:
-        tb = CdacTb(params)
-        tr = hs.Tran(tstop=100 * n, tstep=100 * p)
-
-        # Save all signals
-        save = hs.Save(hs.SaveMode.ALL)
-
-        # Use _ for Literal (frozen dataclass, has no name field)
-        _ = hs.Literal(
-            f"""
-            simulator lang=spice
-            .temp {temp}
-            simulator lang=spectre
-        """
-        )
-
-    return CdacTranSim
-
-
-# =============================================================================
-# SWEEP FUNCTIONS
-# =============================================================================
-
-
-def run_code_sweep(cdac_params: CdacParams = None, pvt: Pvt = None) -> List[tuple]:
-    """
-    Sweep through all DAC codes and measure output voltage.
-
-    Returns list of (code, voltage) tuples.
-    """
-    if cdac_params is None:
-        cdac_params = CdacParams(n_dac=8)
-    if pvt is None:
-        pvt = Pvt()
-
-    n_codes = 2**cdac_params.n_dac
-    results = []
-
-    for code in range(n_codes):
-        tb_params = CdacTbParams(pvt=pvt, cdac=cdac_params, code=code)
-        sim = sim_input(tb_params)
-        # result = sim.run(sim_options)
-        # voltage = result.an[0].data["v(xtop.top)"]
-        results.append((code, None))  # Placeholder
-
-    return results
-
-
-def run_linearity_test(cdac_params: CdacParams = None, pvt: Pvt = None):
-    """
-    Run code sweep and compute INL/DNL.
-
-    Returns dict with INL, DNL arrays and max values.
-    """
-    import numpy as np
-
-    from .measure import compute_inl_dnl
-
-    code_sweep = run_code_sweep(cdac_params, pvt)
-    codes = np.array([c for c, _ in code_sweep])
-    # outputs = np.array([v for _, v in code_sweep])  # Would be real voltages
-
-    # Placeholder - would compute real INL/DNL
-    return {
-        "inl_max": 0.5,
-        "dnl_max": 0.3,
-        "info": "Placeholder - simulation not run",
-    }
-
-
-def run_architecture_comparison(pvt: Pvt = None):
-    """
-    Compare different CDAC architectures.
-
-    Sweeps through redundancy strategies and measures linearity.
-    """
-    if pvt is None:
-        pvt = Pvt()
-
-    results = {}
-
-    for redun_strat in [RedunStrat.RDX2, RedunStrat.SUBRDX2_LIM]:
-        n_extra = 0 if redun_strat == RedunStrat.RDX2 else 2
-
-        params = CdacParams(
-            n_dac=10,
-            n_extra=n_extra,
-            redun_strat=redun_strat,
-        )
-
-        if is_valid_cdac_params(params):
-            weights = get_cdac_weights(params)
-            linearity = run_linearity_test(params, pvt)
-            results[redun_strat.name] = {
-                "weights": weights,
-                "linearity": linearity,
-            }
-
-    return results
-
-
-# =============================================================================
-# PYTEST TEST FUNCTIONS
-# =============================================================================
-
-
-def test_cdac_weights(simtestmode: SimTestMode):
-    """Test weight calculation for different strategies."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
-
-    print("CDAC Weight Calculations:")
-
-    # Standard binary
-    params = CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2)
-    weights = get_cdac_weights(params)
-    print(f"  RDX2 (8-bit): {weights}")
-
-    # Sub-radix-2 with redundancy
-    params = CdacParams(n_dac=8, n_extra=2, redun_strat=RedunStrat.SUBRDX2_LIM)
-    weights = get_cdac_weights(params)
-    print(f"  SUBRDX2_LIM (8+2): {weights}")
-
-
-def test_cdac_netlist(simtestmode: SimTestMode):
-    """Test that netlist generation works for valid configurations."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
-
-    from .pdk import get_pdk
-
-    pdk = get_pdk()
-
-    count = 0
-    for params in cdac_variants(n_dac_list=[8], n_extra_list=[0, 2]):
-        cdac = Cdac(params)
-        pdk.compile(cdac)
-        h.netlist(cdac, dest=io.StringIO())
-        count += 1
-    print(f"Generated {count} valid CDAC netlists")
-
-
-def test_cdac_tb_netlist(simtestmode: SimTestMode):
-    """Test testbench netlist generation."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
-
-    from .pdk import get_pdk
-
-    pdk = get_pdk()
-
-    params = CdacTbParams(cdac=CdacParams(n_dac=8))
-    tb = CdacTb(params)
-    pdk.compile(tb)
-    h.netlist(tb, dest=io.StringIO())
-    print("CDAC testbench netlist generated successfully")
-
-
-def test_cdac_variants(simtestmode: SimTestMode):
-    """Test variant generation for different architectures."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
-
-    from .pdk import get_pdk
-
-    pdk = get_pdk()
-
-    variants = cdac_variants()
-    print(f"Generated {len(variants)} valid CDAC variants")
-
-    # Verify all variants produce valid netlists
-    for params in variants[:5]:  # Test first 5
-        cdac = Cdac(params)
-        pdk.compile(cdac)
-        h.netlist(cdac, dest=io.StringIO())
-
-
-def test_cdac_sim(simtestmode: SimTestMode):
-    """Test CDAC simulation."""
-    if simtestmode == SimTestMode.NETLIST:
-        # Just verify sim input can be created
-        params = CdacTbParams(cdac=CdacParams(n_dac=8))
-        sim = sim_input(params)
-        print("Simulation input created successfully")
-
-    elif simtestmode == SimTestMode.MIN:
-        # Run one quick simulation
-        from .common.sim_options import sim_options
-        from .measure import cdac_settling_ns
-
-        params = CdacTbParams(cdac=CdacParams(n_dac=8), code=128)
-        sim = sim_input_tran(params)
-        # result = sim.run(sim_options)
-        # settling = cdac_settling_ns(result)
-        # print(f"Settling time: {settling:.2f} ns")
-        print("MIN mode: simulation would run here")
-
-    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
-        # Run architecture comparison
-        results = run_architecture_comparison()
-        for arch, data in results.items():
-            print(f"{arch}: weights={data['weights'][:3]}...")
-
-
-# =============================================================================
-# CLI ENTRY POINT (for standalone testing)
-# =============================================================================
-
-
-if __name__ == "__main__":
-    print("Testing CDAC weight calculations...")
-    test_cdac_weights(SimTestMode.NETLIST)
-    print()
-    print("Testing CDAC netlist generation...")
-    test_cdac_netlist(SimTestMode.NETLIST)
-    print()
-    print("Testing CDAC testbench netlist...")
-    test_cdac_tb_netlist(SimTestMode.NETLIST)

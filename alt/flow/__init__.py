@@ -1,41 +1,19 @@
 """
-FRIDA HDL21 - Analog circuit generators using HDL21/VLSIR.
+Shared test infrastructure for FRIDA HDL21 generators.
 
-This package provides HDL21-based generators for FRIDA analog blocks
-with a PDK abstraction layer supporting multiple process nodes.
-
-Each block module (comp/, samp/, cdac/) contains:
-- Generator: @h.generator function creating the circuit
-- Testbench: @h.generator for testbench + sim_input() for simulation
-- Tests: test_* functions using pytest's simtestmode fixture
+Provides:
+- SimTestMode enum and pytest fixture for controlling test depth
+- Simulation infrastructure (sim options, Monte Carlo config)
+- Measurement functions for post-processing results
+- Matplotlib plotting configuration
+- Shared parameters (PVT, enums, supply values)
 """
 
-# Generators and Testbenches - from per-block modules
-from .samp import Samp, SampParams, samp_variants, SampTb, SampTbParams
-from .comp import (
-    Comp,
-    CompParams,
-    comp_variants,
-    is_valid_comp_params,
-    CompTb,
-    CompTbParams,
-)
-from .cdac import (
-    Cdac,
-    CdacParams,
-    cdac_variants,
-    is_valid_cdac_params,
-    get_cdac_weights,
-    get_cdac_n_bits,
-    CdacTb,
-    CdacTbParams,
-)
+# Pytest configuration
+from .params import SimTestMode
 
-# PDK
-from .pdk import get_pdk, set_pdk, GenericPdk
-
-# Common params and enums - from flow module
-from .flow import (
+# Parameters and enums
+from .params import (
     # Basic enums
     SwitchType,
     # Comparator enums
@@ -53,7 +31,14 @@ from .flow import (
     # PVT and supply
     Pvt,
     SupplyVals,
+    Tsmc65SupplyVals,
+    Tsmc28SupplyVals,
+    Tower180SupplyVals,
     Project,
+)
+
+# Simulation infrastructure
+from .sim import (
     # Simulation options
     sim_options,
     get_sim_options,
@@ -85,7 +70,12 @@ from .flow import (
     extract_measurement,
     compute_settling_time,
     compute_delay,
-    # Measurement functions
+    # Netlist generation
+    write_sim_netlist,
+)
+
+# Measurement functions
+from .measure import (
     comp_offset_mV,
     comp_noise_sigma_mV,
     comp_delay_ns,
@@ -96,39 +86,14 @@ from .flow import (
     samp_settling_ns,
     samp_charge_injection_mV,
     cdac_settling_ns,
-    # Plotting
-    configure_matplotlib,
-    save_plot,
-    # Pytest fixture
-    SimTestMode,
 )
 
+# Plotting
+from .plot import configure_matplotlib, save_plot
+
 __all__ = [
-    # Generators
-    "Samp",
-    "SampParams",
-    "samp_variants",
-    "Comp",
-    "CompParams",
-    "comp_variants",
-    "is_valid_comp_params",
-    "Cdac",
-    "CdacParams",
-    "cdac_variants",
-    "is_valid_cdac_params",
-    "get_cdac_weights",
-    "get_cdac_n_bits",
-    # Testbenches
-    "SampTb",
-    "SampTbParams",
-    "CompTb",
-    "CompTbParams",
-    "CdacTb",
-    "CdacTbParams",
-    # PDK
-    "get_pdk",
-    "set_pdk",
-    "GenericPdk",
+    # Pytest
+    "SimTestMode",
     # Enums
     "SwitchType",
     "PreampDiffpair",
@@ -141,8 +106,12 @@ __all__ = [
     "RedunStrat",
     "SplitStrat",
     "CapType",
+    # PVT and supply
     "Pvt",
     "SupplyVals",
+    "Tsmc65SupplyVals",
+    "Tsmc28SupplyVals",
+    "Tower180SupplyVals",
     "Project",
     # Simulation options
     "sim_options",
@@ -170,10 +139,13 @@ __all__ = [
     "run_parameter_sweep",
     "run_pvt_sweep",
     "run_monte_carlo",
+    # Result extraction
     "extract_waveform",
     "extract_measurement",
     "compute_settling_time",
     "compute_delay",
+    # Netlist generation
+    "write_sim_netlist",
     # Measurement functions
     "comp_offset_mV",
     "comp_noise_sigma_mV",
@@ -188,6 +160,4 @@ __all__ = [
     # Plotting
     "configure_matplotlib",
     "save_plot",
-    # Pytest
-    "SimTestMode",
 ]

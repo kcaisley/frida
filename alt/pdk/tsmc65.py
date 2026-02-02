@@ -13,7 +13,6 @@ Sections: tt_lib, ss_lib, ff_lib, sf_lib, fs_lib, mc_lib
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -68,7 +67,7 @@ def _xtor_module(modname: str) -> h.ExternalModule:
 
 
 # MOS transistor dictionary: (MosType, MosVth) -> ExternalModule
-xtors: Dict[tuple, h.ExternalModule] = {
+xtors: dict[tuple, h.ExternalModule] = {
     # NMOS variants
     (MosType.NMOS, MosVth.LOW): _xtor_module("nch_lvt"),
     (MosType.NMOS, MosVth.STD): _xtor_module("nch"),
@@ -106,7 +105,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include.
         """
-        corner_map: Dict[Corner, str] = {
+        corner_map: dict[Corner, str] = {
             Corner.TYP: "tt_lib",
             Corner.FAST: "ff_lib",
             Corner.SLOW: "ss_lib",
@@ -134,7 +133,7 @@ class Install(PdkInstallation):
 class _Cache:
     """Cache for device calls to avoid duplicate instantiation."""
 
-    mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
+    mos_modcalls: dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 _CACHE = _Cache()
@@ -288,7 +287,7 @@ class Tsmc65Pdk(FridaPdk):
     VDD_NOM = 1200 * m
 
     def __init__(self):
-        self._install: Optional[Install] = None
+        self._install: Install | None = None
 
     @property
     def name(self) -> str:
@@ -329,6 +328,6 @@ class Tsmc65Pdk(FridaPdk):
         """Compile primitives to TSMC65 PDK modules."""
         return Tsmc65Walker().walk(src)
 
-    def include_statements(self, corner: Corner) -> List[hs.Lib]:
+    def include_statements(self, corner: Corner) -> list[hs.Lib]:
         """Return model includes for simulation at given corner."""
         return [self.install.include(corner)]

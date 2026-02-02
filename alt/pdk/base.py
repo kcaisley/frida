@@ -6,7 +6,6 @@ PDK-specific transistor models and compilation routines.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -60,12 +59,12 @@ class FridaPdk(ABC):
         ...
 
     @property
-    def NmosHvt(self) -> Optional[h.ExternalModule]:
+    def NmosHvt(self) -> h.ExternalModule | None:
         """High Vth NMOS device. Optional - returns None if not available."""
         return None
 
     @property
-    def PmosHvt(self) -> Optional[h.ExternalModule]:
+    def PmosHvt(self) -> h.ExternalModule | None:
         """High Vth PMOS device. Optional - returns None if not available."""
         return None
 
@@ -79,7 +78,7 @@ class FridaPdk(ABC):
         """
         ...
 
-    def include_statements(self, corner: Corner) -> List[hs.Lib]:
+    def include_statements(self, corner: Corner) -> list[hs.Lib]:
         """
         Return simulator include statements for this PDK at given corner.
 

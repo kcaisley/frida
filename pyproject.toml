@@ -20,7 +20,18 @@ dev = [
 ]
 
 [tool.basedpyright]
-ignore = ["alt/**"]
+typeCheckingMode = "off"
+
+[tool.ruff.lint]
+ignore = ["E741"]  # Allow 'l' for transistor length
 
 [tool.pytest.ini_options]
 testpaths = ["alt"]
+python_files = ["test_*.py"]
+# Suppress protobuf deprecation warning from vlsirtools dependency.
+# The warning is about Python 3.14 C API changes in google._upb._message.
+# Vlsir pins protobuf~=4.23 (in libs/Vlsir/bindings/python/setup.py),
+# which prevents upgrading to protobuf 5.x/6.x where this may be fixed.
+filterwarnings = [
+    "ignore:Type google._upb._message:DeprecationWarning",
+]

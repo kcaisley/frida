@@ -1,134 +1,19 @@
 """
-Sampling Switch generator for FRIDA.
+Sampler testbench and tests for FRIDA.
 
-Supports NMOS, PMOS, and transmission gate topologies
-with configurable device sizing and threshold voltage.
-
-Includes testbench, simulation definitions, and pytest test functions.
-
-Note: Generators use h.Mos primitives with MosType/MosVth parameters.
-Call pdk.compile(module) after generation to convert to PDK-specific devices.
+Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
 import io
-from typing import List
 
 import hdl21 as h
 import hdl21.sim as hs
-from hdl21.pdk import Corner
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, MosType, MosVth, Vdc, Vpulse
+from hdl21.primitives import C, MosVth, Vdc, Vpulse
 
-from .common.params import Project, Pvt, SupplyVals, SwitchType, Vth
-from .conftest import SimTestMode
-from .pdk import get_pdk
-
-
-@h.paramclass
-class SampParams:
-    """Sampling switch parameters.
-
-    Device sizing uses multiplier-based scaling:
-    - w: Width multiplier (w=10 means 10×Wmin, e.g., 1.2µm for TSMC65)
-    - l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for TSMC65)
-
-    This approach allows the same design to be portable across PDKs.
-    """
-
-    switch_type = h.Param(
-        dtype=SwitchType, desc="Switch topology", default=SwitchType.NMOS
-    )
-    w = h.Param(dtype=int, desc="Width multiplier (× Wmin)", default=10)
-    l = h.Param(dtype=int, desc="Length multiplier (× Lmin)", default=1)
-    vth = h.Param(dtype=Vth, desc="Threshold voltage flavor", default=Vth.LVT)
-
-
-def _vth_to_mosvth(vth: Vth) -> MosVth:
-    """Convert FRIDA Vth enum to HDL21 MosVth."""
-    return MosVth.LOW if vth == Vth.LVT else MosVth.STD
-
-
-@h.generator
-def Samp(p: SampParams) -> h.Module:
-    """
-    Sampling switch generator.
-
-    Generates NMOS, PMOS, or transmission gate switches
-    based on the switch_type parameter.
-
-    Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
-    """
-    mosvth = _vth_to_mosvth(p.vth)
-
-    @h.module
-    class Samp:
-        """Sampling switch module."""
-
-        # IO ports
-        din = h.Input(desc="Data input")
-        dout = h.Output(desc="Data output")
-        clk = h.Input(desc="Clock (active high)")
-        clk_b = h.Input(desc="Clock complement (active low)")
-        vdd = h.Port(desc="Supply")
-        vss = h.Port(desc="Ground")
-
-    # Instantiate devices based on switch type
-    if p.switch_type == SwitchType.NMOS:
-        Samp.mn = h.Mos(tp=MosType.NMOS, vth=mosvth, w=p.w, l=p.l)(
-            d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss
-        )
-
-    elif p.switch_type == SwitchType.PMOS:
-        Samp.mp = h.Mos(tp=MosType.PMOS, vth=mosvth, w=p.w, l=p.l)(
-            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
-        )
-
-    elif p.switch_type == SwitchType.TGATE:
-        Samp.mn = h.Mos(tp=MosType.NMOS, vth=mosvth, w=p.w, l=p.l)(
-            d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss
-        )
-        Samp.mp = h.Mos(tp=MosType.PMOS, vth=mosvth, w=p.w, l=p.l)(
-            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
-        )
-
-    return Samp
-
-
-# Convenience function to generate parameter sweep variants
-def samp_variants(
-    w_list: list = None,
-    l_list: list = None,
-    switch_types: list = None,
-    vth_list: list = None,
-) -> list:
-    """
-    Generate a list of SampParams for parameter sweeps.
-
-    Args:
-        w_list: List of width multipliers (default: [5, 10, 20, 40])
-        l_list: List of length multipliers (default: [1, 2])
-        switch_types: List of SwitchType values (default: all)
-        vth_list: List of Vth values (default: all)
-
-    Returns:
-        List of SampParams instances
-    """
-    if w_list is None:
-        w_list = [5, 10, 20, 40]
-    if l_list is None:
-        l_list = [1, 2]
-    if switch_types is None:
-        switch_types = list(SwitchType)
-    if vth_list is None:
-        vth_list = list(Vth)
-
-    return [
-        SampParams(switch_type=st, w=w, l=l, vth=vth)
-        for st in switch_types
-        for w in w_list
-        for l in l_list
-        for vth in vth_list
-    ]
+from ..flow import Project, Pvt, SimTestMode, SupplyVals, SwitchType, sim_options, write_sim_netlist
+from ..pdk import get_pdk
+from .samp import Samp, SampParams, samp_variants
 
 
 # =============================================================================
@@ -214,6 +99,11 @@ def SampTb(params: SampTbParams) -> h.Module:
     return tb
 
 
+# =============================================================================
+# SIMULATION DEFINITIONS
+# =============================================================================
+
+
 def sim_input(params: SampTbParams) -> hs.Sim:
     """
     Create simulation input for sampler characterization.
@@ -224,7 +114,7 @@ def sim_input(params: SampTbParams) -> hs.Sim:
     - Charge injection
     """
     # Get temperature from PVT
-    temp = Project.temper(params.pvt.t)
+    sim_temp = Project.temper(params.pvt.t)
 
     @hs.sim
     class SampSim:
@@ -241,15 +131,8 @@ def sim_input(params: SampTbParams) -> hs.Sim:
             expr="when V(xtop.dout)=0.99*V(xtop.din) rise=1",
         )
 
-        # Temperature setting
-        # Use _ for Literal (frozen dataclass, has no name field)
-        _ = hs.Literal(
-            f"""
-            simulator lang=spice
-            .temp {temp}
-            simulator lang=spectre
-        """
-        )
+        # Temperature setting using hs.Options
+        temp = hs.Options(name="temp", value=sim_temp)
 
     return SampSim
 
@@ -259,7 +142,7 @@ def sim_input(params: SampTbParams) -> hs.Sim:
 # =============================================================================
 
 
-def run_switch_type_sweep(pvt: Pvt = None) -> List[tuple]:
+def run_switch_type_sweep(pvt: Pvt = None) -> list[tuple]:
     """
     Sweep over switch types at given PVT conditions.
 
@@ -268,12 +151,9 @@ def run_switch_type_sweep(pvt: Pvt = None) -> List[tuple]:
     if pvt is None:
         pvt = Pvt()
 
-    from .common.sim_options import sim_options
-    from .measure import samp_settling_ns
-
     results = []
     for switch_type in SwitchType:
-        for vth in Vth:
+        for vth in [MosVth.LOW, MosVth.STD]:
             samp_params = SampParams(switch_type=switch_type, w=10, l=1, vth=vth)
             tb_params = SampTbParams(pvt=pvt, samp=samp_params)
             sim = sim_input(tb_params)
@@ -287,7 +167,7 @@ def run_switch_type_sweep(pvt: Pvt = None) -> List[tuple]:
 def run_width_sweep(
     pvt: Pvt = None,
     switch_type: SwitchType = SwitchType.NMOS,
-) -> List[tuple]:
+) -> list[tuple]:
     """
     Sweep over device widths for a given switch type.
 
@@ -320,16 +200,21 @@ def test_samp_netlist(simtestmode: SimTestMode):
         return
 
     pdk = get_pdk()
+    outdir = sim_options.rundir
+    outdir.mkdir(exist_ok=True)
+
     count = 0
     for switch_type in SwitchType:
-        for vth in Vth:
+        for vth in [MosVth.LOW, MosVth.STD]:
             params = SampParams(switch_type=switch_type, vth=vth)
             samp = Samp(params)
             pdk.compile(samp)
-            h.netlist(samp, dest=io.StringIO())
+            netlist_path = outdir / f"samp_{switch_type.name}_{vth.name}.sp"
+            with open(netlist_path, "w") as f:
+                h.netlist(samp, dest=f)
             count += 1
 
-    print(f"Generated {count} sampler netlists")
+    print(f"Generated {count} sampler netlists in {outdir}/")
 
 
 def test_samp_tb_netlist(simtestmode: SimTestMode):
@@ -338,11 +223,22 @@ def test_samp_tb_netlist(simtestmode: SimTestMode):
         return
 
     pdk = get_pdk()
+    outdir = sim_options.rundir
+    outdir.mkdir(exist_ok=True)
+
     params = SampTbParams()
     tb = SampTb(params)
     pdk.compile(tb)
-    h.netlist(tb, dest=io.StringIO())
-    print("Testbench netlist generated successfully")
+    netlist_path = outdir / "samp_tb.sp"
+    with open(netlist_path, "w") as f:
+        h.netlist(tb, dest=f)
+    print(f"Sampler testbench netlist: {netlist_path}")
+
+    # Also write simulation netlist (same path as actual simulation)
+    sim = sim_input(params)
+    sim_netlist_path = outdir / "samp_tb.scs"
+    write_sim_netlist(sim, sim_netlist_path, compact=True)
+    print(f"Sampler simulation netlist: {sim_netlist_path}")
 
 
 def test_samp_variants(simtestmode: SimTestMode):
@@ -351,14 +247,19 @@ def test_samp_variants(simtestmode: SimTestMode):
         return
 
     pdk = get_pdk()
+    outdir = sim_options.rundir
+    outdir.mkdir(exist_ok=True)
+
     variants = samp_variants()
     print(f"Generated {len(variants)} sampler variants")
 
-    # Verify all variants produce valid netlists
-    for params in variants[:5]:  # Test first 5
+    # Verify first 5 variants produce valid netlists
+    for i, params in enumerate(variants[:5]):
         samp = Samp(params)
         pdk.compile(samp)
-        h.netlist(samp, dest=io.StringIO())
+        netlist_path = outdir / f"samp_variant_{i}.sp"
+        with open(netlist_path, "w") as f:
+            h.netlist(samp, dest=f)
 
 
 def test_samp_sim(simtestmode: SimTestMode):
@@ -371,9 +272,6 @@ def test_samp_sim(simtestmode: SimTestMode):
 
     elif simtestmode == SimTestMode.MIN:
         # Run one quick simulation
-        from .common.sim_options import sim_options
-        from .measure import samp_settling_ns
-
         params = SampTbParams(samp=SampParams(switch_type=SwitchType.TGATE))
         sim = sim_input(params)
         # result = sim.run(sim_options)

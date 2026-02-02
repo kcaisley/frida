@@ -13,7 +13,6 @@ Sections: att_pt (tt), ass_ps (ss), aff_pf (ff), asf_ps (sf), afs_pf (fs), local
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -68,7 +67,7 @@ def _xtor_module(modname: str) -> h.ExternalModule:
 
 
 # MOS transistor dictionary: (MosType, MosVth) -> ExternalModule
-xtors: Dict[tuple, h.ExternalModule] = {
+xtors: dict[tuple, h.ExternalModule] = {
     # NMOS variants (using _mac macro models)
     (MosType.NMOS, MosVth.LOW): _xtor_module("nch_lvt_mac"),
     (MosType.NMOS, MosVth.STD): _xtor_module("nch_svt_mac"),
@@ -114,7 +113,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include.
         """
-        corner_map: Dict[Corner, str] = {
+        corner_map: dict[Corner, str] = {
             Corner.TYP: "att_pt",
             Corner.FAST: "aff_pf",
             Corner.SLOW: "ass_ps",
@@ -167,7 +166,7 @@ class Install(PdkInstallation):
 class _Cache:
     """Cache for device calls to avoid duplicate instantiation."""
 
-    mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
+    mos_modcalls: dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 _CACHE = _Cache()
@@ -321,7 +320,7 @@ class Tsmc28Pdk(FridaPdk):
     VDD_NOM = 900 * m
 
     def __init__(self):
-        self._install: Optional[Install] = None
+        self._install: Install | None = None
 
     @property
     def name(self) -> str:
@@ -362,6 +361,6 @@ class Tsmc28Pdk(FridaPdk):
         """Compile primitives to TSMC28 PDK modules."""
         return Tsmc28Walker().walk(src)
 
-    def include_statements(self, corner: Corner) -> List[hs.Lib]:
+    def include_statements(self, corner: Corner) -> list[hs.Lib]:
         """Return model includes for simulation at given corner."""
         return [self.install.include(corner)]

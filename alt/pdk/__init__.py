@@ -21,16 +21,15 @@ Usage:
 Note: Changing PDK resets generator caches to ensure fresh device instantiation.
 """
 
-from typing import Optional, Union, Dict, Type
 from .base import FridaPdk
 from .generic import GenericPdk
 from .ihp130 import Ihp130Pdk
-from .tsmc65 import Tsmc65Pdk
-from .tsmc28 import Tsmc28Pdk
 from .tower180 import Tower180Pdk
+from .tsmc28 import Tsmc28Pdk
+from .tsmc65 import Tsmc65Pdk
 
 # Registry of available PDKs by name
-_PDK_REGISTRY: Dict[str, Type[FridaPdk]] = {
+_PDK_REGISTRY: dict[str, type[FridaPdk]] = {
     "generic": GenericPdk,
     "ihp130": Ihp130Pdk,
     "tsmc65": Tsmc65Pdk,
@@ -39,7 +38,7 @@ _PDK_REGISTRY: Dict[str, Type[FridaPdk]] = {
 }
 
 # Global PDK instance - set via set_pdk() or defaults to GenericPdk
-_active_pdk: Optional[FridaPdk] = None
+_active_pdk: FridaPdk | None = None
 
 
 def _reset_generator_caches() -> None:
@@ -50,21 +49,27 @@ def _reset_generator_caches() -> None:
     """
     # Import generators lazily to avoid circular imports
     try:
-        from ..samp import Samp, SampTb
+        from ..samp.samp import Samp
+        from ..samp.test_samp import SampTb
+
         Samp.Cache.reset()
         SampTb.Cache.reset()
     except (ImportError, AttributeError):
         pass
 
     try:
-        from ..comp import Comp, CompTb
+        from ..comp.comp import Comp
+        from ..comp.test_comp import CompTb
+
         Comp.Cache.reset()
         CompTb.Cache.reset()
     except (ImportError, AttributeError):
         pass
 
     try:
-        from ..cdac import Cdac, CdacTb
+        from ..cdac.cdac import Cdac
+        from ..cdac.test_cdac import CdacTb
+
         Cdac.Cache.reset()
         CdacTb.Cache.reset()
     except (ImportError, AttributeError):
@@ -79,7 +84,7 @@ def get_pdk() -> FridaPdk:
     return _active_pdk
 
 
-def set_pdk(pdk: Union[str, FridaPdk]) -> None:
+def set_pdk(pdk: str | FridaPdk) -> None:
     """
     Set the active PDK for all FRIDA generators.
 

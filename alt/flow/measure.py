@@ -5,7 +5,7 @@ Provides post-processing functions to extract metrics from simulation results.
 These functions work with HDL21 SimResult objects from vlsirtools.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import hdl21.sim as hs
 import numpy as np
@@ -20,7 +20,7 @@ def _find_crossings(
     time: np.ndarray,
     threshold: float,
     rising: bool = True,
-) -> List[float]:
+) -> list[float]:
     """
     Find interpolated crossing times.
 
@@ -57,7 +57,7 @@ def _find_crossings(
 
 def _get_waveform(
     result: hs.SimResult, name: str, analysis_idx: int = 0
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """
     Extract waveform from SimResult.
 
@@ -81,7 +81,7 @@ def _get_waveform(
         return None
 
 
-def _get_time(result: hs.SimResult, analysis_idx: int = 0) -> Optional[np.ndarray]:
+def _get_time(result: hs.SimResult, analysis_idx: int = 0) -> np.ndarray | None:
     """
     Extract time array from SimResult.
 
@@ -332,7 +332,7 @@ def comp_power_uW(
 def compute_inl_dnl(
     codes: np.ndarray,
     outputs: np.ndarray,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute INL and DNL from code sweep results.
 
@@ -424,7 +424,7 @@ def cdac_settling_ns(
 # =============================================================================
 
 
-def mc_statistics(values: List[float]) -> Dict[str, float]:
+def mc_statistics(values: list[float]) -> dict[str, float]:
     """
     Compute statistics from Monte Carlo results.
 

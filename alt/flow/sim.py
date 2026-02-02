@@ -8,18 +8,20 @@ Provides utilities for:
 - Common testbench patterns
 """
 
-from copy import copy
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Any, Callable, Union, IO
 
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.pdk import Corner
-from hdl21.prefix import f, m, n, p, µ
-from hdl21.primitives import C, Vdc, Vpulse
+from hdl21.sim import to_proto
+from vlsirtools.spice import SimOptions, SupportedSimulators, ResultFormat
+from vlsirtools.netlist import NetlistOptions
+from vlsirtools.netlist.spectre import SpectreNetlister
 
-from .common.params import Project, Pvt, SupplyVals
+from .params import Project, Pvt
 
 # Re-export HDL21 sim types for convenience
 LinearSweep = hs.LinearSweep
@@ -34,6 +36,62 @@ Op = hs.Op
 Meas = hs.Meas
 Save = hs.Save
 SaveMode = hs.SaveMode
+
+
+# =============================================================================
+# SIMULATION OPTIONS
+# =============================================================================
+
+
+# Default simulation options for Spectre
+sim_options = SimOptions(
+    rundir=Path("./scratch"),
+    fmt=ResultFormat.SIM_DATA,
+    simulator=SupportedSimulators.SPECTRE,
+)
+
+
+def get_sim_options(
+    rundir: Path = None,
+    simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
+) -> SimOptions:
+    """
+    Create simulation options with custom settings.
+
+    Args:
+        rundir: Directory for simulation files (None for temp dir)
+        simulator: Simulator to use (SPECTRE, NGSPICE, etc.)
+
+    Returns:
+        SimOptions instance
+    """
+    return SimOptions(
+        rundir=rundir,
+        fmt=ResultFormat.SIM_DATA,
+        simulator=simulator,
+    )
+
+
+# =============================================================================
+# MONTE CARLO CONFIGURATION
+# =============================================================================
+
+
+@dataclass
+class MCConfig:
+    """Monte Carlo simulation configuration."""
+
+    numruns: int = 10  # Fixed: 10 runs for manageability
+    seed: int = 12345  # Fixed seed for reproducibility
+    variations: str = "mismatch"  # Mismatch only (most relevant)
+
+
+DEFAULT_MC_CONFIG = MCConfig()
+
+
+# =============================================================================
+# SIMULATION CONFIGURATION
+# =============================================================================
 
 
 @dataclass
@@ -53,7 +111,7 @@ def create_tran_sim(
     tstop: h.Scalar,
     tstep: h.Scalar = None,
     pvt: Pvt = None,
-    measurements: Dict[str, str] = None,
+    measurements: dict[str, str] = None,
     monte_carlo: int = None,
 ) -> hs.Sim:
     """
@@ -82,15 +140,8 @@ def create_tran_sim(
         # Base transient analysis
         tr = hs.Tran(tstop=tstop, tstep=tstep)
 
-        # Temperature setting
-        # Use _ for Literal (frozen dataclass, has no name field)
-        _ = hs.Literal(
-            f"""
-            simulator lang=spice
-            .temp {config.temp}
-            simulator lang=spectre
-        """
-        )
+        # Temperature setting using hs.Options
+        temp = hs.Options(name="temp", value=config.temp)
 
     # Add measurements
     if measurements:
@@ -107,10 +158,10 @@ def create_tran_sim(
 
 def run_parameter_sweep(
     tb_generator: Callable,
-    param_list: List[Any],
+    param_list: list[Any],
     sim_options,
     parallel: bool = True,
-) -> List[hs.SimResult]:
+) -> list[hs.SimResult]:
     """
     Run simulations across a list of parameter configurations.
 
@@ -140,10 +191,10 @@ def run_parameter_sweep(
 def run_pvt_sweep(
     tb_generator: Callable,
     base_params: Any,
-    corners: List[Corner] = None,
-    temps: List[int] = None,
+    corners: list[Corner] = None,
+    temps: list[int] = None,
     sim_options=None,
-) -> Dict[str, hs.SimResult]:
+) -> dict[str, hs.SimResult]:
     """
     Run simulations across PVT corners.
 
@@ -329,65 +380,34 @@ def compute_delay(
     return t_out - t_in
 
 
-def compute_inl_dnl(
-    codes: np.ndarray,
-    outputs: np.ndarray,
-) -> Dict[str, Any]:
-    """
-    Compute INL and DNL from code sweep results.
-
-    Args:
-        codes: Array of DAC codes
-        outputs: Array of corresponding output values
-
-    Returns:
-        Dict with 'inl', 'dnl', 'inl_max', 'dnl_max' arrays/values
-    """
-    n_codes = len(codes)
-
-    # Ideal LSB from endpoint fit
-    lsb_ideal = (outputs[-1] - outputs[0]) / (n_codes - 1)
-
-    # DNL: difference from ideal step
-    steps = np.diff(outputs)
-    dnl = (steps / lsb_ideal) - 1
-
-    # INL: cumulative deviation from ideal line
-    ideal_line = outputs[0] + np.arange(n_codes) * lsb_ideal
-    inl = (outputs - ideal_line) / lsb_ideal
-
-    return {
-        "dnl": dnl,
-        "inl": inl,
-        "dnl_max": np.max(np.abs(dnl)),
-        "inl_max": np.max(np.abs(inl)),
-        "lsb": lsb_ideal,
-    }
-
-
 # =============================================================================
-# Monte Carlo Statistics
+# NETLIST GENERATION
 # =============================================================================
 
 
-def mc_statistics(
-    results: List[float],
-) -> Dict[str, float]:
+def write_sim_netlist(
+    sim_class,
+    dest: Union[str, Path, IO],
+    compact: bool = True,
+) -> None:
     """
-    Compute statistics from Monte Carlo results.
+    Write simulation netlist to dest.
+
+    Uses the same code path as actual Spectre simulation,
+    ensuring NETLIST mode outputs match simulation inputs exactly.
 
     Args:
-        results: List of scalar results from MC runs
-
-    Returns:
-        Dict with mean, std, min, max, 3sigma values
+        sim_class: HDL21 Sim class (decorated with @hs.sim)
+        dest: Output path or file-like object
+        compact: Use compact instance formatting (default True)
     """
-    arr = np.array(results)
-    return {
-        "mean": np.mean(arr),
-        "std": np.std(arr),
-        "min": np.min(arr),
-        "max": np.max(arr),
-        "sigma3_low": np.mean(arr) - 3 * np.std(arr),
-        "sigma3_high": np.mean(arr) + 3 * np.std(arr),
-    }
+    proto = to_proto(sim_class)
+    opts = NetlistOptions(compact=compact)
+
+    if isinstance(dest, (str, Path)):
+        with open(dest, "w") as f:
+            netlister = SpectreNetlister(dest=f, opts=opts)
+            netlister.write_sim_input(proto)
+    else:
+        netlister = SpectreNetlister(dest=dest, opts=opts)
+        netlister.write_sim_input(proto)

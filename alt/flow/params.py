@@ -3,12 +3,42 @@ Shared parameters, enums, and dataclasses for FRIDA HDL21 generators.
 """
 
 from enum import Enum
-from typing import List, ClassVar
+from typing import ClassVar
 
 import hdl21 as h
 from hdl21.pdk import Corner
 from hdl21.prefix import m
 from pydantic.dataclasses import dataclass
+
+
+class SimTestMode(Enum):
+    """
+    Simulation test mode controlling test execution depth.
+
+    Schematic/Simulation stages:
+        NETLIST: HDL21 netlist generation only (no simulator needed)
+        MIN: One setting, one corner (quick sanity check)
+        TYP: One corner, many settings (typical parameter sweep)
+        MAX: Full PVT sweep (comprehensive characterization)
+
+    Physical design stages (future):
+        LAYOUT: gdsfactory layout generation
+        DRC: KLayout DRC checks
+        LVS: Layout vs Schematic
+        PNR: OpenROAD place & route
+    """
+
+    # Schematic/Simulation stages
+    NETLIST = "netlist"
+    MIN = "min"
+    TYP = "typ"
+    MAX = "max"
+
+    # Physical design stages (future)
+    LAYOUT = "layout"
+    DRC = "drc"
+    LVS = "lvs"
+    PNR = "pnr"
 
 
 class SwitchType(Enum):
@@ -17,13 +47,6 @@ class SwitchType(Enum):
     NMOS = "nmos"
     PMOS = "pmos"
     TGATE = "tgate"
-
-
-class Vth(Enum):
-    """Transistor threshold voltage flavor."""
-
-    LVT = "lvt"
-    SVT = "svt"
 
 
 # Comparator topology enums
@@ -109,7 +132,7 @@ class SupplyVals:
 
     # Default values for a generic 1.2V process
     # Override these class variables in PDK-specific subclasses
-    VDD_VALS: ClassVar[List] = [1080 * m, 1200 * m, 1320 * m]  # -10%, nom, +10%
+    VDD_VALS: ClassVar[list] = [1080 * m, 1200 * m, 1320 * m]  # -10%, nom, +10%
 
     @classmethod
     def corner(cls, corner: Corner) -> "SupplyVals":
@@ -129,7 +152,7 @@ class Tsmc65SupplyVals(SupplyVals):
     Corners: -10%, nominal, +10%
     """
 
-    VDD_VALS: ClassVar[List] = [1080 * m, 1200 * m, 1320 * m]
+    VDD_VALS: ClassVar[list] = [1080 * m, 1200 * m, 1320 * m]
 
 
 @dataclass
@@ -141,7 +164,7 @@ class Tsmc28SupplyVals(SupplyVals):
     Corners: -10%, nominal, +10%
     """
 
-    VDD_VALS: ClassVar[List] = [810 * m, 900 * m, 990 * m]
+    VDD_VALS: ClassVar[list] = [810 * m, 900 * m, 990 * m]
 
 
 @dataclass
@@ -153,7 +176,7 @@ class Tower180SupplyVals(SupplyVals):
     Corners: -10%, nominal, +10%
     """
 
-    VDD_VALS: ClassVar[List] = [1620 * m, 1800 * m, 1980 * m]
+    VDD_VALS: ClassVar[list] = [1620 * m, 1800 * m, 1980 * m]
 
 
 class Project:

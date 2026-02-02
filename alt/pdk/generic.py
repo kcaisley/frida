@@ -12,10 +12,9 @@ treated as multipliers of W_MIN/L_MIN to produce physical dimensions.
 """
 
 import copy
-from typing import Optional
 
 import hdl21 as h
-from hdl21.prefix import m, n, µ
+from hdl21.prefix import m, n
 from hdl21.primitives import Mos, MosType
 from hdl21.primitives import MosParams as PrimMosParams
 from vlsirtools import SpiceType
@@ -116,7 +115,7 @@ class GenericPdkWalker(h.HierarchyWalker):
 
     def _scale_dimension(
         self,
-        value: Optional[h.Scalar],
+        value: h.Scalar | None,
         min_dim: h.Prefixed,
         default_mult: int = 1,
     ) -> h.Prefixed:

@@ -19,12 +19,11 @@ https://github.com/IHP-GmbH/IHP-Open-PDK
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.pdk import Corner, PdkInstallation
-from hdl21.prefix import NANO, m, n
+from hdl21.prefix import m, n
 from hdl21.primitives import Mos, MosParams, MosType, MosVth
 from vlsirtools import SpiceType
 
@@ -101,19 +100,23 @@ def _xtor_module(modname: str, paramtype=Ihp130MosParams) -> h.ExternalModule:
     )
 
 
+# Create ExternalModules once and reuse for multiple Vth mappings
+_sg13_lv_nmos = _xtor_module("sg13_lv_nmos")
+_sg13_lv_pmos = _xtor_module("sg13_lv_pmos")
+
 # MOS transistor dictionary: (MosType, MosVth) -> ExternalModule
 # IHP SG13G2 has only STD Vth for both LV and HV devices
-xtors: Dict[tuple, h.ExternalModule] = {
+xtors: dict[tuple, h.ExternalModule] = {
     # LV CMOS (1.2V core) - standard threshold only
-    (MosType.NMOS, MosVth.STD): _xtor_module("sg13_lv_nmos"),
-    (MosType.PMOS, MosVth.STD): _xtor_module("sg13_lv_pmos"),
+    (MosType.NMOS, MosVth.STD): _sg13_lv_nmos,
+    (MosType.PMOS, MosVth.STD): _sg13_lv_pmos,
     # Map LVT requests to STD (IHP doesn't have LVT/HVT variants for LV)
-    (MosType.NMOS, MosVth.LOW): _xtor_module("sg13_lv_nmos"),
-    (MosType.PMOS, MosVth.LOW): _xtor_module("sg13_lv_pmos"),
+    (MosType.NMOS, MosVth.LOW): _sg13_lv_nmos,
+    (MosType.PMOS, MosVth.LOW): _sg13_lv_pmos,
 }
 
 # HV transistors (3.3V I/O) - separate dict for different params
-xtors_hv: Dict[tuple, h.ExternalModule] = {
+xtors_hv: dict[tuple, h.ExternalModule] = {
     (MosType.NMOS, MosVth.STD): _xtor_module("sg13_hv_nmos", Ihp130MosHvParams),
     (MosType.PMOS, MosVth.STD): _xtor_module("sg13_hv_pmos", Ihp130MosHvParams),
 }
@@ -151,7 +154,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for LV MOS devices.
         """
-        corner_map: Dict[Corner, str] = {
+        corner_map: dict[Corner, str] = {
             Corner.TYP: "tt",
             Corner.FAST: "ff",
             Corner.SLOW: "ss",
@@ -176,7 +179,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for HV MOS devices.
         """
-        corner_map: Dict[Corner, str] = {
+        corner_map: dict[Corner, str] = {
             Corner.TYP: "tt",
             Corner.FAST: "ff",
             Corner.SLOW: "ss",
@@ -209,7 +212,7 @@ class Install(PdkInstallation):
 class _Cache:
     """Cache for device calls to avoid duplicate instantiation."""
 
-    mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
+    mos_modcalls: dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 _CACHE = _Cache()
@@ -281,7 +284,7 @@ class Ihp130Walker(h.HierarchyWalker):
 
     def _scale_dimension(
         self,
-        value: Optional[h.Scalar],
+        value: h.Scalar | None,
         min_dim: h.Prefixed,
         default_mult: int = 1,
     ) -> h.Prefixed:
@@ -367,7 +370,7 @@ class Ihp130Pdk(FridaPdk):
     VDD_NOM = 1200 * m
 
     def __init__(self):
-        self._install: Optional[Install] = None
+        self._install: Install | None = None
 
     @property
     def name(self) -> str:
@@ -399,12 +402,12 @@ class Ihp130Pdk(FridaPdk):
         return xtors[(MosType.PMOS, MosVth.LOW)]
 
     @property
-    def NmosHvt(self) -> Optional[h.ExternalModule]:
+    def NmosHvt(self) -> h.ExternalModule | None:
         """IHP doesn't have HVT variant - return None."""
         return None
 
     @property
-    def PmosHvt(self) -> Optional[h.ExternalModule]:
+    def PmosHvt(self) -> h.ExternalModule | None:
         """IHP doesn't have HVT variant - return None."""
         return None
 
@@ -422,7 +425,7 @@ class Ihp130Pdk(FridaPdk):
         """Compile primitives to IHP130 PDK modules."""
         return Ihp130Walker().walk(src)
 
-    def include_statements(self, corner: Corner) -> List[hs.Lib]:
+    def include_statements(self, corner: Corner) -> list[hs.Lib]:
         """
         Return model includes for simulation at given corner.
 

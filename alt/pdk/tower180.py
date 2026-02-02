@@ -16,7 +16,6 @@ Model files:
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -71,7 +70,7 @@ def _xtor_module(modname: str) -> h.ExternalModule:
 
 
 # MOS transistor dictionary: (MosType, MosVth) -> ExternalModule
-xtors: Dict[tuple, h.ExternalModule] = {
+xtors: dict[tuple, h.ExternalModule] = {
     # NMOS variants
     (MosType.NMOS, MosVth.LOW): _xtor_module("n18lvt"),
     (MosType.NMOS, MosVth.STD): _xtor_module("n18"),
@@ -116,7 +115,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The FET model library include.
         """
-        corner_map: Dict[Corner, str] = {
+        corner_map: dict[Corner, str] = {
             Corner.TYP: "NOM",
             Corner.FAST: "FAST",
             Corner.SLOW: "SLOW",
@@ -172,7 +171,7 @@ class Install(PdkInstallation):
 class _Cache:
     """Cache for device calls to avoid duplicate instantiation."""
 
-    mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
+    mos_modcalls: dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 _CACHE = _Cache()
@@ -228,7 +227,6 @@ class Tower180Walker(h.HierarchyWalker):
         Returns:
             Tower180MosParams with appropriate values.
         """
-        from typing import Optional
 
         w = self._scale_dimension(params.w, Tower180Pdk.W_MIN, default_mult=10)
         l = self._scale_dimension(params.l, Tower180Pdk.L_MIN, default_mult=1)
@@ -328,7 +326,7 @@ class Tower180Pdk(FridaPdk):
     VDD_NOM = 1800 * m
 
     def __init__(self):
-        self._install: Optional[Install] = None
+        self._install: Install | None = None
 
     @property
     def name(self) -> str:
@@ -369,7 +367,7 @@ class Tower180Pdk(FridaPdk):
         """Compile primitives to Tower180 PDK modules."""
         return Tower180Walker().walk(src)
 
-    def include_statements(self, corner: Corner) -> List[hs.Lib]:
+    def include_statements(self, corner: Corner) -> list[hs.Lib]:
         """
         Return model includes for simulation at given corner.
 

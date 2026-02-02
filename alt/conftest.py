@@ -1,90 +1,81 @@
 """
 Pytest configuration for FRIDA HDL21 tests.
 
-Provides the SimTestMode fixture for controlling test execution depth.
-
-Note: SimTestMode enum can be imported without pytest installed,
-but pytest hooks and fixtures only work when running under pytest.
+Provides the SimTestMode fixture for controlling test execution depth
+and PDK selection.
 """
 
-from enum import Enum
+import pytest
+
+from .flow import SimTestMode
+from .pdk import set_pdk, list_pdks
 
 
-class SimTestMode(Enum):
+def pytest_addoption(parser):
+    """Add command line options for test configuration."""
+    parser.addoption(
+        "--mode",
+        action="store",
+        default="netlist",
+        choices=[m.value for m in SimTestMode],
+        help="Test mode: netlist (default), min, typ, max, layout, drc, lvs, pnr",
+    )
+    parser.addoption(
+        "--tech",
+        action="store",
+        default="ihp130",
+        choices=list_pdks(),
+        help=f"Technology/PDK: {list_pdks()}. Default: ihp130",
+    )
+
+
+def pytest_configure(config):
+    """Set up PDK before tests run."""
+    tech_name = config.getoption("--tech")
+    set_pdk(tech_name)
+
+
+@pytest.fixture
+def simtestmode(request) -> SimTestMode:
     """
-    Simulation test mode controlling test execution depth.
+    Get simulation test mode from command line.
 
-    Schematic/Simulation stages:
-        NETLIST: HDL21 netlist generation only (no simulator needed)
-        MIN: One setting, one corner (quick sanity check)
-        TYP: One corner, many settings (typical parameter sweep)
-        MAX: Full PVT sweep (comprehensive characterization)
-
-    Physical design stages (future):
-        LAYOUT: gdsfactory layout generation
-        DRC: KLayout DRC checks
-        LVS: Layout vs Schematic
-        PNR: OpenROAD place & route
+    Usage in tests:
+        def test_something(simtestmode: SimTestMode):
+            if simtestmode == SimTestMode.NETLIST:
+                # Just verify netlist generation
+                ...
+            elif simtestmode == SimTestMode.MIN:
+                # Run one quick simulation
+                ...
+            elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+                # Run parameter sweeps
+                ...
     """
-
-    # Schematic/Simulation stages
-    NETLIST = "netlist"
-    MIN = "min"
-    TYP = "typ"
-    MAX = "max"
-
-    # Physical design stages (future)
-    LAYOUT = "layout"
-    DRC = "drc"
-    LVS = "lvs"
-    PNR = "pnr"
+    mode_str = request.config.getoption("--mode")
+    return SimTestMode(mode_str)
 
 
-# Pytest hooks and fixtures - only defined if pytest is available
-try:
-    import pytest
+@pytest.fixture
+def sim_options():
+    """
+    Provide simulation options for tests that need them.
 
-    def pytest_addoption(parser):
-        """Add --simtestmode command line option."""
-        parser.addoption(
-            "--simtestmode",
-            action="store",
-            default="netlist",
-            choices=[m.value for m in SimTestMode],
-            help="Simulation/flow test mode: netlist (default), min, typ, max, layout, drc, lvs, pnr",
-        )
+    Returns the default Spectre simulation options.
+    """
+    from .flow.sim import sim_options as opts
 
-    @pytest.fixture
-    def simtestmode(request) -> SimTestMode:
-        """
-        Get simulation test mode from command line.
+    return opts
 
-        Usage in tests:
-            def test_something(simtestmode: SimTestMode):
-                if simtestmode == SimTestMode.NETLIST:
-                    # Just verify netlist generation
-                    ...
-                elif simtestmode == SimTestMode.MIN:
-                    # Run one quick simulation
-                    ...
-                elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
-                    # Run parameter sweeps
-                    ...
-        """
-        mode_str = request.config.getoption("--simtestmode")
-        return SimTestMode(mode_str)
 
-    @pytest.fixture
-    def sim_options():
-        """
-        Provide simulation options for tests that need them.
+@pytest.fixture
+def tech(request):
+    """
+    Provide the active technology/PDK instance for tests.
 
-        Returns the default Spectre simulation options.
-        """
-        from .common.sim_options import sim_options as opts
+    The tech is set via the --tech command line option.
+    Default is ihp130 (IHP SG13G2 130nm) since it's open source.
+    """
+    from .pdk import get_pdk
 
-        return opts
-
-except ImportError:
-    # pytest not installed - that's fine for non-test usage
-    pass
+    return get_pdk()
