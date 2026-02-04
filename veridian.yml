@@ -1,5 +1,13 @@
+# Veridian configuration for FRIDA DAQ FPGA modules
+#
+# This configures the Verilator-based linting for SystemVerilog/Verilog files.
+# The basil library has some inherent issues (module name mismatches, Xilinx
+# primitives) that cause warnings - these are suppressed where possible.
+
 include_dirs:
   - /home/kcaisley/libs/basil/basil/firmware/modules
+  - /home/kcaisley/libs/basil/basil/firmware/modules/utils
+
 verilator:
   syntax:
     enabled: true
@@ -8,3 +16,4 @@ verilator:
       - --sv
       - -Wall
       - -I/home/kcaisley/libs/basil/basil/firmware/modules
+      - -I/home/kcaisley/libs/basil/basil/firmware/modules/utils

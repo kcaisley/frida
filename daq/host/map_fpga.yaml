@@ -31,7 +31,7 @@ hw_drivers:
     base_data_addr: 0x80000000
 
   # Sequencer for ADC timing signals
-  # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC
+  # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC, CLK_COMP_CAP, SEN_COMP
   # Output directly drives LVDS transmitters to chip
   - name: seq
     type: seq_gen
@@ -65,15 +65,26 @@ hw_drivers:
     interface: intf
     base_addr: 0x40000
 
+  # Fast SPI receiver for COMP_OUT capture
+  # Replaces hand-rolled shift register + FIFO
+  # SCLK driven by seq_out[4] (CLK_COMP_CAP)
+  # SEN driven by seq_out[5] (SEN_COMP)
+  # SDI connected to COMP_OUT from chip
+  - name: fast_spi_rx
+    type: fast_spi_rx
+    interface: intf
+    base_addr: 0x50000
+
 registers:
   # Track register for sequencer waveforms
-  # 4 tracks for the 4 LVDS clock pairs
+  # 8 tracks for LVDS clock pairs and COMP_OUT capture control
   - name: SEQ
     type: TrackRegister
     hw_driver: seq
     seq_width: 8
     seq_size: 8192
     tracks:
+      # Tracks 0-3: LVDS clock outputs to chip
       - name: CLK_INIT
         position: 0
       - name: CLK_SAMP
@@ -82,11 +93,20 @@ registers:
         position: 2
       - name: CLK_LOGIC
         position: 3
-      # Reserved for future use
-      - name: SPARE_4
+      # Tracks 4-5: COMP_OUT capture control (directly connected to fast_spi_rx)
+      # CLK_COMP_CAP: Capture clock for sampling COMP_OUT
+      #   - Connected to fast_spi_rx SCLK input
+      #   - Sequencer track allows adjusting sample edge to compensate for
+      #     round-trip propagation delay (FPGA → LVDS → chip → comparator → LVDS → FPGA)
+      - name: CLK_COMP_CAP
         position: 4
-      - name: SPARE_5
+      # SEN_COMP: Frame enable for COMP_OUT capture
+      #   - Connected to fast_spi_rx SEN input
+      #   - High during the 17 comparator bit capture cycles
+      #   - Falling edge triggers partial word flush in fast_spi_rx
+      - name: SEN_COMP
         position: 5
+      # Reserved for future use
       - name: SPARE_6
         position: 6
       - name: SPARE_7

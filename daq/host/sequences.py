@@ -5,11 +5,13 @@
 #   - CordiaADC/ADC_01/host/meas_seq_11bit.csv (timing patterns)
 #   - frida/spice/tb_frida_top.sp (reference timing from SPICE TB)
 #
-# Generates timing sequences for the 4 LVDS clock signals:
-#   CLK_INIT  - DAC initialization pulse
-#   CLK_SAMP  - Sample-and-hold trigger
-#   CLK_COMP  - Comparator clock (200 MHz toggle)
-#   CLK_LOGIC - SAR logic clock (200 MHz toggle, 2.5ns delayed)
+# Generates timing sequences for the 6 sequencer output signals:
+#   CLK_INIT      - DAC initialization pulse
+#   CLK_SAMP      - Sample-and-hold trigger
+#   CLK_COMP      - Comparator clock (200 MHz toggle)
+#   CLK_LOGIC     - SAR logic clock (200 MHz toggle, 2.5ns delayed)
+#   CLK_COMP_CAP  - Capture clock for fast_spi_rx SCLK (samples COMP_OUT)
+#   SEN_COMP      - Frame enable for fast_spi_rx SEN (high during 17 capture cycles)
 #
 # Timing diagram for one 100ns conversion cycle at 10 Msps (from tb_frida_top.sp):
 #
@@ -24,6 +26,10 @@
 #              |    |    |                                               |
 #  CLK_LOGIC   |____|____|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|
 #              |    |    |                                               |
+#  CLK_COMP_CAP|____|____|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|  (shifted for delay compensation)
+#              |    |    |                                               |
+#  SEN_COMP    |____|____|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|__|
+#              |    |    |                                               |
 #              |init|samp|        comp/logic alternating (17 cycles)     |
 #              |    |    |                                               |
 
@@ -36,6 +42,8 @@ def generate_conversion_sequence(
     init_pulse_ns: float = 5.0,
     samp_pulse_ns: float = 10.0,
     comp_logic_period_ns: float = 5.0,
+    n_comp_bits: int = 17,
+    capture_delay_steps: int = 1,
 ) -> dict[str, list[int]]:
     """Generate sequencer waveforms for one ADC conversion cycle.
 
@@ -49,6 +57,8 @@ def generate_conversion_sequence(
     - CLK_SAMP: 10ns pulse starting at t=5ns
     - CLK_COMP: 5ns period toggle starting at t=15ns
     - CLK_LOGIC: 5ns period toggle, 2.5ns delayed from CLK_COMP
+    - CLK_COMP_CAP: Capture clock for sampling COMP_OUT (can be shifted for delay compensation)
+    - SEN_COMP: High during the 17 capture cycles
 
     Args:
         conversion_period_ns: Total conversion time (default 100ns = 10 Msps)
@@ -56,10 +66,15 @@ def generate_conversion_sequence(
         init_pulse_ns: Duration of CLK_INIT pulse
         samp_pulse_ns: Duration of CLK_SAMP pulse
         comp_logic_period_ns: Period of CLK_COMP/CLK_LOGIC toggle
+        n_comp_bits: Number of comparator bits to capture (default 17 for SAR ADC)
+        capture_delay_steps: Number of steps to delay CLK_COMP_CAP relative to CLK_COMP
+                            to compensate for round-trip propagation delay
+                            (FPGA → LVDS → chip → comparator → LVDS → FPGA)
 
     Returns:
         Dictionary with keys 'CLK_INIT', 'CLK_SAMP', 'CLK_COMP', 'CLK_LOGIC',
-        each containing a list of 0/1 values for each sequencer step.
+        'CLK_COMP_CAP', 'SEN_COMP', each containing a list of 0/1 values
+        for each sequencer step.
     """
     # Calculate number of steps
     n_steps = int(conversion_period_ns / seq_clk_period_ns)
@@ -69,6 +84,8 @@ def generate_conversion_sequence(
     clk_samp = [0] * n_steps
     clk_comp = [0] * n_steps
     clk_logic = [0] * n_steps
+    clk_comp_cap = [0] * n_steps
+    sen_comp = [0] * n_steps
 
     # Time indices for each phase
     init_start = 0
@@ -96,11 +113,48 @@ def generate_conversion_sequence(
         # CLK_LOGIC: high on odd toggle steps (2.5ns delayed)
         clk_logic[i] = 1 if (step_in_toggle % 2 == 1) else 0
 
+    # CLK_COMP_CAP: Capture clock for fast_spi_rx SCLK
+    # This samples COMP_OUT from the chip. The capture_delay_steps parameter
+    # allows shifting the sampling edge to compensate for the round-trip
+    # propagation delay (FPGA → LVDS → chip → comparator → LVDS → FPGA).
+    #
+    # We generate rising edges at positions where we want to sample COMP_OUT.
+    # The fast_spi_rx module samples SDI on the rising edge of SCLK.
+    #
+    # Each comparator bit requires 2 steps (one CLK_COMP period):
+    # - First step: CLK_COMP goes high, comparator decision is made
+    # - Second step: CLK_COMP goes low, result is stable
+    # We sample during the second step (when the result is stable) plus delay.
+    capture_step_start = comp_start + capture_delay_steps
+    for bit in range(n_comp_bits):
+        # Sample in the middle of each CLK_COMP period (the low phase)
+        # Each bit takes 2 steps, we sample after the first step + delay
+        sample_step = capture_step_start + bit * 2 + 1
+        if sample_step < n_steps:
+            clk_comp_cap[sample_step] = 1
+
+    # SEN_COMP: Frame enable for fast_spi_rx SEN
+    # High during the entire capture window (17 bits).
+    # The falling edge triggers fast_spi_rx to flush any partial word.
+    #
+    # SEN should go high before the first capture edge and go low after
+    # the last capture edge.
+    sen_start = comp_start
+    # Calculate when the last capture will happen
+    last_capture_step = capture_step_start + (n_comp_bits - 1) * 2 + 1
+    sen_end = min(last_capture_step + 2, n_steps)  # A bit after last capture
+
+    for i in range(sen_start, sen_end):
+        if i < n_steps:
+            sen_comp[i] = 1
+
     return {
         "CLK_INIT": clk_init,
         "CLK_SAMP": clk_samp,
         "CLK_COMP": clk_comp,
         "CLK_LOGIC": clk_logic,
+        "CLK_COMP_CAP": clk_comp_cap,
+        "SEN_COMP": sen_comp,
     }
 
 
@@ -108,6 +162,7 @@ def generate_multi_conversion_sequence(
     n_conversions: int,
     conversion_period_ns: int = 100,
     seq_clk_period_ns: float = 5.0,
+    capture_delay_steps: int = 1,
 ) -> dict[str, list[int]]:
     """Generate sequencer waveforms for multiple conversion cycles.
 
@@ -119,6 +174,7 @@ def generate_multi_conversion_sequence(
         n_conversions: Number of conversion cycles
         conversion_period_ns: Time per conversion (default 100ns)
         seq_clk_period_ns: Sequencer clock period (default 5ns)
+        capture_delay_steps: Delay for CLK_COMP_CAP (see generate_conversion_sequence)
 
     Returns:
         Dictionary with concatenated waveforms for all conversions
@@ -126,6 +182,7 @@ def generate_multi_conversion_sequence(
     single = generate_conversion_sequence(
         conversion_period_ns=conversion_period_ns,
         seq_clk_period_ns=seq_clk_period_ns,
+        capture_delay_steps=capture_delay_steps,
     )
 
     return {key: single[key] * n_conversions for key in single}
@@ -145,7 +202,14 @@ def sequence_to_csv(sequence: dict[str, list[int]], filename: str) -> None:
         sequence: Dictionary of track waveforms
         filename: Output CSV filename
     """
-    tracks = ["CLK_INIT", "CLK_SAMP", "CLK_COMP", "CLK_LOGIC"]
+    tracks = [
+        "CLK_INIT",
+        "CLK_SAMP",
+        "CLK_COMP",
+        "CLK_LOGIC",
+        "CLK_COMP_CAP",
+        "SEN_COMP",
+    ]
     n_steps = len(sequence[tracks[0]])
 
     with open(filename, "w") as f:
@@ -197,11 +261,18 @@ def print_sequence_timing(
         sequence: Dictionary of track waveforms
         seq_clk_period_ns: Sequencer clock period for time labels
     """
-    tracks = ["CLK_INIT", "CLK_SAMP", "CLK_COMP", "CLK_LOGIC"]
+    tracks = [
+        "CLK_INIT",
+        "CLK_SAMP",
+        "CLK_COMP",
+        "CLK_LOGIC",
+        "CLK_COMP_CAP",
+        "SEN_COMP",
+    ]
     n_steps = len(sequence[tracks[0]])
 
     print(f"Sequence timing ({n_steps} steps, {seq_clk_period_ns}ns/step):")
-    print("-" * 60)
+    print("-" * 70)
 
     for track in tracks:
         waveform = sequence[track]
@@ -209,10 +280,10 @@ def print_sequence_timing(
         chars = []
         for v in waveform:
             chars.append("_" if v == 0 else "-")
-        print(f"{track:12s}: {''.join(chars)}")
+        print(f"{track:14s}: {''.join(chars)}")
 
     # Time axis
-    print(" " * 14, end="")
+    print(" " * 16, end="")
     for i in range(0, n_steps, 4):
         print(f"{i * seq_clk_period_ns:4.0f}", end="")
     print(" ns")
