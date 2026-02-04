@@ -1,0 +1,1078 @@
+{
+  "creator": "Yosys 0.33 (git sha1 2584903a060)",
+  "modules": {
+    "comp_out_receiver": {
+      "attributes": {
+        "blackbox": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:68.1-79.10"
+      },
+      "ports": {
+        "SEQ_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "RST": {
+          "direction": "input",
+          "bits": [ 4 ]
+        },
+        "COMP_OUT": {
+          "direction": "input",
+          "bits": [ 5 ]
+        },
+        "FIFO_DATA_OUT": {
+          "direction": "output",
+          "bits": [ 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 ]
+        },
+        "FIFO_READ_NEXT": {
+          "direction": "input",
+          "bits": [ 38 ]
+        },
+        "FIFO_EMPTY": {
+          "direction": "output",
+          "bits": [ 39 ]
+        }
+      },
+      "cells": {
+      },
+      "netnames": {
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:70.24-70.31"
+          }
+        },
+        "COMP_OUT": {
+          "hide_name": 0,
+          "bits": [ 5 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:73.24-73.32"
+          }
+        },
+        "FIFO_DATA_OUT": {
+          "hide_name": 0,
+          "bits": [ 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:75.24-75.37"
+          }
+        },
+        "FIFO_EMPTY": {
+          "hide_name": 0,
+          "bits": [ 39 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:77.24-77.34"
+          }
+        },
+        "FIFO_READ_NEXT": {
+          "hide_name": 0,
+          "bits": [ 38 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:76.24-76.38"
+          }
+        },
+        "RST": {
+          "hide_name": 0,
+          "bits": [ 4 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:71.24-71.27"
+          }
+        },
+        "SEQ_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:69.24-69.31"
+          }
+        }
+      }
+    },
+    "daq_core": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:85.1-217.10"
+      },
+      "ports": {
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_RST": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "BUS_ADD": {
+          "direction": "input",
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ]
+        },
+        "BUS_DATA": {
+          "direction": "inout",
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "BUS_RD": {
+          "direction": "input",
+          "bits": [ 44 ]
+        },
+        "BUS_WR": {
+          "direction": "input",
+          "bits": [ 45 ]
+        },
+        "SEQ_CLK": {
+          "direction": "input",
+          "bits": [ 46 ]
+        },
+        "SPI_CLK": {
+          "direction": "input",
+          "bits": [ 47 ]
+        },
+        "CLK_INIT": {
+          "direction": "output",
+          "bits": [ 48 ]
+        },
+        "CLK_SAMP": {
+          "direction": "output",
+          "bits": [ 49 ]
+        },
+        "CLK_COMP": {
+          "direction": "output",
+          "bits": [ 50 ]
+        },
+        "CLK_LOGIC": {
+          "direction": "output",
+          "bits": [ 51 ]
+        },
+        "SPI_SCLK": {
+          "direction": "output",
+          "bits": [ 52 ]
+        },
+        "SPI_SDI": {
+          "direction": "output",
+          "bits": [ 53 ]
+        },
+        "SPI_SDO": {
+          "direction": "input",
+          "bits": [ 54 ]
+        },
+        "SPI_CS_B": {
+          "direction": "output",
+          "bits": [ 55 ]
+        },
+        "RST_B": {
+          "direction": "output",
+          "bits": [ 56 ]
+        },
+        "AMP_EN": {
+          "direction": "output",
+          "bits": [ 57 ]
+        },
+        "FIFO_DATA_OUT": {
+          "direction": "output",
+          "bits": [ 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89 ]
+        },
+        "FIFO_READ_NEXT": {
+          "direction": "input",
+          "bits": [ 90 ]
+        },
+        "FIFO_EMPTY": {
+          "direction": "output",
+          "bits": [ 91 ]
+        },
+        "COMP_OUT": {
+          "direction": "input",
+          "bits": [ 92 ]
+        },
+        "RESET": {
+          "direction": "input",
+          "bits": [ 93 ]
+        }
+      },
+      "cells": {
+        "$not$daq_core_diagram.v:173$2": {
+          "hide_name": 1,
+          "type": "$not",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000001",
+            "Y_WIDTH": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "daq_core_diagram.v:173.23-173.31"
+          },
+          "port_directions": {
+            "A": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 94 ],
+            "Y": [ 55 ]
+          }
+        },
+        "$or$daq_core_diagram.v:128$1": {
+          "hide_name": 1,
+          "type": "$or",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000001",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "B_WIDTH": "00000000000000000000000000000001",
+            "Y_WIDTH": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "daq_core_diagram.v:128.18-128.33"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 3 ],
+            "B": [ 93 ],
+            "Y": [ 95 ]
+          }
+        },
+        "inst_comp_rx": {
+          "hide_name": 0,
+          "type": "comp_out_receiver",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "daq_core_diagram.v:205.23-215.6"
+          },
+          "port_directions": {
+            "BUS_CLK": "input",
+            "COMP_OUT": "input",
+            "FIFO_DATA_OUT": "output",
+            "FIFO_EMPTY": "output",
+            "FIFO_READ_NEXT": "input",
+            "RST": "input",
+            "SEQ_CLK": "input"
+          },
+          "connections": {
+            "BUS_CLK": [ 2 ],
+            "COMP_OUT": [ 92 ],
+            "FIFO_DATA_OUT": [ 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89 ],
+            "FIFO_EMPTY": [ 91 ],
+            "FIFO_READ_NEXT": [ 90 ],
+            "RST": [ 95 ],
+            "SEQ_CLK": [ 46 ]
+          }
+        },
+        "inst_gpio": {
+          "hide_name": 0,
+          "type": "gpio",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "daq_core_diagram.v:176.10-185.6"
+          },
+          "port_directions": {
+            "BUS_ADD": "input",
+            "BUS_CLK": "input",
+            "BUS_DATA": "inout",
+            "BUS_RD": "input",
+            "BUS_RST": "input",
+            "BUS_WR": "input",
+            "IO": "inout"
+          },
+          "connections": {
+            "BUS_ADD": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+            "BUS_CLK": [ 2 ],
+            "BUS_DATA": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+            "BUS_RD": [ 44 ],
+            "BUS_RST": [ 95 ],
+            "BUS_WR": [ 45 ],
+            "IO": [ 56, 57, 96, 97, 98, 99, 100, 101 ]
+          }
+        },
+        "inst_pulse_gen": {
+          "hide_name": 0,
+          "type": "pulse_gen",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "daq_core_diagram.v:191.15-202.6"
+          },
+          "port_directions": {
+            "BUS_ADD": "input",
+            "BUS_CLK": "input",
+            "BUS_DATA": "inout",
+            "BUS_RD": "input",
+            "BUS_RST": "input",
+            "BUS_WR": "input",
+            "EXT_START": "input",
+            "PULSE": "output",
+            "PULSE_CLK": "input"
+          },
+          "connections": {
+            "BUS_ADD": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+            "BUS_CLK": [ 2 ],
+            "BUS_DATA": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+            "BUS_RD": [ 44 ],
+            "BUS_RST": [ 95 ],
+            "BUS_WR": [ 45 ],
+            "EXT_START": [ "0" ],
+            "PULSE": [ 102 ],
+            "PULSE_CLK": [ 46 ]
+          }
+        },
+        "inst_seq_gen": {
+          "hide_name": 0,
+          "type": "seq_gen",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "daq_core_diagram.v:137.13-148.6"
+          },
+          "port_directions": {
+            "BUS_ADD": "input",
+            "BUS_CLK": "input",
+            "BUS_DATA": "inout",
+            "BUS_RD": "input",
+            "BUS_RST": "input",
+            "BUS_WR": "input",
+            "SEQ_CLK": "input",
+            "SEQ_EXT_START": "input",
+            "SEQ_OUT": "output"
+          },
+          "connections": {
+            "BUS_ADD": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+            "BUS_CLK": [ 2 ],
+            "BUS_DATA": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+            "BUS_RD": [ 44 ],
+            "BUS_RST": [ 95 ],
+            "BUS_WR": [ 45 ],
+            "SEQ_CLK": [ 46 ],
+            "SEQ_EXT_START": [ 102 ],
+            "SEQ_OUT": [ 48, 49, 50, 51, 103, 104, 105, 106 ]
+          }
+        },
+        "inst_spi": {
+          "hide_name": 0,
+          "type": "spi",
+          "parameters": {
+          },
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "daq_core_diagram.v:156.9-171.6"
+          },
+          "port_directions": {
+            "BUS_ADD": "input",
+            "BUS_CLK": "input",
+            "BUS_DATA": "inout",
+            "BUS_RD": "input",
+            "BUS_RST": "input",
+            "BUS_WR": "input",
+            "EXT_START": "input",
+            "SCLK": "output",
+            "SDI": "output",
+            "SDO": "input",
+            "SEN": "output",
+            "SLD": "output",
+            "SPI_CLK": "input"
+          },
+          "connections": {
+            "BUS_ADD": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+            "BUS_CLK": [ 2 ],
+            "BUS_DATA": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+            "BUS_RD": [ 44 ],
+            "BUS_RST": [ 95 ],
+            "BUS_WR": [ 45 ],
+            "EXT_START": [ "0" ],
+            "SCLK": [ 52 ],
+            "SDI": [ 53 ],
+            "SDO": [ 54 ],
+            "SEN": [ 94 ],
+            "SLD": [ ],
+            "SPI_CLK": [ 47 ]
+          }
+        }
+      },
+      "netnames": {
+        "$not$daq_core_diagram.v:173$2_Y": {
+          "hide_name": 1,
+          "bits": [ 55 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:173.23-173.31"
+          }
+        },
+        "$or$daq_core_diagram.v:128$1_Y": {
+          "hide_name": 1,
+          "bits": [ 95 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:128.18-128.33"
+          }
+        },
+        "AMP_EN": {
+          "hide_name": 0,
+          "bits": [ 57 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:112.24-112.30"
+          }
+        },
+        "BUS_ADD": {
+          "hide_name": 0,
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:89.24-89.31"
+          }
+        },
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:87.24-87.31"
+          }
+        },
+        "BUS_DATA": {
+          "hide_name": 0,
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:90.24-90.32"
+          }
+        },
+        "BUS_RD": {
+          "hide_name": 0,
+          "bits": [ 44 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:91.24-91.30"
+          }
+        },
+        "BUS_RST": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:88.24-88.31"
+          }
+        },
+        "BUS_WR": {
+          "hide_name": 0,
+          "bits": [ 45 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:92.24-92.30"
+          }
+        },
+        "CLK_COMP": {
+          "hide_name": 0,
+          "bits": [ 50 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:101.24-101.32"
+          }
+        },
+        "CLK_INIT": {
+          "hide_name": 0,
+          "bits": [ 48 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:99.24-99.32"
+          }
+        },
+        "CLK_LOGIC": {
+          "hide_name": 0,
+          "bits": [ 51 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:102.24-102.33"
+          }
+        },
+        "CLK_SAMP": {
+          "hide_name": 0,
+          "bits": [ 49 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:100.24-100.32"
+          }
+        },
+        "COMP_OUT": {
+          "hide_name": 0,
+          "bits": [ 92 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:120.24-120.32"
+          }
+        },
+        "FIFO_DATA_OUT": {
+          "hide_name": 0,
+          "bits": [ 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:115.24-115.37"
+          }
+        },
+        "FIFO_EMPTY": {
+          "hide_name": 0,
+          "bits": [ 91 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:117.24-117.34"
+          }
+        },
+        "FIFO_READ_NEXT": {
+          "hide_name": 0,
+          "bits": [ 90 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:116.24-116.38"
+          }
+        },
+        "RESET": {
+          "hide_name": 0,
+          "bits": [ 93 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:123.24-123.29"
+          }
+        },
+        "RST_B": {
+          "hide_name": 0,
+          "bits": [ 56 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:111.24-111.29"
+          }
+        },
+        "SEQ_CLK": {
+          "hide_name": 0,
+          "bits": [ 46 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:95.24-95.31"
+          }
+        },
+        "SPI_CLK": {
+          "hide_name": 0,
+          "bits": [ 47 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:96.24-96.31"
+          }
+        },
+        "SPI_CS_B": {
+          "hide_name": 0,
+          "bits": [ 55 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:108.24-108.32"
+          }
+        },
+        "SPI_SCLK": {
+          "hide_name": 0,
+          "bits": [ 52 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:105.24-105.32"
+          }
+        },
+        "SPI_SDI": {
+          "hide_name": 0,
+          "bits": [ 53 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:106.24-106.31"
+          }
+        },
+        "SPI_SDO": {
+          "hide_name": 0,
+          "bits": [ 54 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:107.24-107.31"
+          }
+        },
+        "gpio_io": {
+          "hide_name": 0,
+          "bits": [ 56, 57, 96, 97, 98, 99, 100, 101 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:134.16-134.23"
+          }
+        },
+        "pulse_out": {
+          "hide_name": 0,
+          "bits": [ 102 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:132.16-132.25"
+          }
+        },
+        "rst": {
+          "hide_name": 0,
+          "bits": [ 95 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:127.10-127.13"
+          }
+        },
+        "seq_out": {
+          "hide_name": 0,
+          "bits": [ 48, 49, 50, 51, 103, 104, 105, 106 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:131.16-131.23"
+          }
+        },
+        "spi_sen": {
+          "hide_name": 0,
+          "bits": [ 94 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:133.16-133.23"
+          }
+        }
+      }
+    },
+    "gpio": {
+      "attributes": {
+        "blackbox": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:42.1-52.10"
+      },
+      "ports": {
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_RST": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "BUS_ADD": {
+          "direction": "input",
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ]
+        },
+        "BUS_DATA": {
+          "direction": "inout",
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "BUS_RD": {
+          "direction": "input",
+          "bits": [ 44 ]
+        },
+        "BUS_WR": {
+          "direction": "input",
+          "bits": [ 45 ]
+        },
+        "IO": {
+          "direction": "inout",
+          "bits": [ 46, 47, 48, 49, 50, 51, 52, 53 ]
+        }
+      },
+      "cells": {
+      },
+      "netnames": {
+        "BUS_ADD": {
+          "hide_name": 0,
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:45.24-45.31"
+          }
+        },
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:43.24-43.31"
+          }
+        },
+        "BUS_DATA": {
+          "hide_name": 0,
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:46.24-46.32"
+          }
+        },
+        "BUS_RD": {
+          "hide_name": 0,
+          "bits": [ 44 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:47.24-47.30"
+          }
+        },
+        "BUS_RST": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:44.24-44.31"
+          }
+        },
+        "BUS_WR": {
+          "hide_name": 0,
+          "bits": [ 45 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:48.24-48.30"
+          }
+        },
+        "IO": {
+          "hide_name": 0,
+          "bits": [ 46, 47, 48, 49, 50, 51, 52, 53 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:50.24-50.26"
+          }
+        }
+      }
+    },
+    "pulse_gen": {
+      "attributes": {
+        "blackbox": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:54.1-66.10"
+      },
+      "ports": {
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_RST": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "BUS_ADD": {
+          "direction": "input",
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ]
+        },
+        "BUS_DATA": {
+          "direction": "inout",
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "BUS_RD": {
+          "direction": "input",
+          "bits": [ 44 ]
+        },
+        "BUS_WR": {
+          "direction": "input",
+          "bits": [ 45 ]
+        },
+        "PULSE_CLK": {
+          "direction": "input",
+          "bits": [ 46 ]
+        },
+        "EXT_START": {
+          "direction": "input",
+          "bits": [ 47 ]
+        },
+        "PULSE": {
+          "direction": "output",
+          "bits": [ 48 ]
+        }
+      },
+      "cells": {
+      },
+      "netnames": {
+        "BUS_ADD": {
+          "hide_name": 0,
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:57.24-57.31"
+          }
+        },
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:55.24-55.31"
+          }
+        },
+        "BUS_DATA": {
+          "hide_name": 0,
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:58.24-58.32"
+          }
+        },
+        "BUS_RD": {
+          "hide_name": 0,
+          "bits": [ 44 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:59.24-59.30"
+          }
+        },
+        "BUS_RST": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:56.24-56.31"
+          }
+        },
+        "BUS_WR": {
+          "hide_name": 0,
+          "bits": [ 45 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:60.24-60.30"
+          }
+        },
+        "EXT_START": {
+          "hide_name": 0,
+          "bits": [ 47 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:63.24-63.33"
+          }
+        },
+        "PULSE": {
+          "hide_name": 0,
+          "bits": [ 48 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:64.24-64.29"
+          }
+        },
+        "PULSE_CLK": {
+          "hide_name": 0,
+          "bits": [ 46 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:62.24-62.33"
+          }
+        }
+      }
+    },
+    "seq_gen": {
+      "attributes": {
+        "blackbox": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:10.1-22.10"
+      },
+      "ports": {
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_RST": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "BUS_ADD": {
+          "direction": "input",
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ]
+        },
+        "BUS_DATA": {
+          "direction": "inout",
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "BUS_RD": {
+          "direction": "input",
+          "bits": [ 44 ]
+        },
+        "BUS_WR": {
+          "direction": "input",
+          "bits": [ 45 ]
+        },
+        "SEQ_EXT_START": {
+          "direction": "input",
+          "bits": [ 46 ]
+        },
+        "SEQ_CLK": {
+          "direction": "input",
+          "bits": [ 47 ]
+        },
+        "SEQ_OUT": {
+          "direction": "output",
+          "bits": [ 48, 49, 50, 51, 52, 53, 54, 55 ]
+        }
+      },
+      "cells": {
+      },
+      "netnames": {
+        "BUS_ADD": {
+          "hide_name": 0,
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:13.24-13.31"
+          }
+        },
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:11.24-11.31"
+          }
+        },
+        "BUS_DATA": {
+          "hide_name": 0,
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:14.24-14.32"
+          }
+        },
+        "BUS_RD": {
+          "hide_name": 0,
+          "bits": [ 44 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:15.24-15.30"
+          }
+        },
+        "BUS_RST": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:12.24-12.31"
+          }
+        },
+        "BUS_WR": {
+          "hide_name": 0,
+          "bits": [ 45 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:16.24-16.30"
+          }
+        },
+        "SEQ_CLK": {
+          "hide_name": 0,
+          "bits": [ 47 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:19.24-19.31"
+          }
+        },
+        "SEQ_EXT_START": {
+          "hide_name": 0,
+          "bits": [ 46 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:18.24-18.37"
+          }
+        },
+        "SEQ_OUT": {
+          "hide_name": 0,
+          "bits": [ 48, 49, 50, 51, 52, 53, 54, 55 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:20.24-20.31"
+          }
+        }
+      }
+    },
+    "spi": {
+      "attributes": {
+        "blackbox": "00000000000000000000000000000001",
+        "src": "daq_core_diagram.v:24.1-40.10"
+      },
+      "ports": {
+        "BUS_CLK": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "BUS_RST": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "BUS_ADD": {
+          "direction": "input",
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ]
+        },
+        "BUS_DATA": {
+          "direction": "inout",
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ]
+        },
+        "BUS_RD": {
+          "direction": "input",
+          "bits": [ 44 ]
+        },
+        "BUS_WR": {
+          "direction": "input",
+          "bits": [ 45 ]
+        },
+        "SPI_CLK": {
+          "direction": "input",
+          "bits": [ 46 ]
+        },
+        "SCLK": {
+          "direction": "output",
+          "bits": [ 47 ]
+        },
+        "SDI": {
+          "direction": "output",
+          "bits": [ 48 ]
+        },
+        "SDO": {
+          "direction": "input",
+          "bits": [ 49 ]
+        },
+        "EXT_START": {
+          "direction": "input",
+          "bits": [ 50 ]
+        },
+        "SEN": {
+          "direction": "output",
+          "bits": [ 51 ]
+        },
+        "SLD": {
+          "direction": "output",
+          "bits": [ 52 ]
+        }
+      },
+      "cells": {
+      },
+      "netnames": {
+        "BUS_ADD": {
+          "hide_name": 0,
+          "bits": [ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:27.24-27.31"
+          }
+        },
+        "BUS_CLK": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:25.24-25.31"
+          }
+        },
+        "BUS_DATA": {
+          "hide_name": 0,
+          "bits": [ 36, 37, 38, 39, 40, 41, 42, 43 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:28.24-28.32"
+          }
+        },
+        "BUS_RD": {
+          "hide_name": 0,
+          "bits": [ 44 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:29.24-29.30"
+          }
+        },
+        "BUS_RST": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:26.24-26.31"
+          }
+        },
+        "BUS_WR": {
+          "hide_name": 0,
+          "bits": [ 45 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:30.24-30.30"
+          }
+        },
+        "EXT_START": {
+          "hide_name": 0,
+          "bits": [ 50 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:36.24-36.33"
+          }
+        },
+        "SCLK": {
+          "hide_name": 0,
+          "bits": [ 47 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:33.24-33.28"
+          }
+        },
+        "SDI": {
+          "hide_name": 0,
+          "bits": [ 48 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:34.24-34.27"
+          }
+        },
+        "SDO": {
+          "hide_name": 0,
+          "bits": [ 49 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:35.24-35.27"
+          }
+        },
+        "SEN": {
+          "hide_name": 0,
+          "bits": [ 51 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:37.24-37.27"
+          }
+        },
+        "SLD": {
+          "hide_name": 0,
+          "bits": [ 52 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:38.24-38.27"
+          }
+        },
+        "SPI_CLK": {
+          "hide_name": 0,
+          "bits": [ 46 ],
+          "attributes": {
+            "src": "daq_core_diagram.v:32.24-32.31"
+          }
+        }
+      }
+    }
+  }
+}
