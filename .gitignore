@@ -38,20 +38,15 @@ si.env
 *.vrb
 
 # KiCad
-/pcb/fp-info-cache
-/pcb/frida65A-backups
-/pcb/*.kicad_prl
-/pcb/*.bak
-/pcb/*.kicad_sch-bak
-/pcb/#auto_saved_files#
-/pcb/_autosave-*
+/daq/dut/fp-info-cache
+/daq/dut/frida65A-backups
+/daq/dut/*.kicad_prl
+/daq/dut/*.bak
+/daq/dut/*.kicad_sch-bak
+/daq/dut/#auto_saved_files#
+/daq/dut/_autosave-*
 
 # PDK / technology (large, proprietary)
 /tech/nopdk/*
 /tech/tsmc65/*
 /tech/tsmc28/*
-
-# GDS
-/gdsfactory
-/gds
-*.test
