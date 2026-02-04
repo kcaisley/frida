@@ -1,18 +1,27 @@
-/tech/nopdk/*
-/tech/tsmc65/*
-/tech/tsmc28/*
-/pcb/frida_65a/frida65A-backups
+# General
 /results
 /scratch
 /logs
-/gdsfactory
-/gds
+.vscode
+.claude
+
+# Python
 __pycache__
 .ruff_cache
 .venv*
-.vscode
+
+# Cadence / EDA
 .cadence
-.claude
+*.cdslck
+*.lvs*
+*.report
+*.ext
+*.calibre.db
+*.vcd
+*.lck
+si.env
+
+# LaTeX
 *.log
 *.aux
 *.synctex.gz
@@ -26,13 +35,23 @@ __pycache__
 *.bcf
 *.snm
 *.nav
-*.cdslck
-*.lvs*
-*.report
-*.ext
-*.calibre.db
-*.test
-*.vcd
 *.vrb
-*.lck
-si.env
+
+# KiCad
+/pcb/fp-info-cache
+/pcb/frida65A-backups
+/pcb/*.kicad_prl
+/pcb/*.bak
+/pcb/*.kicad_sch-bak
+/pcb/#auto_saved_files#
+/pcb/_autosave-*
+
+# PDK / technology (large, proprietary)
+/tech/nopdk/*
+/tech/tsmc65/*
+/tech/tsmc28/*
+
+# GDS
+/gdsfactory
+/gds
+*.test
