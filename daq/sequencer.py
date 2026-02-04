@@ -29,8 +29,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 def generate_conversion_sequence(
     conversion_period_ns: int = 100,

@@ -192,7 +192,9 @@ module daq_core #(
         .EXT_START(1'b0),
 
         .SEN(spi_sen),
+        /* verilator lint_off PINCONNECTEMPTY */
         .SLD()
+        /* verilator lint_on PINCONNECTEMPTY */
     );
 
     assign SPI_CS_B = ~spi_sen;  // SEN is active-high enable, CS_B is active-low

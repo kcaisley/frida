@@ -1,0 +1,10 @@
+include_dirs:
+  - /home/kcaisley/libs/basil/basil/firmware/modules
+verilator:
+  syntax:
+    enabled: true
+    args:
+      - --lint-only
+      - --sv
+      - -Wall
+      - -I/home/kcaisley/libs/basil/basil/firmware/modules
