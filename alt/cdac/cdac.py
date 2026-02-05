@@ -20,10 +20,10 @@ from ..flow.params import CapType, RedunStrat, SplitStrat
 class CdacParams:
     """CDAC parameters."""
 
-    n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=8)
-    n_extra = h.Param(dtype=int, desc="Extra caps for redundancy", default=0)
+    n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=11)
+    n_extra = h.Param(dtype=int, desc="Extra caps for redundancy", default=5)
     redun_strat = h.Param(
-        dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.RDX2
+        dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.SUBRDX2_OVLY
     )
     split_strat = h.Param(
         dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT
@@ -288,6 +288,54 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
             if dup_idx < len(duplicate_indices) and i == duplicate_indices[dup_idx]:
                 result.append(base_weights[i])
                 dup_idx += 1
+
+        return result
+
+    elif strategy == RedunStrat.SUBRDX2_OVLY:
+        # Sub-radix-2 with paired overlay sequence.
+        # Returns FRIDA 65nm weights [768,512,320,...] when n_dac=11, n_extra=5.
+        #
+        # Algorithm:
+        # 1. Base overlay sequence: pairs of powers of 2 from high to low
+        #    ...64,64, 32,32, 16,16, 8,8, 4,4, 2,2, 1,1, 1,1
+        # 2. For even overlay_len: merge (2+2)->4 and (1+1)->2
+        #    Tail becomes: [4, 4, 4, 2, 1, 1]
+        # 3. For odd overlay_len: merge only (1+1)->2
+        #    Tail becomes: [4, 4, 2, 2, 2, 1, 1]
+        # 4. Take last overlay_len elements
+        # 5. Subtract sum from MSB, add overlay starting at position 2
+
+        if n_extra == 0:
+            # No redundancy, pure radix-2
+            return [2**i for i in range(n_dac - 1, -1, -1)]
+
+        overlay_len = n_dac + n_extra - 2
+
+        # Build overlay sequences (extend high enough for any practical use)
+        # Even: merge (2+2)->4 and (1+1)->2, tail = [4,4,4,2,1,1]
+        # Odd: merge only (1+1)->2, tail = [4,4,2,2,2,1,1]
+        overlay_even = []
+        overlay_odd = []
+        for power in range(20, 2, -1):  # 2^20 down to 2^3=8
+            overlay_even.extend([2**power, 2**power])
+            overlay_odd.extend([2**power, 2**power])
+        overlay_even.extend([4, 4, 4, 2, 1, 1])
+        overlay_odd.extend([4, 4, 2, 2, 2, 1, 1])
+
+        if overlay_len % 2 == 0:
+            overlay = overlay_even[-overlay_len:]
+        else:
+            overlay = overlay_odd[-overlay_len:]
+
+        overlay_sum = sum(overlay)
+        base = [2**i for i in range(n_dac - 1, -1, -1)]
+
+        result = [0] * m_caps
+        result[0] = base[0] - overlay_sum
+        for i in range(1, n_dac):
+            result[i] = base[i]
+        for i, val in enumerate(overlay):
+            result[i + 2] += val
 
         return result
 

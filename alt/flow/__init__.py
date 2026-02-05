@@ -76,20 +76,58 @@ from .sim import (
 
 # Measurement functions
 from .measure import (
+    # Simulation extraction
+    sim_get_time,
+    sim_get_waveform,
+    sim_get_waveforms,
+    sim_sample_at_edges,
+    # Waveform utilities
+    find_crossings,
+    # Analog preprocessing
+    diff_to_single,
+    quantize_to_bits,
+    # Digital processing
+    redundant_bits_to_code,
+    code_to_voltage,
+    # Core measurements (numpy arrays)
+    measure_settling,
+    measure_delay,
+    measure_average_power,
+    measure_offset_crossing,
+    measure_charge_injection,
+    # Static linearity
+    histogram_inl_dnl,
+    endpoint_inl_dnl,
+    find_code_transitions,
+    compute_static_error,
+    # Dynamic performance
+    compute_enob_fft,
+    # Monte Carlo
+    mc_statistics,
+    # Legacy API (backward compatibility)
     comp_offset_mV,
     comp_noise_sigma_mV,
     comp_delay_ns,
     comp_settling_ns,
     comp_power_uW,
     compute_inl_dnl,
-    mc_statistics,
     samp_settling_ns,
     samp_charge_injection_mV,
     cdac_settling_ns,
 )
 
 # Plotting
-from .plot import configure_matplotlib, save_plot
+from .plot import (
+    configure_matplotlib,
+    save_plot,
+    plot_inl_dnl,
+    plot_histogram,
+    plot_transfer_function,
+    plot_fft_spectrum,
+    plot_waveforms,
+    plot_enob_vs_frequency,
+    plot_monte_carlo_histogram,
+)
 
 __all__ = [
     # Pytest
@@ -146,18 +184,52 @@ __all__ = [
     "compute_delay",
     # Netlist generation
     "write_sim_netlist",
-    # Measurement functions
+    # Simulation extraction
+    "sim_get_time",
+    "sim_get_waveform",
+    "sim_get_waveforms",
+    "sim_sample_at_edges",
+    # Waveform utilities
+    "find_crossings",
+    # Analog preprocessing
+    "diff_to_single",
+    "quantize_to_bits",
+    # Digital processing
+    "redundant_bits_to_code",
+    "code_to_voltage",
+    # Core measurements
+    "measure_settling",
+    "measure_delay",
+    "measure_average_power",
+    "measure_offset_crossing",
+    "measure_charge_injection",
+    # Static linearity
+    "histogram_inl_dnl",
+    "endpoint_inl_dnl",
+    "find_code_transitions",
+    "compute_static_error",
+    # Dynamic performance
+    "compute_enob_fft",
+    # Monte Carlo
+    "mc_statistics",
+    # Legacy measurement API
     "comp_offset_mV",
     "comp_noise_sigma_mV",
     "comp_delay_ns",
     "comp_settling_ns",
     "comp_power_uW",
     "compute_inl_dnl",
-    "mc_statistics",
     "samp_settling_ns",
     "samp_charge_injection_mV",
     "cdac_settling_ns",
     # Plotting
     "configure_matplotlib",
     "save_plot",
+    "plot_inl_dnl",
+    "plot_histogram",
+    "plot_transfer_function",
+    "plot_fft_spectrum",
+    "plot_waveforms",
+    "plot_enob_vs_frequency",
+    "plot_monte_carlo_histogram",
 ]

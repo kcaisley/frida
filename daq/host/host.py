@@ -373,7 +373,9 @@ class Frida:
     # Data Acquisition
     # -------------------------------------------------------------------------
 
-    def run_conversions(self, n_conversions: int, repetitions: int = 1) -> np.ndarray:
+    def run_conversions(
+        self, n_conversions: int, repetitions: int = 1, return_bits: bool = True
+    ) -> np.ndarray:
         """Run ADC conversions and collect comparator output data.
 
         The fast_spi_rx module captures COMP_OUT data with the following format:
@@ -383,9 +385,15 @@ class Frida:
         Args:
             n_conversions: Number of conversion cycles to run
             repetitions: Number of times to repeat the sequence
+            return_bits: If True, return individual bits (default). If False, return
+                         combined uint32 codes (legacy behavior).
 
         Returns:
-            Array of comparator outputs, shape (repetitions, n_conversions, n_bits)
+            If return_bits=True:
+                Array of shape (repetitions, n_conversions, N_COMP_BITS) with individual
+                bits (0 or 1), MSB first. This aligns with simulation post-processing.
+            If return_bits=False:
+                Array of shape (repetitions, n_conversions) with combined uint32 codes.
         """
         logger.info(f"Running {n_conversions} conversions x {repetitions} reps")
 
@@ -418,18 +426,30 @@ class Frida:
 
         # Parse the fast_spi_rx output format
         words = np.frombuffer(raw_data, dtype=np.uint32)
-        data = self._parse_fast_spi_rx_data(words, n_conversions, repetitions)
+        data = self._parse_fast_spi_rx_data(
+            words, n_conversions, repetitions, return_bits=return_bits
+        )
 
         # Check for lost data
         lost_count = self.daq["fast_spi_rx"].get_lost_count()
         if lost_count > 0:
             logger.warning(f"fast_spi_rx lost {lost_count} words due to FIFO overflow")
 
-        logger.info(f"Acquired {data.size} samples")
+        if return_bits:
+            logger.info(
+                f"Acquired {data.shape[0]}x{data.shape[1]} conversions, "
+                f"{data.shape[2]} bits each"
+            )
+        else:
+            logger.info(f"Acquired {data.size} samples (combined codes)")
         return data
 
     def _parse_fast_spi_rx_data(
-        self, words: np.ndarray, n_conversions: int, repetitions: int
+        self,
+        words: np.ndarray,
+        n_conversions: int,
+        repetitions: int,
+        return_bits: bool = True,
     ) -> np.ndarray:
         """Parse fast_spi_rx FIFO data into ADC conversion results.
 
@@ -446,32 +466,88 @@ class Frida:
             words: Raw 32-bit words from FIFO
             n_conversions: Number of conversion cycles
             repetitions: Number of repetitions
+            return_bits: If True, return individual bits array. If False, return
+                         combined uint32 codes.
 
         Returns:
-            Array of shape (repetitions, n_conversions) with 17-bit ADC codes
+            If return_bits=True:
+                Array of shape (repetitions, n_conversions, N_COMP_BITS) with
+                individual bits (0 or 1), MSB first.
+            If return_bits=False:
+                Array of shape (repetitions, n_conversions) with 17-bit ADC codes
         """
         # Extract data field from each word (lower 16 bits)
         data_fields = words & 0xFFFF
 
         # Each conversion produces 2 words
         n_total = n_conversions * repetitions
-        result = np.zeros(n_total, dtype=np.uint32)
+        codes = np.zeros(n_total, dtype=np.uint32)
 
         for i in range(n_total):
             word_idx = i * 2
             if word_idx + 1 < len(data_fields):
                 # Combine: first word has bits 0-15, second word has bit 16
-                result[i] = data_fields[word_idx] | (
+                codes[i] = data_fields[word_idx] | (
                     (data_fields[word_idx + 1] & 0x1) << 16
                 )
 
-        return result.reshape(repetitions, n_conversions)
+        if not return_bits:
+            # Legacy format: return combined codes
+            return codes.reshape(repetitions, n_conversions)
+
+        # New format: return individual bits (MSB first)
+        # Shape: (repetitions, n_conversions, N_COMP_BITS)
+        bits = np.zeros((n_total, N_COMP_BITS), dtype=np.int32)
+
+        for i in range(n_total):
+            code = codes[i]
+            # Extract bits MSB first (bit 16 is MSB, bit 0 is LSB)
+            for b in range(N_COMP_BITS):
+                # MSB first: bit index 0 = bit 16 of code, bit index 16 = bit 0
+                bit_pos = N_COMP_BITS - 1 - b
+                bits[i, b] = (code >> bit_pos) & 1
+
+        return bits.reshape(repetitions, n_conversions, N_COMP_BITS)
+
+    @staticmethod
+    def bits_to_codes(bits: np.ndarray, weights: np.ndarray) -> np.ndarray:
+        """Convert captured bits to weighted codes.
+
+        This is a convenience wrapper around the shared measurement function
+        `redundant_bits_to_code()`. Use this to process DAQ data in the same
+        way as simulation data.
+
+        Args:
+            bits: Array of shape (..., n_bits) with individual bits (0 or 1), MSB first
+            weights: Capacitor weights array, e.g., from FRIDA_IDEAL_WEIGHTS
+
+        Returns:
+            Weighted codes array with shape bits.shape[:-1]
+
+        Example:
+            >>> from alt.flow.measure import FRIDA_IDEAL_WEIGHTS
+            >>> bits = frida.run_conversions(1000, 10)  # (10, 1000, 17)
+            >>> codes = Frida.bits_to_codes(bits, FRIDA_IDEAL_WEIGHTS)  # (10, 1000)
+        """
+        # Import here to avoid circular dependency
+        from alt.flow.measure import redundant_bits_to_code
+
+        original_shape = bits.shape
+        n_bits = original_shape[-1]
+
+        # Flatten to 2D for processing
+        bits_flat = bits.reshape(-1, n_bits)
+        codes_flat = redundant_bits_to_code(bits_flat, weights)
+
+        # Reshape back
+        return codes_flat.reshape(original_shape[:-1])
 
     def measure_transfer_function(
         self,
         adc_num: int,
         n_samples: int = 100,
         n_repetitions: int = 10,
+        weights: np.ndarray | None = None,
     ) -> dict:
         """Measure the ADC transfer function.
 
@@ -481,9 +557,15 @@ class Frida:
             adc_num: ADC to measure (0-15)
             n_samples: Number of input voltage steps
             n_repetitions: Repetitions per voltage step
+            weights: Optional capacitor weights for code conversion.
+                     If provided, 'codes' will contain weighted sums.
+                     If None, 'bits' will be returned instead.
 
         Returns:
-            Dictionary with 'vin' and 'codes' arrays
+            Dictionary with:
+                - 'adc': ADC number
+                - 'bits': Raw bits array (repetitions, n_samples, N_COMP_BITS)
+                - 'codes': Weighted codes (repetitions, n_samples) if weights provided
         """
         logger.info(f"Measuring transfer function for ADC {adc_num}")
 
@@ -493,9 +575,14 @@ class Frida:
 
         # This is a placeholder - actual implementation depends on
         # external voltage source control (e.g., SMU via VISA)
-        codes = self.run_conversions(n_samples, n_repetitions)
+        bits = self.run_conversions(n_samples, n_repetitions, return_bits=True)
 
-        return {
+        result = {
             "adc": adc_num,
-            "codes": codes,
+            "bits": bits,
         }
+
+        if weights is not None:
+            result["codes"] = self.bits_to_codes(bits, weights)
+
+        return result

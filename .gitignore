@@ -4,6 +4,8 @@
 /logs
 .vscode
 .claude
+AGENTS.md
+plan.md
 
 # Python
 __pycache__

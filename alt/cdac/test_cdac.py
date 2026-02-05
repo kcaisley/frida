@@ -4,16 +4,30 @@ CDAC testbench and tests for FRIDA.
 Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
-
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, Vdc
 
-from ..flow import Project, Pvt, RedunStrat, SimTestMode, SupplyVals, sim_options, write_sim_netlist
+from ..flow import (
+    Project,
+    Pvt,
+    RedunStrat,
+    SimTestMode,
+    SupplyVals,
+    sim_options,
+    write_sim_netlist,
+)
 from ..pdk import get_pdk
-from .cdac import Cdac, CdacParams, cdac_variants, get_cdac_n_bits, get_cdac_weights, is_valid_cdac_params
+from .cdac import (
+    Cdac,
+    CdacParams,
+    cdac_variants,
+    get_cdac_n_bits,
+    get_cdac_weights,
+    is_valid_cdac_params,
+)
 
 
 # =============================================================================
@@ -130,7 +144,7 @@ def run_code_sweep(cdac_params: CdacParams = None, pvt: Pvt = None) -> list[tupl
 
     for code in range(n_codes):
         tb_params = CdacTbParams(pvt=pvt, cdac=cdac_params, code=code)
-        # TODO: run simulation and extract voltage
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         # voltage = result.an[0].data["v(xtop.top)"]
@@ -288,7 +302,7 @@ def test_cdac_sim(simtestmode: SimTestMode):
     elif simtestmode == SimTestMode.MIN:
         # Run one quick simulation
         params = CdacTbParams(cdac=CdacParams(n_dac=8), code=128)
-        # TODO: run simulation and measure settling
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input_tran(params)  # noqa: F841
         # result = sim.run(sim_options)
         # settling = cdac_settling_ns(result)

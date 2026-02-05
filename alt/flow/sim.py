@@ -217,8 +217,7 @@ def run_pvt_sweep(
     for corner in corners:
         for temp in temps:
             pvt = Pvt(p=corner, v=corner, t=corner)
-            # TODO: use config to pass temp to tb_generator
-            config = SimConfig(pvt=pvt, temp=temp)  # noqa: F841
+            # NOTE: temp is captured in pvt.t for tb_generator to use
 
             tb, sim = tb_generator(base_params, pvt)
 

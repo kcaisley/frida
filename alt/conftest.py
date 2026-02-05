@@ -5,10 +5,21 @@ Provides the SimTestMode fixture for controlling test execution depth
 and PDK selection.
 """
 
+import socket
+
 import pytest
 
 from .flow import SimTestMode
 from .pdk import set_pdk, list_pdks
+
+# Hosts with SPICE simulators and PDKs available
+SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
+
+
+def has_simulator() -> bool:
+    """Check if current host has simulator access."""
+    hostname = socket.gethostname().split(".")[0].lower()
+    return hostname in SIM_HOSTS
 
 
 def pytest_addoption(parser):
@@ -30,15 +41,24 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    """Set up PDK before tests run."""
+    """Set up PDK and register markers before tests run."""
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
+
+    # Register the requires_sim marker
+    config.addinivalue_line(
+        "markers",
+        "requires_sim: mark test as requiring SPICE simulator (skipped on non-sim hosts)",
+    )
 
 
 @pytest.fixture
 def simtestmode(request) -> SimTestMode:
     """
     Get simulation test mode from command line.
+
+    Automatically skips tests requiring simulation if not on a sim host
+    (jupiter, juno, asiclab003) unless mode is 'netlist'.
 
     Usage in tests:
         def test_something(simtestmode: SimTestMode):
@@ -53,7 +73,16 @@ def simtestmode(request) -> SimTestMode:
                 ...
     """
     mode_str = request.config.getoption("--mode")
-    return SimTestMode(mode_str)
+    mode = SimTestMode(mode_str)
+
+    # Skip simulation tests on hosts without simulator access
+    if mode != SimTestMode.NETLIST and not has_simulator():
+        pytest.skip(
+            f"Simulation tests require host with simulator (jupiter/juno/asiclab003), "
+            f"current host: {socket.gethostname()}"
+        )
+
+    return mode
 
 
 @pytest.fixture

@@ -73,30 +73,27 @@ name = "frida"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "basil-daq" },
+    { name = "hdl21" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "scipy" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "basil-daq" },
-    { name = "hdl21" },
+    { name = "vlsir" },
     { name = "vlsirtools" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "basil-daq", marker = "extra == 'dev'", editable = "../libs/basil" },
-    { name = "hdl21", marker = "extra == 'dev'", editable = "../libs/Hdl21" },
+    { name = "basil-daq", editable = "../libs/basil" },
+    { name = "hdl21", editable = "../libs/Hdl21" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "scipy" },
-    { name = "vlsirtools", marker = "extra == 'dev'", editable = "../libs/Vlsir/VlsirTools" },
+    { name = "vlsir", editable = "../libs/Vlsir/bindings/python" },
+    { name = "vlsirtools", editable = "../libs/Vlsir/VlsirTools" },
 ]
-provides-extras = ["dev"]
 
 [[package]]
 name = "gitdb"
@@ -402,11 +399,17 @@ wheels = [
 [[package]]
 name = "vlsir"
 version = "7.0.0"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../libs/Vlsir/bindings/python" }
 dependencies = [
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/f4/d53efa9f87f0f9634a18ccaf7a485fb9adfe981e2868b099251a932755b2/vlsir-7.0.0.tar.gz", hash = "sha256:921452f9703fadcd4175ff72fc915b7f3222e8cce5f592a70d2f9d70f405a27c", size = 14852, upload-time = "2024-12-12T17:25:05.107Z" }
+
+[package.metadata]
+requires-dist = [
+    { name = "protobuf", specifier = "~=4.23" },
+    { name = "vlsirdev", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "vlsirtools"

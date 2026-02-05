@@ -93,6 +93,7 @@ class RedunStrat(Enum):
     SUBRDX2_LIM = "subrdx2lim"
     SUBRDX2_RDST = "subrdx2rdst"
     RDX2_RPT = "rdx2rpt"
+    SUBRDX2_OVLY = "subrdx2ovly"  # Sub-radix-2 with paired overlay
 
 
 class SplitStrat(Enum):

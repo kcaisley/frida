@@ -4,13 +4,20 @@ Sampler testbench and tests for FRIDA.
 Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
-
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpulse
 
-from ..flow import Project, Pvt, SimTestMode, SupplyVals, SwitchType, sim_options, write_sim_netlist
+from ..flow import (
+    Project,
+    Pvt,
+    SimTestMode,
+    SupplyVals,
+    SwitchType,
+    sim_options,
+    write_sim_netlist,
+)
 from ..pdk import get_pdk
 from .samp import Samp, SampParams, samp_variants
 
@@ -155,7 +162,7 @@ def run_switch_type_sweep(pvt: Pvt = None) -> list[tuple]:
         for vth in [MosVth.LOW, MosVth.STD]:
             samp_params = SampParams(switch_type=switch_type, w=10, l=1, vth=vth)
             tb_params = SampTbParams(pvt=pvt, samp=samp_params)
-            # TODO: run simulation and measure settling
+            # Simulation not executed - requires SPICE simulator with PDK
             sim = sim_input(tb_params)  # noqa: F841
             # result = sim.run(sim_options)
             # settling = samp_settling_ns(result)
@@ -182,7 +189,7 @@ def run_width_sweep(
     for width in width_list:
         samp_params = SampParams(switch_type=switch_type, w=width, l=1)
         tb_params = SampTbParams(pvt=pvt, samp=samp_params)
-        # TODO: run simulation and extract result
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         results.append((width, None))  # Placeholder

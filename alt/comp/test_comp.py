@@ -250,7 +250,7 @@ def run_scurve_sweep(
                 vcm=vcm,
                 vin_diff=vdiff,
             )
-            # TODO: run simulation and extract result
+            # Simulation not executed - requires SPICE simulator with PDK
             sim = sim_input(tb_params)  # noqa: F841
             # result = sim.run(sim_options)
             results.append(((vcm, vdiff), None))  # Placeholder
@@ -277,7 +277,7 @@ def run_topology_sweep(pvt: Pvt = None) -> list[tuple]:
 
     for comp_params in variants:
         tb_params = CompTbParams(pvt=pvt, comp=comp_params)
-        # TODO: run simulation and extract result
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(tb_params)  # noqa: F841
         # result = sim.run(sim_options)
         results.append((comp_params, None))  # Placeholder
@@ -397,7 +397,7 @@ def test_comp_scurve(simtestmode: SimTestMode):
     elif simtestmode == SimTestMode.MIN:
         # Run single point
         params = CompTbParams(vcm=600 * m, vin_diff=0 * m)
-        # TODO: run simulation
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(params)  # noqa: F841
         print("MIN mode: would run single S-curve point")
 
@@ -416,7 +416,7 @@ def test_comp_sim(simtestmode: SimTestMode):
 
     elif simtestmode == SimTestMode.MIN:
         params = CompTbParams()
-        # TODO: run simulation and measure delay
+        # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(params)  # noqa: F841
         # result = sim.run(sim_options)
         # delay = comp_delay_ns(result)

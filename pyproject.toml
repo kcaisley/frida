@@ -7,22 +7,21 @@ dependencies = [
     "scipy",
     "pydantic",
     "pytest",
-]
-
-[tool.uv.sources]
-hdl21 = { path = "../libs/Hdl21", editable = true }
-vlsirtools = { path = "../libs/Vlsir/VlsirTools", editable = true }
-basil-daq = { path = "../libs/basil", editable = true }
-
-[project.optional-dependencies]
-dev = [
     "hdl21",
+    "vlsir",
     "vlsirtools",
     "basil-daq",
 ]
 
+[tool.uv.sources]
+hdl21 = { path = "../libs/Hdl21", editable = true }
+vlsir = { path = "../libs/Vlsir/bindings/python", editable = true }
+vlsirtools = { path = "../libs/Vlsir/VlsirTools", editable = true }
+basil-daq = { path = "../libs/basil", editable = true }
+
 [tool.basedpyright]
 typeCheckingMode = "off"
+extraPaths = ["../libs/Hdl21", "../libs/Vlsir/VlsirTools", "../libs/Vlsir/bindings/python"]
 
 [tool.ruff]
 exclude = ["old/", "flow/", "blocks/"]
