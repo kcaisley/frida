@@ -192,16 +192,12 @@ def print_netlist_summary(
     """
     width = 80
 
-    # Header
-    print("=" * width)
-    title = f"NETLIST GENERATION: {block.upper()}"
-    print(title.center(width))
-    print("=" * width)
-
     # Info section
-    print(f"Block:       {block}")
-    print(f"PDK:         {pdk_name}")
-    print(f"Output:      {outdir}")
+    print()
+    print("Flow:       netlist")
+    print(f"Block:      {block}")
+    print(f"Tech:       {pdk_name}")
+    print(f"OutDir:     {outdir}")
     print("-" * width)
 
     # Build parameter table
@@ -240,7 +236,6 @@ def print_netlist_summary(
     else:
         print("Errors:      [none]")
 
-    print("=" * width)
     print()
 
 
