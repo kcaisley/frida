@@ -46,15 +46,6 @@ def pytest_configure(config):
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
 
-    # Here, we override the capture behavior of pytest, to make it more egnomic
-    # as a 'job runner'
-    # If verbose, disable capture so summary tables are visible
-    if config.option.verbose >= 1:
-        config.option.capture = "no"
-        capman = config.pluginmanager.get_plugin("capturemanager")
-        if capman is not None:
-            capman.stop_global_capturing()
-
     # Register the requires_sim marker
     config.addinivalue_line(
         "markers",
