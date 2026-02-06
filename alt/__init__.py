@@ -7,7 +7,7 @@ with a PDK abstraction layer supporting multiple process nodes.
 Each block module (comp/, samp/, cdac/) contains:
 - Generator: @h.generator function creating the circuit
 - Testbench: @h.generator for testbench + sim_input() for simulation
-- Tests: test_* functions using pytest's simtestmode fixture
+- Tests: test_* functions using pytest's flowmode fixture
 """
 
 # Generators and Testbenches - from per-block modules
@@ -59,7 +59,6 @@ from .flow import (
     get_sim_options,
     # Monte Carlo
     MCConfig,
-    DEFAULT_MC_CONFIG,
     SimConfig,
     # Sweep types
     LinearSweep,
@@ -100,7 +99,7 @@ from .flow import (
     configure_matplotlib,
     save_plot,
     # Pytest fixture
-    SimTestMode,
+    FlowMode,
 )
 
 __all__ = [
@@ -149,7 +148,6 @@ __all__ = [
     "get_sim_options",
     # Monte Carlo
     "MCConfig",
-    "DEFAULT_MC_CONFIG",
     "SimConfig",
     # Sweep types
     "LinearSweep",
@@ -189,5 +187,5 @@ __all__ = [
     "configure_matplotlib",
     "save_plot",
     # Pytest
-    "SimTestMode",
+    "FlowMode",
 ]

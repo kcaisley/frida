@@ -5,6 +5,7 @@ Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
 import hdl21 as h
+import pytest
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpulse
@@ -12,13 +13,16 @@ from hdl21.primitives import C, MosVth, Vdc, Vpulse
 from ..flow import (
     Project,
     Pvt,
-    SimTestMode,
+    FlowMode,
     SupplyVals,
     SwitchType,
     sim_options,
     write_sim_netlist,
+    params_to_filename,
+    params_to_tb_filename,
 )
 from ..pdk import get_pdk
+from ..conftest import has_simulator, print_summary_if_verbose
 from .samp import Samp, SampParams, samp_variants
 
 
@@ -202,83 +206,137 @@ def run_width_sweep(
 # =============================================================================
 
 
-def test_samp_netlist(simtestmode: SimTestMode):
+def test_samp_netlist(flowmode: FlowMode, request):
     """Test sampler netlist generation for all topologies."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
-    count = 0
+    start = time.perf_counter()
+    variants = []
+
     for switch_type in SwitchType:
         for vth in [MosVth.LOW, MosVth.STD]:
             params = SampParams(switch_type=switch_type, vth=vth)
+            variants.append(params)
             samp = Samp(params)
             pdk.compile(samp)
-            netlist_path = outdir / f"samp_{switch_type.name}_{vth.name}.sp"
+            # Write netlist with consistent naming
+            filename = params_to_filename("samp", params, pdk.name)
+            netlist_path = outdir / filename
             with open(netlist_path, "w") as f:
                 h.netlist(samp, dest=f)
-            count += 1
 
-    print(f"Generated {count} sampler netlists in {outdir}/")
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="samp",
+        count=len(variants),
+        params_list=variants,
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_samp_tb_netlist(simtestmode: SimTestMode):
+def test_samp_tb_netlist(flowmode: FlowMode, request):
     """Test testbench netlist generation."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
+
+    start = time.perf_counter()
 
     params = SampTbParams()
     tb = SampTb(params)
     pdk.compile(tb)
-    netlist_path = outdir / "samp_tb.sp"
+
+    # Write testbench netlist with consistent naming
+    tb_filename = params_to_tb_filename("samp", params, pdk.name, suffix=".sp")
+    netlist_path = outdir / tb_filename
     with open(netlist_path, "w") as f:
         h.netlist(tb, dest=f)
-    print(f"Sampler testbench netlist: {netlist_path}")
 
     # Also write simulation netlist (same path as actual simulation)
     sim = sim_input(params)
-    sim_netlist_path = outdir / "samp_tb.scs"
+    sim_filename = params_to_tb_filename("samp", params, pdk.name, suffix=".scs")
+    sim_netlist_path = outdir / sim_filename
     write_sim_netlist(sim, sim_netlist_path, compact=True)
-    print(f"Sampler simulation netlist: {sim_netlist_path}")
+
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="samp_tb",
+        count=2,  # .sp and .scs
+        params_list=[params.samp],  # Use inner samp params for axes
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_samp_variants(simtestmode: SimTestMode):
+def test_samp_variants(flowmode: FlowMode, request):
     """Test variant generation."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
+    start = time.perf_counter()
     variants = samp_variants()
-    print(f"Generated {len(variants)} sampler variants")
 
-    # Verify first 5 variants produce valid netlists
-    for i, params in enumerate(variants[:5]):
+    # Generate netlists for first 5 variants
+    generated_variants = variants[:5]
+    for params in generated_variants:
         samp = Samp(params)
         pdk.compile(samp)
-        netlist_path = outdir / f"samp_variant_{i}.sp"
+        # Write netlist with consistent naming
+        filename = params_to_filename("samp", params, pdk.name)
+        netlist_path = outdir / filename
         with open(netlist_path, "w") as f:
             h.netlist(samp, dest=f)
 
+    wall_time = time.perf_counter() - start
 
-def test_samp_sim(simtestmode: SimTestMode):
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="samp_variants",
+        count=len(generated_variants),
+        params_list=generated_variants,
+        wall_time=wall_time,
+        outdir=outdir,
+    )
+
+
+def test_samp_sim(flowmode: FlowMode):
     """Test sampler simulation."""
-    if simtestmode == SimTestMode.NETLIST:
+    if flowmode == FlowMode.NETLIST:
         # Just verify sim input can be created
         params = SampTbParams()
         sim = sim_input(params)
-        print("Simulation input created successfully")
+        assert sim is not None
+        pytest.skip("Simulation requires --mode=min/typ/max")
 
-    elif simtestmode == SimTestMode.MIN:
+    elif flowmode == FlowMode.MIN:
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run one quick simulation
         params = SampTbParams(samp=SampParams(switch_type=SwitchType.TGATE))
         # TODO: run simulation and measure settling
@@ -288,7 +346,9 @@ def test_samp_sim(simtestmode: SimTestMode):
         # print(f"Settling time: {settling:.2f} ns")
         print("MIN mode: simulation would run here")
 
-    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run parameter sweep
         results = run_switch_type_sweep()
         for switch_type, vth, settling in results:
@@ -302,10 +362,10 @@ def test_samp_sim(simtestmode: SimTestMode):
 
 if __name__ == "__main__":
     print("Testing netlist generation...")
-    test_samp_netlist(SimTestMode.NETLIST)
+    test_samp_netlist(FlowMode.NETLIST)
     print()
     print("Testing testbench netlist...")
-    test_samp_tb_netlist(SimTestMode.NETLIST)
+    test_samp_tb_netlist(FlowMode.NETLIST)
     print()
     print("Testing variant generation...")
-    test_samp_variants(SimTestMode.NETLIST)
+    test_samp_variants(FlowMode.NETLIST)

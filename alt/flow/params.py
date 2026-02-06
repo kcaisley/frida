@@ -11,7 +11,7 @@ from hdl21.prefix import m
 from pydantic.dataclasses import dataclass
 
 
-class SimTestMode(Enum):
+class FlowMode(Enum):
     """
     Simulation test mode controlling test execution depth.
 

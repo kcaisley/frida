@@ -5,6 +5,7 @@ Includes testbench generator, simulation definitions, and pytest test functions.
 """
 
 import hdl21 as h
+import pytest
 import hdl21.sim as hs
 import numpy as np
 from hdl21.prefix import f, m, n, p
@@ -14,12 +15,15 @@ from ..flow import (
     Project,
     Pvt,
     RedunStrat,
-    SimTestMode,
+    FlowMode,
     SupplyVals,
     sim_options,
     write_sim_netlist,
+    params_to_filename,
+    params_to_tb_filename,
 )
 from ..pdk import get_pdk
+from ..conftest import has_simulator, print_summary_if_verbose
 from .cdac import (
     Cdac,
     CdacParams,
@@ -208,10 +212,10 @@ def run_architecture_comparison(pvt: Pvt = None):
 # =============================================================================
 
 
-def test_cdac_weights(simtestmode: SimTestMode):
+def test_cdac_weights(flowmode: FlowMode):
     """Test weight calculation for different strategies."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
 
     print("CDAC Weight Calculations:")
 
@@ -226,80 +230,134 @@ def test_cdac_weights(simtestmode: SimTestMode):
     print(f"  SUBRDX2_LIM (8+2): {weights}")
 
 
-def test_cdac_netlist(simtestmode: SimTestMode):
+def test_cdac_netlist(flowmode: FlowMode, request):
     """Test that netlist generation works for valid configurations."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
-    count = 0
-    for params in cdac_variants(n_dac_list=[8], n_extra_list=[0, 2]):
+    start = time.perf_counter()
+    variants = list(cdac_variants(n_dac_list=[8], n_extra_list=[0, 2]))
+
+    for params in variants:
         cdac = Cdac(params)
         pdk.compile(cdac)
-        netlist_path = outdir / f"cdac_{count}.sp"
+        # Write netlist with consistent naming
+        filename = params_to_filename("cdac", params, pdk.name)
+        netlist_path = outdir / filename
         with open(netlist_path, "w") as f:
             h.netlist(cdac, dest=f)
-        count += 1
-    print(f"Generated {count} CDAC netlists in {outdir}/")
+
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="cdac",
+        count=len(variants),
+        params_list=variants,
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_cdac_tb_netlist(simtestmode: SimTestMode):
+def test_cdac_tb_netlist(flowmode: FlowMode, request):
     """Test testbench netlist generation."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
+
+    start = time.perf_counter()
 
     params = CdacTbParams(cdac=CdacParams(n_dac=8))
     tb = CdacTb(params)
     pdk.compile(tb)
-    netlist_path = outdir / "cdac_tb.sp"
+
+    # Write testbench netlist with consistent naming
+    tb_filename = params_to_tb_filename("cdac", params, pdk.name, suffix=".sp")
+    netlist_path = outdir / tb_filename
     with open(netlist_path, "w") as f:
         h.netlist(tb, dest=f)
-    print(f"CDAC testbench netlist: {netlist_path}")
 
     # Also write simulation netlist (same path as actual simulation)
     sim = sim_input(params)
-    sim_netlist_path = outdir / "cdac_tb.scs"
+    sim_filename = params_to_tb_filename("cdac", params, pdk.name, suffix=".scs")
+    sim_netlist_path = outdir / sim_filename
     write_sim_netlist(sim, sim_netlist_path, compact=True)
-    print(f"CDAC simulation netlist: {sim_netlist_path}")
+
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="cdac_tb",
+        count=2,  # .sp and .scs
+        params_list=[params.cdac],  # Use inner cdac params for axes
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_cdac_variants(simtestmode: SimTestMode):
+def test_cdac_variants(flowmode: FlowMode, request):
     """Test variant generation for different architectures."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
+    start = time.perf_counter()
     variants = cdac_variants()
-    print(f"Generated {len(variants)} valid CDAC variants")
 
-    # Verify first 5 variants produce valid netlists
-    for i, params in enumerate(variants[:5]):
+    # Generate netlists for first 5 variants
+    generated_variants = variants[:5]
+    for params in generated_variants:
         cdac = Cdac(params)
         pdk.compile(cdac)
-        netlist_path = outdir / f"cdac_variant_{i}.sp"
+        # Write netlist with consistent naming
+        filename = params_to_filename("cdac", params, pdk.name)
+        netlist_path = outdir / filename
         with open(netlist_path, "w") as f:
             h.netlist(cdac, dest=f)
 
+    wall_time = time.perf_counter() - start
 
-def test_cdac_sim(simtestmode: SimTestMode):
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="cdac_variants",
+        count=len(generated_variants),
+        params_list=generated_variants,
+        wall_time=wall_time,
+        outdir=outdir,
+    )
+
+
+def test_cdac_sim(flowmode: FlowMode):
     """Test CDAC simulation."""
-    if simtestmode == SimTestMode.NETLIST:
+    if flowmode == FlowMode.NETLIST:
         # Just verify sim input can be created
         params = CdacTbParams(cdac=CdacParams(n_dac=8))
         sim = sim_input(params)
-        print("Simulation input created successfully")
+        assert sim is not None
+        pytest.skip("Simulation requires --mode=min/typ/max")
 
-    elif simtestmode == SimTestMode.MIN:
+    elif flowmode == FlowMode.MIN:
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run one quick simulation
         params = CdacTbParams(cdac=CdacParams(n_dac=8), code=128)
         # Simulation not executed - requires SPICE simulator with PDK
@@ -309,7 +367,9 @@ def test_cdac_sim(simtestmode: SimTestMode):
         # print(f"Settling time: {settling:.2f} ns")
         print("MIN mode: simulation would run here")
 
-    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run architecture comparison
         results = run_architecture_comparison()
         for arch, data in results.items():
@@ -323,10 +383,10 @@ def test_cdac_sim(simtestmode: SimTestMode):
 
 if __name__ == "__main__":
     print("Testing CDAC weight calculations...")
-    test_cdac_weights(SimTestMode.NETLIST)
+    test_cdac_weights(FlowMode.NETLIST)
     print()
     print("Testing CDAC netlist generation...")
-    test_cdac_netlist(SimTestMode.NETLIST)
+    test_cdac_netlist(FlowMode.NETLIST)
     print()
     print("Testing CDAC testbench netlist...")
-    test_cdac_tb_netlist(SimTestMode.NETLIST)
+    test_cdac_tb_netlist(FlowMode.NETLIST)

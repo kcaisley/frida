@@ -8,24 +8,27 @@ and pytest test functions.
 from typing import Any
 
 import hdl21 as h
+import pytest
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, R, Vdc, Vpulse
 
 from ..flow import (
-    DEFAULT_MC_CONFIG,
     MCConfig,
     Project,
     Pvt,
-    SimTestMode,
+    FlowMode,
     SupplyVals,
     PreampBias,
     PreampDiffpair,
     CompStages,
     sim_options,
     write_sim_netlist,
+    params_to_filename,
+    params_to_tb_filename,
 )
 from ..pdk import get_pdk
+from ..conftest import has_simulator, print_summary_if_verbose
 from .comp import Comp, CompParams, comp_variants
 
 
@@ -181,7 +184,7 @@ def sim_input_with_mc(
     HDL21 MonteCarlo wraps inner analyses with statistical variation.
     """
     if mc_config is None:
-        mc_config = DEFAULT_MC_CONFIG
+        mc_config = MCConfig()
 
     sim_temp = Project.temper(params.pvt.t)
     numruns = mc_config.numruns
@@ -302,7 +305,7 @@ def run_offset_monte_carlo(
     if pvt is None:
         pvt = Pvt()
     if mc_config is None:
-        mc_config = DEFAULT_MC_CONFIG
+        mc_config = MCConfig()
 
     # Zero differential input for offset measurement
     tb_params = CompTbParams(pvt=pvt, comp=comp_params, vin_diff=0 * m)
@@ -329,55 +332,88 @@ def run_offset_monte_carlo(
 # =============================================================================
 
 
-def test_comp_netlist(simtestmode: SimTestMode):
+def test_comp_netlist(flowmode: FlowMode, request):
     """Test that netlist generation works for all valid topologies."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
-    count = 0
-    for params in comp_variants():
+    start = time.perf_counter()
+    variants = list(comp_variants())
+
+    for params in variants:
         comp = Comp(params)
         pdk.compile(comp)
-        # Write netlist to scratch directory
-        netlist_path = outdir / f"comp_{count}.sp"
+        # Write netlist with consistent naming
+        filename = params_to_filename("comp", params, pdk.name)
+        netlist_path = outdir / filename
         with open(netlist_path, "w") as f:
             h.netlist(comp, dest=f)
-        count += 1
-    print(f"Generated {count} comparator netlists in {outdir}/")
+
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="comp",
+        count=len(variants),
+        params_list=variants,
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_comp_tb_netlist(simtestmode: SimTestMode):
+def test_comp_tb_netlist(flowmode: FlowMode, request):
     """Test testbench netlist generation."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
+
+    import time
 
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
+
+    start = time.perf_counter()
 
     params = CompTbParams()
     tb = CompTb(params)
     pdk.compile(tb)
-    netlist_path = outdir / "comp_tb.sp"
+
+    # Write testbench netlist with consistent naming
+    tb_filename = params_to_tb_filename("comp", params, pdk.name, suffix=".sp")
+    netlist_path = outdir / tb_filename
     with open(netlist_path, "w") as f:
         h.netlist(tb, dest=f)
-    print(f"Comparator testbench netlist: {netlist_path}")
 
     # Also write simulation netlist (same path as actual simulation)
     sim = sim_input(params)
-    sim_netlist_path = outdir / "comp_tb.scs"
+    sim_filename = params_to_tb_filename("comp", params, pdk.name, suffix=".scs")
+    sim_netlist_path = outdir / sim_filename
     write_sim_netlist(sim, sim_netlist_path, compact=True)
-    print(f"Comparator simulation netlist: {sim_netlist_path}")
+
+    wall_time = time.perf_counter() - start
+
+    # Print summary table if verbose
+    print_summary_if_verbose(
+        request,
+        block="comp_tb",
+        count=2,  # .sp and .scs
+        params_list=[params.comp],  # Use inner comp params for axes
+        wall_time=wall_time,
+        outdir=outdir,
+    )
 
 
-def test_comp_mc_sim_structure(simtestmode: SimTestMode):
+def test_comp_mc_sim_structure(flowmode: FlowMode):
     """Test Monte Carlo simulation structure."""
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
 
     params = CompTbParams(vin_diff=0 * m)
     mc_config = MCConfig(numruns=10)
@@ -387,34 +423,42 @@ def test_comp_mc_sim_structure(simtestmode: SimTestMode):
     print(f"  seed={mc_config.seed}, variations={mc_config.variations}")
 
 
-def test_comp_scurve(simtestmode: SimTestMode):
+def test_comp_scurve(flowmode: FlowMode):
     """Test S-curve sweep functionality."""
-    if simtestmode == SimTestMode.NETLIST:
+    if flowmode == FlowMode.NETLIST:
         # Just verify we can create the sweep parameters
         sweep = run_scurve_sweep()
         print(f"S-curve sweep would run {len(sweep)} simulations")
+        pytest.skip("Simulation requires --mode=min/typ/max")
 
-    elif simtestmode == SimTestMode.MIN:
+    elif flowmode == FlowMode.MIN:
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run single point
         params = CompTbParams(vcm=600 * m, vin_diff=0 * m)
         # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(params)  # noqa: F841
         print("MIN mode: would run single S-curve point")
 
-    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         # Run full sweep
         results = run_scurve_sweep()
         print(f"Would run {len(results)} S-curve points")
 
 
-def test_comp_sim(simtestmode: SimTestMode):
+def test_comp_sim(flowmode: FlowMode):
     """Test comparator simulation."""
-    if simtestmode == SimTestMode.NETLIST:
+    if flowmode == FlowMode.NETLIST:
         params = CompTbParams()
         sim = sim_input(params)
-        print("Simulation input created successfully")
+        assert sim is not None
+        pytest.skip("Simulation requires --mode=min/typ/max")
 
-    elif simtestmode == SimTestMode.MIN:
+    elif flowmode == FlowMode.MIN:
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         params = CompTbParams()
         # Simulation not executed - requires SPICE simulator with PDK
         sim = sim_input(params)  # noqa: F841
@@ -423,7 +467,9 @@ def test_comp_sim(simtestmode: SimTestMode):
         # print(f"Decision delay: {delay:.2f} ns")
         print("MIN mode: simulation would run here")
 
-    elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
+        if not has_simulator():
+            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
         results = run_topology_sweep()
         for comp_params, result in results:
             print(
@@ -438,10 +484,10 @@ def test_comp_sim(simtestmode: SimTestMode):
 
 if __name__ == "__main__":
     print("Testing comparator netlist generation...")
-    test_comp_netlist(SimTestMode.NETLIST)
+    test_comp_netlist(FlowMode.NETLIST)
     print()
     print("Testing comparator testbench netlist...")
-    test_comp_tb_netlist(SimTestMode.NETLIST)
+    test_comp_tb_netlist(FlowMode.NETLIST)
     print()
     print("Testing Monte Carlo simulation structure...")
-    test_comp_mc_sim_structure(SimTestMode.NETLIST)
+    test_comp_mc_sim_structure(FlowMode.NETLIST)

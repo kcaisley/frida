@@ -4,13 +4,14 @@ ADC testbench and test functions for FRIDA.
 Provides:
 - AdcTb: Testbench generator with PWL input
 - AdcTbParams: Testbench parameters
-- generate_staircase_pwl: Helper for staircase input waveform
 - run_transfer_function: Run full INL/DNL characterization
 - test_* functions: pytest entry points
 """
 
 import hdl21 as h
+import pytest
 from hdl21.prefix import m, n, p
+from hdl21.primitives import Vdc
 
 from ..flow.params import Pvt, SupplyVals
 from .adc import Adc, AdcParams, get_adc_weights
@@ -32,70 +33,6 @@ class AdcTbParams:
 
     # Common mode voltage
     vcm = h.Param(dtype=h.Scalar, desc="Common-mode voltage", default=600 * m)
-
-
-def generate_staircase_pwl(
-    v_start: float,
-    v_stop: float,
-    v_step: float,
-    t_step: float,
-    t_rise: float,
-    t_delay: float = 0.0,
-) -> list[tuple[float, float]]:
-    """
-    Generate staircase PWL points for ADC transfer function test.
-
-    Each step holds for t_step duration (allowing multiple ADC conversions),
-    then ramps over t_rise to the next level. This is quasi-static, matching
-    physical measurement conditions with an SMU.
-
-    Args:
-        v_start: Starting voltage (V)
-        v_stop: Ending voltage (V)
-        v_step: Voltage increment per step (V)
-        t_step: Hold time at each voltage level (s)
-        t_rise: Transition time between levels (s)
-        t_delay: Initial delay before first step (s)
-
-    Returns:
-        List of (time, voltage) tuples for PWL source
-    """
-    points: list[tuple[float, float]] = []
-    n_steps = int(abs(v_stop - v_start) / v_step) + 1
-    t = t_delay
-    sign = 1 if v_stop >= v_start else -1
-
-    for i in range(n_steps):
-        v = v_start + sign * i * v_step
-        points.append((t, v))
-        t += t_step
-        if i < n_steps - 1:
-            points.append((t, v))  # Hold before transition
-            t += t_rise
-
-    return points
-
-
-def pwl_to_spice_literal(
-    name: str,
-    p_node: str,
-    n_node: str,
-    points: list[tuple[float, float]],
-) -> str:
-    """
-    Generate SPICE PWL source literal string.
-
-    Args:
-        name: Source name (e.g., "vin")
-        p_node: Positive node name
-        n_node: Negative node name
-        points: List of (time, voltage) tuples
-
-    Returns:
-        SPICE PWL source string
-    """
-    pwl_str = " ".join(f"{t:.12e} {v:.6e}" for t, v in points)
-    return f"V{name} {p_node} {n_node} PWL({pwl_str})"
 
 
 @h.generator
@@ -150,6 +87,10 @@ def AdcTb(p: AdcTbParams) -> h.Module:
         # Outputs
         dac_state_p = h.Signal(width=16)
         dac_state_n = h.Signal(width=16)
+
+    # Supply sources
+    AdcTb.vvdd_a = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_a, n=AdcTb.vss)
+    AdcTb.vvdd_d = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_d, n=AdcTb.vss)
 
     # Instantiate ADC
     AdcTb.xadc = Adc(p.adc)(
@@ -215,19 +156,20 @@ def run_transfer_function(
 
     weights = get_adc_weights(p.adc)
 
-    # This is a placeholder - actual implementation would:
-    # 1. Generate the testbench
-    # 2. Add PWL sources via simulation literals
-    # 3. Run transient simulation
-    # 4. Extract samples at clock edges
-    # 5. Convert bits to codes and analyze
+    # Placeholder pipeline using synthetic data for shared measurement functions.
+    n_bits = len(weights)
+    dummy_bits = [[0] * n_bits, [1] * n_bits]
+    codes = redundant_bits_to_code(dummy_bits, weights)
+    v_est = code_to_voltage(codes, v_ref=1.2, total_weight=int(weights.sum()))
+    inl_dnl = histogram_inl_dnl(codes, n_codes=int(weights.sum()) + 1)
+    static_error = compute_static_error(v_est, v_est)
 
-    # For now, return empty results structure
+    # TODO: replace with real simulation and waveform extraction
     return {
-        "v_in": None,
-        "codes": None,
-        "inl_dnl": None,
-        "static_error": None,
+        "v_in": v_est,
+        "codes": codes,
+        "inl_dnl": inl_dnl,
+        "static_error": static_error,
         "weights": weights,
         "n_codes": int(weights.sum()) + 1,
     }
@@ -238,12 +180,12 @@ def run_transfer_function(
 # =============================================================================
 
 
-def test_adc_netlist(simtestmode):
+def test_adc_netlist(flowmode):
     """Test ADC netlist generation."""
-    from ..flow import SimTestMode
+    from ..flow import FlowMode
 
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
 
     # Generate ADC with default params
     params = AdcParams()
@@ -258,12 +200,12 @@ def test_adc_netlist(simtestmode):
     assert hasattr(adc, "xcomp")
 
 
-def test_adc_tb_netlist(simtestmode):
+def test_adc_tb_netlist(flowmode):
     """Test ADC testbench netlist generation."""
-    from ..flow import SimTestMode
+    from ..flow import FlowMode
 
-    if simtestmode != SimTestMode.NETLIST:
-        return
+    if flowmode != FlowMode.NETLIST:
+        pytest.skip("Only runs in flow mode NETLIST")
 
     # Generate testbench
     params = AdcTbParams()
@@ -271,29 +213,6 @@ def test_adc_tb_netlist(simtestmode):
 
     # Verify structure
     assert hasattr(tb, "xadc")
-
-
-def test_staircase_pwl():
-    """Test staircase PWL generation."""
-    points = generate_staircase_pwl(
-        v_start=0.0,
-        v_stop=1.0,
-        v_step=0.1,
-        t_step=1e-6,
-        t_rise=1e-9,
-    )
-
-    # Should have 11 steps (0.0 to 1.0 in 0.1 increments)
-    # Each step has 2 points (start and end of hold), except last
-    assert len(points) > 0
-
-    # First point should be at t=0, v=0
-    assert points[0] == (0.0, 0.0)
-
-    # Voltages should be monotonically increasing
-    voltages = [v for t, v in points]
-    for i in range(len(voltages) - 1):
-        assert voltages[i] <= voltages[i + 1]
 
 
 def test_adc_weights():

@@ -2,7 +2,7 @@
 Shared test infrastructure for FRIDA HDL21 generators.
 
 Provides:
-- SimTestMode enum and pytest fixture for controlling test depth
+- FlowMode enum and pytest fixture for controlling test depth
 - Simulation infrastructure (sim options, Monte Carlo config)
 - Measurement functions for post-processing results
 - Matplotlib plotting configuration
@@ -10,7 +10,7 @@ Provides:
 """
 
 # Pytest configuration
-from .params import SimTestMode
+from .params import FlowMode
 
 # Parameters and enums
 from .params import (
@@ -44,7 +44,6 @@ from .sim import (
     get_sim_options,
     # Monte Carlo
     MCConfig,
-    DEFAULT_MC_CONFIG,
     SimConfig,
     # Sweep types
     LinearSweep,
@@ -129,9 +128,19 @@ from .plot import (
     plot_monte_carlo_histogram,
 )
 
+# Netlist utilities
+from .netlist import (
+    generate_staircase_pwl,
+    pwl_to_spice_literal,
+    params_to_filename,
+    params_to_tb_filename,
+    get_param_axes,
+    print_netlist_summary,
+)
+
 __all__ = [
     # Pytest
-    "SimTestMode",
+    "FlowMode",
     # Enums
     "SwitchType",
     "PreampDiffpair",
@@ -156,7 +165,6 @@ __all__ = [
     "get_sim_options",
     # Monte Carlo
     "MCConfig",
-    "DEFAULT_MC_CONFIG",
     "SimConfig",
     # Sweep types
     "LinearSweep",
@@ -232,4 +240,11 @@ __all__ = [
     "plot_waveforms",
     "plot_enob_vs_frequency",
     "plot_monte_carlo_histogram",
+    # Netlist utilities
+    "params_to_filename",
+    "params_to_tb_filename",
+    "get_param_axes",
+    "print_netlist_summary",
+    "generate_staircase_pwl",
+    "pwl_to_spice_literal",
 ]

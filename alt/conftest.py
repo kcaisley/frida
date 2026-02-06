@@ -1,16 +1,17 @@
 """
 Pytest configuration for FRIDA HDL21 tests.
 
-Provides the SimTestMode fixture for controlling test execution depth
+Provides the FlowMode fixture for controlling test execution depth
 and PDK selection.
 """
 
 import socket
+from typing import Any
 
 import pytest
 
-from .flow import SimTestMode
-from .pdk import set_pdk, list_pdks
+from .flow import FlowMode, get_param_axes, print_netlist_summary
+from .pdk import get_pdk, list_pdks, set_pdk
 
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
@@ -28,7 +29,7 @@ def pytest_addoption(parser):
         "--mode",
         action="store",
         default="netlist",
-        choices=[m.value for m in SimTestMode],
+        choices=[m.value for m in FlowMode],
         help="Test mode: netlist (default), min, typ, max, layout, drc, lvs, pnr",
     )
     parser.addoption(
@@ -45,6 +46,15 @@ def pytest_configure(config):
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
 
+    # Here, we override the capture behavior of pytest, to make it more egnomic
+    # as a 'job runner'
+    # If verbose, disable capture so summary tables are visible
+    if config.option.verbose >= 1:
+        config.option.capture = "no"
+        capman = config.pluginmanager.get_plugin("capturemanager")
+        if capman is not None:
+            capman.stop_global_capturing()
+
     # Register the requires_sim marker
     config.addinivalue_line(
         "markers",
@@ -53,7 +63,7 @@ def pytest_configure(config):
 
 
 @pytest.fixture
-def simtestmode(request) -> SimTestMode:
+def flowmode(request) -> FlowMode:
     """
     Get simulation test mode from command line.
 
@@ -61,22 +71,22 @@ def simtestmode(request) -> SimTestMode:
     (jupiter, juno, asiclab003) unless mode is 'netlist'.
 
     Usage in tests:
-        def test_something(simtestmode: SimTestMode):
-            if simtestmode == SimTestMode.NETLIST:
+        def test_something(flowmode: FlowMode):
+            if flowmode == FlowMode.NETLIST:
                 # Just verify netlist generation
                 ...
-            elif simtestmode == SimTestMode.MIN:
+            elif flowmode == FlowMode.MIN:
                 # Run one quick simulation
                 ...
-            elif simtestmode in (SimTestMode.TYP, SimTestMode.MAX):
+            elif flowmode in (FlowMode.TYP, FlowMode.MAX):
                 # Run parameter sweeps
                 ...
     """
     mode_str = request.config.getoption("--mode")
-    mode = SimTestMode(mode_str)
+    mode = FlowMode(mode_str)
 
     # Skip simulation tests on hosts without simulator access
-    if mode != SimTestMode.NETLIST and not has_simulator():
+    if mode != FlowMode.NETLIST and not has_simulator():
         pytest.skip(
             f"Simulation tests require host with simulator (jupiter/juno/asiclab003), "
             f"current host: {socket.gethostname()}"
@@ -105,6 +115,52 @@ def tech(request):
     The tech is set via the --tech command line option.
     Default is ihp130 (IHP SG13G2 130nm) since it's open source.
     """
-    from .pdk import get_pdk
-
     return get_pdk()
+
+
+@pytest.fixture
+def verbose(request) -> bool:
+    """
+    Check if pytest is running in verbose mode (-v flag).
+
+    Use this to conditionally print summary tables.
+    """
+    return request.config.option.verbose >= 1
+
+
+def print_summary_if_verbose(
+    request,
+    block: str,
+    count: int,
+    params_list: list[Any],
+    wall_time: float,
+    outdir: str,
+    errors: list[str] | None = None,
+) -> None:
+    """
+    Print netlist generation summary if pytest is running in verbose mode.
+
+    Call this at the end of netlist generation tests to display
+    a formatted summary table.
+
+    Args:
+        request: pytest request fixture
+        block: Block name (e.g., "comp", "cdac", "samp")
+        count: Number of netlists generated
+        params_list: List of parameter objects used
+        wall_time: Generation time in seconds
+        outdir: Output directory path
+        errors: List of error messages (or None for no errors)
+    """
+    if request.config.option.verbose >= 1:
+        pdk = get_pdk()
+        param_axes = get_param_axes(params_list)
+        print_netlist_summary(
+            block=block,
+            pdk_name=pdk.name,
+            count=count,
+            param_axes=param_axes,
+            wall_time=wall_time,
+            outdir=str(outdir),
+            errors=errors,
+        )

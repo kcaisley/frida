@@ -86,9 +86,6 @@ class MCConfig:
     variations: str = "mismatch"  # Mismatch only (most relevant)
 
 
-DEFAULT_MC_CONFIG = MCConfig()
-
-
 # =============================================================================
 # SIMULATION CONFIGURATION
 # =============================================================================

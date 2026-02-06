@@ -19,7 +19,6 @@ from .adc import (
 from .test_adc import (
     AdcTb,
     AdcTbParams,
-    generate_staircase_pwl,
     run_transfer_function,
 )
 
@@ -30,6 +29,5 @@ __all__ = [
     "get_adc_weights",
     "AdcTb",
     "AdcTbParams",
-    "generate_staircase_pwl",
     "run_transfer_function",
 ]
