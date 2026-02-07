@@ -48,16 +48,28 @@ def SampTb(params: SampTbParams) -> h.Module:
     """
     supply = SupplyVals.corner(params.pvt.v)
 
-    tb = h.sim.tb("SampTb")
+    @h.module
+    class SampTb:
+        """Sampler testbench module."""
 
-    # Supply
-    tb.vdd = h.Signal()
-    tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
+        vss = h.Port(desc="Ground")
 
-    # Clocks - complementary pulses
-    tb.clk = h.Signal()
-    tb.clk_b = h.Signal()
-    tb.vclk = Vpulse(
+        # Supply
+        vdd = h.Signal()
+
+        # Clocks - complementary pulses
+        clk = h.Signal()
+        clk_b = h.Signal()
+
+        # Input - mid-supply DC voltage
+        din = h.Signal()
+
+        # Output with load capacitor
+        dout = h.Signal()
+
+    SampTb.vvdd = Vdc(dc=supply.VDD)(p=SampTb.vdd, n=SampTb.vss)
+
+    SampTb.vclk = Vpulse(
         v1=0 * m,
         v2=supply.VDD,
         period=100 * n,
@@ -65,8 +77,8 @@ def SampTb(params: SampTbParams) -> h.Module:
         rise=100 * p,
         fall=100 * p,
         delay=0 * n,
-    )(p=tb.clk, n=tb.VSS)
-    tb.vclk_b = Vpulse(
+    )(p=SampTb.clk, n=SampTb.vss)
+    SampTb.vclk_b = Vpulse(
         v1=supply.VDD,
         v2=0 * m,
         period=100 * n,
@@ -74,27 +86,21 @@ def SampTb(params: SampTbParams) -> h.Module:
         rise=100 * p,
         fall=100 * p,
         delay=0 * n,
-    )(p=tb.clk_b, n=tb.VSS)
+    )(p=SampTb.clk_b, n=SampTb.vss)
 
-    # Input - mid-supply DC voltage
-    tb.din = h.Signal()
-    tb.vdin = Vdc(dc=supply.VDD / 2)(p=tb.din, n=tb.VSS)
+    SampTb.vdin = Vdc(dc=supply.VDD / 2)(p=SampTb.din, n=SampTb.vss)
+    SampTb.cload = C(c=params.cload)(p=SampTb.dout, n=SampTb.vss)
 
-    # Output with load capacitor
-    tb.dout = h.Signal()
-    tb.cload = C(c=params.cload)(p=tb.dout, n=tb.VSS)
-
-    # DUT
-    tb.dut = Samp(params.samp)(
-        din=tb.din,
-        dout=tb.dout,
-        clk=tb.clk,
-        clk_b=tb.clk_b,
-        vdd=tb.vdd,
-        vss=tb.VSS,
+    SampTb.dut = Samp(params.samp)(
+        din=SampTb.din,
+        dout=SampTb.dout,
+        clk=SampTb.clk,
+        clk_b=SampTb.clk_b,
+        vdd=SampTb.vdd,
+        vss=SampTb.vss,
     )
 
-    return tb
+    return SampTb
 
 
 def sim_input(params: SampTbParams) -> hs.Sim:
@@ -106,12 +112,14 @@ def sim_input(params: SampTbParams) -> hs.Sim:
         tb = SampTb(params)
         tr = hs.Tran(tstop=500 * n, tstep=100 * p)
 
-        t_settle = hs.Meas(
-            analysis=tr,
+        temp = hs.Options(name="temp", value=sim_temp)
+
+    SampSim.add(
+        hs.Meas(
+            analysis=SampSim.tr,
             expr="when V(xtop.dout)=0.99*V(xtop.din) rise=1",
         )
-
-        temp = hs.Options(name="temp", value=sim_temp)
+    )
 
     return SampSim
 

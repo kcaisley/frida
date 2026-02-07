@@ -55,28 +55,32 @@ def CdacTb(params: CdacTbParams) -> h.Module:
     supply = SupplyVals.corner(params.pvt.v)
     n_bits = get_cdac_n_bits(params.cdac)
 
-    tb = h.sim.tb("CdacTb")
+    @h.module
+    class CdacTb:
+        """CDAC testbench module."""
 
-    # Supply
-    tb.vdd = h.Signal()
-    tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
+        vss = h.Port(desc="Ground")
 
-    # DAC output with load
-    tb.top = h.Signal()
-    tb.cload = C(c=100 * f)(p=tb.top, n=tb.VSS)
+        # Supply
+        vdd = h.Signal()
 
-    # DAC code inputs (driven by sim PWL)
-    tb.dac_bits = h.Signal(width=n_bits)
+        # DAC output with load
+        top = h.Signal()
 
-    # DUT
-    tb.dut = Cdac(params.cdac)(
-        top=tb.top,
-        dac=tb.dac_bits,
-        vdd=tb.vdd,
-        vss=tb.VSS,
+        # DAC code inputs (driven by sim PWL)
+        dac_bits = h.Signal(width=n_bits)
+
+    CdacTb.vvdd = Vdc(dc=supply.VDD)(p=CdacTb.vdd, n=CdacTb.vss)
+    CdacTb.cload = C(c=100 * f)(p=CdacTb.top, n=CdacTb.vss)
+
+    CdacTb.dut = Cdac(params.cdac)(
+        top=CdacTb.top,
+        dac=CdacTb.dac_bits,
+        vdd=CdacTb.vdd,
+        vss=CdacTb.vss,
     )
 
-    return tb
+    return CdacTb
 
 
 def _build_pwl_points(
@@ -123,7 +127,7 @@ def sim_input(params: CdacTbParams) -> hs.Sim:
     for bit in range(n_bits):
         points, t_stop = _build_pwl_points(bit_values[bit], t_step, t_rise)
         pwl = pwl_to_spice_literal(
-            f"dac{bit}", f"xtop.dac_bits[{bit}]", "xtop.VSS", points
+            f"dac_{bit}", f"xtop.dac_bits[{bit}]", "xtop.vss", points
         )
         pwl_literals.append(pwl)
 

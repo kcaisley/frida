@@ -54,28 +54,40 @@ def CompTb(params: CompTbParams) -> h.Module:
     """
     supply = SupplyVals.corner(params.pvt.v)
 
-    tb = h.sim.tb("CompTb")
+    @h.module
+    class CompTb:
+        """Comparator testbench module."""
 
-    # Power supplies
-    tb.vdd = h.Signal()
-    tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
+        vss = h.Port(desc="Ground")
 
-    # Differential input sources (driven by sim PWL)
-    tb.vin_src = h.Signal()
-    tb.vref_src = h.Signal()
+        # Power supplies
+        vdd = h.Signal()
 
-    # Source impedances (models DAC/SHA output impedance)
-    tb.inp = h.Signal()
-    tb.inn = h.Signal()
-    tb.rsrc_p = R(r=1000)(p=tb.vin_src, n=tb.inp)
-    tb.rsrc_n = R(r=1000)(p=tb.vref_src, n=tb.inn)
-    tb.csrc_p = C(c=100 * f)(p=tb.inp, n=tb.VSS)
-    tb.csrc_n = C(c=100 * f)(p=tb.inn, n=tb.VSS)
+        # Differential input sources (driven by sim PWL)
+        vin_p_src = h.Signal()
+        vin_n_src = h.Signal()
+
+        # Source impedances (models DAC/SHA output impedance)
+        in_p = h.Signal()
+        in_n = h.Signal()
+
+        # Clocks
+        clk = h.Signal()
+        clk_b = h.Signal()
+
+        # Outputs
+        out_p = h.Signal()
+        out_n = h.Signal()
+
+    CompTb.vvdd = Vdc(dc=supply.VDD)(p=CompTb.vdd, n=CompTb.vss)
+
+    CompTb.rsrc_p = R(r=1000)(p=CompTb.vin_p_src, n=CompTb.in_p)
+    CompTb.rsrc_n = R(r=1000)(p=CompTb.vin_n_src, n=CompTb.in_n)
+    CompTb.csrc_p = C(c=100 * f)(p=CompTb.in_p, n=CompTb.vss)
+    CompTb.csrc_n = C(c=100 * f)(p=CompTb.in_n, n=CompTb.vss)
 
     # Clocks: 10ns period, 40% duty cycle (4ns high = evaluation phase)
-    tb.clk = h.Signal()
-    tb.clkb = h.Signal()
-    tb.vclk = Vpulse(
+    CompTb.vclk = Vpulse(
         v1=0 * m,
         v2=supply.VDD,
         period=10 * n,
@@ -83,8 +95,8 @@ def CompTb(params: CompTbParams) -> h.Module:
         rise=100 * p,
         fall=100 * p,
         delay=500 * p,
-    )(p=tb.clk, n=tb.VSS)
-    tb.vclkb = Vpulse(
+    )(p=CompTb.clk, n=CompTb.vss)
+    CompTb.vclkb = Vpulse(
         v1=supply.VDD,
         v2=0 * m,
         period=10 * n,
@@ -92,27 +104,25 @@ def CompTb(params: CompTbParams) -> h.Module:
         rise=100 * p,
         fall=100 * p,
         delay=500 * p,
-    )(p=tb.clkb, n=tb.VSS)
+    )(p=CompTb.clk_b, n=CompTb.vss)
 
     # Output loading (10fF each)
-    tb.outp = h.Signal()
-    tb.outn = h.Signal()
-    tb.cload_p = C(c=10 * f)(p=tb.outp, n=tb.VSS)
-    tb.cload_n = C(c=10 * f)(p=tb.outn, n=tb.VSS)
+    CompTb.cload_p = C(c=10 * f)(p=CompTb.out_p, n=CompTb.vss)
+    CompTb.cload_n = C(c=10 * f)(p=CompTb.out_n, n=CompTb.vss)
 
     # DUT
-    tb.dut = Comp(params.comp)(
-        inp=tb.inp,
-        inn=tb.inn,
-        outp=tb.outp,
-        outn=tb.outn,
-        clk=tb.clk,
-        clkb=tb.clkb,
-        vdd=tb.vdd,
-        vss=tb.VSS,
+    CompTb.dut = Comp(params.comp)(
+        inp=CompTb.in_p,
+        inn=CompTb.in_n,
+        outp=CompTb.out_p,
+        outn=CompTb.out_n,
+        clk=CompTb.clk,
+        clkb=CompTb.clk_b,
+        vdd=CompTb.vdd,
+        vss=CompTb.vss,
     )
 
-    return tb
+    return CompTb
 
 
 def _build_pwl_points(
@@ -157,23 +167,24 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     points_p, t_stop = _build_pwl_points(vin_p_values, t_step, t_rise)
     points_n, _ = _build_pwl_points(vin_n_values, t_step, t_rise)
 
-    pwl_p = pwl_to_spice_literal("vinp", "xtop.vin_src", "xtop.VSS", points_p)
-    pwl_n = pwl_to_spice_literal("vinn", "xtop.vref_src", "xtop.VSS", points_n)
+    pwl_p = pwl_to_spice_literal("vin_p", "xtop.vin_p_src", "xtop.vss", points_p)
+    pwl_n = pwl_to_spice_literal("vin_n", "xtop.vin_n_src", "xtop.vss", points_n)
 
     @hs.sim
     class CompSim:
         tb = CompTb(params)
         tr = hs.Tran(tstop=t_stop, tstep=1 * n)
 
-        t_delay = hs.Meas(
-            analysis=tr,
-            expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.outp) val=0.6 rise=1",
-        )
-
         save = hs.Save(hs.SaveMode.ALL)
         temp = hs.Options(name="temp", value=sim_temp)
 
     CompSim.add(hs.Literal(pwl_p), hs.Literal(pwl_n))
+    CompSim.add(
+        hs.Meas(
+            analysis=CompSim.tr,
+            expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.out_p) val=0.6 rise=1",
+        )
+    )
 
     return CompSim
 
