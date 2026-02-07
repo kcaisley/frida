@@ -5,9 +5,10 @@
 .vscode
 .claude
 AGENTS.md
-alt/plan*.md
+flow/plan*.md
 
 # Python
+.pytest_cache
 __pycache__
 .ruff_cache
 .venv*
