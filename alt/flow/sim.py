@@ -109,10 +109,9 @@ def create_tran_sim(
     tstep: h.Scalar = None,
     pvt: Pvt = None,
     measurements: dict[str, str] = None,
-    monte_carlo: int = None,
 ) -> hs.Sim:
     """
-    Create a transient simulation with optional Monte Carlo.
+    Create a transient simulation.
 
     Args:
         tb: Testbench module
@@ -120,8 +119,6 @@ def create_tran_sim(
         tstep: Time step (optional)
         pvt: PVT conditions
         measurements: Dict of measurement name -> expression
-        monte_carlo: Number of Monte Carlo runs (None = no MC)
-
     Returns:
         hs.Sim object ready to run
     """
@@ -144,11 +141,6 @@ def create_tran_sim(
     if measurements:
         for name, expr in measurements.items():
             TranSim.add(hs.Meas(analysis=TranSim.tr, expr=expr, name=name))
-
-    # Wrap in Monte Carlo if requested
-    if monte_carlo and monte_carlo > 1:
-        mc = hs.MonteCarlo(inner=[TranSim.tr], npts=monte_carlo)
-        TranSim.add(mc)
 
     return TranSim
 
@@ -223,43 +215,6 @@ def run_pvt_sweep(
             results[key] = result
 
     return results
-
-
-def run_monte_carlo(
-    tb_generator: Callable,
-    params: Any,
-    n_runs: int,
-    sim_options=None,
-) -> hs.SimResult:
-    """
-    Run Monte Carlo simulation.
-
-    Args:
-        tb_generator: Function that takes params and returns (tb, sim)
-        params: Parameter configuration
-        n_runs: Number of Monte Carlo iterations
-        sim_options: vlsirtools SimOptions
-
-    Returns:
-        SimResult with Monte Carlo data
-    """
-    tb, base_sim = tb_generator(params)
-
-    # Get the transient analysis from the sim
-    tran_analysis = None
-    for attr in base_sim.attrs:
-        if isinstance(attr, hs.Tran):
-            tran_analysis = attr
-            break
-
-    if tran_analysis is None:
-        raise ValueError("No transient analysis found in simulation")
-
-    # Create Monte Carlo wrapper
-    mc = hs.MonteCarlo(inner=[tran_analysis], npts=n_runs)
-    base_sim.add(mc)
-
-    return base_sim.run(sim_options)
 
 
 # =============================================================================

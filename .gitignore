@@ -5,7 +5,7 @@
 .vscode
 .claude
 AGENTS.md
-plan.md
+alt/plan*.md
 
 # Python
 __pycache__

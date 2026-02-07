@@ -7,23 +7,15 @@ with a PDK abstraction layer supporting multiple process nodes.
 Each block module (comp/, samp/, cdac/) contains:
 - Generator: @h.generator function creating the circuit
 - Testbench: @h.generator for testbench + sim_input() for simulation
-- Tests: test_* functions using pytest's flowmode fixture
+- Tests: test_* functions using pytest flow/mode flags
 """
 
 # Generators and Testbenches - from per-block modules
-from .samp import Samp, SampParams, samp_variants, SampTb, SampTbParams
-from .comp import (
-    Comp,
-    CompParams,
-    comp_variants,
-    is_valid_comp_params,
-    CompTb,
-    CompTbParams,
-)
+from .samp import Samp, SampParams, SampTb, SampTbParams
+from .comp import Comp, CompParams, is_valid_comp_params, CompTb, CompTbParams
 from .cdac import (
     Cdac,
     CdacParams,
-    cdac_variants,
     is_valid_cdac_params,
     get_cdac_weights,
     get_cdac_n_bits,
@@ -78,7 +70,6 @@ from .flow import (
     create_tran_sim,
     run_parameter_sweep,
     run_pvt_sweep,
-    run_monte_carlo,
     # Result extraction
     extract_waveform,
     extract_measurement,
@@ -98,22 +89,17 @@ from .flow import (
     # Plotting
     configure_matplotlib,
     save_plot,
-    # Pytest fixture
-    FlowMode,
 )
 
 __all__ = [
     # Generators
     "Samp",
     "SampParams",
-    "samp_variants",
     "Comp",
     "CompParams",
-    "comp_variants",
     "is_valid_comp_params",
     "Cdac",
     "CdacParams",
-    "cdac_variants",
     "is_valid_cdac_params",
     "get_cdac_weights",
     "get_cdac_n_bits",
@@ -167,7 +153,6 @@ __all__ = [
     "create_tran_sim",
     "run_parameter_sweep",
     "run_pvt_sweep",
-    "run_monte_carlo",
     "extract_waveform",
     "extract_measurement",
     "compute_settling_time",
@@ -187,5 +172,4 @@ __all__ = [
     "configure_matplotlib",
     "save_plot",
     # Pytest
-    "FlowMode",
 ]

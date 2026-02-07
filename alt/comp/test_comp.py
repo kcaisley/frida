@@ -1,11 +1,6 @@
 """
-Comparator testbench and tests for FRIDA.
-
-Includes testbench generator, simulation definitions, Monte Carlo support,
-and pytest test functions.
+Comparator testbench and flow tests for FRIDA.
 """
-
-from typing import Any
 
 import hdl21 as h
 import pytest
@@ -14,27 +9,27 @@ from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, R, Vdc, Vpulse
 
 from ..flow import (
-    MCConfig,
-    Project,
-    Pvt,
-    FlowMode,
-    SupplyVals,
+    CompStages,
+    LatchPwrgateCtl,
+    LatchPwrgateNode,
+    LatchRstExternCtl,
+    LatchRstInternCtl,
     PreampBias,
     PreampDiffpair,
-    CompStages,
+    Project,
+    Pvt,
+    SupplyVals,
+    get_param_axes,
+    print_netlist_summary,
+    pwl_to_spice_literal,
+    run_netlist_variants,
+    select_variants,
     sim_options,
-    write_sim_netlist,
-    params_to_filename,
-    params_to_tb_filename,
+    wrap_monte_carlo,
 )
 from ..pdk import get_pdk
-from ..conftest import has_simulator, print_summary_if_verbose
-from .comp import Comp, CompParams, comp_variants
-
-
-# =============================================================================
-# TESTBENCH
-# =============================================================================
+from ..conftest import has_simulator
+from .comp import Comp, CompParams, is_valid_comp_params
 
 
 @h.paramclass
@@ -43,10 +38,6 @@ class CompTbParams:
 
     pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
-    vin_diff = h.Param(
-        dtype=h.Scalar, desc="Differential input voltage", default=10 * m
-    )
-    vcm = h.Param(dtype=h.Scalar, desc="Common-mode voltage", default=600 * m)
 
 
 @h.generator
@@ -54,12 +45,11 @@ def CompTb(params: CompTbParams) -> h.Module:
     """
     Comparator testbench generator.
 
-    Creates a testbench matching the original blocks/comp.py structure:
+    Creates a testbench with:
     - DC supplies
-    - Common-mode voltage (configurable)
-    - Symmetric differential inputs around CM
+    - Symmetric differential inputs around CM (driven by sim PWL)
     - Source impedances (1kOhm + 100fF)
-    - 10ns clock period, 40% duty cycle (4ns high)
+    - 10ns clock period, 40% duty cycle
     - 10fF output loading
     """
     supply = SupplyVals.corner(params.pvt.v)
@@ -70,19 +60,11 @@ def CompTb(params: CompTbParams) -> h.Module:
     tb.vdd = h.Signal()
     tb.vvdd = Vdc(dc=supply.VDD)(p=tb.vdd, n=tb.VSS)
 
-    # Common mode voltage
-    tb.vcm = h.Signal()
-    tb.vvcm = Vdc(dc=params.vcm)(p=tb.vcm, n=tb.VSS)
-
-    # Symmetric differential inputs around common mode
-    # in+ = CM + diff/2, in- = CM - diff/2
+    # Differential input sources (driven by sim PWL)
     tb.vin_src = h.Signal()
     tb.vref_src = h.Signal()
-    tb.vdiff_p = Vdc(dc=params.vin_diff / 2)(p=tb.vin_src, n=tb.vcm)
-    tb.vdiff_n = Vdc(dc=-params.vin_diff / 2)(p=tb.vref_src, n=tb.vcm)
 
     # Source impedances (models DAC/SHA output impedance)
-    # r=1kOhm, c=100fF
     tb.inp = h.Signal()
     tb.inn = h.Signal()
     tb.rsrc_p = R(r=1000)(p=tb.vin_src, n=tb.inp)
@@ -133,361 +115,159 @@ def CompTb(params: CompTbParams) -> h.Module:
     return tb
 
 
-# =============================================================================
-# SIMULATION DEFINITIONS
-# =============================================================================
+def _build_pwl_points(
+    values: list[h.Scalar],
+    t_step: h.Scalar,
+    t_rise: h.Scalar,
+    t_delay: h.Scalar = 0 * n,
+) -> tuple[list[tuple[float, float]], float]:
+    points: list[tuple[float, float]] = []
+    t = float(t_delay)
+    step = float(t_step)
+    rise = float(t_rise)
+
+    for i, value in enumerate(values):
+        points.append((t, float(value)))
+        t += step
+        if i < len(values) - 1:
+            points.append((t, float(value)))
+            t += rise
+
+    return points, t
 
 
 def sim_input(params: CompTbParams) -> hs.Sim:
-    """
-    Create deterministic transient simulation for comparator characterization.
-
-    Matches original: tran(stop=5.5e-6)
-    Saves: v(inp, inn, outp, outn, clk), i(Vvdd)
-    """
+    """Create transient simulation with stepped vcm/vdiff inputs."""
     sim_temp = Project.temper(params.pvt.t)
+
+    # S-curve sweep definition
+    cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
+    diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
+
+    vin_p_values: list[h.Scalar] = []
+    vin_n_values: list[h.Scalar] = []
+
+    for vcm in cm_voltages:
+        for vdiff in diff_voltages:
+            vin_p_values.append(vcm + vdiff / 2)
+            vin_n_values.append(vcm - vdiff / 2)
+
+    t_step = 200 * n
+    t_rise = 100 * p
+    points_p, t_stop = _build_pwl_points(vin_p_values, t_step, t_rise)
+    points_n, _ = _build_pwl_points(vin_n_values, t_step, t_rise)
+
+    pwl_p = pwl_to_spice_literal("vinp", "xtop.vin_src", "xtop.VSS", points_p)
+    pwl_n = pwl_to_spice_literal("vinn", "xtop.vref_src", "xtop.VSS", points_n)
 
     @hs.sim
     class CompSim:
         tb = CompTb(params)
+        tr = hs.Tran(tstop=t_stop, tstep=1 * n)
 
-        # Transient analysis (matches original 5.5us stop time)
-        tr = hs.Tran(tstop=5500 * n, tstep=1 * n)
-
-        # Measurements matching original measures dict
         t_delay = hs.Meas(
             analysis=tr,
             expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.outp) val=0.6 rise=1",
         )
 
-        # Save key signals
         save = hs.Save(hs.SaveMode.ALL)
-
-        # Temperature setting using hs.Options
         temp = hs.Options(name="temp", value=sim_temp)
+
+    CompSim.add(hs.Literal(pwl_p), hs.Literal(pwl_n))
 
     return CompSim
 
 
-def sim_input_with_mc(
-    params: CompTbParams,
-    mc_config: MCConfig = None,
-) -> hs.Sim:
-    """
-    Create Monte Carlo transient simulation for offset characterization.
-
-    Monte Carlo config (default matches original blocks/comp.py):
-    - numruns: 10
-    - seed: 12345
-    - variations: mismatch
-
-    HDL21 MonteCarlo wraps inner analyses with statistical variation.
-    """
-    if mc_config is None:
-        mc_config = MCConfig()
-
-    sim_temp = Project.temper(params.pvt.t)
-    numruns = mc_config.numruns
-    seed = mc_config.seed
-    variations = mc_config.variations
-
-    @hs.sim
-    class CompMcSim:
-        tb = CompTb(params)
-
-        # Base transient analysis
-        tr = hs.Tran(tstop=5500 * n, tstep=1 * n)
-
-        # Monte Carlo wrapper with inner transient
-        # Note: HDL21's MonteCarlo uses npts parameter
-        mc = hs.MonteCarlo(inner=[tr], npts=numruns)
-
-        # Save key signals
-        save = hs.Save(hs.SaveMode.ALL)
-
-        # Temperature setting using hs.Options
-        temp = hs.Options(name="temp", value=sim_temp)
-
-        # MC options as literal (Spectre-specific MC syntax)
-        _ = hs.Literal(f"// MC options: seed={seed}, variations={variations}")
-
-    return CompMcSim
-
-
-# =============================================================================
-# SWEEP FUNCTIONS
-# =============================================================================
-
-
-def run_scurve_sweep(
-    comp_params: CompParams = None,
-    pvt: Pvt = None,
-) -> list[tuple]:
-    """
-    Run S-curve sweep: sweep differential voltage at multiple CM points.
-
-    Matches original testbench structure:
-    - 5 common-mode voltages: 0.3V to 0.7V (100mV steps)
-    - 11 differential voltages at each: -10mV to +10mV (2mV steps)
-    - 10 clock cycles at each point
-
-    Returns list of ((vcm, vdiff), result) tuples.
-    """
-    if comp_params is None:
-        comp_params = CompParams()
-    if pvt is None:
-        pvt = Pvt()
-
-    # 5 common-mode voltages: 0.3V to 0.7V
-    cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
-
-    # 11 differential voltages: -10mV to +10mV (2mV steps)
-    diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
-
-    results = []
-    for vcm in cm_voltages:
-        for vdiff in diff_voltages:
-            tb_params = CompTbParams(
-                pvt=pvt,
-                comp=comp_params,
-                vcm=vcm,
-                vin_diff=vdiff,
-            )
-            # Simulation not executed - requires SPICE simulator with PDK
-            sim = sim_input(tb_params)  # noqa: F841
-            # result = sim.run(sim_options)
-            results.append(((vcm, vdiff), None))  # Placeholder
-
-    return results
-
-
-def run_topology_sweep(pvt: Pvt = None) -> list[tuple]:
-    """
-    Sweep over comparator topologies.
-
-    Returns list of (params, result) tuples for each valid topology.
-    """
-    if pvt is None:
-        pvt = Pvt()
-
-    results = []
-    variants = comp_variants(
-        preamp_diffpairs=[PreampDiffpair.NMOS_INPUT],
-        preamp_biases=list(PreampBias),
-        comp_stages_list=list(CompStages),
-        diffpair_w_list=[40],
-    )
-
-    for comp_params in variants:
-        tb_params = CompTbParams(pvt=pvt, comp=comp_params)
-        # Simulation not executed - requires SPICE simulator with PDK
-        sim = sim_input(tb_params)  # noqa: F841
-        # result = sim.run(sim_options)
-        results.append((comp_params, None))  # Placeholder
-
-    return results
-
-
-def run_offset_monte_carlo(
-    comp_params: CompParams = None,
-    pvt: Pvt = None,
-    mc_config: MCConfig = None,
-) -> dict[str, Any]:
-    """
-    Run Monte Carlo simulation to characterize comparator offset.
-
-    Uses default MC config: numruns=10, seed=12345, variations=mismatch
-
-    Returns statistics on offset distribution.
-    """
-    if comp_params is None:
-        comp_params = CompParams()
-    if pvt is None:
-        pvt = Pvt()
-    if mc_config is None:
-        mc_config = MCConfig()
-
-    # Zero differential input for offset measurement
-    tb_params = CompTbParams(pvt=pvt, comp=comp_params, vin_diff=0 * m)
-    # TODO: run MC simulation and extract offsets
-    sim = sim_input_with_mc(tb_params, mc_config=mc_config)  # noqa: F841
-
-    # Would run simulation and extract offset from each MC point
-    # result = sim.run(sim_options)
-    # offsets = [extract_offset(r) for r in result.mc_results]
-    # return mc_statistics(offsets)
-
-    return {
-        "mc_config": {
-            "numruns": mc_config.numruns,
-            "seed": mc_config.seed,
-            "variations": mc_config.variations,
-        },
-        "info": "Placeholder - simulation not run",
-    }
-
-
-# =============================================================================
-# PYTEST TEST FUNCTIONS
-# =============================================================================
-
-
-def test_comp_netlist(flowmode: FlowMode, request):
-    """Test that netlist generation works for all valid topologies."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    import time
-
+def test_comp_flow(flow, mode, montecarlo, verbose):
+    """Run comparator flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
-    start = time.perf_counter()
-    variants = list(comp_variants())
+    preamp_diffpairs = list(PreampDiffpair)
+    preamp_biases = list(PreampBias)
+    comp_stages_list = list(CompStages)
+    diffpair_w_list = [40, 80]
 
-    for params in variants:
-        comp = Comp(params)
-        pdk.compile(comp)
-        # Write netlist with consistent naming
-        filename = params_to_filename("comp", params, pdk.name)
-        netlist_path = outdir / filename
-        with open(netlist_path, "w") as f:
-            h.netlist(comp, dest=f)
+    variants: list[CompParams] = []
 
-    wall_time = time.perf_counter() - start
+    for preamp_diffpair in preamp_diffpairs:
+        for preamp_bias in preamp_biases:
+            for comp_stages in comp_stages_list:
+                for diffpair_w in diffpair_w_list:
+                    if comp_stages == CompStages.SINGLE_STAGE:
+                        params = CompParams(
+                            preamp_diffpair=preamp_diffpair,
+                            preamp_bias=preamp_bias,
+                            comp_stages=comp_stages,
+                            latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
+                            latch_pwrgate_node=LatchPwrgateNode.EXTERNAL,
+                            latch_rst_extern_ctl=LatchRstExternCtl.CLOCKED,
+                            latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
+                            diffpair_w=diffpair_w,
+                        )
+                        if is_valid_comp_params(params):
+                            variants.append(params)
+                    else:
+                        for latch_pwrgate_node in LatchPwrgateNode:
+                            if latch_pwrgate_node == LatchPwrgateNode.INTERNAL:
+                                rst_extern = LatchRstExternCtl.NO_RESET
+                            else:
+                                rst_extern = LatchRstExternCtl.CLOCKED
 
-    # Print summary table if verbose
-    print_summary_if_verbose(
-        request,
-        block="comp",
-        count=len(variants),
-        params_list=variants,
-        wall_time=wall_time,
-        outdir=outdir,
-    )
+                            params = CompParams(
+                                preamp_diffpair=preamp_diffpair,
+                                preamp_bias=preamp_bias,
+                                comp_stages=comp_stages,
+                                latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
+                                latch_pwrgate_node=latch_pwrgate_node,
+                                latch_rst_extern_ctl=rst_extern,
+                                latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
+                                diffpair_w=diffpair_w,
+                            )
+                            if is_valid_comp_params(params):
+                                variants.append(params)
 
+    variants = select_variants(variants, mode)
 
-def test_comp_tb_netlist(flowmode: FlowMode, request):
-    """Test testbench netlist generation."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
+    def build_sim(comp_params: CompParams):
+        tb_params = CompTbParams(comp=comp_params)
+        tb = CompTb(tb_params)
+        sim = sim_input(tb_params)
+        if montecarlo:
+            wrap_monte_carlo(sim)
+        return tb, sim
 
-    import time
-
-    pdk = get_pdk()
-    outdir = sim_options.rundir
-    outdir.mkdir(exist_ok=True)
-
-    start = time.perf_counter()
-
-    params = CompTbParams()
-    tb = CompTb(params)
-    pdk.compile(tb)
-
-    # Write testbench netlist with consistent naming
-    tb_filename = params_to_tb_filename("comp", params, pdk.name, suffix=".sp")
-    netlist_path = outdir / tb_filename
-    with open(netlist_path, "w") as f:
-        h.netlist(tb, dest=f)
-
-    # Also write simulation netlist (same path as actual simulation)
-    sim = sim_input(params)
-    sim_filename = params_to_tb_filename("comp", params, pdk.name, suffix=".scs")
-    sim_netlist_path = outdir / sim_filename
-    write_sim_netlist(sim, sim_netlist_path, compact=True)
-
-    wall_time = time.perf_counter() - start
-
-    # Print summary table if verbose
-    print_summary_if_verbose(
-        request,
-        block="comp_tb",
-        count=2,  # .sp and .scs
-        params_list=[params.comp],  # Use inner comp params for axes
-        wall_time=wall_time,
-        outdir=outdir,
-    )
-
-
-def test_comp_mc_sim_structure(flowmode: FlowMode):
-    """Test Monte Carlo simulation structure."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    params = CompTbParams(vin_diff=0 * m)
-    mc_config = MCConfig(numruns=10)
-    # TODO: run MC simulation
-    sim = sim_input_with_mc(params, mc_config)  # noqa: F841
-    print(f"MC simulation created with {mc_config.numruns} runs")
-    print(f"  seed={mc_config.seed}, variations={mc_config.variations}")
-
-
-def test_comp_scurve(flowmode: FlowMode):
-    """Test S-curve sweep functionality."""
-    if flowmode == FlowMode.NETLIST:
-        # Just verify we can create the sweep parameters
-        sweep = run_scurve_sweep()
-        print(f"S-curve sweep would run {len(sweep)} simulations")
-        pytest.skip("Simulation requires --mode=min/typ/max")
-
-    elif flowmode == FlowMode.MIN:
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        # Run single point
-        params = CompTbParams(vcm=600 * m, vin_diff=0 * m)
-        # Simulation not executed - requires SPICE simulator with PDK
-        sim = sim_input(params)  # noqa: F841
-        print("MIN mode: would run single S-curve point")
-
-    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        # Run full sweep
-        results = run_scurve_sweep()
-        print(f"Would run {len(results)} S-curve points")
-
-
-def test_comp_sim(flowmode: FlowMode):
-    """Test comparator simulation."""
-    if flowmode == FlowMode.NETLIST:
-        params = CompTbParams()
-        sim = sim_input(params)
-        assert sim is not None
-        pytest.skip("Simulation requires --mode=min/typ/max")
-
-    elif flowmode == FlowMode.MIN:
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        params = CompTbParams()
-        # Simulation not executed - requires SPICE simulator with PDK
-        sim = sim_input(params)  # noqa: F841
-        # result = sim.run(sim_options)
-        # delay = comp_delay_ns(result)
-        # print(f"Decision delay: {delay:.2f} ns")
-        print("MIN mode: simulation would run here")
-
-    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        results = run_topology_sweep()
-        for comp_params, result in results:
-            print(
-                f"{comp_params.preamp_bias.name}/{comp_params.comp_stages.name}: result={result}"
+    if flow == "netlist":
+        wall_time = run_netlist_variants("comp", variants, build_sim, pdk, outdir)
+        if verbose:
+            print_netlist_summary(
+                block="comp",
+                pdk_name=pdk.name,
+                count=len(variants),
+                param_axes=get_param_axes(variants),
+                wall_time=wall_time,
+                outdir=str(outdir),
             )
+        return
 
+    wall_time, sims = run_netlist_variants(
+        "comp", variants, build_sim, pdk, outdir, return_sims=True
+    )
+    if verbose:
+        print_netlist_summary(
+            block="comp",
+            pdk_name=pdk.name,
+            count=len(variants),
+            param_axes=get_param_axes(variants),
+            wall_time=wall_time,
+            outdir=str(outdir),
+        )
 
-# =============================================================================
-# CLI ENTRY POINT (for standalone testing)
-# =============================================================================
+    if not has_simulator():
+        pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
 
-
-if __name__ == "__main__":
-    print("Testing comparator netlist generation...")
-    test_comp_netlist(FlowMode.NETLIST)
-    print()
-    print("Testing comparator testbench netlist...")
-    test_comp_tb_netlist(FlowMode.NETLIST)
-    print()
-    print("Testing Monte Carlo simulation structure...")
-    test_comp_mc_sim_structure(FlowMode.NETLIST)
+    if flow == "simulate":
+        h.sim.run(sims, sim_options)
+    elif flow == "measure":
+        pass

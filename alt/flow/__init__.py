@@ -2,15 +2,11 @@
 Shared test infrastructure for FRIDA HDL21 generators.
 
 Provides:
-- FlowMode enum and pytest fixture for controlling test depth
 - Simulation infrastructure (sim options, Monte Carlo config)
 - Measurement functions for post-processing results
 - Matplotlib plotting configuration
 - Shared parameters (PVT, enums, supply values)
 """
-
-# Pytest configuration
-from .params import FlowMode
 
 # Parameters and enums
 from .params import (
@@ -63,7 +59,6 @@ from .sim import (
     create_tran_sim,
     run_parameter_sweep,
     run_pvt_sweep,
-    run_monte_carlo,
     # Result extraction
     extract_waveform,
     extract_measurement,
@@ -133,14 +128,14 @@ from .netlist import (
     generate_staircase_pwl,
     pwl_to_spice_literal,
     params_to_filename,
-    params_to_tb_filename,
     get_param_axes,
     print_netlist_summary,
+    run_netlist_variants,
+    select_variants,
+    wrap_monte_carlo,
 )
 
 __all__ = [
-    # Pytest
-    "FlowMode",
     # Enums
     "SwitchType",
     "PreampDiffpair",
@@ -184,7 +179,6 @@ __all__ = [
     "create_tran_sim",
     "run_parameter_sweep",
     "run_pvt_sweep",
-    "run_monte_carlo",
     # Result extraction
     "extract_waveform",
     "extract_measurement",
@@ -242,9 +236,11 @@ __all__ = [
     "plot_monte_carlo_histogram",
     # Netlist utilities
     "params_to_filename",
-    "params_to_tb_filename",
     "get_param_axes",
     "print_netlist_summary",
     "generate_staircase_pwl",
     "pwl_to_spice_literal",
+    "run_netlist_variants",
+    "select_variants",
+    "wrap_monte_carlo",
 ]

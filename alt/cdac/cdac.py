@@ -66,6 +66,9 @@ def Cdac(p: CdacParams) -> h.Module:
 
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
+    if not is_valid_cdac_params(p):
+        raise ValueError(f"Invalid CDAC params: {p}")
+
     weights = get_cdac_weights(p)
     n_bits = len(weights)
     mosvth = p.vth
@@ -144,44 +147,6 @@ def _build_nosplit_bit(
     cap_val = weight * p.unit_cap
     cap = C(c=cap_val)(p=mod.top, n=bot)
     setattr(mod, f"c_{idx}", cap)
-
-
-def cdac_variants(
-    n_dac_list: list = None,
-    n_extra_list: list = None,
-    redun_strats: list = None,
-    split_strats: list = None,
-) -> list:
-    """
-    Generate a list of valid CdacParams for parameter sweeps.
-
-    Only generates valid topology combinations.
-    """
-    if n_dac_list is None:
-        n_dac_list = [7, 9, 11]
-    if n_extra_list is None:
-        n_extra_list = [0, 2, 4]
-    if redun_strats is None:
-        redun_strats = list(RedunStrat)
-    if split_strats is None:
-        split_strats = [SplitStrat.NO_SPLIT]  # Simplified for now
-
-    variants = []
-
-    for n_dac in n_dac_list:
-        for n_extra in n_extra_list:
-            for redun_strat in redun_strats:
-                for split_strat in split_strats:
-                    params = CdacParams(
-                        n_dac=n_dac,
-                        n_extra=n_extra,
-                        redun_strat=redun_strat,
-                        split_strat=split_strat,
-                    )
-                    if is_valid_cdac_params(params):
-                        variants.append(params)
-
-    return variants
 
 
 # =============================================================================

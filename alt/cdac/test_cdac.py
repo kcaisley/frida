@@ -1,42 +1,37 @@
 """
-CDAC testbench and tests for FRIDA.
-
-Includes testbench generator, simulation definitions, and pytest test functions.
+CDAC testbench and flow tests for FRIDA.
 """
 
 import hdl21 as h
 import pytest
 import hdl21.sim as hs
-import numpy as np
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, Vdc
+from hdl21.primitives import C, MosVth, Vdc
 
 from ..flow import (
+    CapType,
     Project,
     Pvt,
     RedunStrat,
-    FlowMode,
+    SplitStrat,
     SupplyVals,
+    get_param_axes,
+    print_netlist_summary,
+    pwl_to_spice_literal,
+    run_netlist_variants,
+    select_variants,
     sim_options,
-    write_sim_netlist,
-    params_to_filename,
-    params_to_tb_filename,
+    wrap_monte_carlo,
 )
 from ..pdk import get_pdk
-from ..conftest import has_simulator, print_summary_if_verbose
+from ..conftest import has_simulator
 from .cdac import (
     Cdac,
     CdacParams,
-    cdac_variants,
     get_cdac_n_bits,
     get_cdac_weights,
     is_valid_cdac_params,
 )
-
-
-# =============================================================================
-# TESTBENCH
-# =============================================================================
 
 
 @h.paramclass
@@ -45,7 +40,6 @@ class CdacTbParams:
 
     pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
     cdac = h.Param(dtype=CdacParams, desc="CDAC parameters", default=CdacParams())
-    code = h.Param(dtype=int, desc="DAC code to apply", default=128)
 
 
 @h.generator
@@ -55,7 +49,7 @@ def CdacTb(params: CdacTbParams) -> h.Module:
 
     Creates a testbench with:
     - DC supply
-    - DAC code inputs (static for single code test)
+    - DAC code inputs (driven by sim PWL)
     - Load capacitor on output
     """
     supply = SupplyVals.corner(params.pvt.v)
@@ -71,12 +65,8 @@ def CdacTb(params: CdacTbParams) -> h.Module:
     tb.top = h.Signal()
     tb.cload = C(c=100 * f)(p=tb.top, n=tb.VSS)
 
-    # DAC code inputs - generate bit values from code
+    # DAC code inputs (driven by sim PWL)
     tb.dac_bits = h.Signal(width=n_bits)
-    for i in range(n_bits):
-        bit_val = supply.VDD if (params.code >> i) & 1 else 0 * m
-        vbit = Vdc(dc=bit_val)(p=tb.dac_bits[i], n=tb.VSS)
-        setattr(tb, f"vbit_{i}", vbit)
 
     # DUT
     tb.dut = Cdac(params.cdac)(
@@ -89,304 +79,154 @@ def CdacTb(params: CdacTbParams) -> h.Module:
     return tb
 
 
-# =============================================================================
-# SIMULATION DEFINITIONS
-# =============================================================================
+def _build_pwl_points(
+    values: list[h.Scalar],
+    t_step: h.Scalar,
+    t_rise: h.Scalar,
+    t_delay: h.Scalar = 0 * n,
+) -> tuple[list[tuple[float, float]], float]:
+    points: list[tuple[float, float]] = []
+    t = float(t_delay)
+    step = float(t_step)
+    rise = float(t_rise)
+
+    for i, value in enumerate(values):
+        points.append((t, float(value)))
+        t += step
+        if i < len(values) - 1:
+            points.append((t, float(value)))
+            t += rise
+
+    return points, t
 
 
 def sim_input(params: CdacTbParams) -> hs.Sim:
-    """Create simulation input for single-code CDAC test."""
+    """Create transient simulation with stepped DAC codes."""
     sim_temp = Project.temper(params.pvt.t)
+    supply = SupplyVals.corner(params.pvt.v)
+
+    n_bits = get_cdac_n_bits(params.cdac)
+    n_codes = 2**params.cdac.n_dac
+    codes = list(range(n_codes))
+
+    bit_values: list[list[h.Scalar]] = [[] for _ in range(n_bits)]
+    for code in codes:
+        for bit in range(n_bits):
+            bit_is_set = (code >> bit) & 1
+            bit_values[bit].append(supply.VDD if bit_is_set else 0 * m)
+
+    t_step = 200 * n
+    t_rise = 100 * p
+    t_stop = 0 * n
+    pwl_literals = []
+
+    for bit in range(n_bits):
+        points, t_stop = _build_pwl_points(bit_values[bit], t_step, t_rise)
+        pwl = pwl_to_spice_literal(
+            f"dac{bit}", f"xtop.dac_bits[{bit}]", "xtop.VSS", points
+        )
+        pwl_literals.append(pwl)
 
     @hs.sim
     class CdacSim:
         tb = CdacTb(params)
-        op = hs.Op()  # DC operating point
-
-        # Temperature setting using hs.Options
+        tr = hs.Tran(tstop=t_stop, tstep=100 * p)
+        save = hs.Save(hs.SaveMode.ALL)
         temp = hs.Options(name="temp", value=sim_temp)
+
+    CdacSim.add(*[hs.Literal(pwl) for pwl in pwl_literals])
 
     return CdacSim
 
 
-def sim_input_tran(params: CdacTbParams) -> hs.Sim:
-    """Create transient simulation input for CDAC settling test."""
-    sim_temp = Project.temper(params.pvt.t)
-
-    @hs.sim
-    class CdacTranSim:
-        tb = CdacTb(params)
-        tr = hs.Tran(tstop=100 * n, tstep=100 * p)
-
-        # Save all signals
-        save = hs.Save(hs.SaveMode.ALL)
-
-        # Temperature setting using hs.Options
-        temp = hs.Options(name="temp", value=sim_temp)
-
-    return CdacTranSim
-
-
-# =============================================================================
-# SWEEP FUNCTIONS
-# =============================================================================
-
-
-def run_code_sweep(cdac_params: CdacParams = None, pvt: Pvt = None) -> list[tuple]:
-    """
-    Sweep through all DAC codes and measure output voltage.
-
-    Returns list of (code, voltage) tuples.
-    """
-    if cdac_params is None:
-        cdac_params = CdacParams(n_dac=8)
-    if pvt is None:
-        pvt = Pvt()
-
-    n_codes = 2**cdac_params.n_dac
-    results = []
-
-    for code in range(n_codes):
-        tb_params = CdacTbParams(pvt=pvt, cdac=cdac_params, code=code)
-        # Simulation not executed - requires SPICE simulator with PDK
-        sim = sim_input(tb_params)  # noqa: F841
-        # result = sim.run(sim_options)
-        # voltage = result.an[0].data["v(xtop.top)"]
-        results.append((code, None))  # Placeholder
-
-    return results
-
-
-def run_linearity_test(cdac_params: CdacParams = None, pvt: Pvt = None):
-    """
-    Run code sweep and compute INL/DNL.
-
-    Returns dict with INL, DNL arrays and max values.
-    """
-    code_sweep = run_code_sweep(cdac_params, pvt)
-    # TODO: use codes array for INL/DNL computation
-    codes = np.array([c for c, _ in code_sweep])  # noqa: F841
-    # outputs = np.array([v for _, v in code_sweep])  # Would be real voltages
-
-    # Placeholder - would compute real INL/DNL
-    return {
-        "inl_max": 0.5,
-        "dnl_max": 0.3,
-        "info": "Placeholder - simulation not run",
-    }
-
-
-def run_architecture_comparison(pvt: Pvt = None):
-    """
-    Compare different CDAC architectures.
-
-    Sweeps through redundancy strategies and measures linearity.
-    """
-    if pvt is None:
-        pvt = Pvt()
-
-    results = {}
-
-    for redun_strat in [RedunStrat.RDX2, RedunStrat.SUBRDX2_LIM]:
-        n_extra = 0 if redun_strat == RedunStrat.RDX2 else 2
-
-        params = CdacParams(
-            n_dac=10,
-            n_extra=n_extra,
-            redun_strat=redun_strat,
-        )
-
-        if is_valid_cdac_params(params):
-            weights = get_cdac_weights(params)
-            linearity = run_linearity_test(params, pvt)
-            results[redun_strat.name] = {
-                "weights": weights,
-                "linearity": linearity,
-            }
-
-    return results
-
-
-# =============================================================================
-# PYTEST TEST FUNCTIONS
-# =============================================================================
-
-
-def test_cdac_weights(flowmode: FlowMode):
+def test_cdac_weights():
     """Test weight calculation for different strategies."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
     print("CDAC Weight Calculations:")
 
-    # Standard binary
     params = CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2)
     weights = get_cdac_weights(params)
     print(f"  RDX2 (8-bit): {weights}")
 
-    # Sub-radix-2 with redundancy
     params = CdacParams(n_dac=8, n_extra=2, redun_strat=RedunStrat.SUBRDX2_LIM)
     weights = get_cdac_weights(params)
     print(f"  SUBRDX2_LIM (8+2): {weights}")
 
 
-def test_cdac_netlist(flowmode: FlowMode, request):
-    """Test that netlist generation works for valid configurations."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    import time
-
+def test_cdac_flow(flow, mode, montecarlo, verbose):
+    """Run CDAC flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
-    start = time.perf_counter()
-    variants = list(cdac_variants(n_dac_list=[8], n_extra_list=[0, 2]))
+    n_dac_list = [7, 9, 11]
+    n_extra_list = [0, 2, 4]
+    redun_strats = list(RedunStrat)
+    split_strats = list(SplitStrat)
+    cap_types = list(CapType)
+    vth_list = [MosVth.LOW, MosVth.STD, MosVth.HIGH]
+    unit_caps = [1 * f]
 
-    for params in variants:
-        cdac = Cdac(params)
-        pdk.compile(cdac)
-        # Write netlist with consistent naming
-        filename = params_to_filename("cdac", params, pdk.name)
-        netlist_path = outdir / filename
-        with open(netlist_path, "w") as f:
-            h.netlist(cdac, dest=f)
+    variants: list[CdacParams] = []
 
-    wall_time = time.perf_counter() - start
+    for n_dac in n_dac_list:
+        for n_extra in n_extra_list:
+            for redun_strat in redun_strats:
+                for split_strat in split_strats:
+                    for cap_type in cap_types:
+                        for vth in vth_list:
+                            for unit_cap in unit_caps:
+                                params = CdacParams(
+                                    n_dac=n_dac,
+                                    n_extra=n_extra,
+                                    redun_strat=redun_strat,
+                                    split_strat=split_strat,
+                                    cap_type=cap_type,
+                                    vth=vth,
+                                    unit_cap=unit_cap,
+                                )
+                                if is_valid_cdac_params(params):
+                                    variants.append(params)
 
-    # Print summary table if verbose
-    print_summary_if_verbose(
-        request,
-        block="cdac",
-        count=len(variants),
-        params_list=variants,
-        wall_time=wall_time,
-        outdir=outdir,
+    variants = select_variants(variants, mode)
+
+    def build_sim(cdac_params: CdacParams):
+        tb_params = CdacTbParams(cdac=cdac_params)
+        tb = CdacTb(tb_params)
+        sim = sim_input(tb_params)
+        if montecarlo:
+            wrap_monte_carlo(sim)
+        return tb, sim
+
+    if flow == "netlist":
+        wall_time = run_netlist_variants("cdac", variants, build_sim, pdk, outdir)
+        if verbose:
+            print_netlist_summary(
+                block="cdac",
+                pdk_name=pdk.name,
+                count=len(variants),
+                param_axes=get_param_axes(variants),
+                wall_time=wall_time,
+                outdir=str(outdir),
+            )
+        return
+
+    wall_time, sims = run_netlist_variants(
+        "cdac", variants, build_sim, pdk, outdir, return_sims=True
     )
+    if verbose:
+        print_netlist_summary(
+            block="cdac",
+            pdk_name=pdk.name,
+            count=len(variants),
+            param_axes=get_param_axes(variants),
+            wall_time=wall_time,
+            outdir=str(outdir),
+        )
 
+    if not has_simulator():
+        pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
 
-def test_cdac_tb_netlist(flowmode: FlowMode, request):
-    """Test testbench netlist generation."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    import time
-
-    pdk = get_pdk()
-    outdir = sim_options.rundir
-    outdir.mkdir(exist_ok=True)
-
-    start = time.perf_counter()
-
-    params = CdacTbParams(cdac=CdacParams(n_dac=8))
-    tb = CdacTb(params)
-    pdk.compile(tb)
-
-    # Write testbench netlist with consistent naming
-    tb_filename = params_to_tb_filename("cdac", params, pdk.name, suffix=".sp")
-    netlist_path = outdir / tb_filename
-    with open(netlist_path, "w") as f:
-        h.netlist(tb, dest=f)
-
-    # Also write simulation netlist (same path as actual simulation)
-    sim = sim_input(params)
-    sim_filename = params_to_tb_filename("cdac", params, pdk.name, suffix=".scs")
-    sim_netlist_path = outdir / sim_filename
-    write_sim_netlist(sim, sim_netlist_path, compact=True)
-
-    wall_time = time.perf_counter() - start
-
-    # Print summary table if verbose
-    print_summary_if_verbose(
-        request,
-        block="cdac_tb",
-        count=2,  # .sp and .scs
-        params_list=[params.cdac],  # Use inner cdac params for axes
-        wall_time=wall_time,
-        outdir=outdir,
-    )
-
-
-def test_cdac_variants(flowmode: FlowMode, request):
-    """Test variant generation for different architectures."""
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    import time
-
-    pdk = get_pdk()
-    outdir = sim_options.rundir
-    outdir.mkdir(exist_ok=True)
-
-    start = time.perf_counter()
-    variants = cdac_variants()
-
-    # Generate netlists for first 5 variants
-    generated_variants = variants[:5]
-    for params in generated_variants:
-        cdac = Cdac(params)
-        pdk.compile(cdac)
-        # Write netlist with consistent naming
-        filename = params_to_filename("cdac", params, pdk.name)
-        netlist_path = outdir / filename
-        with open(netlist_path, "w") as f:
-            h.netlist(cdac, dest=f)
-
-    wall_time = time.perf_counter() - start
-
-    # Print summary table if verbose
-    print_summary_if_verbose(
-        request,
-        block="cdac_variants",
-        count=len(generated_variants),
-        params_list=generated_variants,
-        wall_time=wall_time,
-        outdir=outdir,
-    )
-
-
-def test_cdac_sim(flowmode: FlowMode):
-    """Test CDAC simulation."""
-    if flowmode == FlowMode.NETLIST:
-        # Just verify sim input can be created
-        params = CdacTbParams(cdac=CdacParams(n_dac=8))
-        sim = sim_input(params)
-        assert sim is not None
-        pytest.skip("Simulation requires --mode=min/typ/max")
-
-    elif flowmode == FlowMode.MIN:
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        # Run one quick simulation
-        params = CdacTbParams(cdac=CdacParams(n_dac=8), code=128)
-        # Simulation not executed - requires SPICE simulator with PDK
-        sim = sim_input_tran(params)  # noqa: F841
-        # result = sim.run(sim_options)
-        # settling = cdac_settling_ns(result)
-        # print(f"Settling time: {settling:.2f} ns")
-        print("MIN mode: simulation would run here")
-
-    elif flowmode in (FlowMode.TYP, FlowMode.MAX):
-        if not has_simulator():
-            pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
-        # Run architecture comparison
-        results = run_architecture_comparison()
-        for arch, data in results.items():
-            print(f"{arch}: weights={data['weights'][:3]}...")
-
-
-# =============================================================================
-# CLI ENTRY POINT (for standalone testing)
-# =============================================================================
-
-
-if __name__ == "__main__":
-    print("Testing CDAC weight calculations...")
-    test_cdac_weights(FlowMode.NETLIST)
-    print()
-    print("Testing CDAC netlist generation...")
-    test_cdac_netlist(FlowMode.NETLIST)
-    print()
-    print("Testing CDAC testbench netlist...")
-    test_cdac_tb_netlist(FlowMode.NETLIST)
+    if flow == "simulate":
+        h.sim.run(sims, sim_options)
+    elif flow == "measure":
+        pass

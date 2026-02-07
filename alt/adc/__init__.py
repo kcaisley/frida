@@ -16,11 +16,7 @@ from .adc import (
     AdcDigital,
     get_adc_weights,
 )
-from .test_adc import (
-    AdcTb,
-    AdcTbParams,
-    run_transfer_function,
-)
+from .test_adc import AdcTb, AdcTbParams, sim_input
 
 __all__ = [
     "Adc",
@@ -29,5 +25,5 @@ __all__ = [
     "get_adc_weights",
     "AdcTb",
     "AdcTbParams",
-    "run_transfer_function",
+    "sim_input",
 ]

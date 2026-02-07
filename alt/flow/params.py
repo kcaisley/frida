@@ -11,36 +11,6 @@ from hdl21.prefix import m
 from pydantic.dataclasses import dataclass
 
 
-class FlowMode(Enum):
-    """
-    Simulation test mode controlling test execution depth.
-
-    Schematic/Simulation stages:
-        NETLIST: HDL21 netlist generation only (no simulator needed)
-        MIN: One setting, one corner (quick sanity check)
-        TYP: One corner, many settings (typical parameter sweep)
-        MAX: Full PVT sweep (comprehensive characterization)
-
-    Physical design stages (future):
-        LAYOUT: gdsfactory layout generation
-        DRC: KLayout DRC checks
-        LVS: Layout vs Schematic
-        PNR: OpenROAD place & route
-    """
-
-    # Schematic/Simulation stages
-    NETLIST = "netlist"
-    MIN = "min"
-    TYP = "typ"
-    MAX = "max"
-
-    # Physical design stages (future)
-    LAYOUT = "layout"
-    DRC = "drc"
-    LVS = "lvs"
-    PNR = "pnr"
-
-
 class SwitchType(Enum):
     """Sampling switch topology."""
 

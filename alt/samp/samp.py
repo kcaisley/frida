@@ -77,39 +77,3 @@ def Samp(p: SampParams) -> h.Module:
         )
 
     return Samp
-
-
-def samp_variants(
-    w_list: list = None,
-    l_list: list = None,
-    switch_types: list = None,
-    vth_list: list = None,
-) -> list:
-    """
-    Generate a list of SampParams for parameter sweeps.
-
-    Args:
-        w_list: List of width multipliers (default: [5, 10, 20, 40])
-        l_list: List of length multipliers (default: [1, 2])
-        switch_types: List of SwitchType values (default: all)
-        vth_list: List of Vth values (default: all)
-
-    Returns:
-        List of SampParams instances
-    """
-    if w_list is None:
-        w_list = [5, 10, 20, 40]
-    if l_list is None:
-        l_list = [1, 2]
-    if switch_types is None:
-        switch_types = list(SwitchType)
-    if vth_list is None:
-        vth_list = [MosVth.LOW, MosVth.STD]
-
-    return [
-        SampParams(switch_type=st, w=w, l=l, vth=vth)
-        for st in switch_types
-        for w in w_list
-        for l in l_list
-        for vth in vth_list
-    ]

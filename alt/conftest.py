@@ -1,8 +1,7 @@
 """
 Pytest configuration for FRIDA HDL21 tests.
 
-Provides the FlowMode fixture for controlling test execution depth
-and PDK selection.
+Provides fixtures for flow control and PDK selection.
 """
 
 import socket
@@ -10,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from .flow import FlowMode, get_param_axes, print_netlist_summary
+from .flow import get_param_axes, print_netlist_summary
 from .pdk import get_pdk, list_pdks, set_pdk
 
 # Hosts with SPICE simulators and PDKs available
@@ -26,11 +25,25 @@ def has_simulator() -> bool:
 def pytest_addoption(parser):
     """Add command line options for test configuration."""
     parser.addoption(
-        "--mode",
+        "--flow",
         action="store",
         default="netlist",
-        choices=[m.value for m in FlowMode],
-        help="Test mode: netlist (default), min, typ, max, layout, drc, lvs, pnr",
+        choices=["netlist", "simulate", "measure"],
+        help="Test flow: netlist (default), simulate, measure",
+    )
+    parser.addoption(
+        "--mode",
+        action="store",
+        default="min",
+        choices=["min", "max"],
+        help="Variant selection: min (limit to 10) or max (full cartesian)",
+    )
+    parser.addoption(
+        "--montecarlo",
+        action="store",
+        default="no",
+        choices=["yes", "no"],
+        help="Wrap transient analysis in Monte Carlo (default: no)",
     )
     parser.addoption(
         "--tech",
@@ -54,36 +67,21 @@ def pytest_configure(config):
 
 
 @pytest.fixture
-def flowmode(request) -> FlowMode:
-    """
-    Get simulation test mode from command line.
+def flow(request) -> str:
+    """Get flow selection from command line."""
+    return request.config.getoption("--flow")
 
-    Automatically skips tests requiring simulation if not on a sim host
-    (jupiter, juno, asiclab003) unless mode is 'netlist'.
 
-    Usage in tests:
-        def test_something(flowmode: FlowMode):
-            if flowmode == FlowMode.NETLIST:
-                # Just verify netlist generation
-                ...
-            elif flowmode == FlowMode.MIN:
-                # Run one quick simulation
-                ...
-            elif flowmode in (FlowMode.TYP, FlowMode.MAX):
-                # Run parameter sweeps
-                ...
-    """
-    mode_str = request.config.getoption("--mode")
-    mode = FlowMode(mode_str)
+@pytest.fixture
+def mode(request) -> str:
+    """Get variant selection mode from command line."""
+    return request.config.getoption("--mode")
 
-    # Skip simulation tests on hosts without simulator access
-    if mode != FlowMode.NETLIST and not has_simulator():
-        pytest.skip(
-            f"Simulation tests require host with simulator (jupiter/juno/asiclab003), "
-            f"current host: {socket.gethostname()}"
-        )
 
-    return mode
+@pytest.fixture
+def montecarlo(request) -> bool:
+    """Get Monte Carlo selection from command line."""
+    return request.config.getoption("--montecarlo") == "yes"
 
 
 @pytest.fixture

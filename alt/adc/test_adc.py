@@ -1,20 +1,32 @@
 """
-ADC testbench and test functions for FRIDA.
-
-Provides:
-- AdcTb: Testbench generator with PWL input
-- AdcTbParams: Testbench parameters
-- run_transfer_function: Run full INL/DNL characterization
-- test_* functions: pytest entry points
+ADC testbench and flow tests for FRIDA.
 """
 
 import hdl21 as h
 import pytest
-from hdl21.prefix import m, n, p
+import hdl21.sim as hs
+from hdl21.prefix import f, m, n, p
 from hdl21.primitives import Vdc
 
-from ..flow.params import Pvt, SupplyVals
+from ..flow import (
+    Project,
+    Pvt,
+    SupplyVals,
+    generate_staircase_pwl,
+    get_param_axes,
+    print_netlist_summary,
+    pwl_to_spice_literal,
+    run_netlist_variants,
+    select_variants,
+    sim_options,
+    wrap_monte_carlo,
+)
+from ..pdk import get_pdk
+from ..conftest import has_simulator
 from .adc import Adc, AdcParams, get_adc_weights
+from ..cdac import CdacParams
+from ..comp import CompParams
+from ..samp import SampParams
 
 
 @h.paramclass
@@ -43,56 +55,44 @@ def AdcTb(p: AdcTbParams) -> h.Module:
     Creates a testbench with:
     - Staircase PWL input for transfer function characterization
     - Supply sources
-    - Clock/sequencer stimulus (simplified)
     """
     supplies = SupplyVals.corner(p.pvt.v)
 
     @h.module
     class AdcTb:
-        """ADC testbench module."""
-
-        # Ground reference
         vss = h.Port(desc="Ground")
 
-        # Internal signals
         vdd_a = h.Signal(desc="Analog supply")
         vdd_d = h.Signal(desc="Digital supply")
         vin_p = h.Signal(desc="Input positive")
         vin_n = h.Signal(desc="Input negative")
         vcm = h.Signal(desc="Common mode")
 
-        # Sequencer signals
         seq_init = h.Signal()
         seq_samp = h.Signal()
         seq_comp = h.Signal()
         seq_update = h.Signal()
 
-        # Enable signals (active high)
         en_init = h.Signal()
         en_samp_p = h.Signal()
         en_samp_n = h.Signal()
         en_comp = h.Signal()
         en_update = h.Signal()
 
-        # Control signals
         dac_mode = h.Signal()
         dac_diffcaps = h.Signal()
 
-        # DAC state inputs (all zeros for normal operation)
         dac_astate_p = h.Signal(width=16)
         dac_bstate_p = h.Signal(width=16)
         dac_astate_n = h.Signal(width=16)
         dac_bstate_n = h.Signal(width=16)
 
-        # Outputs
         dac_state_p = h.Signal(width=16)
         dac_state_n = h.Signal(width=16)
 
-    # Supply sources
     AdcTb.vvdd_a = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_a, n=AdcTb.vss)
     AdcTb.vvdd_d = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_d, n=AdcTb.vss)
 
-    # Instantiate ADC
     AdcTb.xadc = Adc(p.adc)(
         vin_p=AdcTb.vin_p,
         vin_n=AdcTb.vin_n,
@@ -119,100 +119,39 @@ def AdcTb(p: AdcTbParams) -> h.Module:
         vss_d=AdcTb.vss,
     )
 
-    # Note: Actual voltage sources need to be added via simulation setup
-    # since HDL21 doesn't have native Vpwl. The testbench provides the
-    # structure and the simulation config adds the sources.
-
     return AdcTb
 
 
-def run_transfer_function(
-    p: AdcTbParams,
-    sim_options: dict | None = None,
-) -> dict:
-    """
-    Run ADC transfer function characterization.
+def sim_input(params: AdcTbParams) -> hs.Sim:
+    """Create transient simulation with stepped input."""
+    sim_temp = Project.temper(params.pvt.t)
 
-    Performs a staircase sweep and computes INL/DNL.
+    points = generate_staircase_pwl(
+        v_start=float(params.v_start),
+        v_stop=float(params.v_stop),
+        v_step=float(params.v_step),
+        t_step=float(params.t_step),
+        t_rise=float(params.t_rise),
+    )
+    t_stop = points[-1][0] + float(params.t_step)
 
-    Args:
-        p: Testbench parameters
-        sim_options: Optional simulation options dict
-
-    Returns:
-        Dict with results including:
-        - v_in: Input voltage array
-        - codes: Output code array
-        - inl_dnl: INL/DNL analysis results
-        - weights: Capacitor weights used
-    """
-    # Import here to avoid circular imports
-    from ..flow.measure import (
-        code_to_voltage,
-        compute_static_error,
-        histogram_inl_dnl,
-        redundant_bits_to_code,
+    vin_p = pwl_to_spice_literal("vinp", "xtop.vin_p", "xtop.vss", points)
+    vin_n = pwl_to_spice_literal(
+        "vinn",
+        "xtop.vin_n",
+        "xtop.vss",
+        [(0.0, float(params.vcm)), (t_stop, float(params.vcm))],
     )
 
-    weights = get_adc_weights(p.adc)
+    @hs.sim
+    class AdcSim:
+        tb = AdcTb(params)
+        tr = hs.Tran(tstop=t_stop, tstep=100 * p)
+        temp = hs.Options(name="temp", value=sim_temp)
 
-    # Placeholder pipeline using synthetic data for shared measurement functions.
-    n_bits = len(weights)
-    dummy_bits = [[0] * n_bits, [1] * n_bits]
-    codes = redundant_bits_to_code(dummy_bits, weights)
-    v_est = code_to_voltage(codes, v_ref=1.2, total_weight=int(weights.sum()))
-    inl_dnl = histogram_inl_dnl(codes, n_codes=int(weights.sum()) + 1)
-    static_error = compute_static_error(v_est, v_est)
+    AdcSim.add(hs.Literal(vin_p), hs.Literal(vin_n))
 
-    # TODO: replace with real simulation and waveform extraction
-    return {
-        "v_in": v_est,
-        "codes": codes,
-        "inl_dnl": inl_dnl,
-        "static_error": static_error,
-        "weights": weights,
-        "n_codes": int(weights.sum()) + 1,
-    }
-
-
-# =============================================================================
-# Pytest Entry Points
-# =============================================================================
-
-
-def test_adc_netlist(flowmode):
-    """Test ADC netlist generation."""
-    from ..flow import FlowMode
-
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    # Generate ADC with default params
-    params = AdcParams()
-    adc = Adc(params)
-
-    # Verify structure
-    assert hasattr(adc, "xdigital")
-    assert hasattr(adc, "xcdac_p")
-    assert hasattr(adc, "xcdac_n")
-    assert hasattr(adc, "xsamp_p")
-    assert hasattr(adc, "xsamp_n")
-    assert hasattr(adc, "xcomp")
-
-
-def test_adc_tb_netlist(flowmode):
-    """Test ADC testbench netlist generation."""
-    from ..flow import FlowMode
-
-    if flowmode != FlowMode.NETLIST:
-        pytest.skip("Only runs in flow mode NETLIST")
-
-    # Generate testbench
-    params = AdcTbParams()
-    tb = AdcTb(params)
-
-    # Verify structure
-    assert hasattr(tb, "xadc")
+    return AdcSim
 
 
 def test_adc_weights():
@@ -222,15 +161,82 @@ def test_adc_weights():
     params = AdcParams()
     weights = get_adc_weights(params)
 
-    # Should have 16 weights for default n_dac=11, n_extra=5
     assert len(weights) == 16
-
-    # Total weight should be exactly 2047 (2^11 - 1) for 11-bit equivalent
     assert weights.sum() == 2047
-
-    # Verify first weight (MSB) is 768 for FRIDA 65nm config
     assert weights[0] == 768
 
-    # Verify full weight sequence matches expected FRIDA 65nm values
     expected = np.array([768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1])
     np.testing.assert_array_equal(weights, expected)
+
+
+def test_adc_flow(flow, mode, montecarlo, verbose):
+    """Run ADC flow: netlist, simulate, or measure."""
+    pdk = get_pdk()
+    outdir = sim_options.rundir
+    outdir.mkdir(exist_ok=True)
+
+    n_cycles_list = [16]
+    cdac_list = [
+        CdacParams(n_dac=11, n_extra=5, unit_cap=1 * f),
+        CdacParams(n_dac=11, n_extra=5, unit_cap=2 * f),
+    ]
+    samp_list = [SampParams()]
+    comp_list = [CompParams()]
+
+    variants: list[AdcParams] = []
+    for n_cycles in n_cycles_list:
+        for cdac in cdac_list:
+            for samp in samp_list:
+                for comp in comp_list:
+                    variants.append(
+                        AdcParams(
+                            n_cycles=n_cycles,
+                            cdac=cdac,
+                            samp=samp,
+                            comp=comp,
+                        )
+                    )
+
+    variants = select_variants(variants, mode)
+
+    def build_sim(adc_params: AdcParams):
+        tb_params = AdcTbParams(adc=adc_params)
+        tb = AdcTb(tb_params)
+        sim = sim_input(tb_params)
+        if montecarlo:
+            wrap_monte_carlo(sim)
+        return tb, sim
+
+    if flow == "netlist":
+        wall_time = run_netlist_variants("adc", variants, build_sim, pdk, outdir)
+        if verbose:
+            print_netlist_summary(
+                block="adc",
+                pdk_name=pdk.name,
+                count=len(variants),
+                param_axes=get_param_axes(variants),
+                wall_time=wall_time,
+                outdir=str(outdir),
+            )
+        return
+
+    wall_time, sims = run_netlist_variants(
+        "adc", variants, build_sim, pdk, outdir, return_sims=True
+    )
+    if verbose:
+        print_netlist_summary(
+            block="adc",
+            pdk_name=pdk.name,
+            count=len(variants),
+            param_axes=get_param_axes(variants),
+            wall_time=wall_time,
+            outdir=str(outdir),
+        )
+
+    if not has_simulator():
+        pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
+
+    if flow == "simulate":
+        h.sim.run(sims, sim_options)
+    elif flow == "measure":
+        pass

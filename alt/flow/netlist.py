@@ -5,10 +5,12 @@ Provides functions to generate filenames from parameter objects and
 to extract parameter axes for summary tables.
 """
 
+import hashlib
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import hdl21 as h
+import hdl21.sim as hs
 
 
 def generate_staircase_pwl(
@@ -103,40 +105,6 @@ def params_to_filename(
     return "_".join(parts) + suffix
 
 
-def params_to_tb_filename(
-    block: str,
-    params: Any,
-    pdk_name: str,
-    suffix: str = ".sp",
-) -> str:
-    """
-    Generate consistent testbench filename from parameters.
-
-    Same as params_to_filename but adds "_tb" after block name.
-
-    Args:
-        block: Block name (e.g., "comp", "cdac", "samp")
-        params: HDL21 paramclass instance for the testbench
-        pdk_name: PDK name (e.g., "ihp130", "tsmc65")
-        suffix: File extension (default: ".sp")
-
-    Returns:
-        Filename string like "comp_tb_nmos_input_std_bias_ihp130.sp"
-    """
-    # For testbench params, we need to extract the inner block params
-    # e.g., CompTbParams has a 'comp' field with CompParams
-    inner_params = _get_inner_block_params(params)
-    if inner_params is not None:
-        base_name = params_to_filename(block, inner_params, pdk_name, suffix="")
-        # Insert "_tb" after the block name
-        parts = base_name.split("_")
-        parts.insert(1, "tb")
-        return "_".join(parts) + suffix
-    else:
-        # Fallback: just use the testbench params directly
-        return params_to_filename(f"{block}_tb", params, pdk_name, suffix)
-
-
 def get_param_axes(params_list: list[Any]) -> dict[str, list[Any]]:
     """
     Extract parameter axes from a list of param objects.
@@ -167,6 +135,101 @@ def get_param_axes(params_list: list[Any]) -> dict[str, list[Any]]:
                 axes[name].append(value)
 
     return axes
+
+
+def select_variants(variants: list[Any], mode: str, limit: int = 10) -> list[Any]:
+    """
+    Select variants based on mode.
+
+    Args:
+        variants: Full list of variants
+        mode: "min" to limit, "max" to keep all
+        limit: Max number of variants for "min"
+    """
+    if mode == "min":
+        return variants[:limit]
+    if mode == "max":
+        return variants
+    raise ValueError(f"Unsupported mode: {mode}")
+
+
+def run_netlist_variants(
+    block: str,
+    variants: list[Any],
+    build_sim: Callable[[Any], tuple[h.Module, hs.Sim]],
+    pdk: Any,
+    outdir: Any,
+    return_sims: bool = False,
+) -> float | tuple[float, list[hs.Sim]]:
+    """
+    Write combined testbench + DUT netlists for a list of variants.
+
+    Args:
+        block: Block name (e.g., "comp", "cdac", "samp")
+        variants: List of parameter objects
+        build_sim: Callable returning (tb, sim) for a variant
+        pdk: Active PDK instance
+        outdir: Output directory path
+        return_sims: Return list of sims in addition to wall time
+
+    Returns:
+        Wall time in seconds, and optionally list of sims
+    """
+    import time
+
+    from .sim import write_sim_netlist
+
+    start = time.perf_counter()
+
+    sims: list[hs.Sim] = []
+
+    for params in variants:
+        tb, sim = build_sim(params)
+        pdk.compile(tb)
+
+        filename = params_to_filename(block, params, pdk.name, suffix=".scs")
+        netlist_path = outdir / filename
+        # TODO: add support for CDL/SPICE netlisting formats.
+        write_sim_netlist(sim, netlist_path, compact=True)
+        if return_sims:
+            sims.append(sim)
+
+    wall_time = time.perf_counter() - start
+    if return_sims:
+        return wall_time, sims
+    return wall_time
+
+
+def wrap_monte_carlo(sim: hs.Sim, mc_config: Any | None = None) -> hs.Sim:
+    """
+    Wrap transient analysis in Monte Carlo.
+
+    Args:
+        sim: HDL21 Sim object
+        mc_config: MCConfig instance (default uses MCConfig())
+    """
+    from .sim import MCConfig
+
+    if mc_config is None:
+        mc_config = MCConfig()
+
+    for attr in sim.attrs:
+        if isinstance(attr, hs.MonteCarlo):
+            return sim
+
+    tran = next((attr for attr in sim.attrs if isinstance(attr, hs.Tran)), None)
+    if tran is None:
+        raise ValueError("No transient analysis found in simulation")
+
+    sim.add(hs.MonteCarlo(inner=[tran], npts=mc_config.numruns))
+    sim.add(
+        [
+            hs.Literal(
+                f"// MC options: seed={mc_config.seed}, variations={mc_config.variations}"
+            )
+        ]
+    )
+    return sim
 
 
 def print_netlist_summary(
@@ -273,26 +336,12 @@ def _get_param_names(params: Any) -> list[str]:
     return param_names
 
 
-def _get_inner_block_params(tb_params: Any) -> Any | None:
-    """
-    Get the inner block params from a testbench params object.
-
-    Looks for common patterns like CompTbParams.comp, CdacTbParams.cdac, etc.
-    """
-    param_names = _get_param_names(tb_params)
-
-    # Common inner param names
-    inner_names = ["comp", "cdac", "samp", "dut", "block"]
-
-    for name in inner_names:
-        if name in param_names:
-            return getattr(tb_params, name, None)
-
-    return None
-
-
 def _format_value(value: Any) -> str:
     """Format a parameter value for use in a filename."""
+    if hasattr(value.__class__, "__params__"):
+        raw = str(value).encode("utf-8")
+        digest = hashlib.md5(raw).hexdigest()[:8]
+        return f"{value.__class__.__name__.lower()}_{digest}"
     if isinstance(value, Enum):
         # Use name (e.g., NMOS_INPUT) converted to lowercase
         return value.name.lower()

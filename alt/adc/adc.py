@@ -23,15 +23,12 @@ import hdl21 as h
 
 from ..cdac import Cdac, CdacParams, get_cdac_weights
 from ..comp import Comp, CompParams
-from ..flow.params import Pvt
 from ..samp import Samp, SampParams
 
 
 @h.paramclass
 class AdcParams:
     """ADC parameters."""
-
-    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
 
     # Top-level ADC parameter
     n_cycles = h.Param(dtype=int, desc="Number of SAR comparison cycles", default=16)

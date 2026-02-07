@@ -10,7 +10,6 @@ from .netlist import (
     generate_staircase_pwl,
     get_param_axes,
     params_to_filename,
-    params_to_tb_filename,
 )
 
 
@@ -49,17 +48,6 @@ def test_params_to_filename_prefixed_value():
     filename = params_to_filename("dummy", DummyParams(), "ihp130")
     assert "*" not in filename
     assert " " not in filename
-
-
-def test_params_to_tb_filename_uses_inner_params():
-    """Test testbench filename uses inner block params."""
-
-    @h.paramclass
-    class DummyTbParams:
-        samp = h.Param(dtype=SampParams, desc="sampler", default=SampParams())
-
-    filename = params_to_tb_filename("samp", DummyTbParams(), "ihp130")
-    assert filename == "samp_tb_nmos_10_1_low_ihp130.sp"
 
 
 def test_get_param_axes_counts():

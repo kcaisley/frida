@@ -107,6 +107,9 @@ def Comp(p: CompParams) -> h.Module:
 
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
+    if not is_valid_comp_params(p):
+        raise ValueError(f"Invalid comparator params: {p}")
+
     is_nmos_input = p.preamp_diffpair == PreampDiffpair.NMOS_INPUT
 
     @h.module
@@ -311,69 +314,3 @@ def _build_double_stage_latch(mod, p: CompParams, is_nmos_input: bool):
     mod.mbuf_outn_bot = h.Mos(tp=MosType.NMOS, vth=latch_vth, w=p.latch_w, l=1)(
         d=mod.outn, g=mod.latch_p, s=mod.vss, b=mod.vss
     )
-
-
-def comp_variants(
-    preamp_diffpairs: list = None,
-    preamp_biases: list = None,
-    comp_stages_list: list = None,
-    diffpair_w_list: list = None,
-) -> list:
-    """
-    Generate a list of valid CompParams for parameter sweeps.
-
-    Only generates valid topology combinations.
-
-    Args:
-        diffpair_w_list: List of diff pair width multipliers (default: [40, 80])
-    """
-    if preamp_diffpairs is None:
-        preamp_diffpairs = list(PreampDiffpair)
-    if preamp_biases is None:
-        preamp_biases = list(PreampBias)
-    if comp_stages_list is None:
-        comp_stages_list = list(CompStages)
-    if diffpair_w_list is None:
-        diffpair_w_list = [40, 80]
-
-    variants = []
-
-    for preamp_diffpair in preamp_diffpairs:
-        for preamp_bias in preamp_biases:
-            for comp_stages in comp_stages_list:
-                for diffpair_w in diffpair_w_list:
-                    # Use canonical latch params for single stage
-                    if comp_stages == CompStages.SINGLE_STAGE:
-                        params = CompParams(
-                            preamp_diffpair=preamp_diffpair,
-                            preamp_bias=preamp_bias,
-                            comp_stages=comp_stages,
-                            latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                            latch_pwrgate_node=LatchPwrgateNode.EXTERNAL,
-                            latch_rst_extern_ctl=LatchRstExternCtl.CLOCKED,
-                            latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
-                            diffpair_w=diffpair_w,
-                        )
-                        variants.append(params)
-                    else:
-                        # Double stage - generate a few key combinations
-                        for latch_pwrgate_node in LatchPwrgateNode:
-                            if latch_pwrgate_node == LatchPwrgateNode.INTERNAL:
-                                rst_extern = LatchRstExternCtl.NO_RESET
-                            else:
-                                rst_extern = LatchRstExternCtl.CLOCKED
-
-                            params = CompParams(
-                                preamp_diffpair=preamp_diffpair,
-                                preamp_bias=preamp_bias,
-                                comp_stages=comp_stages,
-                                latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                                latch_pwrgate_node=latch_pwrgate_node,
-                                latch_rst_extern_ctl=rst_extern,
-                                latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
-                                diffpair_w=diffpair_w,
-                            )
-                            if is_valid_comp_params(params):
-                                variants.append(params)
-
-    return variants
