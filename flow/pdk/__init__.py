@@ -5,13 +5,13 @@ Provides a unified interface to access PDK-specific devices,
 with support for multiple process nodes (TSMC65, TSMC28, Tower180, generic).
 
 Usage:
-    from alt.pdk import set_pdk, get_pdk
+    from flow.pdk import set_pdk, get_pdk
 
     # Set PDK by name
     set_pdk("tsmc65")
 
     # Or set with PDK instance
-    from alt.pdk.tsmc65 import Tsmc65Pdk
+    from flow.pdk.tsmc65 import Tsmc65Pdk
     set_pdk(Tsmc65Pdk())
 
     # Get current PDK

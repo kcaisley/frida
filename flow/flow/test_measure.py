@@ -1,5 +1,5 @@
 """
-Unit tests for measurement functions in alt/flow/measure.py.
+Unit tests for measurement functions in flow/flow/measure.py.
 
 These tests verify the numpy-based measurement functions without requiring
 SPICE simulation. They test the shared measurement pipeline that works

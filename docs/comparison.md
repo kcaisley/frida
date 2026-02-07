@@ -1,10 +1,10 @@
 # HDL21 Implementation Comparison
 
-Comparing three implementation approaches: dict-based (`blocks/samp.py`), Python-class (`samp_python.py`), and HDL21 (`alt/samp.py`).
+Comparing three implementation approaches: dict-based (`blocks/samp.py`), Python-class (`samp_python.py`), and HDL21 (`flow/samp.py`).
 
 ## 1. Topology Selection (`switch_type`)
 
-| Feature | blocks/samp.py | samp_python.py | alt/samp.py |
+| Feature | blocks/samp.py | samp_python.py | flow/samp.py |
 |---------|----------------|----------------|-------------|
 | Definition | `"topo_params": {"switch_type": ["nmos", "pmos", "tgate"]}` | `class SwitchType(Enum)` | `class SwitchType(Enum)` in `common/params.py` |
 | Selection | `gen_topo_subckt(switch_type: str)` function | `if self.switch_type == SwitchType.NMOS` in `schematic()` | `if p.switch_type == SwitchType.NMOS` in generator |
@@ -24,7 +24,7 @@ def schematic(self, io, cell: CellBuilder):
         cell.connect(io.dout, mn.d)
 ```
 
-**alt/samp.py (HDL21):**
+**flow/samp.py (HDL21):**
 ```python
 if p.switch_type == SwitchType.NMOS:
     Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
@@ -34,7 +34,7 @@ if p.switch_type == SwitchType.NMOS:
 
 ## 2. Port/IO Definition
 
-| Feature | blocks/samp.py | samp_python.py | alt/samp.py |
+| Feature | blocks/samp.py | samp_python.py | flow/samp.py |
 |---------|----------------|----------------|-------------|
 | Syntax | `ports = {"in": "I", "out": "O", ...}` | `class SampIo(Io): din = Input()` | `din = h.Input(desc="...")` inside `@h.module` |
 | Direction encoding | Strings: `"I"`, `"O"`, `"B"` | Classes: `Input()`, `Output()`, `InOut()` | HDL21 types: `h.Input()`, `h.Output()`, `h.Port()` |
@@ -55,7 +55,7 @@ class SampIo(Io):
     vss = InOut()
 ```
 
-**alt/samp.py:**
+**flow/samp.py:**
 ```python
 @h.module
 class Samp:
@@ -71,7 +71,7 @@ class Samp:
 
 ## 3. Device Parameters (w, l, vth)
 
-| Feature | blocks/samp.py | samp_python.py | alt/samp.py |
+| Feature | blocks/samp.py | samp_python.py | flow/samp.py |
 |---------|----------------|----------------|-------------|
 | Where defined | `inst_params` list with sweep values | `@dataclass` fields | `@h.paramclass` with `h.Param` |
 | Units | Implicit (microns assumed) | Implicit integers | Explicit: `1 * µ`, `60 * n` |
@@ -95,7 +95,7 @@ class Samp:
     vth: Vth = Vth.LVT
 ```
 
-**alt/samp.py:**
+**flow/samp.py:**
 ```python
 @h.paramclass
 class SampParams:
@@ -109,7 +109,7 @@ class SampParams:
 
 ## 4. Device Instantiation & Connection
 
-| Feature | blocks/samp.py | samp_python.py | alt/samp.py |
+| Feature | blocks/samp.py | samp_python.py | flow/samp.py |
 |---------|----------------|----------------|-------------|
 | Instantiation | Dict: `{"dev": "nmos", "pins": {...}}` | `cell.instantiate(Nfet(...))` | `Nfet(w=p.w, l=p.l)(...)` |
 | Connection | Implicit via pin dict | Explicit `cell.connect()` | Inline: `d=Samp.dout, g=Samp.clk` |
@@ -132,7 +132,7 @@ cell.connect(io.din, mn.s)
 cell.connect(io.vss, mn.b)
 ```
 
-**alt/samp.py:**
+**flow/samp.py:**
 ```python
 Nfet = pdk.NmosLvt if p.vth == Vth.LVT else pdk.Nmos
 Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
@@ -142,7 +142,7 @@ Samp.mn = Nfet(w=p.w, l=p.l)(d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss)
 
 ## 5. Variant Generation (Sweeps)
 
-| Feature | blocks/samp.py | samp_python.py | alt/samp.py |
+| Feature | blocks/samp.py | samp_python.py | flow/samp.py |
 |---------|----------------|----------------|-------------|
 | Mechanism | `topo_params × inst_params` Cartesian product | Explicit list comprehension | `samp_variants()` function |
 | Where | Processed by `flow/` framework | Module-level `variants = [...]` | Callable with configurable defaults |
@@ -167,7 +167,7 @@ variants = [
 ]  # 3 × 4 × 2 × 2 = 48 variants
 ```
 
-**alt/samp.py:**
+**flow/samp.py:**
 ```python
 def samp_variants(
     w_list: list = None,  # default: [5*µ, 10*µ, 20*µ, 40*µ]
@@ -193,7 +193,7 @@ def samp_variants(
 cell.instantiate(self.dut, din=din, dout=dout, clk=clk, ...)
 ```
 
-**alt/samp.py (in tests/test_samp.py):**
+**flow/samp.py (in tests/test_samp.py):**
 ```python
 @h.generator
 def SampTb(params: SampTbParams) -> h.Module:
@@ -209,7 +209,7 @@ def SampTb(params: SampTbParams) -> h.Module:
 
 **Current structure (separate test files):**
 ```
-alt/
+flow/
 ├── samp.py
 ├── comp.py
 ├── cdac.py
@@ -221,7 +221,7 @@ alt/
 
 **Alternative (testbenches with blocks):**
 ```
-alt/
+flow/
 ├── samp.py            # Samp + SampTb + SampTbParams
 ├── comp.py            # Comp + CompTb + CompTbParams
 ├── cdac.py            # Cdac + CdacTb + CdacTbParams

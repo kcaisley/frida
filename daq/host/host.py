@@ -525,12 +525,12 @@ class Frida:
             Weighted codes array with shape bits.shape[:-1]
 
         Example:
-            >>> from alt.flow.measure import FRIDA_IDEAL_WEIGHTS
+            >>> from flow.flow.measure import FRIDA_IDEAL_WEIGHTS
             >>> bits = frida.run_conversions(1000, 10)  # (10, 1000, 17)
             >>> codes = Frida.bits_to_codes(bits, FRIDA_IDEAL_WEIGHTS)  # (10, 1000)
         """
         # Import here to avoid circular dependency
-        from alt.flow.measure import redundant_bits_to_code
+        from flow.flow.measure import redundant_bits_to_code
 
         original_shape = bits.shape
         n_bits = original_shape[-1]

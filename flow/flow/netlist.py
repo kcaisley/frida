@@ -87,7 +87,7 @@ def params_to_filename(
         Filename string like "comp_nmos_input_std_bias_w40_l1_ihp130.sp"
 
     Example:
-        >>> from alt.comp.comp import CompParams
+        >>> from flow.comp.comp import CompParams
         >>> params = CompParams(diffpair_w=40)
         >>> params_to_filename("comp", params, "ihp130")
         'comp_nmos_input_std_bias_single_stage_clocked_external_clocked_clocked_w40_l1_low_w20_l2_std_w20_low_w20_low_ihp130.sp'

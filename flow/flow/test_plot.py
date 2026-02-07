@@ -1,5 +1,5 @@
 """
-Unit tests for plotting functions in alt/flow/plot.py.
+Unit tests for plotting functions in flow/flow/plot.py.
 
 These tests verify the plotting functions run without errors and return
 proper figure objects. They use matplotlib's Agg backend for headless testing.
