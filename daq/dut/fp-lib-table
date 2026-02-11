@@ -1,5 +1,4 @@
 (fp_lib_table
   (version 7)
-  (lib (name "silab")(type "KiCad")(uri "/home/kcaisley/work/tj-monopix2-pcb/lib/silab.pretty")(options "")(descr ""))
-  (lib (name "frida65A")(type "KiCad")(uri "${KIPRJMOD}/frida65A.pretty")(options "")(descr ""))
+  (lib (name "frida")(type "KiCad")(uri "${KIPRJMOD}/frida.pretty")(options "")(descr ""))
 )

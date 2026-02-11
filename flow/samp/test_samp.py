@@ -112,14 +112,12 @@ def sim_input(params: SampTbParams) -> hs.Sim:
         tb = SampTb(params)
         tr = hs.Tran(tstop=500 * n, tstep=100 * p)
 
-        temp = hs.Options(name="temp", value=sim_temp)
-
-    SampSim.add(
-        hs.Meas(
-            analysis=SampSim.tr,
+        t_settle = hs.Meas(
+            analysis=tr,
             expr="when V(xtop.dout)=0.99*V(xtop.din) rise=1",
         )
-    )
+
+        temp = hs.Options(name="temp", value=sim_temp)
 
     return SampSim
 

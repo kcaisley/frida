@@ -41,13 +41,15 @@ si.env
 *.vrb
 
 # KiCad
-/daq/dut/fp-info-cache
-/daq/dut/frida65A-backups
-/daq/dut/*.kicad_prl
-/daq/dut/*.bak
-/daq/dut/*.kicad_sch-bak
-/daq/dut/#auto_saved_files#
-/daq/dut/_autosave-*
+*.bak
+*.kicad_prl
+*.kicad_sch-bak
+*.kicad_pcb-bak
+*-backups/
+*-cache*
+fp-info-cache
+#auto_saved_files#
+_autosave-*
 
 # PDK / technology (large, proprietary)
 /tech/nopdk/*

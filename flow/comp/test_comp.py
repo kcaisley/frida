@@ -175,16 +175,15 @@ def sim_input(params: CompTbParams) -> hs.Sim:
         tb = CompTb(params)
         tr = hs.Tran(tstop=t_stop, tstep=1 * n)
 
+        t_delay = hs.Meas(
+            analysis=tr,
+            expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.out_p) val=0.6 rise=1",
+        )
+
         save = hs.Save(hs.SaveMode.ALL)
         temp = hs.Options(name="temp", value=sim_temp)
 
     CompSim.add(hs.Literal(pwl_p), hs.Literal(pwl_n))
-    CompSim.add(
-        hs.Meas(
-            analysis=CompSim.tr,
-            expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.out_p) val=0.6 rise=1",
-        )
-    )
 
     return CompSim
 

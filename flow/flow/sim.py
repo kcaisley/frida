@@ -10,16 +10,16 @@ Provides utilities for:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Union, IO
+from typing import IO, Any, Callable, Union
 
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.pdk import Corner
 from hdl21.sim import to_proto
-from vlsirtools.spice import SimOptions, SupportedSimulators, ResultFormat
-from vlsirtools.netlist import NetlistOptions
+from vlsirtools.netlist import MeasStyle, NetlistOptions
 from vlsirtools.netlist.spectre import SpectreNetlister
+from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from .params import Project, Pvt
 
@@ -353,7 +353,7 @@ def write_sim_netlist(
         compact: Use compact instance formatting (default True)
     """
     proto = to_proto(sim_class)
-    opts = NetlistOptions(compact=compact)
+    opts = NetlistOptions(compact=compact, meas_style=MeasStyle.SPECTRE)
 
     if isinstance(dest, (str, Path)):
         with open(dest, "w") as f:

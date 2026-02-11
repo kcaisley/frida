@@ -88,7 +88,7 @@ module daq_core #(
     // GPIO -> PCB control signals
     // ---------------------------------------------------------------
     output wire rst_b,      // Chip reset (active low)
-    output wire amp_en,     // Input amplifier enable
+    output wire ampen_b,    // Input amplifier enable (active low)
 
     // ---------------------------------------------------------------
     // comp_out data -> bram_fifo (instantiated at top level)
@@ -219,8 +219,8 @@ module daq_core #(
     // 3. GPIO
     //
     // 8-bit output register for PCB control signals.
-    // Bit 0: rst_b   - Chip reset (active low)
-    // Bit 1: amp_en  - Input amplifier enable
+    // Bit 0: rst_b    - Chip reset (active low)
+    // Bit 1: ampen_b  - Input amplifier enable (active low)
     // Bits 7:2: reserved
     // ===================================================================
     wire [7:0] gpio_io;
@@ -243,8 +243,8 @@ module daq_core #(
         .IO(gpio_io)
     );
 
-    assign rst_b  = gpio_io[0];
-    assign amp_en = gpio_io[1];
+    assign rst_b   = gpio_io[0];
+    assign ampen_b = ~gpio_io[1];  // Invert: gpio_io[1]=1 enables amp (ampen_b=0)
 
     // ===================================================================
     // 4. Pulse Generator
