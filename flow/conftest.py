@@ -1,13 +1,13 @@
 """
 Pytest configuration for FRIDA HDL21 tests.
 
-Provides fixtures for flow control and PDK selection.
+Provides fixtures for flow control, simulator selection, and PDK selection.
 """
 
-import socket
 import shutil
-from typing import Any
+import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 from vlsirtools.spice import SupportedSimulators
@@ -18,19 +18,17 @@ from .pdk import get_pdk, list_pdks, set_pdk
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
 
+# Simulator binaries to probe on PATH
+SIMULATOR_BINARIES: dict[SupportedSimulators, tuple[str, ...]] = {
+    SupportedSimulators.SPECTRE: ("spectre",),
+    SupportedSimulators.NGSPICE: ("ngspice",),
+    SupportedSimulators.XYCE: ("Xyce", "xyce"),
+}
 
-def parse_simulator(name: str) -> SupportedSimulators:
-    """Parse simulator option value into a SupportedSimulators enum."""
-    try:
-        return SupportedSimulators(name)
-    except ValueError:
-        return SupportedSimulators[name.upper()]
 
-
-def has_simulator() -> bool:
-    """Check if current host has simulator access."""
-    hostname = socket.gethostname().split(".")[0].lower()
-    return hostname in SIM_HOSTS
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    """Check whether this pytest process is an xdist worker."""
+    return hasattr(config, "workerinput")
 
 
 def clean_scratch_dir(path: Path = Path("./scratch")) -> None:
@@ -46,40 +44,50 @@ def clean_scratch_dir(path: Path = Path("./scratch")) -> None:
 
 def pytest_addoption(parser):
     """Add command line options for test configuration."""
+    pdk_choices = list_pdks()
+    sim_choices = [sim.value for sim in SupportedSimulators]
+
     parser.addoption(
         "--flow",
         action="store",
         default="netlist",
         choices=["netlist", "simulate", "measure"],
-        help="Test flow: netlist (default), simulate, measure",
+        help="Flow mode (default: netlist): netlist, simulate, measure",
     )
     parser.addoption(
         "--mode",
         action="store",
         default="min",
         choices=["min", "max"],
-        help="Variant selection: min (limit to 10) or max (full cartesian)",
+        help="Variant mode (default: min): min (limit to 10), max (full cartesian)",
     )
     parser.addoption(
         "--montecarlo",
         action="store",
         default="no",
         choices=["yes", "no"],
-        help="Wrap transient analysis in Monte Carlo (default: no)",
+        help="Monte Carlo mode (default: no): yes, no",
     )
     parser.addoption(
         "--tech",
         action="store",
         default="ihp130",
-        choices=list_pdks(),
-        help=f"Technology/PDK: {list_pdks()}. Default: ihp130",
+        choices=pdk_choices,
+        help=f"Technology PDK (default: ihp130): {', '.join(pdk_choices)}",
     )
     parser.addoption(
         "--simulator",
         action="store",
         default=SupportedSimulators.SPECTRE.value,
-        choices=[sim.value for sim in SupportedSimulators],
-        help="Simulator backend: spectre (default), ngspice, xyce",
+        choices=sim_choices,
+        help=f"Simulator backend (default: spectre): {', '.join(sim_choices)}",
+    )
+    parser.addoption(
+        "--clean",
+        action="store",
+        default="no",
+        choices=["yes", "no"],
+        help="Scratch cleanup (default: no): yes, no",
     )
 
 
@@ -87,7 +95,10 @@ def pytest_configure(config):
     """Set up PDK and register markers before tests run."""
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
-    clean_scratch_dir()
+
+    # Clean once in the xdist controller process when requested.
+    if config.getoption("--clean") == "yes" and not _is_xdist_worker(config):
+        clean_scratch_dir()
 
     # Register the requires_sim marker
     config.addinivalue_line(
@@ -119,25 +130,48 @@ def sim_options(request):
     """
     Provide simulation options for tests that need them.
 
-    Returns the default Spectre simulation options.
+    Returns options for the simulator selected via --simulator.
     """
-    from pathlib import Path
-
     from .flow.sim import get_sim_options
 
-    sim_name = request.config.getoption("--simulator")
-    sim = parse_simulator(sim_name)
+    sim = SupportedSimulators(request.config.getoption("--simulator"))
     return get_sim_options(rundir=Path("./scratch"), simulator=sim)
 
 
 @pytest.fixture
 def simulator(request) -> SupportedSimulators:
     """Get simulator selection from command line."""
-    return parse_simulator(request.config.getoption("--simulator"))
+    return SupportedSimulators(request.config.getoption("--simulator"))
 
 
 @pytest.fixture
-def tech(request):
+def require_sim_for_flow(flow: str, simulator: SupportedSimulators) -> None:
+    """
+    Skip simulate/measure flows when simulator access is unavailable.
+
+    This centralizes skip behavior across block flow tests.
+    """
+    if flow not in {"simulate", "measure"}:
+        return
+
+    hostname = socket.gethostname().split(".")[0].lower()
+    if hostname not in SIM_HOSTS:
+        hosts = ", ".join(sorted(SIM_HOSTS))
+        pytest.skip(
+            f"{flow} flow requires simulator access: host '{hostname}' "
+            f"is not in the simulator allow-list ({hosts})"
+        )
+
+    binaries = SIMULATOR_BINARIES[simulator]
+    if not any(shutil.which(binary) for binary in binaries):
+        pytest.skip(
+            f"{flow} flow requires simulator access: "
+            f"simulator binary '{simulator.value}' is unavailable"
+        )
+
+
+@pytest.fixture
+def tech():
     """
     Provide the active technology/PDK instance for tests.
 

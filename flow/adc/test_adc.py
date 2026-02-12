@@ -3,11 +3,13 @@ ADC testbench and flow tests for FRIDA.
 """
 
 import hdl21 as h
-import pytest
 import hdl21.sim as hs
+import pytest
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import Vdc
 
+from ..cdac import CdacParams
+from ..comp import CompParams
 from ..flow import (
     Project,
     Pvt,
@@ -18,15 +20,11 @@ from ..flow import (
     pwl_to_spice_literal,
     run_netlist_variants,
     select_variants,
-    sim_options,
     wrap_monte_carlo,
 )
 from ..pdk import get_pdk
-from ..conftest import has_simulator
-from .adc import Adc, AdcParams, get_adc_weights
-from ..cdac import CdacParams
-from ..comp import CompParams
 from ..samp import SampParams
+from .adc import Adc, AdcParams, get_adc_weights
 
 
 @h.paramclass
@@ -169,7 +167,8 @@ def test_adc_weights():
     np.testing.assert_array_equal(weights, expected)
 
 
-def test_adc_flow(flow, mode, montecarlo, verbose, simulator):
+@pytest.mark.usefixtures("require_sim_for_flow")
+def test_adc_flow(flow, mode, montecarlo, verbose, simulator, sim_options):
     """Run ADC flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -234,9 +233,6 @@ def test_adc_flow(flow, mode, montecarlo, verbose, simulator):
             wall_time=wall_time,
             outdir=str(outdir),
         )
-
-    if not has_simulator():
-        pytest.skip("Simulation requires sim host (jupiter/juno/asiclab003)")
 
     if flow == "simulate":
         h.sim.run(sims, sim_options)
