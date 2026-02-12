@@ -344,17 +344,6 @@
 		(uuid "8247753a-3abd-4bdd-8903-92408371feef")
 	)
 	(embedded_fonts no)
-	(model "${KICAD9_3DMODEL_DIR}/Connector_Molex.3dshapes/Molex_Mini-Fit_Jr_5569-04A2_2x02_P4.20mm_Horizontal.step"
-		(offset
-			(xyz 0 0 0)
-		)
-		(scale
-			(xyz 1 1 1)
-		)
-		(rotate
-			(xyz 0 0 0)
-		)
-	)
 	(model "${KIPRJMOD}/frida.pretty/Molex_MiniFitJr_469990014.stp"
 		(offset
 			(xyz 0 0 0)

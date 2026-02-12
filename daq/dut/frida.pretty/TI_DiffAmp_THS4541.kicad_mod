@@ -340,7 +340,7 @@
 		(roundrect_rratio 0.25)
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/Texas_RUN0010A_WQFN-10_2x2mm_P0.5mm.step"
+	(model "${KIPRJMOD}/frida.pretty/TI_DiffAmp_THS4541.stp"
 		(offset
 			(xyz 0 0 0)
 		)
