@@ -169,7 +169,7 @@ def test_adc_weights():
     np.testing.assert_array_equal(weights, expected)
 
 
-def test_adc_flow(flow, mode, montecarlo, verbose):
+def test_adc_flow(flow, mode, montecarlo, verbose, simulator):
     """Run ADC flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -208,7 +208,9 @@ def test_adc_flow(flow, mode, montecarlo, verbose):
         return tb, sim
 
     if flow == "netlist":
-        wall_time = run_netlist_variants("adc", variants, build_sim, pdk, outdir)
+        wall_time = run_netlist_variants(
+            "adc", variants, build_sim, pdk, outdir, simulator=simulator
+        )
         if verbose:
             print_netlist_summary(
                 block="adc",
@@ -221,7 +223,7 @@ def test_adc_flow(flow, mode, montecarlo, verbose):
         return
 
     wall_time, sims = run_netlist_variants(
-        "adc", variants, build_sim, pdk, outdir, return_sims=True
+        "adc", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
     )
     if verbose:
         print_netlist_summary(

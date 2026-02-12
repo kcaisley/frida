@@ -63,7 +63,6 @@ from .flow import (
     Dc,
     Ac,
     Op,
-    Meas,
     Save,
     SaveMode,
     # Simulation helpers
@@ -72,7 +71,6 @@ from .flow import (
     run_pvt_sweep,
     # Result extraction
     extract_waveform,
-    extract_measurement,
     compute_settling_time,
     compute_delay,
     # Measurement functions
@@ -146,7 +144,6 @@ __all__ = [
     "Dc",
     "Ac",
     "Op",
-    "Meas",
     "Save",
     "SaveMode",
     # Simulation helpers
@@ -154,7 +151,6 @@ __all__ = [
     "run_parameter_sweep",
     "run_pvt_sweep",
     "extract_waveform",
-    "extract_measurement",
     "compute_settling_time",
     "compute_delay",
     # Measurement functions

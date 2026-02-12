@@ -175,12 +175,8 @@ def sim_input(params: CompTbParams) -> hs.Sim:
         tb = CompTb(params)
         tr = hs.Tran(tstop=t_stop, tstep=1 * n)
 
-        t_delay = hs.Meas(
-            analysis=tr,
-            expr="trig V(xtop.clk) val=0.6 rise=1 targ V(xtop.out_p) val=0.6 rise=1",
-        )
-
-        save = hs.Save(hs.SaveMode.ALL)
+        save_all = hs.Save(hs.SaveMode.ALL)
+        save = hs.Save(["xtop.clk", "xtop.out_p"])
         temp = hs.Options(name="temp", value=sim_temp)
 
     CompSim.add(hs.Literal(pwl_p), hs.Literal(pwl_n))
@@ -188,7 +184,7 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     return CompSim
 
 
-def test_comp_flow(flow, mode, montecarlo, verbose):
+def test_comp_flow(flow, mode, montecarlo, verbose, simulator):
     """Run comparator flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -249,7 +245,9 @@ def test_comp_flow(flow, mode, montecarlo, verbose):
         return tb, sim
 
     if flow == "netlist":
-        wall_time = run_netlist_variants("comp", variants, build_sim, pdk, outdir)
+        wall_time = run_netlist_variants(
+            "comp", variants, build_sim, pdk, outdir, simulator=simulator
+        )
         if verbose:
             print_netlist_summary(
                 block="comp",
@@ -262,7 +260,7 @@ def test_comp_flow(flow, mode, montecarlo, verbose):
         return
 
     wall_time, sims = run_netlist_variants(
-        "comp", variants, build_sim, pdk, outdir, return_sims=True
+        "comp", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
     )
     if verbose:
         print_netlist_summary(

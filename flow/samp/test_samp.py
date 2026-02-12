@@ -112,17 +112,15 @@ def sim_input(params: SampTbParams) -> hs.Sim:
         tb = SampTb(params)
         tr = hs.Tran(tstop=500 * n, tstep=100 * p)
 
-        t_settle = hs.Meas(
-            analysis=tr,
-            expr="when V(xtop.dout)=0.99*V(xtop.din) rise=1",
-        )
+        save_all = hs.Save(hs.SaveMode.ALL)
+        save = hs.Save(["xtop.din", "xtop.dout"])
 
         temp = hs.Options(name="temp", value=sim_temp)
 
     return SampSim
 
 
-def test_samp_flow(flow, mode, montecarlo, verbose):
+def test_samp_flow(flow, mode, montecarlo, verbose, simulator):
     """Run sampler flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -152,7 +150,9 @@ def test_samp_flow(flow, mode, montecarlo, verbose):
         return tb, sim
 
     if flow == "netlist":
-        wall_time = run_netlist_variants("samp", variants, build_sim, pdk, outdir)
+        wall_time = run_netlist_variants(
+            "samp", variants, build_sim, pdk, outdir, simulator=simulator
+        )
         if verbose:
             print_netlist_summary(
                 block="samp",
@@ -165,7 +165,7 @@ def test_samp_flow(flow, mode, montecarlo, verbose):
         return
 
     wall_time, sims = run_netlist_variants(
-        "samp", variants, build_sim, pdk, outdir, return_sims=True
+        "samp", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
     )
     if verbose:
         print_netlist_summary(

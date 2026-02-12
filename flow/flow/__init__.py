@@ -52,7 +52,6 @@ from .sim import (
     Dc,
     Ac,
     Op,
-    Meas,
     Save,
     SaveMode,
     # Simulation helpers
@@ -61,7 +60,6 @@ from .sim import (
     run_pvt_sweep,
     # Result extraction
     extract_waveform,
-    extract_measurement,
     compute_settling_time,
     compute_delay,
     # Netlist generation
@@ -172,7 +170,6 @@ __all__ = [
     "Dc",
     "Ac",
     "Op",
-    "Meas",
     "Save",
     "SaveMode",
     # Simulation helpers
@@ -181,7 +178,6 @@ __all__ = [
     "run_pvt_sweep",
     # Result extraction
     "extract_waveform",
-    "extract_measurement",
     "compute_settling_time",
     "compute_delay",
     # Netlist generation

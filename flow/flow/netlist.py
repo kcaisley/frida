@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import hdl21 as h
 import hdl21.sim as hs
+from vlsirtools.spice import SupportedSimulators
 
 
 def generate_staircase_pwl(
@@ -160,6 +161,7 @@ def run_netlist_variants(
     pdk: Any,
     outdir: Any,
     return_sims: bool = False,
+    simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
 ) -> float | tuple[float, list[hs.Sim]]:
     """
     Write combined testbench + DUT netlists for a list of variants.
@@ -187,10 +189,10 @@ def run_netlist_variants(
         tb, sim = build_sim(params)
         pdk.compile(tb)
 
-        filename = params_to_filename(block, params, pdk.name, suffix=".scs")
+        suffix = ".scs" if simulator == SupportedSimulators.SPECTRE else ".sp"
+        filename = params_to_filename(block, params, pdk.name, suffix=suffix)
         netlist_path = outdir / filename
-        # TODO: add support for CDL/SPICE netlisting formats.
-        write_sim_netlist(sim, netlist_path, compact=True)
+        write_sim_netlist(sim, netlist_path, compact=True, simulator=simulator)
         if return_sims:
             sims.append(sim)
 

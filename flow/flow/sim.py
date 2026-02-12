@@ -17,8 +17,9 @@ import hdl21.sim as hs
 import numpy as np
 from hdl21.pdk import Corner
 from hdl21.sim import to_proto
-from vlsirtools.netlist import MeasStyle, NetlistOptions
+from vlsirtools.netlist import NetlistOptions
 from vlsirtools.netlist.spectre import SpectreNetlister
+from vlsirtools.netlist.spice import NgspiceNetlister, XyceNetlister
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from .params import Project, Pvt
@@ -33,7 +34,6 @@ Tran = hs.Tran
 Dc = hs.Dc
 Ac = hs.Ac
 Op = hs.Op
-Meas = hs.Meas
 Save = hs.Save
 SaveMode = hs.SaveMode
 
@@ -108,7 +108,7 @@ def create_tran_sim(
     tstop: h.Scalar,
     tstep: h.Scalar = None,
     pvt: Pvt = None,
-    measurements: dict[str, str] = None,
+    save_signals: list[str] | None = None,
 ) -> hs.Sim:
     """
     Create a transient simulation.
@@ -118,7 +118,7 @@ def create_tran_sim(
         tstop: Stop time
         tstep: Time step (optional)
         pvt: PVT conditions
-        measurements: Dict of measurement name -> expression
+        save_signals: List of signals to save (optional, in addition to save-all)
     Returns:
         hs.Sim object ready to run
     """
@@ -137,10 +137,12 @@ def create_tran_sim(
         # Temperature setting using hs.Options
         temp = hs.Options(name="temp", value=config.temp)
 
-    # Add measurements
-    if measurements:
-        for name, expr in measurements.items():
-            TranSim.add(hs.Meas(analysis=TranSim.tr, expr=expr, name=name))
+        # Always save all signals, plus any explicit list
+        save_all = hs.Save(hs.SaveMode.ALL)
+
+        # Save selected signals for waveform post-processing
+        if save_signals:
+            save = hs.Save(save_signals)
 
     return TranSim
 
@@ -244,26 +246,6 @@ def extract_waveform(
     return time, voltage
 
 
-def extract_measurement(
-    result: hs.SimResult,
-    meas_name: str,
-) -> float:
-    """
-    Extract a measurement value from simulation result.
-
-    Args:
-        result: SimResult object
-        meas_name: Measurement name
-
-    Returns:
-        Measurement value as float
-    """
-    try:
-        return result.an[0].data.get(meas_name, float("nan"))
-    except (IndexError, KeyError, AttributeError):
-        return float("nan")
-
-
 def compute_settling_time(
     time: np.ndarray,
     voltage: np.ndarray,
@@ -340,6 +322,7 @@ def write_sim_netlist(
     sim_class,
     dest: Union[str, Path, IO],
     compact: bool = True,
+    simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
 ) -> None:
     """
     Write simulation netlist to dest.
@@ -351,14 +334,21 @@ def write_sim_netlist(
         sim_class: HDL21 Sim class (decorated with @hs.sim)
         dest: Output path or file-like object
         compact: Use compact instance formatting (default True)
+        simulator: Target simulator/netlist dialect
     """
     proto = to_proto(sim_class)
-    opts = NetlistOptions(compact=compact, meas_style=MeasStyle.SPECTRE)
+    opts = NetlistOptions(compact=compact)
+
+    netlister_cls = {
+        SupportedSimulators.SPECTRE: SpectreNetlister,
+        SupportedSimulators.NGSPICE: NgspiceNetlister,
+        SupportedSimulators.XYCE: XyceNetlister,
+    }[simulator]
 
     if isinstance(dest, (str, Path)):
         with open(dest, "w") as f:
-            netlister = SpectreNetlister(dest=f, opts=opts)
+            netlister = netlister_cls(dest=f, opts=opts)
             netlister.write_sim_input(proto)
     else:
-        netlister = SpectreNetlister(dest=dest, opts=opts)
+        netlister = netlister_cls(dest=dest, opts=opts)
         netlister.write_sim_input(proto)

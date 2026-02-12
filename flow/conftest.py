@@ -8,12 +8,21 @@ import socket
 from typing import Any
 
 import pytest
+from vlsirtools.spice import SupportedSimulators
 
 from .flow import get_param_axes, print_netlist_summary
 from .pdk import get_pdk, list_pdks, set_pdk
 
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
+
+
+def parse_simulator(name: str) -> SupportedSimulators:
+    """Parse simulator option value into a SupportedSimulators enum."""
+    try:
+        return SupportedSimulators(name)
+    except ValueError:
+        return SupportedSimulators[name.upper()]
 
 
 def has_simulator() -> bool:
@@ -52,6 +61,13 @@ def pytest_addoption(parser):
         choices=list_pdks(),
         help=f"Technology/PDK: {list_pdks()}. Default: ihp130",
     )
+    parser.addoption(
+        "--simulator",
+        action="store",
+        default=SupportedSimulators.SPECTRE.value,
+        choices=[sim.value for sim in SupportedSimulators],
+        help="Simulator backend: spectre (default), ngspice, xyce",
+    )
 
 
 def pytest_configure(config):
@@ -85,15 +101,25 @@ def montecarlo(request) -> bool:
 
 
 @pytest.fixture
-def sim_options():
+def sim_options(request):
     """
     Provide simulation options for tests that need them.
 
     Returns the default Spectre simulation options.
     """
-    from .flow.sim import sim_options as opts
+    from pathlib import Path
 
-    return opts
+    from .flow.sim import get_sim_options
+
+    sim_name = request.config.getoption("--simulator")
+    sim = parse_simulator(sim_name)
+    return get_sim_options(rundir=Path("./scratch"), simulator=sim)
+
+
+@pytest.fixture
+def simulator(request) -> SupportedSimulators:
+    """Get simulator selection from command line."""
+    return parse_simulator(request.config.getoption("--simulator"))
 
 
 @pytest.fixture

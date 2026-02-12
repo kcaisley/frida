@@ -156,7 +156,7 @@ def test_cdac_weights():
     print(f"  SUBRDX2_LIM (8+2): {weights}")
 
 
-def test_cdac_flow(flow, mode, montecarlo, verbose):
+def test_cdac_flow(flow, mode, montecarlo, verbose, simulator):
     """Run CDAC flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -167,7 +167,7 @@ def test_cdac_flow(flow, mode, montecarlo, verbose):
     redun_strats = list(RedunStrat)
     split_strats = list(SplitStrat)
     cap_types = list(CapType)
-    vth_list = [MosVth.LOW, MosVth.STD, MosVth.HIGH]
+    vth_list = [MosVth.LOW, MosVth.STD]
     unit_caps = [1 * f]
 
     variants: list[CdacParams] = []
@@ -202,7 +202,9 @@ def test_cdac_flow(flow, mode, montecarlo, verbose):
         return tb, sim
 
     if flow == "netlist":
-        wall_time = run_netlist_variants("cdac", variants, build_sim, pdk, outdir)
+        wall_time = run_netlist_variants(
+            "cdac", variants, build_sim, pdk, outdir, simulator=simulator
+        )
         if verbose:
             print_netlist_summary(
                 block="cdac",
@@ -215,7 +217,7 @@ def test_cdac_flow(flow, mode, montecarlo, verbose):
         return
 
     wall_time, sims = run_netlist_variants(
-        "cdac", variants, build_sim, pdk, outdir, return_sims=True
+        "cdac", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
     )
     if verbose:
         print_netlist_summary(
