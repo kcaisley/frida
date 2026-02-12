@@ -5,7 +5,9 @@ Provides fixtures for flow control and PDK selection.
 """
 
 import socket
+import shutil
 from typing import Any
+from pathlib import Path
 
 import pytest
 from vlsirtools.spice import SupportedSimulators
@@ -29,6 +31,17 @@ def has_simulator() -> bool:
     """Check if current host has simulator access."""
     hostname = socket.gethostname().split(".")[0].lower()
     return hostname in SIM_HOSTS
+
+
+def clean_scratch_dir(path: Path = Path("./scratch")) -> None:
+    """Remove all contents from the scratch directory."""
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
 
 
 def pytest_addoption(parser):
@@ -74,6 +87,7 @@ def pytest_configure(config):
     """Set up PDK and register markers before tests run."""
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
+    clean_scratch_dir()
 
     # Register the requires_sim marker
     config.addinivalue_line(
