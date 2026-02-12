@@ -27,6 +27,18 @@ Naming convention: `Company_Type_PartNum`.
 | U2 | TXV0106-Q1 level shifter | `frida:TI_LevelShifter_TXV0106Q1` | `frida:TI_LevelShifter_TXV0106Q1` | `TI_LevelShifter_TXV0106Q1.stp` |
 | U3 | THS4541 diff amp | `frida:TI_DiffAmp_THS4541` | `frida:TI_DiffAmp_THS4541` | `TI_DiffAmp_THS4541.stp` |
 
+## Test Point Placement
+
+Reference section for future TP additions in the schematic:
+
+- Place TP symbols on a single horizontal row at `y = 114.3 mm`.
+- Use `x` pitch of `12.7 mm` between adjacent TP symbols.
+- For example, some TP row anchor points are `x = 25.4, 38.1, 50.8, 63.5, 76.2, 88.9, 101.6, 114.3, 127.0, 139.7 mm` (TP1..TP10).
+- Place each net label at the exact same coordinate as its TP symbol anchor (delta `x = 0`, delta `y = 0`).
+- Set TP label text angle to `270 deg` with `justify right bottom` so text runs downward.
+- Draw no connecting wire between TP and label (line length `0 mm` because both are coincident).
+- Hide the `Value` field on TP symbols.
+
 ## Power & Voltage Management
 
 - [ ] Level shifter: specify voltage requirements (source and target voltages)
