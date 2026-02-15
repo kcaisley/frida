@@ -125,6 +125,7 @@ from .plot import (
 # Netlist utilities
 from .netlist import (
     generate_staircase_pwl,
+    pwl_points_to_wave,
     pwl_to_spice_literal,
     params_to_filename,
     get_param_axes,
@@ -237,6 +238,7 @@ __all__ = [
     "get_param_axes",
     "print_netlist_summary",
     "generate_staircase_pwl",
+    "pwl_points_to_wave",
     "pwl_to_spice_literal",
     "run_netlist_variants",
     "select_variants",

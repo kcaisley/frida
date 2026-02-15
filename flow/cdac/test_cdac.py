@@ -6,7 +6,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import pytest
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, MosVth, Vdc
+from hdl21.primitives import C, MosVth, Vdc, Vpwl
 
 from ..flow import (
     CapType,
@@ -17,7 +17,7 @@ from ..flow import (
     SupplyVals,
     get_param_axes,
     print_netlist_summary,
-    pwl_to_spice_literal,
+    pwl_points_to_wave,
     run_netlist_variants,
     run_simulations,
     select_variants,
@@ -79,6 +79,25 @@ def CdacTb(params: CdacTbParams) -> h.Module:
         vss=CdacTb.vss,
     )
 
+    n_codes = 2**params.cdac.n_dac
+    codes = list(range(n_codes))
+    bit_values: list[list[h.Scalar]] = [[] for _ in range(n_bits)]
+    for code in codes:
+        for bit in range(n_bits):
+            bit_is_set = (code >> bit) & 1
+            bit_values[bit].append(supply.VDD if bit_is_set else 0 * m)
+
+    t_step = 200 * n
+    t_rise = 100 * p
+    for bit in range(n_bits):
+        points, _ = _build_pwl_points(bit_values[bit], t_step, t_rise)
+        wave = pwl_points_to_wave(points)
+        setattr(
+            CdacTb,
+            f"vdac_{bit}",
+            Vpwl(wave=wave)(p=CdacTb.dac_bits[bit], n=CdacTb.vss),
+        )
+
     return CdacTb
 
 
@@ -106,29 +125,12 @@ def _build_pwl_points(
 def sim_input(params: CdacTbParams) -> hs.Sim:
     """Create transient simulation with stepped DAC codes."""
     sim_temp = Project.temper(params.pvt.t)
-    supply = SupplyVals.corner(params.pvt.v)
 
-    n_bits = get_cdac_n_bits(params.cdac)
     n_codes = 2**params.cdac.n_dac
-    codes = list(range(n_codes))
-
-    bit_values: list[list[h.Scalar]] = [[] for _ in range(n_bits)]
-    for code in codes:
-        for bit in range(n_bits):
-            bit_is_set = (code >> bit) & 1
-            bit_values[bit].append(supply.VDD if bit_is_set else 0 * m)
 
     t_step = 200 * n
     t_rise = 100 * p
-    t_stop = 0 * n
-    pwl_literals = []
-
-    for bit in range(n_bits):
-        points, t_stop = _build_pwl_points(bit_values[bit], t_step, t_rise)
-        pwl = pwl_to_spice_literal(
-            f"dac_{bit}", f"xtop.dac_bits[{bit}]", "xtop.vss", points
-        )
-        pwl_literals.append(pwl)
+    t_stop = n_codes * t_step + (n_codes - 1) * t_rise
 
     @hs.sim
     class CdacSim:
@@ -136,8 +138,6 @@ def sim_input(params: CdacTbParams) -> hs.Sim:
         tr = hs.Tran(tstop=t_stop, tstep=100 * p)
         save = hs.Save(hs.SaveMode.ALL)
         temp = hs.Options(name="temp", value=sim_temp)
-
-    CdacSim.add(*[hs.Literal(pwl) for pwl in pwl_literals])
 
     return CdacSim
 

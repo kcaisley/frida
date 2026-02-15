@@ -6,7 +6,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import pytest
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, R, Vdc, Vpulse
+from hdl21.primitives import C, R, Vdc, Vpulse, Vpwl
 
 from ..flow import (
     CompStages,
@@ -21,7 +21,7 @@ from ..flow import (
     SupplyVals,
     get_param_axes,
     print_netlist_summary,
-    pwl_to_spice_literal,
+    pwl_points_to_wave,
     run_netlist_variants,
     run_simulations,
     select_variants,
@@ -121,6 +121,26 @@ def CompTb(params: CompTbParams) -> h.Module:
         vss=CompTb.vss,
     )
 
+    cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
+    diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
+    vin_p_values: list[h.Scalar] = []
+    vin_n_values: list[h.Scalar] = []
+    for vcm in cm_voltages:
+        for vdiff in diff_voltages:
+            vin_p_values.append(vcm + vdiff / 2)
+            vin_n_values.append(vcm - vdiff / 2)
+
+    t_step = 200 * n
+    t_rise = 100 * p
+    points_p, _ = _build_pwl_points(vin_p_values, t_step, t_rise)
+    points_n, _ = _build_pwl_points(vin_n_values, t_step, t_rise)
+    CompTb.vvin_p = Vpwl(wave=pwl_points_to_wave(points_p))(
+        p=CompTb.vin_p_src, n=CompTb.vss
+    )
+    CompTb.vvin_n = Vpwl(wave=pwl_points_to_wave(points_n))(
+        p=CompTb.vin_n_src, n=CompTb.vss
+    )
+
     return CompTb
 
 
@@ -153,21 +173,10 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
     diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
 
-    vin_p_values: list[h.Scalar] = []
-    vin_n_values: list[h.Scalar] = []
-
-    for vcm in cm_voltages:
-        for vdiff in diff_voltages:
-            vin_p_values.append(vcm + vdiff / 2)
-            vin_n_values.append(vcm - vdiff / 2)
-
     t_step = 200 * n
     t_rise = 100 * p
-    points_p, t_stop = _build_pwl_points(vin_p_values, t_step, t_rise)
-    points_n, _ = _build_pwl_points(vin_n_values, t_step, t_rise)
-
-    pwl_p = pwl_to_spice_literal("vin_p", "xtop.vin_p_src", "xtop.vss", points_p)
-    pwl_n = pwl_to_spice_literal("vin_n", "xtop.vin_n_src", "xtop.vss", points_n)
+    n_points = len(cm_voltages) * len(diff_voltages)
+    t_stop = n_points * t_step + (n_points - 1) * t_rise
 
     @hs.sim
     class CompSim:
@@ -177,8 +186,6 @@ def sim_input(params: CompTbParams) -> hs.Sim:
         save_all = hs.Save(hs.SaveMode.ALL)
         save = hs.Save(["xtop.clk", "xtop.out_p"])
         temp = hs.Options(name="temp", value=sim_temp)
-
-    CompSim.add(hs.Literal(pwl_p), hs.Literal(pwl_n))
 
     return CompSim
 

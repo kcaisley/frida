@@ -6,7 +6,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import pytest
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import Vdc
+from hdl21.primitives import Vdc, Vpwl
 
 from ..cdac import CdacParams
 from ..comp import CompParams
@@ -17,7 +17,7 @@ from ..flow import (
     generate_staircase_pwl,
     get_param_axes,
     print_netlist_summary,
-    pwl_to_spice_literal,
+    pwl_points_to_wave,
     run_netlist_variants,
     run_simulations,
     select_variants,
@@ -118,6 +118,21 @@ def AdcTb(p: AdcTbParams) -> h.Module:
         vss_d=AdcTb.vss,
     )
 
+    points = generate_staircase_pwl(
+        v_start=float(p.v_start),
+        v_stop=float(p.v_stop),
+        v_step=float(p.v_step),
+        t_step=float(p.t_step),
+        t_rise=float(p.t_rise),
+    )
+    t_stop = points[-1][0] + float(p.t_step)
+    wave_p = pwl_points_to_wave(points)
+    wave_n = pwl_points_to_wave(
+        [(0.0, float(p.vcm)), (t_stop, float(p.vcm))]
+    )
+    AdcTb.vvin_p = Vpwl(wave=wave_p)(p=AdcTb.vin_p, n=AdcTb.vss)
+    AdcTb.vvin_n = Vpwl(wave=wave_n)(p=AdcTb.vin_n, n=AdcTb.vss)
+
     return AdcTb
 
 
@@ -134,21 +149,11 @@ def sim_input(params: AdcTbParams) -> hs.Sim:
     )
     t_stop = points[-1][0] + float(params.t_step)
 
-    vin_p = pwl_to_spice_literal("vinp", "xtop.vin_p", "xtop.vss", points)
-    vin_n = pwl_to_spice_literal(
-        "vinn",
-        "xtop.vin_n",
-        "xtop.vss",
-        [(0.0, float(params.vcm)), (t_stop, float(params.vcm))],
-    )
-
     @hs.sim
     class AdcSim:
         tb = AdcTb(params)
         tr = hs.Tran(tstop=t_stop, tstep=100 * p)
         temp = hs.Options(name="temp", value=sim_temp)
-
-    AdcSim.add(hs.Literal(vin_p), hs.Literal(vin_n))
 
     return AdcSim
 

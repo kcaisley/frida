@@ -44,6 +44,11 @@ def generate_staircase_pwl(
     return points
 
 
+def pwl_points_to_wave(points: list[tuple[float, float]]) -> str:
+    """Format PWL points as a waveform string for `Vpwl(wave=...)`."""
+    return " ".join(f"{t:.12e} {v:.6e}" for t, v in points)
+
+
 def pwl_to_spice_literal(
     name: str,
     p_node: str,
@@ -62,7 +67,7 @@ def pwl_to_spice_literal(
     Returns:
         SPICE PWL source string
     """
-    pwl_str = " ".join(f"{t:.12e} {v:.6e}" for t, v in points)
+    pwl_str = pwl_points_to_wave(points)
     return f"V{name} {p_node} {n_node} PWL({pwl_str})"
 
 
@@ -223,14 +228,7 @@ def wrap_monte_carlo(sim: hs.Sim, mc_config: Any | None = None) -> hs.Sim:
     if tran is None:
         raise ValueError("No transient analysis found in simulation")
 
-    sim.add(hs.MonteCarlo(inner=[tran], npts=mc_config.numruns))
-    sim.add(
-        [
-            hs.Literal(
-                f"// MC options: seed={mc_config.seed}, variations={mc_config.variations}"
-            )
-        ]
-    )
+    sim.add(hs.MonteCarlo(inner=[tran], npts=mc_config.numruns, seed=mc_config.seed))
     return sim
 
 
