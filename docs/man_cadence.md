@@ -65,7 +65,7 @@ The Library Manager searches for the `.cdsenv` file in the following locations, 
 - $CWD
 Virtuoso does not look for the `.cdsenv` file in the current directory by default, although the Library Manager does.
 
-## attaching technology libraries:
+## Attaching technology libraries:
 - Any library can either reference a technology library or attach to a technology library. A design library must do one or the other to have access to technology data during a design session. A technology library can also reference or attach to another technology library; alternatively, it can be standalone by doing neither, using only the cdsDefTechLib default technology data. Choosing whether to reference or attach a technology library depends upon whether or not designers need to specify technology data during their design sessions.
 - Referencing a technology database from a design library or another technology library protects the integrity of any read-only data in the effective technology library while providing a writable local library where designers can define technology data. Referencing is preferable to attachment when designers need a writable local technology database in which to add technology data (such as data output by LEFIN).
 - Attaching is preferable in cases where designers use only predefined technology data, which is typically read-only.

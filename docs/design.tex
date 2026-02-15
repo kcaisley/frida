@@ -18,6 +18,12 @@
 
 \beamertemplatenavigationsymbolsempty
 
+% Global hyperlink style for this deck
+\hypersetup{
+  colorlinks=true,
+  allcolors=blue
+}
+
 % Code listing style
 \lstset{
   basicstyle=\ttfamily\tiny,
@@ -669,6 +675,87 @@ export USE_FILL = 0
 \end{frame}
 
 %% ============================================================
+%% CDAC Mismatch Problem
+%% ============================================================
+\begin{frame}
+  \frametitle{CDAC Problem: Mismatch vs Area}
+  \small
+  \begin{columns}
+    \begin{column}{0.58\textwidth}
+      \begin{itemize}
+        \item For compact SARs, CDAC area and mismatch push in opposite directions.
+        \item Study target: fringe unit caps (1/2/3 layers), compared across 180/65/28 nm.
+        \item Binary-weighted arrays are evaluated at 4$\sigma$ (0.999936) mismatch via analytic estimates + Monte Carlo.
+        \item DNL from capacitor mismatch adds to quantization-noise error budget.
+        \item Beyond an overlap/margin inflection point, foreground calibration cannot recover missing codes.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \tiny
+      \textbf{Mismatch scaling used in analysis}
+      \[
+      \sigma_{INL_{max}} \approx \frac{1}{2}\,\sigma_{C_{unit}}\sqrt{2^N}
+      \]
+      \vspace{-0.8em}
+      \textbf{Redundancy overlap (calibration margin)}
+      \[
+      \beta = 2^{N/M}, \quad
+      \Delta_i = \sum_{j=i+1}^{M-1} W_j - W_i
+      \]
+      \vspace{-0.8em}
+      \[
+      \text{calibratable when } \Delta_i > 4\sigma_{\text{equiv},i}
+      \]
+      \vspace{-0.2em}
+
+      \textbf{Noise sanity bound}
+      \[
+      \sigma_n^2 \le \frac{LSB^2}{2 \times 12}
+      \]
+    \end{column}
+  \end{columns}
+\end{frame}
+
+%% ============================================================
+%% CDAC Strategy Stack
+%% ============================================================
+\begin{frame}
+  \frametitle{CDAC Strategy Stack}
+  \tiny
+  \begin{center}
+    \begin{tabular}{p{2.2cm}|p{4.2cm}|p{4.8cm}}
+      \hline
+      \textbf{Strategy} & \textbf{Primary Benefit} & \textbf{Key Limitation / Tradeoff} \\
+      \hline
+      1) Calibration &
+      Corrects deterministic static CDAC errors after measurement &
+      In pure binary weighting, calibratability margin is a short leash because it depends on mismatch in the same array being corrected \\
+      \hline
+      2) Redundancy (sub-radix, M:N expansion) &
+      Creates overlapping decision ranges; improves tolerance to cap mismatch and comparator/reference decision noise &
+      Does not improve linearity by itself; it creates correction room. Trades extra steps/time and more complex weights \\
+      \hline
+      3) Coarse-fine CDAC partition &
+      Improves effective LSB matching without scaling full array area; weakens fixed area-vs-matching coupling &
+      Must still satisfy sampling-capacitance requirement; split method impacts practicality/overhead \\
+      \hline
+      4) Switching scheme choice &
+      Monotonic / BSS reduce switching power; CRS/VCM can improve linearity &
+      Linearity-focused switching variants are noted but out of current exploration scope \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \vspace{0.2em}
+  \tiny
+  \textbf{CDAC Construction Principles:}
+  \begin{itemize}
+    \item Use integer per-bit weights: simpler capacitor implementation and better practical matching.
+    \item Express each bit weight as a sum of binary-scaled terms: decode stays adder-only.
+    \item Keep total weight at a binary-scaled full-scale sum: prevents overflow in digital mapping.
+  \end{itemize}
+\end{frame}
+
+%% ============================================================
 %% Unit Fringe Capacitor
 %% ============================================================
 \begin{frame}
@@ -1065,11 +1152,55 @@ export USE_FILL = 0
 %% ============================================================
 \begin{frame}
   \frametitle{Full Chip Layout (FRIDA 65A)}
-  \begin{columns}
-    \begin{column}{0.55\textwidth}
+  \begin{columns}[t]
+    \begin{column}{0.56\textwidth}
       \begin{center}
         \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/frida_65A.png}
       \end{center}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \tiny
+      \textbf{Pinout} (\# at top-left, clockwise)
+      \setlength{\tabcolsep}{1.5pt}
+      \renewcommand{\arraystretch}{0.80}
+      \begin{columns}[t,onlytextwidth]
+        \begin{column}{0.5\textwidth}
+          \begin{tabular}{r|l}
+            1 & \texttt{vss\_a} \\
+            2 & \texttt{vdd\_dac} \\
+            3 & \texttt{vss\_dac} \\
+            4 & \texttt{vin\_p\_pad} \\
+            5 & \texttt{vin\_n\_pad} \\
+            6 & \texttt{vss\_d} \\
+            7 & \texttt{vss\_d} \\
+            8 & \texttt{vdd\_d} \\
+            9 & \texttt{vss\_d} \\
+            10 & \texttt{clk\_comp\_p\_pad} \\
+            11 & \texttt{clk\_comp\_n\_pad} \\
+            12 & \texttt{clk\_logic\_p\_pad} \\
+            13 & \texttt{clk\_logic\_n\_pad} \\
+            14 & \texttt{vdd\_io} \\
+          \end{tabular}
+        \end{column}
+        \begin{column}{0.5\textwidth}
+          \begin{tabular}{r|l}
+            15 & \texttt{vss\_io} \\
+            16 & \texttt{comp\_out\_n\_pad} \\
+            17 & \texttt{comp\_out\_p\_pad} \\
+            18 & \texttt{spi\_cs\_b\_pad} \\
+            19 & \texttt{spi\_sdo\_pad} \\
+            20 & \texttt{spi\_sdi\_pad} \\
+            21 & \texttt{spi\_sclk\_pad} \\
+            22 & \texttt{rst\_b\_pad} \\
+            23 & \texttt{clk\_samp\_n\_pad} \\
+            24 & \texttt{clk\_samp\_p\_pad} \\
+            25 & \texttt{clk\_init\_n\_pad} \\
+            26 & \texttt{clk\_init\_p\_pad} \\
+            27 & \texttt{vss\_a} \\
+            28 & \texttt{vdd\_a} \\
+          \end{tabular}
+        \end{column}
+      \end{columns}
     \end{column}
   \end{columns}
 \end{frame}
@@ -1082,64 +1213,57 @@ export USE_FILL = 0
   \begin{columns}[t]
     \begin{column}{0.5\textwidth}
       \scriptsize
-      \textbf{Netlist struct (\texttt{blocks/samp.py}):}
+      \textbf{HDL21 generator (\texttt{flow/samp/samp.py}):}
       \begin{lstlisting}[language=python,basicstyle=\ttfamily\fontsize{4}{5}\selectfont]
-subckt = {
-    "cellname": "samp",
-    "ports": {},      # Computed by gen_topo_subckt()
-    "instances": {},  # Computed by gen_topo_subckt()
-    "tech": ["tsmc65", "tsmc28", "tower180"],
-    "topo_params": {
-        "switch_type": ["nmos", "pmos", "tgate"]
-    },
-    "inst_params": [
-        {"instances": {"nmos": ["MN"], "pmos": ["MP"]},
-         "w": [5, 10, 20, 40], "l": [1, 2]},
-        {"instances": {"nmos": "all", "pmos": "all"},
-         "type": "lvt", "w": 1, "l": 1, "nf": 1},
-    ],
-}
-      \end{lstlisting}
-      \vspace{0.3em}
-      \textbf{Topology generator:}
-      \begin{lstlisting}[language=python,basicstyle=\ttfamily\fontsize{4}{5}\selectfont]
-def gen_topo_subckt(switch_type: str):
-    ports = {"in": "I", "out": "O", "clk": "I",
-             "clk_b": "I", "vdd": "B", "vss": "B"}
-    instances = {}
-    if switch_type == "nmos":
-        instances["MN"] = {"dev": "nmos",
-            "pins": {"d":"out", "g":"clk", "s":"in", "b":"vss"}}
-    elif switch_type == "tgate":
-        instances["MN"] = ...
-        instances["MP"] = ...
-    return ports, instances
+@h.paramclass
+class SampParams:
+    switch_type = h.Param(dtype=SwitchType, default=SwitchType.NMOS)
+    w = h.Param(dtype=int, default=10)
+    l = h.Param(dtype=int, default=1)
+    vth = h.Param(dtype=MosVth, default=MosVth.LOW)
+
+@h.generator
+def Samp(p: SampParams) -> h.Module:
+    @h.module
+    class Samp:
+        din = h.Input(); dout = h.Output()
+        clk = h.Input(); clk_b = h.Input()
+        vdd = h.Port(); vss = h.Port()
+
+    if p.switch_type in (SwitchType.NMOS, SwitchType.TGATE):
+        Samp.mn = h.Mos(tp=MosType.NMOS, vth=p.vth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk, s=Samp.din, b=Samp.vss
+        )
+    if p.switch_type in (SwitchType.PMOS, SwitchType.TGATE):
+        Samp.mp = h.Mos(tp=MosType.PMOS, vth=p.vth, w=p.w, l=p.l)(
+            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
+        )
+    return Samp
       \end{lstlisting}
     \end{column}
     \begin{column}{0.5\textwidth}
       \small
-      \textbf{Flow Commands:}
+      \textbf{Pytest Flags (\texttt{python -m pytest flow/}):}
       \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
-# Generate subcircuit netlists
-make subckt cell=samp
-
-# Generate testbench netlists
-make tb cell=samp
-
-# Run simulations
-make sim cell=samp mode=all
-
-# Extract measurements
-make meas cell=samp
+--flow {netlist,simulate,measure}
+--mode {min,max}
+--montecarlo {yes,no}
+--tech {generic,ihp130,tsmc65,tsmc28,tower180}
+--simulator {spectre,xyce,ngspice}
+--clean {yes,no}
       \end{lstlisting}
-      \vspace{0.5em}
-      \textbf{Combinatorial Expansion:}
-      \begin{itemize}
-        \item 3 technologies $\times$ 3 topologies
-        \item 4 widths $\times$ 2 lengths
-        \item = \textbf{72 netlist variants}
-      \end{itemize}
-      \vspace{0.3em}
+      \vspace{0.2em}
+      \textbf{Examples:}
+      \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+python -m pytest flow/ \
+  --flow=netlist --mode=min --tech=tsmc65 -v
+
+python -m pytest flow/samp/test_samp.py \
+  --flow=simulate --simulator=spectre --tech=ihp130
+      \end{lstlisting}
+      \vspace{0.2em}
+      \scriptsize
+      (Run \texttt{python -m pytest flow/ --help} for full pytest + project options.)
     \end{column}
   \end{columns}
 \end{frame}
@@ -1148,27 +1272,23 @@ make meas cell=samp
 %% Analog Automation: Subcircuit Generation Output
 %% ============================================================
 \begin{frame}[fragile]
-  \frametitle{Analog Automation: Subcircuit Generation}
+  \frametitle{Analog Automation: Netlist Generation}
   \begin{lstlisting}[basicstyle=\ttfamily\tiny]
-$ make subckt cell=samp
+$ python -m pytest flow/samp/test_samp.py \
+    --flow=netlist --mode=max --tech=tsmc65 -v
 
 ================================================================================
-                             SUBCIRCUIT NETLISTING
-================================================================================
-Cell:        samp
-Script:      blocks/samp.py
-Step:        subckt
-OutDir:      results/samp/subckt
+Flow:       netlist
+Block:      samp
+Tech:       tsmc65
+OutDir:     scratch
 --------------------------------------------------------------------------------
-tech         switch_type  MN.l         MN.w         MP.l         MP.w
+switch_type  w            l            vth
 --------------------------------------------------------------------------------
-tsmc65       3x           2x           4x           2x           4x
-tsmc28       3x           2x           4x           2x           4x
-tower180     3x           2x           4x           2x           4x
+3x           4x           2x           2x
 --------------------------------------------------------------------------------
-Result:      72 SPICE netlists generated
-             72 Verilog netlists generated
-Wall Time:   16.9ms
+Result:      24 netlists generated
+Wall Time:   8.4ms
 Errors:      [none]
   \end{lstlisting}
   \vspace{0.3em}
@@ -1190,6 +1310,9 @@ Errors:      [none]
     \begin{column}{0.6\textwidth}
       \begin{center}
         \includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{images/comparator_architectures.png}
+        \\
+        \tiny
+        \href{https://www2.eecs.berkeley.edu/Pubs/TechRpts/2025/EECS-2025-21.pdf}{Liu, ``Automated and Process-Portable Generation of Data Converters,'' UCB/EECS-2025-21, 2025}
       \end{center}
     \end{column}
     \begin{column}{0.4\textwidth}
@@ -1306,6 +1429,9 @@ endmodule
     \begin{column}{0.5\textwidth}
       \begin{center}
         \includegraphics[width=\linewidth,height=0.75\textheight,keepaspectratio]{images/comp_layout_gen.png}
+        \\
+        \tiny
+        \href{https://doi.org/10.1109/JSSC.2017.2685463}{C. Wulff et al., ``A Compiled 9-bit 20-MS/s 3.5-fJ/conv.-step SAR ADC in 28-nm FDSOI for BLE Receivers,'' IEEE JSSC, 2017}
       \end{center}
     \end{column}
     \begin{column}{0.5\textwidth}
@@ -1463,46 +1589,51 @@ def Comp(p: CompParams) -> h.Module:
 %% Analog Constraint Matrix
 %% ============================================================
 \begin{frame}
-  \frametitle{OpenROAD Analog Constraint Matrix}
+  \frametitle{Analog Constraints vs OpenROAD API?}
   \tiny
   \begin{center}
     \begin{tabular}{p{2.6cm}|p{1.2cm}|p{3.9cm}|p{4.0cm}}
       \hline
-      \textbf{Constraint Idea} & \textbf{Status} & \textbf{OpenROAD Mechanism} & \textbf{Notes} \\
+      \textbf{Constraint Idea} & \textbf{Status} & \textbf{Endpoint} & \textbf{Notes} \\
       \hline
       IO side / region / grouping &
       Supported &
-      \texttt{set\_io\_pin\_constraint}, \texttt{exclude\_io\_pin\_region}, \texttt{place\_pin}, \texttt{place\_pins} &
+      \href{https://openroad.readthedocs.io/en/latest/main/src/ppl/README.html\#set-io-pin-constraints}{\texttt{set\_io\_pin\_constraint}} \newline
+      \href{https://openroad.readthedocs.io/en/latest/main/src/ppl/README.html\#exclude-io-pin-region}{\texttt{exclude\_io\_pin\_region}} \newline
+      \href{https://openroad.readthedocs.io/en/latest/main/src/ppl/README.html\#place-specific-pin}{\texttt{place\_pin}} \newline
+      \href{https://openroad.readthedocs.io/en/latest/main/src/ppl/README.html\#place-all-pins}{\texttt{place\_pins}} &
       Includes mirrored IO-pair support for boundary placement \\
       \hline
       Block boundary / utilization / aspect ratio &
       Supported &
-      \texttt{initialize\_floorplan} &
+      \href{https://openroad.readthedocs.io/en/latest/main/src/ifp/README.html\#initialize-floorplan}{\texttt{initialize\_floorplan}} &
       Fixed die/core area and utilization/aspect-ratio modes \\
       \hline
       Fixed instance placement &
       Supported &
-      \texttt{place\_inst} &
+      \href{https://openroad.readthedocs.io/en/latest/main/src/README.html\#tcl-functions}{\texttt{place\_inst}} &
       Exact location and orientation available \\
       \hline
       Device symmetry constraints &
-      Partial &
-      \texttt{optimize\_mirroring} (weak) &
+      Missing &
+      N/A &
       No first-class pairwise analog symmetry intent \\
       \hline
       Net width/spacing overrides &
       Supported &
-      \texttt{create\_ndr}, \texttt{assign\_ndr} &
+      \href{https://openroad.readthedocs.io/en/latest/main/src/odb/README.html\#create-ndr}{\texttt{create\_ndr}} \newline
+      \href{https://openroad.readthedocs.io/en/latest/main/src/README.html\#tcl-functions}{\texttt{assign\_ndr}} &
       Good fit for high-current or low-resistance nets \\
       \hline
       Shielded routing &
-      Missing &
-      ODB shield wire types exist &
-      No high-level GRT/DRT command for automatic shield routing \\
+      Internal &
+      \texttt{dbSWire::create(net, dbWireType::SHIELD, shield\_net)} &
+      Creates SHIELD special-wire objects in OpenDB; no high-level GRT/DRT auto-shield command \\
       \hline
       Route prioritization &
       Partial &
-      \texttt{global\_route -critical\_nets\_percentage}, \texttt{set\_nets\_to\_route} &
+      \href{https://openroad.readthedocs.io/en/latest/main/src/grt/README.html\#global-route}{\texttt{global\_route -critical\_nets\_percentage}} \newline
+      \href{https://openroad.readthedocs.io/en/latest/main/src/grt/README.html\#set-specific-nets-to-route}{\texttt{set\_nets\_to\_route}} &
       Timing/subset prioritization exists; generic net-weight flow is limited \\
       \hline
       Differential pair / matched routing &
@@ -1523,12 +1654,51 @@ def Comp(p: CompParams) -> h.Module:
   \begin{itemize}
     \item No multi-cut via policy support in the global-router stage.
     \item Power-grid generation is primarily ring/stripe oriented, which often doesn't work well for analog.
-    \item LEF abstract generation and checking soon? (\href{https://github.com/The-OpenROAD-Project/OpenROAD/issues/4872}{OpenROAD issue \#4872}).
+    \item LEF abstract generation and checking (\href{https://github.com/The-OpenROAD-Project/OpenROAD/issues/4872}{\textcolor{blue}{soon?}}).
     \item Macros constrained to BEOL-only still appear to induce FEOL placement blockages (i.e. COVER type).
     \item Guard-ring structure generation and multi-voltage-domain handling unsupported at block level.
     \item Symmetry and differential-route intent would be to first-class OpenROAD constraints.
     \item Constraint intent can fragment across DEF + Tcl/Python sidecars.
   \end{itemize}
+\end{frame}
+
+%% ============================================================
+%% Capacitor Technology Summary
+%% ============================================================
+\begin{frame}
+  \frametitle{Capacitor Technology Summary}
+  \tiny
+  \begin{center}
+    \begin{tabular}{p{2.0cm}|p{2.0cm}|p{6.8cm}}
+      \hline
+      \textbf{Type} & \textbf{Density (fF/$\mu$m$^2$)} & \textbf{Key Notes} \\
+      \hline
+      MOM / RTMOM &
+      0.31 (1L), 0.62 (2L), 0.93 (3L) &
+      Interdigitated multi-metal fingers; best matching; low voltage dependence; can stack above device caps. Matching note: $\sigma(\Delta C/C)\approx 0.85\% \times \sqrt{C[\mathrm{fF}]}$. \\
+      \hline
+      MIM / UHD MIM &
+      1.7, 2.8, up to 5.6 (stacked) &
+      Special dielectric between plates (e.g. Si$_3$N$_4$, Ta$_2$O$_5$); higher density; can consume a top metal option. \\
+      \hline
+      MOSCAP / Varactor &
+      7--11 &
+      Poly-over-well capacitor with voltage-dependent capacitance; useful when tuning is desired (common RF use). \\
+      \hline
+      POD / Accumulation &
+      $\sim$5 &
+      Poly-over-diffusion structure in accumulation mode; gate-to-bulk capacitance with source/drain tied. \\
+      \hline
+      POP (Poly-over-Poly) &
+      Lower than above &
+      Simple parallel-plate poly structure; requires poly2 availability; suitable for larger values when area is available. \\
+      \hline
+      NIC (N-implant cap) &
+      Process-specific &
+      Tower-process option; alternative capacitor primitive depending on PDK support. \\
+      \hline
+    \end{tabular}
+  \end{center}
 \end{frame}
 
 \end{document}

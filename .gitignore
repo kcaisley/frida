@@ -25,6 +25,7 @@ __pycache__
 si.env
 
 # LaTeX
+docs/tex/
 *.log
 *.aux
 *.synctex.gz

@@ -1104,25 +1104,6 @@ The full-well capacity (FWC) is the largest charge a pixel can hold before satur
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Scientific imaging needs:
 
 
@@ -1235,73 +1216,6 @@ So what have we learned:
 - What determines/limits the spatial resolution? Does framerate affect that? Would it help if it were improved?
   - If ADCs were faster, but the frame time was the same, perhaps we could oversample or correlated double sample the pixel current
   - This would not improve temporary resolution, but would get us better SNR. 
-
-
-
-
-
-
-
-
-![DMC options](images/dmc_options.png)
-
-EDET specs:
-- 1Mpixel @ 80 kHz, but is broken into four regions of 512 x 512 pix
-- Therefore one frame is 262 kbit/frame, with a 78 kHz frame rate, or fully readout every 12.821 microseconds
-
-
-- 100 ns /gate
-- 128 gates
-- ADCs are column parallel, 8-bit
-- Are ADCs one channel per column? How wide are they? Compare this with Murman ADC Survey
-
-
-
-Existing 65nm PLLs:
-
-|Design|Fin(Hz)|Fout(Hz)|Jitter(s)|Power(W)|TID(Rad)|
-|---|---|---|---|---|---|
-|DHPT|80M|1.6G|20p|1.25m VCO|20M|
-|RD53|80M|1.28G|5p|6.5m|500M|
-
-SAR ADC specs from Berkeley:
-
-process_info:
-  unit_res_ohms: 6600
-  cap_mismatch_percentage: 10
-top_specs:
-  resolution_bits: 7 #8
-  samp_freq: 1e6
-  input_range: 1.8
-  throughput: 8 #11 # latency
-app_specs:
-  clk_in_jitter: 1e-11
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
