@@ -89,6 +89,15 @@ def pytest_addoption(parser):
         choices=["yes", "no"],
         help="Scratch cleanup (default: no): yes, no",
     )
+    parser.addoption(
+        "--sim-server",
+        action="store",
+        default="",
+        help=(
+            "Remote SpiceServer target in host[:port] format. "
+            "When set, simulate/measure flows use remote execution."
+        ),
+    )
 
 
 def pytest_configure(config):
@@ -145,13 +154,26 @@ def simulator(request) -> SupportedSimulators:
 
 
 @pytest.fixture
-def require_sim_for_flow(flow: str, simulator: SupportedSimulators) -> None:
+def sim_server(request) -> str | None:
+    """Get optional remote SpiceServer target from command line."""
+    target = request.config.getoption("--sim-server").strip()
+    return target or None
+
+
+@pytest.fixture
+def require_sim_for_flow(
+    flow: str,
+    simulator: SupportedSimulators,
+    sim_server: str | None,
+) -> None:
     """
     Skip simulate/measure flows when simulator access is unavailable.
 
-    This centralizes skip behavior across block flow tests.
+    Uses local host/binary checks unless a remote SpiceServer is configured.
     """
     if flow not in {"simulate", "measure"}:
+        return
+    if sim_server:
         return
 
     hostname = socket.gethostname().split(".")[0].lower()

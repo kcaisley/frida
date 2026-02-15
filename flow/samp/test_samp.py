@@ -16,6 +16,7 @@ from ..flow import (
     get_param_axes,
     print_netlist_summary,
     run_netlist_variants,
+    run_simulations,
     select_variants,
     wrap_monte_carlo,
 )
@@ -119,7 +120,7 @@ def sim_input(params: SampTbParams) -> hs.Sim:
 
 
 @pytest.mark.usefixtures("require_sim_for_flow")
-def test_samp_flow(flow, mode, montecarlo, verbose, simulator, sim_options):
+def test_samp_flow(flow, mode, montecarlo, verbose, simulator, sim_options, sim_server):
     """Run sampler flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -177,6 +178,6 @@ def test_samp_flow(flow, mode, montecarlo, verbose, simulator, sim_options):
         )
 
     if flow == "simulate":
-        h.sim.run(sims, sim_options)
+        run_simulations(sims, sim_options, sim_server=sim_server)
     elif flow == "measure":
         pass

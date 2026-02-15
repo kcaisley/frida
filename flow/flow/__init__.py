@@ -56,6 +56,7 @@ from .sim import (
     SaveMode,
     # Simulation helpers
     create_tran_sim,
+    run_simulations,
     run_parameter_sweep,
     run_pvt_sweep,
     # Result extraction
@@ -174,6 +175,7 @@ __all__ = [
     "SaveMode",
     # Simulation helpers
     "create_tran_sim",
+    "run_simulations",
     "run_parameter_sweep",
     "run_pvt_sweep",
     # Result extraction

@@ -23,6 +23,7 @@ from vlsirtools.netlist.spice import NgspiceNetlister, XyceNetlister
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from .params import Project, Pvt
+from .spice_server import run_remote_sim_inputs
 
 # Re-export HDL21 sim types for convenience
 LinearSweep = hs.LinearSweep
@@ -177,6 +178,36 @@ def run_parameter_sweep(
         return h.sim.run(sims, sim_options)
     else:
         return [sim.run(sim_options) for sim in sims]
+
+
+def run_simulations(
+    sims: hs.Sim | list[hs.Sim],
+    sim_options: SimOptions,
+    sim_server: str | None = None,
+):
+    """
+    Run one or more simulations locally or through SpiceServer.
+
+    Args:
+        sims: One simulation or a list of simulations
+        sim_options: vlsirtools simulation options
+        sim_server: Optional SpiceServer target (host[:port])
+
+    Returns:
+        Local mode returns HDL21/VLSIR results.
+        Remote mode returns None (server currently streams logs/exit only).
+    """
+    if not sim_server:
+        return h.sim.run(sims, sim_options)
+
+    sim_list = list(sims) if isinstance(sims, list) else [sims]
+    sim_inputs = [to_proto(sim) for sim in sim_list]
+    run_remote_sim_inputs(
+        sim_inputs=sim_inputs,
+        simulator=sim_options.simulator,
+        target=sim_server,
+    )
+    return None
 
 
 def run_pvt_sweep(

@@ -12,6 +12,7 @@ flow/plan*.md
 __pycache__
 .ruff_cache
 .venv*
+uv.lock
 
 # Cadence / EDA
 .cadence
@@ -51,8 +52,3 @@ docs/tex/
 fp-info-cache
 #auto_saved_files#
 _autosave-*
-
-# PDK / technology (large, proprietary)
-/tech/nopdk/*
-/tech/tsmc65/*
-/tech/tsmc28/*
