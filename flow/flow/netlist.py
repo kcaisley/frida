@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import hdl21 as h
 import hdl21.sim as hs
+from vlsirtools.netlist import netlist as write_pkg_netlist
 from vlsirtools.spice import SupportedSimulators
 
 
@@ -167,9 +168,11 @@ def run_netlist_variants(
     outdir: Any,
     return_sims: bool = False,
     simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
+    netlist_fmt: str | None = None,
+    build_dut: Callable[[Any], h.Module] | None = None,
 ) -> float | tuple[float, list[hs.Sim]]:
     """
-    Write combined testbench + DUT netlists for a list of variants.
+    Write netlists for a list of variants.
 
     Args:
         block: Block name (e.g., "comp", "cdac", "samp")
@@ -178,6 +181,10 @@ def run_netlist_variants(
         pdk: Active PDK instance
         outdir: Output directory path
         return_sims: Return list of sims in addition to wall time
+        netlist_fmt: DUT-only netlist format override for netlist flow:
+            "spectre", "ngspice", "yaml", or "verilog".
+            When None, uses legacy sim-input netlist path (tb + sim cards).
+        build_dut: Callable returning DUT module for DUT-only formats
 
     Returns:
         Wall time in seconds, and optionally list of sims
@@ -189,17 +196,43 @@ def run_netlist_variants(
     start = time.perf_counter()
 
     sims: list[hs.Sim] = []
+    if netlist_fmt is None:
+        for params in variants:
+            tb, sim = build_sim(params)
+            pdk.compile(tb)
 
-    for params in variants:
-        tb, sim = build_sim(params)
-        pdk.compile(tb)
-
-        suffix = ".scs" if simulator == SupportedSimulators.SPECTRE else ".sp"
-        filename = params_to_filename(block, params, pdk.name, suffix=suffix)
-        netlist_path = outdir / filename
-        write_sim_netlist(sim, netlist_path, compact=True, simulator=simulator)
+            suffix = ".scs" if simulator == SupportedSimulators.SPECTRE else ".sp"
+            filename = params_to_filename(block, params, pdk.name, suffix=suffix)
+            netlist_path = outdir / filename
+            write_sim_netlist(sim, netlist_path, compact=True, simulator=simulator)
+            if return_sims:
+                sims.append(sim)
+    else:
         if return_sims:
-            sims.append(sim)
+            raise ValueError("return_sims is invalid for DUT-only netlist formats")
+        if build_dut is None:
+            raise ValueError("build_dut is required for DUT-only netlist formats")
+
+        fmt = netlist_fmt.lower()
+        if fmt == "spice":
+            fmt = "ngspice"
+        suffix_by_fmt = {
+            "spectre": ".scs",
+            "ngspice": ".sp",
+            "yaml": ".yaml",
+            "verilog": ".v",
+        }
+        if fmt not in suffix_by_fmt:
+            raise ValueError(f"Unsupported netlist format: {netlist_fmt}")
+        suffix = suffix_by_fmt[fmt]
+        for params in variants:
+            dut = build_dut(params)
+            pdk.compile(dut)
+            filename = params_to_filename(block, params, pdk.name, suffix=suffix)
+            netlist_path = outdir / filename
+            pkg = h.to_proto(dut)
+            with open(netlist_path, "w") as f:
+                write_pkg_netlist(pkg=pkg, dest=f, fmt=fmt)
 
     wall_time = time.perf_counter() - start
     if return_sims:

@@ -191,7 +191,16 @@ def sim_input(params: CompTbParams) -> hs.Sim:
 
 
 @pytest.mark.usefixtures("require_sim_for_flow")
-def test_comp_flow(flow, mode, montecarlo, verbose, simulator, sim_options, sim_server):
+def test_comp_flow(
+    flow,
+    mode,
+    montecarlo,
+    verbose,
+    simulator,
+    netlist_fmt,
+    sim_options,
+    sim_server,
+):
     """Run comparator flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -251,9 +260,19 @@ def test_comp_flow(flow, mode, montecarlo, verbose, simulator, sim_options, sim_
             wrap_monte_carlo(sim)
         return tb, sim
 
+    def build_dut(comp_params: CompParams):
+        return Comp(comp_params)
+
     if flow == "netlist":
         wall_time = run_netlist_variants(
-            "comp", variants, build_sim, pdk, outdir, simulator=simulator
+            "comp",
+            variants,
+            build_sim,
+            pdk,
+            outdir,
+            simulator=simulator,
+            netlist_fmt=netlist_fmt,
+            build_dut=build_dut,
         )
         if verbose:
             print_netlist_summary(

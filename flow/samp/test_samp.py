@@ -120,7 +120,16 @@ def sim_input(params: SampTbParams) -> hs.Sim:
 
 
 @pytest.mark.usefixtures("require_sim_for_flow")
-def test_samp_flow(flow, mode, montecarlo, verbose, simulator, sim_options, sim_server):
+def test_samp_flow(
+    flow,
+    mode,
+    montecarlo,
+    verbose,
+    simulator,
+    netlist_fmt,
+    sim_options,
+    sim_server,
+):
     """Run sampler flow: netlist, simulate, or measure."""
     pdk = get_pdk()
     outdir = sim_options.rundir
@@ -149,9 +158,19 @@ def test_samp_flow(flow, mode, montecarlo, verbose, simulator, sim_options, sim_
             wrap_monte_carlo(sim)
         return tb, sim
 
+    def build_dut(samp_params: SampParams):
+        return Samp(samp_params)
+
     if flow == "netlist":
         wall_time = run_netlist_variants(
-            "samp", variants, build_sim, pdk, outdir, simulator=simulator
+            "samp",
+            variants,
+            build_sim,
+            pdk,
+            outdir,
+            simulator=simulator,
+            netlist_fmt=netlist_fmt,
+            build_dut=build_dut,
         )
         if verbose:
             print_netlist_summary(

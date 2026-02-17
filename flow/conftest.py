@@ -83,6 +83,16 @@ def pytest_addoption(parser):
         help=f"Simulator backend (default: spectre): {', '.join(sim_choices)}",
     )
     parser.addoption(
+        "--fmt",
+        action="store",
+        default=None,
+        help=(
+            "Netlist format for --flow=netlist: "
+            "spectre, ngspice, yaml, verilog (spice accepted as alias). "
+            "Defaults to --simulator when omitted."
+        ),
+    )
+    parser.addoption(
         "--clean",
         action="store",
         default="no",
@@ -104,6 +114,16 @@ def pytest_configure(config):
     """Set up PDK and register markers before tests run."""
     tech_name = config.getoption("--tech")
     set_pdk(tech_name)
+    flow_mode = config.getoption("--flow")
+    fmt = config.getoption("--fmt")
+    if flow_mode != "netlist" and fmt is not None:
+        raise pytest.UsageError("--fmt is only valid with --flow=netlist")
+    if flow_mode == "netlist" and fmt is not None:
+        valid = {"spectre", "ngspice", "spice", "yaml", "verilog"}
+        if fmt.lower() not in valid:
+            raise pytest.UsageError(
+                f"Invalid --fmt={fmt}. Valid values: spectre, ngspice, yaml, verilog"
+            )
 
     # Clean once in the xdist controller process when requested.
     if config.getoption("--clean") == "yes" and not _is_xdist_worker(config):
@@ -151,6 +171,19 @@ def sim_options(request):
 def simulator(request) -> SupportedSimulators:
     """Get simulator selection from command line."""
     return SupportedSimulators(request.config.getoption("--simulator"))
+
+
+@pytest.fixture
+def netlist_fmt(flow: str, simulator: SupportedSimulators, request) -> str:
+    """Get normalized netlist format selection."""
+    if flow != "netlist":
+        return simulator.value
+    fmt = request.config.getoption("--fmt")
+    if fmt is None:
+        return simulator.value
+    if fmt.lower() == "spice":
+        return "ngspice"
+    return fmt.lower()
 
 
 @pytest.fixture
