@@ -28,6 +28,87 @@ The table below compares previous ADC designs with the current FRIDA target, hig
 | FOM_csa (conv/sec/area) | 3125 Hz/μm² | 95 Hz/μm²  | 105 Hz/μm² | 5000 Hz/μm² | 5000 Hz/μm² |
 | FOM_wal (J/conv-step)   | 487 fJ      | 26 fJ      | 608 fJ     | 14 fJ       | 10 fJ       |
 
+
+# Usage
+
+FRIDA exposes three flow modes via pytest:
+
+- `netlist`: generate netlists only
+- `simulate`: generate netlists and run simulation
+- `measure`: reserved for measurement post-processing (currently unimplemented)
+
+Run from the repo root:
+
+```bash
+source .venv/bin/activate
+pytest flow/comp/test_comp.py -v --tech=ihp130 --flow=netlist --mode=min
+```
+
+## Flow Options
+
+### `--flow=netlist`
+
+Supported options:
+
+- `--tech={generic,ihp130,tsmc65,tsmc28,tower180}`
+- `--mode={min,max}`
+- `--fmt={spectre,ngspice,yaml,verilog}` (`spice` accepted as alias)
+- `--clean={yes,no}`
+
+Notes:
+
+- `--fmt=spectre` writes DUT-only Spectre netlists (`.scs`).
+- `--fmt=ngspice` writes DUT-only SPICE netlists (`.sp`).
+- `--fmt=yaml` writes DUT-only hierarchical YAML netlists.
+- `--fmt=verilog` writes DUT-only structural Verilog netlists.
+
+Examples:
+
+```bash
+# DUT-only YAML netlists
+pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=yaml
+
+# DUT-only Verilog netlists
+pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=verilog
+```
+
+### `--flow=simulate`
+
+Supported options:
+
+- `--tech={generic,ihp130,tsmc65,tsmc28,tower180}`
+- `--mode={min,max}`
+- `--simulator={spectre,ngspice,xyce}`
+- `--montecarlo={yes,no}`
+- `--sim-server=<host[:port]>` (optional remote execution)
+- `--clean={yes,no}`
+
+Notes:
+
+- `--fmt` is invalid for `simulate` flow.
+- In simulate flow, `--simulator` determines netlist dialect/runtime backend.
+
+Example:
+
+```bash
+pytest flow/comp/test_comp.py -v --flow=simulate --mode=min --tech=ihp130 --simulator=spectre
+```
+
+### `--flow=measure`
+
+Status:
+
+- Flow hook exists, but measurement logic is currently unimplemented in block tests.
+
+Supported options currently mirror simulate setup:
+
+- `--tech`, `--mode`, `--simulator`, `--montecarlo`, `--sim-server`, `--clean`
+
+`--fmt` remains invalid here as well.
+
+
+# Installation
+
 ## Spectre
 
 FRIDA uses Cadence Spectre for signoff-oriented analog simulations. Ensure it
@@ -80,6 +161,10 @@ which ngspice
 ngspice --version
 ```
 
+For waveform viewing, [`gaw`](https://www.rvq.fr/linux/gaw.php) is useful.
+When producing raw binary files, ensure `utf_8` encoding is used for the
+plaintext section.
+
 ## OpenROAD
 
 FRIDA's digital implementation flow uses OpenROAD tooling. The commands below
@@ -113,7 +198,3 @@ through `spice_server`.
 Detailed build/ runtime instructions and known-issue notes are in:
 
 - [`docs/spice_server.md`](docs/spice_server.md)
-
-For waveform viewing, [`gaw`](https://www.rvq.fr/linux/gaw.php) is useful.
-When producing raw binary files, ensure `utf_8` encoding is used for the
-plaintext section.

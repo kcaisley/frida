@@ -1,0 +1,182 @@
+\documentclass[aspectratio=169]{beamer}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+% Nord-inspired slide colors
+\definecolor{NordBody}{HTML}{4C566A}
+\definecolor{NordBlue}{HTML}{5E81AC}
+
+% Text-color theme
+\setbeamercolor{normal text}{fg=NordBody}
+\setbeamercolor{title}{fg=NordBlue}
+\setbeamercolor{frametitle}{fg=NordBlue}
+\setbeamercolor{structure}{fg=NordBlue}
+\setbeamercolor{itemize/enumerate body}{fg=NordBody}
+\setbeamercolor{itemize/enumerate subbody}{fg=NordBody}
+\setbeamercolor{itemize/enumerate subsubbody}{fg=NordBody}
+\setbeamercolor{itemize item}{fg=NordBlue}
+\setbeamercolor{itemize subitem}{fg=NordBlue}
+\setbeamercolor{itemize subsubitem}{fg=NordBlue}
+\setbeamercolor{enumerate item}{fg=NordBlue}
+\setbeamercolor{enumerate subitem}{fg=NordBlue}
+\setbeamercolor{enumerate subsubitem}{fg=NordBlue}
+
+\hypersetup{
+  colorlinks=true,
+  allcolors=NordBlue
+}
+
+\beamertemplatenavigationsymbolsempty
+
+\title{FRIDA PCB Analog Front-End}
+\author{}
+\date{\today}
+
+\begin{document}
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+  \frametitle{Constraints}
+  \begin{itemize}
+    \item Sampling-rate target: 10~MS/s nominal, up to 50~MS/s.
+    \item ADC analog rails: 0~V to 1.2~V.
+    \item Required output common-mode range: 0.1~V to 1.1~V.
+    \item Required differential output range: -1.2~V to +1.2~V (2.4~V total).
+    \item 50~$\Omega$ source, 80~MHz generator:
+    \href{https://www.keysight.com/us/en/product/33250A/function--arbitrary-waveform-generator-80-mhz.html}{33250A Keysight}
+    \item ADC input assumption: $R_{in}\approx2$~k$\Omega$, $C_{in,single}\approx2$~pF.
+    \item ADC quantization noise reference: $(1.2~\mathrm{V}/2^{12})/\sqrt{12}$.
+    \item Amplifier noise target: $<20\%$ of ADC quantization noise.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Selected Driver: THS4541}
+  \begin{itemize}
+    \item Fully differential amplifier for SE-to-diff conversion and ADC drive.
+    \item Nominal BW class: 850~MHz (datasheet), with $>$500~MHz at gain of 2.
+    \item Input voltage noise density: 2.2~nV/$\sqrt{\mathrm{Hz}}$ ($f>100$~kHz).
+    \item Output linear swing headroom: about 0.2~V from each rail.
+    \item \texttt{VOCM} loop range (approx):
+    \[
+      V_{S-}+0.91~\mathrm{V} \le V_{\mathrm{OCM}} \le V_{S+}-1.1~\mathrm{V}
+    \]
+    \item Datasheet:
+    \href{https://www.ti.com/lit/gpn/ths4541}{TI THS4541}
+    \item App note:
+    \href{https://www.ti.com/lit/an/snoa461a/snoa461a.pdf}{SNOA461A}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Nyquist LPF Driver Requirements}
+  \small
+  \begin{tabular}{|p{0.40\textwidth}|p{0.52\textwidth}|}
+    \hline
+    \textbf{Amplifier Specification} & \textbf{Requirement} \\
+    \hline
+    Bandwidth (0.1 dB) & $\approx f_s/2$ \\
+    \hline
+    H2 and H3 & $\approx 20\log_{10}(1/2^N)$ \\
+    \hline
+    Balance error & $\approx$ ADC LSB at $f_s/2$ \\
+    \hline
+    Settling time & $\approx 0.5\cdot(1/f_s)$ \\
+    \hline
+    Noise & $\approx$ ADC floor, with amp 6 dB lower \\
+    \hline
+  \end{tabular}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Chosen Architecture and Equations}
+  \begin{itemize}
+    \item Architecture: THS4541 differential driver + output RC anti-alias stage.
+    \item Matched FDA differential gain:
+    \[
+      A_{vd} \approx \frac{R_F}{R_G}
+    \]
+    \item Unity differential gain target: $R_F=R_G$ on both sides.
+    \item First-order cutoff with differential capacitor across ADC inputs:
+    \[
+      f_c \approx \frac{1}{2\pi(2R_O)\left(C_O+C_{in,diff}\right)}
+    \]
+    \item Per-side shunt form:
+    \[
+      f_c \approx \frac{1}{2\pi R_O\left(C_{O,side}+C_{in,single}\right)}
+    \]
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Calculated Values: Gain and Interface}
+  \begin{itemize}
+    \item Max sampling rate: $f_s=50$~MS/s.
+    \item Target anti-alias pole: $f_c\approx25$~MHz.
+    \item Unity-gain FDA: $R_F=R_G=499~\Omega$ (both sides).
+    \item Input-shunt terminations are \textbf{R14} and \textbf{R15} (both 54.9~$\Omega$), used as $R_T$.
+    \item FDA gain network in this schematic: \textbf{R18}/\textbf{R19} as $R_G=499~\Omega$ and \textbf{R22}/\textbf{R23} as $R_F=499~\Omega$.
+    \item First-order static estimate per input:
+    \[
+      Z_{in}\approx R_T\parallel R_G \approx 54.9\parallel 499 \approx 49.5~\Omega
+    \]
+    For a tighter 50-$\Omega$ static match, set $R_T$ near \textbf{54.9~$\Omega$}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Calculated Values: Output Filter}
+  \small
+  \begin{itemize}
+    \item Method reference: \href{https://www.ti.com/lit/an/snoa461a/snoa461a.pdf}{AN-1393 (SNOA461A)}.
+    \item Output isolation/filter resistors: \textbf{R24}, \textbf{R25}; target $R_O=56~\Omega$ per side.
+    \item 56~$\Omega$ is for ADC kickback isolation/stability, not 50-$\Omega$ source matching.
+    \item Per-side solve ($f_c=25$~MHz, $C_{in,single}=2$~pF):
+    $C_{O,side}=\frac{1}{2\pi R_O f_c}-C_{in,single}\approx111.7$~pF.
+    Use \textbf{110 pF} per side $\Rightarrow f_c\approx25.4$~MHz.
+    \item Differential solve:
+    $C_{O,diff}=\frac{1}{2\pi(2R_O)f_c}-C_{in,diff}\approx52.8$~pF.
+    Use \textbf{51 pF} across OUT+/OUT- $\Rightarrow f_c\approx25.7$~MHz.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{100-$\Omega$ Differential Pair from Stackup}
+  \begin{columns}
+    \begin{column}{0.56\textwidth}
+      \footnotesize
+      From the shown stackup (TOP over IN2 reference plane):
+      \[
+        h=140~\mu\mathrm{m},\quad \varepsilon_r=4.00,\quad t=35~\mu\mathrm{m}
+      \]
+      Core values from the image: $1200~\mu\mathrm{m}$, $\varepsilon_r=4.60$.
+      Single-ended microstrip estimate:
+      \[
+        Z_0 \approx \frac{87}{\sqrt{\varepsilon_r+1.41}}
+        \ln\!\left(\frac{5.98h}{0.8W+t}\right)
+      \]
+      Edge-coupled differential approximation:
+      \[
+        Z_{\mathrm{diff}} \approx 2Z_0\!\left(1-0.48e^{-0.96S/h}\right)
+      \]
+      Use $W=180~\mu\mathrm{m}$ and $S=200~\mu\mathrm{m}$.
+      With this stackup, the first-pass estimate is:
+      \[
+        Z_0\approx58~\Omega,\qquad Z_{\mathrm{diff}}\approx101~\Omega
+      \]
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \begin{center}
+        \includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{images/4L_multicb_stackup.png}
+        
+        {\tiny Source: \href{https://www.multi-circuit-boards.eu/en/pcb-design-aid/layer-buildup/impedance-examples.html}{from Multicb}}
+      \end{center}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\end{document}

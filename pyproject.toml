@@ -7,12 +7,14 @@ dependencies = [
     "scipy",
     "pydantic",
     "pytest",
+    "argcomplete",
     "grpcio",
     "grpcio-tools",
     "protobuf",
     "hdl21",
     "vlsir",
     "vlsirtools",
+    "gdsfactory",
     "basil-daq",
 ]
 
@@ -20,6 +22,7 @@ dependencies = [
 hdl21 = { path = "../libs/Hdl21", editable = true }
 vlsir = { path = "../libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "../libs/Vlsir/VlsirTools", editable = true }
+gdsfactory = { path = "../libs/gdsfactory", editable = true }
 basil-daq = { path = "../libs/basil", editable = true }
 
 [tool.basedpyright]
