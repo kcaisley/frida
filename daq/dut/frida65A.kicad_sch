@@ -5871,12 +5871,6 @@
 		(uuid "01f76032-b720-4996-9863-4cccd225849c")
 	)
 	(junction
-		(at 184.15 148.59)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "028ea721-eba5-4397-b6ef-eb3b0b10476e")
-	)
-	(junction
 		(at 351.79 97.79)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5911,6 +5905,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "0f8a66cc-3a92-42f6-a98e-7cb09c1037c1")
+	)
+	(junction
+		(at 228.6 71.12)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "1212cbcd-c5ef-40b2-aec7-5c4d459d83de")
 	)
 	(junction
 		(at 138.43 100.33)
@@ -5955,22 +5955,16 @@
 		(uuid "1eb20627-cbb7-4d3a-aa50-e2a15461f3c5")
 	)
 	(junction
-		(at 248.92 90.17)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "20a8d2b2-1f8a-407b-a761-92829706cce7")
-	)
-	(junction
-		(at 354.33 43.18)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "28463fd5-f381-45e0-a2fd-797b818fb7a5")
-	)
-	(junction
 		(at 331.47 156.21)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "2a42780c-4d42-4668-a252-6a8ea0c26c18")
+	)
+	(junction
+		(at 184.15 148.59)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "327be84c-e815-4045-bdb6-dc3d77deaf40")
 	)
 	(junction
 		(at 48.26 110.49)
@@ -6225,12 +6219,6 @@
 		(uuid "ab365576-4975-4fee-9afc-6989d0903763")
 	)
 	(junction
-		(at 247.65 120.65)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "b640e2e4-f8a0-41d6-9af9-33ab16748dca")
-	)
-	(junction
 		(at 143.51 86.36)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -6271,6 +6259,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "d3b4edd7-04fc-49f0-a36b-4f98af3f8f8e")
+	)
+	(junction
+		(at 228.6 58.42)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "d5558a30-226e-4bd3-a792-897c5c8b6ddc")
 	)
 	(junction
 		(at 154.94 86.36)
@@ -6357,12 +6351,6 @@
 		(uuid "f3e2972c-a5ef-42ba-b97e-720828f029e1")
 	)
 	(junction
-		(at 354.33 30.48)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "f7fca7d7-abfa-4944-9f4c-f2a9c4abe439")
-	)
-	(junction
 		(at 53.34 123.19)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -6423,16 +6411,6 @@
 			(type default)
 		)
 		(uuid "03b6b626-b9ef-4367-988b-15fa9448d9ef")
-	)
-	(wire
-		(pts
-			(xy 247.65 120.65) (xy 247.65 140.97)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "03c6c9e5-1489-4bbd-aeb2-af431cbe6394")
 	)
 	(wire
 		(pts
@@ -6526,16 +6504,6 @@
 	)
 	(wire
 		(pts
-			(xy 341.63 30.48) (xy 341.63 33.02)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "0acf2677-a2e6-4192-834d-e0f454d5c392")
-	)
-	(wire
-		(pts
 			(xy 140.97 92.71) (xy 140.97 93.98)
 		)
 		(stroke
@@ -6626,6 +6594,16 @@
 	)
 	(wire
 		(pts
+			(xy 400.05 111.76) (xy 392.43 111.76)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "11cba794-6ab2-44a1-8b17-8acff07c2b5e")
+	)
+	(wire
+		(pts
 			(xy 50.8 114.3) (xy 67.31 114.3)
 		)
 		(stroke
@@ -6653,6 +6631,16 @@
 			(type default)
 		)
 		(uuid "12a890a3-a3fc-4265-8d31-6375b8d2c290")
+	)
+	(wire
+		(pts
+			(xy 228.6 68.58) (xy 228.6 71.12)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "13732821-609e-41bc-83cd-5cebad3a6ee4")
 	)
 	(wire
 		(pts
@@ -7126,26 +7114,6 @@
 	)
 	(wire
 		(pts
-			(xy 252.73 129.54) (xy 252.73 133.35)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "34f07e45-865c-479a-b5c4-a75938e039d2")
-	)
-	(wire
-		(pts
-			(xy 184.15 146.05) (xy 184.15 148.59)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "3632ff6b-fce0-4715-9fb4-40bc2f1fbe89")
-	)
-	(wire
-		(pts
 			(xy 114.3 203.2) (xy 127 203.2)
 		)
 		(stroke
@@ -7193,6 +7161,16 @@
 			(type default)
 		)
 		(uuid "379c3640-7d3d-46af-a8ee-74c139f93619")
+	)
+	(wire
+		(pts
+			(xy 241.3 68.58) (xy 241.3 71.12)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "380b7186-8322-497a-918a-c01ceb07b358")
 	)
 	(wire
 		(pts
@@ -7253,16 +7231,6 @@
 			(type default)
 		)
 		(uuid "3be6a33d-b395-4ab5-93dd-2a3a902d9bcb")
-	)
-	(wire
-		(pts
-			(xy 354.33 30.48) (xy 356.87 30.48)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "3c44f8b0-31fe-4803-9461-1833bf6770af")
 	)
 	(wire
 		(pts
@@ -7456,7 +7424,7 @@
 	)
 	(wire
 		(pts
-			(xy 242.57 120.65) (xy 247.65 120.65)
+			(xy 242.57 120.65) (xy 254 120.65)
 		)
 		(stroke
 			(width 0)
@@ -7473,16 +7441,6 @@
 			(type default)
 		)
 		(uuid "475afcba-cead-4769-b6a2-cd28601c72f4")
-	)
-	(wire
-		(pts
-			(xy 354.33 43.18) (xy 341.63 43.18)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "478e7197-c958-40e3-accf-67bb5819a253")
 	)
 	(wire
 		(pts
@@ -7573,6 +7531,16 @@
 			(type default)
 		)
 		(uuid "4a8789c6-e5e0-45a4-884c-3cff68371dd7")
+	)
+	(wire
+		(pts
+			(xy 403.86 57.15) (xy 398.78 57.15)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4b96f1f2-e25c-4559-8dee-42887c846eb5")
 	)
 	(wire
 		(pts
@@ -7673,16 +7641,6 @@
 			(type default)
 		)
 		(uuid "516a2853-8d58-41bb-8036-caf6a0b30862")
-	)
-	(wire
-		(pts
-			(xy 243.84 54.61) (xy 243.84 57.15)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "5301f331-2875-4e14-80ab-f7e7d91c69e6")
 	)
 	(wire
 		(pts
@@ -7833,6 +7791,16 @@
 			(type default)
 		)
 		(uuid "5c6b7226-d106-4e54-8b59-c7f153d3c954")
+	)
+	(wire
+		(pts
+			(xy 398.78 57.15) (xy 398.78 59.69)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5ccc6187-e273-4190-a338-291b0a5d7e88")
 	)
 	(wire
 		(pts
@@ -8096,16 +8064,6 @@
 	)
 	(wire
 		(pts
-			(xy 248.92 64.77) (xy 248.92 90.17)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "71a6c493-8ea2-4c5f-85a3-4a5361c47fe9")
-	)
-	(wire
-		(pts
 			(xy 48.26 74.93) (xy 48.26 82.55)
 		)
 		(stroke
@@ -8163,16 +8121,6 @@
 			(type default)
 		)
 		(uuid "75f8964f-db0c-4ce2-a95c-c04cc561cb09")
-	)
-	(wire
-		(pts
-			(xy 354.33 43.18) (xy 354.33 45.72)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "76334d27-75bc-47dd-8194-9d8e2b91e2ba")
 	)
 	(wire
 		(pts
@@ -8346,16 +8294,6 @@
 	)
 	(wire
 		(pts
-			(xy 354.33 30.48) (xy 341.63 30.48)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "850b39a3-cc54-41cc-a3e7-5e58528c78fd")
-	)
-	(wire
-		(pts
 			(xy 38.1 238.76) (xy 38.1 241.3)
 		)
 		(stroke
@@ -8416,7 +8354,17 @@
 	)
 	(wire
 		(pts
-			(xy 248.92 90.17) (xy 254 90.17)
+			(xy 228.6 58.42) (xy 226.06 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "894903a4-4083-423c-8eef-c8b2d77b74d8")
+	)
+	(wire
+		(pts
+			(xy 247.65 90.17) (xy 254 90.17)
 		)
 		(stroke
 			(width 0)
@@ -8483,6 +8431,16 @@
 			(type default)
 		)
 		(uuid "8c7f04c5-9503-4e9d-80e5-bb327baad6d0")
+	)
+	(wire
+		(pts
+			(xy 228.6 58.42) (xy 241.3 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8d619ce8-60ed-46ea-bd1e-6e896b06e30b")
 	)
 	(wire
 		(pts
@@ -8696,16 +8654,6 @@
 	)
 	(wire
 		(pts
-			(xy 248.92 54.61) (xy 243.84 54.61)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "9ff83b12-8c73-4d2c-8bc3-ee18f5321b4d")
-	)
-	(wire
-		(pts
 			(xy 378.46 82.55) (xy 387.35 82.55)
 		)
 		(stroke
@@ -8873,16 +8821,6 @@
 			(type default)
 		)
 		(uuid "aed39bb9-ac19-4793-96a9-2456a75eec1d")
-	)
-	(wire
-		(pts
-			(xy 184.15 148.59) (xy 179.07 148.59)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "af31365d-ec07-40a6-a23f-515e84c1283c")
 	)
 	(wire
 		(pts
@@ -9056,6 +8994,16 @@
 	)
 	(wire
 		(pts
+			(xy 228.6 71.12) (xy 228.6 73.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bb5d6198-61e6-4ea9-909a-3de8ac235fa7")
+	)
+	(wire
+		(pts
 			(xy 88.9 228.6) (xy 101.6 228.6)
 		)
 		(stroke
@@ -9103,16 +9051,6 @@
 			(type default)
 		)
 		(uuid "bc8d75f9-3d82-4eb4-b9fe-fc80d409f25b")
-	)
-	(wire
-		(pts
-			(xy 354.33 30.48) (xy 354.33 33.02)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "bcd8c487-d55c-42b3-93cc-1107526ebd3f")
 	)
 	(wire
 		(pts
@@ -9366,7 +9304,17 @@
 	)
 	(wire
 		(pts
-			(xy 166.37 154.94) (xy 176.53 154.94)
+			(xy 392.43 111.76) (xy 392.43 115.57)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "cbe8c42a-3a2e-4f97-afd7-8395d0066391")
+	)
+	(wire
+		(pts
+			(xy 160.02 154.94) (xy 176.53 154.94)
 		)
 		(stroke
 			(width 0)
@@ -9426,6 +9374,16 @@
 	)
 	(wire
 		(pts
+			(xy 228.6 71.12) (xy 241.3 71.12)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d096df60-8fcf-498c-b7cb-92f993cf0020")
+	)
+	(wire
+		(pts
 			(xy 152.4 100.33) (xy 152.4 101.6)
 		)
 		(stroke
@@ -9456,23 +9414,13 @@
 	)
 	(wire
 		(pts
-			(xy 166.37 148.59) (xy 171.45 148.59)
+			(xy 184.15 133.35) (xy 184.15 138.43)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "d1c54fd8-503d-4fc5-90f4-d0e68d091098")
-	)
-	(wire
-		(pts
-			(xy 354.33 40.64) (xy 354.33 43.18)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d23a5947-981c-4c50-9578-29cbf01c1fcf")
 	)
 	(wire
 		(pts
@@ -9716,13 +9664,13 @@
 	)
 	(wire
 		(pts
-			(xy 341.63 40.64) (xy 341.63 43.18)
+			(xy 241.3 58.42) (xy 241.3 60.96)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "e50359cf-95b9-45b2-9eea-d12f7887d5b8")
+		(uuid "e50613be-1547-4389-9cb8-a4757da0437f")
 	)
 	(wire
 		(pts
@@ -9836,16 +9784,6 @@
 	)
 	(wire
 		(pts
-			(xy 260.35 129.54) (xy 252.73 129.54)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ecfb74b5-3036-4c0b-8467-a1035367515d")
-	)
-	(wire
-		(pts
 			(xy 378.46 102.87) (xy 387.35 102.87)
 		)
 		(stroke
@@ -9936,16 +9874,6 @@
 	)
 	(wire
 		(pts
-			(xy 247.65 120.65) (xy 254 120.65)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "f3cd6be8-611f-446f-a1ec-903c1aa90d63")
-	)
-	(wire
-		(pts
 			(xy 50.8 264.16) (xy 50.8 266.7)
 		)
 		(stroke
@@ -9953,6 +9881,16 @@
 			(type default)
 		)
 		(uuid "f3ee1c6e-1db4-4dc3-a3ac-e2a5b17e4f39")
+	)
+	(wire
+		(pts
+			(xy 190.5 148.59) (xy 184.15 148.59)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f581884c-fc2b-4278-b31b-44f00caf3bd6")
 	)
 	(wire
 		(pts
@@ -9966,13 +9904,13 @@
 	)
 	(wire
 		(pts
-			(xy 247.65 90.17) (xy 248.92 90.17)
+			(xy 228.6 58.42) (xy 228.6 60.96)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "f75ea652-d8aa-4a31-8a78-e4942c2d2965")
+		(uuid "f7d7e429-2f25-4a23-8444-540425841499")
 	)
 	(wire
 		(pts
@@ -10023,6 +9961,16 @@
 			(type default)
 		)
 		(uuid "fae3b9d6-1c0e-4854-9b72-db966935e3e0")
+	)
+	(wire
+		(pts
+			(xy 184.15 146.05) (xy 184.15 148.59)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fbb241fd-6051-4595-ade0-b3f9ed897fc9")
 	)
 	(wire
 		(pts
@@ -10094,6 +10042,16 @@
 		)
 		(uuid "03569361-e530-4a5d-afbf-726d37dc4600")
 	)
+	(label "VDD_DAC"
+		(at 280.67 60.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "04d4445e-4dde-4ca0-8a3b-1bfdc192dd32")
+	)
 	(label "CLK_SAMP_P"
 		(at 165.1 91.44 0)
 		(effects
@@ -10123,16 +10081,6 @@
 			(justify right bottom)
 		)
 		(uuid "0b240035-b4f4-4c21-857a-d892155f0355")
-	)
-	(label "VDD_IO"
-		(at 260.35 129.54 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "0bda103d-6a6a-438e-91d1-a9e19c0943d4")
 	)
 	(label "SPI_SCLK_EXT"
 		(at 179.07 199.39 0)
@@ -10215,14 +10163,24 @@
 		(uuid "1a898e01-af7a-4487-8686-635800e8d744")
 	)
 	(label "VS_P"
-		(at 166.37 148.59 0)
+		(at 184.15 133.35 270)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left bottom)
+			(justify right bottom)
 		)
 		(uuid "1a9f3ef9-15a6-4fc6-91f9-80bdfb98dc9d")
+	)
+	(label "VDD_IO"
+		(at 400.05 111.76 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "20d2db91-7e30-4ca3-8913-ff65fc71ba85")
 	)
 	(label "CLK_INIT_P"
 		(at 38.1 38.1 270)
@@ -10454,16 +10412,6 @@
 		)
 		(uuid "4a7f8b4e-0e4e-426a-ae71-080fadeb0e4a")
 	)
-	(label "VDD_IO"
-		(at 356.87 30.48 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "4c91118a-5670-4acc-af82-26c3f222d65b")
-	)
 	(label "VDD_D"
 		(at 96.52 175.26 0)
 		(effects
@@ -10555,7 +10503,7 @@
 		(uuid "6586cf81-c682-4dbf-b9b0-82a460a62396")
 	)
 	(label "AMP_EN_EXT_B"
-		(at 166.37 154.94 0)
+		(at 160.02 154.94 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -10844,25 +10792,25 @@
 		)
 		(uuid "b100ac0c-43a5-4b73-9515-f986c5602823")
 	)
-	(label "VDD_IO"
-		(at 248.92 54.61 180)
+	(label "VOCM_EXT"
+		(at 226.06 58.42 180)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify right bottom)
 		)
-		(uuid "b4678ff0-06db-4290-97f4-8a467812e48f")
+		(uuid "b14b782d-b96e-4ae1-a658-4d2fc252f9ca")
 	)
 	(label "VDD_IO"
-		(at 280.67 60.96 0)
+		(at 403.86 57.15 180)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left bottom)
+			(justify right bottom)
 		)
-		(uuid "ba0f4938-8e1b-4eec-b6dc-3a01ac4caeff")
+		(uuid "b595179b-d8c0-49a3-aae1-682985aa2473")
 	)
 	(label "SPI_SDO"
 		(at 241.3 38.1 270)
@@ -10995,7 +10943,7 @@
 		(uuid "e930ccfc-be42-462d-83c6-27c5d62363dc")
 	)
 	(label "AMP_EN"
-		(at 184.15 146.05 0)
+		(at 190.5 148.59 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -11121,7 +11069,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 256.2352 242.57 0)
 			(effects
 				(font
@@ -11365,7 +11313,7 @@
 	)
 	(symbol
 		(lib_id "Diode:BAV99")
-		(at 243.84 64.77 90)
+		(at 398.78 67.31 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -11374,7 +11322,7 @@
 		(fields_autoplaced yes)
 		(uuid "0e874479-727c-42bf-b50c-c1830f300ec3")
 		(property "Reference" "D1"
-			(at 240.03 64.77 0)
+			(at 394.97 67.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11382,7 +11330,7 @@
 			)
 		)
 		(property "Value" "BAV99"
-			(at 237.49 64.77 0)
+			(at 392.43 67.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11390,7 +11338,7 @@
 			)
 		)
 		(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
-			(at 256.54 64.77 0)
+			(at 411.48 67.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11399,7 +11347,7 @@
 			)
 		)
 		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/BAV99_SER.pdf"
-			(at 243.84 64.77 0)
+			(at 398.78 67.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11408,7 +11356,7 @@
 			)
 		)
 		(property "Description" "BAV99 High-speed switching diodes, SOT-23"
-			(at 243.84 64.77 0)
+			(at 398.78 67.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11426,7 +11374,7 @@
 			(uuid "30d6bb67-757c-4896-aa05-17d8e5df3ed3")
 		)
 		(instances
-			(project ""
+			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "D1")
 					(unit 1)
@@ -11560,7 +11508,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 68.58 179.578 90)
 			(effects
 				(font
@@ -11698,7 +11646,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 234.188 129.54 90)
 			(effects
 				(font
@@ -11768,7 +11716,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 141.732 90.17 90)
 			(effects
 				(font
@@ -11906,7 +11854,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 243.84 72.39 0)
+		(at 398.78 74.93 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -11915,7 +11863,7 @@
 		(fields_autoplaced yes)
 		(uuid "1c8c5f9c-f026-4043-839b-a4ba55fe91a8")
 		(property "Reference" "#PWR039"
-			(at 243.84 78.74 0)
+			(at 398.78 81.28 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11924,7 +11872,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 243.84 77.47 0)
+			(at 398.78 80.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11932,7 +11880,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 243.84 72.39 0)
+			(at 398.78 74.93 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11941,7 +11889,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 243.84 72.39 0)
+			(at 398.78 74.93 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11950,7 +11898,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 243.84 72.39 0)
+			(at 398.78 74.93 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11962,7 +11910,7 @@
 			(uuid "be3bafc5-12ed-4ab9-8103-da1bd1530191")
 		)
 		(instances
-			(project ""
+			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "#PWR039")
 					(unit 1)
@@ -11997,7 +11945,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 243.5352 242.57 0)
 			(effects
 				(font
@@ -12065,7 +12013,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 68.58 184.658 90)
 			(effects
 				(font
@@ -12203,7 +12151,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 115.2652 213.36 0)
 			(effects
 				(font
@@ -12273,7 +12221,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 115.2652 264.16 0)
 			(effects
 				(font
@@ -12411,7 +12359,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 39.0652 213.36 0)
 			(effects
 				(font
@@ -12481,7 +12429,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 102.5652 264.16 0)
 			(effects
 				(font
@@ -12551,7 +12499,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 115.2652 238.76 0)
 			(effects
 				(font
@@ -12754,7 +12702,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 64.4652 264.16 0)
 			(effects
 				(font
@@ -12865,72 +12813,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:GND")
-		(at 354.33 45.72 0)
-		(mirror y)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "3f944576-7781-4bfd-8c3a-78d13ef4f120")
-		(property "Reference" "#PWR042"
-			(at 354.33 52.07 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "GND"
-			(at 354.33 50.8 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 354.33 45.72 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 354.33 45.72 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 354.33 45.72 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "df0e733f-8060-42b1-aa2a-1dc058a33fb0")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "#PWR042")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:R")
 		(at 130.81 109.22 0)
 		(unit 1)
@@ -12957,7 +12839,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 129.032 109.22 90)
 			(effects
 				(font
@@ -13091,7 +12973,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 113.792 109.22 90)
 			(effects
 				(font
@@ -13292,7 +13174,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 153.162 97.79 90)
 			(effects
 				(font
@@ -13329,6 +13211,76 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "R4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 228.6 64.77 0)
+		(mirror y)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "4f328d63-16d0-444d-8166-dafffa999a43")
+		(property "Reference" "C32"
+			(at 224.79 63.4999 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "1u"
+			(at 224.79 66.0399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+			(at 227.6348 68.58 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 228.6 64.77 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 228.6 64.77 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "29043bdc-c9c3-479e-9921-edfab8b86eaf")
+		)
+		(pin "2"
+			(uuid "ebf65878-afb0-4bf2-9e6e-e6851ccd4402")
+		)
+		(instances
+			(project "frida65A"
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "C32")
 					(unit 1)
 				)
 			)
@@ -13427,7 +13379,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 136.652 109.22 90)
 			(effects
 				(font
@@ -13497,7 +13449,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 102.5652 213.36 0)
 			(effects
 				(font
@@ -13609,28 +13561,30 @@
 	)
 	(symbol
 		(lib_id "frida:Molex_SMA_733910070")
-		(at 204.47 115.57 90)
+		(at 204.47 115.57 0)
+		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "528c9ea8-1522-496d-8ca4-ba791200bb50")
 		(property "Reference" "J2"
-			(at 204.7632 109.22 90)
+			(at 205.74 109.22 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify left)
 			)
 		)
 		(property "Value" "SMA Molex 733910070"
-			(at 204.7632 111.76 90)
+			(at 215.9 111.76 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify left)
 			)
 		)
 		(property "Footprint" "frida:Molex_SMA_733910070"
@@ -13771,7 +13725,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 127.9652 264.16 0)
 			(effects
 				(font
@@ -13840,7 +13794,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 106.172 109.22 90)
 			(effects
 				(font
@@ -14055,7 +14009,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 226.568 129.54 90)
 			(effects
 				(font
@@ -14190,7 +14144,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 89.8652 213.36 0)
 			(effects
 				(font
@@ -14258,7 +14212,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 238.76 118.872 90)
 			(effects
 				(font
@@ -14443,16 +14397,15 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 175.26 148.59 90)
+		(at 184.15 142.24 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "6177191f-05ad-4097-b716-d0b89905a877")
 		(property "Reference" "R16"
-			(at 175.26 142.24 90)
+			(at 187.96 139.7 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14460,15 +14413,15 @@
 			)
 		)
 		(property "Value" "10k"
-			(at 175.26 144.78 90)
+			(at 187.96 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 175.26 150.368 90)
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+			(at 182.372 142.24 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14477,7 +14430,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 175.26 148.59 0)
+			(at 184.15 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14486,7 +14439,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 175.26 148.59 0)
+			(at 184.15 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14537,7 +14490,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 192.7352 242.57 0)
 			(effects
 				(font
@@ -14805,7 +14758,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 39.0652 238.76 0)
 			(effects
 				(font
@@ -15200,7 +15153,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 64.77 104.14 0)
 			(effects
 				(font
@@ -15270,7 +15223,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 352.7552 96.52 0)
 			(effects
 				(font
@@ -15339,7 +15292,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 90.932 109.22 90)
 			(effects
 				(font
@@ -15383,7 +15336,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 252.73 148.59 0)
+		(at 392.43 130.81 0)
 		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
@@ -15393,7 +15346,7 @@
 		(fields_autoplaced yes)
 		(uuid "6ca41c01-ab30-4626-852e-89cf9783892c")
 		(property "Reference" "#PWR040"
-			(at 252.73 154.94 0)
+			(at 392.43 137.16 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15402,7 +15355,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 252.73 153.67 0)
+			(at 392.43 135.89 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15410,7 +15363,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 252.73 148.59 0)
+			(at 392.43 130.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15419,7 +15372,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 252.73 148.59 0)
+			(at 392.43 130.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15428,7 +15381,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 252.73 148.59 0)
+			(at 392.43 130.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15802,7 +15755,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 102.5652 238.76 0)
 			(effects
 				(font
@@ -15936,7 +15889,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 285.75 52.832 90)
 			(effects
 				(font
@@ -16206,7 +16159,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 51.7652 238.76 0)
 			(effects
 				(font
@@ -16605,7 +16558,7 @@
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 74.93 182.118 90)
 			(effects
 				(font
@@ -16747,7 +16700,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 285.75 118.872 90)
 			(effects
 				(font
@@ -16815,7 +16768,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 67.31 129.2352 0)
 			(effects
 				(font
@@ -17019,7 +16972,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 39.0652 264.16 0)
 			(effects
 				(font
@@ -17157,7 +17110,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 235.458 95.25 90)
 			(effects
 				(font
@@ -17268,7 +17221,8 @@
 	)
 	(symbol
 		(lib_id "frida:Molex_SMA_733910070")
-		(at 204.47 90.17 90)
+		(at 204.47 90.17 0)
+		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -17276,7 +17230,7 @@
 		(dnp no)
 		(uuid "98b87b7c-a53e-4ae7-9859-b03625111d7b")
 		(property "Reference" "J1"
-			(at 204.7632 83.82 90)
+			(at 204.47 83.82 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17284,7 +17238,7 @@
 			)
 		)
 		(property "Value" "SMA Molex 733910070"
-			(at 204.7632 86.36 90)
+			(at 204.47 86.36 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17325,7 +17279,7 @@
 			(uuid "c6bd6fde-210a-4c30-a549-ca021ac4a9ea")
 		)
 		(instances
-			(project ""
+			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "J1")
 					(unit 1)
@@ -17361,7 +17315,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 127.9652 238.76 0)
 			(effects
 				(font
@@ -17535,75 +17489,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:C")
-		(at 341.63 36.83 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "9f3d88d4-a9e0-4bfb-be70-dff17796f66c")
-		(property "Reference" "C31"
-			(at 345.44 35.5599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "100n"
-			(at 345.44 38.0999 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 342.5952 40.64 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 341.63 36.83 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 341.63 36.83 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "2e246f1e-638b-4f17-bb7c-336dac87ac86")
-		)
-		(pin "2"
-			(uuid "f9f47e5f-0fda-4fee-8b40-f813bbdecf3d")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "C31")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:R")
 		(at 85.09 109.22 0)
 		(unit 1)
@@ -17630,7 +17515,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 83.312 109.22 90)
 			(effects
 				(font
@@ -17863,7 +17748,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 282.448 77.47 90)
 			(effects
 				(font
@@ -17907,7 +17792,8 @@
 	)
 	(symbol
 		(lib_id "frida:Molex_SMA_733910070")
-		(at 261.62 72.39 90)
+		(at 261.62 72.39 0)
+		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -17915,7 +17801,7 @@
 		(dnp no)
 		(uuid "a4961319-29bf-4596-b7e5-c403474188a2")
 		(property "Reference" "J3"
-			(at 261.9132 66.04 90)
+			(at 261.62 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17923,7 +17809,7 @@
 			)
 		)
 		(property "Value" "SMA Molex 733910070"
-			(at 266.7 68.58 90)
+			(at 265.43 68.58 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18263,7 +18149,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 26.3652 238.76 0)
 			(effects
 				(font
@@ -18333,7 +18219,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 89.8652 238.76 0)
 			(effects
 				(font
@@ -18542,7 +18428,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 121.412 109.22 90)
 			(effects
 				(font
@@ -18675,7 +18561,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 335.28 85.852 90)
 			(effects
 				(font
@@ -18879,7 +18765,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 153.162 82.55 90)
 			(effects
 				(font
@@ -18949,7 +18835,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 26.3652 264.16 0)
 			(effects
 				(font
@@ -19019,7 +18905,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 282.448 67.31 90)
 			(effects
 				(font
@@ -19375,7 +19261,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 89.8652 264.16 0)
 			(effects
 				(font
@@ -19445,7 +19331,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 127.9652 213.36 0)
 			(effects
 				(font
@@ -19581,7 +19467,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 205.4352 242.57 0)
 			(effects
 				(font
@@ -19755,6 +19641,76 @@
 	)
 	(symbol
 		(lib_id "Device:C")
+		(at 241.3 64.77 0)
+		(mirror y)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "ce9a2042-2556-4e58-a9a0-bc3242164588")
+		(property "Reference" "C31"
+			(at 237.49 63.4999 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100n"
+			(at 237.49 66.0399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+			(at 240.3348 68.58 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 241.3 64.77 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 241.3 64.77 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "e9f64f27-83d6-4631-bb51-c99103450a2b")
+		)
+		(pin "2"
+			(uuid "ac6254dc-23f2-4649-98f1-a8935bcd563a")
+		)
+		(instances
+			(project "frida65A"
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "C31")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
 		(at 50.8 260.35 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -19781,7 +19737,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 51.7652 264.16 0)
 			(effects
 				(font
@@ -19850,7 +19806,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 98.552 109.22 90)
 			(effects
 				(font
@@ -19894,75 +19850,6 @@
 	)
 	(symbol
 		(lib_id "Device:C")
-		(at 354.33 36.83 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "d356cd51-133f-499d-8f67-df2774398634")
-		(property "Reference" "C32"
-			(at 358.14 35.5599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "1u"
-			(at 358.14 38.0999 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 355.2952 40.64 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 354.33 36.83 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 354.33 36.83 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "d3d340e9-c6a9-4ac2-900f-af7d7811d00e")
-		)
-		(pin "2"
-			(uuid "40718480-a63e-4ae4-b2ce-f1256bc33157")
-		)
-		(instances
-			(project "frida65A"
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "C32")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
 		(at 63.5 209.55 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -19989,7 +19876,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 64.4652 213.36 0)
 			(effects
 				(font
@@ -20126,7 +20013,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 64.4652 238.76 0)
 			(effects
 				(font
@@ -20194,7 +20081,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 243.84 88.392 90)
 			(effects
 				(font
@@ -20263,7 +20150,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 141.732 74.93 90)
 			(effects
 				(font
@@ -20399,7 +20286,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 26.3652 213.36 0)
 			(effects
 				(font
@@ -20620,7 +20507,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
 			(at 51.7652 213.36 0)
 			(effects
 				(font
@@ -20732,7 +20619,7 @@
 	)
 	(symbol
 		(lib_id "Diode:BAV99")
-		(at 252.73 140.97 270)
+		(at 392.43 123.19 270)
 		(mirror x)
 		(unit 1)
 		(exclude_from_sim no)
@@ -20742,7 +20629,7 @@
 		(fields_autoplaced yes)
 		(uuid "ee167952-3e2c-4a6d-a1d6-d31db0d70c9b")
 		(property "Reference" "D2"
-			(at 256.54 140.97 0)
+			(at 396.24 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20750,7 +20637,7 @@
 			)
 		)
 		(property "Value" "BAV99"
-			(at 259.08 140.97 0)
+			(at 398.78 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20758,7 +20645,7 @@
 			)
 		)
 		(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
-			(at 240.03 140.97 0)
+			(at 379.73 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20767,7 +20654,7 @@
 			)
 		)
 		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/BAV99_SER.pdf"
-			(at 252.73 140.97 0)
+			(at 392.43 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20776,7 +20663,7 @@
 			)
 		)
 		(property "Description" "BAV99 High-speed switching diodes, SOT-23"
-			(at 252.73 140.97 0)
+			(at 392.43 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20797,6 +20684,71 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "D2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 228.6 73.66 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "ef9ecebf-26d2-49e8-9049-ce0f6d0504f7")
+		(property "Reference" "#PWR042"
+			(at 228.6 80.01 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 228.6 78.74 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 228.6 73.66 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 228.6 73.66 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 228.6 73.66 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "f52333b9-714d-4cd6-8bf3-277ba2c19617")
+		)
+		(instances
+			(project "frida65A"
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "#PWR042")
 					(unit 1)
 				)
 			)
@@ -20828,7 +20780,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 63.5 124.968 90)
 			(effects
 				(font
@@ -21095,7 +21047,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
 			(at 335.28 99.568 90)
 			(effects
 				(font

@@ -346,13 +346,13 @@
 	(embedded_fonts no)
 	(model "${KIPRJMOD}/frida.pretty/Molex_MiniFitJr_469990014.stp"
 		(offset
-			(xyz 0 0 0)
+			(xyz 2.1 14 5)
 		)
 		(scale
 			(xyz 1 1 1)
 		)
 		(rotate
-			(xyz 0 0 0)
+			(xyz -90 -0 -180)
 		)
 	)
 )

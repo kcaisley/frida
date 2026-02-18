@@ -239,13 +239,13 @@
 	(embedded_fonts no)
 	(model "${KIPRJMOD}/frida.pretty/Molex_SMA_733910070.stp"
 		(offset
-			(xyz 0 0 0)
+			(xyz 0 0 7.5)
 		)
 		(scale
 			(xyz 1 1 1)
 		)
 		(rotate
-			(xyz 0 0 0)
+			(xyz -0 -0 -0)
 		)
 	)
 )
