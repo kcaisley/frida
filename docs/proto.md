@@ -1,88 +1,73 @@
-# Proto Flow (Draft)
+# VLSIR Protobuff
+
+## Quick Cheatsheet: `utils` + `circuit` + `netlist` + `spice`
+
+Note: in this repo the shared utility schema is `utils.proto` (not `util.proto`).
+
+| If you want to do... | Fill this message | Key fields |
+|---|---|---|
+| Build reusable circuit IR | `vlsir.circuit.Package` | `domain`, `modules`, `ext_modules` |
+| Define a block | `vlsir.circuit.Module` | `name`, `ports`, `signals`, `instances`, `parameters` |
+| Define a primitive or external block interface | `vlsir.circuit.ExternalModule` | `name`, `ports`, `parameters`, `spicetype` |
+| Instantiate a module or primitive | `vlsir.circuit.Instance` | `module` `vlsir.utils.Reference`, `connections`, `parameters` |
+| Express parameter values with units/literals | `vlsir.utils.ParamValue` and `vlsir.utils.Param` | `bool/int64/double/string/literal/prefixed` |
+| Generate a text netlist | `vlsir.netlist.NetlistInput` | `pkg`, `fmt`, `netlist_path` |
+| Run analog simulation | `vlsir.spice.SimInput` | `pkg`, `top`, `opts`, `an`, `ctrls` |
+| Add simulator controls | `vlsir.spice.Control` | `include`, `lib`, `save`, `meas`, `param`, `literal` |
+| Consume simulation data | `vlsir.spice.SimResult` | `an` list of typed `AnalysisResult` |
+| Carry full custom layout geometry | `vlsir.raw.Cell.layout` | `Layout.shapes`, `Layout.instances`, `Layout.annotations` |
+| Carry LEF-style abstract pins/blockages | `vlsir.raw.Cell.abstract` | `Abstract.outline`, `Abstract.ports`, `Abstract.blockages` |
+| Keep logic + layout in one cell object | `vlsir.raw.Cell` | `interface`, `module`, `abstract`, `layout` |
+| Use track/grid-native layout abstraction | `vlsir.tetris.Cell` | `abstract`, `layout`, track/cut/assign/placement primitives |
+
+Typical flow:
+1. Build `vlsir.circuit.Package`.
+2. Use `vlsir.netlist.NetlistInput` for text netlisting and/or use `vlsir.spice.SimInput` for simulation.
+3. Build `vlsir.raw.Cell` or `vlsir.tetris.Cell` for physical data.
+4. Populate `Cell.abstract` explicitly when you need pin-accurate abstracts.
 
 ```mermaid
 flowchart LR
-    A["HDL21 Generators"]
-    B["Generate netlist and connectivity data"]
-    C["Generate constraint data"]
-
-    A --> B
-    A --> C
-
-    D{"Optional partitioning"}
-    B --> D
-    D -- "No" --> E["Netlist as generated"]
-    D -- "Yes" --> F["Split devices into unit transistors"]
-    F --> E
-
-    subgraph VLS["VLSIR"]
-        direction TB
-        VC["Circuit Proto"]
-        VR["Raw Proto"]
-        VT["Tetris Proto"]
-        VX["Constraints Proto (planned extension)"]
+    subgraph LOCAL["Local Environment"]
+        MAIN["main.py: HDL21 + KLayout Python"]
+        POST["Python analysis and optimization code"]
     end
 
-    E --> VC
-    C --> VX
+    VLSIR["VLSIR proto boundary"]
+    CONV["Interop layer: vlsirtools + layout21 + custom translators"]
 
-    P["Primitive generator library (PDK-adapted)"]
-    I["PDK parameters and rules (for example IHP130 and SKY130)"]
-    VC --> P
-    I --> P
-    P --> VR
-    VR -- "optional abstract/gridding" --> VT
+    MAIN -->|"emit circuit.proto + raw.proto + tech.proto + constraints.proto"| VLSIR
+    VLSIR --> CONV
+    CONV -->|"return tetris.proto and derived artifacts"| POST
 
-    K["Unified serial stream: netlist, constraints, primitive layouts"]
-    VC --> K
-    VX --> K
-    VR --> K
-    VT --> K
+    subgraph SIMRPC["Simulation RPC service"]
+        SPICE_SERVER["spice_server RPC"]
+        SIM["Spectre or Ngspice"]
+        SPICE_SERVER -->|"run .scs or .sp netlist"| SIM
+        SIM -->|"return waveform .raw file"| SPICE_SERVER
+    end
 
-    L["Hierarchical layout backend (next step): LEF/DEF, OpenROAD/OpenDB, Verilog, TCL"]
-    K --> L
+    CONV -->|"vlsirtools netlisting: circuit.proto -> .scs or .sp"| SPICE_SERVER
+    SPICE_SERVER -->|"simulation result .raw path or payload"| POST
+
+    subgraph ORRPC["OpenROAD RPC service proposed"]
+        OR_ADAPTER["OpenROAD frontend adapters"]
+        OPENROAD["OpenROAD place and route"]
+        OR_ADAPTER -->|"write tech.lef + library.lef + verilog + constraints.tcl"| OPENROAD
+        OPENROAD -->|"return placed and routed DEF"| OR_ADAPTER
+    end
+
+    CONV -->|"pass tech.proto + raw.proto + circuit.proto + constraints.proto"| OR_ADAPTER
+    OR_ADAPTER -->|"parse DEF and lower to tetris.proto"| VLSIR
+    VLSIR -->|"tetris.proto"| POST
+
+    subgraph KLRPC["KLayout RPC service proposed"]
+        KLAYOUT["KLayout server: view + DRC + LVS + PEX"]
+    end
+
+    CONV -->|"layout21 or custom export: raw.proto or tetris.proto -> GDS/OASIS"| KLAYOUT
+    KLAYOUT -->|"reports and debug views"| POST
 ```
-
-## Primitive Generation Options (VLSIR Bridge View)
-
-Status snapshot date: `2026-02-19`.
-
-## Phase-1 Implementation Plan: Gate-Array NMOS Primitive (IHP130 First)
-
-Goal: create a first programmable unit-device primitive that can be reused by analog PnR,
-while prioritizing direct VLSIR serialization.
-
-Scope for this phase:
-- Build one generator for an NMOS cell with:
-  - vertical gates,
-  - configurable finger-count (default `8`),
-  - an opposite-polarity dummy row in the complementary device region.
-- Keep geometry in memory through KLayout Python API.
-- Serialize directly to `vlsir.raw.Library` (`.pb` and `.pbtxt`) as the primary output.
-- Allow GDS write only as optional debug output.
-
-Planned code split:
-- `flow/layout/layout.py`
-  - Shared geometry helpers and layer handling.
-  - Process presets (starting with `ihp130`).
-  - KLayout `Layout` -> `vlsir.raw.Library` conversion.
-  - Output helpers for protobuf bytes/text and optional debug GDS.
-- `flow/layout/nmos.py`
-  - `NmosUnitParams` configuration.
-  - NMOS + opposite-doped dummy geometry generator.
-  - Lightweight runnable entrypoint that emits a few example variants.
-
-Geometry assumptions (phase-1):
-- Cell height is parameterized by a 9-track model aligned to digital-cell style.
-- The metric of interest is center-to-center distance from bottom M1 track to top M1 track.
-- Device dimensions are intentionally constrained to regularized unit-style layout.
-- This is a layout-automation primitive, not a full signoff-equivalent replacement for official
-  PDK transistor cells.
-
-Next planned extensions:
-- PMOS twin generator.
-- Technology presets for `tsmc65` and `tsmc28`.
-- Export of abstract view (`raw.Abstract`) and LEF-oriented metadata from the same source.
 
 Core `vlsir.layout.raw` targets for bridging:
 - `Rect`: `Rectangle`
@@ -451,3 +436,58 @@ Goal: keep VLSIR canonical and tool-neutral; make tool files (`.tcl`, `.sdc`, `t
    - `constraints.proto -> OpenROAD Tcl/SDC` (first target),
    - `tech.proto -> TECHLEF` subset (later target).
 4. Keep external-format importers optional and out-of-scope for first implementation.
+
+## DEF-to-Tetris Coverage Audit (Draft)
+
+Source scanned for DEF components:
+- `/home/kcaisley/libs/lefdefref/lefdef6man/DEFSyntax.html`
+- Specifically the "DEF Statement Definitions" list and statement-order section.
+
+Coverage key:
+- `Full`: direct first-class representation in `vlsir.tetris`.
+- `Partial`: can be approximated or represented indirectly.
+- `None`: no direct representation today.
+
+Width/NDR nuance in `tetris.proto`:
+- Track-wire width exists at `Stack.metals[].entries[].entry.width` and `Stack.metals[].entries[].repeat.entries[].width`.
+- Trace gaps are explicit with `Stack.metals[].entries[].entry.ttype = GAP` and repeated by `repeat.entries[].ttype`.
+- Track classes are explicit with `TrackEntry.ttype` (`GAP`, `SIGNAL`, `RAIL`).
+- Default cut size exists at `Stack.metals[].cutsize`.
+- Via XY size exists at `Stack.vias[].size`.
+- There is still no first-class DEF `NONDEFAULTRULES` object or per-net NDR binding field in `tetris.Layout`.
+
+| DEF construct | Tetris representation | Coverage | Notes |
+|---|---|---|---|
+| `DESIGN` | `Library.domain`, `Cell.name` | Partial | Naming is representable; DEF design-level semantics are not centralized in one header message. |
+| `VERSION` | None | None | No schema field for DEF syntax version. |
+| `BUSBITCHARS` | None | None | Parser-format setting, not modeled. |
+| `DIVIDERCHAR` | None | None | Parser-format setting, not modeled. |
+| `UNITS` | `Stack.units` | Partial | Units exist, but `Stack` is not directly attached to `Library` or `Cell`. |
+| `HISTORY` | None | None | No design-history record field. |
+| `PROPERTYDEFINITIONS` | None | None | No generic property-definition map in `tetris.proto`. |
+| `DIEAREA` | `Layout.outline` | Full | Cell boundary is first-class via `Outline`. |
+| `ROWS` | None | None | No standard-cell row/site abstraction. |
+| `TRACKS` | `Stack.metals[].entries`, `offset`, `overlap`, `flip`, `dir` | Partial | Track fabric is modeled, including per-entry widths, track typing (`GAP`/`SIGNAL`/`RAIL`), and periodic patterns; DEF statement-level attributes are not all preserved. |
+| `TRACK` properties | `TrackSpec.TrackEntry.ttype`, `TrackSpec.TrackEntry.width`, `TrackSpec.Repeat.nrep` | Partial | Core track-type/width/pattern semantics are represented; no generic per-track property bag equivalent. |
+| `GCELLGRID` | None | None | No explicit global-routing cell grid object. |
+| `VIAS` | `Stack.vias[]` (`top`, `bot`, `size`, `raw`) and `Assign` at `TrackCross` | Partial | Via-layer connectivity and nominal via size are represented; full DEF named-via authoring and property variants are reduced. |
+| `NONDEFAULTRULES` | `Stack.metals[].entries[].*.width`, `Stack.metals[].cutsize`, `Stack.vias[].size` | Partial | Width/cut/via-size intents can be encoded, but no first-class DEF NDR object or per-net NDR assignment exists. |
+| `REGIONS` | None | None | No placement-region constraints at tetris layout level. |
+| `COMPONENTS` | `Layout.instances[]`, `Place`, reflections | Partial | Instance placement exists; DEF placement statuses, halos, route halos, and component properties are not explicit. |
+| `PINS` | `Abstract.ports[]` and typed `AbstractPort` kinds | Partial | Strong abstract pin model; many DEF pin-use/property variants are not explicitly modeled. |
+| `BLOCKAGES` | `Layout.outline`, `Layout.cuts[]`, `TrackEntry.ttype = GAP` | Partial | Boundary limits, cut-level exclusions, and explicit gap tracks are representable; no full DEF blockage object by layer/type/property. |
+| `FILLS` | None | None | No dedicated fill geometry container in tetris layout. |
+| `NETS` | `Cell.module`, `Layout.assignments[]`, `Layout.cuts[]` | Partial | Connectivity and grid assignments exist; full DEF routed geometry grammar is not present. |
+| `Regular Wiring Statement` | `Assign` + `TrackCross` over stack-defined tracks | Partial | Captures routed intent at track-cross granularity with explicit track widths/types from stack entries, not full DEF segment syntax. |
+| `SPECIALNETS` | None (separate class) | Partial | Net names can be represented, but no explicit regular-vs-special net partition in schema. |
+| `Special Wiring Statement` | `Assign` + `TrackCross` over stack-defined tracks | Partial | Similar to regular wiring: intent-level model with stack-defined width/type semantics, not DEF command-level fidelity. |
+| `Default octagon for 45-degree SPECIALNET routing` | None | None | Tetris is orthogonal grid-native; no 45-degree/octagonal route primitive. |
+| `SCANCHAINS` | None | None | Scan-chain structure is not represented in `tetris.proto`. |
+| `GROUPS` | None | None | No grouping hierarchy/region grouping object. |
+| `TECHNOLOGY` | `Stack`, `MetalLayer`, `ViaLayer`, `PrimitiveLayer` | Partial | Layer stack intent is represented, but DEF technology statement scope is broader. |
+
+Immediate implication:
+- `vlsir.tetris` is a good IR for grid-native placement/routing intent.
+- It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic patterns, and via/cut sizes.
+- It is not a lossless DEF schema today.
+- A DEF emitter from `tetris` should be treated as a lowering pass with defaults/assumptions for missing DEF sections.
