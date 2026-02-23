@@ -3,7 +3,6 @@
 from copy import deepcopy
 
 import hdl21 as h
-from hdl21.prefix import n
 from hdl21.primitives import Mos
 from vlsirtools import SpiceType
 
@@ -14,8 +13,8 @@ PDK_NAME = "tsmc28"
 class Tsmc28MosParams:
     """TSMC28 MOS parameters."""
 
-    w = h.Param(dtype=h.Scalar, desc="Width", default=40 * n)
-    l = h.Param(dtype=h.Scalar, desc="Length", default=30 * n)
+    w = h.Param(dtype=h.Scalar, desc="Width", default=40 * h.prefix.n)
+    l = h.Param(dtype=h.Scalar, desc="Length", default=30 * h.prefix.n)
     nf = h.Param(dtype=int, desc="Number of fingers", default=1)
     m = h.Param(dtype=int, desc="Multiplier", default=1)
 
