@@ -40,9 +40,12 @@ FRIDA exposes three flow modes via pytest:
 Run from the repo root:
 
 ```bash
-source .venv/bin/activate
-pytest flow/comp/test_comp.py -v --tech=ihp130 --flow=netlist --mode=min
+uv run pytest flow/comp/test_comp.py -v --tech=ihp130 --flow=netlist --mode=min
 ```
+
+Notes:
+- Use `uv run <cmd>` for project commands (`pytest`, `python`, etc.) so they run with FRIDA's pinned environment.
+- `uvx` is best for one-off tools not tied to the project environment.
 
 ## Flow Options
 
@@ -66,10 +69,10 @@ Examples:
 
 ```bash
 # DUT-only YAML netlists
-pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=yaml
+uv run pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=yaml
 
 # DUT-only Verilog netlists
-pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=verilog
+uv run pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=verilog
 ```
 
 ### `--flow=simulate`
@@ -91,7 +94,7 @@ Notes:
 Example:
 
 ```bash
-pytest flow/comp/test_comp.py -v --flow=simulate --mode=min --tech=ihp130 --simulator=spectre
+uv run pytest flow/comp/test_comp.py -v --flow=simulate --mode=min --tech=ihp130 --simulator=spectre
 ```
 
 ### `--flow=measure`

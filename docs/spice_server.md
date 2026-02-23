@@ -162,3 +162,65 @@ sudo firewall-cmd --permanent --add-port=50051/tcp
 sudo firewall-cmd --reload
 ```
 
+## SimResult Support Analysis
+
+### SpiceServer Service (Current State)
+
+- The `spice_server` RPC contract does not return `vlsir.spice.SimResult`.
+- `RunSimulation` returns a stream of `SimulationResponse` messages:
+  - `output` (text chunks),
+  - `stream_type` (`STDOUT` or `STDERR`),
+  - `exit_code` (final message),
+  - `done` (final-message marker).
+- In implementation, the server:
+  - launches simulator subprocesses,
+  - streams subprocess stdout/stderr,
+  - sends final exit code,
+  - does not parse `.raw`/ CSV into structured analysis results.
+
+Code references:
+- `~/libs/spice_server/proto/spice_simulator.proto`
+- `~/libs/spice_server/src/simulator_service.cc`
+- `~/libs/spice_server/src/simulator_manager.cc`
+
+### VLSIR + VlsirTools Layer (Intended/Implemented SimResult Path)
+
+- The VLSIR `spice.proto` schema defines `service Spice` with:
+  - `rpc Sim(SimInput) returns (SimResult)`.
+- `SimResult` is a structured list of `AnalysisResult` entries.
+- VlsirTools already implements returning structured results as either:
+  - Python `sim_data.SimResult`, or
+  - protobuf `vlsir.spice.SimResult` via `ResultFormat.VLSIR_PROTO`.
+- Tests in VlsirTools explicitly assert protobuf `SimResult` return.
+
+Code references:
+- `~/libs/Vlsir/protos/spice.proto`
+- `~/libs/spice_server/vlsir_repo/VlsirTools/vlsirtools/spice/spice.py`
+- `~/libs/spice_server/vlsir_repo/VlsirTools/vlsirtools/spice/base.py`
+- `~/libs/spice_server/vlsir_repo/VlsirTools/vlsirtools/spice/sim_data.py`
+- `~/libs/spice_server/vlsir_repo/VlsirTools/tests/test_vlsirtools.py`
+
+### Practical Conclusion
+
+- Input-side VLSIR is integrated in `spice_server` (`vlsir.spice.SimInput`).
+- Result-side VLSIR (`vlsir.spice.SimResult`) is not yet exposed by the
+  `spice_server` gRPC API.
+- Current `spice_server` behavior is log-stream transport, not structured
+  simulation-data transport.
+
+## LOC Snapshot (spice_server)
+
+Measured with `cloc`.
+
+- Full checked-out repository (`~/libs/spice_server`):
+  - `734,812` code lines
+  - Includes vendored `vlsir_repo`, local build output, and virtualenv content.
+- Core repo excluding vendored/build/venv:
+  - Command: `cloc --exclude-dir=vlsir_repo,build,.venv ~/libs/spice_server`
+  - `2,769` code lines.
+- Core server implementation only:
+  - Command: `cloc ~/libs/spice_server/src ~/libs/spice_server/proto`
+  - `848` code lines total
+  - `751` C++
+  - `40` C/C++ headers
+  - `57` Protocol Buffers.

@@ -48,10 +48,10 @@ Reference section for future TP additions in the schematic:
 
 ## Analog Input Path
 
-- [ ] Input devices/switching for buffer
+- [x] Input devices/switching for buffer
 - [ ] Clamp diodes to protect FRIDA chip from external/buffer sources (VIN_P and VIN_N, use solder/pin jumper, check ENOB impact, clamp to VDD_DAC and GND)
 - [ ] Share input connector pins but have headers to measure current
-- [ ] Add test point on VIN_N
+- [x] Add test point on VIN_N
 
 ## Feedback Network
 
@@ -91,3 +91,25 @@ Reference section for future TP additions in the schematic:
 
 - [ ] Check for new application notes on Analog Devices (AD) website
 - [ ] Check for new application notes on Texas Instruments (TI) website
+
+## Layout Integration Checklist
+
+- [ ] solid silk screen field
+- [ ] add logos
+- [ ] more headers, double for ground
+- [ ] text on header names
+- [ ] name testpoints the actual signal net, instead of the testpoint number
+- [ ] don't go under the displayport connector
+- [ ] electrical connection for chip back plane (via down)
+- [ ] feedback capacitors, extra
+- [ ] series measurement resistors
+- [ ] add vdd half to the vocm jacket
+- [ ] name the jumpers themselves
+- [ ] switch clamps to output of amplifier
+- [ ] connect ground
+- [ ] add pull /up/down to amp_en_ext_b
+- [x] switch vocm voltage divider to be powered from vdd_dac instead of vdd_io
+- [ ] add pin 8 supply for vdaq\
+- [ ] reverse the PD_N pull down to a pullup with VDD_BDAQ
+- [x] rename vdd_daq -> vdd_bdaq
+- [ ] flip pin orders in

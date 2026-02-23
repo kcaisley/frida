@@ -27,9 +27,28 @@ from hdl21.prefix import m, n
 from hdl21.primitives import Mos, MosParams, MosType, MosVth
 from vlsirtools import SpiceType
 
+from ..layout.layout import (
+    LayerPairRuleSetData,
+    LayerRuleSetData,
+    RuleDeckData,
+    TechArtifacts,
+    TechnologyData,
+    load_layer_map_from_lyt,
+    merge_rule_decks,
+    parse_tech_lef,
+    rule_statement,
+    write_tech_to_proto,
+)
 from .base import FridaPdk
 
 PDK_NAME = "ihp130"
+TECH_LEF_PATH = Path(
+    "/home/kcaisley/libs/IHP-Open-PDK/ihp-sg13g2/libs.ref/sg13g2_stdcell/lef/"
+    "sg13g2_tech.lef"
+)
+LYT_PATH = Path(
+    "/home/kcaisley/libs/IHP-Open-PDK/ihp-sg13g2/libs.tech/klayout/tech/sg13g2.lyt"
+)
 
 # Process parameters
 W_MIN = 350 * n  # 350nm minimum width
@@ -433,3 +452,118 @@ class Ihp130Pdk(FridaPdk):
         Add HV models manually if using 3.3V I/O devices.
         """
         return [self.install.include_mos_lv(corner)]
+
+
+def _ihp130_primitive_layers() -> tuple[LayerRuleSetData, ...]:
+    """Additional primitive-generation layer rules used by FRIDA scripts."""
+    return (
+        LayerRuleSetData(
+            name="ACTIVE",
+            layer_type="MASTERSLICE",
+            rules=(rule_statement("WIDTH", 0.15),),
+        ),
+        LayerRuleSetData(
+            name="POLY",
+            layer_type="MASTERSLICE",
+            rules=(
+                rule_statement("WIDTH", 0.13),
+                rule_statement("MINLENGTH", 0.13),
+            ),
+        ),
+        LayerRuleSetData(
+            name="CONT",
+            layer_type="CUT",
+            rules=(
+                rule_statement("WIDTH", 0.16),
+                rule_statement("SPACING", 0.18),
+            ),
+        ),
+        LayerRuleSetData(
+            name="METAL1",
+            layer_type="ROUTING",
+            rules=(rule_statement("WIDTH", 0.14),),
+        ),
+    )
+
+
+def _ihp130_layer_pairs() -> tuple[LayerPairRuleSetData, ...]:
+    """Pairwise layer spacing/overlap rules in LEF-like statement format."""
+    return (
+        LayerPairRuleSetData(
+            first_layer="ACTIVE",
+            second_layer="CONT",
+            rules=(rule_statement("ENCLOSURE", 0.07, 0.07),),
+            source="derived",
+        ),
+        LayerPairRuleSetData(
+            first_layer="POLY",
+            second_layer="CONT",
+            rules=(
+                rule_statement("ENCLOSURE", 0.07, 0.07),
+                rule_statement("SPACING", 0.11),
+            ),
+            source="derived",
+        ),
+        LayerPairRuleSetData(
+            first_layer="METAL1",
+            second_layer="CONT",
+            rules=(rule_statement("ENCLOSURE", 0.06, 0.06),),
+            source="derived",
+        ),
+        LayerPairRuleSetData(
+            first_layer="ACTIVE",
+            second_layer="NSD",
+            rules=(rule_statement("ENCLOSURE", 0.18, 0.18),),
+            source="derived",
+        ),
+        LayerPairRuleSetData(
+            first_layer="ACTIVE",
+            second_layer="PSD",
+            rules=(rule_statement("ENCLOSURE", 0.18, 0.18),),
+            source="derived",
+        ),
+        LayerPairRuleSetData(
+            first_layer="ACTIVE",
+            second_layer="NWELL",
+            rules=(rule_statement("ENCLOSURE", 0.31, 0.31),),
+            source="derived",
+        ),
+    )
+
+
+def ihp130_rule_deck() -> RuleDeckData:
+    """Build the full IHP130 rule deck from TECHLEF plus FEOL additions."""
+    if not TECH_LEF_PATH.exists():
+        raise FileNotFoundError(f"IHP130 TECHLEF not found: {TECH_LEF_PATH}")
+    lef_deck = parse_tech_lef(TECH_LEF_PATH)
+    return merge_rule_decks(
+        lef_deck,
+        layers=_ihp130_primitive_layers(),
+        layer_pairs=_ihp130_layer_pairs(),
+    )
+
+
+def ihp130_technology_data() -> TechnologyData:
+    """Create `TechnologyData` for IHP130."""
+    layer_infos = load_layer_map_from_lyt(LYT_PATH) if LYT_PATH.exists() else ()
+    return TechnologyData(
+        name=PDK_NAME,
+        layer_infos=layer_infos,
+        rule_deck=ihp130_rule_deck(),
+    )
+
+
+def write_ihp130_tech_proto(out_dir: Path) -> TechArtifacts:
+    """Write IHP130 technology rules to `.pb` and `.pbtxt`."""
+    return write_tech_to_proto(ihp130_technology_data(), out_dir=out_dir, stem=PDK_NAME)
+
+
+def test_write_ihp130_tech_proto(tmp_path: Path) -> None:
+    """Pytest entrypoint for IHP130 tech protobuf emission."""
+    artifacts = write_ihp130_tech_proto(tmp_path)
+    assert artifacts.pb.exists()
+    assert artifacts.pbtxt.exists()
+    text = artifacts.pbtxt.read_text(encoding="utf-8")
+    assert 'name: "ihp130"' in text
+    assert "layers" in text
+    assert "layer_pairs" in text
