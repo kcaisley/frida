@@ -55,17 +55,6 @@
 		)
 	)
 	(attr smd)
-	(fp_rect
-		(start 1.1 -2.9)
-		(end 2.9 -1.1)
-		(stroke
-			(width 0.2)
-			(type solid)
-		)
-		(fill yes)
-		(layer "F.Cu")
-		(uuid "cbeefaaa-05e5-456d-a6cd-8baf1bbe04d8")
-	)
 	(fp_line
 		(start 0.3 -3.7)
 		(end 0.5 -3.7)
@@ -353,6 +342,13 @@
 		(layers "F.Cu" "F.Mask")
 		(roundrect_rratio 0.15)
 		(uuid "a88f3a4f-2a1c-48b0-ad1a-e011cb97bccc")
+	)
+	(pad "29" smd roundrect
+		(at 2 -2)
+		(size 2 2)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "0fef423e-9009-44a5-a4ab-19a45446eeef")
 	)
 	(embedded_fonts no)
 )

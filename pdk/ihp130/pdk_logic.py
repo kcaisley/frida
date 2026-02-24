@@ -28,7 +28,6 @@ from pydantic.dataclasses import dataclass
 
 # Hdl21 Imports
 import hdl21 as h
-from hdl21.prefix import MILLI
 from hdl21.pdk import PdkInstallation
 from hdl21.primitives import (
     Mos,
@@ -271,7 +270,14 @@ class IhpWalker(h.HierarchyWalker):
         # Otherwise, select based on MosType, MosVth, MosFamily
         mostype = h.MosType.NMOS if params.tp is None else params.tp
         mosfam = h.MosFamily.CORE if params.family is None else params.family
+        if mosfam == h.MosFamily.NONE:
+            mosfam = h.MosFamily.CORE
+
+        # IHP transistor wrappers expose only `STD` Vth variants.
+        # Normalize generic LOW/HIGH requests onto the available model flavor.
         mosvth = h.MosVth.STD if params.vth is None else params.vth
+        if mosvth in {h.MosVth.LOW, h.MosVth.HIGH}:
+            mosvth = h.MosVth.STD
         args = (mostype, mosfam, mosvth)
 
         # Find matching transistor
@@ -466,25 +472,36 @@ class IhpWalker(h.HierarchyWalker):
         """
         Scale device parameter value.
 
-        IHP PDK uses microns, so we need to handle unit conversion.
+        Unitless generic values are interpreted as multipliers of PDK default
+        device dimensions (per-model `default_*_size` entries).
         """
         if orig is None:
             return default
         if isinstance(orig, h.Prefixed):
+            if orig.prefix == h.Prefix.UNIT:
+                return orig.number * default
             return orig
+        if isinstance(orig, (int, float)):
+            return h.Prefixed.new(orig, h.Prefix.UNIT) * default
         if isinstance(orig, h.Literal):
-            return h.Literal(f"({orig.text} * 1e6)")
+            return h.Literal(f"({orig.text} * {default.number}e{default.prefix.value})")
         raise TypeError(f"Param Value {orig}")
 
-    def use_defaults(self, params: h.paramclass, modname: str, defaults: dict) -> tuple:
-        """Get width and length, using defaults if not specified."""
+    def use_defaults(
+        self,
+        params: h.paramclass,
+        modname: str,
+        defaults: dict[str, tuple[h.Prefixed, h.Prefixed]],
+    ) -> tuple[h.Scalar, h.Scalar]:
+        """Get width and length, scaling unitless values by model defaults."""
 
-        w = params.w if params.w is not None else defaults.get(modname, (1.0, 1.0))[0]
-        l = params.l if params.l is not None else defaults.get(modname, (1.0, 1.0))[1]
+        default_pair = defaults.get(modname)
+        if default_pair is None:
+            default_pair = next(iter(defaults.values()))
+        w0, l0 = default_pair
 
-        w = self.scale_param(w, 1000 * MILLI)
-        l = self.scale_param(l, 1000 * MILLI)
-
+        w = self.scale_param(getattr(params, "w", None), w0)
+        l = self.scale_param(getattr(params, "l", None), l0)
         return w, l
 
 

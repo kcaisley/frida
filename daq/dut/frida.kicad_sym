@@ -448,6 +448,24 @@
 				)
 			)
 			(pin power_in line
+				(at 30.48 -2.54 90)
+				(length 2.54)
+				(name "PAD"
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(number "29"
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+			)
+			(pin power_in line
 				(at 35.56 27.94 180)
 				(length 2.54)
 				(name "VDD_D"

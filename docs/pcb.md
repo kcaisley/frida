@@ -118,13 +118,14 @@ Reference section for future TP additions in the schematic:
 
 ### Schematic Changes Needed
 
-- [ ] feedback capacitors, extra
-- [ ] series measurement resistors
-- [ ] add vdd half to the vocm jacket
-- [ ] switch clamps to output of amplifier
-- [ ] connect ground
-- [ ] add pull /up/down to amp_en_ext_b
+- [x] feedback capacitors, extra
+- [x] series measurement resistors
 - [x] switch vocm voltage divider to be powered from vdd_dac instead of vdd_io
+- [ ] add vdd half to the vin_n jack
+- [ ] switch clamps to output of amplifier
+- [ ] add ground to AMP PD EXT
+- [ ] add pull /up/down to amp_en_ext_b
+- [ ] switch naming to bdaq, instead of daq
 
 ### PCB Edits
 
@@ -134,8 +135,23 @@ Reference section for future TP additions in the schematic:
 - [ ] name testpoints the actual signal net, instead of the testoint number
 - [ ] don't go under the displayport connector
 - [ ] name the jumpers themselves
+- [ ] add ground plane to frida footprint
 
 ### PCB New Additions
 
 - [ ] more headers, double for ground
 - [ ] electrical connection for chip back plane (via down)
+
+
+change pulldowns to 1k
+pu resistors on backside
+change vdd_dac to vdd_bdaq
+tp for amp is good
+float the pins instead of eathing
+change pin of rj45 pin 7 to provide ground refernce
+check part number of drivers
+
+connect all gnd pads of frida to the footprint, to reduce ground 
+make the differential resistors be equisidstanct front he fhip.
+don't forget to add lot number
+	
