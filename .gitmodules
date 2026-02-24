@@ -1,0 +1,9 @@
+[submodule "pdk/tsmc65"]
+	path = pdk/tsmc65
+	url = git@github.com:kcaisley/tsmc65.git
+[submodule "pdk/tower180"]
+	path = pdk/tower180
+	url = git@github.com:kcaisley/tower180.git
+[submodule "pdk/tsmc28"]
+	path = pdk/tsmc28
+	url = git@github.com:kcaisley/tsmc28.git
