@@ -164,7 +164,6 @@ def run_netlist_variants(
     block: str,
     variants: list[Any],
     build_sim: Callable[[Any], tuple[h.Module, hs.Sim]],
-    pdk: Any,
     outdir: Any,
     return_sims: bool = False,
     simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
@@ -178,7 +177,6 @@ def run_netlist_variants(
         block: Block name (e.g., "comp", "cdac", "samp")
         variants: List of parameter objects
         build_sim: Callable returning (tb, sim) for a variant
-        pdk: Active PDK instance
         outdir: Output directory path
         return_sims: Return list of sims in addition to wall time
         netlist_fmt: DUT-only netlist format override for netlist flow:
@@ -194,15 +192,21 @@ def run_netlist_variants(
     from .sim import write_sim_netlist
 
     start = time.perf_counter()
+    pdk_module = h.pdk.default()
+    if pdk_module is None:
+        raise RuntimeError(
+            "No active PDK selected. Set one with `h.pdk.set_default(...)` first."
+        )
+    pdk_name = _pdk_name_from_module(pdk_module)
 
     sims: list[hs.Sim] = []
     if netlist_fmt is None:
         for params in variants:
             tb, sim = build_sim(params)
-            pdk.compile(tb)
+            h.pdk.compile(tb)
 
             suffix = ".scs" if simulator == SupportedSimulators.SPECTRE else ".sp"
-            filename = params_to_filename(block, params, pdk.name, suffix=suffix)
+            filename = params_to_filename(block, params, pdk_name, suffix=suffix)
             netlist_path = outdir / filename
             write_sim_netlist(sim, netlist_path, compact=True, simulator=simulator)
             if return_sims:
@@ -227,8 +231,8 @@ def run_netlist_variants(
         suffix = suffix_by_fmt[fmt]
         for params in variants:
             dut = build_dut(params)
-            pdk.compile(dut)
-            filename = params_to_filename(block, params, pdk.name, suffix=suffix)
+            h.pdk.compile(dut)
+            filename = params_to_filename(block, params, pdk_name, suffix=suffix)
             netlist_path = outdir / filename
             pkg = h.to_proto(dut)
             with open(netlist_path, "w") as f:
@@ -238,6 +242,17 @@ def run_netlist_variants(
     if return_sims:
         return wall_time, sims
     return wall_time
+
+
+def _pdk_name_from_module(pdk_module: Any) -> str:
+    """Extract technology-name token from a PDK module name."""
+    module_name = getattr(pdk_module, "__name__", "")
+    parts = module_name.split(".")
+    if len(parts) >= 2 and parts[-1] == "pdk_logic":
+        return parts[-2]
+    if parts:
+        return parts[-1]
+    return "unknown"
 
 
 def wrap_monte_carlo(sim: hs.Sim, mc_config: Any | None = None) -> hs.Sim:

@@ -23,7 +23,6 @@ from ..flow import (
     select_variants,
     wrap_monte_carlo,
 )
-from ..pdk import get_pdk
 from .cdac import (
     Cdac,
     CdacParams,
@@ -161,13 +160,13 @@ def test_cdac_flow(
     mode,
     montecarlo,
     verbose,
+    tech,
     simulator,
     netlist_fmt,
     sim_options,
     sim_server,
 ):
     """Run CDAC flow: netlist, simulate, or measure."""
-    pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
@@ -218,7 +217,6 @@ def test_cdac_flow(
             "cdac",
             variants,
             build_sim,
-            pdk,
             outdir,
             simulator=simulator,
             netlist_fmt=netlist_fmt,
@@ -227,7 +225,7 @@ def test_cdac_flow(
         if verbose:
             print_netlist_summary(
                 block="cdac",
-                pdk_name=pdk.name,
+                pdk_name=tech,
                 count=len(variants),
                 param_axes=get_param_axes(variants),
                 wall_time=wall_time,
@@ -236,12 +234,17 @@ def test_cdac_flow(
         return
 
     wall_time, sims = run_netlist_variants(
-        "cdac", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
+        "cdac",
+        variants,
+        build_sim,
+        outdir,
+        return_sims=True,
+        simulator=simulator,
     )
     if verbose:
         print_netlist_summary(
             block="cdac",
-            pdk_name=pdk.name,
+            pdk_name=tech,
             count=len(variants),
             param_axes=get_param_axes(variants),
             wall_time=wall_time,

@@ -3,9 +3,9 @@ ADC generator for FRIDA.
 
 Creates a complete SAR ADC by composing:
 - Digital control block (ExternalModule from synthesized netlist)
-- 2× CDAC with integrated drivers
-- 2× Sampling switches
-- 1× Comparator
+- 2x CDAC with integrated drivers
+- 2x Sampling switches
+- 1x Comparator
 
 Architecture:
     Adc (HDL21 generator)

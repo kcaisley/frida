@@ -266,85 +266,25 @@ Legend: ✅ = first-class constraint/support, ⚠️ = indirect or limited, ❌�
 
 ## VLSIR Schema Additions Needed (Tech Rules + Constraints)
 
-Current gap: existing `vlsir.tech.Technology` captures layer identity, but not enough rule detail to drive generator- or PnR-level constraint translation across `ciccreator`, `ALIGN`, and `MAGICAL`.
+### 1) `vlsir.tech` rule deck status (implemented vs historical sketch)
 
-### 1) Extend `vlsir.tech` with executable rule dimensions
+The older proto sketch previously shown here is superseded.
 
-```proto
-// Sketch only (not yet implemented)
-message RuleDeck {
-  GridSpec grid = 1;
-  repeated RoutingLayerRule routing_layers = 10;
-  repeated ViaRule via_rules = 11;
-  repeated PrimitiveRule primitive_rules = 12;
-  repeated NetClassRule net_classes = 13;
-  repeated AntennaRule antenna_rules = 14;
-  repeated DensityRule density_rules = 15;
-}
+Current source of truth is `Vlsir/protos/tech.proto`, where `RuleDeck` already includes:
+- LEF units and manufacturing grid
+- per-layer rule sets
+- via and via-rule definitions
+- pairwise layer rules
+- typed sub-structures for routing, cuts, antenna, density, spacing tables, and enclosure rules
 
-message GridSpec {
-  int64 db_unit_nm = 1;              // LEF DATABASE MICRONS equivalent
-  int64 manufacturing_grid_nm = 2;   // LEF MANUFACTURINGGRID
-  int64 route_grid_h_nm = 3;         // CICC ROUTE.horizontalgrid
-  int64 route_grid_v_nm = 4;         // CICC ROUTE.verticalgrid
-}
+FRIDA layout API alignment:
+- `TechnologyData` now carries layout-facing process identity only (`name`, `packages`, `model_libraries`, `layer_infos`, `rule_deck`)
+- transistor minimum dimensions are not serialized in the layout tech payload
+- minimum poly `WIDTH` and `MINLENGTH` remain in per-layer rule statements and define min transistor geometry for primitive generators
 
-message RoutingLayerRule {
-  string name = 1;
-  enum Direction { H = 0; V = 1; }
-  Direction direction = 2;
-  int64 pitch_nm = 3;
-  int64 offset_nm = 4;
-  repeated int64 width_nm = 5;       // supports scalar or table
-  repeated int64 space_nm = 6;       // supports scalar or table
-  int64 min_length_nm = 7;
-  int64 max_length_nm = 8;
-  int64 min_end_to_end_nm = 9;
-  int64 min_area_nm2 = 10;
-  int64 min_step_nm = 11;
-  RcRule rc = 12;                    // UnitR/UnitC/UnitCC style fields
-}
-
-message ViaRule {
-  string name = 1;
-  string lower_layer = 2;
-  string upper_layer = 3;
-  int64 cut_w_nm = 4;
-  int64 cut_h_nm = 5;
-  int64 cut_space_x_nm = 6;
-  int64 cut_space_y_nm = 7;
-  int64 enc_l_x_nm = 8;
-  int64 enc_l_y_nm = 9;
-  int64 enc_h_x_nm = 10;
-  int64 enc_h_y_nm = 11;
-  int32 min_cuts = 12;               // MINIMUMCUT-style
-  int32 adj_cuts = 13;               // ADJACENTCUTS-style
-}
-
-message PrimitiveRule {
-  enum DeviceKind { MOS = 0; RES = 1; CAP = 2; }
-  DeviceKind kind = 1;
-  string subtype = 2;                // nmos/pmos/mom/mim/polyres/...
-  int64 gate_min_l_nm = 10;
-  int64 finger_pitch_nm = 11;
-  int64 gate_extension_nm = 12;
-  int64 implant_enclosure_nm = 13;
-  int64 contact_enclosure_nm = 14;
-}
-
-message NetClassRule {
-  string name = 1;                   // signal_analog/power/clock/cap_critical/...
-  int64 width_nm = 2;
-  int64 spacing_nm = 3;
-  int32 via_rows = 4;
-  int32 via_cols = 5;
-}
-```
-
-Minimum reason this is required:
-- Captures CICC-style rule scalars (`width/space/enclosure/encOpposite`, route grids).
-- Captures ALIGN-style structured layer/via/RC fields (`Pitch/Width/MinL/EndToEnd`, `SpaceX/WidthX/Venc*`, `UnitR/C/CC`).
-- Captures MAGICAL/TECHLEF route-rule fields and net-class width/cut policies.
+Design intent:
+- Layout package should not carry netlist-runtime voltage rail policy.
+- Voltage rails remain part of netlist/simulation PDK metadata, not the layout-rule API.
 
 ### 2) Add a dedicated `vlsir.constraints` package
 

@@ -20,7 +20,6 @@ from ..flow import (
     select_variants,
     wrap_monte_carlo,
 )
-from ..pdk import get_pdk
 from .samp import Samp, SampParams
 
 
@@ -125,13 +124,13 @@ def test_samp_flow(
     mode,
     montecarlo,
     verbose,
+    tech,
     simulator,
     netlist_fmt,
     sim_options,
     sim_server,
 ):
     """Run sampler flow: netlist, simulate, or measure."""
-    pdk = get_pdk()
     outdir = sim_options.rundir
     outdir.mkdir(exist_ok=True)
 
@@ -166,7 +165,6 @@ def test_samp_flow(
             "samp",
             variants,
             build_sim,
-            pdk,
             outdir,
             simulator=simulator,
             netlist_fmt=netlist_fmt,
@@ -175,7 +173,7 @@ def test_samp_flow(
         if verbose:
             print_netlist_summary(
                 block="samp",
-                pdk_name=pdk.name,
+                pdk_name=tech,
                 count=len(variants),
                 param_axes=get_param_axes(variants),
                 wall_time=wall_time,
@@ -184,12 +182,17 @@ def test_samp_flow(
         return
 
     wall_time, sims = run_netlist_variants(
-        "samp", variants, build_sim, pdk, outdir, return_sims=True, simulator=simulator
+        "samp",
+        variants,
+        build_sim,
+        outdir,
+        return_sims=True,
+        simulator=simulator,
     )
     if verbose:
         print_netlist_summary(
             block="samp",
-            pdk_name=pdk.name,
+            pdk_name=tech,
             count=len(variants),
             param_axes=get_param_axes(variants),
             wall_time=wall_time,

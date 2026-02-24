@@ -6,14 +6,16 @@ Provides fixtures for flow control, simulator selection, and PDK selection.
 
 import shutil
 import socket
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
+import hdl21 as h
 import pytest
 from vlsirtools.spice import SupportedSimulators
 
 from .flow import get_param_axes, print_netlist_summary
-from .pdk import get_pdk, list_pdks, set_pdk
 
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
@@ -24,6 +26,69 @@ SIMULATOR_BINARIES: dict[SupportedSimulators, tuple[str, ...]] = {
     SupportedSimulators.NGSPICE: ("ngspice",),
     SupportedSimulators.XYCE: ("Xyce", "xyce"),
 }
+
+_PDK_PACKAGES: dict[str, str] = {
+    "ihp130": "pdk.ihp130",
+    "tsmc65": "pdk.tsmc65",
+    "tsmc28": "pdk.tsmc28",
+    "tower180": "pdk.tower180",
+}
+
+
+def list_pdks() -> list[str]:
+    """List supported PDK names."""
+    return list(_PDK_PACKAGES.keys())
+
+
+def _resolve_pdk_module(name: str) -> ModuleType:
+    """Resolve a PDK name to its registered HDL21 `pdk_logic` module."""
+    if name not in _PDK_PACKAGES:
+        available = ", ".join(list_pdks())
+        raise ValueError(f"Unknown PDK '{name}'. Available: {available}")
+
+    pkg = import_module(_PDK_PACKAGES[name])
+    pdk_module = getattr(pkg, "pdk_logic", None)
+    if pdk_module is None:
+        raise RuntimeError(f"PDK package '{_PDK_PACKAGES[name]}' has no `pdk_logic`")
+    return pdk_module
+
+
+def _reset_generator_caches() -> None:
+    """Reset FRIDA generator caches after PDK switch."""
+    try:
+        from flow.samp.samp import Samp
+        from flow.samp.test_samp import SampTb
+
+        Samp.Cache.reset()
+        SampTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from flow.comp.comp import Comp
+        from flow.comp.test_comp import CompTb
+
+        Comp.Cache.reset()
+        CompTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        from flow.cdac.cdac import Cdac
+        from flow.cdac.test_cdac import CdacTb
+
+        Cdac.Cache.reset()
+        CdacTb.Cache.reset()
+    except (ImportError, AttributeError):
+        pass
+
+
+def set_pdk(name: str) -> ModuleType:
+    """Set active HDL21 default PDK module by name."""
+    pdk_module = _resolve_pdk_module(name)
+    h.pdk.set_default(pdk_module)
+    _reset_generator_caches()
+    return pdk_module
 
 
 def _is_xdist_worker(config: pytest.Config) -> bool:
@@ -226,14 +291,14 @@ def require_sim_for_flow(
 
 
 @pytest.fixture
-def tech():
+def tech(request) -> str:
     """
-    Provide the active technology/PDK instance for tests.
+    Provide the active technology name for tests.
 
     The tech is set via the --tech command line option.
     Default is ihp130 (IHP SG13G2 130nm) since it's open source.
     """
-    return get_pdk()
+    return request.config.getoption("--tech")
 
 
 @pytest.fixture
@@ -271,11 +336,10 @@ def print_summary_if_verbose(
         errors: List of error messages (or None for no errors)
     """
     if request.config.option.verbose >= 1:
-        pdk = get_pdk()
         param_axes = get_param_axes(params_list)
         print_netlist_summary(
             block=block,
-            pdk_name=pdk.name,
+            pdk_name=request.config.getoption("--tech"),
             count=count,
             param_axes=param_axes,
             wall_time=wall_time,

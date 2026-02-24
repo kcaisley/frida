@@ -1,11 +1,12 @@
 # General
 /results
 /scratch
+/pdk/*/scratch/
 /logs
 .vscode
 .claude
 AGENTS.md
-flow/plan*.md
+plan*.md
 
 # Python
 .pytest_cache

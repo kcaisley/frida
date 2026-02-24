@@ -23,9 +23,6 @@ from .cdac import (
     CdacTbParams,
 )
 
-# PDK
-from .pdk import get_pdk, set_pdk, GenericPdk
-
 # Common params and enums - from flow module
 from .flow import (
     # Basic enums
@@ -109,10 +106,6 @@ __all__ = [
     "CompTbParams",
     "CdacTb",
     "CdacTbParams",
-    # PDK
-    "get_pdk",
-    "set_pdk",
-    "GenericPdk",
     # Enums
     "SwitchType",
     "PreampDiffpair",

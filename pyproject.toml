@@ -36,7 +36,7 @@ exclude = ["old/"]
 ignore = ["E741"]  # Allow 'l' for transistor length
 
 [tool.pytest.ini_options]
-testpaths = ["flow"]
+testpaths = ["flow", "pdk"]
 python_files = ["test_*.py"]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
