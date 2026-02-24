@@ -4,9 +4,6 @@
 /pdk/*/scratch/
 /logs
 .vscode
-.claude
-AGENTS.md
-plan*.md
 
 # Python
 .pytest_cache

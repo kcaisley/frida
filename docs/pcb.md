@@ -153,5 +153,4 @@ check part number of drivers
 
 connect all gnd pads of frida to the footprint, to reduce ground 
 make the differential resistors be equisidstanct front he fhip.
-don't forget to add lot number
-	
+don't forget to add lot number place
