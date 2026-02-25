@@ -1,14 +1,14 @@
 # Layout Refactor Plan: Split Serialization + Canonical Layer IDs
 
 ## Summary
-- Keep the generation model as **PDK-aware at input time**: generators receive `vlsir.tech`-derived dimensions/rules and layer mappings and produce concrete KLayout geometry.
+- Keep the generation model as **PDK-aware at input time**: generators receive `vlsir.tech`-derived rules and layer mappings and produce concrete KLayout geometry.
 - Build KLayout geometry in memory using canonical, process-agnostic names (`OD`, `PO`, `M1.draw`, `M2.pin`, `VIA3`, etc.).
 - Split the current mixed module into focused modules, including a dedicated serializer file `layout/serialize.py`.
 - Standardize primitive generator APIs on **canonical process-agnostic layer IDs** (e.g. `M1`, `M2`, `POLY`) with per-PDK alias mapping.
 - Resolve canonical layer names to real `(layer, datatype)` only during `vlsir.raw` serialization, using `vlsir.tech.Technology.layers` (`LayerInfo`) from the loaded technology object.
 - Apply a **hard cutover** (no compatibility shim): update all imports in one change.
 - Restructure rules as a typed, layer-owned API using canonical enum keys (`L.OD`, `L.PO`, `L.CO`, `L.M1` ... `L.M10`, `L.VIA1` ... `L.VIA9`, etc.) with lower-case rule names.
-   - same-layer spacing owned by the layer (`deck.layer(L.M1).min_spacing(dim=...)`)
+   - same-layer spacing owned by the layer (`deck.layer(L.M1).min_spacing(rule=...)`)
    - inter-layer spacing uses `to=` and is still owned by the higher layer (`deck.layer(L.M2).min_spacing(to=L.M1, ...)`)
    - enclosure is owned by the higher layer (`deck.layer(L.M1).min_enclosure(of=L.CO, ...)`)
    - min-area/ min-width/ related per-layer checks stay on the owning layer
@@ -54,8 +54,8 @@
 - Add `flow/layout/rules.py` with:
   - typed rule records (`SpacingRule`, `EnclosureRule`, `AreaRule`)
   - `RuleDeck` + `LayerRules` method API
-  - `min_spacing(to=..., dim=..., run_length=...)` (`to` defaults to owner for same-layer spacing)
-  - `min_enclosure(of=..., dim=...)` and `min_area(dim=...)`
+  - `min_spacing(to=..., rule=..., run_length=...)` (`to` defaults to owner for same-layer spacing)
+  - `min_enclosure(of=..., rule=...)` and `min_area(rule=...)`
   - represent PRL spacing as multiple rule records instead of a table payload
 - Update callers to import from new modules directly (hard cutover).
 - Update package exports in [__init__.py](/home/kcaisley/frida/flow/layout/__init__.py#L1) to reflect new module boundaries.
@@ -131,7 +131,7 @@ Z = {
 class SpacingRule:
     owner: L
     to: L
-    dim: h.Prefixed
+    rule: h.Prefixed
     run_length: h.Prefixed | None = None
 
 
@@ -139,13 +139,13 @@ class SpacingRule:
 class EnclosureRule:
     owner: L
     of: L
-    dim: h.Prefixed
+    rule: h.Prefixed
 
 
 @dataclass(frozen=True)
 class AreaRule:
     owner: L
-    dim: h.Prefixed
+    rule: h.Prefixed
 
 
 @dataclass
@@ -166,7 +166,7 @@ class LayerRules:
     def min_spacing(
         self,
         *,
-        dim: h.Prefixed,
+        rule: h.Prefixed,
         to: L | None = None,
         run_length: h.Prefixed | None = None,
     ) -> Self:
@@ -175,37 +175,37 @@ class LayerRules:
             msg = f"{self.owner.name} cannot own spacing to higher layer {target.name}"
             raise ValueError(msg)
         self.deck.spacing.append(
-            SpacingRule(owner=self.owner, to=target, dim=dim, run_length=run_length)
+            SpacingRule(owner=self.owner, to=target, rule=rule, run_length=run_length)
         )
         return self
 
-    def min_enclosure(self, *, of: L, dim: h.Prefixed) -> Self:
+    def min_enclosure(self, *, of: L, rule: h.Prefixed) -> Self:
         if Z[self.owner] <= Z[of]:
             msg = f"{self.owner.name} must be above {of.name} to own enclosure"
             raise ValueError(msg)
-        self.deck.enclosure.append(EnclosureRule(owner=self.owner, of=of, dim=dim))
+        self.deck.enclosure.append(EnclosureRule(owner=self.owner, of=of, rule=rule))
         return self
 
-    def min_area(self, *, dim: h.Prefixed) -> Self:
-        self.deck.area.append(AreaRule(owner=self.owner, dim=dim))
+    def min_area(self, *, rule: h.Prefixed) -> Self:
+        self.deck.area.append(AreaRule(owner=self.owner, rule=rule))
         return self
 
 
 deck = RuleDeck()
 
 # Same-layer spacing with three PRL points (explicit entries, no table object)
-deck.layer(L.M1).min_spacing(dim=80 * h.n)
-deck.layer(L.M1).min_spacing(dim=100 * h.n, run_length=200 * h.n)
-deck.layer(L.M1).min_spacing(dim=120 * h.n, run_length=500 * h.n)
+deck.layer(L.M1).min_spacing(rule=80 * h.n)
+deck.layer(L.M1).min_spacing(rule=100 * h.n, run_length=200 * h.n)
+deck.layer(L.M1).min_spacing(rule=120 * h.n, run_length=500 * h.n)
 
 # Cross-layer spacing uses `to=`, owned by the higher layer
-deck.layer(L.M2).min_spacing(to=L.M1, dim=120 * h.n)
+deck.layer(L.M2).min_spacing(to=L.M1, rule=120 * h.n)
 
 # Higher layer owns enclosure of lower layer
-deck.layer(L.M1).min_enclosure(of=L.CO, dim=50 * h.n)
+deck.layer(L.M1).min_enclosure(of=L.CO, rule=50 * h.n)
 
 # Per-layer min area
-deck.layer(L.M1).min_area(dim=500 * (h.n * h.n))
+deck.layer(L.M1).min_area(rule=500 * (h.n * h.n))
 ```
 
 ### Primitive Generator Example (PCell Code)
@@ -324,7 +324,7 @@ def serialize_draw_layer(
    - `min_spacing` default `to` behavior is same-layer
    - PRL spacing entries are preserved as separate records with distinct `run_length`
 4. Generator regression tests:
-   - NMOS and MOMCAP smoke tests still pass and produce expected top-level dimensions/layer usage
+   - NMOS and MOMCAP smoke tests still pass and produce expected top-level geometry/layer usage
 5. Integration test:
    - full flow from tech proto read -> generator -> KLayout memory -> raw protobuf export
 6. Acceptance criteria:
@@ -332,47 +332,47 @@ def serialize_draw_layer(
    - all existing layout tests pass, plus new resolver/serializer tests pass
 
 ## Assumptions and Defaults
-- Default model is PDK-aware generation (chosen): no generic post-serialization “pdkwalker compiler” stage for physical dimensions.
+- Default model is PDK-aware generation (chosen): no generic post-serialization “pdkwalker compiler” stage for physical rules.
 - Canonical layer IDs are the stable generator-facing interface; PDK alias maps are the adaptation layer.
 - Rule source-of-truth is authored Python `RuleDeck` construction; no reverse-import `Technology -> RuleDeck` path is in scope.
 - KLayout remains the in-memory source-of-truth for concrete geometry prior to raw serialization.
 - No compatibility shim is kept; this is a one-shot migration across FRIDA internal call sites.
 
 ## Ordered Execution Checklist
-1. [ ] Create `flow/layout/layers.py` with canonical typed IDs through `L.M10`/`L.VIA9`, FEOL/implant/well/purpose IDs, and stack-order metadata.
-2. [ ] Create `flow/layout/rules.py` with `RuleDeck`/`LayerRules` and typed rule records (`SpacingRule`, `EnclosureRule`, `AreaRule`).
+1. [x] Create `flow/layout/layers.py` with canonical typed IDs through `L.M10`/`L.VIA9`, FEOL/implant/well/purpose IDs, and stack-order metadata.
+2. [x] Create `flow/layout/rules.py` with `RuleDeck`/`LayerRules` and typed rule records (`SpacingRule`, `EnclosureRule`, `AreaRule`).
    - include layer-owned API coverage for:
-   - same-layer spacing (`min_spacing(dim=...)`)
-   - PRL spacing (`min_spacing(dim=..., run_length=...)`)
-   - inter-layer spacing ownership (`min_spacing(to=..., dim=...)`)
-   - higher-layer enclosure (`min_enclosure(of=..., dim=...)`)
-   - per-layer area (`min_area(dim=...)`)
-3. [ ] Enforce authored `RuleDeck` as the only rule-entry path; do not implement `Technology -> RuleDeck` reverse conversion.
-4. [ ] Ensure authored rules can express all required families (including via-via spacing and opposite-implant spacing/enclosure) and cover them in tests/examples.
-5. [ ] Move tech dataclasses, proto I/O, and rule/layer lookup helpers out of `flow/layout/layout.py` into `flow/layout/tech.py`.
+   - same-layer spacing (`min_spacing(rule=...)`)
+   - PRL spacing (`min_spacing(rule=..., run_length=...)`)
+   - inter-layer spacing ownership (`min_spacing(to=..., rule=...)`)
+   - higher-layer enclosure (`min_enclosure(of=..., rule=...)`)
+   - per-layer area (`min_area(rule=...)`)
+3. [x] Enforce authored `RuleDeck` as the only rule-entry path; do not implement `Technology -> RuleDeck` reverse conversion.
+4. [x] Ensure authored rules can express all required families (including via-via spacing and opposite-implant spacing/enclosure) and cover them in tests/examples.
+5. [x] Move tech dataclasses, proto I/O, and rule/layer lookup helpers out of `flow/layout/layout.py` into `flow/layout/tech.py`.
    - preserve behavior for existing lookup utilities (`technology_rule_value`, spacing helpers, pair-rule helpers).
-6. [ ] Move and standardize KLayout geometry helpers into `flow/layout/klayout.py` with nm-driven helper entry points (`nm_to_dbu`, `insert_box_nm`, `insert_text_nm`).
-7. [ ] Run a repo-wide migration from legacy `um` geometry/rule paths to `nm`-driven paths and remove superseded helper APIs.
-8. [ ] Move KLayout -> VLSIR raw serialization/export functions into `flow/layout/serialize.py` (using `vlsir.raw_pb2` directly).
+6. [x] Move and standardize KLayout geometry helpers into `flow/layout/klayout.py` with nm-driven helper entry points (`nm_to_dbu`, `insert_box_nm`, `insert_text_nm`).
+7. [x] Run a repo-wide migration from legacy `um` geometry/rule paths to `nm`-driven paths and remove superseded helper APIs.
+8. [x] Move KLayout -> VLSIR raw serialization/export functions into `flow/layout/serialize.py` (using `vlsir.raw_pb2` directly).
    - serializer must convert existing KLayout geometry only (no new geometry synthesis in serialization).
-9. [ ] Refactor [nmos.py](/home/kcaisley/frida/flow/layout/nmos.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
-   - keep extraction of physical dimensions/rules from authored rule deck + tech inputs at generator entry.
+9. [x] Refactor [nmos.py](/home/kcaisley/frida/flow/layout/nmos.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
+   - keep extraction of physical rules from authored rule deck + tech inputs at generator entry.
    - remove process-specific layer-name assumptions from generator internals.
    - keep serialization outside generator flow.
-10. [ ] Refactor [momcap.py](/home/kcaisley/frida/flow/layout/momcap.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
-   - keep extraction of physical dimensions/rules from authored rule deck + tech inputs at generator entry.
+10. [x] Refactor [momcap.py](/home/kcaisley/frida/flow/layout/momcap.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
+   - keep extraction of physical rules from authored rule deck + tech inputs at generator entry.
    - remove process-specific layer-name assumptions from generator internals.
    - keep serialization outside generator flow.
-11. [ ] Update all PDK layout metadata modules to expose/consume canonical alias maps and provide clear errors for unsupported canonical layers.
+11. [x] Update all PDK layout metadata modules to expose/consume canonical alias maps and provide clear errors for unsupported canonical layers.
    - apply this pattern to [/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py](/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py#L1) and mirror for other `pdk/*/layout/` modules.
-12. [ ] Add per-PDK validation tests for canonical layer coverage (`M1..M10`, `VIA1..VIA9`) and expected failure behavior on unsupported layers.
-13. [ ] Update [__init__.py](/home/kcaisley/frida/flow/layout/__init__.py#L1) exports and perform hard-cutover import updates across FRIDA (no `flow.layout.layout` imports left).
-14. [ ] Replace or remove [layout.py](/home/kcaisley/frida/flow/layout/layout.py#L1) once no importers remain.
+12. [x] Add per-PDK validation tests for canonical layer coverage (`M1..M10`, `VIA1..VIA9`) and expected failure behavior on unsupported layers.
+13. [x] Update [__init__.py](/home/kcaisley/frida/flow/layout/__init__.py#L1) exports and perform hard-cutover import updates across FRIDA (no `flow.layout.layout` imports left).
+14. [x] Replace or remove [layout.py](/home/kcaisley/frida/flow/layout/layout.py#L1) once no importers remain.
    - either keep a minimal boundary/doc module or remove the file entirely.
-15. [ ] Add/ update tests: serializer equivalence, layer resolver coverage, rule API behavior, generator regressions, and full integration flow.
+15. [x] Add/ update tests: serializer equivalence, layer resolver coverage, rule API behavior, generator regressions, and full integration flow.
    - serializer: rectangle/polygon/path/text + instance transforms/arrays
    - resolver: canonical ID alias resolution + clear missing-layer failures
    - rule API: ownership checks, default `to` behavior, PRL entry preservation
    - generators: NMOS + MOMCAP smoke/regression behavior
    - integration: tech/rules -> generator -> KLayout memory -> raw protobuf export
-16. [ ] Run the layout test suite and confirm acceptance criteria are met before finalizing.
+16. [x] Run the layout test suite and confirm acceptance criteria are met before finalizing.

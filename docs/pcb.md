@@ -39,28 +39,6 @@ Reference section for future TP additions in the schematic:
 - Draw no connecting wire between TP and label (line length `0 mm` because both are coincident).
 - Hide the `Value` field on TP symbols.
 
-## Power & Voltage Management
-
-- [ ] Level shifter: specify voltage requirements (source and target voltages)
-- [ ] Forward VDD_FPGA voltage on one of the extra pins
-- [ ] Buffer negative rail: make configurable with negative supply or ground (add jumper)
-- [ ] TVS diode for reverse polarity protection (not for transients)
-
-## Analog Input Path
-
-- [x] Input devices/switching for buffer
-- [ ] Clamp diodes to protect FRIDA chip from external/buffer sources (VIN_P and VIN_N, use solder/pin jumper, check ENOB impact, clamp to VDD_DAC and GND)
-- [ ] Share input connector pins but have headers to measure current
-- [x] Add test point on VIN_N
-
-## Feedback Network
-
-- [ ] Cap feedback: specify values and frequency response requirements
-
-## Reset Circuit
-
-- [ ] Add pulldown for reset using NMOS with 20k resistor connected to chip reset pin
-
 ## PCB Stackup & Impedance
 
 4-layer stackup from Multi-CB (FR4, 1.6mm nominal):
@@ -82,75 +60,46 @@ Reference section for future TP additions in the schematic:
 
 - [ ] Request impedance control from Multi-CB at order time (+/- 10% or +/- 5% tolerance available on request)
 
-## High-Speed Signals
+## Schematic Checklist
 
-- [ ] LVDS TX traces: design for 100 ohm differential impedance
-- [ ] LVDS RX traces: design for 100 ohm differential impedance
+- [x] Add input devices/switching for the buffer.
+- [x] Add a test point on `VIN_N`.
+- [x] Add extra feedback capacitors.
+- [x] Add series measurement resistors.
+- [x] Switch the `VOCM` voltage divider supply from `VDD_IO` to `VDD_DAC`.
+- [x] Switch clamps to the amplifier output.
+- [x] Switch transistor polarity of `AMP_PD_EXT`.
+- [x] Add pull-up/ pull-down control on `AMP_EN_EXT_B`.
+- [x] Switch `BDAQ` supplied voltage naming to `BDAQ` instead of `DAQ`.
+- [x] Change clock differential pair pull-downs to `1k`.
+- [x] Forward `VDD_BDAQ` on one extra pin.
+- [x] Add clamp diodes to protect FRIDA from external/buffer sources on `VIN_P` and `VIN_N`, with solder/pin jumper options; check ENOB impact and clamp to `VDD_DAC` and `GND`.
+- [x] Share input connector pins and add headers for current measurement.
+- [x] Add feedback and forward filter capacitors to amplifiers (two stage low-pass).
+- [x] Reverse the `PD_N` pull-down to a pull-up with `VDD_BDAQ`.
+- [x] Add pin-8 supply for `VDAQ`.
+- [x] Rename `VDD_DAQ`/ `VDD_DAC` to `VDD_BDAQ` where applicable.
+- [x] Change `RJ45` pin 7 to provide ground reference.
+- [x] Flip pin orders of differential pairs, to match DP connector to DUT pinout
+- [x] Update part for level-shifter to `SN74AXC8T245RJWR`
+- [x] Add pull-up for the frida `rst_b`, to ensure it's enabled by default
 
-## Research & Component Selection
+## PCB Checklist
 
-- [ ] Check for new application notes on Analog Devices (AD) website
-- [ ] Check for new application notes on Texas Instruments (TI) website
-
-## Layout Integration Checklist
-
-- [ ] solid silk screen field
-- [ ] add logos
-- [ ] more headers, double for ground
-- [ ] text on header names
-- [ ] name testpoints the actual signal net, instead of the testpoint number
-- [ ] don't go under the displayport connector
-- [ ] electrical connection for chip back plane (via down)
-- [ ] feedback capacitors, extra
-- [ ] series measurement resistors
-- [ ] add vdd half to the vocm jacket
-- [ ] name the jumpers themselves
-- [ ] switch clamps to output of amplifier
-- [ ] connect ground
-- [ ] add pull /up/down to amp_en_ext_b
-- [x] switch vocm voltage divider to be powered from vdd_dac instead of vdd_io
-- [ ] add pin 8 supply for vdaq\
-- [ ] reverse the PD_N pull down to a pullup with VDD_BDAQ
-- [x] rename vdd_daq -> vdd_bdaq
-- [ ] flip pin orders in
-
-## PCB Feedback Notes
-
-### Schematic Changes Needed
-
-- [x] feedback capacitors, extra
-- [x] series measurement resistors
-- [x] switch vocm voltage divider to be powered from vdd_dac instead of vdd_io
-- [ ] add vdd half to the vin_n jack
-- [ ] switch clamps to output of amplifier
-- [ ] add ground to AMP PD EXT
-- [ ] add pull /up/down to amp_en_ext_b
-- [ ] switch naming to bdaq, instead of daq
-
-### PCB Edits
-
-- [ ] solid silk screen field
-- [ ] add logos
-- [ ] text on header names
-- [ ] name testpoints the actual signal net, instead of the testoint number
-- [ ] don't go under the displayport connector
-- [ ] name the jumpers themselves
-- [ ] add ground plane to frida footprint
-
-### PCB New Additions
-
-- [ ] more headers, double for ground
-- [ ] electrical connection for chip back plane (via down)
-
-
-change pulldowns to 1k
-pu resistors on backside
-change vdd_dac to vdd_bdaq
-tp for amp is good
-float the pins instead of eathing
-change pin of rj45 pin 7 to provide ground refernce
-check part number of drivers
-
-connect all gnd pads of frida to the footprint, to reduce ground 
-make the differential resistors be equisidstanct front he fhip.
-don't forget to add lot number place
+- [x] Keep amp test-point placement as-is (good).
+- [ ] Route `LVDS_TX` as `100 ohm` differential.
+- [ ] Route `LVDS_RX` as `100 ohm` differential.
+- [ ] Add a solid silkscreen field for batch numbers.
+- [ ] Add logos.
+- [ ] Add more headers, including doubled ground headers.
+- [ ] Add text labels for header names.
+- [ ] Name test points by signal net instead of test-point number.
+- [ ] Keep routing out from under the DisplayPort connector.
+- [x] Add electrical connection for chip back plane (via down).
+- [x] Name the jumpers.
+- [x] Add ground plane to the FRIDA footprint.
+- [ ] Place pull-up resistors on the backside.
+- [ ] Connect all FRIDA ground pads to footprint ground to reduce ground impedance.
+- [ ] Place differential resistors equidistant from the chip.
+- [ ] Float mounting holes instead of tying to earth/ ground.
+- [ ] Add lot-number marking area.
