@@ -431,3 +431,17 @@ Immediate implication:
 - It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic patterns, and via/cut sizes.
 - It is not a lossless DEF schema today.
 - A DEF emitter from `tetris` should be treated as a lowering pass with defaults/assumptions for missing DEF sections.
+
+## LEF / PVS / Calibre Rule-Syntax Crosswalk (Target Rule Families)
+
+| Rule Type | LEF Syntax | PVS Syntax | Calibre Syntax |
+|---|---|---|---|
+| Metal, poly, via min area and min width | `WIDTH 0.16 ;`<br>`AREA 0.09 ;`<br>`TYPE CUT ; WIDTH 0.19 ;` | `M1.W.1 { INT M1s < M1_W_1 ... }`<br>`M1.A.1 { AREA M1s < M1_A_1 }`<br>`VIA1.W.1 { ... }` | `M1.W.1 { inte M1s M1s -lt M1_W_1 ... }`<br>`M1.A.1 { area M1s -lt M1_A_1; }`<br>`VIA1.W.1 { ... }` |
+| Metal minimum enclosure | `ENCLOSURE BELOW 0.010 0.05 ;`<br>`ENCLOSURE ABOVE 0.005 0.05 ;` | `M1.EN.1 { COs NOT M1s }`<br>`M1.EN.2__M1.EN.3 { RECTANGLE ENCLOSURE COs M1s ... }` | `M1.EN.1 { not COs M1s; }`<br>`M1.EN.2__M1.EN.3 { rect_enc COs M1s ... ; enc A M1s -lt M1_EN_3 ... }` |
+| Metal-to-metal spacing with parallel run length (PRL) dependence | `SPACINGTABLE`<br>`PARALLELRUNLENGTH ...`<br>`WIDTH ...` rows | `M1.S.2 { ... EXT M1_10 M1 < M1_S_2 OPPOSITE REGION MEASURE ALL ... }`<br>`ENCLOSE RECTANGLE ... M1_S_2_L+GRID` | `M1.S.2 { exte M1_10 M1 -lt M1_S_2 -metric opposite -measure all ... }`<br>`select -enclose_rect ... -length "M1_S_2_L+GRID"` |
+| VIA-to-VIA spacing and metal above/below enclosure (including CO to PO/OD) | `SPACING 0.29 ADJACENTCUTS 3 WITHIN 0.311 ;`<br>`ENCLOSURE BELOW ... ; ENCLOSURE ABOVE ... ;`<br>`CO->PO/OD explicit FEOL check: X` | `VIA1.S.1/S.2/S.3`, `VIA1.EN.1`, `VIA1.EN.2__VIA1.EN.3`<br>`CO.S.4 { exte COPO OD ... }`<br>`CO.S.5 { exte COOD HV_GATE ... }`<br>`CO.EN.1 { enc COOD OD ... }`, `CO.EN.2 { enc COPO POLYs ... }` | `VIA1.S.1/S.2/S.3`, `VIA1.EN.1`, `VIA1.EN.2__VIA1.EN.3`<br>`CO.S.4 { exte COPO OD ... }`<br>`CO.S.5 { exte COOD HV_GATE ... }`<br>`CO.EN.1 { enc COOD OD ... }`, `CO.EN.2 { enc COPO POLYs ... }` |
+| Implant enclosure and spacing to opposite implants | `X` | `PP.S.2 { EXT PP NACT < PP_S_2 ... }`<br>`NP.S.2 { EXT NP PACT < NP_S_2 ... }`<br>`PP.EN.1 { ENC POLY IMP < PP_EN_1 ... }`<br>`PP.R.2 { PP AND NP }` | `PP.S.2 { exte PP NACT -lt PP_S_2 ... }`<br>`NP.S.2 { exte NP PACT -lt NP_S_2 ... }`<br>`PP.EN.1 { enc POLY IMP -lt PP_EN_1 ... }`<br>`PP.R.2 { and PP NP; }` |
+
+Notes:
+- LEF is strong for routing/cut stack constraints (`WIDTH`, `AREA`, `SPACING`, `SPACINGTABLE`, `ENCLOSURE`, `ADJACENTCUTS`), but not a full FEOL implant-opposition rule language.
+- PVS and Calibre decks both express FEOL/BEOL checks procedurally, including conditional PRL spacing and implant-opposition constraints.
