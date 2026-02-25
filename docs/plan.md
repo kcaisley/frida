@@ -35,7 +35,7 @@
 
 ## Public API / Interface Changes
 - Add `flow/layout/serialize.py` with:
-  - `layout_to_vlsir_raw(layout, domain="frida.layout") -> vlsir.raw.Library`
+  - `layout_to_vlsir_raw(layout, domain="frida.layout") -> vlsir.raw_pb2.Library`
   - use `vlsir.raw_pb2` directly in Python code (no local alias)
   - `vlsir_raw_to_disk(library, pb_path, pbtxt_path=None) -> None`
   - `export_layout(layout, out_dir, stem, domain="frida.layout", write_debug_gds=False) -> ExportArtifacts`
@@ -308,30 +308,8 @@ def serialize_draw_layer(
 ```
 
 ## Implementation Plan
-1. Create `layers.py` with typed canonical IDs used by both rules and generators, including full metal/via stack coverage (`L.M1` ... `L.M10`, `L.VIA1` ... `L.VIA9`) plus FEOL/implant/well/purpose IDs and stack-order metadata.
-2. Create `rules.py` with layer-owned methods:
-   - `deck.layer(L.M1).min_spacing(dim=..., run_length=...)`
-   - `deck.layer(L.M2).min_spacing(to=L.M1, dim=..., run_length=...)`
-   - `deck.layer(L.M1).min_enclosure(of=L.CO, dim=...)`
-   - `deck.layer(L.M1).min_area(dim=...)`
-   - encode multiple PRL breakpoints as multiple entries, not a table object
-3. Move tech dataclasses + tech proto I/O + rule/layer lookup functions from [layout.py](/home/kcaisley/frida/flow/layout/layout.py#L1) to `tech.py` with unchanged behavior.
-4. Move KLayout geometry helper functions to `klayout.py`, standardizing on nm-based helper entry points (`nm_to_dbu`, `insert_box_nm`, `insert_text_nm`).
-5. Move KLayout->VLSIR serialization/export functions to `serialize.py` with unchanged serialization behavior.
-6. Update [nmos.py](/home/kcaisley/frida/flow/layout/nmos.py#L1) and [momcap.py](/home/kcaisley/frida/flow/layout/momcap.py#L1):
-   - switch to canonical layer IDs in resolver paths
-   - keep extraction of physical dimensions/rules from `vlsir.tech` at generator input
-   - remove process-specific layer-name assumptions from generator internals
-   - keep each generator primarily monolithic (`generate_*_layout(...)`) with top-to-bottom geometry steps
-   - allow only a small helper set (2-3 max), for repeated utilities such as nm->DBU conversion or contact-array placement
-   - keep serialization logic outside generator flow (prefer `serialize.py`; if temporarily colocated, keep it in a clearly separate final section)
-7. Update PDK layout metadata modules to expose/consume alias maps for canonical IDs:
-   - [/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py](/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py#L1)
-   - same pattern for other PDK layout metadata modules in `pdk/*/layout/`.
-8. Update [__init__.py](/home/kcaisley/frida/flow/layout/__init__.py#L1) exports and remove old `flow.layout.layout` import usage everywhere (hard cutover).
-9. Replace [layout.py](/home/kcaisley/frida/flow/layout/layout.py#L1) with either:
-   - a minimal boundary doc module that no longer owns mixed functionality, or
-   - remove it entirely if no importers remain.
+- Execution order is defined only by [Ordered Execution Checklist](#ordered-execution-checklist) at the bottom of this file.
+- This section intentionally avoids duplicate step numbering to keep one authoritative plan of record.
 
 ## Tests and Scenarios
 1. Serializer equivalence tests:
@@ -357,23 +335,44 @@ def serialize_draw_layer(
 - Default model is PDK-aware generation (chosen): no generic post-serialization “pdkwalker compiler” stage for physical dimensions.
 - Canonical layer IDs are the stable generator-facing interface; PDK alias maps are the adaptation layer.
 - Rule source-of-truth is authored Python `RuleDeck` construction; no reverse-import `Technology -> RuleDeck` path is in scope.
-- KLayout remains the in-memory source of truth for concrete geometry prior to raw serialization.
+- KLayout remains the in-memory source-of-truth for concrete geometry prior to raw serialization.
 - No compatibility shim is kept; this is a one-shot migration across FRIDA internal call sites.
 
 ## Ordered Execution Checklist
 1. [ ] Create `flow/layout/layers.py` with canonical typed IDs through `L.M10`/`L.VIA9`, FEOL/implant/well/purpose IDs, and stack-order metadata.
 2. [ ] Create `flow/layout/rules.py` with `RuleDeck`/`LayerRules` and typed rule records (`SpacingRule`, `EnclosureRule`, `AreaRule`).
+   - include layer-owned API coverage for:
+   - same-layer spacing (`min_spacing(dim=...)`)
+   - PRL spacing (`min_spacing(dim=..., run_length=...)`)
+   - inter-layer spacing ownership (`min_spacing(to=..., dim=...)`)
+   - higher-layer enclosure (`min_enclosure(of=..., dim=...)`)
+   - per-layer area (`min_area(dim=...)`)
 3. [ ] Enforce authored `RuleDeck` as the only rule-entry path; do not implement `Technology -> RuleDeck` reverse conversion.
 4. [ ] Ensure authored rules can express all required families (including via-via spacing and opposite-implant spacing/enclosure) and cover them in tests/examples.
 5. [ ] Move tech dataclasses, proto I/O, and rule/layer lookup helpers out of `flow/layout/layout.py` into `flow/layout/tech.py`.
+   - preserve behavior for existing lookup utilities (`technology_rule_value`, spacing helpers, pair-rule helpers).
 6. [ ] Move and standardize KLayout geometry helpers into `flow/layout/klayout.py` with nm-driven helper entry points (`nm_to_dbu`, `insert_box_nm`, `insert_text_nm`).
 7. [ ] Run a repo-wide migration from legacy `um` geometry/rule paths to `nm`-driven paths and remove superseded helper APIs.
 8. [ ] Move KLayout -> VLSIR raw serialization/export functions into `flow/layout/serialize.py` (using `vlsir.raw_pb2` directly).
+   - serializer must convert existing KLayout geometry only (no new geometry synthesis in serialization).
 9. [ ] Refactor [nmos.py](/home/kcaisley/frida/flow/layout/nmos.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
+   - keep extraction of physical dimensions/rules from authored rule deck + tech inputs at generator entry.
+   - remove process-specific layer-name assumptions from generator internals.
+   - keep serialization outside generator flow.
 10. [ ] Refactor [momcap.py](/home/kcaisley/frida/flow/layout/momcap.py#L1) to canonical layer IDs and keep generation as one primary top-to-bottom function (with at most 2-3 focused helpers).
+   - keep extraction of physical dimensions/rules from authored rule deck + tech inputs at generator entry.
+   - remove process-specific layer-name assumptions from generator internals.
+   - keep serialization outside generator flow.
 11. [ ] Update all PDK layout metadata modules to expose/consume canonical alias maps and provide clear errors for unsupported canonical layers.
+   - apply this pattern to [/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py](/home/kcaisley/frida/pdk/ihp130/layout/pdk_layout.py#L1) and mirror for other `pdk/*/layout/` modules.
 12. [ ] Add per-PDK validation tests for canonical layer coverage (`M1..M10`, `VIA1..VIA9`) and expected failure behavior on unsupported layers.
 13. [ ] Update [__init__.py](/home/kcaisley/frida/flow/layout/__init__.py#L1) exports and perform hard-cutover import updates across FRIDA (no `flow.layout.layout` imports left).
 14. [ ] Replace or remove [layout.py](/home/kcaisley/frida/flow/layout/layout.py#L1) once no importers remain.
+   - either keep a minimal boundary/doc module or remove the file entirely.
 15. [ ] Add/ update tests: serializer equivalence, layer resolver coverage, rule API behavior, generator regressions, and full integration flow.
+   - serializer: rectangle/polygon/path/text + instance transforms/arrays
+   - resolver: canonical ID alias resolution + clear missing-layer failures
+   - rule API: ownership checks, default `to` behavior, PRL entry preservation
+   - generators: NMOS + MOMCAP smoke/regression behavior
+   - integration: tech/rules -> generator -> KLayout memory -> raw protobuf export
 16. [ ] Run the layout test suite and confirm acceptance criteria are met before finalizing.
