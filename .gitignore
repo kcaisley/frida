@@ -1,9 +1,7 @@
 # General
-/results
 /scratch
 /pdk/*/scratch/
-/logs
-.vscode
+opencode.json
 
 # Python
 .pytest_cache
@@ -48,5 +46,6 @@ docs/tex/
 *-backups/
 *-cache*
 fp-info-cache
-#auto_saved_files#
+/\#auto_saved_files\#
+daq/dut/\#auto_saved_files\#
 _autosave-*
