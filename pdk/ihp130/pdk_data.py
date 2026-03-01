@@ -4,22 +4,22 @@ from typing import List
 
 # Hdl21 Imports
 import hdl21 as h
-from hdl21.prefix import MILLI, MICRO, µ
+from hdl21.prefix import MICRO, MILLI, µ
 from hdl21.primitives import (
+    Bipolar,
+    BipolarParams,
+    Diode,
+    DiodeParams,
+    MosFamily,
+    MosParams,
     MosType,
     MosVth,
-    MosFamily,
-    PhysicalResistor,
     PhysicalCapacitor,
-    Diode,
-    Bipolar,
-    ThreeTerminalResistor,
-    ThreeTerminalCapacitor,
-    MosParams,
-    PhysicalResistorParams,
     PhysicalCapacitorParams,
-    DiodeParams,
-    BipolarParams,
+    PhysicalResistor,
+    PhysicalResistorParams,
+    ThreeTerminalCapacitor,
+    ThreeTerminalResistor,
 )
 
 # Vlsirtool Types to ease downstream parsing
@@ -545,78 +545,3 @@ def logic_module(
         paramtype=IhpLogicParams,
     )
     return mod
-
-
-def supply_rails() -> tuple[dict[str, object], ...]:
-    """Compile-facing supply-rail metadata."""
-    return (
-        {
-            "name": "VSS",
-            "role": "GROUND",
-            "nominal_volts": 0.0,
-            "min_volts": 0.0,
-            "max_volts": 0.0,
-        },
-        {
-            "name": "VDD",
-            "role": "POWER",
-            "nominal_volts": 1.2,
-            "min_volts": 1.08,
-            "max_volts": 1.32,
-            "notes": "IHP SG13G2 LV core domain.",
-        },
-        {
-            "name": "VDDIO",
-            "role": "POWER",
-            "nominal_volts": 3.3,
-            "min_volts": 3.0,
-            "max_volts": 3.6,
-            "notes": "IHP SG13G2 HV I/O domain.",
-        },
-    )
-
-
-def model_libraries() -> tuple[dict[str, object], ...]:
-    """Compile-facing model-library metadata."""
-    return (
-        {
-            "simulator": "ngspice",
-            "path": "/home/kcaisley/libs/IHP-Open-PDK/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib",
-            "corner_sections": (
-                ("TYP", "tt"),
-                ("FAST", "ff"),
-                ("SLOW", "ss"),
-            ),
-            "notes": "Open-PDK LV MOS corners.",
-        },
-        {
-            "simulator": "ngspice",
-            "path": "/home/kcaisley/libs/IHP-Open-PDK/ihp-sg13g2/libs.tech/ngspice/models/cornerMOShv.lib",
-            "corner_sections": (
-                ("TYP", "tt"),
-                ("FAST", "ff"),
-                ("SLOW", "ss"),
-            ),
-            "notes": "Open-PDK HV MOS corners.",
-        },
-        {
-            "simulator": "spectre",
-            "path": "/eda/kits/IHP/IHP-SG13G2/SG13G2_618_rev1.2.10/tech/SG13_MOS/library/spectreG2/cornerMOSlv_psp.scs",
-            "corner_sections": (
-                ("TYP", "tt"),
-                ("FAST", "ff"),
-                ("SLOW", "ss"),
-            ),
-            "notes": "Observed on jupiter under /eda/kits.",
-        },
-        {
-            "simulator": "spectre",
-            "path": "/eda/kits/IHP/IHP-SG13G2/SG13G2_618_rev1.2.10/tech/SG13_MOS/library/spectreG2/cornerMOShv_psp.scs",
-            "corner_sections": (
-                ("TYP", "tt"),
-                ("FAST", "ff"),
-                ("SLOW", "ss"),
-            ),
-            "notes": "Observed on jupiter under /eda/kits.",
-        },
-    )

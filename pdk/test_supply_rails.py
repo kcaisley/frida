@@ -1,31 +1,39 @@
-"""Tests for PDK-sourced supply-rail metadata helpers."""
+"""Tests for PDK supply-rail metadata on Install classes."""
+
+from importlib import import_module
 
 from hdl21.pdk import Corner
 
-from pdk import supply_rails, supply_voltage
 
-
-def _rail_by_name(rails: tuple[dict[str, object], ...], name: str) -> dict[str, object]:
-    target = name.upper()
-    for rail in rails:
-        if str(rail.get("name", "")).upper() == target:
-            return rail
-    raise AssertionError(f"Missing rail '{name}'")
+def _install_class(tech: str):
+    """Import and return the Install class for a given PDK."""
+    return import_module(f"pdk.{tech}.pdk_logic").Install
 
 
 def test_supply_rails_have_vdd() -> None:
     """Each supported PDK exposes at least one VDD rail entry."""
     for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
-        rails = supply_rails(tech)
-        vdd = _rail_by_name(rails, "VDD")
-        assert float(vdd["nominal_volts"]) > 0.0
+        cls = _install_class(tech)
+        assert "VDD" in cls.SUPPLY_RAILS, f"{tech} missing VDD in SUPPLY_RAILS"
+        assert cls.SUPPLY_RAILS["VDD"]["nominal"] > 0.0
 
 
-def test_supply_voltage_corner_mapping() -> None:
-    """Corner lookup maps to min/nominal/max values for VDD."""
+def test_install_supply_voltage_corner_mapping() -> None:
+    """Install.supply_voltage() maps corners to min/nominal/max."""
     for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
-        rails = supply_rails(tech)
-        vdd = _rail_by_name(rails, "VDD")
-        assert supply_voltage(Corner.SLOW, "VDD", tech) == float(vdd["min_volts"])
-        assert supply_voltage(Corner.TYP, "VDD", tech) == float(vdd["nominal_volts"])
-        assert supply_voltage(Corner.FAST, "VDD", tech) == float(vdd["max_volts"])
+        cls = _install_class(tech)
+        vdd = cls.SUPPLY_RAILS["VDD"]
+        assert cls.supply_voltage(Corner.SLOW, "VDD") == vdd["min"]
+        assert cls.supply_voltage(Corner.TYP, "VDD") == vdd["nominal"]
+        assert cls.supply_voltage(Corner.FAST, "VDD") == vdd["max"]
+
+
+def test_supplyvals_resolves_via_install() -> None:
+    """SupplyVals.corner() resolves VDD through Install.supply_voltage()."""
+    from flow.flow.params import SupplyVals
+
+    for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
+        cls = _install_class(tech)
+        expected = cls.supply_voltage(Corner.TYP, "VDD")
+        vals = SupplyVals.corner(Corner.TYP, tech_name=tech)
+        assert float(vals.VDD) == expected

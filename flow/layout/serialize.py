@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-import hashlib
 
 import klayout.db as kdb
 import vlsir.raw_pb2
@@ -12,12 +12,7 @@ import vlsir.tech_pb2 as vtech
 import vlsir.utils_pb2 as vutils
 from google.protobuf import text_format
 
-from .tech import (
-    LayerInfoData,
-    RuleDeck,
-    RuleStatementData,
-    rule_deck_to_tech_rules,
-)
+from .tech import LayerInfoData
 
 
 @dataclass(frozen=True)
@@ -33,40 +28,21 @@ class TechArtifacts:
     pbtxt: Path
 
 
-def _rule_token_to_proto(token: str | int | float | bool) -> vtech.RuleToken:
-    out = vtech.RuleToken()
-    if isinstance(token, bool):
-        out.boolean = token
-    elif isinstance(token, int):
-        out.integer = token
-    elif isinstance(token, float):
-        out.real = token
-    else:
-        out.text = token
-    return out
-
-
-def _statement_to_proto(stmt: RuleStatementData) -> vtech.RuleStatement:
-    return vtech.RuleStatement(
-        keyword=stmt.keyword,
-        tokens=[_rule_token_to_proto(tok) for tok in stmt.tokens],
-        raw=stmt.raw,
-    )
-
-
 def write_technology_proto(
     *,
     tech_name: str,
     layer_infos: tuple[LayerInfoData, ...],
-    rule_deck: RuleDeck,
     out_dir: Path,
     stem: str | None = None,
 ) -> TechArtifacts:
-    """Write vlsir.tech protobuf (`.pb` and `.pbtxt`) from typed PDK payloads."""
+    """Write vlsir.tech protobuf (`.pb` and `.pbtxt`) from layer-info data.
+
+    Only populates ``Technology.layers`` with ``LayerInfo`` entries
+    (name, index, sub_index, purpose).  Rule-deck serialization has been
+    removed — rules are consumed directly from the Python ``RuleDeck``.
+    """
 
     tech = vtech.Technology(name=tech_name)
-    tech.rules.lef_units.database_microns = rule_deck.database_microns
-    tech.rules.manufacturing_grid_microns = rule_deck.manufacturing_grid_microns
 
     purpose_map = {
         "UNKNOWN": vtech.LayerPurposeType.UNKNOWN,
@@ -89,25 +65,6 @@ def write_technology_proto(
                 ),
                 index=info.index,
                 sub_index=info.sub_index,
-            )
-        )
-
-    layers, pairs = rule_deck_to_tech_rules(rule_deck)
-    for layer in layers:
-        tech.rules.layers.append(
-            vtech.LayerRuleSet(
-                name=layer.name,
-                layer_type=layer.layer_type,
-                rules=[_statement_to_proto(stmt) for stmt in layer.rules],
-            )
-        )
-    for pair in pairs:
-        tech.rules.layer_pairs.append(
-            vtech.LayerPairRuleSet(
-                first_layer=pair.first_layer,
-                second_layer=pair.second_layer,
-                rules=[_statement_to_proto(stmt) for stmt in pair.rules],
-                source=pair.source,
             )
         )
 

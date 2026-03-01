@@ -95,8 +95,8 @@ class SupplyVals:
     """
     Supply voltage values mapped from corners to physical voltages.
 
-    Values are resolved from the active PDK's `pdk_data.supply_rails()`
-    metadata when available.
+    Values are resolved from the active PDK's ``Install.supply_voltage()``
+    classmethod when available.
     """
 
     VDD: h.Scalar
@@ -113,10 +113,19 @@ class SupplyVals:
     ) -> "SupplyVals":
         """Create `SupplyVals` from a voltage corner and active/ selected PDK."""
         try:
-            from pdk import supply_voltage
+            from pdk import _install_class, _resolve_tech_name
 
-            return cls(VDD=supply_voltage(corner=corner, rail_name=rail_name, tech_name=tech_name))
-        except (ImportError, RuntimeError, ValueError, AttributeError, KeyError, TypeError):
+            name = _resolve_tech_name(tech_name)
+            install_cls = _install_class(name)
+            return cls(VDD=install_cls.supply_voltage(corner, rail_name))
+        except (
+            ImportError,
+            RuntimeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+            TypeError,
+        ):
             pass
 
         idx = {Corner.SLOW: 0, Corner.TYP: 1, Corner.FAST: 2}.get(corner)

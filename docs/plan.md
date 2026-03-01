@@ -7,49 +7,49 @@
 - [ ] Regenerate Python bindings for `vlsir.tech_pb2`
 
 ### PDK cleanup (supply rails, model libraries)
-- [ ] Remove `model_libraries()` from all 4 `pdk_data.py` files (dead code duplicating `Install.include_*()`)
-- [ ] Move `supply_rails()` data into each PDK's `Install` class as `SUPPLY_RAILS` dict + `supply_voltage()` method
-- [ ] Update `SupplyVals.corner()` to call `Install.instance().supply_voltage()` instead of `pdk/__init__.py::supply_voltage()`
-- [ ] Remove `supply_rails()` and `supply_voltage()` from `pdk/__init__.py`
-- [ ] Remove `pdk/test_supply_rails.py`, add equivalent test against `Install`
+- [x] Remove `model_libraries()` from all 4 `pdk_data.py` files (dead code duplicating `Install.include_*()`)
+- [x] Move `supply_rails()` data into each PDK's `Install` class as `SUPPLY_RAILS` dict + `supply_voltage()` method
+- [x] Update `SupplyVals.corner()` to call `Install.supply_voltage()` directly (uses `@classmethod`, no singleton needed)
+- [x] Remove `supply_rails()` and `supply_voltage()` from `pdk/__init__.py`
+- [x] Rewrite `pdk/test_supply_rails.py` to test `Install.SUPPLY_RAILS` and `Install.supply_voltage()` directly
 
 ### New APIs — `dsl.py`
-- [ ] Add `GenericLayers` class with all canonical `kdb.LayerInfo` attributes
-- [ ] Add `load_generic_layers(layout)` function
-- [ ] Update `METAL_DRAW_TO_GENERIC` and `VTH_TO_GENERIC` to use `GenericLayers` `LayerInfo` values
+- [x] Add `GenericLayers` class with all canonical `kdb.LayerInfo` attributes
+- [x] Add `load_generic_layers(layout)` function
+- [x] ~~Update `METAL_DRAW_TO_GENERIC` and `VTH_TO_GENERIC` to use `GenericLayers` `LayerInfo` values~~ — superseded: generators now use direct `if/else` on params with `G.LVTN` etc. instead of mapping dicts; the `_LAYER`/`_PIN` variants were removed; the old `Layer`-enum-based dicts remain only for `_LayoutNamespace` compat (slated for removal in cleanup phase)
 
 ### New APIs — `tech.py`
-- [ ] Implement new `RuleDeck`, `LayerRules`, `RelativeRules` classes (hierarchical dot-path)
-- [ ] Add `load_rules_deck(tech_name)` function
-- [ ] Add `load_dbu(tech_name)` function
-- [ ] Add `remap_layers(layout, mapping)` function
-- [ ] Add inline `test_rule_deck()` and `test_remap_layers()` tests
+- [x] Implement new `RuleDeck`, `LayerRules`, `RelativeRules` classes (hierarchical dot-path)
+- [x] Add `load_rules_deck(tech_name)` function
+- [x] Add `load_dbu(tech_name)` function
+- [x] Add `remap_layers(layout, mapping)` function
+- [x] Add inline `test_rule_deck()` and `test_remap_layers()` tests
 
 ### Standardize PDK layout files
-- [ ] Rename `ihp130_rule_deck()` → `rule_deck()` (and equivalents in all PDKs)
-- [ ] Rewrite rule deck bodies to use `R.M1.width = 160` syntax (plain int, nanometers)
-- [ ] Add module-level `DBU` constant to each `pdk_layout.py` (e.g. `DBU = 0.001` for 1 nm, `DBU = 0.0005` for 0.5 nm)
-- [ ] Add `layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]` to each PDK module
-- [ ] Keep `layer_infos()` (still used by `write_technology_proto` for `vlsir.tech` layer-info export)
+- [x] Rename `ihp130_rule_deck()` → `rule_deck()` (and equivalents in all PDKs)
+- [x] Rewrite rule deck bodies to use `R.M1.width = 160` syntax (plain int, nanometers)
+- [x] Add module-level `DBU` constant to each `pdk_layout.py` (e.g. `DBU = 0.001` for 1 nm, `DBU = 0.0005` for 0.5 nm)
+- [x] Add `layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]` to each PDK module
+- [x] Keep `layer_infos()` (still used by `write_technology_proto` for `vlsir.tech` layer-info export)
 
 ### Simplify `serialize.py`
-- [ ] Remove `_rule_token_to_proto()`, `_statement_to_proto()`
-- [ ] Remove all `tech.rules.*` population from `write_technology_proto()`
-- [ ] Remove `rule_deck` parameter from `write_technology_proto()` (keep `tech_name`, `layer_infos`, `out_dir`)
-- [ ] Remove imports of `RuleDeck`, `RuleStatementData`, `rule_deck_to_tech_rules` from `tech.py`
-- [ ] Keep `layout_to_vlsir_raw()`, `export_layout()`, `vlsir_raw_to_disk()`, `read_technology_proto()`
+- [x] Remove `_rule_token_to_proto()`, `_statement_to_proto()`
+- [x] Remove all `tech.rules.*` population from `write_technology_proto()`
+- [x] Remove `rule_deck` parameter from `write_technology_proto()` (keep `tech_name`, `layer_infos`, `out_dir`)
+- [x] Remove imports of `RuleDeck`, `RuleStatementData`, `rule_deck_to_tech_rules` from `tech.py`
+- [x] Keep `layout_to_vlsir_raw()`, `export_layout()`, `vlsir_raw_to_disk()`, `read_technology_proto()`
 
 ### Migrate generators
-- [ ] Change `mosfet.py` signature to `mosfet(P: MosfetParams, tech_name: str)`; load `R` and `dbu` inside via `load_rules_deck` / `load_dbu`; replace all `RuleStatement` token parsing with `R.*` access; remove `import vlsir.tech_pb2`
-- [ ] Change `momcap.py` signature similarly
-- [ ] Update `test_mosfet` / `test_momcap` to load `rule_deck()` directly from PDK module
+- [x] Change `mosfet.py` signature to `mosfet(P: MosfetParams, tech_name: str)`; load `R` and `dbu` inside via `load_rules_deck` / `load_dbu`; replace all `RuleStatement` token parsing with `R.*` access; remove `import vlsir.tech_pb2`
+- [x] Change `momcap.py` signature similarly
+- [x] Update `test_mosfet` / `test_momcap` to load `rule_deck()` directly from PDK module
 
 ### Cleanup old code
-- [ ] Remove old `Layer` enum, `Purpose` enum, `LayerRef`, `_LayoutNamespace`, module-level `L` from `dsl.py`
-- [ ] Remove old `SpacingRule`, `EnclosureRule`, `AreaRule`, `WidthRule`, chained `LayerRules` builder from `tech.py`
-- [ ] Remove `RuleStatementData`, `LayerRuleSetData`, `LayerPairRuleSetData`, `rule_deck_to_tech_rules()` from `tech.py`
-- [ ] Remove `map_generic_to_tech_layers()`, `STACK_ORDER` from `tech.py`
-- [ ] Remove old `tech_layer_map()` from PDK files (replaced by `layer_map()`)
+- [x] Remove old `Layer` enum, `Purpose` enum, `LayerRef`, `METAL_DRAW_TO_GENERIC`, `VTH_TO_GENERIC`, `generic_name`, `param_to_generic` from `dsl.py` — done; `_LayoutNamespace` and `L` kept but slimmed to only `Param`, `paramclass`, `generator`, `MosType`, `MosVth`, `SourceTie`, `MetalDraw`
+- [x] Remove old `SpacingRule`, `EnclosureRule`, `AreaRule`, `WidthRule`, chained `LayerRules` builder from `tech.py`
+- [x] Remove `RuleStatementData`, `LayerRuleSetData`, `LayerPairRuleSetData`, `rule_deck_to_tech_rules()` from `tech.py`
+- [x] Remove `map_generic_to_tech_layers()`, `STACK_ORDER` from `tech.py`
+- [x] Remove old `tech_layer_map()` from PDK files (replaced by `layer_map()`)
 
 ---
 

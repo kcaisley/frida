@@ -21,38 +21,38 @@ Target devices for conversion from `hdl21.Primitive`:
 
 # Std-Lib Imports
 from pathlib import Path
-from typing import Dict, Optional, Any
-
-# PyPi Imports
-from pydantic.dataclasses import dataclass
+from typing import Any, ClassVar, Dict, Optional
 
 # Hdl21 Imports
 import hdl21 as h
 from hdl21.pdk import PdkInstallation
 from hdl21.primitives import (
-    Mos,
-    PhysicalResistor,
-    PhysicalCapacitor,
-    Diode,
     Bipolar,
-    ThreeTerminalResistor,
-    ThreeTerminalCapacitor,
-    MosParams,
-    PhysicalResistorParams,
-    PhysicalCapacitorParams,
-    DiodeParams,
     BipolarParams,
+    Diode,
+    DiodeParams,
+    Mos,
+    MosParams,
+    PhysicalCapacitor,
+    PhysicalCapacitorParams,
+    PhysicalResistor,
+    PhysicalResistorParams,
+    ThreeTerminalCapacitor,
+    ThreeTerminalResistor,
 )
+
+# PyPi Imports
+from pydantic.dataclasses import dataclass
 
 # Import relevant data from the PDK's data module
 from .pdk_data import (
-    IhpMosParams,
-    IhpMosHvParams,
-    IhpHbtParams,
-    IhpPnpParams,
-    IhpResParams,
     IhpCapParams,
     IhpDiodeParams,
+    IhpHbtParams,
+    IhpMosHvParams,
+    IhpMosParams,
+    IhpPnpParams,
+    IhpResParams,
 )
 from .primitives.prim_dicts import *
 
@@ -73,6 +73,24 @@ class Install(PdkInstallation):
 
     pdk_path: Path  # Path to PDK installation (ihp-sg13g2)
     model_lib: Path  # Relative path to ngspice/models directory
+
+    SUPPLY_RAILS: ClassVar[dict[str, dict[str, float]]] = {
+        "VDD": {"nominal": 1.2, "min": 1.08, "max": 1.32},
+        "VDDIO": {"nominal": 3.3, "min": 3.0, "max": 3.6},
+        "VSS": {"nominal": 0.0, "min": 0.0, "max": 0.0},
+    }
+
+    @classmethod
+    def supply_voltage(cls, corner: h.pdk.Corner, rail: str = "VDD") -> float:
+        """Return rail voltage for the given process-voltage corner."""
+        r = cls.SUPPLY_RAILS.get(rail.upper())
+        if r is None:
+            raise KeyError(f"Unknown rail '{rail}' for IHP SG13G2.")
+        return {
+            h.pdk.Corner.SLOW: r["min"],
+            h.pdk.Corner.TYP: r["nominal"],
+            h.pdk.Corner.FAST: r["max"],
+        }[corner]
 
     def include_mos_lv(self, corner: h.pdk.Corner) -> h.sim.Lib:
         """

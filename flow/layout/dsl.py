@@ -2,63 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING, dataclass, field
-from enum import Enum, IntEnum, auto
 import inspect
-from typing import Any, Callable, cast, get_type_hints
+from dataclasses import MISSING, dataclass, field
+from enum import IntEnum
+from typing import Any, Callable, get_type_hints
 
+import klayout.db as kdb
 
-class Layer(Enum):
-    """Generic process-agnostic layers used by generators."""
-
-    OD = auto()
-    PO = auto()
-    CO = auto()
-    M1 = auto()
-    VIA1 = auto()
-    M2 = auto()
-    VIA2 = auto()
-    M3 = auto()
-    VIA3 = auto()
-    M4 = auto()
-    VIA4 = auto()
-    M5 = auto()
-    VIA5 = auto()
-    M6 = auto()
-    VIA6 = auto()
-    M7 = auto()
-    VIA7 = auto()
-    M8 = auto()
-    VIA8 = auto()
-    M9 = auto()
-    VIA9 = auto()
-    M10 = auto()
-    NP = auto()
-    PP = auto()
-    NWELL = auto()
-    TEXT = auto()
-    PR_BOUNDARY = auto()
-    VTH_LVT = auto()
-    VTH_HVT = auto()
-
-    @property
-    def draw(self) -> LayerRef:
-        return LayerRef(self, Purpose.DRAW)
-
-    @property
-    def pin(self) -> LayerRef:
-        return LayerRef(self, Purpose.PIN)
-
-
-class Purpose(IntEnum):
-    DRAW = 0
-    PIN = 1
-
-
-@dataclass(frozen=True)
-class LayerRef:
-    layer: Layer
-    purpose: Purpose
+# ---------------------------------------------------------------------------
+# Parameter enums — used by generators via L.MosType, L.MosVth, etc.
+# ---------------------------------------------------------------------------
 
 
 class MosType(IntEnum):
@@ -90,47 +43,93 @@ class MetalDraw(IntEnum):
     M10 = 10
 
 
-METAL_DRAW_TO_GENERIC: dict[MetalDraw, Layer] = {
-    MetalDraw.M1: Layer.M1,
-    MetalDraw.M2: Layer.M2,
-    MetalDraw.M3: Layer.M3,
-    MetalDraw.M4: Layer.M4,
-    MetalDraw.M5: Layer.M5,
-    MetalDraw.M6: Layer.M6,
-    MetalDraw.M7: Layer.M7,
-    MetalDraw.M8: Layer.M8,
-    MetalDraw.M9: Layer.M9,
-    MetalDraw.M10: Layer.M10,
-}
+# ---------------------------------------------------------------------------
+# GenericLayers — process-agnostic kdb.LayerInfo namespace
+# ---------------------------------------------------------------------------
 
 
-VTH_TO_GENERIC: dict[MosVth, Layer | None] = {
-    MosVth.LOW: Layer.VTH_LVT,
-    MosVth.REGULAR: None,
-    MosVth.HIGH: Layer.VTH_HVT,
-}
+class GenericLayers:
+    """Namespace of kdb.LayerInfo objects for all generic process layers.
+
+    Each attribute (e.g. .M1, .PIN1, .OD) is a kdb.LayerInfo with a
+    canonical name and default layer/datatype numbers.  These can be
+    passed directly to cell.shapes(G.M1).insert(...).
+    """
+
+    # Draw layers — (layer_number, datatype, name)
+    OD = kdb.LayerInfo(1, 0, "OD")
+    PO = kdb.LayerInfo(2, 0, "PO")
+    CO = kdb.LayerInfo(3, 0, "CO")
+    NP = kdb.LayerInfo(4, 0, "NP")
+    PP = kdb.LayerInfo(5, 0, "PP")
+    NW = kdb.LayerInfo(6, 0, "NW")
+    DNW = kdb.LayerInfo(6, 1, "DNW")
+
+    # Threshold voltage layers — datatype 0 = N, datatype 1 = P
+    LVTN = kdb.LayerInfo(7, 0, "LVTN")
+    LVTP = kdb.LayerInfo(7, 1, "LVTP")
+    HVTN = kdb.LayerInfo(8, 0, "HVTN")
+    HVTP = kdb.LayerInfo(8, 1, "HVTP")
+
+    # Metal stack starts at layer 10
+    M1 = kdb.LayerInfo(10, 0, "M1")
+    VIA1 = kdb.LayerInfo(11, 0, "VIA1")
+    M2 = kdb.LayerInfo(12, 0, "M2")
+    VIA2 = kdb.LayerInfo(13, 0, "VIA2")
+    M3 = kdb.LayerInfo(14, 0, "M3")
+    VIA3 = kdb.LayerInfo(15, 0, "VIA3")
+    M4 = kdb.LayerInfo(16, 0, "M4")
+    VIA4 = kdb.LayerInfo(17, 0, "VIA4")
+    M5 = kdb.LayerInfo(18, 0, "M5")
+    VIA5 = kdb.LayerInfo(19, 0, "VIA5")
+    M6 = kdb.LayerInfo(20, 0, "M6")
+    VIA6 = kdb.LayerInfo(21, 0, "VIA6")
+    M7 = kdb.LayerInfo(22, 0, "M7")
+    VIA7 = kdb.LayerInfo(23, 0, "VIA7")
+    M8 = kdb.LayerInfo(24, 0, "M8")
+    VIA8 = kdb.LayerInfo(25, 0, "VIA8")
+    M9 = kdb.LayerInfo(26, 0, "M9")
+    VIA9 = kdb.LayerInfo(27, 0, "VIA9")
+    M10 = kdb.LayerInfo(28, 0, "M10")
+
+    # Pin layers — same layer number as corresponding metal, datatype 1
+    PIN1 = kdb.LayerInfo(10, 1, "PIN1")
+    PIN2 = kdb.LayerInfo(12, 1, "PIN2")
+    PIN3 = kdb.LayerInfo(14, 1, "PIN3")
+    PIN4 = kdb.LayerInfo(16, 1, "PIN4")
+    PIN5 = kdb.LayerInfo(18, 1, "PIN5")
+    PIN6 = kdb.LayerInfo(20, 1, "PIN6")
+    PIN7 = kdb.LayerInfo(22, 1, "PIN7")
+    PIN8 = kdb.LayerInfo(24, 1, "PIN8")
+    PIN9 = kdb.LayerInfo(26, 1, "PIN9")
+
+    # Special layers
+    TEXT = kdb.LayerInfo(60, 0, "TEXT")
+    PR_BOUNDARY = kdb.LayerInfo(61, 0, "PR_BOUNDARY")
 
 
-def generic_name(ref: LayerRef) -> str:
-    if ref.purpose == Purpose.DRAW:
-        return f"{ref.layer.name}.draw"
-    if ref.purpose == Purpose.PIN:
-        return f"{ref.layer.name}.pin"
-    raise ValueError("Unsupported layer purpose.")
+def load_generic_layers(layout: kdb.Layout) -> GenericLayers:
+    """Register all generic layers in *layout* and return the namespace.
+
+    Calls ``layout.layer(info)`` for every ``kdb.LayerInfo`` on
+    ``GenericLayers``.  This ensures the layers exist in the layout's
+    layer table.  Returns a ``GenericLayers`` instance so that
+    ``G.M1``, ``G.PIN2`` etc. resolve to ``kdb.LayerInfo`` objects
+    usable in ``cell.shapes(G.M1).insert(...)``.
+    """
+    layers = GenericLayers()
+    for name in dir(layers):
+        if name.startswith("_"):
+            continue
+        val = getattr(layers, name)
+        if isinstance(val, kdb.LayerInfo):
+            layout.layer(val)  # register in layout
+    return layers
 
 
-def param_to_generic(
-    *,
-    metal: MetalDraw | None = None,
-    vth: MosVth | None = None,
-) -> Layer | None:
-    """Map typed parameter selectors to generic layers."""
-
-    if (metal is None) == (vth is None):
-        raise ValueError("Pass exactly one selector: metal or vth.")
-    if metal is not None:
-        return METAL_DRAW_TO_GENERIC[metal]
-    return VTH_TO_GENERIC[cast(MosVth, vth)]
+# ---------------------------------------------------------------------------
+# Param / paramclass / generator — layout parameter infrastructure
+# ---------------------------------------------------------------------------
 
 
 class Param:
@@ -161,6 +160,8 @@ def paramclass(
     slots: bool = True,
 ) -> type[Any]:
     """Convert `Param(...)` fields into a dataclass."""
+
+    from typing import cast
 
     # 1) Start from any existing annotations declared on the class.
     annotations = dict(getattr(cls, "__annotations__", {}))
@@ -276,46 +277,36 @@ def generator(fn: Callable[..., Any]) -> Callable[..., Any]:
     return fn
 
 
+# ---------------------------------------------------------------------------
+# L — convenience namespace used by generators as L.Param, L.MosType, etc.
+# ---------------------------------------------------------------------------
+
+
 class _LayoutNamespace:
-    """Single namespace API: layers + params + decorators."""
+    """Single namespace exposing params, decorators, and enums."""
 
     Param = Param
-    Layer = Layer
-    LayerRef = LayerRef
-    Purpose = Purpose
     MosType = MosType
     MosVth = MosVth
     SourceTie = SourceTie
     MetalDraw = MetalDraw
-    METAL_DRAW_TO_GENERIC = METAL_DRAW_TO_GENERIC
-    VTH_TO_GENERIC = VTH_TO_GENERIC
 
     paramclass = staticmethod(paramclass)
     generator = staticmethod(generator)
-    generic_name = staticmethod(generic_name)
-    param_to_generic = staticmethod(param_to_generic)
-
-    def __init__(self) -> None:
-        for member in Layer:
-            setattr(self, member.name, member)
 
 
 L = _LayoutNamespace()
 
 __all__ = [
     "L",
-    "Layer",
-    "LayerRef",
-    "Purpose",
     "MosType",
     "MosVth",
     "SourceTie",
     "MetalDraw",
-    "METAL_DRAW_TO_GENERIC",
-    "VTH_TO_GENERIC",
     "Param",
     "paramclass",
     "generator",
-    "generic_name",
-    "param_to_generic",
+    # New API
+    "GenericLayers",
+    "load_generic_layers",
 ]

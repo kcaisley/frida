@@ -1,19 +1,158 @@
-"""Minimal layout metadata for IHP130."""
+"""Layout metadata for IHP130."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from hdl21.prefix import n
+import klayout.db as kdb
 
-from flow.layout.dsl import L, LayerRef
+from flow.layout.dsl import GenericLayers
 from flow.layout.serialize import read_technology_proto, write_technology_proto
-from flow.layout.tech import LayerInfoData, RuleDeck, TechLayerMap
+from flow.layout.tech import (
+    LayerInfoData,
+    NewRuleDeck,
+)
 
 PDK_NAME = "ihp130"
+DBU = 0.001  # 1 dbu = 1 nm (1000 database units per micron)
+
+# Instantiate GenericLayers for use in layer_map()
+_GL = GenericLayers()
+
+
+# ---------------------------------------------------------------------------
+# New API
+# ---------------------------------------------------------------------------
+
+
+def layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]:
+    """Generic-to-tech layer mapping for IHP130.
+
+    Returns a dictionary mapping canonical GenericLayers LayerInfo objects
+    to the concrete PDK layer numbers used by IHP SG13G2.
+    """
+    return {
+        _GL.OD: kdb.LayerInfo(1, 0, "ACTIVE"),
+        _GL.PO: kdb.LayerInfo(2, 0, "POLY"),
+        _GL.CO: kdb.LayerInfo(3, 0, "CONT"),
+        _GL.NP: kdb.LayerInfo(4, 0, "NSD"),
+        _GL.PP: kdb.LayerInfo(5, 0, "PSD"),
+        _GL.NW: kdb.LayerInfo(6, 0, "NWELL"),
+        _GL.M1: kdb.LayerInfo(7, 0, "METAL1"),
+        _GL.PIN1: kdb.LayerInfo(7, 1, "M1.PIN"),
+        _GL.VIA1: kdb.LayerInfo(8, 0, "VIA1"),
+        _GL.M2: kdb.LayerInfo(9, 0, "METAL2"),
+        _GL.PIN2: kdb.LayerInfo(9, 1, "M2.PIN"),
+        _GL.VIA2: kdb.LayerInfo(10, 0, "VIA2"),
+        _GL.M3: kdb.LayerInfo(11, 0, "METAL3"),
+        _GL.PIN3: kdb.LayerInfo(11, 1, "M3.PIN"),
+        _GL.VIA3: kdb.LayerInfo(12, 0, "VIA3"),
+        _GL.M4: kdb.LayerInfo(13, 0, "METAL4"),
+        _GL.PIN4: kdb.LayerInfo(13, 1, "M4.PIN"),
+        _GL.VIA4: kdb.LayerInfo(14, 0, "VIA4"),
+        _GL.M5: kdb.LayerInfo(15, 0, "METAL5"),
+        _GL.PIN5: kdb.LayerInfo(15, 1, "M5.PIN"),
+        _GL.VIA5: kdb.LayerInfo(16, 0, "VIA5"),
+        _GL.M6: kdb.LayerInfo(17, 0, "METAL6"),
+        _GL.PIN6: kdb.LayerInfo(17, 1, "M6.PIN"),
+        _GL.VIA6: kdb.LayerInfo(18, 0, "VIA6"),
+        _GL.M7: kdb.LayerInfo(19, 0, "METAL7"),
+        _GL.PIN7: kdb.LayerInfo(19, 1, "M7.PIN"),
+        _GL.LVTN: kdb.LayerInfo(70, 0, "LVTN"),
+        _GL.LVTP: kdb.LayerInfo(70, 1, "LVTP"),
+        _GL.HVTN: kdb.LayerInfo(71, 0, "HVTN"),
+        _GL.HVTP: kdb.LayerInfo(71, 1, "HVTP"),
+        _GL.TEXT: kdb.LayerInfo(63, 0, "TEXT"),
+        _GL.PR_BOUNDARY: kdb.LayerInfo(189, 0, "PR_BOUNDARY"),
+    }
+
+
+def rule_deck() -> NewRuleDeck:
+    """IHP130 design rules using the new hierarchical RuleDeck API.
+
+    All values are plain integers in nanometers.
+    """
+    R = NewRuleDeck()
+
+    R.OD.width = 150
+    R.OD.spacing.OD = 180
+
+    R.PO.width = 130
+    R.PO.spacing.PO = 180
+
+    R.CO.width = 160
+    R.CO.spacing.CO = 180
+    R.CO.spacing.PO = 110
+    R.CO.enclosure.OD = 70
+    R.CO.enclosure.PO = 70
+
+    R.M1.width = 160
+    R.M1.spacing.M1 = 180
+    R.M1.area = 50_000
+    R.M1.enclosure.CO = 60
+
+    R.NP.enclosure.OD = 180
+    R.PP.enclosure.OD = 180
+    R.NW.enclosure.OD = 310
+
+    R.VIA1.width = 220
+    R.VIA1.spacing.VIA1 = 220
+
+    R.M2.width = 200
+    R.M2.spacing.M2 = 220
+    R.M2.area = 60_000
+    R.M2.enclosure.VIA1 = 60
+
+    R.VIA2.width = 190
+    R.VIA2.spacing.VIA2 = 220
+
+    R.M3.width = 200
+    R.M3.spacing.M3 = 220
+    R.M3.area = 60_000
+    R.M3.enclosure.VIA2 = 60
+
+    R.VIA3.width = 190
+    R.VIA3.spacing.VIA3 = 220
+
+    R.M4.width = 200
+    R.M4.spacing.M4 = 220
+    R.M4.area = 70_000
+    R.M4.enclosure.VIA3 = 60
+
+    R.VIA4.width = 190
+    R.VIA4.spacing.VIA4 = 220
+
+    R.M5.width = 200
+    R.M5.spacing.M5 = 220
+    R.M5.area = 80_000
+    R.M5.enclosure.VIA4 = 60
+
+    R.VIA5.width = 420
+    R.VIA5.spacing.VIA5 = 420
+
+    R.M6.width = 1640
+    R.M6.spacing.M6 = 1640
+    R.M6.area = 1_000_000
+    R.M6.enclosure.VIA5 = 100
+
+    R.VIA6.width = 900
+    R.VIA6.spacing.VIA6 = 1060
+
+    R.M7.width = 2000
+    R.M7.spacing.M7 = 2000
+    R.M7.area = 2_000_000
+    R.M7.enclosure.VIA6 = 100
+
+    return R
+
+
+# ---------------------------------------------------------------------------
+# Layer info (still used by write_technology_proto for vlsir.tech export)
+# ---------------------------------------------------------------------------
 
 
 def layer_infos() -> tuple[LayerInfoData, ...]:
+    """Tech layer descriptors for vlsir.tech layer-info export."""
     return (
         LayerInfoData(name="ACTIVE", index=1),
         LayerInfoData(name="POLY", index=2),
@@ -48,93 +187,50 @@ def layer_infos() -> tuple[LayerInfoData, ...]:
     )
 
 
-def tech_layer_map() -> TechLayerMap:
-    infos = {info.name: info for info in layer_infos()}
-    return {
-        LayerRef(L.OD, L.Purpose.DRAW): infos["ACTIVE"],
-        LayerRef(L.PO, L.Purpose.DRAW): infos["POLY"],
-        LayerRef(L.CO, L.Purpose.DRAW): infos["CONT"],
-        LayerRef(L.NP, L.Purpose.DRAW): infos["NSD"],
-        LayerRef(L.PP, L.Purpose.DRAW): infos["PSD"],
-        LayerRef(L.NWELL, L.Purpose.DRAW): infos["NWELL"],
-        LayerRef(L.M1, L.Purpose.DRAW): infos["METAL1"],
-        LayerRef(L.M1, L.Purpose.PIN): infos["M1.PIN"],
-        LayerRef(L.VIA1, L.Purpose.DRAW): infos["VIA1"],
-        LayerRef(L.M2, L.Purpose.DRAW): infos["METAL2"],
-        LayerRef(L.M2, L.Purpose.PIN): infos["M2.PIN"],
-        LayerRef(L.VIA2, L.Purpose.DRAW): infos["VIA2"],
-        LayerRef(L.M3, L.Purpose.DRAW): infos["METAL3"],
-        LayerRef(L.M3, L.Purpose.PIN): infos["M3.PIN"],
-        LayerRef(L.VIA3, L.Purpose.DRAW): infos["VIA3"],
-        LayerRef(L.M4, L.Purpose.DRAW): infos["METAL4"],
-        LayerRef(L.M4, L.Purpose.PIN): infos["M4.PIN"],
-        LayerRef(L.VIA4, L.Purpose.DRAW): infos["VIA4"],
-        LayerRef(L.M5, L.Purpose.DRAW): infos["METAL5"],
-        LayerRef(L.M5, L.Purpose.PIN): infos["M5.PIN"],
-        LayerRef(L.VIA5, L.Purpose.DRAW): infos["VIA5"],
-        LayerRef(L.M6, L.Purpose.DRAW): infos["METAL6"],
-        LayerRef(L.M6, L.Purpose.PIN): infos["M6.PIN"],
-        LayerRef(L.VIA6, L.Purpose.DRAW): infos["VIA6"],
-        LayerRef(L.M7, L.Purpose.DRAW): infos["METAL7"],
-        LayerRef(L.M7, L.Purpose.PIN): infos["M7.PIN"],
-        LayerRef(L.VTH_LVT, L.Purpose.DRAW): infos["VTH_LVT"],
-        LayerRef(L.VTH_HVT, L.Purpose.DRAW): infos["VTH_HVT"],
-        LayerRef(L.TEXT, L.Purpose.DRAW): infos["TEXT"],
-        LayerRef(L.PR_BOUNDARY, L.Purpose.DRAW): infos["PR_BOUNDARY"],
-    }
-
-
-def ihp130_rule_deck() -> RuleDeck:
-    deck = RuleDeck(database_microns=1000, manufacturing_grid_microns=0.005)
-    deck.layer(L.OD).min_width(rule=150 * n).min_spacing(rule=180 * n)
-    deck.layer(L.PO).min_width(rule=130 * n).min_spacing(rule=180 * n)
-    deck.layer(L.CO).min_width(rule=160 * n).min_spacing(rule=180 * n)
-    deck.layer(L.M1).min_width(rule=160 * n).min_spacing(rule=180 * n).min_area(
-        rule=50000 * n * n
-    )
-    deck.layer(L.VIA1).min_width(rule=220 * n).min_spacing(rule=220 * n)
-    deck.layer(L.M2).min_width(rule=200 * n).min_spacing(rule=220 * n).min_area(
-        rule=60000 * n * n
-    )
-    deck.layer(L.VIA2).min_width(rule=190 * n).min_spacing(rule=220 * n)
-    deck.layer(L.M3).min_width(rule=200 * n).min_spacing(rule=220 * n).min_area(
-        rule=60000 * n * n
-    )
-    deck.layer(L.VIA3).min_width(rule=190 * n).min_spacing(rule=220 * n)
-    deck.layer(L.M4).min_width(rule=200 * n).min_spacing(rule=220 * n).min_area(
-        rule=70000 * n * n
-    )
-    deck.layer(L.VIA4).min_width(rule=190 * n).min_spacing(rule=220 * n)
-    deck.layer(L.M5).min_width(rule=200 * n).min_spacing(rule=220 * n).min_area(
-        rule=80000 * n * n
-    )
-    deck.layer(L.VIA5).min_width(rule=420 * n).min_spacing(rule=420 * n)
-    deck.layer(L.M6).min_width(rule=1640 * n).min_spacing(rule=1640 * n).min_area(
-        rule=1_000_000 * n * n
-    )
-    deck.layer(L.VIA6).min_width(rule=900 * n).min_spacing(rule=1060 * n)
-    deck.layer(L.M7).min_width(rule=2000 * n).min_spacing(rule=2000 * n).min_area(
-        rule=2_000_000 * n * n
-    )
-
-    deck.layer(L.CO).min_enclosure(of=L.OD, rule=70 * n)
-    deck.layer(L.CO).min_enclosure(of=L.PO, rule=70 * n)
-    deck.layer(L.CO).min_spacing(to=L.PO, rule=110 * n)
-    deck.layer(L.M1).min_enclosure(of=L.CO, rule=60 * n)
-    deck.layer(L.NP).min_enclosure(of=L.OD, rule=180 * n)
-    deck.layer(L.PP).min_enclosure(of=L.OD, rule=180 * n)
-    deck.layer(L.NWELL).min_enclosure(of=L.OD, rule=310 * n)
-    return deck
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
 def test_ihp130_to_vlsir(tmp_path: Path) -> None:
+    """Test: write/read vlsir.tech proto round-trip (layer-info only)."""
     artifacts = write_technology_proto(
         tech_name=PDK_NAME,
         layer_infos=layer_infos(),
-        rule_deck=ihp130_rule_deck(),
         out_dir=tmp_path,
     )
     tech = read_technology_proto(artifacts.pb)
     assert tech.name.lower() == PDK_NAME
     assert any(layer.name.upper() in {"METAL1", "M1.PIN"} for layer in tech.layers)
-    assert len(tech.rules.layers) > 0
+
+
+def test_ihp130_new_rule_deck() -> None:
+    """Verify the new hierarchical rule deck returns correct values."""
+    R = rule_deck()
+    assert R.M1.width == 160
+    assert R.M1.spacing.M1 == 180
+    assert R.M1.area == 50_000
+    assert R.M1.enclosure.CO == 60
+    assert R.CO.width == 160
+    assert R.CO.enclosure.OD == 70
+    assert R.CO.enclosure.PO == 70
+    assert R.CO.spacing.PO == 110
+    assert R.NW.enclosure.OD == 310
+    assert R.VIA1.width == 220
+    assert R.M7.width == 2000
+    assert R.M7.area == 2_000_000
+
+
+def test_ihp130_layer_map() -> None:
+    """Verify layer_map returns a populated dict with expected entries."""
+    lm = layer_map()
+    assert len(lm) > 0
+    # Check a few known mappings
+    assert lm[_GL.M1] == kdb.LayerInfo(7, 0, "METAL1")
+    assert lm[_GL.PIN1] == kdb.LayerInfo(7, 1, "M1.PIN")
+    assert lm[_GL.OD] == kdb.LayerInfo(1, 0, "ACTIVE")
+
+
+def test_ihp130_dbu() -> None:
+    """Verify DBU is set correctly."""
+    assert DBU == 0.001
