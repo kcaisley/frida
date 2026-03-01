@@ -102,7 +102,7 @@ LayerInfoMap = dict[kdb.LayerInfo, kdb.LayerInfo]
 def load_rules_deck(tech_name: str) -> NewRuleDeck:
     """Load a PDK's rule deck by name.
 
-    Imports ``pdk.<tech_name>.layout.pdk_layout.rule_deck()`` and returns
+    Imports ``pdk.<tech_name>.layout.rule_deck()`` and returns
     the :class:`NewRuleDeck` directly.  All values are already plain
     integers in layout units (nanometers), so no conversion is needed.
 
@@ -112,31 +112,31 @@ def load_rules_deck(tech_name: str) -> NewRuleDeck:
         R.M1.width       # → 160  (int, nanometers)
         R.M1.spacing.M1  # → 180
     """
-    module = import_module(f"pdk.{tech_name}.layout.pdk_layout")
+    module = import_module(f"pdk.{tech_name}.layout")
     return module.rule_deck()
 
 
 def load_dbu(tech_name: str) -> float:
     """Load a PDK's database-unit size (microns per dbu).
 
-    Imports ``pdk.<tech_name>.layout.pdk_layout.DBU`` and returns the
+    Imports ``pdk.<tech_name>.layout.DBU`` and returns the
     float directly.
 
     After loading::
 
         layout.dbu = load_dbu("ihp130")   # 0.001 → 1 nm per dbu
     """
-    module = import_module(f"pdk.{tech_name}.layout.pdk_layout")
+    module = import_module(f"pdk.{tech_name}.layout")
     return module.DBU
 
 
 def load_layer_map(tech_name: str) -> LayerInfoMap:
     """Load a PDK's generic-to-tech layer mapping.
 
-    Imports ``pdk.<tech_name>.layout.pdk_layout.layer_map()`` and returns
+    Imports ``pdk.<tech_name>.layout.layer_map()`` and returns
     the ``dict[kdb.LayerInfo, kdb.LayerInfo]`` directly.
     """
-    module = import_module(f"pdk.{tech_name}.layout.pdk_layout")
+    module = import_module(f"pdk.{tech_name}.layout")
     return module.layer_map()
 
 

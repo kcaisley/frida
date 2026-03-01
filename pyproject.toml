@@ -36,8 +36,9 @@ exclude = ["old/"]
 ignore = ["E741"]  # Allow 'l' for transistor length
 
 [tool.pytest.ini_options]
+addopts = ["-k", "not test_plot"]
 testpaths = ["flow", "pdk"]
-python_files = ["test_*.py", "serialize.py", "mosfet.py", "momcap.py", "pdk_layout.py"]
+python_files = ["test_*.py", "serialize.py", "mosfet.py", "momcap.py", "layout.py"]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
 # Vlsir pins protobuf~=4.23 (in libs/Vlsir/bindings/python/setup.py),

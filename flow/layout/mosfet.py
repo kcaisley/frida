@@ -229,7 +229,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
 def test_mosfet(outdir: Path, tech: str, mode: str, visual: bool) -> None:
     """Inline MOSFET sweep test using the new API."""
 
-    pdk_module = import_module(f"pdk.{tech}.layout.pdk_layout")
+    pdk_module = import_module(f"pdk.{tech}.layout")
     tech_map = pdk_module.layer_map()
 
     if mode == "min":
