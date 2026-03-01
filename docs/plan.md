@@ -3,8 +3,8 @@
 ## Task Checklist
 
 ### VLSIR proto revert
-- [ ] Revert commit `e19027c` in VLSIR repo (`git revert e19027c` on `spectre` branch)
-- [ ] Regenerate Python bindings for `vlsir.tech_pb2`
+- [x] Revert commit `e19027c` in VLSIR repo (`git revert e19027c` on `spectre` branch)
+- [x] Regenerate Python bindings for `vlsir.tech_pb2`
 
 ### PDK cleanup (supply rails, model libraries)
 - [x] Remove `model_libraries()` from all 4 `pdk_data.py` files (dead code duplicating `Install.include_*()`)
