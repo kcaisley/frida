@@ -118,7 +118,7 @@ def sim_input(params: SampTbParams) -> hs.Sim:
     return SampSim
 
 
-@pytest.mark.usefixtures("require_sim_for_flow")
+@pytest.mark.usefixtures("check_simulator_avail")
 def test_samp_flow(
     flow,
     mode,

@@ -189,7 +189,7 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     return CompSim
 
 
-@pytest.mark.usefixtures("require_sim_for_flow")
+@pytest.mark.usefixtures("check_simulator_avail")
 def test_comp_flow(
     flow,
     mode,

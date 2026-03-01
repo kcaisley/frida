@@ -9,6 +9,7 @@ import klayout.db as kdb
 import vlsir.tech_pb2 as vtech
 
 from .dsl import L
+from .image import gds_to_png_with_pdk_style
 from .serialize import export_layout, read_technology_proto, write_technology_proto
 from .tech import map_generic_to_tech_layers
 
@@ -367,7 +368,7 @@ def mosfet(params: MosfetParams, tech: vtech.Technology) -> kdb.Layout:
     return layout
 
 
-def test_mosfet(tmp_path: Path, tech: str, mode: str) -> None:
+def test_mosfet(outdir: Path, tech: str, mode: str, visual: bool) -> None:
     """Inline MOSFET sweep test controlled by --tech and --mode."""
 
     module = import_module(f"pdk.{tech}.layout.pdk_layout")
@@ -376,7 +377,8 @@ def test_mosfet(tmp_path: Path, tech: str, mode: str) -> None:
         tech_name=tech,
         layer_infos=module.layer_infos(),
         rule_deck=rule_fn(),
-        out_dir=tmp_path / "tech",
+        out_dir=outdir,
+        stem=f"{tech}_layout_mosfet_tech",
     )
     proto = read_technology_proto(artifacts.pb)
     tech_map = module.tech_layer_map()
@@ -416,10 +418,14 @@ def test_mosfet(tmp_path: Path, tech: str, mode: str) -> None:
         )
         artifacts = export_layout(
             layout=layout,
-            out_dir=tmp_path,
+            out_dir=outdir,
             stem=stem,
             domain=f"frida.layout.{tech}",
-            write_debug_gds=False,
+            write_debug_gds=visual,
         )
         assert artifacts.pb.exists()
         assert artifacts.pbtxt.exists()
+        if visual:
+            assert artifacts.gds is not None and artifacts.gds.exists()
+            png = gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
+            assert png.exists()

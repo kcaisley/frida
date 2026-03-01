@@ -126,9 +126,7 @@ def AdcTb(p: AdcTbParams) -> h.Module:
     )
     t_stop = points[-1][0] + float(p.t_step)
     wave_p = pwl_points_to_wave(points)
-    wave_n = pwl_points_to_wave(
-        [(0.0, float(p.vcm)), (t_stop, float(p.vcm))]
-    )
+    wave_n = pwl_points_to_wave([(0.0, float(p.vcm)), (t_stop, float(p.vcm))])
     AdcTb.vvin_p = Vpwl(wave=wave_p)(p=AdcTb.vin_p, n=AdcTb.vss)
     AdcTb.vvin_n = Vpwl(wave=wave_n)(p=AdcTb.vin_n, n=AdcTb.vss)
 
@@ -172,7 +170,7 @@ def test_adc_weights():
     np.testing.assert_array_equal(weights, expected)
 
 
-@pytest.mark.usefixtures("require_sim_for_flow")
+@pytest.mark.usefixtures("check_simulator_avail")
 def test_adc_flow(
     flow,
     mode,

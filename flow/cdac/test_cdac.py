@@ -154,7 +154,7 @@ def test_cdac_weights():
     print(f"  SUBRDX2_LIM (8+2): {weights}")
 
 
-@pytest.mark.usefixtures("require_sim_for_flow")
+@pytest.mark.usefixtures("check_simulator_avail")
 def test_cdac_flow(
     flow,
     mode,

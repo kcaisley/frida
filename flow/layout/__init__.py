@@ -12,6 +12,7 @@ from .dsl import (
     SourceTie,
 )
 from .dsl import generator, generic_name, param_to_generic, paramclass
+from .image import gds_to_png_with_pdk_style
 from .momcap import MomcapParams, momcap
 from .mosfet import MosfetParams, mosfet
 from .serialize import (
@@ -39,6 +40,7 @@ __all__ = [
     "generator",
     "generic_name",
     "param_to_generic",
+    "gds_to_png_with_pdk_style",
     "LayerInfoData",
     "RuleDeck",
     "TechLayerMap",

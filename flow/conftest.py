@@ -96,8 +96,10 @@ def _is_xdist_worker(config: pytest.Config) -> bool:
     return hasattr(config, "workerinput")
 
 
-def clean_scratch_dir(path: Path = Path("./scratch")) -> None:
-    """Remove all contents from the scratch directory."""
+def clean_outdir(path: Path) -> None:
+    """Remove all contents from the output directory."""
+    # Needed so `--clean yes` gives reproducible test outputs and avoids stale files
+    # from previous runs when comparing generated collateral.
     if not path.exists():
         return
     for child in path.iterdir():
@@ -105,6 +107,17 @@ def clean_scratch_dir(path: Path = Path("./scratch")) -> None:
             shutil.rmtree(child)
         else:
             child.unlink()
+
+
+def resolve_outdir(config: pytest.Config) -> Path:
+    """Resolve --outdir against pytest root when relative."""
+    # Needed so every test (netlist + layout) writes into one shared location,
+    # regardless of the current working directory used to invoke pytest.
+    raw = Path(config.getoption("--outdir")).expanduser()
+    path = raw if raw.is_absolute() else Path(config.rootpath) / raw
+    # Needed as a safety net so writers can assume the directory exists.
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def pytest_addoption(parser):
@@ -117,14 +130,20 @@ def pytest_addoption(parser):
         action="store",
         default="netlist",
         choices=["netlist", "simulate", "measure"],
-        help="Flow mode (default: netlist): netlist, simulate, measure",
+        help=(
+            "Flow action for circuit-flow tests (default: netlist): "
+            "netlist writes collateral, simulate runs simulator, measure runs post-processing"
+        ),
     )
     parser.addoption(
         "--mode",
         action="store",
         default="min",
         choices=["min", "max"],
-        help="Variant mode (default: min): min (limit to 10), max (full cartesian)",
+        help=(
+            "Variant scope for flow and layout tests (default: min): "
+            "min runs a small representative set, max runs full sweeps"
+        ),
     )
     parser.addoption(
         "--montecarlo",
@@ -162,7 +181,24 @@ def pytest_addoption(parser):
         action="store",
         default="no",
         choices=["yes", "no"],
-        help="Scratch cleanup (default: no): yes, no",
+        help="Output directory cleanup (default: no): yes, no",
+    )
+    parser.addoption(
+        "--visual",
+        action="store",
+        default="no",
+        choices=["yes", "no"],
+        help=(
+            "Enable visual collateral generation (default: no). "
+            "Currently renders layout GDS to PNG; planned extension is schematic drawing "
+            "for netlists and matplotlib plots for measurement flows."
+        ),
+    )
+    parser.addoption(
+        "--outdir",
+        action="store",
+        default="scratch",
+        help="Output directory for generated collateral (default: scratch)",
     )
     parser.addoption(
         "--sim-server",
@@ -190,9 +226,11 @@ def pytest_configure(config):
                 f"Invalid --fmt={fmt}. Valid values: spectre, ngspice, yaml, verilog"
             )
 
+    outdir = resolve_outdir(config)
+
     # Clean once in the xdist controller process when requested.
     if config.getoption("--clean") == "yes" and not _is_xdist_worker(config):
-        clean_scratch_dir()
+        clean_outdir(outdir)
 
     # Register the requires_sim marker
     config.addinivalue_line(
@@ -203,24 +241,38 @@ def pytest_configure(config):
 
 @pytest.fixture
 def flow(request) -> str:
-    """Get flow selection from command line."""
+    """Get flow selection from command line for circuit-flow tests."""
     return request.config.getoption("--flow")
 
 
 @pytest.fixture
 def mode(request) -> str:
-    """Get variant selection mode from command line."""
+    """Get variant scope (min/max) for flow and layout tests."""
     return request.config.getoption("--mode")
 
 
 @pytest.fixture
 def montecarlo(request) -> bool:
-    """Get Monte Carlo selection from command line."""
+    """Get Monte Carlo selection from command line for simulation flows."""
     return request.config.getoption("--montecarlo") == "yes"
 
 
 @pytest.fixture
-def sim_options(request):
+def visual(request) -> bool:
+    """Enable optional visual collateral generation for tests."""
+    return request.config.getoption("--visual") == "yes"
+
+
+@pytest.fixture
+def outdir(request) -> Path:
+    """Shared output directory for flow and layout tests."""
+    # Needed to inject the configured output path into tests via fixture args,
+    # instead of hardcoding "./scratch" in each test module.
+    return resolve_outdir(request.config)
+
+
+@pytest.fixture
+def sim_options(request, outdir: Path):
     """
     Provide simulation options for tests that need them.
 
@@ -229,7 +281,7 @@ def sim_options(request):
     from .flow.sim import get_sim_options
 
     sim = SupportedSimulators(request.config.getoption("--simulator"))
-    return get_sim_options(rundir=Path("./scratch"), simulator=sim)
+    return get_sim_options(rundir=outdir, simulator=sim)
 
 
 @pytest.fixture
@@ -259,7 +311,7 @@ def sim_server(request) -> str | None:
 
 
 @pytest.fixture
-def require_sim_for_flow(
+def check_simulator_avail(
     flow: str,
     simulator: SupportedSimulators,
     sim_server: str | None,
