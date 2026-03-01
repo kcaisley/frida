@@ -1,13 +1,67 @@
 # Layout API Refactor Plan
 
+## Task Checklist
+
+### VLSIR proto revert
+- [ ] Revert commit `e19027c` in VLSIR repo (`git revert e19027c` on `spectre` branch)
+- [ ] Regenerate Python bindings for `vlsir.tech_pb2`
+
+### PDK cleanup (supply rails, model libraries)
+- [ ] Remove `model_libraries()` from all 4 `pdk_data.py` files (dead code duplicating `Install.include_*()`)
+- [ ] Move `supply_rails()` data into each PDK's `Install` class as `SUPPLY_RAILS` dict + `supply_voltage()` method
+- [ ] Update `SupplyVals.corner()` to call `Install.instance().supply_voltage()` instead of `pdk/__init__.py::supply_voltage()`
+- [ ] Remove `supply_rails()` and `supply_voltage()` from `pdk/__init__.py`
+- [ ] Remove `pdk/test_supply_rails.py`, add equivalent test against `Install`
+
+### New APIs — `dsl.py`
+- [ ] Add `GenericLayers` class with all canonical `kdb.LayerInfo` attributes
+- [ ] Add `load_generic_layers(layout)` function
+- [ ] Update `METAL_DRAW_TO_GENERIC` and `VTH_TO_GENERIC` to use `GenericLayers` `LayerInfo` values
+
+### New APIs — `tech.py`
+- [ ] Implement new `RuleDeck`, `LayerRules`, `RelativeRules` classes (hierarchical dot-path)
+- [ ] Add `load_rules_deck(tech_name)` function
+- [ ] Add `load_dbu(tech_name)` function
+- [ ] Add `remap_layers(layout, mapping)` function
+- [ ] Add inline `test_rule_deck()` and `test_remap_layers()` tests
+
+### Standardize PDK layout files
+- [ ] Rename `ihp130_rule_deck()` → `rule_deck()` (and equivalents in all PDKs)
+- [ ] Rewrite rule deck bodies to use `R.M1.width = 160` syntax (plain int, nanometers)
+- [ ] Add module-level `DBU` constant to each `pdk_layout.py` (e.g. `DBU = 0.001` for 1 nm, `DBU = 0.0005` for 0.5 nm)
+- [ ] Add `layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]` to each PDK module
+- [ ] Keep `layer_infos()` (still used by `write_technology_proto` for `vlsir.tech` layer-info export)
+
+### Simplify `serialize.py`
+- [ ] Remove `_rule_token_to_proto()`, `_statement_to_proto()`
+- [ ] Remove all `tech.rules.*` population from `write_technology_proto()`
+- [ ] Remove `rule_deck` parameter from `write_technology_proto()` (keep `tech_name`, `layer_infos`, `out_dir`)
+- [ ] Remove imports of `RuleDeck`, `RuleStatementData`, `rule_deck_to_tech_rules` from `tech.py`
+- [ ] Keep `layout_to_vlsir_raw()`, `export_layout()`, `vlsir_raw_to_disk()`, `read_technology_proto()`
+
+### Migrate generators
+- [ ] Change `mosfet.py` signature to `mosfet(P: MosfetParams, tech_name: str)`; load `R` and `dbu` inside via `load_rules_deck` / `load_dbu`; replace all `RuleStatement` token parsing with `R.*` access; remove `import vlsir.tech_pb2`
+- [ ] Change `momcap.py` signature similarly
+- [ ] Update `test_mosfet` / `test_momcap` to load `rule_deck()` directly from PDK module
+
+### Cleanup old code
+- [ ] Remove old `Layer` enum, `Purpose` enum, `LayerRef`, `_LayoutNamespace`, module-level `L` from `dsl.py`
+- [ ] Remove old `SpacingRule`, `EnclosureRule`, `AreaRule`, `WidthRule`, chained `LayerRules` builder from `tech.py`
+- [ ] Remove `RuleStatementData`, `LayerRuleSetData`, `LayerPairRuleSetData`, `rule_deck_to_tech_rules()` from `tech.py`
+- [ ] Remove `map_generic_to_tech_layers()`, `STACK_ORDER` from `tech.py`
+- [ ] Remove old `tech_layer_map()` from PDK files (replaced by `layer_map()`)
+
+---
+
 ## Goal
 
 Make generator code read like this:
 
 ```python
-layout.dbu = dbu_from_tech(tech)   # tech is a vlsir.tech.Technology proto
+R = load_rules_deck(tech_name)
+layout = kdb.Layout()
+layout.dbu = load_dbu(tech_name)
 L = load_generic_layers(layout)
-R = load_rules_deck(tech.name)
 
 rail_w = P.powerrail_mult * R.M1.width
 track_pitch = R.M1.width + R.M1.spacing.M1
@@ -19,7 +73,7 @@ top.shapes(L.PIN1).insert(kdb.Box(x0, y_vss0, x0 + rail_w, y_vss1))
 Key outcomes:
 
 - `L` holds `kdb.LayerInfo` objects for all generic layers. Returned by `load_generic_layers(layout)`, which also registers the layers in the layout. Usable directly in `cell.shapes(L.M1)`.
-- `R` holds PDK rules in a readable, hierarchical namespace (`R.M1.width`, `R.M1.spacing.M1`, `R.CO.enclosure.OD`).
+- `R` holds PDK rules in a readable, hierarchical namespace (`R.M1.width`, `R.M1.spacing.M1`, `R.CO.enclosure.OD`). Loaded directly from `pdk_layout.py` — no proto round-trip.
 - `P` is the conventional name for the params object (`P.powerrail_mult`, `P.fing_count`).
 - Any bare local variable (e.g. `rail_w`, `gate_len`, `sd_pitch`) is implicitly a derived value. No prefix needed.
 
@@ -308,6 +362,19 @@ def load_rules_deck(tech_name: str) -> RuleDeck:
     """
     module = import_module(f"pdk.{tech_name}.layout.pdk_layout")
     return module.rule_deck()
+
+
+def load_dbu(tech_name: str) -> float:
+    """Load a PDK's database-unit size (microns per dbu).
+
+    Imports pdk.<tech_name>.layout.pdk_layout.DBU and returns
+    the float directly.
+
+    After loading:
+        layout.dbu = load_dbu("ihp130")   # 0.001 → 1 nm per dbu
+    """
+    module = import_module(f"pdk.{tech_name}.layout.pdk_layout")
+    return module.DBU
 ```
 
 The `tech_name` string comes from whatever technology context the generator is invoked with. Every PDK module exports `rule_deck()` with that exact function name.
@@ -358,15 +425,19 @@ def remap_layers(
 
 ### Keep
 
-- `write_technology_proto`, `read_technology_proto`, raw-layout export (`layout_to_vlsir_raw`, `export_layout`).
-
-### Update
-
-- `write_technology_proto` must be updated to iterate `RuleDeck._layers` and serialize the hierarchical structure to protobuf, instead of consuming the old flat-list format.
+- `layout_to_vlsir_raw()`, `vlsir_raw_to_disk()`, `export_layout()` — `vlsir.raw` layout geometry export.
+- `write_technology_proto(tech_name, layer_infos, out_dir)` — `vlsir.tech` layer-info export (simplified, see below).
+- `read_technology_proto(path)` — reads `vlsir.tech.Technology` back from `.pb`/`.pbtxt`.
+- `ExportArtifacts`, `TechArtifacts` dataclasses.
 
 ### Remove
 
-- `rule_namespace_from_proto` / `rule_namespace_from_tech` — these are no longer needed since `load_rules_deck` reads directly from the PDK module, not from protobuf.
+- `_rule_token_to_proto()`, `_statement_to_proto()` — rule-deck proto serialization helpers.
+- All `tech.rules.*` population in `write_technology_proto()`.
+- `rule_deck` parameter from `write_technology_proto()` signature.
+- Imports of `RuleDeck`, `RuleStatementData`, `rule_deck_to_tech_rules` from `tech.py`.
+
+After cleanup, `write_technology_proto` only populates `Technology(name=..., layers=[LayerInfo(...)])` using the upstream proto messages that survive the VLSIR revert.
 
 ---
 
@@ -388,6 +459,7 @@ from flow.layout.dsl import GenericLayers
 from flow.layout.tech import RuleDeck
 
 PDK_NAME = "ihp130"
+DBU = 0.001   # 1 dbu = 1 nm (1000 database units per micron)
 L = GenericLayers()
 
 
@@ -488,7 +560,7 @@ def rule_deck() -> RuleDeck:
 
 ### Standardized names
 
-All PDK modules use the **same function names**: `rule_deck()` and `layer_map()`. This allows `load_rules_deck(tech_name)` to import any PDK dynamically without knowing PDK-specific function names.
+All PDK modules export the **same names**: `rule_deck()`, `layer_map()`, and `DBU`. This allows `load_rules_deck(tech_name)` and `load_dbu(tech_name)` to import any PDK dynamically without knowing PDK-specific details.
 
 ---
 
@@ -496,12 +568,13 @@ All PDK modules use the **same function names**: `rule_deck()` and `layer_map()`
 
 ### Setup (top of every generator)
 
-The generator receives a `vtech.Technology` proto object. It reads `lef_units.database_microns` from the proto to set `layout.dbu`, and uses `tech.name` to load the rule deck from the corresponding PDK module. The helper `dbu_from_tech()` converts `database_microns` to the dbu float that KLayout expects (`1.0 / database_microns`):
+The generator receives a `tech_name` string identifying the target PDK. It loads the rule deck and dbu separately, creates the layout, and loads generic layers:
 
 ```python
-layout.dbu = dbu_from_tech(tech)
+R = load_rules_deck(tech_name)
+layout = kdb.Layout()
+layout.dbu = load_dbu(tech_name)
 L = load_generic_layers(layout)
-R = load_rules_deck(tech.name)
 ```
 
 ### Naming conventions
@@ -515,13 +588,13 @@ R = load_rules_deck(tech.name)
 
 ```python
 @generator
-def mosfet(P: MosfetParams, tech: vtech.Technology) -> kdb.Layout:
+def mosfet(P: MosfetParams, tech_name: str) -> kdb.Layout:
+    R = load_rules_deck(tech_name)
     layout = kdb.Layout()
-    layout.dbu = dbu_from_tech(tech)
+    layout.dbu = load_dbu(tech_name)
     top = layout.create_cell("MOSFET")
 
     L = load_generic_layers(layout)
-    R = load_rules_deck(tech.name)
 
     rail_w = P.powerrail_mult * R.M1.width
     track_pitch = R.M1.width + R.M1.spacing.M1
@@ -552,9 +625,9 @@ This eliminates all manual `stmt.keyword` parsing and protobuf token extraction 
 ### Phase 2: Standardize PDK files
 
 - Rename `ihp130_rule_deck()` → `rule_deck()` in all PDK modules.
-- Rewrite rule deck bodies to use `R.M1.width = 160 * n` syntax instead of chained `deck.layer(L.M1).min_width(rule=...)`.
+- Rewrite rule deck bodies to use `R.M1.width = 160` syntax (plain int, nanometers) instead of chained `deck.layer(L.M1).min_width(rule=...)`.
 - Add `layer_map()` returning `dict[kdb.LayerInfo, kdb.LayerInfo]` to each PDK module.
-- Keep old `layer_infos()` and `tech_layer_map()` temporarily for backward compat.
+- Keep old `layer_infos()` (still used by `write_technology_proto` for layer-info export) and `tech_layer_map()` temporarily for backward compat.
 
 ### Phase 3: Migrate generators
 
@@ -562,7 +635,7 @@ This eliminates all manual `stmt.keyword` parsing and protobuf token extraction 
 - Replace all manual `stmt.keyword` / token parsing with `R.*` dot-path access.
 - Replace `layout.layer(kdb.LayerInfo(L.generic_name(...)))` calls with `L = load_generic_layers(layout)`.
 - Use `remap_layers()` instead of `map_generic_to_tech_layers()`.
-- Generator signatures keep `tech: vtech.Technology`; use `tech.name` for `load_rules_deck()` and `dbu_from_tech(tech)` for `layout.dbu`.
+- Change generator signatures from `mosfet(params, tech: vtech.Technology)` to `mosfet(P: MosfetParams, tech_name: str)`. Load `R` and `dbu` inside via `load_rules_deck` / `load_dbu`. Remove `import vlsir.tech_pb2` from generators.
 
 ### Phase 4: Cleanup
 
@@ -570,8 +643,8 @@ This eliminates all manual `stmt.keyword` parsing and protobuf token extraction 
 - Remove `SpacingRule`, `EnclosureRule`, `AreaRule`, `WidthRule` dataclasses.
 - Remove `rule_deck_to_tech_rules()`, `RuleStatementData`, `LayerRuleSetData`, `LayerPairRuleSetData`.
 - Remove `map_generic_to_tech_layers()`, `STACK_ORDER`.
-- Remove old `layer_infos()`, `tech_layer_map()` from PDK files.
-- Update `serialize.py` to work with new `RuleDeck` structure.
+- Remove old `tech_layer_map()` from PDK files (replaced by `layer_map()`).
+- Keep `layer_infos()` in PDK files (still used by `write_technology_proto` for `vlsir.tech` layer-info export).
 
 ---
 
@@ -700,7 +773,7 @@ What stays:
 
 | File | Change |
 |------|--------|
-| `mosfet.py` | Change signature from `mosfet(params, tech: vtech.Technology)` to `mosfet(params, R: RuleDeck)`. Replace all `RuleStatement` token parsing with `R.M1.width`, `R.M1.spacing`, etc. Remove `import vlsir.tech_pb2`. |
+| `mosfet.py` | Change signature from `mosfet(params, tech: vtech.Technology)` to `mosfet(P: MosfetParams, tech_name: str)`. Load `R` via `load_rules_deck`, `dbu` via `load_dbu`. Replace all `RuleStatement` token parsing with `R.M1.width`, `R.M1.spacing`, etc. Remove `import vlsir.tech_pb2`. |
 | `momcap.py` | Same treatment as `mosfet.py`. |
 | `tech.py` | Remove old `RuleDeck` dataclass (flat, for proto serialization), `RuleStatementData`, `LayerRuleSetData`, `LayerPairRuleSetData`, `rule_deck_to_tech_rules()`. Keep `LayerInfoData` (still needed by `write_technology_proto` and `layer_map`). These are replaced by the new typed `RuleDeck`/`LayerRules`/`RelativeRules` classes. |
 | `pdk_layout.py` (all PDKs) | Keep `layer_infos()` (still used by `write_technology_proto`). Keep `rule_deck()` and `layer_map()`. |
