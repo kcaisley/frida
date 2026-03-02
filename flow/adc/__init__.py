@@ -12,8 +12,8 @@ Exports:
 
 from .adc import (
     Adc,
-    AdcParams,
     AdcDigital,
+    AdcParams,
     get_adc_weights,
 )
 from .test_adc import AdcTb, AdcTbParams, sim_input

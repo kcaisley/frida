@@ -49,7 +49,6 @@ from typing import Any
 import hdl21.sim as hs
 import numpy as np
 
-
 # =============================================================================
 # Simulation Extraction Functions (SimResult -> numpy arrays)
 # =============================================================================

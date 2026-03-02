@@ -6,21 +6,21 @@ ExternalModule instances representing the actual PDK devices.
 """
 
 # Std-Lib Imports
-from typing import Tuple, Dict
 from dataclasses import dataclass, field
+from typing import Dict, Tuple
 
 # Hdl21 Imports
 import hdl21 as h
 from hdl21.prefix import µ
 from hdl21.primitives import (
-    MosType,
-    MosVth,
+    BipolarParams,
+    DiodeParams,
     MosFamily,
     MosParams,
-    PhysicalResistorParams,
+    MosType,
+    MosVth,
     PhysicalCapacitorParams,
-    DiodeParams,
-    BipolarParams,
+    PhysicalResistorParams,
 )
 
 # Local Imports

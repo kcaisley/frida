@@ -17,9 +17,8 @@ Architecture:
     └── Xcomp (HDL21 Comp)
 """
 
-import numpy as np
-
 import hdl21 as h
+import numpy as np
 
 from ..cdac import Cdac, CdacParams, get_cdac_weights
 from ..comp import Comp, CompParams

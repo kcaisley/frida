@@ -68,7 +68,7 @@ flow/
 ├── conftest.py                 # ~30 lines, set_pdk + tech fixture
 ├── __init__.py
 │
-├── flow/                       # shared flow infrastructure (unchanged)
+├── circuit/                    # shared circuit infrastructure (renamed from flow/)
 │   ├── __init__.py
 │   ├── netlist.py
 │   ├── sim.py
@@ -271,7 +271,7 @@ from pathlib import Path
 from hdl21.primitives import MosVth
 
 from .subckt import Samp, SampParams
-from ..flow import (
+from ..circuit import (
     SwitchType, select_variants, run_netlist_variants,
     run_simulations, get_param_axes, print_netlist_summary,
     wrap_monte_carlo,
@@ -406,7 +406,7 @@ All comparator-specific enums stay internal.
 
 from pathlib import Path
 from .subckt import Comp, CompParams, is_valid_comp_params
-from ..flow import (
+from ..circuit import (
     CompStages, LatchPwrgateCtl, LatchPwrgateNode,
     LatchRstExternCtl, LatchRstInternCtl, PreampBias, PreampDiffpair,
     select_variants, run_netlist_variants, run_simulations,
@@ -493,6 +493,7 @@ except ImportError:
     HAS_ARGCOMPLETE = False
 
 from .conftest import set_pdk, list_pdks
+# Note: circuit infrastructure accessed via flow.circuit (e.g. flow.circuit.sim)
 
 
 def main():
@@ -591,7 +592,7 @@ def _check_simulator(simulator, host):
 
 def _make_sim_options(args):
     from vlsirtools.spice import SupportedSimulators
-    from .flow.sim import get_sim_options
+    from .circuit.sim import get_sim_options
     sim = SupportedSimulators(args.simulator)
     return get_sim_options(rundir=args.out, simulator=sim)
 
@@ -641,7 +642,7 @@ def test_cdac():
 
 def test_cdac_weights():
     """Test weight calculation for different strategies."""
-    from ..flow.params import RedunStrat
+    from ..circuit.params import RedunStrat
     params = CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2)
     weights = get_cdac_weights(params)
     assert len(weights) == 8
@@ -864,15 +865,15 @@ from .tech import (LayerInfoData, LayerInfoMap, NewLayerRules, NewRuleDeck,
 ### Untouched files
 
 All pure unit tests stay exactly as they are:
-- `flow/flow/test_measure.py` (~40 tests)
-- `flow/flow/test_netlist.py` (~4 tests)
-- `flow/flow/test_params.py` (~1 test)
-- `flow/flow/test_plot.py` (~23 tests, skipped for now)
+- `flow/circuit/test_measure.py` (~40 tests)
+- `flow/circuit/test_netlist.py` (~4 tests)
+- `flow/circuit/test_params.py` (~1 test)
+- `flow/circuit/test_plot.py` (~23 tests, skipped for now)
 - `flow/layout/tech.py` (inline `test_rule_deck`, `test_remap_layers`)
 - `flow/layout/serialize.py` (inline `test_serialize`)
 - `pdk/test_supply_rails.py` (~3 tests)
 
-All shared infrastructure — `flow/flow/*.py`, `flow/layout/dsl.py`,
+All shared infrastructure — `flow/circuit/*.py`, `flow/layout/dsl.py`,
 `flow/layout/tech.py`, `flow/layout/serialize.py`, `flow/layout/image.py`,
 PDK code — untouched.
 

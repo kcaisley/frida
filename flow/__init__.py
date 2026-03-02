@@ -21,7 +21,7 @@ from .cdac import (
     is_valid_cdac_params,
 )
 
-# Common params and enums - from flow module
+# Common params and enums - from circuit module
 from .circuit import (
     Ac,
     CapType,
