@@ -29,9 +29,7 @@ from ..pdk_data import *
 # MOS transistor key: (name, MosType, MosVth, MosFamily)
 MosKey = Tuple[str, MosType, MosVth, MosFamily]
 
-# ============================================================================
-# MOS Transistors
-# ============================================================================
+# ==== MOS Transistors ====
 # IHP has 4 main MOS types:
 # - sg13_lv_nmos/pmos: Low-voltage (1.2V core), min L=0.13µm
 # - sg13_hv_nmos/pmos: High-voltage (3.3V I/O), min L=0.45µm
@@ -55,9 +53,7 @@ xtors: Dict[MosKey, h.ExternalModule] = {
     ),
 }
 
-# ============================================================================
-# Bipolar Transistors (HBT and PNP)
-# ============================================================================
+# ==== Bipolar Transistors (HBT and PNP) ====
 # IHP's strength: high-performance SiGe HBTs with fT up to 350 GHz
 # - npn13G2: Standard HBT (4 terminals: c, b, e, bn)
 # - npn13G2l: Large HBT
@@ -78,9 +74,7 @@ bjts: Dict[str, h.ExternalModule] = {
     "pnpMPA": pnp_module("pnpMPA", params=IhpPnpParams),
 }
 
-# ============================================================================
-# Resistors
-# ============================================================================
+# ==== Resistors ====
 # IHP resistors are 3-terminal devices (1, 2, bn - bulk node)
 # - rsil: Silicided polysilicon (~7 ohm/sq)
 # - rhigh: High-resistivity polysilicon (~1k ohm/sq)
@@ -92,9 +86,7 @@ ress: Dict[str, h.ExternalModule] = {
     "rppd": res_module("rppd", numterminals=3, params=IhpResParams),
 }
 
-# ============================================================================
-# Capacitors
-# ============================================================================
+# ==== Capacitors ====
 # - cap_cmim: MIM capacitor (2-terminal: PLUS, MINUS)
 # - cap_rfcmim: RF MIM capacitor (3-terminal: PLUS, MINUS, bn)
 # - sg13_hv_svaricap: Varactor (4-terminal: G1, W, G2, bn)
@@ -109,9 +101,7 @@ varicaps: Dict[str, h.ExternalModule] = {
     "sg13_hv_svaricap": varicap_module("sg13_hv_svaricap", params=IhpVaricapParams),
 }
 
-# ============================================================================
-# Diodes and ESD Devices
-# ============================================================================
+# ==== Diodes and ESD Devices ====
 # - schottky_nbl1: Schottky diode (3-terminal: A, C, S)
 # - diodevdd_2kv/4kv, diodevss_2kv/4kv: ESD protection (3-terminal: VDD, PAD, VSS)
 
@@ -126,9 +116,7 @@ esd_devices: Dict[str, h.ExternalModule] = {
     "diodevss_4kv": esd_module("diodevss_4kv", params=IhpEsdParams),
 }
 
-# ============================================================================
-# Module-Scope Cache
-# ============================================================================
+# ==== Module-Scope Cache ====
 # Cache for ExternalModuleCall instances to avoid duplicate instantiation
 
 
@@ -153,9 +141,7 @@ class Cache:
 
 CACHE = Cache()
 
-# ============================================================================
-# Default Device Sizes
-# ============================================================================
+# ==== Default Device Sizes ====
 # Default W/L values for devices when not explicitly specified
 
 # MOS transistor defaults (w, l) in microns

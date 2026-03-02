@@ -49,10 +49,7 @@ from typing import Any
 import hdl21.sim as hs
 import numpy as np
 
-# =============================================================================
-# Simulation Extraction Functions (SimResult -> numpy arrays)
-# =============================================================================
-
+# ==== Simulation Extraction Functions ====
 
 def sim_get_time(result: hs.SimResult, analysis_idx: int = 0) -> np.ndarray:
     """
@@ -199,10 +196,7 @@ def sim_sample_at_edges(
     return samples
 
 
-# =============================================================================
-# Waveform Utilities (numpy arrays)
-# =============================================================================
-
+# ==== Waveform Utilities ====
 
 def find_crossings(
     signal: np.ndarray,
@@ -241,10 +235,7 @@ def find_crossings(
     return crossings
 
 
-# =============================================================================
-# Analog Preprocessing (numpy arrays)
-# =============================================================================
-
+# ==== Analog Preprocessing ====
 
 def diff_to_single(pos: np.ndarray, neg: np.ndarray) -> np.ndarray:
     """Convert differential to single-ended: pos - neg."""
@@ -271,10 +262,7 @@ def quantize_to_bits(
     return (values > threshold).astype(np.int32)
 
 
-# =============================================================================
-# Digital Processing (numpy arrays)
-# =============================================================================
-
+# ==== Digital Processing ====
 
 def redundant_bits_to_code(
     bits: np.ndarray,
@@ -314,10 +302,7 @@ def code_to_voltage(
     return codes * v_ref / total_weight
 
 
-# =============================================================================
-# Core Measurement Functions (numpy arrays - shared by sim and DAQ)
-# =============================================================================
-
+# ==== Core Measurement Functions ====
 
 def measure_settling(
     time: np.ndarray,
@@ -448,10 +433,7 @@ def measure_charge_injection(v_before: float, v_after: float) -> float:
     return v_after - v_before
 
 
-# =============================================================================
-# Static Linearity Analysis (numpy arrays)
-# =============================================================================
-
+# ==== Static Linearity Analysis ====
 
 def histogram_inl_dnl(
     codes: np.ndarray,
@@ -639,10 +621,7 @@ def compute_static_error(
     }
 
 
-# =============================================================================
-# Dynamic Performance Analysis (numpy arrays)
-# =============================================================================
-
+# ==== Dynamic Performance Analysis ====
 
 def compute_enob_fft(
     codes: np.ndarray,
@@ -751,10 +730,7 @@ def compute_enob_fft(
     }
 
 
-# =============================================================================
-# Monte Carlo Statistics (numpy arrays)
-# =============================================================================
-
+# ==== Monte Carlo Statistics ====
 
 def mc_statistics(values: list[float] | np.ndarray) -> dict[str, float]:
     """
@@ -793,9 +769,7 @@ def mc_statistics(values: list[float] | np.ndarray) -> dict[str, float]:
     }
 
 
-# =============================================================================
-# Legacy API Aliases (backward compatibility)
-# =============================================================================
+# ==== Legacy API Aliases ====
 
 # Old function names that delegate to new implementations
 

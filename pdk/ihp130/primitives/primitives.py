@@ -16,9 +16,7 @@ Example:
 
 from ..pdk_data import *
 
-# ============================================================================
-# MOS Transistors
-# ============================================================================
+# ==== MOS Transistors ====
 
 # Low-voltage (1.2V core) transistors - min L = 0.13µm
 LV_NMOS = xtor_module("sg13_lv_nmos", params=IhpMosParams)
@@ -28,9 +26,7 @@ LV_PMOS = xtor_module("sg13_lv_pmos", params=IhpMosParams)
 HV_NMOS = xtor_module("sg13_hv_nmos", params=IhpMosHvParams)
 HV_PMOS = xtor_module("sg13_hv_pmos", params=IhpMosHvParams)
 
-# ============================================================================
-# Bipolar Transistors - HBT (SiGe:C npn-HBT)
-# ============================================================================
+# ==== Bipolar Transistors - HBT ====
 # High-performance HBTs with fT up to 350 GHz, fmax up to 450 GHz
 
 # Standard 4-terminal HBTs (c, b, e, bn)
@@ -43,16 +39,12 @@ NPN13G2_5T = hbt_module("npn13G2_5t", params=IhpHbtParams, num_terminals=5)
 NPN13G2L_5T = hbt_module("npn13G2l_5t", params=IhpHbtParams, num_terminals=5)
 NPN13G2V_5T = hbt_module("npn13G2v_5t", params=IhpHbtParams, num_terminals=5)
 
-# ============================================================================
-# Bipolar Transistors - Lateral PNP
-# ============================================================================
+# ==== Bipolar Transistors - Lateral PNP ====
 
 # Lateral PNP transistor (3-terminal: c, b, e)
 PNPMPA = pnp_module("pnpMPA", params=IhpPnpParams)
 
-# ============================================================================
-# Resistors (3-terminal with bulk connection)
-# ============================================================================
+# ==== Resistors (3-Terminal with Bulk Connection) ====
 
 # Silicided polysilicon resistor (~7 ohm/sq)
 RSIL = res_module("rsil", numterminals=3, params=IhpResParams)
@@ -63,9 +55,7 @@ RHIGH = res_module("rhigh", numterminals=3, params=IhpResParams)
 # P-doped polysilicon resistor (~300 ohm/sq)
 RPPD = res_module("rppd", numterminals=3, params=IhpResParams)
 
-# ============================================================================
-# Capacitors
-# ============================================================================
+# ==== Capacitors ====
 
 # MIM capacitor (2-terminal: PLUS, MINUS)
 CAP_CMIM = cap_module("cap_cmim", numterminals=2, params=IhpCapParams)
@@ -76,16 +66,12 @@ CAP_RFCMIM = cap_module("cap_rfcmim", numterminals=3, params=IhpCapParams)
 # Varactor (4-terminal: G1, W, G2, bn)
 SVARICAP = varicap_module("sg13_hv_svaricap", params=IhpVaricapParams)
 
-# ============================================================================
-# Diodes
-# ============================================================================
+# ==== Diodes ====
 
 # Schottky diode (3-terminal: A, C, S)
 SCHOTTKY_NBL1 = schottky_module("schottky_nbl1", params=IhpDiodeParams)
 
-# ============================================================================
-# ESD Protection Devices (3-terminal: VDD, PAD, VSS)
-# ============================================================================
+# ==== ESD Protection Devices (3-Terminal: VDD, PAD, VSS) ====
 
 DIODEVDD_2KV = esd_module("diodevdd_2kv", params=IhpEsdParams)
 DIODEVDD_4KV = esd_module("diodevdd_4kv", params=IhpEsdParams)

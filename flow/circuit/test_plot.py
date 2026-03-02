@@ -45,10 +45,7 @@ def plt():
     return configure_matplotlib()
 
 
-# =============================================================================
-# Test Configuration
-# =============================================================================
-
+# ==== Test Configuration ====
 
 class TestConfigureMatplotlib:
     """Tests for configure_matplotlib function."""
@@ -68,10 +65,7 @@ class TestConfigureMatplotlib:
         assert matplotlib.get_backend() == "Agg"
 
 
-# =============================================================================
-# Test Save Plot
-# =============================================================================
-
+# ==== Test Save Plot ====
 
 class TestSavePlot:
     """Tests for save_plot function."""
@@ -108,10 +102,7 @@ class TestSavePlot:
         plt.close(fig)
 
 
-# =============================================================================
-# Test INL/DNL Plot
-# =============================================================================
-
+# ==== Test INL/DNL Plot ====
 
 class TestPlotInlDnl:
     """Tests for plot_inl_dnl function."""
@@ -169,10 +160,7 @@ class TestPlotInlDnl:
         plt.close(fig)
 
 
-# =============================================================================
-# Test Histogram Plot
-# =============================================================================
-
+# ==== Test Histogram Plot ====
 
 class TestPlotHistogram:
     """Tests for plot_histogram function."""
@@ -211,10 +199,7 @@ class TestPlotHistogram:
         plt.close(fig)
 
 
-# =============================================================================
-# Test Transfer Function Plot
-# =============================================================================
-
+# ==== Test Transfer Function Plot ====
 
 class TestPlotTransferFunction:
     """Tests for plot_transfer_function function."""
@@ -245,10 +230,7 @@ class TestPlotTransferFunction:
         plt.close(fig)
 
 
-# =============================================================================
-# Test FFT Spectrum Plot
-# =============================================================================
-
+# ==== Test FFT Spectrum Plot ====
 
 class TestPlotFftSpectrum:
     """Tests for plot_fft_spectrum function."""
@@ -288,10 +270,7 @@ class TestPlotFftSpectrum:
         plt.close(fig)
 
 
-# =============================================================================
-# Test Waveforms Plot
-# =============================================================================
-
+# ==== Test Waveforms Plot ====
 
 class TestPlotWaveforms:
     """Tests for plot_waveforms function."""
@@ -342,10 +321,7 @@ class TestPlotWaveforms:
         plt.close(fig_us)
 
 
-# =============================================================================
-# Test ENOB vs Frequency Plot
-# =============================================================================
-
+# ==== Test ENOB vs Frequency Plot ====
 
 class TestPlotEnobVsFrequency:
     """Tests for plot_enob_vs_frequency function."""
@@ -380,10 +356,7 @@ class TestPlotEnobVsFrequency:
         plt.close(fig)
 
 
-# =============================================================================
-# Test Monte Carlo Histogram Plot
-# =============================================================================
-
+# ==== Test Monte Carlo Histogram Plot ====
 
 class TestPlotMonteCarloHistogram:
     """Tests for plot_monte_carlo_histogram function."""
@@ -426,10 +399,7 @@ class TestPlotMonteCarloHistogram:
         plt.close(fig)
 
 
-# =============================================================================
-# Integration Tests
-# =============================================================================
-
+# ==== Integration Tests ====
 
 class TestPlottingIntegration:
     """Integration tests combining measurement and plotting."""

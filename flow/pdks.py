@@ -44,7 +44,7 @@ def set_pdk(name: str) -> ModuleType:
     3. Reset all known generator caches (safe to call even if a
        generator has not been imported yet).
     """
-    # -- resolve --------------------------------------------------------
+    # ==== Resolve ====
     if name not in _PDK_PACKAGES:
         available = ", ".join(list_pdks())
         raise ValueError(f"Unknown PDK '{name}'. Available: {available}")
@@ -54,10 +54,10 @@ def set_pdk(name: str) -> ModuleType:
     if pdk_module is None:
         raise RuntimeError(f"PDK package '{_PDK_PACKAGES[name]}' has no `pdk_logic`")
 
-    # -- activate -------------------------------------------------------
+    # ==== Activate ====
     h.pdk.set_default(pdk_module)
 
-    # -- reset caches ---------------------------------------------------
+    # ==== Reset Caches ====
     for mod_path, cls_name in _CACHED_GENERATORS:
         try:
             mod = import_module(mod_path)

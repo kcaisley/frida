@@ -350,10 +350,7 @@ def print_netlist_summary(
     print()
 
 
-# =============================================================================
-# INTERNAL HELPERS
-# =============================================================================
-
+# ==== Internal Helpers ====
 
 def _extract_param_values(params: Any) -> list[Any]:
     """Extract parameter values from an HDL21 paramclass instance."""

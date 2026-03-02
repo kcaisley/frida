@@ -47,9 +47,7 @@ def get_adc_weights(p: AdcParams) -> np.ndarray:
     return np.array(get_cdac_weights(p.cdac))
 
 
-# =============================================================================
-# Digital Block ExternalModule
-# =============================================================================
+# ==== Digital Block ExternalModule ====
 
 # The adc_digital block is a static ExternalModule from the synthesized netlist.
 # Currently fixed at 16 stages. When we implement a parametric generator,

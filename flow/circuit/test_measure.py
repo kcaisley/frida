@@ -28,10 +28,7 @@ from .measure import (
     redundant_bits_to_code,
 )
 
-# =============================================================================
-# Test CDAC Weights
-# =============================================================================
-
+# ==== Test CDAC Weights ====
 
 def test_cdac_default_weights():
     """Verify default CdacParams produces expected weights."""
@@ -45,10 +42,7 @@ def test_cdac_default_weights():
     assert weights.sum() == 2047
 
 
-# =============================================================================
-# Test Waveform Utilities
-# =============================================================================
-
+# ==== Test Waveform Utilities ====
 
 class TestFindCrossings:
     """Tests for find_crossings function."""
@@ -95,10 +89,7 @@ class TestFindCrossings:
         assert abs(crossings[0] - 0.5) < 1e-10
 
 
-# =============================================================================
-# Test Analog Preprocessing
-# =============================================================================
-
+# ==== Test Analog Preprocessing ====
 
 class TestDiffToSingle:
     """Tests for diff_to_single function."""
@@ -142,10 +133,7 @@ class TestQuantizeToBits:
         assert bits.dtype == np.int32
 
 
-# =============================================================================
-# Test Digital Processing
-# =============================================================================
-
+# ==== Test Digital Processing ====
 
 class TestRedundantBitsToCode:
     """Tests for redundant_bits_to_code function."""
@@ -202,10 +190,7 @@ class TestCodeToVoltage:
         assert v_out[0] == pytest.approx(1.2)
 
 
-# =============================================================================
-# Test Core Measurements
-# =============================================================================
-
+# ==== Test Core Measurements ====
 
 class TestMeasureSettling:
     """Tests for measure_settling function."""
@@ -333,10 +318,7 @@ class TestMeasureChargeInjection:
         assert delta == pytest.approx(-0.05)
 
 
-# =============================================================================
-# Test Static Linearity Analysis
-# =============================================================================
-
+# ==== Test Static Linearity Analysis ====
 
 class TestHistogramInlDnl:
     """Tests for histogram_inl_dnl function."""
@@ -467,10 +449,7 @@ class TestComputeStaticError:
         assert np.isnan(result["offset"])
 
 
-# =============================================================================
-# Test Dynamic Performance Analysis
-# =============================================================================
-
+# ==== Test Dynamic Performance Analysis ====
 
 class TestComputeEnobFft:
     """Tests for compute_enob_fft function."""
@@ -529,10 +508,7 @@ class TestComputeEnobFft:
             assert not np.isnan(result["enob"])
 
 
-# =============================================================================
-# Test Monte Carlo Statistics
-# =============================================================================
-
+# ==== Test Monte Carlo Statistics ====
 
 class TestMcStatistics:
     """Tests for mc_statistics function."""
@@ -570,10 +546,7 @@ class TestMcStatistics:
         assert result["mean"] == pytest.approx(2.0)
 
 
-# =============================================================================
-# Integration Tests
-# =============================================================================
-
+# ==== Integration Tests ====
 
 class TestAdcPipelineIntegration:
     """Integration tests for full ADC measurement pipeline."""

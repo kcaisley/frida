@@ -7,10 +7,7 @@ from importlib import import_module
 
 import klayout.db as kdb
 
-# ---------------------------------------------------------------------------
-# New hierarchical RuleDeck API
-# ---------------------------------------------------------------------------
-
+# ==== Hierarchical RuleDeck API ====
 
 class RelativeRules:
     """Per-relative-layer rule storage.  Supports ``R.M1.spacing.M2`` syntax.
@@ -76,10 +73,7 @@ class NewRuleDeck:
         return self._layers[name]
 
 
-# ---------------------------------------------------------------------------
-# LayerInfoData — still needed by serialize.py for vlsir.tech layer export
-# ---------------------------------------------------------------------------
-
+# ==== LayerInfoData ====
 
 @dataclass(frozen=True)
 class LayerInfoData:
@@ -92,9 +86,7 @@ class LayerInfoData:
     purpose_description: str = "drawing"
 
 
-# ---------------------------------------------------------------------------
-# Loaders
-# ---------------------------------------------------------------------------
+# ==== Loaders ====
 
 LayerInfoMap = dict[kdb.LayerInfo, kdb.LayerInfo]
 
@@ -140,10 +132,7 @@ def load_layer_map(tech_name: str) -> LayerInfoMap:
     return module.layer_map()
 
 
-# ---------------------------------------------------------------------------
-# Layer remapping
-# ---------------------------------------------------------------------------
-
+# ==== Layer Remapping ====
 
 def remap_layers(
     layout: kdb.Layout,
@@ -174,10 +163,7 @@ def remap_layers(
                 src_shapes.clear()
 
 
-# ---------------------------------------------------------------------------
-# Inline tests
-# ---------------------------------------------------------------------------
-
+# ==== Inline Tests ====
 
 def test_rule_deck() -> None:
     """Verify hierarchical RuleDeck read/write."""

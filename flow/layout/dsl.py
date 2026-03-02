@@ -9,10 +9,7 @@ from typing import Any, Callable, get_type_hints
 
 import klayout.db as kdb
 
-# ---------------------------------------------------------------------------
-# Parameter enums — used by generators via L.MosType, L.MosVth, etc.
-# ---------------------------------------------------------------------------
-
+# ==== Parameter Enums ====
 
 class MosType(IntEnum):
     NMOS = 0
@@ -43,10 +40,7 @@ class MetalDraw(IntEnum):
     M10 = 10
 
 
-# ---------------------------------------------------------------------------
-# GenericLayers — process-agnostic kdb.LayerInfo namespace
-# ---------------------------------------------------------------------------
-
+# ==== Generic Layers ====
 
 class GenericLayers:
     """Namespace of kdb.LayerInfo objects for all generic process layers.
@@ -127,10 +121,7 @@ def load_generic_layers(layout: kdb.Layout) -> GenericLayers:
     return layers
 
 
-# ---------------------------------------------------------------------------
-# Param / paramclass / generator — layout parameter infrastructure
-# ---------------------------------------------------------------------------
-
+# ==== Param / Paramclass / Generator ====
 
 class Param:
     """Field-marker used by `@paramclass`."""
@@ -277,10 +268,7 @@ def generator(fn: Callable[..., Any]) -> Callable[..., Any]:
     return fn
 
 
-# ---------------------------------------------------------------------------
-# L — convenience namespace used by generators as L.Param, L.MosType, etc.
-# ---------------------------------------------------------------------------
-
+# ==== L Namespace ====
 
 class _LayoutNamespace:
     """Single namespace exposing params, decorators, and enums."""

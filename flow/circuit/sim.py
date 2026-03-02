@@ -39,10 +39,7 @@ Save = hs.Save
 SaveMode = hs.SaveMode
 
 
-# =============================================================================
-# SIMULATION OPTIONS
-# =============================================================================
-
+# ==== Simulation Options ====
 
 # Default simulation options for Spectre
 sim_options = SimOptions(
@@ -73,10 +70,7 @@ def get_sim_options(
     )
 
 
-# =============================================================================
-# MONTE CARLO CONFIGURATION
-# =============================================================================
-
+# ==== Monte Carlo Configuration ====
 
 @dataclass
 class MCConfig:
@@ -87,10 +81,7 @@ class MCConfig:
     variations: str = "mismatch"  # Mismatch only (most relevant)
 
 
-# =============================================================================
-# SIMULATION CONFIGURATION
-# =============================================================================
-
+# ==== Simulation Configuration ====
 
 @dataclass
 class SimConfig:
@@ -250,10 +241,7 @@ def run_pvt_sweep(
     return results
 
 
-# =============================================================================
-# Result Extraction Utilities
-# =============================================================================
-
+# ==== Result Extraction Utilities ====
 
 def extract_waveform(
     result: hs.SimResult,
@@ -344,10 +332,7 @@ def compute_delay(
     return t_out - t_in
 
 
-# =============================================================================
-# NETLIST GENERATION
-# =============================================================================
-
+# ==== Netlist Generation ====
 
 def write_sim_netlist(
     sim_class,

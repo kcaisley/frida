@@ -149,10 +149,7 @@ def _build_nosplit_bit(
     setattr(mod, f"c_{idx}", cap)
 
 
-# =============================================================================
-# WEIGHT CALCULATION (internal helper, called by validation and getter functions)
-# =============================================================================
-
+# ==== Weight Calculation ====
 
 def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] | None:
     """

@@ -43,7 +43,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
     if params.powerrail_mult < 1:
         raise ValueError("powerrail_mult must be >= 1")
 
-    # ── Load PDK data ──────────────────────────────────────────────
+    # ==== Load PDK Data ====
     R = load_rules_deck(tech_name)
 
     layout = kdb.Layout()
@@ -51,7 +51,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
     top = layout.create_cell("MOSFET")
     G = load_generic_layers(layout)
 
-    # ── Derived geometry ──────────────────────────────────────────
+    # ==== Derived Geometry ====
     track_pitch = R.M1.width + R.M1.spacing.M1
     rail_w = params.powerrail_mult * R.M1.width
     row_margin = max(R.M1.spacing.M1, R.OD.spacing.OD)
@@ -87,18 +87,18 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
     x0 = max(0, x_act0 - x_left_margin)
     x1 = x_act1 + x_left_margin
 
-    # ── Power rails ───────────────────────────────────────────────
+    # ==== Power Rails ====
     top.shapes(G.M1).insert(kdb.Box(x0, y_vss0, x1, y_vss1))
     top.shapes(G.M1).insert(kdb.Box(x0, y_vdd0, x1, y_vdd1))
     top.shapes(G.M1).insert(
         kdb.Box(x0, y_gate - R.M1.width // 2, x1, y_gate + R.M1.width // 2)
     )
 
-    # ── Active areas ──────────────────────────────────────────────
+    # ==== Active Areas ====
     top.shapes(G.OD).insert(kdb.Box(x_act0, y_main0, x_act1, y_main1))
     top.shapes(G.OD).insert(kdb.Box(x_act0, y_dummy0, x_act1, y_dummy1))
 
-    # ── Implant layers (NP / PP) ─────────────────────────────────
+    # ==== Implant Layers (NP / PP) ====
     # The main device gets the matching implant; the dummy transistor
     # (opposite type) gets the complementary implant + n-well.
     #
@@ -142,7 +142,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
         )
         top.shapes(G.NP).insert(dummy_box)
 
-    # ── Additional Vth implant layer ──────────────────────────────
+    # ==== Additional Vth Implant Layer ====
     # Threshold-voltage adjust implants are selected by the
     # combination of MosVth and MosType:
     #
@@ -166,13 +166,13 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
             top.shapes(G.HVTP).insert(vth_box)
     # MosVth.REGULAR requires no additional implant layer.
 
-    # ── Gate poly ─────────────────────────────────────────────────
+    # ==== Gate Poly ====
     for i in range(params.fing_count):
         xg0 = x_sd0 + i * sd_pitch + R.CO.width // 2 + R.CO.spacing.PO
         xg1 = xg0 + gate_len
         top.shapes(G.PO).insert(kdb.Box(xg0, y_poly0, xg1, y_poly1))
 
-    # ── Contacts & M1 pads ────────────────────────────────────────
+    # ==== Contacts & M1 Pads ====
     pad_w = max(R.M1.width, R.CO.width + 2 * R.M1.enclosure.CO)
     for i in range(params.fing_count + 1):
         xc = x_sd0 + i * sd_pitch
@@ -207,7 +207,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
             sw = max(R.M1.width, R.CO.width)
             top.shapes(G.M1).insert(kdb.Box(xc - sw // 2, yl, xc + sw // 2, yh))
 
-    # ── Pin labels ────────────────────────────────────────────────
+    # ==== Pin Labels ====
     pin_w = rail_w
     top.shapes(G.PIN1).insert(kdb.Box(x0, y_vss0, min(x1, x0 + pin_w), y_vss1))
     top.shapes(G.PIN1).insert(kdb.Box(x0, y_vdd0, min(x1, x0 + pin_w), y_vdd1))

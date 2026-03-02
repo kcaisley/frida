@@ -20,10 +20,7 @@ DBU = 0.001  # 1 dbu = 1 nm (1000 database units per micron)
 _GL = GenericLayers()
 
 
-# ---------------------------------------------------------------------------
-# New API
-# ---------------------------------------------------------------------------
-
+# ==== New API ====
 
 def layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]:
     """Generic-to-tech layer mapping for IHP130.
@@ -146,10 +143,7 @@ def rule_deck() -> NewRuleDeck:
     return R
 
 
-# ---------------------------------------------------------------------------
-# Layer info (still used by write_technology_proto for vlsir.tech export)
-# ---------------------------------------------------------------------------
-
+# ==== Layer Info ====
 
 def layer_infos() -> tuple[LayerInfoData, ...]:
     """Tech layer descriptors for vlsir.tech layer-info export."""
@@ -187,10 +181,7 @@ def layer_infos() -> tuple[LayerInfoData, ...]:
     )
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
+# ==== Tests ====
 
 def test_ihp130_to_vlsir(tmp_path: Path) -> None:
     """Test: write/read vlsir.tech proto round-trip (layer-info only)."""

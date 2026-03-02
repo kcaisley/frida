@@ -41,7 +41,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
     if params.outer_width_mult < 1:
         raise ValueError("outer_width_mult must be >= 1")
 
-    # ── Valid (bottom_layer, top_layer) combinations ──────────────
+    # ==== Valid Layer Combinations ====
     #
     #   bottom │ top │ metals used        │ vias used
     #   ───────┼─────┼────────────────────┼───────────
@@ -59,14 +59,14 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
             f"Valid combinations: {sorted(valid_stacks)}"
         )
 
-    # ── Load PDK data ──────────────────────────────────────────────
+    # ==== Load PDK Data ====
     R = load_rules_deck(tech_name)
 
     layout = kdb.Layout()
     layout.dbu = load_dbu(tech_name)
     G = load_generic_layers(layout)
 
-    # ── Sizing rules from the top metal ───────────────────────────
+    # ==== Sizing Rules from the Top Metal ====
     # The top metal is the most constrained (coarsest pitch), so we
     # use its rules for all dimensions.  The structure is vertically
     # symmetric across every layer in the stack.
@@ -82,7 +82,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
         metal_sp = metal_w
     metal_area = top_R.area if top_R.area is not None else metal_w * metal_w
 
-    # ── Via rules (use the via just below the top metal) ──────────
+    # ==== Via Rules ====
     top_via_name = f"VIA{top - 1}"
     top_via_R = getattr(R, top_via_name)
     if top_via_R.width is None:
@@ -92,7 +92,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
     if via_sp is None:
         via_sp = via_w
 
-    # ── Derived geometry ──────────────────────────────────────────
+    # ==== Derived Geometry ====
     base_inner_h = max(1, (metal_area + metal_w - 1) // metal_w)
     inner_w = params.inner_width_mult * metal_w
     inner_h = params.inner_width_height * base_inner_h
@@ -118,7 +118,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
 
     cell = layout.create_cell("MOMCAP")
 
-    # ── Helper: paint the inner plate + outer ring on a layer ─────
+    # ==== Paint Plate and Ring ====
     def paint_plate_and_ring(layer: kdb.LayerInfo) -> None:
         cell.shapes(layer).insert(inner_plate)
         cell.shapes(layer).insert(ring_bot)
@@ -126,7 +126,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
         cell.shapes(layer).insert(ring_left)
         cell.shapes(layer).insert(ring_right)
 
-    # ── Helper: fill a via array on inner-plate edges ─────────────
+    # ==== Fill Inner Vias ====
     def fill_inner_vias(via_layer: kdb.LayerInfo, vw: int, vs: int) -> None:
         step = vw + vs
         for x in range(ix0, ix1 - vw + 1, step):
@@ -136,7 +136,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
             cell.shapes(via_layer).insert(kdb.Box(ix0, y, ix0 + vw, y + vw))
             cell.shapes(via_layer).insert(kdb.Box(ix1 - vw, y, ix1, y + vw))
 
-    # ── Helper: fill a via array on ring edges ────────────────────
+    # ==== Fill Ring Vias ====
     def fill_ring_vias(via_layer: kdb.LayerInfo, vw: int, vs: int) -> None:
         step = vw + vs
         for x in range(rx0, rx1 - vw + 1, step):
@@ -146,7 +146,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
             cell.shapes(via_layer).insert(kdb.Box(rx0, y, rx0 + vw, y + vw))
             cell.shapes(via_layer).insert(kdb.Box(rx1 - vw, y, rx1, y + vw))
 
-    # ── Paint metal layers ────────────────────────────────────────
+    # ==== Paint Metal Layers ====
     # Every metal in the stack gets the identical plate + ring pattern.
     if (bot, top) == (4, 5):
         paint_plate_and_ring(G.M4)
@@ -188,7 +188,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
         fill_inner_vias(G.VIA6, via_w, via_sp)
         fill_ring_vias(G.VIA6, via_w, via_sp)
 
-    # ── Pin labels ────────────────────────────────────────────────
+    # ==== Pin Labels ====
     # Pin on the bottom metal's pin layer: inner plate = bottom terminal.
     # Pin on the top metal's pin layer: outer ring = top terminal.
     pin_w = metal_w

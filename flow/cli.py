@@ -37,7 +37,7 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # ── primitive ─────────────────────────────────────────
+    # ==== Primitive ====
     p = sub.add_parser("primitive", help="Generate layout primitives")
     p.add_argument("-c", "--cell", required=True, choices=["mosfet", "momcap"])
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks())
@@ -45,7 +45,7 @@ def main():
     p.add_argument("-v", "--visual", action="store_true")
     p.add_argument("-o", "--out", default="scratch", type=Path)
 
-    # ── netlist ───────────────────────────────────────────
+    # ==== Netlist ====
     p = sub.add_parser("netlist", help="Generate netlists")
     p.add_argument(
         "-c", "--cell", required=True, choices=["samp", "comp", "cdac", "adc"]
@@ -61,7 +61,7 @@ def main():
     p.add_argument("--montecarlo", action="store_true")
     p.add_argument("-o", "--out", default="scratch", type=Path)
 
-    # ── simulate ──────────────────────────────────────────
+    # ==== Simulate ====
     p = sub.add_parser("simulate", help="Run simulations")
     p.add_argument(
         "-c", "--cell", required=True, choices=["samp", "comp", "cdac", "adc"]

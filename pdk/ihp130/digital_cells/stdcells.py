@@ -9,9 +9,7 @@ Generated from: IHP-Open-PDK/ihp-sg13g2/libs.ref/sg13g2_stdcell/spice/sg13g2_std
 
 from ..pdk_data import logic_module
 
-# ============================================================================
-# Combinational Logic - AND-OR Gates
-# ============================================================================
+# ==== Combinational Logic - AND-OR Gates ====
 
 # A21O: 2-input AND into first input of 2-input OR
 a21o_1 = logic_module(
@@ -51,9 +49,7 @@ a22oi_1 = logic_module(
     ["Y", "A1", "A2", "B1", "B2", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Combinational Logic - Basic Gates
-# ============================================================================
+# ==== Combinational Logic - Basic Gates ====
 
 # AND2: 2-input AND
 and2_1 = logic_module(
@@ -241,9 +237,7 @@ xnor2_1 = logic_module(
     ["Y", "A", "B", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Buffers and Inverters
-# ============================================================================
+# ==== Buffers and Inverters ====
 
 # BUF: Non-inverting buffer
 buf_1 = logic_module(
@@ -299,9 +293,7 @@ inv_16 = logic_module(
     ["Y", "A", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Tri-state Buffers
-# ============================================================================
+# ==== Tri-state Buffers ====
 
 # EBUFN: Tri-state buffer (active low enable)
 ebufn_2 = logic_module(
@@ -337,9 +329,7 @@ einvn_8 = logic_module(
     ["Z", "A", "TE_B", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Multiplexers
-# ============================================================================
+# ==== Multiplexers ====
 
 # MUX2: 2-to-1 multiplexer
 mux2_1 = logic_module(
@@ -360,9 +350,7 @@ mux4_1 = logic_module(
     ["X", "A0", "A1", "A2", "A3", "S0", "S1", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Sequential Logic - Flip-Flops
-# ============================================================================
+# ==== Sequential Logic - Flip-Flops ====
 
 # DFRBP: D flip-flop with reset, both Q and Q_N outputs
 dfrbp_1 = logic_module(
@@ -419,9 +407,7 @@ sdfbbp_1 = logic_module(
     ["Q", "Q_N", "CLK", "D", "RESET_B", "SCD", "SCE", "SET_B", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Sequential Logic - Latches
-# ============================================================================
+# ==== Sequential Logic - Latches ====
 
 # DLHQ: D latch (high-level transparent), Q output only
 dlhq_1 = logic_module(
@@ -458,9 +444,7 @@ dllrq_1 = logic_module(
     ["Q", "D", "GATE_N", "RESET_B", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Clock Gating Cells
-# ============================================================================
+# ==== Clock Gating Cells ====
 
 # LGCP: Latch-based clock gating cell
 lgcp_1 = logic_module(
@@ -476,9 +460,7 @@ slgcp_1 = logic_module(
     ["GCLK", "CLK", "GATE", "SCE", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Delay Cells
-# ============================================================================
+# ==== Delay Cells ====
 
 # DLYGATE4SD: 4-stage delay cell (different flavors)
 dlygate4sd1_1 = logic_module(
@@ -497,9 +479,7 @@ dlygate4sd3_1 = logic_module(
     ["X", "A", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Special Cells
-# ============================================================================
+# ==== Special Cells ====
 
 # TIEHI: Tie high cell
 tiehi = logic_module(
@@ -529,9 +509,7 @@ sighold = logic_module(
     ["SH", "VDD", "VSS"],
 )
 
-# ============================================================================
-# Filler Cells
-# ============================================================================
+# ==== Filler Cells ====
 
 # FILL: Filler cells for unused space
 fill_1 = logic_module(
