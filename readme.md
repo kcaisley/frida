@@ -1,12 +1,12 @@
 # FRIDA: Fast Radiation Imaging Digitizer Array
 
-This project focuses on improving analog to digital converters (ADCs) in CMOS image sensors, the chip design discipline with arguably the most stringent constraints on silicon design density. A design flow built on open source EDA tools enables comparison across different circuit topologies and process nodes including 180, 130, 65, and 28 nm. So far, we've fabricated a prototype ASIC in 65 nm using this methodology, which targets a state-of-the-art 2500 um^2 area and 100 uW power budget, with a performance of 12-bit resolution at 10 Msps performance.
+This project focuses on improving analog to digital converters (ADCs) in CMOS image sensors, the chip design discipline with arguably the most stringent constraints on silicon design density. A design flow built on open source EDA tools enables comparison across different circuit topologies and process nodes including 180, 130, 65, and 28 nm. So far, we've fabricated a prototype ASIC in 65 nm using this methodology, which targets a state-of-the-art 2500 µm² area and 100 µW power budget, with a performance of 12-bit resolution at 10 Msps performance.
 
 Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high and spatial resolution should be maximized with simple pixels. This project also pursues a single-reticle array larger than 1 Mpixel with a continuous frame rate above 100,000 fps. To meet those array-level goals, the converter fabric must deliver aggregate throughput above 1000 Gbps while staying within a 1 W/cm² chip-bottom power-density budget and exceeding 5 ksps/µm² sampling-rate density. Successive-approximation ADCs are the primary architecture under study.
 
 ![ADC used in example system](docs/images/arch.png)
 
-Seen below is the initial prototype, designed in 65nm and measuring 1x1 mm. On the prototype are 16 ADCs, each measuring 60x60um. The tapeout was submitted in Oct 2025, and will be tested upon arrival this Spring 2026.
+Seen below is the initial prototype, designed in 65nm and measuring 1x1 mm. On the prototype are 16 ADCs, each measuring 60x60 µm. The tapeout was submitted in Oct 2025, and will be tested upon arrival this Spring 2026.
 
 > [!NOTE]
 > For some more detailed information about the submitted prototype, see [design.pdf](docs/design.pdf).
