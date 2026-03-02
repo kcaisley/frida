@@ -13,7 +13,7 @@ import hdl21 as h
 from hdl21.prefix import f
 from hdl21.primitives import C, MosType, MosVth
 
-from ..flow.params import CapType, RedunStrat, SplitStrat
+from ..circuit.params import CapType, RedunStrat, SplitStrat
 
 
 @h.paramclass

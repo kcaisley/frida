@@ -11,81 +11,81 @@ Each block module (comp/, samp/, cdac/) contains:
 """
 
 # Generators and Testbenches - from per-block modules
-from .samp import Samp, SampParams, SampTb, SampTbParams
-from .comp import Comp, CompParams, is_valid_comp_params, CompTb, CompTbParams
 from .cdac import (
     Cdac,
     CdacParams,
-    is_valid_cdac_params,
-    get_cdac_weights,
-    get_cdac_n_bits,
     CdacTb,
     CdacTbParams,
+    get_cdac_n_bits,
+    get_cdac_weights,
+    is_valid_cdac_params,
 )
 
 # Common params and enums - from flow module
-from .flow import (
-    # Basic enums
-    SwitchType,
-    # Comparator enums
-    PreampDiffpair,
-    PreampBias,
+from .circuit import (
+    Ac,
+    CapType,
     CompStages,
+    Dc,
     LatchPwrgateCtl,
     LatchPwrgateNode,
     LatchRstExternCtl,
     LatchRstInternCtl,
-    # CDAC enums
-    RedunStrat,
-    SplitStrat,
-    CapType,
-    # PVT and supply
-    Pvt,
-    SupplyVals,
-    Project,
-    # Simulation options
-    sim_options,
-    get_sim_options,
-    # Monte Carlo
-    MCConfig,
-    SimConfig,
     # Sweep types
     LinearSweep,
     LogSweep,
-    PointSweep,
+    # Monte Carlo
+    MCConfig,
     # Analysis types
     MonteCarlo,
-    SweepAnalysis,
-    Tran,
-    Dc,
-    Ac,
     Op,
+    PointSweep,
+    PreampBias,
+    # Comparator enums
+    PreampDiffpair,
+    Project,
+    # PVT and supply
+    Pvt,
+    # CDAC enums
+    RedunStrat,
     Save,
     SaveMode,
-    # Simulation helpers
-    create_tran_sim,
-    run_simulations,
-    run_parameter_sweep,
-    run_pvt_sweep,
-    # Result extraction
-    extract_waveform,
-    compute_settling_time,
-    compute_delay,
+    SimConfig,
+    SplitStrat,
+    SupplyVals,
+    SweepAnalysis,
+    # Basic enums
+    SwitchType,
+    Tran,
+    cdac_settling_ns,
+    comp_delay_ns,
+    comp_noise_sigma_mV,
     # Measurement functions
     comp_offset_mV,
-    comp_noise_sigma_mV,
-    comp_delay_ns,
-    comp_settling_ns,
     comp_power_uW,
+    comp_settling_ns,
+    compute_delay,
     compute_inl_dnl,
-    mc_statistics,
-    samp_settling_ns,
-    samp_charge_injection_mV,
-    cdac_settling_ns,
+    compute_settling_time,
     # Plotting
     configure_matplotlib,
+    # Simulation helpers
+    create_tran_sim,
+    # Result extraction
+    extract_waveform,
+    get_sim_options,
+    mc_statistics,
+    run_parameter_sweep,
+    run_pvt_sweep,
+    run_simulations,
+    samp_charge_injection_mV,
+    samp_settling_ns,
     save_plot,
+    # Simulation options
+    sim_options,
 )
+from .comp import Comp, CompParams, CompTb, CompTbParams, is_valid_comp_params
+from .samp import Samp, SampParams, SampTb, SampTbParams
 
 __all__ = [
     # Generators

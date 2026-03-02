@@ -15,7 +15,7 @@ import hdl21 as h
 import pytest
 from vlsirtools.spice import SupportedSimulators
 
-from .flow import get_param_axes, print_netlist_summary
+from .circuit import get_param_axes, print_netlist_summary
 
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
@@ -278,7 +278,7 @@ def sim_options(request, outdir: Path):
 
     Returns options for the simulator selected via --simulator.
     """
-    from .flow.sim import get_sim_options
+    from .circuit.sim import get_sim_options
 
     sim = SupportedSimulators(request.config.getoption("--simulator"))
     return get_sim_options(rundir=outdir, simulator=sim)

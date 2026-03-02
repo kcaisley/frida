@@ -30,7 +30,7 @@ def test_install_supply_voltage_corner_mapping() -> None:
 
 def test_supplyvals_resolves_via_install() -> None:
     """SupplyVals.corner() resolves VDD through Install.supply_voltage()."""
-    from flow.flow.params import SupplyVals
+    from flow.circuit.params import SupplyVals
 
     for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
         cls = _install_class(tech)

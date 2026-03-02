@@ -8,7 +8,7 @@ import pytest
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpwl
 
-from ..flow import (
+from ..circuit import (
     CapType,
     Project,
     Pvt,

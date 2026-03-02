@@ -9,8 +9,7 @@ from hdl21.prefix import f, m, n, p
 from hdl21.primitives import Vdc, Vpwl
 
 from ..cdac import CdacParams
-from ..comp import CompParams
-from ..flow import (
+from ..circuit import (
     Project,
     Pvt,
     SupplyVals,
@@ -23,6 +22,7 @@ from ..flow import (
     select_variants,
     wrap_monte_carlo,
 )
+from ..comp import CompParams
 from ..samp import SampParams
 from .adc import Adc, AdcParams, get_adc_weights
 

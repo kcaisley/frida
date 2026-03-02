@@ -11,7 +11,7 @@ Call pdk.compile(module) after generation to convert to PDK-specific devices.
 import hdl21 as h
 from hdl21.primitives import MosType, MosVth
 
-from ..flow.params import SwitchType
+from ..circuit.params import SwitchType
 
 
 @h.paramclass
