@@ -9,8 +9,8 @@ Exports:
 - CompTbParams: Testbench parameters
 """
 
-from .comp import Comp, CompParams, is_valid_comp_params
-from .test_comp import CompTb, CompTbParams, sim_input
+from .subckt import Comp, CompParams, is_valid_comp_params
+from .testbench import CompTb, CompTbParams, sim_input
 
 __all__ = [
     "Comp",

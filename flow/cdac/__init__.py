@@ -11,14 +11,14 @@ Exports:
 - CdacTbParams: Testbench parameters
 """
 
-from .cdac import (
+from .subckt import (
     Cdac,
     CdacParams,
     get_cdac_n_bits,
     get_cdac_weights,
     is_valid_cdac_params,
 )
-from .test_cdac import CdacTb, CdacTbParams, sim_input
+from .testbench import CdacTb, CdacTbParams, sim_input
 
 __all__ = [
     "Cdac",

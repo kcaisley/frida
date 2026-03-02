@@ -248,7 +248,7 @@ def export_layout(
     return ExportArtifacts(pb=pb, pbtxt=pbtxt, gds=gds)
 
 
-def test_serialize(outdir: Path) -> None:
+def test_serialize(tmp_path: Path) -> None:
     """Inline serializer test: raw export + text + instance expansion."""
 
     layout = kdb.Layout()
@@ -273,7 +273,7 @@ def test_serialize(outdir: Path) -> None:
 
     artifacts = export_layout(
         layout=layout,
-        out_dir=outdir,
+        out_dir=tmp_path,
         stem="serialize_inline",
         domain="frida.layout.tests",
         write_debug_gds=True,

@@ -1,10 +1,11 @@
 """
-Comparator testbench and flow tests for FRIDA.
+Comparator testbench and runner functions for FRIDA.
 """
+
+from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-import pytest
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, R, Vdc, Vpulse, Vpwl
 
@@ -27,7 +28,7 @@ from ..circuit import (
     select_variants,
     wrap_monte_carlo,
 )
-from .comp import Comp, CompParams, is_valid_comp_params
+from .subckt import Comp, CompParams, is_valid_comp_params
 
 
 @h.paramclass
@@ -189,22 +190,8 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     return CompSim
 
 
-@pytest.mark.usefixtures("check_simulator_avail")
-def test_comp_flow(
-    flow,
-    mode,
-    montecarlo,
-    verbose,
-    tech,
-    simulator,
-    netlist_fmt,
-    sim_options,
-    sim_server,
-):
-    """Run comparator flow: netlist, simulate, or measure."""
-    outdir = sim_options.rundir
-    outdir.mkdir(exist_ok=True)
-
+def _build_variants():
+    """Build the full comparator variant list."""
     preamp_diffpairs = list(PreampDiffpair)
     preamp_biases = list(PreampBias)
     comp_stages_list = list(CompStages)
@@ -248,40 +235,69 @@ def test_comp_flow(
                             )
                             if is_valid_comp_params(params):
                                 variants.append(params)
+    return variants
 
-    variants = select_variants(variants, mode)
+
+def run_netlist(
+    tech: str,
+    mode: str,
+    montecarlo: bool,
+    fmt: str,
+    outdir: Path,
+    verbose: bool = False,
+) -> None:
+    """Run comparator netlist generation."""
+    variants = select_variants(_build_variants(), mode)
 
     def build_sim(comp_params: CompParams):
         tb_params = CompTbParams(comp=comp_params)
-        tb = CompTb(tb_params)
         sim = sim_input(tb_params)
         if montecarlo:
             wrap_monte_carlo(sim)
-        return tb, sim
+        return CompTb(tb_params), sim
 
     def build_dut(comp_params: CompParams):
         return Comp(comp_params)
 
-    if flow == "netlist":
-        wall_time = run_netlist_variants(
-            "comp",
-            variants,
-            build_sim,
-            outdir,
-            simulator=simulator,
-            netlist_fmt=netlist_fmt,
-            build_dut=build_dut,
+    wall_time = run_netlist_variants(
+        "comp",
+        variants,
+        build_sim,
+        outdir,
+        simulator=fmt,
+        netlist_fmt=fmt,
+        build_dut=build_dut,
+    )
+    if verbose:
+        print_netlist_summary(
+            block="comp",
+            pdk_name=tech,
+            count=len(variants),
+            param_axes=get_param_axes(variants),
+            wall_time=wall_time,
+            outdir=str(outdir),
         )
-        if verbose:
-            print_netlist_summary(
-                block="comp",
-                pdk_name=tech,
-                count=len(variants),
-                param_axes=get_param_axes(variants),
-                wall_time=wall_time,
-                outdir=str(outdir),
-            )
-        return
+
+
+def run_simulate(
+    tech: str,
+    mode: str,
+    montecarlo: bool,
+    simulator: str,
+    sim_options,
+    sim_server,
+    outdir: Path,
+    verbose: bool = False,
+) -> None:
+    """Run comparator simulation."""
+    variants = select_variants(_build_variants(), mode)
+
+    def build_sim(comp_params: CompParams):
+        tb_params = CompTbParams(comp=comp_params)
+        sim = sim_input(tb_params)
+        if montecarlo:
+            wrap_monte_carlo(sim)
+        return CompTb(tb_params), sim
 
     wall_time, sims = run_netlist_variants(
         "comp",
@@ -300,8 +316,4 @@ def test_comp_flow(
             wall_time=wall_time,
             outdir=str(outdir),
         )
-
-    if flow == "simulate":
-        run_simulations(sims, sim_options, sim_server=sim_server)
-    elif flow == "measure":
-        pass
+    run_simulations(sims, sim_options, sim_server=sim_server)

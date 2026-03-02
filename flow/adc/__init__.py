@@ -10,13 +10,13 @@ Exports:
 - AdcTbParams: Testbench parameters
 """
 
-from .adc import (
+from .subckt import (
     Adc,
     AdcDigital,
     AdcParams,
     get_adc_weights,
 )
-from .test_adc import AdcTb, AdcTbParams, sim_input
+from .testbench import AdcTb, AdcTbParams, sim_input
 
 __all__ = [
     "Adc",

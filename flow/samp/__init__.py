@@ -8,8 +8,8 @@ Exports:
 - SampTbParams: Testbench parameters
 """
 
-from .samp import Samp, SampParams
-from .test_samp import SampTb, SampTbParams, sim_input
+from .subckt import Samp, SampParams
+from .testbench import SampTb, SampTbParams, sim_input
 
 __all__ = [
     "Samp",

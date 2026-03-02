@@ -5,7 +5,7 @@ Tests for netlist utilities.
 import hdl21 as h
 from hdl21.prefix import f
 
-from ..samp.samp import SampParams
+from ..samp.subckt import SampParams
 from .netlist import (
     generate_staircase_pwl,
     get_param_axes,

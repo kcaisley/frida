@@ -18,6 +18,19 @@ dependencies = [
     "basil-daq",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["flow", "pdk"]
+
+[project.scripts]
+flow = "flow.cli:main"
+
+[tool.uv]
+package = true
+
 [tool.uv.sources]
 hdl21 = { path = "../libs/Hdl21", editable = true }
 vlsir = { path = "../libs/Vlsir/bindings/python", editable = true }
@@ -38,7 +51,7 @@ ignore = ["E741"]  # Allow 'l' for transistor length
 [tool.pytest.ini_options]
 addopts = ["-k", "not test_plot"]
 testpaths = ["flow", "pdk"]
-python_files = ["test_*.py", "serialize.py", "mosfet.py", "momcap.py", "layout.py"]
+python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
 # Vlsir pins protobuf~=4.23 (in libs/Vlsir/bindings/python/setup.py),

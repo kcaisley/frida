@@ -162,96 +162,98 @@ flow/layout/momcap.py               flow/momcap/primitive.py
 Rename files, move sweep logic from `test_*_flow` functions into `run_*()`
 functions, extract smoke tests into `test.py` files.
 
-- [ ] Rename `flow/samp/samp.py` → `flow/samp/subckt.py`
-- [ ] Rename `flow/samp/test_samp.py` → `flow/samp/testbench.py`
-  - [ ] Update internal import: `from .subckt import Samp, SampParams`
-  - [ ] Extract sweep logic from `test_samp_flow` into `run_netlist()` and `run_simulate()`
-  - [ ] Extract `_build_variants()` helper (shared by both runners)
-  - [ ] Remove `test_samp_flow` function
-- [ ] Create `flow/samp/test.py` with smoke test `test_samp()`
-- [ ] Update `flow/samp/__init__.py` imports (`from .subckt import ...`, `from .testbench import ...`)
+- [x] Rename `flow/samp/samp.py` → `flow/samp/subckt.py`
+- [x] Rename `flow/samp/test_samp.py` → `flow/samp/testbench.py`
+  - [x] Update internal import: `from .subckt import Samp, SampParams`
+  - [x] Extract sweep logic from `test_samp_flow` into `run_netlist()` and `run_simulate()`
+  - [x] Extract `_build_variants()` helper (shared by both runners)
+  - [x] Remove `test_samp_flow` function
+- [x] Create `flow/samp/test.py` with smoke test `test_samp()`
+- [x] Update `flow/samp/__init__.py` imports (`from .subckt import ...`, `from .testbench import ...`)
 
-- [ ] Rename `flow/comp/comp.py` → `flow/comp/subckt.py`
-- [ ] Rename `flow/comp/test_comp.py` → `flow/comp/testbench.py`
-  - [ ] Update internal import: `from .subckt import Comp, CompParams, is_valid_comp_params`
-  - [ ] Extract sweep logic from `test_comp_flow` into `run_netlist()` and `run_simulate()`
-  - [ ] Remove `test_comp_flow` function
-- [ ] Create `flow/comp/test.py` with smoke test `test_comp()`
-- [ ] Update `flow/comp/__init__.py` imports
+- [x] Rename `flow/comp/comp.py` → `flow/comp/subckt.py`
+- [x] Rename `flow/comp/test_comp.py` → `flow/comp/testbench.py`
+  - [x] Update internal import: `from .subckt import Comp, CompParams, is_valid_comp_params`
+  - [x] Extract sweep logic from `test_comp_flow` into `run_netlist()` and `run_simulate()`
+  - [x] Remove `test_comp_flow` function
+- [x] Create `flow/comp/test.py` with smoke test `test_comp()`
+- [x] Update `flow/comp/__init__.py` imports
 
-- [ ] Rename `flow/cdac/cdac.py` → `flow/cdac/subckt.py`
-- [ ] Rename `flow/cdac/test_cdac.py` → `flow/cdac/testbench.py`
-  - [ ] Update internal import: `from .subckt import Cdac, CdacParams, ...`
-  - [ ] Extract sweep logic from `test_cdac_flow` into `run_netlist()` and `run_simulate()`
-  - [ ] Keep `test_cdac_weights` — move to `flow/cdac/test.py`
-  - [ ] Remove `test_cdac_flow` function
-- [ ] Create `flow/cdac/test.py` with `test_cdac()` smoke test and `test_cdac_weights()`
-- [ ] Update `flow/cdac/__init__.py` imports
+- [x] Rename `flow/cdac/cdac.py` → `flow/cdac/subckt.py`
+- [x] Rename `flow/cdac/test_cdac.py` → `flow/cdac/testbench.py`
+  - [x] Update internal import: `from .subckt import Cdac, CdacParams, ...`
+  - [x] Extract sweep logic from `test_cdac_flow` into `run_netlist()` and `run_simulate()`
+  - [x] Keep `test_cdac_weights` — move to `flow/cdac/test.py`
+  - [x] Remove `test_cdac_flow` function
+- [x] Create `flow/cdac/test.py` with `test_cdac()` smoke test and `test_cdac_weights()`
+- [x] Update `flow/cdac/__init__.py` imports
 
-- [ ] Rename `flow/adc/adc.py` → `flow/adc/subckt.py`
-- [ ] Rename `flow/adc/test_adc.py` → `flow/adc/testbench.py`
-  - [ ] Update internal import: `from .subckt import Adc, AdcParams, get_adc_weights`
-  - [ ] Extract sweep logic from `test_adc_flow` into `run_netlist()` and `run_simulate()`
-  - [ ] Keep `test_adc_weights` — move to `flow/adc/test.py`
-  - [ ] Remove `test_adc_flow` function
-- [ ] Create `flow/adc/test.py` with `test_adc()` smoke test and `test_adc_weights()`
-- [ ] Update `flow/adc/__init__.py` imports
+- [x] Rename `flow/adc/adc.py` → `flow/adc/subckt.py`
+- [x] Rename `flow/adc/test_adc.py` → `flow/adc/testbench.py`
+  - [x] Update internal import: `from .subckt import Adc, AdcParams, get_adc_weights`
+  - [x] Extract sweep logic from `test_adc_flow` into `run_netlist()` and `run_simulate()`
+  - [x] Keep `test_adc_weights` — move to `flow/adc/test.py`
+  - [x] Remove `test_adc_flow` function
+- [x] Create `flow/adc/test.py` with `test_adc()` smoke test and `test_adc_weights()`
+- [x] Update `flow/adc/__init__.py` imports
 
-- [ ] Move `flow/layout/mosfet.py` → `flow/mosfet/primitive.py`
-  - [ ] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
-  - [ ] Extract sweep logic from `test_mosfet` into `run_layout()`
-  - [ ] Remove `test_mosfet` function
-- [ ] Create `flow/mosfet/__init__.py`
-- [ ] Create `flow/mosfet/test.py` with smoke test `test_mosfet()`
+- [x] Move `flow/layout/mosfet.py` → `flow/mosfet/primitive.py`
+  - [x] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
+  - [x] Extract sweep logic from `test_mosfet` into `run_layout()`
+  - [x] Remove `test_mosfet` function
+- [x] Create `flow/mosfet/__init__.py`
+- [x] Create `flow/mosfet/test.py` with smoke test `test_mosfet()`
 
-- [ ] Move `flow/layout/momcap.py` → `flow/momcap/primitive.py`
-  - [ ] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
-  - [ ] Extract sweep logic from `test_momcap` into `run_layout()`
-  - [ ] Remove `test_momcap` function
-- [ ] Create `flow/momcap/__init__.py`
-- [ ] Create `flow/momcap/test.py` with smoke test `test_momcap()`
+- [x] Move `flow/layout/momcap.py` → `flow/momcap/primitive.py`
+  - [x] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
+  - [x] Extract sweep logic from `test_momcap` into `run_layout()`
+  - [x] Remove `test_momcap` function
+- [x] Create `flow/momcap/__init__.py`
+- [x] Create `flow/momcap/test.py` with smoke test `test_momcap()`
 
-- [ ] Update `flow/layout/__init__.py` to remove mosfet/momcap re-exports
+- [x] Update `flow/layout/__init__.py` to remove mosfet/momcap re-exports
       (they now live in `flow.mosfet` and `flow.momcap`)
 
-- [ ] Update cross-module imports that reference old paths
-  - [ ] `flow/adc/subckt.py`: `from ..samp.subckt import ...`, `from ..comp.subckt import ...`, `from ..cdac.subckt import ...`
-  - [ ] `flow/conftest.py`: `_reset_generator_caches` imports
-  - [ ] Any PDK or external code that imports from `flow.layout.mosfet` or `flow.layout.momcap`
+- [x] Update cross-module imports that reference old paths
+  - [x] `flow/adc/subckt.py`: uses `..samp`, `..comp`, `..cdac` (package-level, already correct)
+  - [x] `flow/conftest.py`: `_reset_generator_caches` imports updated to `.subckt`/`.testbench`
+  - [x] No PDK or external code imported from `flow.layout.mosfet` or `flow.layout.momcap`
+  - [x] `flow/circuit/test_netlist.py`: updated `..samp.samp` → `..samp.subckt`
+  - [x] `flow/circuit/netlist.py`: updated docstring example `flow.comp.comp` → `flow.comp.subckt`
 
 ### Phase 2: Create CLI
 
-- [ ] Create `flow/cli.py` with argparse — thin dispatcher
-  - [ ] `primitive` subcommand (-c/--cell, -t/--tech, -m/--mode, -v/--visual, -o/--out)
-  - [ ] `netlist` subcommand (-c/--cell, -t/--tech, -m/--mode, -f/--fmt, --montecarlo, -o/--out)
-  - [ ] `simulate` subcommand (-c/--cell, -t/--tech, -m/--mode, -s/--simulator, --host, --montecarlo, -o/--out)
-  - [ ] Simulator availability check (`_check_simulator`) with `SIM_HOSTS` and `SIMULATOR_BINARIES`
-  - [ ] `argcomplete.autocomplete(parser)` for tab completion
-- [ ] Add `[project.scripts] flow = "flow.cli:main"` to `pyproject.toml`
-- [ ] Run `uv sync` so the `flow` entry point is installed
+- [x] Create `flow/cli.py` with argparse — thin dispatcher
+  - [x] `primitive` subcommand (-c/--cell, -t/--tech, -m/--mode, -v/--visual, -o/--out)
+  - [x] `netlist` subcommand (-c/--cell, -t/--tech, -m/--mode, -f/--fmt, --montecarlo, -o/--out)
+  - [x] `simulate` subcommand (-c/--cell, -t/--tech, -m/--mode, -s/--simulator, --host, --montecarlo, -o/--out)
+  - [x] Simulator availability check (`_check_simulator`) with `SIM_HOSTS` and `SIMULATOR_BINARIES`
+  - [x] `argcomplete.autocomplete(parser)` for tab completion
+- [x] Add `[project.scripts] flow = "flow.cli:main"` to `pyproject.toml`
+- [x] Run `uv sync` so the `flow` entry point is installed
 
 ### Phase 3: Simplify conftest.py
 
-- [ ] Remove `pytest_addoption` (all CLI options: --flow, --mode, --montecarlo,
+- [x] Remove `pytest_addoption` (all CLI options: --flow, --mode, --montecarlo,
       --simulator, --fmt, --clean, --visual, --sim-server, --outdir)
-- [ ] Remove flow fixtures: `flow`, `mode`, `montecarlo`, `visual`, `sim_options`,
+- [x] Remove flow fixtures: `flow`, `mode`, `montecarlo`, `visual`, `sim_options`,
       `simulator`, `netlist_fmt`, `sim_server`, `check_simulator_avail`, `verbose`
-- [ ] Remove `print_summary_if_verbose`
-- [ ] Remove `resolve_outdir`, `clean_outdir`
-- [ ] Move `SIM_HOSTS`, `SIMULATOR_BINARIES`, and simulator availability check
+- [x] Remove `print_summary_if_verbose`
+- [x] Remove `resolve_outdir`, `clean_outdir`
+- [x] Move `SIM_HOSTS`, `SIMULATOR_BINARIES`, and simulator availability check
       logic to `cli.py` (the `simulate` subcommand needs these)
-- [ ] Keep `set_pdk()`, `_resolve_pdk_module()`, `_reset_generator_caches()`,
+- [x] Keep `set_pdk()`, `_resolve_pdk_module()`, `_reset_generator_caches()`,
       `_PDK_PACKAGES`, `list_pdks()`
-- [ ] Keep `pytest_configure` — just calls `set_pdk("ihp130")`
-- [ ] Keep `tech` fixture — returns `"ihp130"` (no CLI option)
-- [ ] Keep or add `outdir` fixture backed by pytest's `tmp_path`
+- [x] Keep `pytest_configure` — just calls `set_pdk("ihp130")`
+- [x] Keep `tech` fixture — returns `"ihp130"` (no CLI option)
+- [x] Tests use pytest's built-in `tmp_path` instead of custom `outdir` fixture
 
 ### Phase 4: Clean up pyproject.toml
 
-- [ ] Update `python_files` for new test file locations (`test.py` files in
+- [x] Update `python_files` for new test file locations (`test.py` files in
       block directories, `serialize.py` in layout)
-- [ ] Remove `mosfet.py`, `momcap.py`, `layout.py` from `python_files`
-      (no longer contain tests)
+- [x] Remove `mosfet.py`, `momcap.py` from `python_files`
+      (no longer contain tests; `layout.py` kept — pdk/*/layout.py still has inline tests)
 - [ ] Remove `addopts = ["-k", "not test_plot"]` once `test_plot.py` is fixed
       (optional, can keep for now)
 

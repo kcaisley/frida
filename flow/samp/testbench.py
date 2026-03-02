@@ -1,10 +1,11 @@
 """
-Sampler testbench and flow tests for FRIDA.
+Sampler testbench and runner functions for FRIDA.
 """
+
+from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-import pytest
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpulse
 
@@ -20,7 +21,7 @@ from ..circuit import (
     select_variants,
     wrap_monte_carlo,
 )
-from .samp import Samp, SampParams
+from .subckt import Samp, SampParams
 
 
 @h.paramclass
@@ -118,68 +119,77 @@ def sim_input(params: SampTbParams) -> hs.Sim:
     return SampSim
 
 
-@pytest.mark.usefixtures("check_simulator_avail")
-def test_samp_flow(
-    flow,
-    mode,
-    montecarlo,
-    verbose,
-    tech,
-    simulator,
-    netlist_fmt,
-    sim_options,
-    sim_server,
-):
-    """Run sampler flow: netlist, simulate, or measure."""
-    outdir = sim_options.rundir
-    outdir.mkdir(exist_ok=True)
-
-    switch_types = list(SwitchType)
-    vth_list = [MosVth.LOW, MosVth.STD]
-    w_list = [2, 5, 10, 20, 40]
-    l_list = [1]
-
-    variants = [
+def _build_variants():
+    """Build the full sampler variant list."""
+    return [
         SampParams(switch_type=st, w=w, l=l, vth=vth)
-        for st in switch_types
-        for vth in vth_list
-        for w in w_list
-        for l in l_list
+        for st in SwitchType
+        for vth in [MosVth.LOW, MosVth.STD]
+        for w in [2, 5, 10, 20, 40]
+        for l in [1]
     ]
 
-    variants = select_variants(variants, mode)
+
+def run_netlist(
+    tech: str,
+    mode: str,
+    montecarlo: bool,
+    fmt: str,
+    outdir: Path,
+    verbose: bool = False,
+) -> None:
+    """Run sampler netlist generation."""
+    variants = select_variants(_build_variants(), mode)
 
     def build_sim(samp_params: SampParams):
         tb_params = SampTbParams(samp=samp_params)
-        tb = SampTb(tb_params)
         sim = sim_input(tb_params)
         if montecarlo:
             wrap_monte_carlo(sim)
-        return tb, sim
+        return SampTb(tb_params), sim
 
     def build_dut(samp_params: SampParams):
         return Samp(samp_params)
 
-    if flow == "netlist":
-        wall_time = run_netlist_variants(
-            "samp",
-            variants,
-            build_sim,
-            outdir,
-            simulator=simulator,
-            netlist_fmt=netlist_fmt,
-            build_dut=build_dut,
+    wall_time = run_netlist_variants(
+        "samp",
+        variants,
+        build_sim,
+        outdir,
+        simulator=fmt,
+        netlist_fmt=fmt,
+        build_dut=build_dut,
+    )
+    if verbose:
+        print_netlist_summary(
+            block="samp",
+            pdk_name=tech,
+            count=len(variants),
+            param_axes=get_param_axes(variants),
+            wall_time=wall_time,
+            outdir=str(outdir),
         )
-        if verbose:
-            print_netlist_summary(
-                block="samp",
-                pdk_name=tech,
-                count=len(variants),
-                param_axes=get_param_axes(variants),
-                wall_time=wall_time,
-                outdir=str(outdir),
-            )
-        return
+
+
+def run_simulate(
+    tech: str,
+    mode: str,
+    montecarlo: bool,
+    simulator: str,
+    sim_options,
+    sim_server,
+    outdir: Path,
+    verbose: bool = False,
+) -> None:
+    """Run sampler simulation."""
+    variants = select_variants(_build_variants(), mode)
+
+    def build_sim(samp_params: SampParams):
+        tb_params = SampTbParams(samp=samp_params)
+        sim = sim_input(tb_params)
+        if montecarlo:
+            wrap_monte_carlo(sim)
+        return SampTb(tb_params), sim
 
     wall_time, sims = run_netlist_variants(
         "samp",
@@ -198,8 +208,4 @@ def test_samp_flow(
             wall_time=wall_time,
             outdir=str(outdir),
         )
-
-    if flow == "simulate":
-        run_simulations(sims, sim_options, sim_server=sim_server)
-    elif flow == "measure":
-        pass
+    run_simulations(sims, sim_options, sim_server=sim_server)

@@ -1,4 +1,4 @@
-"""Monolithic MOMCAP layout generator and inline sweep test."""
+"""Monolithic MOMCAP layout generator and layout runner."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from pathlib import Path
 
 import klayout.db as kdb
 
-from .dsl import (
+from ..layout.dsl import (
     L,
     load_generic_layers,
 )
-from .image import gds_to_png_with_pdk_style
-from .serialize import export_layout
-from .tech import (
+from ..layout.image import gds_to_png_with_pdk_style
+from ..layout.serialize import export_layout
+from ..layout.tech import (
     load_dbu,
     load_rules_deck,
     remap_layers,
@@ -207,9 +207,8 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
     return layout
 
 
-def test_momcap(outdir: Path, tech: str, mode: str, visual: bool) -> None:
-    """Inline MOMCAP sweep test using the new API."""
-
+def run_layout(tech: str, mode: str, visual: bool, outdir: Path) -> None:
+    """Run momcap layout sweep."""
     pdk_module = import_module(f"pdk.{tech}.layout")
     tech_map = pdk_module.layer_map()
 
@@ -247,9 +246,5 @@ def test_momcap(outdir: Path, tech: str, mode: str, visual: bool) -> None:
             domain=f"frida.layout.{tech}",
             write_debug_gds=visual,
         )
-        assert artifacts.pb.exists()
-        assert artifacts.pbtxt.exists()
-        if visual:
-            assert artifacts.gds is not None and artifacts.gds.exists()
-            png = gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
-            assert png.exists()
+        if visual and artifacts.gds is not None:
+            gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)

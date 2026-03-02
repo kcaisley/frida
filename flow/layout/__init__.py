@@ -13,8 +13,6 @@ from .dsl import (
     paramclass,
 )
 from .image import gds_to_png_with_pdk_style
-from .momcap import MomcapParams, momcap
-from .mosfet import MosfetParams, mosfet
 from .serialize import (
     ExportArtifacts,
     TechArtifacts,
@@ -54,10 +52,6 @@ __all__ = [
     "layout_to_vlsir_raw",
     "vlsir_raw_to_disk",
     "export_layout",
-    "MosfetParams",
-    "mosfet",
-    "MomcapParams",
-    "momcap",
     "GenericLayers",
     "load_generic_layers",
     "NewRuleDeck",
