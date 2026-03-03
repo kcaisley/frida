@@ -1,986 +1,698 @@
-# CLI Migration Plan
+# FRIDA → OpenROAD Analog Layout Flow: Implementation Plan
 
-## Goal
+## Architecture Overview
 
-Separate the **flow runner** (variant sweeps, netlist generation, simulation,
-layout generation) from **tests** (unit/integration assertions that verify
-correctness with a single default input).
+The system has three cleanly separated concerns:
 
-- `flow` CLI (`flow/cli.py`) — thin dispatcher that parses args and calls
-  per-module `run_netlist()` / `run_simulate()` / `run_layout()` functions.
-- `uv run pytest` — fast, no-flags-needed correctness checks.
+1. **VLSIR (existing)** — Emits LEF abstracts from primitive layouts and structural Verilog netlists from hdl21 circuit descriptions. Already works via `flow/layout/serialize.py` and `vlsirtools.netlist`. Don't touch the core; extend with new emitters only.
 
-After migration:
+2. **Constraint language (new: `flow/constraint/`)** — Python dataclasses modeled on hdl21+ALIGN syntax that capture analog placement/routing intent (symmetry pairs, net groups, ordering, routing rules). Tool-neutral; no OpenROAD semantics leak in.
+
+3. **TCL generation (new: `flow/openroad/`)** — Takes VLSIR artifacts (LEF, Verilog, DEF) plus constraint objects and emits a self-contained `.tcl` script that OpenROAD can `source`. The Python side's job ends once the TCL is written.
 
 ```
-flow primitive -c mosfet -t ihp130 -m max -v
-flow netlist -c samp -t ihp130 -m max
-flow simulate -c comp -s spectre --host jupiter
+┌─────────────────────────────────────────────────────────────────────┐
+│  Python generator side                                              │
+│                                                                     │
+│  hdl21 Module ──► h.to_proto() ──► vlsirtools ──► structural .v     │
+│                                                                     │
+│  KLayout primitive ──► export_layout() ──► vlsir.raw ──► .lef       │
+│                                    ▲                                │
+│                              (new emitter)                          │
+│                                                                     │
+│  Constraint objects ──► tcl_emitter() ──► flow.tcl                  │
+│         ▲                                                           │
+│    (new module)                                                     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ files on disk
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  OpenROAD                                                           │
+│                                                                     │
+│  source flow.tcl                                                    │
+│    ├── read_lef tech.lef                                            │
+│    ├── read_lef {prim1.lef prim2.lef ...}                           │
+│    ├── read_verilog design.v                                        │
+│    ├── read_def design.def  (or initialize_floorplan)               │
+│    ├── [placement passes with locks, net weights, partitioning]     │
+│    ├── [routing passes with NDRs, guide mirroring, net subsets]     │
+│    └── write_def placed_routed.def                                  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-```
-uv run pytest          # ~70+ tests, all pass, no flags needed
-```
+The partitioned placement/routing strategy (from Wei's ALOE thesis) maps to
+sequences of TCL `place` / `route` commands that select subsets of instances
+and nets, not to a Python sidecar running alongside OpenROAD.
 
 ---
 
-## Architecture
+## Component 1: Constraint Language (`flow/constraint/`)
 
-### Module-oriented structure
+Python-native constraint vocabulary. References hdl21 instance names and signal
+names as plain strings. Modeled on ALIGN's schema (`SymmetricBlocks`,
+`SymmetricNets`, `GroupBlocks`, `Order`, etc.) and Fritchman Ch. 7 priorities,
+with hard/soft strength and integer priority.
 
-Each **block** directory contains files named by **what they do**. The
-directory name provides the block identity, so function names are generic
-(`run_netlist`, `run_simulate`, `run_layout`).
+Does NOT live in VLSIR proto yet — that's a future step once the flow is proven.
 
-| File | Contains | Example |
-|------|----------|---------|
-| `subckt.py` | DUT generator + params (the thing you're designing) | `Samp`, `SampParams` |
-| `testbench.py` | Testbench, sim_input, variant sweep runners | `SampTb`, `run_netlist()`, `run_simulate()` |
-| `primitive.py` | Layout generator + params + layout runner | `mosfet()`, `MosfetParams`, `run_layout()` |
-| `test.py` | Smoke test (single default input) | `test_samp()` |
+### Files
 
-### Runners live inside each module
+- [ ] `flow/constraint/__init__.py` — Public API re-exports
+- [ ] `flow/constraint/types.py` — All constraint dataclasses and enums
 
-Each module's `testbench.py` (or `primitive.py` for layout) owns its variant
-sweep logic and all domain-specific enums. The CLI never imports enums like
-`L.MosType`, `SwitchType`, `PreampDiffpair`, etc. — those stay internal to the
-module that uses them.
+### Enums
 
-### CLI is a thin dispatcher
+- [ ] `Strength` — `HARD`, `SOFT`
+- [ ] `SymmetryAxis` — `VERTICAL`, `HORIZONTAL`
+- [ ] `OrderDirection` — `LEFT_TO_RIGHT`, `BOTTOM_TO_TOP`
+- [ ] `AlignEdge` — `LEFT`, `RIGHT`, `TOP`, `BOTTOM`, `CENTER_H`, `CENTER_V`
+- [ ] `PortSide` — `LEFT`, `RIGHT`, `TOP`, `BOTTOM`
 
-`flow/cli.py` (~80 lines) parses arguments, calls `set_pdk()`, and dispatches
-to the appropriate module's runner via lazy import. It can use dynamic import
-since cell names match directory names (`flow.{cell}.testbench`).
+### Placement Constraint Dataclasses
 
-### Dependency tree controlled by CLI
+Each is a frozen dataclass with `strength: Strength = HARD` and `priority: int = 0`.
 
-The CLI decides ordering (primitives before layout, netlisting before
-simulation). Each module's `run_*()` function just does its job without
-knowing about the broader dependency chain.
+- [ ] `SymmetricBlocks` — Paired instance placement across a symmetry axis
+  - `pairs: list[tuple[str, str]]` — Instance name pairs (e.g. `("mdiff_p", "mdiff_n")`)
+  - `axis: SymmetryAxis = VERTICAL`
+- [ ] `SelfSymmetric` — Single instance that must be symmetric about its own axis
+  - `instance: str`
+  - `axis: SymmetryAxis = VERTICAL`
+- [ ] `GroupBlocks` — Virtual hierarchy / placement group
+  - `name: str` — Group name (e.g. `"preamp"`, `"latch"`)
+  - `instances: list[str]` — Instance names in the group
+- [ ] `GroupCaps` — Common-centroid / interdigitated capacitor group
+  - `name: str`
+  - `instances: list[str]`
+  - `num_units: list[int]` — Per-instance unit count ratios
+  - `dummy: bool = True`
+- [ ] `Order` — Relative placement ordering
+  - `instances: list[str]` — Ordered list
+  - `direction: OrderDirection = BOTTOM_TO_TOP`
+- [ ] `Align` — Edge/center alignment
+  - `instances: list[str]`
+  - `edge: AlignEdge`
+- [ ] `Floorplan` — Row or column arrangement
+  - `rows: list[list[str]]` — Each inner list is a row of instance names
+- [ ] `Boundary` — Explicit block boundary
+  - `width_nm: int`
+  - `height_nm: int`
+- [ ] `AspectRatio` — Aspect ratio bounds
+  - `min_ratio: float = 0.5`
+  - `max_ratio: float = 2.0`
+- [ ] `PlaceOnGrid` — Grid legalization for an instance
+  - `instance: str`
+  - `grid_x_nm: int`
+  - `grid_y_nm: int`
+- [ ] `FixedPlacement` — Lock instance at absolute coordinates
+  - `instance: str`
+  - `x_nm: int`
+  - `y_nm: int`
+  - `orientation: str = "N"` — LEF/DEF orientation string (N, S, FN, FS, etc.)
+- [ ] `Distance` — Min/max distance between two instances
+  - `inst_a: str`
+  - `inst_b: str`
+  - `min_nm: int | None = None`
+  - `max_nm: int | None = None`
+- [ ] `GuardRing` — Guard ring around a group
+  - `instances: list[str]`
+  - `ring_type: str = "substrate"` — `"substrate"` or `"nwell"`
 
----
+### Routing Constraint Dataclasses
 
-## Directory structure after migration
+- [ ] `SymmetricNets` — Net pairs that must route symmetrically
+  - `nets: list[tuple[str, str]]` — Net name pairs
+  - `axis: SymmetryAxis = VERTICAL`
+- [ ] `RouteConstraint` — Per-net routing rules
+  - `nets: list[str]`
+  - `min_layer: str | None = None` — e.g. `"M2"`
+  - `max_layer: str | None = None` — e.g. `"M4"`
+  - `width_mult: int = 1` — Width multiplier for NDR
+  - `spacing_mult: int = 1` — Spacing multiplier for NDR
+  - `shield_net: str | None = None`
+- [ ] `NetPriority` — Criticality / routing order
+  - `nets: list[str]`
+  - `priority: int` — Higher = route first
+- [ ] `MultiConnection` — Multi-wire / multi-via intent
+  - `nets: list[str]`
+  - `width_mult: int = 2`
+- [ ] `DoNotRoute` — Nets that OpenROAD must not touch
+  - `nets: list[str]`
+- [ ] `PortLocation` — Pin placement on block boundary
+  - `port: str`
+  - `side: PortSide`
+  - `layer: str | None = None`
 
-```
-flow/
-├── cli.py                      # ~80 lines, thin argparse dispatcher
-├── conftest.py                 # ~30 lines, set_pdk + tech fixture
-├── __init__.py
-│
-├── circuit/                    # shared circuit infrastructure (renamed from flow/)
-│   ├── __init__.py
-│   ├── netlist.py
-│   ├── sim.py
-│   ├── measure.py
-│   ├── params.py
-│   ├── plot.py
-│   ├── spice_server.py
-│   ├── test_measure.py         # unit tests (unchanged)
-│   ├── test_netlist.py
-│   ├── test_params.py
-│   └── test_plot.py
-│
-├── layout/                     # shared layout infrastructure (unchanged)
-│   ├── __init__.py
-│   ├── dsl.py
-│   ├── tech.py
-│   ├── serialize.py
-│   └── image.py
-│
-├── samp/
-│   ├── __init__.py
-│   ├── subckt.py               # SampParams, Samp generator
-│   ├── testbench.py            # SampTb, sim_input, run_netlist(), run_simulate()
-│   └── test.py                 # smoke test
-│
-├── comp/
-│   ├── __init__.py
-│   ├── subckt.py               # CompParams, Comp generator
-│   ├── testbench.py            # CompTb, sim_input, run_netlist(), run_simulate()
-│   └── test.py                 # smoke test
-│
-├── cdac/
-│   ├── __init__.py
-│   ├── subckt.py               # CdacParams, Cdac generator
-│   ├── testbench.py            # CdacTb, sim_input, run_netlist(), run_simulate()
-│   └── test.py                 # smoke test
-│
-├── adc/
-│   ├── __init__.py
-│   ├── subckt.py               # AdcParams, Adc generator
-│   ├── testbench.py            # AdcTb, sim_input, run_netlist(), run_simulate()
-│   └── test.py                 # smoke test
-│
-├── mosfet/
-│   ├── __init__.py
-│   ├── primitive.py            # MosfetParams, mosfet generator, run_layout()
-│   └── test.py                 # smoke test
-│
-└── momcap/
-    ├── __init__.py
-    ├── primitive.py            # MomcapParams, momcap generator, run_layout()
-    └── test.py                 # smoke test
-```
+### Container Dataclasses
 
----
+- [ ] `ModuleConstraints` — All constraints for one hdl21 Module
+  - `module: str` — Module name (matches hdl21 `Module.name`)
+  - `constraints: list[Constraint]`
+  - Method: `validate(module: h.Module) -> list[str]` — Check instance/signal names exist
+- [ ] `ConstraintLibrary` — Collection across multiple modules
+  - `domain: str`
+  - `modules: list[ModuleConstraints]`
 
-## File rename mapping
+### Constraint type union
 
-```
-BEFORE                              AFTER
-──────                              ─────
-flow/samp/samp.py                   flow/samp/subckt.py
-flow/samp/test_samp.py              flow/samp/testbench.py
-(new)                               flow/samp/test.py
+- [ ] `Constraint` — Type alias: `Union[SymmetricBlocks, SelfSymmetric, GroupBlocks, ...]`
 
-flow/comp/comp.py                   flow/comp/subckt.py
-flow/comp/test_comp.py              flow/comp/testbench.py
-(new)                               flow/comp/test.py
+### Tests
 
-flow/cdac/cdac.py                   flow/cdac/subckt.py
-flow/cdac/test_cdac.py              flow/cdac/testbench.py
-(new)                               flow/cdac/test.py
-
-flow/adc/adc.py                     flow/adc/subckt.py
-flow/adc/test_adc.py                flow/adc/testbench.py
-(new)                               flow/adc/test.py
-
-flow/layout/mosfet.py               flow/mosfet/primitive.py
-(new)                               flow/mosfet/test.py
-
-flow/layout/momcap.py               flow/momcap/primitive.py
-(new)                               flow/momcap/test.py
-```
+- [ ] `flow/constraint/test_types.py`
+  - [ ] Construct each constraint type, verify fields
+  - [ ] Build `ModuleConstraints` for the comparator (`flow/comp/subckt.py`)
+  - [ ] `validate()` against a real `Comp` module — confirm instance names match
+  - [ ] `validate()` with a bad instance name — confirm error is reported
+  - [ ] Verify `Strength` and `priority` defaults
 
 ---
 
-## Task Checklist
+## Component 2: VLSIR Emitters (`flow/layout/` extensions)
 
-### Phase 1: Restructure modules + create runners
+Convert existing VLSIR raw protos and hdl21 packages into the three file formats
+OpenROAD needs: LEF, structural Verilog, and DEF. Two of these three already
+have working implementations in our `libs/` dependencies:
 
-Rename files, move sweep logic from `test_*_flow` functions into `run_*()`
-functions, extract smoke tests into `test.py` files.
+- **LEF**: Layout21 (`libs/Layout21`) already has the full pipeline:
+  `vlsir.raw.proto` → `layout21raw::Library` (via `ProtoImporter`) →
+  `lef21::LefLibrary` (via `LefExporter`) → `.lef` file (via `LefLibrary::save()`).
+  The code lives in `layout21raw/src/proto.rs` (proto↔layout21 conversion) and
+  `layout21raw/src/lef.rs` (layout21→LEF export with Abstract/port/blockage support).
 
-- [x] Rename `flow/samp/samp.py` → `flow/samp/subckt.py`
-- [x] Rename `flow/samp/test_samp.py` → `flow/samp/testbench.py`
-  - [x] Update internal import: `from .subckt import Samp, SampParams`
-  - [x] Extract sweep logic from `test_samp_flow` into `run_netlist()` and `run_simulate()`
-  - [x] Extract `_build_variants()` helper (shared by both runners)
-  - [x] Remove `test_samp_flow` function
-- [x] Create `flow/samp/test.py` with smoke test `test_samp()`
-- [x] Update `flow/samp/__init__.py` imports (`from .subckt import ...`, `from .testbench import ...`)
+- **Structural Verilog**: `vlsirtools` (`libs/Vlsir/VlsirTools`) already has a
+  `VerilogNetlister` in `vlsirtools/netlist/verilog.py` that emits structural
+  Verilog from `vlsir.circuit.Package`. Frida already uses this — the CLI
+  supports `flow netlist -c comp -f verilog` and `run_netlist_variants()` in
+  `flow/circuit/netlist.py` handles the `fmt="verilog"` path.
 
-- [x] Rename `flow/comp/comp.py` → `flow/comp/subckt.py`
-- [x] Rename `flow/comp/test_comp.py` → `flow/comp/testbench.py`
-  - [x] Update internal import: `from .subckt import Comp, CompParams, is_valid_comp_params`
-  - [x] Extract sweep logic from `test_comp_flow` into `run_netlist()` and `run_simulate()`
-  - [x] Remove `test_comp_flow` function
-- [x] Create `flow/comp/test.py` with smoke test `test_comp()`
-- [x] Update `flow/comp/__init__.py` imports
+So the work here is NOT reimplementing LEF/Verilog emitters from scratch.
+Instead it is: (a) ensuring the primitive generators populate `vlsir.raw.Abstract`
+correctly so Layout21's LEF exporter has the data it needs, (b) writing a thin
+Python wrapper that shells out to the Layout21 Rust binary or calls it via a
+compiled CLI, (c) writing a tech LEF emitter (which Layout21 does NOT cover —
+`lef21` handles macro LEF only, not technology LEF), and (d) writing a minimal
+DEF seed file.
 
-- [x] Rename `flow/cdac/cdac.py` → `flow/cdac/subckt.py`
-- [x] Rename `flow/cdac/test_cdac.py` → `flow/cdac/testbench.py`
-  - [x] Update internal import: `from .subckt import Cdac, CdacParams, ...`
-  - [x] Extract sweep logic from `test_cdac_flow` into `run_netlist()` and `run_simulate()`
-  - [x] Keep `test_cdac_weights` — move to `flow/cdac/test.py`
-  - [x] Remove `test_cdac_flow` function
-- [x] Create `flow/cdac/test.py` with `test_cdac()` smoke test and `test_cdac_weights()`
-- [x] Update `flow/cdac/__init__.py` imports
+### 2a. Primitive Abstract Annotation
 
-- [x] Rename `flow/adc/adc.py` → `flow/adc/subckt.py`
-- [x] Rename `flow/adc/test_adc.py` → `flow/adc/testbench.py`
-  - [x] Update internal import: `from .subckt import Adc, AdcParams, get_adc_weights`
-  - [x] Extract sweep logic from `test_adc_flow` into `run_netlist()` and `run_simulate()`
-  - [x] Keep `test_adc_weights` — move to `flow/adc/test.py`
-  - [x] Remove `test_adc_flow` function
-- [x] Create `flow/adc/test.py` with `test_adc()` smoke test and `test_adc_weights()`
-- [x] Update `flow/adc/__init__.py` imports
+The existing `mosfet()` and `momcap()` generators emit GDS-layer shapes and
+PIN-layer markers, but they do NOT populate `vlsir.raw.Cell.abstract`. The
+`export_layout()` path in `flow/layout/serialize.py` only fills
+`vlsir.raw.Cell.layout`, not `vlsir.raw.Cell.abstract`. Layout21's LEF
+exporter (`LefExporter`) only exports cells that have `.abs` — cells with
+only `.layout` are silently skipped.
 
-- [x] Move `flow/layout/mosfet.py` → `flow/mosfet/primitive.py`
-  - [x] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
-  - [x] Extract sweep logic from `test_mosfet` into `run_layout()`
-  - [x] Remove `test_mosfet` function
-- [x] Create `flow/mosfet/__init__.py`
-- [x] Create `flow/mosfet/test.py` with smoke test `test_mosfet()`
+- [ ] Extend `flow/layout/serialize.py` — `layout_to_vlsir_raw()`
+  - [ ] After building `raw_layout`, also build `raw.Abstract` for each cell:
+    - [ ] Derive `outline` polygon from the cell's bounding box
+    - [ ] Identify PIN-layer shapes (e.g. layer 10/datatype 1 = `PIN1`) and
+          group them by associated text label to form `AbstractPort` entries
+    - [ ] Collect all non-pin drawing-layer shapes as `blockages`
+    - [ ] Populate `vlsir.raw_pb2.Cell.abstract` alongside `.layout`
+  - [ ] Alternatively, add a new function `build_abstract(cell, layout, G) -> raw.Abstract`
+        that the generators call explicitly
 
-- [x] Move `flow/layout/momcap.py` → `flow/momcap/primitive.py`
-  - [x] Update imports to reference `flow.layout.dsl`, `flow.layout.tech`, etc.
-  - [x] Extract sweep logic from `test_momcap` into `run_layout()`
-  - [x] Remove `test_momcap` function
-- [x] Create `flow/momcap/__init__.py`
-- [x] Create `flow/momcap/test.py` with smoke test `test_momcap()`
+#### Key decisions
 
-- [x] Update `flow/layout/__init__.py` to remove mosfet/momcap re-exports
-      (they now live in `flow.mosfet` and `flow.momcap`)
+- Pin names come from text labels on the PIN layer. The mosfet generator
+  currently does NOT emit text labels on PIN layers — it only inserts boxes.
+  We either need to add text labels in the generators, or infer pin names
+  from position (less robust).
+- [ ] Add pin-name text labels to `mosfet()` generator on each PIN-layer shape
+- [ ] Add pin-name text labels to `momcap()` generator on each PIN-layer shape
 
-- [x] Update cross-module imports that reference old paths
-  - [x] `flow/adc/subckt.py`: uses `..samp`, `..comp`, `..cdac` (package-level, already correct)
-  - [x] `flow/conftest.py`: `_reset_generator_caches` imports updated to `.subckt`/`.testbench`
-  - [x] No PDK or external code imported from `flow.layout.mosfet` or `flow.layout.momcap`
-  - [x] `flow/circuit/test_netlist.py`: updated `..samp.samp` → `..samp.subckt`
-  - [x] `flow/circuit/netlist.py`: updated docstring example `flow.comp.comp` → `flow.comp.subckt`
+#### Tests
 
-### Phase 2: Create CLI
+- [ ] `flow/layout/test_serialize.py` (extend existing `test_serialize`)
+  - [ ] Generate mosfet → `export_layout()` → verify `Cell.abstract` is populated
+  - [ ] Verify `Abstract.ports` has correct pin names (vss, vdd, gate, drain)
+  - [ ] Verify `Abstract.outline` matches cell bounding box
+  - [ ] Verify `Abstract.blockages` contains non-pin drawing-layer shapes
 
-- [x] Create `flow/cli.py` with argparse — thin dispatcher
-  - [x] `primitive` subcommand (-c/--cell, -t/--tech, -m/--mode, -v/--visual, -o/--out)
-  - [x] `netlist` subcommand (-c/--cell, -t/--tech, -m/--mode, -f/--fmt, --montecarlo, -o/--out)
-  - [x] `simulate` subcommand (-c/--cell, -t/--tech, -m/--mode, -s/--simulator, --host, --montecarlo, -o/--out)
-  - [x] Simulator availability check (`_check_simulator`) with `SIM_HOSTS` and `SIMULATOR_BINARIES`
-  - [x] `argcomplete.autocomplete(parser)` for tab completion
-- [x] Add `[project.scripts] flow = "flow.cli:main"` to `pyproject.toml`
-- [x] Run `uv sync` so the `flow` entry point is installed
+### 2b. LEF Generation via Layout21
 
-### Phase 3: Simplify conftest.py
+Use Layout21's existing Rust pipeline to convert `vlsir.raw.pb` (with Abstract
+populated per §2a) to `.lef` files. This is a Rust binary invocation, not a
+Python reimplementation.
 
-- [x] Remove `pytest_addoption` (all CLI options: --flow, --mode, --montecarlo,
-      --simulator, --fmt, --clean, --visual, --sim-server, --outdir)
-- [x] Remove flow fixtures: `flow`, `mode`, `montecarlo`, `visual`, `sim_options`,
-      `simulator`, `netlist_fmt`, `sim_server`, `check_simulator_avail`, `verbose`
-- [x] Remove `print_summary_if_verbose`
-- [x] Remove `resolve_outdir`, `clean_outdir`
-- [x] Move `SIM_HOSTS`, `SIMULATOR_BINARIES`, and simulator availability check
-      logic to `cli.py` (the `simulate` subcommand needs these)
-- [x] Keep `set_pdk()`, `_resolve_pdk_module()`, `_reset_generator_caches()`,
-      `_PDK_PACKAGES`, `list_pdks()`
-- [x] Keep `pytest_configure` — just calls `set_pdk("ihp130")`
-- [x] Keep `tech` fixture — returns `"ihp130"` (no CLI option)
-- [x] Tests use pytest's built-in `tmp_path` instead of custom `outdir` fixture
+- [ ] Build Layout21 workspace: `cargo build --release` in `libs/Layout21/`
+  - [ ] Verify `proto2gds` binary builds (confirms proto support compiles)
+  - [ ] Write or identify a CLI entry point for `proto2lef` conversion
+    - Layout21 does NOT currently ship a `proto2lef` binary. The pieces exist
+      (`ProtoImporter` + `LefExporter`) but there is no CLI wiring them together.
+    - [ ] Option A: Add a small `proto2lef.rs` binary to `layout21converters/src/bin/`
+          that reads a `vlsir.raw.Library` protobuf file, imports it via
+          `ProtoImporter`, exports via `LefExporter`, and saves via `LefLibrary::save()`
+    - [ ] Option B: Write a thin Rust `cdylib` with a C FFI that Python calls via `ctypes`
+    - [ ] Option C: Write a standalone Python LEF text emitter that reads the
+          `vlsir.raw_pb2` protobuf directly (fallback if Rust compilation is impractical)
+  - Recommendation: Option A is simplest. ~30 lines of Rust.
 
-### Phase 4: Clean up pyproject.toml
+- [ ] `flow/layout/lef.py` — Python wrapper
+  - [ ] `proto_to_lef(pb_path: Path, lef_path: Path) -> Path`
+    - Calls the `proto2lef` binary via `subprocess.run()`
+    - Validates output file exists
+  - [ ] `emit_primitives_lef(primitives: list[Path], out: Path) -> Path`
+    - Takes a list of `.raw.pb` files from primitive generation
+    - Concatenates or merges into a single macro LEF
+    - Returns path to the output `.lef`
 
-- [x] Update `python_files` for new test file locations (`test.py` files in
-      block directories, `serialize.py` in layout)
-- [x] Remove `mosfet.py`, `momcap.py` from `python_files`
-      (no longer contain tests; `layout.py` kept — pdk/*/layout.py still has inline tests)
-- [ ] Remove `addopts = ["-k", "not test_plot"]` once `test_plot.py` is fixed
-      (optional, can keep for now)
+- [ ] Tech LEF emitter (Layout21/lef21 do NOT handle this — it's macro-only)
+  - [ ] `emit_tech_lef(rule_deck: NewRuleDeck, tech_name: str, out: Path) -> Path`
+    - Emit `UNITS DATABASE MICRONS ...`
+    - Emit `MANUFACTURINGGRID`
+    - Emit `LAYER` definitions from rule deck (name, type, direction, pitch, width, spacing)
+    - Emit `VIA` definitions from rule deck (cut layer + enclosures)
+    - Emit `VIARULE GENERATE` definitions
+    - Emit `SITE` definition (width = track pitch, height = row height)
+    - This is pure Python string formatting — tech LEF is a simple text format
+
+#### Tests
+
+- [ ] `flow/layout/test_lef.py`
+  - [ ] Generate a mosfet layout → `export_layout()` (with Abstract) → `proto_to_lef()`
+        → verify output `.lef` file exists and contains `MACRO`, `PIN`, `OBS` keywords
+  - [ ] Generate a momcap layout → same flow → verify LEF
+  - [ ] `emit_tech_lef()` from ihp130 rule deck → verify `LAYER` names match
+        rule deck entries, pitches/widths are correct in micron units
+  - [ ] Verify tech LEF `UNITS` and `MANUFACTURINGGRID` are present
+
+### 2c. Structural Verilog via vlsirtools
+
+The `VerilogNetlister` in `vlsirtools/netlist/verilog.py` already emits
+structural Verilog from `vlsir.circuit.Package`. The frida path is:
+
+```
+hdl21 Module → h.to_proto() → vlsir.circuit.Package → vlsirtools.netlist(pkg, fmt='verilog') → .v
+```
+
+This already works and is already wired into `flow/circuit/netlist.py`'s
+`run_netlist_variants(netlist_fmt="verilog")` path.
+
+**However**, the existing Verilog output assumes all instances resolve to
+modules defined within the same package. For the OpenROAD flow, compiled
+device instances (post `pdk.compile()`) reference PDK `ExternalModule`s that
+are NOT in the package. The `VerilogNetlister` treats unresolved references
+as errors.
+
+- [ ] Investigate `VerilogNetlister` behavior with compiled PDK devices
+  - [ ] Test: compile a `Comp` module with ihp130, call `h.to_proto()`,
+        call `vlsirtools.netlist(pkg, fmt='verilog')` — does it succeed or error?
+  - [ ] If it errors on unresolved `ExternalModule` references:
+    - [ ] Option A: Add stub module definitions to the package for each
+          unique `ExternalModule` (matching LEF macro pin names)
+    - [ ] Option B: Patch `VerilogNetlister` to emit `ExternalModule` references
+          as black-box instantiations (the module is defined by LEF, not Verilog)
+    - Recommendation: Option A — keep vlsirtools unmodified; add stubs in the
+      frida integration layer
+
+- [ ] `flow/layout/verilog.py` — Thin wrapper (only if stub injection is needed)
+  - [ ] `emit_structural_verilog(module: h.Module, stem_cell_map: dict[str, str], out: Path) -> Path`
+    - `stem_cell_map`: maps hdl21 `ExternalModule` qualified names → LEF macro names
+    - Calls `h.to_proto()`, injects stub module defs for external modules, then
+      calls `vlsirtools.netlist()` with `fmt='verilog'`
+    - If no stubs needed, this is just a thin convenience function
+
+#### Key decisions
+
+- The **stem cell map** connects hdl21's `ExternalModule` world (where a
+  compiled NMOS is e.g. `pdk.ihp130.NMOS`) to the LEF macro name
+  (`MOSFET_nf4_w1_l1_...`). This mapping is built by the user or by the
+  layout sweep — it says "this parameterized device instance uses this
+  specific LEF cell."
+- Port ordering in the Verilog must match LEF pin names exactly.
+- Power/ground nets (`vdd`, `vss`) are explicit wires, not implicit globals.
+
+#### Tests
+
+- [ ] `flow/layout/test_verilog.py`
+  - [ ] Build a `Comp` module, compile with ihp130 PDK, emit structural Verilog
+        via the existing `vlsirtools` path, verify output `.v` file is syntactically valid
+  - [ ] Verify all instance names from the hdl21 module appear in the Verilog
+  - [ ] Verify all port names appear as `input`/`output`/`inout`
+  - [ ] Verify all internal signals appear as `wire`
+  - [ ] If stem cell map injection is needed: verify substituted module names
+        match the LEF macro names
+
+### 2d. DEF Seed File (Minimal)
+
+Creates an initial DEF file with the design header, die area, and component
+list (all instances UNPLACED). OpenROAD reads this as the starting point.
+This is simple enough to emit directly as text — no library needed.
+
+Alternatively, this can be omitted entirely if the TCL script uses
+`initialize_floorplan` instead of `read_def`. OpenROAD can derive the
+initial placement from just LEF + Verilog + floorplan commands.
+
+- [ ] `flow/layout/def_writer.py`
+  - [ ] `emit_initial_def(module_name: str, instances: list[tuple[str, str]], die_area: tuple[int,int,int,int] | None, out: Path) -> Path`
+    - Emit `VERSION`, `DESIGN`, `UNITS`
+    - Emit `DIEAREA` if provided, otherwise omit (let `initialize_floorplan` handle it)
+    - Emit `COMPONENTS` section: each instance with `UNPLACED` status
+    - Emit empty `PINS`, `NETS` sections (OpenROAD populates from Verilog)
+  - [ ] Or: skip this entirely and use `initialize_floorplan` in TCL script (§3)
+
+#### Tests
+
+- [ ] `flow/layout/test_def_writer.py`
+  - [ ] Emit a DEF for a small design, verify it parses (regex check on sections)
+  - [ ] Verify component count matches input
 
 ---
 
-## What the runners look like
+## Component 3: TCL Generation (`flow/openroad/`)
 
-### Runner in `flow/samp/testbench.py`
+Translates constraint objects + file paths into a complete OpenROAD TCL script.
+This is the experimental component. No VLSIR dependency — it consumes
+constraint dataclasses and emits text.
 
-Variant sweep logic stays co-located with the testbench. All domain-specific
-enums (`SwitchType`, `MosVth`) are used internally — never exposed to the CLI.
+### Files
 
-```python
-# flow/samp/testbench.py
+- [ ] `flow/openroad/__init__.py` — Public API
+- [ ] `flow/openroad/tcl_emitter.py` — Core TCL generation logic
+- [ ] `flow/openroad/tcl_fragments.py` — Helper functions that emit individual TCL command strings
 
-from pathlib import Path
-from hdl21.primitives import MosVth
+### `tcl_fragments.py` — Low-level TCL command builders
 
-from .subckt import Samp, SampParams
-from ..circuit import (
-    SwitchType, select_variants, run_netlist_variants,
-    run_simulations, get_param_axes, print_netlist_summary,
-    wrap_monte_carlo,
-)
+Each function returns a `list[str]` of TCL lines. No file I/O.
 
-# ... SampTb, SampTbParams, sim_input (unchanged) ...
+#### Design Setup
 
-def _build_variants():
-    """Build the full sampler variant list."""
-    return [
-        SampParams(switch_type=st, w=w, l=l, vth=vth)
-        for st in SwitchType
-        for vth in [MosVth.LOW, MosVth.STD]
-        for w in [2, 5, 10, 20, 40]
-        for l in [1]
-    ]
+- [ ] `read_design(tech_lef: str, macro_lefs: list[str], verilog: str, def_file: str | None) -> list[str]`
+  - `read_lef`, `read_verilog`, `read_def` or `initialize_floorplan`
+- [ ] `write_result(def_out: str) -> list[str]`
+  - `write_def`
 
+#### Floorplanning
 
-def run_netlist(tech: str, mode: str, montecarlo: bool,
-                fmt: str, outdir: Path, verbose: bool = False) -> None:
-    """Run sampler netlist generation."""
-    variants = select_variants(_build_variants(), mode)
+- [ ] `init_floorplan(aspect_ratio: float, utilization: float, die_area: tuple | None) -> list[str]`
+  - `initialize_floorplan -aspect_ratio ... -utilization ...`
+  - Or `initialize_floorplan -die_area {x0 y0 x1 y1} -site ...`
+- [ ] `make_tracks(rule_deck_summary: dict) -> list[str]`
+  - `make_tracks` for each metal layer with correct offset and pitch
+- [ ] `pin_placement(constraints: list[PortLocation]) -> list[str]`
+  - `set_io_pin_constraint -pin_names ... -region ...`
 
-    def build_sim(p):
-        tb_params = SampTbParams(samp=p)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return SampTb(tb_params), sim
+#### Placement
 
-    def build_dut(p):
-        return Samp(p)
+- [ ] `lock_instance(inst: str, x: int, y: int, orient: str) -> list[str]`
+  - TCL block: `set inst [$block findInst "<inst>"]`; `$inst setLocation ...`; `$inst setPlacementStatus LOCKED`
+- [ ] `set_net_weight(net: str, weight: float) -> list[str]`
+  - `createNetGroup` + `specifyNetWeight` (Wei ALOE approach)
+- [ ] `global_placement(density: float, overflow: float) -> list[str]`
+  - `global_placement -density ... -overflow ...`
+- [ ] `detail_placement() -> list[str]`
+  - `detailed_placement` + `check_placement -verbose`
 
-    wall_time = run_netlist_variants(
-        "samp", variants, build_sim, outdir,
-        simulator=fmt, netlist_fmt=fmt, build_dut=build_dut,
-    )
-    if verbose:
-        print_netlist_summary(
-            block="samp", pdk_name=tech, count=len(variants),
-            param_axes=get_param_axes(variants),
-            wall_time=wall_time, outdir=str(outdir),
-        )
+#### NDR / Routing Setup
 
+- [ ] `create_ndr(name: str, layers: list[str], width_mult: int, spacing_mult: int) -> list[str]`
+  - `add_ndr -name ... -width_multiplier {layer mult ...} -spacing_multiplier {layer mult ...}`
+- [ ] `assign_ndr(net: str, ndr_name: str) -> list[str]`
+  - `setAttribute -net ... -non_default_rule ...`
 
-def run_simulate(tech: str, mode: str, montecarlo: bool,
-                 simulator: str, sim_options, sim_server,
-                 outdir: Path, verbose: bool = False) -> None:
-    """Run sampler simulation."""
-    variants = select_variants(_build_variants(), mode)
+#### Routing
 
-    def build_sim(p):
-        tb_params = SampTbParams(samp=p)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return SampTb(tb_params), sim
+- [ ] `set_routing_layers(signal_min: str, signal_max: str) -> list[str]`
+  - `set_routing_layers -signal <min>-<max>`
+- [ ] `global_route(guide_file: str | None) -> list[str]`
+  - `global_route` with optional `-guide_file`
+- [ ] `detail_route() -> list[str]`
+  - `detailed_route`
+- [ ] `route_net_subset(nets: list[str]) -> list[str]`
+  - `set_nets_to_route -nets {net1 net2 ...}` + `global_route` + `detailed_route`
+  - This is the partitioned routing mechanism
 
-    wall_time, sims = run_netlist_variants(
-        "samp", variants, build_sim, outdir,
-        return_sims=True, simulator=simulator,
-    )
-    run_simulations(sims, sim_options, sim_server=sim_server)
+#### Symmetric Routing Workaround
+
+- [ ] `mirror_guides_comment_block(net_a: str, net_b: str, axis_x: int) -> list[str]`
+  - Emit a commented TCL procedure skeleton that documents the guide-mirroring
+    approach (extract guides from `net_a`, mirror X coordinates about `axis_x`,
+    apply to `net_b`).
+  - This is not fully automatable in pure TCL — it's a placeholder for the
+    approach described in `or_analog.md` lines 278–326.
+  - Mark with `# TODO: requires custom ODB scripting or Python API session`
+
+### `tcl_emitter.py` — High-level orchestrator
+
+- [ ] `class OpenROADScript`
+  - Constructor: `(tech_lef: str, macro_lefs: list[str], verilog: str, def_file: str | None, output_def: str)`
+  - Method: `add_constraints(mc: ModuleConstraints)` — Absorbs constraint objects
+  - Method: `emit(out: Path) -> Path` — Writes the complete `.tcl` file
+
+#### `emit()` logic — the TCL script structure
+
+The generated TCL script has this sequential structure:
+
+```tcl
+# ── 1. Design Read ──
+read_lef ...
+read_verilog ...
+read_def ... / initialize_floorplan ...
+
+# ── 2. Track Setup ──
+make_tracks ...
+
+# ── 3. Pin Placement ──
+set_io_pin_constraint ...
+
+# ── 4. Fixed Placements (from FixedPlacement constraints) ──
+# Lock symmetric-pair center instances, guard ring anchors, etc.
+
+# ── 5. NDR Setup (from RouteConstraint constraints) ──
+add_ndr ...
+setAttribute -net ... -non_default_rule ...
+
+# ── 6. Net Weights (from NetPriority + RouteConstraint) ──
+createNetGroup ...
+specifyNetWeight ...
+
+# ── 7. Global Placement ──
+global_placement ...
+
+# ── 8. Detail Placement ──
+detailed_placement
+check_placement
+
+# ── 9. Global Routing ──
+global_route ...
+
+# ── 10. Detail Routing ──
+detailed_route
+
+# ── 11. Output ──
+write_def ...
 ```
 
-### Runner in `flow/mosfet/primitive.py`
+#### Constraint → TCL mapping
 
-Layout enums (`L.MosType`, `L.MosVth`, `L.SourceTie`) stay internal to the
-primitive module.
+Each constraint type maps to specific TCL command(s) inserted at the right
+stage of the script:
 
-```python
-# flow/mosfet/primitive.py
+| Constraint | TCL Stage | TCL Commands |
+|---|---|---|
+| `FixedPlacement` | §4 | `findInst` → `setLocation` → `setPlacementStatus LOCKED` |
+| `SymmetricBlocks` | §4 | Lock one instance, compute mirror position, lock the other |
+| `SelfSymmetric` | §4 | Lock instance centered on symmetry axis |
+| `GroupBlocks` | §6 | Comment annotation (OpenROAD has no native group placement) |
+| `Order` | §4 | Compute stacked positions, lock each instance |
+| `Align` | §4 | Compute aligned positions, lock each instance |
+| `Boundary` | §2 | `initialize_floorplan -die_area ...` |
+| `AspectRatio` | §2 | `initialize_floorplan -aspect_ratio ...` |
+| `PortLocation` | §3 | `set_io_pin_constraint -pin_names ... -region ...` |
+| `RouteConstraint` | §5 | `add_ndr` + `setAttribute -net ...` |
+| `NetPriority` | §6 | `specifyNetWeight` |
+| `MultiConnection` | §5 | NDR with higher width multiplier |
+| `DoNotRoute` | §9 | Omit nets from `set_nets_to_route` |
+| `SymmetricNets` | §9–10 | Comment block documenting guide-mirror approach |
+| `GuardRing` | §4 | Comment annotation (manual geometry, not OpenROAD native) |
+| `GroupCaps` | §4 | Comment annotation (common-centroid is generator-level) |
+| `Distance` | — | Validation-only; no direct TCL mapping |
 
-from pathlib import Path
-import klayout.db as kdb
-from ..layout.dsl import L, load_generic_layers
-from ..layout.tech import load_dbu, load_rules_deck, remap_layers
-from ..layout.serialize import export_layout
-from ..layout.image import gds_to_png_with_pdk_style
+### Tests
 
-# ... MosfetParams, mosfet generator (unchanged) ...
-
-def run_layout(tech: str, mode: str, visual: bool, outdir: Path) -> None:
-    """Run mosfet layout sweep."""
-    from importlib import import_module
-
-    pdk_module = import_module(f"pdk.{tech}.layout")
-    tech_map = pdk_module.layer_map()
-
-    if mode == "min":
-        variants = [MosfetParams()]
-    else:
-        variants = [
-            MosfetParams(
-                mosfet_type=tp, mosfet_vth=vth, track_count=tracks,
-                fing_count=fingers, wf_mult=wf, lf_mult=lf,
-                source_tie=tie, powerrail_mult=pr,
-            )
-            for tp in (L.MosType.NMOS, L.MosType.PMOS)
-            for vth in (L.MosVth.LOW, L.MosVth.REGULAR, L.MosVth.HIGH)
-            for tracks in (9, 12)
-            for fingers in (2, 4, 8)
-            for wf in (1, 2, 3)
-            for lf in (1, 2)
-            for tie in (L.SourceTie.OFF, L.SourceTie.ON)
-            for pr in (2, 3)
-        ]
-
-    for params in variants:
-        layout = mosfet(params, tech)
-        remap_layers(layout, tech_map)
-        stem = (
-            f"mos_t{params.mosfet_type.name.lower()}_"
-            f"v{params.mosfet_vth.name.lower()}_"
-            f"nf{params.fing_count}_w{params.wf_mult}_l{params.lf_mult}_"
-            f"s{params.source_tie.name.lower()}_pr{params.powerrail_mult}"
-        )
-        artifacts = export_layout(
-            layout=layout, out_dir=outdir, stem=stem,
-            domain=f"frida.layout.{tech}", write_debug_gds=visual,
-        )
-        if visual and artifacts.gds is not None:
-            gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
-```
-
-### Runner in `flow/comp/testbench.py`
-
-All comparator-specific enums stay internal.
-
-```python
-# flow/comp/testbench.py
-
-from pathlib import Path
-from .subckt import Comp, CompParams, is_valid_comp_params
-from ..circuit import (
-    CompStages, LatchPwrgateCtl, LatchPwrgateNode,
-    LatchRstExternCtl, LatchRstInternCtl, PreampBias, PreampDiffpair,
-    select_variants, run_netlist_variants, run_simulations,
-    get_param_axes, print_netlist_summary, wrap_monte_carlo,
-)
-
-# ... CompTb, CompTbParams, sim_input (unchanged) ...
-
-def _build_variants():
-    """Build the full comparator variant list."""
-    preamp_diffpairs = list(PreampDiffpair)
-    preamp_biases = list(PreampBias)
-    comp_stages_list = list(CompStages)
-    diffpair_w_list = [40, 80]
-
-    variants = []
-    for preamp_diffpair in preamp_diffpairs:
-        for preamp_bias in preamp_biases:
-            for comp_stages in comp_stages_list:
-                for diffpair_w in diffpair_w_list:
-                    if comp_stages == CompStages.SINGLE_STAGE:
-                        params = CompParams(
-                            preamp_diffpair=preamp_diffpair,
-                            preamp_bias=preamp_bias,
-                            comp_stages=comp_stages,
-                            latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                            latch_pwrgate_node=LatchPwrgateNode.EXTERNAL,
-                            latch_rst_extern_ctl=LatchRstExternCtl.CLOCKED,
-                            latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
-                            diffpair_w=diffpair_w,
-                        )
-                        if is_valid_comp_params(params):
-                            variants.append(params)
-                    else:
-                        for latch_pwrgate_node in LatchPwrgateNode:
-                            rst_extern = (
-                                LatchRstExternCtl.NO_RESET
-                                if latch_pwrgate_node == LatchPwrgateNode.INTERNAL
-                                else LatchRstExternCtl.CLOCKED
-                            )
-                            params = CompParams(
-                                preamp_diffpair=preamp_diffpair,
-                                preamp_bias=preamp_bias,
-                                comp_stages=comp_stages,
-                                latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                                latch_pwrgate_node=latch_pwrgate_node,
-                                latch_rst_extern_ctl=rst_extern,
-                                latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
-                                diffpair_w=diffpair_w,
-                            )
-                            if is_valid_comp_params(params):
-                                variants.append(params)
-    return variants
-
-
-def run_netlist(tech: str, mode: str, montecarlo: bool,
-                fmt: str, outdir: Path, verbose: bool = False) -> None:
-    """Run comparator netlist generation."""
-    variants = select_variants(_build_variants(), mode)
-    # ... same pattern as samp ...
-
-
-def run_simulate(tech: str, mode: str, montecarlo: bool,
-                 simulator: str, sim_options, sim_server,
-                 outdir: Path, verbose: bool = False) -> None:
-    """Run comparator simulation."""
-    # ... same pattern as samp ...
-```
+- [ ] `flow/openroad/test_tcl.py`
+  - [ ] Build `ModuleConstraints` for the comparator with representative constraints
+  - [ ] Emit TCL script to a string, verify it contains expected commands
+  - [ ] Verify `read_lef` / `read_verilog` appear at the top
+  - [ ] Verify `FixedPlacement` emits `setLocation` + `LOCKED`
+  - [ ] Verify `RouteConstraint` emits `add_ndr` with correct layer/multiplier args
+  - [ ] Verify `NetPriority` emits `specifyNetWeight`
+  - [ ] Verify `DoNotRoute` nets are excluded from routing commands
+  - [ ] Verify `write_def` appears at the end
+  - [ ] Verify the script is valid TCL syntax (no unclosed braces/brackets)
 
 ---
 
-## What the CLI looks like
+## Component 4: End-to-End Integration
 
-```python
-# flow/cli.py — thin dispatcher (~80 lines)
+### 4a. Comparator Example (`flow/comp/layout.py`)
 
-import argparse
-from pathlib import Path
+Wire up all three components for the comparator as a proof-of-concept.
 
-try:
-    import argcomplete
-    HAS_ARGCOMPLETE = True
-except ImportError:
-    HAS_ARGCOMPLETE = False
+- [ ] `flow/comp/layout.py`
+  - [ ] Define `comp_constraints(p: CompParams) -> ModuleConstraints`
+    - `SymmetricBlocks` for the diff pair (`mdiff_p` / `mdiff_n`)
+    - `SymmetricBlocks` for load/reset devices (`mrst_p` / `mrst_n`)
+    - `SymmetricBlocks` for latch cross-coupled pairs (`ma_p`/`ma_n`, `mb_p`/`mb_n`)
+    - `SymmetricNets` for internal differential signals (`outp_int` / `outn_int`)
+    - `Order` for vertical stacking: tail → diffpair → loads
+    - `GroupBlocks` for preamp vs latch functional groups
+    - `RouteConstraint` for differential outputs (wider wires, mid-layer routing)
+    - `NetPriority` for clock and differential signal nets
+  - [ ] Define `stem_cell_map(p: CompParams, tech: str) -> dict[str, str]`
+    - Maps each compiled `ExternalModule` to the corresponding LEF macro name
+    - This requires the primitive layout sweep to have run first
+  - [ ] Define `run_openroad_prep(p: CompParams, tech: str, outdir: Path) -> Path`
+    - Generate primitive layouts → emit LEF (one per unique device parameterization)
+    - Emit tech LEF from rule deck
+    - Build and compile the `Comp` module → emit structural Verilog
+    - Emit initial DEF (optional — can let `initialize_floorplan` handle it)
+    - Build constraints → emit TCL script
+    - Return path to the generated `.tcl` file
 
-from .conftest import set_pdk, list_pdks
-# Note: circuit infrastructure accessed via flow.circuit (e.g. flow.circuit.sim)
+#### Tests
 
+- [ ] `flow/comp/test_layout.py`
+  - [ ] `run_openroad_prep` produces all expected files in output directory:
+    `tech.lef`, `*.macro.lef`, `comp.v`, `flow.tcl`
+  - [ ] Constraint validation passes against the compiled `Comp` module
+  - [ ] Generated TCL script references the correct LEF and Verilog filenames
 
-def main():
-    parser = argparse.ArgumentParser(prog="flow", description="FRIDA design flow runner")
-    sub = parser.add_subparsers(dest="command", required=True)
+### 4b. CLI Extension
 
-    # ── primitive ─────────────────────────────────────────
-    p = sub.add_parser("primitive", help="Generate layout primitives")
-    p.add_argument("-c", "--cell", required=True, choices=["mosfet", "momcap"])
-    p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks())
-    p.add_argument("-m", "--mode", default="min", choices=["min", "max"])
-    p.add_argument("-v", "--visual", action="store_true")
-    p.add_argument("-o", "--out", default="scratch", type=Path)
-
-    # ── netlist ───────────────────────────────────────────
-    p = sub.add_parser("netlist", help="Generate netlists")
-    p.add_argument("-c", "--cell", required=True, choices=["samp", "comp", "cdac", "adc"])
-    p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks())
-    p.add_argument("-m", "--mode", default="min", choices=["min", "max"])
-    p.add_argument("-f", "--fmt", default="spectre",
-                   choices=["spectre", "ngspice", "yaml", "verilog"])
-    p.add_argument("--montecarlo", action="store_true")
-    p.add_argument("-o", "--out", default="scratch", type=Path)
-
-    # ── simulate ──────────────────────────────────────────
-    p = sub.add_parser("simulate", help="Run simulations")
-    p.add_argument("-c", "--cell", required=True, choices=["samp", "comp", "cdac", "adc"])
-    p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks())
-    p.add_argument("-m", "--mode", default="min", choices=["min", "max"])
-    p.add_argument("-s", "--simulator", default="spectre",
-                   choices=["spectre", "ngspice", "xyce"])
-    p.add_argument("--host", default=None)
-    p.add_argument("--montecarlo", action="store_true")
-    p.add_argument("-o", "--out", default="scratch", type=Path)
-
-    if HAS_ARGCOMPLETE:
-        argcomplete.autocomplete(parser)
-
-    args = parser.parse_args()
-    set_pdk(args.tech)
-    args.out.mkdir(parents=True, exist_ok=True)
-
-    if args.command == "primitive":
-        _run_primitive(args)
-    elif args.command == "netlist":
-        _run_netlist(args)
-    elif args.command == "simulate":
-        _run_simulate(args)
-
-
-def _run_primitive(args):
-    from importlib import import_module
-    mod = import_module(f"flow.{args.cell}.primitive")
-    mod.run_layout(tech=args.tech, mode=args.mode,
-                   visual=args.visual, outdir=args.out)
-
-
-def _run_netlist(args):
-    from importlib import import_module
-    mod = import_module(f"flow.{args.cell}.testbench")
-    mod.run_netlist(tech=args.tech, mode=args.mode,
-                    montecarlo=args.montecarlo, fmt=args.fmt,
-                    outdir=args.out, verbose=True)
-
-
-def _run_simulate(args):
-    _check_simulator(args.simulator, args.host)
-    from importlib import import_module
-    mod = import_module(f"flow.{args.cell}.testbench")
-    mod.run_simulate(tech=args.tech, mode=args.mode,
-                     montecarlo=args.montecarlo, simulator=args.simulator,
-                     sim_options=_make_sim_options(args),
-                     sim_server=args.host, outdir=args.out, verbose=True)
-
-
-def _check_simulator(simulator, host):
-    import shutil, socket
-    if host:
-        return
-    SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
-    SIMULATOR_BINARIES = {
-        "spectre": ("spectre",),
-        "ngspice": ("ngspice",),
-        "xyce": ("Xyce", "xyce"),
-    }
-    hostname = socket.gethostname().split(".")[0].lower()
-    if hostname not in SIM_HOSTS:
-        hosts = ", ".join(sorted(SIM_HOSTS))
-        raise SystemExit(
-            f"Simulator unavailable: host '{hostname}' not in allow-list ({hosts})"
-        )
-    binaries = SIMULATOR_BINARIES[simulator]
-    if not any(shutil.which(b) for b in binaries):
-        raise SystemExit(f"Simulator binary '{simulator}' not found on PATH")
-
-
-def _make_sim_options(args):
-    from vlsirtools.spice import SupportedSimulators
-    from .circuit.sim import get_sim_options
-    sim = SupportedSimulators(args.simulator)
-    return get_sim_options(rundir=args.out, simulator=sim)
-
-
-if __name__ == "__main__":
-    main()
-```
+- [ ] Extend `flow/cli.py` with a new `openroad` subcommand:
+  ```
+  flow openroad -c comp -t ihp130 -o scratch/
+  ```
+  - Calls `run_openroad_prep()` to generate all input files
+  - Prints summary: file paths, constraint count, stem cell count
+  - Does NOT run OpenROAD (that's manual: `openroad scratch/flow.tcl`)
 
 ---
 
-## What smoke tests look like
+## Execution Order and Dependencies
 
-Tests live in `test.py` inside each block directory. They test a single default
-input with no fixtures from conftest (except `tmp_path` where needed).
+```
+Phase 0: Verify existing tools work (no code changes — just testing)
+  ├── Compile Layout21: cargo build --release in libs/Layout21/
+  ├── Test vlsirtools verilog: flow netlist -c comp -t ihp130 -f verilog
+  └── Identify any gaps (ExternalModule handling, missing proto2lef binary)
 
-```python
-# flow/samp/test.py
-from .subckt import Samp, SampParams
+Phase 1: Constraint types (no dependencies)
+  └── flow/constraint/types.py
+  └── flow/constraint/__init__.py
+  └── flow/constraint/test_types.py
 
-def test_samp():
-    """Verify sampler generator produces a valid module."""
-    m = Samp(SampParams())
-    assert m is not None
-    assert hasattr(m, "din")
-    assert hasattr(m, "dout")
+Phase 2a: Primitive abstract annotation (depends on existing flow/layout/)
+  ├── Add pin-name text labels to mosfet/momcap generators
+  ├── Extend layout_to_vlsir_raw() to populate Cell.abstract
+  └── Tests: verify Abstract is populated with ports/outline/blockages
+
+Phase 2b: LEF pipeline (depends on Phase 2a + Layout21 compilation)
+  ├── proto2lef.rs binary in libs/Layout21/ (~30 lines Rust)
+  ├── flow/layout/lef.py (Python subprocess wrapper + tech LEF emitter)
+  └── flow/layout/test_lef.py
+
+Phase 2c: Verilog investigation (depends on existing vlsirtools)
+  ├── Test VerilogNetlister with compiled PDK devices
+  ├── flow/layout/verilog.py (stub injection wrapper, if needed)
+  └── flow/layout/test_verilog.py
+
+Phase 2d: DEF seed (optional, can be deferred)
+  └── flow/layout/def_writer.py + test
+
+Phase 3: TCL generation (depends on Phase 1 constraint types)
+  ├── flow/openroad/tcl_fragments.py
+  ├── flow/openroad/tcl_emitter.py
+  └── flow/openroad/test_tcl.py
+
+Phase 4: Integration (depends on Phases 1–3)
+  ├── flow/comp/layout.py
+  ├── flow/comp/test_layout.py
+  └── cli.py extension
 ```
 
-```python
-# flow/comp/test.py
-from .subckt import Comp, CompParams
-
-def test_comp():
-    """Verify comparator generator produces a valid module."""
-    m = Comp(CompParams())
-    assert m is not None
-```
-
-```python
-# flow/cdac/test.py
-import numpy as np
-from .subckt import Cdac, CdacParams, get_cdac_weights
-
-def test_cdac():
-    """Verify CDAC generator produces a valid module."""
-    m = Cdac(CdacParams())
-    assert m is not None
-
-def test_cdac_weights():
-    """Test weight calculation for different strategies."""
-    from ..circuit.params import RedunStrat
-    params = CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2)
-    weights = get_cdac_weights(params)
-    assert len(weights) == 8
-```
-
-```python
-# flow/adc/test.py
-import numpy as np
-from .subckt import Adc, AdcParams, get_adc_weights
-
-def test_adc():
-    """Verify ADC generator produces a valid module."""
-    m = Adc(AdcParams())
-    assert m is not None
-
-def test_adc_weights():
-    """Test ADC weight calculation."""
-    params = AdcParams()
-    weights = get_adc_weights(params)
-    assert len(weights) == 16
-    expected = np.array([768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1])
-    np.testing.assert_array_equal(weights, expected)
-```
-
-```python
-# flow/mosfet/test.py
-def test_mosfet(tmp_path):
-    """Verify mosfet generator produces valid layout."""
-    from .primitive import mosfet, MosfetParams
-    from ..layout.tech import remap_layers, load_layer_map
-    from ..layout.serialize import export_layout
-
-    layout = mosfet(MosfetParams(), "ihp130")
-    remap_layers(layout, load_layer_map("ihp130"))
-    artifacts = export_layout(layout, out_dir=tmp_path, stem="smoke",
-                              domain="frida.layout.ihp130")
-    assert artifacts.pb.exists()
-    assert artifacts.pbtxt.exists()
-```
-
-```python
-# flow/momcap/test.py
-def test_momcap(tmp_path):
-    """Verify momcap generator produces valid layout."""
-    from .primitive import momcap, MomcapParams
-    from ..layout.tech import remap_layers, load_layer_map
-    from ..layout.serialize import export_layout
-
-    layout = momcap(MomcapParams(), "ihp130")
-    remap_layers(layout, load_layer_map("ihp130"))
-    artifacts = export_layout(layout, out_dir=tmp_path, stem="smoke",
-                              domain="frida.layout.ihp130")
-    assert artifacts.pb.exists()
-    assert artifacts.pbtxt.exists()
-```
+Phase 0 is pure investigation — no code, just build & test existing tools.
+Phases 1 and 2a–2d are independent of each other and can proceed in parallel
+(except 2b depends on 2a).
+Phase 3 requires Phase 1.
+Phase 4 requires all of Phases 1–3.
 
 ---
 
-## What conftest.py becomes
+## What This Plan Does NOT Cover (Future Work)
 
-```python
-"""Pytest configuration for FRIDA tests."""
+These are explicitly out of scope for the first implementation:
 
-from importlib import import_module
-from types import ModuleType
+- [ ] **`vlsir.constraints` proto** — The constraint types live as Python dataclasses
+  for now. Promoting them to a `.proto` schema in `Vlsir/protos/constraints.proto`
+  happens only after the flow is proven to work end-to-end.
 
-import hdl21 as h
-import pytest
+- [ ] **Partitioned placement/routing via evolutionary algorithm** — Wei's ALOE uses
+  an EA to drive net weights and then rank layouts by post-PEX simulation. The TCL
+  emitter supports net weights as a knob, but the EA loop is a separate concern.
 
-_PDK_PACKAGES = {
-    "ihp130": "pdk.ihp130",
-    "tsmc65": "pdk.tsmc65",
-    "tsmc28": "pdk.tsmc28",
-    "tower180": "pdk.tower180",
-}
+- [ ] **DEF → GDS back-annotation** — Reading the placed+routed DEF back into VLSIR
+  `tetris.proto` or `raw.proto` for GDS export / DRC checking in KLayout.
 
-def list_pdks() -> list[str]:
-    return list(_PDK_PACKAGES.keys())
+- [ ] **UPF / power domain integration** — The `or_analog.md` UPF section is relevant
+  for mixed-signal SoC integration, not for the analog block P&R itself.
 
-def _resolve_pdk_module(name: str) -> ModuleType:
-    if name not in _PDK_PACKAGES:
-        available = ", ".join(list_pdks())
-        raise ValueError(f"Unknown PDK '{name}'. Available: {available}")
-    pkg = import_module(_PDK_PACKAGES[name])
-    pdk_module = getattr(pkg, "pdk_logic", None)
-    if pdk_module is None:
-        raise RuntimeError(f"PDK package '{_PDK_PACKAGES[name]}' has no `pdk_logic`")
-    return pdk_module
+- [ ] **Automatic stem-cell-map generation** — Automatically matching hdl21 compiled
+  device parameters to pre-generated LEF cells. For now this map is manual.
 
-def _reset_generator_caches() -> None:
-    try:
-        from flow.samp.subckt import Samp
-        from flow.samp.testbench import SampTb
-        Samp.Cache.reset()
-        SampTb.Cache.reset()
-    except (ImportError, AttributeError):
-        pass
-    try:
-        from flow.comp.subckt import Comp
-        from flow.comp.testbench import CompTb
-        Comp.Cache.reset()
-        CompTb.Cache.reset()
-    except (ImportError, AttributeError):
-        pass
-    try:
-        from flow.cdac.subckt import Cdac
-        from flow.cdac.testbench import CdacTb
-        Cdac.Cache.reset()
-        CdacTb.Cache.reset()
-    except (ImportError, AttributeError):
-        pass
+- [ ] **KLayout DRC/LVS integration** — Checking the OpenROAD output against PDK
+  rules via KLayout's DRC engine.
 
-def set_pdk(name: str) -> ModuleType:
-    pdk_module = _resolve_pdk_module(name)
-    h.pdk.set_default(pdk_module)
-    _reset_generator_caches()
-    return pdk_module
+- [ ] **Multi-block hierarchical constraint propagation** — The ALIGN `translator.py`
+  pattern of propagating constraints through hierarchy. Start flat, add hierarchy later.
 
-def pytest_configure(config):
-    set_pdk("ihp130")
-
-@pytest.fixture
-def tech() -> str:
-    return "ihp130"
-```
+- [ ] **Python bindings for Layout21** — Layout21 is pure Rust today. A `pyo3` or
+  `ctypes` bridge would eliminate the subprocess call for `proto2lef`, but is not
+  needed for a first pass.
 
 ---
 
-## What `__init__.py` files become
+## File Summary
 
-```python
-# flow/samp/__init__.py
-from .subckt import Samp, SampParams
-from .testbench import SampTb, SampTbParams, sim_input
+New files to create:
 
-__all__ = ["Samp", "SampParams", "SampTb", "SampTbParams", "sim_input"]
-```
+| File | Purpose | LoC est. |
+|---|---|---|
+| `flow/constraint/__init__.py` | Public API | ~60 |
+| `flow/constraint/types.py` | All constraint dataclasses | ~250 |
+| `flow/constraint/test_types.py` | Unit tests for constraints | ~120 |
+| `flow/layout/lef.py` | Tech LEF emitter + Layout21 subprocess wrapper | ~200 |
+| `flow/layout/test_lef.py` | LEF pipeline tests | ~150 |
+| `flow/layout/verilog.py` | Stem-cell-map stub injector (if needed) | ~80 |
+| `flow/layout/test_verilog.py` | Verilog output tests | ~100 |
+| `flow/layout/def_writer.py` | Initial DEF emitter (optional) | ~80 |
+| `flow/layout/test_def_writer.py` | DEF emitter tests | ~60 |
+| `flow/openroad/__init__.py` | Public API | ~20 |
+| `flow/openroad/tcl_fragments.py` | Individual TCL command builders | ~300 |
+| `flow/openroad/tcl_emitter.py` | High-level script orchestrator | ~250 |
+| `flow/openroad/test_tcl.py` | TCL generation tests | ~200 |
+| `flow/comp/layout.py` | Comparator integration example | ~150 |
+| `flow/comp/test_layout.py` | Integration tests | ~100 |
+| `libs/Layout21/.../proto2lef.rs` | Proto-to-LEF CLI binary | ~30 |
+| **Total** | | **~2150** |
 
-```python
-# flow/comp/__init__.py
-from .subckt import Comp, CompParams, is_valid_comp_params
-from .testbench import CompTb, CompTbParams, sim_input
+Files to modify:
 
-__all__ = ["Comp", "CompParams", "is_valid_comp_params",
-           "CompTb", "CompTbParams", "sim_input"]
-```
+| File | Change |
+|---|---|
+| `flow/layout/serialize.py` | Populate `Cell.abstract` in `layout_to_vlsir_raw()` (~60 lines) |
+| `flow/mosfet/primitive.py` | Add pin-name text labels on PIN layers (~10 lines) |
+| `flow/momcap/primitive.py` | Add pin-name text labels on PIN layers (~10 lines) |
+| `flow/cli.py` | Add `openroad` subcommand (~30 lines) |
 
-```python
-# flow/mosfet/__init__.py
-from .primitive import MosfetParams, mosfet
+Existing code reused (NOT reimplemented):
 
-__all__ = ["MosfetParams", "mosfet"]
-```
-
-```python
-# flow/momcap/__init__.py
-from .primitive import MomcapParams, momcap
-
-__all__ = ["MomcapParams", "momcap"]
-```
-
-```python
-# flow/layout/__init__.py  (updated: remove mosfet/momcap re-exports)
-from .dsl import (L, GenericLayers, MetalDraw, MosType, MosVth, Param,
-                  SourceTie, generator, load_generic_layers, paramclass)
-from .image import gds_to_png_with_pdk_style
-from .serialize import (ExportArtifacts, TechArtifacts, export_layout,
-                        layout_to_vlsir_raw, read_technology_proto,
-                        vlsir_raw_to_disk, write_technology_proto)
-from .tech import (LayerInfoData, LayerInfoMap, NewLayerRules, NewRuleDeck,
-                   RelativeRules, load_dbu, load_layer_map,
-                   load_rules_deck, remap_layers)
-```
-
----
-
-## File-by-file change summary
-
-### New files
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `flow/cli.py` | ~80 | Thin argparse dispatcher to per-module runners |
-| `flow/samp/test.py` | ~10 | Smoke test for sampler |
-| `flow/comp/test.py` | ~8 | Smoke test for comparator |
-| `flow/cdac/test.py` | ~15 | Smoke test + weight test for CDAC |
-| `flow/adc/test.py` | ~15 | Smoke test + weight test for ADC |
-| `flow/mosfet/__init__.py` | ~5 | Package init |
-| `flow/mosfet/test.py` | ~15 | Smoke test for mosfet layout |
-| `flow/momcap/__init__.py` | ~5 | Package init |
-| `flow/momcap/test.py` | ~15 | Smoke test for momcap layout |
-
-### Renamed + modified files
-
-| Before | After | What changes |
-|--------|-------|--------------|
-| `flow/samp/samp.py` | `flow/samp/subckt.py` | Rename only |
-| `flow/samp/test_samp.py` | `flow/samp/testbench.py` | Remove `test_samp_flow`, add `run_netlist()`, `run_simulate()`, update import to `.subckt` |
-| `flow/comp/comp.py` | `flow/comp/subckt.py` | Rename only |
-| `flow/comp/test_comp.py` | `flow/comp/testbench.py` | Remove `test_comp_flow`, add `run_netlist()`, `run_simulate()`, update import to `.subckt` |
-| `flow/cdac/cdac.py` | `flow/cdac/subckt.py` | Rename only |
-| `flow/cdac/test_cdac.py` | `flow/cdac/testbench.py` | Remove `test_cdac_flow`, `test_cdac_weights`, add `run_netlist()`, `run_simulate()`, update import to `.subckt` |
-| `flow/adc/adc.py` | `flow/adc/subckt.py` | Rename only |
-| `flow/adc/test_adc.py` | `flow/adc/testbench.py` | Remove `test_adc_flow`, `test_adc_weights`, add `run_netlist()`, `run_simulate()`, update import to `.subckt` |
-| `flow/layout/mosfet.py` | `flow/mosfet/primitive.py` | Remove `test_mosfet`, add `run_layout()`, update imports |
-| `flow/layout/momcap.py` | `flow/momcap/primitive.py` | Remove `test_momcap`, add `run_layout()`, update imports |
-
-### Modified files (in place)
-
-| File | What changes |
-|------|--------------|
-| `flow/conftest.py` | Strip all CLI options and flow fixtures (~200 lines removed, ~40 remain) |
-| `flow/samp/__init__.py` | Update imports: `.subckt`, `.testbench` |
-| `flow/comp/__init__.py` | Update imports: `.subckt`, `.testbench` |
-| `flow/cdac/__init__.py` | Update imports: `.subckt`, `.testbench` |
-| `flow/adc/__init__.py` | Update imports: `.subckt`, `.testbench` |
-| `flow/layout/__init__.py` | Remove mosfet/momcap re-exports |
-| `pyproject.toml` | Add `[project.scripts]`, update `python_files` |
-
-### Untouched files
-
-All pure unit tests stay exactly as they are:
-- `flow/circuit/test_measure.py` (~40 tests)
-- `flow/circuit/test_netlist.py` (~4 tests)
-- `flow/circuit/test_params.py` (~1 test)
-- `flow/circuit/test_plot.py` (~23 tests, skipped for now)
-- `flow/layout/tech.py` (inline `test_rule_deck`, `test_remap_layers`)
-- `flow/layout/serialize.py` (inline `test_serialize`)
-- `pdk/test_supply_rails.py` (~3 tests)
-
-All shared infrastructure — `flow/circuit/*.py`, `flow/layout/dsl.py`,
-`flow/layout/tech.py`, `flow/layout/serialize.py`, `flow/layout/image.py`,
-PDK code — untouched.
-
----
-
-## CLI API
-
-### `flow primitive`
-
-```
-flow primitive -c mosfet
-flow primitive -c mosfet -t tsmc65 -m max -v
-flow primitive -c momcap -t ihp130 -o scratch/layout
-```
-
-| Short | Long | Default | Choices |
-|-------|------|---------|---------|
-| `-c` | `--cell` | required | `mosfet`, `momcap` |
-| `-t` | `--tech` | `ihp130` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` |
-| `-m` | `--mode` | `min` | `min`, `max` |
-| `-v` | `--visual` | off | flag |
-| `-o` | `--out` | `scratch` | path |
-
-### `flow netlist`
-
-```
-flow netlist -c samp
-flow netlist -c comp -t tsmc28 -m max -f ngspice
-flow netlist -c adc --montecarlo
-```
-
-| Short | Long | Default | Choices |
-|-------|------|---------|---------|
-| `-c` | `--cell` | required | `samp`, `comp`, `cdac`, `adc` |
-| `-t` | `--tech` | `ihp130` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` |
-| `-m` | `--mode` | `min` | `min`, `max` |
-| `-f` | `--fmt` | `spectre` | `spectre`, `ngspice`, `yaml`, `verilog` |
-| | `--montecarlo` | off | flag |
-| `-o` | `--out` | `scratch` | path |
-
-### `flow simulate`
-
-```
-flow simulate -c samp
-flow simulate -c comp -s spectre --host jupiter
-```
-
-| Short | Long | Default | Choices |
-|-------|------|---------|---------|
-| `-c` | `--cell` | required | `samp`, `comp`, `cdac`, `adc` |
-| `-t` | `--tech` | `ihp130` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` |
-| `-m` | `--mode` | `min` | `min`, `max` |
-| `-s` | `--simulator` | `spectre` | `spectre`, `ngspice`, `xyce` |
-| | `--host` | none | `host[:port]` |
-| | `--montecarlo` | off | flag |
-| `-o` | `--out` | `scratch` | path |
-
----
-
-## Design decisions
-
-### Runners live in each module, not in cli.py
-
-Each `testbench.py` (or `primitive.py`) owns its variant sweep logic and all
-domain-specific enums. The CLI never imports enums like `L.MosType`,
-`SwitchType`, `PreampDiffpair`, etc.
-
-| Aspect | Runners in modules (chosen) | Everything in cli.py (rejected) |
-|--------|----------------------------|--------------------------------|
-| Where enums are used | Each module uses its own enums internally | cli.py imports every enum from every module |
-| cli.py size | ~80 lines, pure argparse + dispatch | ~250 lines, knows every sweep loop |
-| Adding a new cell | Add `run_*()` to the new module, add 2 lines to cli.py | Edit cli.py sweep logic + choices |
-| Where sweep knowledge lives | Co-located with the generator/testbench | Centralized in cli.py |
-| CLI's job | Parse args + dispatch + check simulators | Parse args + run sweeps + check simulators |
-
-### Files named by role, not by block
-
-Since the directory provides block identity, files use generic role names:
-
-- `subckt.py` — the device under test (SPICE naming convention)
-- `testbench.py` — wraps the DUT for simulation
-- `primitive.py` — layout generator for physical cells
-- `test.py` — pytest smoke test
-
-This means function names are also generic: `run_netlist()`, `run_simulate()`,
-`run_layout()`. The call site reads naturally:
-`from flow.comp.testbench import run_netlist`.
-
-### Smoke tests are separate files
-
-Tests are extracted from `testbench.py` / `primitive.py` into dedicated
-`test.py` files. This means testbench modules contain zero pytest functions,
-so pytest discovery is clean, and the test/runner boundary is unambiguous.
-
----
-
-## Migration order
-
-Each phase is independently committable and testable.
-
-1. **Restructure modules** — rename files, move sweep logic into runners,
-   create smoke tests, update `__init__.py` files → `uv run pytest` still
-   passes
-2. **Create CLI** — `flow/cli.py` + `pyproject.toml` entry point →
-   `flow --help` works, `flow netlist -c samp` runs
-3. **Simplify conftest.py** — strip CLI options and flow fixtures → cleaner,
-   no unused fixtures
-4. **Clean up pyproject.toml** — update `python_files`, remove stale entries
+| Existing code | Location | What it provides |
+|---|---|---|
+| `VerilogNetlister` | `libs/Vlsir/VlsirTools/vlsirtools/netlist/verilog.py` | Structural Verilog from `vlsir.circuit.Package` |
+| `ProtoImporter` | `libs/Layout21/layout21raw/src/proto.rs` | `vlsir.raw.proto` → `layout21raw::Library` |
+| `LefExporter` | `libs/Layout21/layout21raw/src/lef.rs` | `layout21raw::Library` (with `Abstract`) → `lef21::LefLibrary` |
+| `LefLibrary::save()` | `libs/Layout21/lef21/src/write.rs` | `lef21::LefLibrary` → `.lef` file on disk |
