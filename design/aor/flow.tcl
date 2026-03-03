@@ -1,0 +1,230 @@
+########################################################################
+# OpenROAD Analog Place-and-Route Script for FRIDA Comparator
+#
+# This is a hand-written TCL script that serves as the "target output"
+# for the FRIDA TCL generation flow. The automated flow will eventually
+# produce a script like this from:
+#   1. Constraint objects (flow/constraint/)
+#   2. VLSIR artifacts (LEF, Verilog)
+#   3. TCL emitter (flow/openroad/)
+#
+# Usage:
+#   openroad flow.tcl
+#
+# Inputs (all in same directory):
+#   sg13g2_tech.lef    - IHP SG13G2 technology LEF (from PDK)
+#   sg13g2_macros.lef  - Macro LEF for sg13_lv_nmos / sg13_lv_pmos
+#   comp.v             - Structural Verilog netlist of comparator
+#
+# Output:
+#   comp_placed_routed.def  - Placed and routed DEF
+#
+########################################################################
+
+set script_dir [file dirname [file normalize [info script]]]
+
+# ── 1. Read Design ────────────────────────────────────────────────────
+
+read_lef $script_dir/sg13g2_tech.lef
+read_lef $script_dir/sg13g2_macros.lef
+read_verilog $script_dir/comp.v
+link_design Comp
+
+# ── 2. Floorplan ──────────────────────────────────────────────────────
+#
+# 15 instances × 3.020 × 3.060 um each ≈ 138 um² total cell area
+# Target utilization ~30% → ~460 um² die area → ~21.5 × 21.5 um
+# Use aspect ratio 1.0, generous utilization for analog spacing
+
+initialize_floorplan \
+    -die_area  "0 0 30 30" \
+    -core_area "1 1 29 29" \
+    -site      unit
+
+# ── 3. Track Setup ────────────────────────────────────────────────────
+#
+# Create routing tracks matching the tech LEF layer definitions.
+# Format: make_tracks <layer> -x_offset <um> -x_pitch <um>
+#                              -y_offset <um> -y_pitch <um>
+
+make_tracks Metal1  -x_offset 0 -x_pitch 0.42  -y_offset 0 -y_pitch 0.42
+make_tracks Metal2  -x_offset 0 -x_pitch 0.48  -y_offset 0 -y_pitch 0.48
+make_tracks Metal3  -x_offset 0 -x_pitch 0.42  -y_offset 0 -y_pitch 0.42
+make_tracks Metal4  -x_offset 0 -x_pitch 0.48  -y_offset 0 -y_pitch 0.48
+make_tracks Metal5  -x_offset 0 -x_pitch 0.42  -y_offset 0 -y_pitch 0.42
+
+# ── 4. Pin Placement ──────────────────────────────────────────────────
+#
+# PortLocation constraints: inputs on left, outputs on right,
+# clock on bottom, power on top.
+# Corresponds to: PortLocation("inp", LEFT), etc.
+
+set_io_pin_constraint -pin_names {inp inn}          -region left:*
+set_io_pin_constraint -pin_names {outp outn}        -region right:*
+set_io_pin_constraint -pin_names {clk clkb}         -region bottom:*
+set_io_pin_constraint -pin_names {vdd vss}          -region top:*
+
+place_pins -hor_layers Metal3 -ver_layers Metal2
+
+# ── 5. Fixed Placements (SymmetricBlocks + Order) ─────────────────────
+#
+# These correspond to constraint objects:
+#   SymmetricBlocks(pairs=[("mdiff_p", "mdiff_n")], axis=VERTICAL)
+#   SymmetricBlocks(pairs=[("mrst_p", "mrst_n")], axis=VERTICAL)
+#   SymmetricBlocks(pairs=[("ma_p", "ma_n")], axis=VERTICAL)
+#   SymmetricBlocks(pairs=[("mb_p", "mb_n")], axis=VERTICAL)
+#   Order(instances=["mtail", "mdiff_p", "mrst_p", "ma_p"],
+#         direction=BOTTOM_TO_TOP)
+#
+# Symmetry axis at x = 15.0 um (center of 30 um die)
+# Cell width = 3.020 um, so left cell at x=13.49, right at x=16.51
+#   → centers at 15.0 ± 1.51
+#
+# Vertical stacking from bottom: mtail, diff pair, reset, latch, buf
+
+set block [ord::get_db_block]
+
+# Helper: place an instance and lock it
+proc place_and_lock {block name x y} {
+    set inst [$block findInst $name]
+    if {$inst == "NULL"} {
+        puts "WARNING: instance $name not found"
+        return
+    }
+    $inst setLocation [expr {int($x * 1000)}] [expr {int($y * 1000)}]
+    $inst setPlacementStatus "LOCKED"
+    puts "  Placed $name at ($x, $y) LOCKED"
+}
+
+puts "\n── Manual placement ──"
+
+# Symmetry axis at x = 15.0 um
+set sym_x   15.0
+set cell_w   3.020
+set half_w  [expr {$cell_w / 2.0}]
+set x_left  [expr {$sym_x - $cell_w - 0.5}]
+set x_right [expr {$sym_x + 0.5}]
+set x_center [expr {$sym_x - $half_w}]
+
+# Vertical stacking: y positions (bottom to top)
+set y_tail     2.0
+set y_diff     6.0
+set y_rst     10.0
+set y_latch_p 14.0
+set y_latch_n 18.0
+set y_buf     22.0
+
+# Tail (centered on symmetry axis)
+place_and_lock $block mtail $x_center $y_tail
+
+# Differential pair (symmetric)
+place_and_lock $block mdiff_p $x_left  $y_diff
+place_and_lock $block mdiff_n $x_right $y_diff
+
+# Reset/load devices (symmetric)
+place_and_lock $block mrst_p $x_left  $y_rst
+place_and_lock $block mrst_n $x_right $y_rst
+
+# Latch PMOS cross-coupled pair (symmetric)
+place_and_lock $block ma_p $x_left  $y_latch_p
+place_and_lock $block ma_n $x_right $y_latch_p
+
+# Latch NMOS cross-coupled pair (symmetric)
+place_and_lock $block mb_p $x_left  $y_latch_n
+place_and_lock $block mb_n $x_right $y_latch_n
+
+# Latch reset devices (symmetric)
+place_and_lock $block mlatch_rst_p $x_left  [expr {$y_latch_p - 3.5}]
+place_and_lock $block mlatch_rst_n $x_right [expr {$y_latch_p - 3.5}]
+
+# Output buffer inverters (symmetric)
+place_and_lock $block mbuf_outp_top [expr {$sym_x - $cell_w - 4.0}] $y_buf
+place_and_lock $block mbuf_outp_bot [expr {$sym_x - $cell_w - 4.0}] [expr {$y_buf + 3.5}]
+place_and_lock $block mbuf_outn_top [expr {$sym_x + 4.0}]           $y_buf
+place_and_lock $block mbuf_outn_bot [expr {$sym_x + 4.0}]           [expr {$y_buf + 3.5}]
+
+# ── 6. NDR Setup (RouteConstraint) ────────────────────────────────────
+#
+# Corresponds to:
+#   RouteConstraint(nets=["outp_int", "outn_int"],
+#                   min_layer="Metal2", max_layer="Metal4",
+#                   width_mult=2, spacing_mult=2)
+
+# Note: NDR commands may not work without a liberty file in OpenROAD.
+# Leaving them here as the target for what the generator should emit.
+
+# add_ndr -name ndr_diff \
+#     -width_multiplier  "Metal2:2 Metal3:2 Metal4:2" \
+#     -spacing_multiplier "Metal2:2 Metal3:2 Metal4:2"
+#
+# assign_ndr -ndr ndr_diff -net outp_int
+# assign_ndr -ndr ndr_diff -net outn_int
+
+# ── 7. Net Weights (NetPriority) ──────────────────────────────────────
+#
+# Corresponds to:
+#   NetPriority(nets=["outp_int", "outn_int"], priority=10)
+#   NetPriority(nets=["tail"], priority=5)
+#   NetPriority(nets=["clk", "clkb"], priority=8)
+#
+# Net weighting affects global placement (GPL) and routing congestion.
+# In OpenROAD these are set via the Replace API, not plain TCL.
+# Leaving as comments — the real script would use Python API for this.
+
+# set_net_weight outp_int 10
+# set_net_weight outn_int 10
+# set_net_weight tail     5
+# set_net_weight clk      8
+# set_net_weight clkb     8
+
+# ── 8. Global Placement ──────────────────────────────────────────────
+#
+# Since all instances are LOCKED, the global placer has nothing to move.
+# We still run it to initialize internal data structures that the router
+# expects. Skip if OpenROAD complains about no movable instances.
+
+# global_placement -density 0.3 -overflow 0.1
+
+# ── 9. Detail Placement ──────────────────────────────────────────────
+
+# detailed_placement
+# check_placement -verbose
+
+# ── 10. Set Routing Layers ────────────────────────────────────────────
+
+set_routing_layers -signal Metal1-Metal5
+
+# ── 11. Global Routing ────────────────────────────────────────────────
+
+global_route -allow_congestion \
+             -verbose
+
+# ── 12. Symmetric Routing Workaround ─────────────────────────────────
+#
+# OpenROAD has NO native symmetric routing support.
+# The workaround (from or_analog.md) is:
+#   1. Route net_a (e.g. outp_int)
+#   2. Extract routing guides for net_a
+#   3. Mirror guide coordinates about symmetry axis
+#   4. Apply mirrored guides to net_b (outn_int)
+#   5. Re-route net_b with constrained guides
+#
+# This requires Python ODB scripting and is NOT automatable in pure TCL.
+# Leaving as a comment block for future implementation.
+#
+# TODO: Implement guide-mirror approach for SymmetricNets constraint
+#       SymmetricNets(nets=[("outp_int", "outn_int")], axis=VERTICAL)
+
+# ── 13. Detail Routing ────────────────────────────────────────────────
+
+detailed_route
+
+# ── 14. Output ────────────────────────────────────────────────────────
+
+write_def $script_dir/comp_placed_routed.def
+
+puts "\n══════════════════════════════════════════════════════════════"
+puts "  Done. Output: $script_dir/comp_placed_routed.def"
+puts "══════════════════════════════════════════════════════════════\n"
+
+exit
