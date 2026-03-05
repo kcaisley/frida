@@ -33,12 +33,12 @@ link_design Comp
 # ── 2. Floorplan ──────────────────────────────────────────────────────
 #
 # 15 instances × 3.020 × 3.060 um each ≈ 138 um² total cell area
-# Target utilization ~30% → ~460 um² die area → ~21.5 × 21.5 um
-# Use aspect ratio 1.0, generous utilization for analog spacing
+# 8 rows × 4.0 um pitch = 32 um + margins → 35 um tall
+# Width: symmetric pairs + buffer offset → 35 um wide
 
 initialize_floorplan \
-    -die_area  "0 0 30 30" \
-    -core_area "1 1 29 29" \
+    -die_area  "0 0 35 35" \
+    -core_area "1 1 34 34" \
     -site      unit
 
 # ── 3. Track Setup ────────────────────────────────────────────────────
@@ -76,11 +76,20 @@ place_pins -hor_layers Metal3 -ver_layers Metal2
 #   Order(instances=["mtail", "mdiff_p", "mrst_p", "ma_p"],
 #         direction=BOTTOM_TO_TOP)
 #
-# Symmetry axis at x = 15.0 um (center of 30 um die)
-# Cell width = 3.020 um, so left cell at x=13.49, right at x=16.51
-#   → centers at 15.0 ± 1.51
+# Symmetry axis at x = 17.5 um (center of 35 um die)
+# Cell width = 3.020 um, cell height = 3.060 um
+# Row pitch = 4.0 um (cell height + ~1 um routing channel)
+# Left cell x = axis - cell_w - gap/2, right cell x = axis + gap/2
 #
-# Vertical stacking from bottom: mtail, diff pair, reset, latch, buf
+# Vertical stacking from bottom (8 rows):
+#   row 0: mtail (centered)
+#   row 1: mdiff_p / mdiff_n
+#   row 2: mrst_p / mrst_n
+#   row 3: mlatch_rst_p / mlatch_rst_n
+#   row 4: ma_p / ma_n
+#   row 5: mb_p / mb_n
+#   row 6: mbuf_outp_top / mbuf_outn_top
+#   row 7: mbuf_outp_bot / mbuf_outn_bot
 
 set block [ord::get_db_block]
 
@@ -98,50 +107,60 @@ proc place_and_lock {block name x y} {
 
 puts "\n── Manual placement ──"
 
-# Symmetry axis at x = 15.0 um
-set sym_x   15.0
-set cell_w   3.020
-set half_w  [expr {$cell_w / 2.0}]
-set x_left  [expr {$sym_x - $cell_w - 0.5}]
-set x_right [expr {$sym_x + 0.5}]
+# Symmetry axis at x = 17.5 um (center of 35 um die)
+set sym_x    17.5
+set cell_w    3.020
+set cell_h    3.060
+set half_w   [expr {$cell_w / 2.0}]
+set gap       1.0
+set x_left   [expr {$sym_x - $cell_w - $gap / 2.0}]
+set x_right  [expr {$sym_x + $gap / 2.0}]
 set x_center [expr {$sym_x - $half_w}]
 
-# Vertical stacking: y positions (bottom to top)
-set y_tail     2.0
-set y_diff     6.0
-set y_rst     10.0
-set y_latch_p 14.0
-set y_latch_n 18.0
-set y_buf     22.0
+# Row pitch = cell_h + routing channel
+set row_pitch 4.0
 
-# Tail (centered on symmetry axis)
-place_and_lock $block mtail $x_center $y_tail
+# Y positions: 8 rows starting at y = 1.0
+set y0  1.0
+set y1  [expr {$y0 + 1 * $row_pitch}]
+set y2  [expr {$y0 + 2 * $row_pitch}]
+set y3  [expr {$y0 + 3 * $row_pitch}]
+set y4  [expr {$y0 + 4 * $row_pitch}]
+set y5  [expr {$y0 + 5 * $row_pitch}]
+set y6  [expr {$y0 + 6 * $row_pitch}]
+set y7  [expr {$y0 + 7 * $row_pitch}]
 
-# Differential pair (symmetric)
-place_and_lock $block mdiff_p $x_left  $y_diff
-place_and_lock $block mdiff_n $x_right $y_diff
+# Row 0: Tail (centered on symmetry axis)
+place_and_lock $block mtail $x_center $y0
 
-# Reset/load devices (symmetric)
-place_and_lock $block mrst_p $x_left  $y_rst
-place_and_lock $block mrst_n $x_right $y_rst
+# Row 1: Differential pair (symmetric)
+place_and_lock $block mdiff_p $x_left  $y1
+place_and_lock $block mdiff_n $x_right $y1
 
-# Latch PMOS cross-coupled pair (symmetric)
-place_and_lock $block ma_p $x_left  $y_latch_p
-place_and_lock $block ma_n $x_right $y_latch_p
+# Row 2: Reset/load devices (symmetric)
+place_and_lock $block mrst_p $x_left  $y2
+place_and_lock $block mrst_n $x_right $y2
 
-# Latch NMOS cross-coupled pair (symmetric)
-place_and_lock $block mb_p $x_left  $y_latch_n
-place_and_lock $block mb_n $x_right $y_latch_n
+# Row 3: Latch reset devices (symmetric)
+place_and_lock $block mlatch_rst_p $x_left  $y3
+place_and_lock $block mlatch_rst_n $x_right $y3
 
-# Latch reset devices (symmetric)
-place_and_lock $block mlatch_rst_p $x_left  [expr {$y_latch_p - 3.5}]
-place_and_lock $block mlatch_rst_n $x_right [expr {$y_latch_p - 3.5}]
+# Row 4: Latch PMOS cross-coupled pair (symmetric)
+place_and_lock $block ma_p $x_left  $y4
+place_and_lock $block ma_n $x_right $y4
 
-# Output buffer inverters (symmetric)
-place_and_lock $block mbuf_outp_top [expr {$sym_x - $cell_w - 4.0}] $y_buf
-place_and_lock $block mbuf_outp_bot [expr {$sym_x - $cell_w - 4.0}] [expr {$y_buf + 3.5}]
-place_and_lock $block mbuf_outn_top [expr {$sym_x + 4.0}]           $y_buf
-place_and_lock $block mbuf_outn_bot [expr {$sym_x + 4.0}]           [expr {$y_buf + 3.5}]
+# Row 5: Latch NMOS cross-coupled pair (symmetric)
+place_and_lock $block mb_p $x_left  $y5
+place_and_lock $block mb_n $x_right $y5
+
+# Row 6: Output buffer tops (symmetric, wider spread)
+set buf_offset 5.0
+place_and_lock $block mbuf_outp_top [expr {$sym_x - $cell_w - $buf_offset}] $y6
+place_and_lock $block mbuf_outn_top [expr {$sym_x + $buf_offset}]           $y6
+
+# Row 7: Output buffer bottoms (symmetric, wider spread)
+place_and_lock $block mbuf_outp_bot [expr {$sym_x - $cell_w - $buf_offset}] $y7
+place_and_lock $block mbuf_outn_bot [expr {$sym_x + $buf_offset}]           $y7
 
 # ── 6. NDR Setup (RouteConstraint) ────────────────────────────────────
 #
@@ -187,8 +206,8 @@ place_and_lock $block mbuf_outn_bot [expr {$sym_x + 4.0}]           [expr {$y_bu
 
 # ── 9. Detail Placement ──────────────────────────────────────────────
 
-# detailed_placement
-# check_placement -verbose
+# detailed_placement  — skip: all instances are LOCKED
+check_placement -verbose
 
 # ── 10. Set Routing Layers ────────────────────────────────────────────
 

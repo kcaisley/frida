@@ -9,6 +9,7 @@ Usage:
 import argparse
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 
 try:
@@ -61,6 +62,12 @@ def main():
     p.add_argument("--montecarlo", action="store_true")
     p.add_argument("-o", "--out", default="scratch", type=Path)
 
+    # ==== Layout ====
+    p = sub.add_parser("layout", help="Run place-and-route via OpenROAD")
+    p.add_argument("-c", "--cell", required=True, choices=["comp"])
+    p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks())
+    p.add_argument("-o", "--out", default="scratch", type=Path)
+
     # ==== Simulate ====
     p = sub.add_parser("simulate", help="Run simulations")
     p.add_argument(
@@ -79,7 +86,7 @@ def main():
     p.add_argument("-o", "--out", default="scratch", type=Path)
 
     if HAS_ARGCOMPLETE:
-        argcomplete.autocomplete(parser)
+        argcomplete.autocomplete(parser)  # type: ignore[possibly-undefined]
 
     args = parser.parse_args()
     set_pdk(args.tech)
@@ -89,6 +96,8 @@ def main():
         _run_primitive(args)
     elif args.command == "netlist":
         _run_netlist(args)
+    elif args.command == "layout":
+        _run_layout(args)
     elif args.command == "simulate":
         _run_simulate(args)
 
@@ -131,6 +140,22 @@ def _run_simulate(args):
     )
 
 
+def _check_openroad():
+    if not shutil.which("openroad"):
+        raise SystemExit("OpenROAD binary not found on PATH")
+
+
+def _run_layout(args):
+    _check_openroad()
+    script = Path(__file__).parent / args.cell / "layout.py"
+    if not script.exists():
+        raise SystemExit(f"No layout script found for cell '{args.cell}' at {script}")
+    subprocess.run(
+        ["openroad", "-exit", "-python", str(script), args.cell, args.tech],
+        check=True,
+    )
+
+
 def _check_simulator(simulator, host):
     """Verify simulator is available locally (skipped when using remote host)."""
     if host:
@@ -148,7 +173,7 @@ def _check_simulator(simulator, host):
 
 def _make_sim_options(args):
     """Build vlsirtools SimOptions for the requested simulator."""
-    from vlsirtools.spice import SupportedSimulators
+    from vlsirtools.spice import SupportedSimulators  # type: ignore[import-untyped]
 
     from .circuit.sim import get_sim_options
 

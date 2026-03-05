@@ -1,7 +1,8 @@
 # General
 /scratch
 /pdk/*/scratch/
-opencode.json
+design/aor/*.def
+design/aor/*.gds
 
 # Python
 .pytest_cache
@@ -49,3 +50,6 @@ fp-info-cache
 /\#auto_saved_files\#
 daq/dut/\#auto_saved_files\#
 _autosave-*
+
+opencode.json
+AGENTS.md

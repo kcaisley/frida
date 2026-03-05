@@ -163,4 +163,4 @@ module Comp
     .b(vss)
   );
 
-endmodule // Comp
+endmodule

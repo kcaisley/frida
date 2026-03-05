@@ -7,15 +7,14 @@
 #
 # Cell size: 3.020 x 3.060 um (from KLayout bbox in dbu with dbu=0.001)
 #
-# Pin positions are derived from the PIN1-layer boxes emitted by the
-# mosfet generator:
-#   vss:  (0,0)       -> (0.320, 0.320)     bottom-left power rail
-#   vdd:  (0,2.740)   -> (0.320, 3.060)     top-left power rail
-#   gate: (0,1.450)   -> (0.320, 1.610)     left-side gate access
-#   drain:(2.700,0.570)-> (3.020, 0.730)    right-side drain/source pad
+# Pin positions (track-aligned, 0.420 x 0.420 um to span Metal1 pitch):
+#   s:    (0.000, 0.000) -> (0.420, 0.420)   bottom-left (source/vss)
+#   d:    (2.600, 0.630) -> (3.020, 1.050)   right-side  (drain)
+#   g:    (0.000, 1.320) -> (0.420, 1.740)   left-side   (gate)
+#   b:    (0.000, 2.640) -> (0.420, 3.060)   top-left    (bulk/vdd)
 #
-# Obstruction covers the full cell on Metal1 (the only routed layer
-# inside the primitive).
+# No Metal1 OBS — the cell interior is opaque to the router as a
+# BLOCK macro; a full-cell OBS would conflict with pin access.
 #
 # NOTE: This is a temporary hand-written file for verifying that
 # OpenROAD can read our design. The real flow will generate this
@@ -25,6 +24,12 @@
 VERSION 5.7 ;
 BUSBITCHARS "[]" ;
 DIVIDERCHAR "/" ;
+
+SITE unit
+  SYMMETRY Y ;
+  CLASS CORE ;
+  SIZE 0.005 BY 0.005 ;
+END unit
 
 MACRO sg13_lv_nmos
   CLASS BLOCK ;
@@ -38,7 +43,7 @@ MACRO sg13_lv_nmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 2.700 0.570 3.020 0.730 ;
+        RECT 2.600 0.630 3.020 1.050 ;
     END
   END d
 
@@ -47,7 +52,7 @@ MACRO sg13_lv_nmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 1.450 0.320 1.610 ;
+        RECT 0.000 1.320 0.420 1.740 ;
     END
   END g
 
@@ -56,7 +61,7 @@ MACRO sg13_lv_nmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 0.000 0.320 0.320 ;
+        RECT 0.000 0.000 0.420 0.420 ;
     END
   END s
 
@@ -65,14 +70,9 @@ MACRO sg13_lv_nmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 2.740 0.320 3.060 ;
+        RECT 0.000 2.640 0.420 3.060 ;
     END
   END b
-
-  OBS
-    LAYER Metal1 ;
-      RECT 0.000 0.000 3.020 3.060 ;
-  END
 
 END sg13_lv_nmos
 
@@ -88,7 +88,7 @@ MACRO sg13_lv_pmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 2.700 0.570 3.020 0.730 ;
+        RECT 2.600 0.630 3.020 1.050 ;
     END
   END d
 
@@ -97,7 +97,7 @@ MACRO sg13_lv_pmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 1.450 0.320 1.610 ;
+        RECT 0.000 1.320 0.420 1.740 ;
     END
   END g
 
@@ -106,7 +106,7 @@ MACRO sg13_lv_pmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 0.000 0.320 0.320 ;
+        RECT 0.000 0.000 0.420 0.420 ;
     END
   END s
 
@@ -115,14 +115,9 @@ MACRO sg13_lv_pmos
     USE SIGNAL ;
     PORT
       LAYER Metal1 ;
-        RECT 0.000 2.740 0.320 3.060 ;
+        RECT 0.000 2.640 0.420 3.060 ;
     END
   END b
-
-  OBS
-    LAYER Metal1 ;
-      RECT 0.000 0.000 3.020 3.060 ;
-  END
 
 END sg13_lv_pmos
 
