@@ -31,86 +31,142 @@ The table below compares previous ADC designs with the current FRIDA target, hig
 
 # Usage
 
-FRIDA exposes three flow modes via pytest:
+FRIDA uses a `flow` CLI with four subcommands:
 
-- `netlist`: generate netlists only
-- `simulate`: generate netlists and run simulation
-- `measure`: reserved for measurement post-processing (currently unimplemented)
-
-Run from the repo root:
-
-```bash
-uv run pytest flow/comp/test_comp.py -v --tech=ihp130 --flow=netlist --mode=min
+```
+flow primitive   Generate layout primitives
+flow netlist     Generate netlists
+flow layout      Run place-and-route via OpenROAD
+flow simulate    Run simulations
 ```
 
-Notes:
-- Use `uv run <cmd>` for project commands (`pytest`, `python`, etc.) so they run with FRIDA's pinned environment.
-- `uvx` is best for one-off tools not tied to the project environment.
-
-## Flow Options
-
-### `--flow=netlist`
-
-Supported options:
-
-- `--tech={generic,ihp130,tsmc65,tsmc28,tower180}`
-- `--mode={min,max}`
-- `--fmt={spectre,ngspice,yaml,verilog}` (`spice` accepted as alias)
-- `--clean={yes,no}`
-
-Notes:
-
-- `--fmt=spectre` writes DUT-only Spectre netlists (`.scs`).
-- `--fmt=ngspice` writes DUT-only SPICE netlists (`.sp`).
-- `--fmt=yaml` writes DUT-only hierarchical YAML netlists.
-- `--fmt=verilog` writes DUT-only structural Verilog netlists.
-
-Examples:
+Run from the repo root with `uv run`:
 
 ```bash
-# DUT-only YAML netlists
-uv run pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=yaml
-
-# DUT-only Verilog netlists
-uv run pytest flow/comp/test_comp.py -v --flow=netlist --mode=min --tech=ihp130 --fmt=verilog
+uv run flow netlist -c comp -t ihp130 -m min
 ```
 
-### `--flow=simulate`
+## Subcommands
 
-Supported options:
+### `flow primitive`
 
-- `--tech={generic,ihp130,tsmc65,tsmc28,tower180}`
-- `--mode={min,max}`
-- `--simulator={spectre,ngspice,xyce}`
-- `--montecarlo={yes,no}`
-- `--sim-server=<host[:port]>` (optional remote execution)
-- `--clean={yes,no}`
+Generate layout primitives (GDS).
 
-Notes:
+```bash
+flow primitive -c <cell> -t <tech> -m <mode> [-v] [-o <dir>]
+```
 
-- `--fmt` is invalid for `simulate` flow.
-- In simulate flow, `--simulator` determines netlist dialect/runtime backend.
+| Flag | Values | Default |
+|------|--------|---------|
+| `-c, --cell` | `mosfet`, `momcap` | (required) |
+| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
+| `-m, --mode` | `min`, `max` | `min` |
+| `-v, --visual` | (flag) | off |
+| `-o, --out` | output directory | `scratch` |
 
 Example:
 
 ```bash
-uv run pytest flow/comp/test_comp.py -v --flow=simulate --mode=min --tech=ihp130 --simulator=spectre
+uv run flow primitive -c mosfet -t ihp130 -m max -v
 ```
 
-### `--flow=measure`
+### `flow netlist`
 
-Status:
+Generate DUT netlists in various formats.
 
-- Flow hook exists, but measurement logic is currently unimplemented in block tests.
+```bash
+flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--montecarlo] [-o <dir>]
+```
 
-Supported options currently mirror simulate setup:
+| Flag | Values | Default |
+|------|--------|---------|
+| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
+| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
+| `-m, --mode` | `min`, `max` | `min` |
+| `-f, --fmt` | `spectre`, `ngspice`, `yaml`, `verilog` | `spectre` |
+| `--montecarlo` | (flag) | off |
+| `-o, --out` | output directory | `scratch` |
 
-- `--tech`, `--mode`, `--simulator`, `--montecarlo`, `--sim-server`, `--clean`
+Examples:
 
-`--fmt` remains invalid here as well.
+```bash
+# Spectre netlist for comparator, min sizing, IHP 130nm
+uv run flow netlist -c comp -t ihp130 -m min
+
+# YAML netlist for SAR ADC, max sizing
+uv run flow netlist -c adc -t tsmc65 -m max -f yaml
+
+# Verilog structural netlist
+uv run flow netlist -c comp -t ihp130 -f verilog
+```
+
+### `flow layout`
+
+Run place-and-route via OpenROAD. Requires `openroad` on `PATH`.
+
+```bash
+flow layout -c <cell> -t <tech> [-o <dir>]
+```
+
+| Flag | Values | Default |
+|------|--------|---------|
+| `-c, --cell` | `comp` | (required) |
+| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
+| `-o, --out` | output directory | `scratch` |
+
+Example:
+
+```bash
+uv run flow layout -c comp -t ihp130
+```
+
+### `flow simulate`
+
+Generate netlists and run simulation. Requires a supported simulator on `PATH`
+(or use `--host` for remote execution).
+
+```bash
+flow simulate -c <cell> -t <tech> -m <mode> [-s <sim>] [--host <host>] [--montecarlo] [-o <dir>]
+```
+
+| Flag | Values | Default |
+|------|--------|---------|
+| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
+| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
+| `-m, --mode` | `min`, `max` | `min` |
+| `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
+| `--host` | remote hostname | local |
+| `--montecarlo` | (flag) | off |
+| `-o, --out` | output directory | `scratch` |
+
+Examples:
+
+```bash
+# Local Spectre simulation
+uv run flow simulate -c comp -t ihp130 -m min -s spectre
+
+# Remote simulation on jupiter
+uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
+```
 
 
 # Installation
+
+## Python Environment
+
+FRIDA uses [`uv`](https://docs.astral.sh/uv/) to manage Python dependencies.
+Clone the repo, install dependencies, and run the smoketest suite:
+
+```bash
+git clone --recursive git@github.com:kcaisley/frida.git
+cd frida
+uv sync
+uv run pytest
+```
+
+`uv sync` creates a virtualenv and installs all pinned dependencies from the
+lockfile. `uv run pytest` runs the test suite as a quick sanity check that the
+environment is set up correctly.
 
 ## Spectre
 
@@ -170,30 +226,25 @@ plaintext section.
 
 ## OpenROAD
 
-FRIDA's digital implementation flow uses OpenROAD tooling. The commands below
-follow OpenROAD's upstream local build method described in the
-[OpenROAD Build Guide](https://openroad.readthedocs.io/en/latest/user/Build.html#build-locally).
-`DependencyInstaller.sh -base` handles Ubuntu vs RHEL package installation
-internally.
+FRIDA's digital implementation flow uses OpenROAD. The commands below clone,
+build, and install system-wide to `/usr/local` following the upstream
+[Build Guide](https://openroad.readthedocs.io/en/latest/user/Build.html).
 
 ```bash
-# Clone
-mkdir -p ~/libs
 git clone --recursive https://github.com/The-OpenROAD-Project/OpenROAD.git ~/libs/OpenROAD
 cd ~/libs/OpenROAD
 
-# Install dependencies + build
 sudo ./etc/DependencyInstaller.sh -base
 ./etc/DependencyInstaller.sh -common -local
 ./etc/Build.sh
-./etc/Build.sh -build-man
+sudo make -C build install
 
 # Verify
-./build/bin/openroad -version
-./build/bin/openroad -help
+which openroad
+openroad -version
 ```
 
-## Remote SpiceServer Setup (for `--sim-server`)
+## Remote SpiceServer Setup (for `--host`)
 
 Use this when FRIDA runs on one machine and simulations run on a remote host
 through `spice_server`.
