@@ -7,14 +7,13 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import Vdc, Vpwl
+from hdl21.primitives import Vdc, Vpulse, Vpwl
 
 from ..cdac import CdacParams
 from ..circuit import (
     Project,
     Pvt,
     SupplyVals,
-    generate_staircase_pwl,
     get_param_axes,
     print_netlist_summary,
     pwl_points_to_wave,
@@ -35,64 +34,100 @@ class AdcTbParams:
     pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
     adc = h.Param(dtype=AdcParams, desc="ADC parameters", default=AdcParams())
 
-    # Input voltage sweep (staircase PWL)
-    v_start = h.Param(dtype=h.Scalar, desc="Starting input voltage", default=0 * m)
-    v_stop = h.Param(dtype=h.Scalar, desc="Ending input voltage", default=1200 * m)
-    v_step = h.Param(dtype=h.Scalar, desc="Voltage step size", default=1 * m)
-    t_step = h.Param(dtype=h.Scalar, desc="Duration per step", default=200 * n)
-    t_rise = h.Param(dtype=h.Scalar, desc="Rise time between steps", default=100 * p)
+    # Conversion timing
+    n_conversions = h.Param(dtype=int, desc="Number of ADC conversions", default=2)
+    t_settle = h.Param(
+        dtype=h.Scalar, desc="Settling time before conversions", default=10 * n
+    )
+    t_conv = h.Param(
+        dtype=h.Scalar, desc="Conversion period (1/sample_rate)", default=100 * n
+    )
+
+    # Input voltage ramp (differential)
+    vin_p_start = h.Param(
+        dtype=h.Scalar, desc="vin_p starting voltage", default=1100 * m
+    )
+    vin_p_stop = h.Param(dtype=h.Scalar, desc="vin_p ending voltage", default=1050 * m)
+    vin_n_start = h.Param(
+        dtype=h.Scalar, desc="vin_n starting voltage", default=800 * m
+    )
+    vin_n_stop = h.Param(dtype=h.Scalar, desc="vin_n ending voltage", default=850 * m)
 
     # Common mode voltage
     vcm = h.Param(dtype=h.Scalar, desc="Common-mode voltage", default=600 * m)
 
 
 @h.generator
-def AdcTb(p: AdcTbParams) -> h.Module:
+def AdcTb(params: AdcTbParams) -> h.Module:
     """
     ADC testbench generator.
 
     Creates a testbench with:
-    - Staircase PWL input for transfer function characterization
-    - Supply sources
+    - Supply sources (analog and digital)
+    - Differential input ramp (PWL)
+    - Sequencer pulse sources (init, samp, comp, update)
+    - Enable signals tied to VDD
+    - DAC mode/diffcaps control tied to VDD
+    - DAC initial state buses (64 bits) tied to VDD
+    - Common-mode voltage source
+
+    Conversion timing (default 10 Msps = 100ns period):
+      init(5ns) -> samp(10ns) -> comp/update alternating (85ns)
     """
-    supplies = SupplyVals.corner(p.pvt.v)
+    supplies = SupplyVals.corner(params.pvt.v)
+    vdd = supplies.VDD
+
+    # Total simulation time
+    t_settle = float(params.t_settle)
+    t_conv = float(params.t_conv)
+    n_conv = int(params.n_conversions)
+    t_stop = t_settle + n_conv * t_conv
 
     @h.module
     class AdcTb:
         vss = h.Port(desc="Ground")
 
+        # Supplies
         vdd_a = h.Signal(desc="Analog supply")
         vdd_d = h.Signal(desc="Digital supply")
+
+        # Analog inputs
         vin_p = h.Signal(desc="Input positive")
         vin_n = h.Signal(desc="Input negative")
-        vcm = h.Signal(desc="Common mode")
 
+        # Sequencer clocks
         seq_init = h.Signal()
         seq_samp = h.Signal()
         seq_comp = h.Signal()
         seq_update = h.Signal()
 
+        # Enable signals
         en_init = h.Signal()
         en_samp_p = h.Signal()
         en_samp_n = h.Signal()
         en_comp = h.Signal()
         en_update = h.Signal()
 
+        # Control signals
         dac_mode = h.Signal()
         dac_diffcaps = h.Signal()
 
+        # DAC initial state buses (16 bits each)
         dac_astate_p = h.Signal(width=16)
         dac_bstate_p = h.Signal(width=16)
         dac_astate_n = h.Signal(width=16)
         dac_bstate_n = h.Signal(width=16)
 
+        # DAC state outputs (from digital block)
         dac_state_p = h.Signal(width=16)
         dac_state_n = h.Signal(width=16)
 
-    AdcTb.vvdd_a = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_a, n=AdcTb.vss)
-    AdcTb.vvdd_d = Vdc(dc=supplies.VDD)(p=AdcTb.vdd_d, n=AdcTb.vss)
+    # ---- Supply sources ----
+    AdcTb.vvdd_a = Vdc(dc=vdd)(p=AdcTb.vdd_a, n=AdcTb.vss)
+    AdcTb.vvdd_d = Vdc(dc=vdd)(p=AdcTb.vdd_d, n=AdcTb.vss)
 
-    AdcTb.xadc = Adc(p.adc)(
+    # ---- DUT instantiation ----
+    AdcTb.xadc = Adc(params.adc)(
         vin_p=AdcTb.vin_p,
         vin_n=AdcTb.vin_n,
         seq_init=AdcTb.seq_init,
@@ -118,34 +153,115 @@ def AdcTb(p: AdcTbParams) -> h.Module:
         vss_d=AdcTb.vss,
     )
 
-    points = generate_staircase_pwl(
-        v_start=float(p.v_start),
-        v_stop=float(p.v_stop),
-        v_step=float(p.v_step),
-        t_step=float(p.t_step),
-        t_rise=float(p.t_rise),
+    # ---- Differential input ramp (PWL) ----
+    wave_p = pwl_points_to_wave(
+        [
+            (0.0, float(params.vin_p_start)),
+            (t_stop, float(params.vin_p_stop)),
+        ]
     )
-    t_stop = points[-1][0] + float(p.t_step)
-    wave_p = pwl_points_to_wave(points)
-    wave_n = pwl_points_to_wave([(0.0, float(p.vcm)), (t_stop, float(p.vcm))])
+    wave_n = pwl_points_to_wave(
+        [
+            (0.0, float(params.vin_n_start)),
+            (t_stop, float(params.vin_n_stop)),
+        ]
+    )
     AdcTb.vvin_p = Vpwl(wave=wave_p)(p=AdcTb.vin_p, n=AdcTb.vss)
     AdcTb.vvin_n = Vpwl(wave=wave_n)(p=AdcTb.vin_n, n=AdcTb.vss)
+
+    # ---- Sequencer pulse sources ----
+    # Timing within each 100ns conversion period:
+    #   0-5ns:    seq_init high
+    #   5-15ns:   seq_samp high
+    #   15-100ns: seq_comp and seq_update alternate (5ns period each)
+    #
+    # All delays are relative to t_settle (first conversion starts there).
+    # Reference: tb_frida_adc.sp uses SPICE pulse() with identical timing.
+    AdcTb.vseq_init = Vpulse(
+        v1=0 * m,
+        v2=vdd,
+        delay=params.t_settle,
+        rise=100 * p,
+        fall=100 * p,
+        width=4800 * p,  # 4.8ns high (5ns - rise - fall)
+        period=params.t_conv,
+    )(p=AdcTb.seq_init, n=AdcTb.vss)
+
+    AdcTb.vseq_samp = Vpulse(
+        v1=0 * m,
+        v2=vdd,
+        delay=params.t_settle + 5 * n,  # starts 5ns into conversion
+        rise=100 * p,
+        fall=100 * p,
+        width=9800 * p,  # 9.8ns high (10ns - rise - fall)
+        period=params.t_conv,
+    )(p=AdcTb.seq_samp, n=AdcTb.vss)
+
+    AdcTb.vseq_comp = Vpulse(
+        v1=0 * m,
+        v2=vdd,
+        delay=params.t_settle + 15 * n,  # starts 15ns into conversion
+        rise=100 * p,
+        fall=100 * p,
+        width=2400 * p,  # 2.4ns high (2.5ns - rise/2)
+        period=5 * n,  # 5ns period (200 MHz)
+    )(p=AdcTb.seq_comp, n=AdcTb.vss)
+
+    AdcTb.vseq_update = Vpulse(
+        v1=0 * m,
+        v2=vdd,
+        delay=params.t_settle + 17500 * p,  # 2.5ns after comp (17.5ns)
+        rise=100 * p,
+        fall=100 * p,
+        width=2400 * p,  # 2.4ns high
+        period=5 * n,  # 5ns period
+    )(p=AdcTb.seq_update, n=AdcTb.vss)
+
+    # ---- Enable signals - all tied to VDD ----
+    AdcTb.ven_init = Vdc(dc=vdd)(p=AdcTb.en_init, n=AdcTb.vss)
+    AdcTb.ven_samp_p = Vdc(dc=vdd)(p=AdcTb.en_samp_p, n=AdcTb.vss)
+    AdcTb.ven_samp_n = Vdc(dc=vdd)(p=AdcTb.en_samp_n, n=AdcTb.vss)
+    AdcTb.ven_comp = Vdc(dc=vdd)(p=AdcTb.en_comp, n=AdcTb.vss)
+    AdcTb.ven_update = Vdc(dc=vdd)(p=AdcTb.en_update, n=AdcTb.vss)
+
+    # ---- DAC control signals - tied to VDD ----
+    AdcTb.vdac_mode = Vdc(dc=vdd)(p=AdcTb.dac_mode, n=AdcTb.vss)
+    AdcTb.vdac_diffcaps = Vdc(dc=vdd)(p=AdcTb.dac_diffcaps, n=AdcTb.vss)
+
+    # ---- DAC initial state buses - all bits tied to VDD ----
+    for i in range(16):
+        setattr(
+            AdcTb,
+            f"vdac_astate_p{i}",
+            Vdc(dc=vdd)(p=AdcTb.dac_astate_p[i], n=AdcTb.vss),
+        )
+        setattr(
+            AdcTb,
+            f"vdac_astate_n{i}",
+            Vdc(dc=vdd)(p=AdcTb.dac_astate_n[i], n=AdcTb.vss),
+        )
+        setattr(
+            AdcTb,
+            f"vdac_bstate_p{i}",
+            Vdc(dc=vdd)(p=AdcTb.dac_bstate_p[i], n=AdcTb.vss),
+        )
+        setattr(
+            AdcTb,
+            f"vdac_bstate_n{i}",
+            Vdc(dc=vdd)(p=AdcTb.dac_bstate_n[i], n=AdcTb.vss),
+        )
 
     return AdcTb
 
 
 def sim_input(params: AdcTbParams) -> hs.Sim:
-    """Create transient simulation with stepped input."""
+    """Create transient simulation for ADC conversion cycles."""
     sim_temp = Project.temper(params.pvt.t)
 
-    points = generate_staircase_pwl(
-        v_start=float(params.v_start),
-        v_stop=float(params.v_stop),
-        v_step=float(params.v_step),
-        t_step=float(params.t_step),
-        t_rise=float(params.t_rise),
-    )
-    t_stop = points[-1][0] + float(params.t_step)
+    t_settle = float(params.t_settle)
+    t_conv = float(params.t_conv)
+    n_conv = int(params.n_conversions)
+    t_stop = t_settle + n_conv * t_conv
 
     @hs.sim
     class AdcSim:
@@ -188,6 +304,7 @@ def run_netlist(
     montecarlo: bool,
     fmt: str,
     outdir: Path,
+    scope: str = "full",
     verbose: bool = False,
 ) -> None:
     """Run ADC netlist generation."""
@@ -209,7 +326,8 @@ def run_netlist(
         build_sim,
         outdir,
         simulator=fmt,
-        netlist_fmt=fmt,
+        fmt=fmt,
+        scope=scope,
         build_dut=build_dut,
     )
     if verbose:
@@ -250,6 +368,7 @@ def run_simulate(
         outdir,
         return_sims=True,
         simulator=simulator,
+        scope="full",
     )
     if verbose:
         print_netlist_summary(

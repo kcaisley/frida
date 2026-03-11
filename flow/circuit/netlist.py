@@ -166,8 +166,9 @@ def run_netlist_variants(
     build_sim: Callable[[Any], tuple[h.Module, hs.Sim]],
     outdir: Any,
     return_sims: bool = False,
-    simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
-    netlist_fmt: str | None = None,
+    simulator: SupportedSimulators | str = SupportedSimulators.SPECTRE,
+    fmt: str = "spectre",
+    scope: str = "full",
     build_dut: Callable[[Any], h.Module] | None = None,
 ) -> float | tuple[float, list[hs.Sim]]:
     """
@@ -179,10 +180,13 @@ def run_netlist_variants(
         build_sim: Callable returning (tb, sim) for a variant
         outdir: Output directory path
         return_sims: Return list of sims in addition to wall time
-        netlist_fmt: DUT-only netlist format override for netlist flow:
-            "spectre", "ngspice", "yaml", or "verilog".
-            When None, uses legacy sim-input netlist path (tb + sim cards).
-        build_dut: Callable returning DUT module for DUT-only formats
+        simulator: Simulator backend for the sim-input path (enum or string)
+        fmt: Netlist format — "spectre", "ngspice", "cdl", or "verilog"
+        scope: What to emit:
+            "dut"  — subcircuit definitions only
+            "stim" — subcircuits + testbench wrapper + DUT instantiation
+            "full" — complete sim input (stim + analysis + options + saves)
+        build_dut: Callable returning DUT module (required for "dut" scope)
 
     Returns:
         Wall time in seconds, and optionally list of sims
@@ -190,6 +194,14 @@ def run_netlist_variants(
     import time
 
     from .sim import write_sim_netlist
+
+    valid_scopes = ("dut", "stim", "full")
+    if scope not in valid_scopes:
+        raise ValueError(f"Invalid scope '{scope}', must be one of {valid_scopes}")
+
+    # Normalize simulator to enum (only needed for 'full' scope)
+    if scope == "full" and isinstance(simulator, str):
+        simulator = SupportedSimulators(simulator)
 
     start = time.perf_counter()
     pdk_module = h.pdk.default()
@@ -199,36 +211,61 @@ def run_netlist_variants(
         )
     pdk_name = _pdk_name_from_module(pdk_module)
 
+    norm_fmt = fmt.lower()
+    if norm_fmt == "spice":
+        norm_fmt = "ngspice"
+    suffix_by_fmt = {
+        "spectre": ".scs",
+        "ngspice": ".sp",
+        "cdl": ".cdl",
+        "yaml": ".yaml",
+        "verilog": ".v",
+    }
+    if norm_fmt not in suffix_by_fmt:
+        raise ValueError(f"Unsupported netlist format: {fmt}")
+    if norm_fmt == "cdl":
+        raise ValueError(
+            "CDL netlisting is not supported by the installed vlsirtools backend"
+        )
+    if scope != "dut" and norm_fmt not in ("spectre", "ngspice"):
+        raise ValueError(
+            f"--scope={scope} only supports spectre or ngspice netlists (got {norm_fmt})"
+        )
+    suffix = suffix_by_fmt[norm_fmt]
+
     sims: list[hs.Sim] = []
-    if netlist_fmt is None:
+
+    if scope == "full":
+        # Complete sim-input: subcircuits + TB + DUT instance + analysis + options
         for params in variants:
             tb, sim = build_sim(params)
             h.pdk.compile(tb)
-
-            suffix = ".scs" if simulator == SupportedSimulators.SPECTRE else ".sp"
             filename = params_to_filename(block, params, pdk_name, suffix=suffix)
             netlist_path = outdir / filename
             write_sim_netlist(sim, netlist_path, compact=True, simulator=simulator)
             if return_sims:
                 sims.append(sim)
-    else:
-        if return_sims:
-            raise ValueError("return_sims is invalid for DUT-only netlist formats")
-        if build_dut is None:
-            raise ValueError("build_dut is required for DUT-only netlist formats")
 
-        fmt = netlist_fmt.lower()
-        if fmt == "spice":
-            fmt = "ngspice"
-        suffix_by_fmt = {
-            "spectre": ".scs",
-            "ngspice": ".sp",
-            "yaml": ".yaml",
-            "verilog": ".v",
-        }
-        if fmt not in suffix_by_fmt:
-            raise ValueError(f"Unsupported netlist format: {netlist_fmt}")
-        suffix = suffix_by_fmt[fmt]
+    elif scope == "stim":
+        # Testbench wrapper: subcircuits + TB module + top-level instantiation
+        # No analysis statements, options, or save commands.
+        for params in variants:
+            tb, _sim = build_sim(params)
+            h.pdk.compile(tb)
+            filename = params_to_filename(block, params, pdk_name, suffix=suffix)
+            netlist_path = outdir / filename
+            pkg = h.to_proto(tb)
+            tb_name = _sanitize_module_name(tb.name if tb.name is not None else "Tb")
+            with open(netlist_path, "w") as f:
+                write_pkg_netlist(pkg=pkg, dest=f, fmt=norm_fmt)
+                f.write(_format_top_instance(tb_name, norm_fmt))
+
+    elif scope == "dut":
+        # DUT subcircuit definitions only
+        if return_sims:
+            raise ValueError("return_sims is invalid with scope='dut'")
+        if build_dut is None:
+            raise ValueError("build_dut is required with scope='dut'")
         for params in variants:
             dut = build_dut(params)
             h.pdk.compile(dut)
@@ -236,12 +273,30 @@ def run_netlist_variants(
             netlist_path = outdir / filename
             pkg = h.to_proto(dut)
             with open(netlist_path, "w") as f:
-                write_pkg_netlist(pkg=pkg, dest=f, fmt=fmt)
+                write_pkg_netlist(pkg=pkg, dest=f, fmt=norm_fmt)
 
     wall_time = time.perf_counter() - start
     if return_sims:
         return wall_time, sims
     return wall_time
+
+
+def _format_top_instance(module_name: str, fmt: str) -> str:
+    """Format the top-level DUT instantiation line for the given netlist format."""
+    if fmt == "spectre":
+        return f"\nxtop 0 {module_name}\n"
+    else:
+        # SPICE-family formats (ngspice, hspice, etc.)
+        return f"\nxtop 0 {module_name}\n"
+
+
+def _sanitize_module_name(module_name: str) -> str:
+    """Match VLSIR's module-name sanitization for manual top-level instantiation."""
+    name = module_name.split(".")[-1]
+    for ch in name:
+        if not (ch.isalpha() or ch.isdigit() or ch == "_"):
+            name = name.replace(ch, "_")
+    return name
 
 
 def _pdk_name_from_module(pdk_module: Any) -> str:
@@ -351,6 +406,7 @@ def print_netlist_summary(
 
 
 # ==== Internal Helpers ====
+
 
 def _extract_param_values(params: Any) -> list[Any]:
     """Extract parameter values from an HDL21 paramclass instance."""

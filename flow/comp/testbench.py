@@ -244,6 +244,7 @@ def run_netlist(
     montecarlo: bool,
     fmt: str,
     outdir: Path,
+    scope: str = "full",
     verbose: bool = False,
 ) -> None:
     """Run comparator netlist generation."""
@@ -265,7 +266,8 @@ def run_netlist(
         build_sim,
         outdir,
         simulator=fmt,
-        netlist_fmt=fmt,
+        fmt=fmt,
+        scope=scope,
         build_dut=build_dut,
     )
     if verbose:
@@ -306,6 +308,7 @@ def run_simulate(
         outdir,
         return_sims=True,
         simulator=simulator,
+        scope="full",
     )
     if verbose:
         print_netlist_summary(

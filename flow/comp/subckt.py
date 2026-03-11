@@ -123,8 +123,8 @@ def Comp(p: CompParams) -> h.Module:
         outn = h.Output(desc="Negative output")
         clk = h.Input(desc="Clock")
         clkb = h.Input(desc="Clock complement")
-        vdd = h.Port(desc="Supply")
-        vss = h.Port(desc="Ground")
+        vdd = h.Inout(desc="Supply")
+        vss = h.Inout(desc="Ground")
 
         # Internal signals
         tail = h.Signal()

@@ -57,7 +57,13 @@ def main():
         "-f",
         "--fmt",
         default="spectre",
-        choices=["spectre", "ngspice", "yaml", "verilog"],
+        choices=["spectre", "ngspice", "cdl", "verilog"],
+    )
+    p.add_argument(
+        "--scope",
+        default="full",
+        choices=["dut", "stim", "full"],
+        help="dut: subcircuits only; stim: TB wrapper + sources; full: complete sim input",
     )
     p.add_argument("--montecarlo", action="store_true")
     p.add_argument("-o", "--out", default="scratch", type=Path)
@@ -112,12 +118,27 @@ def _run_primitive(args):
 def _run_netlist(args):
     from importlib import import_module
 
+    # Validate scope + format combinations
+    if args.scope != "dut" and args.fmt in ("cdl", "verilog"):
+        raise SystemExit(
+            f"--fmt={args.fmt} only supports --scope=dut (got --scope={args.scope})"
+        )
+    if args.fmt == "cdl":
+        raise SystemExit(
+            "--fmt=cdl is not supported by the installed vlsirtools backend"
+        )
+    if args.montecarlo and args.scope != "full":
+        raise SystemExit(
+            f"--montecarlo requires --scope=full (got --scope={args.scope})"
+        )
+
     mod = import_module(f"flow.{args.cell}.testbench")
     mod.run_netlist(
         tech=args.tech,
         mode=args.mode,
         montecarlo=args.montecarlo,
         fmt=args.fmt,
+        scope=args.scope,
         outdir=args.out,
         verbose=True,
     )

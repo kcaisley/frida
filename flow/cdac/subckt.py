@@ -78,9 +78,9 @@ def Cdac(p: CdacParams) -> h.Module:
         """Capacitor DAC module."""
 
         # IO ports
-        top = h.Port(desc="DAC output (top plate)")
-        vdd = h.Port(desc="Supply")
-        vss = h.Port(desc="Ground")
+        top = h.Inout(desc="DAC output (top plate)")
+        vdd = h.Inout(desc="Supply")
+        vss = h.Inout(desc="Ground")
         # Variable-width DAC control bus
         dac = h.Input(width=n_bits, desc="DAC control bits")
 
@@ -150,6 +150,7 @@ def _build_nosplit_bit(
 
 
 # ==== Weight Calculation ====
+
 
 def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] | None:
     """

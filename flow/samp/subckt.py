@@ -54,8 +54,8 @@ def Samp(p: SampParams) -> h.Module:
         dout = h.Output(desc="Data output")
         clk = h.Input(desc="Clock (active high)")
         clk_b = h.Input(desc="Clock complement (active low)")
-        vdd = h.Port(desc="Supply")
-        vss = h.Port(desc="Ground")
+        vdd = h.Inout(desc="Supply")
+        vss = h.Inout(desc="Ground")
 
     # Instantiate devices based on switch type
     if p.switch_type == SwitchType.NMOS:

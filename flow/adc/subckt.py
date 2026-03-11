@@ -101,8 +101,8 @@ AdcDigital = h.ExternalModule(
         h.Output(name="dac_state_n_main", width=16),
         h.Output(name="dac_state_n_diff", width=16),  # Unused but in netlist
         # Supplies
-        h.Port(name="vdd_d"),
-        h.Port(name="vss_d"),
+        h.Inout(name="vdd_d"),
+        h.Inout(name="vss_d"),
     ],
     desc="Synthesized ADC digital control block (salogic + clkgate + sampdriver)",
 )
@@ -171,10 +171,10 @@ def Adc(p: AdcParams) -> h.Module:
         dac_state_n = h.Output(width=16, desc="DAC state negative (bits)")
 
         # Supplies
-        vdd_a = h.Port(desc="Analog supply")
-        vss_a = h.Port(desc="Analog ground")
-        vdd_d = h.Port(desc="Digital supply")
-        vss_d = h.Port(desc="Digital ground")
+        vdd_a = h.Inout(desc="Analog supply")
+        vss_a = h.Inout(desc="Analog ground")
+        vdd_d = h.Inout(desc="Digital supply")
+        vss_d = h.Inout(desc="Digital ground")
 
         # Internal signals
         clk_samp_p = h.Signal(desc="Sample clock positive")
