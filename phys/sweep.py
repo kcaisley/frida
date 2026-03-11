@@ -426,113 +426,79 @@ ELECTRON_NUMBER_OF_STEPS = int(
     unified_value("DepositionPointCharge:electron", "number_of_steps")
 )
 PHOTON_POSITION = unified_value("DepositionPointCharge:photon", "position")
+ELECTRON_CHARGE_SWEEPS = unified_sweep_values(
+    "DepositionPointCharge:electron", "number_of_charges"
+)
+PHOTON_CHARGE_SWEEPS = unified_sweep_values(
+    "DepositionPointCharge:photon", "number_of_charges"
+)
+
+ELECTRON_SWEEP_METADATA: tuple[tuple[str, str], ...] = (
+    ("e_100keV", "sub-MIP electron surrogate, high scatter"),
+    ("e_200keV", "near-MIP electron surrogate"),
+    ("e_1MeV", "MIP-minimum-like electron surrogate"),
+    ("e_5MeV", "MIP-like electron surrogate"),
+    ("e_100MeV", "relativistic-rise electron surrogate"),
+    ("e_1GeV", "Fermi-plateau electron surrogate"),
+    ("mip_mpv", "generic MIP most-probable-value bracket"),
+    ("mip_thin_mpv", "thin-sensor MIP MPV bracket around 50um silicon"),
+)
+
+PHOTON_SWEEP_METADATA: tuple[tuple[str, str], ...] = (
+    ("ph_1keV", "soft X-ray absorbed-photon surrogate"),
+    ("ph_5keV", "mid-energy X-ray absorbed-photon surrogate"),
+    ("ph_12keV", "12keV X-ray absorbed-photon surrogate"),
+    ("ph_20keV", "harder X-ray absorbed-photon surrogate"),
+)
+
+
+def _build_electron_sweeps() -> tuple[SweepDefinition, ...]:
+    if len(ELECTRON_CHARGE_SWEEPS) != len(ELECTRON_SWEEP_METADATA):
+        raise ValueError(
+            "Electron charge sweep annotation count in simulation.conf does not match ELECTRON_SWEEP_METADATA"
+        )
+    return tuple(
+        SweepDefinition(
+            particle="electron",
+            label=label,
+            charge_override=charge_override,
+            notes=notes,
+            mip_direction_override=ELECTRON_MIP_DIRECTION,
+            number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
+        )
+        for (label, notes), charge_override in zip(
+            ELECTRON_SWEEP_METADATA, ELECTRON_CHARGE_SWEEPS, strict=True
+        )
+    )
+
+
+def _build_photon_sweeps() -> tuple[SweepDefinition, ...]:
+    if len(PHOTON_CHARGE_SWEEPS) != len(PHOTON_SWEEP_METADATA):
+        raise ValueError(
+            "Photon charge sweep annotation count in simulation.conf does not match PHOTON_SWEEP_METADATA"
+        )
+    return tuple(
+        SweepDefinition(
+            particle="photon",
+            label=label,
+            charge_override=charge_override,
+            notes=notes,
+            position_override=PHOTON_POSITION,
+            source_type="point",
+        )
+        for (label, notes), charge_override in zip(
+            PHOTON_SWEEP_METADATA, PHOTON_CHARGE_SWEEPS, strict=True
+        )
+    )
 
 
 # Effective electron deposition sweep points.
 # Label          e-h pairs/um  Notes
-ELECTRON_SWEEPS: tuple[SweepDefinition, ...] = (
-    SweepDefinition(
-        "electron",
-        "e_100keV",
-        "40/um",
-        "sub-MIP electron surrogate, high scatter",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "e_200keV",
-        "30/um",
-        "near-MIP electron surrogate",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "e_1MeV",
-        "25/um",
-        "MIP-minimum-like electron surrogate",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "e_5MeV",
-        "27/um",
-        "MIP-like electron surrogate",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "e_100MeV",
-        "33/um",
-        "relativistic-rise electron surrogate",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "e_1GeV",
-        "35/um",
-        "Fermi-plateau electron surrogate",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "mip_mpv",
-        "80/um",
-        "generic MIP most-probable-value bracket",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-    SweepDefinition(
-        "electron",
-        "mip_thin_mpv",
-        "65/um",
-        "thin-sensor MIP MPV bracket around 50um silicon",
-        mip_direction_override=ELECTRON_MIP_DIRECTION,
-        number_of_steps_override=ELECTRON_NUMBER_OF_STEPS,
-    ),
-)
+ELECTRON_SWEEPS = _build_electron_sweeps()
 
 # Effective photon deposition sweep points.
 # Label      Energy   e-h pairs  Notes
-PHOTON_SWEEPS: tuple[SweepDefinition, ...] = (
-    SweepDefinition(
-        "photon",
-        "ph_1keV",
-        str(photon_charge_pairs(1)),
-        "soft X-ray absorbed-photon surrogate",
-        position_override=PHOTON_POSITION,
-        source_type="point",
-    ),
-    SweepDefinition(
-        "photon",
-        "ph_5keV",
-        str(photon_charge_pairs(5)),
-        "mid-energy X-ray absorbed-photon surrogate",
-        position_override=PHOTON_POSITION,
-        source_type="point",
-    ),
-    SweepDefinition(
-        "photon",
-        "ph_12keV",
-        str(photon_charge_pairs(12)),
-        "12keV X-ray absorbed-photon surrogate",
-        position_override=PHOTON_POSITION,
-        source_type="point",
-    ),
-    SweepDefinition(
-        "photon",
-        "ph_20keV",
-        str(photon_charge_pairs(20)),
-        "harder X-ray absorbed-photon surrogate",
-        position_override=PHOTON_POSITION,
-        source_type="point",
-    ),
-)
+PHOTON_SWEEPS = _build_photon_sweeps()
 
 ALL_SWEEP_DEFINITIONS = ELECTRON_SWEEPS + PHOTON_SWEEPS
 
