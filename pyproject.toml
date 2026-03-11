@@ -38,9 +38,13 @@ vlsirtools = { path = "../libs/Vlsir/VlsirTools", editable = true }
 gdsfactory = { path = "../libs/gdsfactory", editable = true }
 basil-daq = { path = "../libs/basil", editable = true }
 
-[tool.basedpyright]
+[tool.pyright]
+# Keep a single pyright config here. Zed uses basedpyright for Python,
+# and basedpyright reads [tool.pyright] too.
 typeCheckingMode = "off"
-extraPaths = ["../libs/Hdl21", "../libs/Vlsir/VlsirTools", "../libs/Vlsir/bindings/python"]
+# ROOT (PyROOT) is built from source at ~/libs/root/ (C++17, no pip package).
+# Add its Python bindings path so the type checker can resolve `import ROOT`.
+extraPaths = ["../libs/Hdl21", "../libs/Vlsir/VlsirTools", "../libs/Vlsir/bindings/python", "../libs/root/lib"]
 
 [tool.ruff]
 exclude = ["old/"]

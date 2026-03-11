@@ -72,10 +72,10 @@ uv run flow primitive -c mosfet -t ihp130 -m max -v
 
 ### `flow netlist`
 
-Generate DUT netlists in various formats.
+Generate netlists at varying levels of scope.
 
 ```bash
-flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--montecarlo] [-o <dir>]
+flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--scope <scope>] [--montecarlo] [-o <dir>]
 ```
 
 | Flag | Values | Default |
@@ -83,21 +83,36 @@ flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--montecarlo] [-o <dir>]
 | `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
-| `-f, --fmt` | `spectre`, `ngspice`, `yaml`, `verilog` | `spectre` |
+| `-f, --fmt` | `spectre`, `ngspice`, `cdl`, `verilog` | `spectre` |
+| `--scope` | `dut`, `stim`, `full` | `full` |
 | `--montecarlo` | (flag) | off |
 | `-o, --out` | output directory | `scratch` |
+
+The `--scope` flag controls what is included in the generated netlist:
+
+| Scope | Contents |
+|-------|----------|
+| `dut` | Subcircuit definitions only (DUT hierarchy) |
+| `stim` | DUT subcircuits + testbench wrapper with stimulus sources and DUT instantiation |
+| `full` | Complete simulator input: stim + analysis statements, options, and save commands |
+
+The `cdl` and `verilog` formats only support `--scope=dut`. The `--montecarlo`
+flag requires `--scope=full`.
 
 Examples:
 
 ```bash
-# Spectre netlist for comparator, min sizing, IHP 130nm
+# Full sim-input netlist for comparator (default scope)
 uv run flow netlist -c comp -t ihp130 -m min
 
-# YAML netlist for SAR ADC, max sizing
-uv run flow netlist -c adc -t tsmc65 -m max -f yaml
+# DUT-only subcircuit definitions in Verilog
+uv run flow netlist -c comp -t ihp130 --scope dut -f verilog
 
-# Verilog structural netlist
-uv run flow netlist -c comp -t ihp130 -f verilog
+# Testbench with stimulus but no analysis commands
+uv run flow netlist -c adc -t tsmc65 --scope stim
+
+# Full sim-input with Monte Carlo wrapper
+uv run flow netlist -c comp -t ihp130 --montecarlo
 ```
 
 ### `flow layout`
