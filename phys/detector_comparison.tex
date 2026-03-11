@@ -1,0 +1,464 @@
+\documentclass[10pt]{article}
+
+% ---------- page layout ----------
+\usepackage[landscape, margin=0.3cm]{geometry}
+
+% ---------- fonts / encoding ----------
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+% ---------- tables ----------
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{makecell}          % \makecell for line breaks inside cells
+\usepackage{siunitx}           % consistent unit formatting
+\usepackage{rotating}          % sidewaystable if needed later
+\usepackage{pdflscape}         % already landscape via geometry
+
+% ---------- misc ----------
+\usepackage{hyperref}
+\usepackage[table]{xcolor}
+\usepackage{caption}
+
+% ---------- compact spacing ----------
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{2.5pt}
+
+% ---------- convenience macros ----------
+\newcommand{\um}{\textmu{}m}
+\newcommand{\etos}{e\textsuperscript{--}/s}
+\newcommand{\pwr}[2]{#1\,W/cm\textsuperscript{2}\,(#2\,\textmu{}W/px)}
+\newcommand{\srcref}[3]{#1,\penalty0\,#2,\penalty0\,p.\,#3}   % author, year, page
+\newcommand{\cmark}{\checkmark}
+
+\pagestyle{empty}
+
+\begin{document}
+
+% ======================================================================
+%  TABLE 1 — Continuous Discriminating (Counting) Front-Ends
+% ======================================================================
+\begin{center}
+{\Large\bfseries Table 1: Continuous Discriminating (Counting) Detectors}\\[4pt]
+{\small Non-triggered imaging mode: every hit above threshold is counted continuously.
+Rate bottleneck is front-end pile-up ($1/\tau_\mathrm{dead}$) or back-end readout bandwidth, whichever is tighter.}
+\end{center}
+
+\vspace{4pt}
+
+\scriptsize
+\setlength{\LTcapwidth}{\textwidth}
+
+\begin{longtable}{%
+  l                                               % 1  Chip name
+  l                                               % 2  Node
+  S[table-format=3]                               % 3  Pitch (um)
+  l                                               % 4  Array
+  >{\raggedright\arraybackslash}p{1.8cm}          % 5  Dead time
+  >{\raggedright\arraybackslash}p{1.6cm}          % 6  Counter depth
+  >{\raggedright\arraybackslash}p{1.5cm}          % 7  Max readout fps
+  >{\raggedright\arraybackslash}p{1.8cm}          % 8  FE limit
+  >{\raggedright\arraybackslash}p{1.8cm}          % 9  BE limit
+  l                                               % 10 Bottleneck
+  >{\raggedright\arraybackslash}p{2.0cm}          % 11 Max rate/px
+  >{\raggedright\arraybackslash}p{2.0cm}          % 12 Max rate/cm^2
+  >{\raggedright\arraybackslash}p{2.0cm}          % 13 Power
+  >{\raggedright\arraybackslash}p{2.5cm}          % 14 Source
+}
+
+\toprule
+\makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
+  & \textbf{Node}
+  & {\textbf{Pitch (\um)}}
+  & \textbf{Array}
+  & \makecell[tl]{\textbf{Dead time}\\\textbf{($\tau_\mathrm{dead}$)}}
+  & \makecell[tl]{\textbf{Counter}\\\textbf{depth}}
+  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
+  & \makecell[tl]{\textbf{FE limit}\\\textbf{(pile-up)}\\\textbf{(cts/px/s)}}
+  & \makecell[tl]{\textbf{BE limit}\\\textbf{(readout)}\\\textbf{(cts/px/s)}}
+  & \textbf{Neck}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Source} \\
+\midrule
+\endfirsthead
+
+\toprule
+\makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
+  & \textbf{Node}
+  & {\textbf{Pitch (\um)}}
+  & \textbf{Array}
+  & \makecell[tl]{\textbf{Dead time}\\\textbf{($\tau_\mathrm{dead}$)}}
+  & \makecell[tl]{\textbf{Counter}\\\textbf{depth}}
+  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
+  & \makecell[tl]{\textbf{FE limit}\\\textbf{(pile-up)}\\\textbf{(cts/px/s)}}
+  & \makecell[tl]{\textbf{BE limit}\\\textbf{(readout)}\\\textbf{(cts/px/s)}}
+  & \textbf{Neck}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Source} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{14}{r}{\emph{continued on next page}\ldots}\\
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+%% ===== Timepix4 (PC mode) =====
+\makecell[tl]{Timepix4\\(PC mode)}
+  & \makecell[tl]{130\,nm\\CMOS}                    % node
+  & 55                                              % pitch
+  & \makecell[tl]{448$\times$512\\(229\,k)}          % array
+  & ${<}\,50$\,ns                                   % dead time
+  & 8-bit (256)\newline or 16-bit                   % counter depth
+  & 90\,k (8-bit)\newline 45\,k (16-bit)            % max fps
+  & $2.0\times10^7$\newline ($1/50\,$ns)            % FE limit
+  & $2.3\times10^7$\newline (256$\times$90\,k)      % BE limit (8-bit mode)
+  & FE                                              % bottleneck
+  & ${\sim}1.5\times10^7$\newline (reported)        % max rate/px (from paper)
+  & $5.0\times10^{9}$                               % max rate/cm^2
+  & ${\sim}$600\,mW/cm$^2$\newline ${\sim}$1.8\,\um{}W/px  % power
+  & \srcref{Llopart}{2022}{2--4,\,6} \\
+\addlinespace
+
+%% ===== Medipix4 =====
+Medipix4
+  & \makecell[tl]{130\,nm\\CMOS\\8-metal}             % node
+  & 75                                                % pitch
+  & \makecell[tl]{320$\times$320\\(75\,\um)}           % array
+  & ${<}\,130$\,ns                                    % dead time
+  & \makecell[tl]{1--24-bit\\(dual ctr CRW)}           % counter depth
+  & 99\,k (1-bit)\newline 8.3\,k (12-bit)            % max fps
+  & $7.7\times10^6$\newline ($1/130\,$ns)             % FE limit
+  & $3.4\times10^7$\newline (4096$\times$8.3\,k)     % BE limit (12-bit)
+  & FE                                                % bottleneck
+  & ${\sim}2.9\times10^6$\newline (reported)          % max rate/px
+  & $5.1\times10^{10}$\newline (reported)             % max rate/cm^2
+  & 0.46\,W/cm$^2$\newline ${\sim}$26\,\um{}W/px     % power
+  & \makecell[tl]{\srcref{Sriskaran}{2024}{2--7};\\\srcref{Sriskaran}{2020}{1}} \\
+\addlinespace
+
+%% ===== Medipix3RX =====
+Medipix3RX
+  & \makecell[tl]{130\,nm\\CMOS\\9-metal}             % node
+  & 55                                                % pitch
+  & \makecell[tl]{256$\times$256\\(65.5\,k)}           % array
+  & n/r                                               % dead time not reported
+  & \makecell[tl]{2$\times$12-bit\\(CRW, 1 thr)}     % counter depth
+  & \makecell[tl]{Counter-based\\2.4\,Gb/s serial}   % max fps
+  & ---                                               % FE limit unknown
+  & ---                                               % BE limit unknown
+  & ---                                               % bottleneck
+  & ${\sim}2.5\times10^5$\newline (reported)          % max rate/px (SPM)
+  & $8.2\times10^{9}$\newline (reported)              % max rate/cm^2
+  & 0.27\,W/cm$^2$\newline ${\sim}$8.2\,\um{}W/px    % power
+  & \makecell[tl]{\srcref{Sriskaran}{2020}{1};\\\srcref{Ballabriga}{2020}{2--3}} \\
+\addlinespace
+
+%% ===== KITE (DECTRIS) =====
+KITE
+  & \makecell[tl]{110\,nm\\UMC CMOS}                  % node
+  & 100                                               % pitch
+  & \makecell[tl]{192$\times$192\\(36.9\,k)}           % array
+  & 9.5--23\,ns\newline (thr.\ dep.)                  % dead time
+  & 12-bit int.\newline or 8-bit FP\newline + 2$\times$2 bin  % counter depth
+  & 20\,k (12-bit)\newline 120\,k (8FP)\newline ${\sim}$500\,k (th.)  % max fps
+  & $4.3$--$10.5$\newline $\times10^7$\newline ($1/\tau$)  % FE limit
+  & $8.2\times10^7$\newline (4096$\times$20\,k)       % BE limit (12-bit)
+  & FE                                                % bottleneck (at short tau, comparable)
+  & 32--72$\times10^6$\newline (reported,\newline @10\% loss)  % max rate/px
+  & 3.2--7.2\newline $\times10^{11}$                  % max rate/cm^2
+  & 0.34\,W/cm$^2$\newline 34\,\um{}W/px\newline (static)  % power
+  & \srcref{Zambon}{2023}{1--5,\,10} \\
+\addlinespace
+
+%% ===== Apollo (Direct Electron) =====
+\makecell[tl]{Apollo\\(Direct Electron)}
+  & \makecell[tl]{MAPS\\(n/a)}                        % node
+  & 8                                                 % pitch
+  & \makecell[tl]{4096$\times$4096\\(16.8\,M)\\8k SR}  % array
+  & \makecell[tl]{Event-driven\\(continuous)}         % dead time implied by readout
+  & \makecell[tl]{Binary event\\(priority enc.)}      % counter depth
+  & Continuous\newline (movie: 60\,fps)               % readout
+  & ---                                               % FE limit not reported
+  & ${\sim}$80\,e$^-$/px/s\newline (enc.\ b/w)       % BE limit
+  & BE                                                % bottleneck
+  & ${\sim}$80\newline e$^-$/px/s                     % max rate/px
+  & ${\sim}1.3\times10^{8}$                           % max rate/cm^2
+  & Not reported                                      % power
+  & \srcref{Peng}{2023}{1--4} \\
+
+\end{longtable}
+
+\vspace{4pt}
+\noindent\textbf{Notes (Table 1):}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \textbf{FE limit} = front-end pile-up limit, approximated as $1/\tau_\mathrm{dead}$ for a non-paralyzable discriminator.
+  \item \textbf{BE limit} = back-end readout limit $=$ counter full-scale $\times$ max frame rate (or data link bandwidth).
+  \item \textbf{Neck} = which limit is tighter: FE (pile-up) or BE (readout bandwidth).
+  \item ``Reported'' values are taken directly from the cited paper and may include detailed dead-time correction.
+  \item For Timepix4, photon-counting (PC) mode is shown; it yields a higher imaging rate than
+    data-driven (DD) mode, which is bandwidth-limited to ${\sim}1.1\times10^4$\,hits/px/s.
+  \item Max rate/cm$^2$ = (max rate/px) $/$ (pitch in cm)$^2$.  n/r = not reported.
+\end{itemize}
+
+\clearpage
+
+% ======================================================================
+%  TABLE 2 — Integrating Shutter-Based (Frame-Based) Front-Ends
+% ======================================================================
+\begin{center}
+{\Large\bfseries Table 2: Integrating Shutter-Based (Frame-Based) Detectors}\\[4pt]
+{\small Analog charge integration with periodic readout.
+Rate limit is well depth $\times$ frame rate (whichever saturates first).}
+\end{center}
+
+\vspace{4pt}
+
+\scriptsize
+\setlength{\LTcapwidth}{\textwidth}
+
+\begin{longtable}{%
+  l                                               % 1  Chip name
+  l                                               % 2  Node
+  S[table-format=3]                               % 3  Pitch (um)
+  l                                               % 4  Array
+  l                                               % 5  Sensor
+  >{\raggedright\arraybackslash}p{2.4cm}          % 6  Well depth (e-/px/frame)
+  l                                               % 7  ADC bits
+  >{\raggedright\arraybackslash}p{1.8cm}          % 8  Max fps
+  >{\raggedright\arraybackslash}p{2.4cm}          % 9  Max rate/px/s
+  >{\raggedright\arraybackslash}p{2.2cm}          % 10 Max rate/cm^2/s
+  >{\raggedright\arraybackslash}p{2.0cm}          % 11 Power
+  >{\raggedright\arraybackslash}p{2.4cm}          % 12 Source
+}
+
+\toprule
+\makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
+  & \textbf{Node}
+  & {\textbf{Pitch (\um)}}
+  & \textbf{Array}
+  & \textbf{Sensor}
+  & \makecell[tl]{\textbf{Well depth}\\\textbf{(e$^-$/px/frame)}}
+  & \makecell[tl]{\textbf{ADC}\\\textbf{(bits)}}
+  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(e$^-$/px/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Source} \\
+\midrule
+\endfirsthead
+
+\toprule
+\makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
+  & \textbf{Node}
+  & {\textbf{Pitch (\um)}}
+  & \textbf{Array}
+  & \textbf{Sensor}
+  & \makecell[tl]{\textbf{Well depth}\\\textbf{(e$^-$/px/frame)}}
+  & \makecell[tl]{\textbf{ADC}\\\textbf{(bits)}}
+  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(e$^-$/px/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Source} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{12}{r}{\emph{continued on next page}\ldots}\\
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+%% ===== Celeritas (Direct Electron) =====
+\makecell[tl]{Celeritas\\(Direct Electron)}
+  & \makecell[tl]{MAPS\\(n/a)}                       % node
+  & 15                                               % pitch
+  & \makecell[tl]{1024$\times$1024\\(1.05\,M)}        % array
+  & \makecell[tl]{Monolithic\\back-thinned\\Si MAPS}  % sensor
+  & High: ${\sim}$10\newline Low: ${>}$130            % well depth
+  & \makecell[tl]{Analog\\(CDS)}                     % ADC
+  & 2.1\,k (full)\newline 100\,k (sub)               % max fps
+  & ${\sim}1.3\times10^7$\newline (low gain,\newline 100\,k sub)  % max rate/px
+  & ${\sim}5.8\times10^{11}$                         % max rate/cm^2
+  & n/r                                              % power
+  & \srcref{Chatterjee}{2021}{1--2} \\
+\addlinespace
+
+%% ===== 4D Camera (LBNL) =====
+\makecell[tl]{4D Camera\\(LBNL)}
+  & \makecell[tl]{CMOS APS\\(n/a)}                   % node
+  & 10                                                % pitch
+  & \makecell[tl]{576$\times$576\\(332\,k)}            % array
+  & \makecell[tl]{Back-thinned Si\\4--5\,\um{} active}  % sensor
+  & ${\sim}$3--8\newline (occupancy\newline limited)  % well depth (counting regime)
+  & 12-bit                                            % ADC
+  & 87\,k                                            % max fps
+  & ${\sim}7\times10^5$\newline (8$\times$87\,k)     % max rate/px
+  & ${\sim}7\times10^{11}$                           % max rate/cm^2
+  & n/r                                              % power
+  & \srcref{Ercius}{2024}{1--5} \\
+\addlinespace
+
+%% ===== EDET DH80k =====
+EDET DH80k
+  & \makecell[tl]{DePFET\\(SOI)}                       % node
+  & 60                                                % pitch
+  & \makecell[tl]{512$\times$512/q\\$\times$4\\(${\sim}$1\,Mpx)}  % array
+  & \makecell[tl]{SOI back-thinned\\50/30\,\um{} Si}  % sensor
+  & $1.8\times10^6$\newline (w/ in-pixel\newline compression)  % well depth
+  & 8-bit\newline (DCDe)                              % ADC
+  & 80\,k (burst)\newline 100 (sust.)                 % max fps
+  & Burst: $1.4\times10^{11}$\newline Sust.: $1.8\times10^8$  % max rate/px
+  & Burst: $3.9\times10^{14}$\newline Sust.: $5.0\times10^{11}$  % max rate/cm^2
+  & n/r                                              % power
+  & \srcref{Predikaka}{2020}{1--5} \\
+\addlinespace
+
+%% ===== K2 Summit (Gatan) =====
+\makecell[tl]{K2 Summit\\(Gatan)}
+  & \makecell[tl]{0.18\,\um{}\\CMOS}                  % node
+  & 5                                                 % pitch
+  & \makecell[tl]{3840$\times$3840\\(14.7\,M)\\SR: 7680$^2$}  % array
+  & \makecell[tl]{Monolithic\\back-thinned\\Si MAPS}  % sensor
+  & ${\sim}$1\newline (counting:\newline 1\,e$^-$/px/fr)  % well depth (counting mode)
+  & Analog                                            % ADC — thresholding off-chip
+  & 400 (internal)                                    % max fps
+  & 8--10\newline (optimal;\newline coincidence lim.)  % max rate/px
+  & $3.2$--$4.0$\newline $\times10^{7}$              % max rate/cm^2
+  & n/r                                              % power
+  & \makecell[tl]{\srcref{Krieger}{2011}{5--6};\\\srcref{Li}{2013}{1--3}} \\
+\addlinespace
+
+%% ===== TEAM1k (LBNL) =====
+\makecell[tl]{TEAM1k\\(LBNL)}
+  & \makecell[tl]{0.35\,\um{}\\CMOS opto}              % node
+  & {9.5}                                             % pitch
+  & \makecell[tl]{1k$\times$1k}                        % array
+  & \makecell[tl]{Back-thinned\\50\,\um{} Si\\(14\,\um{} epi)}  % sensor
+  & ${\sim}$39\newline (@300\,keV;\newline 27 post rad.)  % well depth
+  & Analog\newline (ENC 28--32)                        % ADC
+  & 400 (64\,ch)                                       % max fps
+  & $1.56\times10^4$\newline (39$\times$400)          % max rate/px
+  & ${\sim}1.7\times10^{10}$                          % max rate/cm^2
+  & n/r                                              % power
+  & \makecell[tl]{\srcref{Krieger}{2011}{5};\\\srcref{Battaglia}{2010}{1--6}} \\
+\addlinespace
+
+%% ===== EMPAD (Cornell) =====
+\makecell[tl]{EMPAD\\(Cornell)}
+  & \makecell[tl]{0.25\,\um{}\\TSMC}                   % node
+  & 150                                                % pitch
+  & \makecell[tl]{128$\times$128\\(16.4\,k)}            % array
+  & \makecell[tl]{500\,\um{} Si\\(hybrid PAD)}         % sensor
+  & $3.7\times10^6$\newline (@100\,keV;\newline incl.\ charge rem.)  % well depth
+  & \makecell[tl]{18-bit ctr\\+ 12-bit ana.\\(30-bit)}  % ADC
+  & 1.1\,k                                            % max fps
+  & $4.1\times10^9$\newline (3.7M$\times$1.1\,k)     % max rate/px
+  & ${\sim}1.8\times10^{13}$                          % max rate/cm^2
+  & n/r                                              % power
+  & \srcref{Tate}{2016}{2--5} \\
+\addlinespace
+
+%% ===== EMPAD-G2 (Cornell) =====
+\makecell[tl]{EMPAD-G2\\(Cornell)}
+  & \makecell[tl]{0.18\,\um{}\\TSMC\\(mixed)}           % node
+  & 150                                                 % pitch
+  & \makecell[tl]{128$\times$128\\(16.4\,k)}             % array
+  & \makecell[tl]{500\,\um{} Si\\(hybrid PAD)}           % sensor
+  & Adaptive gain\newline + charge dump\newline $\Rightarrow\gg10^6$  % well depth (extended)
+  & \makecell[tl]{16-bit ctr\\+ 14-bit ana.\\(30-bit)}    % ADC
+  & 10\,k\newline (99\% duty)                             % max fps
+  & ${>}1.1\times10^9$\newline (reported)                 % max rate/px
+  & ${>}4.9\times10^{12}$                                % max rate/cm^2
+  & n/r                                                  % power
+  & \srcref{Philipp}{2022}{425--428} \\
+\addlinespace
+
+%% ===== CoRDIA (DESY / U. Bonn) =====
+\makecell[tl]{CoRDIA\\(DESY / U.\ Bonn)}
+  & \makecell[tl]{TSMC\\65\,nm\\(CERN DK)}                  % node
+  & 110                                                      % pitch (110 um x 110 um)
+  & \makecell[tl]{TBD\\(TSVs for\\gapless tiling)}           % array
+  & \makecell[tl]{Si or high-Z\\(bump-bond)}                 % sensor
+  & ${>}10$\,k photons\newline (@${\leq}$12\,keV;\newline dyn.\ gain sw.)  % well depth
+  & \makecell[tl]{${\geq}$10 ENOB\\(on-chip)}               % ADC
+  & ${\geq}$150\,k\newline (CW, dead-\newline time free)    % max fps
+  & $1.5\times10^9$\newline (design target)                  % max rate/px
+  & ${\sim}1.2\times10^{13}$                                 % max rate/cm^2
+  & n/r                                                      % power
+  & \makecell[tl]{\srcref{Marras}{2022}{1--4};\\\srcref{Marras}{2024}{1--5}} \\
+\addlinespace
+
+%% ===== Sagara1212 (Imasenic) =====
+\makecell[tl]{Sagara1212\\(Imasenic)}
+  & ---                                                   % node
+  & 58                                                    % pitch
+  & \makecell[tl]{2064$\times$2052\\(4.24\,M)}             % array
+  & ---                                                   % sensor
+  & $2^{10}{=}1024$\newline (ADC full-scale)              % well depth — only ADC range known
+  & 10-bit                                                % ADC
+  & 3200                                                  % max fps
+  & ${\sim}3.3\times10^6$\newline (1024$\times$3200)      % max rate/px
+  & ${\sim}9.8\times10^{11}$                              % max rate/cm^2
+  & ---                                                   % power
+  & \srcref{Turchetta}{2024}{} \\
+\addlinespace
+
+%% ===== Caeleste / Photron — visible-light design =====
+\makecell[tl]{Caeleste /$^\dagger$\\Photron}
+  & \makecell[tl]{BSI CMOS\\(n/a)}                        % node — not disclosed
+  & 16                                                    % pitch
+  & \makecell[tl]{1280$\times$1024\\(1.31\,M)}             % array
+  & \makecell[tl]{BSI CMOS\\global shutter}               % sensor
+  & HG: 9.5\,k\newline LG: 106.5\,k\newline (visible-light\newline photo-e$^-$)  % well depth
+  & \makecell[tl]{Analog out\\(128 ch\newline @100\,Mpx/s)}  % ADC — off-chip digitisation
+  & 34.7\,k (full)\newline 2\,M (min ROI)                % max fps
+  & \makecell[tl]{See $\dagger$}                          % max rate/px
+  & \makecell[tl]{See $\dagger$}                          % max rate/cm^2
+  & 16.5\,W total                                        % power
+  & \srcref{Cai}{2017}{1--4} \\
+\addlinespace
+
+%% ===== Phantom TMX 7510 (Vision Research) — visible-light design =====
+\makecell[tl]{Phantom$^\dagger$\\TMX 7510\\(Vision Research)}
+  & \makecell[tl]{0.11\,\um{}\\BSI CMOS}                  % node
+  & {18.54}                                               % pitch — braces for siunitx
+  & \makecell[tl]{1280$\times$832\\(1.06\,M)}              % array
+  & \makecell[tl]{BSI CMOS\\global shutter}               % sensor
+  & n/r\newline (DR 52\,dB;\newline visible-light)        % well depth
+  & 10/11/12-bit\newline (single-slope)                   % ADC
+  & 80\,k (full)                                          % max fps
+  & \makecell[tl]{See $\dagger$}                          % max rate/px
+  & \makecell[tl]{See $\dagger$}                          % max rate/cm^2
+  & ${<}\,$40\,W total                                    % power
+  & \srcref{Van~Blerkom}{2021}{1--4} \\
+
+\end{longtable}
+
+\vspace{4pt}
+\noindent\textbf{Notes (Table 2):}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \textbf{Well depth} = analog integration capacity per pixel per frame (primary electrons at stated beam energy), \emph{before} any charge-removal extension unless noted otherwise.
+  \item \textbf{Max rate/px/s} $=$ well depth $\times$ max frame rate.
+  \item \textbf{Max rate/cm$^2$/s} $=$ (max rate/px/s) $/$ (pitch in cm)$^2$.
+  \item For EMPAD/EMPAD-G2, the per-frame capacity includes in-frame charge removal; the single-integration analog well is smaller but not separately reported.
+  \item For Sagara1212, well depth is approximated from the ADC full-scale ($2^{10}$); the actual analog well may differ.
+  \item[$\dagger$] Caeleste/Photron and Phantom TMX 7510 are \textbf{visible-light} imager designs, not electron detectors.
+    Well depths are in photoelectrons (1 photon $\approx$ 1\,e$^-$).
+    For high-energy primary electrons (${\sim}$100--300\,keV), each hit deposits hundreds to thousands of signal electrons,
+    so the effective well depth in primary electrons per frame, and hence the max hit rate, would be much lower.
+    These sensors have not been characterised for direct electron detection.
+  \item The 4D Camera and K2 operate in a sparse-counting regime (${\sim}$1\,e$^-$/px/frame); the well depth reflects the counting-mode operating point, not the full analog capacity.
+  \item n/r = not reported.
+\end{itemize}
+
+\end{document}
