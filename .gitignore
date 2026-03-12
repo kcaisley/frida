@@ -10,6 +10,7 @@ __pycache__
 .ruff_cache
 .venv*
 uv.lock
+phys/results/
 
 # Cadence / EDA
 .cadence

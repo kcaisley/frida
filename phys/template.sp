@@ -1,0 +1,8 @@
+* Minimal template for Allpix NetlistWriter PWL export
+.subckt front_end Pix_in
+.ends front_end
+
+Isignal (0 Pix_in) isource type=pulse
+Xsignal (Pix_in) front_end
+
+.end
