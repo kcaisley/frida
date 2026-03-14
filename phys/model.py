@@ -11,6 +11,7 @@ from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 ELEMENTARY_CHARGE_C = 1.602176634e-19
+PNG_FACE_COLOR = "white"
 plt.rcParams.update(
     {
         "text.usetex": True,
@@ -29,6 +30,35 @@ def max_counting_rate_per_pixel_per_second(enob_bits: float, window_s: float) ->
     return (2**enob_bits - 1) / window_s
 
 
+def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
+    r"""Return the max Poisson arrival rate for a target overlap probability.
+
+    We model particle arrivals as a Poisson process with average rate μ (hits/s).
+    Each hit occupies the front-end for a fixed dead time t_d.
+
+    Let λ = μ * t_d be the expected number of arrivals in one dead-time window.
+    The probability that a hit overlaps with a previous one (i.e., at least
+    one other arrival falls within the dead-time window) is:
+
+        P(overlap) = 1 - P(0 arrivals in window)
+                   = 1 - e^(-λ)
+
+    We want P(overlap) = allowed_overlap_fraction, so:
+
+        1 - e^(-λ) = f
+        e^(-λ) = 1 - f
+        -λ = ln(1 - f)
+        λ = -ln(1 - f)
+
+    Since λ = μ * t_d, we solve for μ:
+
+        μ = -ln(1 - f) / t_d
+
+    where f is the allowed overlap fraction as a decimal (0.1 = 10%).
+    """
+    return -np.log1p(-allowed_overlap_fraction) / time_dead
+
+
 def format_time_axis(value: float, _: object) -> str:
     if value >= 1e-3:
         return f"{value * 1e3:g} ms"
@@ -40,28 +70,28 @@ def format_time_axis(value: float, _: object) -> str:
 def format_rate_axis(value: float, _: object) -> str:
     for scale, prefix in ((1e15, "P"), (1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
         if value >= scale:
-            return f"{value / scale:g} {prefix}Hz"
-    return f"{value:g} Hz"
+            return f"{value / scale:g} {prefix}cps"
+    return f"{value:g} cps"
 
 
 def format_fluence_axis(value: float, _: object) -> str:
     for scale, unit in (
-        (1e15, r"\mathrm{PHz}"),
-        (1e12, r"\mathrm{THz}"),
-        (1e9, r"\mathrm{GHz}"),
-        (1e6, r"\mathrm{MHz}"),
-        (1e3, r"\mathrm{kHz}"),
+        (1e15, r"\mathrm{Pcps}"),
+        (1e12, r"\mathrm{Tcps}"),
+        (1e9, r"\mathrm{Gcps}"),
+        (1e6, r"\mathrm{Mcps}"),
+        (1e3, r"\mathrm{kcps}"),
     ):
         if value >= scale:
-            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{cm}}^2}}$"
-    return rf"${value:g}\,\frac{{\mathrm{{Hz}}}}{{\mathrm{{cm}}^2}}$"
+            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{mm}}^2}}$"
+    return rf"${value:g}\,\frac{{\mathrm{{cps}}}}{{\mathrm{{mm}}^2}}$"
 
 
-def fluence_to_current_density_pa_cm2(value: float) -> float:
+def fluence_to_current_density_pa_mm2(value: float) -> float:
     return value * ELEMENTARY_CHARGE_C * 1e12
 
 
-def current_density_pa_cm2_to_fluence(value: float) -> float:
+def current_density_pa_mm2_to_fluence(value: float) -> float:
     return value / (ELEMENTARY_CHARGE_C * 1e12)
 
 
@@ -75,27 +105,27 @@ def format_current_density_axis(value: float, _: object) -> str:
         (1e-3, r"\mathrm{fA}"),
     ):
         if value >= scale:
-            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{cm}}^2}}$"
-    return rf"${value * 1e3:g}\,\frac{{\mathrm{{fA}}}}{{\mathrm{{cm}}^2}}$"
+            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{mm}}^2}}$"
+    return rf"${value * 1e3:g}\,\frac{{\mathrm{{fA}}}}{{\mathrm{{mm}}^2}}$"
 
 
 def plot_hit_rate_vs_fluence() -> None:
-    # Sweep 1 MHz to 1 THz per square centimeter, then convert immediately to
-    # per square meter for the SI-based rate calculation.
-    fluences_cm2_s = np.logspace(6, 12, 400)
-    fluences_m2_s = fluences_cm2_s * 1e4
+    # Sweep fluences per mm², then convert to per m² for the SI-based rate calculation.
+    # 1 mm² = 1e-6 m², so fluence_m2 = fluence_mm2 * 1e6.
+    fluences_mm2_s = np.logspace(4, 10, 400)
+    fluences_m2_s = fluences_mm2_s * 1e6
     pitches_m = [100e-6, 75e-6, 50e-6, 30e-6, 15e-6, 10e-6]
     colors = ["#5E81AC", "#81A1C1", "#88C0D0", "#8FBCBB", "#A3BE8C", "#EBCB8B"]
 
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
+    fig, ax = plt.subplots(figsize=(7, 5), facecolor=PNG_FACE_COLOR)
+    fig.patch.set_facecolor(PNG_FACE_COLOR)
+    ax.set_facecolor(PNG_FACE_COLOR)
     for pitch_m, color in zip(pitches_m, colors, strict=True):
         rates = [
             hit_rate_per_pixel_per_second(fluence, pitch_m) for fluence in fluences_m2_s
         ]
         ax.plot(
-            fluences_cm2_s,
+            fluences_mm2_s,
             rates,
             label=rf"{pitch_m * 1e6:g} \textmu m",
             color=color,
@@ -115,8 +145,8 @@ def plot_hit_rate_vs_fluence() -> None:
     bottom2 = ax.secondary_xaxis(
         "bottom",
         functions=(
-            fluence_to_current_density_pa_cm2,
-            current_density_pa_cm2_to_fluence,
+            fluence_to_current_density_pa_mm2,
+            current_density_pa_mm2_to_fluence,
         ),
     )
     bottom2.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
@@ -129,9 +159,9 @@ def plot_hit_rate_vs_fluence() -> None:
     bottom2.xaxis.label.set_color("#2E3440")
     bottom2.set_xlabel(r"Equivalent beam current density")
     ax.set_xlabel(
-        r"Incident particle fluence $\left[\frac{\mathrm{count}}{\mathrm{cm}^2 \cdot \mathrm{s}}\right]$"
+        r"Incident particle fluence $\left[\frac{\mathrm{cps}}{\mathrm{mm}^2}\right]$"
     )
-    ax.set_ylabel(r"Hit rate per pixel $\left[\frac{\mathrm{hits}}{\mathrm{s}}\right]$")
+    ax.set_ylabel(r"Resulting hit rate per pixel $\left[\mathrm{cps}\right]$")
     ax.set_title("Per-pixel hit rate vs fluence")
     ax.minorticks_on()
     ax.xaxis.grid(True, which="major", color="#D8DEE9", alpha=0.95, linewidth=0.8)
@@ -163,7 +193,9 @@ def plot_hit_rate_vs_fluence() -> None:
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.22)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.png", dpi=200, transparent=True)
+    fig.savefig(
+        RESULTS_DIR / "hit_rate_vs_fluence.png", dpi=200, facecolor=PNG_FACE_COLOR
+    )
     fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.pdf", transparent=True)
 
 
@@ -172,9 +204,9 @@ def plot_max_counting_rate_vs_window() -> None:
     enobs = [12, 10, 8, 6, 4, 1]
     colors = ["#5E81AC", "#81A1C1", "#88C0D0", "#8FBCBB", "#A3BE8C", "#EBCB8B"]
 
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
+    fig, ax = plt.subplots(figsize=(7, 5), facecolor=PNG_FACE_COLOR)
+    fig.patch.set_facecolor(PNG_FACE_COLOR)
+    ax.set_facecolor(PNG_FACE_COLOR)
     for enob, color in zip(enobs, colors, strict=True):
         rates = [
             max_counting_rate_per_pixel_per_second(enob, window) for window in windows
@@ -186,11 +218,16 @@ def plot_max_counting_rate_vs_window() -> None:
     ax.xaxis.set_major_formatter(FuncFormatter(format_time_axis))
     ax.yaxis.set_major_formatter(FuncFormatter(format_rate_axis))
     ax.set_xlabel("Measurement window (frame time / dead time)")
-    ax.set_ylabel(r"Max counting rate per pixel")
-    ax.set_title(r"Max counting rate vs measurement window")
+    ax.set_ylabel(r"Max hit counting rate per pixel $\left[\mathrm{cps}\right]$")
+    ax.set_title(
+        "Max pixel count rate vs. frame time (w/ different pixel count bit depths)"
+    )
     ax.grid(True, which="both", color="#D8DEE9", alpha=0.9)
     ax.legend(
-        title="ENOB", facecolor="#ECEFF4", edgecolor="#4C566A", labelcolor="#2E3440"
+        title="Pixel hit\ncounting\nbit depth",
+        facecolor="#ECEFF4",
+        edgecolor="#4C566A",
+        labelcolor="#2E3440",
     )
     ax.tick_params(colors="#2E3440")
     for spine in ax.spines.values():
@@ -201,7 +238,9 @@ def plot_max_counting_rate_vs_window() -> None:
     fig.tight_layout()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(
-        RESULTS_DIR / "max_counting_rate_vs_window.png", dpi=200, transparent=True
+        RESULTS_DIR / "max_counting_rate_vs_window.png",
+        dpi=200,
+        facecolor=PNG_FACE_COLOR,
     )
     fig.savefig(RESULTS_DIR / "max_counting_rate_vs_window.pdf", transparent=True)
 
