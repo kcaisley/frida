@@ -17,7 +17,7 @@
 \usepackage{pdflscape}         % already landscape via geometry
 
 % ---------- misc ----------
-\usepackage{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
 \usepackage[table]{xcolor}
 \usepackage{caption}
 
@@ -29,7 +29,8 @@
 \newcommand{\um}{\textmu{}m}
 \newcommand{\etos}{e\textsuperscript{--}/s}
 \newcommand{\pwr}[2]{#1\,W/cm\textsuperscript{2}\,(#2\,\textmu{}W/px)}
-\newcommand{\srcref}[3]{#1,\penalty0\,#2,\penalty0\,p.\,#3}   % author, year, page
+\newcommand{\srcref}[4]{\href{https://doi.org/#4}{\textcolor{blue}{#1,\penalty0\,#2,\penalty0\,#3}}}   % year, author, journal, doi
+\newcommand{\srcold}[3]{#1,\penalty0\,#2,\penalty0\,p.\,#3}   % author, year, page (legacy)
 \newcommand{\cmark}{\checkmark}
 
 \pagestyle{empty}
@@ -54,161 +55,183 @@ Rate bottleneck is front-end pile-up ($1/\tau_\mathrm{dead}$) or back-end readou
 
 \begin{longtable}{%
   l                                               % 1  Chip name
-  l                                               % 2  Node
+  S[table-format=3]                               % 2  Node (nm)
   S[table-format=3]                               % 3  Pitch (um)
-  l                                               % 4  Array
-  >{\raggedright\arraybackslash}p{1.8cm}          % 5  Dead time
-  >{\raggedright\arraybackslash}p{1.6cm}          % 6  Counter depth
-  >{\raggedright\arraybackslash}p{1.5cm}          % 7  Max readout fps
-  >{\raggedright\arraybackslash}p{1.8cm}          % 8  FE limit
-  >{\raggedright\arraybackslash}p{1.8cm}          % 9  BE limit
-  l                                               % 10 Bottleneck
-  >{\raggedright\arraybackslash}p{2.0cm}          % 11 Max rate/px
-  >{\raggedright\arraybackslash}p{2.0cm}          % 12 Max rate/cm^2
-  >{\raggedright\arraybackslash}p{2.0cm}          % 13 Power
-  >{\raggedright\arraybackslash}p{2.5cm}          % 14 Source
+  >{\raggedright\arraybackslash}p{1.6cm}          % 4  Dead time (ns)
+  >{\raggedright\arraybackslash}p{1.8cm}          % 5  Rate/px @10% (Mcps)
+  >{\raggedright\arraybackslash}p{2.0cm}          % 6  Rate/mm^2 @10% (Mcps/mm^2)
+  >{\raggedright\arraybackslash}p{1.4cm}          % 7  Counter depth (bit)
+  >{\raggedright\arraybackslash}p{1.4cm}          % 8  Power (uW/px)
+  >{\raggedright\arraybackslash}p{1.4cm}          % 9  Power (W/cm^2)
+  l                                               % 10 Array
+  >{\raggedright\arraybackslash}p{3.0cm}          % 11 Notes
+  >{\raggedright\arraybackslash}p{2.5cm}          % 12 Source
 }
 
 \toprule
 \makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
-  & \textbf{Node}
+  & {\makecell[tc]{\textbf{Node}\\\textbf{(nm)}}}
   & {\textbf{Pitch (\um)}}
+  & \makecell[tl]{\textbf{FE Dead}\\\textbf{time (ns)}}
+  & \makecell[tl]{\textbf{Rate/px}\\\textbf{@10\%}\\\textbf{(Mcps)}}
+  & \makecell[tl]{\textbf{Rate/mm$^2$}\\\textbf{@10\%}\\\textbf{(Mcps/mm$^2$)}}
+  & \makecell[tl]{\textbf{Counter}\\\textbf{(bit)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(\textmu{}W/px)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(W/cm$^2$)}}
   & \textbf{Array}
-  & \makecell[tl]{\textbf{Dead time}\\\textbf{($\tau_\mathrm{dead}$)}}
-  & \makecell[tl]{\textbf{Counter}\\\textbf{depth}}
-  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
-  & \makecell[tl]{\textbf{FE limit}\\\textbf{(pile-up)}\\\textbf{(cts/px/s)}}
-  & \makecell[tl]{\textbf{BE limit}\\\textbf{(readout)}\\\textbf{(cts/px/s)}}
-  & \textbf{Neck}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
-  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Notes}
   & \textbf{Source} \\
 \midrule
 \endfirsthead
 
 \toprule
 \makecell[tl]{\textbf{Detector}\\\textbf{Chip}}
-  & \textbf{Node}
+  & {\makecell[tc]{\textbf{Node}\\\textbf{(nm)}}}
   & {\textbf{Pitch (\um)}}
+  & \makecell[tl]{\textbf{FE Dead}\\\textbf{time (ns)}}
+  & \makecell[tl]{\textbf{Rate/px}\\\textbf{@10\%}\\\textbf{(Mcps)}}
+  & \makecell[tl]{\textbf{Rate/mm$^2$}\\\textbf{@10\%}\\\textbf{(Mcps/mm$^2$)}}
+  & \makecell[tl]{\textbf{Counter}\\\textbf{(bit)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(\textmu{}W/px)}}
+  & \makecell[tl]{\textbf{Power}\\\textbf{(W/cm$^2$)}}
   & \textbf{Array}
-  & \makecell[tl]{\textbf{Dead time}\\\textbf{($\tau_\mathrm{dead}$)}}
-  & \makecell[tl]{\textbf{Counter}\\\textbf{depth}}
-  & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
-  & \makecell[tl]{\textbf{FE limit}\\\textbf{(pile-up)}\\\textbf{(cts/px/s)}}
-  & \makecell[tl]{\textbf{BE limit}\\\textbf{(readout)}\\\textbf{(cts/px/s)}}
-  & \textbf{Neck}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
-  & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
+  & \textbf{Notes}
   & \textbf{Source} \\
 \midrule
 \endhead
 
 \midrule
-\multicolumn{14}{r}{\emph{continued on next page}\ldots}\\
+\multicolumn{12}{r}{\emph{continued on next page}\ldots}\\
 \endfoot
 
 \bottomrule
 \endlastfoot
 
-%% ===== Timepix4 (PC mode) =====
-\makecell[tl]{Timepix4\\(PC mode)}
-  & \makecell[tl]{130\,nm\\CMOS}                    % node
-  & 55                                              % pitch
-  & \makecell[tl]{448$\times$512\\(229\,k)}          % array
-  & ${<}\,50$\,ns                                   % dead time
-  & 8-bit (256)\newline or 16-bit                   % counter depth
-  & 90\,k (8-bit)\newline 45\,k (16-bit)            % max fps
-  & $2.0\times10^7$\newline ($1/50\,$ns)            % FE limit
-  & $2.3\times10^7$\newline (256$\times$90\,k)      % BE limit (8-bit mode)
-  & FE                                              % bottleneck
-  & ${\sim}1.5\times10^7$\newline (reported)        % max rate/px (from paper)
-  & $5.0\times10^{9}$                               % max rate/cm^2
-  & ${\sim}$600\,mW/cm$^2$\newline ${\sim}$1.8\,\um{}W/px  % power
-  & \srcref{Llopart}{2022}{2--4,\,6} \\
-\addlinespace
-
-%% ===== Medipix4 =====
-Medipix4
-  & \makecell[tl]{130\,nm\\CMOS\\8-metal}             % node
+%% ===== Medipix4 (2024) =====
+\makecell[tl]{Medipix4\\(CERN)}
+  & 130                                               % node
   & 75                                                % pitch
-  & \makecell[tl]{320$\times$320\\(75\,\um)}           % array
-  & ${<}\,130$\,ns                                    % dead time
-  & \makecell[tl]{1--24-bit\\(dual ctr CRW)}           % counter depth
-  & 99\,k (1-bit)\newline 8.3\,k (12-bit)            % max fps
-  & $7.7\times10^6$\newline ($1/130\,$ns)             % FE limit
-  & $3.4\times10^7$\newline (4096$\times$8.3\,k)     % BE limit (12-bit)
-  & FE                                                % bottleneck
-  & ${\sim}2.9\times10^6$\newline (reported)          % max rate/px
-  & $5.1\times10^{10}$\newline (reported)             % max rate/cm^2
-  & 0.46\,W/cm$^2$\newline ${\sim}$26\,\um{}W/px     % power
-  & \makecell[tl]{\srcref{Sriskaran}{2024}{2--7};\\\srcref{Sriskaran}{2020}{1}} \\
+  & ${<}\,130$                                        % dead time (ns) — worst case
+  & 2.9                                               % rate/px @10% (Mcps) — reported
+  & 510                                               % rate/mm^2 @10% (Mcps/mm^2) — reported
+  & 1--24                                             % counter (bit)
+  & \textit{25.9}                                      % uW/px — DERIVED from 0.46 W/cm² × pitch²
+  & 0.46                                              % W/cm² — reported (Sriskaran 2024)
+  & 320$\times$320                                    % array
+  & \makecell[tl]{FPM-SPM mode.\\$\tau{<}130$\,ns worst case\\(60\,keV, CdTe);\\rate implies $\tau{\approx}36$\,ns.\\UFM: 19\,Mcps/mm$^2$\\(SM-CSM, 150\,\um).\\Power is static}  % notes
+  & \makecell[tl]{\srcref{2024}{Sriskaran}{JINST}{10.1088/1748-0221/19/02/P02024};\\{\href{https://infoscience.epfl.ch/entities/publication/321b9c05-a6ed-49ef-9753-9d22d3eeaea2}{\textcolor{blue}{2022,\,Sriskaran,\,EPFL thesis}}}} \\
 \addlinespace
 
-%% ===== Medipix3RX =====
-Medipix3RX
-  & \makecell[tl]{130\,nm\\CMOS\\9-metal}             % node
-  & 55                                                % pitch
-  & \makecell[tl]{256$\times$256\\(65.5\,k)}           % array
-  & n/r                                               % dead time not reported
-  & \makecell[tl]{2$\times$12-bit\\(CRW, 1 thr)}     % counter depth
-  & \makecell[tl]{Counter-based\\2.4\,Gb/s serial}   % max fps
-  & ---                                               % FE limit unknown
-  & ---                                               % BE limit unknown
-  & ---                                               % bottleneck
-  & ${\sim}2.5\times10^5$\newline (reported)          % max rate/px (SPM)
-  & $8.2\times10^{9}$\newline (reported)              % max rate/cm^2
-  & 0.27\,W/cm$^2$\newline ${\sim}$8.2\,\um{}W/px    % power
-  & \makecell[tl]{\srcref{Sriskaran}{2020}{1};\\\srcref{Ballabriga}{2020}{2--3}} \\
+%% ===== SPHIRD-1 (2023) =====
+\makecell[tl]{SPHIRD-1\\(AGH/ESRF)}
+  & 40                                                % node
+  & 50                                                % pitch
+  & \makecell[tl]{8.3 (VDIS-2)\\3.5 (FPC)}            % dead time (ns)
+  & \makecell[tl]{12\\28.9}                            % rate/px @10% (Mcps)
+  & \makecell[tl]{4800\\11560}                         % rate/mm^2 @10% (Mcps/mm^2)
+  & 12                                                 % counter (bit) — main counter
+  & \makecell[tl]{26.6\\32.9}                          % uW/px — reported, includes pile-up compensation circuits
+  & \makecell[tl]{\textit{1.06}\\\textit{1.32}}        % W/cm² — DERIVED via pitch²
+  & 32$\times$64                                       % array — prototype
+  & \makecell[tl]{Prototype chip.\\Pile-up compensation\\via voltage (VDIS)\\or time (FPC) methods.\\FPC needs 200\,MHz clk.\\Power incl.\ compensation}  % notes
+  & \srcref{2023}{Grybos}{TCAS-II}{10.1109/TCSII.2023.3267859} \\
 \addlinespace
 
-%% ===== KITE (DECTRIS) =====
-KITE
-  & \makecell[tl]{110\,nm\\UMC CMOS}                  % node
+%% ===== KITE (2023) =====
+\makecell[tl]{KITE\\(DECTRIS)}
+  & 110                                               % node
   & 100                                               % pitch
-  & \makecell[tl]{192$\times$192\\(36.9\,k)}           % array
-  & 9.5--23\,ns\newline (thr.\ dep.)                  % dead time
-  & 12-bit int.\newline or 8-bit FP\newline + 2$\times$2 bin  % counter depth
-  & 20\,k (12-bit)\newline 120\,k (8FP)\newline ${\sim}$500\,k (th.)  % max fps
-  & $4.3$--$10.5$\newline $\times10^7$\newline ($1/\tau$)  % FE limit
-  & $8.2\times10^7$\newline (4096$\times$20\,k)       % BE limit (12-bit)
-  & FE                                                % bottleneck (at short tau, comparable)
-  & 32--72$\times10^6$\newline (reported,\newline @10\% loss)  % max rate/px
-  & 3.2--7.2\newline $\times10^{11}$                  % max rate/cm^2
-  & 0.34\,W/cm$^2$\newline 34\,\um{}W/px\newline (static)  % power
-  & \srcref{Zambon}{2023}{1--5,\,10} \\
+  & 23                                                 % dead time (ns) — τ_R at 7 keV threshold, 300 keV beam
+  & 31                                                % rate/px @10% (Mcps) — at 7 keV thr, 300 keV (Table 5)
+  & 3100                                              % rate/mm^2 @10% (Mcps/mm^2)
+  & 12                                                 % counter (bit) — CRW mode
+  & \textit{33.9}                                      % uW/px — DERIVED from 1.25 W / 36864 px
+  & \textit{0.34}                                     % W/cm² — DERIVED from 1.25 W / 3.69 cm²
+  & 192$\times$192                                    % array
+  & \makecell[tl]{Instant retrigger.\\@7\,keV thr, 300\,keV.\\Up to 63\,Mcps/px\\@43\,keV thr.\\Power is static}  % notes
+  & \srcref{2023}{Zambon}{NIMA}{10.1016/j.nima.2022.167888} \\
 \addlinespace
 
-%% ===== Apollo (Direct Electron) =====
+%% ===== Apollo (2023) =====
 \makecell[tl]{Apollo\\(Direct Electron)}
-  & \makecell[tl]{MAPS\\(n/a)}                        % node
+  & {MAPS}                                            % node
   & 8                                                 % pitch
-  & \makecell[tl]{4096$\times$4096\\(16.8\,M)\\8k SR}  % array
-  & \makecell[tl]{Event-driven\\(continuous)}         % dead time implied by readout
-  & \makecell[tl]{Binary event\\(priority enc.)}      % counter depth
-  & Continuous\newline (movie: 60\,fps)               % readout
-  & ---                                               % FE limit not reported
-  & ${\sim}$80\,e$^-$/px/s\newline (enc.\ b/w)       % BE limit
-  & BE                                                % bottleneck
-  & ${\sim}$80\newline e$^-$/px/s                     % max rate/px
-  & ${\sim}1.3\times10^{8}$                           % max rate/cm^2
-  & Not reported                                      % power
-  & \srcref{Peng}{2023}{1--4} \\
+  & \textit{${\sim}$3.5\,ms}                          % dead time — CALC: 0.10536/30
+  & {30\,e$^-$/s}                                     % rate/px @10% coincidence loss
+  & \textit{0.47}                                     % rate/mm^2 — CALC: 30/0.008^2/1e6
+  & {Binary}                                          % counter
+  & {n/r}                                              % uW/px — not reported
+  & {n/r}                                             % W/cm² — not reported
+  & 4096$\times$4096                                  % array
+  & \makecell[tl]{Event-based MAPS.\\Rate in e$^-$/px/s.\\FPGA b/w limited.\\$\tau$ is effective\\(not analog pile-up)}  % notes
+  & \srcref{2023}{Bammes}{J.\ Struct.\ Biol.: X}{10.1016/j.yjsbx.2022.100080} \\
+\addlinespace
+
+%% ===== IBEX (2018) — ASIC used in EIGER2 detectors =====
+\makecell[tl]{IBEX\\(DECTRIS)}
+  & 110                                               % node
+  & 75                                                % pitch
+  & 100                                               % dead time (ns) — reported
+  & \makecell[tl]{1.1 (std)\\1.7 (retrig)}              % rate/px @10% — from τ and rate/mm²; retrig from EM paper
+  & 197                                               % rate/mm^2 @10% (Mcps/mm^2) — from survey
+  & 16                                                 % counter (bit) — CRW mode
+  & \textit{7.4}                                       % uW/px — DERIVED from 487 mW static / 65536 px
+  & \textit{0.13}                                     % W/cm² — DERIVED from 487 mW static / 3.69 cm²
+  & 256$\times$256                                    % array
+  & \makecell[tl]{Instant retrigger.\\ASIC used in EIGER2.\\1.1 from $\tau$ \& rate/mm$^2$;\\1.7 retrig.\ @ high thr.\\Power is static\\(487\,mW chip total)}  % notes
+  & \makecell[tl]{\srcref{2018}{Bochenek}{TNS}{10.1109/TNS.2018.2832464};\\\srcref{2021}{Fernandez-P.}{JINST}{10.1088/1748-0221/16/10/P10034};\\\srcref{2023}{Donath}{J.\ Sync.\ Rad.}{10.1107/S160057752300454X}} \\
+\addlinespace
+
+%% ===== Pilatus 3 (2013) =====
+\makecell[tl]{PILATUS3\\(DECTRIS)}
+  & 250                                               % node
+  & 172                                               % pitch
+  & 125                                               % dead time (ns) — Ballabriga 2021 Table IV
+  & 0.89                                              % rate/px @10% — 30.02 Mcps/mm² × 0.029584
+  & 30                                                % rate/mm^2 @10% — Ballabriga 2021 Table IV
+  & 20                                                 % counter (bit)
+  & \textit{13.7}                                      % uW/px — DERIVED from 80 mW / 5820 px
+  & \textit{0.05}                                     % W/cm² — DERIVED from 80 mW / 1.84 cm²
+  & 60$\times$97                                      % array
+  & \makecell[tl]{Instant retrigger.\\$\tau$/rate $\Delta{<}6\%$.\\Power is static\\(+90\,mW/MHz dyn.)}  % notes
+  & \srcref{2012}{Loeliger}{IEEE NSS/MIC}{10.1109/NSSMIC.2012.6551180} \\
+\addlinespace
+
+%% ===== Medipix3 (2011) =====
+\makecell[tl]{Medipix3\\(CERN)}
+  & 130                                               % node
+  & 55                                                % pitch
+  & 400                                               % dead time (ns) — Ballabriga 2021 Table IV
+  & 0.25                                              % rate/px @10% — 81.7 Mcps/mm² × 0.003025
+  & 82                                                % rate/mm^2 @10% — Ballabriga 2021 Table IV
+  & 12                                                 % counter (bit) — CRW mode
+  & 7.5                                                % uW/px — reported (Ballabriga 2021)
+  & \textit{0.25}                                     % W/cm² — DERIVED via pitch²
+  & 256$\times$256                                    % array
+  & \makecell[tl]{SPM mode.\\$\tau$/rate $\Delta{<}5\%$}  % notes
+  & \srcref{2011}{Ballabriga}{NIMA}{10.1016/j.nima.2010.06.108} \\
+\addlinespace
+
+%% ===== Eiger (2010) =====
+\makecell[tl]{EIGER\\(PSI)}
+  & 250                                               % node
+  & 75                                                % pitch
+  & 238                                               % dead time (ns) — Ballabriga 2021 Table IV
+  & 0.47                                              % rate/px @10% — 82.88 Mcps/mm² × 0.005625
+  & 83                                                % rate/mm^2 @10% — Ballabriga 2021 Table IV
+  & 12                                                 % counter (bit)
+  & 8.8                                                % uW/px — reported (Ballabriga 2021)
+  & \textit{0.16}                                     % W/cm² — DERIVED via pitch²
+  & 256$\times$256                                    % array
+  & \makecell[tl]{$\tau$/rate $\Delta{<}6\%$}              % notes
+  & \srcref{2010}{Dinapoli}{NIMA}{10.1016/j.nima.2010.12.005} \\
 
 \end{longtable}
 
-\vspace{4pt}
-\noindent\textbf{Notes (Table 1):}
-\begin{itemize}\setlength{\itemsep}{1pt}
-  \item \textbf{FE limit} = front-end pile-up limit, approximated as $1/\tau_\mathrm{dead}$ for a non-paralyzable discriminator.
-  \item \textbf{BE limit} = back-end readout limit $=$ counter full-scale $\times$ max frame rate (or data link bandwidth).
-  \item \textbf{Neck} = which limit is tighter: FE (pile-up) or BE (readout bandwidth).
-  \item ``Reported'' values are taken directly from the cited paper and may include detailed dead-time correction.
-  \item For Timepix4, photon-counting (PC) mode is shown; it yields a higher imaging rate than
-    data-driven (DD) mode, which is bandwidth-limited to ${\sim}1.1\times10^4$\,hits/px/s.
-  \item Max rate/cm$^2$ = (max rate/px) $/$ (pitch in cm)$^2$.  n/r = not reported.
-\end{itemize}
+\vspace{2pt}
+{\scriptsize \textit{Italic} = derived value. All rates at 10\% count-rate deviation.
+$\Delta$ = cross-check between $\tau$ and rate via $R_{10\%} = -\ln(0.9)/\tau_\mathrm{dead}$.
+n/r = not reported.}
 
 \clearpage
 
@@ -251,7 +274,7 @@ FWC is quoted as collected signal charge; max-rate columns retain the stated pri
   & \makecell[tl]{\textbf{ADC}\\\textbf{(bits)}}
   & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
   & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/mm$^2$/s)}}
   & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
   & \textbf{Source} \\
 \midrule
@@ -267,7 +290,7 @@ FWC is quoted as collected signal charge; max-rate columns retain the stated pri
   & \makecell[tl]{\textbf{ADC}\\\textbf{(bits)}}
   & \makecell[tl]{\textbf{Max}\\\textbf{fps}}
   & \makecell[tl]{\textbf{Max rate}\\\textbf{(/px/s)}}
-  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/cm$^2$/s)}}
+  & \makecell[tl]{\textbf{Max rate}\\\textbf{(/mm$^2$/s)}}
   & \makecell[tl]{\textbf{Power}\\\textbf{(/cm$^2$~/~px)}}
   & \textbf{Source} \\
 \midrule
@@ -292,7 +315,7 @@ FWC is quoted as collected signal charge; max-rate columns retain the stated pri
   & ${\sim}1.3\times10^7$\newline (low gain,\newline 100\,k sub)  % max rate/px
   & ${\sim}5.8\times10^{11}$                         % max rate/cm^2
   & n/r                                              % power
-  & \srcref{Chatterjee}{2021}{1--2} \\
+  & \srcold{Chatterjee}{2021}{1--2} \\
 \addlinespace
 
 %% ===== 4D Camera (LBNL) =====
@@ -307,7 +330,7 @@ FWC is quoted as collected signal charge; max-rate columns retain the stated pri
   & ${\sim}7\times10^5$\newline (8$\times$87\,k)     % max rate/px
   & ${\sim}7\times10^{11}$                           % max rate/cm^2
   & n/r                                              % power
-  & \srcref{Ercius}{2024}{1--5} \\
+  & \srcold{Ercius}{2024}{1--5} \\
 \addlinespace
 
 %% ===== EDET DH80k =====
@@ -322,7 +345,7 @@ EDET DH80k
   & Burst: $1.4\times10^{11}$\newline Sust.: $1.8\times10^8$  % max rate/px
   & Burst: $3.9\times10^{14}$\newline Sust.: $5.0\times10^{11}$  % max rate/cm^2
   & n/r                                              % power
-  & \srcref{Predikaka}{2020}{1--5} \\
+  & \srcold{Predikaka}{2020}{1--5} \\
 \addlinespace
 
 %% ===== K2 Summit (Gatan) =====
@@ -337,7 +360,7 @@ EDET DH80k
   & 8--10\newline (optimal;\newline coincidence lim.)  % max rate/px
   & $3.2$--$4.0$\newline $\times10^{7}$              % max rate/cm^2
   & n/r                                              % power
-  & \makecell[tl]{\srcref{Krieger}{2011}{5--6};\\\srcref{Li}{2013}{1--3}} \\
+  & \makecell[tl]{\srcold{Krieger}{2011}{5--6};\\\srcold{Li}{2013}{1--3}} \\
 \addlinespace
 
 %% ===== TEAM1k (LBNL) =====
@@ -352,7 +375,7 @@ EDET DH80k
   & $1.56\times10^4$\newline (39$\times$400)          % max rate/px
   & ${\sim}1.7\times10^{10}$                          % max rate/cm^2
   & n/r                                              % power
-  & \makecell[tl]{\srcref{Krieger}{2011}{5};\\\srcref{Battaglia}{2010}{1--6}} \\
+  & \makecell[tl]{\srcold{Krieger}{2011}{5};\\\srcold{Battaglia}{2010}{1--6}} \\
 \addlinespace
 
 %% ===== EMPAD (Cornell) =====
@@ -367,7 +390,7 @@ EDET DH80k
   & $4.1\times10^9$\newline (3.7M$\times$1.1\,k)     % max rate/px
   & ${\sim}1.8\times10^{13}$                          % max rate/cm^2
   & n/r                                              % power
-  & \srcref{Tate}{2016}{2--5} \\
+  & \srcold{Tate}{2016}{2--5} \\
 \addlinespace
 
 %% ===== EMPAD-G2 (Cornell) =====
@@ -382,7 +405,7 @@ EDET DH80k
   & ${>}1.1\times10^9$\newline (reported)                 % max rate/px
   & ${>}4.9\times10^{12}$                                % max rate/cm^2
   & n/r                                                  % power
-  & \srcref{Philipp}{2022}{425--428} \\
+  & \srcold{Philipp}{2022}{425--428} \\
 \addlinespace
 
 %% ===== CoRDIA (DESY / U. Bonn) =====
@@ -397,7 +420,7 @@ EDET DH80k
   & $1.5\times10^9$\newline (design target)                  % max rate/px
   & ${\sim}1.2\times10^{13}$                                 % max rate/cm^2
   & n/r                                                      % power
-  & \makecell[tl]{\srcref{Marras}{2022}{1--4};\\\srcref{Marras}{2024}{1--5}} \\
+  & \makecell[tl]{\srcold{Marras}{2022}{1--4};\\\srcold{Marras}{2024}{1--5}} \\
 \addlinespace
 
 %% ===== Sagara1212 (Imasenic) =====
@@ -412,7 +435,7 @@ EDET DH80k
   & ${\sim}3.3\times10^6$\newline (1024$\times$3200)      % max rate/px
   & ${\sim}9.8\times10^{11}$                              % max rate/cm^2
   & ---                                                   % power
-  & \srcref{Turchetta}{2024}{} \\
+  & \srcold{Turchetta}{2024}{} \\
 \addlinespace
 
 %% ===== Caeleste / Photron — visible-light design =====
@@ -427,7 +450,7 @@ EDET DH80k
   & \makecell[tl]{See $\dagger$}                          % max rate/px
   & \makecell[tl]{See $\dagger$}                          % max rate/cm^2
   & 16.5\,W total                                        % power
-  & \srcref{Cai}{2017}{1--4} \\
+  & \srcold{Cai}{2017}{1--4} \\
 \addlinespace
 
 %% ===== Phantom TMX 7510 (Vision Research) — visible-light design =====
@@ -442,7 +465,7 @@ EDET DH80k
   & \makecell[tl]{See $\dagger$}                          % max rate/px
   & \makecell[tl]{See $\dagger$}                          % max rate/cm^2
   & ${<}\,$40\,W total                                    % power
-  & \srcref{Van~Blerkom}{2021}{1--4} \\
+  & \srcold{Van~Blerkom}{2021}{1--4} \\
 
 \end{longtable}
 

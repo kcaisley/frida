@@ -33,6 +33,15 @@ def max_counting_rate_per_pixel_per_second(enob_bits: float, window_s: float) ->
 def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
     r"""Return the max Poisson arrival rate for a target overlap probability.
 
+    Uses the non-paralyzable dead-time model.  After each
+    accepted hit the front-end is insensitive for a fixed interval t_d.
+    Hits arriving during that window are lost, but they do *not* extend
+    the dead time — the detector recovers on schedule and is ready for
+    the next event. In contrast, a paralyzable detector restarts the dead time
+    on every arriving event, even during the insensitive window, which
+    can cause the detector to lock up at very high rates. Some chips (e.g. IBEX)
+    add instant retrigger on top of this.
+
     We model particle arrivals as a Poisson process with average rate μ (hits/s).
     Each hit occupies the front-end for a fixed dead time t_d.
 
@@ -48,13 +57,18 @@ def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
         1 - e^(-λ) = f
         e^(-λ) = 1 - f
         -λ = ln(1 - f)
-        λ = -ln(1 - f)
+        λ = -ln(1 - f)       [equivalently  ln(1/0.9) for f = 0.1]
 
     Since λ = μ * t_d, we solve for μ:
 
-        μ = -ln(1 - f) / t_d
+        μ = -ln(1 - f) / t_d     (non-paralyzable, Eq. 7)
 
-    where f is the allowed overlap fraction as a decimal (0.1 = 10%).
+    For comparison, the paralyzable model gives τ_p = f / ((1-f) * μ),
+    which yields a slightly longer dead time for the same rate (Eq. 6).
+
+    Reference: R. Ballabriga et al., "Photon Counting Detectors for X-ray
+    Imaging with Emphasis on CT", IEEE Trans. Radiat. Plasma Med. Sci.,
+    vol. 5, no. 4, pp. 422–440, 2021.
     """
     return -np.log1p(-allowed_overlap_fraction) / time_dead
 
@@ -85,6 +99,16 @@ def format_fluence_axis(value: float, _: object) -> str:
         if value >= scale:
             return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{mm}}^2}}$"
     return rf"${value:g}\,\frac{{\mathrm{{cps}}}}{{\mathrm{{mm}}^2}}$"
+
+
+def amps_to_cps(current_a: float) -> float:
+    """Convert a current in amps to a count rate in particles/s."""
+    return current_a / ELEMENTARY_CHARGE_C
+
+
+def cps_to_amps(rate_cps: float) -> float:
+    """Convert a count rate in particles/s to a current in amps."""
+    return rate_cps * ELEMENTARY_CHARGE_C
 
 
 def fluence_to_current_density_pa_mm2(value: float) -> float:
