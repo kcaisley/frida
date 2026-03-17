@@ -1,0 +1,19 @@
+{
+  "tech_lefs": ["design/msor/sg13g2_tech.lef"],
+  "macro_lefs": ["design/msor/sg13g2_macros.lef"],
+  "verilog": "design/msor/comp.v",
+  "top_module": "Comp",
+  "utilization": 90,
+  "aspect_ratio": 1.5,
+  "core_margin": 0.0,
+  "site_name": "unit",
+  "symmetry_axis": "vertical",
+  "pin_hor_layer": "Metal3",
+  "pin_ver_layer": "Metal2",
+  "pins": [
+    { "primary": "inp", "mirror": "inn", "edge": "top" },
+    { "primary": "outn", "mirror": "outp", "edge": "bottom" },
+    { "primary": "clk", "mirror": "clkb", "edge": "left" }
+  ],
+  "output_def": "scratch/comp_floorplanned.def"
+}

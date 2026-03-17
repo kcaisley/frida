@@ -51,8 +51,3 @@ fp-info-cache
 /\#auto_saved_files\#
 daq/dut/\#auto_saved_files\#
 _autosave-*
-
-CLAUDE.md
-.claude/
-.mcp.json
-AGENTS.md

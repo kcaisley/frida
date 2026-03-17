@@ -1,0 +1,7 @@
+if { [gui::enabled] } {
+    gui::set_display_controls "Nets/Power" visible true
+    gui::set_display_controls "Nets/Ground" visible true
+    gui::set_display_controls "Shape Types/Special Routing/Segments" visible true
+    gui::set_display_controls "Shape Types/Special Routing/Vias" visible true
+    gui::set_display_controls "Shape Types/Routing/Vias" visible true
+}
