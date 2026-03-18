@@ -107,6 +107,21 @@ Rate bottleneck is front-end pile-up ($1/\tau_\mathrm{dead}$) or back-end readou
 \bottomrule
 \endlastfoot
 
+%% ===== Timepix4 (2022) =====
+\makecell[tl]{Timepix4\\(CERN)}
+  & 65                                                % node
+  & 55                                                % pitch
+  & 50                                                % dead time (ns)
+  & 2.1                                               % rate/px @10% (Mcps)
+  & 697                                               % rate/mm^2 @10% (Mcps/mm^2)
+  & 16                                                % counter (bit)
+  & \textit{18.2}                                      % uW/px — DERIVED from 0.6 W/cm² × pitch²
+  & 0.6                                               % W/cm² — 400 mW/cm² analog + 200 mW/cm² digital
+  & 448$\times$512                                    % array
+  & \makecell[tl]{Data-driven +\\frame-based modes.\\Max 45\,kfps readout.\\$\tau{=}50$\,ns.\\Power: 400\,analog\\+200\,digital mW/cm$^2$}  % notes
+  & \srcref{2022}{Llopart}{JINST}{10.1088/1748-0221/17/01/C01044} \\
+\addlinespace
+
 %% ===== Medipix4 (2024) =====
 \makecell[tl]{Medipix4\\(CERN)}
   & 130                                               % node
@@ -415,10 +430,10 @@ EDET DH80k
   & \makecell[tl]{TBD\\(TSVs for\\gapless tiling)}           % array
   & \makecell[tl]{Si or high-Z\\(bump-bond)}                 % sensor
   & \makecell[tl]{${>}33$\,Me$^-$\\(Si eq.; 10k ph.\\@12\,keV)}
-  & \makecell[tl]{${\geq}$10 ENOB\\(on-chip)}               % ADC
-  & ${\geq}$150\,k\newline (CW, dead-\newline time free)    % max fps
-  & $1.5\times10^9$\newline (design target)                  % max rate/px
-  & ${\sim}1.2\times10^{13}$                                 % max rate/cm^2
+  & \makecell[tl]{10-bit\\(on-chip)}                          % ADC
+  & 100\,k\newline (CW, dead-\newline time free)             % max fps
+  & $1.0\times10^9$\newline (design target)                  % max rate/px
+  & ${\sim}8.3\times10^{12}$                                 % max rate/cm^2
   & n/r                                                      % power
   & \makecell[tl]{\srcold{Marras}{2022}{1--4};\\\srcold{Marras}{2024}{1--5}} \\
 \addlinespace

@@ -1,0 +1,258 @@
+\documentclass[10pt]{article}
+
+% ---------- page layout ----------
+\usepackage[landscape, margin=0.3cm]{geometry}
+
+% ---------- fonts / encoding ----------
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+% ---------- tables ----------
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{makecell}          % \makecell for line breaks inside cells
+\usepackage{siunitx}           % consistent unit formatting
+
+% ---------- misc ----------
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
+\usepackage[table]{xcolor}
+
+% ---------- compact spacing ----------
+\renewcommand{\arraystretch}{1.25}
+\setlength{\tabcolsep}{4pt}
+
+% ---------- convenience macros ----------
+\newcommand{\um}{\textmu{}m}
+\newcommand{\srcref}[4]{\href{https://doi.org/#4}{\textcolor{blue}{#1,\penalty0\,#2,\penalty0\,#3}}}
+\newcommand{\srcurl}[3]{\href{#3}{\textcolor{blue}{#1,\penalty0\,#2}}}
+
+\pagestyle{empty}
+
+\begin{document}
+
+% ======================================================================
+%  Beam Source Comparison
+% ======================================================================
+\begin{center}
+{\Large\bfseries Beam Source Parameters for Imaging}\\[4pt]
+{\small Photon flux values are typical for an undulator imaging beamline (0.1\% BW, at sample).
+Synchrotron values are beamline-dependent; representative numbers are given.
+Ph/pulse is derived from total flux $\div$ bunch rate.}
+\end{center}
+
+\vspace{4pt}
+
+\scriptsize
+\renewcommand{\arraystretch}{1.20}
+\setlength{\tabcolsep}{3pt}
+
+\begin{longtable}{%
+  l                                               % 1  Facility
+  l                                               % 2  Type
+  >{$}l<{$}                                       % 3  Particle & Energy
+  >{$}l<{$}                                       % 4  Total flux at sample
+  >{$}l<{$}                                       % 5  Rep rate / bunch spacing
+  >{$}l<{$}                                       % 6  Pulse duration
+  >{$}l<{$}                                       % 7  Particles per pulse
+  >\raggedright\arraybackslash p{3.0cm}            % 8  Notes
+  >\raggedright\arraybackslash p{2.8cm}            % 9  Source
+}
+
+\toprule
+\textbf{Facility}
+  & \textbf{Type}
+  & \textbf{Particle \& Energy}
+  & \makecell[tl]{\textbf{Total flux}\\\textbf{(ph/s or e$^-$/s)}}
+  & \makecell[tl]{\textbf{Rep.\ rate}\\\textbf{(bunch spacing)}}
+  & \makecell[tl]{\textbf{Pulse}\\\textbf{duration}}
+  & \makecell[tl]{\textbf{Particles}\\\textbf{per pulse}}
+  & \textbf{Notes}
+  & \textbf{Source} \\
+\midrule
+\endfirsthead
+
+\toprule
+\textbf{Facility}
+  & \textbf{Type}
+  & \textbf{Particle \& Energy}
+  & \makecell[tl]{\textbf{Total flux}\\\textbf{(ph/s or e$^-$/s)}}
+  & \makecell[tl]{\textbf{Rep.\ rate}\\\textbf{(bunch spacing)}}
+  & \makecell[tl]{\textbf{Pulse}\\\textbf{duration}}
+  & \makecell[tl]{\textbf{Particles}\\\textbf{per pulse}}
+  & \textbf{Notes}
+  & \textbf{Source} \\
+\midrule
+\endhead
+
+\bottomrule
+\endlastfoot
+
+%% ===== PETRA III =====
+\makecell[tl]{PETRA III\\(DESY)}
+  & \makecell[tl]{3\textsuperscript{rd} gen.\\synchrotron}
+  & \gamma,\; 5\text{--}200\,\text{keV}
+  & {\sim}\,10^{12}\text{--}10^{13}
+  & \makecell[tl]{$62.5\,\text{MHz}$ (16\,ns)\\or $5.2\,\text{MHz}$ (192\,ns)}
+  & {\sim}\,100\,\text{ps}
+  & {\sim}\,10^{4}\text{--}10^{5}
+  & \makecell[tl]{120\,mA continuous\\or 100\,mA timing mode.\\6\,GeV, 2304\,m ring.\\960 or 40 bunches}
+  & \makecell[tl]{\srcurl{DESY}{Facility info}{https://photon-science.desy.de/facilities/petra_iii/facility_information/}} \\
+\addlinespace
+
+%% ===== PETRA IV =====
+\makecell[tl]{PETRA IV\\(DESY)}
+  & \makecell[tl]{4\textsuperscript{th} gen.\\synchrotron}
+  & \gamma,\; 5\text{--}200\,\text{keV}
+  & {\sim}\,10^{12}\text{--}10^{13}
+  & \text{same as PETRA III}
+  & {\sim}\,30\text{--}100\,\text{ps}
+  & {\sim}\,10^{4}\text{--}10^{5}
+  & \makecell[tl]{100--1000$\times$ brilliance\\vs PETRA III.\\Total flux similar, but\\focused into smaller spot\\$\Rightarrow$ higher fluence.\\$\varepsilon \approx 20$\,pm\,rad}
+  & \makecell[tl]{\srcref{2018}{Schroer}{J.\,Synch.\,Rad.}{10.1107/S1600577518007907};\\
+  \srcref{2022}{Schroer}{EPJ Plus}{10.1140/epjp/s13360-022-03517-6}} \\
+\addlinespace
+
+%% ===== ESRF-EBS =====
+\makecell[tl]{ESRF-EBS\\(Grenoble)}
+  & \makecell[tl]{4\textsuperscript{th} gen.\\synchrotron}
+  & \gamma,\; 6\text{--}250\,\text{keV}
+  & {\sim}\,10^{13}
+  & \makecell[tl]{$352\,\text{MHz}$ (2.8\,ns)\\or $5.7\,\text{MHz}$ (176\,ns)}
+  & {\sim}\,50\text{--}200\,\text{ps}
+  & {\sim}\,10^{4}\text{--}10^{5}
+  & \makecell[tl]{200\,mA, 6\,GeV,\\844\,m ring.\\Uniform (992 bunches)\\or 16-bunch mode.\\$\varepsilon \approx 130$\,pm\,rad}
+  & \makecell[tl]{\srcref{2023}{Raimondi}{Comm.\,Phys.}{10.1038/s42005-023-01195-z};\\
+  \srcurl{ESRF}{Parameters}{https://www.esrf.fr/home/UsersAndScience/Accelerators/parameters.html}} \\
+\addlinespace
+
+%% ===== EuXFEL SP =====
+\makecell[tl]{EuXFEL\\SP mode\\(DESY)}
+  & \makecell[tl]{XFEL\\(burst)}
+  & \gamma,\; 3\text{--}25\,\text{keV}
+  & {\sim}\,2.7 \times 10^{16}\,\text{(peak)}
+  & \makecell[tl]{$4.5\,\text{MHz}$ (222\,ns)\\intra-train;\\10\,Hz trains\\(up to 2700/train)}
+  & {\sim}\,10\text{--}100\,\text{fs}
+  & {\sim}\,10^{12}
+  & \makecell[tl]{17.5\,GeV.\\0.65\,ms trains at 10\,Hz.\\Up to 27\,k pulses/s.\\${\sim}1.5$\,mJ/pulse.\\``Diffract before destroy''}
+  & \makecell[tl]{\srcref{2020}{Sobolev}{Comm.\,Phys.}{10.1038/s42005-020-0362-y};\\
+  \srcref{2014}{Brinkmann}{NIMA}{10.1016/j.nima.2014.09.033}} \\
+\addlinespace
+
+%% ===== EuXFEL CW =====
+\makecell[tl]{EuXFEL\\CW mode\\(DESY)}
+  & \makecell[tl]{XFEL\\(CW, planned)}
+  & \gamma,\; \text{soft--hard}
+  & {\sim}\,1.2 \times 10^{11}\,\text{ph/mm}^2\text{/s}
+  & 150\,\text{kHz}\;(6.7\,\text{\textmu s})
+  & {\sim}\,\text{fs}
+  & {\sim}\,10^{4}\,\text{ph/px}\;\text{(est.)}
+  & \makecell[tl]{Max 7.8\,GeV.\\0.5\,nC/bunch,\\0.125\,mA average.\\Continuous, no trains.\\CoRDIA design target:\\$1.5\times10^9$\,ph/px/s\\@110\,\um{} pitch}
+  & \makecell[tl]{\srcref{2014}{Brinkmann}{NIMA}{10.1016/j.nima.2014.09.033};\\
+  \srcref{2025}{Trunk}{JPCS}{10.1088/1742-6596/3010/1/012141}} \\
+\addlinespace
+
+%% ===== Talos F200X =====
+\makecell[tl]{Talos F200X\\(Thermo Fisher)}
+  & S/TEM
+  & e^{-},\; 200\,\text{keV}
+  & \makecell[tl]{$9.4 \times 10^{9}$\\(1.5\,nA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{X-FEG.\\Probe: 1.5\,nA @1\,nm}
+  & \makecell[tl]{\srcurl{TF}{Talos F200X DS}{https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/Talos-F200X-Datasheet.pdf}} \\
+\addlinespace
+
+%% ===== Talos F200 =====
+\makecell[tl]{Talos F200\\(Thermo Fisher)}
+  & S/TEM
+  & e^{-},\; 200\,\text{keV}
+  & \makecell[tl]{$1.4 \times 10^{9}$\\(220\,pA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{X-CFEG.\\Probe: 220\,pA (EELS)}
+  & \makecell[tl]{\srcurl{TF}{Talos F200 DS}{https://www.thermofisher.com/us/en/home/electron-microscopy/products/transmission-electron-microscopes.html}} \\
+\addlinespace
+
+%% ===== Spectra 200/300 =====
+\makecell[tl]{Spectra 200/300\\(Thermo Fisher)}
+  & S/TEM
+  & e^{-},\; 200\text{--}300\,\text{keV}
+  & \makecell[tl]{$6.2 \times 10^{9}$\\(${>}1$\,nA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{X-CFEG + S-CORR.\\${>}1$\,nA @${<}76$\,pm;\\100\,pA @50\,pm;\\30\,pA @50\,pm (mono)}
+  & \makecell[tl]{\srcurl{TF}{Spectra DS}{https://www.thermofisher.com/us/en/home/electron-microscopy/products/transmission-electron-microscopes.html}} \\
+\addlinespace
+
+%% ===== Titan Themis =====
+\makecell[tl]{Titan Themis\\(Thermo Fisher)}
+  & S/TEM
+  & e^{-},\; 300\,\text{keV}
+  & \makecell[tl]{$1.2 \times 10^{10}$\\(2\,nA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{X-FEG, Cs-corr.\\Probe: 2\,nA @0.2\,nm}
+  & \makecell[tl]{\srcurl{TF}{Titan Themis DS}{https://www.thermofisher.com/us/en/home/electron-microscopy/products/transmission-electron-microscopes.html}} \\
+\addlinespace
+
+%% ===== JEOL ARM300F2 =====
+\makecell[tl]{JEM-ARM300F2\\(JEOL)}
+  & S/TEM
+  & e^{-},\; 300\,\text{keV}
+  & \makecell[tl]{$3.1 \times 10^{6}$\\(0.5\,pA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{Cold FEG.\\Probe: 0.5\,pA\\(0.15\,pA low-dose)}
+  & \makecell[tl]{\srcurl{JEOL}{ARM300F2}{https://www.jeol.com/products/scientific/tem/JEM-ARM300F2.php}} \\
+\addlinespace
+
+%% ===== JEOL ARM200F =====
+\makecell[tl]{JEM-ARM200F\\(JEOL)}
+  & S/TEM
+  & e^{-},\; 200\,\text{keV}
+  & \makecell[tl]{\text{probe dep.}}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{Cs-corrected.\\Current density:\\8\,nA/nm$^2$ in\\focused probe}
+  & \makecell[tl]{\srcurl{JEOL}{ARM200F}{https://www.jeol.com/products/scientific/tem/JEM-ARM200F_NEOARM.php}} \\
+\addlinespace
+
+%% ===== ELSA =====
+\makecell[tl]{ELSA X3ED\\(Uni Bonn)}
+  & \makecell[tl]{Test beam\\(extracted $e^-$)}
+  & e^{-},\; 0.8\text{--}3.2\,\text{GeV}
+  & \makecell[tl]{$300\,\text{Hz}\text{--}4\times10^{8}$\\(aA--100\,pA)}
+  & \text{DC (continuous)}
+  & \text{DC}
+  & \text{N/A (DC beam)}
+  & \makecell[tl]{Slow resonance\\extraction from\\stretcher ring.\\1--10\,mm beam spot}
+  & \makecell[tl]{\srcurl{ELSA}{Facility}{https://www.pi.uni-bonn.de/elsa/en}} \\
+
+\end{longtable}
+
+\vspace{4pt}
+\noindent\textbf{Notes:}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \textbf{Ph/pulse} for synchrotrons is derived from total beamline flux $\div$ bunch repetition rate.
+  \item \textbf{PETRA IV} brilliance increase is 100--1000$\times$ vs PETRA III, but \emph{total} flux
+    (integrated over the full beam) is similar; the gain comes from concentrating photons into a smaller phase space.
+  \item \textbf{EuXFEL SP} peak flux is computed as $10^{12}$\,ph/pulse $\times$ 27\,k\,pulses/s;
+    time-averaged flux is much lower (0.65\% duty cycle).
+  \item \textbf{All electron sources} (S/TEMs, ELSA) deliver DC continuous beams.
+    Pulsed operation requires third-party modifications, typically either
+    \emph{laser-driven photoemission} (replacing or augmenting the electron gun)
+    or \emph{RF cavity beam choppers} (deflecting the beam into timed bunches).
+  \item \textbf{S/TEM} total flux is the probe current converted to e$^-$/s.
+    Fluence at the detector depends on magnification and illuminated area.
+  \item \textbf{ELSA} beam is DC-extracted via slow resonance extraction,
+    so ``pulse duration'' and ``particles per pulse'' do not apply.
+\end{itemize}
+
+\end{document}
