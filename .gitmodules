@@ -7,3 +7,6 @@
 [submodule "pdk/tsmc28"]
 	path = pdk/tsmc28
 	url = git@github.com:kcaisley/tsmc28.git
+[submodule "daq/fpga/SiTCP"]
+	path = daq/fpga/SiTCP
+	url = https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7.git

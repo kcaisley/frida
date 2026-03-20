@@ -1,0 +1,8 @@
+# Vivado build artifacts
+bit/
+designs/
+reports/
+.Xil/
+*.log
+*.jou
+*.str
