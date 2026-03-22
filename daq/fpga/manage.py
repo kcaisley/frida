@@ -1,10 +1,10 @@
 """FRIDA1 FPGA management: download SiTCP, compile, and flash bitstreams.
 
-Usage (from frida1-daq/fpga/):
-    python manage_firmware.py --get_sitcp
-    python manage_firmware.py --compile BDAQ53_KX1
-    python manage_firmware.py --flash bit/frida_bdaq53_kx1.bit
-    python manage_firmware.py --flash bit/frida_bdaq53_kx1.mcs
+Usage (from ~/frida/):
+    python daq/fpga/manage.py --get_sitcp
+    python daq/fpga/manage.py --compile BDAQ53_KX1
+    python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit
+    python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs
 """
 
 import os

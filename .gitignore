@@ -49,15 +49,17 @@ docs/tex/
 *-cache*
 fp-info-cache
 /\#auto_saved_files\#
-frida1-daq/dut/\#auto_saved_files\#
+daq/dut/\#auto_saved_files\#
 _autosave-*
 
 # Vivado / FPGA
-frida1-daq/fpga/SiTCP/
-frida1-daq/fpga/bit/
-frida1-daq/fpga/designs/
-frida1-daq/fpga/reports/
-frida1-daq/fpga/.Xil/
-frida1-daq/fpga/.ngc2edfcache/
+daq/fpga/SiTCP/
+daq/fpga/bit/
+daq/fpga/designs/
+daq/fpga/reports/
+daq/fpga/.Xil/
+daq/fpga/.ngc2edfcache/
 *.jou
 *.str
+daq/fpga/tight_setup_hold_pins.txt
+daq/fpga/clockInfo.txt

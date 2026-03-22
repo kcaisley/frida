@@ -5,21 +5,21 @@ with Enclustra Mercury KX1 or KX2 modules (Kintex-7).
 
 ## Usage
 
-Run commands from `/frida/frida1-daq/fpga/`
+Run commands from the project root (`~/frida/`)
 
 ```bash
 # 1. source vivado
 source /eda/local/scripts/vivado_2025.2.sh
 
 # 2. download SiTCP (only needed once)
-python manage_firmware.py --get_sitcp
+python daq/fpga/manage.py --get_sitcp
 
 # 3. compile
-python manage_firmware.py --compile BDAQ53_KX1
+python daq/fpga/manage.py --compile BDAQ53_KX1
 
 # 4. program FPGA via JTAG
-python manage_firmware.py --flash bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
-python manage_firmware.py --flash bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
+python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
+python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
 
 # if JTAG device not found, install cable drivers and replug USB:
 sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers/install_drivers
@@ -29,8 +29,8 @@ sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/ins
 
 - `frida1.v` — top-level: PLL, SiTCP Ethernet, RGMII, LVDS I/O, core
 - `frida1_core.v` — DAQ core: sequencer, SPI, GPIO, pulse gen, comp capture
-- `run.tcl` — Vivado synthesis/P&R/bitgen (called by manage_firmware.py)
-- `manage_firmware.py` — CLI for downloading SiTCP, compiling, and JTAG programming
+- `run.tcl` — Vivado synthesis/P&R/bitgen (called by manage.py)
+- `manage.py` — CLI for downloading SiTCP, compiling, and JTAG programming
 - `bdaq53_kx1.xdc` — pin constraints for BDAQ53 + Mercury KX1 (xc7k160t-1)
 - `bdaq53_kx2.xdc` — pin constraints for BDAQ53 + Mercury+ KX2 (xc7k160t-2)
 
@@ -42,6 +42,6 @@ sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/ins
 ## Dependencies
 
 - Vivado 2025.2 — synthesis and programming
-- pexpect, gitpython — `pip install pexpect gitpython`
+- Python packages — `uv sync --extra daq` (pexpect, gitpython, basil-daq, pyyaml, bitarray)
 - basil — ~/libs/basil, provides Verilog firmware modules
-- SiTCP — downloaded by `manage_firmware.py --get_sitcp`
+- SiTCP — downloaded by `manage.py --get_sitcp`

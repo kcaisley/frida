@@ -8,6 +8,11 @@ dependencies = [
     "pydantic",
     "pytest",
     "argcomplete",
+]
+
+[project.optional-dependencies]
+# Circuit design: hdl21, klayout, gdsfactory
+design = [
     "grpcio",
     "grpcio-tools",
     "protobuf",
@@ -15,7 +20,14 @@ dependencies = [
     "vlsir",
     "vlsirtools",
     "gdsfactory",
+]
+# DAQ: firmware build, JTAG flash, and host-side chip communication
+daq = [
     "basil-daq",
+    "pexpect",
+    "gitpython",
+    "pyyaml",
+    "bitarray",
 ]
 
 [build-system]
@@ -35,8 +47,6 @@ package = true
 hdl21 = { path = "../libs/Hdl21", editable = true }
 vlsir = { path = "../libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "../libs/Vlsir/VlsirTools", editable = true }
-gdsfactory = { path = "../libs/gdsfactory", editable = true }
-basil-daq = { path = "../libs/basil", editable = true }
 
 [tool.pyright]
 # Keep a single pyright config here. Zed uses basedpyright for Python,
