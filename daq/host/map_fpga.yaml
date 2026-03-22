@@ -22,13 +22,13 @@ transfer_layer:
       tcp_connection: true
 
 hw_drivers:
-  # FIFO for ADC data readback
-  # Active when COMP_OUT streams conversion results
+  # FIFO for ADC data readback (TCP streaming, no basil bus involvement).
+  # Data flows directly: core -> fifo_32_to_8 -> SiTCP TCP stream.
+  # This approach follows bdaq53 and tjmonopix2. For bus-accessible FIFO
+  # with status/fill-level polling, see obelix1-daq's bram_fifo approach.
   - name: fifo
-    type: bram_fifo
+    type: sitcp_fifo
     interface: intf
-    base_addr: 0x8000
-    base_data_addr: 0x80000000
 
   # Sequencer for ADC timing signals
   # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC, CLK_COMP_CAP, SEN_COMP

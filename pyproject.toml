@@ -19,11 +19,11 @@ design = [
     "hdl21",
     "vlsir",
     "vlsirtools",
-    "gdsfactory",
 ]
 # DAQ: firmware build, JTAG flash, and host-side chip communication
 daq = [
     "basil-daq",
+    "setuptools<81",
     "pexpect",
     "gitpython",
     "pyyaml",
