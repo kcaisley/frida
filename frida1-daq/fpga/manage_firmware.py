@@ -1,0 +1,286 @@
+"""FRIDA1 FPGA management: download SiTCP, compile, and flash bitstreams.
+
+Usage (from frida1-daq/fpga/):
+    python manage_firmware.py --get_sitcp
+    python manage_firmware.py --compile BDAQ53_KX1
+    python manage_firmware.py --flash bit/frida_bdaq53_kx1.bit
+    python manage_firmware.py --flash bit/frida_bdaq53_kx1.mcs
+"""
+
+import os
+import time
+import logging
+import argparse
+import fileinput
+from pathlib import Path
+
+import pexpect
+import git
+
+log = logging.getLogger('frida1.manage_firmware')
+
+SITCP_REPO = 'https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7'
+
+# Paths relative to this file's location (lives in frida1-daq/fpga/)
+_FPGA_DIR = Path(__file__).resolve().parent
+_SITCP_DIR = _FPGA_DIR / 'SiTCP'
+
+# Build targets: platform -> (fpga_part, xdc_file, flash_size_mb)
+TARGETS = {
+    'BDAQ53_KX1': ('xc7k160tfbg676-1', 'bdaq53_kx1.xdc', 64),
+    'BDAQ53_KX2': ('xc7k160tffg676-2', 'bdaq53_kx2.xdc', 64),
+}
+
+
+def _read_vivado_output(vivado, timeout=1):
+    """Read all available output from a pexpect-driven Vivado process."""
+    chunks = bytearray()
+    try:
+        while not vivado.expect(r'.+', timeout=timeout):
+            chunks += vivado.match.group(0)
+    except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF):
+        pass
+    return chunks.decode('utf-8')
+
+
+def _prepend_line(filepath, line):
+    """Prepend a single line to a file."""
+    path = Path(filepath)
+    content = path.read_bytes()
+    path.write_bytes(f'{line}\n'.encode() + content)
+
+
+def get_sitcp():
+    """Download SiTCP netlist from GitHub and apply required patches."""
+    sitcp_dir = _SITCP_DIR
+
+    if (sitcp_dir / '.git').is_dir():
+        log.info('SiTCP folder already exists, pulling updates')
+        g = git.cmd.Git(str(sitcp_dir))
+        result = g.pull()
+        if 'up to date' in result:
+            log.info('SiTCP is up to date')
+            return
+        log.info('Updated SiTCP, re-applying patches')
+    else:
+        log.info('Downloading SiTCP from %s', SITCP_REPO)
+        git.Repo.clone_from(url=SITCP_REPO, to_path=str(sitcp_dir), branch='master')
+
+    # Patch 1: Add `default_nettype wire to files that lack it.
+    # Without this, any module that sets `default_nettype none will break
+    # SiTCP's implicit wire declarations.
+    _prepend_line(sitcp_dir / 'TIMER.v', r'`default_nettype wire')
+    _prepend_line(sitcp_dir / 'WRAP_SiTCP_GMII_XC7K_32K.V', r'`default_nettype wire')
+
+    # Patch 2: Force SiTCP to always use EXT_IP_ADDR.
+    # The original code selects DEFAULT_IP_ADDR when FORCE_DEFAULTn=0,
+    # which ignores the IP address set in the Verilog instantiation.
+    wrap_file = sitcp_dir / 'WRAP_SiTCP_GMII_XC7K_32K.V'
+    for line in fileinput.input([str(wrap_file)], inplace=True):
+        print(line.replace(
+            "assign\tMY_IP_ADDR[31:0]\t= (~FORCE_DEFAULTn | (EXT_IP_ADDR[31:0]==32'd0) "
+            "\t? DEFAULT_IP_ADDR[31:0]\t\t: EXT_IP_ADDR[31:0]\t\t);",
+            "assign\tMY_IP_ADDR[31:0]\t= EXT_IP_ADDR[31:0];"
+        ), end='')
+
+    log.info('SiTCP downloaded and patched')
+
+
+def compile(platform):
+    """Compile FPGA bitstream for the given platform using Vivado."""
+    if platform not in TARGETS:
+        raise ValueError(
+            f"Unknown platform '{platform}'. "
+            f"Supported: {', '.join(TARGETS)}"
+        )
+
+    fpga_part, xdc_file, flash_size = TARGETS[platform]
+    log.info('Compiling for %s (%s)', platform, fpga_part)
+
+    command = f'vivado -mode batch -source run.tcl -tclargs {fpga_part} {xdc_file} {flash_size}'
+    log.info('This takes several minutes...')
+
+    try:
+        vivado = pexpect.spawn(command, cwd=str(_FPGA_DIR), timeout=10)
+        vivado.expect('Vivado', timeout=10)
+    except pexpect.exceptions.ExceptionPexpect:
+        raise RuntimeError(
+            f'Cannot start Vivado. Is it on your PATH?\n'
+            f'  Try: source /eda/local/scripts/vivado_2025.2.sh'
+        )
+
+    try:
+        poll_timeout = 36  # iterations * 5s = 180s max silence
+        silent_count = 0
+        while silent_count < poll_timeout:
+            output = _read_vivado_output(vivado)
+            if output:
+                if 'write_cfgmem completed successfully' in output:
+                    print('.', flush=True)
+                    break
+                print('.', end='', flush=True)
+                silent_count = 0
+            else:
+                time.sleep(5)
+                silent_count += 1
+        else:
+            raise RuntimeError('Timeout during compilation — check vivado.log')
+    finally:
+        if vivado.isalive():
+            vivado.close()
+
+    log.info('SUCCESS — bitstream in %s/bit/', _FPGA_DIR)
+
+
+def flash(filepath):
+    """Program FPGA or flash memory via JTAG.
+
+    .bit/.bin files are written to FPGA SRAM (volatile).
+    .mcs files are written to SPI flash (persistent).
+    """
+    filepath = str(Path(filepath).resolve())
+
+    # Try vivado_lab first (free), fall back to full vivado
+    vivado = None
+    for cmd in ('vivado_lab -mode tcl', 'vivado -mode tcl'):
+        try:
+            vivado = pexpect.spawn(cmd, timeout=10)
+            vivado.expect('Vivado', timeout=10)
+            break
+        except pexpect.exceptions.ExceptionPexpect:
+            if vivado and vivado.isalive():
+                vivado.close()
+            vivado = None
+
+    if vivado is None:
+        raise RuntimeError('Cannot start vivado or vivado_lab')
+
+    try:
+        vivado.expect(['vivado_lab%', 'Vivado%'], timeout=30)
+
+        log.info('Connecting to JTAG interface')
+        vivado.sendline('open_hw_manager')
+        vivado.expect(['vivado_lab%', 'Vivado%'])
+
+        vivado.sendline('connect_hw_server')
+        vivado.expect('localhost')
+        _read_vivado_output(vivado)
+
+        vivado.sendline('current_hw_target')
+        ret = _read_vivado_output(vivado)
+        log.info('Connected to: %s', ret.strip())
+        if 'WARNING' in ret:
+            raise RuntimeError(f'No JTAG programmer found:\n{ret}')
+
+        vivado.sendline('open_hw_target')
+        vivado.expect('Opening hw_target')
+
+        vivado.sendline('current_hw_device [lindex [get_hw_devices] 0]')
+        vivado.expect(['vivado_lab%', 'Vivado%'])
+        _read_vivado_output(vivado)
+
+        if filepath.endswith(('.bit', '.bin')):
+            log.info('Writing to FPGA SRAM (volatile) — %s', filepath)
+
+            vivado.sendline('set devPart [get_property PART [current_hw_device]]')
+            vivado.expect(['vivado_lab%', 'Vivado%'])
+
+            vivado.sendline(f'set_property PROGRAM.FILE {{{filepath}}} [current_hw_device]')
+            vivado.expect(['vivado_lab%', 'Vivado%'])
+
+            vivado.sendline('program_hw_devices [current_hw_device]')
+            vivado.expect('End of startup status: HIGH')
+
+        elif filepath.endswith('.mcs'):
+            log.info('Writing to SPI flash (persistent) — %s', filepath)
+
+            # Try KX2 flash chip first, fall back to older KX1 chip
+            for flash_chip in ('s25fl512s-spi-x1_x2_x4', 'mt25ql256-spi-x1_x2_x4'):
+                try:
+                    vivado.sendline(
+                        f'create_hw_cfgmem -hw_device [current_hw_device] '
+                        f'[lindex [get_cfgmem_parts {{{flash_chip}}}] 0]'
+                    )
+                    vivado.sendline('set_property PROGRAM.ADDRESS_RANGE {use_file} [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline(f'set_property PROGRAM.FILES {{{filepath}}} [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline('set_property PROGRAM.BLANK_CHECK 0 [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline('set_property PROGRAM.ERASE 1 [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline('set_property PROGRAM.CFG_PROGRAM 1 [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline('set_property PROGRAM.VERIFY 1 [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.sendline('create_hw_bitstream -hw_device [current_hw_device] [get_property PROGRAM.HW_CFGMEM_BITFILE [current_hw_device]]')
+                    vivado.sendline('program_hw_devices [current_hw_device]')
+                    vivado.expect('End of startup status: HIGH', timeout=10)
+                    vivado.sendline('program_hw_cfgmem -hw_cfgmem [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+                    vivado.expect('Flash programming completed successfully', timeout=120)
+                    break
+                except pexpect.exceptions.TIMEOUT:
+                    log.warning('Flash chip %s failed, trying next...', flash_chip)
+                    continue
+            else:
+                raise RuntimeError('Flash programming failed with all known chip types')
+
+            log.info(_read_vivado_output(vivado))
+            vivado.sendline('boot_hw_device [current_hw_device]')
+            vivado.expect('Done pin status: HIGH')
+
+        else:
+            raise ValueError(f"Unknown file type: {filepath} (expected .bit, .bin, or .mcs)")
+
+        log.info('Programming successful!')
+
+    finally:
+        # Always clean up
+        try:
+            vivado.sendline('close_hw_target')
+            vivado.expect('Closing', timeout=5)
+            vivado.sendline('exit')
+            vivado.expect('Exiting', timeout=5)
+        except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF):
+            pass
+        if vivado.isalive():
+            vivado.close()
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+    parser = argparse.ArgumentParser(
+        description='FRIDA1 FPGA management: compile, flash, and download SiTCP.',
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        '--compile',
+        metavar='PLATFORM',
+        help=f'Compile bitstream for platform.\nSupported: {", ".join(TARGETS)}',
+    )
+    parser.add_argument(
+        '--flash',
+        metavar='FILE',
+        help='Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG.',
+    )
+    parser.add_argument(
+        '--get_sitcp',
+        action='store_true',
+        help='Download and patch SiTCP netlist.',
+    )
+
+    args = parser.parse_args()
+
+    if not any([args.compile, args.flash, args.get_sitcp]):
+        parser.print_help()
+        return
+
+    if args.compile and args.flash:
+        parser.error('Cannot compile and flash at the same time.')
+
+    if args.get_sitcp or args.compile:
+        get_sitcp()
+
+    if args.compile:
+        compile(args.compile)
+    elif args.flash:
+        flash(args.flash)
+
+
+if __name__ == '__main__':
+    main()
