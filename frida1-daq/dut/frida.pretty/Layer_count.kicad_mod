@@ -1,0 +1,235 @@
+(footprint "Layer_count"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(descr "Layer count indicator, copper fill on each layer for verifying stackup")
+	(property "Reference" "REF**"
+		(at 0 -0.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "abffe4c3-753b-453d-b15e-ac1515108edc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "Layer_count"
+		(at 0 1 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "913101f0-22ce-4dbd-b0cd-093cfd83fade")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "cb8f0e14-8846-43c4-a1a9-950b7de4817e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "961c086b-2b72-4782-9cf1-217c803eff30")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -4.075 -4.5)
+		(end 3.675 -1.5)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "F.Cu")
+		(uuid "a34e655b-da16-4f1d-9f36-274fe8e23c0f")
+	)
+	(fp_rect
+		(start -3.575 -4)
+		(end -2.075 -2)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "F.Cu")
+		(uuid "af7f6e06-d5f8-4b03-9615-4bcba6cb2e68")
+	)
+	(fp_rect
+		(start -4.325 -4.75)
+		(end 3.925 -1.25)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(fill yes)
+		(layer "F.Mask")
+		(uuid "3cba539d-f316-4bfa-8f29-7ef516f53c2b")
+	)
+	(fp_rect
+		(start -4.075 -4.5)
+		(end 3.675 -1.5)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "B.Cu")
+		(uuid "71801945-bf7e-4f8e-9bbb-a406ff192083")
+	)
+	(fp_rect
+		(start 1.675 -4)
+		(end 3.175 -2)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "B.Cu")
+		(uuid "b74f0dde-0514-4e27-a387-85922e911204")
+	)
+	(fp_rect
+		(start -4.325 -4.75)
+		(end 3.925 -1.25)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(fill yes)
+		(layer "B.Mask")
+		(uuid "f64f947f-549f-4aa5-9b7f-6427bc87f715")
+	)
+	(fp_rect
+		(start -4.075 -4.5)
+		(end 3.675 -1.5)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "In1.Cu")
+		(uuid "50e78c4e-4103-4c2a-b6ad-e6bb9c2487bc")
+	)
+	(fp_rect
+		(start -4.075 -4.5)
+		(end 3.675 -1.5)
+		(stroke
+			(width 0.2)
+			(type solid)
+		)
+		(fill no)
+		(layer "In1.Cu")
+		(uuid "7be979d7-085e-4de7-8ce8-b0ce56a825d0")
+	)
+	(fp_rect
+		(start -1.825 -4)
+		(end -0.325 -2)
+		(stroke
+			(width 0.2)
+			(type default)
+		)
+		(fill no)
+		(layer "In1.Cu")
+		(uuid "b1937a46-3905-46dd-9696-f479c2942dba")
+	)
+	(fp_rect
+		(start -0.075 -4)
+		(end 1.425 -2)
+		(stroke
+			(width 0.2)
+			(type solid)
+		)
+		(fill no)
+		(layer "In1.Cu")
+		(uuid "da674ec5-2a53-42f3-9a11-0269033a5434")
+	)
+	(fp_text user "1"
+		(at -2.825 -3 0)
+		(unlocked yes)
+		(layer "F.Cu")
+		(uuid "d90084e6-6417-47d5-8e21-acb43a42e550")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.25)
+				(bold yes)
+			)
+		)
+	)
+	(fp_text user "4"
+		(at 2.425 -3 0)
+		(unlocked yes)
+		(layer "B.Cu")
+		(uuid "c441d282-22ef-445f-89a3-e71229380207")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.25)
+				(bold yes)
+			)
+			(justify mirror)
+		)
+	)
+	(fp_text user "3"
+		(at 0.675 -3 0)
+		(unlocked yes)
+		(layer "In1.Cu")
+		(uuid "5937737e-ae53-44e5-847a-26b2ee89af8f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.25)
+				(bold yes)
+			)
+			(justify mirror)
+		)
+	)
+	(fp_text user "2"
+		(at -1.075 -3 0)
+		(unlocked yes)
+		(layer "In1.Cu")
+		(uuid "740b4584-fecf-4c81-ae44-f9add3f0ee95")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.25)
+				(bold yes)
+			)
+		)
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "461af9cd-6602-4706-83c8-77d7be8a8f36")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(embedded_fonts no)
+)
