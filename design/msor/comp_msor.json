@@ -3,7 +3,7 @@
   "macro_lefs": ["design/msor/sg13g2_macros.lef"],
   "verilog": "design/msor/comp.v",
   "top_module": "Comp",
-  "utilization": 90,
+  "utilization": 75,
   "aspect_ratio": 1.5,
   "core_margin": 0.0,
   "site_name": "unit",
@@ -14,6 +14,28 @@
     { "primary": "inp", "mirror": "inn", "edge": "top" },
     { "primary": "outn", "mirror": "outp", "edge": "bottom" },
     { "primary": "clk", "mirror": "clkb", "edge": "left" }
+  ],
+  "placements": [
+    { "primary": "mdiff_p1", "mirror": "mdiff_n1" },
+    { "primary": "mdiff_p2", "mirror": "mdiff_n2" },
+    { "primary": "mdiff_p3", "mirror": "mdiff_n3" },
+    { "primary": "mdiff_p4", "mirror": "mdiff_n4" },
+    { "primary": "mrst_p1", "mirror": "mrst_n1" },
+    { "primary": "mrst_p2", "mirror": "mrst_n2" },
+    { "primary": "mlatch_rst_p1", "mirror": "mlatch_rst_n1" },
+    { "primary": "mlatch_rst_p2", "mirror": "mlatch_rst_n2" },
+    { "primary": "ma_p1", "mirror": "ma_n1" },
+    { "primary": "ma_p2", "mirror": "ma_n2" },
+    { "primary": "mb_p1", "mirror": "mb_n1" },
+    { "primary": "mb_p2", "mirror": "mb_n2" },
+    { "primary": "mb_p3", "mirror": "mb_n3" },
+    { "primary": "mb_p4", "mirror": "mb_n4" },
+    { "primary": "mbuf_outp_top", "mirror": "mbuf_outn_top" },
+    { "primary": "mbuf_outp_bot", "mirror": "mbuf_outn_bot" },
+    { "primary": "mtail" },
+    { "primary": "mtail_rst" },
+    { "primary": "mbias1", "mirror": "mbias2" },
+    { "primary": "mbias3", "mirror": "mbias4" }
   ],
   "output_def": "scratch/comp_floorplanned.def"
 }
