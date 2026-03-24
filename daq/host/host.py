@@ -316,7 +316,7 @@ class Frida:
     def _configure_sequencer(
         self,
         conversion_period_ns: int = CONVERSION_PERIOD_NS,
-        seq_clk_period_ns: float = 5.0,
+        seq_clk_period_ns: float = 2.5,
         capture_delay_steps: int = 1,
     ) -> None:
         """Configure the sequencer for ADC timing.
@@ -328,7 +328,7 @@ class Frida:
 
         Args:
             conversion_period_ns: Total conversion time in ns (default 100ns = 10 Msps)
-            seq_clk_period_ns: Sequencer clock period in ns (default 5ns = 200 MHz)
+            seq_clk_period_ns: Sequencer clock period in ns (default 2.5ns = 400 MHz)
             capture_delay_steps: Steps to delay CLK_COMP_CAP for propagation compensation
         """
         from .sequences import generate_conversion_sequence

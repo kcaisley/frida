@@ -106,7 +106,13 @@ module daq_core #(
     // ---------------------------------------------------------------
     // Global reset (independent of bus_rst, e.g. PLL not locked)
     // ---------------------------------------------------------------
-    input wire reset
+    input wire reset,
+
+    // ---------------------------------------------------------------
+    // Sequencer pattern readback for LED display
+    // ---------------------------------------------------------------
+    output wire [3:0] seq_pattern_out,  // tracks [3:0] at seq_pattern_addr
+    input wire [5:0]  seq_pattern_addr  // address 0..39
 );
 
     // ===================================================================
@@ -173,6 +179,21 @@ module daq_core #(
     assign clk_samp  = seq_out[1];
     assign clk_comp  = seq_out[2];
     assign clk_logic = seq_out[3];
+
+    // Shadow copy of first 40 seq_gen pattern bytes (tracks [3:0] only)
+    // Snoops bus writes to seq_gen memory region for LED display
+    localparam SEQ_MEM_OFFSET = 64;  // matches seq_gen_core MEM_OFFSET
+    reg [3:0] seq_shadow [0:39];
+    integer si;
+    initial for (si = 0; si < 40; si = si + 1) seq_shadow[si] = 0;
+
+    always @(posedge bus_clk)
+        if (bus_wr
+            && bus_add >= SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET
+            && bus_add <  SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET + 40)
+            seq_shadow[bus_add - SEQ_GEN_BASEADDR - SEQ_MEM_OFFSET] <= bus_data[3:0];
+
+    assign seq_pattern_out = seq_shadow[seq_pattern_addr];
 
     // Capture control signals (directly to fast_spi_rx)
     wire clk_comp_cap;  // seq_out[4] - capture clock

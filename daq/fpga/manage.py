@@ -86,6 +86,22 @@ def get_sitcp():
     log.info('SiTCP downloaded and patched')
 
 
+def _clean_build_artifacts():
+    """Remove Vivado build artifacts from previous runs."""
+    import glob
+    patterns = ['*.backup.*', 'vivado*.log', 'vivado*.jou',
+                'clockInfo.txt', 'tight_setup_hold_pins.txt',
+                'planAhead.ngc2edif.log']
+    for pattern in patterns:
+        for f in glob.glob(str(_FPGA_DIR / pattern)):
+            Path(f).unlink(missing_ok=True)
+    for d in ['.Xil', '.ngc2edfcache', 'designs', 'bit', 'reports']:
+        path = _FPGA_DIR / d
+        if path.is_dir():
+            import shutil
+            shutil.rmtree(path)
+
+
 def compile(platform):
     """Compile FPGA bitstream for the given platform using Vivado."""
     if platform not in TARGETS:
@@ -93,6 +109,8 @@ def compile(platform):
             f"Unknown platform '{platform}'. "
             f"Supported: {', '.join(TARGETS)}"
         )
+
+    _clean_build_artifacts()
 
     fpga_part, xdc_file, flash_size = TARGETS[platform]
     log.info('Compiling for %s (%s)', platform, fpga_part)
@@ -141,10 +159,11 @@ def flash(filepath):
     filepath = str(Path(filepath).resolve())
 
     # Try vivado_lab first (free), fall back to full vivado
+    # Run from fpga dir so Vivado writes logs/journals there, not cwd
     vivado = None
     for cmd in ('vivado_lab -mode tcl', 'vivado -mode tcl'):
         try:
-            vivado = pexpect.spawn(cmd, timeout=10)
+            vivado = pexpect.spawn(cmd, cwd=str(_FPGA_DIR), timeout=10)
             vivado.expect('Vivado', timeout=10)
             break
         except pexpect.exceptions.ExceptionPexpect:

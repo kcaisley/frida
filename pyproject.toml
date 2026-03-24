@@ -27,7 +27,9 @@ daq = [
     "pexpect",
     "gitpython",
     "pyyaml",
-    "bitarray",
+    "bitarray<3",
+    "pyvisa",
+    "pyvisa-py",
 ]
 
 [build-system]

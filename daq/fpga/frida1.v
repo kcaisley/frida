@@ -58,6 +58,9 @@ module frida1 (
     // Comparator output from chip (LVDS)
     input wire        COMP_OUT_P, COMP_OUT_N,
 
+    // PMOD debug header (active signals for logic analyzer)
+    output wire [7:0] PMOD,
+
     // Ethernet
     output wire [3:0] rgmii_txd,
     output wire       rgmii_tx_ctl,
@@ -72,10 +75,11 @@ module frida1 (
 
 
 // ===================================================================
-// PLL: 100 MHz -> BUS_CLK, CLK125TX, CLK125TX90, SEQ_CLK
+// PLL 1: Communication clocks (SiTCP / Ethernet)
+//   100 MHz * 10 = 1000 MHz VCO
 // ===================================================================
 wire RST;
-wire BUS_CLK_PLL, CLK125PLLTX, CLK125PLLTX90, SEQ_CLK_PLL;
+wire BUS_CLK_PLL, CLK125PLLTX, CLK125PLLTX90;
 wire PLL_FEEDBACK, LOCKED;
 
 PLLE2_BASE #(
@@ -87,26 +91,22 @@ PLLE2_BASE #(
     .REF_JITTER1(0.0),
     .STARTUP_WAIT("FALSE"),
 
-    .CLKOUT0_DIVIDE(7),        // 1000/7 = 142.86 MHz (BUS_CLK)
+    .CLKOUT0_DIVIDE(7),        // 1000/7 = 142.86 MHz (BUS_CLK, SiTCP needs >129 MHz)
     .CLKOUT0_DUTY_CYCLE(0.5),
     .CLKOUT0_PHASE(0.0),
 
-    .CLKOUT1_DIVIDE(8),        // 1000/8 = 125 MHz (CLK125TX)
+    .CLKOUT1_DIVIDE(8),        // 1000/8 = 125 MHz (Ethernet RGMII TX)
     .CLKOUT1_DUTY_CYCLE(0.5),
     .CLKOUT1_PHASE(0.0),
 
-    .CLKOUT2_DIVIDE(8),        // 1000/8 = 125 MHz (CLK125TX90)
+    .CLKOUT2_DIVIDE(8),        // 1000/8 = 125 MHz (Ethernet RGMII TX, 90° phase)
     .CLKOUT2_DUTY_CYCLE(0.5),
-    .CLKOUT2_PHASE(90.0),
-
-    .CLKOUT3_DIVIDE(5),        // 1000/5 = 200 MHz (SEQ_CLK)
-    .CLKOUT3_DUTY_CYCLE(0.5),
-    .CLKOUT3_PHASE(0.0)
-) PLLE2_BASE_inst (
+    .CLKOUT2_PHASE(90.0)
+) PLLE2_BASE_comm (
     .CLKOUT0(BUS_CLK_PLL),
     .CLKOUT1(CLK125PLLTX),
     .CLKOUT2(CLK125PLLTX90),
-    .CLKOUT3(SEQ_CLK_PLL),
+    .CLKOUT3(),
     .CLKOUT4(),
     .CLKOUT5(),
     .CLKFBOUT(PLL_FEEDBACK),
@@ -117,6 +117,41 @@ PLLE2_BASE #(
     .CLKFBIN(PLL_FEEDBACK)
 );
 
+// ===================================================================
+// PLL 2: Sequencer clock
+//   100 MHz * 8 = 800 MHz VCO
+//   2.5ns step → 40 steps per 100ns conversion = 10 Msps
+// ===================================================================
+wire SEQ_CLK_PLL;
+wire PLL2_FEEDBACK, LOCKED2;
+
+PLLE2_BASE #(
+    .BANDWIDTH("OPTIMIZED"),
+    .CLKFBOUT_MULT(8),         // 100 MHz * 8 = 800 MHz VCO
+    .CLKFBOUT_PHASE(0.0),
+    .CLKIN1_PERIOD(10.000),
+    .DIVCLK_DIVIDE(1),
+    .REF_JITTER1(0.0),
+    .STARTUP_WAIT("FALSE"),
+
+    .CLKOUT0_DIVIDE(2),        // 800/2 = 400 MHz (SEQ_CLK)
+    .CLKOUT0_DUTY_CYCLE(0.5),
+    .CLKOUT0_PHASE(0.0)
+) PLLE2_BASE_seq (
+    .CLKOUT0(SEQ_CLK_PLL),
+    .CLKOUT1(),
+    .CLKOUT2(),
+    .CLKOUT3(),
+    .CLKOUT4(),
+    .CLKOUT5(),
+    .CLKFBOUT(PLL2_FEEDBACK),
+    .LOCKED(LOCKED2),
+    .CLKIN1(FCLK_IN),
+    .PWRDWN(0),
+    .RST(!RESET_BUTTON),
+    .CLKFBIN(PLL2_FEEDBACK)
+);
+
 (* KEEP = "{TRUE}" *) wire BUS_CLK;
 wire CLK125TX, CLK125TX90, CLK125RX, SEQ_CLK;
 BUFG BUFG_inst_BUS_CLK   ( .O(BUS_CLK),    .I(BUS_CLK_PLL)   );
@@ -125,7 +160,7 @@ BUFG BUFG_inst_CLK125TX90( .O(CLK125TX90), .I(CLK125PLLTX90)  );
 BUFG BUFG_inst_CLK125RX  ( .O(CLK125RX),   .I(rgmii_rxc)      );
 BUFG BUFG_inst_SEQ_CLK   ( .O(SEQ_CLK),    .I(SEQ_CLK_PLL)    );
 
-assign RST = !RESET_BUTTON | !LOCKED;
+assign RST = !RESET_BUTTON | !LOCKED | !LOCKED2;
 
 
 // ===================================================================
@@ -392,7 +427,10 @@ daq_core i_frida_core (
 
     .comp_out(comp_out_int),
 
-    .reset(RST)
+    .reset(RST),
+
+    .seq_pattern_out(seq_pattern_out),
+    .seq_pattern_addr(led_step)
 );
 
 
@@ -404,28 +442,58 @@ assign VDD_LS = 1'b1;  // High reference
 
 
 // ===================================================================
-// LEDs: rolling pattern, all flash when USER_BUTTON pressed
+// PMOD debug header for logic analyzer
 // ===================================================================
-// ~143 MHz BUS_CLK -> need ~24 bits to count 0.5s (2^23 = 8M, 143M/8M ~ 18 steps/s)
-// Use bits [25:23] for ~0.5s per LED step at 143 MHz (143M / 2^23 = ~17 Hz, 8 steps = ~0.47s each)
-reg [25:0] led_counter;
-always @(posedge BUS_CLK or posedge RST)
-    if (RST)
-        led_counter <= 0;
-    else
-        led_counter <= led_counter + 1;
+// PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
+// Pins 5,6,11,12 are GND/VCC — not available as signals.
+// Pins 1-4: sequencer clock outputs
+// Pins 7-10: SPI + reset
+assign PMOD[0] = clk_init_int;   // Pin 1: CLK_INIT
+assign PMOD[1] = clk_samp_int;   // Pin 2: CLK_SAMP
+assign PMOD[2] = clk_comp_int;   // Pin 3: CLK_COMP
+assign PMOD[3] = clk_logic_int;  // Pin 4: CLK_LOGIC
+assign PMOD[4] = SPI_SCLK;       // Pin 7: SPI_SCLK
+assign PMOD[5] = SPI_SDO;        // Pin 8: SPI_SDO
+assign PMOD[6] = SPI_CS_B;       // Pin 9: SPI_CS_B
+assign PMOD[7] = RST_B;          // Pin 10: RST_B
 
-wire [2:0] led_phase = led_counter[25:23];
-reg [7:0] led_rolling;
+
+// ===================================================================
+// LEDs: slow playback of seq_gen pattern from block RAM shadow
+// ===================================================================
+// LED[3:0] reads the actual pattern loaded into seq_gen memory.
+// Steps through addresses 0..39 at 0.25s each = 10s total loop.
+// Whatever the host writes to the sequencer is displayed.
+localparam LED_COUNTS_PER_STEP = 100_000_000;  // 400 MHz * 0.25s
+
+reg [26:0] led_timer;
+reg [5:0]  led_step;  // 0..39
+
+always @(posedge SEQ_CLK or posedge RST)
+    if (RST) begin
+        led_timer <= 0;
+        led_step <= 0;
+    end else if (led_timer >= LED_COUNTS_PER_STEP) begin
+        led_timer <= 0;
+        led_step <= (led_step == 39) ? 0 : led_step + 1;
+    end else begin
+        led_timer <= led_timer + 1;
+    end
+
+// seq_pattern_out[3:0] = {logic, comp, samp, init} at address led_step
+// read from shadow copy of seq_gen block RAM (snooped on bus writes)
+wire [3:0] seq_pattern_out;
+
+// LED[3:0] = onboard module LEDs: sequencer pattern playback
+// LED[7:4] = BDAQ53 board LEDs: rolling / all-flash on button press
+// Active-low on BDAQ53
+assign LED[3:0] = ~seq_pattern_out;
+
+reg [3:0] led_board_rolling;
 always @(*) begin
-    led_rolling = 8'b0;
-    led_rolling[led_phase] = 1'b1;
+    led_board_rolling = 4'b0;
+    led_board_rolling[led_step[1:0]] = 1'b1;
 end
-
-// Button is active-low: pressed = 0, released = 1
-// When pressed: all LEDs on (flash using bit 22 for visible blink ~35 Hz)
-// When released: rolling pattern
-// LEDs are active-low on BDAQ53 (accent with ~)
-assign LED = USER_BUTTON ? ~led_rolling : (led_counter[22] ? 8'h00 : 8'hFF);
+assign LED[7:4] = USER_BUTTON ? ~led_board_rolling : (led_timer[24] ? 4'hF : 4'h0);
 
 endmodule

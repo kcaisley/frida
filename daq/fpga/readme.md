@@ -8,18 +8,23 @@ with Enclustra Mercury KX1 or KX2 modules (Kintex-7).
 Run commands from the project root (`~/frida/`)
 
 ```bash
+# 0. install python dependencies (only needed once)
+#    if design libs (hdl21, vlsir) are not on this machine,
+#    comment out [tool.uv.sources] in pyproject.toml first
+uv sync --extra daq
+
 # 1. source vivado
 source /eda/local/scripts/vivado_2025.2.sh
 
 # 2. download SiTCP (only needed once)
-python daq/fpga/manage.py --get_sitcp
+uv run python daq/fpga/manage.py --get_sitcp
 
 # 3. compile
-python daq/fpga/manage.py --compile BDAQ53_KX1
+uv run python daq/fpga/manage.py --compile BDAQ53_KX1
 
 # 4. program FPGA via JTAG
-python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
-python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
+uv run python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
+uv run python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
 
 # if JTAG device not found, install cable drivers and replug USB:
 sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers/install_drivers

@@ -1,0 +1,22 @@
+# Agilent 33250A Function/Arbitrary Waveform Generator
+#
+# Connected via USB-to-RS232 adapter.
+# Sine, square, ramp, pulse, noise, DC, arbitrary waveforms.
+
+name: frida-awg
+version: 0.1.0
+
+transfer_layer:
+  - name: awg_intf
+    type: Serial
+    init:
+      port: "/dev/ttyUSB0"  # TODO: update with actual serial port
+      baudrate: 9600         # 33250A default
+      parity: "N"
+      stopbits: 1
+      timeout: 2
+
+hw_drivers:
+  - name: awg
+    type: agilent33250a
+    interface: awg_intf

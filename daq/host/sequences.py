@@ -8,78 +8,63 @@
 # Generates timing sequences for the 6 sequencer output signals:
 #   CLK_INIT      - DAC initialization pulse
 #   CLK_SAMP      - Sample-and-hold trigger
-#   CLK_COMP      - Comparator clock (200 MHz toggle)
-#   CLK_LOGIC     - SAR logic clock (200 MHz toggle, 2.5ns delayed)
+#   CLK_COMP      - Comparator clock (5ns period = 2.5ns high, 2.5ns low)
+#   CLK_LOGIC     - SAR logic clock (5ns period, interleaved with CLK_COMP)
 #   CLK_COMP_CAP  - Capture clock for fast_spi_rx SCLK (samples COMP_OUT)
 #   SEN_COMP      - Frame enable for fast_spi_rx SEN (high during 17 capture cycles)
 #
-# Timing diagram for one 100ns conversion cycle at 10 Msps (from tb_frida_top.sp):
+# At 400 MHz sequencer clock (2.5ns steps), one 100ns conversion = 40 steps:
 #
-#              0    5   15                                              100 ns
-#              |    |    |                                               |
-#              |    |    |                                               |
-#  CLK_INIT    |‾‾‾‾|____|_______________________________________________|
-#              |    |    |                                               |
-#  CLK_SAMP    |____|‾‾‾‾|_______________________________________________|
-#              |    |    |                                               |
-#  CLK_COMP    |____|____|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|
-#              |    |    |                                               |
-#  CLK_LOGIC   |____|____|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|__|‾‾|
-#              |    |    |                                               |
-#  CLK_COMP_CAP|____|____|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_|‾|  (shifted for delay compensation)
-#              |    |    |                                               |
-#  SEN_COMP    |____|____|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|__|
-#              |    |    |                                               |
-#              |init|samp|        comp/logic alternating (17 cycles)     |
-#              |    |    |                                               |
+#   Step: 0  1  2  3  4  5  6  7  8  9 10 11 12 13  ...  37 38 39
+#   Time: 0    2.5  5    7.5  10   12.5 15   17.5 20      92.5 95  97.5 ns
+#         |    |    |    |    |    |    |    |    |              |    |
+#  INIT:  1  1  0  0  0  0  0  0  0  0  0  0  0  0  ...  0  0  0  0
+#  SAMP:  0  0  1  1  1  1  0  0  0  0  0  0  0  0  ...  0  0  0  0
+#  COMP:  0  0  0  0  0  0  1  0  1  0  1  0  1  0  ...  1  0  0  0
+# LOGIC:  0  0  0  0  0  0  0  1  0  1  0  1  0  1  ...  0  0  0  0
+#
+# INIT:  2 steps (5ns)
+# SAMP:  4 steps (10ns)
+# COMP: 17 pulses, each 1 step high / 1 step low = 34 steps (85ns)
+# LOGIC: 16 pulses, interleaved with COMP (first comp is "free" — before any DAC switch)
+# Total: 2 + 4 + 34 = 40 steps = 100ns = 10 Msps
 
 from __future__ import annotations
 
 
 def generate_conversion_sequence(
     conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 5.0,
+    seq_clk_period_ns: float = 2.5,
     init_pulse_ns: float = 5.0,
     samp_pulse_ns: float = 10.0,
-    comp_logic_period_ns: float = 5.0,
     n_comp_bits: int = 17,
     capture_delay_steps: int = 1,
 ) -> dict[str, list[int]]:
     """Generate sequencer waveforms for one ADC conversion cycle.
 
-    Based on:
-        - frida/spice/tb_frida_top.sp (timing values and waveform structure)
-        - frida/spice/tb_frida_top_smoketest.sp (simplified timing reference)
-        - CordiaADC/ADC_01/host/meas_config.py (sequencer loading pattern)
-
-    The timing follows the pattern from tb_frida_top.sp:
-    - CLK_INIT: 5ns pulse at t=0
-    - CLK_SAMP: 10ns pulse starting at t=5ns
-    - CLK_COMP: 5ns period toggle starting at t=15ns
-    - CLK_LOGIC: 5ns period toggle, 2.5ns delayed from CLK_COMP
-    - CLK_COMP_CAP: Capture clock for sampling COMP_OUT (can be shifted for delay compensation)
-    - SEN_COMP: High during the 17 capture cycles
+    At 400 MHz (2.5ns steps), 100ns = 40 steps:
+    - CLK_INIT: 5ns pulse (2 steps) at t=0
+    - CLK_SAMP: 10ns pulse (4 steps) starting at t=5ns
+    - CLK_COMP: 17 pulses of 2.5ns each, starting at t=15ns
+    - CLK_LOGIC: 16 pulses of 2.5ns each, interleaved with CLK_COMP
+      (first comparison is free — before any DAC switching)
+    - CLK_COMP_CAP: Capture clock for sampling COMP_OUT
+    - SEN_COMP: Frame enable, high during all 17 capture cycles
 
     Args:
         conversion_period_ns: Total conversion time (default 100ns = 10 Msps)
-        seq_clk_period_ns: Sequencer clock period (default 5ns = 200 MHz)
-        init_pulse_ns: Duration of CLK_INIT pulse
-        samp_pulse_ns: Duration of CLK_SAMP pulse
-        comp_logic_period_ns: Period of CLK_COMP/CLK_LOGIC toggle
-        n_comp_bits: Number of comparator bits to capture (default 17 for SAR ADC)
-        capture_delay_steps: Number of steps to delay CLK_COMP_CAP relative to CLK_COMP
-                            to compensate for round-trip propagation delay
-                            (FPGA → LVDS → chip → comparator → LVDS → FPGA)
+        seq_clk_period_ns: Sequencer clock period (default 2.5ns = 400 MHz)
+        init_pulse_ns: Duration of CLK_INIT pulse (default 5ns)
+        samp_pulse_ns: Duration of CLK_SAMP pulse (default 10ns)
+        n_comp_bits: Number of comparator bits (default 17 for 16-bit CDAC + 1 free)
+        capture_delay_steps: Steps to delay CLK_COMP_CAP for propagation compensation
 
     Returns:
         Dictionary with keys 'CLK_INIT', 'CLK_SAMP', 'CLK_COMP', 'CLK_LOGIC',
-        'CLK_COMP_CAP', 'SEN_COMP', each containing a list of 0/1 values
-        for each sequencer step.
+        'CLK_COMP_CAP', 'SEN_COMP', each containing a list of 0/1 values.
     """
-    # Calculate number of steps
     n_steps = int(conversion_period_ns / seq_clk_period_ns)
 
-    # Initialize all tracks to 0
     clk_init = [0] * n_steps
     clk_samp = [0] * n_steps
     clk_comp = [0] * n_steps
@@ -87,66 +72,49 @@ def generate_conversion_sequence(
     clk_comp_cap = [0] * n_steps
     sen_comp = [0] * n_steps
 
-    # Time indices for each phase
-    init_start = 0
-    init_end = int(init_pulse_ns / seq_clk_period_ns)  # step 1
+    # Phase boundaries (in steps)
+    init_steps = int(init_pulse_ns / seq_clk_period_ns)       # 2 steps
+    samp_steps = int(samp_pulse_ns / seq_clk_period_ns)       # 4 steps
+    samp_start = init_steps                                    # step 2
+    comp_start = init_steps + samp_steps                       # step 6
 
-    samp_start = int(5.0 / seq_clk_period_ns)  # step 1
-    samp_end = int(15.0 / seq_clk_period_ns)  # step 3
-
-    comp_start = int(15.0 / seq_clk_period_ns)  # step 3
-
-    # CLK_INIT: pulse from 0 to init_end
-    for i in range(init_start, min(init_end, n_steps)):
+    # CLK_INIT: high for init_steps
+    for i in range(init_steps):
         clk_init[i] = 1
 
-    # CLK_SAMP: pulse from samp_start to samp_end
-    for i in range(samp_start, min(samp_end, n_steps)):
+    # CLK_SAMP: high for samp_steps
+    for i in range(samp_start, samp_start + samp_steps):
         clk_samp[i] = 1
 
-    # CLK_COMP and CLK_LOGIC: alternating from comp_start
-    # CLK_COMP toggles on even steps, CLK_LOGIC on odd steps (2.5ns offset)
-    for i in range(comp_start, n_steps):
-        step_in_toggle = i - comp_start
-        # CLK_COMP: high on even toggle steps
-        clk_comp[i] = 1 if (step_in_toggle % 2 == 0) else 0
-        # CLK_LOGIC: high on odd toggle steps (2.5ns delayed)
-        clk_logic[i] = 1 if (step_in_toggle % 2 == 1) else 0
+    # CLK_COMP and CLK_LOGIC: interleaved from comp_start
+    # Each comparison cycle = 2 steps: CLK_COMP high, then CLK_LOGIC high
+    # First cycle: comp only (free comparison before any DAC switch)
+    # Subsequent cycles: comp then logic (comparison then DAC switch)
+    n_logic_bits = n_comp_bits - 1  # 16 DAC switches for 17 comparisons
+    for bit in range(n_comp_bits):
+        comp_step = comp_start + bit * 2
+        if comp_step < n_steps:
+            clk_comp[comp_step] = 1
+        logic_step = comp_start + bit * 2 + 1
+        if bit < n_logic_bits and logic_step < n_steps:
+            clk_logic[logic_step] = 1
 
     # CLK_COMP_CAP: Capture clock for fast_spi_rx SCLK
-    # This samples COMP_OUT from the chip. The capture_delay_steps parameter
-    # allows shifting the sampling edge to compensate for the round-trip
-    # propagation delay (FPGA → LVDS → chip → comparator → LVDS → FPGA).
-    #
-    # We generate rising edges at positions where we want to sample COMP_OUT.
-    # The fast_spi_rx module samples SDI on the rising edge of SCLK.
-    #
-    # Each comparator bit requires 2 steps (one CLK_COMP period):
-    # - First step: CLK_COMP goes high, comparator decision is made
-    # - Second step: CLK_COMP goes low, result is stable
-    # We sample during the second step (when the result is stable) plus delay.
-    capture_step_start = comp_start + capture_delay_steps
+    # Samples COMP_OUT. Delayed by capture_delay_steps to compensate for
+    # round-trip propagation (FPGA -> LVDS -> chip -> comparator -> LVDS -> FPGA).
+    # Sample during the CLK_LOGIC phase (result is stable after comparison).
     for bit in range(n_comp_bits):
-        # Sample in the middle of each CLK_COMP period (the low phase)
-        # Each bit takes 2 steps, we sample after the first step + delay
-        sample_step = capture_step_start + bit * 2 + 1
+        sample_step = comp_start + bit * 2 + 1 + capture_delay_steps
         if sample_step < n_steps:
             clk_comp_cap[sample_step] = 1
 
-    # SEN_COMP: Frame enable for fast_spi_rx SEN
-    # High during the entire capture window (17 bits).
-    # The falling edge triggers fast_spi_rx to flush any partial word.
-    #
-    # SEN should go high before the first capture edge and go low after
-    # the last capture edge.
+    # SEN_COMP: Frame enable for fast_spi_rx
+    # High from first comparison through last capture, then goes low to flush.
     sen_start = comp_start
-    # Calculate when the last capture will happen
-    last_capture_step = capture_step_start + (n_comp_bits - 1) * 2 + 1
-    sen_end = min(last_capture_step + 2, n_steps)  # A bit after last capture
-
+    last_capture = comp_start + (n_comp_bits - 1) * 2 + 1 + capture_delay_steps
+    sen_end = min(last_capture + 2, n_steps)
     for i in range(sen_start, sen_end):
-        if i < n_steps:
-            sen_comp[i] = 1
+        sen_comp[i] = 1
 
     return {
         "CLK_INIT": clk_init,
@@ -161,20 +129,16 @@ def generate_conversion_sequence(
 def generate_multi_conversion_sequence(
     n_conversions: int,
     conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 5.0,
+    seq_clk_period_ns: float = 2.5,
     capture_delay_steps: int = 1,
 ) -> dict[str, list[int]]:
     """Generate sequencer waveforms for multiple conversion cycles.
 
-    Based on:
-        - basil/basil/HL/seq_gen.py (set_repeat for hardware looping)
-        - CordiaADC/ADC_01/host/meas.py (multi-sample acquisition pattern)
-
     Args:
         n_conversions: Number of conversion cycles
         conversion_period_ns: Time per conversion (default 100ns)
-        seq_clk_period_ns: Sequencer clock period (default 5ns)
-        capture_delay_steps: Delay for CLK_COMP_CAP (see generate_conversion_sequence)
+        seq_clk_period_ns: Sequencer clock period (default 2.5ns)
+        capture_delay_steps: Delay for CLK_COMP_CAP
 
     Returns:
         Dictionary with concatenated waveforms for all conversions
@@ -189,14 +153,7 @@ def generate_multi_conversion_sequence(
 
 
 def sequence_to_csv(sequence: dict[str, list[int]], filename: str) -> None:
-    """Write a sequence to CSV file (CordiaADC format).
-
-    Based on:
-        - CordiaADC/ADC_01/host/meas_seq_11bit.csv (file format)
-        - CordiaADC/ADC_01/host/meas_seq_13bit.csv (file format)
-
-    The CSV format has one column per track, one row per step.
-    This matches the format used by CordiaADC's meas_seq_*.csv files.
+    """Write a sequence to CSV file.
 
     Args:
         sequence: Dictionary of track waveforms
@@ -213,9 +170,7 @@ def sequence_to_csv(sequence: dict[str, list[int]], filename: str) -> None:
     n_steps = len(sequence[tracks[0]])
 
     with open(filename, "w") as f:
-        # Header
         f.write(",".join(tracks) + "\n")
-        # Data rows
         for i in range(n_steps):
             row = [str(sequence[track][i]) for track in tracks]
             f.write(",".join(row) + "\n")
@@ -223,9 +178,6 @@ def sequence_to_csv(sequence: dict[str, list[int]], filename: str) -> None:
 
 def sequence_from_csv(filename: str) -> dict[str, list[int]]:
     """Load a sequence from CSV file.
-
-    Based on:
-        - CordiaADC/ADC_01/host/meas_config.py (CSV loading pattern)
 
     Args:
         filename: Input CSV filename
@@ -236,10 +188,7 @@ def sequence_from_csv(filename: str) -> dict[str, list[int]]:
     with open(filename) as f:
         lines = f.readlines()
 
-    # Parse header
     header = lines[0].strip().split(",")
-
-    # Parse data
     sequence: dict[str, list[int]] = {track: [] for track in header}
     for line in lines[1:]:
         values = line.strip().split(",")
@@ -250,12 +199,9 @@ def sequence_from_csv(filename: str) -> dict[str, list[int]]:
 
 
 def print_sequence_timing(
-    sequence: dict[str, list[int]], seq_clk_period_ns: float = 5.0
+    sequence: dict[str, list[int]], seq_clk_period_ns: float = 2.5
 ) -> None:
     """Print a visual representation of sequence timing.
-
-    Based on:
-        - basil/tests/test_SimSeq.py (sequence visualization concept)
 
     Args:
         sequence: Dictionary of track waveforms
@@ -276,7 +222,6 @@ def print_sequence_timing(
 
     for track in tracks:
         waveform = sequence[track]
-        # Create ASCII waveform
         chars = []
         for v in waveform:
             chars.append("_" if v == 0 else "-")
@@ -293,11 +238,12 @@ def print_sequence_timing(
 DEFAULT_CONVERSION_SEQUENCE = generate_conversion_sequence()
 
 if __name__ == "__main__":
-    # Generate and print default sequence
     seq = generate_conversion_sequence()
     print_sequence_timing(seq)
+    print()
 
-    # Generate 3-conversion sequence
-    print("\n3-conversion sequence:")
-    multi_seq = generate_multi_conversion_sequence(3)
-    print(f"Total steps: {len(multi_seq['CLK_INIT'])}")
+    # Count pulses
+    for track in ['CLK_INIT', 'CLK_SAMP', 'CLK_COMP', 'CLK_LOGIC']:
+        data = seq[track]
+        high_steps = sum(data)
+        print(f'{track:14s}: {high_steps} pulses')

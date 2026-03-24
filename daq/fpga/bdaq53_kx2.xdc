@@ -161,6 +161,26 @@ set_property IOSTANDARD LVCMOS25 [get_ports SPI_*]
 set_property IOSTANDARD LVCMOS25 [get_ports RST_B]
 set_property IOSTANDARD LVCMOS25 [get_ports AMPEN_B]
 
+# ===== PMOD debug header (logic analyzer) =====
+# Index matches schematic net name: PMOD[0] = Pin 1, PMOD[7] = Pin 10
+# Note: bdaq53/tjmonopix2 repos use reversed numbering (Pin1→PMOD[7]) — we don't.
+#
+#    Pin 1  PMOD1      Pin 7   PMOD7
+#    Pin 2  PMOD2      Pin 8   PMOD8
+#    Pin 3  PMOD3      Pin 9   PMOD9
+#    Pin 4  PMOD4      Pin 10  PMOD10
+#    Pin 5  GND        Pin 11  GND
+#    Pin 6  VCC        Pin 12  VCC
+set_property PACKAGE_PIN AD24 [get_ports {PMOD[0]}]
+set_property PACKAGE_PIN AE25 [get_ports {PMOD[1]}]
+set_property PACKAGE_PIN V26  [get_ports {PMOD[2]}]
+set_property PACKAGE_PIN U26  [get_ports {PMOD[3]}]
+set_property PACKAGE_PIN W26  [get_ports {PMOD[4]}]
+set_property PACKAGE_PIN W25  [get_ports {PMOD[5]}]
+set_property PACKAGE_PIN AC24 [get_ports {PMOD[6]}]
+set_property PACKAGE_PIN AC23 [get_ports {PMOD[7]}]
+set_property IOSTANDARD LVCMOS25 [get_ports PMOD*]
+
 # ===== SPI configuration flash =====
 set_property CONFIG_MODE SPIx4 [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]

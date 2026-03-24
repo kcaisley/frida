@@ -61,5 +61,6 @@ daq/fpga/.Xil/
 daq/fpga/.ngc2edfcache/
 *.jou
 *.str
+.Xil/
 daq/fpga/tight_setup_hold_pins.txt
 daq/fpga/clockInfo.txt
