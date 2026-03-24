@@ -7,3 +7,11 @@
 [submodule "pdk/tsmc28"]
 	path = pdk/tsmc28
 	url = git@github.com:kcaisley/tsmc28.git
+[submodule "libs/Hdl21"]
+	path = libs/Hdl21
+	url = git@github.com:kcaisley/Hdl21.git
+	branch = spectre
+[submodule "libs/Vlsir"]
+	path = libs/Vlsir
+	url = git@github.com:kcaisley/Vlsir.git
+	branch = spectre
