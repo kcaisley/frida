@@ -455,7 +455,20 @@ assign PMOD[3] = clk_logic_int;  // Pin 4: CLK_LOGIC
 assign PMOD[4] = SPI_SCLK;       // Pin 7: SPI_SCLK
 assign PMOD[5] = SPI_SDO;        // Pin 8: SPI_SDO
 assign PMOD[6] = SPI_CS_B;       // Pin 9: SPI_CS_B
-assign PMOD[7] = RST_B;          // Pin 10: RST_B
+// Pin 10: SEQ_CLK (400 MHz) via ODDR
+ODDR #(
+    .DDR_CLK_EDGE("OPPOSITE_EDGE"),
+    .INIT(1'b0),
+    .SRTYPE("SYNC")
+) oddr_seq_clk (
+    .Q(PMOD[7]),
+    .C(SEQ_CLK),
+    .CE(1'b1),
+    .D1(1'b1),
+    .D2(1'b0),
+    .R(1'b0),
+    .S(1'b0)
+);
 
 
 // ===================================================================

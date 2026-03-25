@@ -15,3 +15,7 @@
 	path = libs/Vlsir
 	url = git@github.com:kcaisley/Vlsir.git
 	branch = spectre
+[submodule "libs/basil"]
+	path = libs/basil
+	url = https://github.com/SiLab-Bonn/basil.git
+	branch = frida

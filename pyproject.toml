@@ -3,16 +3,13 @@ name = "frida"
 version = "0.1.0"
 requires-python = "==3.12.11"
 dependencies = [
+    # Core
     "numpy",
     "scipy",
     "pydantic",
     "pytest",
     "argcomplete",
-]
-
-[project.optional-dependencies]
-# Circuit design: hdl21, klayout, gdsfactory
-design = [
+    # Circuit design (hdl21/vlsir ecosystem)
     "grpcio",
     "grpcio-tools",
     "protobuf",
@@ -20,14 +17,14 @@ design = [
     "vlsir",
     "vlsirtools",
 ]
-# DAQ: firmware build, JTAG flash, and host-side chip communication
+
+[dependency-groups]
+# DAQ: FPGA build, JTAG flash, host-side chip communication
 daq = [
     "basil-daq",
-    "setuptools<81",
     "pexpect",
     "gitpython",
-    "pyyaml",
-    "bitarray<3",
+    "bitarray",
     "pyvisa",
     "pyvisa-py",
 ]
@@ -44,11 +41,13 @@ flow = "flow.cli:main"
 
 [tool.uv]
 package = true
+default-groups = ["daq"]
 
 [tool.uv.sources]
 hdl21 = { path = "libs/Hdl21", editable = true }
 vlsir = { path = "libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "libs/Vlsir/VlsirTools", editable = true }
+basil-daq = { path = "libs/basil", editable = true }
 
 [tool.pyright]
 # Keep a single pyright config here. Zed uses basedpyright for Python,
