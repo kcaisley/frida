@@ -41,7 +41,7 @@ for:
   output path handling are all Python. Keeping the layout script in Python means
   no context switch.
 
-See [docs/or_analog.md](file:///home/kcaisley/frida/docs/or_analog.md) for a
+See [docs/or_analog.md](or_analog.md) for a
 detailed comparison of Python vs TCL coverage and a summary of what OpenROAD
 does and does not support natively for analog flows.
 
@@ -158,10 +158,10 @@ d.evalTclString(f"write_def {script_dir}/{cell}_placed_routed.def")
 
 ## Further reading
 
-- [docs/or_analog.md](file:///home/kcaisley/frida/docs/or_analog.md) — placement
+- [docs/or_analog.md](or_analog.md) — placement
   status options, routing guide API, symmetric routing workaround detail,
   Python vs TCL feature comparison table
-- [docs/man_openroad.md](file:///home/kcaisley/frida/docs/man_openroad.md) — full
+- [docs/man_openroad.md](man_openroad.md) — full
   TCL command reference for OpenROAD
 - OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source
   tree — the most complete examples of the `odb` Python API

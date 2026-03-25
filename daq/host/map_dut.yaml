@@ -2,7 +2,7 @@
 #
 # Based on:
 #   - /home/kcaisley/libs/obelix1-daq/obelix1/system/registers.yaml
-#   - /home/kcaisley/frida/hdl/frida_core.v (authoritative bit mapping)
+#   - hdl/frida_core.v (authoritative bit mapping, relative to repo root)
 #
 # The FRIDA chip has a 180-bit shift register for configuration.
 # Bits are shifted in LSB-first (bit 0 first), with bit 179 at the MSB.

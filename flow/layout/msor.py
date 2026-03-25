@@ -361,6 +361,6 @@ subprocess.run(
     check=True,
     env={
         **__import__("os").environ,
-        "PYTHONPATH": "/home/kcaisley/frida/.venv/lib/python3.12/site-packages",
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2] / ".venv/lib/python3.12/site-packages"),
     },
 )

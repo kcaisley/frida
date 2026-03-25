@@ -5,7 +5,9 @@ FLOW_HOME="$HOME/OpenROAD-flow-scripts/flow"
 OPENROAD_EXE="$HOME/OpenROAD-flow-scripts/tools/install/OpenROAD/bin/openroad"
 
 RESULTS_DIR="$FLOW_HOME/results/tsmc65/frida_adc_digital/base"
-OUTPUT_DIR="${1:-/home/kcaisley/frida/docs/images}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+OUTPUT_DIR="${1:-$REPO_ROOT/docs/images}"
 
 mkdir -p "$OUTPUT_DIR"
 

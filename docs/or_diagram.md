@@ -172,9 +172,9 @@ flowchart LR
 
 ## See also
 
-- [docs/or_odb.md](file:///home/kcaisley/frida/docs/or_odb.md) — OpenROAD Python
+- [docs/or_odb.md](or_odb.md) — OpenROAD Python
   execution model, `openroad`/`odb` api reference, symmetric routing workaround
-- [docs/or_analog.md](file:///home/kcaisley/frida/docs/or_analog.md) — placement
+- [docs/or_analog.md](or_analog.md) — placement
   status, routing guides, Python vs Tcl comparison, ALOE appendix
-- [docs/plan.md](file:///home/kcaisley/frida/docs/plan.md) — constraint types,
+- [docs/plan.md](plan.md) — constraint types,
   Tcl emitter design, end-to-end integration plan
