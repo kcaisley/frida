@@ -19,11 +19,11 @@ can be validated later if simulation speed becomes a concern.
 ## Architecture
 
 ```
-flow sim -c comp --scan scurve        flow daq -c comp --scan scurve
+flow simulate -c comp --scan scurve    flow measure -c comp --scan scurve
          │                                      │
     Same scan code (Python)                Same scan code (Python)
          │                                      │
-    Frida class (daq/host/host.py)         Frida class
+    Frida class (flow/scans/host.py)        Frida class
          │                                      │
     basil Dut(map_sim.yaml)                basil Dut(map_fpga.yaml)
          │                                      │
@@ -32,24 +32,108 @@ flow sim -c comp --scan scurve        flow daq -c comp --scan scurve
     SerialSim ─► SIMULATION_MODULE         TL: Serial ──► real AWG
          │         (AwgSim, PsuSim)             │
          │              │                  TL: Visa ──► real scope
-    daq_core.v    drives real ports
+    fpga_core.v   drives real ports
     frida_core.v       │
     analog stubs ──► spicebind ──► ngspice (transistor models)
+```
+
+## Simulation Hierarchy
+
+The spicebind boundary sits at the ADC level — everything inside the ADC
+(clkgate, salogic, capdriver, sampswitch, caparray, comp) runs in ngspice.
+The PCB amplifier (THS4541) also runs in ngspice. Only the FPGA firmware
+and chip-level digital logic (SPI register, comp MUX) run in Icarus.
+
+### Icarus Verilog side (sim/tb.v)
+
+```
+tb
+├── real VIN_P, VIN_N, VDD          ← driven by cocotb AnalogDriver (SerialSim)
+├── BUS_CLK/RST/ADD/DATA/RD/WR     ← driven by cocotb BasilSbusDriver (SiSim)
+│
+├── i_fifo : bram_fifo              ← basil firmware module
+│
+├── i_daq_core : daq_core                       ← design/daq/daq_core.v
+│   ├── inst_seq_gen : seq_gen                  ← basil firmware module
+│   ├── inst_spi : spi                          ← basil firmware module
+│   ├── inst_gpio : gpio                        ← basil firmware module
+│   ├── inst_pulse_gen : pulse_gen              ← basil firmware module
+│   └── inst_fast_spi_rx : fast_spi_rx          ← basil firmware module
+│       .SDI(comp_out) ◄────────────────────────────────┐
+│                                                       │
+└── i_chip : frida_core                         ← design/hdl/frida_core.v
+    ├── spi_reg : spi_register                  ← design/hdl/spi_register.v
+    ├── comp_mux : compmux                      ← design/hdl/compmux.v
+    │   .comp_out ──────────────────────────────────────┘
+    │
+    └── adc_array[0].adc_inst : adc             ← stub (adc.v with real ports)
+        ├── input wire  seq_init/samp/comp/update
+        ├── input wire  en_init/samp_p/samp_n/comp/update
+        ├── input wire  [15:0] dac_astate_p/bstate_p/astate_n/bstate_n
+        ├── input wire  dac_mode, dac_diffcaps
+        ├── input real  vin_p, vin_n            ← from ngspice THS4541
+        └── output wire comp_out                ← to ngspice, back via threshold
+                 │
+═════════════════╪══════ spicebind boundary ═══════════════════════════
+                 │
+```
+
+### ngspice side (tb_adc.sp)
+
+```
+.lib tsmc65_models tt                   ← PDK transistor models
+.include adc.sp                         ← HDL21: full ADC (salogic + capdriver
+.include design/pcb/ths4541.sp             │  + clkgate + samp + cdac + comp)
+
+PCB input stage:
+  Vawg_p awg_p 0 0 external            ← cocotb VIN_P (from AnalogDriver)
+  Vawg_n awg_n 0 0 external            ← cocotb VIN_N
+  Xamp ... THS4541                      ← differential amp + feedback network
+    awg_p/n → vin_p/vin_n
+
+Supplies:
+  Vvdd vdd 0 0 external                ← cocotb VDD (from AnalogDriver, set by scan code)
+  Vvss vss 0 0
+
+Clock/config (from Icarus via spicebind):
+  Vseq_init seq_init 0 0 external
+  Vseq_samp seq_samp 0 0 external
+  Vseq_comp seq_comp 0 0 external
+  Vseq_update seq_update 0 0 external
+  Ven_init en_init 0 0 external
+  Ven_samp_p en_samp_p 0 0 external
+  ... (all digital control signals)
+
+ADC instance (entire analog + digital internals):
+  Xadc vin_p vin_n seq_init ... comp_out vdd vss ADC
+    ├── Xclkgate_init, _samp_p, _samp_n, _comp, _update
+    ├── Xsa_logic (SAR logic — transistor level)
+    ├── Xcapdrv_p, Xcapdrv_n (cap drivers — transistor level)
+    ├── Xsamp_p, Xsamp_n (sampling switches)
+    ├── Xcdac_p, Xcdac_n (cap arrays)
+    └── Xcomp (comparator)
+         comp_out → spicebind threshold → back to Icarus
+
+  .tran 100p 100u
+
+Post-simulation: dump.raw contains all internal node voltages
+  v(xadc.xcomp.vlatch_p), v(xadc.xcdac_p.vbot[3]), ...
 ```
 
 ## What Already Exists
 
 | Asset | Location | Notes |
 |-------|----------|-------|
-| FPGA firmware | `daq/fpga/frida1_core.v` | basil modules: seq_gen, spi, gpio, pulse_gen, fast_spi_rx |
+| FPGA firmware | `design/daq/daq_core.v` | basil modules: seq_gen, spi, gpio, pulse_gen, fast_spi_rx |
 | Chip digital RTL | `design/hdl/frida_core.v` | SPI register, 16 ADCs, comp MUX |
 | Analog blackboxes | `design/hdl/comp.v`, `sampswitch.v`, `caparray.v` | `(* blackbox *)` stubs |
+| PCB amplifier model | `design/pcb/ths4541.sp` | TI fully differential amp (SPICE behavioral) |
 | HDL21 generators | `flow/comp/subckt.py`, `flow/samp/`, `flow/cdac/` | Produce transistor-level SPICE netlists |
-| Frida host class | `daq/host/host.py` | init, SPI config, run_conversions, data parsing |
+| Frida host class | `flow/scans/host.py` | init, SPI config, run_conversions, data parsing (moved from daq/host/) |
 | Basil SiSim | `libs/basil/basil/TL/SiSim.py` | TCP socket TL replacing SiTcp |
 | Basil sim infra | `libs/basil/basil/utils/sim/Test.py` | cocotb socket server + SIMULATION_MODULES |
-| SpiceBind | `~/libs/spicebind` | VPI bridge: Icarus ↔ ngspice, supports `real` ports |
-| Flow CLI | `flow/cli.py` | `flow netlist`, `flow simulate` commands |
+| SpiceBind | `libs/spicebind` | VPI bridge: Icarus ↔ ngspice, supports `real` ports |
+| Flow CLI | `flow/cli.py` | `flow netlist`, `flow simulate`, `flow measure` commands |
 
 ## CLI Design
 
@@ -60,14 +144,14 @@ Two new `flow` subcommands replace the old `flow simulate`:
 flow netlist -c comp -t tsmc65 -f ngspice --scope cosim
 
 # Run mixed-signal simulation via cocotb+spicebind
-flow sim -c adc -t tsmc65 --scan transfer
+flow simulate -c adc -t tsmc65 --scan transfer
 
 # Run physical measurement via basil+FPGA
-flow daq -c adc --scan transfer
+flow measure -c adc --scan transfer
 ```
 
-Both `flow sim` and `flow daq` run the same scan function. The difference is
-which basil YAML config they load (SiSim vs SiTcp) and whether they launch
+Both `flow simulate` and `flow measure` run the same scan function. The difference
+is which basil YAML config they load (SiSim vs SiTcp) and whether they launch
 the simulator.
 
 ---
@@ -82,7 +166,7 @@ git submodule add https://github.com/themperek/spicebind libs/spicebind
 **Modify** `pyproject.toml`:
 ```toml
 [dependency-groups]
-sim = [
+simulate = [
     "cocotb",
     "cocotb-bus",
     "spicebind",
@@ -120,20 +204,21 @@ module comp(
 endmodule
 ```
 
-**`sim/comp/comp_cosim.cir`** — ngspice netlist (or generated by Step 4):
+**`scratch/tb_comp.sp`** — generated by `flow netlist -c comp -f ngspice --scope cosim`.
+HDL21 produces this automatically from the `Comp` module's port list. Example output:
 
 ```spice
-* Comparator co-simulation netlist
+* Comparator co-simulation wrapper (generated by HDL21)
 .lib /eda/kits/TSMC/65LP/.../hspice/toplevel.l tt
-.include comp_dut.sp
+.include comp.sp
 
 * Inputs driven by spicebind (from Verilog real ports)
 Vvin_p vin_p 0 0 external
 Vvin_n vin_n 0 0 external
 Vclk   clk   0 0 external
 
-* Supplies (static)
-Vvdd vdd 0 1.2
+* Supplies driven by spicebind (from AnalogDriver)
+Vvdd vdd 0 0 external
 Vvss vss 0 0
 
 * DUT instance
@@ -177,7 +262,7 @@ async def test_comp_scurve(dut):
 
 ```makefile
 SPICEBIND_DIR := $(shell spicebind-vpi-path)
-COMP_DUT      := ../../scratch/comp_dut.sp  # from: flow netlist -c comp --scope dut -f ngspice
+COMP_DUT      := ../../scratch/comp.sp  # from: flow netlist -c comp --scope dut -f ngspice
 
 all: run
 
@@ -185,7 +270,7 @@ compile:
 	iverilog -g2005-sv -o comp_tb.vvp comp_stub.v
 
 run: compile
-	SPICE_NETLIST=comp_cosim.cir \
+	SPICE_NETLIST=tb_comp.sp \
 	HDL_INSTANCE=comp \
 	MODULE=test_comp_standalone \
 	vvp -M $(SPICEBIND_DIR) -m spicebind_vpi comp_tb.vvp
@@ -201,12 +286,64 @@ outputs, confirms S-curve shape.
 
 ---
 
-## Step 3: SerialSim transfer layer + AwgSim module (basil contribution)
+## Step 3: Basil contributions (SerialSim + AnalogDriver + modern runner)
 
-Create the simulation equivalent of the Serial/Visa TLs so that scan code
-controlling the AWG and power supplies works transparently in simulation.
+Three additions to basil's simulation infrastructure:
 
-### The problem
+1. **`SerialSim`** — new TL that mocks Serial/Visa instruments in simulation
+2. **`AnalogDriver`** — new SIMULATION_MODULE that drives `real` Verilog ports
+3. **`runner.py`** — new launcher using cocotb's Python-native `Runner` API
+
+### Modern cocotb runner
+
+Basil's existing `cocotb_compile_and_run()` generates a Makefile and calls
+`make`, passing configuration via exported environment variables. cocotb added
+a Python-native `Runner` API in January 2022 (PR #2634) that eliminates
+Makefiles entirely. We add a thin wrapper in basil that uses it:
+
+**`libs/basil/basil/utils/sim/runner.py`** (~25 lines):
+
+```python
+"""Modern cocotb runner for basil simulation.
+
+Uses cocotb's Python-native Runner API (added 2022, PR #2634) instead
+of the legacy Makefile-based cocotb_compile_and_run(). Configuration
+is passed via extra_env dict on the subprocess — no Makefile generation,
+no os.environ pollution.
+"""
+
+from pathlib import Path
+from cocotb.runner import get_runner
+
+
+def cocotb_run(
+    sim="icarus",
+    sources=(),
+    top_level="tb",
+    test_module="basil.utils.sim.Test",
+    includes=(),
+    sim_args=(),
+    extra_env=None,
+):
+    runner = get_runner(sim)
+    runner.build(
+        sources=[str(s) for s in sources],
+        hdl_toplevel=top_level,
+        includes=[str(i) for i in includes],
+        always=True,
+    )
+    runner.test(
+        hdl_toplevel=top_level,
+        test_module=test_module,
+        test_args=list(sim_args),
+        extra_env=extra_env or {},
+    )
+```
+
+This replaces the need for `cocotb_compile_and_run()` and `cocotb_makefile()`
+in `utils.py`. Existing basil code can continue using the old functions.
+
+### The instrument mocking problem
 
 In hardware, the AWG is on its own `Serial` TL — completely separate from the
 FPGA's `SiTcp` bus. In simulation, `SiSim` only mocks the FPGA bus. There is
@@ -217,25 +354,42 @@ no simulation equivalent of `Serial` or `Visa`.
 A new basil TL `SerialSim` that connects to a `SIMULATION_MODULE` via a
 dedicated TCP socket. The module drives `real` ports in the Verilog testbench.
 
-**`libs/basil/basil/TL/SerialSim.py`** (~60 lines):
+Three files are added to basil:
+
+**`libs/basil/basil/utils/sim/Protocol.py`** — add `AnalogSetRequest` alongside
+existing `WriteRequest`/`ReadRequest`/`ReadResponse` (this is where pickle
+message types live, so both `SerialSim` and `AnalogDriver` can import it):
+
+```python
+class AnalogSetRequest(ProtocolBase):
+    """Request to set an analog signal value in simulation."""
+    def __init__(self, signal, value):
+        self.signal = signal
+        self.value = value
+
+    def __str__(self):
+        return "AnalogSetRequest: %s = %f" % (self.signal, self.value)
+```
+
+**`libs/basil/basil/TL/SerialSim.py`** (~50 lines):
 
 ```python
 """Simulation replacement for Serial/Visa TLs.
 
 Connects to a SIMULATION_MODULE that drives real-valued Verilog ports.
-Uses a simple pickle protocol (same pattern as SiSim).
+Intercepts SCPI byte strings, extracts values, and sends structured
+AnalogSetRequest messages over a TCP socket.
+
+Note: The SCPI parsing is minimal — it matches command substrings like
+'VOLT:HIGH', 'VOLT:LOW', 'OUTP'. This covers the agilent33250a and
+common power supply drivers. Other instruments may need additional
+patterns added here.
 """
 
 import socket
 import time
 from basil.TL.SiTransferLayer import SiTransferLayer
-from basil.utils.sim.Protocol import PickleInterface
-
-class AnalogSetRequest:
-    """Request to set an analog signal value."""
-    def __init__(self, signal, value):
-        self.signal = signal
-        self.value = value
+from basil.utils.sim.Protocol import PickleInterface, AnalogSetRequest
 
 class SerialSim(SiTransferLayer):
     def __init__(self, conf):
@@ -248,7 +402,6 @@ class SerialSim(SiTransferLayer):
         host = self._init.get('host', 'localhost')
         port = self._init.get('port', 12346)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Retry connection (simulator may not be ready yet)
         for _ in range(60):
             if self._sock.connect_ex((host, port)) == 0:
                 break
@@ -258,9 +411,8 @@ class SerialSim(SiTransferLayer):
         self._iface = PickleInterface(self._sock)
 
     def write(self, data):
-        """Parse SCPI-like commands and forward as structured messages."""
+        """Parse SCPI commands and forward as AnalogSetRequest."""
         text = bytes(data).decode().strip()
-        # Handle common SCPI voltage commands
         if 'VOLT:HIGH' in text.upper():
             value = float(text.split()[-1])
             signal = self._signal_map.get('voltage_high', 'VIN_P')
@@ -280,11 +432,13 @@ class SerialSim(SiTransferLayer):
         super().close()
 ```
 
-**`libs/basil/basil/utils/sim/AnalogDriver.py`** — SIMULATION_MODULE (~50 lines):
+**`libs/basil/basil/utils/sim/AnalogDriver.py`** — SIMULATION_MODULE (~40 lines).
+Not a `BusDriver` subclass (it doesn't bind to any bus signals). Just a plain
+class with a `run()` coroutine, matching the interface `Test.py` expects:
 
 ```python
-"""cocotb simulation module that receives analog set requests
-and drives real-valued Verilog ports.
+"""cocotb simulation module that receives AnalogSetRequest messages
+and drives real-valued Verilog ports on the DUT.
 
 Registered as a SIMULATION_MODULE alongside Test.py.
 Listens on a separate TCP port for SerialSim connections.
@@ -292,15 +446,10 @@ Listens on a separate TCP port for SerialSim connections.
 
 import os
 import socket
-import cocotb
+from basil.utils.sim.Protocol import PickleInterface, AnalogSetRequest
 from cocotb.triggers import Timer
-from cocotb_bus.drivers import BusDriver
-from basil.utils.sim.Protocol import PickleInterface
-# Import from SerialSim (or define locally)
 
-class AnalogDriver(BusDriver):
-    _signals = []  # No direct signal bindings — uses dut attribute access
-
+class AnalogDriver:
     def __init__(self, entity, port=None):
         self._entity = entity
         self._port = port or int(os.getenv("ANALOG_SIM_PORT", "12346"))
@@ -317,7 +466,6 @@ class AnalogDriver(BusDriver):
         iface = None
 
         while True:
-            # Accept new connections
             if clientsocket is None:
                 try:
                     clientsocket, _ = s.accept()
@@ -325,24 +473,22 @@ class AnalogDriver(BusDriver):
                 except BlockingIOError:
                     pass
 
-            # Process pending requests
             if iface is not None:
                 try:
                     req = iface.try_recv()
-                    if req is not None:
-                        # Drive the real port on the DUT
+                    if req is not None and isinstance(req, AnalogSetRequest):
                         getattr(self._entity, req.signal).value = req.value
                 except EOFError:
                     clientsocket.close()
                     clientsocket = None
                     iface = None
 
-            await Timer(100, units="ps")  # yield to simulator
+            await Timer(100, units="ps")
 ```
 
 ### YAML config for simulation
 
-**`daq/host/map_sim.yaml`** (relevant TL section):
+**`flow/scans/map_sim.yaml`** (relevant TL section):
 
 ```yaml
 transfer_layer:
@@ -368,60 +514,217 @@ sends `set_voltage_high(0.6)`, confirms `dut.VIN_P.value == 0.6`.
 
 ---
 
-## Step 4: Co-sim netlist generator (flow netlist --scope cosim)
+## Step 4: Co-sim netlist generation (flow netlist --scope cosim)
 
-Add `--scope cosim` to `flow netlist`. This generates a spicebind-compatible
-SPICE wrapper that `.include`s the DUT subcircuit netlist.
+Each block's `testbench.py` already generates the DUT and testbench wrapper
+using HDL21. For cosim mode, the same generator is used but with `Vexternal`
+sources replacing `Vpwl`/`Vpulse`/`Vdc`. This keeps cosim logic next to the
+existing sim logic — no separate wrapper generator needed.
 
-**Modify:** `flow/circuit/netlist.py` — add `generate_cosim_wrapper()`:
+### Netlist scope definitions
+
+| Scope | Produces | Purpose |
+|-------|----------|---------|
+| `dut` | `comp.sp` | Subcircuit definitions only |
+| `sim` | `comp.sp` + `tb_comp.sp` | Self-contained SPICE sim (Vpwl/Vpulse sources, .tran) |
+| `cosim` | `comp.sp` + `tb_comp.sp` + `comp.v` | Spicebind co-sim (Vexternal sources + Verilog stub) |
+
+### New HDL21 primitive: Vexternal
+
+Add to HDL21 primitives. Emits `0 external` in ngspice netlisting:
 
 ```python
-def generate_cosim_wrapper(
-    dut_netlist: Path,
-    port_names: dict[str, str],   # {"vin_p": "real", "clk": "wire", ...}
-    pdk_model_path: str,
-    pdk_corner: str,
-    output_path: Path,
-):
-    """Generate spicebind co-sim wrapper for a DUT subcircuit.
+# In hdl21/primitives.py
+Vexternal = _add(
+    prim=Primitive(
+        name="ExternalVoltageSource",
+        desc="External voltage source for co-simulation (spicebind)",
+        port_list=copy.deepcopy(PassivePorts),
+        paramtype=NoParams,
+        primtype=PrimitiveType.IDEAL,
+    ),
+    aliases=["Vext", "Vexternal"],
+)
+```
 
-    For each input port:
-    - 'real' type → Vname name 0 0 external  (driven by cocotb via spicebind)
-    - 'wire' type → Vname name 0 0 external  (spicebind converts 0/1 ↔ 0V/VCC)
+And in the ngspice netlister (`vlsirtools/netlist/spice.py`):
 
-    Output ports are read by spicebind from SPICE nodes directly.
-    Static supplies (vdd, vss) get fixed Vdc sources.
+```python
+elif name == "vexternal":
+    self.write(f"+ 0 external \n")
+```
+
+### Testbench conditional pattern
+
+Each block's `testbench.py` gains a `scope` parameter. Three types of sources
+get the conditional — supplies, clocks, and input stimulus. Passive components
+(load caps, source impedances) and the DUT instantiation stay identical.
+
+**Example: comp testbench** (`flow/comp/testbench.py`):
+
+```python
+@h.generator
+def CompTb(params: CompTbParams, scope: str = "sim") -> h.Module:
+    supply = SupplyVals.corner(params.pvt.v)
+
+    @h.module
+    class CompTb:
+        vss = h.Port(desc="Ground")
+        vdd = h.Signal()
+        vin_p_src = h.Signal()
+        vin_n_src = h.Signal()
+        in_p = h.Signal()
+        in_n = h.Signal()
+        clk = h.Signal()
+        clk_b = h.Signal()
+        out_p = h.Signal()
+        out_n = h.Signal()
+
+    # Supply — external in cosim (driven by power supply mock)
+    if scope == "cosim":
+        CompTb.vvdd = Vexternal()(p=CompTb.vdd, n=CompTb.vss)
+    else:
+        CompTb.vvdd = Vdc(dc=supply.VDD)(p=CompTb.vdd, n=CompTb.vss)
+
+    # Source impedance — same in both modes (models DAC/SHA output)
+    CompTb.rsrc_p = R(r=1000)(p=CompTb.vin_p_src, n=CompTb.in_p)
+    CompTb.rsrc_n = R(r=1000)(p=CompTb.vin_n_src, n=CompTb.in_n)
+    CompTb.csrc_p = C(c=100 * f)(p=CompTb.in_p, n=CompTb.vss)
+    CompTb.csrc_n = C(c=100 * f)(p=CompTb.in_n, n=CompTb.vss)
+
+    # Clocks — external in cosim (driven by FPGA sequencer via spicebind)
+    if scope == "cosim":
+        CompTb.vclk = Vexternal()(p=CompTb.clk, n=CompTb.vss)
+        CompTb.vclkb = Vexternal()(p=CompTb.clk_b, n=CompTb.vss)
+    else:
+        CompTb.vclk = Vpulse(
+            v1=0, v2=supply.VDD, period=10*n, width=4*n,
+            rise=100*p, fall=100*p, delay=500*p,
+        )(p=CompTb.clk, n=CompTb.vss)
+        CompTb.vclkb = Vpulse(
+            v1=supply.VDD, v2=0, period=10*n, width=4*n,
+            rise=100*p, fall=100*p, delay=500*p,
+        )(p=CompTb.clk_b, n=CompTb.vss)
+
+    # Output loading — same in both modes
+    CompTb.cload_p = C(c=10 * f)(p=CompTb.out_p, n=CompTb.vss)
+    CompTb.cload_n = C(c=10 * f)(p=CompTb.out_n, n=CompTb.vss)
+
+    # DUT — same in both modes
+    CompTb.dut = Comp(params.comp)(
+        inp=CompTb.in_p, inn=CompTb.in_n,
+        outp=CompTb.out_p, outn=CompTb.out_n,
+        clk=CompTb.clk, clkb=CompTb.clk_b,
+        vdd=CompTb.vdd, vss=CompTb.vss,
+    )
+
+    # Input stimulus — external in cosim (driven by AWG mock via spicebind)
+    if scope == "cosim":
+        CompTb.vvin_p = Vexternal()(p=CompTb.vin_p_src, n=CompTb.vss)
+        CompTb.vvin_n = Vexternal()(p=CompTb.vin_n_src, n=CompTb.vss)
+    else:
+        # ... existing PWL staircase generation ...
+        CompTb.vvin_p = Vpwl(wave=pwl_points_to_wave(points_p))(...)
+        CompTb.vvin_n = Vpwl(wave=pwl_points_to_wave(points_n))(...)
+
+    return CompTb
+```
+
+**Example: cdac testbench** (`flow/cdac/testbench.py`):
+
+```python
+@h.generator
+def CdacTb(params: CdacTbParams, scope: str = "sim") -> h.Module:
+    supply = SupplyVals.corner(params.pvt.v)
+    n_bits = get_cdac_n_bits(params.cdac)
+
+    @h.module
+    class CdacTb:
+        vss = h.Port(desc="Ground")
+        vdd = h.Signal()
+        top = h.Signal()
+        dac_bits = h.Signal(width=n_bits)
+
+    # Supply
+    if scope == "cosim":
+        CdacTb.vvdd = Vexternal()(p=CdacTb.vdd, n=CdacTb.vss)
+    else:
+        CdacTb.vvdd = Vdc(dc=supply.VDD)(p=CdacTb.vdd, n=CdacTb.vss)
+
+    CdacTb.cload = C(c=100 * f)(p=CdacTb.top, n=CdacTb.vss)
+
+    CdacTb.dut = Cdac(params.cdac)(
+        top=CdacTb.top, dac=CdacTb.dac_bits,
+        vdd=CdacTb.vdd, vss=CdacTb.vss,
+    )
+
+    # DAC bit inputs
+    if scope == "cosim":
+        for bit in range(n_bits):
+            setattr(CdacTb, f"vdac_{bit}",
+                    Vexternal()(p=CdacTb.dac_bits[bit], n=CdacTb.vss))
+    else:
+        # ... existing PWL code generation ...
+        for bit in range(n_bits):
+            points, _ = _build_pwl_points(bit_values[bit], t_step, t_rise)
+            wave = pwl_points_to_wave(points)
+            setattr(CdacTb, f"vdac_{bit}",
+                    Vpwl(wave=wave)(p=CdacTb.dac_bits[bit], n=CdacTb.vss))
+
+    return CdacTb
+```
+
+### Verilog stub generator
+
+A small utility in `flow/circuit/netlist.py` generates the Verilog stub
+mechanically from the HDL21 module port list. This is the same for all blocks:
+
+```python
+def generate_verilog_stub(module_name: str, ports: dict[str, str], output_path: Path):
+    """Generate Verilog stub for spicebind binding.
+
+    Args:
+        module_name: Verilog module name (e.g. "comp")
+        ports: {"vin_p": "real", "clk": "wire", "dout_p": "real", ...}
+               Direction is inferred from the HDL21 port direction.
+        output_path: Where to write the .v file
     """
-    lines = []
-    lines.append(f"* Co-simulation wrapper (generated by flow netlist --scope cosim)")
-    lines.append(f".lib {pdk_model_path} {pdk_corner}")
-    lines.append(f".include {dut_netlist}")
-    lines.append("")
-
-    # External sources for driven ports
-    for name, ptype in port_names.items():
-        if name in ("vdd", "vdd_a", "vdd_d", "vdd_dac"):
-            lines.append(f"V{name} {name} 0 1.2")
-        elif name in ("vss", "vss_a", "vss_d", "vss_dac"):
-            lines.append(f"V{name} {name} 0 0")
-        else:
-            lines.append(f"V{name} {name} 0 0 external")
-
-    # DUT instance
-    ports_str = " ".join(port_names.keys())
-    lines.append(f"")
-    lines.append(f"Xdut {ports_str} DUT_SUBCKT_NAME")
-    lines.append(f"")
-    lines.append(f".tran 100p 100u")
-    lines.append(f".end")
-
+    lines = ["`timescale 1ns/1ps", "", f"module {module_name}("]
+    port_lines = []
+    for name, info in ports.items():
+        direction = "input" if info["dir"] == "input" else "output"
+        vtype = "real" if info["analog"] else "wire"
+        port_lines.append(f"    {direction} {vtype} {name}")
+    lines.append(",\n".join(port_lines))
+    lines.append(");")
+    lines.append("endmodule")
     output_path.write_text("\n".join(lines))
 ```
 
-**Modify:** `flow/cli.py` — add `cosim` to `--scope` choices.
+### CLI changes
+
+**Modify:** `flow/cli.py` — replace scope choices:
+
+```python
+p.add_argument(
+    "--scope",
+    default="sim",
+    choices=["dut", "sim", "cosim"],
+    help="dut: subcircuit only; sim: self-contained SPICE testbench; "
+         "cosim: spicebind co-sim (external sources + Verilog stub)",
+)
+```
+
+### HDL21/VLSIR changes
+
+| File | Change |
+|------|--------|
+| `libs/Hdl21/hdl21/primitives.py` | Add `Vexternal` primitive |
+| `libs/Vlsir/VlsirTools/vlsirtools/primitives.py` | Add `vexternal` ExternalModule |
+| `libs/Vlsir/VlsirTools/vlsirtools/netlist/spice.py` | Handle `vexternal` → `0 external` |
 
 **Verify:** `flow netlist -c comp -t tsmc65 -f ngspice --scope cosim -o scratch`
-produces `scratch/comp_dut.sp` + `scratch/comp_cosim.cir`.
+produces `scratch/comp.sp` + `scratch/tb_comp.sp` + `scratch/comp.v`.
 
 ---
 
@@ -553,25 +856,22 @@ class AdcTransferScan(ScanBase):
 
 ---
 
-## Step 6: Simulation testbench (sim/tb.v)
+## Step 6: Simulation testbench (design/daq/daq_tb.v)
 
-Verilog testbench for Icarus that instantiates the FPGA core + chip digital +
-analog stubs, with the basil split-bus interface for cocotb.
+Verilog testbench for Icarus that instantiates `daq_core` (the FPGA firmware)
+plus `frida_core` (the chip digital RTL) plus the cocotb bus bridge. Lives
+alongside `daq_core.v` and `daq_fpga.v` in `design/daq/` — same core module,
+different wrappers for synthesis vs simulation.
 
-**Create:** `sim/tb.v`:
+**Create:** `design/daq/daq_tb.v`:
 
 ```verilog
 `timescale 1ns/1ps
 
-`include "frida1_core.v"
+`include "daq_core.v"
 `include "frida_core.v"         // chip digital (uses only ADC[0] in sim)
 `include "bram_fifo/bram_fifo.v"
 `include "bram_fifo/bram_fifo_core.v"
-
-// Analog stubs (spicebind binds these to ngspice)
-`include "comp_stub.v"
-`include "samp_stub.v"
-`include "cdac_stub.v"
 
 module tb(
     output wire        BUS_CLK,
@@ -694,13 +994,26 @@ spicebind binding points. The `VIN_P`/`VIN_N` real signals on the testbench top
 level are driven by the `AnalogDriver` SIMULATION_MODULE and feed into the SPICE
 netlist as external sources connected to the sampling switch inputs.
 
-**Verify:** `iverilog -g2005-sv -I ... -o sim/tb.vvp sim/tb.v` compiles.
+**DAQ Verilog file naming:**
+
+```
+design/daq/
+├── daq_fpga.v    # FPGA top: SiTcp, PLLs, LVDS (Vivado synthesis)
+├── daq_core.v    # Basil modules: seq_gen, spi, gpio, pulse_gen, fast_spi_rx
+├── daq_tb.v      # Simulation top: cocotb bus + bram_fifo + frida_core
+└── ...
+```
+
+`daq_fpga.v` includes `daq_core.v` for synthesis. `daq_tb.v` includes
+`daq_core.v` for simulation. Same core, different wrappers.
+
+**Verify:** `iverilog -g2005-sv -I ... -o design/daq/daq_tb.vvp design/daq/daq_tb.v` compiles.
 
 ---
 
 ## Step 7: Basil simulation config
 
-**Create:** `daq/host/map_sim.yaml`:
+**Create:** `flow/scans/map_sim.yaml`:
 
 ```yaml
 name: frida-sim
@@ -767,108 +1080,150 @@ registers: []  # DUT registers loaded from map_dut.yaml by Frida class
 
 ---
 
-## Step 8: flow sim / flow daq CLI commands
+## Step 8: flow simulate / flow measure CLI commands
 
-**Modify:** `flow/cli.py` — replace `simulate` with `sim` and add `daq`:
+**Modify:** `flow/cli.py`:
 
 ```python
-# ==== Sim (mixed-signal simulation) ====
-p = sub.add_parser("sim", help="Run mixed-signal co-simulation")
+# ==== Simulate (mixed-signal co-simulation) ====
+p = sub.add_parser("simulate", help="Run mixed-signal co-simulation")
 p.add_argument("-c", "--cell", required=True,
                choices=["samp", "comp", "cdac", "adc"])
 p.add_argument("-t", "--tech", default="tsmc65", choices=list_pdks())
 p.add_argument("--scan", required=True,
                choices=["scurve", "transfer", "settling"])
+p.add_argument("--mc", type=int, default=1,
+               help="Monte Carlo runs (re-launches simulator with fresh agauss seeds)")
 p.add_argument("-o", "--out", default="scratch", type=Path)
 
-# ==== DAQ (physical measurement) ====
-p = sub.add_parser("daq", help="Run physical measurement")
+# ==== Measure (physical measurement) ====
+p = sub.add_parser("measure", help="Run physical measurement")
 p.add_argument("-c", "--cell", required=True,
                choices=["samp", "comp", "cdac", "adc"])
 p.add_argument("--scan", required=True,
                choices=["scurve", "transfer", "settling"])
+p.add_argument("--channels", type=str, default="0",
+               help="Comma-separated ADC channels to measure (e.g. 0,1,2,3)")
 p.add_argument("-o", "--out", default="scratch", type=Path)
 ```
 
-**Create:** `flow/sim_runner.py` — orchestrates the simulation:
+**Create:** `flow/scans/simulate.py` — orchestrates the co-simulation:
 
 ```python
 """Mixed-signal simulation runner.
 
-1. Checks that netlists exist in scratch/ (from prior `flow netlist --scope cosim`)
-2. Compiles the Verilog testbench with Icarus
-3. Launches the simulator via cocotb_compile_and_run()
-4. Creates basil Dut with map_sim.yaml
-5. Instantiates Frida class
-6. Runs the requested scan
-7. Saves results to scratch/
+Uses basil's modern cocotb runner (basil.utils.sim.runner.cocotb_run)
+which wraps cocotb's Python-native Runner API (added Jan 2022, PR #2634).
+No Makefiles, no os.environ pollution — all config is passed as extra_env
+on the simulator subprocess.
+
+For Monte Carlo, re-launches the entire simulator for each run. ngspice
+re-seeds agauss()/gauss() in the PDK models on restart.
 """
 
 from pathlib import Path
+
+import yaml
+import numpy as np
+import spicebind
 from basil.dut import Dut
-from basil.utils.sim.utils import cocotb_compile_and_run
+from basil.utils.sim.runner import cocotb_run
 
-from daq.host.host import Frida
+from flow.scans.host import Frida
+
+# Basil simulation config passed to the simulator subprocess
+_SIM_ENV = {
+    "SIMULATION_HOST": "localhost",
+    "SIMULATION_PORT": "12345",
+    "SIMULATION_BUS": "basil.utils.sim.BasilSbusDriver",
+    "SIMULATION_END_ON_DISCONNECT": "1",
+    "SIMULATION_MODULES": yaml.dump({"basil.utils.sim.AnalogDriver": {}}),
+    "ANALOG_SIM_PORT": "12346",
+}
 
 
-def run_sim(cell: str, tech: str, scan_name: str, outdir: Path):
-    # 1. Verify netlist exists
-    cosim_netlist = outdir / f"{cell}_cosim.cir"
+def setup_simulation(cell: str, tech: str, outdir: Path):
+    """Launch simulator and return (frida, daq) pair."""
+
+    cosim_netlist = outdir / f"tb_{cell}.sp"
     if not cosim_netlist.exists():
         raise SystemExit(
             f"Co-sim netlist not found: {cosim_netlist}\n"
             f"Run: flow netlist -c {cell} -t {tech} -f ngspice --scope cosim"
         )
 
-    # 2. Compile and launch simulator
-    sim_dir = Path(__file__).parent.parent / "sim"
-    cocotb_compile_and_run(
-        sim_files=[str(sim_dir / "tb.v")],
+    # Build env for the simulator subprocess
+    sim_env = {
+        **_SIM_ENV,
+        "SPICE_NETLIST": str(cosim_netlist),
+        "HDL_INSTANCE": "tb.i_chip.adc_array[0].adc_inst",
+    }
+
+    # Launch Icarus + cocotb + spicebind (non-blocking — runs in background)
+    cocotb_run(
+        sim="icarus",
+        sources=[Path("design/daq/daq_tb.v")],
         top_level="tb",
-        sim_bus="basil.utils.sim.BasilSbusDriver",
-        include_dirs=(
-            str(Path("libs/basil/basil/firmware/modules")),
-            str(Path("daq/fpga")),
-            str(Path("design/hdl")),
-            str(sim_dir),
-        ),
-        extra=f"SIMULATION_MODULES: {{'basil.utils.sim.AnalogDriver': {{}}}}",
+        includes=[
+            Path("libs/basil/basil/firmware/modules"),
+            Path("design/daq"),
+            Path("design/hdl"),
+            outdir,  # generated stubs (.v) live here
+        ],
+        sim_args=["-M", spicebind.get_lib_dir(), "-m", "spicebind_vpi"],
+        extra_env=sim_env,
     )
 
-    # Set spicebind environment
-    import os
-    os.environ["SPICE_NETLIST"] = str(cosim_netlist)
-    os.environ["HDL_INSTANCE"] = "tb.i_chip.adc_array[0].adc_inst"
-    os.environ["ANALOG_SIM_PORT"] = "12346"
-
-    # 3. Connect to simulator via basil
-    yaml_path = Path("daq/host/map_sim.yaml")
+    # Connect to simulator via basil
+    yaml_path = Path(__file__).parent / "map_sim.yaml"
     daq = Dut(str(yaml_path))
     daq.init()
 
     frida = Frida(daq)
     frida.init()
 
-    # 4. Run scan
+    return frida, daq
+
+
+def run_sim(cell: str, tech: str, scan_name: str, outdir: Path, mc_runs: int = 1):
+    """Run a scan, optionally with Monte Carlo repetitions.
+
+    Each MC run launches a fresh simulator instance, which causes ngspice
+    to re-seed agauss()/gauss() in the PDK models. The scan code is
+    agnostic — it sees one run. Stacking happens here.
+    """
     from flow.scans import SCAN_REGISTRY
     scan_cls = SCAN_REGISTRY[scan_name]
-    scan = scan_cls()
-    results = scan.run(frida, daq)
 
-    # 5. Save results
-    import numpy as np
-    np.savez(outdir / f"{cell}_{scan_name}.npz", **results)
+    all_results = []
+    for i in range(mc_runs):
+        if mc_runs > 1:
+            print(f"Monte Carlo run {i+1}/{mc_runs}")
 
-    daq.close()
+        frida, daq = setup_simulation(cell, tech, outdir)
+        scan = scan_cls()
+        result = scan.run(frida, daq)
+        all_results.append(result)
+        daq.close()
+
+    # Stack results
+    if mc_runs == 1:
+        np.savez(outdir / f"{cell}_{scan_name}.npz", **all_results[0])
+    else:
+        stacked = {}
+        for key in all_results[0]:
+            stacked[key] = np.stack([r[key] for r in all_results])
+        stacked["mc_runs"] = np.array(mc_runs)
+        np.savez(outdir / f"{cell}_{scan_name}_mc{mc_runs}.npz", **stacked)
 ```
 
-**Verify:** `flow sim -c comp -t tsmc65 --scan scurve` runs end-to-end.
+**Verify:** `flow simulate -c comp -t tsmc65 --scan scurve` runs end-to-end.
 
 ---
 
 ## Step 9: Adapt host.py for dual-mode operation
 
-**Modify:** `daq/host/host.py`
+**Modify:** `flow/scans/host.py`
 
 The main change: `time.sleep()` calls in `init()` and `run_conversions()` are
 no-ops in simulation (simulation time only advances via bus transactions).
@@ -892,24 +1247,160 @@ API which works transparently with both SiTcp and SiSim.
 | File | Action | Step |
 |------|--------|------|
 | `libs/spicebind/` | Add as git submodule | 1 |
-| `pyproject.toml` | Add `sim` dependency group | 1 |
-| `sim/comp/comp_stub.v` | Create: Verilog analog stub | 2 |
-| `sim/comp/comp_cosim.cir` | Create: ngspice co-sim wrapper | 2 |
-| `sim/comp/test_comp_standalone.py` | Create: standalone cocotb test | 2 |
-| `sim/comp/Makefile` | Create: build/run standalone test | 2 |
+| `pyproject.toml` | Merge all deps into main dependencies list | 1 |
+| `libs/basil/basil/utils/sim/runner.py` | Create: modern cocotb runner wrapper | 3 |
+| `libs/basil/basil/utils/sim/Protocol.py` | Modify: add `AnalogSetRequest` class | 3 |
 | `libs/basil/basil/TL/SerialSim.py` | Create: new basil TL | 3 |
 | `libs/basil/basil/utils/sim/AnalogDriver.py` | Create: SIMULATION_MODULE | 3 |
-| `flow/circuit/netlist.py` | Modify: add `generate_cosim_wrapper()` | 4 |
-| `flow/cli.py` | Modify: add `--scope cosim`, `sim`, `daq` commands | 4, 8 |
-| `flow/scans/base.py` | Create: scan base class | 5 |
+| `flow/circuit/netlist.py` | Modify: add `generate_verilog_stub()` utility | 4 |
+| `flow/*/testbench.py` | Modify: add `scope` param, `Vexternal` conditionals | 4 |
+| `libs/Hdl21/hdl21/primitives.py` | Add `Vexternal` primitive | 4 |
+| `libs/Vlsir/VlsirTools/vlsirtools/netlist/spice.py` | Handle `vexternal` → `0 external` | 4 |
+| `flow/cli.py` | Modify: add `--scope cosim`, `simulate`, `measure` commands | 4, 8 |
+| `flow/scans/__init__.py` | Create: ScanBase class + scan registry | 5 |
 | `flow/scans/scan_comp_scurve.py` | Create: comp S-curve scan | 5 |
 | `flow/scans/scan_adc_transfer.py` | Create: ADC transfer scan | 5 |
-| `sim/tb.v` | Create: Icarus simulation testbench | 6 |
-| `sim/samp_stub.v` | Create: sampling switch analog stub | 6 |
-| `sim/cdac_stub.v` | Create: CDAC analog stub | 6 |
-| `daq/host/map_sim.yaml` | Create: basil sim config | 7 |
-| `flow/sim_runner.py` | Create: simulation orchestrator | 8 |
-| `daq/host/host.py` | Modify: add `_sleep()` for dual-mode | 9 |
+| `flow/scans/simulate.py` | Create: launch cocotb+spicebind, setup sim, MC loop | 5 |
+| `flow/scans/measure.py` | Create: setup Dut(map_fpga.yaml) | 5 |
+| `flow/scans/host.py` | Move from `daq/host/` (Frida class + sequences) | 5 |
+| `design/daq/daq_tb.v` | Create: Icarus simulation testbench | 6 |
+| `design/daq/daq_core.v` | Rename from `frida1_core.v` | prereq |
+| `design/daq/daq_fpga.v` | Rename from `frida1.v` | prereq |
+| `flow/scans/map_sim.yaml` | Create: basil sim config (SiSim + SerialSim) | 7 |
+| `flow/scans/map_fpga.yaml` | Move from `daq/host/` | 7 |
+| `flow/scans/map_dut.yaml` | Move from `daq/host/` | 7 |
+| `design/pcb/` | Rename from `daq/dut/`, add `ths4541.sp` | prereq |
+
+## Instrument Mocking: End-to-End Signal Path
+
+This section traces how a voltage set by scan code reaches the SPICE simulation.
+The same pattern applies to the AWG (input stimulus) and power supply (VDD).
+
+### Hardware path
+
+```
+scan code: daq["awg"].set_voltage_high(0.6)
+    → agilent33250a.set_voltage_high(0.6)      (basil HL driver)
+        → self._intf.write("VOLT:HIGH 0.6")    (SCPI string)
+            → Serial.write(bytes)               (basil TL: USB-RS232)
+                → physical AWG changes output
+                    → BNC cable → THS4541 amp → chip vin_p pad
+```
+
+### Simulation path
+
+```
+scan code: daq["awg"].set_voltage_high(0.6)     ← identical call
+    → agilent33250a.set_voltage_high(0.6)        (same basil HL driver)
+        → self._intf.write("VOLT:HIGH 0.6")      (same SCPI string)
+            → SerialSim.write(bytes)              (basil TL: new, replaces Serial)
+                → parses "VOLT:HIGH" → extracts 0.6
+                → sends AnalogSetRequest("VIN_P", 0.6) via TCP socket
+                    → AnalogDriver (SIMULATION_MODULE in cocotb)
+                        → dut.VIN_P.value = 0.6  (Verilog real port)
+                            → spicebind reads VIN_P
+                                → ngspice: Vawg_p source returns 0.6V
+                                    → THS4541 subcircuit → vin_p node
+```
+
+### YAML config swap (the only difference)
+
+```yaml
+# map_fpga.yaml (hardware)          # map_sim.yaml (simulation)
+transfer_layer:                      transfer_layer:
+  - name: awg_serial                   - name: awg_serial
+    type: Serial                         type: SerialSim
+    init:                                init:
+      port: /dev/ttyUSB0                   host: localhost
+      baudrate: 9600                       port: 12346
+                                           signal_map:
+                                             voltage_high: VIN_P
+                                             voltage_low: VIN_N
+
+  - name: psu_serial                   - name: psu_serial
+    type: Serial                         type: SerialSim
+    init:                                init:
+      port: /dev/ttyUSB1                   host: localhost
+      baudrate: 9600                       port: 12347
+                                           signal_map:
+                                             voltage: VDD
+```
+
+The HL drivers (`agilent33250a`, power supply SCPI driver) are unchanged.
+The scan code is unchanged. Only the YAML selects hardware or simulation.
+
+## Data Flow and Observability
+
+### Primary data path (same for simulation and hardware)
+
+Scan data (comparator decisions, ADC codes) flows live through the basil FIFO,
+identical in both modes:
+
+```
+Simulation:  ngspice comp_out → spicebind threshold → Icarus digital 0/1
+             → frida_core MUX → daq_core fast_spi_rx → bram_fifo
+             → SiSim socket → basil get_data() → numpy array → .npz
+
+Hardware:    FRIDA chip comp_out → LVDS → BDAQ53 fast_spi_rx → sitcp_fifo
+             → SiTcp Ethernet → basil get_data() → numpy array → .npz
+```
+
+No intermediate files. `run_conversions()` returns numpy arrays directly.
+Both paths save results as `.npz` files in `scratch/`.
+
+### Simulation-only debug data
+
+SpiceBind produces two additional output files for debugging:
+
+- **`dump.raw`** — ngspice raw file, written at simulation end. Contains all
+  internal SPICE node voltages/currents at every timestep. Access internal
+  signals like comparator latch voltages, DAC settling waveforms, etc.
+  These are not visible through cocotb — they only exist in the ngspice domain.
+  Parse with `spyci` or ngspice ASCII mode after simulation:
+
+  ```python
+  # Post-simulation analysis of internal analog nodes
+  from spyci import load_raw
+  raw = load_raw("scratch/dump.raw")
+  time = raw["time"]
+  vlatch = raw["v(xtop.xdut.xcomp.vlatch_p)"]  # SPICE hierarchical names
+  ```
+
+  Note: HDL21 does not provide Python-object-to-SPICE-node mapping. Internal
+  node access uses raw SPICE hierarchical name strings.
+
+- **`*.vcd`** — Icarus VCD file (if `$dumpvars` is in the testbench). Contains
+  digital signals only. Useful for viewing bus transactions and sequencer timing
+  in GTKWave. Not part of the data pipeline.
+
+### cocotb runtime signal access
+
+cocotb can read **any signal in the Verilog hierarchy** at runtime via VPI,
+not just top-level ports. This includes internal digital signals:
+
+```python
+# During a scan, from a SIMULATION_MODULE or extended Test.py:
+dut.i_chip.spi_reg.spi_bits.value           # 180-bit SPI register
+dut.i_chip.adc_array[0].adc_inst.dac_state_p.value  # SAR logic state
+dut.i_daq_core.inst_fast_spi_rx.SCLK.value  # FPGA-side signals
+```
+
+However, signals inside spicebind-bound analog blocks (internal SPICE nodes)
+are **not** accessible through cocotb. cocotb sees the analog stub ports
+(`real` values at the spicebind boundary) but nothing inside the SPICE
+subcircuit. For those, use `dump.raw`.
+
+### Summary
+
+| Data type | Access method | Available in |
+|-----------|--------------|-------------|
+| ADC codes / comp_out bits | basil FIFO → numpy | Both sim & hardware |
+| Digital internals (SPI, SAR, clocks) | cocotb `dut.path.value` | Simulation only (runtime) |
+| Analog stub ports (vin, vdac, etc.) | cocotb `dut.path.value` (real) | Simulation only (runtime) |
+| Analog internals (latch nodes, etc.) | `dump.raw` (SPICE names) | Simulation only (post-sim) |
+| Scope waveforms | `daq["scope"].get_waveform()` | Hardware only |
+
+---
 
 ## Risks
 
