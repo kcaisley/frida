@@ -313,7 +313,7 @@ no os.environ pollution.
 """
 
 from pathlib import Path
-from cocotb.runner import get_runner
+from cocotb_tools.runner import get_runner
 
 
 def cocotb_run(

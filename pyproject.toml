@@ -16,12 +16,10 @@ dependencies = [
     "hdl21",
     "vlsir",
     "vlsirtools",
-]
-
-[dependency-groups]
-# DAQ: FPGA build, JTAG flash, host-side chip communication
-daq = [
+    # DAQ + simulation
     "basil-daq",
+    "cocotb",
+    "cocotb-bus",
     "pexpect",
     "gitpython",
     "bitarray",
@@ -41,7 +39,6 @@ flow = "flow.cli:main"
 
 [tool.uv]
 package = true
-default-groups = ["daq"]
 
 [tool.uv.sources]
 hdl21 = { path = "libs/Hdl21", editable = true }
