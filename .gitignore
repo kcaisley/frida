@@ -22,6 +22,7 @@ phys/results/
 *.vcd
 *.lck
 si.env
+.swb
 
 # LaTeX
 docs/tex/

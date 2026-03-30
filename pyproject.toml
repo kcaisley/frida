@@ -20,6 +20,8 @@ dependencies = [
     "basil-daq",
     "cocotb",
     "cocotb-bus",
+    "spyci",
+    "vcdvcd",
     "pexpect",
     "gitpython",
     "bitarray",
