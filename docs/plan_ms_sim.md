@@ -3,69 +3,75 @@
 Uses Cadence Xcelium (digital) + Spectre (analog) via AMS Designer for
 mixed-signal co-simulation, driven by cocotb/basil scan code.
 
-## Pre-implementation questions
+## Pre-implementation questions (resolved)
 
-These need to be resolved before proceeding with the steps below.
+Researched via Xcelium 25.09 docs (`wreal.pdf`, `vpiref.pdf`,
+`ams_dms_simug.pdf`, `ams_dms_simkpns.pdf`) and cocotb source code.
 
 ### 1. cocotb + Xcelium AMS compatibility
 
-cocotb can initialize inside Xcelium AMS (with `-iusldno` and `PYGPI_PYTHON_BIN`),
-and can drive signals. However, A2D connect module outputs don't propagate to
-VPI-visible `wire` signals — digital outputs read as constant 0 from cocotb,
-despite working correctly in standalone `xrun` with `$monitor`.
+**Resolved.** VPI is a digital-only interface. Analog signals need HDL bridges.
 
-- Is this a cocotb VPI polling issue (needs explicit `await` for AMS sync)?
-- Does Xcelium AMS support `cbValueChange` callbacks on connect module outputs?
-- Should we use `wreal` outputs instead of `wire` and read via `vpiRealNet`?
-- Is there a Cadence support note about VPI + AMS interop?
+- `vpiref.pdf` p.14: analog nets appear as `vpiNet` with
+  `vpiDomain == vpiContinuous`. Applying VPI routines to them "can produce
+  incorrect results or even crash."
+- `vpiref.pdf` p.120: the only AMS VPI extension is `vpiDomain` (from
+  `vpi_ams.h`) — for *filtering out* analog objects, not interacting with them.
+- `cbValueChange` is not guaranteed for analog-domain signals — the callback
+  mechanism is tied to the digital event-driven kernel; analog changes happen
+  in continuous-time via the Spectre solver.
+- `ams_dms_simug.pdf` p.332-333: all digital objects in AMS designs default
+  to no VPI access — must use `-access +rwc`.
+- `ams_dms_simkpns.pdf` CCR 13907/7827: auto-inserted connect modules are
+  opaque to probing and the Tcl `drivers` command.
+
+**This explains the "A2D output reads constant 0" bug**: the A2D connect
+module output is in the analog domain from VPI's perspective, so
+`cbValueChange` never fires.
+
+**Solution**: Use the `$cds_get_analog_value` HDL probe pattern from cocotb's
+own `mixed_signal` example (see Step 4b). cocotb drives/reads `real` variables,
+not wreal nets or connect-module outputs directly.
 
 ### 2. wreal vs real for analog signals
 
-Xcelium emits `$var wreal` in VCD files, which is a Cadence extension that
-`bspwave` and other open tools can't parse. Using standard `real` instead
-of `wreal` in the testbench would avoid this entirely.
+**Resolved.** `wreal` is mandatory at the AMS boundary. `real` cannot be
+used there.
 
-Key questions (require Xcelium docs research):
-- Do AMS connect modules insert correctly when a `real` variable (not `wreal`
-  net) is connected to a SPICE instance `inout` port?
-- The Cadence `sv_real` sample (p.20 of `top.sv`) showed `real vco_vin`
-  connected to a `wreal` VCO port — but does it work when there is no
-  intermediate `wreal` port, i.e. `real` directly to SPICE `inout`?
-- The docs (p.431) say "if the net of built-in nettype is a singular net
-  then the data type of the variable or expression must be a singular real"
-  for port connections — does this mean `real` works at the AMS boundary?
-- Does `real` support multiple drivers (needed for bidirectional SPICE ports)?
-  `wreal` has resolution functions; `real` is single-driver.
-- If `real` works: does cocotb read it via `vpiRealVar` (same as for Icarus)?
-- Relevant Xcelium docs to check: `wreal.pdf`, `vpiref.pdf`, `svsim.pdf`,
-  `ams_dms_simug.pdf` chapters on "Real Number Modeling" and
-  "Wreal Interaction with Built-In Real Nettypes"
+- `wreal.pdf` p.59-60: SV `real` variables have "No support for inout ports",
+  "No discipline association", "Limited connectivity to analog models", and
+  "forbids multiple drivers." Connect modules only insert between *nets* of
+  different disciplines — `real` is a variable, not a net.
+- `ams_dms_simug.pdf` p.189 (explicit warning): "Connection between the
+  `wreal` nettype and the `real` nettype is not supported."
+- Architecture must be: cocotb → `real` var → `assign` → `wreal` net →
+  connect module → `electrical` (SPICE). Cannot skip the `wreal` step.
+
+**VCD compatibility**: instead of post-processing with `sed`, declare `real`
+mirror variables in the testbench and use selective `$dumpvars` to exclude
+`wreal` nets entirely. The VCD then contains only `$var real` entries, which
+gtkwave and bspwave both understand natively (see Step 4).
 
 ### 3. SPICE netlist format for Spectre's parser
 
-HDL21's ngspice netlister produces files that Spectre can't always parse:
-missing title line, `mm` instance prefix, `+` continuation lines, quoted
-parameters, hashed subcircuit names.
-
-- Should we fix this in HDL21/vlsirtools (add a Spectre-compatible SPICE mode)?
-- Or post-process in `flow netlist` with a `fix_spice_for_spectre()` function?
-- Or generate Spectre-native netlists (`.scs`) directly? The `--scope dut -f spectre`
-  already works, but the full testbench (`--scope sim`) only works for Spectre format.
+Post-process with `fix_spice_for_spectre()` in `flow netlist` (see Step 2).
 
 ### 4. Connect module configuration for supplies
 
-We tested two approaches for VDD/VSS:
-- Pass through `wreal` + connect modules with `rout=0` (simpler, no `ignore`)
-- Disconnect from Verilog (`.vdd(), .vss()`) + Spectre `vsource` (FAQ recommended)
+**Resolved.** `rout=0` works but must be per-net, not global.
 
-Both approaches compiled and ran, but the comparator output didn't toggle in
-either case (turned out to be a circuit bug in the reset device gate signal,
-now fixed).
+- `ams_dms_simug.pdf` p.93/98: `rout=0` creates an ideal voltage source
+  (zero impedance). But with UCM, setting `rout=0` globally **disables
+  bidirectional signal operation for ALL connect modules** in the scope.
+  Use per-net targeting: `ie net=top.i1.i2.vdd rout=0`.
+- `ams_dms_simug.pdf` p.80: `porttype=name ignore="vdd vss"` disconnects
+  those ports from the digital domain entirely — the SPICE subcircuit's
+  VDD/VSS pins stay in the analog domain, powered by Spectre `vsource`.
+- `ams_dms_simkpns.pdf` CCR 115386: supply/ground sensitivity doesn't work
+  in default discipline resolution mode — use `-detailed` instead.
 
-- With the circuit bug fixed, does `rout=0` on connect modules work correctly
-  for VDD/VSS? (Need to re-test with the fixed comparator.)
-- If not, do we need `porttype=name ignore="vdd vss"` + Spectre `vsource`?
-  (This requires explicit `portmap`, preventing auto-generation.)
+**Plan**: re-test with `rout=0` on specific supply nets now that the circuit
+bug is fixed. Fall back to `ignore` + Spectre `vsource` if needed.
 
 ---
 
@@ -89,7 +95,7 @@ dependencies = [
 
 **Open-source viewers**:
 - `bspwave` — reads `.vcd` (with `$var real`, not `$var wreal`) and nutascii `.raw`
-- `gtkwave` — reads `.vcd` only (no `.raw` or SST2 support in GTK4 version)
+- `gtkwave` — reads `.vcd` with `$var real` (no `$var wreal`, no `.raw` or SST2)
 
 ---
 
@@ -181,17 +187,41 @@ Key points:
 
 ---
 
-## Step 4: Verilog testbench with wreal signals
+## Phase 1: Prototype verification (scratch/test* directories)
 
-The testbench uses `wreal` for analog signals at the AMS boundary. Xcelium's
-AMS connect modules (UCM) automatically convert between `wreal` and Spectre
-`electrical` at SPICE instance ports.
+Work backward-to-forward, verifying each layer of the system before adding
+the next. All prototype work lives in `scratch/test*/` directories.
 
+---
+
+### Step 4: Fix comparator netlist generator (`scratch/test1`)
+
+Fix the HDL21 comparator netlist generator so it produces correct SPICE.
+Verify by generating both the DUT subcircuit and a SPICE testbench, then
+running a standalone Spectre simulation.
+
+1. Fix `flow netlist --scope dut` to produce a clean `.subckt` (Step 2 fixes)
+2. Fix `flow netlist --scope sim` to produce a self-contained SPICE testbench
+   (Vpwl/Vpulse sources, transient analysis, PDK model includes)
+3. Run `spectre comp_sim.sp` and verify the comparator toggles correctly
+4. Parse the `.raw` output to confirm expected waveforms
+
+**Pass criterion**: standalone Spectre simulation shows correct comparator
+switching with the fixed netlist. No Xcelium or Verilog involved yet.
+
+---
+
+### Step 5: Xcelium + Spectre AMS with Verilog testbench (`scratch/test2`)
+
+Replace the SPICE test signal generation with a Verilog testbench. The
+Verilog testbench drives analog inputs via `real` variables → `wreal` nets,
+and the `.scs` control file handles the AMS boundary.
+
+**Testbench pattern** — `real` variables drive `wreal` nets at the boundary:
 ```verilog
 `timescale 1ns/1ps
 
 module tb;
-    // Clock (must be wire for SPICE inout port connection)
     reg clk_reg;
     wire clk, clkb;
     assign clk = clk_reg;
@@ -202,19 +232,27 @@ module tb;
         forever #5 clk_reg = ~clk_reg;
     end
 
-    // Analog signals as wreal (AMS connect modules handle conversion)
-    wreal inp, inn;
-    wreal vdd, vss;
+    // Real variables (cocotb-accessible, VCD-compatible)
+    real inp_val, inn_val, vdd_val, vss_val;
 
-    assign inp = 0.605;
-    assign inn = 0.595;
-    assign vdd = 1.2;
-    assign vss = 0.0;
+    // Wreal nets at AMS boundary (connect modules insert here)
+    wreal inp, inn, vdd, vss;
+    assign inp = inp_val;
+    assign inn = inn_val;
+    assign vdd = vdd_val;
+    assign vss = vss_val;
 
-    // Digital outputs (A2D connect module converts analog → digital)
+    // Real mirrors for VCD logging (no wreal in VCD)
+    real inp_r, inn_r, vdd_r, vss_r;
+    always @(inp) inp_r = inp;
+    always @(inn) inn_r = inn;
+    always @(vdd) vdd_r = vdd;
+    always @(vss) vss_r = vss;
+
+    // Digital outputs
     wire outp, outn;
 
-    // SPICE instance — module name matches .subckt name in .sp file
+    // SPICE instance
     comp i_comp (
         .inp(inp), .inn(inn),
         .outp(outp), .outn(outn),
@@ -222,10 +260,17 @@ module tb;
         .vdd(vdd), .vss(vss)
     );
 
-    // VCD dump (use $var real for bspwave compat, not $var wreal)
+    // Inline stimulus (replaced by cocotb in Step 7)
+    initial begin
+        vdd_val = 1.2; vss_val = 0.0;
+        inp_val = 0.605; inn_val = 0.595;
+    end
+
+    // Selective VCD dump — only real mirrors + digital (no wreal)
     initial begin
         $dumpfile("waves.vcd");
-        $dumpvars(0, tb);
+        $dumpvars(0, clk_reg, clk, clkb, outp, outn,
+                  inp_r, inn_r, vdd_r, vss_r);
     end
 
     initial begin
@@ -235,136 +280,227 @@ module tb;
 endmodule
 ```
 
-**Signal type rules**:
-- `wreal` for analog values (inp, inn, vdd, vss) — connect modules bridge
-  to Spectre electrical domain
-- `wire` for digital outputs (outp, outn) — A2D connect module thresholds
-  the analog voltage to digital 0/1
-- `reg` cannot connect directly to SPICE `inout` ports — use `wire` with
-  `assign` from `reg`
+**Signal type chain**: cocotb/Verilog → `real` var → `assign` → `wreal` net
+→ connect module → `electrical` (SPICE).
 
-**VCD note**: Xcelium emits `$var wreal` which bspwave can't parse. Fix with:
+**Run command**:
 ```bash
-sed 's/\$var wreal/$var real/g' waves.vcd > waves_fixed.vcd
-```
-
----
-
-## Step 5: Running the simulation (without cocotb)
-
-For block-level characterization, run Xcelium AMS directly without cocotb.
-The Verilog testbench contains inline stimulus.
-
-```bash
-source ~/asiclab/eda/local/scripts/cadence_2024-25.sh
-
-xrun -ams \
-    tb.v \
-    comp.sp \
-    amscontrol.scs \
-    -timescale 1ns/1ps \
-    -ams_ucm \
-    -access +rwc \
+xrun -ams tb.v comp.sp amscontrol.scs \
+    -timescale 1ns/1ps -ams_ucm -access +rwc \
     -input "@run; exit"
 ```
 
-This produces:
-- `comp.raw` — nutascii analog waveforms (all internal SPICE nodes)
-- `waves.vcd` — digital waveforms (all Verilog signals including wreal)
+**Verify**:
+- `waves.vcd` contains only `$var real` entries (no `$var wreal`) — open in
+  gtkwave or bspwave to confirm
+- `comp.raw` (nutascii) contains internal SPICE node waveforms
+- Comparator output toggles correctly
+- VDD/VSS reach the SPICE subcircuit correctly — resolve `rout=0` per-net
+  vs `ignore` + Spectre `vsource` (see Q4)
 
-For native SimVision viewing with unified analog+digital, use SHM probing:
-```bash
-xrun -ams \
-    tb.v comp.sp amscontrol.scs \
-    -timescale 1ns/1ps -ams_ucm -access +rwc \
-    -input '@database -open waves -into waves.shm -default; \
-            probe -create -database waves tb.* -depth all; \
-            run; exit'
-```
+**Pass criterion**: same comparator behavior as Step 4, but driven from
+Verilog. VCD files readable by gtkwave and bspwave without post-processing.
 
 ---
 
-## Step 6: Post-simulation analysis in Python
+### Step 6: Add analog probes for internal signals (`scratch/test3`)
 
-Parse `.raw` and `.vcd` files into numpy arrays for analysis and plotting.
+Same configuration as Step 5, but add `$cds_get_analog_value` probes to
+expose internal comparator signals as `real` variables in the VCD.
 
-```python
-import numpy as np
-from spyci.spyci import load_raw
-from vcdvcd import VCDVCD
+**Probe module** (Cadence-specific, reusable across designs):
+```verilog
+module analog_probe();
+    var string node_to_probe = "<unassigned>";
 
-# --- Analog data (internal SPICE nodes) ---
-# Note: spyci may not parse Spectre's nutascii header directly.
-# Use the manual parser for Spectre-flavored nutascii:
+    // Voltage probe — toggled to capture a reading
+    logic probe_voltage_toggle = 0;
+    real voltage;
 
-def parse_spectre_nutascii(path):
-    """Parse Spectre nutascii .raw file into dict of numpy arrays."""
-    with open(path) as f:
-        text = f.read()
-    header, data_text = text.split('Values:\n', 1)
+    always @(probe_voltage_toggle) begin
+        if ($cds_analog_is_valid(node_to_probe, "potential")) begin
+            voltage = $cds_get_analog_value(node_to_probe, "potential");
+        end else begin
+            voltage = 1.234567;
+            $display("%m: Warning: node_to_probe=%s is not valid", node_to_probe);
+        end
+    end
 
-    var_names = ['time']
-    for line in header.split('\n'):
-        parts = [p for p in line.strip().split('\t') if p]
-        if len(parts) >= 3 and parts[0].isdigit():
-            var_names.append(parts[1])
+    // Current probe (same pattern)
+    logic probe_current_toggle = 0;
+    real current;
 
-    n_vars = len(var_names)
-    all_values = []
-    for line in data_text.strip().split('\n'):
-        for p in line.strip().split():
-            try:
-                all_values.append(float(p))
-            except ValueError:
-                pass
-
-    stride = n_vars + 1  # +1 for point index
-    n_pts = len(all_values) // stride
-    data = np.zeros((n_pts, n_vars))
-    for i in range(n_pts):
-        data[i, :] = all_values[i * stride + 1 : i * stride + 1 + n_vars]
-
-    return {name: data[:, j] for j, name in enumerate(var_names)}
-
-raw = parse_spectre_nutascii("comp.raw")
-time = raw["time"]
-vlatch_p = raw["tb.i_comp.latch_p"]
-
-# --- Digital data (Verilog signals) ---
-vcd = VCDVCD("waves.vcd")
-clk_transitions = vcd["tb.clk"].tv       # list of (time_ps, "0"/"1")
-outp_transitions = vcd["tb.outp"].tv
+    always @(probe_current_toggle) begin
+        if ($cds_analog_is_valid(node_to_probe, "flow")) begin
+            current = $cds_get_analog_value(node_to_probe, "flow");
+        end else begin
+            current = 1.234567;
+            $display("%m: Warning: node_to_probe=%s is not valid for current",
+                     node_to_probe);
+        end
+    end
+endmodule
 ```
+
+**Testbench additions** (add to `tb` module from Step 5):
+```verilog
+// Instantiate the probe
+analog_probe i_analog_probe ();
+
+// Periodic sampling of an internal node (for VCD logging without cocotb)
+real latch_p_r;
+initial begin
+    i_analog_probe.node_to_probe = "tb.i_comp.latch_p";
+    forever begin
+        #1;  // sample every 1ns
+        i_analog_probe.probe_voltage_toggle = ~i_analog_probe.probe_voltage_toggle;
+        #0;  // let the always block execute
+        latch_p_r = i_analog_probe.voltage;
+    end
+end
+```
+
+Add `latch_p_r` (and any other probed signals) to the `$dumpvars` list.
+
+**Verify**:
+- Internal SPICE node values appear as `$var real` traces in the VCD
+- Values match what the `.raw` file shows for the same nodes
+- Probe works for multiple nodes by changing `node_to_probe` string
+
+**Pass criterion**: internal analog signals visible in gtkwave/bspwave
+via VCD, matching the nutascii `.raw` data.
 
 ---
 
-## Step 7: cocotb + Xcelium AMS integration (for scan-based tests)
+### Step 7: cocotb-driven stimulus (`scratch/test4`)
 
-cocotb can drive Xcelium AMS, but requires careful environment setup.
-The key flags discovered through testing:
+Remove the inline Verilog stimulus and drive everything from a cocotb test.
+Use cocotb's Python runner in direct mode (no pytest).
+
+#### 7a. Python runner approach (primary)
+
+The runner's `Xcelium` class splits into `xrun -elaborate` (build) then
+`xrun -R` (test). AMS flags go in `build_args` so they're present during
+elaboration; the `-R` step runs from the elaborated snapshot.
 
 ```python
+# flow/scans/simulate.py
+from pathlib import Path
+from cocotb_tools.runner import get_runner
+
+def run_ams_cocotb(
+    sources: list[Path],
+    spice_files: list[Path],
+    ams_control: Path,
+    test_module: str,
+    top_level: str = "tb",
+    sim_build: Path = Path("sim_build"),
+):
+    """Launch Xcelium AMS co-simulation with cocotb via the Python runner."""
+    runner = get_runner("xcelium")
+
+    # AMS flags go in build_args (present during -elaborate step)
+    ams_build_args = [
+        "-discipline", "logic",
+        "-amsconnrules", "ConnRules_full_fast",
+        "-iusldno",
+        str(ams_control),          # .scs file as positional arg
+        *[str(f) for f in spice_files],
+    ]
+
+    runner.build(
+        sources=[str(s) for s in sources],
+        hdl_toplevel=top_level,
+        build_dir=str(sim_build),
+        build_args=ams_build_args,
+        always=True,
+    )
+
+    runner.test(
+        hdl_toplevel=top_level,
+        test_module=test_module,
+        test_dir=str(sim_build),
+        waves=True,
+    )
+```
+
+**cocotb test with direct invocation**:
+```python
+import cocotb
+from cocotb.triggers import Timer
+
+async def probe_voltage(dut, node_path):
+    """Read voltage of any internal analog node via the HDL probe."""
+    dut.i_analog_probe.node_to_probe.value = node_path
+    dut.i_analog_probe.probe_voltage_toggle.value = \
+        ~dut.i_analog_probe.probe_voltage_toggle.value
+    await Timer(1, units="ps")
+    return float(dut.i_analog_probe.voltage.value)
+
+@cocotb.test()
+async def test_comp_threshold(dut):
+    """Drive comparator from cocotb and verify output."""
+    dut.vdd_val.value = 1.2
+    dut.vss_val.value = 0.0
+    dut.inp_val.value = 0.605
+    dut.inn_val.value = 0.595
+    await Timer(340, units="ns")
+
+    # Read internal node via probe
+    vlatch = await probe_voltage(dut, "tb.i_comp.latch_p")
+    assert dut.outp.value == 1
+
+if __name__ == "__main__":
+    from flow.scans.simulate import run_ams_cocotb
+    from pathlib import Path
+
+    run_ams_cocotb(
+        sources=[Path("tb.v"), Path("analog_probe.v")],
+        spice_files=[Path("comp.sp")],
+        ams_control=Path("amscontrol.scs"),
+        test_module=__name__,
+    )
+```
+
+The testbench Verilog is the same as Step 5/6 but with the `initial` stimulus
+block removed — cocotb sets `inp_val`, `inn_val`, `vdd_val`, `vss_val` at
+runtime.
+
+#### 7b. Single-pass fallback (if two-step fails for AMS)
+
+cocotb's Makefile flow uses a single `xrun` call (no `-elaborate`/`-R` split),
+which is proven to work for AMS (the `mixed_signal` regulator example). If the
+Python runner's two-step flow doesn't handle AMS correctly (e.g. if the Spectre
+transient analysis isn't captured in the elaborate snapshot), fall back to a
+thin wrapper that mimics the Makefile's single-pass invocation:
+
+```python
+# flow/scans/simulate.py (fallback)
 import subprocess, os, sys, sysconfig
 
-def run_xcelium_ams_with_cocotb(
-    sources, spice_files, ams_control, test_module, top_level="tb"
+def run_ams_cocotb_singlepass(
+    sources: list[Path],
+    spice_files: list[Path],
+    ams_control: Path,
+    test_module: str,
+    top_level: str = "tb",
 ):
-    """Launch Xcelium AMS with cocotb VPI loaded."""
+    """Single-pass xrun with cocotb VPI — mimics Makefile.xcelium."""
     import cocotb_tools.config
     vpi_lib = cocotb_tools.config.lib_name_path("vpi", "xcelium")
     python_lib_dir = sysconfig.get_config_var("LIBDIR")
 
     cmd = [
-        "xrun", "-ams",
-        *sources,
-        *spice_files,
-        ams_control,
+        "xrun",
+        *[str(s) for s in sources],
+        *[str(f) for f in spice_files],
+        str(ams_control),
         "-timescale", "1ns/1ps",
-        "-ams_ucm",
-        "-iusldno",              # prevent Xcelium from overriding LD_LIBRARY_PATH
+        "-discipline", "logic",
+        "-amsconnrules", "ConnRules_full_fast",
+        "-iusldno",
         "-access", "+rwc",
         "-loadvpisim", f"{vpi_lib}:vlog_startup_routines_bootstrap",
-        "-input", "@run; exit;",
         "-licqueue",
     ]
 
@@ -377,33 +513,35 @@ def run_xcelium_ams_with_cocotb(
         "TOPLEVEL_LANG": "verilog",
         "PYGPI_PYTHON_BIN": sys.executable,
         "LD_LIBRARY_PATH": f"{python_lib_dir}:{env.get('LD_LIBRARY_PATH', '')}",
-        "PYTHONPATH": f".:{env.get('PYTHONPATH', '')}",
     })
 
     subprocess.run(cmd, env=env, check=True)
 ```
 
+#### Notes
+
 **Critical flags**:
-- `-iusldno` — prevents Xcelium AMS from modifying `LD_LIBRARY_PATH`
+- `-iusldno` — prevents Xcelium from overriding `LD_LIBRARY_PATH`
   (which breaks cocotb's embedded Python)
-- `-loadvpisim` (not `-loadvpi`) — loads VPI in simulation phase only
+- `-discipline logic` — sets default discipline for unresolved nets
+- `-amsconnrules ConnRules_full_fast` — enables E2R/R2E/Bidir connect modules
 - `PYGPI_PYTHON_BIN` — tells cocotb which Python interpreter to embed
 - Do NOT set `PYTHONHOME` — conflicts with Xcelium's environment
 
-**Known issue**: cocotb initializes successfully and can drive signals, but
-the A2D connect module outputs may not propagate correctly to VPI-visible
-`wire` signals. The comparator output reads as constant 0. This needs
-further investigation — the circuit works correctly without cocotb
-(pure `xrun` with `$monitor` shows correct transitions).
-
-**Workaround for now**: Use cocotb only for integration tests where you
-read digital signals at the FPGA FIFO level (same as hardware). For
-block-level analog characterization, use standalone `xrun` (Step 5)
-and parse the `.raw` + `.vcd` files (Step 6).
+**Pass criterion**: cocotb drives all stimulus, reads outputs and internal
+nodes. Same waveform results as Steps 5/6 but with no inline Verilog
+stimulus. Runs via `python test_comp.py` (direct) or `uv run flow simulate`.
 
 ---
 
-## Step 8: HDL21 scope=cosim netlist generation
+## Phase 2: Integration (after prototyping is proven)
+
+Steps below build on the verified prototype from Phase 1. File locations
+move from `scratch/test*/` to `flow/` and `design/` as appropriate.
+
+---
+
+### Step 8: HDL21 scope=cosim netlist generation
 
 Add `--scope cosim` to `flow netlist` to generate AMS-ready files.
 For Xcelium AMS, this means:
@@ -450,7 +588,47 @@ Also applies `fix_spice_for_spectre()` from Step 2 to the generated `.sp`.
 
 ---
 
-## Step 9: Scan definitions (shared between sim and measure)
+### Step 9: Post-simulation analysis in Python
+
+Parse `.raw` and `.vcd` files into numpy arrays for analysis and plotting.
+
+```python
+import numpy as np
+from vcdvcd import VCDVCD
+
+def parse_spectre_nutascii(path):
+    """Parse Spectre nutascii .raw file into dict of numpy arrays."""
+    with open(path) as f:
+        text = f.read()
+    header, data_text = text.split('Values:\n', 1)
+
+    var_names = ['time']
+    for line in header.split('\n'):
+        parts = [p for p in line.strip().split('\t') if p]
+        if len(parts) >= 3 and parts[0].isdigit():
+            var_names.append(parts[1])
+
+    n_vars = len(var_names)
+    all_values = []
+    for line in data_text.strip().split('\n'):
+        for p in line.strip().split():
+            try:
+                all_values.append(float(p))
+            except ValueError:
+                pass
+
+    stride = n_vars + 1  # +1 for point index
+    n_pts = len(all_values) // stride
+    data = np.zeros((n_pts, n_vars))
+    for i in range(n_pts):
+        data[i, :] = all_values[i * stride + 1 : i * stride + 1 + n_vars]
+
+    return {name: data[:, j] for j, name in enumerate(var_names)}
+```
+
+---
+
+### Step 10: Scan definitions (shared between sim and measure)
 
 Scans define stimulus and collection, agnostic of sim vs hardware:
 
@@ -475,69 +653,58 @@ For block-level characterization (standalone Xcelium AMS):
 
 ---
 
-## Step 10: Basil contributions (for integration test path)
+### Step 11: Basil contributions (for integration test path)
 
-If cocotb + Xcelium AMS compatibility is resolved:
-
-**`libs/basil/basil/utils/sim/runner.py`** — modern cocotb runner wrapper:
-```python
-from cocotb_tools.runner import get_runner
-
-def cocotb_run(sim="xcelium", sources=(), top_level="tb",
-               test_module="basil.utils.sim.Test",
-               includes=(), sim_args=(), extra_env=None):
-    runner = get_runner(sim)
-    runner.build(sources=[str(s) for s in sources],
-                 hdl_toplevel=top_level,
-                 includes=[str(i) for i in includes], always=True)
-    runner.test(hdl_toplevel=top_level, test_module=test_module,
-                test_args=list(sim_args), extra_env=extra_env or {})
-```
-
-Note: cocotb's Xcelium runner splits build/test into two `xrun` invocations,
-but AMS needs everything in one pass. May need to bypass the runner and
-call `xrun` directly (as in Step 7).
+The `flow simulate` CLI (Step 7) handles cocotb + Xcelium AMS launching
+directly. Basil contributions are needed only for integration tests that
+use the full FPGA + chip + analog path via SiSim/SerialSim.
 
 **`libs/basil/basil/TL/SerialSim.py`** — new TL for mocking instruments.
 **`libs/basil/basil/utils/sim/AnalogDriver.py`** — SIMULATION_MODULE for
-driving `wreal` ports. (Same concept as v1 plan, but drives `wreal` in
-Xcelium instead of `real` in Icarus via spicebind.)
+driving `wreal` ports via `real` variables (see Step 5 signal chain).
 
 ---
 
-## Step 11: Output format strategy
+## Output format strategy
 
-| Format | Analog internals | Digital signals | wreal values | Viewer |
-|--------|-----------------|-----------------|--------------|--------|
-| nutascii `.raw` | Yes | No | At boundary | SimVision (translate), bspwave, Python (`spyci`) |
-| `.vcd` | No | Yes | Yes (`$var wreal`) | SimVision (translate), bspwave (needs `wreal`→`real` sed), Python (`vcdvcd`) |
+| Format | Analog internals | Digital signals | Boundary analog | Viewer |
+|--------|-----------------|-----------------|-----------------|--------|
+| nutascii `.raw` | Yes | No | At boundary | SimVision, bspwave, Python |
+| `.vcd` (with `real` mirrors) | No | Yes | Yes (`$var real`) | gtkwave, bspwave, Python (`vcdvcd`) |
 | SST2 `.shm` | Yes (with probe) | Yes | Yes | SimVision (native) |
 
 **Recommended approach**:
 - Use **VCD + nutascii** for Python-parseable output and open-tool viewing
+- Testbench mirrors `wreal` → `real` with selective `$dumpvars` (Step 5),
+  so VCD contains only standard `$var real` — no `sed` post-processing needed
 - Use **SHM probing** when you need unified analog+digital in SimVision
-- Post-process VCD with `sed 's/\$var wreal/\$var real/g'` for bspwave
 
 ---
 
-## Step 12: Open issues
+## Open issues
 
-1. **cocotb + Xcelium AMS output reading**: cocotb can drive signals but
-   A2D connect module outputs don't propagate to VPI-visible wires
-   correctly. Digital outputs read as constant 0 from cocotb, despite
-   working correctly in standalone xrun. Needs investigation.
+1. ~~**cocotb + Xcelium AMS output reading**~~: **Resolved.** VPI is
+   digital-only; analog signals need HDL bridges. Use `real` mirror
+   variables for boundary signals (Step 5) and `analog_probe` with
+   `$cds_get_analog_value` for internal nodes (Step 6).
 
-2. **cocotb runner + AMS**: cocotb's Xcelium runner splits build/test,
-   but AMS requires single-step `xrun`. Need to either bypass the runner
-   or contribute AMS support to cocotb.
+2. **cocotb Python runner + AMS**: The runner's two-step flow
+   (`xrun -elaborate` then `xrun -R`) is unproven for AMS. Try with
+   AMS flags in `build_args` first (Step 7a). If it fails, use the
+   single-pass fallback (Step 7b) which mirrors the proven Makefile flow.
 
 3. **SPICE netlist format**: HDL21's ngspice netlister output needs
-   post-processing for Spectre compatibility. Should be integrated into
-   `flow netlist` or a new Spectre-compatible netlister added to vlsirtools.
+   post-processing for Spectre compatibility. Integrate
+   `fix_spice_for_spectre()` into `flow netlist` (Step 2).
 
-4. **VCD wreal compatibility**: Xcelium emits `$var wreal` which is
-   non-standard. Need automated post-processing or a fix in Xcelium
-   dump configuration.
+4. ~~**VCD wreal compatibility**~~: **Resolved.** Mirror `wreal` → `real`
+   in testbench with selective `$dumpvars` (Step 5). VCD contains only
+   standard `$var real` entries — compatible with gtkwave, bspwave, and
+   `vcdvcd` without post-processing.
+
+5. **Supply connect module re-test**: Re-test `rout=0` on per-net basis
+   with the fixed comparator circuit. Fall back to `ignore` + Spectre
+   `vsource` if needed (see Q4 above).
 
 ---
 
@@ -550,14 +717,11 @@ Xcelium instead of `real` in Icarus via spicebind.)
 | `flow/cli.py` | Add `--scope cosim` (generates .scs + fixed .sp) |
 | `flow/comp/subckt.py` | Already fixed: reset device gate, output buffer refactor, MosType |
 | `flow/scans/__init__.py` | ScanBase class + scan registry |
-| `flow/scans/simulate.py` | Xcelium AMS launcher (replaces spicebind/Icarus) |
+| `flow/scans/simulate.py` | Xcelium AMS launcher via cocotb runner |
 | `flow/scans/measure.py` | Hardware Dut(map_fpga.yaml) setup |
 | `flow/scans/host.py` | Frida class (moved from daq/host/) |
 | `flow/scans/map_sim.yaml` | Basil config with SiSim + SerialSim |
 | `flow/scans/map_fpga.yaml` | Basil config for hardware |
-| `design/daq/daq_tb.v` | Xcelium AMS testbench (wreal signals, no bus bridge) |
-| `libs/basil/basil/utils/sim/runner.py` | Modern cocotb runner (xcelium) |
+| `scratch/test*/` | Prototype testbenches, probes, cocotb tests |
 | `libs/basil/basil/TL/SerialSim.py` | New basil TL for instrument mocking |
 | `libs/basil/basil/utils/sim/AnalogDriver.py` | SIMULATION_MODULE for wreal |
-| `docs/xcelium_simvision_format_support.md` | Format support reference |
-| `docs/tnoise.md` | Transient noise analysis reference |
