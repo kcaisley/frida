@@ -41,8 +41,6 @@ from .circuit import (
     Op,
     PointSweep,
     PreampBias,
-    # Comparator enums
-    PreampDiffpair,
     Project,
     # PVT and supply
     Pvt,
@@ -108,7 +106,6 @@ __all__ = [
     "CdacTbParams",
     # Enums
     "SwitchType",
-    "PreampDiffpair",
     "PreampBias",
     "CompStages",
     "LatchPwrgateCtl",

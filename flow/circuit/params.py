@@ -20,11 +20,6 @@ class SwitchType(Enum):
 
 
 # Comparator topology enums
-class PreampDiffpair(Enum):
-    NMOS_INPUT = "nmosinput"
-    PMOS_INPUT = "pmosinput"
-
-
 class PreampBias(Enum):
     STD_BIAS = "stdbias"
     DYN_BIAS = "dynbias"

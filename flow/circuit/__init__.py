@@ -72,8 +72,6 @@ from .params import (
     LatchRstExternCtl,
     LatchRstInternCtl,
     PreampBias,
-    # Comparator enums
-    PreampDiffpair,
     Project,
     # PVT and supply
     Pvt,
@@ -138,7 +136,6 @@ from .sim import (
 __all__ = [
     # Enums
     "SwitchType",
-    "PreampDiffpair",
     "PreampBias",
     "CompStages",
     "LatchPwrgateCtl",

@@ -7,7 +7,7 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, R, Vdc, Vpulse, Vpwl
+from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 
 from ..circuit import (
     CompStages,
@@ -16,7 +16,6 @@ from ..circuit import (
     LatchRstExternCtl,
     LatchRstInternCtl,
     PreampBias,
-    PreampDiffpair,
     Project,
     Pvt,
     SupplyVals,
@@ -192,7 +191,7 @@ def sim_input(params: CompTbParams) -> hs.Sim:
 
 def _build_variants():
     """Build the full comparator variant list."""
-    preamp_diffpairs = list(PreampDiffpair)
+    preamp_diffpairs = [MosType.NMOS, MosType.PMOS]
     preamp_biases = list(PreampBias)
     comp_stages_list = list(CompStages)
     diffpair_w_list = [40, 80]
