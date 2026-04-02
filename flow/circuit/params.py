@@ -19,36 +19,6 @@ class SwitchType(Enum):
     TGATE = "tgate"
 
 
-# Comparator topology enums
-class PreampBias(Enum):
-    STD_BIAS = "stdbias"
-    DYN_BIAS = "dynbias"
-
-
-class CompStages(Enum):
-    SINGLE_STAGE = "singlestage"
-    DOUBLE_STAGE = "doublestage"
-
-
-class LatchPwrgateCtl(Enum):
-    CLOCKED = "clocked"
-    SIGNALLED = "signalled"
-
-
-class LatchPwrgateNode(Enum):
-    EXTERNAL = "external"
-    INTERNAL = "internal"
-
-
-class LatchRstExternCtl(Enum):
-    CLOCKED = "clocked"
-    SIGNALLED = "signalled"
-    NO_RESET = "noreset"
-
-
-class LatchRstInternCtl(Enum):
-    CLOCKED = "clocked"
-    SIGNALLED = "signalled"
 
 
 # CDAC topology enums

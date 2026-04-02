@@ -66,12 +66,6 @@ from .netlist import (
 )
 from .params import (
     CapType,
-    CompStages,
-    LatchPwrgateCtl,
-    LatchPwrgateNode,
-    LatchRstExternCtl,
-    LatchRstInternCtl,
-    PreampBias,
     Project,
     # PVT and supply
     Pvt,
@@ -136,12 +130,6 @@ from .sim import (
 __all__ = [
     # Enums
     "SwitchType",
-    "PreampBias",
-    "CompStages",
-    "LatchPwrgateCtl",
-    "LatchPwrgateNode",
-    "LatchRstExternCtl",
-    "LatchRstInternCtl",
     "RedunStrat",
     "SplitStrat",
     "CapType",

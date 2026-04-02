@@ -10,12 +10,6 @@ from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 
 from ..circuit import (
-    CompStages,
-    LatchPwrgateCtl,
-    LatchPwrgateNode,
-    LatchRstExternCtl,
-    LatchRstInternCtl,
-    PreampBias,
     Project,
     Pvt,
     SupplyVals,
@@ -191,49 +185,43 @@ def sim_input(params: CompTbParams) -> hs.Sim:
 
 def _build_variants():
     """Build the full comparator variant list."""
-    preamp_diffpairs = [MosType.NMOS, MosType.PMOS]
-    preamp_biases = list(PreampBias)
-    comp_stages_list = list(CompStages)
+    from .subckt import Bias, Stages, State
+
+    preamp_diff_devs_list = [MosType.NMOS, MosType.PMOS]
+    preamp_biases = list(Bias)
+    stages_list = list(Stages)
     diffpair_w_list = [40, 80]
 
     variants: list[CompParams] = []
 
-    for preamp_diffpair in preamp_diffpairs:
+    for preamp_diff_devs in preamp_diff_devs_list:
         for preamp_bias in preamp_biases:
-            for comp_stages in comp_stages_list:
+            for stages in stages_list:
                 for diffpair_w in diffpair_w_list:
-                    if comp_stages == CompStages.SINGLE_STAGE:
+                    if stages == Stages.SINGLE:
                         params = CompParams(
-                            preamp_diffpair=preamp_diffpair,
+                            preamp_diff_devs=preamp_diff_devs,
                             preamp_bias=preamp_bias,
-                            comp_stages=comp_stages,
-                            latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                            latch_pwrgate_node=LatchPwrgateNode.EXTERNAL,
-                            latch_rst_extern_ctl=LatchRstExternCtl.CLOCKED,
-                            latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
+                            stages=stages,
                             diffpair_w=diffpair_w,
                         )
                         if is_valid_comp_params(params):
                             variants.append(params)
                     else:
-                        for latch_pwrgate_node in LatchPwrgateNode:
-                            if latch_pwrgate_node == LatchPwrgateNode.INTERNAL:
-                                rst_extern = LatchRstExternCtl.NO_RESET
-                            else:
-                                rst_extern = LatchRstExternCtl.CLOCKED
-
-                            params = CompParams(
-                                preamp_diffpair=preamp_diffpair,
-                                preamp_bias=preamp_bias,
-                                comp_stages=comp_stages,
-                                latch_pwrgate_ctl=LatchPwrgateCtl.CLOCKED,
-                                latch_pwrgate_node=latch_pwrgate_node,
-                                latch_rst_extern_ctl=rst_extern,
-                                latch_rst_intern_ctl=LatchRstInternCtl.CLOCKED,
-                                diffpair_w=diffpair_w,
-                            )
-                            if is_valid_comp_params(params):
-                                variants.append(params)
+                        # Double stage: try combinations with at least
+                        # one on device and one signaled device
+                        for outer_on in State:
+                            for inner_init in [State.CLOCK, State.SIGNAL]:
+                                params = CompParams(
+                                    preamp_diff_devs=preamp_diff_devs,
+                                    preamp_bias=preamp_bias,
+                                    stages=stages,
+                                    outer_on_devs=outer_on,
+                                    inner_init_devs=inner_init,
+                                    diffpair_w=diffpair_w,
+                                )
+                                if is_valid_comp_params(params):
+                                    variants.append(params)
     return variants
 
 
