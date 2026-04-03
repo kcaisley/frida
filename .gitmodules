@@ -19,3 +19,6 @@
 	path = libs/basil
 	url = https://github.com/SiLab-Bonn/basil.git
 	branch = frida
+[submodule "libs/spicebind"]
+	path = libs/spicebind
+	url = https://github.com/themperek/spicebind.git
