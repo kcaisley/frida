@@ -75,7 +75,7 @@ Xdut inp inn outp outn clk vdd vss my_comparator
 .options filetype=ascii
 
 * Transient analysis
-.tran 0.1ns 1
+.tran 0.1ns 50n
 
 .end
 ```
@@ -109,9 +109,9 @@ tran tran stop=340n
 
 // AMS boundary configuration
 amsd {
-    portmap subckt=comp autobus=yes porttype=name ignore="vdd vss"
+    portmap subckt=comp autobus=yes porttype=name
     config cell=comp use=spice
-    ie vsup=1.2 rout=0
+    ie vsup=1.2 rout=10  // output impedance of connect modules (default: 200 Ohms)
 }
 ```
 
@@ -121,14 +121,17 @@ Key points:
   - `config cell=comp use=spice` — tells Xcelium to replace the Verilog
     module `comp` with the SPICE subcircuit
   - `portmap` — controls port name mapping between Verilog and SPICE
-  - `ignore="vdd vss"` — excludes supply ports from the digital domain
   - `ie vsup=1.2` — configures connect module supply voltage
-  - `rout=0` — makes connect modules act as ideal voltage sources (zero
-    impedance). **Caution:** setting `rout=0` globally disables bidirectional
-    operation for ALL connect modules. Use per-net targeting for supplies:
-    `ie net=tb.i_comp.vdd rout=0`
-- Supplies can be driven via Spectre `vsource` using hierarchical paths:
-  `Vvdd (tb.i_comp.vdd 0) vsource type=dc dc=1.2`
+  - `rout=10` — output impedance of connect modules (default is 200 Ohms).
+    Lower values give stiffer voltage sources at the boundary. Setting
+    `rout=0` creates ideal sources but disables bidirectional operation
+    for all connect modules in scope
+- `ams_dms_simug.pdf` (p.80) documents `ignore="vdd vss"` to exclude
+  supply ports from the digital domain entirely, with supplies then driven
+  by Spectre `vsource` via hierarchical paths. We avoid this pattern
+  because it hides supply rails from the Verilog/cocotb side — breaking
+  the ability to observe or sweep VDD from the testbench, which is needed
+  for corner simulations and multi-technology portability
 - `rawfmt=nutascii` for Python-parseable output; `rawfmt=sst2` for
   SimVision-native format
 
@@ -461,7 +464,7 @@ voltages and branch currents for post-simulation analysis.
 | Analog input waveform | Piecewise constant (staircase) | Continuous (connect module with rise/fall) |
 | Output latency | Sample-and-hold at sync points | Continuous (but VPI reads need probe pattern) |
 | `cbValueChange` on analog | Works (VPI sees `real` variable changes) | Does not fire for `wreal`/analog signals |
-| Internal SPICE node access | `.raw` file only (post-processing) | `$cds_get_analog_value` (runtime) or `.raw` (post) |
+| Internal SPICE node access | Via stub `output real` ports (runtime) or `.raw` file (post-processing) | `$cds_get_analog_value` (runtime) or `.raw` (post) |
 | Transient noise | Not supported (ngspice limitation) | Supported (`tran noise=yes`) |
 | Monte Carlo | Manual parameter variation only | Built-in `.montecarlo` analysis |
 | Verilator support | HDL compiles but VPI module loading unsolved | N/A (Xcelium is its own simulator) |

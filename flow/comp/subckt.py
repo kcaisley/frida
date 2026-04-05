@@ -54,16 +54,16 @@ class CompParams:
 
     # Latch transistor pairs — each can be clocked, signaled, or omitted
     latch_outer_on_xtors = h.Param(
-        dtype=State, desc="Outer on (tail) devices", default=State.OMIT
+        dtype=State, desc="Outer on devices", default=State.OMIT
     )
     latch_inner_on_xtors = h.Param(
-        dtype=State, desc="Inner on (tail) devices", default=State.OMIT
+        dtype=State, desc="Inner on  devices", default=State.OMIT
     )
     latch_outer_init_xtors = h.Param(
-        dtype=State, desc="Outer init (reset) devices", default=State.OMIT
+        dtype=State, desc="Outer init devices", default=State.OMIT
     )
     latch_inner_init_xtors = h.Param(
-        dtype=State, desc="Inner init (reset) devices", default=State.CLOCK
+        dtype=State, desc="Inner init devices", default=State.CLOCK
     )
 
     # Device sizing (multipliers of Wmin/Lmin)
@@ -85,19 +85,30 @@ class CompParams:
 def is_valid_comp_params(param: CompParams) -> bool:
     """Check if this topology combination is valid.
 
-    Single stage: neither on device can exist, outer init cannot exist.
-    Only inner init devices may optionally exist.
+    Inner init devices must always exist (CLOCK or SIGNAL, never OMIT).
+
+    Single stage: Both kinds of on devices plus outer init devices must be OMIT.
 
     Double stage: at least one on device pair must exist, and at least
     one of the four device pairs must be signaled (not just clocked).
     """
+    if param.latch_inner_init_xtors == State.OMIT:
+        return False
+
     if param.comp_stages == Stages.SINGLE:
         return (
             param.latch_outer_on_xtors == State.OMIT
             and param.latch_inner_on_xtors == State.OMIT
             and param.latch_outer_init_xtors == State.OMIT
         )
-    elif param.comp_stages == Stages.DOUBLE:
+    # outer_init requires outer_on (needs outerp/outern nodes)
+    if (
+        param.latch_outer_init_xtors != State.OMIT
+        and param.latch_outer_on_xtors == State.OMIT
+    ):
+        return False
+
+    if param.comp_stages == Stages.DOUBLE:
         has_on = (
             param.latch_outer_on_xtors != State.OMIT
             or param.latch_inner_on_xtors != State.OMIT
@@ -144,11 +155,7 @@ def Comp(param: CompParams) -> h.Module:
         # Additional signals added by sub-builders:
         # Preamp: preamp_p, preamp_n — preamp output nodes
         #         cap_node (only if Bias.DYNAMIC)
-        # Latch:  latchp, latchn — cross-coupled inverter outputs
-        #         latch_xp, latch_xn — outer on/init node (merged if
-        #             outer_on_xtors is CLOCK, separate if SIGNAL)
-        #         latch_yp, latch_yn — inner on node (only if
-        #             inner_on_xtors is not OMIT)
+        # Latch:  innerp, innern — cross-coupled inverter outputs
 
     # Build preamp
     _build_preamp(Comp, param)
@@ -157,13 +164,16 @@ def Comp(param: CompParams) -> h.Module:
     _build_latch(Comp, param)
 
     # Build output buffers
-    _build_output_buffers(Comp, param, Comp.latchp, Comp.latchn)
+    _build_output_buffers(Comp, param, Comp.innerp, Comp.innern)
 
     return Comp
 
 
 def _build_preamp(module, param: CompParams):
-    """Build input differential pair and reset/precharge devices."""
+    """Build input differential pair and reset/precharge devices.
+    Topology can be inverted to support N or P-type input devices.
+    Also supports a 'dynamic' bias, as described in 2018 H. Bindra
+    """
 
     #          ─┬─           ─┬─ preamp_on_rail
     #           │             │
@@ -200,40 +210,27 @@ def _build_preamp(module, param: CompParams):
     off_clk = module.clkb if diff_type == MosType.NMOS else module.clk
 
     # Differential pair
-    module.mdiff_p = h.Mos(
-        tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=param.diffpair_l
-    )(d=module.preamp_n, g=module.inp, s=module.tail, b=on_rail)
-    module.mdiff_n = h.Mos(
-        tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=param.diffpair_l
-    )(d=module.preamp_p, g=module.inn, s=module.tail, b=on_rail)
+    module.Mdiff_p = h.Mos(tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=param.diffpair_l)(d=module.preamp_n, g=module.inp, s=module.tail, b=on_rail)
+    module.Mdiff_n = h.Mos(tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=param.diffpair_l)(d=module.preamp_p, g=module.inn, s=module.tail, b=on_rail)
 
     # Tail current source
     if param.preamp_bias == Bias.SWITCHED:
-        module.mtail = h.Mos(
-            tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l
-        )(d=module.tail, g=on_clk, s=on_rail, b=on_rail)
+        module.Mtail = h.Mos(tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l)(d=module.tail, g=on_clk, s=on_rail, b=on_rail)
     elif param.preamp_bias == Bias.DYNAMIC:
         # Source of tail device connects to a cap node that stores charge
         # during init (via mbias) and sources current during comparison
         module.cap_node = h.Signal()
-        module.mtail = h.Mos(
-            tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l
-        )(d=module.tail, g=on_clk, s=module.cap_node, b=on_rail)
-        module.mbias = h.Mos(
-            tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l
-        )(d=module.cap_node, g=off_clk, s=on_rail, b=on_rail)
-        module.cbias = C(c=100 * f)(p=module.cap_node, n=on_rail)
+        module.Mtail = h.Mos(tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l)(d=module.tail, g=on_clk, s=module.cap_node, b=on_rail)
+        module.Mbias = h.Mos(tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l)(d=module.cap_node, g=off_clk, s=on_rail, b=on_rail)
+        module.Cbias = C(c=100 * f)(p=module.cap_node, n=on_rail)
 
     # Reset/precharge devices (minimum length = 1)
     # Precharge preamp outputs during reset phase.
     # For NMOS input: PMOS reset gate=clk → ON when clk=0, OFF when clk=1
     # For PMOS input: NMOS reset gate=clkb → ON when clkb=0, OFF when clkb=1
-    module.mrst_p = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(
-        d=module.preamp_n, g=on_clk, s=init_rail, b=init_rail
-    )
-    module.mrst_n = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(
-        d=module.preamp_p, g=on_clk, s=init_rail, b=init_rail
-    )
+    module.Mrst_p = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(d=module.preamp_n, g=on_clk, s=init_rail, b=init_rail)
+    module.Mrst_n = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(d=module.preamp_p, g=on_clk, s=init_rail, b=init_rail)
+# fmt: on
 
 
 def _build_latch(module, param: CompParams):
@@ -273,14 +270,14 @@ def _build_latch(module, param: CompParams):
     latch_on_type = MosType.PMOS if latch_on_rail == module.vdd else MosType.NMOS
     latch_clk = module.clkb if latch_init_type == MosType.NMOS else module.clk
 
-    # --- Cross-coupled inverter pair, init side (always present) ---
+    # --- Mcross_init: cross-coupled inverter pair, init side (always present) ---
     #
-    # (on-side pair connected here)
+    # (Mcross_on pair connects above)
     #
-    # latchn                   latchp
+    # innern                   innerp
     #  │                           │
     #  │                           │
-    #  └─┐╷  latchp     latchn  ╷┌─┘
+    #  └─┐╷  innerp     innern  ╷┌─┘
     #    │├───               ───┤│
     #  ┌─┘╵                     ╵└─┐
     #  │                           │
@@ -288,17 +285,13 @@ def _build_latch(module, param: CompParams):
     #  │                           │
     # ─┴─     latch_init_rail     ─┴─
 
-    module.latchp = h.Signal()
-    module.latchn = h.Signal()
+    module.innerp = h.Signal()
+    module.innern = h.Signal()
 
-    module.mlatch_init_p = h.Mos(
-        tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.latchp, g=module.latchn, s=latch_init_rail, b=latch_init_rail)
-    module.mlatch_init_n = h.Mos(
-        tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.latchn, g=module.latchp, s=latch_init_rail, b=latch_init_rail)
+    module.Mcross_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innerp, g=module.innern, s=latch_init_rail, b=latch_init_rail)
+    module.Mcross_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innern, g=module.innerp, s=latch_init_rail, b=latch_init_rail)
 
-    # --- Inner init (reset) devices (always present, OMIT not valid here) ---
+    # --- Minner_init: inner init (reset) devices ---
     # When signaled: gates driven by preamp outputs (cross-coupled)
     # When clocked: gates driven by latch_clk
     if param.latch_inner_init_xtors == State.SIGNAL:
@@ -308,25 +301,94 @@ def _build_latch(module, param: CompParams):
         init_inner_gate_p = latch_clk
         init_inner_gate_n = latch_clk
 
-    module.minit_inner_p = h.Mos(
-        tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.latchp, g=init_inner_gate_p, s=latch_init_rail, b=latch_init_rail)
-    module.minit_inner_n = h.Mos(
-        tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.latchn, g=init_inner_gate_n, s=latch_init_rail, b=latch_init_rail)
+    module.Minner_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innerp, g=init_inner_gate_p, s=latch_init_rail, b=latch_init_rail)
+    module.Minner_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innern, g=init_inner_gate_n, s=latch_init_rail, b=latch_init_rail)
+
+    # --- Minner_on: inner on (current steering) devices ---
+    # Only valid in double stage mode. Drains connect to innerp/innern,
+    # sources introduce midp/midn nodes.
+    if param.latch_inner_on_xtors != State.OMIT:
+        module.midp = h.Signal()
+        module.midn = h.Signal()
+
+        if param.latch_inner_on_xtors == State.SIGNAL:
+            inner_on_gate_p = module.preamp_p
+            inner_on_gate_n = module.preamp_n
+        elif param.latch_inner_on_xtors == State.CLOCK:
+            inner_on_gate_p = latch_clk
+            inner_on_gate_n = latch_clk
+
+        module.Minner_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innerp, g=inner_on_gate_p, s=module.midp, b=latch_on_rail)
+        module.Minner_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.innern, g=inner_on_gate_n, s=module.midn, b=latch_on_rail)
+
+    # --- Mcross_on: cross-coupled inverter pair, on side ---
+    # Drains connect to midp/midn if inner_on devices exist, otherwise innerp/innern.
+    # Sources connect to outerp/outern if outer_on devices exist, otherwise on_rail.
+    cross_on_drain_p = (
+        module.midp if param.latch_inner_on_xtors != State.OMIT else module.innerp
+    )
+    cross_on_drain_n = (
+        module.midn if param.latch_inner_on_xtors != State.OMIT else module.innern
+    )
+
+    # If single stage, cross-coupled latch outer driven directly from preamp
+    if param.comp_stages == Stages.SINGLE:
+        cross_on_src_p = module.preamp_p
+        cross_on_src_n = module.preamp_n
+    # Double stage with outer on: intermediate node to outer devices
+    elif param.latch_outer_on_xtors != State.OMIT:
+        module.outerp = h.Signal()
+        module.outern = h.Signal()
+        cross_on_src_p = module.outerp
+        cross_on_src_n = module.outern
+    # Double stage without outer on: connect directly to on rail
+    else:
+        cross_on_src_p = latch_on_rail
+        cross_on_src_n = latch_on_rail
+
+    module.Mcross_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=cross_on_drain_p, g=module.innern, s=cross_on_src_p, b=latch_on_rail)
+    module.Mcross_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=cross_on_drain_n, g=module.innerp, s=cross_on_src_n, b=latch_on_rail)
+
+    # --- Mouter_on: outer on (currently steering) devices ---
+    # Only available in double stage mode.
+    if param.latch_outer_on_xtors != State.OMIT:
+        if param.latch_outer_on_xtors == State.SIGNAL:
+            outer_on_gate_p = module.preamp_p
+            outer_on_gate_n = module.preamp_n
+        elif param.latch_outer_on_xtors == State.CLOCK:
+            outer_on_gate_p = latch_clk
+            outer_on_gate_n = latch_clk
+
+        module.Mouter_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
+            d=module.outerp, g=outer_on_gate_p, s=latch_on_rail, b=latch_on_rail
+        )
+        module.Mouter_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outern, g=outer_on_gate_n, s=latch_on_rail, b=latch_on_rail)
+
+    # --- Mouter_init: outer init (reset) devices ---
+    # Requires outer_on devices to exist (for outerp/outern nodes).
+    if param.latch_outer_init_xtors != State.OMIT:
+        if param.latch_outer_init_xtors == State.SIGNAL:
+            outer_init_gate_p = module.preamp_p
+            outer_init_gate_n = module.preamp_n
+        elif param.latch_outer_init_xtors == State.CLOCK:
+            outer_init_gate_p = latch_clk
+            outer_init_gate_n = latch_clk
+
+        module.Mouter_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outerp, g=outer_init_gate_p, s=latch_init_rail, b=latch_init_rail)
+        module.Mouter_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outern, g=outer_init_gate_n, s=latch_init_rail, b=latch_init_rail)
+# fmt: on
 
 
-def _build_output_buffers(module, param: CompParams, latchp, latchn):
-    """Build output buffer inverters driven by latch nodes."""
-    module.mbuf_outp_top = h.Mos(
-        tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.outp, g=latchn, s=module.vdd, b=module.vdd)
-    module.mbuf_outp_bot = h.Mos(
-        tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.outp, g=latchn, s=module.vss, b=module.vss)
-    module.mbuf_outn_top = h.Mos(
-        tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.outn, g=latchp, s=module.vdd, b=module.vdd)
-    module.mbuf_outn_bot = h.Mos(
-        tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1
-    )(d=module.outn, g=latchp, s=module.vss, b=module.vss)
+def _build_output_buffers(module, param: CompParams, innerp, innern):
+    """Build output buffer inverters driven by latch nodes.
+
+    TODO: Output polarity differs between single and double stage.
+    Either add a second inverter stage for single stage so outp/outn
+    init state is always both-low, or have downstream logic account
+    for the polarity difference.
+    """
+    module.Mbuf_outp_top = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outp, g=innern, s=module.vdd, b=module.vdd)
+    module.Mbuf_outp_bot = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outp, g=innern, s=module.vss, b=module.vss)
+    module.Mbuf_outn_top = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outn, g=innerp, s=module.vdd, b=module.vdd)
+    module.Mbuf_outn_bot = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1)(d=module.outn, g=innerp, s=module.vss, b=module.vss)
+# fmt: on
