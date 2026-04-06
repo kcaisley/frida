@@ -43,7 +43,7 @@ flow simulate    Run simulations
 Run from the repo root with `uv run`:
 
 ```bash
-uv run flow netlist -c comp -t ihp130 -m min
+uv run flow netlist -c comp -t ihp130
 ```
 
 ## Subcommands
@@ -82,11 +82,14 @@ flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--scope <scope>] [--monte
 |------|--------|---------|
 | `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-m, --mode` | `min`, `max` | `min` |
+| `-m, --mode` | `min`, `max` | `max` |
 | `-f, --fmt` | `spectre`, `ngspice`, `cdl`, `verilog` | `spectre` |
 | `--scope` | `dut`, `stim`, `full` | `full` |
 | `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `scratch` |
+| `-o, --out` | output directory | `scratch/<cell>` |
+
+The `--mode` flag controls how many parameter variants are generated:
+`max` (default) writes all valid combinations, `min` writes only the first 10.
 
 The `--scope` flag controls what is included in the generated netlist:
 
@@ -102,8 +105,8 @@ flag requires `--scope=full`.
 Examples:
 
 ```bash
-# Full sim-input netlist for comparator (default scope)
-uv run flow netlist -c comp -t ihp130 -m min
+# Full sim-input netlist for comparator (all variants, default scope)
+uv run flow netlist -c comp -t ihp130
 
 # DUT-only subcircuit definitions in Verilog
 uv run flow netlist -c comp -t ihp130 --scope dut -f verilog
@@ -152,7 +155,7 @@ flow simulate -c <cell> -t <tech> -m <mode> [-s <sim>] [--host <host>] [--montec
 | `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
 | `--host` | remote hostname | local |
 | `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `scratch` |
+| `-o, --out` | output directory | `scratch/<cell>` |
 
 Examples:
 
