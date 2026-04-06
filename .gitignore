@@ -23,6 +23,8 @@ phys/results/
 *.lck
 si.env
 .swb
+xcelium.d
+xrun.history
 
 # LaTeX
 docs/tex/

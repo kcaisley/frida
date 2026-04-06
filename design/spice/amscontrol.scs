@@ -1,0 +1,44 @@
+// AMS control file for Xcelium co-simulation
+//
+// Passed to xrun alongside the Verilog sources. Contains:
+//   - PDK model includes (placeholder paths)
+//   - amsd{} blocks configuring SPICE-on-leaf for sediff and adc cells
+//   - Connect module (ie) settings
+//   - Transient analysis and signal saving
+//
+// Usage:
+//   xrun -ams ... amscontrol.scs sediff.sp adc.cdl comp.cdl ...
+//
+// Reference: ams_dms_simug.pdf Chapter 6 (amsd Block)
+
+simulator lang=spectre
+
+// =====================================================================
+// PDK models (update paths for your technology)
+// =====================================================================
+// include "/path/to/toplevel.scs" section=tt_lib
+
+// =====================================================================
+// Signal saving
+// =====================================================================
+saveOpt options save=allpub rawfmt=nutascii
+save tb_integration.i_chip.adc_inst.* depth=3
+save tb_integration.i_sediff.* depth=2
+
+// =====================================================================
+// Transient analysis
+// =====================================================================
+tran tran stop=500n
+
+// =====================================================================
+// amsd block: sediff (PCB front-end, THS4541)
+// =====================================================================
+amsd {
+    portmap subckt=sediff autobus=yes porttype=name
+    config cell=sediff use=spice
+
+    portmap subckt=adc autobus=yes porttype=name
+    config cell=adc use=spice
+
+    ie vsup=1.2
+}
