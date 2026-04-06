@@ -11,17 +11,10 @@
  *                           |                      o
  *              spi_sclk ────┴──────────────────────┘
  *
- * Post synthesis, we'd like this implementation on a register level:
- *
- *                      ┌──────────────┐
- *    shift_reg[N+1] ──>│D            Q│──> shift_reg[N]
- *                      │              │
- *       !spi_cs_b ────>│E   EDFD2LVT  │
- *                      │              │
- *        spi_sclk ────>│CP            │
- *                      │              │
- *         reset_b ────>│R             │
- *                      └──────────────┘
+ * Two implementations selected by define:
+ *   IMPL       — gate-level with OPENROAD cells (for synthesis/P&R)
+ *   BEHAVIORAL — RTL behavioral (for simulation / cosim)
+ * If neither is defined, defaults to BEHAVIORAL.
  */
 
 module spi_register(
@@ -31,34 +24,25 @@ module spi_register(
     input wire spi_sclk,      // SPI serial clock
     output wire spi_sdo,      // SPI serial data output (MISO)
     output wire [179:0] spi_bits   // Parallel output of all register bits
-
-    // Power supply signals
-`ifdef USE_POWER_PINS
-    ,inout wire vdd_d, vss_d   // Digital supply
-`endif
 );
 
-    // Shift register storage (180 bits)
+`ifdef IMPL
+    // =================================================================
+    // Gate-level implementation (OPENROAD cells)
+    // =================================================================
+
     wire [179:0] shift_reg;
+    wire enable;
+    wire [179:0] d_in;
 
-    // Internal connections
-    wire enable;          // Enable signal for shift registers
-    wire [179:0] d_in;    // Data inputs to each flip-flop
-
-    // Enable is active when CS is low
     assign enable = !spi_cs_b;
-
-    // Output assignments
     assign spi_bits = shift_reg;
 
-    // Generate 180 enabled D flip-flops for shift register
     genvar i;
     generate
         for (i = 0; i < 180; i = i + 1) begin : shift_stage
-            // Data input mux: bit 0 gets spi_sdi, other bits get previous stage
             assign d_in[i] = (i == 0) ? spi_sdi : shift_reg[i-1];
 
-            // Instantiate enabled flip-flop with reset (maps to EDFCND2LVT)
             OPENROAD_DFFER dff_inst (
                 .D(d_in[i]),
                 .C(spi_sclk),
@@ -69,19 +53,6 @@ module spi_register(
         end
     endgenerate
 
-    // Old behavioral code (replaced to avoid NAND gate muxes):
-    // always @(posedge spi_sclk or negedge rst_b) begin
-    //     if (!rst_b) begin
-    //         shift_reg <= 180'b0;
-    //     end else if (!spi_cs_b) begin
-    //         // Shift operation: MSB shifts left out, LSB shifts in from spi_sdi
-    //         shift_reg <= {shift_reg[178:0], spi_sdi};
-    //     end
-    //     // If spi_cs_b high: hold current value
-    // end
-
-    // Output register: negative edge flip-flop for SDO
-    // Use inverted clock to achieve negedge behavior
     wire spi_sclk_n;
 
     OPENROAD_CLKINV clk_inv (
@@ -91,22 +62,39 @@ module spi_register(
 
     OPENROAD_DFFER sdo_dff (
         .D(shift_reg[179]),
-        .C(spi_sclk_n),      // Inverted clock for negedge behavior
+        .C(spi_sclk_n),
         .E(enable),
         .R(rst_b),
         .Q(spi_sdo)
     );
 
-    // Old behavioral code (replaced to avoid NAND gate muxes):
-    // reg spi_sdo_reg;
-    // assign spi_sdo = spi_sdo_reg;
-    // always @(negedge spi_sclk or negedge rst_b) begin
-    //     if (!rst_b) begin
-    //         spi_sdo_reg <= 1'b0;
-    //     end else if (!spi_cs_b) begin
-    //         // Update output with current MSB
-    //         spi_sdo_reg <= shift_reg[179];
-    //     end
-    // end
+`else // BEHAVIORAL (default)
+    // =================================================================
+    // RTL behavioral implementation (simulation / cosim)
+    // =================================================================
+
+    reg [179:0] shift_reg;
+    assign spi_bits = shift_reg;
+
+    always @(posedge spi_sclk or negedge rst_b) begin
+        if (!rst_b) begin
+            shift_reg <= 180'b0;
+        end else if (!spi_cs_b) begin
+            shift_reg <= {shift_reg[178:0], spi_sdi};
+        end
+    end
+
+    reg spi_sdo_reg;
+    assign spi_sdo = spi_sdo_reg;
+
+    always @(negedge spi_sclk or negedge rst_b) begin
+        if (!rst_b) begin
+            spi_sdo_reg <= 1'b0;
+        end else if (!spi_cs_b) begin
+            spi_sdo_reg <= shift_reg[179];
+        end
+    end
+
+`endif
 
 endmodule

@@ -50,10 +50,6 @@ module frida_core(
         .spi_sclk(spi_sclk),
         .spi_sdo(spi_sdo),
         .spi_bits(spi_bits)
-`ifdef USE_POWER_PINS
-        ,.vdd_d(vdd_d),
-        .vss_d(vss_d)
-`endif
     );
 
     // New optimized SPI bit mapping (180 bits total)
