@@ -339,6 +339,7 @@ def print_netlist_summary(
     block: str,
     pdk_name: str,
     count: int,
+    total: int,
     param_axes: dict[str, list[Any]],
     wall_time: float,
     outdir: str,
@@ -390,7 +391,10 @@ def print_netlist_summary(
         print("-" * width)
 
     # Results section
-    print(f"Result:      {count} netlists generated")
+    if count < total:
+        print(f"Result:      {count} of {total} netlists written (--mode=min)")
+    else:
+        print(f"Result:      {count} netlists written")
     print(f"Wall Time:   {wall_time * 1000:.1f}ms")
 
     if errors:

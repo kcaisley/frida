@@ -187,41 +187,28 @@ def _build_variants():
     """Build the full comparator variant list."""
     from .subckt import Bias, Stages, State
 
-    preamp_diff_devs_list = [MosType.NMOS, MosType.PMOS]
-    preamp_biases = list(Bias)
-    stages_list = list(Stages)
-    diffpair_w_list = [40, 80]
-
     variants: list[CompParams] = []
 
-    for preamp_diff_devs in preamp_diff_devs_list:
-        for preamp_bias in preamp_biases:
-            for stages in stages_list:
-                for diffpair_w in diffpair_w_list:
-                    if stages == Stages.SINGLE:
-                        params = CompParams(
-                            preamp_diff_devs=preamp_diff_devs,
-                            preamp_bias=preamp_bias,
-                            stages=stages,
-                            diffpair_w=diffpair_w,
-                        )
-                        if is_valid_comp_params(params):
-                            variants.append(params)
-                    else:
-                        # Double stage: try combinations with at least
-                        # one on device and one signaled device
+    for diff_type in [MosType.NMOS, MosType.PMOS]:
+        for bias in list(Bias):
+            for stages in list(Stages):
+                for dw in [40, 80]:
+                    for inner_on in State:
                         for outer_on in State:
                             for inner_init in [State.CLOCK, State.SIGNAL]:
-                                params = CompParams(
-                                    preamp_diff_devs=preamp_diff_devs,
-                                    preamp_bias=preamp_bias,
-                                    stages=stages,
-                                    outer_on_devs=outer_on,
-                                    inner_init_devs=inner_init,
-                                    diffpair_w=diffpair_w,
-                                )
-                                if is_valid_comp_params(params):
-                                    variants.append(params)
+                                for outer_init in [State.OMIT, State.CLOCK, State.SIGNAL]:
+                                    params = CompParams(
+                                        comp_stages=stages,
+                                        preamp_diff_xtors=diff_type,
+                                        preamp_bias=bias,
+                                        latch_inner_on_xtors=inner_on,
+                                        latch_outer_on_xtors=outer_on,
+                                        latch_inner_init_xtors=inner_init,
+                                        latch_outer_init_xtors=outer_init,
+                                        diffpair_w=dw,
+                                    )
+                                    if is_valid_comp_params(params):
+                                        variants.append(params)
     return variants
 
 
@@ -235,7 +222,8 @@ def run_netlist(
     verbose: bool = False,
 ) -> None:
     """Run comparator netlist generation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(comp_params: CompParams):
         tb_params = CompTbParams(comp=comp_params)
@@ -262,7 +250,8 @@ def run_netlist(
             block="comp",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )
@@ -279,7 +268,8 @@ def run_simulate(
     verbose: bool = False,
 ) -> None:
     """Run comparator simulation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(comp_params: CompParams):
         tb_params = CompTbParams(comp=comp_params)
@@ -302,7 +292,8 @@ def run_simulate(
             block="comp",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )

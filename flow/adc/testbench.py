@@ -308,7 +308,8 @@ def run_netlist(
     verbose: bool = False,
 ) -> None:
     """Run ADC netlist generation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(adc_params: AdcParams):
         tb_params = AdcTbParams(adc=adc_params)
@@ -335,7 +336,8 @@ def run_netlist(
             block="adc",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )
@@ -352,7 +354,8 @@ def run_simulate(
     verbose: bool = False,
 ) -> None:
     """Run ADC simulation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(adc_params: AdcParams):
         tb_params = AdcTbParams(adc=adc_params)
@@ -375,7 +378,8 @@ def run_simulate(
             block="adc",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )

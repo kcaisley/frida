@@ -54,9 +54,9 @@ def test_get_param_axes_counts():
     """Test parameter axes extraction."""
     params_list = [
         SampParams(),
-        SampParams(switch_type=SampParams().switch_type, w=20),
+        SampParams(switch_type=SampParams().switch_type, mos_w=20),
     ]
     axes = get_param_axes(params_list)
     assert "switch_type" in axes
-    assert "w" in axes
-    assert len(axes["w"]) == 2
+    assert "mos_w" in axes
+    assert len(axes["mos_w"]) == 2
