@@ -8,10 +8,10 @@
 #
 # Usage:
 #     from basil.dut import Dut
-#     from frida.daq.host import Frida
+#     from frida.flow.host import Frida
 #
 #     # Initialize hardware
-#     daq = Dut("frida/daq/host/map_fpga.yaml")
+#     daq = Dut("frida/flow/host/map_fpga.yaml")
 #     daq.init()
 #
 #     # Create chip interface

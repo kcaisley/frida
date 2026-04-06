@@ -1,6 +1,7 @@
 // Comparator Module - Analog black box
 // Differential comparator with clock
 
+/* verilator lint_off UNUSEDSIGNAL */
 (* blackbox *)
 module comp (
     input  wire vin_p,      // Positive input

@@ -1,6 +1,7 @@
 // Sampling Switch Module - Analog black box
 // Simple switch for connecting input to output under clock control
 
+/* verilator lint_off UNUSEDSIGNAL */
 (* blackbox *)
 module sampswitch (
     input  wire vin,        // Input voltage

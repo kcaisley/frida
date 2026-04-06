@@ -1,7 +1,7 @@
 """Run the FRIDA sequencer and output on PMOD/LVDS.
 
 Usage (from ~/frida/):
-    uv run --extra daq python daq/host/run_sequencer.py
+    uv run --extra daq python flow/host/run_sequencer.py
 """
 
 import logging
@@ -9,15 +9,15 @@ import time
 import warnings
 from pathlib import Path
 
+from basil.dut import Dut
+
+from flow.host.sequences import generate_conversion_sequence, print_sequence_timing
+
 warnings.filterwarnings("ignore", category=UserWarning, message="pkg_resources")
 logging.getLogger("basil").setLevel(logging.WARNING)
 
-from basil.dut import Dut
-
-from daq.host.sequences import generate_conversion_sequence, print_sequence_timing
-
 # Connect to FPGA
-dut = Dut(str(Path("daq/host/map_fpga.yaml")))
+dut = Dut(str(Path("flow/host/map_fpga.yaml")))
 dut.init()
 print("DAQ initialized")
 
@@ -38,8 +38,7 @@ print(f"\nSequence loaded: {n_steps} steps into seq_gen")
 # Configure sequencer
 dut["seq"].set_size(n_steps)
 dut["seq"].set_clk_divide(1)  # no division, use 400 MHz directly
-dut["seq"].set_repeat(0)      # 0 = repeat forever
-
+dut["seq"].set_repeat(0)  # 0 = repeat forever
 # Enable external start (pulse_gen triggers seq_gen)
 dut["seq"].set_en_ext_start(True)
 

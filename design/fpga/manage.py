@@ -1,13 +1,12 @@
 """FRIDA1 FPGA management: download SiTCP, compile, and flash bitstreams.
 
 Usage (from ~/frida/):
-    python daq/fpga/manage.py --get_sitcp
-    python daq/fpga/manage.py --compile BDAQ53_KX1
-    python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit
-    python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs
+    python design/fpga/manage.py --get_sitcp
+    python design/fpga/manage.py --compile BDAQ53_KX1
+    python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.bit
+    python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs
 """
 
-import os
 import time
 import logging
 import argparse
@@ -17,11 +16,11 @@ from pathlib import Path
 import pexpect
 import git
 
-log = logging.getLogger('frida1.manage_firmware')
+log = logging.getLogger('frida.design.fpga.manage')
 
 SITCP_REPO = 'https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7'
 
-# Paths relative to this file's location (lives in frida1-daq/fpga/)
+# Paths relative to this file's location (lives in design/fpga/)
 _FPGA_DIR = Path(__file__).resolve().parent
 _SITCP_DIR = _FPGA_DIR / 'SiTCP'
 
@@ -123,8 +122,8 @@ def compile(platform):
         vivado.expect('Vivado', timeout=10)
     except pexpect.exceptions.ExceptionPexpect:
         raise RuntimeError(
-            f'Cannot start Vivado. Is it on your PATH?\n'
-            f'  Try: source /eda/local/scripts/vivado_2025.2.sh'
+            'Cannot start Vivado. Is it on your PATH?\n'
+            '  Try: source /eda/local/scripts/vivado_2025.2.sh'
         )
 
     try:

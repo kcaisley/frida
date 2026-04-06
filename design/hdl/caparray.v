@@ -1,6 +1,7 @@
 // Capacitor Array Module - Analog black box
 // Parameterizable capacitive DAC array
 
+/* verilator lint_off UNUSEDSIGNAL */
 (* blackbox *)
 module caparray (
     input  wire cap_topplate_in,             // Capacitor top input connected to sampling switch

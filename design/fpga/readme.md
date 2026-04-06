@@ -17,14 +17,14 @@ uv sync --extra daq
 source /eda/local/scripts/vivado_2025.2.sh
 
 # 2. download SiTCP (only needed once)
-uv run python daq/fpga/manage.py --get_sitcp
+uv run python design/fpga/manage.py --get_sitcp
 
 # 3. compile
-uv run python daq/fpga/manage.py --compile BDAQ53_KX1
+uv run python design/fpga/manage.py --compile BDAQ53_KX1
 
 # 4. program FPGA via JTAG
-uv run python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
-uv run python daq/fpga/manage.py --flash daq/fpga/bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
+uv run python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.bit      # volatile (SRAM)
+uv run python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs      # persistent (SPI flash)
 
 # if JTAG device not found, install cable drivers and replug USB:
 sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers/install_drivers
@@ -32,8 +32,8 @@ sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/ins
 
 ## Files
 
-- `frida1.v` — top-level: PLL, SiTCP Ethernet, RGMII, LVDS I/O, core
-- `frida1_core.v` — DAQ core: sequencer, SPI, GPIO, pulse gen, comp capture
+- `daq_top.v` — top-level: PLL, SiTCP Ethernet, RGMII, LVDS I/O, core
+- `daq_core.v` — DAQ core: sequencer, SPI, GPIO, pulse gen, comp capture
 - `run.tcl` — Vivado synthesis/P&R/bitgen (called by manage.py)
 - `manage.py` — CLI for downloading SiTCP, compiling, and JTAG programming
 - `bdaq53_kx1.xdc` — pin constraints for BDAQ53 + Mercury KX1 (xc7k160t-1)

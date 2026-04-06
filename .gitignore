@@ -54,14 +54,14 @@ daq/dut/\#auto_saved_files\#
 _autosave-*
 
 # Vivado / FPGA
-daq/fpga/SiTCP/
-daq/fpga/bit/
-daq/fpga/designs/
-daq/fpga/reports/
-daq/fpga/.Xil/
-daq/fpga/.ngc2edfcache/
+design/fpga/SiTCP/
+design/fpga/bit/
+design/fpga/designs/
+design/fpga/reports/
+design/fpga/.Xil/
+design/fpga/.ngc2edfcache/
+design/fpga/tight_setup_hold_pins.txt
+design/fpga/clockInfo.txt
 *.jou
 *.str
 .Xil/
-daq/fpga/tight_setup_hold_pins.txt
-daq/fpga/clockInfo.txt

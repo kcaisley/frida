@@ -2,7 +2,7 @@
 # FRIDA DAQ Firmware - Vivado Build Script
 # -----------------------------------------------------------
 #
-#   Start vivado in batch mode (run from daq/fpga/):
+#   Start vivado in batch mode (run from design/fpga/):
 #       vivado -mode batch -source run.tcl -notrace
 #
 #   Or in tcl mode for interactive use:
@@ -42,13 +42,13 @@ proc run_bit {part xdc_file size {suffix ""}} {
 
     create_project -force -part $part $identifier designs
 
-    read_verilog $fpga_dir/frida1.v
-    read_verilog $fpga_dir/frida1_core.v
+    read_verilog $fpga_dir/daq_top.v
+    read_verilog $fpga_dir/daq_core.v
     read_edif $fpga_dir/SiTCP/SiTCP_XC7K_32K_BBT_V110.edf
     read_xdc $fpga_dir/$xdc_file
     read_xdc $fpga_dir/SiTCP/EDF_SiTCP.xdc
 
-    synth_design -top frida1 -include_dirs $include_dirs -verilog_define [string toupper $board_name]=1 -verilog_define "SYNTHESIS=1"
+    synth_design -top daq_top -include_dirs $include_dirs -verilog_define [string toupper $board_name]=1 -verilog_define "SYNTHESIS=1"
     opt_design
     place_design
     phys_opt_design

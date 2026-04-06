@@ -18,9 +18,9 @@
 `include "TIMER.v"
 
 // User core
-`include "frida1_core.v"
+`include "daq_core.v"
 
-module frida1 (
+module daq_top (
     input wire        FCLK_IN,          // 100 MHz system clock
     input wire        RESET_BUTTON,     // Active-low reset button
     input wire        USER_BUTTON,      // Active-low user button (SW_USER_B)
