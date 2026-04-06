@@ -10,6 +10,7 @@ dependencies = [
     "pytest",
     "argcomplete",
     # Circuit design (hdl21/vlsir ecosystem)
+    "klayout",
     "grpcio",
     "grpcio-tools",
     "protobuf",
@@ -28,6 +29,7 @@ dependencies = [
     "bitarray",
     "pyvisa",
     "pyvisa-py",
+    # Layout
 ]
 
 [build-system]
@@ -59,10 +61,13 @@ typeCheckingMode = "off"
 extraPaths = ["libs/Hdl21", "libs/Vlsir/VlsirTools", "libs/Vlsir/bindings/python", "../libs/root/lib"]
 
 [tool.ruff]
-exclude = ["old/"]
+line-length = 120
 
 [tool.ruff.lint]
 ignore = ["E741"]  # Allow 'l' for transistor length
+
+[tool.ruff.lint.per-file-ignores]
+"**/old/**" = ["F841", "F401"]
 
 [tool.pytest.ini_options]
 addopts = ["-k", "not test_plot"]
