@@ -10,11 +10,8 @@ from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpwl
 
 from ..circuit import (
-    CapType,
     Project,
     Pvt,
-    RedunStrat,
-    SplitStrat,
     SupplyVals,
     get_param_axes,
     print_netlist_summary,
@@ -25,8 +22,11 @@ from ..circuit import (
     wrap_monte_carlo,
 )
 from .subckt import (
+    CapType,
     Cdac,
     CdacParams,
+    RedunStrat,
+    SplitStrat,
     get_cdac_n_bits,
     is_valid_cdac_params,
 )
@@ -166,7 +166,7 @@ def _build_variants():
                                     redun_strat=redun_strat,
                                     split_strat=split_strat,
                                     cap_type=cap_type,
-                                    vth=vth,
+                                    mos_vth=vth,
                                     unit_cap=unit_cap,
                                 )
                                 if is_valid_cdac_params(params):
@@ -185,7 +185,8 @@ def run_netlist(
     verbose: bool = False,
 ) -> None:
     """Run CDAC netlist generation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(cdac_params: CdacParams):
         tb_params = CdacTbParams(cdac=cdac_params)
@@ -212,7 +213,8 @@ def run_netlist(
             block="cdac",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )
@@ -229,7 +231,8 @@ def run_simulate(
     verbose: bool = False,
 ) -> None:
     """Run CDAC simulation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(cdac_params: CdacParams):
         tb_params = CdacTbParams(cdac=cdac_params)
@@ -252,7 +255,8 @@ def run_simulate(
             block="cdac",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )

@@ -2,7 +2,6 @@
 Shared parameters, enums, and dataclasses for FRIDA HDL21 generators.
 """
 
-from enum import Enum
 from typing import ClassVar
 
 import hdl21 as h
@@ -10,37 +9,6 @@ from hdl21.pdk import Corner
 from hdl21.prefix import m
 from pydantic.dataclasses import dataclass
 
-
-class SwitchType(Enum):
-    """Sampling switch topology."""
-
-    NMOS = "nmos"
-    PMOS = "pmos"
-    TGATE = "tgate"
-
-
-
-
-# CDAC topology enums
-class RedunStrat(Enum):
-    RDX2 = "rdx2"
-    SUBRDX2 = "subrdx2"
-    SUBRDX2_LIM = "subrdx2lim"
-    SUBRDX2_RDST = "subrdx2rdst"
-    RDX2_RPT = "rdx2rpt"
-    SUBRDX2_OVLY = "subrdx2ovly"  # Sub-radix-2 with paired overlay
-
-
-class SplitStrat(Enum):
-    NO_SPLIT = "nosplit"
-    VDIV_SPLIT = "vdivsplit"
-    DIFFCAP_SPLIT = "diffcapsplit"
-
-
-class CapType(Enum):
-    MOM1 = "cap_mom1"
-    MOM2 = "cap_mom2"
-    MOM3 = "cap_mom3"
 
 
 @h.paramclass

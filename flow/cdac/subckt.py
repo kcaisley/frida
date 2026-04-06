@@ -8,12 +8,32 @@ Supports multiple architectures including:
 """
 
 import math
+from enum import Enum, auto
 
 import hdl21 as h
 from hdl21.prefix import f
 from hdl21.primitives import C, MosType, MosVth
 
-from ..circuit.params import CapType, RedunStrat, SplitStrat
+
+class RedunStrat(Enum):
+    RDX2 = auto()
+    SUBRDX2 = auto()
+    SUBRDX2_LIM = auto()
+    SUBRDX2_RDST = auto()
+    RDX2_RPT = auto()
+    SUBRDX2_OVLY = auto()  # Sub-radix-2 with paired overlay
+
+
+class SplitStrat(Enum):
+    NO_SPLIT = auto()
+    VDIV_SPLIT = auto()
+    DIFFCAP_SPLIT = auto()
+
+
+class CapType(Enum):
+    MOM1 = auto()
+    MOM2 = auto()
+    MOM3 = auto()
 
 
 @h.paramclass
@@ -29,7 +49,7 @@ class CdacParams:
         dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT
     )
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
-    vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
+    mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
 
 
@@ -58,7 +78,7 @@ def get_cdac_n_bits(p: CdacParams) -> int:
 
 
 @h.generator
-def Cdac(p: CdacParams) -> h.Module:
+def Cdac(param: CdacParams) -> h.Module:
     """
     Capacitor DAC generator.
 
@@ -66,12 +86,11 @@ def Cdac(p: CdacParams) -> h.Module:
 
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
-    if not is_valid_cdac_params(p):
-        raise ValueError(f"Invalid CDAC params: {p}")
+    if not is_valid_cdac_params(param):
+        raise ValueError(f"Invalid CDAC params: {param}")
 
-    weights = get_cdac_weights(p)
+    weights = get_cdac_weights(param)
     n_bits = len(weights)
-    mosvth = p.vth
 
     @h.module
     class Cdac:
@@ -88,7 +107,7 @@ def Cdac(p: CdacParams) -> h.Module:
     threshold = 64  # Split threshold for vdiv/diffcap
 
     for idx, weight in enumerate(weights):
-        _build_dac_bit(Cdac, p, idx, weight, threshold, mosvth)
+        _build_dac_bit(Cdac, param, idx, weight, threshold)
 
     return Cdac
 
@@ -98,9 +117,7 @@ def _calc_driver_width(c: int, m: int) -> int:
     return max(10, int(math.sqrt(c * m)) * 10)
 
 
-def _build_dac_bit(
-    mod, p: CdacParams, idx: int, weight: int, threshold: int, mosvth: MosVth
-):
+def _build_dac_bit(mod, param: CdacParams, idx: int, weight: int, threshold: int):
     """Build one DAC bit: buffer + driver + capacitor(s)."""
 
     # Create intermediate signal for this bit
@@ -110,43 +127,41 @@ def _build_dac_bit(
     setattr(mod, f"bot_{idx}", bot)
 
     # First inverter (predriver - use minimum sized devices: w=10, l=1)
-    mp_buf = h.Mos(tp=MosType.PMOS, vth=mosvth, w=10, l=1)(
+    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(
         d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd
     )
-    mn_buf = h.Mos(tp=MosType.NMOS, vth=mosvth, w=10, l=1)(
+    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(
         d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss
     )
-    setattr(mod, f"mp_buf_{idx}", mp_buf)
-    setattr(mod, f"mn_buf_{idx}", mn_buf)
+    setattr(mod, f"MP_buf_{idx}", MP_buf)
+    setattr(mod, f"MN_buf_{idx}", MN_buf)
 
-    if p.split_strat == SplitStrat.NO_SPLIT:
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)
-    elif p.split_strat == SplitStrat.VDIV_SPLIT:
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)  # Simplified
+    if param.split_strat == SplitStrat.NO_SPLIT:
+        _build_nosplit_bit(mod, param, idx, weight, inter, bot)
+    elif param.split_strat == SplitStrat.VDIV_SPLIT:
+        _build_nosplit_bit(mod, param, idx, weight, inter, bot)  # Simplified
     else:  # DIFFCAP_SPLIT
-        _build_nosplit_bit(mod, p, idx, weight, inter, bot, mosvth)  # Simplified
+        _build_nosplit_bit(mod, param, idx, weight, inter, bot)  # Simplified
 
 
-def _build_nosplit_bit(
-    mod, p: CdacParams, idx: int, weight: int, inter, bot, mosvth: MosVth
-):
+def _build_nosplit_bit(mod, param: CdacParams, idx: int, weight: int, inter, bot):
     """No split: c=1, m=weight (simplified using multiplier)."""
     driver_w = _calc_driver_width(1, weight)
 
     # Driver inverter (width scales with capacitor weight)
-    mp_drv = h.Mos(tp=MosType.PMOS, vth=mosvth, w=driver_w, l=1)(
+    MP_drv = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=driver_w, l=1)(
         d=bot, g=inter, s=mod.vdd, b=mod.vdd
     )
-    mn_drv = h.Mos(tp=MosType.NMOS, vth=mosvth, w=driver_w, l=1)(
+    MN_drv = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=driver_w, l=1)(
         d=bot, g=inter, s=mod.vss, b=mod.vss
     )
-    setattr(mod, f"mp_drv_{idx}", mp_drv)
-    setattr(mod, f"mn_drv_{idx}", mn_drv)
+    setattr(mod, f"MP_drv_{idx}", MP_drv)
+    setattr(mod, f"MN_drv_{idx}", MN_drv)
 
     # Main capacitor (weight implemented via capacitance value)
-    cap_val = weight * p.unit_cap
-    cap = C(c=cap_val)(p=mod.top, n=bot)
-    setattr(mod, f"c_{idx}", cap)
+    cap_val = weight * param.unit_cap
+    Cap = C(c=cap_val)(p=mod.top, n=bot)
+    setattr(mod, f"C_{idx}", Cap)
 
 
 # ==== Weight Calculation ====

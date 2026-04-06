@@ -65,16 +65,10 @@ from .netlist import (
     wrap_monte_carlo,
 )
 from .params import (
-    CapType,
     Project,
     # PVT and supply
     Pvt,
-    # CDAC enums
-    RedunStrat,
-    SplitStrat,
     SupplyVals,
-    # Basic enums
-    SwitchType,
     Tower180SupplyVals,
     Tsmc28SupplyVals,
     Tsmc65SupplyVals,
@@ -129,10 +123,6 @@ from .sim import (
 
 __all__ = [
     # Enums
-    "SwitchType",
-    "RedunStrat",
-    "SplitStrat",
-    "CapType",
     # PVT and supply
     "Pvt",
     "SupplyVals",

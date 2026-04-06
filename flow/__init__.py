@@ -12,10 +12,13 @@ Each block module (comp/, samp/, cdac/) contains:
 
 # Generators and Testbenches - from per-block modules
 from .cdac import (
+    CapType,
     Cdac,
     CdacParams,
     CdacTb,
     CdacTbParams,
+    RedunStrat,
+    SplitStrat,
     get_cdac_n_bits,
     get_cdac_weights,
     is_valid_cdac_params,
@@ -24,7 +27,6 @@ from .cdac import (
 # Common params and enums - from circuit module
 from .circuit import (
     Ac,
-    CapType,
     Dc,
     # Sweep types
     LinearSweep,
@@ -38,16 +40,11 @@ from .circuit import (
     Project,
     # PVT and supply
     Pvt,
-    # CDAC enums
-    RedunStrat,
     Save,
     SaveMode,
     SimConfig,
-    SplitStrat,
     SupplyVals,
     SweepAnalysis,
-    # Basic enums
-    SwitchType,
     Tran,
     cdac_settling_ns,
     comp_delay_ns,
@@ -77,7 +74,7 @@ from .circuit import (
     sim_options,
 )
 from .comp import Comp, CompParams, CompTb, CompTbParams, is_valid_comp_params
-from .samp import Samp, SampParams, SampTb, SampTbParams
+from .samp import Samp, SampParams, SampTb, SampTbParams, SwitchType
 
 __all__ = [
     # Generators

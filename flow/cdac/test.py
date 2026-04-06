@@ -1,7 +1,6 @@
 """Smoke tests for the CDAC generator."""
 
-from ..circuit.params import RedunStrat
-from .subckt import Cdac, CdacParams, get_cdac_weights
+from .subckt import Cdac, CdacParams, RedunStrat, get_cdac_weights
 
 
 def test_cdac():

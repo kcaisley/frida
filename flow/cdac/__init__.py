@@ -12,8 +12,11 @@ Exports:
 """
 
 from .subckt import (
+    CapType,
     Cdac,
     CdacParams,
+    RedunStrat,
+    SplitStrat,
     get_cdac_n_bits,
     get_cdac_weights,
     is_valid_cdac_params,
@@ -21,8 +24,11 @@ from .subckt import (
 from .testbench import CdacTb, CdacTbParams, sim_input
 
 __all__ = [
+    "CapType",
     "Cdac",
     "CdacParams",
+    "RedunStrat",
+    "SplitStrat",
     "is_valid_cdac_params",
     "get_cdac_weights",
     "get_cdac_n_bits",

@@ -13,7 +13,6 @@ from ..circuit import (
     Project,
     Pvt,
     SupplyVals,
-    SwitchType,
     get_param_axes,
     print_netlist_summary,
     run_netlist_variants,
@@ -21,7 +20,7 @@ from ..circuit import (
     select_variants,
     wrap_monte_carlo,
 )
-from .subckt import Samp, SampParams
+from .subckt import Samp, SampParams, SwitchType
 
 
 @h.paramclass
@@ -122,7 +121,7 @@ def sim_input(params: SampTbParams) -> hs.Sim:
 def _build_variants():
     """Build the full sampler variant list."""
     return [
-        SampParams(switch_type=st, w=w, l=l, vth=vth)
+        SampParams(switch_type=st, mos_w=w, mos_l=l, mos_vth=vth)
         for st in SwitchType
         for vth in [MosVth.LOW, MosVth.STD]
         for w in [2, 5, 10, 20, 40]
@@ -140,7 +139,8 @@ def run_netlist(
     verbose: bool = False,
 ) -> None:
     """Run sampler netlist generation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(samp_params: SampParams):
         tb_params = SampTbParams(samp=samp_params)
@@ -167,7 +167,8 @@ def run_netlist(
             block="samp",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )
@@ -184,7 +185,8 @@ def run_simulate(
     verbose: bool = False,
 ) -> None:
     """Run sampler simulation."""
-    variants = select_variants(_build_variants(), mode)
+    all_variants = _build_variants()
+    variants = select_variants(all_variants, mode)
 
     def build_sim(samp_params: SampParams):
         tb_params = SampTbParams(samp=samp_params)
@@ -207,7 +209,8 @@ def run_simulate(
             block="samp",
             pdk_name=tech,
             count=len(variants),
-            param_axes=get_param_axes(variants),
+            total=len(all_variants),
+            param_axes=get_param_axes(all_variants),
             wall_time=wall_time,
             outdir=str(outdir),
         )
