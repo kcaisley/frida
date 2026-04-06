@@ -1,7 +1,7 @@
-"""Run the FRIDA sequencer and output on PMOD/LVDS.
+"""Scan: Run the FRIDA sequencer continuously and output on PMOD/LVDS.
 
 Usage (from ~/frida/):
-    uv run --extra daq python flow/host/run_sequencer.py
+    uv run --extra daq python flow/host/scan_sequencer.py
 """
 
 import logging
