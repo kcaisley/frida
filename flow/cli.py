@@ -88,9 +88,26 @@ def main():
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis")
     p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
 
+    # ==== Convert ====
+    p = sub.add_parser("convert", help="Convert netlists between formats (OA/CDL/SP)")
+    p.add_argument("--from", dest="src_fmt", required=True, choices=["oa", "cdl", "sp"], help="Source format")
+    p.add_argument("--to", dest="dst_fmt", required=True, choices=["cdl", "sp", "sp_clean"], help="Target format")
+    p.add_argument("--file", type=Path, help="Input file path (required for cdl/sp sources)")
+    p.add_argument("--cdslib", type=Path, help="Path to cds.lib (required for --from oa)")
+    p.add_argument("--oalib", help="OA library name (required for --from oa)")
+    p.add_argument("--oacell", help="OA cell name (required for --from oa)")
+    p.add_argument("--outdir", required=True, type=Path, help="Output directory")
+    p.add_argument("--verilog", type=Path, help="Verilog file for port reordering (sp_clean only)")
+    p.add_argument("--module", help="Module name for port reordering (sp_clean only)")
+
     argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
+
+    if args.command == "convert":
+        _run_convert(args)
+        return
+
     set_pdk(args.tech)
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -102,6 +119,45 @@ def main():
         _run_layout(args)
     elif args.command == "simulate":
         _run_simulate(args)
+
+
+def _run_convert(args):
+    from .util.netlist import cdl_to_sp, clean_cdl, oa_to_cdl
+
+    src, dst = args.src_fmt, args.dst_fmt
+    args.outdir.mkdir(parents=True, exist_ok=True)
+
+    if src == "oa":
+        if not args.cdslib or not args.oalib or not args.oacell:
+            raise SystemExit("--cdslib, --oalib, and --oacell are required when --from=oa")
+        if dst == "cdl":
+            out = oa_to_cdl(args.oalib, args.oacell, args.outdir, cdslib=args.cdslib)
+        elif dst == "sp":
+            cdl = oa_to_cdl(args.oalib, args.oacell, args.outdir, cdslib=args.cdslib)
+            out = cdl_to_sp(cdl, args.outdir / cdl.with_suffix(".sp").name)
+        elif dst == "sp_clean":
+            cdl = oa_to_cdl(args.oalib, args.oacell, args.outdir, cdslib=args.cdslib)
+            out = clean_cdl(cdl, args.outdir / cdl.with_suffix(".sp").name,
+                            verilog=args.verilog, module=args.module)
+        else:
+            raise SystemExit(f"Unsupported conversion: oa → {dst}")
+
+    elif src == "cdl":
+        if not args.file:
+            raise SystemExit("--file is required when --from=cdl")
+        stem = args.file.stem
+        if dst == "sp":
+            out = cdl_to_sp(args.file, args.outdir / f"{stem}.sp")
+        elif dst == "sp_clean":
+            out = clean_cdl(args.file, args.outdir / f"{stem}.sp",
+                            verilog=args.verilog, module=args.module)
+        else:
+            raise SystemExit(f"Unsupported conversion: cdl → {dst}")
+
+    else:
+        raise SystemExit(f"Unsupported source format: {src}")
+
+    print(f"Converted: {out}")
 
 
 def _run_primitive(args):
