@@ -1,7 +1,6 @@
 """Tests for flow/utils: netlist conversion, GDS cells, layer reading."""
 
 import textwrap
-from pathlib import Path
 
 import pytest
 

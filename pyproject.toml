@@ -59,9 +59,15 @@ typeCheckingMode = "off"
 # ROOT (PyROOT) is built from source at ~/libs/root/ (C++17, no pip package).
 # Add its Python bindings path so the type checker can resolve `import ROOT`.
 extraPaths = ["libs/Hdl21", "libs/Vlsir/VlsirTools", "libs/Vlsir/bindings/python", "../libs/root/lib"]
+exclude = [
+    "**/libs/cocotbext-ams",
+    "**/libs/spicebind",
+    "**/libs/basil",
+]
 
 [tool.ruff]
 line-length = 120
+exclude = ["libs/cocotbext-ams", "libs/spicebind", "libs/basil"]
 
 [tool.ruff.lint]
 ignore = ["E741"]  # Allow 'l' for transistor length
