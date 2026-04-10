@@ -14,9 +14,16 @@
 simulator lang=spectre
 
 // =====================================================================
-// PDK models (update paths for your technology)
+// PDK models (TSMC 65LP typical corner)
 // =====================================================================
-// include "/path/to/toplevel.scs" section=tt_lib
+include "/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs" section=tt_lib
+include "/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs" section=pre_simu
+
+// Standard cell SPICE (TSMC 65LP)
+simulator lang=spice
+.include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi'
+.include '/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi'
+simulator lang=spectre
 
 // =====================================================================
 // Signal saving
@@ -24,6 +31,9 @@ simulator lang=spectre
 saveOpt options save=allpub rawfmt=nutascii
 save tb_integration.i_chip.adc_inst.* depth=3
 save tb_integration.i_sediff.* depth=2
+
+// Analog stimulus: driven from Verilog wreal ports via connect modules.
+// For standalone (no cocotb), add initial blocks to tb_integration.v.
 
 // =====================================================================
 // Transient analysis

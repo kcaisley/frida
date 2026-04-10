@@ -67,3 +67,13 @@ design/fpga/clockInfo.txt
 *.jou
 *.str
 .Xil/
+
+# Xcelium / Spectre
+xcelium.d/
+xrun.key
+xrun.log
+*.raw
+*.ahdlSimDB/
+
+# Cocotb / simulation
+sim_build/

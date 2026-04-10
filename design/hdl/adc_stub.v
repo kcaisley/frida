@@ -34,7 +34,10 @@ module adc (
     input  wire dac_diffcaps,
 
     // Analog inputs
-`ifdef SPICEBIND
+`ifdef COCOTBEXT_AMS
+    input  wire vin_p,
+    input  wire vin_n,
+`elsif SPICEBIND
     input  real vin_p,
     input  real vin_n,
 `else
@@ -43,10 +46,18 @@ module adc (
 `endif
 
     // Output
+`ifdef COCOTBEXT_AMS
+    output reg comp_out,
+`else
     output wire comp_out,
+`endif
 
     // Power supply signals
-`ifdef SPICEBIND
+`ifdef COCOTBEXT_AMS
+    input  wire vdd_a, vss_a,
+    input  wire vdd_d, vss_d,
+    input  wire vdd_dac, vss_dac
+`elsif SPICEBIND
     input  real vdd_a, vss_a,
     input  real vdd_d, vss_d,
     input  real vdd_dac, vss_dac

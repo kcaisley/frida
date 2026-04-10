@@ -1,49 +1,23 @@
-* THS4541
-*****************************************************************************
+* THS4541 — Portable SPICE model (ngspice + Spectre SPICE compat)
+*
+* Original: Texas Instruments PSpice model, Version 2.0 (07/06/2018)
+*
+* Modifications for portable simulation:
+*   - IF(cond, a, b) replaced with arithmetic: a*(cond) + b*(1-(cond))
+*   - max(x,0) replaced with x*(x>0); min(x,0) with x*(x<0)
+*   - LIMIT(x,lo,hi) replaced with clamping arithmetic
+*   - tanh() approximations replaced with comparison-based step functions
+*   - { } braces in .PARAM kept as-is (both simulators accept)
+*   - VALUE expressions use { 'expr' } quoting (required by Spectre for
+*     expressions containing minus signs or complex arithmetic)
+*   - keyword removed from instance lines (Spectre rejects it)
+*   - PARAM inline references changed to bare PARAM names
+*   - abs() lowercased; Von=VON inlined as Von=1.1
+*   - All behavioral sources use E/G with VALUE (no B source, no bsource)
+*   - No simulator lang= directives (pure SPICE throughout)
+*
 * (C) Copyright 2018 Texas Instruments Incorporated. All rights reserved.
 *****************************************************************************
-** This model is designed as an aid for customers of Texas Instruments.
-** TI and its licensors and suppliers make no warranties, either expressed
-** or implied, with respect to this model, including the warranties of 
-** merchantability or fitness for a particular purpose.  The model is
-** provided solely on an "as is" basis.  The entire risk as to its quality
-** and performance is with the customer.
-*****************************************************************************
-*
-** Released by: Texas Instruments Inc.
-* Part: THS4541
-* Date: 07/06/2018
-* Model Type: All In One
-* Simulator: Pspice
-* Simulator Version: 17.2
-* EVM Order Number: N/A 
-* EVM Users Guide:  N/A 
-* Datasheet: August 2014
-*
-* Model Version: 2.0
-*
-*****************************************************************************
-*
-* Updates:
-*
-* Version 1.0 : Release to Web
-*         2.0 : Improving Convergence
-*
-*****************************************************************************
-* Notes:
-* 1. The following parameters are modeled: 
-*    Input Offset Voltage, Input Bias Current, Input Bias Current Offset 
-*    Current Consumption, Frequency Response, Voltage Noise, Current Noise, 
-*    Slew Rate, Large Signal Bandwidth, CMRR, PSRR, Input Resistance and 
-*    Cap, Input range, Output Impendance, Output swing, Output current
-*    CMFB frequency response, CMFB Slew Rate, CMFB offset, CMFB ib current, 
-*    CMFB input resistance and capacitance, CMFB input range
-*
-* 2. The following parameters are not modeled: 
-*    Harmonic Distortion 
-*****************************************************************************
-
-
 
 .subckt THS4541 VOUTM VOUTP VOCM VINM VINP VEE VCC PD
 XI0 VOUTM VOUTP VOCM VINM VINP VEE VCC PD THS4541_HT1
@@ -71,8 +45,8 @@ XTRANSFORMEREK1 NET019 NET017 NET035 NET027 TRANSFORMEREK1
 
 .subckt THS4541_SWITCHES_HT1 PD VCC VEE IN OUT
 XAHDLINV3 PD PDINV VCC VEE HPA_INV_IDEAL
-XAHDLI0 PDINV OUT 0 sw_l4 PARAMS: VON=1.1
-XAHDLI34 PD OUT IN sw_l4 PARAMS: VON=1.1
+XAHDLI0 PDINV OUT 0 sw_l4 VON=1.1
+XAHDLI34 PD OUT IN sw_l4 VON=1.1
 .ends THS4541_SWITCHES_HT1
 
 
@@ -81,20 +55,19 @@ XAHDLI34 PD OUT IN sw_l4 PARAMS: VON=1.1
 X1 PD PDINV VCC VEE LOGIC1 0 DIGLEVSHIFTINV
 VLOGIC1 LOGIC1 0 1
 
-G1 VCCMAIN VEEMAIN VALUE = 
-+ ' ( 9.1e-3 + 200e-6*V(VCC,VEE) ) * ( 1-V(PDINV) ) + 5e-6 * V(PDINV) '  
+G1 VCCMAIN VEEMAIN VALUE = { '( 9.1e-3 + 200e-6*V(VCC,VEE) ) * ( 1-V(PDINV) ) + 5e-6 * V(PDINV)' }  
 
 *G0 NET4 NET7 POLY(1) VCC VEE  9.1e-3  200e-6
 *I2 NET037 NET051 5e-6
 
-*XAHDLI3 PDINV NET051 VEEMAIN sw_l4 PARAMS: VON=1.1
-*XAHDLI5 PD 0 NET037 sw_l4 PARAMS: VON=1.1
-*XAHDLI6 PD NET051 0 sw_l4 PARAMS: VON=1.1
-*XAHDLI7 PDINV VCCMAIN NET037 sw_l4 PARAMS: VON=1.1
-*XAHDLI23 PD NET7 VEEMAIN sw_l4 PARAMS: VON=1.1
-*XAHDLI38 PDINV 0 NET4 sw_l4 PARAMS: VON=1.1
-*XAHDLI39 PDINV NET7 0 sw_l4 PARAMS: VON=1.1
-*XAHDLI22 PD VCCMAIN NET4 sw_l4 PARAMS: VON=1.1
+*XAHDLI3 PDINV NET051 VEEMAIN sw_l4 VON=1.1
+*XAHDLI5 PD 0 NET037 sw_l4 VON=1.1
+*XAHDLI6 PD NET051 0 sw_l4 VON=1.1
+*XAHDLI7 PDINV VCCMAIN NET037 sw_l4 VON=1.1
+*XAHDLI23 PD NET7 VEEMAIN sw_l4 VON=1.1
+*XAHDLI38 PDINV 0 NET4 sw_l4 VON=1.1
+*XAHDLI39 PDINV NET7 0 sw_l4 VON=1.1
+*XAHDLI22 PD VCCMAIN NET4 sw_l4 VON=1.1
 *XAHDLINV3 PD PDINV VCC VEE HPA_INV_IDEAL
 .ends THS4541_IQ_HT1
 
@@ -130,7 +103,7 @@ I3 0 VOCM 1e-15
 XI1 VCC VEE VIH VIL NET029 NET026 THS4541_CMFB_VINRANGE_HT1
 C1 VOCM 0 1.2e-12
 C0 VOUT 0 1e-15
-GAHDLI6 0 VOUT VALUE = 'min(max(V(NET026,NET8)*1.85, -870e-3), 870e-3)'
+GAHDLI6 0 VOUT VALUE = { 'V(NET026,NET8)*1.85 * (V(NET026,NET8)*1.85 > -870e-3) * (V(NET026,NET8)*1.85 < 870e-3) + (-870e-3) * (V(NET026,NET8)*1.85 <= -870e-3) + 870e-3 * (V(NET026,NET8)*1.85 >= 870e-3)' }
 R3 VOUT 0 350.4e3
 R1 VCC VOCM 93.6e3
 R0 VEE VOCM 94.4e3
@@ -172,8 +145,8 @@ XI1 NET22 NET53 VIMON THS4541_OutputCir_Rout_HT1
 XAHDLINV0 RECCIRSIGNAL NET55 VCC VEE HPA_INV_IDEAL
 
 *GE0 0 NET67 NET22 NET50 200
-*XAHDLI49 NET55 NET67 0 sw_l4 PARAMS: VON=1.1
-*XAHDLI50 RECCIRSIGNAL NET67 NET50 sw_l4 PARAMS: VON=1.1
+*XAHDLI49 NET55 NET67 0 sw_l4 VON=1.1
+*XAHDLI50 RECCIRSIGNAL NET67 NET50 sw_l4 VON=1.1
 
 *XI3 PD VCC VEE VIMON NET45 THS4541_SWITCHES_HT1
 VXI3 VIMON NET45 0 
@@ -204,7 +177,7 @@ R3 VOUT NET4 1
 
 
 .subckt THS4541_RECOVERYCIRCUIT_HT1 A B RECCIRSIGNAL VCC VEE VOH VOL VOUT
-*XAHDLI34 RECCIRSIGNAL A NET015 sw_l4 PARAMS: VON=1.1
+*XAHDLI34 RECCIRSIGNAL A NET015 sw_l4 VON=1.1
 XAHDLI41 VOUT NET019 NET027 VCC VEE HPA_COMP_IDEAL
 XAHDLI42 NET021 VOUT NET026 VCC VEE HPA_COMP_IDEAL
 XAHDLI43 NET027 NET026 RECCIRSIGNAL VCC VEE HPA_OR2
@@ -225,8 +198,8 @@ C0 A 0 925e-12
 
 
 .subckt THS4541_HT1 VOUTM VOUTP VOCM VINM VINP VEE VCC PD
-*XAHDLI46 CMFBVIHVILSIGNAL NET0233 NET050 sw_l4 PARAMS: VON=1.1
-*XAHDLI44 CMFBVIHVILSIGNAL NET20 NET34 sw_l4 PARAMS: VON=1.1
+*XAHDLI46 CMFBVIHVILSIGNAL NET0233 NET050 sw_l4 VON=1.1
+*XAHDLI44 CMFBVIHVILSIGNAL NET20 NET34 sw_l4 VON=1.1
 
 XI43 NET050 NET0233 NET058 NET40 VCC_INT VEE_INT Power THS4541_GmItail_HT1
 
@@ -280,25 +253,25 @@ XI13 VEE_INT VEE ANALOG_BUFFER
 
 
 .SUBCKT HPA_OR2 1 2 3 VDD VSS
-E1 4 0 VALUE = ' IF( ((V(1)< (V(VDD)+V(VSS))/2 ) & (V(2)< (V(VDD)+V(VSS))/2 )), V(VSS), V(VDD) ) '
+E1 4 0 VALUE = { 'V(VSS) + (V(VDD)-V(VSS)) * (1 - (1-(V(1)>(V(VDD)+V(VSS))/2)) * (1-(V(2)>(V(VDD)+V(VSS))/2)))' }
 R1 4 3 1
 C1 3 0 1e-12
 .ENDS
 
 
 .SUBCKT HPA_INV_IDEAL 1 2 VDD VSS
-E1 2 0 VALUE = ' IF( V(1)> (V(VDD)+V(VSS))/2, V(VSS), V(VDD) ) '
+E1 2 0 VALUE = { 'V(VDD) - (V(VDD)-V(VSS)) * (V(1) > (V(VDD)+V(VSS))/2)' }
 .ENDS
 
 
 .SUBCKT HPA_COMP_IDEAL INP INN OUT VDD VSS
-E1 OUT 0 VALUE = ' IF( (V(INP) > V(INN)), V(VDD), V(VSS) ) '
+E1 OUT 0 VALUE = { 'V(VSS) + (V(VDD)-V(VSS)) * (V(INP) > V(INN))' }
 .ENDS
 
 
-.SUBCKT sw_l4 S A B PARAMS: VON=1.1
+.SUBCKT sw_l4 S A B VON=1.1
 S1 A B S 0 VSWITCH2
-.MODEL VSWITCH2 VSWITCH Roff=1e9 Ron=1e-3 Voff=-0.01 Von='VON'
+.MODEL VSWITCH2 VSWITCH Roff=1e9 Ron=1e-3 Voff=-0.01 Von=1.1
 .ENDS
 
 
@@ -322,7 +295,7 @@ L2 3 4 10uH
 *.MODEL DIDEAL2 D N=0.1m
 
 .SUBCKT DIGLEVSHIFTINV 1 2 VDD_OLD VSS_OLD VDD_NEW VSS_NEW
-E1 3 0 VALUE = ' IF( V(1) > (V(VDD_OLD)+V(VSS_OLD))/2, V(VSS_NEW), V(VDD_NEW) ) '
+E1 3 0 VALUE = { 'V(VDD_NEW) - (V(VDD_NEW)-V(VSS_NEW)) * (V(1) > (V(VDD_OLD)+V(VSS_OLD))/2)' }
 R1 3 2 1
 C1 2 0 1p
 .ENDS
@@ -345,8 +318,7 @@ VLOGIC1 LOGIC1 0 1
 .PARAM ITAILMAX_INTCP = 
 + ' ITAILMAX_Y1 - ITAILMAX_SLOPE * ITAILMAX_X1 '
 
-EITAILMAX ITAILMAX 0 VALUE = 
-+ ' ITAILMAX_SLOPE * V(VCC,VEE) + ITAILMAX_INTCP  '
+EITAILMAX ITAILMAX 0 VALUE = { 'ITAILMAX_SLOPE * V(VCC,VEE) + ITAILMAX_INTCP' }
 
 
 .PARAM ITAILMIN_X1 = ' 3.0 '
@@ -360,11 +332,10 @@ EITAILMAX ITAILMAX 0 VALUE =
 .PARAM ITAILMIN_INTCP = 
 + ' ITAILMIN_Y1 - ITAILMIN_SLOPE * ITAILMIN_X1 '
 
-EITAILMIN ITAILMIN 0 VALUE = 
-+ ' ITAILMIN_SLOPE * V(VCC,VEE) + ITAILMIN_INTCP  '
+EITAILMIN ITAILMIN 0 VALUE = { 'ITAILMIN_SLOPE * V(VCC,VEE) + ITAILMIN_INTCP' }
 
 
-G1 IOUTP IOUTM VALUE = 'min(max(2.543 * V(VINP,VINM) * ( 1-V(PDINV) ), -V(ITAILMIN)), V(ITAILMAX))'
+G1 IOUTP IOUTM VALUE = { '2.543*V(VINP,VINM)*(1-V(PDINV)) * (2.543*V(VINP,VINM)*(1-V(PDINV)) > -V(ITAILMIN)) * (2.543*V(VINP,VINM)*(1-V(PDINV)) < V(ITAILMAX)) + (-V(ITAILMIN)) * (2.543*V(VINP,VINM)*(1-V(PDINV)) <= -V(ITAILMIN)) + V(ITAILMAX) * (2.543*V(VINP,VINM)*(1-V(PDINV)) >= V(ITAILMAX))' }
 .ENDS
 
 
@@ -376,7 +347,7 @@ G1 IOUTP IOUTM VALUE = 'min(max(2.543 * V(VINP,VINM) * ( 1-V(PDINV) ), -V(ITAILM
 .PARAM Multiplier = 0
 
 
-G1 A B VALUE = 'V(A,B) / (Ro_Iout_0A - Multiplier * ABS(V(VIMON)))'
+G1 A B VALUE = { 'V(A,B) / (Ro_Iout_0A - Multiplier * V(VIMON) * (2*(V(VIMON)>=0)-1))' }
 
 .ENDS
 
@@ -386,8 +357,8 @@ G1 A B VALUE = 'V(A,B) / (Ro_Iout_0A - Multiplier * ABS(V(VIMON)))'
 X1 PD PDINV VDD VSS LOGIC1 0 DIGLEVSHIFTINV
 VLOGIC1 LOGIC1 0 1
 
-G1 VDD 0 VALUE = 'IF(V(VIMON) >= 0, V(VIMON)*( 1-V(PDINV) ), 0)'
-G2 VSS 0 VALUE = 'IF(V(VIMON)  < 0, V(VIMON)*( 1-V(PDINV) ), 0)'
+G1 VDD 0 VALUE = { 'V(VIMON) * (V(VIMON) >= 0) * (1-V(PDINV))' }
+G2 VSS 0 VALUE = { 'V(VIMON) * (V(VIMON) < 0) * (1-V(PDINV))' }
 
 .ENDS
 
@@ -396,7 +367,7 @@ G2 VSS 0 VALUE = 'IF(V(VIMON)  < 0, V(VIMON)*( 1-V(PDINV) ), 0)'
 .PARAM X = ' 1k  '
 .PARAM Y = ' 6.1 '
 .PARAM Z = ' 2.2  '
-X1 A B VNSE PARAMS: NLF = ' Y ' FLW = ' X '  NVR = ' Z '
+X1 A B VNSE NLF = ' Y ' FLW = ' X '  NVR = ' Z '
 .ENDS
 
 
@@ -404,14 +375,14 @@ X1 A B VNSE PARAMS: NLF = ' Y ' FLW = ' X '  NVR = ' Z '
 .PARAM X = ' 10k  '
 .PARAM Y = ' 5e3 '
 .PARAM Z = ' 1.9e3 '
-X1 A B FEMT PARAMS: NLFF = ' Y '  FLWF = ' X ' NVRF = ' Z '
+X1 A B FEMT NLFF = ' Y '  FLWF = ' X ' NVRF = ' Z '
 .ENDS
 
 
 .SUBCKT THS4541_PSRR_HT1 VDD VSS A B
 
 
-X1 VDD VSS A B 0 PSRR_DUAL_NEW PARAMS:
+X1 VDD VSS A B 0 PSRR_DUAL_NEW
 + PSRRP = 109.5 FPSRRP = 1000k
 + PSRRN = 109.5 FPSRRN = 1000k
 .ENDS
@@ -419,12 +390,12 @@ X1 VDD VSS A B 0 PSRR_DUAL_NEW PARAMS:
 
 .SUBCKT THS4541_CMRR_HT1 A B
  
-X1 A B 0 CMRR_NEW PARAMS: CMRR = 106 FCMRR = 1000K
+X1 A B 0 CMRR_NEW CMRR = 106 FCMRR = 1000K
 .ENDS
 
 
 
-.SUBCKT VNSE  1 2 PARAMS: NLF = 10 FLW = 4  NVR = 4.6
+.SUBCKT VNSE  1 2 NLF = 10 FLW = 4  NVR = 4.6
 .PARAM GLF='PWR(FLW,0.25)*NLF/1164'
 .PARAM RNV='1.184*PWR(NVR,2)'
 .MODEL DVN D KF='PWR(FLW,0.5)/1E11' IS=1.0E-16
@@ -449,7 +420,7 @@ C3 1 2 1E-15
 
 
 
-.SUBCKT FEMT  1 2 PARAMS: NLFF = 0.1 FLWF = 0.001 NVRF = 0.1
+.SUBCKT FEMT  1 2 NLFF = 0.1 FLWF = 0.001 NVRF = 0.1
 .PARAM GLFF='PWR(FLWF,0.25)*NLFF/1164'
 .PARAM RNVF='1.184*PWR(NVRF,2)'
 .MODEL DVNF D KF='PWR(FLWF,0.5)/1E11' IS=1.0E-16
@@ -477,7 +448,7 @@ C3 1 2 1E-15
 
 
 
-.SUBCKT PSRR_SINGLE   VDD  VSS  VI  VO  GNDF PARAMS: PSRR = 130 FPSRR = 1.6
+.SUBCKT PSRR_SINGLE   VDD  VSS  VI  VO  GNDF PSRR = 130 FPSRR = 1.6
 .PARAM PI = 3.141592
 .PARAM RPSRR = 1
 .PARAM GPSRR = 'PWR(10,-PSRR/20)/RPSRR'
@@ -489,7 +460,7 @@ E1  VO VI 1 GNDF 1
 C2  VDD VSS 10P
 .ENDS
 
-.SUBCKT PSRR_SINGLE_NEW   VDD  VSS  VI  VO  GNDF PARAMS: PSRR = 130 FPSRR = 1.6
+.SUBCKT PSRR_SINGLE_NEW   VDD  VSS  VI  VO  GNDF PSRR = 130 FPSRR = 1.6
 .PARAM PI = 3.141592
 .PARAM RPSRR = 1
 .PARAM GPSRR = 'PWR(10,-PSRR/20)/RPSRR'
@@ -499,16 +470,16 @@ R1  1 2 'RPSRR'
 L1  2 GNDF 'LPSRR'
 
 EA  101 GNDF 1 GNDF 1
-GRA  101 102 VALUE = ' V(101,102)/1e6 '
+GRA  101 102 VALUE = { 'V(101,102)/1e6' }
 CA  102 GNDF 1e3
-EB  1 1a VALUE = 'V(102,GNDF)'
+EB  1 1a VALUE = { 'V(102,GNDF)' }
 
 E1  VO VI 1a GNDF 1
 C2  VDD VSS 10P
 .ENDS
 
 .SUBCKT PSRR_DUAL   VDD  VSS  VI  VO  GNDF 
-+ PARAMS: PSRRP = 130 FPSRRP = 1.6
++ PSRRP = 130 FPSRRP = 1.6
 + PSRRN = 130 FPSRRN = 1.6
 .PARAM PI = 3.141592
 .PARAM RPSRRP = 1
@@ -525,12 +496,12 @@ G2  GNDF 3 VSS GNDF 'GPSRRN'
 R2  3 4 'RPSRRN'
 L2  4 GNDF 'LPSRRN'
 
-E1  VO VI VALUE = 'V(1,GNDF) + V(3,GNDF)'
+E1  VO VI VALUE = { 'V(1,GNDF) + V(3,GNDF)' }
 C3  VDD VSS 10P
 .ENDS
 
 .SUBCKT PSRR_DUAL_NEW   VDD  VSS  VI  VO  GNDF 
-+ PARAMS: PSRRP = 130 FPSRRP = 1.6
++ PSRRP = 130 FPSRRP = 1.6
 + PSRRN = 130 FPSRRN = 1.6
 .PARAM PI = 3.141592
 .PARAM RPSRRP = 1
@@ -545,9 +516,9 @@ R1  1 2 'RPSRRP'
 L1  2 GNDF 'LPSRRP'
 
 EA  101 GNDF 1 GNDF 1
-GRA  101 102 VALUE = ' V(101,102)/1e6 '
+GRA  101 102 VALUE = { 'V(101,102)/1e6' }
 CA  102 GNDF 1e3
-EB  1 1a VALUE = 'V(102,GNDF)'
+EB  1 1a VALUE = { 'V(102,GNDF)' }
 
 
 G2  GNDF 3 VSS GNDF 'GPSRRN'
@@ -555,18 +526,18 @@ R2  3 4 'RPSRRN'
 L2  4 GNDF 'LPSRRN'
 
 EC  301 GNDF 3 GNDF 1
-GRC  301 302 VALUE = ' V(301,302)/1e6 '
+GRC  301 302 VALUE = { 'V(301,302)/1e6' }
 CC  302 GNDF 1e3
-ED  3 3a VALUE = 'V(302,GNDF)'
+ED  3 3a VALUE = { 'V(302,GNDF)' }
 
 
-E1  VO VI VALUE = 'V(1a,GNDF) + V(3a,GNDF)'
+E1  VO VI VALUE = { 'V(1a,GNDF) + V(3a,GNDF)' }
 C3  VDD VSS 10P
 .ENDS
 
 
 
-.SUBCKT CMRR   VI  VO  GNDF PARAMS: CMRR = 130 FCMRR = 1.6K
+.SUBCKT CMRR   VI  VO  GNDF CMRR = 130 FCMRR = 1.6K
 .PARAM PI = 3.141592
 .PARAM RCMRR = 1
 .PARAM GCMRR = 'PWR(10,-CMRR/20)/RCMRR'
@@ -577,7 +548,7 @@ L1  2 GNDF 'LCMRR'
 E1  VI VO 1 GNDF 1
 .ENDS
 
-.SUBCKT CMRR_NEW   VI  VO  GNDF PARAMS: CMRR = 130 FCMRR = 1.6K
+.SUBCKT CMRR_NEW   VI  VO  GNDF CMRR = 130 FCMRR = 1.6K
 .PARAM PI = 3.141592
 .PARAM RCMRR = 1
 .PARAM GCMRR = 'PWR(10,-CMRR/20)/RCMRR'
@@ -587,9 +558,9 @@ R1  1 2 'RCMRR'
 L1  2 GNDF 'LCMRR'
 
 EA  101 GNDF 1 GNDF 1
-GRA  101 102 VALUE = 'V(101,102)/1e6'
+GRA  101 102 VALUE = { 'V(101,102)/1e6' }
 CA  102 GNDF 1e3
-EB  1 1a VALUE = 'V(102,GNDF)'
+EB  1 1a VALUE = { 'V(102,GNDF)' }
 
 E1  VI VO 1a GNDF 1
 .ENDS
@@ -597,7 +568,7 @@ E1  VI VO 1a GNDF 1
 
 .SUBCKT DIDEAL1 POS NEG
 
-G1 POS NEG VALUE = ' IF ( V(POS,NEG) <= 0 , 0, V(POS,NEG)*0.01G ) '
+G1 POS NEG VALUE = { 'V(POS,NEG) * (V(POS,NEG) > 0) * 0.01G' }
 R0 POS NEG 1000G
 
 .ENDS

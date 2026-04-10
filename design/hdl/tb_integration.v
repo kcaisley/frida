@@ -35,7 +35,12 @@ module tb_integration(
     input wire          BUS_WR,
 
     // Analog signals (driven by cocotb via instrument mocks)
-`ifdef SPICEBIND
+`ifdef COCOTBEXT_AMS
+    input wire          vin_p,          // Differential inputs (set by SimAWG via bridge)
+    input wire          vin_n,
+    input wire          vdd,            // Supply (1.2V)
+    input wire          vss             // Ground (0V)
+`elsif SPICEBIND
     input real          vin_se,         // Single-ended input (from AWG mock)
     input real          vdd,            // Supply (1.2V, from PSU mock)
     input real          vss             // Ground (0V, from PSU mock)
@@ -126,13 +131,16 @@ module tb_integration(
     // Converts the AWG's single-ended output into a differential pair
     // centered at VOCM = VDD/2. Unity gain (Rf/Rin = 499/499).
     // This block is simulated in SPICE via spicebind.
+    //
+    // When COCOTBEXT_AMS is defined, vin_p/vin_n come directly from the
+    // top-level ports (set by SimAWG via the bridge). The sediff block is
+    // bypassed — Python computes cm ± diff/2.
     // =========================================================================
 
-`ifdef SPICEBIND
+`ifdef COCOTBEXT_AMS
+    // vin_p, vin_n are top-level ports — no sediff needed
+`elsif SPICEBIND
     wire real vin_p, vin_n;  // Differential outputs from sediff (Icarus wire real extension)
-`else
-    wreal vin_p, vin_n;
-`endif
 
     sediff i_sediff (
         .vin_p_ext(vin_se),
@@ -140,6 +148,16 @@ module tb_integration(
         .vin_n(vin_n),
         .vdd(vdd)
     );
+`else
+    wreal vin_p, vin_n;
+
+    sediff i_sediff (
+        .vin_p_ext(vin_se),
+        .vin_p(vin_p),
+        .vin_n(vin_n),
+        .vdd(vdd)
+    );
+`endif
 
     // =========================================================================
     // ASIC Core (single-channel FRIDA with 1 ADC)
@@ -168,14 +186,5 @@ module tb_integration(
         .vdd_dac(vdd),
         .vss_dac(vss)
     );
-
-    // =========================================================================
-    // Waveform output (VCD for gtkwave, nutascii .raw from SPICE side)
-    // =========================================================================
-
-    initial begin
-        $dumpfile("waves.vcd");
-        $dumpvars(0, tb_integration);
-    end
 
 endmodule

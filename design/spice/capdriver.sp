@@ -1,0 +1,40 @@
+* Function explanation:
+* - XOR gates implement: dac_drive[i] = dac_state[i] XOR dac_drive_invert
+* - When dac_drive_invert = 0: dac_drive[i] = dac_state[i] (buffer mode)
+* - When dac_drive_invert = 1: dac_drive[i] = ~dac_state[i] (invert mode)
+*
+* Control signal behavior (dac_drive_invert is active high):
+* - dac_drive_invert = 0: Output direct DAC state (normal operation)
+* - dac_drive_invert = 1: Output inverted DAC state (differential mode)
+*
+* Driver sizing rationale:
+* - Bits 15-14 (MSBs): 2x CKXOR2D4LVT = ~8x drive strength (largest capacitors)
+* - Bits 13-12: 1x CKXOR2D4LVT = ~4x drive strength (large capacitors)
+* - Bits 11-0: 1x CKXOR2D2LVT = ~2x drive strength (smaller capacitors)
+*
+* This provides binary-weighted drive strength that matches the binary-weighted
+* capacitor array structure typical in SAR ADC designs.
+
+
+.SUBCKT capdriver dac_state[15] dac_state[14] dac_state[13] dac_state[12] dac_state[11] dac_state[10] dac_state[9] dac_state[8] dac_state[7] dac_state[6] dac_state[5] dac_state[4] dac_state[3] dac_state[2] dac_state[1] dac_state[0] dac_drive_invert dac_drive[15] dac_drive[14] dac_drive[13] dac_drive[12] dac_drive[11] dac_drive[10] dac_drive[9] dac_drive[8] dac_drive[7] dac_drive[6] dac_drive[5] dac_drive[4] dac_drive[3] dac_drive[2] dac_drive[1] dac_drive[0] vdd_dac vss_dac
+
+Xxor15_0 dac_drive_invert dac_state[15] dac_drive[15] vdd_dac vss_dac CKXOR2D4LVT
+Xxor15_1 dac_drive_invert dac_state[15] dac_drive[15] vdd_dac vss_dac CKXOR2D4LVT
+Xxor14_0 dac_drive_invert dac_state[14] dac_drive[14] vdd_dac vss_dac CKXOR2D4LVT
+Xxor14_1 dac_drive_invert dac_state[14] dac_drive[14] vdd_dac vss_dac CKXOR2D4LVT
+Xxor13 dac_drive_invert dac_state[13] dac_drive[13] vdd_dac vss_dac CKXOR2D4LVT
+Xxor12 dac_drive_invert dac_state[12] dac_drive[12] vdd_dac vss_dac CKXOR2D4LVT
+Xxor11 dac_drive_invert dac_state[11] dac_drive[11] vdd_dac vss_dac CKXOR2D2LVT
+Xxor10 dac_drive_invert dac_state[10] dac_drive[10] vdd_dac vss_dac CKXOR2D2LVT
+Xxor9 dac_drive_invert dac_state[9] dac_drive[9] vdd_dac vss_dac CKXOR2D2LVT
+Xxor8 dac_drive_invert dac_state[8] dac_drive[8] vdd_dac vss_dac CKXOR2D2LVT
+Xxor7 dac_drive_invert dac_state[7] dac_drive[7] vdd_dac vss_dac CKXOR2D2LVT
+Xxor6 dac_drive_invert dac_state[6] dac_drive[6] vdd_dac vss_dac CKXOR2D2LVT
+Xxor5 dac_drive_invert dac_state[5] dac_drive[5] vdd_dac vss_dac CKXOR2D2LVT
+Xxor4 dac_drive_invert dac_state[4] dac_drive[4] vdd_dac vss_dac CKXOR2D2LVT
+Xxor3 dac_drive_invert dac_state[3] dac_drive[3] vdd_dac vss_dac CKXOR2D2LVT
+Xxor2 dac_drive_invert dac_state[2] dac_drive[2] vdd_dac vss_dac CKXOR2D2LVT
+Xxor1 dac_drive_invert dac_state[1] dac_drive[1] vdd_dac vss_dac CKXOR2D2LVT
+Xxor0 dac_drive_invert dac_state[0] dac_drive[0] vdd_dac vss_dac CKXOR2D2LVT
+
+.ENDS capdriver

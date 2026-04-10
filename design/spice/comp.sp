@@ -1,0 +1,83 @@
+************************************************************************ 
+* Library Name:  frida
+* Top Cell Name: comp
+* View Name:     schematic
+************************************************************************
+
+
+************************************************************************
+* Library Name: frida
+* Cell Name:    comp_inverter_lvil
+* View Name:    schematic
+************************************************************************
+
+.SUBCKT comp_inverter_lvil GND IN OUT VDD
+MMN OUT IN GND GND nch_lvt l=60n w=390.0n m=1
+MMP OUT IN VDD VDD pch_hvt l=60n w=520.0n m=1
+.ENDS comp_inverter_lvil
+
+************************************************************************
+* Library Name: frida
+* Cell Name:    comp_sr
+* View Name:    schematic
+************************************************************************
+
+.SUBCKT comp_sr COMP_N COMP_P GND LATCH_N LATCH_P VDD
+
+* cross coupler nor gates
+XI30 net41 net38 net35 VDD GND NR2D2
+XI31 net35 net42 net38 VDD GND NR2D2
+
+* 1st stage buffers
+XI45 net35 net39 VDD GND CKND4
+XI48 net38 net40 VDD GND CKND4
+
+* 2nd stage buffers
+XI46 net39 LATCH_P VDD GND CKND8
+XI47 net40 LATCH_N VDD GND CKND8
+
+XI22 GND COMP_P net41 VDD comp_inverter_lvil
+XI0 GND COMP_N net42 VDD comp_inverter_lvil
+XI1[5] VDD GND DCAP8
+XI1[4] VDD GND DCAP8
+XI1[3] VDD GND DCAP8
+XI1[2] VDD GND DCAP8
+XI1[1] VDD GND DCAP8
+XI1[0] VDD GND DCAP8
+.ENDS comp_sr
+
+************************************************************************
+* Library Name: frida
+* Cell Name:    comp_latch
+* View Name:    schematic
+************************************************************************
+
+.SUBCKT comp_latch CLK GND INN INP OUTN OUTP VDD
+MM0 tail CLK GND GND nch_lvt l=800n w=550.0n m=1
+MM2 net037 INN tail GND nch_lvt l=300n w=1.1u m=4
+MM8[3] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[2] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[1] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM8[0] tail GND GND GND nch_lvt l=60n w=1.1u m=1
+MM1 net031 INP tail GND nch_lvt l=300n w=1.1u m=4
+MM3 OUTN OUTP net031 GND nch_lvt l=350.0n w=750.0n m=4
+MM4 OUTP OUTN net037 GND nch_lvt l=350.0n w=750.0n m=4
+MS2 net037 CLK VDD VDD pch_lvt l=60n w=500n m=2
+MS4 OUTP CLK VDD VDD pch_lvt l=60n w=500n m=2
+MS1 net031 CLK VDD VDD pch_lvt l=60n w=500n m=2
+MM7 tail CLK VDD VDD pch_lvt l=60n w=500n m=1
+MM6 OUTP OUTN VDD VDD pch_lvt l=1u w=2u m=2
+MM5 OUTN OUTP VDD VDD pch_lvt l=1u w=2u m=2
+MS3 OUTN CLK VDD VDD pch_lvt l=60n w=500n m=2
+.ENDS comp_latch
+
+************************************************************************
+* Library Name: frida
+* Cell Name:    comp
+* View Name:    schematic
+************************************************************************
+
+.SUBCKT comp vin_p vin_n dout_p dout_n clk vdd_a vss_a
+XI3 COMP_N COMP_P vss_a dout_n dout_p vdd_a comp_sr
+XLATCH clk vss_a vin_n vin_p COMP_N COMP_P vdd_a comp_latch
+.ENDS comp
