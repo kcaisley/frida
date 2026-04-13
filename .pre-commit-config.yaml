@@ -6,3 +6,21 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  # Verilog lint (daq_core only — daq_top needs Xilinx primitives)
+  - repo: local
+    hooks:
+      - id: verilator-lint
+        name: verilator lint
+        entry: >-
+          verilator --lint-only -Wall
+          -Wno-DECLFILENAME -Wno-MULTITOP -Wno-TIMESCALEMOD
+          -Wno-PINCONNECTEMPTY -Wno-GENUNNAMED -Wno-WIDTHCONCAT
+          -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-REDEFMACRO
+          -Wno-UNUSEDSIGNAL -Wno-UNDRIVEN -Wno-UNUSEDPARAM
+          -Ilibs/basil/basil/firmware/modules
+          -Ilibs/basil/basil/firmware/modules/utils
+          -Idesign/fpga
+          libs/basil/basil/firmware/modules/utils/RAMB16_S1_S9_sim.v
+        language: system
+        files: '^design/fpga/daq_core\.v$'
