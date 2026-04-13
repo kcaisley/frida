@@ -1,0 +1,24 @@
+[environment]
+python-version = "3.12"
+
+[src]
+exclude = ["libs/", "old/", ".venv/"]
+
+# Suppress rules that mostly fire on library metaprogramming / incomplete
+# type stubs (hdl21, pydantic, numpy, matplotlib). Re-enable as ty matures.
+[rules]
+unknown-argument = "ignore"
+unresolved-import = "ignore"
+unresolved-attribute = "ignore"
+call-non-callable = "ignore"
+unsupported-operator = "ignore"
+no-matching-overload = "ignore"
+not-subscriptable = "ignore"
+invalid-type-form = "ignore"
+invalid-argument-type = "ignore"
+too-many-positional-arguments = "ignore"
+# hdl21 generator/param patterns
+invalid-return-type = "ignore"
+invalid-parameter-default = "ignore"
+not-iterable = "ignore"
+invalid-assignment = "ignore"

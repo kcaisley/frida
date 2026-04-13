@@ -1,11 +1,17 @@
 repos:
-  # Python linting + auto-fix
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.8
+  # Python linting + auto-fix (uses system ruff via uvx for speed)
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: ruff-lint
+        name: ruff lint
+        entry: uvx ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
+        name: ruff format
+        entry: uvx ruff format
+        language: system
+        types: [python]
 
   # Verilog lint (daq_core only — daq_top needs Xilinx primitives)
   - repo: local
