@@ -2792,7 +2792,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Transistor_FET:Q_PMOS_DGS"
+		(symbol "Transistor_FET:Q_PMOS_GSD"
 			(pin_names
 				(offset 0)
 				(hide yes)
@@ -2809,7 +2809,7 @@
 					(justify left)
 				)
 			)
-			(property "Value" "Q_PMOS_DGS"
+			(property "Value" "Q_PMOS_GSD"
 				(at 5.08 0 0)
 				(effects
 					(font
@@ -2836,7 +2836,7 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "P-MOSFET transistor, drain/gate/source"
+			(property "Description" "P-MOSFET transistor, gate/source/drain"
 				(at 0 0 0)
 				(effects
 					(font
@@ -2854,7 +2854,7 @@
 					(hide yes)
 				)
 			)
-			(symbol "Q_PMOS_DGS_0_1"
+			(symbol "Q_PMOS_GSD_0_1"
 				(polyline
 					(pts
 						(xy 0.254 1.905) (xy 0.254 -1.905)
@@ -3021,7 +3021,7 @@
 					)
 				)
 			)
-			(symbol "Q_PMOS_DGS_1_1"
+			(symbol "Q_PMOS_GSD_1_1"
 				(pin input line
 					(at -5.08 0 0)
 					(length 2.54)
@@ -3032,7 +3032,7 @@
 							)
 						)
 					)
-					(number "2"
+					(number "1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3050,7 +3050,7 @@
 							)
 						)
 					)
-					(number "1"
+					(number "3"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3068,7 +3068,7 @@
 							)
 						)
 					)
-					(number "3"
+					(number "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -7471,7 +7471,7 @@
 		)
 		(uuid fe35d3f5-f58d-4df0-9214-63d45dde848c)
 	)
-	(text "1.2V"
+	(text "2.5V"
 		(exclude_from_sim no)
 		(at 203.2 182.88 0)
 		(effects
@@ -7655,6 +7655,17 @@
 		)
 		(uuid "8c7a6596-bd31-4aab-a8e4-d6d088b52ace")
 	)
+	(text "VDD_BDAQ should be 2.5V"
+		(exclude_from_sim no)
+		(at 160.02 156.21 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "b8d84c3d-7c61-44c0-92c8-04e1c1ee01bc")
+	)
 	(text "AMP\nON"
 		(exclude_from_sim no)
 		(at 157.48 167.64 0)
@@ -7695,6 +7706,17 @@
 			)
 		)
 		(uuid "c81dbc0e-5e9f-4a3d-981a-2347a57950f0")
+	)
+	(text "VS_N should be -1V\n"
+		(exclude_from_sim no)
+		(at 180.34 196.85 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "ca907f54-dab4-471d-8a4c-c857a5fbf860")
 	)
 	(text "AMP\nOFF"
 		(exclude_from_sim no)
@@ -8667,7 +8689,7 @@
 	)
 	(wire
 		(pts
-			(xy 349.25 36.83) (xy 358.14 36.83)
+			(xy 354.33 36.83) (xy 358.14 36.83)
 		)
 		(stroke
 			(width 0)
@@ -11807,7 +11829,7 @@
 	)
 	(wire
 		(pts
-			(xy 349.25 41.91) (xy 358.14 41.91)
+			(xy 354.33 41.91) (xy 358.14 41.91)
 		)
 		(stroke
 			(width 0)
@@ -13127,7 +13149,7 @@
 	)
 	(wire
 		(pts
-			(xy 349.25 39.37) (xy 358.14 39.37)
+			(xy 354.33 39.37) (xy 358.14 39.37)
 		)
 		(stroke
 			(width 0)
@@ -13417,7 +13439,7 @@
 	)
 	(wire
 		(pts
-			(xy 349.25 34.29) (xy 358.14 34.29)
+			(xy 354.33 34.29) (xy 358.14 34.29)
 		)
 		(stroke
 			(width 0)
@@ -13936,7 +13958,7 @@
 		(uuid "0523ca03-2309-4c86-8da6-f4bc6abbdc5d")
 	)
 	(label "VOCM_EXT"
-		(at 349.25 39.37 180)
+		(at 354.33 39.37 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -13956,7 +13978,7 @@
 		(uuid "087e7743-a102-4112-82ae-684208fa3052")
 	)
 	(label "VIN_P_EXT"
-		(at 349.25 34.29 180)
+		(at 354.33 34.29 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -14346,7 +14368,7 @@
 		(uuid "5ff05d31-a88b-4927-8e0a-cb9d2d607dd9")
 	)
 	(label "AMP_PD_EXT"
-		(at 349.25 41.91 180)
+		(at 354.33 41.91 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -14666,7 +14688,7 @@
 		(uuid "931b66f3-f627-4042-ac4c-669e5c8b2f7f")
 	)
 	(label "VIN_N_EXT"
-		(at 349.25 36.83 180)
+		(at 354.33 36.83 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -17661,106 +17683,6 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "#PWR08")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Transistor_FET:Q_PMOS_DGS")
-		(at 176.53 173.99 0)
-		(mirror x)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "433991b0-d757-4ed5-91d6-eaa0a773a967")
-		(property "Reference" "Q1"
-			(at 182.88 175.2601 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "Q_PMOS_DGS"
-			(at 182.88 172.7201 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Package_TO_SOT_SMD:SOT-23-3"
-			(at 181.61 176.53 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 176.53 173.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "P-MOSFET transistor, drain/gate/source"
-			(at 176.53 173.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Sim.Device" ""
-			(at 176.53 173.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Sim.Pins" ""
-			(at 176.53 173.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Sim.Type" ""
-			(at 176.53 173.99 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "1a02aec8-053d-4911-b9af-12f20ba29ebd")
-		)
-		(pin "2"
-			(uuid "64d24bad-be94-4fda-8f2b-1e2f9b2333e4")
-		)
-		(pin "3"
-			(uuid "786a87a7-ccb8-4a08-84c2-91356ce6caad")
-		)
-		(instances
-			(project ""
-				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
-					(reference "Q1")
 					(unit 1)
 				)
 			)
@@ -22338,6 +22260,79 @@
 			(project "frida65A"
 				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
 					(reference "C12")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Transistor_FET:Q_PMOS_GSD")
+		(at 176.53 173.99 0)
+		(mirror x)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "9478b0f6-107a-4665-8bbc-26857d1a2cec")
+		(property "Reference" "Q1"
+			(at 182.88 175.2601 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Q_PMOS_GSD"
+			(at 182.88 172.7201 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
+			(at 181.61 176.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://www.onsemi.com/pdf/datasheet/bss84-d.pdf"
+			(at 176.53 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "P-MOSFET transistor, gate/source/drain"
+			(at 176.53 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "e915b59e-c25e-41ae-93b5-feeba3d68688")
+		)
+		(pin "3"
+			(uuid "1510789c-d4e4-416c-a189-34cea43b45d0")
+		)
+		(pin "1"
+			(uuid "995069ba-b6e8-474e-ae73-cb9d7a5e2b8a")
+		)
+		(instances
+			(project "frida65A"
+				(path "/fa3d0b93-951b-4460-b2d5-04f3ffae1154"
+					(reference "Q1")
 					(unit 1)
 				)
 			)
