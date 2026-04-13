@@ -1,69 +1,51 @@
-"""Scan: Comparator threshold measurement via cosimulation.
+"""Scan: Comparator threshold measurement.
 
 Sweeps a fine voltage range around 0mV differential to find the
 comparator trip point. Uses only sample + compare phases (no full
 SAR conversion).
 
-Usage (from repo root):
+The scan logic is backend-agnostic. Entry points handle sim/hw setup.
+
+Usage (simulation, from repo root):
     uv run python flow/scans/scan_comp.py
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 
-import cocotb
-from cocotb.clock import Clock
-from cocotb.runner import get_runner
-
-from cocotbext.ams import MixedSignalBridge
-
 from flow.scans.chip import Frida
-from flow.scans.sim import (
-    SimAWG,
-    SimPSU,
-    create_adc_block,
-    include_dirs,
-    verilog_sources,
-)
+
+logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parents[2]
 
 
-@cocotb.test()
-async def scan_comp_threshold(dut):
-    """Sweep fine voltage steps and record comparator output."""
+# =========================================================================
+# Scan logic (backend-agnostic)
+# =========================================================================
 
-    import os
-    vin_start = float(os.environ.get("SCAN_VIN_START", "-0.005"))
-    vin_stop = float(os.environ.get("SCAN_VIN_STOP", "0.005"))
-    vin_step = float(os.environ.get("SCAN_VIN_STEP", "0.0005"))
-    vdd = float(os.environ.get("SCAN_VDD", "1.2"))
-    cm = vdd / 2
 
-    voltages = np.arange(vin_start, vin_stop + vin_step / 2, vin_step)
-    duration_ns = 500 + len(voltages) * 200
+async def scan_comp(
+    chip: Frida,
+    voltages: np.ndarray,
+    cm: float = 0.6,
+) -> dict:
+    """Sweep fine voltage steps and find comparator threshold.
 
-    # Start clocks
-    cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
-    cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    Args:
+        chip: Initialized Frida controller (any backend).
+        voltages: Array of differential voltages to sweep.
+        cm: Common-mode voltage.
 
-    # Create bridge
-    adc_block = create_adc_block(vdd=vdd)
-    bridge = MixedSignalBridge(dut, [adc_block], max_sync_interval_ns=1.0)
-    await bridge.start(duration_ns=duration_ns, analog_vcd="scan_comp.vcd")
-
-    # Initialize chip
-    peripherals = SimpleNamespace(awg=SimAWG(bridge), psu=SimPSU(vdd))
-    chip = Frida(dut, peripherals)
-    await chip.init()
-
-    # Configure ADC 0 with only samp + comp (no init, no update)
+    Returns:
+        Dict with 'voltages', 'results', and optionally 'threshold'.
+    """
     chip.select_adc(0)
     chip.enable_adc(
         0,
@@ -76,25 +58,104 @@ async def scan_comp_threshold(dut):
     chip.set_dac_state(astate_p=0x8000, astate_n=0x8000)  # mid-scale
     await chip.write_spi()
 
-    # Sweep
     results = []
     for diff in voltages:
-        await chip.set_vin(diff=diff, cm=cm)
+        await chip.set_vin(diff=float(diff), cm=cm)
         comp_out = await chip.sample_and_compare()
         results.append(comp_out)
-        dut._log.info("vin_diff=%+.4fV: comp_out=%d", diff, comp_out)
+        logger.info("vin_diff=%+.4fV: comp_out=%d", diff, comp_out)
 
-    # Find transition
     results_arr = np.array(results)
+    output: dict = {"voltages": voltages, "results": results_arr}
+
     transitions = np.where(np.diff(results_arr) != 0)[0]
     if len(transitions) > 0:
         idx = transitions[0]
         threshold = (voltages[idx] + voltages[idx + 1]) / 2
-        dut._log.info("Comparator threshold: %.4fV", threshold)
+        output["threshold"] = threshold
+        logger.info("Comparator threshold: %.4fV", threshold)
     else:
-        dut._log.warning("No transition detected in sweep range")
+        logger.warning("No transition detected in sweep range")
+
+    return output
+
+
+# =========================================================================
+# Simulation entry point (cocotb + cocotbext-ams)
+# =========================================================================
+
+import cocotb
+from cocotb.clock import Clock
+
+from cocotbext.ams import MixedSignalBridge
+
+from flow.scans.chip import SimBackend
+from flow.scans.sim import SimAWG, SimPSU, create_adc_block, include_dirs, verilog_sources
+
+
+@cocotb.test()
+async def scan_comp_sim(dut):
+    """cocotb entry point — sets up clocks, bridge, then runs scan."""
+    import os
+
+    vin_start = float(os.environ.get("SCAN_VIN_START", "-0.005"))
+    vin_stop = float(os.environ.get("SCAN_VIN_STOP", "0.005"))
+    vin_step = float(os.environ.get("SCAN_VIN_STEP", "0.0005"))
+    vdd = float(os.environ.get("SCAN_VDD", "1.2"))
+
+    voltages = np.arange(vin_start, vin_stop + vin_step / 2, vin_step)
+    duration_ns = 500 + len(voltages) * 200
+
+    cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
+    cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+
+    adc_block = create_adc_block(vdd=vdd)
+    bridge = MixedSignalBridge(dut, [adc_block], max_sync_interval_ns=1.0)
+    await bridge.start(duration_ns=duration_ns, analog_vcd="scan_comp.vcd")
+
+    backend = SimBackend(dut)
+    peripherals = SimpleNamespace(awg=SimAWG(bridge), psu=SimPSU(vdd))
+    chip = Frida(backend, peripherals)
+    await chip.init()
+
+    await scan_comp(chip, voltages, cm=vdd / 2)
 
     await bridge.stop()
+
+
+# =========================================================================
+# Hardware entry point (basil DAQ over SiTcp)
+# =========================================================================
+
+
+async def scan_comp_hw(
+    vin_start: float = -0.005,
+    vin_stop: float = 0.005,
+    vin_step: float = 0.0005,
+    vdd: float = 1.2,
+) -> dict:
+    """Hardware entry point — connects to FPGA, runs scan."""
+    from basil.dut import Dut
+
+    from flow.scans.chip import HardwareBackend
+    from flow.scans.peripherals import BasilAWG, BasilPSU
+
+    yaml_path = Path(__file__).resolve().parent / "map_fpga.yaml"
+    daq = Dut(str(yaml_path))
+    daq.init()
+
+    backend = HardwareBackend(daq)
+    peripherals = SimpleNamespace(awg=BasilAWG(), psu=BasilPSU(daq))
+    chip = Frida(backend, peripherals)
+    await chip.init()
+
+    voltages = np.arange(vin_start, vin_stop + vin_step / 2, vin_step)
+    return await scan_comp(chip, voltages, cm=vdd / 2)
+
+
+# =========================================================================
+# CLI runner
+# =========================================================================
 
 
 def main():
@@ -103,26 +164,43 @@ def main():
     parser.add_argument("--vin-stop", type=float, default=0.005)
     parser.add_argument("--vin-step", type=float, default=0.0005)
     parser.add_argument("--vdd", type=float, default=1.2)
+    parser.add_argument("--hw", action="store_true", help="Run on hardware instead of sim")
     args = parser.parse_args()
 
-    import os
-    os.environ["SCAN_VIN_START"] = str(args.vin_start)
-    os.environ["SCAN_VIN_STOP"] = str(args.vin_stop)
-    os.environ["SCAN_VIN_STEP"] = str(args.vin_step)
-    os.environ["SCAN_VDD"] = str(args.vdd)
+    if args.hw:
+        import asyncio
 
-    runner = get_runner("icarus")
-    runner.build(
-        verilog_sources=verilog_sources(),
-        includes=include_dirs(),
-        hdl_toplevel="tb_integration",
-        build_dir=str(REPO / "scratch" / "scan_comp"),
-        defines=["COCOTBEXT_AMS"],
-    )
-    runner.test(
-        hdl_toplevel="tb_integration",
-        test_module="flow.scans.scan_comp",
-    )
+        result = asyncio.run(scan_comp_hw(
+            vin_start=args.vin_start,
+            vin_stop=args.vin_stop,
+            vin_step=args.vin_step,
+            vdd=args.vdd,
+        ))
+        if "threshold" in result:
+            print(f"Threshold: {result['threshold']:.4f}V")
+        else:
+            print("No transition detected")
+    else:
+        import os
+        from cocotb.runner import get_runner
+
+        os.environ["SCAN_VIN_START"] = str(args.vin_start)
+        os.environ["SCAN_VIN_STOP"] = str(args.vin_stop)
+        os.environ["SCAN_VIN_STEP"] = str(args.vin_step)
+        os.environ["SCAN_VDD"] = str(args.vdd)
+
+        runner = get_runner("icarus")
+        runner.build(
+            verilog_sources=verilog_sources(),
+            includes=include_dirs(),
+            hdl_toplevel="tb_integration",
+            build_dir=str(REPO / "scratch" / "scan_comp"),
+            defines=["COCOTBEXT_AMS"],
+        )
+        runner.test(
+            hdl_toplevel="tb_integration",
+            test_module="flow.scans.scan_comp",
+        )
 
 
 if __name__ == "__main__":
