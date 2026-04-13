@@ -50,8 +50,9 @@ hw_drivers:
   # GPIO for auxiliary control signals
   # Controls PCB-level discrete signals
   # Bit mapping:
-  #   Bit 0: RST_B   - Chip reset (active low)
-  #   Bit 1: AMP_EN  - Input amplifier enable (high=enabled, low=bypass/power-down)
+  #   Bit 0: RST_B        - Chip reset (active low)
+  #   Bit 1: AMP_EN       - Input amplifier enable (high=enabled, low=bypass/power-down)
+  #   Bit 2: LOOPBACK_EN  - fast_spi_rx loopback test mode
   - name: gpio
     type: gpio
     interface: intf
@@ -107,7 +108,7 @@ registers:
       - name: SEN_COMP
         position: 5
       # Reserved for future use
-      - name: SPARE_6
+      - name: TEST_DATA
         position: 6
       - name: SPARE_7
         position: 7

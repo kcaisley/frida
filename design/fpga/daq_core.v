@@ -195,11 +195,21 @@ module daq_core #(
 
     assign seq_pattern_out = seq_shadow[seq_pattern_addr];
 
-    // Capture control signals (directly to fast_spi_rx)
-    wire clk_comp_cap;  // seq_out[4] - capture clock
+    // Capture control signals
+    wire clk_comp_cap;  // seq_out[4] - capture clock (normal mode)
     wire sen_comp;      // seq_out[5] - frame enable
+    wire test_data;     // seq_out[6] - test data for loopback
     assign clk_comp_cap = seq_out[4];
     assign sen_comp     = seq_out[5];
+    assign test_data    = seq_out[6];
+
+    // fast_spi_rx input mux (loopback test mode)
+    // Normal:   SCLK = clk_comp_cap (seq_out[4]),  SDI = comp_out
+    // Loopback: SCLK = ~seq_clk (half-period delay), SDI = test_data (seq_out[6])
+    wire fspi_sclk;
+    wire fspi_sdi;
+    assign fspi_sclk = loopback_en ? ~seq_clk : clk_comp_cap;
+    assign fspi_sdi  = loopback_en ? test_data : comp_out;
 
     // ===================================================================
     // 2. SPI Master
@@ -241,9 +251,10 @@ module daq_core #(
     // 3. GPIO
     //
     // 8-bit output register for PCB control signals.
-    // Bit 0: rst_b    - Chip reset (active low)
-    // Bit 1: ampen_b  - Input amplifier enable (active low)
-    // Bits 7:2: reserved
+    // Bit 0: rst_b        - Chip reset (active low)
+    // Bit 1: ampen_b      - Input amplifier enable (active low)
+    // Bit 2: loopback_en  - fast_spi_rx loopback test mode
+    // Bits 7:3: reserved
     // ===================================================================
     wire [7:0] gpio_io;
 
@@ -267,6 +278,14 @@ module daq_core #(
 
     assign rst_b   = gpio_io[0];
     assign ampen_b = ~gpio_io[1];  // Invert: gpio_io[1]=1 enables amp (ampen_b=0)
+
+    // Loopback test mode (GPIO bit 2)
+    // When enabled, fast_spi_rx captures seq_out[6] (TEST_DATA) instead of
+    // comp_out, clocked by the inverted seq_clk (half-period delay ensures
+    // data is stable at capture edge). This verifies the full chain:
+    // seq_gen memory → seq_out → capture clock/framing → fast_spi_rx → FIFO.
+    wire loopback_en;
+    assign loopback_en = gpio_io[2];
 
     // ===================================================================
     // 4. Pulse Generator
@@ -328,8 +347,8 @@ module daq_core #(
         .BUS_RD(bus_rd),
         .BUS_WR(bus_wr),
 
-        .SCLK(clk_comp_cap),    // Capture clock from sequencer track 4
-        .SDI(comp_out),         // Comparator output from chip
+        .SCLK(fspi_sclk),       // Normal: clk_comp_cap; Loopback: ~seq_clk
+        .SDI(fspi_sdi),         // Normal: comp_out;     Loopback: test_data (seq_out[6])
         .SEN(sen_comp),         // Frame enable from sequencer track 5
 
         .FIFO_READ(fifo_read_next),
