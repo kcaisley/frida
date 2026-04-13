@@ -149,9 +149,13 @@ module daq_core #(
     // seq_out[3] = clk_logic      - SAR logic clock
     // seq_out[4] = clk_comp_cap   - Capture clock for fast_spi_rx SCLK
     // seq_out[5] = sen_comp       - Frame enable for fast_spi_rx SEN
-    // seq_out[7:6] = spare
+    // seq_out[6] = test_data      - Loopback test data for fast_spi_rx
+    // seq_out[7] = spare
     // ===================================================================
     wire [7:0] seq_out;
+    /* verilator lint_off UNUSEDSIGNAL */
+    wire _unused_seq = seq_out[7];  // SPARE_7, reserved for future use
+    /* verilator lint_on UNUSEDSIGNAL */
 
     wire pulse_out;  // from pulse_gen, triggers sequencer start
 
