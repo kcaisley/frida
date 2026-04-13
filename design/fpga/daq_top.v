@@ -437,8 +437,12 @@ daq_core i_frida_core (
 // ===================================================================
 // Level shifter reference voltages
 // ===================================================================
-assign VSS_LS = 1'b0;  // Low reference
-assign VDD_LS = 1'b1;  // High reference
+(* KEEP = "TRUE" *) wire vss_ls_int;
+(* KEEP = "TRUE" *) wire vdd_ls_int;
+assign vss_ls_int = 1'b0;
+assign vdd_ls_int = 1'b1;
+assign VSS_LS = vss_ls_int;  // Low reference
+assign VDD_LS = vdd_ls_int;  // High reference
 
 
 // ===================================================================
