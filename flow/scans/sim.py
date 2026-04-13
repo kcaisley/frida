@@ -12,7 +12,6 @@ import cocotb
 
 from cocotbext.ams import AnalogBlock, DigitalPin, MixedSignalBridge
 
-from flow.scans.peripherals import FunctionGenerator, PowerSupply
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ DESIGN_SPICE = REPO / "design" / "spice"
 # Simulation peripherals
 # -------------------------------------------------------------------------
 
-class SimAWG(FunctionGenerator):
+class SimAWG:
     """Simulation function generator — drives vin_p/vin_n via the bridge."""
 
     def __init__(self, bridge: MixedSignalBridge, block_name: str = "i_chip.adc_inst"):
@@ -48,7 +47,7 @@ class SimAWG(FunctionGenerator):
         )
 
 
-class SimPSU(PowerSupply):
+class SimPSU:
     """Simulation power supply — VDD is fixed in the SPICE netlist."""
 
     def __init__(self, nominal_vdd: float = 1.2):
