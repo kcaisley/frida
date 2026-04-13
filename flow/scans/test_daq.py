@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import cocotb
 import numpy as np
 import pytest
+from cocotb.clock import Clock
 
 from flow.scans.chip import (
     SimBackend,
@@ -138,9 +140,6 @@ async def check_fspi_enable(backend):
 # =========================================================================
 # cocotb simulation tests (discovered by the pytest plugin inside Icarus)
 # =========================================================================
-
-import cocotb
-from cocotb.clock import Clock
 
 
 @cocotb.test()

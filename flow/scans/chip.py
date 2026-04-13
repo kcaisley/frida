@@ -21,9 +21,7 @@ import yaml
 from bitarray import bitarray
 
 from flow.scans.daq import (
-    FAST_SPI_RX_BASE,
     GPIO_AMP_EN_BIT,
-    GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
     fspi_get_lost_count,
     fspi_read_fifo,
@@ -530,9 +528,7 @@ class Frida:
         for i in range(n_total):
             idx = i * 2
             if idx + 1 < len(words):
-                code = (words[idx] & 0xFFFF) | (
-                    (words[idx + 1] & 0x1) << 16
-                )
+                code = (words[idx] & 0xFFFF) | ((words[idx + 1] & 0x1) << 16)
             elif idx < len(words):
                 code = words[idx] & 0xFFFF
             else:

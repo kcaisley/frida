@@ -1,0 +1,18 @@
+repos:
+  # Python linting + auto-fix
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Verilog lint via verilator (local hook, uses system verilator)
+  - repo: local
+    hooks:
+      - id: verilator-lint
+        name: verilator lint
+        entry: verilator --lint-only --Wall -Wno-DECLFILENAME
+        language: system
+        files: '\.v$'
+        exclude: '(libs/|SiTCP/|sim\.v$|tb_)'
