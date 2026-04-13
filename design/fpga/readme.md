@@ -30,6 +30,20 @@ uv run python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs
 sudo /eda/xilinx/2025.2/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers/install_drivers
 ```
 
+## Opening the design in Vivado GUI
+
+After compiling, the project file is at `build/bdaq53_kx1.xpr`.
+Open it directly to inspect the implemented design, view schematics, run
+timing analysis, or use the hardware manager:
+
+```bash
+source /eda/local/scripts/vivado_2025.2.sh
+cd design/fpga
+vivado build/bdaq53_kx1.xpr
+```
+
+This opens the full project with synthesis and implementation results intact.
+
 ## Files
 
 - `daq_top.v` — top-level: PLL, SiTCP Ethernet, RGMII, LVDS I/O, core

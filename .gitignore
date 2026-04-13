@@ -28,6 +28,11 @@ xrun.history
 
 # LaTeX
 docs/tex/
+docs/*.pdf
+
+# Mermaid
+docs/gantt.png
+
 *.log
 *.aux
 *.synctex.gz
@@ -58,7 +63,7 @@ _autosave-*
 # Vivado / FPGA
 design/fpga/SiTCP/
 design/fpga/bit/
-design/fpga/designs/
+design/fpga/build/
 design/fpga/reports/
 design/fpga/.Xil/
 design/fpga/.ngc2edfcache/

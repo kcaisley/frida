@@ -94,7 +94,7 @@ def _clean_build_artifacts():
     for pattern in patterns:
         for f in glob.glob(str(_FPGA_DIR / pattern)):
             Path(f).unlink(missing_ok=True)
-    for d in ['.Xil', '.ngc2edfcache', 'designs', 'bit', 'reports']:
+    for d in ['.Xil', '.ngc2edfcache', 'build', 'bit', 'reports']:
         path = _FPGA_DIR / d
         if path.is_dir():
             import shutil

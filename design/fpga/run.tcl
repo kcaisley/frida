@@ -40,7 +40,7 @@ proc run_bit {part xdc_file size {suffix ""}} {
     if {$suffix != ""} {set suffix \_$suffix}
     set identifier $board_name\_$fpga_name$suffix
 
-    create_project -force -part $part $identifier designs
+    create_project -force -part $part $identifier build
 
     read_verilog $fpga_dir/daq_top.v
     read_verilog $fpga_dir/daq_core.v
