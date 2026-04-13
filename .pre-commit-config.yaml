@@ -13,7 +13,7 @@ repos:
         language: system
         types: [python]
 
-  # Verilog lint (daq_core only — daq_top needs Xilinx primitives)
+  # Verilog lint — FPGA firmware only (ASIC RTL needs PDK cells)
   - repo: local
     hooks:
       - id: verilator-lint
