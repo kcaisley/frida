@@ -13,11 +13,11 @@ repos:
         language: system
         types: [python]
 
-  # Verilog lint — FPGA firmware only (ASIC RTL needs PDK cells)
+  # Verilog lint — FPGA firmware (separate hooks to isolate basil warnings)
   - repo: local
     hooks:
-      - id: verilator-lint
-        name: verilator lint
+      - id: verilator-lint-daq-core
+        name: verilator lint (daq_core)
         entry: >-
           verilator --lint-only -Wall
           -Wno-DECLFILENAME -Wno-MULTITOP -Wno-TIMESCALEMOD
@@ -30,3 +30,16 @@ repos:
           libs/basil/basil/firmware/modules/utils/RAMB16_S1_S9_sim.v
         language: system
         files: '^design/fpga/daq_core\.v$'
+      - id: verilator-lint-tb
+        name: verilator lint (tb_daq_core)
+        entry: >-
+          verilator --lint-only -Wall
+          -Wno-DECLFILENAME -Wno-MULTITOP -Wno-TIMESCALEMOD -Wno-MODDUP
+          -Wno-PINCONNECTEMPTY -Wno-GENUNNAMED -Wno-WIDTHCONCAT
+          -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-REDEFMACRO
+          -Wno-UNUSEDSIGNAL -Wno-UNDRIVEN -Wno-UNUSEDPARAM
+          -Ilibs/basil/basil/firmware/modules
+          -Ilibs/basil/basil/firmware/modules/utils
+          -Idesign/fpga
+        language: system
+        files: '^design/fpga/tb_daq_core\.v$'

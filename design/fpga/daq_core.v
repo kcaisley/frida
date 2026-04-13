@@ -207,9 +207,10 @@ module daq_core #(
     assign sen_comp     = seq_out[5];
     assign test_data    = seq_out[6];
 
-    // fast_spi_rx input mux (loopback test mode)
+    // fast_spi_rx input mux (loopback test mode, controlled by GPIO bit 2)
     // Normal:   SCLK = clk_comp_cap (seq_out[4]),  SDI = comp_out
     // Loopback: SCLK = ~seq_clk (half-period delay), SDI = test_data (seq_out[6])
+    wire loopback_en;  // assigned in GPIO section below
     wire fspi_sclk;
     wire fspi_sdi;
     assign fspi_sclk = loopback_en ? ~seq_clk : clk_comp_cap;
@@ -284,11 +285,6 @@ module daq_core #(
     assign ampen_b = ~gpio_io[1];  // Invert: gpio_io[1]=1 enables amp (ampen_b=0)
 
     // Loopback test mode (GPIO bit 2)
-    // When enabled, fast_spi_rx captures seq_out[6] (TEST_DATA) instead of
-    // comp_out, clocked by the inverted seq_clk (half-period delay ensures
-    // data is stable at capture edge). This verifies the full chain:
-    // seq_gen memory → seq_out → capture clock/framing → fast_spi_rx → FIFO.
-    wire loopback_en;
     assign loopback_en = gpio_io[2];
 
     // ===================================================================

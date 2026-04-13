@@ -196,6 +196,11 @@ class SimBackend:
 
     async def init(self) -> None:
         await self._bus.init()
+        # Initialize FIFO_READ if present (tb_daq_core exposes it)
+        try:
+            self._dut.FIFO_READ.value = 0
+        except AttributeError:
+            pass  # Not all testbenches have FIFO_READ
 
     async def write(self, addr: int, data: Sequence[int]) -> None:
         await self._bus.write(addr, list(data))
@@ -214,13 +219,37 @@ class SimBackend:
         raise TimeoutError(f"Timeout waiting for READY at 0x{addr:05x}")
 
     async def read_fifo_data(self, n_bytes: int) -> bytes:
-        from flow.scans.daq import FAST_SPI_RX_BASE, _FSPI_MEM
+        """Read FIFO data directly from testbench signals.
 
-        data = await self._bus.read(FAST_SPI_RX_BASE + _FSPI_MEM, n_bytes)
-        return bytes(data)
+        The testbench exposes FIFO_DATA, FIFO_EMPTY, and FIFO_READ as
+        top-level ports. We read 32-bit words by toggling FIFO_READ.
+        """
+        from cocotb.triggers import RisingEdge
+
+        result = bytearray()
+        n_words = (n_bytes + 3) // 4
+
+        for _ in range(n_words):
+            # Check if FIFO has data
+            try:
+                empty = int(self._dut.FIFO_EMPTY.value)
+            except ValueError:
+                break  # FIFO_EMPTY is X/Z — no valid data
+            if empty:
+                break
+            # Read the current word
+            word = self._dut.FIFO_DATA.value.to_unsigned()
+            result.extend(word.to_bytes(4, "little"))
+            # Pulse FIFO_READ to advance to next word
+            self._dut.FIFO_READ.value = 1
+            await RisingEdge(self._bus.clock)
+            self._dut.FIFO_READ.value = 0
+            await RisingEdge(self._bus.clock)
+
+        return bytes(result[:n_bytes])
 
     async def reset_fifo(self) -> None:
-        pass  # No separate FIFO module in simulation
+        pass  # No bram_fifo to reset; fast_spi_rx reset clears the pipeline
 
     async def short_delay(self) -> None:
         from cocotb.triggers import RisingEdge

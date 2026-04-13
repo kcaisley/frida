@@ -27,15 +27,16 @@ from flow.scans.chip import (
     pack_seq_tracks,
 )
 from flow.scans.daq import (
+    SPI_BASE,
     GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
+    _SPI_MEM,
     fspi_read_fifo,
     fspi_reset,
     fspi_set_en,
     gpio_write,
     seq_load,
     seq_trigger,
-    spi_read,
     spi_write,
 )
 
@@ -51,12 +52,15 @@ DESIGN_FPGA = REPO / "design" / "fpga"
 async def check_spi_loopback(backend):
     """Write a known pattern through SPI, read back, verify match.
 
-    tb_daq_core.v wires spi_sdo <- spi_sdi (MOSI loopback to MISO),
-    so what we shift out should come back on the next read.
+    tb_daq_core.v wires spi_sdo <- spi_sdi (MOSI loopback to MISO).
+    After the transfer, the SPI memory contains the looped-back data
+    (received on SDO while shifting out on SDI). We read the SPI memory
+    directly — a separate spi_read() would overwrite it with zeros.
     """
     pattern = bytes([0xAA, 0x55] * 11 + [0xAA])  # 23 bytes >= 180 bits
     await spi_write(backend, pattern, 180)
-    rx = await spi_read(backend, 180)
+    # Read looped-back data directly from SPI memory
+    rx = bytes(await backend.read(SPI_BASE + _SPI_MEM, 23))
     assert rx[:23] == pattern[:23], f"SPI loopback mismatch: {rx[:23]} != {pattern[:23]}"
 
 
@@ -108,19 +112,34 @@ async def check_sequencer_loopback(backend):
     }
     mem_data = pack_seq_tracks(seq)
 
+    # Enable loopback FIRST so SCLK = ~seq_clk is toggling,
+    # then reset fast_spi_rx — CDC FIFO needs SCLK edges during reset
     await gpio_write(backend, 1 << GPIO_LOOPBACK_BIT)
+    await backend.short_delay()
     await fspi_reset(backend)
+    # Wait for RST_LONG to propagate (128 BUS_CLK cycles)
+    for _ in range(40):
+        await backend.short_delay()
     await fspi_set_en(backend, True)
-    await backend.reset_fifo()
+    for _ in range(5):
+        await backend.short_delay()
 
     await seq_load(backend, mem_data, n_steps)
     await seq_trigger(backend, n_steps, repeat=1)
 
-    fifo_data = await fspi_read_fifo(backend, 8)
+    # Wait for data to propagate through fast_spi_rx CDC FIFO
+    for _ in range(100):
+        await backend.short_delay()
+
     await gpio_write(backend, 0x00)
 
+    fifo_data = await fspi_read_fifo(backend, 8)
+
+    assert len(fifo_data) >= 4, (
+        f"FIFO returned insufficient data ({len(fifo_data)} bytes). "
+        "fast_spi_rx may not have captured data in loopback mode."
+    )
     words = np.frombuffer(fifo_data, dtype=np.uint32)
-    assert len(words) >= 1, "No data captured from fast_spi_rx"
 
     identifier = (words[0] >> 28) & 0xF
     assert identifier == 0x1, f"Wrong IDENTIFIER: {identifier:#x}, expected 0x1"
@@ -205,6 +224,7 @@ def daq_core(hdl):
         DESIGN_FPGA / "daq_core.v",
     ]
     hdl.includes = [DESIGN_FPGA, basil_fw, basil_fw / "utils"]
+    hdl.test_module = "flow.scans.test_daq"
     hdl.always = True
     hdl.build()
     return hdl
@@ -236,6 +256,7 @@ def hw_backend():
 
 @pytest.mark.hw
 def test_spi_loopback_hw(hw_backend):
+    """Requires FRIDA chip connected (SPI loops through chip shift register)."""
     asyncio.run(check_spi_loopback(hw_backend))
 
 
