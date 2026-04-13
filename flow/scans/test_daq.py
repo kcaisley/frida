@@ -37,7 +37,7 @@ from flow.scans.daq import (
     spi_write,
 )
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 DESIGN_FPGA = REPO / "design" / "fpga"
 
 
@@ -229,7 +229,7 @@ def hw_backend():
 
     from flow.scans.chip import HardwareBackend
 
-    yaml_path = Path(__file__).resolve().parents[1] / "flow" / "scans" / "map_fpga.yaml"
+    yaml_path = Path(__file__).resolve().parent / "map_fpga.yaml"
     daq = Dut(str(yaml_path))
     daq.init()
     yield HardwareBackend(daq)

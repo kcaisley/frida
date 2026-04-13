@@ -83,7 +83,7 @@ cocotb = "cocotb_tools.pytest.plugin"
 
 [tool.pytest.ini_options]
 addopts = ["-k", "not test_plot"]
-testpaths = ["flow", "pdk", "tests"]
+testpaths = ["flow", "pdk"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
 markers = [
     "hw: requires physical FPGA hardware (skip with -m 'not hw')",
