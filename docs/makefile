@@ -5,15 +5,15 @@ LATEXMK ?= $(if $(wildcard $(LATEXMK_PATH)),$(LATEXMK_PATH),latexmk)
 OUTDIR := tex
 SRCS := $(wildcard *.tex)
 
-.PHONY: help clean reset $(SRCS)
+.PHONY: help clean $(SRCS)
 
 .DEFAULT_GOAL := help
 
 help:
 	@echo "Usage:"
-	@echo "  make <file.tex>       Build PDF"
-	@echo "  make clean <file.tex> Clean aux files for that source"
-	@echo "  make reset            Remove all aux files and PDFs"
+	@echo "  make <file.tex>   Build PDF from LaTeX source"
+	@echo "  make <name.png>   Build PNG from Mermaid chart (<name.md>)"
+	@echo "  make clean        Remove all build artifacts"
 	@echo ""
 	@echo "Available TeX files:"
 	@ls -1 *.tex 2>/dev/null | sed 's/^/  - /'
@@ -24,15 +24,14 @@ $(SRCS):
 	cp -f $(OUTDIR)/$(@:.tex=.pdf) $(@:.tex=.pdf)
 	@echo "Created $(@:.tex=.pdf)"
 
-clean:
-	@if [ -z "$(filter %.tex,$(MAKECMDGOALS))" ]; then \
-		echo "Usage: make clean <file.tex>"; \
-		exit 1; \
-	fi
-	$(foreach src,$(filter %.tex,$(MAKECMDGOALS)),\
-		$(LATEXMK) -outdir=$(OUTDIR) -c $(src);)
+%.png: %.md FORCE
+	echo '{"args":["--no-sandbox"]}' | mmdc -i $< -o $@ -p /dev/stdin
+	mv -f $(*F)-1.png $@
+	@echo "Created $@"
 
-reset:
+FORCE:
+
+clean:
 	rm -rf $(OUTDIR)
 	rm -f *.pdf
-	@echo "Removed $(OUTDIR)/ and all PDFs"
+	@echo "Removed build artifacts"
