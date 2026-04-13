@@ -137,8 +137,7 @@ def _run_convert(args):
             out = cdl_to_sp(cdl, args.outdir / cdl.with_suffix(".sp").name)
         elif dst == "sp_clean":
             cdl = oa_to_cdl(args.oalib, args.oacell, args.outdir, cdslib=args.cdslib)
-            out = clean_cdl(cdl, args.outdir / cdl.with_suffix(".sp").name,
-                            verilog=args.verilog, module=args.module)
+            out = clean_cdl(cdl, args.outdir / cdl.with_suffix(".sp").name, verilog=args.verilog, module=args.module)
         else:
             raise SystemExit(f"Unsupported conversion: oa → {dst}")
 
@@ -149,8 +148,7 @@ def _run_convert(args):
         if dst == "sp":
             out = cdl_to_sp(args.file, args.outdir / f"{stem}.sp")
         elif dst == "sp_clean":
-            out = clean_cdl(args.file, args.outdir / f"{stem}.sp",
-                            verilog=args.verilog, module=args.module)
+            out = clean_cdl(args.file, args.outdir / f"{stem}.sp", verilog=args.verilog, module=args.module)
         else:
             raise SystemExit(f"Unsupported conversion: cdl → {dst}")
 

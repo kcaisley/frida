@@ -16,9 +16,7 @@ def _resolve_tech_name(tech_name: str | None) -> str:
     else:
         pdk_module = h.pdk.default()
         if pdk_module is None:
-            raise RuntimeError(
-                "No active PDK is set. Call `h.pdk.set_default(...)` first."
-            )
+            raise RuntimeError("No active PDK is set. Call `h.pdk.set_default(...)` first.")
         module_name = getattr(pdk_module, "__name__", "")
         parts = module_name.split(".")
         name = ""

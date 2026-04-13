@@ -121,8 +121,7 @@ def Adc(p: AdcParams) -> h.Module:
     # Validate n_cycles matches static digital block
     if p.n_cycles != 16:
         raise ValueError(
-            f"ADC currently requires n_cycles=16 (got {p.n_cycles}). "
-            "Parametric digital block not yet implemented."
+            f"ADC currently requires n_cycles=16 (got {p.n_cycles}). Parametric digital block not yet implemented."
         )
 
     # Get CDAC bit width
@@ -130,10 +129,7 @@ def Adc(p: AdcParams) -> h.Module:
     # SAR controller to handle variable bit widths (see SarDigital in digital.py)
     n_bits = len(get_cdac_weights(p.cdac))
     if n_bits != 16:
-        raise ValueError(
-            f"ADC currently requires 16-bit CDAC (got {n_bits}). "
-            "CDAC params must give 16 physical bits."
-        )
+        raise ValueError(f"ADC currently requires 16-bit CDAC (got {n_bits}). CDAC params must give 16 physical bits.")
 
     @h.module
     class Adc:

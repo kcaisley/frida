@@ -8,12 +8,14 @@ from hdl21.pdk import Corner
 
 # ==== Helpers ====
 
+
 def _install_class(tech: str):
     """Import and return the Install class for a given PDK."""
     return import_module(f"pdk.{tech}.pdk_logic").Install
 
 
 # ==== Supply-Rail Metadata ====
+
 
 def test_supply_rails_have_vdd() -> None:
     """Each supported PDK exposes at least one VDD rail entry."""
@@ -45,6 +47,7 @@ def test_supplyvals_resolves_via_install() -> None:
 
 
 # ==== Walker Scaling of Unitless MOS Dimensions ====
+
 
 @pytest.mark.parametrize(
     "tech_name, expected_w_m, expected_l_m",

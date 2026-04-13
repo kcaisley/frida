@@ -4,20 +4,11 @@ from typing import List
 
 # Hdl21 Imports
 import hdl21 as h
-from hdl21.prefix import MICRO, MILLI, µ
 from hdl21.primitives import (
     Bipolar,
-    BipolarParams,
     Diode,
-    DiodeParams,
-    MosFamily,
-    MosParams,
-    MosType,
-    MosVth,
     PhysicalCapacitor,
-    PhysicalCapacitorParams,
     PhysicalResistor,
-    PhysicalResistorParams,
     ThreeTerminalCapacitor,
     ThreeTerminalResistor,
 )

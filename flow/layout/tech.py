@@ -9,6 +9,7 @@ import klayout.db as kdb
 
 # ==== Hierarchical RuleDeck API ====
 
+
 class RelativeRules:
     """Per-relative-layer rule storage.  Supports ``R.M1.spacing.M2`` syntax.
 
@@ -75,6 +76,7 @@ class NewRuleDeck:
 
 # ==== LayerInfoData ====
 
+
 @dataclass(frozen=True)
 class LayerInfoData:
     """Tech layer-purpose descriptor used for remap and tech serialization."""
@@ -134,6 +136,7 @@ def load_layer_map(tech_name: str) -> LayerInfoMap:
 
 # ==== Layer Remapping ====
 
+
 def remap_layers(
     layout: kdb.Layout,
     mapping: LayerInfoMap,
@@ -164,6 +167,7 @@ def remap_layers(
 
 
 # ==== Inline Tests ====
+
 
 def test_rule_deck() -> None:
     """Verify hierarchical RuleDeck read/write."""

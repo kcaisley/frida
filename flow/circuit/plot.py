@@ -270,9 +270,7 @@ def plot_transfer_function(
     v_sorted = v_in[sort_idx]
     codes_sorted = codes[sort_idx]
 
-    ax.plot(
-        v_sorted * 1000, codes_sorted, ".", markersize=1, alpha=0.5, label="Measured"
-    )
+    ax.plot(v_sorted * 1000, codes_sorted, ".", markersize=1, alpha=0.5, label="Measured")
 
     # Ideal line
     v_min, v_max = v_sorted.min(), v_sorted.max()

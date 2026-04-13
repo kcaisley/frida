@@ -51,7 +51,9 @@ def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
              is_routed=True if line starts with "+ ROUTED"
     """
     # Try matching "+ ROUTED M1" pattern first
-    routed_pattern = r"\+\s+ROUTED\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)"
+    routed_pattern = (
+        r"\+\s+ROUTED\s+M1\s+(\d+)\s+\+\s+SHAPE\s+FOLLOWPIN\s+\(\s*(\d+)\s+(\d+)\s*\)\s+\(\s*(\d+)\s+(\d+)\s*\)"
+    )
     match = re.search(routed_pattern, line)
     if match:
         width = int(match.group(1))
@@ -194,15 +196,11 @@ def process_def_file(input_path: str) -> None:
                     stripes_created += len(segments)
 
                     y_um = y / DBU_PER_UM
-                    print(
-                        f"  Split stripe at Y={y} ({y_um:.1f}µm): {len(segments)} segments"
-                    )
+                    print(f"  Split stripe at Y={y} ({y_um:.1f}µm): {len(segments)} segments")
                     for j, (xs, xe) in enumerate(segments):
                         xs_um = xs / DBU_PER_UM
                         xe_um = xe / DBU_PER_UM
-                        print(
-                            f"    Segment {j + 1}: X={xs} to {xe} ({xs_um:.1f}µm to {xe_um:.1f}µm)"
-                        )
+                        print(f"    Segment {j + 1}: X={xs} to {xe} ({xs_um:.1f}µm to {xe_um:.1f}µm)")
 
                 continue
 
@@ -244,9 +242,7 @@ def main():
     for i, (x_min, x_max) in enumerate(BLOCKAGE_X_RANGES, 1):
         x_min_um = x_min / DBU_PER_UM
         x_max_um = x_max / DBU_PER_UM
-        print(
-            f"  Blockage {i}: X={x_min} to {x_max} ({x_min_um:.1f}µm to {x_max_um:.1f}µm)"
-        )
+        print(f"  Blockage {i}: X={x_min} to {x_max} ({x_min_um:.1f}µm to {x_max_um:.1f}µm)")
 
     print(
         f"\nBlockage Y range: {BLOCKAGE_Y_MIN} to {BLOCKAGE_Y_MAX} ({BLOCKAGE_Y_MIN / DBU_PER_UM:.1f}µm to {BLOCKAGE_Y_MAX / DBU_PER_UM:.1f}µm)"

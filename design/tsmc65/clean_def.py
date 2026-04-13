@@ -86,9 +86,7 @@ def find_target_instances(
                     cell_types[instance_name] = cell_type
 
                     # Extract placement coordinates
-                    placement_match = re.search(
-                        r"PLACED\s+\(\s*(\d+)\s+(\d+)\s*\)", line
-                    )
+                    placement_match = re.search(r"PLACED\s+\(\s*(\d+)\s+(\d+)\s*\)", line)
                     if placement_match:
                         x = int(placement_match.group(1))
                         y = int(placement_match.group(2))
@@ -97,9 +95,7 @@ def find_target_instances(
     return cell_types, cell_locations
 
 
-def find_nets_with_target_outputs(
-    lines: List[str], target_instances: Dict[str, str]
-) -> Set[str]:
+def find_nets_with_target_outputs(lines: List[str], target_instances: Dict[str, str]) -> Set[str]:
     """
     Find all nets connected to the Z (output) pins of target instances.
 
@@ -148,9 +144,7 @@ def find_nets_with_target_outputs(
     return target_nets
 
 
-def is_via_near_cell(
-    via_x: int, via_y: int, cell_x: int, cell_y: int, max_distance_um: float = 3.0
-) -> bool:
+def is_via_near_cell(via_x: int, via_y: int, cell_x: int, cell_y: int, max_distance_um: float = 3.0) -> bool:
     """
     Check if a via is within max_distance of a cell's origin.
 
@@ -176,9 +170,7 @@ def is_via_near_cell(
     return distance <= max_distance_um
 
 
-def determine_via_orientation(
-    lines: List[str], line_idx: int, via_x: int, via_y: int
-) -> str:
+def determine_via_orientation(lines: List[str], line_idx: int, via_x: int, via_y: int) -> str:
     """
     Determine the orientation of the via based on surrounding metal routing.
 
@@ -324,9 +316,7 @@ def replace_vias_in_nets(
             if in_target_net and "VIA12_1cut_V" in line:
                 # Extract via coordinates
                 # Pattern: NEW M1 ( x y ) VIA12_1cut_V
-                coord_match = re.search(
-                    r"M1\s+\(\s*(\d+)\s+(\d+)\s*\)\s+VIA12_1cut_V", line
-                )
+                coord_match = re.search(r"M1\s+\(\s*(\d+)\s+(\d+)\s*\)\s+VIA12_1cut_V", line)
                 if coord_match:
                     via_x = int(coord_match.group(1))
                     via_y = int(coord_match.group(2))
@@ -354,11 +344,7 @@ def replace_vias_in_nets(
 
                     # Print replacement info
                     cell_name = current_net_source if current_net_source else "unknown"
-                    cell_type = (
-                        target_instances.get(current_net_source, "unknown")
-                        if current_net_source
-                        else "unknown"
-                    )
+                    cell_type = target_instances.get(current_net_source, "unknown") if current_net_source else "unknown"
                     line_num = idx + 1  # Convert to 1-based line numbering
                     print(
                         f"[INFO] Line {line_num}: Replacing {old_via} on terminal Z of cell {cell_name} ({cell_type}) at ({via_x}, {via_y}) DBU ({via_x_um:.3f}, {via_y_um:.3f}) um with {new_via}"
@@ -426,9 +412,7 @@ def check_vias_in_nets(
 
             # If we're in a target net, look for VIA12_1cut_V
             if in_target_net and "VIA12_1cut_V" in line:
-                coord_match = re.search(
-                    r"M1\s+\(\s*(\d+)\s+(\d+)\s*\)\s+VIA12_1cut_V", line
-                )
+                coord_match = re.search(r"M1\s+\(\s*(\d+)\s+(\d+)\s*\)\s+VIA12_1cut_V", line)
                 if coord_match:
                     via_x = int(coord_match.group(1))
                     via_y = int(coord_match.group(2))
@@ -445,11 +429,7 @@ def check_vias_in_nets(
                     via_y_um = via_y / 2000.0
 
                     cell_name = current_net_source if current_net_source else "unknown"
-                    cell_type = (
-                        target_instances.get(current_net_source, "unknown")
-                        if current_net_source
-                        else "unknown"
-                    )
+                    cell_type = target_instances.get(current_net_source, "unknown") if current_net_source else "unknown"
                     line_num = idx + 1
                     print(
                         f"[WARNING] Line {line_num}: Found insufficient VIA12_1cut_V connected to terminal Z of cell {cell_name} ({cell_type}) at ({via_x}, {via_y}) DBU ({via_x_um:.3f}, {via_y_um:.3f}) um"
@@ -478,9 +458,7 @@ def main():
         output_file = sys.argv[3]
     else:
         print("Usage:")
-        print(
-            "  Fix mode:   python3 clean_def.py <input.def> <backup.def> <output.def>"
-        )
+        print("  Fix mode:   python3 clean_def.py <input.def> <backup.def> <output.def>")
         print("  Check mode: python3 clean_def.py -check <input.def>")
         print("")
         print("Examples:")
@@ -514,9 +492,7 @@ def main():
         print(f"  Found {len(target_nets)} nets connected to target cell outputs")
 
         print("\nChecking for insufficient vias...")
-        issues = check_vias_in_nets(
-            lines, target_nets, target_instances, cell_locations
-        )
+        issues = check_vias_in_nets(lines, target_nets, target_instances, cell_locations)
 
         print("\nCheck complete!")
         print(f"  Total issues found: {issues}")
@@ -546,9 +522,7 @@ def main():
         print(f"  Found {len(target_nets)} nets connected to target cell outputs")
 
         print("\nReplacing VIA12_1cut_V with VIA12_2cut_* in target nets...")
-        modified_lines, replacements = replace_vias_in_nets(
-            lines, target_nets, target_instances, cell_locations
-        )
+        modified_lines, replacements = replace_vias_in_nets(lines, target_nets, target_instances, cell_locations)
         print(f"\n  Total replaced: {replacements} vias")
 
         print(f"\nWriting cleaned DEF file: {output_file}")

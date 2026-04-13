@@ -60,8 +60,10 @@ def gds_to_png_with_pdk_style(
             bbox = top.bbox_per_layer(layer_idx)
             dbu = layout.dbu
             dbox = db.DBox(
-                bbox.left * dbu, bbox.bottom * dbu,
-                bbox.right * dbu, bbox.top * dbu,
+                bbox.left * dbu,
+                bbox.bottom * dbu,
+                bbox.right * dbu,
+                bbox.top * dbu,
             )
             view.zoom_box(dbox)
         else:

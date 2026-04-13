@@ -416,7 +416,9 @@ class IhpWalker(h.HierarchyWalker):
             # Check ESD devices
             mod = esd_devices.get(params.model, None)
         if mod is None:
-            msg = f"No Diode module for model {params.model}. Available: {list(diodes.keys()) + list(esd_devices.keys())}"
+            msg = (
+                f"No Diode module for model {params.model}. Available: {list(diodes.keys()) + list(esd_devices.keys())}"
+            )
             raise RuntimeError(msg)
         return mod
 

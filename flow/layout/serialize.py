@@ -59,9 +59,7 @@ def write_technology_proto(
                 name=info.name,
                 purpose=vtech.LayerPurpose(
                     description=info.purpose_description,
-                    type=purpose_map.get(
-                        info.purpose_type.upper(), vtech.LayerPurposeType.UNKNOWN
-                    ),
+                    type=purpose_map.get(info.purpose_type.upper(), vtech.LayerPurposeType.UNKNOWN),
                 ),
                 index=info.index,
                 sub_index=info.sub_index,
@@ -109,9 +107,7 @@ def layout_to_vlsir_raw(
 
             info = layout.get_info(layer_idx)
             layer_shapes = vlsir.raw_pb2.LayerShapes(
-                layer=vlsir.raw_pb2.Layer(
-                    number=int(info.layer), purpose=int(info.datatype)
-                )
+                layer=vlsir.raw_pb2.Layer(number=int(info.layer), purpose=int(info.datatype))
             )
 
             for shape in shapes.each():
@@ -131,20 +127,14 @@ def layout_to_vlsir_raw(
                     poly = shape.polygon
                     layer_shapes.polygons.append(
                         vlsir.raw_pb2.Polygon(
-                            vertices=[
-                                vlsir.raw_pb2.Point(x=int(p.x), y=int(p.y))
-                                for p in poly.each_point_hull()
-                            ]
+                            vertices=[vlsir.raw_pb2.Point(x=int(p.x), y=int(p.y)) for p in poly.each_point_hull()]
                         )
                     )
                 elif shape.is_path():
                     path = shape.path
                     layer_shapes.paths.append(
                         vlsir.raw_pb2.Path(
-                            points=[
-                                vlsir.raw_pb2.Point(x=int(p.x), y=int(p.y))
-                                for p in path.each_point()
-                            ],
+                            points=[vlsir.raw_pb2.Point(x=int(p.x), y=int(p.y)) for p in path.each_point()],
                             width=int(path.width),
                         )
                     )

@@ -30,6 +30,7 @@ from .measure import (
 
 # ==== Test CDAC Weights ====
 
+
 def test_cdac_default_weights():
     """Verify default CdacParams produces expected weights."""
     from ..cdac import CdacParams, get_cdac_weights
@@ -43,6 +44,7 @@ def test_cdac_default_weights():
 
 
 # ==== Test Waveform Utilities ====
+
 
 class TestFindCrossings:
     """Tests for find_crossings function."""
@@ -91,6 +93,7 @@ class TestFindCrossings:
 
 # ==== Test Analog Preprocessing ====
 
+
 class TestDiffToSingle:
     """Tests for diff_to_single function."""
 
@@ -134,6 +137,7 @@ class TestQuantizeToBits:
 
 
 # ==== Test Digital Processing ====
+
 
 class TestRedundantBitsToCode:
     """Tests for redundant_bits_to_code function."""
@@ -191,6 +195,7 @@ class TestCodeToVoltage:
 
 
 # ==== Test Core Measurements ====
+
 
 class TestMeasureSettling:
     """Tests for measure_settling function."""
@@ -319,6 +324,7 @@ class TestMeasureChargeInjection:
 
 
 # ==== Test Static Linearity Analysis ====
+
 
 class TestHistogramInlDnl:
     """Tests for histogram_inl_dnl function."""
@@ -451,6 +457,7 @@ class TestComputeStaticError:
 
 # ==== Test Dynamic Performance Analysis ====
 
+
 class TestComputeEnobFft:
     """Tests for compute_enob_fft function."""
 
@@ -481,9 +488,7 @@ class TestComputeEnobFft:
         t = np.arange(n_samples) / fs
         amplitude = 500
         noise = np.random.randn(n_samples) * 50  # Large noise
-        codes = np.round(amplitude * np.sin(2 * np.pi * fin * t) + 1024 + noise).astype(
-            int
-        )
+        codes = np.round(amplitude * np.sin(2 * np.pi * fin * t) + 1024 + noise).astype(int)
 
         result = compute_enob_fft(codes, fs, fin)
 
@@ -510,6 +515,7 @@ class TestComputeEnobFft:
 
 # ==== Test Monte Carlo Statistics ====
 
+
 class TestMcStatistics:
     """Tests for mc_statistics function."""
 
@@ -529,9 +535,7 @@ class TestMcStatistics:
         result = mc_statistics(values)
 
         assert result["sigma3_low"] == pytest.approx(result["mean"] - 3 * result["std"])
-        assert result["sigma3_high"] == pytest.approx(
-            result["mean"] + 3 * result["std"]
-        )
+        assert result["sigma3_high"] == pytest.approx(result["mean"] + 3 * result["std"])
 
     def test_empty_values(self):
         """Handle empty values."""
@@ -547,6 +551,7 @@ class TestMcStatistics:
 
 
 # ==== Integration Tests ====
+
 
 class TestAdcPipelineIntegration:
     """Integration tests for full ADC measurement pipeline."""

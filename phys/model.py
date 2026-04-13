@@ -155,41 +155,62 @@ def plot_hit_rate_vs_fluence() -> None:
     fig.patch.set_facecolor(PNG_FACE_COLOR)
     ax.set_facecolor(PNG_FACE_COLOR)
     for pitch_m, color in zip(pitches_m, colors, strict=True):
-        rates = [
-            hit_rate_per_pixel_per_second(f, pitch_m) for f in fluences_m2_s
-        ]
+        rates = [hit_rate_per_pixel_per_second(f, pitch_m) for f in fluences_m2_s]
         ax.plot(
-            fluences_mm2_s, rates,
+            fluences_mm2_s,
+            rates,
             label=rf"{pitch_m * 1e6:g} \textmu m",
-            color=color, linewidth=2,
+            color=color,
+            linewidth=2,
         )
 
     # ---- beam-source markers along bottom axis ----
     _PH, _EL = "#B48EAD", "#BF616A"
     _photon = [
-        ("PETRA III", 1e10), ("PETRA IV", 1.5e10),
-        ("ESRF-EBS", 1e11), ("EuXFEL CW", 1.2e11),
+        ("PETRA III", 1e10),
+        ("PETRA IV", 1.5e10),
+        ("ESRF-EBS", 1e11),
+        ("EuXFEL CW", 1.2e11),
     ]
     _electron = [
-        ("ELSA", 4e6), ("Talos F200", 1.4e7),
-        ("Spectra", 6.2e7), ("F200X", 9.4e7), ("Themis", 1.2e8),
+        ("ELSA", 4e6),
+        ("Talos F200", 1.4e7),
+        ("Spectra", 6.2e7),
+        ("F200X", 9.4e7),
+        ("Themis", 1.2e8),
     ]
     _xax = ax.get_xaxis_transform()
     for n, f in _photon:
-        ax.plot(f, 0.03, "s", transform=_xax, color=_PH, markersize=7,
-                markeredgecolor="white", markeredgewidth=0.5, zorder=5, clip_on=False)
-        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_PH,
-                rotation=90, va="bottom", ha="center", clip_on=False)
+        ax.plot(
+            f,
+            0.03,
+            "s",
+            transform=_xax,
+            color=_PH,
+            markersize=7,
+            markeredgecolor="white",
+            markeredgewidth=0.5,
+            zorder=5,
+            clip_on=False,
+        )
+        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_PH, rotation=90, va="bottom", ha="center", clip_on=False)
     for n, f in _electron:
-        ax.plot(f, 0.03, "o", transform=_xax, color=_EL, markersize=7,
-                markeredgecolor="white", markeredgewidth=0.5, zorder=5, clip_on=False)
-        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_EL,
-                rotation=90, va="bottom", ha="center", clip_on=False)
+        ax.plot(
+            f,
+            0.03,
+            "o",
+            transform=_xax,
+            color=_EL,
+            markersize=7,
+            markeredgecolor="white",
+            markeredgewidth=0.5,
+            zorder=5,
+            clip_on=False,
+        )
+        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_EL, rotation=90, va="bottom", ha="center", clip_on=False)
     _src_h = [
-        Line2D([0], [0], marker="s", color="w", markerfacecolor=_PH,
-               markersize=7, label="Photon source"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=_EL,
-               markersize=7, label="Electron source"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor=_PH, markersize=7, label="Photon source"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=_EL, markersize=7, label="Electron source"),
     ]
 
     ax.set_xscale("log")
@@ -218,9 +239,7 @@ def plot_hit_rate_vs_fluence() -> None:
     bottom2.xaxis.label.set_color("#2E3440")
     bottom2.set_xlabel(r"Equivalent beam current density")
 
-    ax.set_xlabel(
-        r"Incident particle fluence $\left[\frac{\mathrm{cps}}{\mathrm{mm}^2}\right]$"
-    )
+    ax.set_xlabel(r"Incident particle fluence $\left[\frac{\mathrm{cps}}{\mathrm{mm}^2}\right]$")
     ax.set_ylabel(r"Resulting hit rate per pixel $\left[\mathrm{cps}\right]$")
     ax.set_title("Per-pixel hit rate vs fluence")
     ax.minorticks_on()
@@ -231,33 +250,42 @@ def plot_hit_rate_vs_fluence() -> None:
 
     _ph, _pl = ax.get_legend_handles_labels()
     ax.legend(
-        handles=_ph + _src_h, labels=_pl + ["Photon source", "Electron source"],
+        handles=_ph + _src_h,
+        labels=_pl + ["Photon source", "Electron source"],
         title="Pixel pitch / Sources",
-        facecolor="#ECEFF4", edgecolor="#4C566A", labelcolor="#2E3440",
+        facecolor="#ECEFF4",
+        edgecolor="#4C566A",
+        labelcolor="#2E3440",
     )
     ax.text(
-        0.98, 0.97,
+        0.98,
+        0.97,
         r"Assuming 100\% efficiency, no charge sharing,"
         "\n"
         r"and a 1\,cm$^2$ beam spot for source markers",
-        transform=ax.transAxes, color="#2E3440", fontsize=8,
-        ha="right", va="top",
+        transform=ax.transAxes,
+        color="#2E3440",
+        fontsize=8,
+        ha="right",
+        va="top",
         bbox={"facecolor": "#ECEFF4", "edgecolor": "#4C566A", "alpha": 0.9},
     )
     _style_ax(ax)
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.22)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(
-        RESULTS_DIR / "hit_rate_vs_fluence.png", dpi=200, facecolor=PNG_FACE_COLOR
-    )
+    fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.png", dpi=200, facecolor=PNG_FACE_COLOR)
     fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.pdf", transparent=True)
 
 
 def plot_max_counting_rate_vs_window() -> None:
     """Figure 2: two subplots — integrating (frame time) and discriminating (dead time)."""
     fig, (ax_int, ax_disc) = plt.subplots(
-        1, 2, figsize=(12, 5), facecolor=PNG_FACE_COLOR, sharey=True,
+        1,
+        2,
+        figsize=(12, 5),
+        facecolor=PNG_FACE_COLOR,
+        sharey=True,
     )
     fig.patch.set_facecolor(PNG_FACE_COLOR)
 
@@ -286,7 +314,9 @@ def plot_max_counting_rate_vs_window() -> None:
     ax_int.legend(
         title="ADC bit depth",
         loc="upper right",
-        facecolor="#ECEFF4", edgecolor="#4C566A", labelcolor="#2E3440",
+        facecolor="#ECEFF4",
+        edgecolor="#4C566A",
+        labelcolor="#2E3440",
     )
     _style_ax(ax_int)
 
@@ -296,25 +326,24 @@ def plot_max_counting_rate_vs_window() -> None:
     loss_rates = [max_rate(w) for w in dead_s]
 
     ax_disc.set_facecolor(PNG_FACE_COLOR)
-    ax_disc.plot(dead_ns, loss_rates, "--", color="#BF616A", linewidth=2,
-                 label=r"10\% pile-up limit")
+    ax_disc.plot(dead_ns, loss_rates, "--", color="#BF616A", linewidth=2, label=r"10\% pile-up limit")
 
     # Discriminating detector markers
     _discrim = [  # (label, dead_time_ns, reported_rate_cps)
-        ("SPHIRD",  8.3,  12e6),
-        ("KITE",    23,   31e6),
-        ("MPX4",    36,   2.9e6),
-        ("TPX4",    50,   2.1e6),
-        ("IBEX",    100,  1.1e6),
-        ("PIL3",    125,  0.89e6),
-        ("EIGER",   238,  0.47e6),
-        ("MPX3",    400,  0.25e6),
+        ("SPHIRD", 8.3, 12e6),
+        ("KITE", 23, 31e6),
+        ("MPX4", 36, 2.9e6),
+        ("TPX4", 50, 2.1e6),
+        ("IBEX", 100, 1.1e6),
+        ("PIL3", 125, 0.89e6),
+        ("EIGER", 238, 0.47e6),
+        ("MPX3", 400, 0.25e6),
     ]
     for n, td_ns, r in _discrim:
-        ax_disc.plot(td_ns, r, "o", color="#BF616A", markersize=7,
-                     markeredgecolor="white", markeredgewidth=0.5, zorder=5)
-        ax_disc.annotate(n, (td_ns, r), fontsize=7, color="#2E3440",
-                         textcoords="offset points", xytext=(5, 4))
+        ax_disc.plot(
+            td_ns, r, "o", color="#BF616A", markersize=7, markeredgecolor="white", markeredgewidth=0.5, zorder=5
+        )
+        ax_disc.annotate(n, (td_ns, r), fontsize=7, color="#2E3440", textcoords="offset points", xytext=(5, 4))
 
     ax_disc.set_yscale("log")
     ax_disc.set_ylim(1e4, 1e9)
@@ -327,19 +356,23 @@ def plot_max_counting_rate_vs_window() -> None:
     ax_disc.yaxis.set_minor_formatter(NullFormatter())
     ax_disc.legend(
         loc="upper right",
-        facecolor="#ECEFF4", edgecolor="#4C566A", labelcolor="#2E3440",
+        facecolor="#ECEFF4",
+        edgecolor="#4C566A",
+        labelcolor="#2E3440",
     )
     _style_ax(ax_disc)
 
     fig.suptitle(
         "Max pixel count rate: integrating vs discriminating detectors",
-        color="#2E3440", fontsize=12,
+        color="#2E3440",
+        fontsize=12,
     )
     fig.tight_layout()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(
         RESULTS_DIR / "max_counting_rate_vs_window.png",
-        dpi=200, facecolor=PNG_FACE_COLOR,
+        dpi=200,
+        facecolor=PNG_FACE_COLOR,
     )
     fig.savefig(RESULTS_DIR / "max_counting_rate_vs_window.pdf", transparent=True)
 

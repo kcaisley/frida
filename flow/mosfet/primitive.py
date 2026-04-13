@@ -90,9 +90,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
     # ==== Power Rails ====
     top.shapes(G.M1).insert(kdb.Box(x0, y_vss0, x1, y_vss1))
     top.shapes(G.M1).insert(kdb.Box(x0, y_vdd0, x1, y_vdd1))
-    top.shapes(G.M1).insert(
-        kdb.Box(x0, y_gate - R.M1.width // 2, x1, y_gate + R.M1.width // 2)
-    )
+    top.shapes(G.M1).insert(kdb.Box(x0, y_gate - R.M1.width // 2, x1, y_gate + R.M1.width // 2))
 
     # ==== Active Areas ====
     top.shapes(G.OD).insert(kdb.Box(x_act0, y_main0, x_act1, y_main1))
@@ -195,11 +193,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
 
         strap_to = None
         if params.source_tie == L.SourceTie.ON and i % 2 == 0:
-            strap_to = (
-                (y_vss0 + y_vss1) // 2
-                if params.mosfet_type == L.MosType.NMOS
-                else (y_vdd0 + y_vdd1) // 2
-            )
+            strap_to = (y_vss0 + y_vss1) // 2 if params.mosfet_type == L.MosType.NMOS else (y_vdd0 + y_vdd1) // 2
 
         if strap_to is not None:
             yl = min(yc_main, strap_to)
@@ -219,9 +213,7 @@ def mosfet(params: MosfetParams, tech_name: str) -> kdb.Layout:
             y_gate + R.M1.width // 2,
         )
     )
-    top.shapes(G.PIN1).insert(
-        kdb.Box(x1 - pin_w, y_sd_mid - R.M1.width // 2, x1, y_sd_mid + R.M1.width // 2)
-    )
+    top.shapes(G.PIN1).insert(kdb.Box(x1 - pin_w, y_sd_mid - R.M1.width // 2, x1, y_sd_mid + R.M1.width // 2))
 
     return layout
 

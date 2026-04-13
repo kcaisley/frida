@@ -10,7 +10,6 @@ from hdl21.prefix import m
 from pydantic.dataclasses import dataclass
 
 
-
 @h.paramclass
 class Pvt:
     """Process, Voltage, and Temperature condition."""

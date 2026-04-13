@@ -22,6 +22,7 @@ _GL = GenericLayers()
 
 # ==== New API ====
 
+
 def layer_map() -> dict[kdb.LayerInfo, kdb.LayerInfo]:
     """Generic-to-tech layer mapping for IHP130.
 
@@ -145,6 +146,7 @@ def rule_deck() -> NewRuleDeck:
 
 # ==== Layer Info ====
 
+
 def layer_infos() -> tuple[LayerInfoData, ...]:
     """Tech layer descriptors for vlsir.tech layer-info export."""
     return (
@@ -182,6 +184,7 @@ def layer_infos() -> tuple[LayerInfoData, ...]:
 
 
 # ==== Tests ====
+
 
 def test_ihp130_to_vlsir(tmp_path: Path) -> None:
     """Test: write/read vlsir.tech proto round-trip (layer-info only)."""

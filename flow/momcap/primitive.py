@@ -54,10 +54,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
     bot = params.bottom_layer
     top = params.top_layer
     if (bot, top) not in valid_stacks:
-        raise ValueError(
-            f"Invalid (bottom_layer={bot}, top_layer={top}). "
-            f"Valid combinations: {sorted(valid_stacks)}"
-        )
+        raise ValueError(f"Invalid (bottom_layer={bot}, top_layer={top}). Valid combinations: {sorted(valid_stacks)}")
 
     # ==== Load PDK Data ====
     R = load_rules_deck(tech_name)
@@ -196,13 +193,9 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
     top_pin_layer = {5: G.PIN5, 6: G.PIN6, 7: G.PIN7}[top]
 
     # Inner plate pin (bottom terminal) on the bottom metal's pin layer
-    cell.shapes(bot_pin_layer).insert(
-        kdb.Box(ix0, iy0, min(ix1, ix0 + pin_w), iy0 + pin_w)
-    )
+    cell.shapes(bot_pin_layer).insert(kdb.Box(ix0, iy0, min(ix1, ix0 + pin_w), iy0 + pin_w))
     # Outer ring pin (top terminal) on the top metal's pin layer
-    cell.shapes(top_pin_layer).insert(
-        kdb.Box(rx0, ry0, min(rx1, rx0 + pin_w), ry0 + pin_w)
-    )
+    cell.shapes(top_pin_layer).insert(kdb.Box(rx0, ry0, min(rx1, rx0 + pin_w), ry0 + pin_w))
 
     return layout
 

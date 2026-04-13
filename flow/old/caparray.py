@@ -46,9 +46,7 @@ def ring(width, height, thickness):
     return db.DPolygon(outer_points).insert_hole(inner_points)
 
 
-def strip_pair(
-    strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strip_ydim_diff
-):
+def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strip_ydim_diff):
     """
     Create a pair of capacitor strips with differential sizing.
 
@@ -60,12 +58,8 @@ def strip_pair(
     ydiff = strips_ydim_step * strip_ydim_diff
 
     # Create two boxes (strips)
-    strip1 = db.DBox(
-        0, 0, strips_xdim, strips_ydim_base + ydiff
-    )  # bottom stays fixed, top lengthens upward
-    strip2 = db.DBox(
-        0, y1 + ydiff, strips_xdim, y1 + strips_ydim_base
-    )  # top stay fixed, bottom shortens upward
+    strip1 = db.DBox(0, 0, strips_xdim, strips_ydim_base + ydiff)  # bottom stays fixed, top lengthens upward
+    strip2 = db.DBox(0, y1 + ydiff, strips_xdim, y1 + strips_ydim_base)  # top stay fixed, bottom shortens upward
 
     # Return as a list of DBox objects
     return [strip1, strip2]
@@ -144,9 +138,7 @@ def create_m5_shielding_with_cutouts(
 
         # Calculate actual spacing to evenly distribute cutouts
         if target_cutouts > 1:
-            actual_interval = usable_y_length / (
-                target_cutouts + 1
-            )  # +1 for equal spacing from ends
+            actual_interval = usable_y_length / (target_cutouts + 1)  # +1 for equal spacing from ends
         else:
             actual_interval = usable_y_length / 2
 
@@ -303,9 +295,7 @@ def unit_length_cap(
     """
     # Create the M6 structures (ring and strips)
     ring_m6 = ring(interior_x, interior_y, ring_xdim)
-    strip1, strip2 = strip_pair(
-        strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strips_ydim_diff
-    )
+    strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strips_ydim_diff)
 
     # Center the strips inside the ring
     strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
@@ -406,9 +396,7 @@ def create_m4_routing_strips(
     # Bottom via Y position (main capacitor connection point)
     bottom_via_y = y_offset + via_inset + 0.32 / 2  # Center of via cutout
     # Top via Y position (diff capacitor connection point)
-    top_via_y = (
-        y_offset + total_structure_height - via_inset - 0.32 / 2
-    )  # Center of via cutout
+    top_via_y = y_offset + total_structure_height - via_inset - 0.32 / 2  # Center of via cutout
 
     # M4 parameters - based on LEF via dimensions and enclosure rules
     via_m4_width = 0.1  # Via M4 width from LEF
@@ -430,9 +418,7 @@ def create_m4_routing_strips(
         if group_size == 1:
             # Single capacitor - create M4 patches around vias (shifted 0.11 μm right)
             shift_right = 0.11
-            cap_x = (
-                cap_position * x_shift + x_offset + 0.05 + shift_right
-            )  # Center of via + shift
+            cap_x = cap_position * x_shift + x_offset + 0.05 + shift_right  # Center of via + shift
 
             # Create main capacitor M4 patch (bottom via)
             main_patch = db.DBox(
@@ -453,12 +439,8 @@ def create_m4_routing_strips(
             m4_shapes.append(diff_patch)
 
             # Add pin labels for single capacitor patches
-            main_label = db.DText(
-                f"cap_botplate_m[{bit_index}]", db.DTrans(cap_x, bottom_via_y + y_shift)
-            )
-            diff_label = db.DText(
-                f"cap_botplate_d[{bit_index}]", db.DTrans(cap_x, top_via_y + y_shift)
-            )
+            main_label = db.DText(f"cap_botplate_m[{bit_index}]", db.DTrans(cap_x, bottom_via_y + y_shift))
+            diff_label = db.DText(f"cap_botplate_d[{bit_index}]", db.DTrans(cap_x, top_via_y + y_shift))
             m4_pin_labels.extend([main_label, diff_label])
 
             cap_position += 1
@@ -470,13 +452,7 @@ def create_m4_routing_strips(
         extension = 0.04  # Extra length on each end for spacing around vias
 
         start_x = cap_position * x_shift + x_offset + shift_right - extension
-        end_x = (
-            (cap_position + group_size - 1) * x_shift
-            + x_offset
-            + 0.1
-            + shift_right
-            + extension
-        )
+        end_x = (cap_position + group_size - 1) * x_shift + x_offset + 0.1 + shift_right + extension
 
         # Create main capacitor routing strip (bottom vias)
         main_strip = db.DBox(
@@ -498,12 +474,8 @@ def create_m4_routing_strips(
 
         # Add pin labels for multi-capacitor strips (centered on the strip)
         center_x = (start_x + end_x) / 2
-        main_label = db.DText(
-            f"cap_botplate_m[{bit_index}]", db.DTrans(center_x, bottom_via_y + y_shift)
-        )
-        diff_label = db.DText(
-            f"cap_botplate_d[{bit_index}]", db.DTrans(center_x, top_via_y + y_shift)
-        )
+        main_label = db.DText(f"cap_botplate_m[{bit_index}]", db.DTrans(center_x, bottom_via_y + y_shift))
+        diff_label = db.DText(f"cap_botplate_d[{bit_index}]", db.DTrans(center_x, top_via_y + y_shift))
         m4_pin_labels.extend([main_label, diff_label])
 
         # Move to next group position
@@ -635,9 +607,7 @@ def main():
 
         # Position centered in the top ring of the first (leftmost) capacitor
         topplate_x = 0 + 0.06  # Right 0.06 from left edge
-        topplate_y = (
-            interior_y + ring_ydim + y_shift + 0.06
-        )  # Up 0.06 from previous position
+        topplate_y = interior_y + ring_ydim + y_shift + 0.06  # Up 0.06 from previous position
 
         # Add text label
         topplate_label = db.DText("cap_topplate", db.DTrans(topplate_x, topplate_y))

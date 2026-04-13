@@ -127,12 +127,8 @@ def CompTb(params: CompTbParams) -> h.Module:
     t_rise = 100 * p
     points_p, _ = _build_pwl_points(vin_p_values, t_step, t_rise)
     points_n, _ = _build_pwl_points(vin_n_values, t_step, t_rise)
-    CompTb.vvin_p = Vpwl(wave=pwl_points_to_wave(points_p))(
-        p=CompTb.vin_p_src, n=CompTb.vss
-    )
-    CompTb.vvin_n = Vpwl(wave=pwl_points_to_wave(points_n))(
-        p=CompTb.vin_n_src, n=CompTb.vss
-    )
+    CompTb.vvin_p = Vpwl(wave=pwl_points_to_wave(points_p))(p=CompTb.vin_p_src, n=CompTb.vss)
+    CompTb.vvin_n = Vpwl(wave=pwl_points_to_wave(points_n))(p=CompTb.vin_n_src, n=CompTb.vss)
 
     return CompTb
 

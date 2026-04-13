@@ -36,21 +36,13 @@ class AdcTbParams:
 
     # Conversion timing
     n_conversions = h.Param(dtype=int, desc="Number of ADC conversions", default=2)
-    t_settle = h.Param(
-        dtype=h.Scalar, desc="Settling time before conversions", default=10 * n
-    )
-    t_conv = h.Param(
-        dtype=h.Scalar, desc="Conversion period (1/sample_rate)", default=100 * n
-    )
+    t_settle = h.Param(dtype=h.Scalar, desc="Settling time before conversions", default=10 * n)
+    t_conv = h.Param(dtype=h.Scalar, desc="Conversion period (1/sample_rate)", default=100 * n)
 
     # Input voltage ramp (differential)
-    vin_p_start = h.Param(
-        dtype=h.Scalar, desc="vin_p starting voltage", default=1100 * m
-    )
+    vin_p_start = h.Param(dtype=h.Scalar, desc="vin_p starting voltage", default=1100 * m)
     vin_p_stop = h.Param(dtype=h.Scalar, desc="vin_p ending voltage", default=1050 * m)
-    vin_n_start = h.Param(
-        dtype=h.Scalar, desc="vin_n starting voltage", default=800 * m
-    )
+    vin_n_start = h.Param(dtype=h.Scalar, desc="vin_n starting voltage", default=800 * m)
     vin_n_stop = h.Param(dtype=h.Scalar, desc="vin_n ending voltage", default=850 * m)
 
     # Common mode voltage

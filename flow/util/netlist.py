@@ -129,6 +129,7 @@ def cdl_to_sp(inpath: Path, outpath: Path) -> Path:
 # CDL → SP (cleaned)  — remove fillers/decaps, fix OpenROAD hierarchy
 # =========================================================================
 
+
 def clean_cdl(inpath: Path, outpath: Path, verilog: Path | None = None, module: str | None = None) -> Path:
     """Convert CDL to clean SPICE, removing synthesis artifacts.
 

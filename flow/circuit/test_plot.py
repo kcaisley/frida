@@ -47,6 +47,7 @@ def plt():
 
 # ==== Test Configuration ====
 
+
 class TestConfigureMatplotlib:
     """Tests for configure_matplotlib function."""
 
@@ -66,6 +67,7 @@ class TestConfigureMatplotlib:
 
 
 # ==== Test Save Plot ====
+
 
 class TestSavePlot:
     """Tests for save_plot function."""
@@ -103,6 +105,7 @@ class TestSavePlot:
 
 
 # ==== Test INL/DNL Plot ====
+
 
 class TestPlotInlDnl:
     """Tests for plot_inl_dnl function."""
@@ -162,6 +165,7 @@ class TestPlotInlDnl:
 
 # ==== Test Histogram Plot ====
 
+
 class TestPlotHistogram:
     """Tests for plot_histogram function."""
 
@@ -201,6 +205,7 @@ class TestPlotHistogram:
 
 # ==== Test Transfer Function Plot ====
 
+
 class TestPlotTransferFunction:
     """Tests for plot_transfer_function function."""
 
@@ -231,6 +236,7 @@ class TestPlotTransferFunction:
 
 
 # ==== Test FFT Spectrum Plot ====
+
 
 class TestPlotFftSpectrum:
     """Tests for plot_fft_spectrum function."""
@@ -271,6 +277,7 @@ class TestPlotFftSpectrum:
 
 
 # ==== Test Waveforms Plot ====
+
 
 class TestPlotWaveforms:
     """Tests for plot_waveforms function."""
@@ -323,6 +330,7 @@ class TestPlotWaveforms:
 
 # ==== Test ENOB vs Frequency Plot ====
 
+
 class TestPlotEnobVsFrequency:
     """Tests for plot_enob_vs_frequency function."""
 
@@ -357,6 +365,7 @@ class TestPlotEnobVsFrequency:
 
 
 # ==== Test Monte Carlo Histogram Plot ====
+
 
 class TestPlotMonteCarloHistogram:
     """Tests for plot_monte_carlo_histogram function."""
@@ -400,6 +409,7 @@ class TestPlotMonteCarloHistogram:
 
 
 # ==== Integration Tests ====
+
 
 class TestPlottingIntegration:
     """Integration tests combining measurement and plotting."""

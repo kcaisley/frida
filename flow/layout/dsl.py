@@ -11,6 +11,7 @@ import klayout.db as kdb
 
 # ==== Parameter Enums ====
 
+
 class MosType(IntEnum):
     NMOS = 0
     PMOS = 1
@@ -41,6 +42,7 @@ class MetalDraw(IntEnum):
 
 
 # ==== Generic Layers ====
+
 
 class GenericLayers:
     """Namespace of kdb.LayerInfo objects for all generic process layers.
@@ -123,6 +125,7 @@ def load_generic_layers(layout: kdb.Layout) -> GenericLayers:
 
 # ==== Param / Paramclass / Generator ====
 
+
 class Param:
     """Field-marker used by `@paramclass`."""
 
@@ -169,9 +172,7 @@ def paramclass(
         if name not in annotations:
             # 7) Reject missing type information when neither annotation nor dtype exists.
             if spec.dtype is Any:
-                raise TypeError(
-                    f"Parameter '{name}' requires either dtype or annotation."
-                )
+                raise TypeError(f"Parameter '{name}' requires either dtype or annotation.")
             # 8) Persist inferred annotation so dataclass sees the field type.
             annotations[name] = spec.dtype
             declared = spec.dtype
@@ -180,8 +181,7 @@ def paramclass(
         if spec.dtype is not Any and declared is not Any:
             if spec.dtype != declared:
                 raise TypeError(
-                    f"Parameter '{name}' dtype/ annotation mismatch: "
-                    f"dtype={spec.dtype}, annotation={declared}."
+                    f"Parameter '{name}' dtype/ annotation mismatch: dtype={spec.dtype}, annotation={declared}."
                 )
 
         # 10) Compute effective expected type for default-value checks.
@@ -199,14 +199,11 @@ def paramclass(
             # 15) Raise if literal default type is incompatible.
             if not matches_type:
                 raise TypeError(
-                    f"Invalid default type for '{name}': "
-                    f"expected {expected}, got {type(spec.default).__name__}."
+                    f"Invalid default type for '{name}': expected {expected}, got {type(spec.default).__name__}."
                 )
             # 16) Run optional value validator on literal defaults.
             if spec.validator is not None and spec.validator(spec.default) is False:
-                raise ValueError(
-                    f"Validator rejected default value for parameter '{name}'."
-                )
+                raise ValueError(f"Validator rejected default value for parameter '{name}'.")
 
         # 17) Build metadata payload carried by the dataclass field.
         metadata = {"layout_param_spec": spec, "desc": spec.desc}
@@ -251,14 +248,10 @@ def generator(fn: Callable[..., Any]) -> Callable[..., Any]:
     first_annotation = resolved_hints.get(first.name, first.annotation)
     # 6) Require an explicit type annotation on first parameter.
     if first_annotation is inspect._empty:
-        raise TypeError(
-            "First generator argument must be a @paramclass type annotation."
-        )
+        raise TypeError("First generator argument must be a @paramclass type annotation.")
     # 7) Require that annotation to be produced by @paramclass.
     if not hasattr(first_annotation, "__layout_paramclass__"):
-        raise TypeError(
-            f"First generator argument must be a @paramclass type, got {first_annotation}."
-        )
+        raise TypeError(f"First generator argument must be a @paramclass type, got {first_annotation}.")
 
     # 8) Tag function for optional downstream introspection.
     setattr(fn, "__layout_generator__", True)
@@ -269,6 +262,7 @@ def generator(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 # ==== L Namespace ====
+
 
 class _LayoutNamespace:
     """Single namespace exposing params, decorators, and enums."""

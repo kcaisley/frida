@@ -72,6 +72,7 @@ def get_sim_options(
 
 # ==== Monte Carlo Configuration ====
 
+
 @dataclass
 class MCConfig:
     """Monte Carlo simulation configuration."""
@@ -82,6 +83,7 @@ class MCConfig:
 
 
 # ==== Simulation Configuration ====
+
 
 @dataclass
 class SimConfig:
@@ -243,6 +245,7 @@ def run_pvt_sweep(
 
 # ==== Result Extraction Utilities ====
 
+
 def extract_waveform(
     result: hs.SimResult,
     signal: str,
@@ -333,6 +336,7 @@ def compute_delay(
 
 
 # ==== Netlist Generation ====
+
 
 def write_sim_netlist(
     sim_class,

@@ -129,10 +129,6 @@ def run_remote_sim_inputs(
                     exit_code = response.exit_code
 
             if exit_code is None:
-                raise RuntimeError(
-                    f"SpiceServer returned no completion message for simulation {idx}"
-                )
+                raise RuntimeError(f"SpiceServer returned no completion message for simulation {idx}")
             if exit_code != 0:
-                raise RuntimeError(
-                    f"SpiceServer simulation {idx} failed with exit code {exit_code}"
-                )
+                raise RuntimeError(f"SpiceServer simulation {idx} failed with exit code {exit_code}")

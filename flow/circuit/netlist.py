@@ -206,9 +206,7 @@ def run_netlist_variants(
     start = time.perf_counter()
     pdk_module = h.pdk.default()
     if pdk_module is None:
-        raise RuntimeError(
-            "No active PDK selected. Set one with `h.pdk.set_default(...)` first."
-        )
+        raise RuntimeError("No active PDK selected. Set one with `h.pdk.set_default(...)` first.")
     pdk_name = _pdk_name_from_module(pdk_module)
 
     norm_fmt = fmt.lower()
@@ -224,13 +222,9 @@ def run_netlist_variants(
     if norm_fmt not in suffix_by_fmt:
         raise ValueError(f"Unsupported netlist format: {fmt}")
     if norm_fmt == "cdl":
-        raise ValueError(
-            "CDL netlisting is not supported by the installed vlsirtools backend"
-        )
+        raise ValueError("CDL netlisting is not supported by the installed vlsirtools backend")
     if scope != "dut" and norm_fmt not in ("spectre", "ngspice"):
-        raise ValueError(
-            f"--scope={scope} only supports spectre or ngspice netlists (got {norm_fmt})"
-        )
+        raise ValueError(f"--scope={scope} only supports spectre or ngspice netlists (got {norm_fmt})")
     suffix = suffix_by_fmt[norm_fmt]
 
     sims: list[hs.Sim] = []
@@ -384,9 +378,7 @@ def print_netlist_summary(
         print("-" * width)
 
         # Print value counts row
-        value_line = " ".join(
-            f"{len(param_axes[h])}x".ljust(col_widths[h]) for h in headers
-        )
+        value_line = " ".join(f"{len(param_axes[h])}x".ljust(col_widths[h]) for h in headers)
         print(value_line)
         print("-" * width)
 
@@ -464,11 +456,7 @@ def _format_value(value: Any) -> str:
         if hasattr(value, "number") and hasattr(value, "prefix"):
             # It's an hdl21.Prefixed value
             num = value.number
-            prefix = (
-                value.prefix.name.lower()
-                if hasattr(value.prefix, "name")
-                else str(value.prefix)
-            )
+            prefix = value.prefix.name.lower() if hasattr(value.prefix, "name") else str(value.prefix)
             return f"{num}{prefix}"
         # Replace spaces and special chars with underscores
         for char in " .-/\\:*()[]{}":

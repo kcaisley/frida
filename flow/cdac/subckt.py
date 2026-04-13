@@ -42,12 +42,8 @@ class CdacParams:
 
     n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=11)
     n_extra = h.Param(dtype=int, desc="Extra caps for redundancy", default=5)
-    redun_strat = h.Param(
-        dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.SUBRDX2_OVLY
-    )
-    split_strat = h.Param(
-        dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT
-    )
+    redun_strat = h.Param(dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.SUBRDX2_OVLY)
+    split_strat = h.Param(dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT)
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
     mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
@@ -127,12 +123,8 @@ def _build_dac_bit(mod, param: CdacParams, idx: int, weight: int, threshold: int
     setattr(mod, f"bot_{idx}", bot)
 
     # First inverter (predriver - use minimum sized devices: w=10, l=1)
-    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(
-        d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd
-    )
-    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(
-        d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss
-    )
+    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd)
+    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss)
     setattr(mod, f"MP_buf_{idx}", MP_buf)
     setattr(mod, f"MN_buf_{idx}", MN_buf)
 
@@ -149,12 +141,8 @@ def _build_nosplit_bit(mod, param: CdacParams, idx: int, weight: int, inter, bot
     driver_w = _calc_driver_width(1, weight)
 
     # Driver inverter (width scales with capacitor weight)
-    MP_drv = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=driver_w, l=1)(
-        d=bot, g=inter, s=mod.vdd, b=mod.vdd
-    )
-    MN_drv = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=driver_w, l=1)(
-        d=bot, g=inter, s=mod.vss, b=mod.vss
-    )
+    MP_drv = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=driver_w, l=1)(d=bot, g=inter, s=mod.vdd, b=mod.vdd)
+    MN_drv = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=driver_w, l=1)(d=bot, g=inter, s=mod.vss, b=mod.vss)
     setattr(mod, f"MP_drv_{idx}", MP_drv)
     setattr(mod, f"MN_drv_{idx}", MN_drv)
 

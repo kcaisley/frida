@@ -100,9 +100,7 @@ def parse_args() -> argparse.Namespace:
         default="spectre",
         help="netlist output format (default: %(default)s)",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="print commands without running them"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="print commands without running them")
     args = parser.parse_args()
     if args.limit is not None and args.limit < 0:
         parser.error("--limit must be non-negative")
@@ -123,9 +121,7 @@ def finalize_netlist(stem: str, fmt: str) -> None:
     ext = "scs" if fmt == "spectre" else "sp"
     generated = list(RESULTS_DIR.glob(f"{stem}_pwl_event*.{ext}"))
     if len(generated) != 1:
-        raise FileNotFoundError(
-            f"Expected one generated netlist for {stem}, found {len(generated)}"
-        )
+        raise FileNotFoundError(f"Expected one generated netlist for {stem}, found {len(generated)}")
     generated[0].rename(RESULTS_DIR / f"{stem}_pwl.{ext}")
 
 

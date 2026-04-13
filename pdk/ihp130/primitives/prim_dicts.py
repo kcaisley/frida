@@ -36,21 +36,13 @@ MosKey = Tuple[str, MosType, MosVth, MosFamily]
 
 xtors: Dict[MosKey, h.ExternalModule] = {
     # Low-voltage NMOS (1.2V core)
-    ("LV_NMOS", MosType.NMOS, MosVth.STD, MosFamily.CORE): xtor_module(
-        "sg13_lv_nmos", params=IhpMosParams
-    ),
+    ("LV_NMOS", MosType.NMOS, MosVth.STD, MosFamily.CORE): xtor_module("sg13_lv_nmos", params=IhpMosParams),
     # Low-voltage PMOS (1.2V core)
-    ("LV_PMOS", MosType.PMOS, MosVth.STD, MosFamily.CORE): xtor_module(
-        "sg13_lv_pmos", params=IhpMosParams
-    ),
+    ("LV_PMOS", MosType.PMOS, MosVth.STD, MosFamily.CORE): xtor_module("sg13_lv_pmos", params=IhpMosParams),
     # High-voltage NMOS (3.3V I/O)
-    ("HV_NMOS", MosType.NMOS, MosVth.STD, MosFamily.IO): xtor_module(
-        "sg13_hv_nmos", params=IhpMosHvParams
-    ),
+    ("HV_NMOS", MosType.NMOS, MosVth.STD, MosFamily.IO): xtor_module("sg13_hv_nmos", params=IhpMosHvParams),
     # High-voltage PMOS (3.3V I/O)
-    ("HV_PMOS", MosType.PMOS, MosVth.STD, MosFamily.IO): xtor_module(
-        "sg13_hv_pmos", params=IhpMosHvParams
-    ),
+    ("HV_PMOS", MosType.PMOS, MosVth.STD, MosFamily.IO): xtor_module("sg13_hv_pmos", params=IhpMosHvParams),
 }
 
 # ==== Bipolar Transistors (HBT and PNP) ====
@@ -125,18 +117,10 @@ class Cache:
     """Module-scope cache for device calls."""
 
     mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
-    res_modcalls: Dict[PhysicalResistorParams, h.ExternalModuleCall] = field(
-        default_factory=dict
-    )
-    cap_modcalls: Dict[PhysicalCapacitorParams, h.ExternalModuleCall] = field(
-        default_factory=dict
-    )
-    diode_modcalls: Dict[DiodeParams, h.ExternalModuleCall] = field(
-        default_factory=dict
-    )
-    bjt_modcalls: Dict[BipolarParams, h.ExternalModuleCall] = field(
-        default_factory=dict
-    )
+    res_modcalls: Dict[PhysicalResistorParams, h.ExternalModuleCall] = field(default_factory=dict)
+    cap_modcalls: Dict[PhysicalCapacitorParams, h.ExternalModuleCall] = field(default_factory=dict)
+    diode_modcalls: Dict[DiodeParams, h.ExternalModuleCall] = field(default_factory=dict)
+    bjt_modcalls: Dict[BipolarParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 CACHE = Cache()

@@ -51,6 +51,7 @@ import numpy as np
 
 # ==== Simulation Extraction Functions ====
 
+
 def sim_get_time(result: hs.SimResult, analysis_idx: int = 0) -> np.ndarray:
     """
     Extract time array from SimResult.
@@ -73,9 +74,7 @@ def sim_get_time(result: hs.SimResult, analysis_idx: int = 0) -> np.ndarray:
     raise KeyError("Time data not found in SimResult")
 
 
-def sim_get_waveform(
-    result: hs.SimResult, name: str, analysis_idx: int = 0
-) -> np.ndarray:
+def sim_get_waveform(result: hs.SimResult, name: str, analysis_idx: int = 0) -> np.ndarray:
     """
     Extract a single waveform from SimResult.
 
@@ -198,6 +197,7 @@ def sim_sample_at_edges(
 
 # ==== Waveform Utilities ====
 
+
 def find_crossings(
     signal: np.ndarray,
     time: np.ndarray,
@@ -221,21 +221,18 @@ def find_crossings(
     for i in range(len(signal) - 1):
         if rising:
             if signal[i] < threshold <= signal[i + 1]:
-                t = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (
-                    time[i + 1] - time[i]
-                )
+                t = time[i] + (threshold - signal[i]) / (signal[i + 1] - signal[i]) * (time[i + 1] - time[i])
                 crossings.append(float(t))
         else:
             if signal[i] > threshold >= signal[i + 1]:
-                t = time[i] + (signal[i] - threshold) / (signal[i] - signal[i + 1]) * (
-                    time[i + 1] - time[i]
-                )
+                t = time[i] + (signal[i] - threshold) / (signal[i] - signal[i + 1]) * (time[i + 1] - time[i])
                 crossings.append(float(t))
 
     return crossings
 
 
 # ==== Analog Preprocessing ====
+
 
 def diff_to_single(pos: np.ndarray, neg: np.ndarray) -> np.ndarray:
     """Convert differential to single-ended: pos - neg."""
@@ -263,6 +260,7 @@ def quantize_to_bits(
 
 
 # ==== Digital Processing ====
+
 
 def redundant_bits_to_code(
     bits: np.ndarray,
@@ -303,6 +301,7 @@ def code_to_voltage(
 
 
 # ==== Core Measurement Functions ====
+
 
 def measure_settling(
     time: np.ndarray,
@@ -434,6 +433,7 @@ def measure_charge_injection(v_before: float, v_after: float) -> float:
 
 
 # ==== Static Linearity Analysis ====
+
 
 def histogram_inl_dnl(
     codes: np.ndarray,
@@ -623,6 +623,7 @@ def compute_static_error(
 
 # ==== Dynamic Performance Analysis ====
 
+
 def compute_enob_fft(
     codes: np.ndarray,
     fs: float,
@@ -731,6 +732,7 @@ def compute_enob_fft(
 
 
 # ==== Monte Carlo Statistics ====
+
 
 def mc_statistics(values: list[float] | np.ndarray) -> dict[str, float]:
     """
