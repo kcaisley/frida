@@ -34,7 +34,12 @@ module frida_core_1chan(
     output wire comp_out,
 
     // Analog I/O — type depends on cosim flow (see docs/cosim.md §5)
-`ifdef SPICEBIND
+`ifdef COCOTBEXT_AMS
+    input wire vin_p, vin_n,
+    input wire vdd_a, vss_a,
+    input wire vdd_d, vss_d,
+    input wire vdd_dac, vss_dac
+`elsif SPICEBIND
     input real vin_p, vin_n,
     input real vdd_a, vss_a,
     input real vdd_d, vss_d,
