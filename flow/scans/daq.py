@@ -39,7 +39,7 @@ FAST_SPI_RX_BASE = 0x50000
 
 _SPI_READY = 1
 _SPI_START = 1
-_SPI_SIZE = 3   # 16-bit LE
+_SPI_SIZE = 3  # 16-bit LE
 _SPI_MEM = 16
 
 # -------------------------------------------------------------------------
@@ -58,7 +58,7 @@ GPIO_LOOPBACK_BIT = 2
 _SEQ_READY = 1
 _SEQ_EN_EXT_START = 2
 _SEQ_CLK_DIV = 3
-_SEQ_SIZE = 4   # 32-bit LE
+_SEQ_SIZE = 4  # 32-bit LE
 _SEQ_REPEAT = 12  # 32-bit LE
 _SEQ_MEM = 64
 
@@ -67,8 +67,8 @@ _SEQ_MEM = 64
 # -------------------------------------------------------------------------
 
 _PGEN_START = 1
-_PGEN_DELAY = 3   # 32-bit LE
-_PGEN_WIDTH = 7   # 32-bit LE
+_PGEN_DELAY = 3  # 32-bit LE
+_PGEN_WIDTH = 7  # 32-bit LE
 
 # -------------------------------------------------------------------------
 # Fast SPI RX module offsets

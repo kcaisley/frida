@@ -16,9 +16,13 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+import cocotb
 import numpy as np
+from cocotb.clock import Clock
+from cocotbext.ams import MixedSignalBridge
 
-from flow.scans.chip import Frida
+from flow.scans.chip import Frida, SimBackend
+from flow.scans.sim import SimAWG, SimPSU, create_adc_block, include_dirs, verilog_sources
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +62,16 @@ async def scan_adc(
         bits = await chip.run_conversions(n_conversions)
         results.append(bits[0])  # squeeze repetitions dim
         logger.info(
-            "vin_diff=%.3fV: bits=%s", diff,
+            "vin_diff=%.3fV: bits=%s",
+            diff,
             "".join(str(b) for b in bits[0, 0]),
         )
 
     all_bits = np.stack(results, axis=0)
     logger.info(
         "Scan complete: %d voltage steps, %d conversions each",
-        all_bits.shape[0], all_bits.shape[1],
+        all_bits.shape[0],
+        all_bits.shape[1],
     )
     return all_bits
 
@@ -73,14 +79,6 @@ async def scan_adc(
 # =========================================================================
 # Simulation entry point (cocotb + cocotbext-ams)
 # =========================================================================
-
-import cocotb
-from cocotb.clock import Clock
-
-from cocotbext.ams import MixedSignalBridge
-
-from flow.scans.chip import SimBackend
-from flow.scans.sim import SimAWG, SimPSU, create_adc_block, include_dirs, verilog_sources
 
 
 @cocotb.test()
@@ -164,13 +162,15 @@ def main():
     if args.hw:
         import asyncio
 
-        results = asyncio.run(scan_adc_hw(
-            vin_start=args.vin_start,
-            vin_stop=args.vin_stop,
-            vin_step=args.vin_step,
-            vdd=args.vdd,
-            n_conversions=args.n_conversions,
-        ))
+        results = asyncio.run(
+            scan_adc_hw(
+                vin_start=args.vin_start,
+                vin_stop=args.vin_stop,
+                vin_step=args.vin_step,
+                vdd=args.vdd,
+                n_conversions=args.n_conversions,
+            )
+        )
         print(f"Results shape: {results.shape}")
     else:
         import os

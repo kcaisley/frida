@@ -17,9 +17,13 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+import cocotb
 import numpy as np
+from cocotb.clock import Clock
+from cocotbext.ams import MixedSignalBridge
 
-from flow.scans.chip import Frida
+from flow.scans.chip import Frida, SimBackend
+from flow.scans.sim import SimAWG, SimPSU, create_adc_block, include_dirs, verilog_sources
 
 logger = logging.getLogger(__name__)
 
@@ -83,14 +87,6 @@ async def scan_comp(
 # =========================================================================
 # Simulation entry point (cocotb + cocotbext-ams)
 # =========================================================================
-
-import cocotb
-from cocotb.clock import Clock
-
-from cocotbext.ams import MixedSignalBridge
-
-from flow.scans.chip import SimBackend
-from flow.scans.sim import SimAWG, SimPSU, create_adc_block, include_dirs, verilog_sources
 
 
 @cocotb.test()
@@ -170,12 +166,14 @@ def main():
     if args.hw:
         import asyncio
 
-        result = asyncio.run(scan_comp_hw(
-            vin_start=args.vin_start,
-            vin_stop=args.vin_stop,
-            vin_step=args.vin_step,
-            vdd=args.vdd,
-        ))
+        result = asyncio.run(
+            scan_comp_hw(
+                vin_start=args.vin_start,
+                vin_stop=args.vin_stop,
+                vin_step=args.vin_step,
+                vdd=args.vdd,
+            )
+        )
         if "threshold" in result:
             print(f"Threshold: {result['threshold']:.4f}V")
         else:
