@@ -26,3 +26,6 @@
 	path = libs/cocotbext-ams
 	url = git@github.com:kcaisley/cocotbext-ams.git
 	branch = netlist-ordering
+[submodule "libs/cocotb"]
+	path = libs/cocotb
+	url = https://github.com/cocotb/cocotb.git

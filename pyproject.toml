@@ -21,6 +21,7 @@ dependencies = [
     "basil-daq",
     "cocotb",
     "cocotb-bus",
+    "cocotbext-ams",
     "spicebind",
     "spyci",
     "vcdvcd",
@@ -51,6 +52,8 @@ vlsir = { path = "libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "libs/Vlsir/VlsirTools", editable = true }
 basil-daq = { path = "libs/basil", editable = true }
 spicebind = { path = "libs/spicebind", editable = true }
+cocotb = { path = "libs/cocotb", editable = true }
+cocotbext-ams = { path = "libs/cocotbext-ams", editable = true }
 
 [tool.pyright]
 # Keep a single pyright config here. Zed uses basedpyright for Python,
@@ -75,10 +78,16 @@ ignore = ["E741"]  # Allow 'l' for transistor length
 [tool.ruff.lint.per-file-ignores]
 "**/old/**" = ["F841", "F401"]
 
+[project.entry-points.pytest11]
+cocotb = "cocotb_tools.pytest.plugin"
+
 [tool.pytest.ini_options]
 addopts = ["-k", "not test_plot"]
-testpaths = ["flow", "pdk"]
+testpaths = ["flow", "pdk", "tests"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
+markers = [
+    "hw: requires physical FPGA hardware (skip with -m 'not hw')",
+]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
 # Vlsir pins protobuf~=4.23 (in libs/Vlsir/bindings/python/setup.py),
