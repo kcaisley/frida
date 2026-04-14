@@ -310,6 +310,114 @@ def flash(filepath):
             vivado.close()
 
 
+def check():
+    """Check JTAG connectivity: USB programmer, cable, and FPGA device."""
+    import subprocess
+
+    # --- USB programmer ---
+    log.info("Checking USB for Xilinx JTAG programmer...")
+    try:
+        lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
+        xilinx_lines = [l for l in lsusb.stdout.splitlines() if "xilinx" in l.lower()]
+        if not xilinx_lines:
+            log.error("FAIL: No Xilinx USB device found. Check that the JTAG cable is plugged in.")
+            return
+        for line in xilinx_lines:
+            log.info("  USB: %s", line.strip())
+    except FileNotFoundError:
+        log.warning("lsusb not available, skipping USB check")
+
+    # --- Vivado JTAG scan ---
+    log.info("Launching Vivado to scan JTAG chain...")
+    vivado = None
+    for cmd in ("vivado_lab -mode tcl", "vivado -mode tcl"):
+        try:
+            vivado = pexpect.spawn(cmd, cwd=str(_FPGA_DIR), timeout=10)
+            vivado.expect("Vivado", timeout=10)
+            break
+        except pexpect.exceptions.ExceptionPexpect:
+            if vivado and vivado.isalive():
+                vivado.close()
+            vivado = None
+
+    if vivado is None:
+        log.error("FAIL: Cannot start vivado or vivado_lab. Is Vivado sourced?")
+        return
+
+    try:
+        vivado.expect(["vivado_lab%", "Vivado%"], timeout=30)
+        vivado.sendline("open_hw_manager")
+        vivado.expect(["vivado_lab%", "Vivado%"])
+        vivado.sendline("connect_hw_server")
+        vivado.expect("localhost")
+        _read_vivado_output(vivado)
+
+        # List targets
+        vivado.sendline('puts "TARGETS:[get_hw_targets]"')
+        vivado.expect(["vivado_lab%", "Vivado%"])
+        target_output = vivado.before.decode("utf-8", errors="replace")
+        if "TARGETS:" in target_output:
+            targets = target_output.split("TARGETS:")[1].strip().split()
+        else:
+            targets = []
+
+        if not targets:
+            log.error("FAIL: No JTAG targets found. Check cable and drivers.")
+            return
+        log.info("  JTAG target: %s", targets[0])
+
+        # Open target and scan for devices
+        vivado.sendline(f"open_hw_target {{{targets[0]}}}")
+        vivado.expect(["vivado_lab%", "Vivado%"], timeout=15)
+        open_output = vivado.before.decode("utf-8", errors="replace")
+
+        if "No devices detected" in open_output:
+            log.error(
+                "FAIL: JTAG target opened but no FPGA detected on the chain.\n"
+                "  The programmer is connected but cannot see an FPGA device.\n"
+                "  Check that:\n"
+                "    - The FPGA board is powered on\n"
+                "    - The FPGA module is seated firmly in the base board\n"
+                "    - The JTAG ribbon cable is on the correct header"
+            )
+            return
+
+        # List devices
+        vivado.sendline('puts "DEVICES:[get_hw_devices]"')
+        vivado.expect(["vivado_lab%", "Vivado%"])
+        dev_output = vivado.before.decode("utf-8", errors="replace")
+        if "DEVICES:" in dev_output:
+            devices = dev_output.split("DEVICES:")[1].strip().split()
+        else:
+            devices = []
+
+        if not devices:
+            log.error("FAIL: No FPGA devices found on JTAG chain.")
+            return
+
+        for dev in devices:
+            vivado.sendline(f"get_property PART [get_hw_devices {{{dev}}}]")
+            vivado.expect(["vivado_lab%", "Vivado%"])
+            part = vivado.before.decode("utf-8", errors="replace").strip().split("\n")[-1].strip()
+            vivado.sendline(f"get_property STATUS [get_hw_devices {{{dev}}}]")
+            vivado.expect(["vivado_lab%", "Vivado%"])
+            status = vivado.before.decode("utf-8", errors="replace").strip().split("\n")[-1].strip()
+            log.info("  Device: %s  Part: %s  Status: %s", dev, part, status)
+
+        log.info("PASS: JTAG chain OK — %d device(s) found", len(devices))
+
+    finally:
+        try:
+            vivado.sendline("close_hw_target")
+            vivado.expect("Closing", timeout=5)
+            vivado.sendline("exit")
+            vivado.expect("Exiting", timeout=5)
+        except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF):
+            pass
+        if vivado.isalive():
+            vivado.close()
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -328,6 +436,11 @@ def main():
         help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG.",
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check JTAG connectivity: USB programmer, cable, FPGA device.",
+    )
+    parser.add_argument(
         "--get_sitcp",
         action="store_true",
         help="Download and patch SiTCP netlist.",
@@ -335,7 +448,7 @@ def main():
 
     args = parser.parse_args()
 
-    if not any([args.compile, args.flash, args.get_sitcp]):
+    if not any([args.compile, args.flash, args.check, args.get_sitcp]):
         parser.print_help()
         return
 
@@ -345,7 +458,9 @@ def main():
     if args.get_sitcp or args.compile:
         get_sitcp()
 
-    if args.compile:
+    if args.check:
+        check()
+    elif args.compile:
         compile(args.compile)
     elif args.flash:
         flash(args.flash)
