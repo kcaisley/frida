@@ -127,51 +127,48 @@ set_property PACKAGE_PIN H19 [get_ports COMP_OUT_P]
 set_property PACKAGE_PIN G20 [get_ports COMP_OUT_N]
 set_property IOSTANDARD LVDS_25 [get_ports COMP_OUT_*]
 
-# ===== FRIDA chip: RJ45 port D (single-ended) =====
-# 4 diff pairs = 8 pins, used as single-ended for SPI + GPIO
-# Pin mapping from bdaq53_KX1.xdc (RJ45 D / IOD block)
-# Signal-to-pin assignment from SCC schematic (J12 RJ45 pinout):
-#   Pin 1: SPI_CS_B  → A18  (DATA_B4_P)
-#   Pin 2: SPI_SDO   → A19  (DATA_B4_N)
-#   Pin 3: SPI_SDI   → F17  (DATA_B2_N)
-#   Pin 4: SPI_SCLK  → E15  (DATA_B3_P)
-#   Pin 5: RST_B     → E16  (DATA_B3_N)
-#   Pin 6: AMPEN_B   → E17  (DATA_B2_P)
-#   Pin 7: V_0V_LO → G15  (DATA_B1_P, level shifter VCCB low ref)
-#   Pin 8: V_2V5_HI → F15  (DATA_B1_N, level shifter VCCB high ref)
-set_property PACKAGE_PIN G15 [get_ports V_0V_LO]
-set_property PACKAGE_PIN F15 [get_ports V_2V5_HI]
-set_property IOSTANDARD LVCMOS25 [get_ports V_0V_LO]
-set_property IOSTANDARD LVCMOS25 [get_ports V_2V5_HI]
-set_property PACKAGE_PIN A18 [get_ports SPI_CS_B]
-set_property PACKAGE_PIN A19 [get_ports SPI_SDO]
-set_property PACKAGE_PIN F17 [get_ports SPI_SDI]
-set_property PACKAGE_PIN E15 [get_ports SPI_SCLK]
-set_property PACKAGE_PIN E16 [get_ports RST_B]
-set_property PACKAGE_PIN E17 [get_ports AMPEN_B]
-set_property IOSTANDARD LVCMOS25 [get_ports SPI_*]
-set_property IOSTANDARD LVCMOS25 [get_ports RST_B]
-set_property IOSTANDARD LVCMOS25 [get_ports AMPEN_B]
+# ===== FRIDA chip 1: RJ45 port D (single-ended, DATA_B pairs) =====
+# DATA_B on Enclustra connector B → BDAQ53 IOD block → RJ45 J1D
+# Straight-through RJ45 cable to chip PCB J14
+#   Pin 1: SPI_SDO    ← E13  (DATA_B4_P)  input from chip
+#   Pin 2: SPI_CS_B   → E12  (DATA_B4_N)  output to chip
+#   Pin 3: SPI_SDI    → B14  (DATA_B3_P)  output to chip (MOSI)
+#   Pin 4: SPI_SCLK   → A14  (DATA_B3_N)  output to chip
+#   Pin 5: RST_B      → B10  (DATA_B2_P)  output to chip
+#   Pin 6: AMPEN_B    → A10  (DATA_B2_N)  output to chip
+#   Pin 7: V_0V_LO    → C16  (DATA_B1_P)  0V level shifter ref
+#   Pin 8: V_2V5_HI   → B16  (DATA_B1_N)  2.5V / VDD_BDAQ
+set_property PACKAGE_PIN E13 [get_ports SPI_SDO]
+set_property PACKAGE_PIN E12 [get_ports SPI_CS_B]
+set_property PACKAGE_PIN B14 [get_ports SPI_SDI]
+set_property PACKAGE_PIN A14 [get_ports SPI_SCLK]
+set_property PACKAGE_PIN B10 [get_ports RST_B]
+set_property PACKAGE_PIN A10 [get_ports AMPEN_B]
+set_property PACKAGE_PIN C16 [get_ports V_0V_LO]
+set_property PACKAGE_PIN B16 [get_ports V_2V5_HI]
+set_property IOSTANDARD LVCMOS25 [get_ports {SPI_SDO SPI_CS_B SPI_SDI SPI_SCLK}]
+set_property IOSTANDARD LVCMOS25 [get_ports {RST_B AMPEN_B V_0V_LO V_2V5_HI}]
 
-# ===== FRIDA chip 2: RJ45 port C (single-ended, DATA_A pairs on Bank 16) =====
-# Same pair-to-signal mapping as port D (DATA_B → DATA_A)
-#   Pin 1: SPI_CS_B_2  → E10  (DATA_A4_P)
-#   Pin 2: SPI_SDO_2   → D10  (DATA_A4_N)
-#   Pin 3: SPI_SDI_2   → D11  (DATA_A2_N)
-#   Pin 4: SPI_SCLK_2  → F14  (DATA_A3_P)
-#   Pin 5: RST_B_2     → F13  (DATA_A3_N)
-#   Pin 6: AMPEN_B_2   → E11  (DATA_A2_P)
-#   Pin 7: V_0V_LO_2   → D14  (DATA_A1_P)
-#   Pin 8: V_2V5_HI_2  → D13  (DATA_A1_N)
-set_property PACKAGE_PIN E10 [get_ports SPI_CS_B_2]
-set_property PACKAGE_PIN D10 [get_ports SPI_SDO_2]
-set_property PACKAGE_PIN D11 [get_ports SPI_SDI_2]
-set_property PACKAGE_PIN F14 [get_ports SPI_SCLK_2]
-set_property PACKAGE_PIN F13 [get_ports RST_B_2]
-set_property PACKAGE_PIN E11 [get_ports AMPEN_B_2]
+# ===== FRIDA chip 2: RJ45 port C (single-ended, DATA_A pairs) =====
+# DATA_A on Enclustra connector B → BDAQ53 IOB block → RJ45 J1C
+# Same signal-to-pin mapping as port D
+#   Pin 1: SPI_SDO_2  ← E10  (DATA_A4_P)  input from chip
+#   Pin 2: SPI_CS_B_2 → D10  (DATA_A4_N)  output to chip
+#   Pin 3: SPI_SDI_2  → F14  (DATA_A3_P)  output to chip (MOSI)
+#   Pin 4: SPI_SCLK_2 → F13  (DATA_A3_N)  output to chip
+#   Pin 5: RST_B_2    → E11  (DATA_A2_P)  output to chip
+#   Pin 6: AMPEN_B_2  → D11  (DATA_A2_N)  output to chip
+#   Pin 7: V_0V_LO_2  → D14  (DATA_A1_P)  0V level shifter ref
+#   Pin 8: V_2V5_HI_2 → D13  (DATA_A1_N)  2.5V / VDD_BDAQ
+set_property PACKAGE_PIN E10 [get_ports SPI_SDO_2]
+set_property PACKAGE_PIN D10 [get_ports SPI_CS_B_2]
+set_property PACKAGE_PIN F14 [get_ports SPI_SDI_2]
+set_property PACKAGE_PIN F13 [get_ports SPI_SCLK_2]
+set_property PACKAGE_PIN E11 [get_ports RST_B_2]
+set_property PACKAGE_PIN D11 [get_ports AMPEN_B_2]
 set_property PACKAGE_PIN D14 [get_ports V_0V_LO_2]
 set_property PACKAGE_PIN D13 [get_ports V_2V5_HI_2]
-set_property IOSTANDARD LVCMOS25 [get_ports {SPI_CS_B_2 SPI_SDO_2 SPI_SDI_2 SPI_SCLK_2}]
+set_property IOSTANDARD LVCMOS25 [get_ports {SPI_SDO_2 SPI_CS_B_2 SPI_SDI_2 SPI_SCLK_2}]
 set_property IOSTANDARD LVCMOS25 [get_ports {RST_B_2 AMPEN_B_2 V_0V_LO_2 V_2V5_HI_2}]
 
 # ===== PMOD debug header (logic analyzer) =====
