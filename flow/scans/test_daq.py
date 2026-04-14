@@ -28,6 +28,7 @@ from flow.scans.chip import (
 )
 from flow.scans.daq import (
     SPI_BASE,
+    GPIO_AMP_EN_BIT,
     GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
     _SPI_MEM,
@@ -146,6 +147,52 @@ async def check_sequencer_loopback(backend):
 
     data_bits = words[0] & 0xFFFF
     assert data_bits != 0, "Captured data is all zeros — loopback may not be working"
+
+
+async def check_gpio_pattern(backend):
+    """Pulse each output pin sequentially for pin identification.
+
+    Use this with a scope to verify the RJ45 pin mapping. Trigger on
+    the first rising edge. Each step is ~50ms apart.
+
+    Expected sequence on chip PCB J14:
+      Step 1: RST_B high       → RJ45 pin 5
+      Step 2: AMPEN_B high     → RJ45 pin 6
+      Step 3: SPI transfer     → RJ45 pin 2 (CS_B low),
+                                  pin 4 (SCLK toggling),
+                                  pin 3 (SDI data)
+    Pin 1 (SPI_SDO) is an input — not driven by FPGA.
+    Pins 7-8 (V_0V_LO, V_2V5_HI) are static supplies.
+    """
+    # Baseline: all GPIO low
+    await gpio_write(backend, 0x00)
+    for _ in range(5):
+        await backend.short_delay()
+
+    # Step 1: pulse RST_B (GPIO bit 0)
+    await gpio_write(backend, 1 << GPIO_RST_B_BIT)
+    for _ in range(5):
+        await backend.short_delay()
+    await gpio_write(backend, 0x00)
+    for _ in range(5):
+        await backend.short_delay()
+
+    # Step 2: pulse AMPEN_B (GPIO bit 1)
+    await gpio_write(backend, 1 << GPIO_AMP_EN_BIT)
+    for _ in range(5):
+        await backend.short_delay()
+    await gpio_write(backend, 0x00)
+    for _ in range(5):
+        await backend.short_delay()
+
+    # Step 3: SPI transfer — CS_B goes low, SCLK toggles, SDI sends 0xAA pattern
+    pattern = bytes([0xAA] * 23)
+    await spi_write(backend, pattern, 180)
+
+    # Return to idle
+    for _ in range(5):
+        await backend.short_delay()
+    await gpio_write(backend, 0x00)
 
 
 async def check_fspi_enable(backend):
@@ -273,6 +320,12 @@ def test_sequencer_runs_hw(hw_backend):
 @pytest.mark.hw
 def test_sequencer_loopback_hw(hw_backend):
     asyncio.run(check_sequencer_loopback(hw_backend))
+
+
+@pytest.mark.hw
+def test_gpio_pattern_hw(hw_backend):
+    """Pulse each output pin sequentially for scope-based pin identification."""
+    asyncio.run(check_gpio_pattern(hw_backend))
 
 
 @pytest.mark.hw
