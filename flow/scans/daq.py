@@ -41,6 +41,8 @@ _SPI_READY = 1
 _SPI_START = 1
 _SPI_SIZE = 3  # 16-bit LE
 _SPI_MEM = 16
+_SPI_MEM_BYTES = 32  # matches daq_core.v MEM_BYTES parameter
+_SPI_RX_MEM = _SPI_MEM + _SPI_MEM_BYTES  # receive RAM starts after transmit RAM
 
 # -------------------------------------------------------------------------
 # GPIO module offsets
@@ -115,12 +117,15 @@ async def spi_write(backend: Backend, data: bytes | Sequence[int], n_bits: int) 
 
 async def spi_read(backend: Backend, n_bits: int) -> bytes:
     """Shift zeros in and return the received data."""
-    n_bytes = n_bits // 8 + 1
+    n_bytes = (n_bits + 7) // 8
+    # Transfer a full number of bytes so every receive RAM position is written
+    # (avoids X values in simulation when n_bits isn't a multiple of 8).
+    xfer_bits = n_bytes * 8
     await backend.write(SPI_BASE + _SPI_MEM, [0] * n_bytes)
-    await backend.write(SPI_BASE + _SPI_SIZE, le16(n_bits))
+    await backend.write(SPI_BASE + _SPI_SIZE, le16(xfer_bits))
     await backend.write(SPI_BASE + _SPI_START, [0x01])
     await backend.wait_for_ready(SPI_BASE + _SPI_READY)
-    return bytes(await backend.read(SPI_BASE + _SPI_MEM, n_bytes))
+    return bytes(await backend.read(SPI_BASE + _SPI_RX_MEM, n_bytes))
 
 
 # -------------------------------------------------------------------------
