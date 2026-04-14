@@ -55,6 +55,16 @@ module daq_top (
     output wire       VSS_LS,           // Level shifter VCCB low reference
     output wire       VDD_LS,           // Level shifter VCCB high reference
 
+    // Second copy of SPI signals
+    output wire       SPI_SCLK_2,
+    output wire       SPI_SDI_2,         // MOSI
+    input wire        SPI_SDO_2,         // MISO
+    output wire       SPI_CS_B_2,
+    output wire       RST_B_2,
+    output wire       AMPEN_B_2,
+    output wire       VSS_LS_2,
+    output wire       VDD_LS_2,
+
     // Comparator output from chip (LVDS)
     input wire        COMP_OUT_P, COMP_OUT_N,
 
@@ -443,6 +453,29 @@ assign vss_ls_int = 1'b0;
 assign vdd_ls_int = 1'b1;
 assign VSS_LS = vss_ls_int;  // Low reference
 assign VDD_LS = vdd_ls_int;  // High reference
+
+// Second copy of chip interface — active-high tie-offs
+(* KEEP = "TRUE" *) wire spi_sclk_2_int;
+(* KEEP = "TRUE" *) wire spi_sdi_2_int;
+(* KEEP = "TRUE" *) wire spi_cs_b_2_int;
+(* KEEP = "TRUE" *) wire rst_b_2_int;
+(* KEEP = "TRUE" *) wire ampen_b_2_int;
+(* KEEP = "TRUE" *) wire vss_ls_2_int;
+(* KEEP = "TRUE" *) wire vdd_ls_2_int;
+assign spi_sclk_2_int  = 1'b1;
+assign spi_sdi_2_int   = 1'b1;
+assign spi_cs_b_2_int  = 1'b1;
+assign rst_b_2_int     = 1'b1;
+assign ampen_b_2_int   = 1'b1;
+assign vss_ls_2_int    = 1'b1;
+assign vdd_ls_2_int    = 1'b1;
+assign SPI_SCLK_2  = spi_sclk_2_int;
+assign SPI_SDI_2   = spi_sdi_2_int;
+assign SPI_CS_B_2  = spi_cs_b_2_int;
+assign RST_B_2     = rst_b_2_int;
+assign AMPEN_B_2   = ampen_b_2_int;
+assign VSS_LS_2    = vss_ls_2_int;
+assign VDD_LS_2    = vdd_ls_2_int;
 
 
 // ===================================================================
