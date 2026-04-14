@@ -152,46 +152,43 @@ async def check_sequencer_loopback(backend):
 async def check_gpio_pattern(backend):
     """Pulse each output pin sequentially for pin identification.
 
-    Use this with a scope to verify the RJ45 pin mapping. Trigger on
-    the first rising edge. Each step is ~50ms apart.
+    Use this with a scope at ~5 µs/div to verify the RJ45 pin mapping.
+    Trigger on the first rising edge.
 
-    Expected sequence on chip PCB J14:
+    Expected sequence on chip PCB J14 (each step ~5 µs apart):
       Step 1: RST_B high       → RJ45 pin 5
       Step 2: AMPEN_B high     → RJ45 pin 6
       Step 3: SPI transfer     → RJ45 pin 2 (CS_B low),
                                   pin 4 (SCLK toggling),
-                                  pin 3 (SDI data)
+                                  pin 3 (SDI 0xAA data)
     Pin 1 (SPI_SDO) is an input — not driven by FPGA.
     Pins 7-8 (V_0V_LO, V_2V5_HI) are static supplies.
+
+    Each GPIO pulse is ~5 µs (HardwareBackend.short_delay = 10 ms,
+    but the actual GPIO write round-trip over UDP is ~5 µs).
+    The SPI transfer sends 256 bits of 0xAA for ~18 µs of activity.
     """
     # Baseline: all GPIO low
     await gpio_write(backend, 0x00)
-    for _ in range(5):
-        await backend.short_delay()
+    await backend.short_delay()
 
     # Step 1: pulse RST_B (GPIO bit 0)
     await gpio_write(backend, 1 << GPIO_RST_B_BIT)
-    for _ in range(5):
-        await backend.short_delay()
     await gpio_write(backend, 0x00)
-    for _ in range(5):
-        await backend.short_delay()
+    await backend.short_delay()
 
     # Step 2: pulse AMPEN_B (GPIO bit 1)
     await gpio_write(backend, 1 << GPIO_AMP_EN_BIT)
-    for _ in range(5):
-        await backend.short_delay()
     await gpio_write(backend, 0x00)
-    for _ in range(5):
-        await backend.short_delay()
+    await backend.short_delay()
 
-    # Step 3: SPI transfer — CS_B goes low, SCLK toggles, SDI sends 0xAA pattern
-    pattern = bytes([0xAA] * 23)
-    await spi_write(backend, pattern, 180)
+    # Step 3: SPI transfer — CS_B goes low, SCLK toggles, SDI sends 0xAA
+    # Send 256 bits (full SPI memory) for a longer, more visible burst
+    pattern = bytes([0xAA] * 32)
+    await spi_write(backend, pattern, 256)
 
     # Return to idle
-    for _ in range(5):
-        await backend.short_delay()
+    await backend.short_delay()
     await gpio_write(backend, 0x00)
 
 
