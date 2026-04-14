@@ -172,18 +172,20 @@ async def check_gpio_pattern(backend):
     await gpio_write(backend, 0x00)
     await backend.short_delay()
 
-    # All steps back-to-back (no delays between them).
-    # Each GPIO write takes ~5 µs round-trip over UDP.
+    # Steps use stacking: each GPIO write sets a new bit pattern without
+    # clearing first, so transitions are one UDP round-trip apart (~200 µs).
+    #
+    # Timeline:
+    #   t=0:    RST_B rises (bit 0)
+    #   t+200µs: RST_B falls, AMPEN_B rises (bit 1)
+    #   t+400µs: AMPEN_B falls, SPI transfer starts (CS_B low, SCLK, SDI)
 
-    # Step 1: pulse RST_B (GPIO bit 0)
+    # Step 1: RST_B high
     await gpio_write(backend, 1 << GPIO_RST_B_BIT)
-    await gpio_write(backend, 0x00)
-
-    # Step 2: pulse AMPEN_B (GPIO bit 1)
+    # Step 2: switch to AMPEN_B (RST_B drops, AMPEN_B rises in one write)
     await gpio_write(backend, 1 << GPIO_AMP_EN_BIT)
+    # Step 3: clear GPIO, immediately start SPI transfer
     await gpio_write(backend, 0x00)
-
-    # Step 3: SPI transfer — CS_B goes low, SCLK toggles, SDI sends 0xAA
     pattern = bytes([0xAA] * 32)
     await spi_write(backend, pattern, 256)
 
