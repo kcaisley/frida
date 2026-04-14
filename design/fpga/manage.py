@@ -428,6 +428,15 @@ quit
         return
 
     devices = [l for l in frida_lines if l.startswith("FRIDA:DEVICE:")]
+    if not devices:
+        log.error(
+            "FAIL: JTAG target opened but no FPGA devices found.\n"
+            "  Check that:\n"
+            "    - The FPGA module is seated firmly in the base board\n"
+            "    - The JTAG ribbon cable is on the correct header"
+        )
+        return
+
     for l in devices:
         _, _, name, part, status = l.split(":", 4)
         log.info("  Device: %s  Part: %s  Status: %s", name, part, status)
