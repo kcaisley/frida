@@ -63,7 +63,7 @@ set_property PACKAGE_PIN G14 [get_ports EEPROM_CS]
 set_property PACKAGE_PIN H11 [get_ports EEPROM_SK]
 set_property PACKAGE_PIN D8 [get_ports EEPROM_DI]
 set_property PACKAGE_PIN A8 [get_ports EEPROM_DO]
-set_property IOSTANDARD LVCMOS33 [get_ports EEPROM_*]
+set_property IOSTANDARD LVCMOS25 [get_ports EEPROM_*]
 
 # ===== Ethernet (RGMII) =====
 set_property SLEW FAST [get_ports mdio_phy_mdc]
@@ -170,8 +170,8 @@ set_property PACKAGE_PIN F13 [get_ports RST_B_2]
 set_property PACKAGE_PIN E11 [get_ports AMPEN_B_2]
 set_property PACKAGE_PIN D14 [get_ports VSS_LS_2]
 set_property PACKAGE_PIN D13 [get_ports VDD_LS_2]
-set_property IOSTANDARD LVCMOS33 [get_ports {SPI_CS_B_2 SPI_SDO_2 SPI_SDI_2 SPI_SCLK_2}]
-set_property IOSTANDARD LVCMOS33 [get_ports {RST_B_2 AMPEN_B_2 VSS_LS_2 VDD_LS_2}]
+set_property IOSTANDARD LVCMOS25 [get_ports {SPI_CS_B_2 SPI_SDO_2 SPI_SDI_2 SPI_SCLK_2}]
+set_property IOSTANDARD LVCMOS25 [get_ports {RST_B_2 AMPEN_B_2 VSS_LS_2 VDD_LS_2}]
 
 # ===== PMOD debug header (logic analyzer) =====
 # Index matches schematic net name: PMOD[0] = Pin 1, PMOD[7] = Pin 10
