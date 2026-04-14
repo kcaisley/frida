@@ -182,6 +182,21 @@ def flash(filepath):
     try:
         vivado.expect(["vivado_lab%", "Vivado%"], timeout=30)
 
+        # --- Check USB programmer is visible to the OS ---
+        try:
+            import subprocess
+
+            lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
+            if "xilinx" not in lsusb.stdout.lower():
+                raise RuntimeError(
+                    "No Xilinx USB programmer found (lsusb shows no Xilinx device).\n"
+                    "Check that the JTAG cable is plugged in."
+                )
+            log.info("JTAG programmer found on USB")
+        except FileNotFoundError:
+            pass  # lsusb not available, skip check
+
+        # --- Connect to JTAG ---
         log.info("Connecting to JTAG interface")
         vivado.sendline("open_hw_manager")
         vivado.expect(["vivado_lab%", "Vivado%"])
@@ -194,14 +209,46 @@ def flash(filepath):
         ret = _read_vivado_output(vivado)
         log.info("Connected to: %s", ret.strip())
         if "WARNING" in ret:
-            raise RuntimeError(f"No JTAG programmer found:\n{ret}")
+            raise RuntimeError(
+                "No JTAG target found. The USB programmer is connected but\n"
+                "Vivado cannot find a JTAG target. Check the cable."
+            )
 
         vivado.sendline("open_hw_target")
-        vivado.expect("Opening hw_target")
+        try:
+            vivado.expect("Opening hw_target", timeout=10)
+        except pexpect.exceptions.TIMEOUT:
+            raise RuntimeError(
+                "Failed to open JTAG target. The programmer is connected but\nthe target did not respond."
+            )
+
+        # --- Check for FPGA device on the JTAG chain ---
+        vivado.sendline('puts "DEVLIST:[get_hw_devices]"')
+        vivado.expect(["vivado_lab%", "Vivado%"])
+        dev_output = _read_vivado_output(vivado)
+        # get_hw_devices may have already printed into the buffer
+        vivado.sendline('puts "DEVCOUNT:[llength [get_hw_devices]]"')
+        vivado.expect(["vivado_lab%", "Vivado%"])
+        count_output = _read_vivado_output(vivado)
+
+        if "DEVCOUNT:0" in count_output or "No devices" in dev_output:
+            raise RuntimeError(
+                "No FPGA detected on the JTAG chain.\n"
+                "The JTAG programmer is connected but cannot see an FPGA device.\n"
+                "Check that:\n"
+                "  - The FPGA board is powered on\n"
+                "  - The FPGA module is seated firmly in the base board\n"
+                "  - The JTAG ribbon cable is on the correct header"
+            )
 
         vivado.sendline("current_hw_device [lindex [get_hw_devices] 0]")
         vivado.expect(["vivado_lab%", "Vivado%"])
-        _read_vivado_output(vivado)
+        ret = _read_vivado_output(vivado)
+        if "ERROR" in ret:
+            raise RuntimeError(
+                "No FPGA detected on the JTAG chain.\nCheck that the board is powered and the module is seated."
+            )
+        log.info("FPGA device found")
 
         if filepath.endswith((".bit", ".bin")):
             log.info("Writing to FPGA SRAM (volatile) — %s", filepath)
