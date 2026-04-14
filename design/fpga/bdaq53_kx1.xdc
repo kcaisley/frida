@@ -137,11 +137,12 @@ set_property IOSTANDARD LVDS_25 [get_ports COMP_OUT_*]
 #   Pin 4: SPI_SCLK  → E15  (DATA_B3_P)
 #   Pin 5: RST_B     → E16  (DATA_B3_N)
 #   Pin 6: AMPEN_B   → E17  (DATA_B2_P)
-#   Pin 7: VSS_LS → G15  (DATA_B1_P, level shifter VCCB low ref)
-#   Pin 8: VDD_LS → F15  (DATA_B1_N, level shifter VCCB high ref)
-set_property PACKAGE_PIN G15 [get_ports VSS_LS]
-set_property PACKAGE_PIN F15 [get_ports VDD_LS]
-set_property IOSTANDARD LVCMOS25 [get_ports V*_LS]
+#   Pin 7: V_0V_LO → G15  (DATA_B1_P, level shifter VCCB low ref)
+#   Pin 8: V_2V5_HI → F15  (DATA_B1_N, level shifter VCCB high ref)
+set_property PACKAGE_PIN G15 [get_ports V_0V_LO]
+set_property PACKAGE_PIN F15 [get_ports V_2V5_HI]
+set_property IOSTANDARD LVCMOS25 [get_ports V_0V_LO]
+set_property IOSTANDARD LVCMOS25 [get_ports V_2V5_HI]
 set_property PACKAGE_PIN A18 [get_ports SPI_CS_B]
 set_property PACKAGE_PIN A19 [get_ports SPI_SDO]
 set_property PACKAGE_PIN F17 [get_ports SPI_SDI]
@@ -160,18 +161,18 @@ set_property IOSTANDARD LVCMOS25 [get_ports AMPEN_B]
 #   Pin 4: SPI_SCLK_2  → F14  (DATA_A3_P)
 #   Pin 5: RST_B_2     → F13  (DATA_A3_N)
 #   Pin 6: AMPEN_B_2   → E11  (DATA_A2_P)
-#   Pin 7: VSS_LS_2    → D14  (DATA_A1_P)
-#   Pin 8: VDD_LS_2    → D13  (DATA_A1_N)
+#   Pin 7: V_0V_LO_2   → D14  (DATA_A1_P)
+#   Pin 8: V_2V5_HI_2  → D13  (DATA_A1_N)
 set_property PACKAGE_PIN E10 [get_ports SPI_CS_B_2]
 set_property PACKAGE_PIN D10 [get_ports SPI_SDO_2]
 set_property PACKAGE_PIN D11 [get_ports SPI_SDI_2]
 set_property PACKAGE_PIN F14 [get_ports SPI_SCLK_2]
 set_property PACKAGE_PIN F13 [get_ports RST_B_2]
 set_property PACKAGE_PIN E11 [get_ports AMPEN_B_2]
-set_property PACKAGE_PIN D14 [get_ports VSS_LS_2]
-set_property PACKAGE_PIN D13 [get_ports VDD_LS_2]
+set_property PACKAGE_PIN D14 [get_ports V_0V_LO_2]
+set_property PACKAGE_PIN D13 [get_ports V_2V5_HI_2]
 set_property IOSTANDARD LVCMOS25 [get_ports {SPI_CS_B_2 SPI_SDO_2 SPI_SDI_2 SPI_SCLK_2}]
-set_property IOSTANDARD LVCMOS25 [get_ports {RST_B_2 AMPEN_B_2 VSS_LS_2 VDD_LS_2}]
+set_property IOSTANDARD LVCMOS25 [get_ports {RST_B_2 AMPEN_B_2 V_0V_LO_2 V_2V5_HI_2}]
 
 # ===== PMOD debug header (logic analyzer) =====
 # Index matches schematic net name: PMOD[0] = Pin 1, PMOD[7] = Pin 10
