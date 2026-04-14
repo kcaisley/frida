@@ -172,24 +172,20 @@ async def check_gpio_pattern(backend):
     await gpio_write(backend, 0x00)
     await backend.short_delay()
 
+    # All steps back-to-back (no delays between them).
+    # Each GPIO write takes ~5 µs round-trip over UDP.
+
     # Step 1: pulse RST_B (GPIO bit 0)
     await gpio_write(backend, 1 << GPIO_RST_B_BIT)
     await gpio_write(backend, 0x00)
-    await backend.short_delay()
 
     # Step 2: pulse AMPEN_B (GPIO bit 1)
     await gpio_write(backend, 1 << GPIO_AMP_EN_BIT)
     await gpio_write(backend, 0x00)
-    await backend.short_delay()
 
     # Step 3: SPI transfer — CS_B goes low, SCLK toggles, SDI sends 0xAA
-    # Send 256 bits (full SPI memory) for a longer, more visible burst
     pattern = bytes([0xAA] * 32)
     await spi_write(backend, pattern, 256)
-
-    # Return to idle
-    await backend.short_delay()
-    await gpio_write(backend, 0x00)
 
 
 async def check_fspi_enable(backend):
