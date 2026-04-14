@@ -215,23 +215,9 @@ def flash(filepath):
             )
 
         vivado.sendline("open_hw_target")
-        try:
-            vivado.expect("Opening hw_target", timeout=10)
-        except pexpect.exceptions.TIMEOUT:
-            raise RuntimeError(
-                "Failed to open JTAG target. The programmer is connected but\nthe target did not respond."
-            )
-
-        # --- Check for FPGA device on the JTAG chain ---
-        vivado.sendline('puts "DEVLIST:[get_hw_devices]"')
-        vivado.expect(["vivado_lab%", "Vivado%"])
-        dev_output = _read_vivado_output(vivado)
-        # get_hw_devices may have already printed into the buffer
-        vivado.sendline('puts "DEVCOUNT:[llength [get_hw_devices]]"')
-        vivado.expect(["vivado_lab%", "Vivado%"])
-        count_output = _read_vivado_output(vivado)
-
-        if "DEVCOUNT:0" in count_output or "No devices" in dev_output:
+        vivado.expect(["vivado_lab%", "Vivado%"], timeout=15)
+        open_output = vivado.before.decode("utf-8", errors="replace")
+        if "No devices detected" in open_output or "failed" in open_output.lower():
             raise RuntimeError(
                 "No FPGA detected on the JTAG chain.\n"
                 "The JTAG programmer is connected but cannot see an FPGA device.\n"
@@ -243,8 +229,8 @@ def flash(filepath):
 
         vivado.sendline("current_hw_device [lindex [get_hw_devices] 0]")
         vivado.expect(["vivado_lab%", "Vivado%"])
-        ret = _read_vivado_output(vivado)
-        if "ERROR" in ret:
+        dev_output = vivado.before.decode("utf-8", errors="replace")
+        if "ERROR" in dev_output or "Invalid option value" in dev_output:
             raise RuntimeError(
                 "No FPGA detected on the JTAG chain.\nCheck that the board is powered and the module is seated."
             )
