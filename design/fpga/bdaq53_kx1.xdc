@@ -152,6 +152,27 @@ set_property IOSTANDARD LVCMOS25 [get_ports SPI_*]
 set_property IOSTANDARD LVCMOS25 [get_ports RST_B]
 set_property IOSTANDARD LVCMOS25 [get_ports AMPEN_B]
 
+# ===== FRIDA chip 2: RJ45 port C (single-ended, DATA_A pairs on Bank 16) =====
+# Same pair-to-signal mapping as port D (DATA_B → DATA_A)
+#   Pin 1: SPI_CS_B_2  → E10  (DATA_A4_P)
+#   Pin 2: SPI_SDO_2   → D10  (DATA_A4_N)
+#   Pin 3: SPI_SDI_2   → D11  (DATA_A2_N)
+#   Pin 4: SPI_SCLK_2  → F14  (DATA_A3_P)
+#   Pin 5: RST_B_2     → F13  (DATA_A3_N)
+#   Pin 6: AMPEN_B_2   → E11  (DATA_A2_P)
+#   Pin 7: VSS_LS_2    → D14  (DATA_A1_P)
+#   Pin 8: VDD_LS_2    → D13  (DATA_A1_N)
+set_property PACKAGE_PIN E10 [get_ports SPI_CS_B_2]
+set_property PACKAGE_PIN D10 [get_ports SPI_SDO_2]
+set_property PACKAGE_PIN D11 [get_ports SPI_SDI_2]
+set_property PACKAGE_PIN F14 [get_ports SPI_SCLK_2]
+set_property PACKAGE_PIN F13 [get_ports RST_B_2]
+set_property PACKAGE_PIN E11 [get_ports AMPEN_B_2]
+set_property PACKAGE_PIN D14 [get_ports VSS_LS_2]
+set_property PACKAGE_PIN D13 [get_ports VDD_LS_2]
+set_property IOSTANDARD LVCMOS33 [get_ports {SPI_CS_B_2 SPI_SDO_2 SPI_SDI_2 SPI_SCLK_2}]
+set_property IOSTANDARD LVCMOS33 [get_ports {RST_B_2 AMPEN_B_2 VSS_LS_2 VDD_LS_2}]
+
 # ===== PMOD debug header (logic analyzer) =====
 # Index matches schematic net name: PMOD[0] = Pin 1, PMOD[7] = Pin 10
 # Note: bdaq53/tjmonopix2 repos use reversed numbering (Pin1→PMOD[7]) — we don't.
