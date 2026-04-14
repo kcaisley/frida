@@ -113,6 +113,7 @@ def _clean_build_artifacts():
 
 def compile(platform):
     """Compile FPGA bitstream for the given platform using Vivado."""
+    _require_vivado()
     if platform not in TARGETS:
         raise ValueError(f"Unknown platform '{platform}'. Supported: {', '.join(TARGETS)}")
 
@@ -161,6 +162,7 @@ def flash(filepath):
     .bit/.bin files are written to FPGA SRAM (volatile).
     .mcs files are written to SPI flash (persistent).
     """
+    _require_vivado()
     filepath = str(Path(filepath).resolve())
 
     # Try vivado_lab first (free), fall back to full vivado
@@ -310,9 +312,30 @@ def flash(filepath):
             vivado.close()
 
 
+def _require_vivado():
+    """Check that Vivado (or vivado_lab) is on PATH. Raise if not found."""
+    import shutil
+
+    if shutil.which("vivado_lab") or shutil.which("vivado"):
+        return
+    raise RuntimeError(
+        "Neither 'vivado_lab' nor 'vivado' found on PATH.\n"
+        "Source the environment first:\n"
+        "  source /eda/local/scripts/vivado_2025.2.sh"
+    )
+
+
 def check():
-    """Check JTAG connectivity: USB programmer, cable, and FPGA device."""
+    """Check JTAG connectivity: USB programmer, cable, and FPGA device.
+
+    Runs a self-contained TCL script in batch mode to avoid pexpect
+    buffer-parsing issues. The script writes structured output lines
+    prefixed with FRIDA: for easy extraction.
+    """
     import subprocess
+    import tempfile
+
+    _require_vivado()
 
     # --- USB programmer ---
     log.info("Checking USB for Xilinx JTAG programmer...")
@@ -327,95 +350,89 @@ def check():
     except FileNotFoundError:
         log.warning("lsusb not available, skipping USB check")
 
-    # --- Vivado JTAG scan ---
+    # --- Vivado JTAG scan via batch TCL ---
+    tcl_script = """\
+open_hw_manager
+connect_hw_server
+set targets [get_hw_targets]
+if {[llength $targets] == 0} {
+    puts "FRIDA:NO_TARGETS"
+    quit
+}
+puts "FRIDA:TARGET:[lindex $targets 0]"
+if {[catch {open_hw_target [lindex $targets 0]} err]} {
+    puts "FRIDA:OPEN_FAILED:$err"
+    quit
+}
+set devices [get_hw_devices]
+if {[llength $devices] == 0} {
+    puts "FRIDA:NO_DEVICES"
+    close_hw_target
+    quit
+}
+foreach d $devices {
+    set part [get_property PART $d]
+    set status [get_property STATUS $d]
+    puts "FRIDA:DEVICE:$d:$part:$status"
+}
+close_hw_target
+quit
+"""
     log.info("Launching Vivado to scan JTAG chain...")
-    vivado = None
-    for cmd in ("vivado_lab -mode tcl", "vivado -mode tcl"):
-        try:
-            vivado = pexpect.spawn(cmd, cwd=str(_FPGA_DIR), timeout=10)
-            vivado.expect("Vivado", timeout=10)
-            break
-        except pexpect.exceptions.ExceptionPexpect:
-            if vivado and vivado.isalive():
-                vivado.close()
-            vivado = None
+    vivado_cmd = (
+        "vivado_lab" if subprocess.run(["which", "vivado_lab"], capture_output=True).returncode == 0 else "vivado"
+    )
 
-    if vivado is None:
-        log.error("FAIL: Cannot start vivado or vivado_lab. Is Vivado sourced?")
-        return
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tcl", delete=False) as f:
+        f.write(tcl_script)
+        tcl_path = f.name
 
     try:
-        vivado.expect(["vivado_lab%", "Vivado%"], timeout=30)
-        vivado.sendline("open_hw_manager")
-        vivado.expect(["vivado_lab%", "Vivado%"])
-        vivado.sendline("connect_hw_server")
-        vivado.expect("localhost")
-        _read_vivado_output(vivado)
-
-        # List targets
-        vivado.sendline('puts "TARGETS:[get_hw_targets]"')
-        vivado.expect(["vivado_lab%", "Vivado%"])
-        target_output = vivado.before.decode("utf-8", errors="replace")
-        if "TARGETS:" in target_output:
-            targets = target_output.split("TARGETS:")[1].strip().split()
-        else:
-            targets = []
-
-        if not targets:
-            log.error("FAIL: No JTAG targets found. Check cable and drivers.")
-            return
-        log.info("  JTAG target: %s", targets[0])
-
-        # Open target and scan for devices
-        vivado.sendline(f"open_hw_target {{{targets[0]}}}")
-        vivado.expect(["vivado_lab%", "Vivado%"], timeout=15)
-        open_output = vivado.before.decode("utf-8", errors="replace")
-
-        if "No devices detected" in open_output:
-            log.error(
-                "FAIL: JTAG target opened but no FPGA detected on the chain.\n"
-                "  The programmer is connected but cannot see an FPGA device.\n"
-                "  Check that:\n"
-                "    - The FPGA board is powered on\n"
-                "    - The FPGA module is seated firmly in the base board\n"
-                "    - The JTAG ribbon cable is on the correct header"
-            )
-            return
-
-        # List devices
-        vivado.sendline('puts "DEVICES:[get_hw_devices]"')
-        vivado.expect(["vivado_lab%", "Vivado%"])
-        dev_output = vivado.before.decode("utf-8", errors="replace")
-        if "DEVICES:" in dev_output:
-            devices = dev_output.split("DEVICES:")[1].strip().split()
-        else:
-            devices = []
-
-        if not devices:
-            log.error("FAIL: No FPGA devices found on JTAG chain.")
-            return
-
-        for dev in devices:
-            vivado.sendline(f"get_property PART [get_hw_devices {{{dev}}}]")
-            vivado.expect(["vivado_lab%", "Vivado%"])
-            part = vivado.before.decode("utf-8", errors="replace").strip().split("\n")[-1].strip()
-            vivado.sendline(f"get_property STATUS [get_hw_devices {{{dev}}}]")
-            vivado.expect(["vivado_lab%", "Vivado%"])
-            status = vivado.before.decode("utf-8", errors="replace").strip().split("\n")[-1].strip()
-            log.info("  Device: %s  Part: %s  Status: %s", dev, part, status)
-
-        log.info("PASS: JTAG chain OK — %d device(s) found", len(devices))
-
+        result = subprocess.run(
+            [vivado_cmd, "-mode", "batch", "-source", tcl_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(_FPGA_DIR),
+        )
+        output = result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        log.error("FAIL: Vivado timed out scanning JTAG chain.")
+        return
     finally:
-        try:
-            vivado.sendline("close_hw_target")
-            vivado.expect("Closing", timeout=5)
-            vivado.sendline("exit")
-            vivado.expect("Exiting", timeout=5)
-        except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF):
-            pass
-        if vivado.isalive():
-            vivado.close()
+        Path(tcl_path).unlink(missing_ok=True)
+
+    # Parse structured output
+    frida_lines = [l for l in output.splitlines() if l.startswith("FRIDA:")]
+
+    if any("NO_TARGETS" in l for l in frida_lines):
+        log.error("FAIL: No JTAG targets found. Check cable and drivers.")
+        return
+
+    for l in frida_lines:
+        if l.startswith("FRIDA:TARGET:"):
+            log.info("  JTAG target: %s", l.split(":", 2)[2])
+
+    if any("OPEN_FAILED" in l for l in frida_lines):
+        log.error(
+            "FAIL: JTAG target found but no FPGA detected on the chain.\n"
+            "  Check that:\n"
+            "    - The FPGA board is powered on\n"
+            "    - The FPGA module is seated firmly in the base board\n"
+            "    - The JTAG ribbon cable is on the correct header"
+        )
+        return
+
+    if any("NO_DEVICES" in l for l in frida_lines):
+        log.error("FAIL: JTAG target opened but no FPGA devices found.")
+        return
+
+    devices = [l for l in frida_lines if l.startswith("FRIDA:DEVICE:")]
+    for l in devices:
+        _, _, name, part, status = l.split(":", 4)
+        log.info("  Device: %s  Part: %s  Status: %s", name, part, status)
+
+    log.info("PASS: JTAG chain OK — %d device(s) found", len(devices))
 
 
 def main():
