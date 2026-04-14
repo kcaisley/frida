@@ -19,6 +19,7 @@ from pathlib import Path
 import cocotb
 import numpy as np
 import pytest
+from bitarray import bitarray
 from cocotb.clock import Clock
 
 from flow.scans.chip import (
@@ -37,6 +38,7 @@ from flow.scans.daq import (
     gpio_write,
     seq_load,
     seq_trigger,
+    spi_read,
     spi_write,
 )
 
@@ -146,6 +148,34 @@ async def check_sequencer_loopback(backend):
 
     data_bits = words[0] & 0xFFFF
     assert data_bits != 0, "Captured data is all zeros — loopback may not be working"
+
+
+async def check_spi_scan(backend):
+    """Write a known 180-bit pattern to the chip's SPI register, read back, verify.
+
+    Scan-chain integrity test: shift a pattern into the FRIDA chip's 180-bit
+    shift register, then shift it back out by clocking in zeros. The readback
+    should match what was written.
+
+    Only meaningful with the FRIDA chip connected — in simulation the testbench
+    uses direct MOSI→MISO loopback (no register in between).
+    """
+    tx_bits = bitarray(180)
+    for i in range(180):
+        tx_bits[i] = i % 2  # alternating 0/1
+
+    await spi_write(backend, tx_bits.tobytes(), 180)
+
+    rx_raw = await spi_read(backend, 180)
+    rx_bits = bitarray()
+    rx_bits.frombytes(rx_raw)
+    rx_bits = rx_bits[:180]
+
+    assert rx_bits == tx_bits, (
+        f"SPI scan chain mismatch ({(tx_bits ^ rx_bits).count(1)}/180 bits differ):\n"
+        f"  sent: {tx_bits.tobytes().hex()}\n"
+        f"  recv: {rx_bits.tobytes().hex()}"
+    )
 
 
 async def check_fspi_enable(backend):
@@ -273,6 +303,12 @@ def test_sequencer_runs_hw(hw_backend):
 @pytest.mark.hw
 def test_sequencer_loopback_hw(hw_backend):
     asyncio.run(check_sequencer_loopback(hw_backend))
+
+
+@pytest.mark.hw
+def test_spi_scan_hw(hw_backend):
+    """Scan test: write known pattern to FRIDA SPI register, verify readback."""
+    asyncio.run(check_spi_scan(hw_backend))
 
 
 @pytest.mark.hw
