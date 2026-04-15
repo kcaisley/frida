@@ -61,7 +61,7 @@ daq/dut/\#auto_saved_files\#
 _autosave-*
 
 # Vivado / FPGA
-design/fpga/SiTCP/
+design/fpga/SiTCP
 design/fpga/bit/
 design/fpga/build/
 design/fpga/reports/

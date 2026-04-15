@@ -146,10 +146,14 @@ PLLE2_BASE #(
 
     .CLKOUT0_DIVIDE(2),        // 800/2 = 400 MHz (SEQ_CLK)
     .CLKOUT0_DUTY_CYCLE(0.5),
-    .CLKOUT0_PHASE(0.0)
+    .CLKOUT0_PHASE(0.0),
+
+    .CLKOUT1_DIVIDE(80),       // 800/80 = 10 MHz (SPI_CLK)
+    .CLKOUT1_DUTY_CYCLE(0.5),
+    .CLKOUT1_PHASE(0.0)
 ) PLLE2_BASE_seq (
     .CLKOUT0(SEQ_CLK_PLL),
-    .CLKOUT1(),
+    .CLKOUT1(SPI_CLK_PLL),
     .CLKOUT2(),
     .CLKOUT3(),
     .CLKOUT4(),
@@ -163,8 +167,9 @@ PLLE2_BASE #(
 );
 
 (* KEEP = "{TRUE}" *) wire BUS_CLK;
-wire CLK125TX, CLK125TX90, CLK125RX, SEQ_CLK;
+wire CLK125TX, CLK125TX90, CLK125RX, SEQ_CLK, SPI_CLK;
 BUFG BUFG_inst_BUS_CLK   ( .O(BUS_CLK),    .I(BUS_CLK_PLL)   );
+BUFG BUFG_inst_SPI_CLK   ( .O(SPI_CLK),    .I(SPI_CLK_PLL)   );
 BUFG BUFG_inst_CLK125TX  ( .O(CLK125TX),   .I(CLK125PLLTX)   );
 BUFG BUFG_inst_CLK125TX90( .O(CLK125TX90), .I(CLK125PLLTX90)  );
 BUFG BUFG_inst_CLK125RX  ( .O(CLK125RX),   .I(rgmii_rxc)      );
@@ -422,7 +427,7 @@ daq_core i_frida_core (
     .clk_comp(clk_comp_int),
     .clk_logic(clk_logic_int),
 
-    .spi_clk(BUS_CLK),         // SPI module divides internally
+    .spi_clk(SPI_CLK),         // 10 MHz SPI clock
     .spi_sclk(SPI_SCLK),
     .spi_sdi(SPI_SDI),
     .spi_sdo(SPI_SDO),
