@@ -132,7 +132,7 @@ PLLE2_BASE #(
 //   100 MHz * 8 = 800 MHz VCO
 //   2.5ns step → 40 steps per 100ns conversion = 10 Msps
 // ===================================================================
-wire SEQ_CLK_PLL;
+wire SEQ_CLK_PLL, SPI_CLK_PLL;
 wire PLL2_FEEDBACK, LOCKED2;
 
 PLLE2_BASE #(
