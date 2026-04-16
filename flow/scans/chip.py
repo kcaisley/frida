@@ -411,7 +411,10 @@ class HardwareBackend:
         return bytes(self._daq["fifo"].get_data())
 
     async def reset_fifo(self) -> None:
-        self._daq["fifo"].reset()
+        # sitcp_fifo has no reset() method. Drain any stale bytes that
+        # accumulated in the TCP stream since the last conversion so the
+        # next read starts clean.
+        self._daq["fifo"].get_data()
 
     async def short_delay(self) -> None:
         time.sleep(0.01)
