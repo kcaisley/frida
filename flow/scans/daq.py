@@ -115,12 +115,20 @@ async def spi_write(backend: Backend, data: bytes | Sequence[int], n_bits: int) 
     await backend.wait_for_ready(SPI_BASE + _SPI_READY)
 
 
-async def spi_read(backend: Backend, n_bits: int) -> bytes:
-    """Shift zeros in and return the received data."""
+async def spi_read(backend: Backend, n_bits: int, *, exact_bits: bool = False) -> bytes:
+    """Shift zeros in and return the received data.
+
+    Args:
+        backend: Transport backend for DAQ register access.
+        n_bits: Number of SPI bits to shift.
+        exact_bits: If True, request exactly ``n_bits`` clock cycles from the
+            SPI core. If False, round up to a full number of bytes to ensure
+            every RX RAM byte is written.
+    """
     n_bytes = (n_bits + 7) // 8
-    # Transfer a full number of bytes so every receive RAM position is written
-    # (avoids X values in simulation when n_bits isn't a multiple of 8).
-    xfer_bits = n_bytes * 8
+    # By default transfer a full number of bytes so every receive RAM position
+    # is written (avoids X values in simulation when n_bits isn't a multiple of 8).
+    xfer_bits = n_bits if exact_bits else (n_bytes * 8)
     await backend.write(SPI_BASE + _SPI_MEM, [0] * n_bytes)
     await backend.write(SPI_BASE + _SPI_SIZE, le16(xfer_bits))
     await backend.write(SPI_BASE + _SPI_START, [0x01])

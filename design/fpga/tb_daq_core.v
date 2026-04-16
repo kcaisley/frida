@@ -16,6 +16,7 @@
 module tb_daq_core (
     input wire          BUS_CLK,
     input wire          SEQ_CLK,
+    input wire          SPI_CLK,
     input wire          BUS_RST,
     input wire  [31:0]  BUS_ADD,
     inout wire  [7:0]   BUS_DATA,
@@ -48,7 +49,7 @@ module tb_daq_core (
         .clk_comp       (),
         .clk_logic      (),
 
-        .spi_clk        (BUS_CLK),
+        .spi_clk        (SPI_CLK),
         .spi_sclk       (),
         .spi_sdi        (spi_sdi),
         .spi_sdo        (spi_sdi),       // SPI loopback

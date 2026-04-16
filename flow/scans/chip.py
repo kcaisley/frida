@@ -205,8 +205,70 @@ class SimBackend:
     async def write(self, addr: int, data: Sequence[int]) -> None:
         await self._bus.write(addr, list(data))
 
+    @staticmethod
+    def _logic_to_u8_with_xz_as_zero(value) -> int:
+        """Convert a cocotb Logic/LogicArray value to a byte, mapping X/Z to 0."""
+        bits = str(value)
+        cleaned = "".join("0" if ch in "xXzZuUwWlLhH-" else ch for ch in bits)
+        if len(cleaned) > 8:
+            cleaned = cleaned[-8:]
+        return int(cleaned, 2) & 0xFF
+
     async def read(self, addr: int, size: int) -> list[int]:
-        return list(await self._bus.read(addr, size))
+        """Read bytes from the simulated bus.
+
+        Falls back to a tolerant implementation when the bus value contains
+        X/Z bits, which can happen for the final partial byte of an exact-bit
+        SPI transfer in simulation.
+        """
+        from cocotb.triggers import RisingEdge
+
+        try:
+            return list(await self._bus.read(addr, size))
+        except ValueError:
+            result = []
+
+            self._bus.bus.BUS_DATA.value = self._bus._high_impedance
+            self._bus.bus.BUS_ADD.value = self._bus._x
+            self._bus.bus.BUS_RD.value = 0
+
+            await RisingEdge(self._bus.clock)
+
+            byte = 0
+            while byte <= size:
+                if byte == size:
+                    self._bus.bus.BUS_RD.value = 0
+                else:
+                    self._bus.bus.BUS_RD.value = 1
+
+                self._bus.bus.BUS_ADD.value = addr + byte
+
+                await RisingEdge(self._bus.clock)
+
+                if byte != 0:
+                    bus_val = self._bus.bus.BUS_DATA.value
+                    if self._bus._has_byte_acces and self._bus.bus.BUS_BYTE_ACCESS.value == 0:
+                        word = str(bus_val)
+                        if len(word) < 32:
+                            word = word.rjust(32, "0")
+                        for i in range(0, 32, 8):
+                            result.append(self._logic_to_u8_with_xz_as_zero(word[i : i + 8]))
+                    else:
+                        if len(bus_val) == 8:
+                            result.append(self._logic_to_u8_with_xz_as_zero(bus_val))
+                        else:
+                            result.append(self._logic_to_u8_with_xz_as_zero(bus_val[7:0]))
+
+                if self._bus._has_byte_acces and self._bus.bus.BUS_BYTE_ACCESS.value == 0:
+                    byte += 4
+                else:
+                    byte += 1
+
+            self._bus.bus.BUS_ADD.value = self._bus._x
+            self._bus.bus.BUS_DATA.value = self._bus._high_impedance
+            await RisingEdge(self._bus.clock)
+
+            return result
 
     async def wait_for_ready(self, addr: int, timeout: int = 10000) -> None:
         from cocotb.triggers import RisingEdge
@@ -338,14 +400,22 @@ class Frida:
         with open(reg_path) as f:
             self._registers = yaml.safe_load(f)
 
-    async def init(self) -> None:
-        """Initialize the backend, sequencer, fast_spi_rx, and chip."""
+    async def init(self, write_initial_spi: bool = True) -> None:
+        """Initialize the backend, sequencer, fast_spi_rx, and chip.
+
+        Args:
+            write_initial_spi: If True, preload the chip SPI register with the
+                current local ``spi_bits`` contents immediately after reset.
+                Set False for tests that need to control the first SPI
+                transaction shape explicitly.
+        """
         await self._backend.init()
         await self._configure_sequencer()
         await fspi_reset(self._backend)
         await fspi_set_en(self._backend, True)
         await self.reset()
-        await self.write_spi()
+        if write_initial_spi:
+            await self.write_spi()
         logger.info("FRIDA chip initialized")
 
     # -----------------------------------------------------------------
@@ -471,9 +541,15 @@ class Frida:
         """Shift the current SPI bit array into the chip."""
         await spi_write(self._backend, self.spi_bits.tobytes(), SPI_BITS)
 
-    async def read_spi(self) -> bitarray:
-        """Read back the SPI register contents from the chip."""
-        raw = await spi_read(self._backend, SPI_BITS)
+    async def read_spi(self, *, exact_bits: bool = False) -> bitarray:
+        """Read back the SPI register contents from the chip.
+
+        Args:
+            exact_bits: If True, request exactly ``SPI_BITS`` clock cycles from
+                the SPI master. If False, round the transfer up to a full number
+                of bytes to ensure the entire receive RAM is written.
+        """
+        raw = await spi_read(self._backend, SPI_BITS, exact_bits=exact_bits)
         result = bitarray()
         result.frombytes(raw)
         return result[:SPI_BITS]

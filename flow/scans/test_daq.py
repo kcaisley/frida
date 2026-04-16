@@ -27,11 +27,11 @@ from flow.scans.chip import (
     pack_seq_tracks,
 )
 from flow.scans.daq import (
-    SPI_BASE,
+    _SPI_MEM,
     GPIO_AMP_EN_BIT,
     GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
-    _SPI_MEM,
+    SPI_BASE,
     fspi_read_fifo,
     fspi_reset,
     fspi_set_en,
@@ -210,6 +210,7 @@ async def check_fspi_enable(backend):
 async def sim_spi_loopback(dut):
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
     backend = SimBackend(dut)
     await backend.init()
     await check_spi_loopback(backend)
@@ -219,6 +220,7 @@ async def sim_spi_loopback(dut):
 async def sim_gpio_reset(dut):
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
     backend = SimBackend(dut)
     await backend.init()
     await check_gpio_reset(backend)
@@ -228,6 +230,7 @@ async def sim_gpio_reset(dut):
 async def sim_sequencer_runs(dut):
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
     backend = SimBackend(dut)
     await backend.init()
     await check_sequencer_runs(backend)
@@ -237,6 +240,7 @@ async def sim_sequencer_runs(dut):
 async def sim_sequencer_loopback(dut):
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
     backend = SimBackend(dut)
     await backend.init()
     await check_sequencer_loopback(backend)
@@ -246,6 +250,7 @@ async def sim_sequencer_loopback(dut):
 async def sim_fspi_enable(dut):
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
     backend = SimBackend(dut)
     await backend.init()
     await check_fspi_enable(backend)

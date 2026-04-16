@@ -1,6 +1,7 @@
 """Tests for PDK infrastructure: supply-rail metadata and walker scaling."""
 
 from importlib import import_module
+from pathlib import Path
 
 import hdl21 as h
 import pytest
@@ -12,6 +13,13 @@ from hdl21.pdk import Corner
 def _install_class(tech: str):
     """Import and return the Install class for a given PDK."""
     return import_module(f"pdk.{tech}.pdk_logic").Install
+
+
+_LOCAL_INSTALL_BASES = {
+    "tsmc65": Path("/eda/kits/TSMC/65LP/2024"),
+    "tsmc28": Path("/eda/kits/TSMC/28HPC+/2023_v1.1"),
+    "tower180": Path("/eda/kits/TOWER/ts18is_Rev_6.3.6"),
+}
 
 
 # ==== Supply-Rail Metadata ====
@@ -82,3 +90,41 @@ def test_unitless_mos_dimensions_scale_by_pdk_defaults(
     params = Dut.m.of.params
     assert float(params.w) == pytest.approx(expected_w_m)
     assert float(params.l) == pytest.approx(expected_l_m)
+
+
+# ==== Local PDK Installation ====
+# Relative paths are defined in each PDK's Install.LOCAL_SPICE_FILES (pdk_logic.py).
+# Base installation paths are defined here in the test harness.
+# Run pdk/<tech>/local.sh to populate the local /eda/kits/ cache from asiclab003.
+
+_LOCAL_INSTALL_TECHS = ("tsmc65", "tsmc28", "tower180")
+
+
+def _local_spice_params():
+    """Collect (tech, install, resolved_path) tuples for local-install validation."""
+    params = []
+    for tech in _LOCAL_INSTALL_TECHS:
+        cls = _install_class(tech)
+        install = cls(pdk_path=_LOCAL_INSTALL_BASES[tech])
+        for relpath in cls.LOCAL_SPICE_FILES:
+            params.append(
+                pytest.param(
+                    tech,
+                    install,
+                    install.pdk_path / relpath,
+                    id=f"{tech}/{relpath.name}",
+                )
+            )
+    return params
+
+
+@pytest.mark.parametrize("tech, install, path", _local_spice_params())
+def test_local_pdk_spice_files_exist(tech: str, install, path: Path) -> None:
+    """Verify that locally cached PDK SPICE files are present.
+
+    The test harness supplies each PDK's site-specific base path and instantiates
+    its Install object locally. If this test fails, run:
+        bash pdk/<tech>/local.sh
+    """
+    assert install.pdk_path == _LOCAL_INSTALL_BASES[tech]
+    assert path.exists(), f"Missing local PDK file: {path}\nRun bash pdk/{tech}/local.sh to sync from asiclab003."

@@ -104,6 +104,7 @@ async def scan_comp_sim(dut):
 
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
 
     adc_block = create_adc_block(vdd=vdd)
     bridge = MixedSignalBridge(dut, [adc_block], max_sync_interval_ns=1.0)
@@ -180,6 +181,7 @@ def main():
             print("No transition detected")
     else:
         import os
+
         from cocotb.runner import get_runner
 
         os.environ["SCAN_VIN_START"] = str(args.vin_start)
@@ -194,10 +196,13 @@ def main():
             hdl_toplevel="tb_integration",
             build_dir=str(REPO / "scratch" / "scan_comp"),
             defines=["COCOTBEXT_AMS"],
+            waves=True,
+            timescale=("1ns", "1ps"),
         )
         runner.test(
             hdl_toplevel="tb_integration",
             test_module="flow.scans.scan_comp",
+            waves=True,
         )
 
 

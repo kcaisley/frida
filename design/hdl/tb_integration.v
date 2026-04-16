@@ -17,7 +17,7 @@
  * Clock strategy (follows tj-monopix2 / obelix1 pattern):
  *   - BUS_CLK: input wire, driven by cocotb Clock (160 MHz, 6.25ns period)
  *   - SEQ_CLK: input wire, driven by cocotb Clock (400 MHz, 2.5ns period)
- *   - SPI_CLK: alias of BUS_CLK (matches daq_top.v)
+ *   - SPI_CLK: input wire, driven by cocotb Clock (10 MHz, 100ns period)
  */
 
 `timescale 1ns / 1ps
@@ -26,6 +26,7 @@ module tb_integration(
     // Clocks (driven by cocotb Clock instances)
     input wire          BUS_CLK,
     input wire          SEQ_CLK,
+    input wire          SPI_CLK,
 
     // Basil bus interface (driven by cocotb BasilBusDriver via SiSim)
     input wire          BUS_RST,
@@ -50,13 +51,6 @@ module tb_integration(
     input wreal         vss
 `endif
 );
-
-    // =========================================================================
-    // Clock aliases
-    // =========================================================================
-
-    wire SPI_CLK;
-    assign SPI_CLK = BUS_CLK;              // SPI uses bus clock (matches daq_top.v)
 
     // =========================================================================
     // Interconnect: DAQ core <-> ASIC core

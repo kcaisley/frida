@@ -8,9 +8,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-
 from cocotbext.ams import AnalogBlock, DigitalPin, MixedSignalBridge
 
+from pdk.tsmc65.pdk_logic import Install as Tsmc65Install
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 DESIGN_HDL = REPO / "design" / "hdl"
 DESIGN_FPGA = REPO / "design" / "fpga"
 DESIGN_SPICE = REPO / "design" / "spice"
+TSMC65 = Tsmc65Install(pdk_path=Path("/eda/kits/TSMC/65LP/2024"))
 
 
 # -------------------------------------------------------------------------
@@ -132,7 +133,17 @@ def create_adc_block(vdd: float = 1.2) -> AnalogBlock:
         vdd=vdd,
         vss=0.0,
         tran_step="0.1n",
-        extra_lines=[],
+        extra_lines=[
+            f".lib {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[0]} tt_lib",
+            f".lib {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[0]} pre_simu",
+            f".include {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[2]}",
+            f".include {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[3]}",
+            f".include {DESIGN_SPICE / 'adc_digital.sp'}",
+            f".include {DESIGN_SPICE / 'capdriver.sp'}",
+            f".include {DESIGN_SPICE / 'caparray.sp'}",
+            f".include {DESIGN_SPICE / 'sampswitch.sp'}",
+            f".include {DESIGN_SPICE / 'comp.sp'}",
+        ],
         port_order=_adc_port_order(),
         supplies={
             "vdd_a": vdd,
