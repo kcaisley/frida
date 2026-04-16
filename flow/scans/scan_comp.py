@@ -60,7 +60,7 @@ async def scan_comp(
         en_update=False,
     )
     chip.set_dac_state(astate_p=0x8000, astate_n=0x8000)  # mid-scale
-    await chip.write_spi()
+    await chip.reg_write()
 
     results = []
     for diff in voltages:

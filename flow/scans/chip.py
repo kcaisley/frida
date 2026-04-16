@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -20,19 +22,7 @@ import numpy as np
 import yaml
 from bitarray import bitarray
 
-from flow.scans.daq import (
-    GPIO_AMP_EN_BIT,
-    GPIO_RST_B_BIT,
-    fspi_get_lost_count,
-    fspi_read_fifo,
-    fspi_reset,
-    fspi_set_en,
-    gpio_write,
-    seq_load,
-    seq_trigger,
-    spi_read,
-    spi_write,
-)
+import flow.scans.daq as daq
 
 if TYPE_CHECKING:
     from types import SimpleNamespace
@@ -48,6 +38,69 @@ logger = logging.getLogger(__name__)
 N_ADCS = 16
 SPI_BITS = 180
 N_COMP_BITS = 17
+
+
+# -------------------------------------------------------------------------
+# Typed chip register map
+# -------------------------------------------------------------------------
+
+
+class CfgReg(Enum):
+    """Typed FRIDA configuration-register identifiers."""
+
+    MUX_SEL = "MUX_SEL"
+    DAC_ASTATE_P = "DAC_ASTATE_P"
+    DAC_BSTATE_P = "DAC_BSTATE_P"
+    DAC_ASTATE_N = "DAC_ASTATE_N"
+    DAC_BSTATE_N = "DAC_BSTATE_N"
+    ADC_0 = "ADC_0"
+    ADC_1 = "ADC_1"
+    ADC_2 = "ADC_2"
+    ADC_3 = "ADC_3"
+    ADC_4 = "ADC_4"
+    ADC_5 = "ADC_5"
+    ADC_6 = "ADC_6"
+    ADC_7 = "ADC_7"
+    ADC_8 = "ADC_8"
+    ADC_9 = "ADC_9"
+    ADC_10 = "ADC_10"
+    ADC_11 = "ADC_11"
+    ADC_12 = "ADC_12"
+    ADC_13 = "ADC_13"
+    ADC_14 = "ADC_14"
+    ADC_15 = "ADC_15"
+
+
+@dataclass(frozen=True)
+class CfgRegDef:
+    """Definition of one FRIDA configuration register field."""
+
+    offset: int
+    size: int
+    default: int
+    description: str = ""
+
+
+def _load_cfgreg_defs() -> dict[CfgReg, CfgRegDef]:
+    """Load the typed FRIDA chip register map from map_chip.yaml."""
+    reg_path = Path(__file__).parent / "map_chip.yaml"
+    with open(reg_path) as f:
+        raw = yaml.safe_load(f)
+
+    cfgregs: dict[CfgReg, CfgRegDef] = {}
+    for reg in CfgReg:
+        entry = raw[reg.value]
+        cfgregs[reg] = CfgRegDef(
+            offset=entry["offset"],
+            size=entry["size"],
+            default=entry.get("default", 0),
+            description=entry.get("description", ""),
+        )
+    return cfgregs
+
+
+CFGREG_DEFS = _load_cfgreg_defs()
+ADC_CFGREGS = tuple(getattr(CfgReg, f"ADC_{i}") for i in range(N_ADCS))
 
 
 # -------------------------------------------------------------------------
@@ -395,10 +448,10 @@ class Frida:
 
         self._gpio_out = 0x00
         self._seq_n_steps = 40  # updated by _configure_sequencer
+        self._registers = CFGREG_DEFS
 
-        reg_path = Path(__file__).parent / "map_dut.yaml"
-        with open(reg_path) as f:
-            self._registers = yaml.safe_load(f)
+        for reg, regdef in self._registers.items():
+            self._write_cfgreg_bits(reg, regdef.default)
 
     async def init(self, write_initial_spi: bool = True) -> None:
         """Initialize the backend, sequencer, fast_spi_rx, and chip.
@@ -411,11 +464,11 @@ class Frida:
         """
         await self._backend.init()
         await self._configure_sequencer()
-        await fspi_reset(self._backend)
-        await fspi_set_en(self._backend, True)
+        await daq.fastrx_reset(self._backend)
+        await daq.fastrx_set_en(self._backend, True)
         await self.reset()
         if write_initial_spi:
-            await self.write_spi()
+            await self.reg_write()
         logger.info("FRIDA chip initialized")
 
     # -----------------------------------------------------------------
@@ -424,20 +477,20 @@ class Frida:
 
     async def reset(self) -> None:
         """Toggle RST_B low then high."""
-        self._gpio_out &= ~(1 << GPIO_RST_B_BIT)
-        await gpio_write(self._backend, self._gpio_out)
+        self._gpio_out &= ~(1 << daq.GPIO_RST_B_BIT)
+        await daq.gpio_write(self._backend, self._gpio_out)
         await self._backend.short_delay()
-        self._gpio_out |= 1 << GPIO_RST_B_BIT
-        await gpio_write(self._backend, self._gpio_out)
+        self._gpio_out |= 1 << daq.GPIO_RST_B_BIT
+        await daq.gpio_write(self._backend, self._gpio_out)
         await self._backend.short_delay()
 
     async def set_amplifier_enabled(self, enabled: bool) -> None:
         """Enable or disable the PCB input amplifier (THS4520)."""
         if enabled:
-            self._gpio_out |= 1 << GPIO_AMP_EN_BIT
+            self._gpio_out |= 1 << daq.GPIO_AMP_EN_BIT
         else:
-            self._gpio_out &= ~(1 << GPIO_AMP_EN_BIT)
-        await gpio_write(self._backend, self._gpio_out)
+            self._gpio_out &= ~(1 << daq.GPIO_AMP_EN_BIT)
+        await daq.gpio_write(self._backend, self._gpio_out)
         logger.info("Input amplifier %s", "enabled" if enabled else "disabled")
 
     async def enable_amplifier(self) -> None:
@@ -452,28 +505,30 @@ class Frida:
     # SPI Register Access (pure Python, no I/O)
     # -----------------------------------------------------------------
 
-    def set_register(self, name: str, value: int) -> None:
-        """Set a register value in the local SPI bit array."""
-        if name not in self._registers:
-            raise ValueError(f"Unknown register: {name}")
-        reg = self._registers[name]
-        offset = reg["offset"]
-        size = reg["size"]
-        for i in range(size):
-            self.spi_bits[offset + i] = (value >> i) & 1
+    def _write_cfgreg_bits(self, reg: CfgReg, value: int) -> None:
+        """Write a typed configuration register into the local SPI bit array."""
+        regdef = self._registers[reg]
+        mask = (1 << regdef.size) - 1
+        value &= mask
+        for i in range(regdef.size):
+            self.spi_bits[regdef.offset + i] = (value >> i) & 1
 
-    def get_register(self, name: str) -> int:
-        """Get a register value from the local SPI bit array."""
-        if name not in self._registers:
-            raise ValueError(f"Unknown register: {name}")
-        reg = self._registers[name]
-        offset = reg["offset"]
-        size = reg["size"]
+    def _read_cfgreg_bits(self, reg: CfgReg) -> int:
+        """Read a typed configuration register from the local SPI bit array."""
+        regdef = self._registers[reg]
         value = 0
-        for i in range(size):
-            if self.spi_bits[offset + i]:
+        for i in range(regdef.size):
+            if self.spi_bits[regdef.offset + i]:
                 value |= 1 << i
         return value
+
+    def set_register(self, reg: CfgReg, value: int) -> None:
+        """Set a typed configuration register in the local SPI bit array."""
+        self._write_cfgreg_bits(reg, value)
+
+    def get_register(self, reg: CfgReg) -> int:
+        """Get a typed configuration register from the local SPI bit array."""
+        return self._read_cfgreg_bits(reg)
 
     # -----------------------------------------------------------------
     # ADC Configuration (pure Python, no I/O)
@@ -483,7 +538,7 @@ class Frida:
         """Select which ADC output appears on COMP_OUT."""
         if not 0 <= adc_num < N_ADCS:
             raise ValueError(f"ADC number must be 0-15, got {adc_num}")
-        self.set_register("MUX_SEL", adc_num)
+        self.set_register(CfgReg.MUX_SEL, adc_num)
 
     def enable_adc(
         self,
@@ -508,7 +563,7 @@ class Frida:
             | (int(dac_mode) << 5)
             | (int(dac_diffcaps) << 6)
         )
-        self.set_register(f"ADC_{adc_num}", value)
+        self.set_register(ADC_CFGREGS[adc_num], value)
 
     def enable_all_adcs(self) -> None:
         """Enable all 16 ADCs with default settings."""
@@ -517,8 +572,8 @@ class Frida:
 
     def disable_all_adcs(self) -> None:
         """Disable all 16 ADCs."""
-        for i in range(N_ADCS):
-            self.set_register(f"ADC_{i}", 0)
+        for reg in ADC_CFGREGS:
+            self.set_register(reg, 0)
 
     def set_dac_state(
         self,
@@ -528,28 +583,28 @@ class Frida:
         bstate_n: int = 0,
     ) -> None:
         """Set the shared DAC initial states for all ADCs."""
-        self.set_register("DAC_ASTATE_P", astate_p & 0xFFFF)
-        self.set_register("DAC_BSTATE_P", bstate_p & 0xFFFF)
-        self.set_register("DAC_ASTATE_N", astate_n & 0xFFFF)
-        self.set_register("DAC_BSTATE_N", bstate_n & 0xFFFF)
+        self.set_register(CfgReg.DAC_ASTATE_P, astate_p & 0xFFFF)
+        self.set_register(CfgReg.DAC_BSTATE_P, bstate_p & 0xFFFF)
+        self.set_register(CfgReg.DAC_ASTATE_N, astate_n & 0xFFFF)
+        self.set_register(CfgReg.DAC_BSTATE_N, bstate_n & 0xFFFF)
 
     # -----------------------------------------------------------------
     # Bus Operations (async, use DAQ helpers)
     # -----------------------------------------------------------------
 
-    async def write_spi(self) -> None:
-        """Shift the current SPI bit array into the chip."""
-        await spi_write(self._backend, self.spi_bits.tobytes(), SPI_BITS)
+    async def reg_write(self) -> None:
+        """Shift the current register bit array into the chip."""
+        await daq.spi_write(self._backend, self.spi_bits.tobytes(), SPI_BITS)
 
-    async def read_spi(self, *, exact_bits: bool = False) -> bitarray:
-        """Read back the SPI register contents from the chip.
+    async def reg_read(self, *, exact_bits: bool = False) -> bitarray:
+        """Read back the chip register contents.
 
         Args:
             exact_bits: If True, request exactly ``SPI_BITS`` clock cycles from
                 the SPI master. If False, round the transfer up to a full number
                 of bytes to ensure the entire receive RAM is written.
         """
-        raw = await spi_read(self._backend, SPI_BITS, exact_bits=exact_bits)
+        raw = await daq.spi_read(self._backend, SPI_BITS, exact_bits=exact_bits)
         result = bitarray()
         result.frombytes(raw)
         return result[:SPI_BITS]
@@ -565,18 +620,18 @@ class Frida:
             Array of shape (repetitions, n_conversions, N_COMP_BITS)
             with individual bits (0 or 1), MSB first.
         """
-        await fspi_reset(self._backend)
-        await fspi_set_en(self._backend, True)
+        await daq.fastrx_reset(self._backend)
+        await daq.fastrx_set_en(self._backend, True)
         await self._backend.reset_fifo()
 
         total_steps = self._seq_n_steps * n_conversions
-        await seq_trigger(self._backend, total_steps, repetitions)
+        await daq.seq_trigger(self._backend, total_steps, repetitions)
 
         n_total = n_conversions * repetitions
         n_bytes = n_total * 2 * 4
-        fifo_data = await fspi_read_fifo(self._backend, n_bytes)
+        fifo_data = await daq.fastrx_read_fifo(self._backend, n_bytes)
 
-        lost = await fspi_get_lost_count(self._backend)
+        lost = await daq.fastrx_get_lost_count(self._backend)
         if lost > 0:
             logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
 
@@ -669,7 +724,7 @@ class Frida:
         """Configure an ADC and run conversions."""
         self.select_adc(adc_num)
         self.enable_adc(adc_num)
-        await self.write_spi()
+        await self.reg_write()
 
         bits = await self.run_conversions(n_conversions, repetitions)
         result: dict = {"adc": adc_num, "bits": bits}
@@ -698,4 +753,4 @@ class Frida:
         n_steps = len(seq["CLK_INIT"])
         self._seq_n_steps = n_steps
         mem_data = pack_seq_tracks(seq)
-        await seq_load(self._backend, mem_data, n_steps)
+        await daq.seq_load(self._backend, mem_data, n_steps)

@@ -32,9 +32,9 @@ from flow.scans.daq import (
     GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
     SPI_BASE,
-    fspi_read_fifo,
-    fspi_reset,
-    fspi_set_en,
+    fastrx_read_fifo,
+    fastrx_reset,
+    fastrx_set_en,
     gpio_write,
     seq_load,
     seq_trigger,
@@ -117,11 +117,11 @@ async def check_sequencer_loopback(backend):
     # then reset fast_spi_rx — CDC FIFO needs SCLK edges during reset
     await gpio_write(backend, 1 << GPIO_LOOPBACK_BIT)
     await backend.short_delay()
-    await fspi_reset(backend)
+    await fastrx_reset(backend)
     # Wait for RST_LONG to propagate (128 BUS_CLK cycles)
     for _ in range(40):
         await backend.short_delay()
-    await fspi_set_en(backend, True)
+    await fastrx_set_en(backend, True)
     for _ in range(5):
         await backend.short_delay()
 
@@ -134,7 +134,7 @@ async def check_sequencer_loopback(backend):
 
     await gpio_write(backend, 0x00)
 
-    fifo_data = await fspi_read_fifo(backend, 8)
+    fifo_data = await fastrx_read_fifo(backend, 8)
 
     assert len(fifo_data) >= 4, (
         f"FIFO returned insufficient data ({len(fifo_data)} bytes). "
@@ -195,10 +195,10 @@ async def check_gpio_pattern(backend):
 
 async def check_fspi_enable(backend):
     """Verify fast_spi_rx can be reset and toggled."""
-    await fspi_reset(backend)
-    await fspi_set_en(backend, True)
-    await fspi_set_en(backend, False)
-    await fspi_set_en(backend, True)
+    await fastrx_reset(backend)
+    await fastrx_set_en(backend, True)
+    await fastrx_set_en(backend, False)
+    await fastrx_set_en(backend, True)
 
 
 # =========================================================================

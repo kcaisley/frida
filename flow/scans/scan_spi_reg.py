@@ -77,6 +77,7 @@ async def scan_spi_reg(chip: Frida) -> dict:
         en_update=True,
         dac_diffcaps=True,
     )
+    # this this woulbe better expressed in binary string
     chip.set_dac_state(
         astate_p=0xAAAA,
         bstate_p=0x5555,
@@ -85,8 +86,8 @@ async def scan_spi_reg(chip: Frida) -> dict:
     )
 
     expected = chip.spi_bits.copy()
-    await chip.write_spi()
-    readback = await chip.read_spi(exact_bits=True)
+    await chip.reg_write()
+    readback = await chip.reg_read(exact_bits=True)
 
     # The FPGA-captured second burst is aligned one bit later than the idealized
     # register image because the first return bit emerges at the end of the write

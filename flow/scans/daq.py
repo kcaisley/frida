@@ -125,6 +125,7 @@ async def spi_read(backend: Backend, n_bits: int, *, exact_bits: bool = False) -
             SPI core. If False, round up to a full number of bytes to ensure
             every RX RAM byte is written.
     """
+    # Pack bits into bytes
     n_bytes = (n_bits + 7) // 8
     # By default transfer a full number of bytes so every receive RAM position
     # is written (avoids X values in simulation when n_bits isn't a multiple of 8).
@@ -174,23 +175,23 @@ async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
 # -------------------------------------------------------------------------
 
 
-async def fspi_reset(backend: Backend) -> None:
+async def fastrx_reset(backend: Backend) -> None:
     """Reset the fast_spi_rx module."""
     await backend.write(FAST_SPI_RX_BASE + _FSPI_RESET, [0x01])
 
 
-async def fspi_set_en(backend: Backend, enable: bool) -> None:
+async def fastrx_set_en(backend: Backend, enable: bool) -> None:
     """Enable or disable the fast_spi_rx module."""
     await backend.write(FAST_SPI_RX_BASE + _FSPI_EN, [0x01 if enable else 0x00])
 
 
-async def fspi_get_lost_count(backend: Backend) -> int:
+async def fastrx_get_lost_count(backend: Backend) -> int:
     """Read the fast_spi_rx lost data counter."""
     data = await backend.read(FAST_SPI_RX_BASE + _FSPI_LOST_COUNT, 1)
     return data[0]
 
 
-async def fspi_read_fifo(backend: Backend, n_bytes: int) -> bytes:
+async def fastrx_read_fifo(backend: Backend, n_bytes: int) -> bytes:
     """Read data from the fast_spi_rx / FIFO.
 
     In simulation this reads from bus memory; in hardware this reads
