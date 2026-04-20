@@ -134,7 +134,7 @@ def compile(platform):
         )
 
     try:
-        poll_timeout = 36  # iterations * 5s = 180s max silence
+        poll_timeout = 120  # iterations * 5s = 600s max silence
         silent_count = 0
         while silent_count < poll_timeout:
             output = _read_vivado_output(vivado)
