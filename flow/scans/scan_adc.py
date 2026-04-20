@@ -177,7 +177,7 @@ def main():
     else:
         import os
 
-        from cocotb.runner import get_runner
+        from cocotb_tools.runner import get_runner
 
         os.environ["SCAN_VDD"] = str(args.vdd)
         os.environ["SCAN_N_CONVERSIONS"] = str(args.n_conversions)
