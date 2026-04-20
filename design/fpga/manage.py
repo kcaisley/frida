@@ -7,14 +7,14 @@ Usage (from ~/frida/):
     python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs
 """
 
-import time
-import logging
 import argparse
 import fileinput
+import logging
+import time
 from pathlib import Path
 
-import pexpect
 import git
+import pexpect
 
 log = logging.getLogger("frida.design.fpga.manage")
 
@@ -182,7 +182,7 @@ def flash(filepath):
         raise RuntimeError("Cannot start vivado or vivado_lab")
 
     try:
-        vivado.expect(["vivado_lab%", "Vivado%"], timeout=30)
+        vivado.expect(["vivado_lab%", "Vivado%"], timeout=180)
 
         # --- Check USB programmer is visible to the OS ---
         try:
