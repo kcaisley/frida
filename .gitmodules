@@ -17,7 +17,7 @@
 	branch = spectre
 [submodule "libs/basil"]
 	path = libs/basil
-	url = https://github.com/SiLab-Bonn/basil.git
+	url = git@github.com:SiLab-Bonn/basil.git
 	branch = cosimulation
 [submodule "libs/spicebind"]
 	path = libs/spicebind
