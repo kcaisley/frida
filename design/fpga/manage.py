@@ -111,7 +111,7 @@ def _clean_build_artifacts():
             shutil.rmtree(path)
 
 
-def compile(platform):
+def compile(platform, verbose=False):
     """Compile FPGA bitstream for the given platform using Vivado."""
     _require_vivado()
     if platform not in TARGETS:
@@ -140,9 +140,15 @@ def compile(platform):
             output = _read_vivado_output(vivado)
             if output:
                 if "write_cfgmem completed successfully" in output:
-                    print(".", flush=True)
+                    if verbose:
+                        print(output, end="", flush=True)
+                    else:
+                        print(".", flush=True)
                     break
-                print(".", end="", flush=True)
+                if verbose:
+                    print(output, end="", flush=True)
+                else:
+                    print(".", end="", flush=True)
                 silent_count = 0
             else:
                 time.sleep(5)
@@ -457,6 +463,12 @@ def main():
         help=f"Compile bitstream for platform.\nSupported: {', '.join(TARGETS)}",
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Stream Vivado output during compilation instead of showing dots.",
+    )
+    parser.add_argument(
         "--flash",
         metavar="FILE",
         help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG.",
@@ -487,7 +499,7 @@ def main():
     if args.check:
         check()
     elif args.compile:
-        compile(args.compile)
+        compile(args.compile, verbose=args.verbose)
     elif args.flash:
         flash(args.flash)
 
