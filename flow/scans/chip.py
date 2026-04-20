@@ -112,7 +112,7 @@ def _generate_conversion_sequence(
     conversion_period_ns: int = 100,
     seq_clk_period_ns: float = 2.5,
     init_pulse_ns: float = 5.0,
-    samp_pulse_ns: float = 10.0,
+    samp_pulse_ns: float = 12.5,
     n_comp_bits: int = N_COMP_BITS,
     capture_delay_steps: int = 1,
 ) -> dict[str, list[int]]:
@@ -120,7 +120,7 @@ def _generate_conversion_sequence(
 
     At 400 MHz (2.5 ns/step), 100 ns = 40 steps:
       - CLK_INIT : 5 ns pulse  (2 steps) at t=0
-      - CLK_SAMP : 10 ns pulse (4 steps) at t=5 ns
+      - CLK_SAMP : 12.5 ns pulse (5 steps) at t=5 ns
       - CLK_COMP : 17 pulses, each 2.5 ns, starting at t=15 ns
       - CLK_LOGIC: 16 pulses interleaved with CLK_COMP (first comp is free)
       - CLK_COMP_CAP: capture clock for fast_spi_rx, delayed by capture_delay_steps

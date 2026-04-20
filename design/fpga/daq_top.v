@@ -476,29 +476,16 @@ assign V_2V5_HI_2  = v_2v5_hi_int;
 // ===================================================================
 // PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
 // Pins 5,6,11,12 are GND/VCC — not available as signals.
-// Pins 1-4: sequencer clock outputs
-// Pins 7-10: SPI + reset
-assign PMOD[0] = clk_init_int;   // Pin 1: CLK_INIT
-assign PMOD[1] = clk_samp_int;   // Pin 2: CLK_SAMP
-assign PMOD[2] = clk_comp_int;   // Pin 3: CLK_COMP
-assign PMOD[3] = clk_logic_int;  // Pin 4: CLK_LOGIC
-assign PMOD[4] = SPI_SCLK;       // Pin 7: SPI_SCLK
-assign PMOD[5] = SPI_SDO;        // Pin 8: SPI_SDO
-assign PMOD[6] = SPI_CS_B;       // Pin 9: SPI_CS_B
-// Pin 10: SEQ_CLK (400 MHz) via ODDR
-ODDR #(
-    .DDR_CLK_EDGE("OPPOSITE_EDGE"),
-    .INIT(1'b0),
-    .SRTYPE("SYNC")
-) oddr_seq_clk (
-    .Q(PMOD[7]),
-    .C(SEQ_CLK),
-    .CE(1'b1),
-    .D1(1'b1),
-    .D2(1'b0),
-    .R(1'b0),
-    .S(1'b0)
-);
+// Pins 1-4: SPI interface signals
+// Pins 7-10: sequencer LVDS clock outputs (single-ended, from core)
+assign PMOD[0] = SPI_SCLK;       // Pin 1: SPI_SCLK
+assign PMOD[1] = SPI_SDI;        // Pin 2: SPI_SDI  (MOSI)
+assign PMOD[2] = SPI_SDO;        // Pin 3: SPI_SDO  (MISO)
+assign PMOD[3] = SPI_CS_B;       // Pin 4: SPI_CS_B
+assign PMOD[4] = clk_init_int;   // Pin 7: CLK_INIT
+assign PMOD[5] = clk_samp_int;   // Pin 8: CLK_SAMP
+assign PMOD[6] = clk_comp_int;   // Pin 9: CLK_COMP
+assign PMOD[7] = clk_logic_int;  // Pin 10: CLK_LOGIC
 
 
 // ===================================================================
