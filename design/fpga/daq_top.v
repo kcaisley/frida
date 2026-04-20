@@ -387,7 +387,7 @@ OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_init (
     .O(CLK_INIT_P), .OB(CLK_INIT_N), .I(clk_init_int)
 );
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_samp (
-    .O(CLK_SAMP_P), .OB(CLK_SAMP_N), .I(clk_samp_int)
+    .O(CLK_SAMP_P), .OB(CLK_SAMP_N), .I(~clk_samp_int)  // invert: BDAQ swaps P/N on this lane
 );
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_comp (
     .O(CLK_COMP_P), .OB(CLK_COMP_N), .I(clk_comp_int)
@@ -397,16 +397,19 @@ OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_logic (
 );
 
 // Comparator output from chip (LVDS input)
-wire comp_out_int;
+// The BDAQ board swaps P/N on this lane so the raw IBUFDS output is inverted;
+// comp_out_int corrects the polarity with a NOT gate.
+wire comp_out_raw;
 IBUFDS #(
     .DIFF_TERM("TRUE"),
     .IBUF_LOW_PWR("FALSE"),
     .IOSTANDARD("LVDS_25")
 ) i_ibufds_comp_out (
-    .O(comp_out_int),
+    .O(comp_out_raw),
     .I(COMP_OUT_P),
     .IB(COMP_OUT_N)
 );
+wire comp_out_int = ~comp_out_raw;
 
 
 // ===================================================================

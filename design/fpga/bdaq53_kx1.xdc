@@ -120,10 +120,10 @@ set_property PACKAGE_PIN T17 [get_ports {rgmii_txd[3]}]
 #   CLK_COMP_N    |  K17    |  B166   | CMD_DP2_N/HITOR0_N |     12     |    3    | CLK_COMP_N
 #   CLK_LOGIC_P   |  L19    |  B160   | CMD_DP2_P/HITOR1_P |      7     |    4    | CLK_LOGIC_P
 #   CLK_LOGIC_N   |  L20    |  B162   | CMD_DP2_N/HITOR1_N |      9     |    6    | CLK_LOGIC_N
-#   COMP_OUT_N *  |  H17    |  B154   | CMD_DP2_P/HITOR2_P |      4     |    7    | COMP_OUT_N
-#   COMP_OUT_P *  |  H18    |  B156   | CMD_DP2_N/HITOR2_N |      6     |    9    | COMP_OUT_P
-#   CLK_SAMP_N *  |  G19    |  B148   | CMD_DP2_P/HITOR3_P |      1     |   10    | CLK_SAMP_N
-#   CLK_SAMP_P *  |  F20    |  B150   | CMD_DP2_N/HITOR3_N |      3     |   12    | CLK_SAMP_P
+#   COMP_OUT_P ~  |  H17    |  B154   | CMD_DP2_P/HITOR2_P |      4     |    7    | COMP_OUT_N
+#   COMP_OUT_N ~  |  H18    |  B156   | CMD_DP2_N/HITOR2_N |      6     |    9    | COMP_OUT_P
+#   CLK_SAMP_P ~  |  G19    |  B148   | CMD_DP2_P/HITOR3_P |      1     |   10    | CLK_SAMP_N
+#   CLK_SAMP_N ~  |  F20    |  B150   | CMD_DP2_N/HITOR3_N |      3     |   12    | CLK_SAMP_P
 #   CLK_INIT_P    |  H19    |  B142   | AUX_DP2_P         |     17     |   17    | CLK_INIT_P
 #   CLK_INIT_N    |  G20    |  B144   | AUX_DP2_N         |     15     |   15    | CLK_INIT_N
 #   (* P/N swap in XDC)
@@ -131,19 +131,20 @@ set_property PACKAGE_PIN T17 [get_ports {rgmii_txd[3]}]
 # Notes:
 #   - BDAQ board swaps P/N for all HITOR lanes: HITOR_P→IO_N, HITOR_N→IO_P.
 #   - DP cable reverses ML lane order (L0↔L3, L1↔L2) but not the AUX channel.
-#   - Combined effect requires P/N swap in XDC for CLK_SAMP and COMP_OUT only.
-#   - CLK_COMP and CLK_LOGIC need no swap: BDAQ inversion + DUT PCB inversion cancel.
+#   - CLK_COMP and CLK_LOGIC need no polarity fix: BDAQ inversion + DUT PCB inversion cancel.
+#   - CLK_SAMP and COMP_OUT (~): polarity mismatch compensated in daq_top.v via RTL inversion,
+#     not in XDC — Vivado rejects _P ports on _N package pins. Package pins use P→P, N→N.
 #   - CLK_INIT via AUX: BDAQ also inverts AUX (AUX_P→B144→G20_N, AUX_N→B142→H19_P),
-#     which maps cleanly to CLK_INIT_N/P on the N/P package pins — no XDC swap needed.
+#     which maps cleanly to CLK_INIT_N/P on the N/P package pins — no inversion needed.
 
 set_property PACKAGE_PIN K16 [get_ports CLK_COMP_P]
 set_property PACKAGE_PIN K17 [get_ports CLK_COMP_N]
 set_property PACKAGE_PIN L19 [get_ports CLK_LOGIC_P]
 set_property PACKAGE_PIN L20 [get_ports CLK_LOGIC_N]
-set_property PACKAGE_PIN H18 [get_ports COMP_OUT_P]
-set_property PACKAGE_PIN H17 [get_ports COMP_OUT_N]
-set_property PACKAGE_PIN F20 [get_ports CLK_SAMP_P]
-set_property PACKAGE_PIN G19 [get_ports CLK_SAMP_N]
+set_property PACKAGE_PIN H17 [get_ports COMP_OUT_P]
+set_property PACKAGE_PIN H18 [get_ports COMP_OUT_N]
+set_property PACKAGE_PIN G19 [get_ports CLK_SAMP_P]
+set_property PACKAGE_PIN F20 [get_ports CLK_SAMP_N]
 set_property PACKAGE_PIN H19 [get_ports CLK_INIT_P]
 set_property PACKAGE_PIN G20 [get_ports CLK_INIT_N]
 set_property IOSTANDARD LVDS_25 [get_ports CLK_*_P]
