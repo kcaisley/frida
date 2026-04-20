@@ -187,7 +187,7 @@ def main():
 
         runner = get_runner("icarus")
         runner.build(
-            verilog_sources=digital_verilog_sources(),
+            sources=digital_verilog_sources(),
             includes=include_dirs(),
             hdl_toplevel="tb_integration",
             build_dir=str(BUILD_DIR),

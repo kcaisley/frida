@@ -182,7 +182,7 @@ def main():
     else:
         import os
 
-        from cocotb.runner import get_runner
+        from cocotb_tools.runner import get_runner
 
         os.environ["SCAN_VIN_START"] = str(args.vin_start)
         os.environ["SCAN_VIN_STOP"] = str(args.vin_stop)
@@ -191,11 +191,11 @@ def main():
 
         runner = get_runner("icarus")
         runner.build(
-            verilog_sources=verilog_sources(),
+            sources=verilog_sources(),
             includes=include_dirs(),
             hdl_toplevel="tb_integration",
             build_dir=str(REPO / "scratch" / "scan_comp"),
-            defines=["COCOTBEXT_AMS"],
+            defines={"COCOTBEXT_AMS": 1},
             waves=True,
             timescale=("1ns", "1ps"),
         )

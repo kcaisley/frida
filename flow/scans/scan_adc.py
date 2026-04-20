@@ -184,11 +184,11 @@ def main():
 
         runner = get_runner(args.sim)
         runner.build(
-            verilog_sources=verilog_sources(),
+            sources=verilog_sources(),
             includes=include_dirs(),
             hdl_toplevel="tb_integration",
             build_dir=str(REPO / "scratch" / "scan_adc"),
-            defines=["COCOTBEXT_AMS"],
+            defines={"COCOTBEXT_AMS": 1},
             waves=True,
             timescale=("1ns", "1ps"),
         )
