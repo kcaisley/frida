@@ -2,14 +2,17 @@
 
 This scan is based on `scan_adc.py`, but changes the sequencer behavior to:
 - keep `CLK_SAMP` asserted continuously
-- toggle `CLK_COMP` continuously at 200 MHz
-  (2.5 ns high, 2.5 ns low on the 400 MHz sequencer grid)
+- keep `CLK_INIT` low
+- keep `CLK_LOGIC` low
+- toggle `CLK_COMP` continuously
 - loop through ADCs 0..15, selecting and enabling one ADC at a time
 - write the chip registers after each ADC selection/update
 
 Simulation runs a finite scan and captures data.
 Hardware uses the FPGA sequencer in free-running mode and only clocks/switches
-ADCs continuously; it does not capture or parse comparator output.
+ADCs continuously; it does not capture or parse comparator output. Hardware
+also supports slowing the effective sequencer step rate with the FPGA
+sequencer clock divider.
 
 No analog input voltage is driven in this scan. Entry points handle sim
 (cocotb + cocotbext-ams) and hardware (basil DAQ) setup/teardown.
@@ -48,12 +51,13 @@ def _generate_round_robin_sequence(
 ) -> dict[str, list[int]]:
     """Generate a sequencer pattern with always-on sample clock.
 
-    The sequencer runs at 400 MHz (2.5 ns/step). This pattern:
-    - keeps `CLK_SAMP` high for the full sequence
-    - toggles `CLK_COMP` every other step, yielding 200 MHz
-    - toggles `CLK_LOGIC` on the opposite phase for the first 16 decisions
-    - generates `CLK_COMP_CAP` delayed from the comparator clock edges
-    - keeps `SEN_COMP` high across the active comparison/capture window
+    The base sequencer runs on a 2.5 ns grid. For this pattern:
+    - `CLK_INIT` stays low
+    - `CLK_SAMP` stays high
+    - `CLK_LOGIC` stays low
+    - `CLK_COMP` pulses every other step
+    - `CLK_COMP_CAP` remains aligned relative to the comparator pulses
+    - `SEN_COMP` stays high across the comparison/capture window
     """
     n_steps = int(conversion_period_ns / seq_clk_period_ns)
 
@@ -64,16 +68,12 @@ def _generate_round_robin_sequence(
     clk_comp_cap = [0] * n_steps
     sen_comp = [0] * n_steps
 
-    # CLK_LOGIC is kept low throughout the pattern
-    # CLK_SAMP is kept high throughout the pattern
     comp_start = 0
-    # n_logic_bits = max(n_comp_bits - 1, 0) - removed as CLK_LOGIC is not used
 
     for bit in range(n_comp_bits):
         comp_step = comp_start + bit * 2
         if comp_step < n_steps:
             clk_comp[comp_step] = 1
-        # CLK_LOGIC remains low throughout the pattern
 
         sample_step = comp_start + bit * 2 + 1 + capture_delay_steps
         if sample_step < n_steps:
@@ -100,6 +100,7 @@ async def configure_round_robin_sequencer(
     conversion_period_ns: int = 100,
     seq_clk_period_ns: float = 2.5,
     capture_delay_steps: int = 1,
+    seq_clk_div: int = 1,
 ) -> None:
     """Load the always-on sample / continuous comparator sequence."""
     seq = _generate_round_robin_sequence(
@@ -110,7 +111,7 @@ async def configure_round_robin_sequencer(
     n_steps = len(seq["CLK_SAMP"])
     chip._seq_n_steps = n_steps
     mem_data = pack_seq_tracks(seq)
-    await daq.seq_load(chip._backend, mem_data, n_steps)
+    await daq.seq_load(chip._backend, mem_data, n_steps, clk_div=seq_clk_div)
 
 
 async def scan_adc_round_robin_once(
@@ -206,8 +207,11 @@ async def scan_adc_round_robin_sim(dut):
 async def scan_adc_round_robin_hw(
     vdd: float = 1.2,
     n_conversions: int = 1,
+    seq_clk_div: int = 1,
+    adc_dwell_s: float = 1.0,
+    adc_num: int | None = None,
 ) -> None:
-    """Hardware entry point — free-run sequencer, continuously clock comparator during ADC switching."""
+    """Hardware entry point — free-run sequencer and either hold one ADC or round-robin across all ADCs."""
     from basil.dut import Dut
 
     from flow.scans.chip import HardwareBackend
@@ -223,7 +227,7 @@ async def scan_adc_round_robin_hw(
     chip = Frida(backend, peripherals)
     await chip.init()
 
-    await configure_round_robin_sequencer(chip)
+    await configure_round_robin_sequencer(chip, seq_clk_div=seq_clk_div)
     chip.set_dac_state(
         astate_p=0x7FFF,
         bstate_p=0x7FFF,
@@ -232,41 +236,43 @@ async def scan_adc_round_robin_hw(
     )
     await chip.reg_write()
 
-    # Calculate total steps for one full conversion cycle
     total_steps = chip._seq_n_steps * n_conversions
 
-    # Start the sequencer with infinite repeat
     await daq.seq_trigger(chip._backend, total_steps, repeat=0)
     logger.info(
-        "Started free-running hardware sequencer: %d steps per cycle, repeat=0 (infinite)",
+        "Started free-running hardware sequencer: %d steps per cycle, clk_div=%d, repeat=0 (infinite)",
         total_steps,
-    )
-    await daq.seq_trigger(chip._backend, total_steps, repeat=0)
-    logger.info(
-        "Started free-running hardware sequencer: %d steps per cycle, repeat=0 (infinite)",
-        total_steps,
+        seq_clk_div,
     )
 
-    # Calculate total steps for one full conversion cycle
-    total_steps = chip._seq_n_steps * n_conversions
+    if adc_num is not None and not 0 <= adc_num < N_ADCS:
+        raise ValueError(f"ADC number must be 0-15, got {adc_num}")
 
-    # Configure and start the sequencer
-    await daq.seq_trigger(chip._backend, total_steps, repeat=0)
-    logger.info(
-        "Started free-running hardware sequencer: %d steps per cycle, repeat=0 (infinite)",
-        total_steps,
-    )
+    if adc_num is not None:
+        chip.disable_all_adcs()
+        chip.select_adc(adc_num)
+        chip.enable_adc(
+            adc_num,
+            en_init=True,
+            en_samp_p=True,
+            en_samp_n=True,
+            en_comp=True,
+            en_update=True,
+            dac_mode=False,
+            dac_diffcaps=False,
+        )
+        await chip.reg_write()
+        logger.info("Hardware free-run holding single ADC=%d", adc_num)
+        while True:
+            await asyncio.sleep(adc_dwell_s)
 
+    adc_sequence = list(range(N_ADCS))
     pass_index = 0
     while True:
         pass_index += 1
-        logger.info("Starting hardware ADC switch pass %d", pass_index)
+        logger.info("Starting hardware ADC switch pass %d (round-robin)", pass_index)
 
-        # The sequencer is already running continuously
-        # Just wait for 1 second before switching ADCs
-        await asyncio.sleep(1.0)
-
-        for adc in range(N_ADCS):
+        for adc in adc_sequence:
             chip.disable_all_adcs()
             chip.select_adc(adc)
             chip.enable_adc(
@@ -281,10 +287,7 @@ async def scan_adc_round_robin_hw(
             )
             await chip.reg_write()
             logger.info("Hardware free-run active ADC=%d", adc)
-
-            # The sequencer continues running while we wait
-            # Just wait for 1 second after switching ADCs
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(adc_dwell_s)
 
 
 def main():
@@ -292,6 +295,24 @@ def main():
     parser.add_argument("--vdd", type=float, default=1.2)
     parser.add_argument("--n-conversions", type=int, default=1)
     parser.add_argument("--n-rounds", type=int, default=1, help="Finite rounds for simulation only")
+    parser.add_argument(
+        "--seq-clk-div",
+        type=int,
+        default=1,
+        help="Hardware sequencer clock divider; 1 = fastest, larger values slow the effective step rate",
+    )
+    parser.add_argument(
+        "--adc-dwell-s",
+        type=float,
+        default=1.0,
+        help="Hardware dwell time in seconds before switching to the next ADC",
+    )
+    parser.add_argument(
+        "--adc-num",
+        type=int,
+        default=None,
+        help="Hardware only: select a single ADC 0..15; if omitted, round-robin across all ADCs",
+    )
     parser.add_argument("--sim", choices=["icarus"], default="icarus")
     parser.add_argument("--hw", action="store_true", help="Run on hardware instead of sim")
     args = parser.parse_args()
@@ -303,6 +324,9 @@ def main():
             scan_adc_round_robin_hw(
                 vdd=args.vdd,
                 n_conversions=args.n_conversions,
+                seq_clk_div=args.seq_clk_div,
+                adc_dwell_s=args.adc_dwell_s,
+                adc_num=args.adc_num,
             )
         )
     else:

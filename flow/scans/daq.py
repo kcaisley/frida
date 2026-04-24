@@ -152,11 +152,28 @@ async def gpio_write(backend: Backend, gpio_byte: int) -> None:
 # -------------------------------------------------------------------------
 
 
-async def seq_load(backend: Backend, mem_data: Sequence[int], n_steps: int) -> None:
-    """Load a pattern into sequencer memory and configure timing."""
+async def seq_load(
+    backend: Backend,
+    mem_data: Sequence[int],
+    n_steps: int,
+    clk_div: int = 1,
+) -> None:
+    """Load a pattern into sequencer memory and configure timing.
+
+    Args:
+        backend: Transport backend for DAQ register access.
+        mem_data: Packed sequencer pattern bytes.
+        n_steps: Number of sequencer steps in the loaded pattern.
+        clk_div: Sequencer clock divider. A value of 1 advances the pattern on
+            every sequencer clock. Larger values slow the effective sequencer
+            step rate without changing the FPGA HDL.
+    """
+    if not 1 <= clk_div <= 255:
+        raise ValueError(f"clk_div must be in the range 1..255, got {clk_div}")
+
     await backend.write(SEQ_BASE + _SEQ_MEM, list(mem_data))
     await backend.write(SEQ_BASE + _SEQ_SIZE, le32(n_steps))
-    await backend.write(SEQ_BASE + _SEQ_CLK_DIV, [0x01])
+    await backend.write(SEQ_BASE + _SEQ_CLK_DIV, [clk_div & 0xFF])
 
 
 async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
