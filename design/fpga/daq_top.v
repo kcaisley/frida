@@ -384,16 +384,16 @@ assign TCP_TX_WR = !TCP_TX_FULL && !FIFO_EMPTY;
 wire clk_init_int, clk_samp_int, clk_comp_int, clk_logic_int;
 
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_init (
-    .O(CLK_INIT_P), .OB(CLK_INIT_N), .I(clk_init_int)
+    .O(CLK_INIT_P), .OB(CLK_INIT_N), .I(~clk_init_int)
 );
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_samp (
     .O(CLK_SAMP_P), .OB(CLK_SAMP_N), .I(clk_samp_int)
 );
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_comp (
-    .O(CLK_COMP_P), .OB(CLK_COMP_N), .I(clk_comp_int)
+    .O(CLK_COMP_P), .OB(CLK_COMP_N), .I(~clk_comp_int)
 );
 OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_logic (
-    .O(CLK_LOGIC_P), .OB(CLK_LOGIC_N), .I(clk_logic_int)
+    .O(CLK_LOGIC_P), .OB(CLK_LOGIC_N), .I(~clk_logic_int)
 );
 
 // Comparator output from chip (LVDS input)

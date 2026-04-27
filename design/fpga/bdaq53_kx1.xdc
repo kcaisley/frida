@@ -1,17 +1,6 @@
 # ------------------------------------------------------------
 # FRIDA DAQ - Constraints for BDAQ53 + Mercury KX1 (xc7k160t-1)
 # ------------------------------------------------------------
-#
-# Pin sources:
-#   System/Ethernet: bdaq53/firmware/src/bdaq53_KX1.xdc
-#   DP5 pins:        Enclustra Mercury Master Pinout (Connector B)
-#   RJ45 D pins:     bdaq53/firmware/src/bdaq53_KX1.xdc
-#
-# Signals not used by FRIDA (removed from bdaq53 reference):
-#   Aurora / MGT (CLK_MGT_REF, MGT_REFCLK, MGT_RX, DP1 MGT AUX)
-#   CLK200 oscillator, I2C, LEMO, PMOD, TLU (RJ45_TRIGGER/RESET)
-#   mDP_ML (mini DisplayPort), GPIO_RESET, GPIO_SENSE, NTC_MUX
-#   USER_BUTTON, derived clocks (I2C_CLK, SPI_CLK)
 
 # ===== Clocks =====
 create_clock -period 10.000 -name CLK_SYS -add [get_ports FCLK_IN]
@@ -111,28 +100,29 @@ set_property IOSTANDARD LVCMOS25 [get_ports {rgmii_txd[3]}]
 set_property PACKAGE_PIN T17 [get_ports {rgmii_txd[3]}]
 
 # ===== FRIDA chip: DP5 (DP_ML, SelectIOs) =====
+
 # Verilog Port  | Pkg Pin | Encl. B | BDAQ net  |  BDAQ DP   | DUT DP  | DUT net
 # --------------|---------|---------|-----------|------------|---------|------------
-#  CLK_COMP_P   |  K17    |  B166   | HITOR0_N  |     12     |    1    | CLK_COMP_P
-#  CLK_COMP_N   |  K16    |  B164   | HITOR0_P  |     10     |    3    | CLK_COMP_N
-#  CLK_LOGIC_P  |  L20    |  B162   | HITOR1_N  |      9     |    4    | CLK_LOGIC_P
-#  CLK_LOGIC_N  |  L19    |  B160   | HITOR1_P  |      7     |    6    | CLK_LOGIC_N
-#  COMP_OUT_N   |  H18    |  B156   | HITOR2_N  |      6     |    7    | COMP_OUT_N
-#  COMP_OUT_P   |  H17    |  B154   | HITOR2_P  |      4     |    9    | COMP_OUT_P
-#  CLK_SAMP_N   |  F20    |  B150   | HITOR3_N  |      3     |   10    | CLK_SAMP_N
-#  CLK_SAMP_P   |  G19    |  B148   | HITOR3_P  |      1     |   12    | CLK_SAMP_P
-#  CLK_INIT_N   |  H19    |  B142   | AUX_DP2_N |     15     |   15    | CLK_INIT_N
-#  CLK_INIT_P   |  G20    |  B144   | AUX_DP2_P |     17     |   17    | CLK_INIT_P
-set_property PACKAGE_PIN K17 [get_ports CLK_COMP_P]
-set_property PACKAGE_PIN K16 [get_ports CLK_COMP_N]
-set_property PACKAGE_PIN L20 [get_ports CLK_LOGIC_P]
-set_property PACKAGE_PIN L19 [get_ports CLK_LOGIC_N]
+#  CLK_COMP_P   |  K16_P  |  B164   | HITOR0_N  |     12     |    1    | CLK_COMP_P
+#  CLK_COMP_N   |  K17_N  |  B166   | HITOR0_P  |     10     |    3    | CLK_COMP_N
+#  CLK_LOGIC_P  |  L19_P  |  B160   | HITOR1_N  |      9     |    4    | CLK_LOGIC_P
+#  CLK_LOGIC_N  |  L20_N  |  B162   | HITOR1_P  |      7     |    6    | CLK_LOGIC_N
+#  COMP_OUT_N   |  H18_N  |  B156   | HITOR2_N  |      6     |    7    | COMP_OUT_N
+#  COMP_OUT_P   |  H17_P  |  B154   | HITOR2_P  |      4     |    9    | COMP_OUT_P
+#  CLK_SAMP_N   |  F20_N  |  B150   | HITOR3_N  |      3     |   10    | CLK_SAMP_N
+#  CLK_SAMP_P   |  G19_P  |  B148   | HITOR3_P  |      1     |   12    | CLK_SAMP_P
+#  CLK_INIT_N   |  G20_N  |  B144   | AUX_DP2_N |     15     |   15    | CLK_INIT_N
+#  CLK_INIT_P   |  H19_P  |  B142   | AUX_DP2_P |     17     |   17    | CLK_INIT_P
+set_property PACKAGE_PIN K16 [get_ports CLK_COMP_P]
+set_property PACKAGE_PIN K17 [get_ports CLK_COMP_N]
+set_property PACKAGE_PIN L19 [get_ports CLK_LOGIC_P]
+set_property PACKAGE_PIN L20 [get_ports CLK_LOGIC_N]
 set_property PACKAGE_PIN H18 [get_ports COMP_OUT_N]
 set_property PACKAGE_PIN H17 [get_ports COMP_OUT_P]
 set_property PACKAGE_PIN F20 [get_ports CLK_SAMP_N]
 set_property PACKAGE_PIN G19 [get_ports CLK_SAMP_P]
-set_property PACKAGE_PIN H19 [get_ports CLK_INIT_N]
-set_property PACKAGE_PIN G20 [get_ports CLK_INIT_P]
+set_property PACKAGE_PIN G20 [get_ports CLK_INIT_N]
+set_property PACKAGE_PIN H19 [get_ports CLK_INIT_P]
 set_property IOSTANDARD LVDS_25 [get_ports CLK_*_P]
 set_property IOSTANDARD LVDS_25 [get_ports CLK_*_N]
 set_property IOSTANDARD LVDS_25 [get_ports COMP_OUT_*]

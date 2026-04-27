@@ -1,17 +1,6 @@
 # ------------------------------------------------------------
 # FRIDA DAQ - Constraints for BDAQ53 + Mercury+ KX2 (xc7k160t-2)
 # ------------------------------------------------------------
-#
-# Pin sources:
-#   System/Ethernet: bdaq53/firmware/src/bdaq53.xdc (KX2)
-#   DP5 pins:        Enclustra Mercury Master Pinout (Connector B)
-#   RJ45 D pins:     Mercury Master Pinout (Connector B) + BDAQ53 schematic
-#
-# Signals not used by FRIDA (removed from bdaq53 reference):
-#   Aurora / MGT (CLK_MGT_REF, MGT_REFCLK, MGT_RX, DP1 MGT AUX, DP_SL)
-#   CLK200 oscillator, I2C, LEMO, PMOD, TLU (RJ45_TRIGGER/RESET)
-#   mDP_ML (mini DisplayPort), GPIO_RESET, GPIO_SENSE, NTC_MUX
-#   USER_BUTTON, derived clocks (I2C_CLK, SPI_CLK, AURORA_TX_CLK_DIV)
 
 # ===== Clocks =====
 create_clock -period 10.000 -name CLK_SYS -add [get_ports FCLK_IN]
@@ -31,7 +20,6 @@ set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe
 set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_1]
 
 # ===== System clock (100 MHz) =====
-# Note: KX2 uses AA4 (LVCMOS15), KX1 uses AA3 (LVCMOS15)
 set_property PACKAGE_PIN AA4 [get_ports FCLK_IN]
 set_property IOSTANDARD LVCMOS15 [get_ports FCLK_IN]
 
@@ -121,30 +109,18 @@ set_property PACKAGE_PIN K22 [get_ports {rgmii_txd[3]}]
 
 # ===== FRIDA chip: DP5 (DP_ML, SelectIOs) =====
 #
-# Full signal chain (traced from DUT PCB frida65A.kicad_sch):
-#
-#   Port          | Pkg Pin | Encl. B | BDAQ net          | Src DP Pin | DUT Pin | DUT PCB net
-#   --------------|---------|---------|-------------------|------------|---------|------------
-#   CLK_COMP_P    |  A18    |  B164   | CMD_DP2_P/HITOR0_P |     10     |    1    | CLK_COMP_P
-#   CLK_COMP_N    |  A19    |  B166   | CMD_DP2_N/HITOR0_N |     12     |    3    | CLK_COMP_N
-#   CLK_LOGIC_P   |  C19    |  B160   | CMD_DP2_P/HITOR1_P |      7     |    4    | CLK_LOGIC_P
-#   CLK_LOGIC_N   |  B19    |  B162   | CMD_DP2_N/HITOR1_N |      9     |    6    | CLK_LOGIC_N
-#   COMP_OUT_P ~  |  E18    |  B154   | CMD_DP2_P/HITOR2_P |      4     |    7    | COMP_OUT_N
-#   COMP_OUT_N ~  |  D18    |  B156   | CMD_DP2_N/HITOR2_N |      6     |    9    | COMP_OUT_P
-#   CLK_SAMP_P ~  |  B17    |  B148   | CMD_DP2_P/HITOR3_P |      1     |   10    | CLK_SAMP_N
-#   CLK_SAMP_N ~  |  A17    |  B150   | CMD_DP2_N/HITOR3_N |      3     |   12    | CLK_SAMP_P
-#   CLK_INIT_P    |  C16    |  B142   | AUX_DP2_P         |     17     |   17    | CLK_INIT_P
-#   CLK_INIT_N    |  B16    |  B144   | AUX_DP2_N         |     15     |   15    | CLK_INIT_N
-#   (* P/N swap in XDC)
-#
-# Notes:
-#   - BDAQ board swaps P/N for all HITOR lanes: HITOR_P→IO_N, HITOR_N→IO_P.
-#   - DP cable reverses ML lane order (L0↔L3, L1↔L2) but not the AUX channel.
-#   - CLK_COMP and CLK_LOGIC need no polarity fix: BDAQ inversion + DUT PCB inversion cancel.
-#   - CLK_SAMP and COMP_OUT (~): polarity mismatch compensated in daq_top.v via RTL inversion,
-#     not in XDC — Vivado rejects _P ports on _N package pins. Package pins use P→P, N→N.
-#   - CLK_INIT via AUX: BDAQ also inverts AUX (AUX_P→B144→B16_N, AUX_N→B142→C16_P),
-#     which maps cleanly to CLK_INIT_N/P on the N/P package pins — no inversion needed.
+# Verilog Port  | Pkg Pin | Encl. B | BDAQ net  |  BDAQ DP   | DUT DP  | DUT net
+# --------------|---------|---------|-----------|------------|---------|------------
+#  CLK_COMP_P   |  A18_P  |  B164   | HITOR0_N  |     12     |    1    | CLK_COMP_P
+#  CLK_COMP_N   |  A19_N  |  B166   | HITOR0_P  |     10     |    3    | CLK_COMP_N
+#  CLK_LOGIC_P  |  C19_P  |  B160   | HITOR1_N  |      9     |    4    | CLK_LOGIC_P
+#  CLK_LOGIC_N  |  B19_N  |  B162   | HITOR1_P  |      7     |    6    | CLK_LOGIC_N
+#  COMP_OUT_N   |  E18_P  |  B156   | HITOR2_N  |      6     |    7    | COMP_OUT_N
+#  COMP_OUT_P   |  D18_N  |  B154   | HITOR2_P  |      4     |    9    | COMP_OUT_P
+#  CLK_SAMP_N   |  F20_N  |  B150   | HITOR3_N  |      3     |   10    | CLK_SAMP_N
+#  CLK_SAMP_P   |  G19_P  |  B148   | HITOR3_P  |      1     |   12    | CLK_SAMP_P
+#  CLK_INIT_N   |  B16_N  |  B144   | AUX_DP2_N |     15     |   15    | CLK_INIT_N
+#  CLK_INIT_P   |  C16_P  |  B142   | AUX_DP2_P |     17     |   17    | CLK_INIT_P
 
 set_property PACKAGE_PIN A18 [get_ports CLK_COMP_P]
 set_property PACKAGE_PIN A19 [get_ports CLK_COMP_N]
@@ -152,8 +128,8 @@ set_property PACKAGE_PIN C19 [get_ports CLK_LOGIC_P]
 set_property PACKAGE_PIN B19 [get_ports CLK_LOGIC_N]
 set_property PACKAGE_PIN E18 [get_ports COMP_OUT_P]
 set_property PACKAGE_PIN D18 [get_ports COMP_OUT_N]
-set_property PACKAGE_PIN B17 [get_ports CLK_SAMP_P]
-set_property PACKAGE_PIN A17 [get_ports CLK_SAMP_N]
+set_property PACKAGE_PIN G19 [get_ports CLK_SAMP_P]
+set_property PACKAGE_PIN F20 [get_ports CLK_SAMP_N]
 set_property PACKAGE_PIN C16 [get_ports CLK_INIT_P]
 set_property PACKAGE_PIN B16 [get_ports CLK_INIT_N]
 set_property IOSTANDARD LVDS_25 [get_ports CLK_*_P]
