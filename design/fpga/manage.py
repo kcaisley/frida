@@ -2,7 +2,7 @@
 
 Usage (from ~/frida/):
     python design/fpga/manage.py --get_sitcp
-    python design/fpga/manage.py --compile BDAQ53_KX1
+    python design/fpga/manage.py --compile BDAQ53_KX1 -v
     python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.bit
     python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs
 """

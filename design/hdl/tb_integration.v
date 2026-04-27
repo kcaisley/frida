@@ -35,6 +35,11 @@ module tb_integration(
     input wire          BUS_RD,
     input wire          BUS_WR,
 
+    // FIFO output exposed for cocotb to read directly
+    output wire [31:0]  FIFO_DATA,
+    output wire         FIFO_EMPTY,
+    input wire          FIFO_READ,
+
     // Analog signals (driven by cocotb via instrument mocks)
 `ifdef COCOTBEXT_AMS
     input wire          vin_p,          // Differential inputs (set by SimAWG via bridge)
@@ -44,7 +49,7 @@ module tb_integration(
 `elsif SPICEBIND
     input real          vin_se,         // Single-ended input (from AWG mock)
     input real          vdd,            // Supply (1.2V, from PSU mock)
-    input real          vss             // Ground (0V, from PSU mock)
+    input real          vss             // Ground (0V)
 `else
     input wreal         vin_se,
     input wreal         vdd,
@@ -108,7 +113,7 @@ module tb_integration(
         .ampen_b(ampen_b),
 
         .fifo_data_out(fifo_data_out),
-        .fifo_read_next(1'b0),          // No external FIFO consumer in cosim
+        .fifo_read_next(FIFO_READ),
         .fifo_empty(fifo_empty),
 
         .comp_out(comp_out),
@@ -156,6 +161,9 @@ module tb_integration(
     // =========================================================================
     // ASIC Core (single-channel FRIDA with 1 ADC)
     // =========================================================================
+
+    assign FIFO_DATA = fifo_data_out;
+    assign FIFO_EMPTY = fifo_empty;
 
     frida_core_1chan i_chip (
         .seq_init(seq_init),

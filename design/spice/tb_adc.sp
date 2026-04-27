@@ -201,5 +201,12 @@ X_adc tb_integration.i_chip.adc_inst.seq_init
 
 * Output format and analysis
 .options filetype=ascii
+.options reltol=1e-3 vabstol=1u iabstol=1p gmin=1e-12 method=gear maxord=2 itl1=500 itl4=200 cshunt=1e-15
+.nodeset v(tb_integration.i_chip.adc_inst.comp_out)=1.2
+.nodeset v(x_adc.comp_out_p)=1.2 v(x_adc.comp_out_n)=1.2
+.nodeset v(x_adc.xcomp.COMP_P)=1.2 v(x_adc.xcomp.COMP_N)=1.2
+.nodeset v(x_adc.xcomp.xi3.net35)=1.2 v(x_adc.xcomp.xi3.net38)=0
+.nodeset v(x_adc.xcomp.xi3.net41)=0 v(x_adc.xcomp.xi3.net42)=1.2
+.nodeset v(x_adc.xcomp.xlatch.net031)=1.2 v(x_adc.xcomp.xlatch.net037)=1.2
 .tran 0.1n 500n
 .end

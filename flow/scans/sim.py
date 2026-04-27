@@ -134,6 +134,13 @@ def create_adc_block(vdd: float = 1.2) -> AnalogBlock:
         vss=0.0,
         tran_step="0.1n",
         extra_lines=[
+            ".options reltol=1e-3 vabstol=1u iabstol=1p gmin=1e-12 method=gear maxord=2 itl1=500 itl4=200 cshunt=1e-15",
+            ".nodeset v(comp_out)=1.2",
+            ".nodeset v(comp_out_p)=1.2 v(comp_out_n)=1.2",
+            ".nodeset v(COMP_P)=1.2 v(COMP_N)=1.2",
+            ".nodeset v(net35)=1.2 v(net38)=0",
+            ".nodeset v(net41)=0 v(net42)=1.2",
+            ".nodeset v(net031)=1.2 v(net037)=1.2",
             f".lib {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[0]} tt_lib",
             f".lib {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[0]} pre_simu",
             f".include {TSMC65.pdk_path / Tsmc65Install.LOCAL_SPICE_FILES[2]}",
