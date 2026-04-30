@@ -167,7 +167,13 @@ def main():
         "--cycles",
         type=int,
         default=1,
-        help="Number of sequence repetitions per voltage step",
+        help="Number of sequence repetitions per voltage step (0 = run continuously until Ctrl+C)",
+    )
+    p.add_argument(
+        "--spi-loopback",
+        choices=["true", "false"],
+        default="false",
+        help="Enable FPGA SPI SDO loopback (reads back SDI instead of chip SDO)",
     )
     p.add_argument(
         "--save-results",
@@ -205,6 +211,7 @@ def main():
         args.emulate = _str_to_bool(args.emulate)
         args.diffcaps = _str_to_bool(args.diffcaps)
         args.save_results = _str_to_bool(args.save_results)
+        args.spi_loopback = _str_to_bool(args.spi_loopback)
         run_scan(args)
         return
 

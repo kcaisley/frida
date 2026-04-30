@@ -52,6 +52,7 @@ _GPIO_OUTPUT = 2
 GPIO_RST_B_BIT = 0
 GPIO_AMP_EN_BIT = 1
 GPIO_LOOPBACK_BIT = 2
+GPIO_SPI_LOOPBACK_BIT = 3
 
 # -------------------------------------------------------------------------
 # Sequencer module offsets
@@ -107,30 +108,18 @@ def le32(value: int) -> list[int]:
 # -------------------------------------------------------------------------
 
 
-async def spi_write(backend: Backend, data: bytes | Sequence[int], n_bits: int) -> None:
-    """Shift data out through the SPI module."""
-    await backend.write(SPI_BASE + _SPI_MEM, list(data))
-    await backend.write(SPI_BASE + _SPI_SIZE, le16(n_bits))
-    await backend.write(SPI_BASE + _SPI_START, [0x01])
-    await backend.wait_for_ready(SPI_BASE + _SPI_READY)
+async def spi_write(backend: Backend, data: bytes | Sequence[int], n_bits: int) -> bytes:
+    """Shift data out through the SPI module and return the received bits.
 
-
-async def spi_read(backend: Backend, n_bits: int, *, exact_bits: bool = False) -> bytes:
-    """Shift zeros in and return the received data.
-
-    Args:
-        backend: Transport backend for DAQ register access.
-        n_bits: Number of SPI bits to shift.
-        exact_bits: If True, request exactly ``n_bits`` clock cycles from the
-            SPI core. If False, round up to a full number of bytes to ensure
-            every RX RAM byte is written.
+    The SPI master simultaneously shifts out data on MOSI and captures
+    the MISO stream into the RX RAM.  This function writes the provided
+    data and returns whatever was captured during the transaction.
     """
-    # Pack bits into bytes
     n_bytes = (n_bits + 7) // 8
-    # By default transfer a full number of bytes so every receive RAM position
-    # is written (avoids X values in simulation when n_bits isn't a multiple of 8).
-    xfer_bits = n_bits if exact_bits else (n_bytes * 8)
-    await backend.write(SPI_BASE + _SPI_MEM, [0] * n_bytes)
+    # Transfer a full number of bytes so every RX RAM position is written
+    # (avoids X values in simulation when n_bits isn't a multiple of 8).
+    xfer_bits = n_bytes * 8
+    await backend.write(SPI_BASE + _SPI_MEM, list(data))
     await backend.write(SPI_BASE + _SPI_SIZE, le16(xfer_bits))
     await backend.write(SPI_BASE + _SPI_START, [0x01])
     await backend.wait_for_ready(SPI_BASE + _SPI_READY)

@@ -221,8 +221,16 @@ module daq_core #(
     //
     // Drives the 180-bit configuration shift register on the FRIDA chip.
     // SEN active-low directly maps to SPI_CS_B.
+    //
+    // SPI loopback (GPIO bit 3): when enabled, SDO reads back from SDI
+    // instead of the chip's SDO pin.  The SDI signal still drives the chip
+    // — only the receive path is redirected.  This lets you verify the
+    // FPGA-to-chip SPI link independently.
     // ===================================================================
     wire spi_sen;
+    wire spi_loopback_en;  // assigned in GPIO section below
+    wire spi_sdo_int;
+    assign spi_sdo_int = spi_loopback_en ? SPI_SDI : SPI_SDO;
 
     spi #(
         .BASEADDR (SPI_BASEADDR),
@@ -241,7 +249,7 @@ module daq_core #(
 
         .SCLK(SPI_SCLK),
         .SDI(SPI_SDI),
-        .SDO(SPI_SDO),
+        .SDO(spi_sdo_int),
         .EXT_START(1'b0),
 
         .SEN(spi_sen),
@@ -256,10 +264,11 @@ module daq_core #(
     // 3. GPIO
     //
     // 8-bit output register for PCB control signals.
-    // Bit 0: RST_B        - Chip reset (active low)
-    // Bit 1: AMPEN_B      - Input amplifier enable (active low)
-    // Bit 2: loopback_en  - fast_spi_rx loopback test mode
-    // Bits 7:3: reserved
+    // Bit 0: RST_B            - Chip reset (active low)
+    // Bit 1: AMPEN_B          - Input amplifier enable (active low)
+    // Bit 2: loopback_en      - fast_spi_rx loopback test mode
+    // Bit 3: spi_loopback_en  - SPI SDO loopback (reads SDI instead of chip SDO)
+    // Bits 7:4: reserved
     // ===================================================================
     wire [7:0] gpio_io;
 
@@ -286,6 +295,9 @@ module daq_core #(
 
     // Loopback test mode (GPIO bit 2)
     assign loopback_en = gpio_io[2];
+
+    // SPI loopback (GPIO bit 3)
+    assign spi_loopback_en = gpio_io[3];
 
     // ===================================================================
     // 4. Pulse Generator

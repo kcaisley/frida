@@ -6,16 +6,23 @@
 create_clock -period 10.000 -name CLK_SYS -add [get_ports FCLK_IN]
 create_clock -period 8.000 -name CLK_RGMII_RX -add [get_ports rgmii_rxc]
 
+# ===== PLL generated clocks =====
+create_generated_clock -name bus_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 7 [get_nets bus_clk_pll]
+create_generated_clock -name clk125_pll_tx -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx]
+create_generated_clock -name clk125_pll_tx90 -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 -phase 90 [get_nets clk125_pll_tx90]
+create_generated_clock -name seq_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 2 [get_nets seq_clk_pll]
+create_generated_clock -name spi_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 80 [get_nets spi_clk_pll]
+
 set_clock_groups -asynchronous \
-    -group {BUS_CLK_PLL} \
-    -group {CLK125PLLTX CLK125PLLTX90} \
+    -group {bus_clk_pll} \
+    -group {clk125_pll_tx clk125_pll_tx90} \
     -group CLK_RGMII_RX \
-    -group {SEQ_CLK_PLL}  ;# seq_gen config regs are stable before sequencer starts
+    -group {seq_clk_pll}  ;# seq_gen config regs are stable before sequencer starts
 
 # ===== SiTCP timing =====
-set_max_delay -datapath_only -from [get_clocks CLK125PLLTX] -to [get_ports {rgmii_txd[*]}] 4.000
-set_max_delay -datapath_only -from [get_clocks CLK125PLLTX] -to [get_ports rgmii_tx_ctl] 4.000
-set_max_delay -datapath_only -from [get_clocks CLK125PLLTX90] -to [get_ports rgmii_txc] 4.000
+set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports {rgmii_txd[*]}] 4.000
+set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports rgmii_tx_ctl] 4.000
+set_max_delay -datapath_only -from [get_clocks clk125_pll_tx90] -to [get_ports rgmii_txc] 4.000
 set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_0]
 set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_1]
 

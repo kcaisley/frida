@@ -54,6 +54,7 @@ async def main_loop(
     vdd: float = 1.2,
     rate: int = 1,
     cycles: int = 1,
+    spi_loopback: bool = False,
     save_results: bool = False,
     outdir: Path | None = None,
 ) -> dict:
@@ -83,8 +84,11 @@ async def main_loop(
         vdd: Supply voltage in volts (used as common-mode reference).
         rate: Sequencer clock divider; 1 = full speed.
         cycles: Number of sequence repetitions per voltage step.
+            0 = run continuously until Ctrl+C (KeyboardInterrupt).
         save_results: If True, write results NPZ file to ``outdir``.
         outdir: Output directory for saved results.
+        spi_loopback: If True, route SPI SDO from SDI instead of the chip
+            pin (for FPGA-to-chip link verification).
 
     Returns:
         Nested dict: ``{channel_index: list[np.ndarray]}``.
@@ -92,9 +96,12 @@ async def main_loop(
     # Step 0: ensure chip is out of reset
     await chip.reset()
 
+    # Step 0b: configure SPI loopback if requested
+    await chip.set_spi_loopback(spi_loopback)
+
     # Step 1: load sequencer
     if sequence != "none":
-        chip.configure_sequencer(
+        await chip.configure_sequencer(
             sequence,
             seq_clk_div=rate,
         )
@@ -166,21 +173,6 @@ async def main_loop(
 
         await chip.reg_write()
 
-        # Read back and verify
-        expected = chip.spi_bits.copy()
-        readback = await chip.reg_read(exact_bits=True)
-        expected_fpga = expected.copy()
-        expected_fpga[0] = 0  # FPGA RX alignment offset
-        n_mismatch = (expected_fpga ^ readback).count(1)
-        if n_mismatch:
-            logger.error(
-                "SPI verify FAIL channel=%d: %d/180 bits mismatch",
-                channel,
-                n_mismatch,
-            )
-        else:
-            logger.info("SPI verify PASS channel=%d", channel)
-
         # Voltage sweep
         for vi, ventry in enumerate(voltage_entries):
             if input_mode != "manual" and ventry is not None:
@@ -189,10 +181,32 @@ async def main_loop(
             if sequence == "none":
                 continue
 
-            bits = await chip.run_conversions(
-                n_conversions=1,
-                repetitions=cycles,
-            )
+            if cycles == 0:
+                # Continuous mode — loop until Ctrl+C
+                bits_chunks = []
+                try:
+                    while True:
+                        bits = await chip.run_conversions(
+                            n_conversions=1,
+                            repetitions=1,
+                        )
+                        bits_chunks.append(bits)
+                        logger.info(
+                            "channel=%d, vi=%d/%d, captured=%d conversions so far",
+                            channel,
+                            vi,
+                            len(voltage_entries),
+                            sum(b.shape[0] for b in bits_chunks),
+                        )
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    logger.info("Continuous capture interrupted, stopping...")
+                bits = np.concatenate(bits_chunks, axis=0) if bits_chunks else np.zeros((0, 1, 17), dtype=np.int32)
+            else:
+                bits = await chip.run_conversions(
+                    n_conversions=1,
+                    repetitions=cycles,
+                )
+
             results[channel].append(bits)
             logger.info(
                 "channel=%d, vi=%d/%d, bits shape=%s",
@@ -331,6 +345,7 @@ async def _run_scan_hw(args):
         vdd=args.vdd,
         rate=args.rate,
         cycles=args.cycles,
+        spi_loopback=args.spi_loopback,
         save_results=args.save_results,
         outdir=args.outdir,
     )
@@ -395,6 +410,7 @@ async def sim_scan(dut):
         vdd=vdd,
         rate=rate,
         cycles=cycles,
+        spi_loopback=False,
         save_results=True,
         outdir=Path(build_dir),
     )

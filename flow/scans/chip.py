@@ -670,6 +670,20 @@ class Frida:
         """Disable the PCB input amplifier (bypass mode)."""
         await self.set_amplifier_enabled(False)
 
+    async def set_spi_loopback(self, enabled: bool) -> None:
+        """Enable or disable SPI SDO loopback (read back SDI instead of chip SDO).
+
+        When enabled, the FPGA routes SPI_SDI back into the SPI master's SDO
+        input, bypassing the chip.  SDI still drives the chip — only the
+        receive path is redirected.
+        """
+        if enabled:
+            self._gpio_out |= 1 << daq.GPIO_SPI_LOOPBACK_BIT
+        else:
+            self._gpio_out &= ~(1 << daq.GPIO_SPI_LOOPBACK_BIT)
+        await daq.gpio_write(self._backend, self._gpio_out)
+        logger.info("SPI loopback %s", "enabled" if enabled else "disabled")
+
     # -----------------------------------------------------------------
     # SPI Register Access (pure Python, no I/O)
     # -----------------------------------------------------------------
@@ -762,21 +776,49 @@ class Frida:
     # -----------------------------------------------------------------
 
     async def reg_write(self) -> None:
-        """Shift the current register bit array into the chip."""
-        await daq.spi_write(self._backend, self.spi_bits.tobytes(), SPI_BITS)
+        """Shift the current register bit array into the chip and verify.
 
-    async def reg_read(self, *, exact_bits: bool = False) -> bitarray:
-        """Read back the chip register contents.
+        Performs two SPI transactions:
+          1. First write — commits ``self.spi_bits`` and discards the
+             returned bits (they reflect the *previous* register state).
+          2. Second write — shifts the same bits again; the returned bits
+             now match what was written in step 1, so we read them back
+             and compare against the expected bit pattern.
 
-        Args:
-            exact_bits: If True, request exactly ``SPI_BITS`` clock cycles from
-                the SPI master. If False, round the transfer up to a full number
-                of bytes to ensure the entire receive RAM is written.
+        The FPGA RX alignment introduces a 1-bit offset (bit 0 is lost),
+        which is accounted for in the comparison.
         """
-        raw = await daq.spi_read(self._backend, SPI_BITS, exact_bits=exact_bits)
-        result = bitarray()
-        result.frombytes(raw)
-        return result[:SPI_BITS]
+        spi_bytes = self.spi_bits.tobytes()
+
+        # First write: commit the bits, discard the stale readback
+        await daq.spi_write(self._backend, spi_bytes, SPI_BITS)
+
+        # Second write: shift again, capture the bits that were written
+        raw = await daq.spi_write(self._backend, spi_bytes, SPI_BITS)
+        readback = bitarray()
+        readback.frombytes(raw)
+        readback = readback[:SPI_BITS]
+
+        # Verify: account for FPGA RX alignment offset at bit 0
+        expected = self.spi_bits.copy()
+        expected[0] = 0
+        n_mismatch = (expected ^ readback).count(1)
+        if n_mismatch:
+            logger.error(
+                "SPI verify FAIL: %d/%d bits mismatch",
+                n_mismatch,
+                SPI_BITS,
+            )
+            logger.error(
+                "expected: %s",
+                expected.to01(),
+            )
+            logger.error(
+                "readback: %s",
+                readback.to01(),
+            )
+        else:
+            logger.info("SPI verify PASS")
 
     async def run_conversions(
         self,
