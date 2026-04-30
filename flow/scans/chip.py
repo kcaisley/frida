@@ -108,7 +108,7 @@ ADC_CFGREGS = tuple(getattr(CfgReg, f"ADC_{i}") for i in range(N_ADCS))
 # -------------------------------------------------------------------------
 
 
-def _generate_conversion_sequence(
+def _seq_full_conversion(
     conversion_period_ns: int = 100,
     seq_clk_period_ns: float = 2.5,
     init_pulse_ns: float = 5.0,
@@ -162,6 +162,173 @@ def _generate_conversion_sequence(
     sen_start = comp_start
     last_capture = comp_start + (n_comp_bits - 1) * 2 + 1 + capture_delay_steps
     sen_end = min(last_capture + 2, n_steps)
+    for i in range(sen_start, sen_end):
+        sen_comp[i] = 1
+
+    return {
+        "CLK_INIT": clk_init,
+        "CLK_SAMP": clk_samp,
+        "CLK_COMP": clk_comp,
+        "CLK_LOGIC": clk_logic,
+        "CLK_COMP_CAP": clk_comp_cap,
+        "SEN_COMP": sen_comp,
+    }
+
+
+def _seq_comp(
+    conversion_period_ns: int = 100,
+    seq_clk_period_ns: float = 2.5,
+    n_comp_bits: int = N_COMP_BITS,
+    capture_delay_steps: int = 1,
+) -> dict[str, list[int]]:
+    """Generate sequencer pattern with always-on sample clock and continuous comparator clock.
+
+    - CLK_INIT stays low
+    - CLK_SAMP stays high
+    - CLK_LOGIC stays low
+    - CLK_COMP pulses every other step
+    - CLK_COMP_CAP aligned relative to comparator pulses
+    - SEN_COMP stays high across the comparison/capture window
+    """
+    n_steps = int(conversion_period_ns / seq_clk_period_ns)
+
+    clk_init = [0] * n_steps
+    clk_samp = [1] * n_steps
+    clk_comp = [0] * n_steps
+    clk_logic = [0] * n_steps
+    clk_comp_cap = [0] * n_steps
+    sen_comp = [0] * n_steps
+
+    for bit in range(n_comp_bits):
+        comp_step = bit * 2
+        if comp_step < n_steps:
+            clk_comp[comp_step] = 1
+
+        sample_step = bit * 2 + 1 + capture_delay_steps
+        if sample_step < n_steps:
+            clk_comp_cap[sample_step] = 1
+
+    last_capture = (n_comp_bits - 1) * 2 + 1 + capture_delay_steps
+    sen_end = min(last_capture + 2, n_steps)
+    for i in range(sen_end):
+        sen_comp[i] = 1
+
+    return {
+        "CLK_INIT": clk_init,
+        "CLK_SAMP": clk_samp,
+        "CLK_COMP": clk_comp,
+        "CLK_LOGIC": clk_logic,
+        "CLK_COMP_CAP": clk_comp_cap,
+        "SEN_COMP": sen_comp,
+    }
+
+
+def _seq_samp_comp(
+    conversion_period_ns: int = 100,
+    seq_clk_period_ns: float = 2.5,
+    capture_delay_steps: int = 1,
+) -> dict[str, list[int]]:
+    """Generate a single sample-and-compare sequencer pattern.
+
+    - CLK_INIT stays low
+    - CLK_SAMP: one 12.5 ns pulse
+    - CLK_COMP: one pulse after SAMP
+    - CLK_LOGIC stays low
+    - CLK_COMP_CAP: capture after COMP
+    - SEN_COMP: frame around the compare window
+    """
+    n_steps = int(conversion_period_ns / seq_clk_period_ns)
+    samp_steps = int(12.5 / seq_clk_period_ns)
+
+    clk_init = [0] * n_steps
+    clk_samp = [0] * n_steps
+    clk_comp = [0] * n_steps
+    clk_logic = [0] * n_steps
+    clk_comp_cap = [0] * n_steps
+    sen_comp = [0] * n_steps
+
+    for i in range(samp_steps):
+        clk_samp[i] = 1
+
+    comp_step = samp_steps
+    if comp_step < n_steps:
+        clk_comp[comp_step] = 1
+
+    capture_step = comp_step + 1 + capture_delay_steps
+    if capture_step < n_steps:
+        clk_comp_cap[capture_step] = 1
+
+    sen_end = min(capture_step + 2, n_steps)
+    for i in range(samp_steps, sen_end):
+        sen_comp[i] = 1
+
+    return {
+        "CLK_INIT": clk_init,
+        "CLK_SAMP": clk_samp,
+        "CLK_COMP": clk_comp,
+        "CLK_LOGIC": clk_logic,
+        "CLK_COMP_CAP": clk_comp_cap,
+        "SEN_COMP": sen_comp,
+    }
+
+
+def _seq_calib(
+    conversion_period_ns: int = 100,
+    seq_clk_period_ns: float = 2.5,
+    init_pulse_ns: float = 5.0,
+    samp_pulse_ns: float = 12.5,
+    capture_delay_steps: int = 1,
+) -> dict[str, list[int]]:
+    """Generate sequencer pattern for DAC A→B calibration.
+
+    - CLK_INIT : reset SAR logic
+    - CLK_SAMP : sample input
+    - CLK_COMP : first comparison (residue before DAC update)
+    - CLK_LOGIC: DAC update trigger
+    - CLK_COMP : second comparison (residue after DAC update)
+    - CLK_COMP_CAP: capture for both comparisons
+    - SEN_COMP : frame across the comparison window
+    """
+    n_steps = int(conversion_period_ns / seq_clk_period_ns)
+
+    clk_init = [0] * n_steps
+    clk_samp = [0] * n_steps
+    clk_comp = [0] * n_steps
+    clk_logic = [0] * n_steps
+    clk_comp_cap = [0] * n_steps
+    sen_comp = [0] * n_steps
+
+    init_steps = int(init_pulse_ns / seq_clk_period_ns)
+    samp_steps = int(samp_pulse_ns / seq_clk_period_ns)
+    samp_start = init_steps
+
+    for i in range(init_steps):
+        clk_init[i] = 1
+    for i in range(samp_start, samp_start + samp_steps):
+        if i < n_steps:
+            clk_samp[i] = 1
+
+    first_comp = samp_start + samp_steps
+    if first_comp < n_steps:
+        clk_comp[first_comp] = 1
+
+    logic_step = first_comp + 1
+    if logic_step < n_steps:
+        clk_logic[logic_step] = 1
+
+    second_comp = logic_step + 1
+    if second_comp < n_steps:
+        clk_comp[second_comp] = 1
+
+    capture1 = first_comp + 1 + capture_delay_steps
+    if capture1 < n_steps:
+        clk_comp_cap[capture1] = 1
+    capture2 = second_comp + 1 + capture_delay_steps
+    if capture2 < n_steps:
+        clk_comp_cap[capture2] = 1
+
+    sen_start = samp_start
+    sen_end = min(capture2 + 2, n_steps)
     for i in range(sen_start, sen_end):
         sen_comp[i] = 1
 
@@ -450,14 +617,14 @@ class Frida:
         self.spi_bits.setall(0)
 
         self._gpio_out = 0x00
-        self._seq_n_steps = 40  # updated by _configure_sequencer
+        self._seq_n_steps = 40  # updated by configure_sequencer
         self._registers = CFGREG_DEFS
 
         for reg, regdef in self._registers.items():
             self._write_cfgreg_bits(reg, regdef.default)
 
     async def init(self, write_initial_spi: bool = True) -> None:
-        """Initialize the backend, sequencer, fast_spi_rx, and chip.
+        """Initialize the backend, fast_spi_rx, and chip.
 
         Args:
             write_initial_spi: If True, preload the chip SPI register with the
@@ -466,7 +633,6 @@ class Frida:
                 transaction shape explicitly.
         """
         await self._backend.init()
-        await self._configure_sequencer()
         await daq.fastrx_reset(self._backend)
         await daq.fastrx_set_en(self._backend, True)
         await self.reset()
@@ -738,22 +904,55 @@ class Frida:
         return result
 
     # -----------------------------------------------------------------
-    # Private Helpers
+    # Sequencer Configuration
     # -----------------------------------------------------------------
 
-    async def _configure_sequencer(
+    async def configure_sequencer(
         self,
+        sequence: str = "adc",
+        *,
         conversion_period_ns: int = 100,
         seq_clk_period_ns: float = 2.5,
-        capture_delay_steps: int = 1,
+        seq_clk_div: int = 1,
     ) -> None:
-        """Load the default conversion sequence into the sequencer."""
-        seq = _generate_conversion_sequence(
-            conversion_period_ns=conversion_period_ns,
-            seq_clk_period_ns=seq_clk_period_ns,
-            capture_delay_steps=capture_delay_steps,
-        )
-        n_steps = len(seq["CLK_INIT"])
+        """Load a sequencer pattern into the FPGA sequencer SRAM.
+
+        Args:
+            sequence: ``"adc"`` (full SAR conversion), ``"comp"``
+                (continuous comparator clock, always-on sample),
+                ``"samp_comp"`` (single sample-and-compare), or
+                ``"calib"`` (init→sample→comp→DAC update→comp).
+            conversion_period_ns: Total conversion period in ns.
+            seq_clk_period_ns: Sequencer clock period in ns (400 MHz → 2.5).
+            seq_clk_div: Sequencer clock divider; 1 = full speed,
+                larger values slow the effective step rate.
+        """
+        if sequence == "adc":
+            seq = _seq_full_conversion(
+                conversion_period_ns=conversion_period_ns,
+                seq_clk_period_ns=seq_clk_period_ns,
+            )
+            n_steps = len(seq["CLK_INIT"])
+        elif sequence == "comp":
+            seq = _seq_comp(
+                conversion_period_ns=conversion_period_ns,
+                seq_clk_period_ns=seq_clk_period_ns,
+            )
+            n_steps = len(seq["CLK_SAMP"])
+        elif sequence == "samp_comp":
+            seq = _seq_samp_comp(
+                conversion_period_ns=conversion_period_ns,
+                seq_clk_period_ns=seq_clk_period_ns,
+            )
+            n_steps = len(seq["CLK_SAMP"])
+        elif sequence == "calib":
+            seq = _seq_calib(
+                conversion_period_ns=conversion_period_ns,
+                seq_clk_period_ns=seq_clk_period_ns,
+            )
+            n_steps = len(seq["CLK_SAMP"])
+        else:
+            raise ValueError(f"Unknown sequence {sequence!r}; expected 'adc', 'comp', 'samp_comp', or 'calib'")
         self._seq_n_steps = n_steps
         mem_data = pack_seq_tracks(seq)
-        await daq.seq_load(self._backend, mem_data, n_steps)
+        await daq.seq_load(self._backend, mem_data, n_steps, clk_div=seq_clk_div)

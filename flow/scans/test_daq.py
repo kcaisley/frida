@@ -23,7 +23,7 @@ from cocotb.clock import Clock
 
 from flow.scans.chip import (
     SimBackend,
-    _generate_conversion_sequence,
+    _seq_full_conversion,
     pack_seq_tracks,
 )
 from flow.scans.daq import (
@@ -75,7 +75,7 @@ async def check_gpio_reset(backend):
 
 async def check_sequencer_runs(backend):
     """Load a conversion sequence, trigger it, verify it completes."""
-    seq = _generate_conversion_sequence()
+    seq = _seq_full_conversion()
     n_steps = len(seq["CLK_INIT"])
     mem_data = pack_seq_tracks(seq)
     await seq_load(backend, mem_data, n_steps)

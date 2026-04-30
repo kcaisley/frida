@@ -22,6 +22,15 @@ SUBCKTS = ["samp", "comp", "cdac", "adc"]
 LAYOUTS = ["comp"]
 TESTBENCHES = ["samp", "comp", "cdac", "adc"]
 
+
+def _str_to_bool(s: str) -> bool:
+    return s.lower() in ("true", "1", "yes")
+
+
+def _parse_int(s: str) -> int:
+    return int(s, 0)
+
+
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
 
@@ -100,12 +109,103 @@ def main():
     p.add_argument("--verilog", type=Path, help="Verilog file for port reordering (sp_clean only)")
     p.add_argument("--module", help="Module name for port reordering (sp_clean only)")
 
+    # ==== Scan ====
+    p = sub.add_parser("scan", help="Measure or simulate the prototype ASIC")
+    p.add_argument(
+        "--sequence",
+        required=True,
+        choices=["none", "adc", "comp", "samp_comp", "calib"],
+        help="Sequencer pattern: none, adc (full SAR), comp (cont. clock), "
+        "samp_comp (single sample+compare), calib (init→sample→comp→DAC→comp)",
+    )
+    p.add_argument(
+        "--emulate",
+        default="false",
+        choices=["true", "false"],
+        help="Emulate with cocotb cosimulation instead of physical hardware (default: false)",
+    )
+    p.add_argument(
+        "--channel",
+        type=int,
+        nargs="+",
+        default=[0],
+        help="ADC channels to scan (0..15). Multiple channels sweep sequentially.",
+    )
+    p.add_argument(
+        "--dacstate",
+        type=_parse_int,
+        nargs="+",
+        default=[0x7FFF, 0x7FFF],
+        help="DAC state values in Python int notation (0b..., 0x..., decimal). "
+        "2 values for normal mode, 4 for calib mode.",
+    )
+    p.add_argument(
+        "--dacmode",
+        default="normal",
+        choices=["normal", "calib"],
+        help="DAC operating mode",
+    )
+    p.add_argument(
+        "--diffcaps",
+        choices=["true", "false"],
+        default="false",
+        help="Enable DAC differential caps",
+    )
+    p.add_argument(
+        "--input-mode",
+        default="manual",
+        choices=["manual", "ramp", "sine", "dc"],
+        help="Input voltage source mode",
+    )
+    p.add_argument(
+        "--rate",
+        type=int,
+        default=1,
+        help="Sequencer clock divider (1 = full speed)",
+    )
+    p.add_argument(
+        "--cycles",
+        type=int,
+        default=1,
+        help="Number of sequence repetitions per voltage step",
+    )
+    p.add_argument(
+        "--save-results",
+        choices=["true", "false"],
+        default="false",
+        help="Save captured results to disk",
+    )
+    p.add_argument(
+        "--vdd",
+        type=float,
+        default=1.2,
+        help="Supply voltage",
+    )
+    p.add_argument(
+        "-o",
+        "--outdir",
+        type=Path,
+        default=None,
+        help="Output directory for saved results",
+    )
+
     argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
 
     if args.command == "convert":
         _run_convert(args)
+        return
+    if args.command == "scan":
+        from .scans.chip import N_ADCS
+        from .scans.scan import run_scan
+
+        if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
+            raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
+        args.emulate = _str_to_bool(args.emulate)
+        args.diffcaps = _str_to_bool(args.diffcaps)
+        args.save_results = _str_to_bool(args.save_results)
+        run_scan(args)
         return
 
     set_pdk(args.tech)
