@@ -7,6 +7,10 @@ include_dirs:
   - design/fpga
   - design/fpga/SiTCP
 
+source_dirs:
+  - design/fpga
+  - libs/basil/basil/firmware/modules
+
 verilator:
   syntax:
     enabled: true

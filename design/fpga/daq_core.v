@@ -22,32 +22,15 @@
 //   0x30000     - gpio
 //   0x40000     - pulse_gen
 //   0x50000     - fast_spi_rx
-//
-// Based on: obelix1-daq/firmware/src/obelix1_core.v
 
 `timescale 1ns / 10ps
 
-// Basil utility modules (transitive deps of functional modules below)
-`include "utils/bus_to_ip.v"
-`include "utils/3_stage_synchronizer.v"
-`include "utils/cdc_pulse_sync.v"
-`include "utils/cdc_syncfifo.v"
-`include "utils/CG_MOD_pos.v"
-`include "utils/generic_fifo.v"
-`include "utils/ramb_8_to_n.v"
-
 // Basil functional modules (direct children of daq_core)
 `include "seq_gen/seq_gen.v"
-`include "seq_gen/seq_gen_core.v"
 `include "spi/spi.v"
-`include "spi/spi_core.v"
-`include "spi/blk_mem_gen_8_to_1_2k.v"
 `include "gpio/gpio.v"
-`include "gpio/gpio_core.v"
 `include "pulse_gen/pulse_gen.v"
-`include "pulse_gen/pulse_gen_core.v"
 `include "fast_spi_rx/fast_spi_rx.v"
-`include "fast_spi_rx/fast_spi_rx_core.v"
 
 module daq_core #(
     parameter integer ABUSWIDTH = 32
