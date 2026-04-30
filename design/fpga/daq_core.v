@@ -5,12 +5,12 @@
 // and read back data:
 //
 //   1. seq_gen      - Sequencer generating 6 output signals:
-//                     [0-3] LVDS clocks (clk_init, clk_samp, clk_comp, clk_logic)
+//                     [0-3] LVDS clocks (CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC)
 //                     [4]   clk_comp_cap - capture clock for fast_spi_rx
 //                     [5]   sen_comp - frame enable for fast_spi_rx
 //   2. spi          - SPI master for 180-bit chip configuration register
-//                     (spi_sclk, spi_sdi, spi_sdo, spi_cs_b)
-//   3. gpio         - GPIO for PCB control signals (rst_b, amp_en)
+//                     (SPI_SCLK, SPI_SDI, SPI_SDO, SPI_CS_B)
+//   3. gpio         - GPIO for PCB control signals (RST_B, AMPEN_B)
 //   4. pulse_gen    - Pulse generator for triggering the sequencer
 //   5. fast_spi_rx  - COMP_OUT receiver using basil fast_spi_rx module
 //
@@ -27,7 +27,7 @@
 
 `timescale 1ns / 10ps
 
-// Basil utilities
+// Basil utility modules (transitive deps of functional modules below)
 `include "utils/bus_to_ip.v"
 `include "utils/3_stage_synchronizer.v"
 `include "utils/cdc_pulse_sync.v"
@@ -36,7 +36,7 @@
 `include "utils/generic_fifo.v"
 `include "utils/ramb_8_to_n.v"
 
-// Basil functional modules
+// Basil functional modules (direct children of daq_core)
 `include "seq_gen/seq_gen.v"
 `include "seq_gen/seq_gen_core.v"
 `include "spi/spi.v"
@@ -63,7 +63,7 @@ module daq_core #(
     input wire                  bus_wr,
 
     // ---------------------------------------------------------------
-    // Sequencer clock output (directly from PLL, no division)
+    // Sequencer clock input (directly from PLL, no division)
     // ---------------------------------------------------------------
     input wire seq_clk,     // 200 MHz sequencer clock
 
@@ -71,25 +71,25 @@ module daq_core #(
     // Sequencer outputs -> LVDS transmitters on PCB
     // Active sequencer tracks directly drive the 4 LVDS clock pairs
     // ---------------------------------------------------------------
-    output wire clk_init,   // DAC initialization pulse
-    output wire clk_samp,   // Sample-and-hold trigger
-    output wire clk_comp,   // Comparator clock (200 MHz toggle)
-    output wire clk_logic,  // SAR logic clock (200 MHz toggle, 2.5ns delayed)
+    output wire CLK_INIT,   // DAC initialization pulse
+    output wire CLK_SAMP,   // Sample-and-hold trigger
+    output wire CLK_COMP,   // Comparator clock (200 MHz toggle)
+    output wire CLK_LOGIC,  // SAR logic clock (200 MHz toggle, 2.5ns delayed)
 
     // ---------------------------------------------------------------
     // SPI interface -> chip carrier PCB
     // ---------------------------------------------------------------
     input wire  spi_clk,    // SPI shift clock
-    output wire spi_sclk,   // SPI clock to chip
-    output wire spi_sdi,    // SPI data to chip (MOSI)
-    input wire  spi_sdo,    // SPI data from chip (MISO)
-    output wire spi_cs_b,   // SPI chip select (active low)
+    output wire SPI_SCLK,   // SPI clock to chip
+    output wire SPI_SDI,    // SPI data to chip (MOSI)
+    input wire  SPI_SDO,    // SPI data from chip (MISO)
+    output wire SPI_CS_B,   // SPI chip select (active low)
 
     // ---------------------------------------------------------------
     // GPIO -> PCB control signals
     // ---------------------------------------------------------------
-    output wire rst_b,      // Chip reset (active low)
-    output wire ampen_b,    // Input amplifier enable (active low)
+    output wire RST_B,      // Chip reset (active low)
+    output wire AMPEN_B,    // Input amplifier enable (active low)
 
     // ---------------------------------------------------------------
     // comp_out data -> bram_fifo (instantiated at top level)
@@ -100,8 +100,8 @@ module daq_core #(
     input wire         fifo_read_next,
     output wire        fifo_empty,
 
-    // comp_out input from LVDS receiver
-    input wire comp_out,
+    // Comparator output from LVDS receiver (drives PCB pad)
+    input wire COMP_OUT,
 
     // ---------------------------------------------------------------
     // Global reset (independent of bus_rst, e.g. PLL not locked)
@@ -143,10 +143,10 @@ module daq_core #(
     // 1. Sequencer (seq_gen)
     //
     // Generates the 8-track timing waveform loaded from the host.
-    // seq_out[0] = clk_init       - DAC initialization pulse
-    // seq_out[1] = clk_samp       - Sample-and-hold trigger
-    // seq_out[2] = clk_comp       - Comparator clock
-    // seq_out[3] = clk_logic      - SAR logic clock
+    // seq_out[0] = CLK_INIT       - DAC initialization pulse
+    // seq_out[1] = CLK_SAMP       - Sample-and-hold trigger
+    // seq_out[2] = CLK_COMP       - Comparator clock
+    // seq_out[3] = CLK_LOGIC      - SAR logic clock
     // seq_out[4] = clk_comp_cap   - Capture clock for fast_spi_rx SCLK
     // seq_out[5] = sen_comp       - Frame enable for fast_spi_rx SEN
     // seq_out[6] = test_data      - Loopback test data for fast_spi_rx
@@ -179,10 +179,10 @@ module daq_core #(
     );
 
     // LVDS clock outputs to chip
-    assign clk_init  = seq_out[0];
-    assign clk_samp  = seq_out[1];
-    assign clk_comp  = seq_out[2];
-    assign clk_logic = seq_out[3];
+    assign CLK_INIT  = seq_out[0];
+    assign CLK_SAMP  = seq_out[1];
+    assign CLK_COMP  = seq_out[2];
+    assign CLK_LOGIC = seq_out[3];
 
     // Shadow copy of first 40 seq_gen pattern bytes (tracks [3:0] only)
     // Snoops bus writes to seq_gen memory region for LED display
@@ -208,19 +208,19 @@ module daq_core #(
     assign test_data    = seq_out[6];
 
     // fast_spi_rx input mux (loopback test mode, controlled by GPIO bit 2)
-    // Normal:   SCLK = clk_comp_cap (seq_out[4]),  SDI = comp_out
+    // Normal:   SCLK = clk_comp_cap (seq_out[4]),  SDI = COMP_OUT
     // Loopback: SCLK = ~seq_clk (half-period delay), SDI = test_data (seq_out[6])
     wire loopback_en;  // assigned in GPIO section below
     wire fspi_sclk;
     wire fspi_sdi;
     assign fspi_sclk = loopback_en ? ~seq_clk : clk_comp_cap;
-    assign fspi_sdi  = loopback_en ? test_data : comp_out;
+    assign fspi_sdi  = loopback_en ? test_data : COMP_OUT;
 
     // ===================================================================
     // 2. SPI Master
     //
     // Drives the 180-bit configuration shift register on the FRIDA chip.
-    // SEN active-low directly maps to spi_cs_b.
+    // SEN active-low directly maps to SPI_CS_B.
     // ===================================================================
     wire spi_sen;
 
@@ -239,9 +239,9 @@ module daq_core #(
 
         .SPI_CLK(spi_clk),
 
-        .SCLK(spi_sclk),
-        .SDI(spi_sdi),
-        .SDO(spi_sdo),
+        .SCLK(SPI_SCLK),
+        .SDI(SPI_SDI),
+        .SDO(SPI_SDO),
         .EXT_START(1'b0),
 
         .SEN(spi_sen),
@@ -250,14 +250,14 @@ module daq_core #(
         /* verilator lint_on PINCONNECTEMPTY */
     );
 
-    assign spi_cs_b = ~spi_sen;  // SEN is active-high enable, CS_B is active-low
+    assign SPI_CS_B = ~spi_sen;  // SEN is active-high enable, CS_B is active-low
 
     // ===================================================================
     // 3. GPIO
     //
     // 8-bit output register for PCB control signals.
-    // Bit 0: rst_b        - Chip reset (active low)
-    // Bit 1: ampen_b      - Input amplifier enable (active low)
+    // Bit 0: RST_B        - Chip reset (active low)
+    // Bit 1: AMPEN_B      - Input amplifier enable (active low)
     // Bit 2: loopback_en  - fast_spi_rx loopback test mode
     // Bits 7:3: reserved
     // ===================================================================
@@ -281,8 +281,8 @@ module daq_core #(
         .IO(gpio_io)
     );
 
-    assign rst_b   = gpio_io[0];
-    assign ampen_b = ~gpio_io[1];  // Invert: gpio_io[1]=1 enables amp (ampen_b=0)
+    assign RST_B   = gpio_io[0];
+    assign AMPEN_B = ~gpio_io[1];  // Invert: gpio_io[1]=1 enables amp (AMPEN_B=0)
 
     // Loopback test mode (GPIO bit 2)
     assign loopback_en = gpio_io[2];
@@ -311,9 +311,9 @@ module daq_core #(
     );
 
     // ===================================================================
-    // 5. comp_out Receiver (fast_spi_rx)
+    // 5. COMP_OUT Receiver (fast_spi_rx)
     //
-    // Captures the 1-bit comp_out stream using basil's fast_spi_rx module.
+    // Captures the 1-bit COMP_OUT stream using basil's fast_spi_rx module.
     // This replaces the hand-rolled shift register + FIFO implementation.
     //
     // Signal mapping:
@@ -321,7 +321,7 @@ module daq_core #(
     //           Using a sequencer track allows the user to shift the sampling
     //           edge to compensate for round-trip propagation delay
     //           (FPGA → LVDS → chip → comparator → LVDS → FPGA)
-    //   SDI  <- comp_out                  - Comparator output from chip
+    //   SDI  <- COMP_OUT                  - Comparator output from chip
     //   SEN  <- seq_out[5] (sen_comp)     - Frame enable from sequencer
     //           High during 17 capture cycles, falling edge flushes partial word
     //
@@ -348,7 +348,7 @@ module daq_core #(
         .BUS_WR(bus_wr),
 
         .SCLK(fspi_sclk),       // Normal: clk_comp_cap; Loopback: ~seq_clk
-        .SDI(fspi_sdi),         // Normal: comp_out;     Loopback: test_data (seq_out[6])
+        .SDI(fspi_sdi),         // Normal: COMP_OUT;     Loopback: test_data (seq_out[6])
         .SEN(sen_comp),         // Frame enable from sequencer track 5
 
         .FIFO_READ(fifo_read_next),

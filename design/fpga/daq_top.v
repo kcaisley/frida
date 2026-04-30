@@ -6,19 +6,19 @@
 
 `timescale 1ns / 1ps
 
+// FRIDA core (self-contained: includes its basil functional module deps
+// and the utility modules they rely on)
+`include "daq_core.v"
+
+// Additional basil utility modules (directly used by daq_top)
 `include "utils/fifo_32_to_8.v"
-`include "utils/generic_fifo.v"
 `include "utils/rgmii_io.v"
 `include "utils/rbcp_to_bus.v"
-`include "utils/bus_to_ip.v"
 
 // SiTCP (patched with `default_nettype wire by manage.py get_sitcp)
 `include "WRAP_SiTCP_GMII_XC7K_32K.V"
 `include "SiTCP_XC7K_32K_BBT_V110.V"
 `include "TIMER.v"
-
-// User core
-`include "daq_core.v"
 
 module daq_top (
     input wire        FCLK_IN,          // 100 MHz system clock
@@ -88,9 +88,9 @@ module daq_top (
 // PLL 1: Communication clocks (SiTCP / Ethernet)
 //   100 MHz * 10 = 1000 MHz VCO
 // ===================================================================
-wire RST;
-wire BUS_CLK_PLL, CLK125PLLTX, CLK125PLLTX90;
-wire PLL_FEEDBACK, LOCKED;
+wire rst;
+wire bus_clk_pll, clk125_pll_tx, clk125_pll_tx90;
+wire pll_feedback, locked;
 
 PLLE2_BASE #(
     .BANDWIDTH("OPTIMIZED"),
@@ -101,7 +101,7 @@ PLLE2_BASE #(
     .REF_JITTER1(0.0),
     .STARTUP_WAIT("FALSE"),
 
-    .CLKOUT0_DIVIDE(7),        // 1000/7 = 142.86 MHz (BUS_CLK, SiTCP needs >129 MHz)
+    .CLKOUT0_DIVIDE(7),        // 1000/7 = 142.86 MHz (bus_clk, SiTCP needs >129 MHz)
     .CLKOUT0_DUTY_CYCLE(0.5),
     .CLKOUT0_PHASE(0.0),
 
@@ -113,18 +113,18 @@ PLLE2_BASE #(
     .CLKOUT2_DUTY_CYCLE(0.5),
     .CLKOUT2_PHASE(90.0)
 ) PLLE2_BASE_comm (
-    .CLKOUT0(BUS_CLK_PLL),
-    .CLKOUT1(CLK125PLLTX),
-    .CLKOUT2(CLK125PLLTX90),
+    .CLKOUT0(bus_clk_pll),
+    .CLKOUT1(clk125_pll_tx),
+    .CLKOUT2(clk125_pll_tx90),
     .CLKOUT3(),
     .CLKOUT4(),
     .CLKOUT5(),
-    .CLKFBOUT(PLL_FEEDBACK),
-    .LOCKED(LOCKED),
+    .CLKFBOUT(pll_feedback),
+    .LOCKED(locked),
     .CLKIN1(FCLK_IN),
     .PWRDWN(0),
     .RST(!RESET_BUTTON),
-    .CLKFBIN(PLL_FEEDBACK)
+    .CLKFBIN(pll_feedback)
 );
 
 // ===================================================================
@@ -132,8 +132,8 @@ PLLE2_BASE #(
 //   100 MHz * 8 = 800 MHz VCO
 //   2.5ns step → 40 steps per 100ns conversion = 10 Msps
 // ===================================================================
-wire SEQ_CLK_PLL, SPI_CLK_PLL;
-wire PLL2_FEEDBACK, LOCKED2;
+wire seq_clk_pll, spi_clk_pll;
+wire pll2_feedback, locked2;
 
 PLLE2_BASE #(
     .BANDWIDTH("OPTIMIZED"),
@@ -144,38 +144,38 @@ PLLE2_BASE #(
     .REF_JITTER1(0.0),
     .STARTUP_WAIT("FALSE"),
 
-    .CLKOUT0_DIVIDE(2),        // 800/2 = 400 MHz (SEQ_CLK)
+    .CLKOUT0_DIVIDE(2),        // 800/2 = 400 MHz (seq_clk)
     .CLKOUT0_DUTY_CYCLE(0.5),
     .CLKOUT0_PHASE(0.0),
 
-    .CLKOUT1_DIVIDE(80),       // 800/80 = 10 MHz (SPI_CLK)
+    .CLKOUT1_DIVIDE(80),       // 800/80 = 10 MHz (spi_clk)
     .CLKOUT1_DUTY_CYCLE(0.5),
     .CLKOUT1_PHASE(0.0)
 ) PLLE2_BASE_seq (
-    .CLKOUT0(SEQ_CLK_PLL),
-    .CLKOUT1(SPI_CLK_PLL),
+    .CLKOUT0(seq_clk_pll),
+    .CLKOUT1(spi_clk_pll),
     .CLKOUT2(),
     .CLKOUT3(),
     .CLKOUT4(),
     .CLKOUT5(),
-    .CLKFBOUT(PLL2_FEEDBACK),
-    .LOCKED(LOCKED2),
+    .CLKFBOUT(pll2_feedback),
+    .LOCKED(locked2),
     .CLKIN1(FCLK_IN),
     .PWRDWN(0),
     .RST(!RESET_BUTTON),
-    .CLKFBIN(PLL2_FEEDBACK)
+    .CLKFBIN(pll2_feedback)
 );
 
-(* KEEP = "{TRUE}" *) wire BUS_CLK;
-wire CLK125TX, CLK125TX90, CLK125RX, SEQ_CLK, SPI_CLK;
-BUFG BUFG_inst_BUS_CLK   ( .O(BUS_CLK),    .I(BUS_CLK_PLL)   );
-BUFG BUFG_inst_SPI_CLK   ( .O(SPI_CLK),    .I(SPI_CLK_PLL)   );
-BUFG BUFG_inst_CLK125TX  ( .O(CLK125TX),   .I(CLK125PLLTX)   );
-BUFG BUFG_inst_CLK125TX90( .O(CLK125TX90), .I(CLK125PLLTX90)  );
-BUFG BUFG_inst_CLK125RX  ( .O(CLK125RX),   .I(rgmii_rxc)      );
-BUFG BUFG_inst_SEQ_CLK   ( .O(SEQ_CLK),    .I(SEQ_CLK_PLL)    );
+(* KEEP = "{TRUE}" *) wire bus_clk;
+wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, spi_clk;
+BUFG BUFG_inst_BUS_CLK   ( .O(bus_clk),    .I(bus_clk_pll)   );
+BUFG BUFG_inst_SPI_CLK   ( .O(spi_clk),    .I(spi_clk_pll)   );
+BUFG BUFG_inst_CLK125TX  ( .O(clk125_tx),  .I(clk125_pll_tx)  );
+BUFG BUFG_inst_CLK125TX90( .O(clk125_tx90),.I(clk125_pll_tx90) );
+BUFG BUFG_inst_CLK125RX  ( .O(clk125_rx),  .I(rgmii_rxc)      );
+BUFG BUFG_inst_SEQ_CLK   ( .O(seq_clk),    .I(seq_clk_pll)    );
 
-assign RST = !RESET_BUTTON | !LOCKED | !LOCKED2;
+assign rst = !RESET_BUTTON | !locked | !locked2;
 
 
 // ===================================================================
@@ -217,9 +217,9 @@ rgmii_io rgmii (
     .eth_clock_speed(clock_speed),
     .eth_duplex_status(duplex_status),
 
-    .tx_rgmii_clk_int(CLK125TX),
-    .tx_rgmii_clk90_int(CLK125TX90),
-    .rx_rgmii_clk_int(CLK125RX),
+    .tx_rgmii_clk_int(clk125_tx),
+    .tx_rgmii_clk90_int(clk125_tx90),
+    .rx_rgmii_clk_int(clk125_rx),
 
     .reset(!phy_rst_n)
 );
@@ -239,30 +239,30 @@ IOBUF i_iobuf_mdio (
 // ===================================================================
 // SiTCP
 // ===================================================================
-wire TCP_CLOSE_REQ, TCP_OPEN_ACK;
-wire RBCP_ACT, RBCP_WE, RBCP_RE;
-wire [7:0] RBCP_WD, RBCP_RD;
-wire [31:0] RBCP_ADDR;
-wire TCP_RX_WR, TCP_TX_WR;
-wire [7:0] TCP_RX_DATA, TCP_TX_DATA;
-wire TCP_TX_FULL;
-wire RBCP_ACK;
-wire SiTCP_RST;
+wire tcp_close_req, tcp_open_ack;
+wire rbcp_act, rbcp_we, rbcp_re;
+wire [7:0] rbcp_wd, rbcp_rd;
+wire [31:0] rbcp_addr;
+wire tcp_rx_wr, tcp_tx_wr;
+wire [7:0] tcp_rx_data, tcp_tx_data;
+wire tcp_tx_full;
+wire rbcp_ack;
+wire sitcp_rst;
 
-wire EEPROM_CS_int, EEPROM_SK_int, EEPROM_DI_int, EEPROM_DO_int;
+wire eeprom_cs_int, eeprom_sk_int, eeprom_di_int, eeprom_do_int;
 
 `ifdef BDAQ53
-    assign EEPROM_CS = EEPROM_CS_int;
-    assign EEPROM_SK = EEPROM_SK_int;
-    assign EEPROM_DI = EEPROM_DI_int;
-    assign EEPROM_DO_int = EEPROM_DO;
+    assign EEPROM_CS = eeprom_cs_int;
+    assign EEPROM_SK = eeprom_sk_int;
+    assign EEPROM_DI = eeprom_di_int;
+    assign eeprom_do_int = EEPROM_DO;
 `else
-    assign EEPROM_DO_int = 1'b0;
+    assign eeprom_do_int = 1'b0;
 `endif
 
 WRAP_SiTCP_GMII_XC7K_32K sitcp (
-    .CLK(BUS_CLK)                ,    // in  : System Clock >129MHz
-    .RST(RST)                    ,    // in  : System reset
+    .CLK(bus_clk)                ,    // in  : System Clock >129MHz
+    .RST(rst)                    ,    // in  : System reset
     // Configuration parameters
     .FORCE_DEFAULTn(1'b0)        ,    // in  : Load default parameters
     .EXT_IP_ADDR(32'hc0a80a10)   ,    // in  : 192.168.10.16
@@ -270,10 +270,10 @@ WRAP_SiTCP_GMII_XC7K_32K sitcp (
     .EXT_RBCP_PORT(16'd4660)     ,    // in  : RBCP port
     .PHY_ADDR(5'd3)              ,    // in  : PHY-device MIF address
     // EEPROM
-    .EEPROM_CS(EEPROM_CS_int)    ,
-    .EEPROM_SK(EEPROM_SK_int)    ,
-    .EEPROM_DI(EEPROM_DI_int)    ,
-    .EEPROM_DO(EEPROM_DO_int)    ,
+    .EEPROM_CS(eeprom_cs_int)    ,
+    .EEPROM_SK(eeprom_sk_int)    ,
+    .EEPROM_DI(eeprom_di_int)    ,
+    .EEPROM_DO(eeprom_do_int)    ,
     // User registers
     .USR_REG_X3C()               ,
     .USR_REG_X3D()               ,
@@ -283,12 +283,12 @@ WRAP_SiTCP_GMII_XC7K_32K sitcp (
     .GMII_RSTn(phy_rst_n)        ,
     .GMII_1000M(1'b1)            ,
     // TX
-    .GMII_TX_CLK(CLK125TX)       ,
+    .GMII_TX_CLK(clk125_tx)      ,
     .GMII_TX_EN(gmii_tx_en)      ,
     .GMII_TXD(gmii_txd)          ,
     .GMII_TX_ER(gmii_tx_er)      ,
     // RX
-    .GMII_RX_CLK(CLK125RX)       ,
+    .GMII_RX_CLK(clk125_rx)      ,
     .GMII_RX_DV(gmii_rx_dv)      ,
     .GMII_RXD(gmii_rxd)          ,
     .GMII_RX_ER(gmii_rx_er)      ,
@@ -300,81 +300,82 @@ WRAP_SiTCP_GMII_XC7K_32K sitcp (
     .GMII_MDIO_OUT(mdio_gem_o)   ,
     .GMII_MDIO_OE(mdio_gem_t)    ,
     // User I/F
-    .SiTCP_RST(SiTCP_RST)        ,
+    .SiTCP_RST(sitcp_rst)        ,
     // TCP connection control
     .TCP_OPEN_REQ(1'b0)          ,
-    .TCP_OPEN_ACK(TCP_OPEN_ACK)  ,
+    .TCP_OPEN_ACK(tcp_open_ack)  ,
     .TCP_ERROR()                 ,
-    .TCP_CLOSE_REQ(TCP_CLOSE_REQ),
-    .TCP_CLOSE_ACK(TCP_CLOSE_REQ),
+    .TCP_CLOSE_REQ(tcp_close_req),
+    .TCP_CLOSE_ACK(tcp_close_req),
     // FIFO I/F
     .TCP_RX_WC(1'b1)             ,
-    .TCP_RX_WR(TCP_RX_WR)        ,
-    .TCP_RX_DATA(TCP_RX_DATA)    ,
-    .TCP_TX_FULL(TCP_TX_FULL)    ,
-    .TCP_TX_WR(TCP_TX_WR)        ,
-    .TCP_TX_DATA(TCP_TX_DATA)    ,
+    .TCP_RX_WR(tcp_rx_wr)        ,
+    .TCP_RX_DATA(tcp_rx_data)    ,
+    .TCP_TX_FULL(tcp_tx_full)    ,
+    .TCP_TX_WR(tcp_tx_wr)        ,
+    .TCP_TX_DATA(tcp_tx_data)    ,
     // RBCP
-    .RBCP_ACT(RBCP_ACT)          ,
-    .RBCP_ADDR(RBCP_ADDR)        ,
-    .RBCP_WD(RBCP_WD)            ,
-    .RBCP_WE(RBCP_WE)            ,
-    .RBCP_RE(RBCP_RE)            ,
-    .RBCP_ACK(RBCP_ACK)          ,
-    .RBCP_RD(RBCP_RD)
+    .RBCP_ACT(rbcp_act)          ,
+    .RBCP_ADDR(rbcp_addr)        ,
+    .RBCP_WD(rbcp_wd)            ,
+    .RBCP_WE(rbcp_we)            ,
+    .RBCP_RE(rbcp_re)            ,
+    .RBCP_ACK(rbcp_ack)          ,
+    .RBCP_RD(rbcp_rd)
 );
 
 
 // ===================================================================
 // RBCP -> Bus bridge
 // ===================================================================
-wire BUS_WR, BUS_RD, BUS_RST;
-wire [31:0] BUS_ADD;
-wire [7:0] BUS_DATA;
-assign BUS_RST = SiTCP_RST;
+wire bus_wr, bus_rd, bus_rst;
+wire [31:0] bus_add;
+wire [7:0] bus_data;
+assign bus_rst = sitcp_rst;
 
 rbcp_to_bus irbcp_to_bus (
-    .BUS_RST(BUS_RST),
-    .BUS_CLK(BUS_CLK),
+    .BUS_RST(bus_rst),
+    .BUS_CLK(bus_clk),
 
-    .RBCP_ACT(RBCP_ACT),
-    .RBCP_ADDR(RBCP_ADDR),
-    .RBCP_WD(RBCP_WD),
-    .RBCP_WE(RBCP_WE),
-    .RBCP_RE(RBCP_RE),
-    .RBCP_ACK(RBCP_ACK),
-    .RBCP_RD(RBCP_RD),
+    .RBCP_ACT(rbcp_act),
+    .RBCP_ADDR(rbcp_addr),
+    .RBCP_WD(rbcp_wd),
+    .RBCP_WE(rbcp_we),
+    .RBCP_RE(rbcp_re),
+    .RBCP_ACK(rbcp_ack),
+    .RBCP_RD(rbcp_rd),
 
-    .BUS_WR(BUS_WR),
-    .BUS_RD(BUS_RD),
-    .BUS_ADD(BUS_ADD),
-    .BUS_DATA(BUS_DATA)
+    .BUS_WR(bus_wr),
+    .BUS_RD(bus_rd),
+    .BUS_ADD(bus_add),
+    .BUS_DATA(bus_data)
 );
 
 
 // ===================================================================
 // Data FIFO: core 32-bit -> SiTcp 8-bit TCP stream
 // ===================================================================
-wire [31:0] FIFO_DATA_OUT;
-wire FIFO_EMPTY, FIFO_READ_NEXT;
+wire [31:0] fifo_data_out;
+wire fifo_empty, fifo_read_next;
 wire full_32to8;
+wire empty_32to8;
 
 fifo_32_to_8 #(
     .DEPTH(64*1024)
 ) i_data_fifo (
-    .RST(BUS_RST),
-    .CLK(BUS_CLK),
+    .RST(bus_rst),
+    .CLK(bus_clk),
 
-    .WRITE(!FIFO_EMPTY),
-    .READ(TCP_TX_WR),
-    .DATA_IN(FIFO_DATA_OUT),
+    .WRITE(!fifo_empty),
+    .READ(tcp_tx_wr),
+    .DATA_IN(fifo_data_out),
     .FULL(full_32to8),
-    .EMPTY(),
-    .DATA_OUT(TCP_TX_DATA)
+    .EMPTY(empty_32to8),
+    .DATA_OUT(tcp_tx_data)
 );
 
-assign FIFO_READ_NEXT = !full_32to8;
-assign TCP_TX_WR = !TCP_TX_FULL && !FIFO_EMPTY;
+assign fifo_read_next = !full_32to8;
+assign tcp_tx_wr = !tcp_tx_full && !empty_32to8;
 
 
 // ===================================================================
@@ -412,37 +413,43 @@ IBUFDS #(
 // ===================================================================
 // FRIDA Core
 // ===================================================================
+
+// Forward declarations — used in the daq_core port map below,
+// fully declared later in the LED / BRAM shadow section.
+wire [3:0] seq_pattern_out;
+reg  [5:0] led_step;
+
 daq_core i_frida_core (
-    .bus_clk(BUS_CLK),
-    .bus_rst(BUS_RST),
-    .bus_add(BUS_ADD),
-    .bus_data(BUS_DATA),
-    .bus_rd(BUS_RD),
-    .bus_wr(BUS_WR),
+    .bus_clk(bus_clk),
+    .bus_rst(bus_rst),
+    .bus_add(bus_add),
+    .bus_data(bus_data),
+    .bus_rd(bus_rd),
+    .bus_wr(bus_wr),
 
-    .seq_clk(SEQ_CLK),
+    .seq_clk(seq_clk),
 
-    .clk_init(clk_init_int),
-    .clk_samp(clk_samp_int),
-    .clk_comp(clk_comp_int),
-    .clk_logic(clk_logic_int),
+    .CLK_INIT(clk_init_int),
+    .CLK_SAMP(clk_samp_int),
+    .CLK_COMP(clk_comp_int),
+    .CLK_LOGIC(clk_logic_int),
 
-    .spi_clk(SPI_CLK),         // 10 MHz SPI clock
-    .spi_sclk(SPI_SCLK),
-    .spi_sdi(SPI_SDI),
-    .spi_sdo(SPI_SDO),
-    .spi_cs_b(SPI_CS_B),
+    .spi_clk(spi_clk),         // 10 MHz SPI clock
+    .SPI_SCLK(SPI_SCLK),
+    .SPI_SDI(SPI_SDI),
+    .SPI_SDO(SPI_SDO),
+    .SPI_CS_B(SPI_CS_B),
 
-    .rst_b(RST_B),
-    .ampen_b(AMPEN_B),
+    .RST_B(RST_B),
+    .AMPEN_B(AMPEN_B),
 
-    .fifo_data_out(FIFO_DATA_OUT),
-    .fifo_read_next(FIFO_READ_NEXT),
-    .fifo_empty(FIFO_EMPTY),
+    .fifo_data_out(fifo_data_out),
+    .fifo_read_next(fifo_read_next),
+    .fifo_empty(fifo_empty),
 
-    .comp_out(comp_out_int),
+    .COMP_OUT(comp_out_int),
 
-    .reset(RST),
+    .reset(rst),
 
     .seq_pattern_out(seq_pattern_out),
     .seq_pattern_addr(led_step)
@@ -497,10 +504,9 @@ assign PMOD[7] = clk_logic_int;  // Pin 10: CLK_LOGIC
 localparam LED_COUNTS_PER_STEP = 100_000_000;  // 400 MHz * 0.25s
 
 reg [26:0] led_timer;
-reg [5:0]  led_step;  // 0..39
 
-always @(posedge SEQ_CLK or posedge RST)
-    if (RST) begin
+always @(posedge seq_clk or posedge rst)
+    if (rst) begin
         led_timer <= 0;
         led_step <= 0;
     end else if (led_timer >= LED_COUNTS_PER_STEP) begin
@@ -512,7 +518,6 @@ always @(posedge SEQ_CLK or posedge RST)
 
 // seq_pattern_out[3:0] = {logic, comp, samp, init} at address led_step
 // read from shadow copy of seq_gen block RAM (snooped on bus writes)
-wire [3:0] seq_pattern_out;
 
 // LED[3:0] = onboard module LEDs: sequencer pattern playback
 // LED[7:4] = BDAQ53 board LEDs: rolling / all-flash on button press

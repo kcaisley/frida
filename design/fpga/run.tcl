@@ -26,7 +26,7 @@ if {[catch {set basil_dir [exec python -c "import basil, os; print(str(os.path.d
     set basil_dir [file normalize $::env(HOME)/libs/basil]
     puts "INFO: basil not installed as Python package, using $basil_dir"
 }
-set include_dirs [list $fpga_dir $fpga_dir/SiTCP $basil_dir/basil/firmware/modules $basil_dir/basil/firmware/modules/utils]
+set include_dirs [list $fpga_dir $fpga_dir/SiTCP $basil_dir/basil/firmware/modules]
 
 file mkdir bit reports
 
