@@ -23,8 +23,8 @@ set_clock_groups -asynchronous \
 set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports {rgmii_txd[*]}] 4.000
 set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports rgmii_tx_ctl] 4.000
 set_max_delay -datapath_only -from [get_clocks clk125_pll_tx90] -to [get_ports rgmii_txc] 4.000
-set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_0]
-set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_1]
+#set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_0]
+#set_property ASYNC_REG true [get_cells sitcp/SiTCP/GMII/GMII_TXCNT/irMacPauseExe_1]
 
 # ===== System clock (100 MHz) =====
 set_property PACKAGE_PIN AA3 [get_ports FCLK_IN]

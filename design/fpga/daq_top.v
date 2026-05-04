@@ -156,7 +156,7 @@ PLLE2_BASE #(
     .CLKFBIN(pll2_feedback)
 );
 
-(* KEEP = "{TRUE}" *) wire bus_clk;
+wire bus_clk;
 wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, spi_clk;
 BUFG BUFG_inst_BUS_CLK   ( .O(bus_clk),    .I(bus_clk_pll)   );
 BUFG BUFG_inst_SPI_CLK   ( .O(spi_clk),    .I(spi_clk_pll)   );
@@ -428,7 +428,7 @@ daq_core i_frida_core (
     .SPI_SCLK(spi_sclk_int),
     .SPI_SDI(spi_sdi_int),
     .SPI_SDO(spi_sdo_int),
-    .SPI_CS_B(spi_cs_b),
+    .SPI_CS_B(spi_cs_b_int),
 
     .RST_B(rst_b_int),
     .AMPEN_B(ampen_b_int),
@@ -449,12 +449,20 @@ daq_core i_frida_core (
 // ===================================================================
 // SPI Signals and Level shifter reference voltages
 // ===================================================================
-assign V_0V_LO     = 1'b0;
-assign V_2V5_HI    = 1'b1;
+(* dont_touch = "true" *) wire v_0v_lo = 1'b0;
+(* dont_touch = "true" *) wire v_2v5_hi = 1'b1;
+wire spi_sclk_int;
+wire spi_sdi_int;
+wire spi_sdo_int;
+wire spi_cs_b_int;
+wire rst_b_int;
+wire ampen_b_int;
+assign V_0V_LO     = v_0v_lo;
+assign V_2V5_HI    = v_2v5_hi;
 assign SPI_SCLK    = spi_sclk_int;
 assign SPI_SDI     = spi_sdi_int;
 assign spi_sdo_int = SPI_SDO;       // signal coming from ASIC
-assign SPI_CS_B    = spi_cs_b;
+assign SPI_CS_B    = spi_cs_b_int;
 assign RST_B       = rst_b_int;
 assign AMPEN_B     = ampen_b_int;
 
