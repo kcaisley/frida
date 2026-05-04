@@ -116,11 +116,11 @@ async def spi_write(backend: Backend, data: bytes | Sequence[int], n_bits: int) 
     data and returns whatever was captured during the transaction.
     """
     n_bytes = (n_bits + 7) // 8
-    # Transfer a full number of bytes so every RX RAM position is written
-    # (avoids X values in simulation when n_bits isn't a multiple of 8).
-    xfer_bits = n_bytes * 8
+    # Transfer exactly the requested number of bits.
+    # Padding to a full byte would overrun the chip shift register,
+    # causing a spurious offset on the next readback.
     await backend.write(SPI_BASE + _SPI_MEM, list(data))
-    await backend.write(SPI_BASE + _SPI_SIZE, le16(xfer_bits))
+    await backend.write(SPI_BASE + _SPI_SIZE, le16(n_bits))
     await backend.write(SPI_BASE + _SPI_START, [0x01])
     await backend.wait_for_ready(SPI_BASE + _SPI_READY)
     return bytes(await backend.read(SPI_BASE + _SPI_RX_MEM, n_bytes))

@@ -784,9 +784,6 @@ class Frida:
           2. Second write — shifts the same bits again; the returned bits
              now match what was written in step 1, so we read them back
              and compare against the expected bit pattern.
-
-        The FPGA RX alignment introduces a 1-bit offset (bit 0 is lost),
-        which is accounted for in the comparison.
         """
         spi_bytes = self.spi_bits.tobytes()
 
@@ -799,9 +796,8 @@ class Frida:
         readback.frombytes(raw)
         readback = readback[:SPI_BITS]
 
-        # Verify: account for FPGA RX alignment offset at bit 0
+        # Verify that the readback matches what was written.
         expected = self.spi_bits.copy()
-        expected[0] = 0
         n_mismatch = (expected ^ readback).count(1)
         if n_mismatch:
             logger.error(
