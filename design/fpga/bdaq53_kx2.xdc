@@ -9,7 +9,7 @@ create_clock -period 8.000 -name CLK_RGMII_RX -add [get_ports rgmii_rxc]
 # ===== PLL generated clocks =====
 create_generated_clock -name bus_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 7 [get_nets bus_clk_pll]
 create_generated_clock -name clk125_pll_tx -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx]
-create_generated_clock -name clk125_pll_tx90 -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 -phase 90 [get_nets clk125_pll_tx90]
+create_generated_clock -name clk125_pll_tx90 -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx90]
 create_generated_clock -name seq_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 2 [get_nets seq_clk_pll]
 create_generated_clock -name spi_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 80 [get_nets spi_clk_pll]
 
@@ -166,28 +166,6 @@ set_property PACKAGE_PIN J11 [get_ports V_0V_LO]
 set_property PACKAGE_PIN J10 [get_ports V_2V5_HI]
 set_property IOSTANDARD LVCMOS25 [get_ports {SPI_SDO SPI_CS_B SPI_SDI SPI_SCLK}]
 set_property IOSTANDARD LVCMOS25 [get_ports {RST_B AMPEN_B V_0V_LO V_2V5_HI}]
-
-# ===== FRIDA chip 2: RJ45 port C (single-ended, DATA_A pairs) =====
-# DATA_A on Enclustra connector B → BDAQ53 IOB block → RJ45 J1C
-# Same signal-to-pin and pair-swap mapping as port D
-#   Pin 1: SPI_SDO_2  ← G11  (DATA_A4_P)  input from chip
-#   Pin 2: SPI_CS_B_2 → F10  (DATA_A4_N)  output to chip
-#   Pin 3: SPI_SDI_2  → D13  (DATA_A2_N)  output to chip (MOSI)
-#   Pin 4: SPI_SCLK_2 → C14  (DATA_A3_P)  output to chip
-#   Pin 5: RST_B_2    → C13  (DATA_A3_N)  output to chip
-#   Pin 6: AMPEN_B_2  → D14  (DATA_A2_P)  output to chip
-#   Pin 7: V_0V_LO_2  → J13  (DATA_A1_P)  0V level shifter ref
-#   Pin 8: V_2V5_HI_2 → H13  (DATA_A1_N)  2.5V / VDD_BDAQ
-set_property PACKAGE_PIN G11 [get_ports SPI_SDO_2]
-set_property PACKAGE_PIN F10 [get_ports SPI_CS_B_2]
-set_property PACKAGE_PIN D13 [get_ports SPI_SDI_2]
-set_property PACKAGE_PIN C14 [get_ports SPI_SCLK_2]
-set_property PACKAGE_PIN C13 [get_ports RST_B_2]
-set_property PACKAGE_PIN D14 [get_ports AMPEN_B_2]
-set_property PACKAGE_PIN J13 [get_ports V_0V_LO_2]
-set_property PACKAGE_PIN H13 [get_ports V_2V5_HI_2]
-set_property IOSTANDARD LVCMOS25 [get_ports {SPI_SDO_2 SPI_CS_B_2 SPI_SDI_2 SPI_SCLK_2}]
-set_property IOSTANDARD LVCMOS25 [get_ports {RST_B_2 AMPEN_B_2 V_0V_LO_2 V_2V5_HI_2}]
 
 # ===== PMOD debug header (logic analyzer) =====
 # Index matches schematic net name: PMOD[0] = Pin 1, PMOD[7] = Pin 10

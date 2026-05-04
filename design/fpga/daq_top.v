@@ -55,16 +55,6 @@ module daq_top (
     output wire       V_0V_LO,          // Level shifter VCCB low reference
     output wire       V_2V5_HI,         // Level shifter VCCB high reference
 
-    // Second chip interface (active, mirrors port D signals)
-    output wire       SPI_SCLK_2,
-    output wire       SPI_SDI_2,         // MOSI
-    input wire        SPI_SDO_2,         // MISO
-    output wire       SPI_CS_B_2,
-    output wire       RST_B_2,
-    output wire       AMPEN_B_2,
-    output wire       V_0V_LO_2,
-    output wire       V_2V5_HI_2,
-
     // Comparator output from chip (LVDS)
     input wire        COMP_OUT_P, COMP_OUT_N,
 
@@ -420,62 +410,53 @@ wire [3:0] seq_pattern_out;
 reg  [5:0] led_step;
 
 daq_core i_frida_core (
-    .bus_clk(bus_clk),
-    .bus_rst(bus_rst),
-    .bus_add(bus_add),
-    .bus_data(bus_data),
-    .bus_rd(bus_rd),
-    .bus_wr(bus_wr),
+    .BUS_CLK(bus_clk),
+    .BUS_RST(bus_rst),
+    .BUS_ADD(bus_add),
+    .BUS_DATA(bus_data),
+    .BUS_RD(bus_rd),
+    .BUS_WR(bus_wr),
 
-    .seq_clk(seq_clk),
+    .SEQ_CLK(seq_clk),
 
     .CLK_INIT(clk_init_int),
     .CLK_SAMP(clk_samp_int),
     .CLK_COMP(clk_comp_int),
     .CLK_LOGIC(clk_logic_int),
 
-    .spi_clk(spi_clk),         // 10 MHz SPI clock
-    .SPI_SCLK(SPI_SCLK),
-    .SPI_SDI(SPI_SDI),
-    .SPI_SDO(SPI_SDO),
-    .SPI_CS_B(SPI_CS_B),
+    .SPI_CLK(spi_clk),         // 10 MHz SPI clock
+    .SPI_SCLK(spi_sclk_int),
+    .SPI_SDI(spi_sdi_int),
+    .SPI_SDO(spi_sdo_int),
+    .SPI_CS_B(spi_cs_b),
 
-    .RST_B(RST_B),
-    .AMPEN_B(AMPEN_B),
+    .RST_B(rst_b_int),
+    .AMPEN_B(ampen_b_int),
 
-    .fifo_data_out(fifo_data_out),
-    .fifo_read_next(fifo_read_next),
-    .fifo_empty(fifo_empty),
+    .FIFO_DATA_OUT(fifo_data_out),
+    .FIFO_READ_NEXT(fifo_read_next),
+    .FIFO_EMPTY(fifo_empty),
 
     .COMP_OUT(comp_out_int),
 
-    .reset(rst),
+    .RESET(rst),
 
-    .seq_pattern_out(seq_pattern_out),
-    .seq_pattern_addr(led_step)
+    .SEQ_PATTERN_OUT(seq_pattern_out),
+    .SEQ_PATTERN_ADDR(led_step)
 );
 
 
 // ===================================================================
-// Level shifter reference voltages
+// SPI Signals and Level shifter reference voltages
 // ===================================================================
-(* KEEP = "TRUE" *) wire v_0v_lo_int;
-(* KEEP = "TRUE" *) wire v_2v5_hi_int;
-assign v_0v_lo_int = 1'b0;
-assign v_2v5_hi_int = 1'b1;
-assign V_0V_LO = v_0v_lo_int;
-assign V_2V5_HI = v_2v5_hi_int;
-
-// ===================================================================
-// Second chip interface — mirrors port D signals to port C
-// ===================================================================
-assign SPI_SCLK_2  = SPI_SCLK;
-assign SPI_SDI_2   = SPI_SDI;
-assign SPI_CS_B_2  = SPI_CS_B;
-assign RST_B_2     = RST_B;
-assign AMPEN_B_2   = AMPEN_B;
-assign V_0V_LO_2   = v_0v_lo_int;
-assign V_2V5_HI_2  = v_2v5_hi_int;
+assign V_0V_LO     = 1'b0;
+assign V_2V5_HI    = 1'b1;
+assign SPI_SCLK    = spi_sclk_int;
+assign SPI_SDI     = spi_sdi_int;
+assign spi_sdo_int = SPI_SDO;       // signal coming from ASIC
+assign SPI_CS_B    = spi_cs_b;
+assign RST_B       = rst_b_int;
+assign AMPEN_B     = ampen_b_int;
 
 
 // ===================================================================
@@ -483,16 +464,14 @@ assign V_2V5_HI_2  = v_2v5_hi_int;
 // ===================================================================
 // PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
 // Pins 5,6,11,12 are GND/VCC — not available as signals.
-// Pins 1-4: SPI interface signals
-// Pins 7-10: sequencer LVDS clock outputs (single-ended, from core)
-assign PMOD[0] = SPI_SCLK;       // Pin 1: SPI_SCLK
-assign PMOD[1] = SPI_SDI;        // Pin 2: SPI_SDI  (MOSI)
-assign PMOD[2] = SPI_SDO;        // Pin 3: SPI_SDO  (MISO)
-assign PMOD[3] = SPI_CS_B;       // Pin 4: SPI_CS_B
-assign PMOD[4] = clk_init_int;   // Pin 7: CLK_INIT
-assign PMOD[5] = clk_samp_int;   // Pin 8: CLK_SAMP
-assign PMOD[6] = clk_comp_int;   // Pin 9: CLK_COMP
-assign PMOD[7] = clk_logic_int;  // Pin 10: CLK_LOGIC
+assign PMOD[0] = spi_sclk_int;       // Pin 1: SPI_SCLK
+assign PMOD[1] = spi_sdi_int;        // Pin 2: SPI_SDI  (MOSI)
+assign PMOD[2] = spi_sdo_int;        // Pin 3: SPI_SDO  (MISO)
+assign PMOD[3] = comp_out_int;       // Pin 4: now buffered version of comp_out, prev. was SPI_CS_B
+assign PMOD[4] = clk_init_int;       // Pin 7: CLK_INIT
+assign PMOD[5] = clk_samp_int;       // Pin 8: CLK_SAMP
+assign PMOD[6] = clk_comp_int;       // Pin 9: CLK_COMP
+assign PMOD[7] = clk_logic_int;      // Pin 10: CLK_LOGIC
 
 
 // ===================================================================

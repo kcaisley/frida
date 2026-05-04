@@ -38,17 +38,17 @@ module daq_core #(
     // ---------------------------------------------------------------
     // Bus interface (directly from rbcp_to_bus / SiTcp)
     // ---------------------------------------------------------------
-    input wire                  bus_clk,
-    input wire                  bus_rst,
-    input wire [ABUSWIDTH-1:0]  bus_add,
-    inout wire [7:0]            bus_data,
-    input wire                  bus_rd,
-    input wire                  bus_wr,
+    input wire                  BUS_CLK,
+    input wire                  BUS_RST,
+    input wire [ABUSWIDTH-1:0]  BUS_ADD,
+    inout wire [7:0]            BUS_DATA,
+    input wire                  BUS_RD,
+    input wire                  BUS_WR,
 
     // ---------------------------------------------------------------
     // Sequencer clock input (directly from PLL, no division)
     // ---------------------------------------------------------------
-    input wire seq_clk,     // 200 MHz sequencer clock
+    input wire SEQ_CLK,     // 200 MHz sequencer clock
 
     // ---------------------------------------------------------------
     // Sequencer outputs -> LVDS transmitters on PCB
@@ -62,7 +62,7 @@ module daq_core #(
     // ---------------------------------------------------------------
     // SPI interface -> chip carrier PCB
     // ---------------------------------------------------------------
-    input wire  spi_clk,    // SPI shift clock
+    input wire  SPI_CLK,    // SPI shift clock
     output wire SPI_SCLK,   // SPI clock to chip
     output wire SPI_SDI,    // SPI data to chip (MOSI)
     input wire  SPI_SDO,    // SPI data from chip (MISO)
@@ -79,23 +79,23 @@ module daq_core #(
     // The fast_spi_rx module captures the 1-bit comparator output stream,
     // packs it into 32-bit words, and presents them as a FIFO source.
     // ---------------------------------------------------------------
-    output wire [31:0] fifo_data_out,
-    input wire         fifo_read_next,
-    output wire        fifo_empty,
+    output wire [31:0] FIFO_DATA_OUT,
+    input wire         FIFO_READ_NEXT,
+    output wire        FIFO_EMPTY,
 
     // Comparator output from LVDS receiver (drives PCB pad)
     input wire COMP_OUT,
 
     // ---------------------------------------------------------------
-    // Global reset (independent of bus_rst, e.g. PLL not locked)
+    // Global reset (independent of BUS_RST, e.g. PLL not locked)
     // ---------------------------------------------------------------
-    input wire reset,
+    input wire RESET,
 
     // ---------------------------------------------------------------
     // Sequencer pattern readback for LED display
     // ---------------------------------------------------------------
-    output wire [3:0] seq_pattern_out,  // tracks [3:0] at seq_pattern_addr
-    input wire [5:0]  seq_pattern_addr  // address 0..39
+    output wire [3:0] SEQ_PATTERN_OUT,  // tracks [3:0] at SEQ_PATTERN_ADDR
+    input wire [5:0]  SEQ_PATTERN_ADDR  // address 0..39
 );
 
     // ===================================================================
@@ -120,7 +120,7 @@ module daq_core #(
     // Combined reset
     // ===================================================================
     wire rst;
-    assign rst = bus_rst | reset;
+    assign rst = BUS_RST | RESET;
 
     // ===================================================================
     // 1. Sequencer (seq_gen)
@@ -149,15 +149,15 @@ module daq_core #(
         .MEM_BYTES(8192),
         .OUT_BITS (8)
     ) inst_seq_gen (
-        .BUS_CLK(bus_clk),
+        .BUS_CLK(BUS_CLK),
         .BUS_RST(rst),
-        .BUS_ADD(bus_add),
-        .BUS_DATA(bus_data),
-        .BUS_RD(bus_rd),
-        .BUS_WR(bus_wr),
+        .BUS_ADD(BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD(BUS_RD),
+        .BUS_WR(BUS_WR),
 
         .SEQ_EXT_START(pulse_out),
-        .SEQ_CLK(seq_clk),
+        .SEQ_CLK(SEQ_CLK),
         .SEQ_OUT(seq_out)
     );
 
@@ -174,13 +174,13 @@ module daq_core #(
     integer si;
     initial for (si = 0; si < 40; si = si + 1) seq_shadow[si] = 0;
 
-    always @(posedge bus_clk)
-        if (bus_wr
-            && bus_add >= SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET
-            && bus_add <  SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET + 40)
-            seq_shadow[bus_add - SEQ_GEN_BASEADDR - SEQ_MEM_OFFSET] <= bus_data[3:0];
+    always @(posedge BUS_CLK)
+        if (BUS_WR
+            && BUS_ADD >= SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET
+            && BUS_ADD <  SEQ_GEN_BASEADDR + SEQ_MEM_OFFSET + 40)
+            seq_shadow[BUS_ADD - SEQ_GEN_BASEADDR - SEQ_MEM_OFFSET] <= BUS_DATA[3:0];
 
-    assign seq_pattern_out = seq_shadow[seq_pattern_addr];
+    assign SEQ_PATTERN_OUT = seq_shadow[SEQ_PATTERN_ADDR];
 
     // Capture control signals
     wire clk_comp_cap;  // seq_out[4] - capture clock (normal mode)
@@ -192,11 +192,11 @@ module daq_core #(
 
     // fast_spi_rx input mux (loopback test mode, controlled by GPIO bit 2)
     // Normal:   SCLK = clk_comp_cap (seq_out[4]),  SDI = COMP_OUT
-    // Loopback: SCLK = ~seq_clk (half-period delay), SDI = test_data (seq_out[6])
+    // Loopback: SCLK = ~SEQ_CLK (half-period delay), SDI = test_data (seq_out[6])
     wire loopback_en;  // assigned in GPIO section below
     wire fspi_sclk;
     wire fspi_sdi;
-    assign fspi_sclk = loopback_en ? ~seq_clk : clk_comp_cap;
+    assign fspi_sclk = loopback_en ? ~SEQ_CLK : clk_comp_cap;
     assign fspi_sdi  = loopback_en ? test_data : COMP_OUT;
 
     // ===================================================================
@@ -221,14 +221,14 @@ module daq_core #(
         .ABUSWIDTH(ABUSWIDTH),
         .MEM_BYTES(32)          // 256 bits > 180 bits needed
     ) inst_spi (
-        .BUS_CLK(bus_clk),
+        .BUS_CLK(BUS_CLK),
         .BUS_RST(rst),
-        .BUS_ADD(bus_add),
-        .BUS_DATA(bus_data),
-        .BUS_RD(bus_rd),
-        .BUS_WR(bus_wr),
+        .BUS_ADD(BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD(BUS_RD),
+        .BUS_WR(BUS_WR),
 
-        .SPI_CLK(spi_clk),
+        .SPI_CLK(SPI_CLK),
 
         .SCLK(SPI_SCLK),
         .SDI(SPI_SDI),
@@ -263,12 +263,12 @@ module daq_core #(
         .IO_DIRECTION(8'hFF),   // All outputs
         .IO_TRI      (0)
     ) inst_gpio (
-        .BUS_CLK(bus_clk),
+        .BUS_CLK(BUS_CLK),
         .BUS_RST(rst),
-        .BUS_ADD(bus_add),
-        .BUS_DATA(bus_data),
-        .BUS_RD(bus_rd),
-        .BUS_WR(bus_wr),
+        .BUS_ADD(BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD(BUS_RD),
+        .BUS_WR(BUS_WR),
 
         .IO(gpio_io)
     );
@@ -293,14 +293,14 @@ module daq_core #(
         .HIGHADDR (PULSE_GEN_HIGHADDR),
         .ABUSWIDTH(ABUSWIDTH)
     ) inst_pulse_gen (
-        .BUS_CLK(bus_clk),
+        .BUS_CLK(BUS_CLK),
         .BUS_RST(rst),
-        .BUS_ADD(bus_add),
-        .BUS_DATA(bus_data),
-        .BUS_RD(bus_rd),
-        .BUS_WR(bus_wr),
+        .BUS_ADD(BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD(BUS_RD),
+        .BUS_WR(BUS_WR),
 
-        .PULSE_CLK(seq_clk),
+        .PULSE_CLK(SEQ_CLK),
         .EXT_START(1'b0),
         .PULSE(pulse_out)
     );
@@ -335,20 +335,20 @@ module daq_core #(
         .ABUSWIDTH (ABUSWIDTH),
         .IDENTIFIER(4'b0001)    // Only block which writes to shared FIFO
     ) inst_fast_spi_rx (
-        .BUS_CLK(bus_clk),
+        .BUS_CLK(BUS_CLK),
         .BUS_RST(rst),
-        .BUS_ADD(bus_add),
-        .BUS_DATA(bus_data),
-        .BUS_RD(bus_rd),
-        .BUS_WR(bus_wr),
+        .BUS_ADD(BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD(BUS_RD),
+        .BUS_WR(BUS_WR),
 
-        .SCLK(fspi_sclk),       // Normal: clk_comp_cap; Loopback: ~seq_clk
+        .SCLK(fspi_sclk),       // Normal: clk_comp_cap; Loopback: ~SEQ_CLK
         .SDI(fspi_sdi),         // Normal: COMP_OUT;     Loopback: test_data (seq_out[6])
         .SEN(sen_comp),         // Frame enable from sequencer track 5
 
-        .FIFO_READ(fifo_read_next),
-        .FIFO_EMPTY(fifo_empty),
-        .FIFO_DATA(fifo_data_out)
+        .FIFO_READ(FIFO_READ_NEXT),
+        .FIFO_EMPTY(FIFO_EMPTY),
+        .FIFO_DATA(FIFO_DATA_OUT)
     );
 
 endmodule

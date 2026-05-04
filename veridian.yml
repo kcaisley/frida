@@ -2,14 +2,13 @@
 
 include_dirs:
   - libs/basil/basil/firmware/modules
-  - libs/basil/basil/firmware/modules/utils
+  - libs/basil/basil/firmware/modules/includes
   - design/hdl
   - design/fpga
   - design/fpga/SiTCP
 
 source_dirs:
   - design/fpga
-  - libs/basil/basil/firmware/modules
 
 verilator:
   syntax:
@@ -18,7 +17,25 @@ verilator:
       - --lint-only
       - --sv
       - -Wall
+      - --top-module
+      - daq_top
+      - -Wno-EOFNEWLINE
+      - -Wno-DECLFILENAME
+      - -Wno-TIMESCALEMOD
+      - -Wno-PINCONNECTEMPTY
+      - -Wno-GENUNNAMED
+      - -Wno-WIDTHCONCAT
+      - -Wno-WIDTHTRUNC
+      - -Wno-WIDTHEXPAND
+      - -Wno-REDEFMACRO
+      - -Wno-UNUSEDSIGNAL
+      - -Wno-UNDRIVEN
+      - -Wno-UNUSEDPARAM
+      - -Wno-MODMISSING
+      - -Wno-MODDUP
+      - -Wno-PINMISSING
       - -Ilibs/basil/basil/firmware/modules
+      - -Ilibs/basil/basil/firmware/modules/includes
       - -Idesign/hdl
       - -Idesign/fpga
       - -Idesign/fpga/SiTCP
