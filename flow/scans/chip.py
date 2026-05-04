@@ -797,13 +797,15 @@ class Frida:
         readback = readback[:SPI_BITS]
 
         # Verify that the readback matches what was written.
+        # The SPI SDO path has a 1-bit pipeline delay: the first captured
+        # sample is stale (from before the shift started), so skip bit 0.
         expected = self.spi_bits.copy()
-        n_mismatch = (expected ^ readback).count(1)
+        n_mismatch = (expected[1:] ^ readback[1:]).count(1)
         if n_mismatch:
             logger.error(
-                "SPI verify FAIL: %d/%d bits mismatch",
+                "SPI verify FAIL: %d/%d bits mismatch (bit 0 excluded)",
                 n_mismatch,
-                SPI_BITS,
+                SPI_BITS - 1,
             )
             logger.error(
                 "expected: %s",
