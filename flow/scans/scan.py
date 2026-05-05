@@ -133,6 +133,9 @@ async def main_loop(
         raise ValueError(f"Unknown dacmode {dacmode!r}")
 
     # Channel loop + voltage loop
+    import json
+    import sys
+
     results: dict[int, list[np.ndarray]] = {ch: [] for ch in channels}
 
     for channel in channels:
@@ -180,32 +183,39 @@ async def main_loop(
                 continue
 
             if cycles == 0:
-                # Continuous mode — loop until Ctrl+C
-                bits_chunks = []
+                # Continuous mode — stream each conversion to stdout as it arrives
                 try:
                     while True:
                         bits = await chip.run_conversions(
                             n_conversions=1,
                             repetitions=1,
                         )
-                        bits_chunks.append(bits)
-                        logger.info(
-                            "channel=%d, vi=%d/%d, captured=%d conversions so far",
-                            channel,
-                            vi,
-                            len(voltage_entries),
-                            sum(b.shape[0] for b in bits_chunks),
-                        )
+                        results[channel].append(bits)
+                        line = {
+                            "channel": channel,
+                            "vi": vi,
+                            "bits": bits.tolist(),
+                        }
+                        json.dump(line, sys.stdout)
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     logger.info("Continuous capture interrupted, stopping...")
-                bits = np.concatenate(bits_chunks, axis=0) if bits_chunks else np.zeros((0, 1, 17), dtype=np.int32)
             else:
                 bits = await chip.run_conversions(
                     n_conversions=1,
                     repetitions=cycles,
                 )
+                results[channel].append(bits)
+                line = {
+                    "channel": channel,
+                    "vi": vi,
+                    "bits": bits.tolist(),
+                }
+                json.dump(line, sys.stdout)
+                sys.stdout.write("\n")
+                sys.stdout.flush()
 
-            results[channel].append(bits)
             logger.info(
                 "channel=%d, vi=%d/%d, bits shape=%s",
                 channel,
@@ -216,22 +226,6 @@ async def main_loop(
 
             if input_mode == "manual":
                 break
-
-    # Always print results to stdout
-    import json
-    import sys
-
-    payload = {
-        "sequence": sequence,
-        "channels": channels,
-        "dacstate": dacstate,
-        "dacmode": dacmode,
-        "input_mode": input_mode,
-        "vdd": vdd,
-        "results": {str(ch): [r.tolist() for r in res] for ch, res in results.items()},
-    }
-    json.dump(payload, sys.stdout)
-    sys.stdout.write("\n")
 
     # Optionally save NPZ to scratch/scan/
     if save:
