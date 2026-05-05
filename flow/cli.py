@@ -176,23 +176,16 @@ def main():
         help="Enable FPGA SPI SDO loopback (reads back SDI instead of chip SDO)",
     )
     p.add_argument(
-        "--save-results",
+        "--save",
         choices=["true", "false"],
         default="false",
-        help="Save captured results to disk",
+        help="Save captured results to scratch/scan/ as NPZ",
     )
     p.add_argument(
         "--vdd",
         type=float,
         default=1.2,
         help="Supply voltage",
-    )
-    p.add_argument(
-        "-o",
-        "--outdir",
-        type=Path,
-        default=None,
-        help="Output directory for saved results",
     )
 
     argcomplete.autocomplete(parser)
@@ -210,7 +203,7 @@ def main():
             raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
         args.emulate = _str_to_bool(args.emulate)
         args.diffcaps = _str_to_bool(args.diffcaps)
-        args.save_results = _str_to_bool(args.save_results)
+        args.save = _str_to_bool(args.save)
         args.spi_loopback = _str_to_bool(args.spi_loopback)
         run_scan(args)
         return

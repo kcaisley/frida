@@ -55,8 +55,7 @@ async def main_loop(
     rate: int = 1,
     cycles: int = 1,
     spi_loopback: bool = False,
-    save_results: bool = False,
-    outdir: Path | None = None,
+    save: bool = False,
 ) -> dict:
     """Run the unified scan loop across channels and input voltages.
 
@@ -69,7 +68,7 @@ async def main_loop(
             - Set vin via AWG (unless manual)
             - Trigger sequencer + capture results
          c. Accumulate results
-      3. Optionally save results to disk
+      3. Print results to stdout; optionally save NPZ to scratch/scan/
 
     Args:
         chip: Initialized ``Frida`` instance (any backend).
@@ -85,8 +84,7 @@ async def main_loop(
         rate: Sequencer clock divider; 1 = full speed.
         cycles: Number of sequence repetitions per voltage step.
             0 = run continuously until Ctrl+C (KeyboardInterrupt).
-        save_results: If True, write results NPZ file to ``outdir``.
-        outdir: Output directory for saved results.
+        save: If True, also write results as NPZ to scratch/scan/.
         spi_loopback: If True, route SPI SDO from SDI instead of the chip
             pin (for FPGA-to-chip link verification).
 
@@ -219,12 +217,28 @@ async def main_loop(
             if input_mode == "manual":
                 break
 
-    # Optionally save results
-    if save_results:
-        out = outdir or REPO / "scratch" / "scan"
-        out.mkdir(parents=True, exist_ok=True)
+    # Always print results to stdout
+    import json
+    import sys
+
+    payload = {
+        "sequence": sequence,
+        "channels": channels,
+        "dacstate": dacstate,
+        "dacmode": dacmode,
+        "input_mode": input_mode,
+        "vdd": vdd,
+        "results": {str(ch): [r.tolist() for r in res] for ch, res in results.items()},
+    }
+    json.dump(payload, sys.stdout)
+    sys.stdout.write("\n")
+
+    # Optionally save NPZ to scratch/scan/
+    if save:
+        outdir = REPO / "scratch" / "scan"
+        outdir.mkdir(parents=True, exist_ok=True)
         np.savez(
-            out / f"scan_{sequence}.npz",
+            outdir / f"scan_{sequence}.npz",
             channels=channels,
             results={ch: [r.tolist() for r in res] for ch, res in results.items()},
             dacstate=dacstate,
@@ -232,7 +246,7 @@ async def main_loop(
             input_mode=input_mode,
             vdd=vdd,
         )
-        logger.info("Results saved to %s", out)
+        logger.info("Results saved to %s", outdir)
 
     return {ch: res for ch, res in results.items()}
 
@@ -269,8 +283,7 @@ def _build_scan_env(args) -> dict[str, str]:
         "SCAN_VDD": str(args.vdd),
         "SCAN_RATE": str(args.rate),
         "SCAN_CYCLES": str(args.cycles),
-        "SCAN_SAVE_RESULTS": str(args.save_results).lower(),
-        "SCAN_OUTDIR": str(args.outdir or REPO / "scratch" / "scan"),
+        "SCAN_SAVE": str(args.save).lower(),
     }
 
 
@@ -283,7 +296,7 @@ def _run_scan_sim(args):
     for key, val in env.items():
         os.environ[key] = val
 
-    build_dir = args.outdir or REPO / "scratch" / "scan"
+    build_dir = REPO / "scratch" / "scan"
 
     runner = get_runner("icarus")
     runner.build(
@@ -346,8 +359,7 @@ async def _run_scan_hw(args):
         rate=args.rate,
         cycles=args.cycles,
         spi_loopback=args.spi_loopback,
-        save_results=args.save_results,
-        outdir=args.outdir,
+        save=args.save,
     )
 
     for ch, res in results.items():
@@ -382,7 +394,7 @@ async def sim_scan(dut):
     vdd = float(os.environ.get("SCAN_VDD", "1.2"))
     rate = int(os.environ.get("SCAN_RATE", "1"))
     cycles = int(os.environ.get("SCAN_CYCLES", "1"))
-    build_dir = os.environ.get("SCAN_OUTDIR", str(REPO / "scratch" / "scan"))
+    save = os.environ.get("SCAN_SAVE", "false").lower() == "true"
 
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
     cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
@@ -411,8 +423,7 @@ async def sim_scan(dut):
         rate=rate,
         cycles=cycles,
         spi_loopback=False,
-        save_results=True,
-        outdir=Path(build_dir),
+        save=save,
     )
 
     await bridge.stop()
