@@ -13,58 +13,67 @@
 module adc (
 
     // Sequencing signals
-    input  wire seq_init,
-    input  wire seq_samp,
-    input  wire seq_comp,
-    input  wire seq_update,
+    input wire seq_init,
+    input wire seq_samp,
+    input wire seq_comp,
+    input wire seq_update,
 
     // Enable control signals
-    input  wire en_init,
-    input  wire en_samp_p,
-    input  wire en_samp_n,
-    input  wire en_comp,
-    input  wire en_update,
+    input wire en_init,
+    input wire en_samp_p,
+    input wire en_samp_n,
+    input wire en_comp,
+    input wire en_update,
 
     // DAC config
-    input  wire dac_mode,
-    input  wire [15:0] dac_astate_p,
-    input  wire [15:0] dac_bstate_p,
-    input  wire [15:0] dac_astate_n,
-    input  wire [15:0] dac_bstate_n,
-    input  wire dac_diffcaps,
+    input wire dac_mode,
+    input wire [15:0] dac_astate_p,
+    input wire [15:0] dac_bstate_p,
+    input wire [15:0] dac_astate_n,
+    input wire [15:0] dac_bstate_n,
+    input wire dac_diffcaps,
 
     // Analog inputs
 `ifdef COCOTBEXT_AMS
-    input  wire vin_p,
-    input  wire vin_n,
+    input wire  vin_p,
+    input wire  vin_n,
 `elsif SPICEBIND
-    input  real vin_p,
-    input  real vin_n,
+    input real  vin_p,
+    input real  vin_n,
 `else
-    input  wreal vin_p,
-    input  wreal vin_n,
+    input wreal vin_p,
+    input wreal vin_n,
 `endif
 
     // Output
 `ifdef COCOTBEXT_AMS
-    output reg comp_out,
+    output reg  comp_out,
 `else
     output wire comp_out,
 `endif
 
     // Power supply signals
 `ifdef COCOTBEXT_AMS
-    input  wire vdd_a, vss_a,
-    input  wire vdd_d, vss_d,
-    input  wire vdd_dac, vss_dac
+    input wire  vdd_a,
+    vss_a,
+    input wire  vdd_d,
+    vss_d,
+    input wire  vdd_dac,
+    vss_dac
 `elsif SPICEBIND
-    input  real vdd_a, vss_a,
-    input  real vdd_d, vss_d,
-    input  real vdd_dac, vss_dac
+    input real  vdd_a,
+    vss_a,
+    input real  vdd_d,
+    vss_d,
+    input real  vdd_dac,
+    vss_dac
 `else
-    input  wreal vdd_a, vss_a,
-    input  wreal vdd_d, vss_d,
-    input  wreal vdd_dac, vss_dac
+    input wreal vdd_a,
+    vss_a,
+    input wreal vdd_d,
+    vss_d,
+    input wreal vdd_dac,
+    vss_dac
 `endif
 );
 

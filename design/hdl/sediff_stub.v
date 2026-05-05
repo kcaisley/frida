@@ -9,10 +9,10 @@
 (* blackbox *)
 module sediff (
 `ifdef SPICEBIND
-    input  real vin_p_ext,
-    output real vin_p,
-    output real vin_n,
-    input  real vdd
+    input  real  vin_p_ext,
+    output real  vin_p,
+    output real  vin_n,
+    input  real  vdd
 `else
     input  wreal vin_p_ext,
     output wreal vin_p,
