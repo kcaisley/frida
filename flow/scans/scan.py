@@ -133,8 +133,6 @@ async def main_loop(
         raise ValueError(f"Unknown dacmode {dacmode!r}")
 
     # Channel loop + voltage loop
-    import json
-    import sys
 
     results: dict[int, list[np.ndarray]] = {ch: [] for ch in channels}
 
@@ -191,14 +189,10 @@ async def main_loop(
                             repetitions=1,
                         )
                         results[channel].append(bits)
-                        line = {
-                            "channel": channel,
-                            "vi": vi,
-                            "bits": bits.tolist(),
-                        }
-                        json.dump(line, sys.stdout)
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
+                        for rep in range(bits.shape[0]):
+                            for conv in range(bits.shape[1]):
+                                word = "".join(str(b) for b in bits[rep, conv])
+                                print(f"ch{channel}  {word}", flush=True)
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     logger.info("Continuous capture interrupted, stopping...")
             else:
@@ -207,14 +201,10 @@ async def main_loop(
                     repetitions=cycles,
                 )
                 results[channel].append(bits)
-                line = {
-                    "channel": channel,
-                    "vi": vi,
-                    "bits": bits.tolist(),
-                }
-                json.dump(line, sys.stdout)
-                sys.stdout.write("\n")
-                sys.stdout.flush()
+                for rep in range(bits.shape[0]):
+                    for conv in range(bits.shape[1]):
+                        word = "".join(str(b) for b in bits[rep, conv])
+                        print(f"ch{channel}  {word}", flush=True)
 
             logger.info(
                 "channel=%d, vi=%d/%d, bits shape=%s",
