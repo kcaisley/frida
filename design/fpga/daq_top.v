@@ -65,7 +65,7 @@ module daq_top (
     output wire [3:0] rgmii_txd,
     output wire       rgmii_tx_ctl,
     output wire       rgmii_txc,
-    input wire [3:0]  rgmii_rxd,
+    input wire  [3:0] rgmii_rxd,
     input wire        rgmii_rx_ctl,
     input wire        rgmii_rxc,
     output wire       mdio_phy_mdc,
@@ -158,12 +158,12 @@ PLLE2_BASE #(
 
 wire bus_clk;
 wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, spi_clk;
-BUFG BUFG_inst_BUS_CLK   ( .O(bus_clk),    .I(bus_clk_pll)   );
-BUFG BUFG_inst_SPI_CLK   ( .O(spi_clk),    .I(spi_clk_pll)   );
-BUFG BUFG_inst_CLK125TX  ( .O(clk125_tx),  .I(clk125_pll_tx)  );
-BUFG BUFG_inst_CLK125TX90( .O(clk125_tx90),.I(clk125_pll_tx90) );
-BUFG BUFG_inst_CLK125RX  ( .O(clk125_rx),  .I(rgmii_rxc)      );
-BUFG BUFG_inst_SEQ_CLK   ( .O(seq_clk),    .I(seq_clk_pll)    );
+BUFG bufg_bus_clk     ( .O(bus_clk),    .I(bus_clk_pll)   );
+BUFG bufg_spi_clk     ( .O(spi_clk),    .I(spi_clk_pll)   );
+BUFG bufg_clk125tx    ( .O(clk125_tx),  .I(clk125_pll_tx)  );
+BUFG bufg_clk125tx90  ( .O(clk125_tx90),.I(clk125_pll_tx90) );
+BUFG bufg_clk125rx    ( .O(clk125_rx),  .I(rgmii_rxc)      );
+BUFG bufg_seq_clk     ( .O(seq_clk),    .I(seq_clk_pll)    );
 
 assign rst = !RESET_BUTTON | !locked | !locked2;
 
@@ -172,18 +172,18 @@ assign rst = !RESET_BUTTON | !locked | !locked2;
 // RGMII I/O
 // ===================================================================
 wire  gmii_tx_en;
-wire [7:0] gmii_txd;
+wire  [7:0] gmii_txd;
 wire  gmii_tx_er;
 wire  gmii_crs;
 wire  gmii_col;
 wire  gmii_rx_dv;
-wire [7:0] gmii_rxd;
+wire  [7:0] gmii_rxd;
 wire  gmii_rx_er;
 wire  mdio_gem_i;
 wire  mdio_gem_o;
 wire  mdio_gem_t;
 wire  link_status;
-wire [1:0] clock_speed;
+wire  [1:0] clock_speed;
 wire  duplex_status;
 
 rgmii_io rgmii (
@@ -218,7 +218,7 @@ rgmii_io rgmii (
 // ===================================================================
 // MDIO tri-state buffer
 // ===================================================================
-IOBUF i_iobuf_mdio (
+IOBUF iobuf_mdio (
     .O(mdio_gem_i),
     .IO(mdio_phy_mdio),
     .I(mdio_gem_o),
@@ -239,15 +239,15 @@ wire tcp_tx_full;
 wire rbcp_ack;
 wire sitcp_rst;
 
-wire eeprom_cs_int, eeprom_sk_int, eeprom_di_int, eeprom_do_int;
+wire eeprom_cs, eeprom_sk, eeprom_di, eeprom_do;
 
 `ifdef BDAQ53
-    assign EEPROM_CS = eeprom_cs_int;
-    assign EEPROM_SK = eeprom_sk_int;
-    assign EEPROM_DI = eeprom_di_int;
-    assign eeprom_do_int = EEPROM_DO;
+    assign EEPROM_CS = eeprom_cs;
+    assign EEPROM_SK = eeprom_sk;
+    assign EEPROM_DI = eeprom_di;
+    assign eeprom_do = EEPROM_DO;
 `else
-    assign eeprom_do_int = 1'b0;
+    assign eeprom_do = 1'b0;
 `endif
 
 WRAP_SiTCP_GMII_XC7K_32K sitcp (
@@ -260,10 +260,10 @@ WRAP_SiTCP_GMII_XC7K_32K sitcp (
     .EXT_RBCP_PORT(16'd4660)     ,    // in  : RBCP port
     .PHY_ADDR(5'd3)              ,    // in  : PHY-device MIF address
     // EEPROM
-    .EEPROM_CS(eeprom_cs_int)    ,
-    .EEPROM_SK(eeprom_sk_int)    ,
-    .EEPROM_DI(eeprom_di_int)    ,
-    .EEPROM_DO(eeprom_do_int)    ,
+    .EEPROM_CS(eeprom_cs)    ,
+    .EEPROM_SK(eeprom_sk)    ,
+    .EEPROM_DI(eeprom_di)    ,
+    .EEPROM_DO(eeprom_do)    ,
     // User registers
     .USR_REG_X3C()               ,
     .USR_REG_X3D()               ,
@@ -372,29 +372,29 @@ assign tcp_tx_wr = !tcp_tx_full && !empty_32to8;
 // LVDS I/O buffers
 // ===================================================================
 // Sequencer clock outputs to chip (active, directly from core)
-wire clk_init_int, clk_samp_int, clk_comp_int, clk_logic_int;
+wire clk_init, clk_samp, clk_comp, clk_logic;
 
-OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_init (
-    .O(CLK_INIT_P), .OB(CLK_INIT_N), .I(~clk_init_int)
+OBUFDS #(.IOSTANDARD("LVDS_25")) obufds_clk_init (
+    .O(CLK_INIT_P), .OB(CLK_INIT_N), .I(~clk_init)
 );
-OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_samp (
-    .O(CLK_SAMP_P), .OB(CLK_SAMP_N), .I(clk_samp_int)
+OBUFDS #(.IOSTANDARD("LVDS_25")) obufds_clk_samp (
+    .O(CLK_SAMP_P), .OB(CLK_SAMP_N), .I(clk_samp)
 );
-OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_comp (
-    .O(CLK_COMP_P), .OB(CLK_COMP_N), .I(~clk_comp_int)
+OBUFDS #(.IOSTANDARD("LVDS_25")) obufds_clk_comp (
+    .O(CLK_COMP_P), .OB(CLK_COMP_N), .I(~clk_comp)
 );
-OBUFDS #(.IOSTANDARD("LVDS_25")) i_obufds_clk_logic (
-    .O(CLK_LOGIC_P), .OB(CLK_LOGIC_N), .I(~clk_logic_int)
+OBUFDS #(.IOSTANDARD("LVDS_25")) obufds_clk_logic (
+    .O(CLK_LOGIC_P), .OB(CLK_LOGIC_N), .I(~clk_logic)
 );
 
 // Comparator output from chip (LVDS input)
-wire comp_out_int;
+wire comp_out;
 IBUFDS #(
     .DIFF_TERM("TRUE"),
     .IBUF_LOW_PWR("FALSE"),
     .IOSTANDARD("LVDS_25")
-) i_ibufds_comp_out (
-    .O(comp_out_int),
+) ibufds_comp_out (
+    .O(comp_out),
     .I(COMP_OUT_P),
     .IB(COMP_OUT_N)
 );
@@ -403,13 +403,7 @@ IBUFDS #(
 // ===================================================================
 // FRIDA Core
 // ===================================================================
-
-// Forward declarations — used in the daq_core port map below,
-// fully declared later in the LED / BRAM shadow section.
-wire [3:0] seq_pattern_out;
-reg  [5:0] led_step;
-
-daq_core i_frida_core (
+daq_core frida_core (
     .BUS_CLK(bus_clk),
     .BUS_RST(bus_rst),
     .BUS_ADD(bus_add),
@@ -419,30 +413,27 @@ daq_core i_frida_core (
 
     .SEQ_CLK(seq_clk),
 
-    .CLK_INIT(clk_init_int),
-    .CLK_SAMP(clk_samp_int),
-    .CLK_COMP(clk_comp_int),
-    .CLK_LOGIC(clk_logic_int),
+    .CLK_INIT(clk_init),
+    .CLK_SAMP(clk_samp),
+    .CLK_COMP(clk_comp),
+    .CLK_LOGIC(clk_logic),
 
     .SPI_CLK(spi_clk),         // 10 MHz SPI clock
-    .SPI_SCLK(spi_sclk_int),
-    .SPI_SDI(spi_sdi_int),
-    .SPI_SDO(spi_sdo_int),
-    .SPI_CS_B(spi_cs_b_int),
+    .SPI_SCLK(spi_sclk),
+    .SPI_SDI(spi_sdi),
+    .SPI_SDO(spi_sdo),
+    .SPI_CS_B(spi_cs_b),
 
-    .RST_B(rst_b_int),
-    .AMPEN_B(ampen_b_int),
+    .RST_B(rst_b),
+    .AMPEN_B(ampen_b),
 
     .FIFO_DATA_OUT(fifo_data_out),
     .FIFO_READ_NEXT(fifo_read_next),
     .FIFO_EMPTY(fifo_empty),
 
-    .COMP_OUT(comp_out_int),
-
+    .COMP_OUT(comp_out),
     .RESET(rst),
-
-    .SEQ_PATTERN_OUT(seq_pattern_out),
-    .SEQ_PATTERN_ADDR(led_step)
+    .LED_OUT(LED)
 );
 
 
@@ -451,20 +442,20 @@ daq_core i_frida_core (
 // ===================================================================
 (* dont_touch = "true" *) wire v_0v_lo = 1'b0;
 (* dont_touch = "true" *) wire v_2v5_hi = 1'b1;
-wire spi_sclk_int;
-wire spi_sdi_int;
-wire spi_sdo_int;
-wire spi_cs_b_int;
-wire rst_b_int;
-wire ampen_b_int;
+wire spi_sclk;
+wire spi_sdi;
+wire spi_sdo;
+wire spi_cs_b;
+wire rst_b;
+wire ampen_b;
 assign V_0V_LO     = v_0v_lo;
 assign V_2V5_HI    = v_2v5_hi;
-assign SPI_SCLK    = spi_sclk_int;
-assign SPI_SDI     = spi_sdi_int;
-assign spi_sdo_int = SPI_SDO;       // signal coming from ASIC
-assign SPI_CS_B    = spi_cs_b_int;
-assign RST_B       = rst_b_int;
-assign AMPEN_B     = ampen_b_int;
+assign SPI_SCLK    = spi_sclk;
+assign SPI_SDI     = spi_sdi;
+assign spi_sdo     = SPI_SDO;    // signal coming from ASIC
+assign SPI_CS_B    = spi_cs_b;
+assign RST_B       = rst_b;
+assign AMPEN_B     = ampen_b;
 
 
 // ===================================================================
@@ -472,50 +463,13 @@ assign AMPEN_B     = ampen_b_int;
 // ===================================================================
 // PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
 // Pins 5,6,11,12 are GND/VCC — not available as signals.
-assign PMOD[0] = spi_sclk_int;       // Pin 1: SPI_SCLK
-assign PMOD[1] = spi_sdi_int;        // Pin 2: SPI_SDI  (MOSI)
-assign PMOD[2] = spi_sdo_int;        // Pin 3: SPI_SDO  (MISO)
-assign PMOD[3] = comp_out_int;       // Pin 4: now buffered version of comp_out, prev. was SPI_CS_B
-assign PMOD[4] = clk_init_int;       // Pin 7: CLK_INIT
-assign PMOD[5] = clk_samp_int;       // Pin 8: CLK_SAMP
-assign PMOD[6] = clk_comp_int;       // Pin 9: CLK_COMP
-assign PMOD[7] = clk_logic_int;      // Pin 10: CLK_LOGIC
-
-
-// ===================================================================
-// LEDs: slow playback of seq_gen pattern from block RAM shadow
-// ===================================================================
-// LED[3:0] reads the actual pattern loaded into seq_gen memory.
-// Steps through addresses 0..39 at 0.25s each = 10s total loop.
-// Whatever the host writes to the sequencer is displayed.
-localparam LED_COUNTS_PER_STEP = 100_000_000;  // 400 MHz * 0.25s
-
-reg [26:0] led_timer;
-
-always @(posedge seq_clk or posedge rst)
-    if (rst) begin
-        led_timer <= 0;
-        led_step <= 0;
-    end else if (led_timer >= LED_COUNTS_PER_STEP) begin
-        led_timer <= 0;
-        led_step <= (led_step == 39) ? 0 : led_step + 1;
-    end else begin
-        led_timer <= led_timer + 1;
-    end
-
-// seq_pattern_out[3:0] = {logic, comp, samp, init} at address led_step
-// read from shadow copy of seq_gen block RAM (snooped on bus writes)
-
-// LED[3:0] = onboard module LEDs: sequencer pattern playback
-// LED[7:4] = BDAQ53 board LEDs: rolling / all-flash on button press
-// Active-low on BDAQ53
-assign LED[3:0] = ~seq_pattern_out;
-
-reg [3:0] led_board_rolling;
-always @(*) begin
-    led_board_rolling = 4'b0;
-    led_board_rolling[led_step[1:0]] = 1'b1;
-end
-assign LED[7:4] = USER_BUTTON ? ~led_board_rolling : (led_timer[24] ? 4'hF : 4'h0);
+assign PMOD[0] = spi_sclk;       // Pin 1: SPI_SCLK
+assign PMOD[1] = spi_sdi;        // Pin 2: SPI_SDI  (MOSI)
+assign PMOD[2] = spi_sdo;        // Pin 3: SPI_SDO  (MISO)
+assign PMOD[3] = comp_out;       // Pin 4: now comp_out, prev was SPI_CS_B
+assign PMOD[4] = clk_init;       // Pin 7: CLK_INIT
+assign PMOD[5] = clk_samp;       // Pin 8: CLK_SAMP
+assign PMOD[6] = clk_comp;       // Pin 9: CLK_COMP
+assign PMOD[7] = clk_logic;      // Pin 10: CLK_LOGIC
 
 endmodule
