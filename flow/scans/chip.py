@@ -789,6 +789,7 @@ class Frida:
 
         # First write: commit the bits, discard the stale readback
         await daq.spi_write(self._backend, spi_bytes, SPI_BITS)
+        logger.info("SPI register programmed")
 
         # Second write: shift again, capture the bits that were written
         raw = await daq.spi_write(self._backend, spi_bytes, SPI_BITS)
@@ -803,7 +804,7 @@ class Frida:
         n_mismatch = (expected[1:] ^ readback[1:]).count(1)
         if n_mismatch:
             logger.error(
-                "SPI verify FAIL: %d/%d bits mismatch (bit 0 excluded)",
+                "SPI register verification failed: %d/%d bits mismatch (bit 0 excluded)",
                 n_mismatch,
                 SPI_BITS - 1,
             )
@@ -816,12 +817,13 @@ class Frida:
                 readback.to01(),
             )
         else:
-            logger.info("SPI verify PASS")
+            logger.info("SPI register verification passed!")
 
     async def run_conversions(
         self,
         n_conversions: int = 1,
         repetitions: int = 1,
+        channel: int | None = None,
     ) -> np.ndarray:
         """Run ADC conversions and return comp_out bits.
 
@@ -844,7 +846,14 @@ class Frida:
         if lost > 0:
             logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
 
-        return self._parse_comp_out(fifo_data, n_conversions, repetitions)
+        bits = self._parse_comp_out(fifo_data, n_conversions, repetitions)
+
+        for rep in range(bits.shape[0]):
+            for conv in range(bits.shape[1]):
+                word = "".join(str(b) for b in bits[rep, conv])
+                logger.info("FAST_RX  ch%s  %s", channel if channel is not None else "?", word)
+
+        return bits
 
     async def sample_and_compare(self) -> int:
         """Run a single conversion and return the first comp_out bit."""

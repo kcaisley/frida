@@ -17,11 +17,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from flow.scans.chip import Backend
+
+logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------
 # Base addresses
@@ -163,6 +166,7 @@ async def seq_load(
     await backend.write(SEQ_BASE + _SEQ_MEM, list(mem_data))
     await backend.write(SEQ_BASE + _SEQ_SIZE, le32(n_steps))
     await backend.write(SEQ_BASE + _SEQ_CLK_DIV, [clk_div & 0xFF])
+    logger.info("Sequencer pattern loaded: %d steps, clk_div=%d", n_steps, clk_div)
 
 
 async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
@@ -174,6 +178,7 @@ async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
     await backend.write(PULSE_GEN_BASE + _PGEN_WIDTH, le32(1))
     await backend.write(PULSE_GEN_BASE + _PGEN_START, [0x01])
     await backend.wait_for_ready(SEQ_BASE + _SEQ_READY)
+    logger.info("Sequencer triggered: %d steps, repeat=%d", size, repeat)
 
 
 # -------------------------------------------------------------------------

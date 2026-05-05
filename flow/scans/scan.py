@@ -181,7 +181,7 @@ async def main_loop(
                 continue
 
             if cycles == 0:
-                # Continuous mode — stream each conversion to stdout as it arrives
+                # Continuous mode — stream each conversion as it arrives
                 try:
                     while True:
                         bits = await chip.run_conversions(
@@ -189,10 +189,6 @@ async def main_loop(
                             repetitions=1,
                         )
                         results[channel].append(bits)
-                        for rep in range(bits.shape[0]):
-                            for conv in range(bits.shape[1]):
-                                word = "".join(str(b) for b in bits[rep, conv])
-                                print(f"ch{channel}  {word}", flush=True)
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     logger.info("Continuous capture interrupted, stopping...")
             else:
@@ -201,18 +197,6 @@ async def main_loop(
                     repetitions=cycles,
                 )
                 results[channel].append(bits)
-                for rep in range(bits.shape[0]):
-                    for conv in range(bits.shape[1]):
-                        word = "".join(str(b) for b in bits[rep, conv])
-                        print(f"ch{channel}  {word}", flush=True)
-
-            logger.info(
-                "channel=%d, vi=%d/%d, bits shape=%s",
-                channel,
-                vi,
-                len(voltage_entries),
-                bits.shape,
-            )
 
             if input_mode == "manual":
                 break
@@ -245,6 +229,10 @@ def run_scan(args):
 
     Branches into simulation (cocotb runner) or hardware (basil Dut + Frida).
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - [%(levelname)s] (%(threadName)s) %(message)s",
+    )
     if args.emulate:
         _run_scan_sim(args)
     else:
@@ -331,7 +319,7 @@ async def _run_scan_hw(args):
     chip = Frida(backend, peripherals)
     await chip.init(write_initial_spi=False)
 
-    results = await main_loop(
+    await main_loop(
         chip,
         sequence=args.sequence,
         channels=args.channel,
@@ -345,18 +333,6 @@ async def _run_scan_hw(args):
         spi_loopback=args.spi_loopback,
         save=args.save,
     )
-
-    for ch, res in results.items():
-        if res:
-            last_bits = res[-1]
-            logger.info(
-                "channel=%d: %d voltage steps, last shape=%s",
-                ch,
-                len(res),
-                last_bits.shape,
-            )
-        else:
-            logger.info("channel=%d: no conversions captured", ch)
 
 
 # =========================================================================
