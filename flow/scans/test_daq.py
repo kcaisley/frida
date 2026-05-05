@@ -22,9 +22,9 @@ import pytest
 from cocotb.clock import Clock
 
 from flow.scans.chip import (
+    _SEQ_ADC,
     SimBackend,
-    _seq_full_conversion,
-    pack_seq_tracks,
+    _pack,
 )
 from flow.scans.daq import (
     _SPI_MEM,
@@ -75,9 +75,8 @@ async def check_gpio_reset(backend):
 
 async def check_sequencer_runs(backend):
     """Load a conversion sequence, trigger it, verify it completes."""
-    seq = _seq_full_conversion()
-    n_steps = len(seq["CLK_INIT"])
-    mem_data = pack_seq_tracks(seq)
+    mem_data = _SEQ_ADC
+    n_steps = len(mem_data)
     await seq_load(backend, mem_data, n_steps)
     await seq_trigger(backend, n_steps, repeat=1)
 
@@ -103,15 +102,15 @@ async def check_sequencer_loopback(backend):
         test_data[i] = i % 2
 
     seq = {
-        "CLK_INIT": [0] * n_steps,
-        "CLK_SAMP": [0] * n_steps,
-        "CLK_COMP": [0] * n_steps,
-        "CLK_LOGIC": [0] * n_steps,
-        "CLK_COMP_CAP": [0] * n_steps,
-        "SEN_COMP": sen_comp,
-        "TEST_DATA": test_data,
+        "CLK_INIT": "0" * n_steps,
+        "CLK_SAMP": "0" * n_steps,
+        "CLK_COMP": "0" * n_steps,
+        "CLK_LOGIC": "0" * n_steps,
+        "FASTRX_CLK": "0" * n_steps,
+        "FASTRX_EN": "".join(str(b) for b in sen_comp),
+        "FASTRX_TEST_DATA": "".join(str(b) for b in test_data),
     }
-    mem_data = pack_seq_tracks(seq)
+    mem_data = _pack(seq)
 
     # Enable loopback FIRST so SCLK = ~seq_clk is toggling,
     # then reset fast_spi_rx — CDC FIFO needs SCLK edges during reset

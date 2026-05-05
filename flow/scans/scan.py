@@ -6,10 +6,11 @@ only through the ``Frida`` class.
 
 Sequence values dispatched through ``chip.configure_sequencer()``:
   - "none"      → no sequencer loaded; SPI register write/readback only
-  - "adc"       → full SAR conversion  (_seq_full_conversion)
-  - "comp"      → continuous comp clock (_seq_comp)
-  - "samp_comp" → single sample+compare (_seq_samp_comp)
-  - "calib"     → init→sample→comp→DAC→comp (_seq_calib)
+  - "adc"       → full SAR conversion
+  - "comp"      → continuous comp clock
+  - "samp_comp" → single sample+compare
+  - "calib"     → init→sample→comp→DAC→comp
+  - "fastrx"    → fast_spi_rx loopback test pattern
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ async def main_loop(
     vdd: float = 1.2,
     rate: int = 1,
     cycles: int = 1,
-    spi_loopback: bool = False,
+    loopback: str = "none",
     save: bool = False,
 ) -> dict:
     """Run the unified scan loop across channels and input voltages.
@@ -85,8 +86,8 @@ async def main_loop(
         cycles: Number of sequence repetitions per voltage step.
             0 = run continuously until Ctrl+C (KeyboardInterrupt).
         save: If True, also write results as NPZ to scratch/scan/.
-        spi_loopback: If True, route SPI SDO from SDI instead of the chip
-            pin (for FPGA-to-chip link verification).
+        loopback: One of ``"none"``, ``"spi"``, ``"fastrx"``, ``"both"``.
+            Enables SPI loopback, fast-RX loopback, or both.
 
     Returns:
         Nested dict: ``{channel_index: list[np.ndarray]}``.
@@ -94,8 +95,9 @@ async def main_loop(
     # Step 0: ensure chip is out of reset
     await chip.reset()
 
-    # Step 0b: configure SPI loopback if requested
-    await chip.set_spi_loopback(spi_loopback)
+    # Step 0b: configure loopback modes
+    await chip.set_spi_loopback(loopback in ("spi", "both"))
+    await chip.set_fastrx_loopback(loopback in ("fastrx", "both"))
 
     # Step 1: load sequencer
     if sequence != "none":
@@ -103,6 +105,14 @@ async def main_loop(
             sequence,
             seq_clk_div=rate,
         )
+
+    # Fast RX test mode: no chip configuration needed
+    if sequence == "fastrx":
+        bits = await chip.run_conversions(
+            n_conversions=1,
+            repetitions=cycles,
+        )
+        return {"fastrx": [bits]}
 
     # Build voltage table from input_mode
     cm = vdd / 2
@@ -171,6 +181,13 @@ async def main_loop(
         )
 
         await chip.reg_write()
+        logger.info(
+            "SPI register programmed: ch=%d, dacstate=%s, dacmode=%s, diffcaps=%s",
+            channel,
+            dacstate,
+            dacmode,
+            diffcaps,
+        )
 
         # Voltage sweep
         for vi, ventry in enumerate(voltage_entries):
@@ -255,6 +272,7 @@ def _build_scan_env(args) -> dict[str, str]:
         "SCAN_VDD": str(args.vdd),
         "SCAN_RATE": str(args.rate),
         "SCAN_CYCLES": str(args.cycles),
+        "SCAN_LOOPBACK": args.loopback,
         "SCAN_SAVE": str(args.save).lower(),
     }
 
@@ -330,7 +348,7 @@ async def _run_scan_hw(args):
         vdd=args.vdd,
         rate=args.rate,
         cycles=args.cycles,
-        spi_loopback=args.spi_loopback,
+        loopback=args.loopback,
         save=args.save,
     )
 
@@ -354,6 +372,7 @@ async def sim_scan(dut):
     vdd = float(os.environ.get("SCAN_VDD", "1.2"))
     rate = int(os.environ.get("SCAN_RATE", "1"))
     cycles = int(os.environ.get("SCAN_CYCLES", "1"))
+    loopback = os.environ.get("SCAN_LOOPBACK", "none")
     save = os.environ.get("SCAN_SAVE", "false").lower() == "true"
 
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
@@ -382,7 +401,7 @@ async def sim_scan(dut):
         vdd=vdd,
         rate=rate,
         cycles=cycles,
-        spi_loopback=False,
+        loopback=loopback,
         save=save,
     )
 

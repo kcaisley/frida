@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 # Base addresses
 # -------------------------------------------------------------------------
 
+SEQ_CLK_FREQ = 200_000_000  # Hz — sequencer clock from PLL
+
 SEQ_BASE = 0x10000
 SPI_BASE = 0x20000
 GPIO_BASE = 0x30000
@@ -166,7 +168,29 @@ async def seq_load(
     await backend.write(SEQ_BASE + _SEQ_MEM, list(mem_data))
     await backend.write(SEQ_BASE + _SEQ_SIZE, le32(n_steps))
     await backend.write(SEQ_BASE + _SEQ_CLK_DIV, [clk_div & 0xFF])
-    logger.info("Sequencer pattern loaded: %d steps, clk_div=%d", n_steps, clk_div)
+
+    # Visual dump of sequencer memory for debugging
+    track_names = [
+        "CLK_INIT",
+        "CLK_SAMP",
+        "CLK_COMP",
+        "CLK_LOGIC",
+        "FASTRX_CLK",
+        "FASTRX_EN",
+        "FASTRX_TEST_DATA",
+    ]
+    logger.info("Sequencer pattern (%d steps):", n_steps)
+    for bit_pos, name in enumerate(track_names):
+        line = "".join("1" if (byte >> bit_pos) & 1 else "0" for byte in mem_data)
+        logger.info("  %-18s %s", name, line)
+
+    eff_freq = SEQ_CLK_FREQ / clk_div
+    logger.info(
+        "Sequencer pattern loaded: %d steps, clk_div=%d (%.2f MHz effective)",
+        n_steps,
+        clk_div,
+        eff_freq / 1e6,
+    )
 
 
 async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
@@ -178,7 +202,7 @@ async def seq_trigger(backend: Backend, size: int, repeat: int = 1) -> None:
     await backend.write(PULSE_GEN_BASE + _PGEN_WIDTH, le32(1))
     await backend.write(PULSE_GEN_BASE + _PGEN_START, [0x01])
     await backend.wait_for_ready(SEQ_BASE + _SEQ_READY)
-    logger.info("Sequencer triggered: %d steps, repeat=%d", size, repeat)
+    logger.info("Sequencer triggered: %d steps, cycles=%d", size, repeat)
 
 
 # -------------------------------------------------------------------------

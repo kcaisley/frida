@@ -32,9 +32,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------
-# Constants
+# Constants (module-level: used by standalone helpers and cli.py before Frida is instantiated)
 # -------------------------------------------------------------------------
-
 N_ADCS = 16
 SPI_BITS = 180
 N_COMP_BITS = 17
@@ -43,8 +42,6 @@ N_COMP_BITS = 17
 # -------------------------------------------------------------------------
 # Typed chip register map
 # -------------------------------------------------------------------------
-
-
 class CfgReg(Enum):
     """Typed FRIDA configuration-register identifiers."""
 
@@ -104,275 +101,99 @@ ADC_CFGREGS = tuple(getattr(CfgReg, f"ADC_{i}") for i in range(N_ADCS))
 
 
 # -------------------------------------------------------------------------
-# Sequencer helpers (pure Python, no I/O)
+# Sequencer patterns (pre-packed for FPGA seq_gen memory)
+#
+# Each byte = one timestep. Bit positions:
+#   0=CLK_INIT, 1=CLK_SAMP, 2=CLK_COMP, 3=CLK_LOGIC,
+#   4=FASTRX_CLK, 5=FASTRX_EN, 6=FASTRX_TEST_DATA, 7=unused
 # -------------------------------------------------------------------------
+_TRACK_BITS = {
+    "CLK_INIT": 0,
+    "CLK_SAMP": 1,
+    "CLK_COMP": 2,
+    "CLK_LOGIC": 3,
+    "FASTRX_CLK": 4,
+    "FASTRX_EN": 5,
+    "FASTRX_TEST_DATA": 6,
+}
 
 
-def _seq_full_conversion(
-    conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 2.5,
-    init_pulse_ns: float = 5.0,
-    samp_pulse_ns: float = 12.5,
-    n_comp_bits: int = N_COMP_BITS,
-    capture_delay_steps: int = 1,
-) -> dict[str, list[int]]:
-    """Generate sequencer waveforms for one ADC conversion cycle.
+def _pack(tracks: dict[str, str]) -> list[int]:
+    """Pack track bit strings into seq_gen memory bytes."""
+    lengths = {name: len(s) for name, s in tracks.items()}
+    if len(set(lengths.values())) != 1:
+        raise ValueError(f"Track length mismatch: {lengths}")
+    n_steps = next(iter(lengths.values()))
+    if n_steps != 40:
+        raise ValueError(f"Expected 40 steps, got {n_steps}")
+    return [sum((int(tracks[name][step]) << _TRACK_BITS[name]) for name in tracks) for step in range(n_steps)]
 
-    At 400 MHz (2.5 ns/step), 100 ns = 40 steps:
-      - CLK_INIT : 5 ns pulse  (2 steps) at t=0
-      - CLK_SAMP : 12.5 ns pulse (5 steps) at t=5 ns
-      - CLK_COMP : 17 pulses, each 2.5 ns, starting at t=15 ns
-      - CLK_LOGIC: 16 pulses interleaved with CLK_COMP (first comp is free)
-      - CLK_COMP_CAP: capture clock for fast_spi_rx, delayed by capture_delay_steps
-      - SEN_COMP : frame enable, high across all 17 capture cycles
-    """
-    n_steps = int(conversion_period_ns / seq_clk_period_ns)
 
-    clk_init = [0] * n_steps
-    clk_samp = [0] * n_steps
-    clk_comp = [0] * n_steps
-    clk_logic = [0] * n_steps
-    clk_comp_cap = [0] * n_steps
-    sen_comp = [0] * n_steps
-
-    init_steps = int(init_pulse_ns / seq_clk_period_ns)  # 2
-    samp_steps = int(samp_pulse_ns / seq_clk_period_ns)  # 4
-    samp_start = init_steps  # step 2
-    comp_start = init_steps + samp_steps  # step 6
-
-    for i in range(init_steps):
-        clk_init[i] = 1
-    for i in range(samp_start, samp_start + samp_steps):
-        clk_samp[i] = 1
-
-    n_logic_bits = n_comp_bits - 1
-    for bit in range(n_comp_bits):
-        comp_step = comp_start + bit * 2
-        if comp_step < n_steps:
-            clk_comp[comp_step] = 1
-        logic_step = comp_start + bit * 2 + 1
-        if bit < n_logic_bits and logic_step < n_steps:
-            clk_logic[logic_step] = 1
-
-    for bit in range(n_comp_bits):
-        sample_step = comp_start + bit * 2 + 1 + capture_delay_steps
-        if sample_step < n_steps:
-            clk_comp_cap[sample_step] = 1
-
-    sen_start = comp_start
-    last_capture = comp_start + (n_comp_bits - 1) * 2 + 1 + capture_delay_steps
-    sen_end = min(last_capture + 2, n_steps)
-    for i in range(sen_start, sen_end):
-        sen_comp[i] = 1
-
-    return {
-        "CLK_INIT": clk_init,
-        "CLK_SAMP": clk_samp,
-        "CLK_COMP": clk_comp,
-        "CLK_LOGIC": clk_logic,
-        "CLK_COMP_CAP": clk_comp_cap,
-        "SEN_COMP": sen_comp,
+# 40-step full SAR conversion
+_SEQ_ADC = _pack(
+    {
+        "CLK_INIT": "1100000000000000000000000000000000000000",
+        "CLK_SAMP": "0011111000000000000000000000000000000000",
+        "CLK_COMP": "0000000101010101010101010101010101010000",
+        "CLK_LOGIC": "0000000010101010101010101010101010101000",
+        "FASTRX_CLK": "0000000001010101010101010101010101010101",
+        "FASTRX_EN": "0000000111111111111111111111111111111111",
     }
+)
 
-
-def _seq_comp(
-    conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 2.5,
-    n_comp_bits: int = N_COMP_BITS,
-    capture_delay_steps: int = 1,
-) -> dict[str, list[int]]:
-    """Generate sequencer pattern with always-on sample clock and continuous comparator clock.
-
-    - CLK_INIT stays low
-    - CLK_SAMP stays high
-    - CLK_LOGIC stays low
-    - CLK_COMP pulses every other step
-    - CLK_COMP_CAP aligned relative to comparator pulses
-    - SEN_COMP stays high across the comparison/capture window
-    """
-    n_steps = int(conversion_period_ns / seq_clk_period_ns)
-
-    clk_init = [0] * n_steps
-    clk_samp = [1] * n_steps
-    clk_comp = [0] * n_steps
-    clk_logic = [0] * n_steps
-    clk_comp_cap = [0] * n_steps
-    sen_comp = [0] * n_steps
-
-    for bit in range(n_comp_bits):
-        comp_step = bit * 2
-        if comp_step < n_steps:
-            clk_comp[comp_step] = 1
-
-        sample_step = bit * 2 + 1 + capture_delay_steps
-        if sample_step < n_steps:
-            clk_comp_cap[sample_step] = 1
-
-    last_capture = (n_comp_bits - 1) * 2 + 1 + capture_delay_steps
-    sen_end = min(last_capture + 2, n_steps)
-    for i in range(sen_end):
-        sen_comp[i] = 1
-
-    return {
-        "CLK_INIT": clk_init,
-        "CLK_SAMP": clk_samp,
-        "CLK_COMP": clk_comp,
-        "CLK_LOGIC": clk_logic,
-        "CLK_COMP_CAP": clk_comp_cap,
-        "SEN_COMP": sen_comp,
+# 40-step continuous comparator clock
+_SEQ_COMP = _pack(
+    {
+        "CLK_INIT": "0000000000000000000000000000000000000000",
+        "CLK_SAMP": "1111111111111111111111111111111111111111",
+        "CLK_COMP": "1010101010101010101010101010101010101010",
+        "CLK_LOGIC": "0000000000000000000000000000000000000000",
+        "FASTRX_CLK": "0101010101010101010101010101010101010101",
+        "FASTRX_EN": "1111111111111111111111111111111111111111",
     }
+)
 
-
-def _seq_samp_comp(
-    conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 2.5,
-    capture_delay_steps: int = 1,
-) -> dict[str, list[int]]:
-    """Generate a single sample-and-compare sequencer pattern.
-
-    - CLK_INIT stays low
-    - CLK_SAMP: one 12.5 ns pulse
-    - CLK_COMP: one pulse after SAMP
-    - CLK_LOGIC stays low
-    - CLK_COMP_CAP: capture after COMP
-    - SEN_COMP: frame around the compare window
-    """
-    n_steps = int(conversion_period_ns / seq_clk_period_ns)
-    samp_steps = int(12.5 / seq_clk_period_ns)
-
-    clk_init = [0] * n_steps
-    clk_samp = [0] * n_steps
-    clk_comp = [0] * n_steps
-    clk_logic = [0] * n_steps
-    clk_comp_cap = [0] * n_steps
-    sen_comp = [0] * n_steps
-
-    for i in range(samp_steps):
-        clk_samp[i] = 1
-
-    comp_step = samp_steps
-    if comp_step < n_steps:
-        clk_comp[comp_step] = 1
-
-    capture_step = comp_step + 1 + capture_delay_steps
-    if capture_step < n_steps:
-        clk_comp_cap[capture_step] = 1
-
-    sen_end = min(capture_step + 2, n_steps)
-    for i in range(samp_steps, sen_end):
-        sen_comp[i] = 1
-
-    return {
-        "CLK_INIT": clk_init,
-        "CLK_SAMP": clk_samp,
-        "CLK_COMP": clk_comp,
-        "CLK_LOGIC": clk_logic,
-        "CLK_COMP_CAP": clk_comp_cap,
-        "SEN_COMP": sen_comp,
+# 40-step single sample-and-compare
+_SEQ_SAMP_COMP = _pack(
+    {
+        "CLK_INIT": "0000000000000000000000000000000000000000",
+        "CLK_SAMP": "1111100000000000000000000000000000000000",
+        "CLK_COMP": "0000010000000000000000000000000000000000",
+        "CLK_LOGIC": "0000000000000000000000000000000000000000",
+        "FASTRX_CLK": "0000000100000000000000000000000000000000",
+        "FASTRX_EN": "0000011110000000000000000000000000000000",
     }
+)
 
-
-def _seq_calib(
-    conversion_period_ns: int = 100,
-    seq_clk_period_ns: float = 2.5,
-    init_pulse_ns: float = 5.0,
-    samp_pulse_ns: float = 12.5,
-    capture_delay_steps: int = 1,
-) -> dict[str, list[int]]:
-    """Generate sequencer pattern for DAC A→B calibration.
-
-    - CLK_INIT : reset SAR logic
-    - CLK_SAMP : sample input
-    - CLK_COMP : first comparison (residue before DAC update)
-    - CLK_LOGIC: DAC update trigger
-    - CLK_COMP : second comparison (residue after DAC update)
-    - CLK_COMP_CAP: capture for both comparisons
-    - SEN_COMP : frame across the comparison window
-    """
-    n_steps = int(conversion_period_ns / seq_clk_period_ns)
-
-    clk_init = [0] * n_steps
-    clk_samp = [0] * n_steps
-    clk_comp = [0] * n_steps
-    clk_logic = [0] * n_steps
-    clk_comp_cap = [0] * n_steps
-    sen_comp = [0] * n_steps
-
-    init_steps = int(init_pulse_ns / seq_clk_period_ns)
-    samp_steps = int(samp_pulse_ns / seq_clk_period_ns)
-    samp_start = init_steps
-
-    for i in range(init_steps):
-        clk_init[i] = 1
-    for i in range(samp_start, samp_start + samp_steps):
-        if i < n_steps:
-            clk_samp[i] = 1
-
-    first_comp = samp_start + samp_steps
-    if first_comp < n_steps:
-        clk_comp[first_comp] = 1
-
-    logic_step = first_comp + 1
-    if logic_step < n_steps:
-        clk_logic[logic_step] = 1
-
-    second_comp = logic_step + 1
-    if second_comp < n_steps:
-        clk_comp[second_comp] = 1
-
-    capture1 = first_comp + 1 + capture_delay_steps
-    if capture1 < n_steps:
-        clk_comp_cap[capture1] = 1
-    capture2 = second_comp + 1 + capture_delay_steps
-    if capture2 < n_steps:
-        clk_comp_cap[capture2] = 1
-
-    sen_start = samp_start
-    sen_end = min(capture2 + 2, n_steps)
-    for i in range(sen_start, sen_end):
-        sen_comp[i] = 1
-
-    return {
-        "CLK_INIT": clk_init,
-        "CLK_SAMP": clk_samp,
-        "CLK_COMP": clk_comp,
-        "CLK_LOGIC": clk_logic,
-        "CLK_COMP_CAP": clk_comp_cap,
-        "SEN_COMP": sen_comp,
+# 40-step DAC A→B calibration
+_SEQ_CALIB = _pack(
+    {
+        "CLK_INIT": "1100000000000000000000000000000000000000",
+        "CLK_SAMP": "0011111000000000000000000000000000000000",
+        "CLK_COMP": "0000000101000000000000000000000000000000",
+        "CLK_LOGIC": "0000000010000000000000000000000000000000",
+        "FASTRX_CLK": "0000000001010000000000000000000000000000",
+        "FASTRX_EN": "0011111111111000000000000000000000000000",
     }
+)
 
-
-def pack_seq_tracks(seq: dict[str, list[int]]) -> list[int]:
-    """Pack sequencer track dict into byte array for seq_gen memory.
-
-    Each byte holds one timestep: bit 0=CLK_INIT, ..., bit 5=SEN_COMP,
-    bit 6=TEST_DATA, bit 7=SPARE_7.
-    """
-    track_order = [
-        "CLK_INIT",
-        "CLK_SAMP",
-        "CLK_COMP",
-        "CLK_LOGIC",
-        "CLK_COMP_CAP",
-        "SEN_COMP",
-        "TEST_DATA",
-    ]
-    n_steps = len(next(iter(seq.values())))
-    mem_data = []
-    for step in range(n_steps):
-        byte = 0
-        for bit_pos, track in enumerate(track_order):
-            if track in seq and seq[track][step]:
-                byte |= 1 << bit_pos
-        mem_data.append(byte)
-    return mem_data
+# 40-step fast RX loopback test
+_SEQ_FASTRX = _pack(
+    {
+        "CLK_INIT": "0001010101010101010101010101010101010000",  # copy FASTRX_CLK
+        "CLK_SAMP": "1111111111111111111111111111111111111110",  # copy FASTRX_EN for debug
+        "CLK_COMP": "0011110011110011110011110011110011110000",  # copy FASTRX_TEST_DATA
+        "CLK_LOGIC": "0000000000000000000000000000000000000000",
+        "FASTRX_CLK": "0001010101010101010101010101010101010000",
+        "FASTRX_EN": "1111111111111111111111111111111111111110",
+        "FASTRX_TEST_DATA": "0011110011110011110011110011110011110000",
+    }
+)
 
 
 # -------------------------------------------------------------------------
 # Backend Protocol
 # -------------------------------------------------------------------------
-
-
 class Backend(Protocol):
     """Transport abstraction for FRIDA chip communication.
 
@@ -399,8 +220,6 @@ class Backend(Protocol):
 # -------------------------------------------------------------------------
 # SimBackend — cocotb BasilBusDriver
 # -------------------------------------------------------------------------
-
-
 class SimBackend:
     """Simulation backend using cocotb's BasilBusDriver.
 
@@ -543,8 +362,6 @@ class SimBackend:
 # -------------------------------------------------------------------------
 # HardwareBackend — basil Dut over SiTcp
 # -------------------------------------------------------------------------
-
-
 class HardwareBackend:
     """Hardware backend using a basil Dut connected over SiTcp.
 
@@ -590,8 +407,6 @@ class HardwareBackend:
 # -------------------------------------------------------------------------
 # Frida Chip Controller
 # -------------------------------------------------------------------------
-
-
 class Frida:
     """Unified controller for the FRIDA ADC test chip.
 
@@ -643,7 +458,6 @@ class Frida:
     # -----------------------------------------------------------------
     # Reset / GPIO
     # -----------------------------------------------------------------
-
     async def reset(self) -> None:
         """Toggle RST_B low then high."""
         self._gpio_out &= ~(1 << daq.GPIO_RST_B_BIT)
@@ -684,10 +498,22 @@ class Frida:
         await daq.gpio_write(self._backend, self._gpio_out)
         logger.info("SPI loopback %s", "enabled" if enabled else "disabled")
 
+    async def set_fastrx_loopback(self, enabled: bool) -> None:
+        """Enable or disable fast_spi_rx test data loopback.
+
+        When enabled, the FPGA routes seq_out[6] (fastrx_test_data) into the
+        fast_spi_rx input instead of the COMP_OUT pin.
+        """
+        if enabled:
+            self._gpio_out |= 1 << daq.GPIO_LOOPBACK_BIT
+        else:
+            self._gpio_out &= ~(1 << daq.GPIO_LOOPBACK_BIT)
+        await daq.gpio_write(self._backend, self._gpio_out)
+        logger.info("Fast RX loopback %s", "enabled" if enabled else "disabled")
+
     # -----------------------------------------------------------------
     # SPI Register Access (pure Python, no I/O)
     # -----------------------------------------------------------------
-
     def _write_cfgreg_bits(self, reg: CfgReg, value: int) -> None:
         """Write a typed configuration register into the local SPI bit array."""
         regdef = self._registers[reg]
@@ -716,7 +542,6 @@ class Frida:
     # -----------------------------------------------------------------
     # ADC Configuration (pure Python, no I/O)
     # -----------------------------------------------------------------
-
     def select_adc(self, adc_num: int) -> None:
         """Select which ADC output appears on COMP_OUT."""
         if not 0 <= adc_num < N_ADCS:
@@ -774,7 +599,6 @@ class Frida:
     # -----------------------------------------------------------------
     # Bus Operations (async, use DAQ helpers)
     # -----------------------------------------------------------------
-
     async def reg_write(self) -> None:
         """Shift the current register bit array into the chip and verify.
 
@@ -823,7 +647,6 @@ class Frida:
         self,
         n_conversions: int = 1,
         repetitions: int = 1,
-        channel: int | None = None,
     ) -> np.ndarray:
         """Run ADC conversions and return comp_out bits.
 
@@ -851,7 +674,7 @@ class Frida:
         for rep in range(bits.shape[0]):
             for conv in range(bits.shape[1]):
                 word = "".join(str(b) for b in bits[rep, conv])
-                logger.info("FAST_RX  ch%s  %s", channel if channel is not None else "?", word)
+                logger.info("FAST_RX  data=%s", word)
 
         return bits
 
@@ -863,7 +686,6 @@ class Frida:
     # -----------------------------------------------------------------
     # Peripheral Dispatch
     # -----------------------------------------------------------------
-
     async def set_vin(self, diff: float, cm: float = 0.6) -> None:
         """Set the input voltage via the AWG peripheral."""
         if self.peripherals is None or not hasattr(self.peripherals, "awg"):
@@ -879,7 +701,6 @@ class Frida:
     # -----------------------------------------------------------------
     # Data Parsing
     # -----------------------------------------------------------------
-
     @staticmethod
     def _parse_comp_out(
         fifo_data: bytes,
@@ -931,7 +752,6 @@ class Frida:
     # -----------------------------------------------------------------
     # High-Level Scan Utilities
     # -----------------------------------------------------------------
-
     async def measure_conversions(
         self,
         adc_num: int,
@@ -955,53 +775,29 @@ class Frida:
     # -----------------------------------------------------------------
     # Sequencer Configuration
     # -----------------------------------------------------------------
-
     async def configure_sequencer(
         self,
         sequence: str = "adc",
         *,
-        conversion_period_ns: int = 100,
-        seq_clk_period_ns: float = 2.5,
         seq_clk_div: int = 1,
     ) -> None:
         """Load a sequencer pattern into the FPGA sequencer SRAM.
 
         Args:
-            sequence: ``"adc"`` (full SAR conversion), ``"comp"``
-                (continuous comparator clock, always-on sample),
-                ``"samp_comp"`` (single sample-and-compare), or
-                ``"calib"`` (init→sample→comp→DAC update→comp).
-            conversion_period_ns: Total conversion period in ns.
-            seq_clk_period_ns: Sequencer clock period in ns (400 MHz → 2.5).
-            seq_clk_div: Sequencer clock divider; 1 = full speed,
-                larger values slow the effective step rate.
+            sequence: ``"adc"``, ``"comp"``, ``"samp_comp"``,
+                ``"calib"``, or ``"fastrx"``.
+            seq_clk_div: Sequencer clock divider; 1 = full speed.
         """
-        if sequence == "adc":
-            seq = _seq_full_conversion(
-                conversion_period_ns=conversion_period_ns,
-                seq_clk_period_ns=seq_clk_period_ns,
-            )
-            n_steps = len(seq["CLK_INIT"])
-        elif sequence == "comp":
-            seq = _seq_comp(
-                conversion_period_ns=conversion_period_ns,
-                seq_clk_period_ns=seq_clk_period_ns,
-            )
-            n_steps = len(seq["CLK_SAMP"])
-        elif sequence == "samp_comp":
-            seq = _seq_samp_comp(
-                conversion_period_ns=conversion_period_ns,
-                seq_clk_period_ns=seq_clk_period_ns,
-            )
-            n_steps = len(seq["CLK_SAMP"])
-        elif sequence == "calib":
-            seq = _seq_calib(
-                conversion_period_ns=conversion_period_ns,
-                seq_clk_period_ns=seq_clk_period_ns,
-            )
-            n_steps = len(seq["CLK_SAMP"])
-        else:
-            raise ValueError(f"Unknown sequence {sequence!r}; expected 'adc', 'comp', 'samp_comp', or 'calib'")
+        seq_map = {
+            "adc": _SEQ_ADC,
+            "comp": _SEQ_COMP,
+            "samp_comp": _SEQ_SAMP_COMP,
+            "calib": _SEQ_CALIB,
+            "fastrx": _SEQ_FASTRX,
+        }
+        if sequence not in seq_map:
+            raise ValueError(f"Unknown sequence {sequence!r}; expected {', '.join(seq_map)}")
+        mem_data = seq_map[sequence]
+        n_steps = len(mem_data)
         self._seq_n_steps = n_steps
-        mem_data = pack_seq_tracks(seq)
         await daq.seq_load(self._backend, mem_data, n_steps, clk_div=seq_clk_div)

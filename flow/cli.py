@@ -114,7 +114,7 @@ def main():
     p.add_argument(
         "--sequence",
         required=True,
-        choices=["none", "adc", "comp", "samp_comp", "calib"],
+        choices=["none", "adc", "comp", "samp_comp", "calib", "fastrx"],
         help="Sequencer pattern: none, adc (full SAR), comp (cont. clock), "
         "samp_comp (single sample+compare), calib (init→sample→comp→DAC→comp)",
     )
@@ -128,32 +128,32 @@ def main():
         "--channel",
         type=int,
         nargs="+",
-        default=[0],
+        default=None,
         help="ADC channels to scan (0..15). Multiple channels sweep sequentially.",
     )
     p.add_argument(
         "--dacstate",
         type=_parse_int,
         nargs="+",
-        default=[0x7FFF, 0x7FFF],
+        default=None,
         help="DAC state values in Python int notation (0b..., 0x..., decimal). "
         "2 values for normal mode, 4 for calib mode.",
     )
     p.add_argument(
         "--dacmode",
-        default="normal",
+        default=None,
         choices=["normal", "calib"],
         help="DAC operating mode",
     )
     p.add_argument(
         "--diffcaps",
         choices=["true", "false"],
-        default="false",
+        default=None,
         help="Enable DAC differential caps",
     )
     p.add_argument(
         "--input-mode",
-        default="manual",
+        default=None,
         choices=["manual", "ramp", "sine", "dc"],
         help="Input voltage source mode",
     )
@@ -170,10 +170,10 @@ def main():
         help="Number of sequence repetitions per voltage step (0 = run continuously until Ctrl+C)",
     )
     p.add_argument(
-        "--spi-loopback",
-        choices=["true", "false"],
-        default="false",
-        help="Enable FPGA SPI SDO loopback (reads back SDI instead of chip SDO)",
+        "--loopback",
+        default="none",
+        choices=["none", "spi", "fastrx", "both"],
+        help="Loopback mode: none, spi (FPGA SPI SDO loopback), fastrx (fast RX loopback), both",
     )
     p.add_argument(
         "--save",
@@ -184,7 +184,7 @@ def main():
     p.add_argument(
         "--vdd",
         type=float,
-        default=1.2,
+        default=None,
         help="Supply voltage",
     )
 
@@ -199,12 +199,37 @@ def main():
         from .scans.chip import N_ADCS
         from .scans.scan import run_scan
 
-        if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
-            raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
+        chip_config_args = {
+            "channel": args.channel,
+            "dacstate": args.dacstate,
+            "dacmode": args.dacmode,
+            "diffcaps": args.diffcaps,
+            "input_mode": args.input_mode,
+            "vdd": args.vdd,
+        }
+
+        if args.sequence == "fastrx":
+            provided = [name for name, value in chip_config_args.items() if value is not None]
+            if provided:
+                raise SystemExit(
+                    f"--sequence=fastrx does not accept chip-config arguments: {', '.join(f'--{name}' for name in provided)}"
+                )
+            if args.loopback not in ("none", "fastrx"):
+                raise SystemExit(f"--sequence=fastrx only supports --loopback=none or fastrx (got {args.loopback})")
+        else:
+            missing = [name for name, value in chip_config_args.items() if value is None]
+            if missing:
+                raise SystemExit(
+                    f"Missing required chip-config arguments: {', '.join(f'--{name}' for name in missing)}"
+                )
+            if args.loopback == "fastrx":
+                raise SystemExit("--loopback=fastrx is only valid with --sequence=fastrx")
+            if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
+                raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
         args.emulate = _str_to_bool(args.emulate)
-        args.diffcaps = _str_to_bool(args.diffcaps)
+        if args.diffcaps is not None:
+            args.diffcaps = _str_to_bool(args.diffcaps)
         args.save = _str_to_bool(args.save)
-        args.spi_loopback = _str_to_bool(args.spi_loopback)
         run_scan(args)
         return
 
