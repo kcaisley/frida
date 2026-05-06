@@ -60,102 +60,102 @@ module adc_digital (
 `endif
 );
 
-  // Internal wires
-  wire clk_init;  // Initialization clock
-  wire clk_samp_p_raw, clk_samp_n_raw;  // Raw sampling clock signals from clkgate
-  wire        clk_update;  // Logic clock signal
+    // Internal wires
+    wire clk_init;  // Initialization clock
+    wire clk_samp_p_raw, clk_samp_n_raw;  // Raw sampling clock signals from clkgate
+    wire clk_update;  // Logic clock signal
 
-  // Internal DAC state signals from SAR logic
-  wire [15:0] dac_state_p;  // Positive DAC state
-  wire [15:0] dac_state_n;  // Negative DAC state
+    // Internal DAC state signals from SAR logic
+    wire [15:0] dac_state_p;  // Positive DAC state
+    wire [15:0] dac_state_n;  // Negative DAC state
 
-  // Clock gate module - generates all gated clocks
-  clkgate clkgate (
-      // Sequencing inputs
-      .seq_init  (seq_init),
-      .seq_samp  (seq_samp),
-      .seq_comp  (seq_comp),
-      .seq_update(seq_update),
+    // Clock gate module - generates all gated clocks
+    clkgate clkgate (
+        // Sequencing inputs
+        .seq_init  (seq_init),
+        .seq_samp  (seq_samp),
+        .seq_comp  (seq_comp),
+        .seq_update(seq_update),
 
-      // Enable inputs
-      .en_init  (en_init),
-      .en_samp_p(en_samp_p),
-      .en_samp_n(en_samp_n),
-      .en_comp  (en_comp),
-      .en_update(en_update),
+        // Enable inputs
+        .en_init  (en_init),
+        .en_samp_p(en_samp_p),
+        .en_samp_n(en_samp_n),
+        .en_comp  (en_comp),
+        .en_update(en_update),
 
-      // Clock outputs
-      .clk_init  (clk_init),
-      .clk_samp_p(clk_samp_p_raw),
-      .clk_samp_n(clk_samp_n_raw),
-      .clk_comp  (clk_comp),
-      .clk_update(clk_update)
+        // Clock outputs
+        .clk_init  (clk_init),
+        .clk_samp_p(clk_samp_p_raw),
+        .clk_samp_n(clk_samp_n_raw),
+        .clk_comp  (clk_comp),
+        .clk_update(clk_update)
 
-      // Power supplies
+        // Power supplies
 `ifdef USE_POWER_PINS
-      .vdd_d(vdd_d),
-      .vss_d(vss_d)
+        .vdd_d(vdd_d),
+        .vss_d(vss_d)
 `endif
-  );
+    );
 
-  // SAR Logic - Consolidated dual-channel
-  salogic salogic_dual (
-      .clk_init    (clk_init),      // Initialization clock
-      .clk_update  (clk_update),    // Update clock
-      .dac_astate_p(dac_astate_p),  // DAC A state positive
-      .dac_bstate_p(dac_bstate_p),  // DAC B state positive
-      .dac_mode    (dac_mode),      // DAC mode (shared for both sides)
-      .comp_p      (comp_out_n),    // Use negative comp output for P-side logic
-      .dac_astate_n(dac_astate_n),  // DAC A state negative
-      .dac_bstate_n(dac_bstate_n),  // DAC B state negative
-      .comp_n      (comp_out_p),    // Use positive comp output for N-side logic
-      .dac_state_p (dac_state_p),   // Output to positive DAC state
-      .dac_state_n (dac_state_n)    // Output to negative DAC state
+    // SAR Logic - Consolidated dual-channel
+    salogic salogic_dual (
+        .clk_init    (clk_init),      // Initialization clock
+        .clk_update  (clk_update),    // Update clock
+        .dac_astate_p(dac_astate_p),  // DAC A state positive
+        .dac_bstate_p(dac_bstate_p),  // DAC B state positive
+        .dac_mode    (dac_mode),      // DAC mode (shared for both sides)
+        .comp_p      (comp_out_n),    // Use negative comp output for P-side logic
+        .dac_astate_n(dac_astate_n),  // DAC A state negative
+        .dac_bstate_n(dac_bstate_n),  // DAC B state negative
+        .comp_n      (comp_out_p),    // Use positive comp output for N-side logic
+        .dac_state_p (dac_state_p),   // Output to positive DAC state
+        .dac_state_n (dac_state_n)    // Output to negative DAC state
 
-      // Power supplies
+        // Power supplies
 `ifdef USE_POWER_PINS
-      .vdd_d(vdd_d),
-      .vss_d(vss_d)
+        .vdd_d(vdd_d),
+        .vss_d(vss_d)
 `endif
-  );
+    );
 
 
 
-  // Sampling clock drivers - generate complementary clock pairs
-  sampdriver sampdriver_p (
-      .clk_in   (clk_samp_p_raw),  // Input raw gated sampling clock positive
-      .clk_out  (clk_samp_p),      // Buffered output clock positive
-      .clk_out_b(clk_samp_p_b)     // Inverted output clock positive
+    // Sampling clock drivers - generate complementary clock pairs
+    sampdriver sampdriver_p (
+        .clk_in   (clk_samp_p_raw),  // Input raw gated sampling clock positive
+        .clk_out  (clk_samp_p),      // Buffered output clock positive
+        .clk_out_b(clk_samp_p_b)     // Inverted output clock positive
 `ifdef USE_POWER_PINS
-      .vdd_d    (vdd_d),
-      .vss_d    (vss_d)
+        .vdd_d    (vdd_d),
+        .vss_d    (vss_d)
 `endif
-  );
+    );
 
-  sampdriver sampdriver_n (
-      .clk_in   (clk_samp_n_raw),  // Input raw gated sampling clock negative
-      .clk_out  (clk_samp_n),      // Buffered output clock negative
-      .clk_out_b(clk_samp_n_b)     // Inverted output clock negative
+    sampdriver sampdriver_n (
+        .clk_in   (clk_samp_n_raw),  // Input raw gated sampling clock negative
+        .clk_out  (clk_samp_n),      // Buffered output clock negative
+        .clk_out_b(clk_samp_n_b)     // Inverted output clock negative
 `ifdef USE_POWER_PINS
-      .vdd_d    (vdd_d),
-      .vss_d    (vss_d)
+        .vdd_d    (vdd_d),
+        .vss_d    (vss_d)
 `endif
-  );
+    );
 
-  // DAC state buffering - create four separate outputs from SAR logic
-  assign dac_state_p_main  = dac_state_p;  // Buffer to main positive output
-  assign dac_state_p_diff  = dac_state_p;  // Buffer to diff positive output
-  assign dac_state_n_main  = dac_state_n;  // Buffer to main negative output
-  assign dac_state_n_diff  = dac_state_n;  // Buffer to diff negative output
+    // DAC state buffering - create four separate outputs from SAR logic
+    assign dac_state_p_main  = dac_state_p;  // Buffer to main positive output
+    assign dac_state_p_diff  = dac_state_p;  // Buffer to diff positive output
+    assign dac_state_n_main  = dac_state_n;  // Buffer to main negative output
+    assign dac_state_n_diff  = dac_state_n;  // Buffer to diff negative output
 
-  // DAC invert signal assignments
-  assign dac_invert_p_main = 1'b0;  // Main invert signals tied low
-  assign dac_invert_p_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
-  assign dac_invert_n_main = 1'b0;  // Main invert signals tied low
-  assign dac_invert_n_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
+    // DAC invert signal assignments
+    assign dac_invert_p_main = 1'b0;  // Main invert signals tied low
+    assign dac_invert_p_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
+    assign dac_invert_n_main = 1'b0;  // Main invert signals tied low
+    assign dac_invert_n_diff = dac_diffcaps;  // Diff invert signals driven by dac_diffcaps
 
-  // Output assignment
-  // NOTE: Should maybe add an output driver cell here!
-  assign comp_out          = comp_out_p;  // Transmit out the positive comparator output
+    // Output assignment
+    // NOTE: Should maybe add an output driver cell here!
+    assign comp_out          = comp_out_p;  // Transmit out the positive comparator output
 
 endmodule

@@ -9,19 +9,19 @@ module OPENROAD_DFFE (
     E,
     Q
 );
-  input D;  // Data input
-  input C;  // Clock input
-  input E;  // Enable input
-  output Q;  // Data output
+    input D;  // Data input
+    input C;  // Clock input
+    input E;  // Enable input
+    output Q;  // Data output
 
-  // Use TSMC65 enabled D flip-flop
-  // EDFD2LVT: Enabled D flip-flop with 2x drive strength
-  EDFD2LVT dffe (
-      .D (D),
-      .CP(C),
-      .E (E),
-      .Q (Q)
-  );
+    // Use TSMC65 enabled D flip-flop
+    // EDFD2LVT: Enabled D flip-flop with 2x drive strength
+    EDFD2LVT dffe (
+        .D (D),
+        .CP(C),
+        .E (E),
+        .Q (Q)
+    );
 
 endmodule
 
@@ -33,21 +33,21 @@ module OPENROAD_DFFER (
     R,
     Q
 );
-  input D;  // Data input
-  input C;  // Clock input
-  input E;  // Enable input
-  input R;  // Active-low async reset
-  output Q;  // Data output
+    input D;  // Data input
+    input C;  // Clock input
+    input E;  // Enable input
+    input R;  // Active-low async reset
+    output Q;  // Data output
 
-  // Use TSMC65 enabled D flip-flop with reset
-  // EDFCND2LVT: Enabled D flip-flop with Clear-Direct-Negative (active-low reset)
-  EDFCND2LVT dffe (
-      .D  (D),
-      .CP (C),
-      .E  (E),
-      .CDN(R),
-      .Q  (Q)
-  );
+    // Use TSMC65 enabled D flip-flop with reset
+    // EDFCND2LVT: Enabled D flip-flop with Clear-Direct-Negative (active-low reset)
+    EDFCND2LVT dffe (
+        .D  (D),
+        .CP (C),
+        .E  (E),
+        .CDN(R),
+        .Q  (Q)
+    );
 
 endmodule
 
@@ -57,15 +57,15 @@ module OPENROAD_CLKXOR (
     B,
     Y
 );
-  input A;  // Input A
-  input B;  // Input B
-  output Y;  // Output Y = A ^ B
+    input A;  // Input A
+    input B;  // Input B
+    output Y;  // Output Y = A ^ B
 
-  XOR2D1LVT xor_cell (
-      .A1(A),
-      .A2(B),
-      .Z (Y)
-  );
+    XOR2D1LVT xor_cell (
+        .A1(A),
+        .A2(B),
+        .Z (Y)
+    );
 
 endmodule
 
@@ -74,13 +74,13 @@ module OPENROAD_CLKBUF (
     A,
     Y
 );
-  input A;  // Input
-  output Y;  // Output Y = A
+    input A;  // Input
+    output Y;  // Output Y = A
 
-  BUFFD2LVT buf_cell (
-      .I(A),
-      .Z(Y)
-  );
+    BUFFD2LVT buf_cell (
+        .I(A),
+        .Z(Y)
+    );
 
 endmodule
 
@@ -89,13 +89,13 @@ module OPENROAD_CLKINV (
     A,
     Y
 );
-  input A;  // Input
-  output Y;  // Output Y = ~A
+    input A;  // Input
+    output Y;  // Output Y = ~A
 
-  INVD2LVT inv_cell (
-      .I (A),
-      .ZN(Y)
-  );
+    INVD2LVT inv_cell (
+        .I (A),
+        .ZN(Y)
+    );
 
 endmodule
 
@@ -106,16 +106,16 @@ module OPENROAD_CTRLGATE (
     E,
     GCK
 );
-  input CK;  // Clock input
-  input E;  // Enable input
-  output GCK;  // Gated clock output
+    input CK;  // Clock input
+    input E;  // Enable input
+    output GCK;  // Gated clock output
 
-  // Use TSMC65 latch-based clock gate (TE tied to 0 for normal operation)
-  CKLNQD1LVT clkgate_cell (
-      .TE(1'b0),
-      .CP(CK),
-      .E (E),
-      .Q (GCK)
-  );
+    // Use TSMC65 latch-based clock gate (TE tied to 0 for normal operation)
+    CKLNQD1LVT clkgate_cell (
+        .TE(1'b0),
+        .CP(CK),
+        .E (E),
+        .Q (GCK)
+    );
 
 endmodule

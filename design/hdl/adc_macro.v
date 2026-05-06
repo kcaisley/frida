@@ -25,6 +25,6 @@ module adc (
     input wire [15:0] dac_bstate_n
 );
 
-  // Blackbox - no implementation
+    // Blackbox - no implementation
 
 endmodule

@@ -1,6 +1,6 @@
 /*
  * 16:1 Comparator Output Multiplexer for FRIDA
- * 
+ *
  * Selects one of 16 ADC comparator outputs to route to the LVDS TX pad
  * Uses purely combinational logic for minimal propagation delay
  */
@@ -17,8 +17,8 @@ module compmux (
 `endif
 );
 
-  // 16:1 mux using direct array indexing
-  // Synthesizes to identical multiplexer logic as explicit ternary operators
-  assign comp_out = adc_comp_in[mux_sel];
+    // 16:1 mux using direct array indexing
+    // Synthesizes to identical multiplexer logic as explicit ternary operators
+    assign comp_out = adc_comp_in[mux_sel];
 
 endmodule

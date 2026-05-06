@@ -17,7 +17,7 @@ module comp (
 `endif
 );
 
-  // Black box - analog implementation
-  // This module will be implemented at the analog level
+    // Black box - analog implementation
+    // This module will be implemented at the analog level
 
 endmodule

@@ -82,202 +82,202 @@ module daq_core #(
 
 );
 
-  // Address map (matching map_fpga.yaml)
-  localparam integer SEQ_GEN_BASEADDR = 32'h10000;
-  localparam integer SEQ_GEN_HIGHADDR = 32'h1FFFF;
+    // Address map (matching map_fpga.yaml)
+    localparam integer SeqGenBaseAddr = 32'h10000;
+    localparam integer SeqGenHighAddr = 32'h1FFFF;
 
-  localparam integer SPI_BASEADDR = 32'h20000;
-  localparam integer SPI_HIGHADDR = 32'h200FF;
+    localparam integer SpiBaseAddr = 32'h20000;
+    localparam integer SpiHighAddr = 32'h200FF;
 
-  localparam integer GPIO_BASEADDR = 32'h30000;
-  localparam integer GPIO_HIGHADDR = 32'h300FF;
+    localparam integer GpioBaseAddr = 32'h30000;
+    localparam integer GpioHighAddr = 32'h300FF;
 
-  localparam integer PULSE_GEN_BASEADDR = 32'h40000;
-  localparam integer PULSE_GEN_HIGHADDR = 32'h400FF;
+    localparam integer PulseGenBaseAddr = 32'h40000;
+    localparam integer PulseGenHighAddr = 32'h400FF;
 
-  localparam integer FAST_SPI_RX_BASEADDR = 32'h50000;
-  localparam integer FAST_SPI_RX_HIGHADDR = 32'h500FF;
+    localparam integer FastSpiRxBaseAddr = 32'h50000;
+    localparam integer FastSpiRxHighAddr = 32'h500FF;
 
-  // Combined reset
-  wire rst;
-  assign rst = BUS_RST | RESET;
-
-
-  // 1. Sequencer (seq_gen)
-  // Generates the 8-track timing waveform loaded from the host.
-  // seq_out[0] = CLK_INIT       - DAC initialization pulse
-  // seq_out[1] = CLK_SAMP       - Sample-and-hold trigger
-  // seq_out[2] = CLK_COMP       - Comparator clock
-  // seq_out[3] = CLK_LOGIC      - SAR logic clock
-  // seq_out[4] = fastrx_clk        - Capture clock for fast_spi_rx SCLK
-  // seq_out[5] = fastrx_en          - Frame enable for fast_spi_rx SEN
-  // seq_out[6] = fastrx_test_data   - Loopback test data for fast_spi_rx
-  // seq_out[7] = unused
-  wire [7:0] seq_out;
-  wire pulse_out;     // from pulse_gen, triggers sequencer start
-
-  // LVDS clock outputs to chip
-  assign CLK_INIT         = seq_out[0];
-  assign CLK_SAMP         = seq_out[1];
-  assign CLK_COMP         = seq_out[2];
-  assign CLK_LOGIC        = seq_out[3];
-
-  // Capture control signals
-  assign fastrx_clk       = seq_out[4];
-  assign fastrx_en        = seq_out[5];
-  assign fastrx_test_data = seq_out[6];
-
-  seq_gen #(
-      .BASEADDR (SEQ_GEN_BASEADDR),
-      .HIGHADDR (SEQ_GEN_HIGHADDR),
-      .ABUSWIDTH(ABUSWIDTH),
-      .MEM_BYTES(8192),
-      .OUT_BITS (8)
-  ) inst_seq_gen (
-      .BUS_CLK (BUS_CLK),
-      .BUS_RST (rst),
-      .BUS_ADD (BUS_ADD),
-      .BUS_DATA(BUS_DATA),
-      .BUS_RD  (BUS_RD),
-      .BUS_WR  (BUS_WR),
-
-      .SEQ_EXT_START(pulse_out),
-      .SEQ_CLK(SEQ_CLK),
-      .SEQ_OUT(seq_out)
-  );
+    // Combined reset
+    wire rst;
+    assign rst = BUS_RST | RESET;
 
 
-  // 2. SPI Master
-  // Drives the 180-bit configuration shift register on the FRIDA chip.
-  // SEN active-low directly maps to SPI_CS_B.
-  // SPI loopback (GPIO bit 3): when enabled, SDO reads back from SDI
-  // instead of the chip's SDO pin.  The SDI signal still drives the chip
-  // only the receive path is redirected.  This lets you verify the
-  // FPGA-to-chip SPI link independently.
-  wire spi_sen;
-  wire spi_loopback_en;  // assigned in GPIO section below
-  wire spi_sdo_int;
-  assign spi_sdo_int = spi_loopback_en ? SPI_SDI : SPI_SDO;
-  assign SPI_CS_B = ~spi_sen;  // SEN is active-high enable, CS_B is active-low
+    // 1. Sequencer (seq_gen)
+    // Generates the 8-track timing waveform loaded from the host.
+    // seq_out[0] = CLK_INIT       - DAC initialization pulse
+    // seq_out[1] = CLK_SAMP       - Sample-and-hold trigger
+    // seq_out[2] = CLK_COMP       - Comparator clock
+    // seq_out[3] = CLK_LOGIC      - SAR logic clock
+    // seq_out[4] = fastrx_clk        - Capture clock for fast_spi_rx SCLK
+    // seq_out[5] = fastrx_en          - Frame enable for fast_spi_rx SEN
+    // seq_out[6] = fastrx_test_data   - Loopback test data for fast_spi_rx
+    // seq_out[7] = unused
+    wire [7:0] seq_out;
+    wire pulse_out;  // from pulse_gen, triggers sequencer start
 
-  spi #(
-      .BASEADDR (SPI_BASEADDR),
-      .HIGHADDR (SPI_HIGHADDR),
-      .ABUSWIDTH(ABUSWIDTH),
-      .MEM_BYTES(32)             // 256 bits > 180 bits needed
-  ) inst_spi (
-      .BUS_CLK (BUS_CLK),
-      .BUS_RST (rst),
-      .BUS_ADD (BUS_ADD),
-      .BUS_DATA(BUS_DATA),
-      .BUS_RD  (BUS_RD),
-      .BUS_WR  (BUS_WR),
+    // LVDS clock outputs to chip
+    assign CLK_INIT         = seq_out[0];
+    assign CLK_SAMP         = seq_out[1];
+    assign CLK_COMP         = seq_out[2];
+    assign CLK_LOGIC        = seq_out[3];
 
-      .SPI_CLK(SPI_CLK),
+    // Capture control signals
+    assign fastrx_clk       = seq_out[4];
+    assign fastrx_en        = seq_out[5];
+    assign fastrx_test_data = seq_out[6];
 
-      .SCLK(SPI_SCLK),
-      .SDI(SPI_SDI),
-      .SDO(spi_sdo_int),
-      .EXT_START(1'b0),
+    seq_gen #(
+        .BASEADDR (SeqGenBaseAddr),
+        .HIGHADDR (SeqGenHighAddr),
+        .ABUSWIDTH(ABUSWIDTH),
+        .MEM_BYTES(8192),
+        .OUT_BITS (8)
+    ) inst_seq_gen (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
 
-      .SEN(spi_sen),
-      .SLD()
-  );
-
-
-  // 3. GPIO
-  // Bit 0: RST_B               - Chip reset (active low)
-  // Bit 1: AMPEN_B             - Input amplifier enable (active low)
-  // Bit 2: fastrx_loopback_en  - fast_spi_rx loopback test mode
-  // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
-  wire [3:0] gpio;
-  assign RST_B              = gpio[0];  // Active-low board reset
-  assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
-  assign fastrx_loopback_en = gpio[2];  // Fast RX loopback test enable
-  assign spi_loopback_en    = gpio[3];  // SPI loopback test enable
-
-  gpio #(
-      .BASEADDR    (GPIO_BASEADDR),
-      .HIGHADDR    (GPIO_HIGHADDR),
-      .ABUSWIDTH   (ABUSWIDTH),
-      .IO_WIDTH    (4),
-      .IO_DIRECTION(4'hF),           // All outputs
-      .IO_TRI      (0)
-  ) inst_gpio (
-      .BUS_CLK (BUS_CLK),
-      .BUS_RST (rst),
-      .BUS_ADD (BUS_ADD),
-      .BUS_DATA(BUS_DATA),
-      .BUS_RD  (BUS_RD),
-      .BUS_WR  (BUS_WR),
-
-      .IO(gpio)
-  );
-
-  // 4. Pulse Generator
-  // Generates a single trigger pulse to start the sequencer.
-  // Can be started from the host via register write.
-  pulse_gen #(
-      .BASEADDR (PULSE_GEN_BASEADDR),
-      .HIGHADDR (PULSE_GEN_HIGHADDR),
-      .ABUSWIDTH(ABUSWIDTH)
-  ) inst_pulse_gen (
-      .BUS_CLK (BUS_CLK),
-      .BUS_RST (rst),
-      .BUS_ADD (BUS_ADD),
-      .BUS_DATA(BUS_DATA),
-      .BUS_RD  (BUS_RD),
-      .BUS_WR  (BUS_WR),
-
-      .PULSE_CLK(SEQ_CLK),
-      .EXT_START(1'b0),
-      .PULSE(pulse_out)
-  );
+        .SEQ_EXT_START(pulse_out),
+        .SEQ_CLK      (SEQ_CLK),
+        .SEQ_OUT      (seq_out)
+    );
 
 
-  // 5. COMP_OUT Receiver (fast_spi_rx)
-  // Captures the COMP_OUT stream using basil's fast_spi_rx module.
-  // This replaces the hand-rolled shift register + FIFO implementation.
-  //
-  // Output format (32-bit words):
-  //   [31:28] IDENTIFIER (4'b0001 by default)
-  //   [27:16] Frame counter (12 bits, increments on SEN falling edge)
-  //   [15:0]  Captured data (16 bits of comp_out samples)
-  //
-  // For 17-bit ADC conversions:
-  //   - First 16 bits create one complete FIFO word
-  //   - Remaining 1 bit creates a partial word on SEN falling edge
-  wire fastrx_en;
-  wire fastrx_test_data;
-  wire fastrx_loopback_en;  // Driven by GPIO block bit 2
-  wire fastrx_clk;  // Driven by sequencer output 4
-  wire fastrx_in;  // Input from comp or sequencer test data (depending on loopback)
-  assign fastrx_in = fastrx_loopback_en ? fastrx_test_data : COMP_OUT;
+    // 2. SPI Master
+    // Drives the 180-bit configuration shift register on the FRIDA chip.
+    // SEN active-low directly maps to SPI_CS_B.
+    // SPI loopback (GPIO bit 3): when enabled, SDO reads back from SDI
+    // instead of the chip's SDO pin.  The SDI signal still drives the chip
+    // only the receive path is redirected.  This lets you verify the
+    // FPGA-to-chip SPI link independently.
+    wire spi_sen;
+    wire spi_loopback_en;  // assigned in GPIO section below
+    wire spi_sdo_int;
+    assign spi_sdo_int = spi_loopback_en ? SPI_SDI : SPI_SDO;
+    assign SPI_CS_B    = ~spi_sen;  // SEN is active-high enable, CS_B is active-low
 
-  fast_spi_rx #(
-      .BASEADDR(FAST_SPI_RX_BASEADDR),
-      .HIGHADDR(FAST_SPI_RX_HIGHADDR),
-      .ABUSWIDTH(ABUSWIDTH),
-      .IDENTIFIER(4'b0001)  // Only block which writes to shared FIFO
-  ) inst_fast_spi_rx (
-      .BUS_CLK (BUS_CLK),
-      .BUS_RST (rst),
-      .BUS_ADD (BUS_ADD),
-      .BUS_DATA(BUS_DATA),
-      .BUS_RD  (BUS_RD),
-      .BUS_WR  (BUS_WR),
+    spi #(
+        .BASEADDR (SpiBaseAddr),
+        .HIGHADDR (SpiHighAddr),
+        .ABUSWIDTH(ABUSWIDTH),
+        .MEM_BYTES(32)            // 256 bits > 180 bits needed
+    ) inst_spi (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
 
-      .SCLK(fastrx_clk),
-      .SDI (fastrx_in),
-      .SEN (fastrx_en),
+        .SPI_CLK(SPI_CLK),
 
-      .FIFO_READ (FIFO_READ_NEXT),
-      .FIFO_EMPTY(FIFO_EMPTY),
-      .FIFO_DATA (FIFO_DATA_OUT)
-  );
+        .SCLK     (SPI_SCLK),
+        .SDI      (SPI_SDI),
+        .SDO      (spi_sdo_int),
+        .EXT_START(1'b0),
+
+        .SEN(spi_sen),
+        .SLD()
+    );
 
 
-  // 6. LEDs: All 8 LEDs set to high
-  assign LED_OUT = 8'b11111111;
+    // 3. GPIO
+    // Bit 0: RST_B               - Chip reset (active low)
+    // Bit 1: AMPEN_B             - Input amplifier enable (active low)
+    // Bit 2: fastrx_loopback_en  - fast_spi_rx loopback test mode
+    // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
+    wire [3:0] gpio;
+    assign RST_B              = gpio[0];  // Active-low board reset
+    assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
+    assign fastrx_loopback_en = gpio[2];  // Fast RX loopback test enable
+    assign spi_loopback_en    = gpio[3];  // SPI loopback test enable
+
+    gpio #(
+        .BASEADDR    (GpioBaseAddr),
+        .HIGHADDR    (GpioHighAddr),
+        .ABUSWIDTH   (ABUSWIDTH),
+        .IO_WIDTH    (4),
+        .IO_DIRECTION(4'hF),          // All outputs
+        .IO_TRI      (0)
+    ) inst_gpio (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
+
+        .IO(gpio)
+    );
+
+    // 4. Pulse Generator
+    // Generates a single trigger pulse to start the sequencer.
+    // Can be started from the host via register write.
+    pulse_gen #(
+        .BASEADDR (PulseGenBaseAddr),
+        .HIGHADDR (PulseGenHighAddr),
+        .ABUSWIDTH(ABUSWIDTH)
+    ) inst_pulse_gen (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
+
+        .PULSE_CLK(SEQ_CLK),
+        .EXT_START(1'b0),
+        .PULSE    (pulse_out)
+    );
+
+
+    // 5. COMP_OUT Receiver (fast_spi_rx)
+    // Captures the COMP_OUT stream using basil's fast_spi_rx module.
+    // This replaces the hand-rolled shift register + FIFO implementation.
+    //
+    // Output format (32-bit words):
+    //   [31:28] IDENTIFIER (4'b0001 by default)
+    //   [27:16] Frame counter (12 bits, increments on SEN falling edge)
+    //   [15:0]  Captured data (16 bits of comp_out samples)
+    //
+    // For 17-bit ADC conversions:
+    //   - First 16 bits create one complete FIFO word
+    //   - Remaining 1 bit creates a partial word on SEN falling edge
+    wire fastrx_en;
+    wire fastrx_test_data;
+    wire fastrx_loopback_en;  // Driven by GPIO block bit 2
+    wire fastrx_clk;  // Driven by sequencer output 4
+    wire fastrx_in;  // Input from comp or sequencer test data (depending on loopback)
+    assign fastrx_in = fastrx_loopback_en ? fastrx_test_data : COMP_OUT;
+
+    fast_spi_rx #(
+        .BASEADDR  (FastSpiRxBaseAddr),
+        .HIGHADDR  (FastSpiRxHighAddr),
+        .ABUSWIDTH (ABUSWIDTH),
+        .IDENTIFIER(4'b0001)             // Only block which writes to shared FIFO
+    ) inst_fast_spi_rx (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
+
+        .SCLK(fastrx_clk),
+        .SDI (fastrx_in),
+        .SEN (fastrx_en),
+
+        .FIFO_READ (FIFO_READ_NEXT),
+        .FIFO_EMPTY(FIFO_EMPTY),
+        .FIFO_DATA (FIFO_DATA_OUT)
+    );
+
+
+    // 6. LEDs: All 8 LEDs set to high
+    assign LED_OUT = 8'b11111111;
 
 endmodule

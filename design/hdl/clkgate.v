@@ -30,31 +30,31 @@ module clkgate (
 `endif
 );
 
-  // Generate gated clocks using custom clock gates
-  OPENROAD_CTRLGATE clkgate_init (
-      .CK (seq_init),
-      .E  (en_init),
-      .GCK(clk_init)
-  );
-  OPENROAD_CTRLGATE clkgate_samp_p (
-      .CK (seq_samp),
-      .E  (en_samp_p),
-      .GCK(clk_samp_p)
-  );
-  OPENROAD_CTRLGATE clkgate_samp_n (
-      .CK (seq_samp),
-      .E  (en_samp_n),
-      .GCK(clk_samp_n)
-  );
-  OPENROAD_CTRLGATE clkgate_comp (
-      .CK (seq_comp),
-      .E  (en_comp),
-      .GCK(clk_comp)
-  );
-  OPENROAD_CTRLGATE clkgate_update (
-      .CK (seq_update),
-      .E  (en_update),
-      .GCK(clk_update)
-  );
+    // Generate gated clocks using custom clock gates
+    OPENROAD_CTRLGATE clkgate_init (
+        .CK (seq_init),
+        .E  (en_init),
+        .GCK(clk_init)
+    );
+    OPENROAD_CTRLGATE clkgate_samp_p (
+        .CK (seq_samp),
+        .E  (en_samp_p),
+        .GCK(clk_samp_p)
+    );
+    OPENROAD_CTRLGATE clkgate_samp_n (
+        .CK (seq_samp),
+        .E  (en_samp_n),
+        .GCK(clk_samp_n)
+    );
+    OPENROAD_CTRLGATE clkgate_comp (
+        .CK (seq_comp),
+        .E  (en_comp),
+        .GCK(clk_comp)
+    );
+    OPENROAD_CTRLGATE clkgate_update (
+        .CK (seq_update),
+        .E  (en_update),
+        .GCK(clk_update)
+    );
 
 endmodule

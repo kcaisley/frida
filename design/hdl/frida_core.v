@@ -33,87 +33,87 @@ module frida_core (
 `endif
 );
 
-  // SPI register outputs (reduced from 1280 to 180 bits)
-  wire [179:0] spi_bits;
+    // SPI register outputs (reduced from 1280 to 180 bits)
+    wire [179:0] spi_bits;
 
-  // ADC control signal arrays (16 ADCs)
-  wire [15:0] adc_en_init, adc_en_samp_p, adc_en_samp_n, adc_en_comp, adc_en_update;
-  wire [15:0] adc_dac_mode, adc_dac_diffcaps;
+    // ADC control signal arrays (16 ADCs)
+    wire [15:0] adc_en_init, adc_en_samp_p, adc_en_samp_n, adc_en_comp, adc_en_update;
+    wire [15:0] adc_dac_mode, adc_dac_diffcaps;
 
-  // Shared DAC states for all ADCs (64 bits total)
-  wire [15:0] shared_dac_astate_p, shared_dac_bstate_p;
-  wire [15:0] shared_dac_astate_n, shared_dac_bstate_n;
+    // Shared DAC states for all ADCs (64 bits total)
+    wire [15:0] shared_dac_astate_p, shared_dac_bstate_p;
+    wire [15:0] shared_dac_astate_n, shared_dac_bstate_n;
 
-  wire [15:0] adc_comparator_out;
-  wire [ 3:0] mux_sel;
+    wire [15:0] adc_comparator_out;
+    wire [3:0] mux_sel;
 
-  // Instantiate SPI register (180-bit control)
-  spi_register spi_reg (
-      .rst_b(reset_b),
-      .spi_cs_b(spi_cs_b),
-      .spi_sdi(spi_sdi),
-      .spi_sclk(spi_sclk),
-      .spi_sdo(spi_sdo),
-      .spi_bits(spi_bits)
-  );
+    // Instantiate SPI register (180-bit control)
+    spi_register spi_reg (
+        .rst_b   (reset_b),
+        .spi_cs_b(spi_cs_b),
+        .spi_sdi (spi_sdi),
+        .spi_sclk(spi_sclk),
+        .spi_sdo (spi_sdo),
+        .spi_bits(spi_bits)
+    );
 
-  // New optimized SPI bit mapping (180 bits total)
-  // Layout: [179:176] mux_sel, [175:64] per-ADC controls, [63:0] shared DAC states
+    // New optimized SPI bit mapping (180 bits total)
+    // Layout: [179:176] mux_sel, [175:64] per-ADC controls, [63:0] shared DAC states
 
-  // Mux selection (4 bits)
-  assign mux_sel = spi_bits[179:176];
+    // Mux selection (4 bits)
+    assign mux_sel             = spi_bits[179:176];
 
-  // Shared DAC states for all ADCs (64 bits)
-  assign shared_dac_astate_p = spi_bits[63:48];    // 16 bits
-  assign shared_dac_bstate_p = spi_bits[47:32];    // 16 bits
-  assign shared_dac_astate_n = spi_bits[31:16];    // 16 bits
-  assign shared_dac_bstate_n = spi_bits[15:0];     // 16 bits
+    // Shared DAC states for all ADCs (64 bits)
+    assign shared_dac_astate_p = spi_bits[63:48];  // 16 bits
+    assign shared_dac_bstate_p = spi_bits[47:32];  // 16 bits
+    assign shared_dac_astate_n = spi_bits[31:16];  // 16 bits
+    assign shared_dac_bstate_n = spi_bits[15:0];  // 16 bits
 
-  // Per-ADC control signals (7 bits per ADC = 112 bits total)
-  genvar i;
-  generate
-    for (i = 0; i < 16; i = i + 1) begin : spi_mapping
-      localparam BASE = 64 + i * 7;  // Start after shared DAC states
+    // Per-ADC control signals (7 bits per ADC = 112 bits total)
+    genvar i;
+    generate
+        for (i = 0; i < 16; i = i + 1) begin : g_spi_mapping
+            localparam integer BASE = 64 + i * 7;  // Start after shared DAC states
 
-      assign adc_en_init[i] = spi_bits[BASE+0];
-      assign adc_en_samp_p[i] = spi_bits[BASE+1];
-      assign adc_en_samp_n[i] = spi_bits[BASE+2];
-      assign adc_en_comp[i] = spi_bits[BASE+3];
-      assign adc_en_update[i] = spi_bits[BASE+4];
-      assign adc_dac_mode[i] = spi_bits[BASE+5];
-      assign adc_dac_diffcaps[i] = spi_bits[BASE+6];
-    end
-  endgenerate
+            assign adc_en_init[i]      = spi_bits[BASE+0];
+            assign adc_en_samp_p[i]    = spi_bits[BASE+1];
+            assign adc_en_samp_n[i]    = spi_bits[BASE+2];
+            assign adc_en_comp[i]      = spi_bits[BASE+3];
+            assign adc_en_update[i]    = spi_bits[BASE+4];
+            assign adc_dac_mode[i]     = spi_bits[BASE+5];
+            assign adc_dac_diffcaps[i] = spi_bits[BASE+6];
+        end
+    endgenerate
 
-  // Instantiate 16 ADC blocks
-  generate
-    for (i = 0; i < 16; i = i + 1) begin : adc_array
-      adc adc_inst (
-          .seq_init(seq_init),
-          .seq_samp(seq_samp),
-          .seq_comp(seq_comp),
-          .seq_update(seq_logic),
-          .en_init(adc_en_init[i]),
-          .en_samp_p(adc_en_samp_p[i]),
-          .en_samp_n(adc_en_samp_n[i]),
-          .en_comp(adc_en_comp[i]),
-          .en_update(adc_en_update[i]),
-          .dac_mode(adc_dac_mode[i]),
-          .dac_astate_p(shared_dac_astate_p),
-          .dac_bstate_p(shared_dac_bstate_p),
-          .dac_astate_n(shared_dac_astate_n),
-          .dac_bstate_n(shared_dac_bstate_n),
-          .dac_diffcaps(adc_dac_diffcaps[i]),
-          .comp_out(adc_comparator_out[i])
-      );
-    end
-  endgenerate
+    // Instantiate 16 ADC blocks
+    generate
+        for (i = 0; i < 16; i = i + 1) begin : g_adc_array
+            adc adc_inst (
+                .seq_init    (seq_init),
+                .seq_samp    (seq_samp),
+                .seq_comp    (seq_comp),
+                .seq_update  (seq_logic),
+                .en_init     (adc_en_init[i]),
+                .en_samp_p   (adc_en_samp_p[i]),
+                .en_samp_n   (adc_en_samp_n[i]),
+                .en_comp     (adc_en_comp[i]),
+                .en_update   (adc_en_update[i]),
+                .dac_mode    (adc_dac_mode[i]),
+                .dac_astate_p(shared_dac_astate_p),
+                .dac_bstate_p(shared_dac_bstate_p),
+                .dac_astate_n(shared_dac_astate_n),
+                .dac_bstate_n(shared_dac_bstate_n),
+                .dac_diffcaps(adc_dac_diffcaps[i]),
+                .comp_out    (adc_comparator_out[i])
+            );
+        end
+    endgenerate
 
-  // Instantiate 16:1 comparator multiplexer
-  compmux comp_mux (
-      .mux_sel(mux_sel),
-      .adc_comp_in(adc_comparator_out),
-      .comp_out(comp_out)
-  );
+    // Instantiate 16:1 comparator multiplexer
+    compmux comp_mux (
+        .mux_sel    (mux_sel),
+        .adc_comp_in(adc_comparator_out),
+        .comp_out   (comp_out)
+    );
 
 endmodule

@@ -14,24 +14,24 @@ module sampdriver (
 `endif
 );
 
-  // Generic clock buffer for main signal path
-  OPENROAD_CLKBUF clk_buf (
-      .A  (clk_in),   // Input clock
-      .Y  (clk_out)   // Buffered clock output
+    // Generic clock buffer for main signal path
+    OPENROAD_CLKBUF clk_buf (
+        .A  (clk_in),   // Input clock
+        .Y  (clk_out)   // Buffered clock output
 `ifdef USE_POWER_PINS
-      .VDD(vdd_d),    // Power supply
-      .VSS(vss_d)     // Ground supply
+        .VDD(vdd_d),    // Power supply
+        .VSS(vss_d)     // Ground supply
 `endif
-  );
+    );
 
-  // Generic clock inverter for complementary signal path
-  OPENROAD_CLKINV clk_inv (
-      .A  (clk_in),     // Input clock
-      .Y  (clk_out_b)   // Inverted clock output
+    // Generic clock inverter for complementary signal path
+    OPENROAD_CLKINV clk_inv (
+        .A  (clk_in),     // Input clock
+        .Y  (clk_out_b)   // Inverted clock output
 `ifdef USE_POWER_PINS
-      .VDD(vdd_d),      // Power supply
-      .VSS(vss_d)       // Ground supply
+        .VDD(vdd_d),      // Power supply
+        .VSS(vss_d)       // Ground supply
 `endif
-  );
+    );
 
 endmodule

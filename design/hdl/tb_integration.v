@@ -57,136 +57,136 @@ module tb_integration (
 `endif
 );
 
-  // =========================================================================
-  // Interconnect: DAQ core <-> ASIC core
-  // =========================================================================
+    // =========================================================================
+    // Interconnect: DAQ core <-> ASIC core
+    // =========================================================================
 
-  // Sequencer clocks (DAQ -> ASIC)
-  wire seq_init, seq_samp, seq_comp, seq_logic;
+    // Sequencer clocks (DAQ -> ASIC)
+    wire seq_init, seq_samp, seq_comp, seq_logic;
 
-  // SPI interface (DAQ -> ASIC)
-  wire spi_sclk, spi_sdi, spi_sdo, spi_cs_b;
+    // SPI interface (DAQ -> ASIC)
+    wire spi_sclk, spi_sdi, spi_sdo, spi_cs_b;
 
-  // Control signals (DAQ -> ASIC)
-  wire        rst_b;
-  wire        ampen_b;  // not connected to ASIC, PCB-level signal
+    // Control signals (DAQ -> ASIC)
+    wire rst_b;
+    wire ampen_b;  // not connected to ASIC, PCB-level signal
 
-  // Comparator output (ASIC -> DAQ)
-  wire        comp_out;
+    // Comparator output (ASIC -> DAQ)
+    wire comp_out;
 
-  // FIFO interface (daq_core internal, directly consumed by fast_spi_rx)
-  wire [31:0] fifo_data_out;
-  wire        fifo_read_next;
-  wire        fifo_empty;
+    // FIFO interface (daq_core internal, directly consumed by fast_spi_rx)
+    wire [31:0] fifo_data_out;
+    wire fifo_read_next;
+    wire fifo_empty;
 
-  // Sequencer pattern readback (unused in cosim, tie off)
-  wire [ 3:0] seq_pattern_out;
+    // Sequencer pattern readback (unused in cosim, tie off)
+    wire [3:0] seq_pattern_out;
 
-  // =========================================================================
-  // DAQ Core (FPGA side — basil sequencer, SPI, GPIO, pulse_gen, fast_spi_rx)
-  // =========================================================================
+    // =========================================================================
+    // DAQ Core (FPGA side — basil sequencer, SPI, GPIO, pulse_gen, fast_spi_rx)
+    // =========================================================================
 
-  daq_core #(
-      .ABUSWIDTH(32)
-  ) i_daq_core (
-      .bus_clk (BUS_CLK),
-      .bus_rst (BUS_RST),
-      .bus_add (BUS_ADD),
-      .bus_data(BUS_DATA),
-      .bus_rd  (BUS_RD),
-      .bus_wr  (BUS_WR),
+    daq_core #(
+        .ABUSWIDTH(32)
+    ) i_daq_core (
+        .bus_clk (BUS_CLK),
+        .bus_rst (BUS_RST),
+        .bus_add (BUS_ADD),
+        .bus_data(BUS_DATA),
+        .bus_rd  (BUS_RD),
+        .bus_wr  (BUS_WR),
 
-      .seq_clk(SEQ_CLK),  // 400 MHz from cocotb
+        .seq_clk(SEQ_CLK),  // 400 MHz from cocotb
 
-      .clk_init (seq_init),
-      .clk_samp (seq_samp),
-      .clk_comp (seq_comp),
-      .clk_logic(seq_logic),
+        .clk_init (seq_init),
+        .clk_samp (seq_samp),
+        .clk_comp (seq_comp),
+        .clk_logic(seq_logic),
 
-      .spi_clk (SPI_CLK),
-      .spi_sclk(spi_sclk),
-      .spi_sdi (spi_sdi),
-      .spi_sdo (spi_sdo),
-      .spi_cs_b(spi_cs_b),
+        .spi_clk (SPI_CLK),
+        .spi_sclk(spi_sclk),
+        .spi_sdi (spi_sdi),
+        .spi_sdo (spi_sdo),
+        .spi_cs_b(spi_cs_b),
 
-      .rst_b  (rst_b),
-      .ampen_b(ampen_b),
+        .rst_b  (rst_b),
+        .ampen_b(ampen_b),
 
-      .fifo_data_out(fifo_data_out),
-      .fifo_read_next(FIFO_READ),
-      .fifo_empty(fifo_empty),
+        .fifo_data_out (fifo_data_out),
+        .fifo_read_next(FIFO_READ),
+        .fifo_empty    (fifo_empty),
 
-      .comp_out(comp_out),
+        .comp_out(comp_out),
 
-      .reset(1'b0),  // No external reset needed
+        .reset(1'b0),  // No external reset needed
 
-      .seq_pattern_out (seq_pattern_out),
-      .seq_pattern_addr(6'b0)
-  );
+        .seq_pattern_out (seq_pattern_out),
+        .seq_pattern_addr(6'b0)
+    );
 
-  // =========================================================================
-  // PCB Front-End: Single-Ended to Differential Amplifier (THS4541)
-  //
-  // Converts the AWG's single-ended output into a differential pair
-  // centered at VOCM = VDD/2. Unity gain (Rf/Rin = 499/499).
-  // This block is simulated in SPICE via spicebind.
-  //
-  // When COCOTBEXT_AMS is defined, vin_p/vin_n come directly from the
-  // top-level ports (set by SimAWG via the bridge). The sediff block is
-  // bypassed — Python computes cm ± diff/2.
-  // =========================================================================
+    // =========================================================================
+    // PCB Front-End: Single-Ended to Differential Amplifier (THS4541)
+    //
+    // Converts the AWG's single-ended output into a differential pair
+    // centered at VOCM = VDD/2. Unity gain (Rf/Rin = 499/499).
+    // This block is simulated in SPICE via spicebind.
+    //
+    // When COCOTBEXT_AMS is defined, vin_p/vin_n come directly from the
+    // top-level ports (set by SimAWG via the bridge). The sediff block is
+    // bypassed — Python computes cm ± diff/2.
+    // =========================================================================
 
 `ifdef COCOTBEXT_AMS
-  // vin_p, vin_n are top-level ports — no sediff needed
+    // vin_p, vin_n are top-level ports — no sediff needed
 `elsif SPICEBIND
-  // wire real vin_p, vin_n;  // Differential outputs from sediff (Icarus wire real extension)
+    // wire real vin_p, vin_n;  // Differential outputs from sediff (Icarus wire real extension)
 
-  sediff i_sediff (
-      .vin_p_ext(vin_se),
-      .vin_p(vin_p),
-      .vin_n(vin_n),
-      .vdd(vdd)
-  );
+    sediff i_sediff (
+        .vin_p_ext(vin_se),
+        .vin_p    (vin_p),
+        .vin_n    (vin_n),
+        .vdd      (vdd)
+    );
 `else
-  wreal vin_p, vin_n;
+    wreal vin_p, vin_n;
 
-  sediff i_sediff (
-      .vin_p_ext(vin_se),
-      .vin_p(vin_p),
-      .vin_n(vin_n),
-      .vdd(vdd)
-  );
+    sediff i_sediff (
+        .vin_p_ext(vin_se),
+        .vin_p    (vin_p),
+        .vin_n    (vin_n),
+        .vdd      (vdd)
+    );
 `endif
 
-  // =========================================================================
-  // ASIC Core (single-channel FRIDA with 1 ADC)
-  // =========================================================================
+    // =========================================================================
+    // ASIC Core (single-channel FRIDA with 1 ADC)
+    // =========================================================================
 
-  assign FIFO_DATA  = fifo_data_out;
-  assign FIFO_EMPTY = fifo_empty;
+    assign FIFO_DATA  = fifo_data_out;
+    assign FIFO_EMPTY = fifo_empty;
 
-  frida_core_1chan i_chip (
-      .seq_init (seq_init),
-      .seq_samp (seq_samp),
-      .seq_comp (seq_comp),
-      .seq_logic(seq_logic),
+    frida_core_1chan i_chip (
+        .seq_init (seq_init),
+        .seq_samp (seq_samp),
+        .seq_comp (seq_comp),
+        .seq_logic(seq_logic),
 
-      .spi_sclk(spi_sclk),
-      .spi_sdi (spi_sdi),
-      .spi_sdo (spi_sdo),
-      .spi_cs_b(spi_cs_b),
-      .reset_b (rst_b),
+        .spi_sclk(spi_sclk),
+        .spi_sdi (spi_sdi),
+        .spi_sdo (spi_sdo),
+        .spi_cs_b(spi_cs_b),
+        .reset_b (rst_b),
 
-      .comp_out(comp_out),
+        .comp_out(comp_out),
 
-      .vin_p  (vin_p),
-      .vin_n  (vin_n),
-      .vdd_a  (vdd),
-      .vss_a  (vss),
-      .vdd_d  (vdd),
-      .vss_d  (vss),
-      .vdd_dac(vdd),
-      .vss_dac(vss)
-  );
+        .vin_p  (vin_p),
+        .vin_n  (vin_n),
+        .vdd_a  (vdd),
+        .vss_a  (vss),
+        .vdd_d  (vdd),
+        .vss_d  (vss),
+        .vdd_dac(vdd),
+        .vss_dac(vss)
+    );
 
 endmodule

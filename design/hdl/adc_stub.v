@@ -26,12 +26,12 @@ module adc (
     input wire en_update,
 
     // DAC config
-    input wire dac_mode,
+    input wire        dac_mode,
     input wire [15:0] dac_astate_p,
     input wire [15:0] dac_bstate_p,
     input wire [15:0] dac_astate_n,
     input wire [15:0] dac_bstate_n,
-    input wire dac_diffcaps,
+    input wire        dac_diffcaps,
 
     // Analog inputs
 `ifdef COCOTBEXT_AMS

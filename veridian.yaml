@@ -1,0 +1,74 @@
+# Veridian configuration for FRIDA HDL linting
+
+include_dirs:
+  - libs/basil/basil/firmware/modules
+  - libs/basil/basil/firmware/modules/includes
+  - design/hdl
+  - design/fpga
+  - design/fpga/SiTCP
+
+source_dirs:
+  - design/fpga
+
+verible:
+  format:
+    enabled: true
+    args:
+      - --inplace
+      - --assignment_statement_alignment=align
+      - --class_member_variable_alignment=align
+      - --distribution_items_alignment=align
+      - --enum_assignment_statement_alignment=align
+      - --expand_coverpoints=true
+      - --formal_parameters_alignment=align
+      - --formal_parameters_indentation=indent
+      - --module_net_variable_alignment=flush-left
+      - --named_parameter_alignment=align
+      - --named_parameter_indentation=indent
+      - --named_port_alignment=align
+      - --named_port_indentation=indent
+      - --port_declarations_alignment=align
+      - --port_declarations_indentation=indent
+      - --port_declarations_right_align_packed_dimensions=true
+      - --port_declarations_right_align_unpacked_dimensions=true
+      - --struct_union_members_alignment=align
+      - --indentation_spaces=4
+    exclude_dirs:
+      - libs/basil
+  lint:
+    enabled: true
+    args:
+      - --rules=-module-filename
+    exclude_dirs:
+      - libs/basil
+
+verilator:
+  syntax:
+    enabled: true
+    args:
+      - --lint-only
+      - -Wall
+      - --top-module
+      - daq_top
+      - -Wno-DECLFILENAME
+      - -Wno-MODDUP
+      - -Wno-PINMISSING
+      - -Wno-EOFNEWLINE
+      - -Wno-SYNCASYNCNET
+      - -Wno-MULTITOP
+      - -Wno-TIMESCALEMOD
+      - -Wno-PINCONNECTEMPTY
+      - -Wno-GENUNNAMED
+      - -Wno-WIDTHCONCAT
+      - -Wno-WIDTHTRUNC
+      - -Wno-WIDTHEXPAND
+      - -Wno-REDEFMACRO
+      - -Wno-UNUSEDSIGNAL
+      - -Wno-UNDRIVEN
+      - -Wno-UNUSEDPARAM
+      - -Ilibs/basil/basil/firmware/modules
+      - -Ilibs/basil/basil/firmware/modules/utils
+      - -Ilibs/basil/basil/firmware/modules/includes
+      - -Idesign/hdl
+      - -Idesign/fpga
+      - -Idesign/fpga/SiTCP

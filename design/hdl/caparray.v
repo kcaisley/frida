@@ -10,8 +10,8 @@ module caparray (
     input  wire [15:0] cap_botplate_diff   // Capacitor bottom plate diff caps
 );
 
-  // Black box - analog implementation
-  // This module will be implemented at the analog level
+    // Black box - analog implementation
+    // This module will be implemented at the analog level
 
 endmodule
 

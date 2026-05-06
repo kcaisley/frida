@@ -9,6 +9,7 @@ dependencies = [
     "pydantic",
     "pytest",
     "argcomplete",
+    "fusesoc",
     # Circuit design (hdl21/vlsir ecosystem)
     "klayout",
     "grpcio",
