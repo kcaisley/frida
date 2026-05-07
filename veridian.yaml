@@ -38,9 +38,7 @@ verible:
   lint:
     enabled: true
     args:
-      - --rules=-module-filename
     exclude_dirs:
-      - libs/basil
 
 verilator:
   syntax:

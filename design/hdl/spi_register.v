@@ -27,9 +27,7 @@ module spi_register (
 );
 
 `ifdef IMPL
-    // =================================================================
     // Gate-level implementation (OPENROAD cells)
-    // =================================================================
 
     wire [179:0] shift_reg;
     wire enable;
@@ -69,9 +67,7 @@ module spi_register (
     );
 
 `else  // BEHAVIORAL (default)
-    // =================================================================
     // RTL behavioral implementation (simulation / cosim)
-    // =================================================================
 
     reg [179:0] shift_reg;
     assign spi_bits = shift_reg;

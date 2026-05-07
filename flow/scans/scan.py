@@ -38,9 +38,7 @@ logger = logging.getLogger(__name__)
 REPO = Path(__file__).resolve().parents[2]
 
 
-# =========================================================================
 # Backend-agnostic scan loop
-# =========================================================================
 
 
 async def main_loop(
@@ -236,9 +234,7 @@ async def main_loop(
     return {ch: res for ch, res in results.items()}
 
 
-# =========================================================================
 # CLI dispatcher — called from flow/cli.py
-# =========================================================================
 
 
 def run_scan(args):
@@ -256,25 +252,30 @@ def run_scan(args):
         asyncio.run(_run_scan_hw(args))
 
 
-# =========================================================================
 # Simulation path
-# =========================================================================
 
 
 def _build_scan_env(args) -> dict[str, str]:
-    return {
+    env = {
         "SCAN_SEQUENCE": args.sequence,
-        "SCAN_CHANNELS": ",".join(str(c) for c in args.channel),
-        "SCAN_DACMODE": args.dacmode,
-        "SCAN_DACSTATE": ",".join(str(v) for v in args.dacstate),
-        "SCAN_DIFFCAPS": str(args.diffcaps).lower(),
-        "SCAN_INPUT": args.input_mode,
-        "SCAN_VDD": str(args.vdd),
         "SCAN_RATE": str(args.rate),
         "SCAN_CYCLES": str(args.cycles),
         "SCAN_LOOPBACK": args.loopback,
         "SCAN_SAVE": str(args.save).lower(),
     }
+    if args.channel is not None:
+        env["SCAN_CHANNELS"] = ",".join(str(c) for c in args.channel)
+    if args.dacmode is not None:
+        env["SCAN_DACMODE"] = args.dacmode
+    if args.dacstate is not None:
+        env["SCAN_DACSTATE"] = ",".join(str(v) for v in args.dacstate)
+    if args.diffcaps is not None:
+        env["SCAN_DIFFCAPS"] = str(args.diffcaps).lower()
+    if args.input_mode is not None:
+        env["SCAN_INPUT"] = args.input_mode
+    if args.vdd is not None:
+        env["SCAN_VDD"] = str(args.vdd)
+    return env
 
 
 def _run_scan_sim(args):
@@ -305,9 +306,7 @@ def _run_scan_sim(args):
     )
 
 
-# =========================================================================
 # Hardware path
-# =========================================================================
 
 
 async def _run_scan_hw(args):
@@ -353,9 +352,7 @@ async def _run_scan_hw(args):
     )
 
 
-# =========================================================================
 # cocotb test entry point
-# =========================================================================
 
 
 @cocotb.test(skip=False)

@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# -------------------------------------------------------------------------
 # Hardware backends (SCPI over basil Serial / Visa)
-# -------------------------------------------------------------------------
 
 
 class BasilPSU:

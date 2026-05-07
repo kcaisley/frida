@@ -75,9 +75,7 @@ module frida_core_1chan (
     wire [15:0] shared_dac_astate_p, shared_dac_bstate_p;
     wire [15:0] shared_dac_astate_n, shared_dac_bstate_n;
 
-    // -------------------------------------------------------------------------
     // SPI Register (USE_POWER_PINS must be defined in the cosim build)
-    // -------------------------------------------------------------------------
 
     spi_register spi_reg (
         .rst_b   (reset_b),
@@ -88,9 +86,7 @@ module frida_core_1chan (
         .spi_bits(spi_bits)
     );
 
-    // -------------------------------------------------------------------------
     // SPI Bit Mapping (identical to frida_core.v, only ADC 0 used)
-    // -------------------------------------------------------------------------
 
     // [179:176] mux_sel — unused with 1 ADC, but preserved for register compat
     // [175:64]  per-ADC controls (7 bits × 16 ADCs), only index 0 wired
@@ -111,9 +107,7 @@ module frida_core_1chan (
     assign adc_dac_mode        = spi_bits[69];
     assign adc_dac_diffcaps    = spi_bits[70];
 
-    // -------------------------------------------------------------------------
     // Single ADC Instance
-    // -------------------------------------------------------------------------
 
     adc adc_inst (
         .seq_init    (seq_init),

@@ -356,8 +356,8 @@ module daq_top (
 
 
     // Data FIFO: core 32-bit -> SiTcp 8-bit TCP stream
-    wire [31:0] fifo_data_out;
-    wire fifo_empty, fifo_read_next;
+    wire [31:0] fastrx_fifo_data_out;
+    wire fastrx_fifo_empty, fastrx_fifo_read_next;
     wire full_32to8;
     wire empty_32to8;
 
@@ -367,16 +367,16 @@ module daq_top (
         .RST(bus_rst),
         .CLK(bus_clk),
 
-        .WRITE   (!fifo_empty),
+        .WRITE   (!fastrx_fifo_empty),
         .READ    (tcp_tx_wr),
-        .DATA_IN (fifo_data_out),
+        .DATA_IN (fastrx_fifo_data_out),
         .FULL    (full_32to8),
         .EMPTY   (empty_32to8),
         .DATA_OUT(tcp_tx_data)
     );
 
-    assign fifo_read_next = !full_32to8;
-    assign tcp_tx_wr      = !tcp_tx_full && !empty_32to8;
+    assign fastrx_fifo_read_next = !full_32to8;
+    assign tcp_tx_wr             = !tcp_tx_full && !empty_32to8;
 
 
     // LVDS I/O buffers
@@ -425,7 +425,7 @@ module daq_top (
     );
 
 
-    // FRIDA Core
+    // FRIDA DAQ control core
     daq_core frida_core (
         .BUS_CLK (bus_clk),
         .BUS_RST (bus_rst),
@@ -450,11 +450,11 @@ module daq_top (
         .RST_B  (rst_b),
         .AMPEN_B(ampen_b),
 
-        .FIFO_DATA_OUT (fifo_data_out),
-        .FIFO_READ_NEXT(fifo_read_next),
-        .FIFO_EMPTY    (fifo_empty),
+        .FASTRX_FIFO_DATA_OUT (fastrx_fifo_data_out),
+        .FASTRX_FIFO_READ_NEXT(fastrx_fifo_read_next),
+        .FASTRX_FIFO_EMPTY    (fastrx_fifo_empty),
 
-        .COMP_OUT(comp_out),
+        .COMP_OUT(comp_out),  // Comparator signal, input to fastrx
         .RESET   (rst),
         .LED_OUT (LED)
     );

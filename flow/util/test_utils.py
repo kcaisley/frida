@@ -6,9 +6,7 @@ import pytest
 
 from flow.util.netlist import cdl_to_sp, clean_cdl
 
-# =========================================================================
 # Test data — inline netlists
-# =========================================================================
 
 SIMPLE_CDL = textwrap.dedent("""\
     *.BUSDELIMITER [
@@ -84,9 +82,7 @@ MINIMAL_LYT = textwrap.dedent("""\
 """)
 
 
-# =========================================================================
 # cdl_to_sp
-# =========================================================================
 
 
 def test_cdl_to_sp_strips_busdelimiter(tmp_path):
@@ -138,9 +134,7 @@ def test_cdl_to_sp_preserves_subckt_structure(tmp_path):
     assert "MM0" in text
 
 
-# =========================================================================
 # clean_cdl
-# =========================================================================
 
 
 def test_clean_cdl_removes_fillers(tmp_path):
@@ -199,9 +193,7 @@ def test_clean_cdl_bad_module_raises(tmp_path):
         )
 
 
-# =========================================================================
 # gds — list_cells
-# =========================================================================
 
 
 def test_list_cells(tmp_path):
@@ -242,9 +234,7 @@ def test_list_cells_empty(tmp_path):
     assert list_cells(gds) == ["ONLY"]
 
 
-# =========================================================================
 # gds — list_layers
-# =========================================================================
 
 
 def test_gds_list_layers(tmp_path):
@@ -272,9 +262,7 @@ def test_gds_list_layers(tmp_path):
     assert len(layers) == 3
 
 
-# =========================================================================
 # lyt — list_layers
-# =========================================================================
 
 
 def test_lyt_list_layers(tmp_path):

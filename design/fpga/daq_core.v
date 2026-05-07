@@ -67,9 +67,9 @@ module daq_core #(
     // comp_out data -> bram_fifo (instantiated at top level)
     // The fast_spi_rx module captures the 1-bit comparator output stream,
     // packs it into 32-bit words, and presents them as a FIFO source.
-    output wire [31:0] FIFO_DATA_OUT,
-    input  wire        FIFO_READ_NEXT,
-    output wire        FIFO_EMPTY,
+    output wire [31:0] FASTRX_FIFO_DATA_OUT,
+    input  wire        FASTRX_FIFO_READ_NEXT,
+    output wire        FASTRX_FIFO_EMPTY,
 
     // Comparator output from LVDS receiver
     input wire COMP_OUT,
@@ -102,6 +102,12 @@ module daq_core #(
     wire rst;
     assign rst = BUS_RST | RESET;
 
+    // Capture control wires (used by sequencer outputs and fast_spi_rx)
+    wire fastrx_clk;
+    wire fastrx_en;
+    wire fastrx_test_data;
+    wire fastrx_loopback_en;
+    wire debug_counter_en;
 
     // 1. Sequencer (seq_gen)
     // Generates the 8-track timing waveform loaded from the host.
@@ -190,18 +196,20 @@ module daq_core #(
     // Bit 1: AMPEN_B             - Input amplifier enable (active low)
     // Bit 2: fastrx_loopback_en  - fast_spi_rx loopback test mode
     // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
-    wire [3:0] gpio;
+    // Bit 4: debug_counter_en    - Replace fast_spi_rx FIFO output with up-counter
+    wire [4:0] gpio;
     assign RST_B              = gpio[0];  // Active-low board reset
     assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
     assign fastrx_loopback_en = gpio[2];  // Fast RX loopback test enable
     assign spi_loopback_en    = gpio[3];  // SPI loopback test enable
+    assign debug_counter_en   = gpio[4];  // Debug: replace FIFO with counter
 
     gpio #(
         .BASEADDR    (GpioBaseAddr),
         .HIGHADDR    (GpioHighAddr),
         .ABUSWIDTH   (ABUSWIDTH),
-        .IO_WIDTH    (4),
-        .IO_DIRECTION(4'hF),          // All outputs
+        .IO_WIDTH    (5),
+        .IO_DIRECTION(5'h1F),         // All outputs
         .IO_TRI      (0)
     ) inst_gpio (
         .BUS_CLK (BUS_CLK),
@@ -247,12 +255,12 @@ module daq_core #(
     // For 17-bit ADC conversions:
     //   - First 16 bits create one complete FIFO word
     //   - Remaining 1 bit creates a partial word on SEN falling edge
-    wire fastrx_en;
-    wire fastrx_test_data;
-    wire fastrx_loopback_en;  // Driven by GPIO block bit 2
-    wire fastrx_clk;  // Driven by sequencer output 4
     wire fastrx_in;  // Input from comp or sequencer test data (depending on loopback)
     assign fastrx_in = fastrx_loopback_en ? fastrx_test_data : COMP_OUT;
+
+    // Intermediate wires between fast_spi_rx and module ports (for muxing)
+    wire [31:0] fastrx_fifo_data;
+    wire fastrx_fifo_empty;
 
     fast_spi_rx #(
         .BASEADDR  (FastSpiRxBaseAddr),
@@ -267,17 +275,36 @@ module daq_core #(
         .BUS_RD  (BUS_RD),
         .BUS_WR  (BUS_WR),
 
-        .SCLK(fastrx_clk),
+        .SCLK(~fastrx_clk),
         .SDI (fastrx_in),
         .SEN (fastrx_en),
 
-        .FIFO_READ (FIFO_READ_NEXT),
-        .FIFO_EMPTY(FIFO_EMPTY),
-        .FIFO_DATA (FIFO_DATA_OUT)
+        .FIFO_READ (FASTRX_FIFO_READ_NEXT),
+        .FIFO_EMPTY(fastrx_fifo_empty),
+        .FIFO_DATA (fastrx_fifo_data)
     );
+
+    // Debug up-counter: replaces fast_spi_rx FIFO output for verifying
+    // the upstream FIFO chain independently.
+    reg [31:0] debug_counter;
+    always @(posedge BUS_CLK) begin
+        if (rst) begin
+            debug_counter <= 32'd0;
+        end else if (debug_counter_en) begin
+            if (FASTRX_FIFO_READ_NEXT) begin
+                debug_counter <= debug_counter + 32'd1;
+            end
+        end else begin
+            debug_counter <= 32'd0;
+        end
+    end
+
+    // Mux: debug_counter_en selects between fast_spi_rx output and counter
+    assign FASTRX_FIFO_DATA_OUT = debug_counter_en ? debug_counter : fastrx_fifo_data;
+    assign FASTRX_FIFO_EMPTY    = debug_counter_en ? 1'b0 : fastrx_fifo_empty;
 
 
     // 6. LEDs: All 8 LEDs set to high
-    assign LED_OUT = 8'b11111111;
+    assign LED_OUT              = 8'b11111111;
 
 endmodule

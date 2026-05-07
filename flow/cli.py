@@ -46,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(prog="flow", description="FRIDA design flow runner")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # ==== Primitive ====
+    # Primitive
     p = sub.add_parser("primitive", help="Generate layout primitives")
     p.add_argument("-c", "--cell", required=True, choices=PRIMITIVES, help="Primitive cell to generate")
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
@@ -54,7 +54,7 @@ def main():
     p.add_argument("-v", "--visual", action="store_true", help="Open result in KLayout viewer")
     p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
 
-    # ==== Netlist ====
+    # Netlist
     p = sub.add_parser("netlist", help="Generate netlists")
     p.add_argument("-c", "--cell", required=True, choices=SUBCKTS, help="Circuit block")
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
@@ -75,13 +75,13 @@ def main():
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis to sim input")
     p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
 
-    # ==== Layout ====
+    # Layout
     p = sub.add_parser("layout", help="Run place-and-route via OpenROAD")
     p.add_argument("-c", "--cell", required=True, choices=LAYOUTS, help="Circuit block")
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
     p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
 
-    # ==== Simulate ====
+    # Simulate
     p = sub.add_parser("simulate", help="Run simulations")
     p.add_argument("-c", "--cell", required=True, choices=TESTBENCHES, help="Circuit block")
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
@@ -97,7 +97,7 @@ def main():
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis")
     p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
 
-    # ==== Convert ====
+    # Convert
     p = sub.add_parser("convert", help="Convert netlists between formats (OA/CDL/SP)")
     p.add_argument("--from", dest="src_fmt", required=True, choices=["oa", "cdl", "sp"], help="Source format")
     p.add_argument("--to", dest="dst_fmt", required=True, choices=["cdl", "sp", "sp_clean"], help="Target format")
@@ -109,7 +109,7 @@ def main():
     p.add_argument("--verilog", type=Path, help="Verilog file for port reordering (sp_clean only)")
     p.add_argument("--module", help="Module name for port reordering (sp_clean only)")
 
-    # ==== Scan ====
+    # Scan
     p = sub.add_parser("scan", help="Measure or simulate the prototype ASIC")
     p.add_argument(
         "--sequence",

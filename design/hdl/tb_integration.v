@@ -57,9 +57,7 @@ module tb_integration (
 `endif
 );
 
-    // =========================================================================
     // Interconnect: DAQ core <-> ASIC core
-    // =========================================================================
 
     // Sequencer clocks (DAQ -> ASIC)
     wire seq_init, seq_samp, seq_comp, seq_logic;
@@ -79,52 +77,43 @@ module tb_integration (
     wire fifo_read_next;
     wire fifo_empty;
 
-    // Sequencer pattern readback (unused in cosim, tie off)
-    wire [3:0] seq_pattern_out;
-
-    // =========================================================================
     // DAQ Core (FPGA side — basil sequencer, SPI, GPIO, pulse_gen, fast_spi_rx)
-    // =========================================================================
 
     daq_core #(
         .ABUSWIDTH(32)
     ) i_daq_core (
-        .bus_clk (BUS_CLK),
-        .bus_rst (BUS_RST),
-        .bus_add (BUS_ADD),
-        .bus_data(BUS_DATA),
-        .bus_rd  (BUS_RD),
-        .bus_wr  (BUS_WR),
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (BUS_RST),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
 
-        .seq_clk(SEQ_CLK),  // 400 MHz from cocotb
+        .SEQ_CLK(SEQ_CLK),  // 400 MHz from cocotb
 
-        .clk_init (seq_init),
-        .clk_samp (seq_samp),
-        .clk_comp (seq_comp),
-        .clk_logic(seq_logic),
+        .CLK_INIT (seq_init),
+        .CLK_SAMP (seq_samp),
+        .CLK_COMP (seq_comp),
+        .CLK_LOGIC(seq_logic),
 
-        .spi_clk (SPI_CLK),
-        .spi_sclk(spi_sclk),
-        .spi_sdi (spi_sdi),
-        .spi_sdo (spi_sdo),
-        .spi_cs_b(spi_cs_b),
+        .SPI_CLK (SPI_CLK),
+        .SPI_SCLK(spi_sclk),
+        .SPI_SDI (spi_sdi),
+        .SPI_SDO (spi_sdo),
+        .SPI_CS_B(spi_cs_b),
 
-        .rst_b  (rst_b),
-        .ampen_b(ampen_b),
+        .RST_B  (rst_b),
+        .AMPEN_B(ampen_b),
 
-        .fifo_data_out (fifo_data_out),
-        .fifo_read_next(FIFO_READ),
-        .fifo_empty    (fifo_empty),
+        .FASTRX_FIFO_DATA_OUT (fifo_data_out),
+        .FASTRX_FIFO_READ_NEXT(FIFO_READ),
+        .FASTRX_FIFO_EMPTY    (fifo_empty),
 
-        .comp_out(comp_out),
+        .COMP_OUT(comp_out),
 
-        .reset(1'b0),  // No external reset needed
-
-        .seq_pattern_out (seq_pattern_out),
-        .seq_pattern_addr(6'b0)
+        .RESET(1'b0)  // No external reset needed
     );
 
-    // =========================================================================
     // PCB Front-End: Single-Ended to Differential Amplifier (THS4541)
     //
     // Converts the AWG's single-ended output into a differential pair
@@ -134,7 +123,6 @@ module tb_integration (
     // When COCOTBEXT_AMS is defined, vin_p/vin_n come directly from the
     // top-level ports (set by SimAWG via the bridge). The sediff block is
     // bypassed — Python computes cm ± diff/2.
-    // =========================================================================
 
 `ifdef COCOTBEXT_AMS
     // vin_p, vin_n are top-level ports — no sediff needed
@@ -158,9 +146,7 @@ module tb_integration (
     );
 `endif
 
-    // =========================================================================
     // ASIC Core (single-channel FRIDA with 1 ADC)
-    // =========================================================================
 
     assign FIFO_DATA  = fifo_data_out;
     assign FIFO_EMPTY = fifo_empty;

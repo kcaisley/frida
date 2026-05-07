@@ -45,9 +45,7 @@ REPO = Path(__file__).resolve().parents[2]
 DESIGN_FPGA = REPO / "design" / "fpga"
 
 
-# =========================================================================
 # Shared test logic (backend-agnostic)
-# =========================================================================
 
 
 async def check_spi_loopback(backend):
@@ -200,9 +198,7 @@ async def check_fspi_enable(backend):
     await fastrx_set_en(backend, True)
 
 
-# =========================================================================
 # cocotb simulation tests (discovered by the pytest plugin inside Icarus)
-# =========================================================================
 
 
 @cocotb.test()
@@ -255,9 +251,7 @@ async def sim_fspi_enable(dut):
     await check_fspi_enable(backend)
 
 
-# =========================================================================
 # pytest: simulation runner (cocotb plugin builds + launches simulator)
-# =========================================================================
 
 
 @pytest.fixture
@@ -285,9 +279,7 @@ def test_daq_sim(daq_core):
     daq_core.test()
 
 
-# =========================================================================
 # pytest: hardware tests
-# =========================================================================
 
 
 @pytest.fixture(scope="module")

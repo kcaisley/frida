@@ -11,9 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-# =========================================================================
 # OA → CDL  (Cadence si netlister)
-# =========================================================================
 
 _SI_ENV_TEMPLATE = """\
 simLibName = "{lib}"
@@ -84,9 +82,7 @@ def oa_to_cdl(lib: str, cell: str, outdir: Path, cdslib: Path | None = None) -> 
     return cdl_path
 
 
-# =========================================================================
 # CDL → SP  (syntax conversion for ngspice compatibility)
-# =========================================================================
 
 # Deep-nwell cell variants → standard library equivalents
 _DNW_REPLACEMENTS = {
@@ -125,9 +121,7 @@ def cdl_to_sp(inpath: Path, outpath: Path) -> Path:
     return outpath
 
 
-# =========================================================================
 # CDL → SP (cleaned)  — remove fillers/decaps, fix OpenROAD hierarchy
-# =========================================================================
 
 
 def clean_cdl(inpath: Path, outpath: Path, verilog: Path | None = None, module: str | None = None) -> Path:
