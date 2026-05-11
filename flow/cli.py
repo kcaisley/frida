@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import logging
 import shutil
 import socket
 import subprocess
@@ -43,6 +44,10 @@ SIMULATOR_BINARIES = {
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - [%(levelname)s] (%(threadName)s) %(message)s",
+    )
     parser = argparse.ArgumentParser(prog="flow", description="FRIDA design flow runner")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -158,10 +163,10 @@ def main():
         help="Input voltage source mode",
     )
     p.add_argument(
-        "--rate",
+        "--clkdiv",
         type=int,
         default=1,
-        help="Sequencer clock divider (1 = full speed)",
+        help="Sequencer clock divider (1 = 200 MHz full speed)",
     )
     p.add_argument(
         "--cycles",
@@ -193,6 +198,18 @@ def main():
         default=None,
         help="Supply voltage",
     )
+    p.add_argument(
+        "--diffamp",
+        choices=["true", "false"],
+        default=None,
+        help="Enable PCB input differential amplifier",
+    )
+    p.add_argument(
+        "--fastrx",
+        choices=["compout", "tiehigh"],
+        default=None,
+        help="FASTRX input source: compout (external COMP_OUT pin), tiehigh (force fastrx_in to 1)",
+    )
 
     argcomplete.autocomplete(parser)
 
@@ -202,8 +219,10 @@ def main():
         _run_convert(args)
         return
     if args.command == "scan":
-        from .scans.chip import N_ADCS
+        from .scans.chip import Frida
         from .scans.scan import run_scan
+
+        N_ADCS = Frida.N_ADCS
 
         chip_config_args = {
             "channel": args.channel,
@@ -211,7 +230,6 @@ def main():
             "dacmode": args.dacmode,
             "diffcaps": args.diffcaps,
             "input_mode": args.input_mode,
-            "vdd": args.vdd,
         }
 
         if args.sequence == "fastrx":
@@ -220,8 +238,10 @@ def main():
                 raise SystemExit(
                     f"--sequence=fastrx does not accept chip-config arguments: {', '.join(f'--{name}' for name in provided)}"
                 )
-            if args.loopback not in ("none", "fastrx"):
-                raise SystemExit(f"--sequence=fastrx only supports --loopback=none or fastrx (got {args.loopback})")
+            if args.fastrx is None:
+                args.fastrx = "compout"
+            if args.fastrx == "tiehigh" and args.loopback == "fastrx":
+                raise SystemExit("--fastrx=tiehigh and --loopback=fastrx are mutually exclusive")
         elif args.sequence == "none" and args.fifo == "counter":
             # Counter-only mode: no chip config needed, no sequencer loaded
             pass
@@ -238,6 +258,8 @@ def main():
         args.emulate = _str_to_bool(args.emulate)
         if args.diffcaps is not None:
             args.diffcaps = _str_to_bool(args.diffcaps)
+        if args.diffamp is not None:
+            args.diffamp = _str_to_bool(args.diffamp)
         args.save = _str_to_bool(args.save)
         run_scan(args)
         return

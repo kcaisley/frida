@@ -11,8 +11,6 @@
 
 `timescale 1ns / 1ps
 
-`include "utils/RAMB16_S1_S9_sim.v"
-
 module tb_daq_core (
     input wire        BUS_CLK,
     input wire        SEQ_CLK,
@@ -34,42 +32,39 @@ module tb_daq_core (
     daq_core #(
         .ABUSWIDTH(32)
     ) i_daq_core (
-        .bus_clk (BUS_CLK),
-        .bus_rst (BUS_RST),
-        .bus_add (BUS_ADD),
-        .bus_data(BUS_DATA),
-        .bus_rd  (BUS_RD),
-        .bus_wr  (BUS_WR),
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (BUS_RST),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
 
-        .seq_clk(SEQ_CLK),
-
-        /* verilator lint_off PINCONNECTEMPTY */
-        .clk_init (),
-        .clk_samp (),
-        .clk_comp (),
-        .clk_logic(),
-
-        .spi_clk (SPI_CLK),
-        .spi_sclk(),
-        .spi_sdi (spi_sdi),
-        .spi_sdo (spi_sdi),  // SPI loopback
-        .spi_cs_b(),
-
-        .rst_b  (),
-        .ampen_b(),
-        /* verilator lint_on PINCONNECTEMPTY */
-
-        .fifo_data_out (FIFO_DATA),
-        .fifo_read_next(FIFO_READ),
-        .fifo_empty    (FIFO_EMPTY),
-
-        .comp_out(1'b0),  // No chip connected
-        .reset   (1'b0),
+        .SEQ_CLK(SEQ_CLK),
 
         /* verilator lint_off PINCONNECTEMPTY */
-        .seq_pattern_out (),
+        .CLK_INIT (),
+        .CLK_SAMP (),
+        .CLK_COMP (),
+        .CLK_LOGIC(),
+
+        .SPI_CLK (SPI_CLK),
+        .SPI_SCLK(),
+        .SPI_SDI (spi_sdi),
+        .SPI_SDO (spi_sdi),  // SPI loopback
+        .SPI_CS_B(),
+
+        .RST_B  (),
+        .AMPEN_B(),
         /* verilator lint_on PINCONNECTEMPTY */
-        .seq_pattern_addr(6'b0)
+
+        .FASTRX_FIFO_DATA_OUT  (FIFO_DATA),
+        .FASTRX_FIFO_READ_NEXT(FIFO_READ),
+        .FASTRX_FIFO_EMPTY    (FIFO_EMPTY),
+
+        .COMP_OUT(1'b0),  // No chip connected
+        .RESET   (1'b0),
+
+        .LED_OUT()
     );
 
 endmodule

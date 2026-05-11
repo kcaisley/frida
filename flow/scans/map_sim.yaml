@@ -1,0 +1,82 @@
+# FRIDA DAQ Simulation Configuration
+#
+# Identical to map_fpga.yaml but uses SiSim as the transfer layer.
+# SiSim connects over TCP to the cocotb-side server (basil.utils.sim.Test),
+# which drives BasilBusDriver against the Icarus/Verilator simulation.
+#
+# Usage:
+#   1. Start the cocotb runner (builds HDL + launches simulator + TCP server):
+#          pytest flow/scans/test_daq.py::test_sim_runner
+#   2. In a second step (or via pytest fixture ordering) run the scan:
+#          pytest flow/scans/test_daq.py -m sim
+#      or call _run_scan_sim() directly via the CLI with --emulate.
+#
+# The simulator listens on localhost:12345 by default (SiSim retry loop
+# waits up to 120 s for the server to come up).
+
+name: frida-daq-sim
+version: 0.1.0
+
+transfer_layer:
+    - name: intf
+      type: SiSim
+      init:
+          host: "localhost"
+          port: 12345
+          timeout: 120
+
+hw_drivers:
+    - name: fifo
+      type: sitcp_fifo
+      interface: intf
+
+    - name: seq_gen
+      type: seq_gen
+      interface: intf
+      base_addr: 0x10000
+      mem_size: 8192
+
+    - name: spi
+      type: spi
+      interface: intf
+      base_addr: 0x20000
+
+    - name: gpio
+      type: gpio
+      interface: intf
+      base_addr: 0x30000
+      size: 8
+
+    - name: pulse_gen
+      type: pulse_gen
+      interface: intf
+      base_addr: 0x40000
+
+    - name: fast_spi_rx
+      type: fast_spi_rx
+      interface: intf
+      base_addr: 0x50000
+
+registers:
+    - name: SEQ
+      type: TrackRegister
+      hw_driver: seq_gen
+      seq_width: 8
+      seq_size: 8192
+      tracks:
+          - name: CLK_INIT
+            position: 0
+          - name: CLK_SAMP
+            position: 1
+          - name: CLK_COMP
+            position: 2
+          - name: CLK_LOGIC
+            position: 3
+          - name: FASTRX_CLK
+            position: 4
+          - name: FASTRX_EN
+            position: 5
+          - name: FASTRX_TEST_DATA
+            position: 6
+          - name: SPARE_7
+            position: 7

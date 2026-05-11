@@ -1,7 +1,7 @@
 """Unified FRIDA chip scan.
 
 CLI entry point: ``run_scan(args)``, called from ``flow/cli.py``.
-Core loop: ``main_loop(chip, params)`` — backend-agnostic, operates
+Core loop: ``main_loop(chip, params)`` - backend-agnostic, operates
 only through the ``Frida`` class.
 
 Sequence values dispatched through ``chip.configure_sequencer()``:
@@ -13,25 +13,12 @@ Sequence values dispatched through ``chip.configure_sequencer()``:
   - "fastrx"    → fast_spi_rx loopback test pattern
 """
 
-from __future__ import annotations
-
-import asyncio
 import logging
 from pathlib import Path
 
-import cocotb
 import numpy as np
-from cocotb.clock import Clock
-from cocotbext.ams import MixedSignalBridge
 
-from flow.scans.chip import Frida, SimBackend
-from flow.scans.sim import (
-    SimAWG,
-    SimPSU,
-    create_adc_block,
-    include_dirs,
-    verilog_sources,
-)
+from flow.scans.chip import Frida
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 # Backend-agnostic scan loop
-
-
-async def main_loop(
+def main_loop(
     chip: Frida,
     *,
     sequence: str = "none",
@@ -51,7 +36,9 @@ async def main_loop(
     diffcaps: bool = False,
     input_mode: str = "manual",
     vdd: float = 1.2,
-    rate: int = 1,
+    diffamp: bool = False,
+    fastrx: str = "compout",
+    clkdiv: int = 1,
     cycles: int = 1,
     loopback: str = "none",
     fifo: str = "fastrx",
@@ -81,7 +68,7 @@ async def main_loop(
         diffcaps: Whether DAC differential caps mode is enabled.
         input_mode: ``"manual"``, ``"dc"``, ``"ramp"``, ``"sine"``.
         vdd: Supply voltage in volts (used as common-mode reference).
-        rate: Sequencer clock divider; 1 = full speed.
+        clkdiv: Sequencer clock divider; 1 = 200 MHz full speed.
         cycles: Number of sequence repetitions per voltage step.
             0 = run continuously until Ctrl+C (KeyboardInterrupt).
         save: If True, also write results as NPZ to scratch/scan/.
@@ -95,30 +82,39 @@ async def main_loop(
         Nested dict: ``{channel_index: list[np.ndarray]}``.
     """
     # Step 0: Reset the chip and wait
-    await chip.reset()
+    chip.set_and_reset()
 
-    # Step 0b: Configure loopback modes
-    await chip.set_spi_loopback(loopback in ("spi", "both"))
-    await chip.set_fastrx_loopback(loopback in ("fastrx", "both"))
+    # Step 0b: Configure SPI loopback
+    chip.set_spi_loopback(loopback == "spi" or loopback == "both")
 
-    # Step 0c: Configure FIFO input source
-    await chip.set_debug_counter_en(fifo == "counter")
+    # Step 0c: Configure fastrx input source
+    chip.set_fastrx_loopback(loopback == "fastrx" or loopback == "both")
+    chip.set_fastrx_tiehigh(fastrx == "tiehigh")
+
+    # Step 0d: Configure FIFO debug counter
+    chip.set_fifo_debug_counter(fifo == "counter")
+
+    # Fast RX / counter test mode: no chip config or peripherals needed
+    if sequence == "fastrx" or (sequence == "none" and fifo == "counter"):
+        if sequence != "none":
+            chip.configure_sequencer(sequence, seq_clk_div=clkdiv)
+        bits = chip.run_conversions(
+            n_conversions=1,
+            repetitions=cycles,
+            counter_mode=(sequence == "none" and fifo == "counter"),
+        )
+        return {sequence if sequence != "none" else "counter": [bits]}
+
+    # Step 0e: Configure peripherals
+    chip.set_diffamp(diffamp)
+    chip.set_vdd(vdd)
 
     # Step 1: load sequencer
     if sequence != "none":
-        await chip.configure_sequencer(
+        chip.configure_sequencer(
             sequence,
-            seq_clk_div=rate,
+            seq_clk_div=clkdiv,
         )
-
-    # Fast RX / counter test mode: no chip configuration needed
-    if sequence == "fastrx" or (sequence == "none" and fifo == "counter"):
-        bits = await chip.run_conversions(
-            n_conversions=1,
-            repetitions=cycles,
-            trigger_sequencer=(sequence != "none"),
-        )
-        return {sequence if sequence != "none" else "counter": [bits]}
 
     # Build voltage table from input_mode
     cm = vdd / 2
@@ -149,7 +145,6 @@ async def main_loop(
         raise ValueError(f"Unknown dacmode {dacmode!r}")
 
     # Channel loop + voltage loop
-
     results: dict[int, list[np.ndarray]] = {ch: [] for ch in channels}
 
     for channel in channels:
@@ -186,7 +181,7 @@ async def main_loop(
             bstate_n=bstate_n,
         )
 
-        await chip.reg_write()
+        chip.reg_write()
         logger.info(
             "SPI register programmed: ch=%d, dacstate=%s, dacmode=%s, diffcaps=%s",
             channel,
@@ -196,9 +191,9 @@ async def main_loop(
         )
 
         # Voltage sweep
-        for vi, ventry in enumerate(voltage_entries):
+        for ventry in voltage_entries:
             if input_mode != "manual" and ventry is not None:
-                await chip.set_vin(diff=ventry["diff"], cm=ventry["cm"])
+                chip.set_vin(diff=ventry["diff"], cm=ventry["cm"])
 
             if sequence == "none" and fifo != "counter":
                 continue
@@ -207,15 +202,15 @@ async def main_loop(
                 # Continuous mode — stream each conversion as it arrives
                 try:
                     while True:
-                        bits = await chip.run_conversions(
+                        bits = chip.run_conversions(
                             n_conversions=1,
                             repetitions=1,
                         )
                         results[channel].append(bits)
-                except (asyncio.CancelledError, KeyboardInterrupt):
+                except KeyboardInterrupt:
                     logger.info("Continuous capture interrupted, stopping...")
             else:
-                bits = await chip.run_conversions(
+                bits = chip.run_conversions(
                     n_conversions=1,
                     repetitions=cycles,
                 )
@@ -243,109 +238,37 @@ async def main_loop(
 
 
 # CLI dispatcher — called from flow/cli.py
-
-
 def run_scan(args):
     """Entry point from the CLI. ``args`` is the argparse namespace.
 
-    Branches into simulation (cocotb runner) or hardware (basil Dut + Frida).
+    Picks ``map_sim.yaml`` (SiSim over TCP to cocotb) when ``--emulate`` is
+    set, otherwise ``map_fpga.yaml`` (SiTcp to real hardware).  The scan
+    logic is identical in both cases.
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - [%(levelname)s] (%(threadName)s) %(message)s",
-    )
-    if args.emulate:
-        _run_scan_sim(args)
-    else:
-        asyncio.run(_run_scan_hw(args))
-
-
-# Simulation path
-
-
-def _build_scan_env(args) -> dict[str, str]:
-    env = {
-        "SCAN_SEQUENCE": args.sequence,
-        "SCAN_RATE": str(args.rate),
-        "SCAN_CYCLES": str(args.cycles),
-        "SCAN_LOOPBACK": args.loopback,
-        "SCAN_FIFO": args.fifo,
-        "SCAN_SAVE": str(args.save).lower(),
-    }
-    if args.channel is not None:
-        env["SCAN_CHANNELS"] = ",".join(str(c) for c in args.channel)
-    if args.dacmode is not None:
-        env["SCAN_DACMODE"] = args.dacmode
-    if args.dacstate is not None:
-        env["SCAN_DACSTATE"] = ",".join(str(v) for v in args.dacstate)
-    if args.diffcaps is not None:
-        env["SCAN_DIFFCAPS"] = str(args.diffcaps).lower()
-    if args.input_mode is not None:
-        env["SCAN_INPUT"] = args.input_mode
-    if args.vdd is not None:
-        env["SCAN_VDD"] = str(args.vdd)
-    return env
-
-
-def _run_scan_sim(args):
-    import os
-
-    from cocotb_tools.runner import get_runner
-
-    env = _build_scan_env(args)
-    for key, val in env.items():
-        os.environ[key] = val
-
-    build_dir = REPO / "scratch" / "scan"
-
-    runner = get_runner("icarus")
-    runner.build(
-        sources=verilog_sources(),
-        includes=include_dirs(),
-        hdl_toplevel="tb_integration",
-        build_dir=str(build_dir),
-        defines={"COCOTBEXT_AMS": 1},
-        waves=True,
-        timescale=("1ns", "1ps"),
-    )
-    runner.test(
-        hdl_toplevel="tb_integration",
-        test_module="flow.scans.scan",
-        waves=True,
-    )
-
-
-# Hardware path
-
-
-async def _run_scan_hw(args):
     from types import SimpleNamespace
 
     from basil.dut import Dut
 
-    from flow.scans.chip import HardwareBackend
-    from flow.scans.peripherals import BasilPSU
+    yaml_name = "map_sim.yaml" if args.emulate else "map_fpga.yaml"
+    daq = Dut(str(REPO / "flow" / "scans" / yaml_name))
+    daq.init()  # SiSim.init() blocks until the cocotb TCP server is ready
 
-    yaml_path = REPO / "flow" / "scans" / "map_fpga.yaml"
-    daq = Dut(str(yaml_path))
-    daq.init()
+    # Instruments live in their own YAML files; load them opportunistically.
+    # (Skipped in simulation — SimAWG/SimPSU are not needed for SiSim path.)
+    peripherals = None
+    if not args.emulate:
+        peripherals_kwargs: dict = {}
+        try:
+            awg_dut = Dut(str(REPO / "flow" / "scans" / "map_awg.yaml"))
+            awg_dut.init()
+            peripherals_kwargs["awg"] = awg_dut["awg"]
+        except Exception as exc:
+            logger.warning("AWG not available: %s", exc)
+        peripherals = SimpleNamespace(**peripherals_kwargs) if peripherals_kwargs else None
 
-    backend = HardwareBackend(daq)
+    chip = Frida(daq, peripherals)
 
-    try:
-        from flow.scans.peripherals import BasilAWG
-
-        peripherals = SimpleNamespace(
-            awg=BasilAWG(),
-            psu=BasilPSU(daq),
-        )
-    except Exception:
-        peripherals = SimpleNamespace(psu=BasilPSU(daq))
-
-    chip = Frida(backend, peripherals)
-    await chip.init(write_initial_spi=False)
-
-    await main_loop(
+    return main_loop(
         chip,
         sequence=args.sequence,
         channels=args.channel,
@@ -353,65 +276,12 @@ async def _run_scan_hw(args):
         dacstate=args.dacstate,
         diffcaps=args.diffcaps,
         input_mode=args.input_mode,
-        vdd=args.vdd,
-        rate=args.rate,
+        vdd=args.vdd or 1.2,
+        diffamp=args.diffamp or False,
+        fastrx=args.fastrx or "compout",
+        clkdiv=args.clkdiv,
         cycles=args.cycles,
         loopback=args.loopback,
         fifo=args.fifo,
         save=args.save,
     )
-
-
-# cocotb test entry point
-
-
-@cocotb.test(skip=False)
-async def sim_scan(dut):
-    import os
-    from types import SimpleNamespace
-
-    sequence = os.environ.get("SCAN_SEQUENCE", "none")
-    channels = [int(c) for c in os.environ.get("SCAN_CHANNELS", "0").split(",")]
-    dacmode = os.environ.get("SCAN_DACMODE", "normal")
-    dacstate = [int(v) for v in os.environ.get("SCAN_DACSTATE", "32767,32767").split(",")]
-    diffcaps = os.environ.get("SCAN_DIFFCAPS", "false").lower() == "true"
-    input_mode = os.environ.get("SCAN_INPUT", "manual")
-    vdd = float(os.environ.get("SCAN_VDD", "1.2"))
-    rate = int(os.environ.get("SCAN_RATE", "1"))
-    cycles = int(os.environ.get("SCAN_CYCLES", "1"))
-    loopback = os.environ.get("SCAN_LOOPBACK", "none")
-    fifo = os.environ.get("SCAN_FIFO", "fastrx")
-    save = os.environ.get("SCAN_SAVE", "false").lower() == "true"
-
-    cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
-    cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
-    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
-
-    adc_block = create_adc_block(vdd=vdd)
-    bridge = MixedSignalBridge(dut, [adc_block], max_sync_interval_ns=1.0)
-
-    duration_ns = 1000 + len(channels) * cycles * 200
-    await bridge.start(duration_ns=duration_ns, analog_vcd=f"scan_{sequence}.vcd")
-
-    backend = SimBackend(dut)
-    peripherals = SimpleNamespace(awg=SimAWG(bridge), psu=SimPSU(vdd))
-    chip = Frida(backend, peripherals)
-    await chip.init(write_initial_spi=False)
-
-    await main_loop(
-        chip,
-        sequence=sequence,
-        channels=channels,
-        dacmode=dacmode,
-        dacstate=dacstate,
-        diffcaps=diffcaps,
-        input_mode=input_mode,
-        vdd=vdd,
-        rate=rate,
-        cycles=cycles,
-        loopback=loopback,
-        fifo=fifo,
-        save=save,
-    )
-
-    await bridge.stop()

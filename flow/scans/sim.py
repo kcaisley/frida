@@ -33,13 +33,13 @@ class SimAWG:
         self._bridge = bridge
         self._block = block_name
 
-    async def set_differential(self, diff: float, cm: float) -> None:
+    def set_differential(self, diff: float, cm: float) -> None:
         vin_p = cm + diff / 2
         vin_n = cm - diff / 2
         self._bridge.set_analog_input(self._block, "vin_p", vin_p)
         self._bridge.set_analog_input(self._block, "vin_n", vin_n)
 
-    async def start_sin(
+    def start_sin(
         self,
         amplitude: float,
         offset: float,
@@ -56,7 +56,7 @@ class SimPSU:
     def __init__(self, nominal_vdd: float = 1.2):
         self._vdd = nominal_vdd
 
-    async def set_voltage(self, v: float) -> None:
+    def set_voltage(self, v: float) -> None:
         if abs(v - self._vdd) > 0.001:
             logger.warning(
                 "SimPSU: VDD is fixed at %.3fV in the SPICE netlist; ignoring request to change to %.3fV",
@@ -64,10 +64,10 @@ class SimPSU:
                 v,
             )
 
-    async def on(self) -> None:
+    def on(self) -> None:
         pass
 
-    async def off(self) -> None:
+    def off(self) -> None:
         pass
 
 
