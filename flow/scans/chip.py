@@ -511,6 +511,20 @@ class Frida:
         await daq.gpio_write(self._backend, self._gpio_out)
         logger.info("Fast RX loopback %s", "enabled" if enabled else "disabled")
 
+    async def set_debug_counter_en(self, enabled: bool) -> None:
+        """Replace fast_spi_rx FIFO output with a counting-up sequence.
+
+        When enabled, the FPGA mux routes a debug up-counter to the
+        FASTRX FIFO data port instead of the real COMP_OUT capture.
+        Useful for verifying the upstream FIFO/DMA chain independently.
+        """
+        if enabled:
+            self._gpio_out |= 1 << daq.GPIO_DEBUG_COUNTER_BIT
+        else:
+            self._gpio_out &= ~(1 << daq.GPIO_DEBUG_COUNTER_BIT)
+        await daq.gpio_write(self._backend, self._gpio_out)
+        logger.info("Debug counter %s", "enabled" if enabled else "disabled")
+
     # -----------------------------------------------------------------
     # SPI Register Access (pure Python, no I/O)
     # -----------------------------------------------------------------
@@ -647,8 +661,17 @@ class Frida:
         self,
         n_conversions: int = 1,
         repetitions: int = 1,
+        trigger_sequencer: bool = True,
     ) -> np.ndarray:
         """Run ADC conversions and return comp_out bits.
+
+        Args:
+            n_conversions: Number of conversions per repetition.
+            repetitions: Number of sequencer repetitions.
+            trigger_sequencer: If False, skip the sequencer trigger pulse.
+                Use when the data source is the debug counter (which fills
+                the FIFO autonomously) rather than a sequencer-driven ADC
+                conversion.
 
         Returns:
             Array of shape (repetitions, n_conversions, N_COMP_BITS)
@@ -658,8 +681,9 @@ class Frida:
         await daq.fastrx_set_en(self._backend, True)
         await self._backend.reset_fifo()
 
-        total_steps = self._seq_n_steps * n_conversions
-        await daq.seq_trigger(self._backend, total_steps, repetitions)
+        if trigger_sequencer:
+            total_steps = self._seq_n_steps * n_conversions
+            await daq.seq_trigger(self._backend, total_steps, repetitions)
 
         n_total = n_conversions * repetitions
         n_bytes = n_total * 2 * 4

@@ -176,6 +176,12 @@ def main():
         help="Loopback mode: none, spi (FPGA SPI SDO loopback), fastrx (fast RX loopback), both",
     )
     p.add_argument(
+        "--fifo",
+        default="fastrx",
+        choices=["fastrx", "counter"],
+        help="Data source for the FASTRX FIFO: fastrx (captured COMP_OUT), counter (up-counter for FIFO/chain verification)",
+    )
+    p.add_argument(
         "--save",
         choices=["true", "false"],
         default="false",
@@ -216,6 +222,9 @@ def main():
                 )
             if args.loopback not in ("none", "fastrx"):
                 raise SystemExit(f"--sequence=fastrx only supports --loopback=none or fastrx (got {args.loopback})")
+        elif args.sequence == "none" and args.fifo == "counter":
+            # Counter-only mode: no chip config needed, no sequencer loaded
+            pass
         else:
             missing = [name for name, value in chip_config_args.items() if value is None]
             if missing:

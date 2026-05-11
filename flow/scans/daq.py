@@ -58,6 +58,8 @@ GPIO_RST_B_BIT = 0
 GPIO_AMP_EN_BIT = 1
 GPIO_LOOPBACK_BIT = 2
 GPIO_SPI_LOOPBACK_BIT = 3
+GPIO_DEBUG_COUNTER_BIT = 4
+GPIO_TIEHIGH_BIT = 5
 
 # -------------------------------------------------------------------------
 # Sequencer module offsets
@@ -168,7 +170,7 @@ async def seq_load(
     await backend.write(SEQ_BASE + _SEQ_MEM, list(mem_data))
     await backend.write(SEQ_BASE + _SEQ_SIZE, le32(n_steps))
     await backend.write(SEQ_BASE + _SEQ_CLK_DIV, [clk_div & 0xFF])
-
+    print(mem_data)
     # Visual dump of sequencer memory for debugging
     track_names = [
         "CLK_INIT",

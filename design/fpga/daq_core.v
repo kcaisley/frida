@@ -107,6 +107,7 @@ module daq_core #(
     wire fastrx_en;
     wire fastrx_test_data;
     wire fastrx_loopback_en;
+    wire fastrx_in_tiehigh;
     wire debug_counter_en;
 
     // 1. Sequencer (seq_gen)
@@ -197,19 +198,21 @@ module daq_core #(
     // Bit 2: fastrx_loopback_en  - fast_spi_rx loopback test mode
     // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
     // Bit 4: debug_counter_en    - Replace fast_spi_rx FIFO output with up-counter
-    wire [4:0] gpio;
+    // Bit 5: fastrx_in_tiehigh   - Force fastrx_in to constant 1
+    wire [5:0] gpio;
     assign RST_B              = gpio[0];  // Active-low board reset
     assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
     assign fastrx_loopback_en = gpio[2];  // Fast RX loopback test enable
     assign spi_loopback_en    = gpio[3];  // SPI loopback test enable
     assign debug_counter_en   = gpio[4];  // Debug: replace FIFO with counter
+    assign fastrx_in_tiehigh  = gpio[5];  // Debug: force fastrx_in to 1
 
     gpio #(
         .BASEADDR    (GpioBaseAddr),
         .HIGHADDR    (GpioHighAddr),
         .ABUSWIDTH   (ABUSWIDTH),
-        .IO_WIDTH    (5),
-        .IO_DIRECTION(5'h1F),         // All outputs
+        .IO_WIDTH    (6),
+        .IO_DIRECTION(6'h3F),         // All outputs
         .IO_TRI      (0)
     ) inst_gpio (
         .BUS_CLK (BUS_CLK),
@@ -255,8 +258,8 @@ module daq_core #(
     // For 17-bit ADC conversions:
     //   - First 16 bits create one complete FIFO word
     //   - Remaining 1 bit creates a partial word on SEN falling edge
-    wire fastrx_in;  // Input from comp or sequencer test data (depending on loopback)
-    assign fastrx_in = fastrx_loopback_en ? fastrx_test_data : COMP_OUT;
+    wire fastrx_in;  // Input from comp, loopback test data, or tie-high
+    assign fastrx_in = fastrx_in_tiehigh ? 1'b1 : (fastrx_loopback_en ? fastrx_test_data : COMP_OUT);
 
     // Intermediate wires between fast_spi_rx and module ports (for muxing)
     wire [31:0] fastrx_fifo_data;

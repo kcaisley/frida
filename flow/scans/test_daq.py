@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import cocotb
@@ -29,8 +30,10 @@ from flow.scans.chip import (
 from flow.scans.daq import (
     _SPI_MEM,
     GPIO_AMP_EN_BIT,
+    GPIO_DEBUG_COUNTER_BIT,
     GPIO_LOOPBACK_BIT,
     GPIO_RST_B_BIT,
+    GPIO_TIEHIGH_BIT,
     SPI_BASE,
     fastrx_read_fifo,
     fastrx_reset,
@@ -198,7 +201,108 @@ async def check_fspi_enable(backend):
     await fastrx_set_en(backend, True)
 
 
-# cocotb simulation tests (discovered by the pytest plugin inside Icarus)
+async def check_counter_fifo(backend):
+    """Verify debug counter FIFO source.
+
+    Enables the debug counter via GPIO bit 4, reads FIFO data, and checks
+    that words form a continuous ascending sequence. The counter may start
+    at an arbitrary value, so the test subtracts the first value and verifies
+    the result counts 0, 1, 2, ..., N-1.
+    """
+    await gpio_write(backend, 1 << GPIO_DEBUG_COUNTER_BIT)
+    await backend.short_delay()
+    await fastrx_reset(backend)
+    await fastrx_set_en(backend, True)
+    await backend.reset_fifo()
+
+    # Let the counter fill the FIFO for a few BUS_CLK cycles
+    for _ in range(200):
+        await backend.short_delay()
+
+    N_WORDS = 25  # Just a arbitrary number to try and reading.
+    fifo_data = await fastrx_read_fifo(backend, N_WORDS * 4)
+
+    # Disable counter and drain any remaining data
+    await gpio_write(backend, 0x00)
+    await backend.reset_fifo()
+
+    assert len(fifo_data) >= N_WORDS * 4, (
+        f"FIFO returned insufficient data ({len(fifo_data)} bytes, "
+        f"expected >= {N_WORDS * 4}). Debug counter may not be running."
+    )
+    words = np.frombuffer(fifo_data, dtype=np.uint32)[:N_WORDS]
+
+    # Normalise: offset by first value so we expect [0, 1, 2, ..., N_WORDS-1]
+    first = int(words[0])
+    words = [int(w) - first for w in words]
+
+    # Dump the raw values for inspection
+    raw_values = [int(w) for w in np.frombuffer(fifo_data, dtype=np.uint32)[:N_WORDS]]
+    print(f"\nCounter FIFO: first raw value = {first}")
+    print(f"Raw  values: {raw_values}")
+    print(f"Norm values: {words}")
+
+    assert words == list(range(N_WORDS)), f"Counter not sequential (normalised, expected 0..{N_WORDS - 1}): {words}"
+
+    logger = logging.getLogger("test_daq")
+    logger.info(
+        "Counter FIFO test passed: first raw value was %d, normalised sequence %s",
+        first,
+        words,
+    )
+
+
+async def check_sequencer_tiehigh(backend):
+    """Verify fastrx_in tied high via GPIO bit 5.
+
+    Sets GPIO bit 5 to force fastrx_in to constant 1, loads a sequencer
+    pattern with a toggling FASTRX_CLK and constant FASTRX_EN, triggers,
+    and reads back FIFO data.  All captured data bits should be 1.
+    """
+    n_steps = 40
+
+    # Build sequencer memory bytes manually:
+    #   bit 4 = FASTRX_CLK, bit 5 = FASTRX_EN
+    #   Steps 0-32: EN=1, CLK toggling → 16 SCLK edges after SEN_START eats one
+    #   Steps 33-39: EN=0, CLK=0  → clean SEN falling edge
+    mem_data = []
+    for i in range(n_steps):
+        clk = i % 2  # 0, 1, 0, 1, ...
+        mem_data.append(0x20 | (clk << 4))  # bit5=1 (EN), bit4=clk
+
+    # Reset state, then enable tiehigh only (no loopback, no counter)
+    await fastrx_reset(backend)
+    await fastrx_set_en(backend, True)
+    await backend.short_delay()  # Wait for RST_LONG in fast_spi_rx CDC FIFO
+    await backend.reset_fifo()
+
+    await gpio_write(backend, 1 << GPIO_TIEHIGH_BIT)
+
+    await seq_load(backend, mem_data, n_steps, clk_div=4)
+    await seq_trigger(backend, n_steps, repeat=4)
+
+    await backend.short_delay()  # let data traverse CDC → FIFO → 32to8 → SiTCP → PC
+
+    fifo_data = await fastrx_read_fifo(backend, 20)
+
+    words = np.frombuffer(fifo_data, dtype=np.uint32)
+    for i, w in enumerate(words):
+        w = int(w)
+        ident = (w >> 28) & 0xF
+        frame = (w >> 16) & 0xFFF
+        data = w & 0xFFFF
+        print(f"word[{i}]: ID={ident:04b} frame={frame:012b} data={data:016b}")
+
+
+# cocotb tests — pytest-native via cocotb_tools.pytest.plugin.
+# See; https://docs.cocotb.org/en/development/pytest.html
+# These run inside the Icarus simulator.  Each test starts clocks,
+# creates a SimBackend, then calls the same check_*() function
+# used by the hardware tests below.
+#
+# Filter examples:
+#   uv run pytest flow/scans/test_daq.py -k sim_sequencer_tiehigh
+#   uv run pytest flow/scans/test_daq.py -k sim
 
 
 @cocotb.test()
@@ -249,6 +353,26 @@ async def sim_fspi_enable(dut):
     backend = SimBackend(dut)
     await backend.init()
     await check_fspi_enable(backend)
+
+
+@cocotb.test()
+async def sim_counter_fifo(dut):
+    cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
+    cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
+    backend = SimBackend(dut)
+    await backend.init()
+    await check_counter_fifo(backend)
+
+
+@cocotb.test()
+async def sim_sequencer_tiehigh(dut):
+    cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
+    cocotb.start_soon(Clock(dut.SEQ_CLK, 2500, units="ps").start())
+    cocotb.start_soon(Clock(dut.SPI_CLK, 100_000, units="ps").start())
+    backend = SimBackend(dut)
+    await backend.init()
+    await check_sequencer_tiehigh(backend)
 
 
 # pytest: simulation runner (cocotb plugin builds + launches simulator)
@@ -325,3 +449,13 @@ def test_gpio_pattern_hw(hw_backend):
 @pytest.mark.hw
 def test_fspi_enable_hw(hw_backend):
     asyncio.run(check_fspi_enable(hw_backend))
+
+
+@pytest.mark.hw
+def test_counter_fifo_hw(hw_backend):
+    asyncio.run(check_counter_fifo(hw_backend))
+
+
+@pytest.mark.hw
+def test_sequencer_tiehigh_hw(hw_backend):
+    asyncio.run(check_sequencer_tiehigh(hw_backend))

@@ -2,9 +2,9 @@
 
 Usage (from ~/frida/):
     python design/fpga/manage.py --get_sitcp
-    python design/fpga/manage.py --compile BDAQ53_KX1 -v
+    python design/fpga/manage.py --compile -v
+    python design/fpga/manage.py --flash
     python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.bit
-    python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.mcs
 """
 
 import argparse
@@ -459,8 +459,10 @@ def main():
     )
     parser.add_argument(
         "--compile",
+        nargs="?",
+        const="BDAQ53_KX1",
         metavar="PLATFORM",
-        help=f"Compile bitstream for platform.\nSupported: {', '.join(TARGETS)}",
+        help=f"Compile bitstream for platform (default: BDAQ53_KX1).\nSupported: {', '.join(TARGETS)}",
     )
     parser.add_argument(
         "-v",
@@ -470,8 +472,10 @@ def main():
     )
     parser.add_argument(
         "--flash",
+        nargs="?",
+        const="design/fpga/bit/frida_bdaq53_kx1.mcs",
         metavar="FILE",
-        help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG.",
+        help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG (default: frida_bdaq53_kx1.mcs).",
     )
     parser.add_argument(
         "--check",

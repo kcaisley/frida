@@ -54,6 +54,7 @@ async def main_loop(
     rate: int = 1,
     cycles: int = 1,
     loopback: str = "none",
+    fifo: str = "fastrx",
     save: bool = False,
 ) -> dict:
     """Run the unified scan loop across channels and input voltages.
@@ -86,16 +87,22 @@ async def main_loop(
         save: If True, also write results as NPZ to scratch/scan/.
         loopback: One of ``"none"``, ``"spi"``, ``"fastrx"``, ``"both"``.
             Enables SPI loopback, fast-RX loopback, or both.
+        fifo: One of ``"fastrx"``, ``"counter"``. Selects the FASTRX FIFO
+            data source: ``fastrx`` for real COMP_OUT capture, ``counter``
+            for a counting-up debug sequence (FIFO/chain verification).
 
     Returns:
         Nested dict: ``{channel_index: list[np.ndarray]}``.
     """
-    # Step 0: ensure chip is out of reset
+    # Step 0: Reset the chip and wait
     await chip.reset()
 
-    # Step 0b: configure loopback modes
+    # Step 0b: Configure loopback modes
     await chip.set_spi_loopback(loopback in ("spi", "both"))
     await chip.set_fastrx_loopback(loopback in ("fastrx", "both"))
+
+    # Step 0c: Configure FIFO input source
+    await chip.set_debug_counter_en(fifo == "counter")
 
     # Step 1: load sequencer
     if sequence != "none":
@@ -104,13 +111,14 @@ async def main_loop(
             seq_clk_div=rate,
         )
 
-    # Fast RX test mode: no chip configuration needed
-    if sequence == "fastrx":
+    # Fast RX / counter test mode: no chip configuration needed
+    if sequence == "fastrx" or (sequence == "none" and fifo == "counter"):
         bits = await chip.run_conversions(
             n_conversions=1,
             repetitions=cycles,
+            trigger_sequencer=(sequence != "none"),
         )
-        return {"fastrx": [bits]}
+        return {sequence if sequence != "none" else "counter": [bits]}
 
     # Build voltage table from input_mode
     cm = vdd / 2
@@ -192,7 +200,7 @@ async def main_loop(
             if input_mode != "manual" and ventry is not None:
                 await chip.set_vin(diff=ventry["diff"], cm=ventry["cm"])
 
-            if sequence == "none":
+            if sequence == "none" and fifo != "counter":
                 continue
 
             if cycles == 0:
@@ -261,6 +269,7 @@ def _build_scan_env(args) -> dict[str, str]:
         "SCAN_RATE": str(args.rate),
         "SCAN_CYCLES": str(args.cycles),
         "SCAN_LOOPBACK": args.loopback,
+        "SCAN_FIFO": args.fifo,
         "SCAN_SAVE": str(args.save).lower(),
     }
     if args.channel is not None:
@@ -348,6 +357,7 @@ async def _run_scan_hw(args):
         rate=args.rate,
         cycles=args.cycles,
         loopback=args.loopback,
+        fifo=args.fifo,
         save=args.save,
     )
 
@@ -370,6 +380,7 @@ async def sim_scan(dut):
     rate = int(os.environ.get("SCAN_RATE", "1"))
     cycles = int(os.environ.get("SCAN_CYCLES", "1"))
     loopback = os.environ.get("SCAN_LOOPBACK", "none")
+    fifo = os.environ.get("SCAN_FIFO", "fastrx")
     save = os.environ.get("SCAN_SAVE", "false").lower() == "true"
 
     cocotb.start_soon(Clock(dut.BUS_CLK, 6250, units="ps").start())
@@ -399,6 +410,7 @@ async def sim_scan(dut):
         rate=rate,
         cycles=cycles,
         loopback=loopback,
+        fifo=fifo,
         save=save,
     )
 
