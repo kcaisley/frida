@@ -3,6 +3,7 @@
 /pdk/*/scratch/
 design/aor/*.def
 design/aor/*.gds
+/.zed
 
 # Python
 .pytest_cache

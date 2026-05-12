@@ -172,7 +172,7 @@ def main():
         "--cycles",
         type=int,
         default=1,
-        help="Number of sequence repetitions per voltage step (0 = run continuously until Ctrl+C)",
+        help="Number of sequence repetitions per voltage step (0 = forever)",
     )
     p.add_argument(
         "--loopback",
@@ -219,49 +219,7 @@ def main():
         _run_convert(args)
         return
     if args.command == "scan":
-        from .scans.chip import Frida
-        from .scans.scan import run_scan
-
-        N_ADCS = Frida.N_ADCS
-
-        chip_config_args = {
-            "channel": args.channel,
-            "dacstate": args.dacstate,
-            "dacmode": args.dacmode,
-            "diffcaps": args.diffcaps,
-            "input_mode": args.input_mode,
-        }
-
-        if args.sequence == "fastrx":
-            provided = [name for name, value in chip_config_args.items() if value is not None]
-            if provided:
-                raise SystemExit(
-                    f"--sequence=fastrx does not accept chip-config arguments: {', '.join(f'--{name}' for name in provided)}"
-                )
-            if args.fastrx is None:
-                args.fastrx = "compout"
-            if args.fastrx == "tiehigh" and args.loopback == "fastrx":
-                raise SystemExit("--fastrx=tiehigh and --loopback=fastrx are mutually exclusive")
-        elif args.sequence == "none" and args.fifo == "counter":
-            # Counter-only mode: no chip config needed, no sequencer loaded
-            pass
-        else:
-            missing = [name for name, value in chip_config_args.items() if value is None]
-            if missing:
-                raise SystemExit(
-                    f"Missing required chip-config arguments: {', '.join(f'--{name}' for name in missing)}"
-                )
-            if args.loopback == "fastrx":
-                raise SystemExit("--loopback=fastrx is only valid with --sequence=fastrx")
-            if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
-                raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
-        args.emulate = _str_to_bool(args.emulate)
-        if args.diffcaps is not None:
-            args.diffcaps = _str_to_bool(args.diffcaps)
-        if args.diffamp is not None:
-            args.diffamp = _str_to_bool(args.diffamp)
-        args.save = _str_to_bool(args.save)
-        run_scan(args)
+        _run_scan(args)
         return
 
     set_pdk(args.tech)
@@ -275,6 +233,50 @@ def main():
         _run_layout(args)
     elif args.command == "simulate":
         _run_simulate(args)
+
+
+def _run_scan(args):
+    """Validate scan arguments and dispatch to run_scan."""
+    from .scans.scan import run_scan
+
+    N_ADCS = 16
+
+    chip_config_args = {
+        "channel": args.channel,
+        "dacstate": args.dacstate,
+        "dacmode": args.dacmode,
+        "diffcaps": args.diffcaps,
+        "input_mode": args.input_mode,
+    }
+
+    if args.sequence == "fastrx":
+        provided = [name for name, value in chip_config_args.items() if value is not None]
+        if provided:
+            raise SystemExit(
+                f"--sequence=fastrx does not accept chip-config arguments: {', '.join(f'--{name}' for name in provided)}"
+            )
+        if args.fastrx is None:
+            args.fastrx = "compout"
+        if args.fastrx == "tiehigh" and args.loopback == "fastrx":
+            raise SystemExit("--fastrx=tiehigh and --loopback=fastrx are mutually exclusive")
+    elif args.sequence == "none" and args.fifo == "counter":
+        # Counter-only mode: no chip config needed, no sequencer loaded
+        pass
+    else:
+        missing = [name for name, value in chip_config_args.items() if value is None]
+        if missing:
+            raise SystemExit(f"Missing required chip-config arguments: {', '.join(f'--{name}' for name in missing)}")
+        if args.loopback == "fastrx":
+            raise SystemExit("--loopback=fastrx is only valid with --sequence=fastrx")
+        if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
+            raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
+    args.emulate = _str_to_bool(args.emulate)
+    if args.diffcaps is not None:
+        args.diffcaps = _str_to_bool(args.diffcaps)
+    if args.diffamp is not None:
+        args.diffamp = _str_to_bool(args.diffamp)
+    args.save = _str_to_bool(args.save)
+    run_scan(args)
 
 
 def _run_convert(args):

@@ -9,12 +9,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import numpy as np
-import yaml
 from bitarray import bitarray
 
 if TYPE_CHECKING:
@@ -40,40 +38,6 @@ class Frida:
             attributes for controlling external instruments.
     """
 
-    # Chip-level constants
-    N_ADCS = 16
-    SPI_BITS = 180
-    N_COMP_BITS = 17
-
-    def _load_registers(self) -> dict:
-        """Parse map_chip.yaml into a plain dict of register definitions.
-
-        Validates that every expected register is present and that each
-        entry has the required ``offset`` and ``size`` keys.
-        """
-        reg_path = Path(__file__).parent / "map_chip.yaml"
-        with open(reg_path) as f:
-            raw = yaml.safe_load(f)
-
-        registers: dict[str, dict] = {}
-        for name, entry in raw.items():
-            if "offset" not in entry or "size" not in entry:
-                raise ValueError(f"Register '{name}' in {reg_path} is missing 'offset' or 'size'")
-            registers[name] = {
-                "offset": entry["offset"],
-                "size": entry["size"],
-                "default": entry.get("default", 0),
-            }
-
-        # Validate the expected register set is present
-        expected = {"MUX_SEL", "DAC_ASTATE_P", "DAC_BSTATE_P", "DAC_ASTATE_N", "DAC_BSTATE_N"}
-        expected |= {f"ADC_{i}" for i in range(self.N_ADCS)}
-        missing = expected - set(registers)
-        if missing:
-            raise ValueError(f"Missing registers in {reg_path}: {sorted(missing)}")
-
-        return registers
-
     def __init__(
         self,
         daq: Dut,
@@ -89,18 +53,21 @@ class Frida:
         self._daq = daq
         self.peripherals = peripherals
         self._gpio_out = 0x00
-        self._seq_n_steps = self.N_SEQ_STEPS
-        self.spi_bits = bitarray(self.SPI_BITS)
-        self.spi_bits.setall(0)
-        self._registers = self._load_registers()
-        self._adc_regs = tuple(f"ADC_{i}" for i in range(self.N_ADCS))
-        for name, rdef in self._registers.items():
-            self.set_register(name, rdef["default"])
-
+        self.n_adcs = 16
+        self.n_spi_bits = 180
+        self.n_comp_bits = 17
+        self._registers = {
+            "MUX_SEL": {"offset": 176, "size": 4, "value": 0},
+            "DAC_ASTATE_P": {"offset": 48, "size": 16, "value": 0b0111111111111111},
+            "DAC_BSTATE_P": {"offset": 32, "size": 16, "value": 0b0111111111111111},
+            "DAC_ASTATE_N": {"offset": 16, "size": 16, "value": 0b0111111111111111},
+            "DAC_BSTATE_N": {"offset": 0, "size": 16, "value": 0b0111111111111111},
+        }
+        self._registers.update({f"ADC_{i}": {"offset": 64 + i * 7, "size": 7, "value": 0} for i in range(self.n_adcs)})
         self._daq["fast_spi_rx"].reset()
         self._daq["fast_spi_rx"].set_en(True)
         self.set_and_reset()
-        self.reg_write()
+        self.write_adc_cfg()
         logger.info("FRIDA chip initialized")
 
     # -----------------------------------------------------------------
@@ -186,25 +153,23 @@ class Frida:
         logger.info("Fast RX tie-high %s", "enabled" if enabled else "disabled")
 
     # -----------------------------------------------------------------
-    # SPI Register Access (pure Python, no I/O)
+    # ADC Configuration Register Control
+    #
+    # The helpers below (adc_output_mux, adc_clkgate_and_mode,
+    # adc_dac_states) only edit the internal _registers dict —
+    # no hardware I/O occurs until write_adc_cfg() is called.
     # -----------------------------------------------------------------
-    def set_register(self, reg: str, value: int) -> None:
-        """Write a named register into the local SPI bit array."""
-        r = self._registers[reg]
-        value &= (1 << r["size"]) - 1
-        for i in range(r["size"]):
-            self.spi_bits[r["offset"] + i] = (value >> i) & 1
+    def adc_output_mux(self, adc_num: int) -> None:
+        """Select which ADC output appears on COMP_OUT.
 
-    # -----------------------------------------------------------------
-    # ADC Configuration (pure Python, no I/O)
-    # -----------------------------------------------------------------
-    def select_adc(self, adc_num: int) -> None:
-        """Select which ADC output appears on COMP_OUT."""
-        if not 0 <= adc_num < self.N_ADCS:
+        Local helper — edits _registers only; call write_adc_cfg()
+        to commit to hardware.
+        """
+        if not 0 <= adc_num < self.n_adcs:
             raise ValueError(f"ADC number must be 0-15, got {adc_num}")
-        self.set_register("MUX_SEL", adc_num)
+        self._registers["MUX_SEL"]["value"] = adc_num
 
-    def enable_adc(
+    def adc_clkgate_and_mode(
         self,
         adc_num: int,
         en_init: bool = True,
@@ -215,8 +180,12 @@ class Frida:
         dac_mode: bool = False,
         dac_diffcaps: bool = False,
     ) -> None:
-        """Configure an individual ADC channel."""
-        if not 0 <= adc_num < self.N_ADCS:
+        """Configure clock gating and mode bits for one ADC channel.
+
+        Local helper — edits _registers only; call write_adc_cfg()
+        to commit to hardware.
+        """
+        if not 0 <= adc_num < self.n_adcs:
             raise ValueError(f"ADC number must be 0-15, got {adc_num}")
         value = (
             (int(en_init) << 0)
@@ -227,74 +196,78 @@ class Frida:
             | (int(dac_mode) << 5)
             | (int(dac_diffcaps) << 6)
         )
-        self.set_register(self._adc_regs[adc_num], value)
+        self._registers[f"ADC_{adc_num}"]["value"] = value
 
-    def disable_all_adcs(self) -> None:
-        """Disable all 16 ADCs."""
-        for reg in self._adc_regs:
-            self.set_register(reg, 0)
-
-    def set_dac_state(
+    def adc_dac_states(
         self,
         astate_p: int = 0,
         bstate_p: int = 0,
         astate_n: int = 0,
         bstate_n: int = 0,
     ) -> None:
-        """Set the shared DAC initial states for all ADCs."""
-        self.set_register("DAC_ASTATE_P", astate_p & 0xFFFF)
-        self.set_register("DAC_BSTATE_P", bstate_p & 0xFFFF)
-        self.set_register("DAC_ASTATE_N", astate_n & 0xFFFF)
-        self.set_register("DAC_BSTATE_N", bstate_n & 0xFFFF)
+        """Set the shared DAC initial states for all ADCs.
 
-    # -----------------------------------------------------------------
-    # Bus Operations
-    # -----------------------------------------------------------------
-    def reg_write(self) -> None:
-        """Shift the current register bit array into the chip and verify.
+        Local helper — edits _registers only; call write_adc_cfg()
+        to commit to hardware.
+        """
+        self._registers["DAC_ASTATE_P"]["value"] = astate_p & 0xFFFF
+        self._registers["DAC_BSTATE_P"]["value"] = bstate_p & 0xFFFF
+        self._registers["DAC_ASTATE_N"]["value"] = astate_n & 0xFFFF
+        self._registers["DAC_BSTATE_N"]["value"] = bstate_n & 0xFFFF
 
-        Performs two SPI transactions:
-          1. First write — commits ``self.spi_bits`` and discards the
-             returned bits (they reflect the *previous* register state).
+    def write_adc_cfg(self) -> None:
+        """Shift the current register values into the chip and verify.
+
+        Builds a 180-bit bitarray from the ``_registers`` dict, then
+        performs two SPI transactions:
+          1. First write — commits the bits and discards the returned
+             bits (they reflect the *previous* register state).
           2. Second write — shifts the same bits again; the returned bits
              now match what was written in step 1, so we read them back
              and compare against the expected bit pattern.
         """
-        spi = self._daq["spi"]
-        spi_bytes = self.spi_bits.tobytes()
+        bits = bitarray(self.n_spi_bits)
+        bits.setall(0)
+
+        # Build 180-bit list from _registers dict
+        for r in self._registers.values():
+            val = r["value"] & ((1 << r["size"]) - 1)
+            for i in range(r["size"]):
+                bits[r["offset"] + i] = (val >> i) & 1
+
+        spi_bytes = bits.tobytes()
 
         # First write: commit the bits, discard the stale readback
-        spi.set_data(list(spi_bytes))
-        spi.set_size(self.SPI_BITS)
-        spi.start()
-        spi.wait_for_ready()
+        self._daq["spi"].set_data(list(spi_bytes))
+        self._daq["spi"].set_size(self.n_spi_bits)
+        self._daq["spi"].start()
+        self._daq["spi"].wait_for_ready()
         logger.info("SPI register programmed")
 
         # Second write: shift again, capture the bits that were written
-        spi.set_data(list(spi_bytes))
-        spi.set_size(self.SPI_BITS)
-        spi.start()
-        spi.wait_for_ready()
-        raw = bytes(spi.get_data(size=23))
+        self._daq["spi"].set_data(list(spi_bytes))
+        self._daq["spi"].set_size(self.n_spi_bits)
+        self._daq["spi"].start()
+        self._daq["spi"].wait_for_ready()
+        raw = bytes(self._daq["spi"].get_data(size=23))
 
         readback = bitarray()
         readback.frombytes(raw)
-        readback = readback[: self.SPI_BITS]
+        readback = readback[: self.n_spi_bits]
 
         # Verify that the readback matches what was written.
         # The SPI SDO path has a 1-bit pipeline delay: the first captured
         # sample is stale (from before the shift started), so skip bit 0.
-        expected = self.spi_bits.copy()
-        n_mismatch = (expected[1:] ^ readback[1:]).count(1)
+        n_mismatch = (bits[1:] ^ readback[1:]).count(1)
         if n_mismatch:
             logger.error(
                 "SPI register verification failed: %d/%d bits mismatch (bit 0 excluded)",
                 n_mismatch,
-                self.SPI_BITS - 1,
+                self.n_spi_bits - 1,
             )
             logger.error(
                 "expected: %s",
-                expected.to01(),
+                bits.to01(),
             )
             logger.error(
                 "readback: %s",
@@ -302,6 +275,10 @@ class Frida:
             )
         else:
             logger.info("SPI register verification passed!")
+
+    # -----------------------------------------------------------------
+    # Sequencer Configuration
+    # -----------------------------------------------------------------
 
     # Sequencer track names in display order (must match map_fpga.yaml TrackRegister)
     SEQ_TRACKS: tuple[str, ...] = (
@@ -355,90 +332,154 @@ class Frida:
         },
         "fastrx": {  # fast RX loopback test
             "CLK_INIT": "0001010101010101010101010101010101010000",  # mirrors FASTRX_CLK
-            "CLK_SAMP": "1111111111111111111111111111111111111110",  # mirrors FASTRX_EN
+            "CLK_SAMP": "1111111111111111111111111111111111111111",  # mirrors FASTRX_EN
             "CLK_COMP": "0011110011110011110011110011110011110000",  # mirrors FASTRX_TEST_DATA
             "CLK_LOGIC": "0000000000000000000000000000000000000000",
             "FASTRX_CLK": "0001010101010101010101010101010101010000",
-            "FASTRX_EN": "1111111111111111111111111111111111111110",
+            "FASTRX_EN": "1111111111111111111111111111111111111111",  # stays high, to allow incremeting
             "FASTRX_TEST_DATA": "0011110011110011110011110011110011110000",
         },
     }
 
-    def run_conversions(
+    def configure_sequencer(
         self,
-        n_conversions: int = 1,
-        repetitions: int = 1,
+        pattern: str = "adc",
         *,
-        counter_mode: bool = False,
-    ) -> np.ndarray:
-        """Run ADC conversions and return comp_out bits.
+        clkdiv: int = 1,
+    ) -> None:
+        """Load a sequencer pattern into the FPGA sequencer SRAM.
 
         Args:
-            n_conversions: Number of conversions per repetition.
-            repetitions: Number of sequencer repetitions (or number of
-                words to read in *counter_mode*).
-            counter_mode: If True, skip the sequencer and just read
-                *repetitions* words directly from the FIFO.
+            pattern: ``"adc"``, ``"comp"``, ``"samp_comp"``,
+                ``"calib"``, or ``"fastrx"``.
+            clkdiv: Sequencer clock divider; 1 = full speed.
+        """
+        if pattern not in self.SEQUENCES:
+            raise ValueError(f"Unknown pattern {pattern!r}; expected {', '.join(self.SEQUENCES)}")
+        tracks = self.SEQUENCES[pattern]
 
-        Returns:
-            Array of shape (repetitions, n_conversions, N_COMP_BITS)
-            with individual bits (0 or 1), MSB first.
+        self._daq["SEQ"].clear()
+        for name, pattern_bits in tracks.items():
+            self._daq["SEQ"][name][0 : self.N_SEQ_STEPS] = bitarray(pattern_bits)
+        self._daq["SEQ"].write(self.N_SEQ_STEPS)
+
+        self._daq["seq_gen"].set_size(self.N_SEQ_STEPS)
+        self._daq["seq_gen"].set_clk_divide(clkdiv)
+
+        logger.info("Sequencer pattern (%d steps):", self.N_SEQ_STEPS)
+        for name in self.SEQ_TRACKS:
+            line = self._daq["SEQ"][name][0 : self.N_SEQ_STEPS].to01() if name in tracks else "0" * self.N_SEQ_STEPS
+            logger.info("  %-18s %s", name, line)
+
+        eff_freq = self.SEQ_CLK_FREQ / clkdiv
+        logger.info(
+            "Sequencer pattern loaded: %d steps, clkdiv=%d (%.2f MHz effective)",
+            self.N_SEQ_STEPS,
+            clkdiv,
+            eff_freq / 1e6,
+        )
+
+    def trigger_sequencer(
+        self,
+        repeats: int = 1,
+        delay: int = 1,
+        width: int = 1,
+    ) -> None:
+        """Arm the sequencer for external start, pulse it, and wait for completion.
+
+        Args:
+            repeats: Number of sequencer repetitions.
+            delay: Pulse generator delay (in clock cycles).
+            width: Pulse generator width (in clock cycles).
         """
         self._daq["fast_spi_rx"].reset()
         self._daq["fast_spi_rx"].set_en(True)
-        # Drain stale — keep reading until the FIFO is empty
-        while len(self._daq["fifo"].get_data()) > 0:
-            pass
 
-        if counter_mode:
-            # Counter mode: flush, wait, then read *repetitions* words
-            import time
+        self._daq["seq_gen"].set_repeat(repeats)
+        self._daq["seq_gen"].set_en_ext_start(True)
+        self._daq["pulse_gen"].set_delay(delay)
+        self._daq["pulse_gen"].set_width(width)
+        self._daq["pulse_gen"].start()
+        self._daq["seq_gen"].wait_for_ready()
 
-            time.sleep(0.02)
-            fifo_data = self._daq["fifo"].get_data()
-            fifo_data = fifo_data[:repetitions]
-        else:
-            total_steps = self._seq_n_steps * n_conversions
-            self._daq["seq_gen"].set_size(total_steps)
-            self._daq["seq_gen"].set_repeat(repetitions)
-            self._daq["seq_gen"].set_en_ext_start(True)
-            self._daq["pulse_gen"].set_delay(1)
-            self._daq["pulse_gen"].set_width(1)
-            self._daq["pulse_gen"].start()
-            self._daq["seq_gen"].wait_for_ready()
-            fifo_data = self._daq["fifo"].get_data()
+        # Reset the sequencer state machine so outputs don't latch
+        # at their last-step values. The SRAM pattern is preserved.
+        self._daq["seq_gen"].reset()
+
+    # -----------------------------------------------------------------
+    # FastRX and FIFO Configuration
+    # -----------------------------------------------------------------
+
+    def read_fastrx_fifo(self, words: int) -> np.ndarray:
+        """Read *words* from the fastrx FIFO and log each word.
+
+        Waits briefly for data to propagate from the FPGA FIFO
+        through SiTCP into the Python socket buffer before reading.
+
+        Args:
+            words: Number of FIFO words to read.
+
+        Returns:
+            1-D numpy array of raw 32-bit FIFO words.
+        """
+
+        # Loop around get_data(), until N bits return
+        fifo_data = self._daq["fifo"].get_data()
+        fifo_data = fifo_data[:words]
 
         lost = self._daq["fast_spi_rx"].get_lost_count()
         if lost > 0:
             logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
 
-        # Raw FIFO word dump
-        if counter_mode:
-            for i, w in enumerate(fifo_data):
-                logger.info("FIFO[%d]: counter=0x%08X (%d)", i, int(w), int(w))
-        else:
-            for i, w in enumerate(fifo_data):
-                w = int(w)
-                ident = (w >> 28) & 0xF
-                frame = (w >> 16) & 0xFFF
-                data = w & 0xFFFF
-                logger.info(
-                    "FIFO[%d]: ID=%s frame=%s data=%s",
-                    i,
-                    format(ident, "04b"),
-                    format(frame, "012b"),
-                    format(data, "016b"),
-                )
+        logger.info("FIFO read: requested %d words, got %d", words, len(fifo_data))
 
-        if counter_mode:
-            return fifo_data.reshape(-1, 1, 1)
+        for i, w in enumerate(fifo_data):
+            w = int(w)
+            ident = (w >> 28) & 0xF
+            frame = (w >> 16) & 0xFFF
+            data = w & 0xFFFF
+            logger.info(
+                "FIFO[%d]: ID=%s frame=%s data=%s",
+                i,
+                format(ident, "04b"),
+                format(frame, "012b"),
+                format(data, "016b"),
+            )
 
-        bits = self._parse_comp_out(fifo_data.tobytes(), n_conversions, repetitions)
-        for rep in range(bits.shape[0]):
-            for conv in range(bits.shape[1]):
-                word = "".join(str(b) for b in bits[rep, conv])
-                logger.info("FAST_RX  data=%s", word)
-        return bits
+        return fifo_data
+
+    def test_fastrx_fifo(self, words: int) -> np.ndarray:
+        """Read *words* from the FIFO in counter test mode.
+
+        Resets fastrx, drains stale data, waits briefly, then reads.
+        Each word is logged as a raw counter value.
+
+        Args:
+            words: Number of FIFO words to read.
+
+        Returns:
+            1-D numpy array of raw 32-bit FIFO words.
+        """
+        import time
+
+        self._daq["fast_spi_rx"].reset()
+        self._daq["fast_spi_rx"].set_en(True)
+        self._daq["fifo"]["RESET"]  # drain stale TCP buffer
+
+        time.sleep(0.02)
+        fifo_data = self._daq["fifo"].get_data()
+        fifo_data = fifo_data[:words]
+
+        lost = self._daq["fast_spi_rx"].get_lost_count()
+        if lost > 0:
+            logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
+
+        logger.info("FIFO read: requested %d words, got %d", words, len(fifo_data))
+
+        for i, w in enumerate(fifo_data):
+            logger.info("FIFO[%d]: counter=0x%08X (%d)", i, int(w), int(w))
+
+        return fifo_data
 
     # -----------------------------------------------------------------
     # Peripheral Dispatch
@@ -462,107 +503,3 @@ class Frida:
         if self.peripherals is None or not hasattr(self.peripherals, "psu"):
             raise RuntimeError("No PSU peripheral configured")
         self.peripherals.psu.set_voltage(v)
-
-    # -----------------------------------------------------------------
-    # Data Parsing
-    # -----------------------------------------------------------------
-    def _parse_comp_out(
-        self,
-        fifo_data: bytes,
-        n_conversions: int,
-        repetitions: int = 1,
-        *,
-        weights: np.ndarray | None = None,
-    ) -> np.ndarray:
-        """Parse fast_spi_rx FIFO data into per-conversion bit arrays.
-
-        The fast_spi_rx output format (32-bit words):
-            [31:28] IDENTIFIER (4'b0001)
-            [27:16] Frame counter (12 bits)
-            [15:0]  Captured data (16 bits)
-
-        For 17-bit conversions: word 0 has bits 0-15, word 1 has bit 16.
-
-        If *weights* are provided, the raw bits are converted to codes via
-        ``redundant_bits_to_code`` before reshaping.
-
-        Returns:
-            Array of shape ``(repetitions, n_conversions, N_COMP_BITS)``
-            (or ``(repetitions, n_conversions)`` when *weights* is given),
-            MSB first.
-        """
-        words = np.frombuffer(fifo_data, dtype=np.uint32)
-        n_total = n_conversions * repetitions
-        bits = np.zeros((n_total, self.N_COMP_BITS), dtype=np.int32)
-
-        for i in range(n_total):
-            idx = i * 2
-            if idx + 1 < len(words):
-                code = (words[idx] & 0xFFFF) | ((words[idx + 1] & 0x1) << 16)
-            elif idx < len(words):
-                code = words[idx] & 0xFFFF
-            else:
-                code = 0
-            for b in range(self.N_COMP_BITS):
-                bit_pos = self.N_COMP_BITS - 1 - b
-                bits[i, b] = (code >> bit_pos) & 1
-
-        bits = bits.reshape(repetitions, n_conversions, self.N_COMP_BITS)
-
-        if weights is not None:
-            from flow.circuit.measure import redundant_bits_to_code
-
-            original_shape = bits.shape
-            n_bits = original_shape[-1]
-            bits_flat = bits.reshape(-1, n_bits)
-            codes_flat = redundant_bits_to_code(bits_flat, weights)
-            return codes_flat.reshape(original_shape[:-1])
-
-        return bits
-
-    # -----------------------------------------------------------------
-    # Sequencer Configuration
-    # -----------------------------------------------------------------
-    def configure_sequencer(
-        self,
-        sequence: str = "adc",
-        *,
-        seq_clk_div: int = 1,
-    ) -> None:
-        """Load a sequencer pattern into the FPGA sequencer SRAM.
-
-        Args:
-            sequence: ``"adc"``, ``"comp"``, ``"samp_comp"``,
-                ``"calib"``, or ``"fastrx"``.
-            seq_clk_div: Sequencer clock divider; 1 = full speed.
-        """
-        if sequence not in self.SEQUENCES:
-            raise ValueError(f"Unknown sequence {sequence!r}; expected {', '.join(self.SEQUENCES)}")
-        tracks = self.SEQUENCES[sequence]
-        n_steps = self.N_SEQ_STEPS
-        self._seq_n_steps = n_steps
-
-        # Load each track into the SEQ TrackRegister, then write to hw in one call.
-        seq_reg = self._daq["SEQ"]
-        seq_reg.clear()
-        for name, pattern in tracks.items():
-            seq_reg[name][0:n_steps] = bitarray(pattern)
-        seq_reg.write(n_steps)
-
-        # Configure timing on the underlying seq_gen driver.
-        self._daq["seq_gen"].set_size(n_steps)
-        self._daq["seq_gen"].set_clk_divide(seq_clk_div)
-
-        # Visual dump for debugging — read directly from the track bitarrays.
-        logger.info("Sequencer pattern (%d steps):", n_steps)
-        for name in self.SEQ_TRACKS:
-            line = seq_reg[name][0:n_steps].to01() if name in tracks else "0" * n_steps
-            logger.info("  %-18s %s", name, line)
-
-        eff_freq = self.SEQ_CLK_FREQ / seq_clk_div
-        logger.info(
-            "Sequencer pattern loaded: %d steps, clk_div=%d (%.2f MHz effective)",
-            n_steps,
-            seq_clk_div,
-            eff_freq / 1e6,
-        )

@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 # Backend-agnostic scan loop
-def main_loop(
+def scan_loop(
     chip: Frida,
     *,
     sequence: str = "none",
@@ -47,20 +47,24 @@ def main_loop(
     """Run the unified scan loop across channels and input voltages.
 
     Steps:
-      0. Release chip reset
+      0. Release chip reset; configure loopback, fastrx source, FIFO mode
       1. Load sequencer pattern (unless ``sequence == "none"``)
-      2. For each channel:
-         a. Configure ADC, set DAC state, write SPI, read back, verify
+      2. Build voltage table from input_mode
+      3. Parse DAC state
+      4. For each channel:
+         a. Configure ADC, set DAC state, write ADC config, verify
          b. For each input voltage step (or once in manual mode):
             - Set vin via AWG (unless manual)
             - Trigger sequencer + capture results
-         c. Accumulate results
-      3. Print results to stdout; optionally save NPZ to scratch/scan/
+      5. Optionally save NPZ to scratch/scan/
+
+    If ``sequence == "fastrx"`` or counter-only mode, steps 1–4 are
+    skipped and the FIFO is read directly (no chip config needed).
 
     Args:
         chip: Initialized ``Frida`` instance (any backend).
         sequence: One of ``"none"``, ``"adc"``, ``"comp"``,
-            ``"samp_comp"``, ``"calib"``.
+            ``"samp_comp"``, ``"calib"``, ``"fastrx"``.
         channels: List of ADC channel indices [0..15].
         dacmode: ``"normal"`` (A-state only) or ``"calib"`` (A→B transition).
         dacstate: List of integer DAC state values. Length 2 for ``normal``
@@ -70,53 +74,57 @@ def main_loop(
         vdd: Supply voltage in volts (used as common-mode reference).
         clkdiv: Sequencer clock divider; 1 = 200 MHz full speed.
         cycles: Number of sequence repetitions per voltage step.
-            0 = run continuously until Ctrl+C (KeyboardInterrupt).
+            Passed directly to seq_gen REPEAT register (0 = forever).
         save: If True, also write results as NPZ to scratch/scan/.
         loopback: One of ``"none"``, ``"spi"``, ``"fastrx"``, ``"both"``.
             Enables SPI loopback, fast-RX loopback, or both.
         fifo: One of ``"fastrx"``, ``"counter"``. Selects the FASTRX FIFO
             data source: ``fastrx`` for real COMP_OUT capture, ``counter``
             for a counting-up debug sequence (FIFO/chain verification).
+        fastrx: One of ``"compout"``, ``"tiehigh"``. Selects the FASTRX
+            input source: ``compout`` for the external COMP_OUT pin,
+            ``tiehigh`` to force fastrx_in high regardless of pin state.
 
     Returns:
-        Nested dict: ``{channel_index: list[np.ndarray]}``.
+        Nested dict: ``{channel_index: list[np.ndarray]}`` for normal scans,
+        or ``{sequence_name: list[np.ndarray]}`` for fast-RX / counter mode.
     """
+
     # Step 0: Reset the chip and wait
     chip.set_and_reset()
 
-    # Step 0b: Configure SPI loopback
+    # Step 0b: If requested, configure SPI loopback, otherwise read from sdo
     chip.set_spi_loopback(loopback == "spi" or loopback == "both")
 
-    # Step 0c: Configure fastrx input source
+    # Step 0c: If requested, configure fastrx input source, eiter comp_out, fastrx_test_data, or tie-high
     chip.set_fastrx_loopback(loopback == "fastrx" or loopback == "both")
     chip.set_fastrx_tiehigh(fastrx == "tiehigh")
 
-    # Step 0d: Configure FIFO debug counter
+    # Step 0d: If requested, configure FIFO debug counter, otherwise just connect to fastrx output
     chip.set_fifo_debug_counter(fifo == "counter")
 
-    # Fast RX / counter test mode: no chip config or peripherals needed
+    # Fast RX / counter test mode. FPGA only, no Frida config or peripherals needed
     if sequence == "fastrx" or (sequence == "none" and fifo == "counter"):
         if sequence != "none":
-            chip.configure_sequencer(sequence, seq_clk_div=clkdiv)
-        bits = chip.run_conversions(
-            n_conversions=1,
-            repetitions=cycles,
-            counter_mode=(sequence == "none" and fifo == "counter"),
-        )
-        return {sequence if sequence != "none" else "counter": [bits]}
+            chip.configure_sequencer(sequence, clkdiv=clkdiv)
+            chip.trigger_sequencer(repeats=cycles)
+            bits = chip.read_fastrx_fifo(words=cycles)
+        else:
+            bits = chip.test_fastrx_fifo(words=cycles)
+        return {sequence if sequence != "none" else "counter": [bits.reshape(-1, 1, 1)]}
 
     # Step 0e: Configure peripherals
     chip.set_diffamp(diffamp)
     chip.set_vdd(vdd)
 
-    # Step 1: load sequencer
+    # Step 1: load sequencer, if requested
     if sequence != "none":
         chip.configure_sequencer(
             sequence,
-            seq_clk_div=clkdiv,
+            clkdiv=clkdiv,
         )
 
-    # Build voltage table from input_mode
+    # Step 2: Build voltage table from input_mode
     cm = vdd / 2
     if input_mode == "manual":
         voltage_entries: list[dict[str, float] | None] = [None]
@@ -131,7 +139,7 @@ def main_loop(
     else:
         raise ValueError(f"Unknown input mode {input_mode!r}")
 
-    # Parse DAC state
+    # Step 3: Parse DAC state
     if dacmode == "normal":
         if len(dacstate) < 2:
             raise ValueError(f"normal mode expects 2 DAC values, got {len(dacstate)}")
@@ -144,15 +152,15 @@ def main_loop(
     else:
         raise ValueError(f"Unknown dacmode {dacmode!r}")
 
-    # Channel loop + voltage loop
+    # Step 4: Channel loop + voltage loop
     results: dict[int, list[np.ndarray]] = {ch: [] for ch in channels}
 
     for channel in channels:
-        chip.disable_all_adcs()
-        chip.select_adc(channel)
+        # Step 4a: Configure ADC, set DAC state, write SPI, read back, verify
+        chip.adc_output_mux(channel)
 
         if sequence in ("samp_comp", "comp"):
-            chip.enable_adc(
+            chip.adc_clkgate_and_mode(
                 channel,
                 en_init=False,
                 en_samp_p=True,
@@ -163,9 +171,8 @@ def main_loop(
                 dac_diffcaps=diffcaps,
             )
         else:
-            chip.enable_adc(
+            chip.adc_clkgate_and_mode(
                 channel,
-                en_init=True,
                 en_samp_p=True,
                 en_samp_n=True,
                 en_comp=True,
@@ -174,14 +181,14 @@ def main_loop(
                 dac_diffcaps=diffcaps,
             )
 
-        chip.set_dac_state(
+        chip.adc_dac_states(
             astate_p=astate_p,
             bstate_p=bstate_p,
             astate_n=astate_n,
             bstate_n=bstate_n,
         )
 
-        chip.reg_write()
+        chip.write_adc_cfg()
         logger.info(
             "SPI register programmed: ch=%d, dacstate=%s, dacmode=%s, diffcaps=%s",
             channel,
@@ -190,36 +197,24 @@ def main_loop(
             diffcaps,
         )
 
-        # Voltage sweep
+        # Step 4b: Voltage sweep
         for ventry in voltage_entries:
+            # Step 4b-i: Set vin via AWG (unless manual)
             if input_mode != "manual" and ventry is not None:
                 chip.set_vin(diff=ventry["diff"], cm=ventry["cm"])
 
             if sequence == "none" and fifo != "counter":
                 continue
 
-            if cycles == 0:
-                # Continuous mode — stream each conversion as it arrives
-                try:
-                    while True:
-                        bits = chip.run_conversions(
-                            n_conversions=1,
-                            repetitions=1,
-                        )
-                        results[channel].append(bits)
-                except KeyboardInterrupt:
-                    logger.info("Continuous capture interrupted, stopping...")
-            else:
-                bits = chip.run_conversions(
-                    n_conversions=1,
-                    repetitions=cycles,
-                )
-                results[channel].append(bits)
+            # Step 4b-ii: Trigger sequencer + capture results
+            chip.trigger_sequencer(repeats=cycles)
+            bits = chip.read_fastrx_fifo(words=cycles)
+            results[channel].append(bits)
 
             if input_mode == "manual":
                 break
 
-    # Optionally save NPZ to scratch/scan/
+    # Step 5: Optionally save NPZ to scratch/scan/
     if save:
         outdir = REPO / "scratch" / "scan"
         outdir.mkdir(parents=True, exist_ok=True)
@@ -268,7 +263,7 @@ def run_scan(args):
 
     chip = Frida(daq, peripherals)
 
-    return main_loop(
+    return scan_loop(
         chip,
         sequence=args.sequence,
         channels=args.channel,
