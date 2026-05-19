@@ -47,15 +47,10 @@ hw_drivers:
       base_addr: 0x30000
       size: 8
 
-    - name: pulse_gen
-      type: pulse_gen
-      interface: intf
-      base_addr: 0x40000
-
     - name: fast_spi_rx
       type: fast_spi_rx
       interface: intf
-      base_addr: 0x50000
+      base_addr: 0x40000
 
 registers:
     - name: SEQ

@@ -210,6 +210,12 @@ def main():
         default=None,
         help="FASTRX input source: compout (external COMP_OUT pin), tiehigh (force fastrx_in to 1)",
     )
+    p.add_argument(
+        "--fastrx_en_mux",
+        choices=["seqout", "gpio"],
+        default="gpio",
+        help="fastrx_en source: seqout (sequencer FASTRX_EN track), gpio (gpio[6] drives both trigger and en)",
+    )
 
     argcomplete.autocomplete(parser)
 

@@ -80,6 +80,8 @@ class Frida:
     GPIO_SPI_LOOPBACK_BIT = 3
     GPIO_DEBUG_COUNTER_BIT = 4
     GPIO_TIEHIGH_BIT = 5
+    GPIO_SEQ_START_BIT = 6
+    GPIO_FASTRX_EN_MUX_BIT = 7
 
     def set_and_reset(self) -> None:
         """Toggle RST_B low then high."""
@@ -151,6 +153,40 @@ class Frida:
             self._gpio_out &= ~(1 << self.GPIO_TIEHIGH_BIT)
         self._daq["gpio"].set_data([self._gpio_out])
         logger.info("Fast RX tie-high %s", "enabled" if enabled else "disabled")
+
+    def set_seq_fastrx_en(self, value: bool) -> None:
+        """Set gpio[6] high or low.
+
+        When ``fastrx_en_mux=gpio``, this controls both the sequencer
+        trigger (rising edge) and the fastrx_en signal (static level).
+        """
+        if value:
+            self._gpio_out |= 1 << self.GPIO_SEQ_START_BIT
+            logger.info("Triggering sequencer and fastrx enable with GPIO")
+        else:
+            self._gpio_out &= ~(1 << self.GPIO_SEQ_START_BIT)
+            logger.info("Ending fastrx enable window")
+        self._daq["gpio"].set_data([self._gpio_out])
+
+    def set_fastrx_en_mux(self, source: str) -> None:
+        """Select the fastrx_en source.
+
+        When ``"gpio"`` (gpio[7]=0), fastrx_en comes from gpio[6]
+        (the same pin that triggers the sequencer).  When ``"seqout"``
+        (gpio[7]=1), fastrx_en comes from the sequencer's FASTRX_EN track
+        (seq_out[5]).
+
+        Args:
+            source: ``"gpio"`` or ``"seqout"``.
+        """
+        if source == "gpio":
+            self._gpio_out &= ~(1 << self.GPIO_FASTRX_EN_MUX_BIT)
+        elif source == "seqout":
+            self._gpio_out |= 1 << self.GPIO_FASTRX_EN_MUX_BIT
+        else:
+            raise ValueError(f"Unknown fastrx_en source {source!r}; expected 'gpio' or 'seqout'")
+        self._daq["gpio"].set_data([self._gpio_out])
+        logger.info("fastrx_en source: %s", source)
 
     # -----------------------------------------------------------------
     # ADC Configuration Register Control
@@ -331,11 +367,11 @@ class Frida:
             "FASTRX_EN": "0011111111111000000000000000000000000000",
         },
         "fastrx": {  # fast RX loopback test
-            "CLK_INIT": "0001010101010101010101010101010101010000",  # mirrors FASTRX_CLK
+            "CLK_INIT": "0001010101010101010101010101010101000000",  # mirrors FASTRX_CLK
             "CLK_SAMP": "1111111111111111111111111111111111111111",  # mirrors FASTRX_EN
             "CLK_COMP": "0011110011110011110011110011110011110000",  # mirrors FASTRX_TEST_DATA
             "CLK_LOGIC": "0000000000000000000000000000000000000000",
-            "FASTRX_CLK": "0001010101010101010101010101010101010000",
+            "FASTRX_CLK": "0001010101010101010101010101010101000000",
             "FASTRX_EN": "1111111111111111111111111111111111111111",  # stays high, to allow incremeting
             "FASTRX_TEST_DATA": "0011110011110011110011110011110011110000",
         },
@@ -382,25 +418,39 @@ class Frida:
     def trigger_sequencer(
         self,
         repeats: int = 1,
-        delay: int = 1,
-        width: int = 1,
     ) -> None:
-        """Arm the sequencer for external start, pulse it, and wait for completion.
+        """Arm the sequencer for external start, and wait for completion.
+
+        Drives gpio[6] high to start the sequencer and assert fastrx_en,
+        waits for the expected duration, then clears gpio[6].
 
         Args:
             repeats: Number of sequencer repetitions.
-            delay: Pulse generator delay (in clock cycles).
-            width: Pulse generator width (in clock cycles).
         """
+        import time
+
+        if repeats <= 0:
+            raise ValueError("repeats must be >= 1")
+
         self._daq["fast_spi_rx"].reset()
         self._daq["fast_spi_rx"].set_en(True)
 
         self._daq["seq_gen"].set_repeat(repeats)
         self._daq["seq_gen"].set_en_ext_start(True)
-        self._daq["pulse_gen"].set_delay(delay)
-        self._daq["pulse_gen"].set_width(width)
-        self._daq["pulse_gen"].start()
-        self._daq["seq_gen"].wait_for_ready()
+
+        # Drive gpio[6] high: rising edge starts the sequencer
+        self.set_seq_fastrx_en(True)
+
+        # Calculate expected run time
+        clkdiv = self._daq["seq_gen"].get_clk_divide()
+        period = 1.0 / (self.SEQ_CLK_FREQ / clkdiv)
+        duration_ns = int(self.N_SEQ_STEPS * period * repeats * 1e9)
+        logger.info(
+            "Waiting %d ns for sequencer to complete (%d steps, %d repeats)", duration_ns, self.N_SEQ_STEPS, repeats
+        )
+        time.sleep(duration_ns / 1e9)
+
+        self.set_seq_fastrx_en(False)
 
         # Reset the sequencer state machine so outputs don't latch
         # at their last-step values. The SRAM pattern is preserved.
@@ -422,10 +472,30 @@ class Frida:
         Returns:
             1-D numpy array of raw 32-bit FIFO words.
         """
+        import time
 
-        # Loop around get_data(), until N bits return
-        fifo_data = self._daq["fifo"].get_data()
-        fifo_data = fifo_data[:words]
+        # Loop around get_data() until we have enough words
+        fifo_data = []
+        timeout = 1.0  # seconds
+        deadline = time.monotonic() + timeout
+
+        # This loop is a bit suspect
+        while len(fifo_data) < words:
+            if time.monotonic() > deadline:
+                logger.warning(
+                    "FIFO read timeout after %.1f s: got %d/%d words",
+                    timeout,
+                    len(fifo_data),
+                    words,
+                )
+                break
+            chunk = self._daq["fifo"].get_data()
+            if chunk is not None and len(chunk) > 0:
+                fifo_data.extend(chunk)
+                deadline = time.monotonic() + timeout  # reset timeout on data
+            else:
+                time.sleep(0.001)
+        fifo_data = np.array(fifo_data[:words])
 
         lost = self._daq["fast_spi_rx"].get_lost_count()
         if lost > 0:
@@ -499,7 +569,11 @@ class Frida:
         self.peripherals.awg.set_voltage(low, high, unit="V")
 
     def set_vdd(self, v: float) -> None:
-        """Set the supply voltage via the PSU peripheral."""
+        """Set the supply voltage via the PSU peripheral.
+
+        If no PSU is configured (manual mode), this is a no-op.
+        """
         if self.peripherals is None or not hasattr(self.peripherals, "psu"):
-            raise RuntimeError("No PSU peripheral configured")
+            logger.info("VDD=%.2f V (manual mode — no PSU configured)", v)
+            return
         self.peripherals.psu.set_voltage(v)

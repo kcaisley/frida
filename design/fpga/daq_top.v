@@ -426,6 +426,13 @@ module daq_top (
 
 
     // FRIDA DAQ control core
+    wire spi_sclk;
+    wire spi_sdi;
+    wire spi_sdo;
+    wire spi_cs_b;
+    wire rst_b;
+    wire ampen_b;
+
     daq_core frida_core (
         .BUS_CLK (bus_clk),
         .BUS_RST (bus_rst),
@@ -463,12 +470,6 @@ module daq_top (
     // SPI Signals and Level shifter reference voltages
     (* dont_touch = "true" *) wire v_0v_lo = 1'b0;
     (* dont_touch = "true" *) wire v_2v5_hi = 1'b1;
-    wire spi_sclk;
-    wire spi_sdi;
-    wire spi_sdo;
-    wire spi_cs_b;
-    wire rst_b;
-    wire ampen_b;
     assign V_0V_LO  = v_0v_lo;
     assign V_2V5_HI = v_2v5_hi;
     assign SPI_SCLK = spi_sclk;

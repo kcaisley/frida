@@ -11,8 +11,7 @@
 //   2. spi          - SPI master for 180-bit chip configuration register
 //                     (SPI_SCLK, SPI_SDI, SPI_SDO, SPI_CS_B)
 //   3. gpio         - GPIO for PCB control signals (RST_B, AMPEN_B)
-//   4. pulse_gen    - Pulse generator for triggering the sequencer
-//   5. fast_spi_rx  - COMP_OUT receiver using basil fast_spi_rx module
+//   4. fast_spi_rx  - COMP_OUT receiver using basil fast_spi_rx module
 //
 // Address map (matches map_fpga.yaml):
 //   0x8000      - bram_fifo control  (instantiated at top level)
@@ -20,8 +19,7 @@
 //   0x10000     - seq_gen
 //   0x20000     - spi
 //   0x30000     - gpio
-//   0x40000     - pulse_gen
-//   0x50000     - fast_spi_rx
+//   0x40000     - fast_spi_rx
 
 `timescale 1ns / 10ps
 
@@ -29,7 +27,6 @@
 `include "seq_gen/seq_gen.v"
 `include "spi/spi.v"
 `include "gpio/gpio.v"
-`include "pulse_gen/pulse_gen.v"
 `include "fast_spi_rx/fast_spi_rx.v"
 
 module daq_core #(
@@ -92,11 +89,8 @@ module daq_core #(
     localparam integer GpioBaseAddr = 32'h30000;
     localparam integer GpioHighAddr = 32'h300FF;
 
-    localparam integer PulseGenBaseAddr = 32'h40000;
-    localparam integer PulseGenHighAddr = 32'h400FF;
-
-    localparam integer FastSpiRxBaseAddr = 32'h50000;
-    localparam integer FastSpiRxHighAddr = 32'h500FF;
+    localparam integer FastSpiRxBaseAddr = 32'h40000;
+    localparam integer FastSpiRxHighAddr = 32'h400FF;
 
     // Combined reset
     wire rst;
@@ -109,6 +103,9 @@ module daq_core #(
     wire fastrx_loopback_en;
     wire fastrx_in_tiehigh;
     wire debug_counter_en;
+    wire fastrx_test_en;
+    wire seq_fastrx_en;
+    wire fastrx_en_mux;
 
     // 1. Sequencer (seq_gen)
     // Generates the 8-track timing waveform loaded from the host.
@@ -121,8 +118,6 @@ module daq_core #(
     // seq_out[6] = fastrx_test_data   - Loopback test data for fast_spi_rx
     // seq_out[7] = unused
     wire [7:0] seq_out;
-    wire pulse_out;  // from pulse_gen, triggers sequencer start
-
     // LVDS clock outputs to chip
     assign CLK_INIT         = seq_out[0];
     assign CLK_SAMP         = seq_out[1];
@@ -131,7 +126,7 @@ module daq_core #(
 
     // Capture control signals
     assign fastrx_clk       = seq_out[4];
-    assign fastrx_en        = seq_out[5];
+    assign fastrx_test_en   = seq_out[5];
     assign fastrx_test_data = seq_out[6];
 
     seq_gen #(
@@ -148,7 +143,7 @@ module daq_core #(
         .BUS_RD  (BUS_RD),
         .BUS_WR  (BUS_WR),
 
-        .SEQ_EXT_START(pulse_out),
+        .SEQ_EXT_START(seq_fastrx_en),
         .SEQ_CLK      (SEQ_CLK),
         .SEQ_OUT      (seq_out)
     );
@@ -199,20 +194,26 @@ module daq_core #(
     // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
     // Bit 4: debug_counter_en    - Replace fast_spi_rx FIFO output with up-counter
     // Bit 5: fastrx_in_tiehigh   - Force fastrx_in to constant 1
-    wire [5:0] gpio;
+    // Bit 6: seq_fastx_en        - Sequencer external start trigger
+    // Bit 7: fastrx_en_mux       - Mux select: 0=seq_fastx_en, 1=fastrx_test_en
+    wire [7:0] gpio;
     assign RST_B              = gpio[0];  // Active-low board reset
     assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
     assign fastrx_loopback_en = gpio[2];  // Fast RX loopback test enable
     assign spi_loopback_en    = gpio[3];  // SPI loopback test enable
     assign debug_counter_en   = gpio[4];  // Debug: replace FIFO with counter
     assign fastrx_in_tiehigh  = gpio[5];  // Debug: force fastrx_in to 1
+    assign seq_fastrx_en      = gpio[6];  // Sequencer trigger
+    assign fastrx_en_mux      = gpio[7];  // fastrx_en source select
+
+
 
     gpio #(
         .BASEADDR    (GpioBaseAddr),
         .HIGHADDR    (GpioHighAddr),
         .ABUSWIDTH   (ABUSWIDTH),
-        .IO_WIDTH    (6),
-        .IO_DIRECTION(6'h3F),         // All outputs
+        .IO_WIDTH    (8),
+        .IO_DIRECTION(8'hFF),         // All outputs
         .IO_TRI      (0)
     ) inst_gpio (
         .BUS_CLK (BUS_CLK),
@@ -224,27 +225,6 @@ module daq_core #(
 
         .IO(gpio)
     );
-
-    // 4. Pulse Generator
-    // Generates a single trigger pulse to start the sequencer.
-    // Can be started from the host via register write.
-    pulse_gen #(
-        .BASEADDR (PulseGenBaseAddr),
-        .HIGHADDR (PulseGenHighAddr),
-        .ABUSWIDTH(ABUSWIDTH)
-    ) inst_pulse_gen (
-        .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
-        .BUS_ADD (BUS_ADD),
-        .BUS_DATA(BUS_DATA),
-        .BUS_RD  (BUS_RD),
-        .BUS_WR  (BUS_WR),
-
-        .PULSE_CLK(SEQ_CLK),
-        .EXT_START(1'b0),
-        .PULSE    (pulse_out)
-    );
-
 
     // 5. COMP_OUT Receiver (fast_spi_rx)
     // Captures the COMP_OUT stream using basil's fast_spi_rx module.
@@ -260,6 +240,7 @@ module daq_core #(
     //   - Remaining 1 bit creates a partial word on SEN falling edge
     wire fastrx_in;  // Input from comp, loopback test data, or tie-high
     assign fastrx_in = fastrx_in_tiehigh ? 1'b1 : (fastrx_loopback_en ? fastrx_test_data : COMP_OUT);
+    assign fastrx_en = fastrx_en_mux ? fastrx_test_en : seq_fastrx_en;
 
     // Intermediate wires between fast_spi_rx and module ports (for muxing)
     wire [31:0] fastrx_fifo_data;
@@ -278,7 +259,7 @@ module daq_core #(
         .BUS_RD  (BUS_RD),
         .BUS_WR  (BUS_WR),
 
-        .SCLK(~fastrx_clk),
+        .SCLK(fastrx_clk),
         .SDI (fastrx_in),
         .SEN (fastrx_en),
 

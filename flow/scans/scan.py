@@ -38,6 +38,7 @@ def scan_loop(
     vdd: float = 1.2,
     diffamp: bool = False,
     fastrx: str = "compout",
+    fastrx_en_mux: str = "gpio",
     clkdiv: int = 1,
     cycles: int = 1,
     loopback: str = "none",
@@ -84,6 +85,10 @@ def scan_loop(
         fastrx: One of ``"compout"``, ``"tiehigh"``. Selects the FASTRX
             input source: ``compout`` for the external COMP_OUT pin,
             ``tiehigh`` to force fastrx_in high regardless of pin state.
+        fastrx_en_mux: One of ``"gpio"`` or ``"seqout"``. Selects the
+            fastrx_en source: ``"gpio"`` (default) uses gpio[6] to drive
+            both the sequencer trigger and fastrx_en; ``"seqout"`` uses
+            the sequencer's FASTRX_EN track for fastrx_en.
 
     Returns:
         Nested dict: ``{channel_index: list[np.ndarray]}`` for normal scans,
@@ -99,6 +104,9 @@ def scan_loop(
     # Step 0c: If requested, configure fastrx input source, eiter comp_out, fastrx_test_data, or tie-high
     chip.set_fastrx_loopback(loopback == "fastrx" or loopback == "both")
     chip.set_fastrx_tiehigh(fastrx == "tiehigh")
+
+    # Step 0c-bis: Configure fastrx_en mux source
+    chip.set_fastrx_en_mux(fastrx_en_mux)
 
     # Step 0d: If requested, configure FIFO debug counter, otherwise just connect to fastrx output
     chip.set_fifo_debug_counter(fifo == "counter")
@@ -210,7 +218,6 @@ def scan_loop(
             chip.trigger_sequencer(repeats=cycles)
             bits = chip.read_fastrx_fifo(words=cycles)
             results[channel].append(bits)
-
             if input_mode == "manual":
                 break
 
@@ -274,6 +281,7 @@ def run_scan(args):
         vdd=args.vdd or 1.2,
         diffamp=args.diffamp or False,
         fastrx=args.fastrx or "compout",
+        fastrx_en_mux=args.fastrx_en_mux,
         clkdiv=args.clkdiv,
         cycles=args.cycles,
         loopback=args.loopback,

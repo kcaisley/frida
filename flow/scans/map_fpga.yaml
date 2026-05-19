@@ -60,13 +60,6 @@ hw_drivers:
       base_addr: 0x30000
       size: 8
 
-    # Pulse generator for triggering sequences
-    # Can trigger seq_gen externally for precise timing
-    - name: pulse_gen
-      type: pulse_gen
-      interface: intf
-      base_addr: 0x40000
-
     # Fast SPI receiver for COMP_OUT capture
     # Replaces hand-rolled shift register + FIFO
     # SCLK driven by seq_out[4] (FASTRX_CLK)
@@ -75,7 +68,7 @@ hw_drivers:
     - name: fast_spi_rx
       type: fast_spi_rx
       interface: intf
-      base_addr: 0x50000
+      base_addr: 0x40000
 
 registers:
     # Track register for sequencer waveforms
