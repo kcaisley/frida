@@ -33,7 +33,8 @@ hw_drivers:
     # Sequencer for ADC timing signals
     # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC,
     #   FASTRX_CLK, FASTRX_EN, FASTRX_TEST_DATA
-    # Output directly drives LVDS transmitters to chip
+    # TrackRegister tracks renamed to short aliases for direct script access:
+    #   INIT, SAMP, COMP, LOGIC, RX_CLK, RX_EN, RX_TEST, SPARE
     - name: seq_gen
       type: seq_gen
       interface: intf
@@ -80,21 +81,61 @@ registers:
       seq_size: 8192
       tracks:
           # Tracks 0-3: LVDS clock outputs to chip
-          - name: CLK_INIT
+          - name: INIT
             position: 0
-          - name: CLK_SAMP
+          - name: SAMP
             position: 1
-          - name: CLK_COMP
+          - name: COMP
             position: 2
-          - name: CLK_LOGIC
+          - name: LOGIC
             position: 3
           # Tracks 4-6: fast_spi_rx capture control
-          - name: FASTRX_CLK
+          - name: RX_CLK
             position: 4
-          - name: FASTRX_EN
+          - name: RX_EN
             position: 5
-          - name: FASTRX_TEST_DATA
+          - name: RX_TEST
             position: 6
           # Track 7: spare
-          - name: SPARE_7
+          - name: SPARE
             position: 7
+
+    # GPIO register with named bit-fields
+    # Bit mapping:
+    #   0: RST_B         - Chip reset (active low)
+    #   1: AMP_EN        - Input amplifier enable
+    #   2: RX_LOOPBACK   - fast_spi_rx test-data loopback
+    #   3: SPI_LOOPBACK  - SPI SDO loopback
+    #   4: DBG_FIFO      - Debug counter into FIFO
+    #   5: RX_TIEHIGH    - Tie fast_spi_rx input high
+    #   6: SEQ_START     - Sequencer external start / fastrx_en
+    #   7: RX_EN_MUX     - fastrx_en source: 0=gpio[6], 1=seq_out[5]
+    - name: GPIO
+      type: StdRegister
+      hw_driver: gpio
+      size: 8
+      fields:
+          - name: RST_B
+            size: 1
+            offset: 0
+          - name: AMP_EN
+            size: 1
+            offset: 1
+          - name: RX_LOOPBACK
+            size: 1
+            offset: 2
+          - name: SPI_LOOPBACK
+            size: 1
+            offset: 3
+          - name: DBG_FIFO
+            size: 1
+            offset: 4
+          - name: RX_TIEHIGH
+            size: 1
+            offset: 5
+          - name: SEQ_START
+            size: 1
+            offset: 6
+          - name: RX_EN_MUX
+            size: 1
+            offset: 7

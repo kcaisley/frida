@@ -59,19 +59,49 @@ registers:
       seq_width: 8
       seq_size: 8192
       tracks:
-          - name: CLK_INIT
+          - name: INIT
             position: 0
-          - name: CLK_SAMP
+          - name: SAMP
             position: 1
-          - name: CLK_COMP
+          - name: COMP
             position: 2
-          - name: CLK_LOGIC
+          - name: LOGIC
             position: 3
-          - name: FASTRX_CLK
+          - name: RX_CLK
             position: 4
-          - name: FASTRX_EN
+          - name: RX_EN
             position: 5
-          - name: FASTRX_TEST_DATA
+          - name: RX_TEST
             position: 6
-          - name: SPARE_7
+          - name: SPARE
             position: 7
+
+    - name: GPIO
+      type: StdRegister
+      hw_driver: gpio
+      size: 8
+      fields:
+          - name: RST_B
+            size: 1
+            offset: 0
+          - name: AMP_EN
+            size: 1
+            offset: 1
+          - name: RX_LOOPBACK
+            size: 1
+            offset: 2
+          - name: SPI_LOOPBACK
+            size: 1
+            offset: 3
+          - name: DBG_FIFO
+            size: 1
+            offset: 4
+          - name: RX_TIEHIGH
+            size: 1
+            offset: 5
+          - name: SEQ_START
+            size: 1
+            offset: 6
+          - name: RX_EN_MUX
+            size: 1
+            offset: 7
