@@ -43,7 +43,7 @@ module spi_register (
 
             OPENROAD_DFFER dff_inst (
                 .D(d_in[i]),
-                .C(spi_sclk),
+                .C(spi_sclk),  //FIX: This main clock polarity should be used on the final DFF
                 .E(enable),
                 .R(rst_b),
                 .Q(shift_reg[i])
@@ -58,9 +58,9 @@ module spi_register (
         .Y(spi_sclk_n)
     );
 
-    OPENROAD_DFFER sdo_dff (
+    OPENROAD_DFFER sdo_dff ( // FIX: Also, honestly we don't need this flip flop at all
         .D(shift_reg[179]),
-        .C(spi_sclk_n),
+        .C(spi_sclk_n),     // FIX: This is a bug, clocking on the opposite polarity
         .E(enable),
         .R(rst_b),
         .Q(spi_sdo)

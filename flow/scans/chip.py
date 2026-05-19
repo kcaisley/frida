@@ -33,7 +33,7 @@ class Frida:
 
     Args:
         daq: basil Dut instance providing module access
-            (``daq["spi"]``, ``daq["gpio"]``, ``daq["seq_gen"]``, etc.).
+            (``daq["spi"]``, ``daq["GPIO"]``, ``daq["SEQ"]``, etc.).
         peripherals: Optional namespace with ``.awg`` and ``.psu``
             attributes for controlling external instruments.
     """
@@ -64,8 +64,8 @@ class Frida:
             "DAC_BSTATE_N": {"offset": 0, "size": 16, "value": 0b0111111111111111},
         }
         self._registers.update({f"ADC_{i}": {"offset": 64 + i * 7, "size": 7, "value": 0} for i in range(self.n_adcs)})
-        self._daq["fast_spi_rx"].reset()
-        self._daq["fast_spi_rx"].set_en(True)
+        self._daq["FASTRX"].reset()
+        self._daq["FASTRX"].set_en(True)
         self.set_and_reset()
         self.write_adc_cfg()
         logger.info("FRIDA chip initialized")
@@ -399,8 +399,8 @@ class Frida:
             self._daq["SEQ"][name][0 : self.N_SEQ_STEPS] = bitarray(pattern_bits)
         self._daq["SEQ"].write(self.N_SEQ_STEPS)
 
-        self._daq["seq_gen"].set_size(self.N_SEQ_STEPS)
-        self._daq["seq_gen"].set_clk_divide(clkdiv)
+        self._daq["SEQ"].set_size(self.N_SEQ_STEPS)
+        self._daq["SEQ"].set_clk_divide(clkdiv)
 
         logger.info("Sequencer pattern (%d steps):", self.N_SEQ_STEPS)
         for name in self.SEQ_TRACKS:
@@ -432,17 +432,17 @@ class Frida:
         if repeats <= 0:
             raise ValueError("repeats must be >= 1")
 
-        self._daq["fast_spi_rx"].reset()
-        self._daq["fast_spi_rx"].set_en(True)
+        self._daq["FASTRX"].reset()
+        self._daq["FASTRX"].set_en(True)
 
-        self._daq["seq_gen"].set_repeat(repeats)
-        self._daq["seq_gen"].set_en_ext_start(True)
+        self._daq["SEQ"].set_repeat(repeats)
+        self._daq["SEQ"].set_en_ext_start(True)
 
         # Drive gpio[6] high: rising edge starts the sequencer
         self.set_seq_fastrx_en(True)
 
         # Calculate expected run time
-        clkdiv = self._daq["seq_gen"].get_clk_divide()
+        clkdiv = self._daq["SEQ"].get_clk_divide()
         period = 1.0 / (self.SEQ_CLK_FREQ / clkdiv)
         duration_ns = int(self.N_SEQ_STEPS * period * repeats * 1e9)
         logger.info(
@@ -454,7 +454,7 @@ class Frida:
 
         # Reset the sequencer state machine so outputs don't latch
         # at their last-step values. The SRAM pattern is preserved.
-        self._daq["seq_gen"].reset()
+        self._daq["SEQ"].reset()
 
     # -----------------------------------------------------------------
     # FastRX and FIFO Configuration
@@ -497,9 +497,9 @@ class Frida:
                 time.sleep(0.001)
         fifo_data = np.array(fifo_data[:words])
 
-        lost = self._daq["fast_spi_rx"].get_lost_count()
+        lost = self._daq["FASTRX"].get_lost_count()
         if lost > 0:
-            logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
+            logger.warning("FASTRX lost %d words (FIFO overflow)", lost)
 
         logger.info("FIFO read: requested %d words, got %d", words, len(fifo_data))
 
@@ -532,17 +532,17 @@ class Frida:
         """
         import time
 
-        self._daq["fast_spi_rx"].reset()
-        self._daq["fast_spi_rx"].set_en(True)
+        self._daq["FASTRX"].reset()
+        self._daq["FASTRX"].set_en(True)
         self._daq["fifo"]["RESET"]  # drain stale TCP buffer
 
         time.sleep(0.02)
         fifo_data = self._daq["fifo"].get_data()
         fifo_data = fifo_data[:words]
 
-        lost = self._daq["fast_spi_rx"].get_lost_count()
+        lost = self._daq["FASTRX"].get_lost_count()
         if lost > 0:
-            logger.warning("fast_spi_rx lost %d words (FIFO overflow)", lost)
+            logger.warning("FASTRX lost %d words (FIFO overflow)", lost)
 
         logger.info("FIFO read: requested %d words, got %d", words, len(fifo_data))
 

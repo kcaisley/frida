@@ -50,7 +50,7 @@ def sim_daq(sim_runner):
     daq = Dut(str(yaml_path))
     daq.init()  # blocks until TCP server is ready (up to 120 s)
     yield daq
-    daq["intf"].close()
+    daq["tcp"].close()
 
 
 @pytest.fixture(scope="module")
@@ -99,11 +99,11 @@ def test_gpio_reset(daq):
 
 @pytest.mark.hw
 def test_fspi_enable(daq):
-    """Verify fast_spi_rx can be reset and toggled."""
-    daq["fast_spi_rx"].reset()
-    daq["fast_spi_rx"].set_en(True)
-    daq["fast_spi_rx"].set_en(False)
-    daq["fast_spi_rx"].set_en(True)
+    """Verify FASTRX can be reset and toggled."""
+    daq["FASTRX"].reset()
+    daq["FASTRX"].set_en(True)
+    daq["FASTRX"].set_en(False)
+    daq["FASTRX"].set_en(True)
 
 
 @pytest.mark.hw
@@ -116,8 +116,8 @@ def test_counter_fifo(daq):
     the result counts 0, 1, 2, ..., N-1.
     """
     daq["gpio"].set_data([1 << Frida.GPIO_DEBUG_COUNTER_BIT])
-    daq["fast_spi_rx"].reset()
-    daq["fast_spi_rx"].set_en(True)
+    daq["FASTRX"].reset()
+    daq["FASTRX"].set_en(True)
     daq["fifo"].get_data()  # drain
 
     time.sleep(0.1)  # let counter fill
@@ -157,20 +157,20 @@ def test_sequencer_tiehigh(daq):
         mem_data.append(0x20 | (clk << 4))
     mem_data += [0x00] * 7
 
-    daq["fast_spi_rx"].reset()
-    daq["fast_spi_rx"].set_en(True)
+    daq["FASTRX"].reset()
+    daq["FASTRX"].set_en(True)
     daq["fifo"].get_data()  # drain
 
     daq["gpio"].set_data([1 << Frida.GPIO_TIEHIGH_BIT])
-    daq["seq_gen"].set_data(mem_data)
-    daq["seq_gen"].set_size(n_steps)
-    daq["seq_gen"].set_clk_divide(4)
-    daq["seq_gen"].set_repeat(4)
-    daq["seq_gen"].set_en_ext_start(True)
+    daq["SEQ"].set_data(mem_data)
+    daq["SEQ"].set_size(n_steps)
+    daq["SEQ"].set_clk_divide(4)
+    daq["SEQ"].set_repeat(4)
+    daq["SEQ"].set_en_ext_start(True)
     daq["pulse_gen"].set_delay(1)
     daq["pulse_gen"].set_width(1)
     daq["pulse_gen"].start()
-    daq["seq_gen"].wait_for_ready()
+    daq["SEQ"].wait_for_ready()
 
     time.sleep(0.1)
 
@@ -194,11 +194,11 @@ def test_sim_gpio_reset(sim_daq):
 
 @pytest.mark.sim
 def test_sim_fspi_enable(sim_daq):
-    """Verify fast_spi_rx can be reset and toggled in simulation."""
-    sim_daq["fast_spi_rx"].reset()
-    sim_daq["fast_spi_rx"].set_en(True)
-    sim_daq["fast_spi_rx"].set_en(False)
-    sim_daq["fast_spi_rx"].set_en(True)
+    """Verify FASTRX can be reset and toggled in simulation."""
+    sim_daq["FASTRX"].reset()
+    sim_daq["FASTRX"].set_en(True)
+    sim_daq["FASTRX"].set_en(False)
+    sim_daq["FASTRX"].set_en(True)
 
 
 @pytest.mark.sim
@@ -227,20 +227,20 @@ def test_sim_sequencer_tiehigh(sim_daq):
         mem_data.append(0x20 | (clk << 4))
     mem_data += [0x00] * 7
 
-    sim_daq["fast_spi_rx"].reset()
-    sim_daq["fast_spi_rx"].set_en(True)
+    sim_daq["FASTRX"].reset()
+    sim_daq["FASTRX"].set_en(True)
     sim_daq["fifo"].get_data()  # drain
 
     sim_daq["gpio"].set_data([1 << Frida.GPIO_TIEHIGH_BIT])
-    sim_daq["seq_gen"].set_data(mem_data)
-    sim_daq["seq_gen"].set_size(n_steps)
-    sim_daq["seq_gen"].set_clk_divide(4)
-    sim_daq["seq_gen"].set_repeat(4)
-    sim_daq["seq_gen"].set_en_ext_start(True)
+    sim_daq["SEQ"].set_data(mem_data)
+    sim_daq["SEQ"].set_size(n_steps)
+    sim_daq["SEQ"].set_clk_divide(4)
+    sim_daq["SEQ"].set_repeat(4)
+    sim_daq["SEQ"].set_en_ext_start(True)
     sim_daq["pulse_gen"].set_delay(1)
     sim_daq["pulse_gen"].set_width(1)
     sim_daq["pulse_gen"].start()
-    sim_daq["seq_gen"].wait_for_ready()
+    sim_daq["SEQ"].wait_for_ready()
 
     sim_daq["gpio"].set_data([0x00])
 

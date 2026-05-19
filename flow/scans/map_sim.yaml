@@ -18,7 +18,7 @@ name: frida-daq-sim
 version: 0.1.0
 
 transfer_layer:
-    - name: intf
+    - name: tcp
       type: SiSim
       init:
           host: "localhost"
@@ -28,7 +28,7 @@ transfer_layer:
 hw_drivers:
     - name: fifo
       type: sitcp_fifo
-      interface: intf
+      interface: tcp
 
     - name: seq_gen
       type: seq_gen
@@ -38,18 +38,18 @@ hw_drivers:
 
     - name: spi
       type: spi
-      interface: intf
+      interface: tcp
       base_addr: 0x20000
 
     - name: gpio
       type: gpio
-      interface: intf
+      interface: tcp
       base_addr: 0x30000
       size: 8
 
-    - name: fast_spi_rx
+    - name: FASTRX
       type: fast_spi_rx
-      interface: intf
+      interface: tcp
       base_addr: 0x40000
 
 registers:
