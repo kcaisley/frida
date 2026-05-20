@@ -26,16 +26,16 @@ hw_drivers:
     # Data flows directly: core -> fifo_32_to_8 -> SiTCP TCP stream.
     # This approach follows bdaq53 and tjmonopix2. For bus-accessible FIFO
     # with status/fill-level polling, see obelix1-daq's bram_fifo approach.
-    - name: fifo
+    - name: fifo0
       type: sitcp_fifo
       interface: tcp
 
     # Sequencer for ADC timing signals
     # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC,
-    #   FASTRX_CLK, FASTRX_EN, FASTRX_TEST_DATA
+    #   FASTRX_EN, FASTRX_TEST_DATA
     # TrackRegister tracks renamed to short aliases for direct script access:
-    #   INIT, SAMP, COMP, LOGIC, RX_CLK, RX_EN, RX_TEST, SPARE
-    - name: seq_gen
+    #   INIT, SAMP, COMP, LOGIC, RX_EN, RX_TEST, SPARE, SPARE2
+    - name: seq0
       type: seq_gen
       interface: tcp
       base_addr: 0x10000
@@ -44,7 +44,7 @@ hw_drivers:
     # SPI master for chip configuration
     # directly from obelix1
     # Directly drives SPI_CS_B, SPI_SCLK, SPI_SDI; reads SPI_SDO
-    - name: spi
+    - name: spi0
       type: spi
       interface: tcp
       base_addr: 0x20000
@@ -55,7 +55,7 @@ hw_drivers:
     #   Bit 0: RST_B        - Chip reset (active low)
     #   Bit 1: AMP_EN       - Input amplifier enable (high=enabled, low=bypass/power-down)
     #   Bit 2: LOOPBACK_EN  - fast_spi_rx loopback test mode
-    - name: gpio
+    - name: gpio0
       type: gpio
       interface: tcp
       base_addr: 0x30000
@@ -63,20 +63,21 @@ hw_drivers:
 
     # Fast SPI receiver for COMP_OUT capture
     # Replaces hand-rolled shift register + FIFO
-    # SCLK driven by seq_out[4] (FASTRX_CLK)
-    # SEN driven by seq_out[5] (FASTRX_EN)
+    # Clocked directly from SEQ_CLK (same clock as seq_gen)
+    # SEN driven by seq_out[4] (RX_EN)
     # SDI connected to COMP_OUT from chip
-    - name: FASTRX
+    - name: fastrx0
       type: fast_spi_rx
       interface: tcp
       base_addr: 0x40000
+      DATA_SIZE: 20 # Must match DATA_SIZE parameter in fast_spi_rx_core.v
 
 registers:
     # Track register for sequencer waveforms
     # 8 tracks matching daq_core.v seq_out[7:0]
-    - name: SEQ
+    - name: seq0
       type: TrackRegister
-      hw_driver: seq_gen
+      hw_driver: seq0
       seq_width: 8
       seq_size: 8192
       tracks:
@@ -89,15 +90,15 @@ registers:
             position: 2
           - name: LOGIC
             position: 3
-          # Tracks 4-6: fast_spi_rx capture control
-          - name: RX_CLK
-            position: 4
+          # Tracks 4-5: fast_spi_rx capture control
           - name: RX_EN
-            position: 5
+            position: 4
           - name: RX_TEST
-            position: 6
-          # Track 7: spare
+            position: 5
+          # Tracks 6-7: spare
           - name: SPARE
+            position: 6
+          - name: SPARE2
             position: 7
 
     # GPIO register with named bit-fields
@@ -109,10 +110,10 @@ registers:
     #   4: DBG_FIFO      - Debug counter into FIFO
     #   5: RX_TIEHIGH    - Tie fast_spi_rx input high
     #   6: SEQ_START     - Sequencer external start / fastrx_en
-    #   7: RX_EN_MUX     - fastrx_en source: 0=gpio[6], 1=seq_out[5]
-    - name: GPIO
+    #   7: RX_EN_MUX     - fastrx_en source: 0=gpio[6], 1=seq_out[4]
+    - name: gpio0
       type: StdRegister
-      hw_driver: gpio
+      hw_driver: gpio0
       size: 8
       fields:
           - name: RST_B

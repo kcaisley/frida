@@ -113,9 +113,9 @@ module daq_core #(
     // seq_out[1] = CLK_SAMP       - Sample-and-hold trigger
     // seq_out[2] = CLK_COMP       - Comparator clock
     // seq_out[3] = CLK_LOGIC      - SAR logic clock
-    // seq_out[4] = fastrx_clk        - Capture clock for fast_spi_rx SCLK
-    // seq_out[5] = fastrx_en          - Frame enable for fast_spi_rx SEN
-    // seq_out[6] = fastrx_test_data   - Loopback test data for fast_spi_rx
+    // seq_out[4] = fastrx_test_en    - Frame enable for fast_spi_rx SEN
+    // seq_out[5] = fastrx_test_data - Loopback test data for fast_spi_rx
+    // seq_out[6] = unused
     // seq_out[7] = unused
     wire [7:0] seq_out;
     // LVDS clock outputs to chip
@@ -125,9 +125,8 @@ module daq_core #(
     assign CLK_LOGIC        = seq_out[3];
 
     // Capture control signals
-    assign fastrx_clk       = seq_out[4];
-    assign fastrx_test_en   = seq_out[5];
-    assign fastrx_test_data = seq_out[6];
+    assign fastrx_test_en   = seq_out[4];
+    assign fastrx_test_data = seq_out[5];
 
     seq_gen #(
         .BASEADDR (SeqGenBaseAddr),
@@ -230,14 +229,14 @@ module daq_core #(
     // Captures the COMP_OUT stream using basil's fast_spi_rx module.
     // This replaces the hand-rolled shift register + FIFO implementation.
     //
+    // Clocked directly from SEQ_CLK (same clock as seq_gen) instead of
+    // from a sequencer output.
+    //
     // Output format (32-bit words):
     //   [31:28] IDENTIFIER (4'b0001 by default)
-    //   [27:16] Frame counter (12 bits, increments on SEN falling edge)
-    //   [15:0]  Captured data (16 bits of comp_out samples)
+    //   [27:DATA_SIZE] Frame counter (28 - DATA_SIZE bits)
+    //   [DATA_SIZE-1:0]  Captured data (DATA_SIZE bits)
     //
-    // For 17-bit ADC conversions:
-    //   - First 16 bits create one complete FIFO word
-    //   - Remaining 1 bit creates a partial word on SEN falling edge
     wire fastrx_in;  // Input from comp, loopback test data, or tie-high
     assign fastrx_in = fastrx_in_tiehigh ? 1'b1 : (fastrx_loopback_en ? fastrx_test_data : COMP_OUT);
     assign fastrx_en = fastrx_en_mux ? fastrx_test_en : seq_fastrx_en;
@@ -250,7 +249,8 @@ module daq_core #(
         .BASEADDR  (FastSpiRxBaseAddr),
         .HIGHADDR  (FastSpiRxHighAddr),
         .ABUSWIDTH (ABUSWIDTH),
-        .IDENTIFIER(4'b0001)             // Only block which writes to shared FIFO
+        .IDENTIFIER(4'b0001),
+        .DATA_SIZE(20)      // Only block which writes to shared FIFO
     ) inst_fast_spi_rx (
         .BUS_CLK (BUS_CLK),
         .BUS_RST (rst),
@@ -259,7 +259,7 @@ module daq_core #(
         .BUS_RD  (BUS_RD),
         .BUS_WR  (BUS_WR),
 
-        .SCLK(fastrx_clk),
+        .SCLK(SEQ_CLK),
         .SDI (fastrx_in),
         .SEN (fastrx_en),
 
