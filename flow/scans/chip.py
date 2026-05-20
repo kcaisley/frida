@@ -50,6 +50,7 @@ class Frida:
         Args:
             daq: basil Dut instance providing module access.
             peripherals: Optional namespace with ``.awg`` / ``.psu`` attributes.
+
         """
         self._daq = daq
         self.peripherals = peripherals
