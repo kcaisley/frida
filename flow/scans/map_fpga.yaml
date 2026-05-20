@@ -70,8 +70,9 @@ hw_drivers:
       type: fast_spi_rx
       interface: tcp
       base_addr: 0x40000
-      DATA_SIZE: 20 # Must match DATA_SIZE parameter in fast_spi_rx_core.v
 
+# The register layer, provides a higher level way, to name the large bannks of registers used for certain blocks.
+# This will change the API of how these blocks are used, but bring the benefit of convenient aliases.
 registers:
     # Track register for sequencer waveforms
     # 8 tracks matching daq_core.v seq_out[7:0]

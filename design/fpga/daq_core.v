@@ -250,7 +250,7 @@ module daq_core #(
         .HIGHADDR  (FastSpiRxHighAddr),
         .ABUSWIDTH (ABUSWIDTH),
         .IDENTIFIER(4'b0001),
-        .DATA_SIZE(20)      // Only block which writes to shared FIFO
+        .DATA_SIZE(17)      // 17 comparator edges per conversion, 2x oversampled at 400 MHz
     ) inst_fast_spi_rx (
         .BUS_CLK (BUS_CLK),
         .BUS_RST (rst),

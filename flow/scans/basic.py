@@ -7,14 +7,6 @@ from bitarray import bitarray
 daq = Dut(str(Path(__file__).resolve().parent / "map_fpga.yaml"))
 daq.init()
 
-# | Module Name  | .clear()       | .reset()       | ['RESET'] Register  | .wait_for_ready()  | .set_en()      | .get_data()    | .set_data()    |
-# | ------------ | -------------- | -------------- | ------------------- | ------------------ | -------------- | -------------- | -------------- |
-# | fifo         | HardwareLayer  | N/A            | No                  | HardwareLayer      | N/A            | sitcp_fifo     | N/A            |
-# | seq_gen      | HardwareLayer  | seq_gen        | seq_gen             | HardwareLayer      | seq_gen        | N/A            | N/A            |
-# | spi          | N/A            | N/A            | No                  | HardwareLayer      | N/A            | spi            | spi            |
-# | gpio         | N/A            | N/A            | gpio                | N/A                | gpio           | N/A            | N/A            |
-# | fastrx       | N/A            | fast_spi_rx    | fast_spi_rx         | N/A                | fast_spi_rx    | N/A            | N/A            |
-
 # Release reset
 daq["gpio0"]["RST_B"] = 0
 daq["gpio0"].write()
@@ -79,10 +71,9 @@ daq["seq0"]["INIT"][0:40] =    bitarray("11 00 00 00 00 00 00 00 00 00 00 00 00 
 daq["seq0"]["SAMP"][0:40] =    bitarray("00 11 11 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00")
 daq["seq0"]["COMP"][0:40] =    bitarray("00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01")
 daq["seq0"]["LOGIC"][0:40] =   bitarray("00 00 00 00 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10")
-# daq["seq0"]["RX_CLK"][0:40] =  bitarray("00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00")
 daq["seq0"]["RX_EN"][0:40] =   bitarray("00 00 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 00")
 daq["seq0"]["RX_TEST"][0:40] = bitarray("00 00 11 01 01 01 01 01 01 01 10 11 00 00 00 00 00 00 00 00")
-
+# daq["seq0"]["RX_CLK"][0:40] =  bitarray("00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00")
                                   #      init      | ||                                           ||
                                   #         samp   | ||                                           ||
                                   #                comp0                                          ||
@@ -149,7 +140,7 @@ daq["seq0"].reset()
 data = daq["fifo0"].get_data()
 print("FIFO words: %d" % len(data))
 
-data_size = daq["fastrx0"].get_data_size()
+data_size = daq["fastrx0"].get_size()
 
 for i in range(min(16, len(data))):
     identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(data[i]))
