@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 REPO = Path(__file__).resolve().parents[2]
 
 
-# Backend-agnostic scan loop
+"""Backend-agnostic scan loop for FRIDA ADC characterization."""
+
+
 def scan_loop(
     chip: Frida,
     *,
@@ -93,8 +95,8 @@ def scan_loop(
     Returns:
         Nested dict: ``{channel_index: list[np.ndarray]}`` for normal scans,
         or ``{sequence_name: list[np.ndarray]}`` for fast-RX / counter mode.
-    """
 
+    """
     # Step 0: Reset the chip and wait
     chip.set_and_reset()
 

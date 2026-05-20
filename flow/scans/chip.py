@@ -5,6 +5,7 @@
 # Chip-level operations (register configuration, sequencer setup, ADC
 # control) are shared. FPGA module operations go directly through
 # basil module interfaces (self._daq["module"].method()).
+"""FRIDA chip controller providing a high-level API for the FRIDA ADC chip."""
 
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ class Frida:
             (``daq["spi"]``, ``daq["GPIO"]``, ``daq["SEQ"]``, etc.).
         peripherals: Optional namespace with ``.awg`` and ``.psu``
             attributes for controlling external instruments.
+
     """
 
     def __init__(
@@ -43,8 +45,7 @@ class Frida:
         daq: Dut,
         peripherals: SimpleNamespace | None = None,
     ) -> None:
-        """Initialise the controller, load register defaults, and bring the
-        chip out of reset.
+        """Initialise the controller, load register defaults, and bring the chip out of reset.
 
         Args:
             daq: basil Dut instance providing module access.
@@ -178,6 +179,7 @@ class Frida:
 
         Args:
             source: ``"gpio"`` or ``"seqout"``.
+
         """
         if source == "gpio":
             self._gpio_out &= ~(1 << self.GPIO_FASTRX_EN_MUX_BIT)
@@ -389,6 +391,7 @@ class Frida:
             pattern: ``"adc"``, ``"comp"``, ``"samp_comp"``,
                 ``"calib"``, or ``"fastrx"``.
             clkdiv: Sequencer clock divider; 1 = full speed.
+
         """
         if pattern not in self.SEQUENCES:
             raise ValueError(f"Unknown pattern {pattern!r}; expected {', '.join(self.SEQUENCES)}")
@@ -426,6 +429,7 @@ class Frida:
 
         Args:
             repeats: Number of sequencer repetitions.
+
         """
         import time
 
@@ -471,6 +475,7 @@ class Frida:
 
         Returns:
             1-D numpy array of raw 32-bit FIFO words.
+
         """
         import time
 
@@ -529,6 +534,7 @@ class Frida:
 
         Returns:
             1-D numpy array of raw 32-bit FIFO words.
+
         """
         import time
 
@@ -561,6 +567,7 @@ class Frida:
             diff: Differential voltage (V).  The AWG outputs
                 ``high = cm + diff/2`` and ``low = cm - diff/2``.
             cm: Common-mode voltage (V), default 0.6 V.
+
         """
         if self.peripherals is None or not hasattr(self.peripherals, "awg"):
             raise RuntimeError("No AWG peripheral configured")

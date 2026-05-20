@@ -1,3 +1,5 @@
+"""FRIDA ADC basic scan and readout script."""
+
 from pathlib import Path
 from time import sleep
 
