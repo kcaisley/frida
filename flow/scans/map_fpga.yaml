@@ -21,6 +21,13 @@ transfer_layer:
           udp_port: 4660
           tcp_connection: true
 
+    - name: serial0
+      type: Serial
+      init:
+          port: /dev/ka3005p
+          baudrate: 9600
+          timeout: 0.05
+
 hw_drivers:
     # FIFO for ADC data readback (TCP streaming, no basil bus involvement).
     # Data flows directly: core -> fifo_32_to_8 -> SiTCP TCP stream.
@@ -70,6 +77,12 @@ hw_drivers:
       type: fast_spi_rx
       interface: tcp
       base_addr: 0x40000
+
+    # Power supply for ADC input voltage (Korad KA3005P)
+    # Connected via USB serial adapter
+    - name: psu0
+      type: ka3005p
+      interface: serial0
 
 # The register layer, provides a higher level way, to name the large bannks of registers used for certain blocks.
 # This will change the API of how these blocks are used, but bring the benefit of convenient aliases.

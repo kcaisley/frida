@@ -75,7 +75,6 @@ daq["seq0"]["COMP"][0:40] =    bitarray("00 00 00 01 01 01 01 01 01 01 01 01 01 
 daq["seq0"]["LOGIC"][0:40] =   bitarray("00 00 00 00 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10")
 daq["seq0"]["RX_EN"][0:40] =   bitarray("00 00 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 00")
 daq["seq0"]["RX_TEST"][0:40] = bitarray("00 00 11 01 01 01 01 01 01 01 10 11 00 00 00 00 00 00 00 00")
-# daq["seq0"]["RX_CLK"][0:40] =  bitarray("00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00")
                                   #      init      | ||                                           ||
                                   #         samp   | ||                                           ||
                                   #                comp0                                          ||
@@ -101,8 +100,8 @@ daq["seq0"].set_en_ext_start(True)  # seq_gen.set_en_ext_start: basil/HL/seq_gen
 # - FASTRX is a fast_spi_rx RegisterHardwareLayer (basil/HL/fast_spi_rx.py)
 # - reset() clears internal state, set_en(True) enables capture on next clock edge
 
-# Enable loopback mode to use sequencer test data instead of COMP_OUT
-daq["gpio0"]["RX_LOOPBACK"] = 1  # Enable fast_spi_rx loopback
+daq["gpio0"]["RX_LOOPBACK"] = 0  # Disable fast_spi_rx loopback
+daq["gpio0"].write()
 daq["fastrx0"].reset()
 daq["fastrx0"].set_en(True)
 
@@ -114,43 +113,79 @@ daq["fastrx0"].set_en(True)
 daq["fifo0"]["RESET"]
 daq["fifo0"].get_data()
 
-# Route fastrx_en from GPIO[6] (SEQ_START pulse) instead of seq_out[5]
+# - RX_EN_MUX=1 means fastrx_en follows seq_out[5]
 # - GPIO is a StdRegister register (basil/RL/StdRegister.py), proxied to gpio driver (basil/HL/gpio.py)
 # - RX_EN_MUX=0 means fastrx_en follows GPIO[6]
 # - write() pushes the full GPIO byte to the FPGA
 daq["gpio0"]["RX_EN_MUX"] = 1
 daq["gpio0"].write()
 
-# Drive GPIO[6] high then low to generate a rising edge trigger pulse
-# RX_EN_MUX=0 means fastrx_en follows GPIO[6], so keep it high until sequencer finishes
-daq["gpio0"]["SEQ_START"] = 1
-daq["gpio0"].write()
+# Capacitor array weights from caparray.sp (bit 0 = LSB = smallest cap)
+# These sum to 2047 = 2^11 - 1 (11-bit DAC range)
+CAP_WEIGHTS = [1, 1, 2, 4, 4, 5, 10, 12, 24, 32, 64, 96, 192, 320, 512, 768]
+DATA_SIZE = daq["fastrx0"].get_size()  # 17
+SPI_MASK = (1 << DATA_SIZE) - 1  # 0x1FFFF
 
-# Wait for sequencer to complete by polling is_done()
-sleep(0.5)
+# Sweep voltages and take measurements
+voltages = [v / 1000.0 for v in range(100, 1101, 100)]  # 100mV to 1000mV in 100mV steps
+print("\nStarting voltage sweep...")
+for v in voltages:
+    print(f"Setting PSU to {v * 1000:.0f} mV ({v:.3f} V)")
+    daq["psu0"].set_voltage(v)
+    daq["psu0"].enable_output()
+    sleep(0.2)
+    actual = daq["psu0"].get_voltage()
+    print(f"PSU readback: {actual * 1000:.0f} mV ({actual:.3f} V)")
 
+    # Drive GPIO[6] high then low to generate a rising edge trigger pulse
+    # RX_EN_MUX=0 means fastrx_en follows GPIO[6], so keep it high until sequencer finishes
+    daq["gpio0"]["SEQ_START"] = 1
+    daq["gpio0"].write()
 
-# Now safe to release SEQ_START without cutting off fastrx_en mid-capture
-daq["gpio0"]["SEQ_START"] = 0
-daq["gpio0"].write()
+    # Wait for sequencer to complete by polling is_done()
+    sleep(0.5)
 
-while not daq["seq0"].is_done():  # is_done will not actually return 1, unless SEQ_START is ended.
-    sleep(0.01)
+    # Now safe to release SEQ_START without cutting off fastrx_en mid-capture
+    daq["gpio0"]["SEQ_START"] = 0
+    daq["gpio0"].write()
 
-# Reset sequencer state machine so outputs don't latch at last-step values
-daq["seq0"].reset()
-data = daq["fifo0"].get_data()
-print("FIFO words: %d" % len(data))
+    while not daq["seq0"].is_done():  # is_done will not actually return 1, unless SEQ_START is ended.
+        sleep(0.01)
 
-data_size = daq["fastrx0"].get_size()
+    # Reset sequencer state machine so outputs don't latch at last-step values
+    daq["seq0"].reset()
+    data = daq["fifo0"].get_data()
+    print(f"FIFO ({len(data)} words)")
 
-for i in range(min(16, len(data))):
-    identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(data[i]))
-    data_str = f"{spi_data:0{data_size}b}"
-    frame_str = f"{frame_counter:0{28 - data_size}b}" if 28 - data_size > 0 else ""
-    if frame_str:
-        print(f"  [{i}] ID={identifier:04b} frame={frame_str} data={data_str}")
-    else:
-        print(f"  [{i}] ID={identifier:04b} data={data_str}")
+    # Show raw parsed words
+    for i in range(min(16, len(data))):
+        identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(data[i]))
+        data_str = f"{spi_data:0{DATA_SIZE}b}"
+        frame_str = f"{frame_counter:0{28 - DATA_SIZE}b}" if 28 - DATA_SIZE > 0 else ""
+        if frame_str:
+            print(f"  [{i}] ID={identifier:04b} frame={frame_str} data={data_str}")
+        else:
+            print(f"  [{i}] ID={identifier:04b} data={data_str}")
 
+    # Decimate 34 raw bits -> 17 bits (keep even samples), apply capacitor weights
+    raw_codes = []
+    for pair_idx in range(len(data) // 2):
+        w0 = int(data[2 * pair_idx]) & SPI_MASK
+        w1 = int(data[2 * pair_idx + 1]) & SPI_MASK
+
+        combined = w0 | (w1 << DATA_SIZE)
+        result_17 = 0
+        for i in range(DATA_SIZE):
+            result_17 |= ((combined >> (2 * i)) & 1) << i
+
+        code = sum(CAP_WEIGHTS[i] * ((result_17 >> i) & 1) for i in range(16))
+        raw_codes.append(code)
+
+    avg = sum(raw_codes) / len(raw_codes) if raw_codes else 0
+    print(f"    Raw codes: {raw_codes}")
+    print(f"  V={v * 1000:.0f}mV  mean_code={avg:.1f}")
+
+    daq["psu0"].disable_output()
+
+print("Done.")
 daq.close()
