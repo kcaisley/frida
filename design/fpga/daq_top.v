@@ -474,7 +474,7 @@ module daq_top (
     assign V_2V5_HI = v_2v5_hi;
     assign SPI_SCLK = spi_sclk;
     assign SPI_SDI  = spi_sdi;
-    assign spi_sdo  = SPI_SDO;  // signal coming from ASIC
+    assign spi_sdo  = SPI_SDO;  // Signal coming from ASIC
     assign SPI_CS_B = spi_cs_b;
     assign RST_B    = rst_b;
     assign AMPEN_B  = ampen_b;
@@ -484,12 +484,12 @@ module daq_top (
     // PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
     // Pins 5,6,11,12 are GND/VCC — not available as signals.
     assign PMOD[0]  = spi_sclk;  // Pin 1: SPI_SCLK
-    assign PMOD[1]  = spi_sdi;  // Pin 2: SPI_SDI  (MOSI)
-    assign PMOD[2]  = spi_sdo;  // Pin 3: SPI_SDO  (MISO)
+    assign PMOD[1]  = spi_sdi;   // Pin 2: SPI_SDI  (MOSI)
+    assign PMOD[2]  = spi_sdo;   // Pin 3: SPI_SDO  (MISO)
     assign PMOD[3]  = comp_out;  // Pin 4: now comp_out, prev was SPI_CS_B
     assign PMOD[4]  = clk_init;  // Pin 7: CLK_INIT
     assign PMOD[5]  = clk_samp;  // Pin 8: CLK_SAMP
     assign PMOD[6]  = clk_comp;  // Pin 9: CLK_COMP
-    assign PMOD[7]  = clk_logic;  // Pin 10: CLK_LOGIC
+    assign PMOD[7]  = clk_logic; // Pin 10: CLK_LOGIC
 
 endmodule

@@ -41,7 +41,7 @@ module daq_core #(
     input wire                 BUS_WR,
 
     // Sequencer clock input (directly from PLL, no division)
-    input wire SEQ_CLK,  // 200 MHz sequencer clock
+    input wire SEQ_CLK,  // 400 MHz sequencer clock
 
     // Sequencer outputs -> LVDS transmitters on PCB
     // Active sequencer tracks directly drive the 4 LVDS clock pairs
