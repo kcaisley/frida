@@ -5,7 +5,7 @@ export PLATFORM               = tsmc65
 # Top-level Verilog files (flattened design) - include platform clock gate cells and IO cells
 export VERILOG_FILES = $(DESIGN_HOME)/src/frida/compmux.v \
                        $(DESIGN_HOME)/src/frida/frida_core.v \
-                       $(DESIGN_HOME)/src/frida/spi_register.v \
+                       $(DESIGN_HOME)/src/frida/frida_spi.v \
                        $(DESIGN_HOME)/src/frida/cells_tsmc65.v \
                        $(DESIGN_HOME)/src/frida/adc_macro.v \
 
@@ -45,7 +45,7 @@ export MACRO_PLACEMENT_TCL = $(DESIGN_HOME)/$(PLATFORM)/frida/core/macro.tcl
 # -------------------------------------------------------
 
 export PLACE_DENSITY = 0.6
-# Necessary since DNW of differen votlage must be 
+# Necessary since DNW of differen votlage must be
 export MACRO_PLACE_HALO = 2.8 2.8
 
 # PDN configuration for hierarchical design with multiple supply domains

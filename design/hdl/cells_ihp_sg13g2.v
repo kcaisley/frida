@@ -35,6 +35,41 @@ module OPENROAD_DFFE (
 
 endmodule
 
+// Generic OPENROAD enabled flip-flop with active-low reset mapped to IHP SG13G2
+// Since IHP-SG13G2 doesn't have a native enabled reset DFF, we implement it with mux + DFF
+module OPENROAD_DFFER (
+    D,
+    C,
+    E,
+    R,
+    Q
+);
+    input D;  // Data input
+    input C;  // Clock input
+    input E;  // Enable input
+    input R;  // Active-low reset input
+    output Q;  // Data output
+
+    wire mux_out;
+
+    // When E=1, pass D; when E=0, pass current Q (feedback for hold)
+    sg13g2_mux2_1 enable_mux (
+        .A0(Q),
+        .A1(D),
+        .S (E),
+        .X (mux_out)
+    );
+
+    sg13g2_dfrbp_1 dff_cell (
+        .D      (mux_out),
+        .CLK    (C),
+        .RESET_B(R),
+        .Q      (Q),
+        .Q_N    ()
+    );
+
+endmodule
+
 // Generic OPENROAD XOR gate mapped to IHP SG13G2 XOR
 module OPENROAD_CLKXOR (
     A,

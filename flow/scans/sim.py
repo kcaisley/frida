@@ -178,7 +178,7 @@ def verilog_sources() -> list[Path]:
         DESIGN_FPGA / "daq_core.v",
         DESIGN_HDL / "tb_integration.v",
         DESIGN_HDL / "frida_core_1chan.v",
-        DESIGN_HDL / "spi_register.v",
+        DESIGN_HDL / "spi.v",
         DESIGN_HDL / "adc_stub.v",
         basil_fw / "utils" / "RAMB16_S1_S9_sim.v",
     ]

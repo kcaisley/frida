@@ -551,7 +551,7 @@ frida/ (top-level)
 - SPI register instance (`spi_reg`)
 - Comparator multiplexer (`comp_mux`)
 - Complete pad ring instantiation
-- `spi_register.v`: 1280-bit shift register
+- `frida_spi.v`: 180-bit shift register with explicit OPENROAD cells
 - `compmux.v`: 16:1 combinational multiplexer
 - `adc.v`: Individual ADC (hardened from lower level)
 

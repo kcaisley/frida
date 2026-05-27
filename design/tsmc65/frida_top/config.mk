@@ -6,7 +6,7 @@ export PLATFORM               = tsmc65
 export VERILOG_FILES = $(DESIGN_HOME)/src/frida/compmux.v \
                        $(DESIGN_HOME)/src/frida/frida_core.v \
                        $(DESIGN_HOME)/src/frida/frida_top_tsmc65.v \
-                       $(DESIGN_HOME)/src/frida/spi_register.v \
+                       $(DESIGN_HOME)/src/frida/frida_spi.v \
                        $(DESIGN_HOME)/src/frida/cells_tsmc65.v
 
 # Top-level constraints
@@ -22,7 +22,7 @@ export BLOCKS = adc
 export DONT_USE_CELLS =
 
 # If we wanted to only keep some modules heiarchical, with SYNTH_HIERARCHICAL = 0
-# export SYNTH_KEEP_MODULES = 
+# export SYNTH_KEEP_MODULES =
 
 
 # export SYNTH_BLACKBOXES =

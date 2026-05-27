@@ -12,6 +12,86 @@
 - HDL21 SPICE netlist generation
 - HDL21-generated SPICE testbench simulation
 
+## Current SiliconCompiler structure
+
+FRIDA should use SiliconCompiler as the build-system source of truth wherever the task fits SiliconCompiler's model. The project schema should own source files, filesets, PDK selection, flows, job names, build directories, metrics, manifests, and generated artifacts. Custom Python should be limited to functionality SiliconCompiler does not provide directly, such as HDL21 analog netlist generation, SPICE result parsing, and FRIDA-specific analog spec checks.
+
+The current SPI migration is the reference pattern for unit-level digital blocks:
+
+| File | Design variant | Intended entry points |
+|---|---|---|
+| `flow/sc/spi.py` | behavioral `design/hdl/spi.v` implementation | `sim`, `syn`, `asic` |
+| `flow/sc/frida_spi.py` | explicit generated flip-flop / `OPENROAD_*` implementation in `design/hdl/frida_spi.v` | `sim`, `syn`, `asic` |
+
+Use SiliconCompiler's `smake` app for selecting these entry points. `smake` is the installed SiliconCompiler make-like command runner; it discovers public functions in a Python file and exposes them as target subcommands. This is a better fit than parsing ad-hoc positional modes in each file. In this SiliconCompiler version, `smake` selects files with `--file`; if FRIDA wants dotted module names such as `flow.sc.spi sim`, add only a thin package wrapper that resolves the module to a file and then delegates to `smake`, rather than replacing SiliconCompiler's target-discovery model.
+
+```sh
+uv run smake --file flow/sc/spi.py sim
+uv run smake --file flow/sc/spi.py syn
+uv run smake --file flow/sc/spi.py asic
+
+uv run smake --file flow/sc/frida_spi.py sim
+uv run smake --file flow/sc/frida_spi.py syn
+uv run smake --file flow/sc/frida_spi.py asic
+```
+
+Public functions are selectable targets. Private helpers and project classes are implementation details:
+
+```python
+__scdefault = "sim"
+
+class SpiDesign(Design):
+    ...
+
+class SpiSimProject(Sim):
+    ...
+
+class SpiIhp130Project(ASIC):
+    ...
+
+
+def sim(jobname: str = "sim", remote: bool = False) -> None:
+    ...
+
+
+def syn(jobname: str = "ihp130", remote: bool = False) -> None:
+    ...
+
+
+def asic(jobname: str = "ihp130", remote: bool = False, screenshot: bool = True) -> None:
+    ...
+```
+
+This gives the desired integration behavior: one file can define many named simulations or builds, but only the selected target runs. For example, future blocks can add `sim_reset`, `sim_randomized`, `sim_post_synth`, `syn`, `asic`, or `analog_characterize` functions without forcing all of them to execute.
+
+The underlying SiliconCompiler projects still follow the schema model. The selected function constructs a `Design` plus a `Sim` or `ASIC` project, adds the required filesets, sets the flow, runs, summarizes, and writes normal `.pkg.json` manifests and `reports/metrics.json` files under `build/<design>/<jobname>/<step>/<index>/`.
+
+Current SPI fileset convention:
+
+| Fileset | Used by | Contents |
+|---|---|---|
+| `rtl` | synthesis / ASIC | DUT RTL only, with top module `spi_register`; for `frida_spi`, this includes the selected PDK wrapper provider `cells_ihp_sg13g2.v` |
+| `rtl.sim` | cocotb simulation / lint | DUT plus Verilog testbench wrapper; for `frida_spi`, this includes technology-independent `cells_behavioral.v` |
+| `sdc` | synthesis / ASIC | timing constraints in `design/constraints/spi_register.sdc` |
+| `testbench.cocotb` | simulation | Python cocotb tests |
+
+Current SPI validation status:
+
+- `sim` passes cocotb unit tests for both the behavioral and explicit-cell SPI implementations.
+- `syn` passes IHP130 Yosys/OpenSTA synthesis for both implementations.
+- `asic` runs IHP130 OpenROAD through detailed route for both implementations and generates report images under `reports/images/`.
+- The installed IHP130 target currently fails in the optional metal-fill/GDS tail, so the SPI `asic` target intentionally stops at `route.detailed`. This is a local target limitation, not an RTL limitation.
+- These runs validate pre-synthesis behavior and buildability. They do not yet prove synthesized-netlist or post-route functional equivalence.
+
+Recommended next integration step: add post-synthesis gate-level simulation targets for both SPI implementations. Those targets should reuse the existing cocotb tests against the synthesized netlists:
+
+```text
+build/spi/ihp130/synthesis/0/outputs/spi_register.vg
+build/frida_spi/ihp130/synthesis/0/outputs/spi_register.vg
+```
+
+After that, use the same pattern for the next digital block: one `flow/sc/<block>.py` file, public `smake` target functions for each simulation/build configuration, schema-backed filesets, and custom tasks only where SiliconCompiler has no built-in support.
+
 ## Linting and formatting
 
 SiliconCompiler has a specialized `Lint` project class. [project.py#L1462](file:///home/kcaisley/libs/siliconcompiler/siliconcompiler/project.py#L1462)
@@ -75,9 +155,9 @@ HDL cleanup plan for Xcelium/Spectre cosimulation:
 - Treat `design/hdl/` cleanup as a staged migration. First get the existing ADC, SPI, and top-level RTL parseable and simulatable with Xcelium, Spectre/AMS, Yosys, and OpenROAD without intentionally changing behavior. Then add cocotb or simulator-level regression tests. Only after that baseline exists should the source RTL be rewritten to remove explicit implementation-cell instantiations.
 - Delete the obsolete single-channel integration path before building new regressions: `frida_core_1chan.v` and `tb_integration.v`. The latter is tied to the old `frida_core_1chan` wrapper and older open-source co-simulation assumptions. [frida_core_1chan.v#L19](file:///home/kcaisley/frida/design/hdl/frida_core_1chan.v#L19), [tb_integration.v#L1](file:///home/kcaisley/frida/design/hdl/tb_integration.v#L1), [tb_integration.v#L152](file:///home/kcaisley/frida/design/hdl/tb_integration.v#L152)
 - Do not include both PDK-specific `cells_*` files in the same HDL compilation. They define the same `OPENROAD_*` module names and are mutually exclusive providers. More importantly, they instantiate PDK standard cells directly, which makes them poor behavioral simulation inputs and fragile for Xcelium/Yosys/OpenROAD frontend parsing. [cells_tsmc65.v#L1](file:///home/kcaisley/frida/design/hdl/cells_tsmc65.v#L1), [cells_ihp_sg13g2.v#L1](file:///home/kcaisley/frida/design/hdl/cells_ihp_sg13g2.v#L1)
-- As an intermediate step, add one technology-independent behavioral provider for the current `OPENROAD_*` primitives, e.g. `cells_openroad_behavioral.v` or `openroad_cells_behavioral.v`. It should model only the current wrapper interfaces: `OPENROAD_DFFE`, `OPENROAD_DFFER`, `OPENROAD_CLKXOR`, `OPENROAD_CLKBUF`, `OPENROAD_CLKINV`, and `OPENROAD_CTRLGATE`. This file is for lint, RTL simulation, Xcelium digital-side compilation, and early Yosys parsing; it is not the final physical implementation library.
+- Use `cells_behavioral.v` as the technology-independent behavioral provider for the current `OPENROAD_*` primitives. It should model only the current wrapper interfaces: `OPENROAD_DFFE`, `OPENROAD_DFFER`, `OPENROAD_CLKXOR`, `OPENROAD_CLKBUF`, `OPENROAD_CLKINV`, and `OPENROAD_CTRLGATE`. This file is for lint, RTL simulation, Xcelium digital-side compilation, and early Yosys parsing; it is not the final physical implementation library.
 - The behavioral models should be simple Verilog, not SystemVerilog-only: continuous assigns for buffer/inverter/xor; `always @(posedge C)` for enabled flops; `always @(posedge C or negedge R)` for active-low reset flops; and a conservative functional clock-gate model such as `assign GCK = CK & E`. The clock-gate model is only a functional approximation, not a latch-based glitch-free signoff model.
-- Current explicit `OPENROAD_*` users are the cleanup targets: `capdriver.v` uses `OPENROAD_CLKXOR`, `clkgate.v` uses `OPENROAD_CTRLGATE`, `salogic.v` uses `OPENROAD_DFFE`, `sampdriver.v` uses `OPENROAD_CLKBUF`/`OPENROAD_CLKINV`, and `spi_register.v` uses `OPENROAD_DFFER`/`OPENROAD_CLKINV`. [capdriver.v#L28](file:///home/kcaisley/frida/design/hdl/capdriver.v#L28), [clkgate.v#L33](file:///home/kcaisley/frida/design/hdl/clkgate.v#L33), [salogic.v#L72](file:///home/kcaisley/frida/design/hdl/salogic.v#L72), [sampdriver.v#L17](file:///home/kcaisley/frida/design/hdl/sampdriver.v#L17), [spi_register.v#L44](file:///home/kcaisley/frida/design/hdl/spi_register.v#L44)
+- Current explicit `OPENROAD_*` users are the cleanup targets: `capdriver.v` uses `OPENROAD_CLKXOR`, `clkgate.v` uses `OPENROAD_CTRLGATE`, `salogic.v` uses `OPENROAD_DFFE`, `sampdriver.v` uses `OPENROAD_CLKBUF`/`OPENROAD_CLKINV`, and `frida_spi.v` uses `OPENROAD_DFFER`/`OPENROAD_CLKINV`. [capdriver.v#L28](file:///home/kcaisley/frida/design/hdl/capdriver.v#L28), [clkgate.v#L33](file:///home/kcaisley/frida/design/hdl/clkgate.v#L33), [salogic.v#L72](file:///home/kcaisley/frida/design/hdl/salogic.v#L72), [sampdriver.v#L17](file:///home/kcaisley/frida/design/hdl/sampdriver.v#L17), [frida_spi.v#L33](file:///home/kcaisley/frida/design/hdl/frida_spi.v#L33)
 - After the baseline simulations pass, eliminate these explicit `OPENROAD_*` instantiations from maintained RTL where possible: replace clock buffers/inverters/xors with assigns, replace enabled flops with normal procedural RTL, and leave actual clock-gating/mapping to synthesis or a dedicated technology-mapping step. This should be done with regression tests in place so functional changes are visible.
 - Fileset rule: every compilation should include exactly one implementation of the `OPENROAD_*` wrappers. Use the behavioral provider for lint, cocotb/digital simulation, Xcelium AMS compilation, and frontend parse checks. Use PDK/stdcells only in synthesis, place-and-route, or post-layout/netlist contexts where the selected technology library is also present.
 

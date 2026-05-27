@@ -9,11 +9,9 @@ dependencies = [
     "pydantic",
     "pytest",
     "argcomplete",
-    "fusesoc",
+    "siliconcompiler",
     # Circuit design (hdl21/vlsir ecosystem)
     "klayout",
-    "grpcio",
-    "grpcio-tools",
     "protobuf",
     "hdl21",
     "vlsir",
@@ -31,6 +29,7 @@ dependencies = [
     "bitarray",
     "pyvisa",
     "pyvisa-py",
+    "pyserial",
     # Layout
 ]
 
@@ -53,7 +52,7 @@ vlsir = { path = "libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "libs/Vlsir/VlsirTools", editable = true }
 basil-daq = { path = "libs/basil", editable = true }
 spicebind = { path = "libs/spicebind", editable = true }
-cocotb = { path = "libs/cocotb", editable = true }
+
 cocotbext-ams = { path = "libs/cocotbext-ams", editable = true }
 
 [tool.pyright]

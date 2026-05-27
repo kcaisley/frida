@@ -120,7 +120,7 @@ def create_adc_block(vdd=1.2) -> AnalogBlock:
     # extra_lines: PDK models, stdcell SPICE, subcircuit includes
 
 def verilog_sources() -> list[Path]:
-    # tb_integration.v, frida_core_1chan.v, spi_register.v,
+    # tb_integration.v, frida_core_1chan.v, spi.v,
     # adc_stub.v, daq_core.v, RAMB16_S1_S9_sim.v
 ```
 

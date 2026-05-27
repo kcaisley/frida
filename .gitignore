@@ -8,6 +8,7 @@ design/aor/*.gds
 # Python
 .pytest_cache
 __pycache__
+.coverage
 .ruff_cache
 .venv*
 uv.lock
@@ -87,3 +88,4 @@ xrun.log
 
 # Cocotb / simulation
 sim_build/
+build/
