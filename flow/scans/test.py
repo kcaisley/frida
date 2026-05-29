@@ -65,7 +65,7 @@ def sim_runner():
     from cocotb_tools.runner import get_runner
 
     basil_fw = Path(basil.__file__).parent / "firmware" / "modules"
-    build_dir = REPO / "scratch" / "sim" / "daq_core"
+    build_dir = REPO / "build" / "sim" / "daq_core"
 
     runner = get_runner("icarus")
     runner.build(

@@ -37,5 +37,5 @@
     { "primary": "mbias1", "mirror": "mbias2" },
     { "primary": "mbias3", "mirror": "mbias4" }
   ],
-  "output_def": "scratch/comp_floorplanned.def"
+  "output_def": "build/comp_floorplanned.def"
 }

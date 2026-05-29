@@ -43,7 +43,7 @@ SaveMode = hs.SaveMode
 
 # Default simulation options for Spectre
 sim_options = SimOptions(
-    rundir=Path("./scratch"),
+    rundir=Path("./build"),
     fmt=ResultFormat.SIM_DATA,
     simulator=SupportedSimulators.SPECTRE,
 )

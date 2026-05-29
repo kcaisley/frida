@@ -1,6 +1,4 @@
 # General
-/scratch
-/pdk/*/scratch/
 design/aor/*.def
 design/aor/*.gds
 /.zed

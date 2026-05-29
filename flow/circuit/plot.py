@@ -74,7 +74,7 @@ def _get_plt():
     return _plt
 
 
-def save_plot(fig, filename_base: str, output_dir: Path = Path("scratch")) -> list[str]:
+def save_plot(fig, filename_base: str, output_dir: Path = Path("build")) -> list[str]:
     """
     Save plot in both PDF and PNG formats.
 
@@ -86,7 +86,7 @@ def save_plot(fig, filename_base: str, output_dir: Path = Path("scratch")) -> li
     Returns:
         List of saved file paths
     """
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     saved = []
 
     fig.tight_layout()

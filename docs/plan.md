@@ -564,11 +564,11 @@ Wire up all three components for the comparator as a proof-of-concept.
 
 - [ ] Extend `flow/cli.py` with a new `openroad` subcommand:
   ```
-  flow openroad -c comp -t ihp130 -o scratch/
+  flow openroad -c comp -t ihp130 -o build/
   ```
   - Calls `run_openroad_prep()` to generate all input files
   - Prints summary: file paths, constraint count, stem cell count
-  - Does NOT run OpenROAD (that's manual: `openroad scratch/flow.tcl`)
+  - Does NOT run OpenROAD (that's manual: `openroad build/flow.tcl`)
 
 ---
 

@@ -187,14 +187,14 @@ Key points:
 
 ---
 
-## Phase 1: Prototype verification (scratch/test* directories)
+## Phase 1: Prototype verification (build/test* directories)
 
 Work backward-to-forward, verifying each layer of the system before adding
-the next. All prototype work lives in `scratch/test*/` directories.
+the next. All prototype work lives in `build/test*/` directories.
 
 ---
 
-### Step 4: Fix comparator netlist generator (`scratch/test1`)
+### Step 4: Fix comparator netlist generator (`build/test1`)
 
 Fix the HDL21 comparator netlist generator so it produces correct SPICE.
 Verify by generating both the DUT subcircuit and a SPICE testbench, then
@@ -211,7 +211,7 @@ switching with the fixed netlist. No Xcelium or Verilog involved yet.
 
 ---
 
-### Step 5: Xcelium + Spectre AMS with Verilog testbench (`scratch/test2`)
+### Step 5: Xcelium + Spectre AMS with Verilog testbench (`build/test2`)
 
 Replace the SPICE test signal generation with a Verilog testbench. The
 Verilog testbench drives analog inputs via `real` variables → `wreal` nets,
@@ -303,7 +303,7 @@ Verilog. VCD files readable by gtkwave and bspwave without post-processing.
 
 ---
 
-### Step 6: Add analog probes for internal signals (`scratch/test3`)
+### Step 6: Add analog probes for internal signals (`build/test3`)
 
 Same configuration as Step 5, but add `$cds_get_analog_value` probes to
 expose internal comparator signals as `real` variables in the VCD.
@@ -372,7 +372,7 @@ via VCD, matching the nutascii `.raw` data.
 
 ---
 
-### Step 7: cocotb-driven stimulus (`scratch/test4`)
+### Step 7: cocotb-driven stimulus (`build/test4`)
 
 Remove the inline Verilog stimulus and drive everything from a cocotb test.
 Use cocotb's Python runner in direct mode (no pytest).
@@ -537,7 +537,7 @@ stimulus. Runs via `python test_comp.py` (direct) or `uv run flow simulate`.
 ## Phase 2: Integration (after prototyping is proven)
 
 Steps below build on the verified prototype from Phase 1. File locations
-move from `scratch/test*/` to `flow/` and `design/` as appropriate.
+move from `build/test*/` to `flow/` and `design/` as appropriate.
 
 ---
 
@@ -722,6 +722,6 @@ driving `wreal` ports via `real` variables (see Step 5 signal chain).
 | `flow/scans/host.py` | Frida class (moved from daq/host/) |
 | `flow/scans/map_sim.yaml` | Basil config with SiSim + SerialSim |
 | `flow/scans/map_fpga.yaml` | Basil config for hardware |
-| `scratch/test*/` | Prototype testbenches, probes, cocotb tests |
+| `build/test*/` | Prototype testbenches, probes, cocotb tests |
 | `libs/basil/basil/TL/SerialSim.py` | New basil TL for instrument mocking |
 | `libs/basil/basil/utils/sim/AnalogDriver.py` | SIMULATION_MODULE for wreal |

@@ -62,7 +62,7 @@ flow primitive -c <cell> -t <tech> -m <mode> [-v] [-o <dir>]
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
 | `-v, --visual` | (flag) | off |
-| `-o, --out` | output directory | `scratch` |
+| `-o, --out` | output directory | `build` |
 
 Example:
 
@@ -86,7 +86,7 @@ flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--scope <scope>] [--monte
 | `-f, --fmt` | `spectre`, `ngspice`, `cdl`, `verilog` | `spectre` |
 | `--scope` | `dut`, `stim`, `full` | `full` |
 | `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `scratch/<cell>` |
+| `-o, --out` | output directory | `build/<cell>` |
 
 The `--mode` flag controls how many parameter variants are generated:
 `max` (default) writes all valid combinations, `min` writes only the first 10.
@@ -130,7 +130,7 @@ flow layout -c <cell> -t <tech> [-o <dir>]
 |------|--------|---------|
 | `-c, --cell` | `comp` | (required) |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-o, --out` | output directory | `scratch` |
+| `-o, --out` | output directory | `build` |
 
 Example:
 
@@ -155,7 +155,7 @@ flow simulate -c <cell> -t <tech> -m <mode> [-s <sim>] [--host <host>] [--montec
 | `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
 | `--host` | remote hostname | local |
 | `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `scratch/<cell>` |
+| `-o, --out` | output directory | `build/<cell>` |
 
 Examples:
 
@@ -185,7 +185,7 @@ flow scan --sequence [required]
 --sequence [none, adc, comp, calib] # determines which sequence to apply (in the hdl sequencer)
 --rate [integer] # full sequence runs per second. Determines both the divider for the repeat rate of the sequencer, and the update rate on the input voltage]
 --cycles [integer] # default = 1, for each input, number of repetitions of the sequencer/inputs. If more than one channel is selected, that provides a higher level of sweep.
---results [default=false, true]. # Determine if results are written just in output, or if they are actually saved to the files system in the path defined in the cli (I think the default is in frida/scratch/?)
+--results [default=false, true]. # Determine if results are written just in output, or if they are actually saved to the files system in the path defined in the cli (I think the default is in frida/build/?)
 ```
 
 # Installation

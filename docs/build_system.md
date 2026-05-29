@@ -138,17 +138,17 @@ AMS/cosimulation style:
 - Use `real` variables for cocotb-visible analog stimulus values in the testbench.
 - Use `wreal` nets for analog-valued signals that must propagate through Verilog hierarchy to a Spectre electrical/SPICE boundary.
 - Bridge cocotb-driven `real` variables to `wreal` nets with continuous assignments: `real vin_p_val; wreal vin_p; assign vin_p = vin_p_val;`.
-- Keep `wreal`-bearing wrappers/stubs small and Verilog-compatible: use `wire`/`reg`, not SystemVerilog `logic`, in files that must also pass Verilator lint. In local tests, Verilator accepted `wreal` only when VAMS keyword mode was enabled, and that mode did not recognize `logic`. [cosim_wreal_ports.sv#L2](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_wreal_ports.sv#L2), [cosim_wreal_ports.sv#L10](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_wreal_ports.sv#L10)
+- Keep `wreal`-bearing wrappers/stubs small and Verilog-compatible: use `wire`/`reg`, not SystemVerilog `logic`, in files that must also pass Verilator lint. In local tests, Verilator accepted `wreal` only when VAMS keyword mode was enabled, and that mode did not recognize `logic`. [cosim_wreal_ports.sv#L2](file:///home/kcaisley/frida/build/cosim_lint/cosim_wreal_ports.sv#L2), [cosim_wreal_ports.sv#L10](file:///home/kcaisley/frida/build/cosim_lint/cosim_wreal_ports.sv#L10)
 - Xcelium enables `wreal` with `xrun -ams`; Verilator lint needs VAMS keyword mode for `wreal`. Use guarded VAMS keyword directives in lint-compatible AMS stubs if the file is parsed by Verilator, but do not include those directives in Xcelium mode.
-- Cadence-only analog probe system tasks, such as `$cds_analog_is_valid` and `$cds_get_analog_value`, are not Verilator-compatible. Put those probes in an Xcelium-only fileset rather than adding lint ignores. [cosim_xcelium_probe.sv#L8](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_xcelium_probe.sv#L8)
+- Cadence-only analog probe system tasks, such as `$cds_analog_is_valid` and `$cds_get_analog_value`, are not Verilator-compatible. Put those probes in an Xcelium-only fileset rather than adding lint ignores. [cosim_xcelium_probe.sv#L8](file:///home/kcaisley/frida/build/cosim_lint/cosim_xcelium_probe.sv#L8)
 - The current `adc_stub.v` already demonstrates the intended branch structure: wire-only ports for `COCOTBEXT_AMS`, `real` ports for `SPICEBIND`, and `wreal` ports for Xcelium AMS. [adc_stub.v#L34](file:///home/kcaisley/frida/design/hdl/adc_stub.v#L34), [adc_stub.v#L40](file:///home/kcaisley/frida/design/hdl/adc_stub.v#L40), [adc_stub.v#L44](file:///home/kcaisley/frida/design/hdl/adc_stub.v#L44)
 
-Local lint experiments were run in `scratch/cosim_lint/`:
+Local lint experiments were run in `build/cosim_lint/`:
 
-- `cosim_wire_only.sv`: plain `wire`/`reg` stub style passed Verilator and Verible. [cosim_wire_only.sv#L1](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_wire_only.sv#L1)
-- `cosim_real_ports.sv`: `real` ports passed Verilator and Verible. [cosim_real_ports.sv#L1](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_real_ports.sv#L1)
-- `cosim_wreal_ports.sv`: `wreal` ports passed Verilator when guarded with VAMS keyword mode and written without `logic`; Verible also accepted it. [cosim_wreal_ports.sv#L1](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_wreal_ports.sv#L1)
-- `cosim_xcelium_probe.sv`: Verible accepted the Cadence probe syntax, but Verilator rejected the Cadence system tasks. This confirms those modules should be excluded from Verilator lint filesets. [cosim_xcelium_probe.sv#L1](file:///home/kcaisley/frida/scratch/cosim_lint/cosim_xcelium_probe.sv#L1)
+- `cosim_wire_only.sv`: plain `wire`/`reg` stub style passed Verilator and Verible. [cosim_wire_only.sv#L1](file:///home/kcaisley/frida/build/cosim_lint/cosim_wire_only.sv#L1)
+- `cosim_real_ports.sv`: `real` ports passed Verilator and Verible. [cosim_real_ports.sv#L1](file:///home/kcaisley/frida/build/cosim_lint/cosim_real_ports.sv#L1)
+- `cosim_wreal_ports.sv`: `wreal` ports passed Verilator when guarded with VAMS keyword mode and written without `logic`; Verible also accepted it. [cosim_wreal_ports.sv#L1](file:///home/kcaisley/frida/build/cosim_lint/cosim_wreal_ports.sv#L1)
+- `cosim_xcelium_probe.sv`: Verible accepted the Cadence probe syntax, but Verilator rejected the Cadence system tasks. This confirms those modules should be excluded from Verilator lint filesets. [cosim_xcelium_probe.sv#L1](file:///home/kcaisley/frida/build/cosim_lint/cosim_xcelium_probe.sv#L1)
 
 HDL cleanup plan for Xcelium/Spectre cosimulation:
 
@@ -181,7 +181,7 @@ Formatting plan:
 # Netlist generation (on top of Hdl21 and vlsirtools) 
 SiliconCompiler owns orchestration, paths, PDK selection, build directories, job names, dependencies, and artifacts. HDL21/vlsirtools owns circuit elaboration and netlist emission.
 
-So instead of `flow/cli.py` deciding `--out scratch`, `--tech ihp130`, `--fmt spectre`, etc., those become SiliconCompiler project/flow/task settings. Your HDL21 code should only be called from inside SC tasks.
+So instead of `flow/cli.py` deciding `--out build`, `--tech ihp130`, `--fmt spectre`, etc., those become SiliconCompiler project/flow/task settings. Your HDL21 code should only be called from inside SC tasks.
 
 Concretely, I would migrate responsibilities like this:
 

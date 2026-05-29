@@ -59,7 +59,7 @@ def scan_loop(
          b. For each input voltage step (or once in manual mode):
             - Set vin via AWG (unless manual)
             - Trigger sequencer + capture results
-      5. Optionally save NPZ to scratch/scan/
+      5. Optionally save NPZ to build/scan/
 
     If ``sequence == "fastrx"`` or counter-only mode, steps 1–4 are
     skipped and the FIFO is read directly (no chip config needed).
@@ -78,7 +78,7 @@ def scan_loop(
         clkdiv: Sequencer clock divider; 1 = 200 MHz full speed.
         cycles: Number of sequence repetitions per voltage step.
             Passed directly to seq_gen REPEAT register (0 = forever).
-        save: If True, also write results as NPZ to scratch/scan/.
+        save: If True, also write results as NPZ to build/scan/.
         loopback: One of ``"none"``, ``"spi"``, ``"fastrx"``, ``"both"``.
             Enables SPI loopback, fast-RX loopback, or both.
         fifo: One of ``"fastrx"``, ``"counter"``. Selects the FASTRX FIFO
@@ -223,9 +223,9 @@ def scan_loop(
             if input_mode == "manual":
                 break
 
-    # Step 5: Optionally save NPZ to scratch/scan/
+    # Step 5: Optionally save NPZ to build/scan/
     if save:
-        outdir = REPO / "scratch" / "scan"
+        outdir = REPO / "build" / "scan"
         outdir.mkdir(parents=True, exist_ok=True)
         np.savez(
             outdir / f"scan_{sequence}.npz",

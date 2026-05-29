@@ -1,7 +1,7 @@
 * Standalone testbench for comp_latch only
 *
 * Usage:
-*   ngspice -r scratch/tb_comp_latch.raw design/spice/test/tb_comp_latch.sp
+*   ngspice -r build/tb_comp_latch.raw design/spice/test/tb_comp_latch.sp
 *
 * Purpose:
 *   Exercise only the dynamic latch core, without the downstream SR latch.

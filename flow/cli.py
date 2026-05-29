@@ -57,7 +57,7 @@ def main():
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
     p.add_argument("-m", "--mode", default="min", choices=["min", "max"], help="min: default only; max: full sweep")
     p.add_argument("-v", "--visual", action="store_true", help="Open result in KLayout viewer")
-    p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
+    p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
     # Netlist
     p = sub.add_parser("netlist", help="Generate netlists")
@@ -78,13 +78,13 @@ def main():
         help="dut: subcircuits only; stim: TB wrapper + sources; full: complete sim input",
     )
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis to sim input")
-    p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
+    p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
     # Layout
     p = sub.add_parser("layout", help="Run place-and-route via OpenROAD")
     p.add_argument("-c", "--cell", required=True, choices=LAYOUTS, help="Circuit block")
     p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
-    p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
+    p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
     # Simulate
     p = sub.add_parser("simulate", help="Run simulations")
@@ -100,7 +100,7 @@ def main():
     )
     p.add_argument("--host", default=None, help="Remote simulation host (e.g. jupiter)")
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis")
-    p.add_argument("-o", "--out", default="scratch", type=Path, help="Output directory")
+    p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
     # Convert
     p = sub.add_parser("convert", help="Convert netlists between formats (OA/CDL/SP)")
@@ -190,7 +190,7 @@ def main():
         "--save",
         choices=["true", "false"],
         default="false",
-        help="Save captured results to scratch/scan/ as NPZ",
+        help="Save captured results to build/scan/ as NPZ",
     )
     p.add_argument(
         "--vdd",

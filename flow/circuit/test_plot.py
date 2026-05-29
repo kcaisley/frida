@@ -157,7 +157,7 @@ class TestPlotInlDnl:
             save_path = str(Path(tmpdir) / "inl_dnl")
             fig = plot_inl_dnl(result, save_path=save_path)
 
-            # Note: save_path in plot_inl_dnl calls save_plot() which saves to 'scratch' by default
+            # Note: save_path in plot_inl_dnl calls save_plot() which saves to 'build' by default
             # This is a smoke test that the save code path doesn't error
 
         plt.close(fig)
