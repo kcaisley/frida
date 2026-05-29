@@ -21,12 +21,25 @@ transfer_layer:
           udp_port: 4660
           tcp_connection: true
 
-    - name: serial0
-      type: Serial
+    # Previous ADC input supply: Korad KA3005P over USB serial.
+    # - name: serial0
+    #   type: Serial
+    #   init:
+    #       port: /dev/ka3005p
+    #       baudrate: 9600
+    #       timeout: 0.05
+
+    # ADC input source meter: Keithley 2450 over VISA.
+    # Find the exact resource with:
+    #   uv run python -c "import pyvisa; print(pyvisa.ResourceManager('@py').list_resources())"
+    - name: visa0
+      type: Visa
       init:
-          port: /dev/ka3005p
-          baudrate: 9600
-          timeout: 0.05
+          # USB example: USB0::1510::9296::<serialNumber>::0::INSTR
+          # TCP/IP example: TCPIP0::<ip-address>::INSTR
+          resource_name: USB0::1510::9296::04058943::0::INSTR
+          backend: "@py"
+          query_delay: 0.1
 
 hw_drivers:
     # FIFO for ADC data readback (TCP streaming, no basil bus involvement).
@@ -78,11 +91,18 @@ hw_drivers:
       interface: tcp
       base_addr: 0x40000
 
-    # Power supply for ADC input voltage (Korad KA3005P)
-    # Connected via USB serial adapter
+    # Previous power supply for ADC input voltage (Korad KA3005P)
+    # Connected via USB serial adapter.
+    # - name: psu0
+    #   type: ka3005p
+    #   interface: serial0
+
+    # Source meter for ADC input voltage (Keithley 2450)
     - name: psu0
-      type: ka3005p
-      interface: serial0
+      type: scpi
+      interface: visa0
+      init:
+          device: Keithley 2450
 
 # The register layer, provides a higher level way, to name the large bannks of registers used for certain blocks.
 # This will change the API of how these blocks are used, but bring the benefit of convenient aliases.

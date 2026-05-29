@@ -3,8 +3,18 @@
 from pathlib import Path
 from time import sleep
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from basil.dut import Dut
 from bitarray import bitarray
+
+N_SWEEP_POINTS = 100
+V_START = 0.010
+V_STOP = 1.190
+SLEEP_TIME = 0.2
+CONVERSIONS_PER_VIN = 10
 
 daq = Dut(str(Path(__file__).resolve().parent / "map_fpga.yaml"))
 daq.init()
@@ -32,10 +42,10 @@ bits.setall(0)
 # Configure DAC values for ADC channels.
 # All DACs are set to 0x7FFF.
 # These bit arrays are big endian, but the hardware is little endian
-bits[0:16] = bitarray("1111111111111110")  # DAC_ASTATE_P
-bits[16:32] = bitarray("1111111111111110")  # DAC_BSTATE_P
-bits[32:48] = bitarray("1111111111111110")  # DAC_ASTATE_N
-bits[48:64] = bitarray("1111111111111110")  # DAC_BSTATE_N
+bits[0:16] = bitarray("1111111111111111")  # DAC_ASTATE_P
+bits[16:32] = bitarray("1111111111111111")  # DAC_BSTATE_P
+bits[32:48] = bitarray("1111111111111111")  # DAC_ASTATE_N
+bits[48:64] = bitarray("1111111111111111")  # DAC_BSTATE_N
 
 
 # ADC_1 control bits (offset=71, 7 bits wide):
@@ -51,7 +61,11 @@ bits[48:64] = bitarray("1111111111111110")  # DAC_BSTATE_N
 # All 7 bits = 1 means full SAR operation. Only ADC_1 (offset 71..77) is
 # enabled; ADC_0 (offset 64..70) and ADCs 2-15 (offset 78..176) stay 0.
 bits[71:78] = bitarray("1111111")
-bits[176] = 0  # MUX_SEL=0001, so we select ADC 1
+# MUX_SEL[3:0] = 4'b0001, so we select ADC 1.
+# Verilog mapping: mux_sel = spi_bits[179:176], with bit 176 as the LSB.
+# Python slices are half-open, so 176:180 covers exactly four bits: 176, 177, 178, 179.
+# Python slice order is therefore LSB-first: bits[176:180] = [mux_sel[0], ..., mux_sel[3]].
+bits[176:180] = bitarray("1100")
 
 spi_bytes = bits.tobytes()
 daq["spi0"].set_data(list(spi_bytes))
@@ -76,10 +90,9 @@ daq["seq0"].clear()
 # fmt: off
 #                                        0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
 daq["seq0"]["INIT"][0:64] =    bitarray("00 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00")
-# daq["seq0"]["INIT"][0:64] =   bitarray("00 00 00 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 00 00 00 00")
-daq["seq0"]["SAMP"][0:64] =    bitarray("00 00 11 11 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00")
+daq["seq0"]["SAMP"][0:64] =    bitarray("00 00 11 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00")
 daq["seq0"]["COMP"][0:64] =    bitarray("00 00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00")
-daq["seq0"]["LOGIC"][0:64] =   bitarray("00 00 00 00 00 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 00 00 00 00 00 00 00 00 00 00 00")
+daq["seq0"]["LOGIC"][0:64] =   bitarray("00 01 00 00 00 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 00 00 00 00 00 00 00 00 00 00 00")
 daq["seq0"]["RX_EN"][0:64] =   bitarray("00 00 00 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 00 00 00 00")
 daq["seq0"]["RX_TEST"][0:64] = bitarray("00 00 00 00 11 11 01 01 01 01 00 11 01 11 11 01 01 01 01 00 11 00 00 00 00 00 00 00 00 00 00 00")
                                   #      init      | ||                       |                   ||
@@ -99,8 +112,9 @@ daq["seq0"].write(64)  # TrackRegister.write: basil/basil/RL/TrackRegister.py#L3
 # via the TrackRegister object.
 daq["seq0"].set_size(64)  # seq_gen.set_size: basil/HL/seq_gen.py#L59
 daq["seq0"].set_clk_divide(1)  # seq_gen.set_clk_divide: basil/HL/seq_gen.py#L68
-daq["seq0"].set_repeat(4)  # seq_gen.set_repeat: basil/HL/seq_gen.py#L77
-daq["seq0"].set_en_ext_start(True)  # seq_gen.set_en_ext_start: basil/HL/seq_gen.py#L103
+daq["seq0"].set_repeat(CONVERSIONS_PER_VIN)  # seq_gen.set_repeat: basil/HL/seq_gen.py#L77
+# daq["seq0"].set_en_ext_start(True)  # GPIO external start via gpio0.SEQ_START.
+daq["seq0"].set_en_ext_start(False)  # Software start via seq0.start().
 
 # Arm FastRX receiver
 # FASTRX is a fast_spi_rx RegisterHardwareLayer (basil/HL/fast_spi_rx.py)
@@ -125,37 +139,76 @@ daq["fifo0"].get_data()
 daq["gpio0"]["RX_EN_MUX"] = 1
 daq["gpio0"].write()
 
-# Capacitor array weights from caparray.sp (bit 0 = LSB = smallest cap)
-# These sum to 2047 = 2^11 - 1 (11-bit DAC range)
-CAP_WEIGHTS = [1, 1, 2, 4, 4, 5, 10, 12, 24, 32, 64, 96, 192, 320, 512, 768]
-DATA_SIZE = daq["fastrx0"].get_size()  # 17
-SPI_MASK = (1 << DATA_SIZE) - 1  # 0x1FFFF
+# Capacitor array weights from caparray.sp in temporal SAR decision order.
+# The comparator decisions are captured MSB-first, so CAP_WEIGHTS[0] is the first
+# decision weight and CAP_WEIGHTS[-1] is the last weighted decision. These sum to
+# 2047 = 2^11 - 1 (11-bit DAC range).
+CAP_WEIGHTS = [768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1]
+NUM_DECISION_BITS = len(CAP_WEIGHTS)
+NUM_CAPTURE_BITS = NUM_DECISION_BITS + 1  # One extra final post-update comparator sample.
+DATA_SIZE = daq["fastrx0"].get_size()
+if DATA_SIZE != NUM_CAPTURE_BITS:
+    raise RuntimeError(f"FastRX DATA_SIZE={DATA_SIZE}, expected {NUM_CAPTURE_BITS} from CAP_WEIGHTS")
+DECIMATE_PHASE = 0  # Try 1 if the decoded transfer still looks phase-shifted/noisy.
+MAX_RAW_FASTRX_WORDS = 2 * CONVERSIONS_PER_VIN  # Print all expected raw words; all words are still decoded.
+
+
+def scpi_float(value) -> float:
+    """Convert a SCPI response to float, accepting comma-separated readback strings."""
+    return float(str(value).strip().split(",")[0])
+
+
+def decode_conversion(spi0: int, spi1: int) -> tuple[str, int]:
+    """Decode two FastRX words into a comparator trace and 12-bit-scale code.
+
+    fast_spi_rx shifts samples left, so temporal order within each displayed word is
+    left-to-right: bit DATA_SIZE-1 -> bit 0. CAP_WEIGHTS is also in temporal SAR
+    decision order, so decimated sample i maps directly to CAP_WEIGHTS[i]. The extra
+    final post-update compare is retained in the printed trace but not weighted into
+    the code.
+    """
+    samples = [(spi0 >> i) & 1 for i in range(DATA_SIZE - 1, -1, -1)]
+    samples += [(spi1 >> i) & 1 for i in range(DATA_SIZE - 1, -1, -1)]
+    decimated = [samples[DECIMATE_PHASE + 2 * i] for i in range(NUM_CAPTURE_BITS)]
+
+    # FIXME: The -1 weight index is suspicious, but removing it produced a split transfer curve.
+    code_11bit = sum(CAP_WEIGHTS[i - 1] * decimated[i] for i in range(NUM_DECISION_BITS))
+    decoded_bits = "".join(str(bit) for bit in decimated)
+    return decoded_bits, 2 * code_11bit
+
 
 # Sweep voltages and take measurements
-voltages = [v / 1000.0 for v in range(100, 1101, 100)]  # 100mV to 1000mV in 100mV steps
+voltages = [V_START + i * (V_STOP - V_START) / (N_SWEEP_POINTS - 1) for i in range(N_SWEEP_POINTS)]
+
+plot_sample_voltages_mv = []
+plot_sample_codes = []
+
+# Keithley 2450 SCPI setup: source voltage, measure voltage/current as configured by commands.
+daq["psu0"].source_volt()
+
 print("\nStarting voltage sweep...")
 for v in voltages:
     print(f"Setting PSU to {v * 1000:.0f} mV ({v:.3f} V)")
     daq["psu0"].set_voltage(v)
-    daq["psu0"].enable_output()
-    sleep(0.2)
-    actual = daq["psu0"].get_voltage()
+    daq["psu0"].on()
+    sleep(SLEEP_TIME)
+    actual = scpi_float(daq["psu0"].get_voltage())
     print(f"PSU readback: {actual * 1000:.0f} mV ({actual:.3f} V)")
 
-    # Drive GPIO[6] high then low to generate a rising edge trigger pulse
-    # RX_EN_MUX=0 means fastrx_en follows GPIO[6], so keep it high until sequencer finishes
-    daq["gpio0"]["SEQ_START"] = 1
-    daq["gpio0"].write()
+    # Start the sequencer via the Basil bus. RX_EN_MUX=1 keeps FastRX enable driven
+    # by the sequencer RX_EN track, so no GPIO start/holdoff signal is needed.
+    daq["seq0"].start()
 
-    # Wait for sequencer to run through sequence
-    sleep(0.5)
-
-    # Now safe to release SEQ_START without cutting off fastrx_en mid-capture
-    daq["gpio0"]["SEQ_START"] = 0
-    daq["gpio0"].write()
+    # Old GPIO external-start version. If re-enabling this, also set:
+    # daq["seq0"].set_en_ext_start(True)
+    # daq["gpio0"]["SEQ_START"] = 1
+    # daq["gpio0"].write()
+    # sleep(0.001)
+    # daq["gpio0"]["SEQ_START"] = 0
+    # daq["gpio0"].write()
 
     while not daq["seq0"].is_done():  # is_done will not actually return 1, unless SEQ_START is ended.
-        sleep(0.5)
+        sleep(0.1)
         print("Waiting for sequencer!")
 
     # Reset sequencer state machine so outputs don't latch at last-step values
@@ -164,7 +217,7 @@ for v in voltages:
     print(f"FIFO ({len(data)} words)")
 
     # # Show raw parsed words
-    for i in range(min(16, len(data))):
+    for i in range(min(MAX_RAW_FASTRX_WORDS, len(data))):
         identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(data[i]))
         data_str = f"{spi_data:0{DATA_SIZE}b}"
         frame_str = f"{frame_counter:0{28 - DATA_SIZE}b}" if 28 - DATA_SIZE > 0 else ""
@@ -173,29 +226,56 @@ for v in voltages:
         else:
             print(f"  [{i}] ID={identifier:04b} data={data_str}")
 
-    # # Decimate 34 raw bits -> 17 bits (keep even samples), apply capacitor weights
-    # raw_codes = []
-    # for pair_idx in range(len(data) // 2):
-    #     print(f"working on raw codes{pair_idx}")
-    #     w0 = int(data[2 * pair_idx]) & SPI_MASK
-    #     w1 = int(data[2 * pair_idx + 1]) & SPI_MASK
+    # Decimate the two oversampled FastRX words into one comparator trace,
+    # then apply the redundant capacitor weights to the weighted DAC decision bits.
+    # CAP_WEIGHTS sum to 2047 per side; multiply by 2 for a nominal 12-bit-scale code.
+    codes_12bit = []
+    decoded_bits = []
+    if len(data) % 2:
+        print(f"Warning: odd FIFO word count ({len(data)}); ignoring last word for code decode")
 
-    #     combined = w0 | (w1 << DATA_SIZE)
-    #     result_17 = 0
-    #     for i in range(DATA_SIZE):
-    #         result_17 |= ((combined >> (2 * i)) & 1) << i
+    for pair_idx in range(len(data) // 2):
+        _, frame0, spi0 = daq["fastrx0"].parse_word(int(data[2 * pair_idx]))
+        _, frame1, spi1 = daq["fastrx0"].parse_word(int(data[2 * pair_idx + 1]))
+        if frame0 != frame1:
+            print(f"Warning: paired FIFO words have different frames: {frame0} != {frame1}")
 
-    #     code = sum(CAP_WEIGHTS[i] * ((result_17 >> i) & 1) for i in range(16))
-    #     raw_codes.append(code)
+        decoded_trace, code_12bit = decode_conversion(spi0, spi1)
+        decoded_bits.append(decoded_trace)
+        codes_12bit.append(code_12bit)
 
-    # avg = sum(raw_codes) / len(raw_codes) if raw_codes else 0
-    # print(f"Raw codes: {raw_codes}")
-    # print(f"V={v * 1000:.0f}mV  mean_code={avg:.1f}\n")
-
-    daq["psu0"].disable_output()
+    print(f"Decoded {NUM_CAPTURE_BITS}b: {decoded_bits}")
+    print(f"12-bit codes: {codes_12bit}")
+    if codes_12bit:
+        voltage_mv = v * 1000
+        plot_sample_voltages_mv.extend([voltage_mv] * len(codes_12bit))
+        plot_sample_codes.extend(codes_12bit)
+    print(f"V={v * 1000:.1f}mV\n")
 
     # sleep based on Alex's gut feeling
-    sleep(0.5)
+    sleep(SLEEP_TIME)
+
+daq["psu0"].off()
+daq.close()
+
+if plot_sample_codes:
+    plot_path = Path(__file__).resolve().parents[2] / "build" / "basic_scan_transfer.png"
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.scatter(plot_sample_voltages_mv, plot_sample_codes, s=14, alpha=0.45, label="individual conversions")
+    ax.set_title("FRIDA ADC basic voltage sweep")
+    ax.set_xlabel("Input voltage (mV)")
+    ax.set_ylabel("Effective output code (nominal 12-bit scale)")
+    ax.set_xlim(V_START * 1000, V_STOP * 1000)
+    ax.set_ylim(0, 4095)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved transfer plot to {plot_path}")
+else:
+    print("No decoded codes collected; skipping transfer plot.")
 
 print("Done.")
-daq.close()

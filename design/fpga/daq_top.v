@@ -137,7 +137,7 @@ module daq_top (
         .REF_JITTER1   (0.0),
         .STARTUP_WAIT  ("FALSE"),
 
-        .CLKOUT0_DIVIDE    (2),    // 800/2 = 400 MHz (seq_clk)
+        .CLKOUT0_DIVIDE    (16),    // 800/16 = 50 MHz (seq_clk to sequencer and fastrx)
         .CLKOUT0_DUTY_CYCLE(0.5),
         .CLKOUT0_PHASE     (0.0),
 
