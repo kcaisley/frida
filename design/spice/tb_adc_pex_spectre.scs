@@ -1,0 +1,96 @@
+* FRIDA ADC PEX transfer testbench for Spectre.
+*
+* Run from /local/frida after sourcing Cadence:
+*   source /eda/local/scripts/cadence_2024-25.sh
+*   uv run python design/spice/gen_tb_adc_pex_pwl.py
+*   spectre design/spice/tb_adc_pex_spectre.scs +preset=mx +escchars \
+*       +log build/adc_pex_monotonic/tb_adc_pex_monotonic.log \
+*       -raw build/adc_pex_monotonic/tb_adc_pex_monotonic.raw
+*
+* Important: this testbench expects the Calibre PEX output to be an
+* includable Spectre subckt named adc_1layer_radix17.  The DUT instance
+* below follows the extracted subckt pin order from the PEX netlist.
+
+simulator lang=spectre
+
+include "/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs" section=tt_lib
+include "/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs" section=pre_simu
+
+* Calibre xRC Spectre/SOURCENAMES/SINGLEFILE output.
+include "/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist"
+
+parameters vdd=1.2 vcm=0.6 convper=1.28u tstop=154.88u
+
+* Supplies and static configuration.
+vvdd_a   (vdd_a   0) vsource dc=vdd
+vvdd_d   (vdd_d   0) vsource dc=vdd
+vvdd_dac (vdd_dac 0) vsource dc=vdd
+vones    (vlogic1 0) vsource dc=vdd
+
+* Input scan: VIN_P steps from 0.000 V to 1.200 V in 10 mV
+* increments, with one conversion per point.  VIN_N is held at 0.600 V,
+* so Vdiff spans -600 mV to +600 mV over 121 conversion periods.
+* Generate these files before running Spectre:
+*   uv run python design/spice/gen_tb_adc_pex_pwl.py
+vvin_p (vin_p 0) vsource type=pwl file="build/adc_pex/pwl/vin_p.pwl"
+vvin_n (vin_n 0) vsource dc=vcm
+
+* Sequencer clocks from basic.py, using the current FPGA sequencer clock:
+* daq_top.v PLL2 CLKOUT0 = 800 MHz / 16 = 50 MHz, so each sequencer bit is 20 ns.
+* These external PWL files are expanded for all 121 conversion periods by
+* design/spice/gen_tb_adc_pex_pwl.py.
+vseq_init   (seq_init   0) vsource type=pwl file="build/adc_pex/pwl/seq_init.pwl"
+vseq_samp   (seq_samp   0) vsource type=pwl file="build/adc_pex/pwl/seq_samp.pwl"
+vseq_comp   (seq_comp   0) vsource type=pwl file="build/adc_pex/pwl/seq_comp.pwl"
+vseq_update (seq_update 0) vsource type=pwl file="build/adc_pex/pwl/seq_update.pwl"
+
+* PEX DUT instance.  Pin order follows the extracted Spectre subckt:
+* VDD_A VIN_P VSS_A DAC_MODE DAC_DIFFCAPS SEQ_INIT EN_INIT SEQ_SAMP
+* EN_SAMP_P EN_SAMP_N SEQ_COMP EN_COMP SEQ_UPDATE EN_UPDATE COMP_OUT VIN_N
+* VDD_D VSS_D VDD_DAC VSS_DAC, then the 64 DAC state pins in PEX order.
+xadc ( \
+    vdd_a vin_p 0 vlogic1 vlogic1 seq_init vlogic1 seq_samp \
+    vlogic1 vlogic1 seq_comp vlogic1 seq_update vlogic1 comp_out vin_n \
+    vdd_d 0 vdd_dac 0 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+    vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 vlogic1 \
+) adc_1layer_radix17
+
+saveOptions options save=selected rawfmt=nutascii
+
+* Top-level testbench probes.
+save comp_out vin_p vin_n seq_init seq_samp seq_comp seq_update
+
+* Focused internal PEX debug probes.  These are representative RC leaf nodes
+* on source-named nets, not every parasitic segment of each net.
+save \
+    xadc.N_VIN_P_XXsampswitch_p\/MM0_s \
+    xadc.N_VIN_N_XXsampswitch_n\/MM0_s \
+    xadc.N_VDAC_P_XXsampswitch_p\/MM0_d \
+    xadc.N_VDAC_N_XXsampswitch_n\/MM0_d \
+    xadc.N_CLK_SAMP_P_XXsampswitch_p\/MM0_g \
+    xadc.N_CLK_SAMP_N_XXsampswitch_n\/MM0_g \
+    xadc.N_CLK_COMP_XXcomp\/XXLATCH\/MMM0_g \
+    xadc.N_COMP_OUT_P_XXcomp\/XXI3\/XXI46\/MM_u2_1_d \
+    xadc.N_COMP_OUT_N_XXcomp\/XXI3\/XXI47\/MM_u2_1_d
+
+* A few SAR/DAC state and botplate driver bits: MSB, mid-scale, and LSB.
+save \
+    xadc.N_DAC_STATE_P_MAIN\<15\>_XXcapdriver_p_main\/XXxor15_0\/MMM_u2_1\-M_u3_g \
+    xadc.N_DAC_STATE_N_MAIN\<15\>_XXcapdriver_n_main\/XXxor15_0\/MMM_u2_1\-M_u3_g \
+    xadc.N_DAC_STATE_P_MAIN\<8\>_XXcapdriver_p_main\/XXxor8\/MMM_u2\-M_u3_g \
+    xadc.N_DAC_STATE_N_MAIN\<8\>_XXcapdriver_n_main\/XXxor8\/MMM_u2\-M_u3_g \
+    xadc.N_DAC_STATE_P_MAIN\<0\>_XXcapdriver_p_main\/XXxor0\/MMM_u2\-M_u3_g \
+    xadc.N_DAC_STATE_N_MAIN\<0\>_XXcapdriver_n_main\/XXxor0\/MMM_u2\-M_u3_g \
+    xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P\<15\>_XXcapdriver_p_main\/XXxor15_0\/MMM_u4_1\-M_u3_d \
+    xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N\<15\>_XXcapdriver_n_main\/XXxor15_0\/MMM_u4_1\-M_u3_d \
+    xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P\<0\>_XXcapdriver_p_main\/XXxor0\/MMM_u4_1\-M_u3_d \
+    xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N\<0\>_XXcapdriver_n_main\/XXxor0\/MMM_u4_1\-M_u3_d
+
+tran tran stop=tstop
