@@ -1,10 +1,10 @@
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")  # Use non-interactive backend
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import os
+
+import matplotlib.pyplot as plt
 
 
 class CDAC:
@@ -447,8 +447,7 @@ class SAR_ADC:
         )
 
         # do the conversions, assuming input codes have uniform density
-        # Calculating DNL/INL - progress shown by tqdm
-        for i in tqdm(range(len(input_voltage_data))):
+        for i in range(len(input_voltage_data)):
             adc_data[i] = self.sample_and_convert(input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0)
 
         # ADC data array - results now in structured output
@@ -532,8 +531,7 @@ class SAR_ADC:
         adc_data_array = np.empty(len(time_array))
 
         # sample sine wave
-        # Calculating ENOB - progress shown by tqdm
-        for i in tqdm(range(len(time_array))):  # Q: So one cycle of the sine wave?
+        for i in range(len(time_array)):  # Q: So one cycle of the sine wave?
             input_voltage = offset + amplitude * np.sin(2 * np.pi * frequency * time_array[i])
             input_voltage_array[i] = input_voltage
             adc_data_array[i] = self.sample_and_convert(input_voltage, -input_voltage)
@@ -586,8 +584,7 @@ class SAR_ADC:
         adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
         conversion_energy_average = 0
 
-        # Calculating conversion energy - progress shown by tqdm
-        for i in tqdm(range(len(input_voltage_data))):
+        for i in range(len(input_voltage_data)):
             adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2 + common_mode_input_voltage,
                 -input_voltage_data[i] / 2 + common_mode_input_voltage,
@@ -677,7 +674,7 @@ class SAR_ADC:
         )
         input_voltage_data_lsb = np.empty(len(input_voltage_data))
         adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
-        for i in tqdm(range(len(input_voltage_data))):
+        for i in range(len(input_voltage_data)):
             adc_data[i] = self.sample_and_convert(
                 input_voltage_data[i] / 2 + common_mode_input_voltage,
                 -input_voltage_data[i] / 2 + common_mode_input_voltage,
