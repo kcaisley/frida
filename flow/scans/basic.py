@@ -15,7 +15,33 @@ from flow.scans.plot import plot_adc_transfer, write_adc_csv
 # - different DAC init voltages
 # - with diff caps enabled / disabled
 
-NUM_ADCS = 1
+ADC_INDICES = (0,)
+SELECTED_ADC_CFG = "1111111"
+OTHER_ADC_CFG = "0000000"
+RADIX17_CAP_WEIGHTS = [768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1]
+RADIX20_CAP_WEIGHTS = [768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1]
+ADC_CAP_WEIGHTS = {
+    0: RADIX17_CAP_WEIGHTS,
+    1: RADIX20_CAP_WEIGHTS,
+    2: RADIX17_CAP_WEIGHTS,
+    3: RADIX20_CAP_WEIGHTS,
+    4: RADIX17_CAP_WEIGHTS,
+    5: RADIX20_CAP_WEIGHTS,
+    6: RADIX17_CAP_WEIGHTS,
+    7: RADIX20_CAP_WEIGHTS,
+    8: RADIX17_CAP_WEIGHTS,
+    9: RADIX20_CAP_WEIGHTS,
+    10: RADIX17_CAP_WEIGHTS,
+    11: RADIX20_CAP_WEIGHTS,
+    12: RADIX17_CAP_WEIGHTS,
+    13: RADIX20_CAP_WEIGHTS,
+    14: RADIX17_CAP_WEIGHTS,
+    15: RADIX20_CAP_WEIGHTS,
+}
+ADC_CODE_WEIGHTS = {
+    adc_index: [2 * weight for weight in cap_weights] + [1] for adc_index, cap_weights in ADC_CAP_WEIGHTS.items()
+}
+NUM_CAPTURE_BITS = len(ADC_CODE_WEIGHTS[0])
 V_START_MV = 0
 V_STOP_MV = 1200
 V_STEP_MV = 10
@@ -30,15 +56,12 @@ CONVERSIONS_PER_VIN = 10
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "basic_scan"
 
 
-# Capacitor array weights from caparray.sp, labeled left-to-right as C16..C1.
-# These sum to 2047 = 2^11 - 1 (11-bit DAC range). The 17 output-bit weights
-# W16..W0 are [2*C16, 2*C15, ..., 2*C1, 1], which sum to 4095 = 2^12 - 1.
+# Capacitor array weights are labeled left-to-right as C16..C1.
+# The 17 output-bit weights W16..W0 are [2*C16, 2*C15, ..., 2*C1, 1].
 # The 2x factor in W16..W1 follows the recombination shown by Liu et al.,
 # IEEE JSSC 50(11), 2645-2654 (2015), Section III, DOI: 10.1109/JSSC.2015.2466475
-CAP_WEIGHTS = [768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1]
-CODE_WEIGHTS = [2 * weight for weight in CAP_WEIGHTS] + [1]
-NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
-DECIMATE_PHASE = 1  # Try 1 if the decoded transfer still looks phase-shifted/noisy.
+NORMALIZED_CODE_MAX = 4095
+DECIMATE_PHASE = 0  # Try 1 if the decoded transfer still looks phase-shifted/noisy.
 MAX_RAW_FASTRX_WORDS = 2 * CONVERSIONS_PER_VIN  # Print all expected raw words; all words are still decoded.
 
 
@@ -47,12 +70,17 @@ def scpi_float(value) -> float:
     return float(str(value).strip().split(",")[0])
 
 
-def decode_conversion(spi0: int, spi1: int, data_size: int) -> tuple[str, int]:
+def normalize_code(code: int, code_weights: list[int]) -> int:
+    """Scale a weighted ADC code onto the common 0..4095 output range."""
+    return round(code * NORMALIZED_CODE_MAX / sum(code_weights))
+
+
+def decode_conversion(spi0: int, spi1: int, data_size: int, code_weights: list[int]) -> tuple[str, int, str, int]:
     """Decode two FastRX words into Bbits and recombine W16..W0 into Dout.
 
     fast_spi_rx shifts samples left, so temporal order within each displayed word is
     left-to-right: bit DATA_SIZE-1 -> bit 0. The decimated 17-bit output is labeled
-    Bbits = B16..B0 and recombined directly with CODE_WEIGHTS = W16..W0.
+    Bbits = B16..B0 and recombined directly with code_weights = W16..W0.
     """
     if DECIMATE_PHASE not in (0, 1):
         raise ValueError(f"DECIMATE_PHASE must be 0 or 1, got {DECIMATE_PHASE}")
@@ -60,58 +88,67 @@ def decode_conversion(spi0: int, spi1: int, data_size: int) -> tuple[str, int]:
     samples = [(spi0 >> i) & 1 for i in range(data_size - 1, -1, -1)]
     samples += [(spi1 >> i) & 1 for i in range(data_size - 1, -1, -1)]
 
-    decimated = [samples[DECIMATE_PHASE + 2 * i] for i in range(NUM_CAPTURE_BITS)]
+    num_capture_bits = len(code_weights)
+    decimated = [samples[DECIMATE_PHASE + 2 * i] for i in range(num_capture_bits)]
     Bbits = "".join(str(bit) for bit in decimated)
-    Dout = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, decimated))
+    Dout = sum(weight * bit for weight, bit in zip(code_weights, decimated, strict=True))
 
     alt_phase = 1 - DECIMATE_PHASE
-    decimated_alt = [samples[alt_phase + 2 * i] for i in range(NUM_CAPTURE_BITS)]
+    decimated_alt = [samples[alt_phase + 2 * i] for i in range(num_capture_bits)]
     Bbits_alt = "".join(str(bit) for bit in decimated_alt)
-    Dout_alt = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, decimated_alt))
+    Dout_alt = sum(weight * bit for weight, bit in zip(code_weights, decimated_alt, strict=True))
 
     return Bbits, Dout, Bbits_alt, Dout_alt
 
 
 def spi_config_to_bytes(config: dict) -> bytes:
-    """Flatten and print one 180-bit FRIDA SPI config dictionary."""
+    """Flatten, print, and pack one 180-bit FRIDA SPI config dictionary."""
     from bitarray import bitarray
+
+    def set_spi_field_msb_first(msb: int, lsb: int, value: str, field: str) -> None:
+        """Set logical spi_bits[msb:lsb] from a human-readable MSB-first string."""
+        value_bits = bitarray(value[::-1])
+        width = msb - lsb + 1
+        if len(value_bits) != width:
+            raise ValueError(f"{field} must be {width} bits, got {len(value_bits)}")
+        bits[lsb : msb + 1] = value_bits
 
     bits = bitarray(180)
     bits.setall(0)
 
-    dac_fields = ["dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"]
-    for bank, field in enumerate(dac_fields):
-        value = config[field]
-        value_bits = bitarray(value) if isinstance(value, str) else bitarray(value)
-        if len(value_bits) != 16:
-            raise ValueError(f"{field} must be 16 bits, got {len(value_bits)}")
-        bits[16 * bank : 16 * (bank + 1)] = value_bits
+    dac_fields = (
+        ("dac_astate_p", 63, 48),
+        ("dac_bstate_p", 47, 32),
+        ("dac_astate_n", 31, 16),
+        ("dac_bstate_n", 15, 0),
+    )
+    for field, msb, lsb in dac_fields:
+        set_spi_field_msb_first(msb, lsb, config[field], field)
 
     adc_fields = ["en_init", "en_samp_p", "en_samp_n", "en_comp", "en_update", "dac_mode", "dac_diffcaps"]
     mux_sel = int(config["mux_sel"])
     if not 0 <= mux_sel < 16:
         raise ValueError(f"mux_sel must be in 0..15, got {mux_sel}")
+    config_adc = int(config.get("config_adc", mux_sel))
+    if not 0 <= config_adc < 16:
+        raise ValueError(f"config_adc must be in 0..15, got {config_adc}")
     adc_cfg = bitarray([bool(config[field]) for field in adc_fields])
-    channel_mask = config.get("channel_mask", [adc == mux_sel for adc in range(16)])
-    channel_mask_bits = bitarray(channel_mask) if isinstance(channel_mask, str) else bitarray(channel_mask)
-    if len(channel_mask_bits) != 16:
-        raise ValueError(f"channel_mask must be 16 bits, got {len(channel_mask_bits)}")
-    for adc, enabled in enumerate(channel_mask_bits):
-        if enabled:
-            base = 64 + 7 * adc
-            bits[base : base + 7] = adc_cfg
-    bits[176:180] = bitarray(f"{mux_sel:04b}"[::-1])
+    selected_adc_cfg = bitarray(config.get("selected_adc_cfg", adc_cfg))
+    other_adc_cfg = bitarray(config.get("other_adc_cfg", "0000000"))
+    if len(selected_adc_cfg) != 7:
+        raise ValueError(f"selected_adc_cfg must be 7 bits, got {len(selected_adc_cfg)}")
+    if len(other_adc_cfg) != 7:
+        raise ValueError(f"other_adc_cfg must be 7 bits, got {len(other_adc_cfg)}")
+    for adc in range(16):
+        base = 64 + 7 * adc
+        bits[base : base + 7] = selected_adc_cfg if adc == config_adc else other_adc_cfg
+    mux_bits = config.get("mux_bits", f"{mux_sel:04b}")
+    set_spi_field_msb_first(179, 176, mux_bits, "mux_bits")
 
-    dac_headers = []
-    dac_values = []
-    for bank, field in enumerate(dac_fields):
-        start = 16 * bank
-        stop = start + 15
-        dac_headers.append(f"{field}[{start}:{stop}]")
-        dac_values.append(str(config[field]))
-    col_width = 22
-    print("".join(header.ljust(col_width) for header in dac_headers))
-    print("".join(value.ljust(col_width) for value in dac_values))
+    col_width = 32
+    print("DAC state strings are ordered C16..C1, i.e. biggest capacitor to smallest capacitor.")
+    print("".join(f"{field} spi_bits[{msb}:{lsb}]".ljust(col_width) for field, msb, lsb in dac_fields))
+    print("".join(str(config[field]).ljust(col_width) for field, _, _ in dac_fields))
 
     adc_headers = []
     adc_values = []
@@ -125,12 +162,13 @@ def spi_config_to_bytes(config: dict) -> bytes:
         print("".join(header.ljust(col_width) for header in chunk_headers))
         print("".join(value.ljust(col_width) for value in chunk_values))
 
-    mux_header = "MUX_SEL[176:179]"
-    mux_value = bits[176:180].to01()
+    mux_header = "MUX_SEL spi_bits[179:176]"
+    mux_value = bits[176:180][::-1].to01()
     print(mux_header)
     print(mux_value)
 
-    return bits.tobytes()
+    # Flip order, since wire transmission order is inverse of in-register order
+    return bits[::-1].tobytes()
 
 
 def main() -> None:
@@ -193,22 +231,33 @@ def main() -> None:
     # Step 7: Configure the Keithley 2450 as the ADC input voltage source.
     daq["psu0"].source_volt()
 
-    # Step 8: Build the voltage sweep and scan each ADC one at a time.
+    # Step 8: Build the voltage sweep and scan each requested ADC.
     voltages = VINP_SWEEP_V
-    print(f"\nStarting voltage sweep for {NUM_ADCS} ADCs...")
-    print(f"Cap weights C16..C1: {CAP_WEIGHTS}")
-    print(f"Bit weights W16..W0: {CODE_WEIGHTS}")
+    print(f"\nStarting voltage sweep for ADCs {ADC_INDICES}...")
+    print(f"Selected ADC config bits: {SELECTED_ADC_CFG}; other ADC config bits: {OTHER_ADC_CFG}")
+    print("ADC mux/SPI configurations:")
+    for adc_index, cap_weights in ADC_CAP_WEIGHTS.items():
+        radix = "radix20" if cap_weights is RADIX20_CAP_WEIGHTS else "radix17"
+        print(f"  ADC{adc_index:02d}: {radix}, C16..C1={cap_weights}")
 
-    for adc_index in range(NUM_ADCS):
-        print(f"\n=== Starting ADC {adc_index:02d} sweep ===")
+    for adc_index in ADC_INDICES:
+        cap_weights = ADC_CAP_WEIGHTS[adc_index]
+        radix = "radix20" if cap_weights is RADIX20_CAP_WEIGHTS else "radix17"
+        code_weights = ADC_CODE_WEIGHTS[adc_index]
+        mux_bits = f"{adc_index:04b}"
+        case_name = f"adc_{adc_index:02d}"
+        print(f"\n=== Starting ADC {adc_index:02d} sweep ({radix}) ===")
+        print(
+            f"{case_name}: mux_bits={mux_bits}, selected ADC{adc_index:02d} cfg={SELECTED_ADC_CFG}, other cfg={OTHER_ADC_CFG}"
+        )
+        print(f"{case_name}: bit weights W16..W0: {code_weights}")
 
-        # DAC strings are written left-to-right into spi_bits[63:48], [47:32], [31:16], and [15:0].
-        # In frida_core.v, dac_*state_*[15] gets the leftmost character and is the MSB capacitor bit.
+        # DAC strings are MSB-first: the leftmost character becomes dac_*state_*[15].
         spi_config = {
-            "dac_astate_p": "0111111111111111",  # A-state P, used in normal SAR mode
-            "dac_astate_n": "0111111111111111",  # A-state N, used in normal SAR mode
-            "dac_bstate_p": "1111111111111111",  # B-state P, used in calibration mode
-            "dac_bstate_n": "1111111111111111",  # B-state N, used in calibration mode
+            "dac_astate_p": "0000000000000000",  # A-state P, used in normal SAR mode
+            "dac_astate_n": "0000000000000000",  # A-state N, used in normal SAR mode
+            "dac_bstate_p": "0000000000000000",  # B-state P, used in calibration mode
+            "dac_bstate_n": "0000000000000000",  # B-state N, used in calibration mode
             "en_init": 1,  # Enable INIT pulse (DAC reset before conversion)
             "en_samp_p": 1,  # Enable sample phase P-side
             "en_samp_n": 1,  # Enable sample phase N-side
@@ -216,8 +265,11 @@ def main() -> None:
             "en_update": 1,  # Enable DAC update (load SAR decision into DAC)
             "dac_mode": 1,  # SAR mode (0 = calibration mode)
             "dac_diffcaps": 1,  # Enable differential caps (needed for unit caps)
-            "channel_mask": "1100000000000000",  # ADC00..ADC15: 1 = receives clocks/config, 0 = disabled
-            "mux_sel": adc_index,  # Select ADC to observe through the comparator mux
+            "config_adc": adc_index,  # ADC control slot receiving SELECTED_ADC_CFG
+            "selected_adc_cfg": SELECTED_ADC_CFG,
+            "other_adc_cfg": OTHER_ADC_CFG,
+            "mux_sel": adc_index,
+            "mux_bits": mux_bits,
         }
 
         # Program SPI twice, preserving the behavior used by the working single-ADC script.
@@ -235,7 +287,7 @@ def main() -> None:
         bits = bitarray()
         bits.frombytes(spi_bytes)
         bits = bits[:180]
-        print(f"ADC {adc_index:02d} SPI verify: {((bits[1:] ^ rb[1:]).count(1))} mismatches (skip bit 0)")
+        print(f"{case_name}: SPI verify: {((bits[1:] ^ rb[1:]).count(1))} mismatches (skip bit 0)")
 
         # Clear stale capture data before each ADC sweep.
         daq["fifo0"]["RESET"]
@@ -243,33 +295,25 @@ def main() -> None:
 
         rows = []
         for sweep_index, voltage in enumerate(voltages):
-            print(f"ADC {adc_index:02d}: setting PSU to {voltage * 1000:.0f} mV ({voltage:.3f} V)")
+            print(f"{case_name}: setting PSU to {voltage * 1000:.0f} mV ({voltage:.3f} V)")
             daq["psu0"].set_voltage(voltage)
             daq["psu0"].on()
             sleep(SLEEP_TIME)
             actual = scpi_float(daq["psu0"].get_voltage())
-            print(f"ADC {adc_index:02d}: PSU readback {actual * 1000:.0f} mV ({actual:.3f} V)")
+            print(f"{case_name}: PSU readback {actual * 1000:.0f} mV ({actual:.3f} V)")
             vin_n = 0.600
 
             # Start the sequencer via the Basil bus. RX_EN_MUX=1 keeps FastRX enable driven
             # by the sequencer RX_EN track, so no GPIO start/holdoff signal is needed.
             daq["seq0"].start()
 
-            # Old GPIO external-start version. If re-enabling this, also set:
-            # daq["seq0"].set_en_ext_start(True)
-            # daq["gpio0"]["SEQ_START"] = 1
-            # daq["gpio0"].write()
-            # sleep(0.001)
-            # daq["gpio0"]["SEQ_START"] = 0
-            # daq["gpio0"].write()
-
             while not daq["seq0"].is_done():  # is_done will not actually return 1, unless SEQ_START is ended.
                 sleep(0.1)
-                print(f"ADC {adc_index:02d}: waiting for sequencer!")
+                print(f"{case_name}: waiting for sequencer!")
 
             sleep(FAST_RX_DRAIN_SLEEP)
             data = daq["fifo0"].get_data()
-            print(f"ADC {adc_index:02d}: FIFO ({len(data)} words)")
+            print(f"{case_name}: FIFO ({len(data)} words)")
 
             # Show raw parsed words.
             for i in range(min(MAX_RAW_FASTRX_WORDS, len(data))):
@@ -282,13 +326,13 @@ def main() -> None:
                     print(f"[{i}] ID={identifier:04b} data={data_str}")
 
             if len(data) % 2:
-                print(
-                    f"ADC {adc_index:02d}: warning: odd FIFO word count ({len(data)}); ignoring last word for code decode"
-                )
+                print(f"{case_name}: warning: odd FIFO word count ({len(data)}); ignoring last word for code decode")
 
             Dout_list = []
+            Dout_raw_list = []
             Bbits_list = []
             Dout_alt_list = []
+            Dout_alt_raw_list = []
             Bbits_alt_list = []
             for pair_idx in range(len(data) // 2):
                 raw_word0 = int(data[2 * pair_idx])
@@ -296,18 +340,25 @@ def main() -> None:
                 id0, frame0, spi0 = daq["fastrx0"].parse_word(raw_word0)
                 id1, frame1, spi1 = daq["fastrx0"].parse_word(raw_word1)
                 if frame0 != frame1:
-                    print(
-                        f"ADC {adc_index:02d}: warning: paired FIFO words have different frames: {frame0} != {frame1}"
-                    )
+                    print(f"{case_name}: warning: paired FIFO words have different frames: {frame0} != {frame1}")
 
-                Bbits, Dout, Bbits_alt, Dout_alt = decode_conversion(spi0, spi1, data_size)
+                Bbits, Dout_raw, Bbits_alt, Dout_alt_raw = decode_conversion(spi0, spi1, data_size, code_weights)
+                Dout = normalize_code(Dout_raw, code_weights)
+                Dout_alt = normalize_code(Dout_alt_raw, code_weights)
                 Bbits_list.append(Bbits)
                 Dout_list.append(Dout)
+                Dout_raw_list.append(Dout_raw)
                 Bbits_alt_list.append(Bbits_alt)
                 Dout_alt_list.append(Dout_alt)
+                Dout_alt_raw_list.append(Dout_alt_raw)
                 rows.append(
                     {
                         "adc": adc_index,
+                        "config_adc": adc_index,
+                        "mux_bits": mux_bits,
+                        "selected_adc_cfg": SELECTED_ADC_CFG,
+                        "other_adc_cfg": OTHER_ADC_CFG,
+                        "case_name": case_name,
                         "sweep_index": sweep_index,
                         "vin_set_v": voltage,
                         "vin_read_v": actual,
@@ -323,31 +374,37 @@ def main() -> None:
                         "spi1": spi1,
                         "Bbits": Bbits,
                         "Dout": Dout,
+                        "Dout_raw": Dout_raw,
                     }
                 )
 
-            print(f"ADC {adc_index:02d}: Bbits_list B16..B0: {Bbits_list}")
-            print(f"ADC {adc_index:02d}: Bbits__alt B16..B0: {Bbits_alt_list}")
-            print(f"ADC {adc_index:02d}: Dout_list = sum(W16..W0 * B16..B0): {Dout_list}")
-            print(f"ADC {adc_index:02d}: Dout__alt = sum(W16..W0 * B16..B0): {Dout_alt_list}")
+            print(f"{case_name}: Bbits_list B16..B0: {Bbits_list}")
+            print(f"{case_name}: Bbits__alt B16..B0: {Bbits_alt_list}")
+            print(f"{case_name}: Dout_raw = sum(W16..W0 * B16..B0): {Dout_raw_list}")
+            print(f"{case_name}: Dout_norm 0..4095: {Dout_list}")
+            print(f"{case_name}: Dout__alt_raw = sum(W16..W0 * B16..B0): {Dout_alt_raw_list}")
+            print(f"{case_name}: Dout__alt_norm 0..4095: {Dout_alt_list}")
             print(
-                f"ADC {adc_index:02d}: code spread={max(Dout_list) - min(Dout_list) if Dout_list else 'n/a'}, code average={sum(Dout_list) / len(Dout_list) if Dout_list else 'n/a'}"
+                f"{case_name}: code spread={max(Dout_list) - min(Dout_list) if Dout_list else 'n/a'}, code average={sum(Dout_list) / len(Dout_list) if Dout_list else 'n/a'}"
             )
             print(
-                f"ADC {adc_index:02d}: Vdiff={(actual - vin_n) * 1000:.1f}mV, "
+                f"{case_name}: Vdiff={(actual - vin_n) * 1000:.1f}mV, "
                 f"Vin_p={voltage * 1000:.1f}mV, Vin_n={vin_n * 1000:.1f}mV\n"
             )
 
             # sleep based on Alex's gut feeling
             sleep(SLEEP_TIME)
 
-        write_adc_csv(adc_index, rows, SCAN_OUTDIR)
+        csv_path = SCAN_OUTDIR / f"{case_name}.csv"
+        plot_path = SCAN_OUTDIR / f"{case_name}_transfer.png"
+        write_adc_csv(adc_index, rows, SCAN_OUTDIR, csv_path=csv_path)
         plot_adc_transfer(
             adc_index,
             rows,
             SCAN_OUTDIR,
-            title=f"FRIDA ADC {adc_index:02d} basic voltage sweep",
+            title=f"FRIDA ADC {adc_index:02d} voltage sweep ({radix})",
             label="individual conversions",
+            plot_path=plot_path,
         )
         # plot_code_histogram expects rows from repeated conversions at one fixed input voltage.
 

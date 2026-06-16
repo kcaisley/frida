@@ -39,6 +39,11 @@ plt.rcParams.update(
 
 CSV_FIELDS = [
     "adc",
+    "config_adc",
+    "mux_bits",
+    "selected_adc_cfg",
+    "other_adc_cfg",
+    "case_name",
     "sweep_index",
     "vin_set_v",
     "vin_read_v",
@@ -54,6 +59,7 @@ CSV_FIELDS = [
     "spi1",
     "Bbits",
     "Dout",
+    "Dout_raw",
 ]
 
 V_START = 0.000
@@ -162,10 +168,12 @@ def plot_adc_transfer(
     label: str = "conversions",
     color: str | None = None,
     xlim: tuple[float, float] = (VDIFF_START, VDIFF_STOP),
+    plot_path: Path | None = None,
 ) -> Path:
     """Create one transfer plot per ADC from already-saved conversion rows."""
     outdir.mkdir(parents=True, exist_ok=True)
-    plot_path = outdir / f"adc_{adc_index:02d}_transfer.png"
+    plot_path = plot_path or outdir / f"adc_{adc_index:02d}_transfer.png"
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
     vdiff_mv = [row_vdiff_v(row) * 1000 for row in rows]
     codes = [int(row["Dout"]) for row in rows]
 
