@@ -51,10 +51,11 @@ module adc_digital (
     output wire dac_invert_n_diff,  // Negative DAC invert diff (driven by dac_diffcaps)
 
     // Output
-    output wire comp_out,  // Comparator output
+    output wire comp_out  // Comparator output
 
     // Power supply signals
 `ifdef USE_POWER_PINS
+    ,
     inout wire vdd_d,
     vss_d  // Digital supply
 `endif

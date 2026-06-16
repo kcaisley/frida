@@ -19,9 +19,10 @@ module frida_core (
     input  wire reset_b,
 
     // Comparator output (to LVDS TX pad)
-    output wire comp_out,
+    output wire comp_out
 
 `ifdef USE_POWER_PINS
+    ,
     input wire vin_p,    // Positive input
     input wire vin_n,    // Negative input
     inout wire vdd_a,    // Analog supply positive
