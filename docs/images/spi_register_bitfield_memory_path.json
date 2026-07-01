@@ -1,0 +1,120 @@
+{
+  "reg": [
+    {
+      "name": "shared_dac_bstate_n",
+      "bits": 16,
+      "attr": "[15:0]"
+    },
+    {
+      "name": "shared_dac_astate_n",
+      "bits": 16,
+      "attr": "[31:16]"
+    },
+    {
+      "name": "shared_dac_bstate_p",
+      "bits": 16,
+      "attr": "[47:32]"
+    },
+    {
+      "name": "shared_dac_astate_p",
+      "bits": 16,
+      "attr": "[63:48]"
+    },
+    {
+      "name": "ADC0 cfg",
+      "bits": 7,
+      "attr": "[70:64]"
+    },
+    {
+      "name": "ADC1 cfg",
+      "bits": 7,
+      "attr": "[77:71]"
+    },
+    {
+      "name": "ADC2 cfg",
+      "bits": 7,
+      "attr": "[84:78]"
+    },
+    {
+      "name": "ADC3 cfg",
+      "bits": 7,
+      "attr": "[91:85]"
+    },
+    {
+      "name": "ADC4 cfg",
+      "bits": 7,
+      "attr": "[98:92]"
+    },
+    {
+      "name": "ADC5 cfg",
+      "bits": 7,
+      "attr": "[105:99]"
+    },
+    {
+      "name": "ADC6 cfg",
+      "bits": 7,
+      "attr": "[112:106]"
+    },
+    {
+      "name": "ADC7 cfg",
+      "bits": 7,
+      "attr": "[119:113]"
+    },
+    {
+      "name": "ADC8 cfg",
+      "bits": 7,
+      "attr": "[126:120]"
+    },
+    {
+      "name": "ADC9 cfg",
+      "bits": 7,
+      "attr": "[133:127]"
+    },
+    {
+      "name": "ADC10 cfg",
+      "bits": 7,
+      "attr": "[140:134]"
+    },
+    {
+      "name": "ADC11 cfg",
+      "bits": 7,
+      "attr": "[147:141]"
+    },
+    {
+      "name": "ADC12 cfg",
+      "bits": 7,
+      "attr": "[154:148]"
+    },
+    {
+      "name": "ADC13 cfg",
+      "bits": 7,
+      "attr": "[161:155]"
+    },
+    {
+      "name": "ADC14 cfg",
+      "bits": 7,
+      "attr": "[168:162]"
+    },
+    {
+      "name": "ADC15 cfg",
+      "bits": 7,
+      "attr": "[175:169]"
+    },
+    {
+      "name": "mux_sel",
+      "bits": 4,
+      "attr": "[179:176]"
+    }
+  ],
+  "head": {
+    "text": "FRIDA 180-bit SPI configuration register"
+  },
+  "foot": {
+    "text": "Memory/path: host config bytes -> Basil spi0 at 0x20000 -> SPI_SDI sends bit 179 first -> ASIC shift_reg[179:0]. Each ADC cfg is {en_init, en_samp_p, en_samp_n, en_comp, en_update, dac_mode, dac_diffcaps} at BASE=64+7*adc."
+  },
+  "config": {
+    "bits": 180,
+    "lanes": 6,
+    "hspace": 1600
+  }
+}

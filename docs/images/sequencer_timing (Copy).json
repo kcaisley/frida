@@ -1,0 +1,30 @@
+{
+    "signal": [
+        {
+            "name": "sclk",
+            "wave": "0...p...p...p...p...0...................",
+            "node": ".....a...b.............................."
+        },
+        { "name": "cs_b", "wave": "1...0...............1..................." },
+        {
+            "name": "sdi",
+            "wave": "x....=..............x...................",
+            "data": ["spi_bits[179:0]"]
+        },
+        {},
+        { "name": "INIT", "wave": "0.1..0.................................." },
+        { "name": "SAMP", "wave": "0...1...0..............................." },
+        { "name": "COMP", "wave": "0...............010101010101010101010101" },
+        { "name": "LOGIC", "wave": "0..10....0101010101010101010101010101010" }
+    ],
+    "edge": ["a~>b 180 SCLK cycles"],
+    "head": {
+        "text": "FRIDA ADC configuration and sequencer timing"
+    },
+    "foot": {
+        "text": "Top: abbreviated 180-bit SPI transaction. Bottom: INIT, SAMP, COMP, and LOGIC sequencer tracks (cycles 0-39). Cycles 0-1 reset/init; 2-3 sample; 4 comparator precharge; 5-25 SAR bit trials; 26-39 idle."
+    },
+    "config": {
+        "hscale": 1
+    }
+}

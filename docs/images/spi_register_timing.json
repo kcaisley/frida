@@ -1,0 +1,52 @@
+{
+  "signal": [
+    {
+      "name": "rst_b",
+      "wave": "0.1.........|.........|.....",
+      "node": "..r........................."
+    },
+    {
+      "name": "spi_cs_b",
+      "wave": "1...0.......|.........|.1...",
+      "node": "....c...................d..."
+    },
+    {
+      "name": "spi_sclk",
+      "wave": "0....p......|p........|p.0.."
+    },
+    {
+      "name": "spi_sdi",
+      "wave": "x....=......|=........|=x...",
+      "data": ["cfg[179]", "cfg[178] ... cfg[1]", "cfg[0]"]
+    },
+    {
+      "name": "shift_reg",
+      "wave": "x....=......|=........|=....",
+      "data": ["sample cfg[179]", "shift left on each rising edge", "cfg[179:0] loaded"]
+    },
+    {
+      "name": "spi_sdo",
+      "wave": "0....=......|=........|=....",
+      "data": ["old bit[179]", "readback stream", "old bit[0]"]
+    },
+    {
+      "name": "spi_bits[179:0]",
+      "wave": "0....=......|=........|=....",
+      "data": ["partial", "partial", "new config visible"]
+    }
+  ],
+  "edge": [
+    "r~>c release reset before transaction",
+    "c~>d CS_B low for 180 SCLK rising edges",
+    "c-|>d SDI order: cfg[179] first, cfg[0] last"
+  ],
+  "head": {
+    "text": "FRIDA SPI register load timing"
+  },
+  "foot": {
+    "text": "Register shifts on spi_sclk rising edges while spi_cs_b is low; spi_sdo updates on falling edges from the previous MSB."
+  },
+  "config": {
+    "hscale": 2
+  }
+}
