@@ -13,15 +13,21 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 
 The initial prototype is designed in 65 nm and measures 1×1 mm. It contains 16 ADCs, each measuring roughly 60×60 µm. The tapeout was submitted in October 2025, received March 2026, and is currently being characterized.  Here is a GDS render of the chip:
 
-<img src="docs/images/frida_65A.png" alt="Top-level FRIDA prototype layout" width="60%">
+<p align="center">
+  <img src="docs/images/frida_65A.png" alt="Top-level FRIDA prototype layout" width="60%">
+</p>
 
 A micrograph of the fabricated prototype:
 
-<img src="docs/images/frida_dieshot.png" alt="FRIDA prototype die photo" width="60%">
+<p align="center">
+  <img src="docs/images/frida_dieshot.png" alt="FRIDA prototype die photo" width="60%">
+</p>
 
 And the single-chip carrier test card, with wirebonded FRIDA ASIC:
 
-<img src="docs/images/fridascc.jpg" alt="FRIDA SCC test board" width="60%">
+<p align="center">
+  <img src="docs/images/fridascc.jpg" alt="FRIDA SCC test board" width="60%">
+</p>
 
 Detailed command-line usage, build notes, and tool installation instructions are recorded in [`docs/usage.md`](docs/usage.md).
 
