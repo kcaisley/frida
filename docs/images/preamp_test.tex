@@ -1,0 +1,73 @@
+\documentclass[border=3pt]{standalone}
+\usepackage[european]{circuitikz}
+\usetikzlibrary{calc}
+\standaloneenv{circuitikz}
+
+\begin{document}
+
+\begin{circuitikz}[
+  scale=1,
+  european,
+  every node/.style={font=\scriptsize},
+  wire/.style={line width=0.7pt},
+  transistor/.style={line width=0.7pt},
+  rail/.style={line width=1.4pt},
+  netlabel/.style={font=\ttfamily\footnotesize},
+  devlabel/.style={font=\ttfamily\footnotesize, align=left},
+]
+% 5-transistor preamp:
+% MP1/MP2: PMOS precharge/load devices
+% MN1/MN2: NMOS input pair
+% MN3:     NMOS tail device
+
+\coordinate (XP) at (0,2);
+\coordinate (XN) at (3.5,2);
+
+% Devices at shared drain nodes. PMOS devices are mirrored so gates point inward.
+\node[pmos, transistor, xscale=-1, anchor=D] (mp_xp) at (XP) {};
+\node[pmos, transistor, anchor=D] (mp_xn) at (XN) {};
+\node[nmos, transistor, anchor=D] (mn_inn) at (XP) {};
+\node[nmos, transistor, xscale=-1, anchor=D] (mn_inp) at (XN) {};
+
+% Common source node derived from the actual input-pair source anchors.
+\coordinate (SRCMID) at ($(mn_inn.S)!0.5!(mn_inp.S)$);
+\node[nmos, transistor, anchor=D] (mn_tail) at (SRCMID) {};
+
+% VDD rails.
+\draw[wire]
+  (mp_xp.S) -- ++(0,0.35) coordinate (vdd_xp)
+  (mp_xn.S) -- ++(0,0.35) coordinate (vdd_xn);
+\draw[rail]
+  ($(vdd_xp)+(-0.5,0)$) -- ($(vdd_xp)+(0.5,0)$)
+  ($(vdd_xn)+(-0.5,0)$) -- ($(vdd_xn)+(0.5,0)$);
+
+% Input labels directly at the gate anchors; no extra gate lead extension.
+\node[netlabel,left]  at (mn_inn.G) {inn};
+\node[netlabel,right] at (mn_inp.G) {inp};
+
+% PMOS gates point inward and share a compact clock line.
+\draw[wire]
+  (mp_xp.G) -- (mp_xn.G) node[netlabel,midway,above]{clk};
+
+% Output node labels and short connection stubs.
+\draw[wire]
+  (XP) node[circ]{} -- ++(-0.35,0) node[netlabel,left]{xp}
+  (XN) node[circ]{} -- ++( 0.35,0) node[netlabel,right]{xn};
+
+% Input-pair source connection and tail device.
+\draw[wire]
+  (mn_inn.S) |- (SRCMID) -|
+ (mn_inp.S)
+  (mn_tail.G) node[netlabel,left]{clk}
+  (mn_tail.S) -- ++(0,-0.15) node[ground]{};
+
+% Device annotations.
+\node[devlabel, anchor=east] at ($(mp_xp.S)!0.5!(mp_xp.D)+(-0.25,0)$) {MP1\\w=120n\\l=100n};
+\node[devlabel, anchor=west] at ($(mp_xn.S)!0.5!(mp_xn.D)+(0.25,0)$) {MP2\\w=120n\\l=100n};
+\node[devlabel, anchor=west] at ($(mn_inn.D)!0.5!(mn_inn.S)+(0.25,0)$) {MN1\\w=480n\\l=100n};
+\node[devlabel, anchor=east] at ($(mn_inp.D)!0.5!(mn_inp.S)+(-0.25,0)$) {MN2\\w=480n\\l=100n};
+\node[devlabel, anchor=west] at ($(mn_tail.D)!0.5!(mn_tail.S)+(0.25,0)$) {MN3\\w=240n\\l=200n};
+
+\end{circuitikz}
+
+\end{document}
