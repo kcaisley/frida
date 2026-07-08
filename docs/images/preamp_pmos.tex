@@ -1,0 +1,101 @@
+\documentclass[border=3pt]{standalone}
+\usepackage[european]{circuitikz}
+\usetikzlibrary{calc}
+\standaloneenv{circuitikz}
+
+\begin{document}
+\begin{circuitikz}[
+  scale=1,
+  european,
+  wire/.style={line width=0.7pt},
+  transistor/.style={line width=0.7pt},
+  rail/.style={line width=1.4pt},
+  netlabel/.style={font=\ttfamily\footnotesize},
+  devlabel/.style={font=\ttfamily\footnotesize, align=left},
+]
+
+% 28 nm PMOS-input preamp, reconstructed from the FSiC 2026 reference slide.
+% MP4/MP3 form the PMOS current mirror.
+% MP1/MP2 are the PMOS input pair.
+% MN1/MN2 are static NMOS loads biased by vbias.
+
+\coordinate (XP)    at (0,1.45);
+\coordinate (XN)    at (4,1.45);
+\coordinate (PSRC)  at (2,2.65);
+\coordinate (IBIAS) at (0,4.05);
+\coordinate (PMIR)  at (2,4.05);
+
+% Top PMOS current mirror. Gates point inward.
+\node[pmos, transistor, xscale=-1, anchor=D] (mp4) at (IBIAS) {};
+\node[pmos, transistor, anchor=D] (mp3) at (PMIR) {};
+
+% PMOS input pair. Gates point outward to inn/inp.
+% xp/xn are centered between the PMOS and NMOS drain connection points.
+\node[pmos, transistor, anchor=D] (mp1) at ($(XP)+(0,0.28)$) {};
+\node[pmos, transistor, xscale=-1, anchor=D] (mp2) at ($(XN)+(0,0.28)$) {};
+
+% NMOS loads. Gates point inward and share vbias.
+\node[nmos, transistor, xscale=-1, anchor=D] (mn1) at ($(XP)+(0,-0.28)$) {};
+\node[nmos, transistor, anchor=D] (mn2) at ($(XN)+(0,-0.28)$) {};
+
+% VDD rails for current mirror.
+\draw[wire]
+  (mp4.S) -- ++(0,0.35) coordinate (vdd_mp4)
+  (mp3.S) -- ++(0,0.35) coordinate (vdd_mp3);
+\draw[rail]
+  ($(vdd_mp4)+(-0.45,0)$) -- ($(vdd_mp4)+(0.45,0)$)
+  ($(vdd_mp3)+(-0.45,0)$) -- ($(vdd_mp3)+(0.45,0)$);
+
+% MP4 diode connection and PMOS mirror gate connection. Orthogonal only.
+\coordinate (IBNODE) at ($(mp4.D)+(0,-0.35)$);
+\draw[wire]
+  (mp4.D) -- (IBNODE)
+  (IBNODE) -| (mp4.G)
+  (mp4.G) -- (mp3.G);
+
+% Bias input enters from the left of the diode-connected device.
+\draw[wire]
+  (IBNODE) -- ++(-0.60,0) node[netlabel,left]{ibias};
+
+% Mirror output biases the shared PMOS input-pair source.
+% Keep the input-pair source bus straight and no longer than the two source anchors.
+\draw[wire]
+  (mp1.S) -- (mp2.S)
+  (mp3.D) -- ($(mp1.S)!0.5!(mp2.S)$);
+
+% Output nodes and short stubs.
+\draw[wire]
+  (XP) node[circ]{} -- ++(-0.22,0) node[netlabel,left]{xp}
+  (XN) node[circ]{} -- ++(0.22,0) node[netlabel,right]{xn};
+
+% PMOS input labels at the gate anchors.
+\draw[wire]
+  (mp1.G) -- ++(-0.35,0) node[netlabel,left]{inn}
+  (mp2.G) -- ++(0.35,0) node[netlabel,right]{inp};
+
+% Vertical output/load paths.
+\draw[wire]
+  (mp1.D) -- (mn1.D)
+  (mp2.D) -- (mn2.D);
+
+% NMOS load sources to ground.
+\draw[wire]
+  (mn1.S) -- ++(0,-0.20) node[ground]{}
+  (mn2.S) -- ++(0,-0.20) node[ground]{};
+
+% NMOS load gates share vbias on one centered horizontal bus.
+\draw[wire]
+  (mn1.G) -- (mn2.G) node[netlabel,midway,below]{vbias};
+
+% Device annotations. Keep clumps left-aligned and outside signal routes.
+\node[devlabel, anchor=east] at ($(mp4)+(-0.32,0.20)$) {MP4\\w=120n\\l=100n};
+\node[devlabel, anchor=west] at ($(mp3)+(0.32,0.20)$) {MP3\\w=120n\\l=100n};
+
+\node[devlabel, anchor=west] at ($(mp1)+(0.35,-0.16)$) {MP1\\w=240n\\l=50n};
+\node[devlabel, anchor=east] at ($(mp2)+(-0.35,-0.16)$) {MP2\\w=240n\\l=50n};
+
+\node[devlabel, anchor=east] at ($(mn1)+(-0.32,-0.08)$) {MN1\\w=60n\\l=50n};
+\node[devlabel, anchor=west] at ($(mn2)+(0.32,-0.08)$) {MN2\\w=60n\\l=50n};
+
+\end{circuitikz}
+\end{document}
