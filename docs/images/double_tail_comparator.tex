@@ -1,0 +1,123 @@
+\documentclass[border=3pt]{standalone}
+\usepackage[european]{circuitikz}
+\standaloneenv{circuitikz}
+
+\begin{document}
+\begin{circuitikz}[
+  scale=1,
+  x=1cm,
+  y=1cm,
+  every node/.style={font=\scriptsize},
+  wire/.style={line width=0.7pt},
+  transistor/.style={line width=0.7pt},
+  rail/.style={line width=1.4pt},
+]
+\ctikzset{
+  tripoles/nmos/height=1,
+  tripoles/nmos/base height=.5,
+  tripoles/nmos/gate height=.5,
+  tripoles/nmos/width=1,
+  tripoles/nmos/base width=.5,
+  tripoles/nmos/gate width=1,
+  tripoles/pmos/height=1,
+  tripoles/pmos/base height=.5,
+  tripoles/pmos/gate height=.5,
+  tripoles/pmos/width=1,
+  tripoles/pmos/base width=.5,
+  tripoles/pmos/gate width=1,
+}
+
+% All explicit placement/routing coordinates are integers or 0.5 multiples.
+% Both sub-blocks use common rails: VDD at y=4, ground at y=-1.
+
+% -----------------------------------------------------------------------------
+% First stage: input differential pair with clocked tail and precharge devices
+% -----------------------------------------------------------------------------
+\coordinate (xp) at (-3,2);
+\coordinate (xn) at (0,2);
+\coordinate (src) at (-1.5,0.5);
+
+\node[pmos, transistor, anchor=D] (mp_xp) at (xp) {};
+\node[pmos, transistor, xscale=-1, anchor=D] (mp_xn) at (xn) {};
+\node[nmos, transistor, anchor=D] (mn_inn) at (xp) {};
+\node[nmos, transistor, xscale=-1, anchor=D] (mn_inp) at (xn) {};
+\node[nmos, transistor, anchor=D] (mn_tail) at (-1.5,0) {};
+
+\draw[wire]
+  (mp_xp.S) -- (mp_xp.S |- 0,4)
+  (mp_xn.S) -- (mp_xn.S |- 0,4)
+  (mp_xp.G) -- ++(-1,0) node[left]{CLK}
+  (mp_xn.G) -- ++(1,0) node[right]{CLK}
+  (mn_inn.G) -- ++(-1,0) node[left]{INN}
+  (mn_inp.G) -- ++(1,0) node[right]{INP}
+  (mn_inn.D) node[circ]{} -- ++(-0.5,0) node[left]{XP}
+  (mn_inp.D) node[circ]{} -- ++(0.5,0) node[right]{XN}
+  (mn_inn.S) |- (src) -| (mn_inp.S)
+  (src) -- (mn_tail.D)
+  (mn_tail.G) -- ++(-1,0) node[left]{CLK}
+  (mn_tail.S) -- (mn_tail.S |- 0,-1) node[ground]{};
+\draw[rail]
+  (-3.5,4) -- (-2.5,4)
+  (-0.5,4) -- (0.5,4);
+
+% -----------------------------------------------------------------------------
+% Second stage: dynamic latch
+% -----------------------------------------------------------------------------
+\coordinate (outn) at (4,2);
+\coordinate (outp) at (6,2);
+\coordinate (vdd_latch) at (5,4);
+\coordinate (ptop) at (5,3);
+\coordinate (gateLtop) at (4.5,2.5);
+\coordinate (gateRtop) at (5.5,2.5);
+\coordinate (gateLbot) at (4.5,1.5);
+\coordinate (gateRbot) at (5.5,1.5);
+
+% Clocked top PMOS and PMOS latch pair
+\node[pmos, transistor, anchor=D] (mp_top) at (ptop) {};
+\node[pmos, transistor, xscale=-1, anchor=D] (mp_l) at (outn) {};
+\node[pmos, transistor, anchor=D] (mp_r) at (outp) {};
+\draw[wire]
+  (mp_top.S) -- (mp_top.S |- vdd_latch)
+  (mp_top.G) -- ++(-1,0) node[left]{CLKD}
+  (mp_top.D) -- ++(0,-0.5) coordinate (ptail)
+  (mp_l.S) |- (ptail) -| (mp_r.S)
+  (mp_l.D) -- (outn)
+  (mp_r.D) -- (outp);
+\draw[rail]
+  (4.5,4) -- (5.5,4);
+
+% Cross-coupled NMOS latch pair
+\node[nmos, transistor, xscale=-1, anchor=D] (mn_l) at (outn) {};
+\node[nmos, transistor, anchor=D] (mn_r) at (outp) {};
+\draw[wire]
+  (mn_l.D) -- (outn)
+  (mn_r.D) -- (outp)
+  (mn_l.S) -- (mn_l.S |- 0,-1) node[ground]{}
+  (mn_r.S) -- (mn_r.S |- 0,-1) node[ground]{};
+
+% Input devices driven by XP/XN, placed outside the cross-coupled pair
+\node[nmos, transistor, anchor=G] (mn_xp) at (3,0.5) {};
+\node[nmos, transistor, xscale=-1, anchor=G] (mn_xn) at (7,0.5) {};
+\draw[wire]
+  (mn_xp.G) -- ++(-1,0) node[left]{XP}
+  (mn_xn.G) -- ++(1,0) node[right]{XN}
+  (mn_xp.D) |- (outn)
+  (mn_xn.D) |- (outp)
+  (mn_xp.S) -- (mn_xp.S |- 0,-1) node[ground]{}
+  (mn_xn.S) -- (mn_xn.S |- 0,-1) node[ground]{};
+
+% Gate buses and cross-coupling. Only the last two connections are diagonal.
+\draw[wire]
+  (mp_l.G) -- (mp_l.G -| gateLtop)
+  (mn_l.G) -- (mn_l.G -| gateLbot)
+  (mp_r.G) -- (mp_r.G -| gateRtop)
+  (mn_r.G) -- (mn_r.G -| gateRbot)
+  (mp_l.G -| gateLtop) -- (mn_l.G -| gateLbot)
+  (mp_r.G -| gateRtop) -- (mn_r.G -| gateRbot)
+  (outn) node[circ]{} -- ++(-1,0) node[left]{OUTN}
+  (outp) node[circ]{} -- ++(1,0) node[right]{OUTP}
+  (outn) -- (mp_r.G -| gateRtop)
+  (outp) -- (mp_l.G -| gateLtop);
+
+\end{circuitikz}
+\end{document}

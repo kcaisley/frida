@@ -1,0 +1,76 @@
+\documentclass[border=3pt]{standalone}
+\usepackage[american]{circuitikz}
+\usetikzlibrary{calc}
+\standaloneenv{circuitikz}
+
+\begin{document}
+
+\begin{circuitikz}[
+  scale=1,
+  american,
+  every node/.style={font=\scriptsize},
+  wire/.style={line width=0.7pt},
+  netlabel/.style={font=\ttfamily\footnotesize},
+  sourcelabel/.style={font=\ttfamily\footnotesize, align=center},
+  blocklabel/.style={font=\sffamily\scriptsize, align=center},
+]
+\ctikzset{
+  bipoles/length=0.95cm,
+  sources/scale=1.0,
+  capacitors/scale=0.62,
+  tripoles/fd op amp/width=2.2,
+  tripoles/fd op amp/height=2.2,
+  tripoles/fd op amp/input height=0.40,
+  tripoles/fd op amp/output height=0.40,
+}
+
+% Fully differential comparator symbol.
+\node[fd op amp, noinv input up, noinv output up, line width=0.7pt] (cmp) at (0,0) {};
+\node[blocklabel] at (cmp.center) {comp};
+
+% Input stimulus sources.  Source symbols stay separated while the
+% comparator pins are closer together on the symbol side.
+\coordinate (vinp_top) at (-3.65,1.20);
+\coordinate (vinn_top) at (-3.65,-1.20);
+\coordinate (vinp_bus) at (-2.45,1.20);
+\coordinate (vinn_bus) at (-2.45,-1.20);
+\draw[wire]
+  (vinp_top) to[V, l_=\texttt{vip(t)}] ++(0,-1.05) coordinate (vinp_gnd);
+\node[ground] at (vinp_gnd) {};
+\draw[wire]
+  (vinn_top) to[V, l_=\texttt{vin(t)}] ++(0,-1.05) coordinate (vinn_gnd);
+\node[ground] at (vinn_gnd) {};
+\draw[wire]
+  (vinp_top) -- (vinp_bus) |- (cmp.+);
+\draw[wire]
+  (vinn_top) -- (vinn_bus) |- (cmp.-);
+\node[netlabel, above] at ($(cmp.+)+(-0.65,0)$) {inp};
+\node[netlabel, above] at ($(cmp.-)+(-0.65,0)$) {inn};
+
+% Comparator supply pins.
+\draw[wire]
+  (cmp.up) -- ++(0,0.38) coordinate (cmp_vdd);
+\node[vcc] at (cmp_vdd) {};
+\node[netlabel, right=1pt] at (cmp_vdd) {vdd};
+\draw[wire]
+  (cmp.down) -- ++(0,-0.30) coordinate (cmp_vss);
+\node[ground] at (cmp_vss) {};
+\node[netlabel, right=1pt] at (cmp_vss) {vss};
+
+% Differential outputs and capacitive loading.
+\coordinate (outp) at ($(cmp.out +)+(0.85,0)$);
+\coordinate (outn) at ($(cmp.out -)+(0.85,0)$);
+\coordinate (outn_load) at ($(outn)+(0.45,0)$);
+\draw[wire]
+  (cmp.out +) -- (outp) node[netlabel, midway, above]{outp}
+  (cmp.out -) -- (outn) node[netlabel, midway, above]{outn};
+\draw[wire]
+  (outp) to[C, l=\texttt{cload}] ++(0,-0.70) coordinate (outp_gnd);
+\node[ground] at (outp_gnd) {};
+\draw[wire]
+  (outn) -- (outn_load) to[C, l=\texttt{cload}] ++(0,-0.70) coordinate (outn_gnd);
+\node[ground] at (outn_gnd) {};
+
+\end{circuitikz}
+
+\end{document}
