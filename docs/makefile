@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
-TEXLIVE_BIN ?= /usr/local/texlive/2025/bin/x86_64-linux
+TEXLIVE_BIN ?= /usr/local/texlive/2026/bin/x86_64-linux
+export PATH := $(TEXLIVE_BIN):$(PATH)
 LATEXMK_PATH := $(TEXLIVE_BIN)/latexmk
 LATEXMK ?= $(if $(wildcard $(LATEXMK_PATH)),$(LATEXMK_PATH),latexmk)
 
@@ -57,13 +58,18 @@ WAVEDROM_SVG := $(patsubst %.json,$(IMAGES_DIR)/%.svg,$(notdir $(WAVEDROM_JSON))
 WAVEDROM_PDFS := $(WAVEDROM_SVG:.svg=.pdf)
 WAVEDROM_PNGS := $(WAVEDROM_SVG:.svg=.png)
 
+PHYS_RESULTS := \
+	../phys/results/hit_rate_vs_fluence.png \
+	../phys/results/max_counting_rate_vs_window.png
+
 COLLATERAL := \
 	$(FIGURE_PDFS) \
 	$(FIGURE_PNGS) \
 	$(NETLISTSVG_PDFS) \
 	$(WAVEDROM_SVG) \
 	$(WAVEDROM_PDFS) \
-	$(WAVEDROM_PNGS)
+	$(WAVEDROM_PNGS) \
+	$(PHYS_RESULTS)
 
 .PHONY: all help clean clean-figure-intermediates figures netlistsvgs wavedroms decks $(SLIDE_ALIASES)
 .SECONDARY: $(NETLISTSVG_FROM_V_JSON) $(NETLISTSVG_SVG) $(WAVEDROM_SVG)
@@ -96,6 +102,7 @@ help:
 
 $(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
 	mkdir -p $(OUTDIR)
+	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
 	@echo "Created $@"
 
@@ -103,12 +110,17 @@ $(addsuffix .tex,$(SLIDE_NAMES)): %.tex: $(OUTDIR)/%.pdf
 	@true
 
 $(IMAGES_DIR)/%.pdf: $(IMAGES_DIR)/%.tex
+	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	$(LATEXMK) -pdf -interaction=nonstopmode -halt-on-error -outdir=$(IMAGES_DIR) $<
 	@echo "Created $@"
 
 $(IMAGES_DIR)/%.png: $(IMAGES_DIR)/%.pdf
 	pdftoppm -png -r 300 -singlefile $< $(@:.png=)
 	@echo "Created $@"
+
+$(PHYS_RESULTS) &: ../phys/model.py
+	uv run python ../phys/model.py
+	@echo "Created physics result plots"
 
 $(IMAGES_DIR)/%_netlistsvg.json: $(IMAGES_DIR)/%_netlistsvg.v
 	yosys -q -p "read_verilog $<; prep -top $*_netlistsvg; write_json $@"
@@ -162,4 +174,5 @@ clean:
 	rm -f $(FIGURE_INTERMEDIATES) $(SLIDE_INTERMEDIATES)
 	rm -f $(NETLISTSVG_FROM_V_JSON) $(NETLISTSVG_SVG) $(NETLISTSVG_PDFS)
 	rm -f $(WAVEDROM_SVG) $(WAVEDROM_PDFS) $(WAVEDROM_PNGS)
+	rm -f $(PHYS_RESULTS)
 	@echo "Removed generated build artifacts"
