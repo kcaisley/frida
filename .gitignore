@@ -26,9 +26,22 @@ si.env
 xcelium.d
 xrun.history
 
-# LaTeX
+# Documentation build collateral
 docs/tex/
 docs/*.pdf
+docs/slides/*.pdf
+docs/slides/*.aux
+docs/slides/*.fdb_latexmk
+docs/slides/*.fls
+docs/slides/*.log
+docs/slides/*.out
+docs/slides/*.synctex.gz
+docs/slides/*.xdv
+docs/slides/*.nav
+docs/slides/*.snm
+docs/slides/*.toc
+docs/slides/*.vrb
+
 
 # Mermaid
 docs/gantt.png

@@ -85,7 +85,7 @@
 \title{Programmatic analog IC design\\{\large without reinventing the wheel}}
 \author{Kennedy Caisley}
 \institute{University of Bonn}
-\date{FSiC 2026}
+\date{FSiC 2026, 7 July 2026}
 
 \begin{document}
 
@@ -479,11 +479,11 @@
       }
     };
 
-    \node[flowartifact, text width=\FlowOutputW, anchor=west] (spice) at (\FlowOutputX,1.25) {
-      \FlowTitle{Netlist}
-      \FlowCodeBlock{\FlowCodeFont}{
-        .subckt preamp\_p inn inp ibias vbias xp xn\\
-        MP1 xp inn psrc vdd pch w=240n l=50n\\
+    \node[flowartifact, text width=\FlowOutputW, anchor=west] (spice) at (\FlowOutputX,1.55) {
+          \FlowTitle{Netlist}
+          \FlowCodeBlock{\FlowCodeFont}{
+                      .subckt preamp\_p inn inp ibias vbias xp xn\\
+                      MP1 xp inn psrc vdd pch w=240n l=50n\\
         MP2 xn inp psrc vdd pch w=240n l=50n\\
         MP3 psrc ibias vdd vdd pch w=120n l=100n\\
         MP4 ibias ibias vdd vdd pch w=120n l=100n\\
@@ -492,9 +492,9 @@
         .ends preamp\_p
       }
     };
-    \node[flowartifact, text width=\FlowOutputW, anchor=west] (schem) at (\FlowOutputX,-1.75) {
-      \FlowTitle{Schematic}
-      {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/preamp_pmos_28_test.pdf}\par}
+    \node[flowartifact, text width=\FlowOutputW, anchor=west] (schem) at (\FlowOutputX,-2.05) {
+          \FlowTitle{Schematic}
+          {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/preamp_pmos.pdf}\par}
     };
 
     \draw[flowarrow] (params.east) -- ++(0.025,0) |- ($(gen.south west)!\FlowEdgeHigh!(gen.north west)$);
