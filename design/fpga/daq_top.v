@@ -19,6 +19,7 @@
 `include "WRAP_SiTCP_GMII_XC7K_32K.V"
 `include "SiTCP_XC7K_32K_BBT_V110.V"
 `include "TIMER.v"
+`include "daq_serdes.v"
 
 module daq_top (
     input wire FCLK_IN,       // 100 MHz system clock
@@ -84,7 +85,7 @@ module daq_top (
     // PLL 1: Communication clocks (SiTCP / Ethernet)
     // 100 MHz * 10 = 1000 MHz VCO
     wire rst;
-    wire bus_clk_pll, clk125_pll_tx, clk125_pll_tx90;
+    wire bus_clk_pll, clk125_pll_tx, clk125_pll_tx90, spi_clk_pll;
     wire pll_feedback, locked;
 
     PLLE2_BASE #(
@@ -106,12 +107,16 @@ module daq_top (
 
         .CLKOUT2_DIVIDE    (8),    // 1000/8 = 125 MHz (Ethernet RGMII TX, 90° phase)
         .CLKOUT2_DUTY_CYCLE(0.5),
-        .CLKOUT2_PHASE     (90.0)
+        .CLKOUT2_PHASE     (90.0),
+
+        .CLKOUT3_DIVIDE    (100),  // 1000/100 = 10 MHz (spi_clk)
+        .CLKOUT3_DUTY_CYCLE(0.5),
+        .CLKOUT3_PHASE     (0.0)
     ) PLLE2_BASE_comm (
         .CLKOUT0 (bus_clk_pll),
         .CLKOUT1 (clk125_pll_tx),
         .CLKOUT2 (clk125_pll_tx90),
-        .CLKOUT3 (),
+        .CLKOUT3 (spi_clk_pll),
         .CLKOUT4 (),
         .CLKOUT5 (),
         .CLKFBOUT(pll_feedback),
@@ -122,31 +127,32 @@ module daq_top (
         .CLKFBIN (pll_feedback)
     );
 
-    // PLL 2: Sequencer clock
-    //   100 MHz * 8 = 800 MHz VCO
-    //   2.5ns step -> 40 steps per 100ns conversion = 10 Msps
-    wire seq_clk_pll, spi_clk_pll;
+    // PLL 2: serializer sequencer clocks
+    //   100 MHz * 16 = 1600 MHz VCO
+    //   CLKOUT0: 1600/8 = 200 MHz fabric sequencer word clock
+    //   CLKOUT1: 1600/2 = 800 MHz OSERDES DDR clock, giving a 1.6 GHz serialized interval rate
+    wire seq_clk_pll, ser_clk_pll;
     wire pll2_feedback, locked2;
 
     PLLE2_BASE #(
         .BANDWIDTH     ("OPTIMIZED"),
-        .CLKFBOUT_MULT (8),            // 100 MHz * 8 = 800 MHz VCO
+        .CLKFBOUT_MULT (16),           // 100 MHz * 16 = 1600 MHz VCO
         .CLKFBOUT_PHASE(0.0),
         .CLKIN1_PERIOD (10.000),
         .DIVCLK_DIVIDE (1),
         .REF_JITTER1   (0.0),
         .STARTUP_WAIT  ("FALSE"),
 
-        .CLKOUT0_DIVIDE    (16),    // 800/16 = 50 MHz (seq_clk to sequencer and fastrx)
+        .CLKOUT0_DIVIDE    (8),     // 1600/8 = 200 MHz sequencer word clock
         .CLKOUT0_DUTY_CYCLE(0.5),
         .CLKOUT0_PHASE     (0.0),
 
-        .CLKOUT1_DIVIDE    (80),   // 800/80 = 10 MHz (spi_clk)
+        .CLKOUT1_DIVIDE    (2),     // 1600/2 = 800 MHz OSERDES DDR clock -> 1.6 GHz interval rate
         .CLKOUT1_DUTY_CYCLE(0.5),
         .CLKOUT1_PHASE     (0.0)
     ) PLLE2_BASE_seq (
         .CLKOUT0 (seq_clk_pll),
-        .CLKOUT1 (spi_clk_pll),
+        .CLKOUT1 (ser_clk_pll),
         .CLKOUT2 (),
         .CLKOUT3 (),
         .CLKOUT4 (),
@@ -160,7 +166,7 @@ module daq_top (
     );
 
     wire bus_clk;
-    wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, spi_clk;
+    wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, ser_clk, spi_clk;
     BUFG bufg_bus_clk (
         .O(bus_clk),
         .I(bus_clk_pll)
@@ -184,6 +190,10 @@ module daq_top (
     BUFG bufg_seq_clk (
         .O(seq_clk),
         .I(seq_clk_pll)
+    );
+    BUFG bufg_ser_clk (
+        .O(ser_clk),
+        .I(ser_clk_pll)
     );
 
     assign rst = !RESET_BUTTON | !locked | !locked2;
@@ -380,36 +390,74 @@ module daq_top (
 
 
     // LVDS I/O buffers
-    // Sequencer clock outputs to chip (active, directly from core)
+    // The widened sequencer produces one 64-bit word every 5 ns.  Each active
+    // byte lane holds eight future time slices for one ADC control input;
+    // OSERDES emits each byte as a 1.6 GHz serialized LVDS interval stream.
     wire clk_init, clk_samp, clk_comp, clk_logic;
+    wire [63:0] seq_ser_data;
+    reg [63:0] seq_ser_data_q;
+    wire clk_init_ser, clk_samp_ser, clk_comp_ser, clk_logic_ser;
+
+    always @(posedge seq_clk) begin
+        seq_ser_data_q <= seq_ser_data;
+    end
+
+    daq_serdes serdes_clk_init (
+        .clk(ser_clk),
+        .clkdiv(seq_clk),
+        .rst(rst),
+        .data(~seq_ser_data_q[7:0]),
+        .oq(clk_init_ser)
+    );
+    daq_serdes serdes_clk_samp (
+        .clk(ser_clk),
+        .clkdiv(seq_clk),
+        .rst(rst),
+        .data(seq_ser_data_q[15:8]),
+        .oq(clk_samp_ser)
+    );
+    daq_serdes serdes_clk_comp (
+        .clk(ser_clk),
+        .clkdiv(seq_clk),
+        .rst(rst),
+        .data(~seq_ser_data_q[23:16]),
+        .oq(clk_comp_ser)
+    );
+    daq_serdes serdes_clk_logic (
+        .clk(ser_clk),
+        .clkdiv(seq_clk),
+        .rst(rst),
+        .data(~seq_ser_data_q[31:24]),
+        .oq(clk_logic_ser)
+    );
 
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_init (
         .O (CLK_INIT_P),
         .OB(CLK_INIT_N),
-        .I (~clk_init)
+        .I (clk_init_ser)
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_samp (
         .O (CLK_SAMP_P),
         .OB(CLK_SAMP_N),
-        .I (clk_samp)
+        .I (clk_samp_ser)
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_comp (
         .O (CLK_COMP_P),
         .OB(CLK_COMP_N),
-        .I (~clk_comp)
+        .I (clk_comp_ser)
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_logic (
         .O (CLK_LOGIC_P),
         .OB(CLK_LOGIC_N),
-        .I (~clk_logic)
+        .I (clk_logic_ser)
     );
 
     // Comparator output from chip (LVDS input)
@@ -443,10 +491,11 @@ module daq_top (
 
         .SEQ_CLK(seq_clk),
 
-        .CLK_INIT (clk_init),
-        .CLK_SAMP (clk_samp),
-        .CLK_COMP (clk_comp),
-        .CLK_LOGIC(clk_logic),
+        .CLK_INIT    (clk_init),
+        .CLK_SAMP    (clk_samp),
+        .CLK_COMP    (clk_comp),
+        .CLK_LOGIC   (clk_logic),
+        .SEQ_SER_DATA(seq_ser_data),
 
         .SPI_CLK (spi_clk),   // 10 MHz SPI clock
         .SPI_SCLK(spi_sclk),

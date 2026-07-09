@@ -18,8 +18,6 @@ dependencies = [
     "basil-daq",
     "cocotb",
     "cocotb-bus",
-    "cocotbext-ams",
-    "spicebind",
     "spyci",
     "vcdvcd",
     "pexpect",
@@ -49,9 +47,7 @@ hdl21 = { path = "libs/Hdl21", editable = true }
 vlsir = { path = "libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "libs/Vlsir/VlsirTools", editable = true }
 basil-daq = { path = "libs/basil", editable = true }
-spicebind = { path = "libs/spicebind", editable = true }
 
-cocotbext-ams = { path = "libs/cocotbext-ams", editable = true }
 
 [tool.pyright]
 # Keep a single pyright config here. Zed uses basedpyright for Python,

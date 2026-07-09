@@ -49,6 +49,7 @@ module daq_core #(
     output wire CLK_SAMP,  // Sample-and-hold trigger
     output wire CLK_COMP,  // Comparator clock (200 MHz toggle)
     output wire CLK_LOGIC, // SAR logic clock (200 MHz toggle, 2.5ns delayed)
+    output wire [63:0] SEQ_SER_DATA, // Packed serializer data from widened seq_gen
 
     // SPI interface -> chip carrier PCB
     input  wire SPI_CLK,   // SPI shift clock
@@ -108,16 +109,19 @@ module daq_core #(
     wire fastrx_en_mux;
 
     // 1. Sequencer (seq_gen)
-    // Generates the 8-track timing waveform loaded from the host.
-    // seq_out[0] = CLK_INIT       - DAC initialization pulse
-    // seq_out[1] = CLK_SAMP       - Sample-and-hold trigger
-    // seq_out[2] = CLK_COMP       - Comparator clock
-    // seq_out[3] = CLK_LOGIC      - SAR logic clock
-    // seq_out[4] = fastrx_test_en    - Frame enable for fast_spi_rx SEN
-    // seq_out[5] = fastrx_test_data - Loopback test data for fast_spi_rx
-    // seq_out[6] = unused
-    // seq_out[7] = unused
-    wire [7:0] seq_out;
+    // Generates the timing waveform loaded from the host.
+    // The serializer firmware uses a 64-bit sequencer word: each byte carries
+    // eight future time slices for one output channel. daq_top serializes the
+    // low byte lanes with 8:1 OSERDES blocks for the external LVDS ADC inputs.
+    // The low bits are still exposed here as legacy single-bit control/test
+    // signals for internal users.
+    // seq_out[0] = CLK_INIT          - legacy single-bit DAC initialization pulse
+    // seq_out[1] = CLK_SAMP          - legacy single-bit sample-and-hold trigger
+    // seq_out[2] = CLK_COMP          - legacy single-bit comparator clock
+    // seq_out[3] = CLK_LOGIC         - legacy single-bit SAR logic clock
+    // seq_out[4] = fastrx_test_en    - frame enable for fast_spi_rx SEN
+    // seq_out[5] = fastrx_test_data  - loopback test data for fast_spi_rx
+    wire [63:0] seq_out;
     // LVDS clock outputs to chip
     assign CLK_INIT         = seq_out[0];
     assign CLK_SAMP         = seq_out[1];
@@ -127,13 +131,14 @@ module daq_core #(
     // Capture control signals
     assign fastrx_test_en   = seq_out[4];
     assign fastrx_test_data = seq_out[5];
+    assign SEQ_SER_DATA     = seq_out;
 
     seq_gen #(
         .BASEADDR (SeqGenBaseAddr),
         .HIGHADDR (SeqGenHighAddr),
         .ABUSWIDTH(ABUSWIDTH),
-        .MEM_BYTES(8192),
-        .OUT_BITS (8)
+        .MEM_BYTES(256),
+        .OUT_BITS (64)
     ) inst_seq_gen (
         .BUS_CLK (BUS_CLK),
         .BUS_RST (rst),

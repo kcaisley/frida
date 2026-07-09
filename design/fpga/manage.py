@@ -145,6 +145,12 @@ def compile(platform):
                 print(output, end="", flush=True)
                 silent_count = 0
             else:
+                if not vivado.isalive():
+                    vivado.close()
+                    status = vivado.exitstatus if vivado.exitstatus is not None else f"signal {vivado.signalstatus}"
+                    raise RuntimeError(
+                        f"Vivado exited before completing bitstream generation ({status}) — check vivado.log"
+                    )
                 time.sleep(5)
                 silent_count += 1
         else:

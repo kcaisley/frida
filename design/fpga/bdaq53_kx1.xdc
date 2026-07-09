@@ -7,17 +7,21 @@ create_clock -period 10.000 -name CLK_SYS -add [get_ports FCLK_IN]
 create_clock -period 8.000 -name CLK_RGMII_RX -add [get_ports rgmii_rxc]
 
 # ===== PLL generated clocks =====
+# Serializer sequencer clocks: seq_clk_pll is the 200 MHz fabric word clock;
+# ser_clk_pll is the 800 MHz OSERDES DDR clock for a 1.6 GHz interval stream.
 create_generated_clock -name bus_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 7 [get_nets bus_clk_pll]
 create_generated_clock -name clk125_pll_tx -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx]
 create_generated_clock -name clk125_pll_tx90 -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx90]
-create_generated_clock -name seq_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 2 [get_nets seq_clk_pll]
-create_generated_clock -name spi_clk_pll -source [get_ports FCLK_IN] -multiply_by 8 -divide_by 80 [get_nets spi_clk_pll]
+create_generated_clock -name seq_clk_pll -source [get_ports FCLK_IN] -multiply_by 16 -divide_by 8 [get_nets seq_clk_pll]
+create_generated_clock -name ser_clk_pll -source [get_ports FCLK_IN] -multiply_by 16 -divide_by 2 [get_nets ser_clk_pll]
+create_generated_clock -name spi_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 100 [get_nets spi_clk_pll]
 
 set_clock_groups -asynchronous \
     -group {bus_clk_pll} \
     -group {clk125_pll_tx clk125_pll_tx90} \
     -group CLK_RGMII_RX \
-    -group {seq_clk_pll}  ;# seq_gen config regs are stable before sequencer starts
+    -group {spi_clk_pll} \
+    -group {seq_clk_pll}  ;# peripheral config regs are stable before generated clocks start
 
 # ===== SiTCP timing =====
 set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports {rgmii_txd[*]}] 4.000
