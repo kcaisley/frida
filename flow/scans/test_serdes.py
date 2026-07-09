@@ -180,14 +180,15 @@ def capture_and_plot_scope_waveforms(
             )
 
     png_path = out_dir / f"serdes_scope_{stamp}.png"
-    plot_scope_csv(csv_path, png_path)
+    plot_paths = plot_scope_csv(csv_path, png_path)
 
     print(f"Saved scope waveform CSV: {csv_path}")
-    print(f"Saved scope waveform plot: {png_path}")
+    for plot_path in plot_paths:
+        print(f"Saved scope waveform plot: {plot_path}")
     return csv_path, png_path
 
 
-def plot_scope_csv(csv_path: Path, png_path: Path | None = None) -> Path:
+def plot_scope_csv(csv_path: Path, png_path: Path | None = None) -> tuple[Path, ...]:
     labels = ["seq_init", "seq_samp", "seq_comp", "seq_logic"]
     colors = [NORD_BLUE, NORD_GREEN, NORD_RED, "#D08770"]
 
@@ -251,9 +252,14 @@ def plot_scope_csv(csv_path: Path, png_path: Path | None = None) -> Path:
     axes[-1].set_xlabel("Time (ns)")
     fig.subplots_adjust(left=0.13, right=0.985, bottom=0.09, top=0.93, hspace=0.18)
     png_path = png_path or csv_path.with_suffix(".png")
-    fig.savefig(png_path, dpi=200, facecolor=PNG_FACE_COLOR)
+    plot_paths = (png_path, png_path.with_suffix(".pdf"), png_path.with_suffix(".svg"))
+    for plot_path in plot_paths:
+        save_kwargs = {"facecolor": PNG_FACE_COLOR}
+        if plot_path.suffix == ".png":
+            save_kwargs["dpi"] = 200
+        fig.savefig(plot_path, **save_kwargs)
     plt.close(fig)
-    return png_path
+    return plot_paths
 
 
 def main() -> None:

@@ -33,6 +33,15 @@
     \node[inner sep=0pt, anchor=south west] at (0,0) {\includegraphics[width=#1,height=#1,keepaspectratio=false]{#2}};
   \end{tikzpicture}%
 }
+\newcommand{\placeholder}[2]{%
+  \begin{tikzpicture}
+    \node[minimum width=#1,minimum height=#2,draw=NordBlue!60,rounded corners=2pt,fill=NordPanel,align=center,text=NordBody]
+      {Placeholder\\[-1pt]\scriptsize image not yet available};
+  \end{tikzpicture}%
+}
+\newcommand{\maybeimage}[2][]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{\placeholder{0.95\linewidth}{0.30\textheight}}%
+}
 
 \title{FRIDA Bringup Testing}
 \author{Kennedy Caisley}
@@ -77,6 +86,15 @@
       {\small SCC-based test setup}
     \end{column}
   \end{columns}
+\end{frame}
+
+%% ============================================================
+%% Scope capture
+%% ============================================================
+\begin{frame}
+  \frametitle{Measured SERDES Sequencer Inputs}
+  \centering
+  \maybeimage[width=0.96\linewidth,height=0.82\textheight,keepaspectratio]{../build/scope/serdes_scope_20260709_212851.pdf}
 \end{frame}
 
 \end{document}
