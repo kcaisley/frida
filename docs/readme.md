@@ -84,6 +84,7 @@ Current slide/document sources include:
 - `slides/2026_03_18_dpg.tex`
 - `slides/2026_06_25_bringup.tex`
 - `slides/2026_07_07_fsic.tex`
+- `slides/2026_07_09_measurement.tex`
 - `slides/beams.tex`
 - `slides/detectors.tex`
 

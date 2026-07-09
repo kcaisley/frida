@@ -153,6 +153,7 @@ FORCE:
 
 clean-figure-intermediates:
 	rm -f $(FIGURE_INTERMEDIATES) $(SLIDE_INTERMEDIATES)
+	rm -f $(SLIDES_DIR)/*.aux $(SLIDES_DIR)/*.fdb_latexmk $(SLIDES_DIR)/*.fls $(SLIDES_DIR)/*.log $(SLIDES_DIR)/*.nav $(SLIDES_DIR)/*.out $(SLIDES_DIR)/*.pdf $(SLIDES_DIR)/*.snm $(SLIDES_DIR)/*.synctex.gz $(SLIDES_DIR)/*.toc $(SLIDES_DIR)/*.vrb $(SLIDES_DIR)/*.xdv
 
 clean:
 	rm -rf $(OUTDIR)
