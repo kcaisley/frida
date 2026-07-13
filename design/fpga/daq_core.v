@@ -4,10 +4,9 @@
 // Instantiates the functional blocks needed to control the chip
 // and read back data:
 //
-//   1. seq_gen      - Sequencer generating 6 output signals:
-//                     [0-3] LVDS clocks (CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC)
-//                     [4]   clk_comp_cap - capture clock for fast_spi_rx
-//                     [5]   sen_comp - frame enable for fast_spi_rx
+//   1. seq_gen      - 64-bit physical sequencer. Byte lanes [0-3] are
+//                     serialized in daq_top for the LVDS ADC timing inputs;
+//                     bits 32 and 33 carry FastRX SEN and loopback test data.
 //   2. spi          - SPI master for 180-bit chip configuration register
 //                     (SPI_SCLK, SPI_SDI, SPI_SDO, SPI_CS_B)
 //   3. gpio         - GPIO for PCB control signals (RST_B, AMPEN_B)
@@ -18,8 +17,9 @@
 //   0x80000000  - bram_fifo data     (instantiated at top level)
 //   0x10000     - seq_gen
 //   0x20000     - spi
-//   0x30000     - gpio
+//   0x30000     - gpio0: board and FastRX controls
 //   0x40000     - fast_spi_rx
+//   0x50000     - gpio1: comparator IDELAY controls and ready status
 
 `timescale 1ns / 10ps
 
@@ -40,16 +40,12 @@ module daq_core #(
     input wire                 BUS_RD,
     input wire                 BUS_WR,
 
-    // Sequencer clock input (directly from PLL, no division)
-    input wire SEQ_CLK,  // 400 MHz sequencer clock
+    // Sequencer word clock from the PLL: 200 MHz, 5 ns period.
+    input wire SEQ_CLK,
 
-    // Sequencer outputs -> LVDS transmitters on PCB
-    // Active sequencer tracks directly drive the 4 LVDS clock pairs
-    output wire CLK_INIT,  // DAC initialization pulse
-    output wire CLK_SAMP,  // Sample-and-hold trigger
-    output wire CLK_COMP,  // Comparator clock (200 MHz toggle)
-    output wire CLK_LOGIC, // SAR logic clock (200 MHz toggle, 2.5ns delayed)
-    output wire [63:0] SEQ_SER_DATA, // Packed serializer data from widened seq_gen
+    // Packed serializer word. Byte lanes [0:3] carry INIT/SAMP/COMP/LOGIC;
+    // bits 32 and 33 carry FastRX SEN and loopback test data.
+    output wire [63:0] SEQ_SER_DATA,
 
     // SPI interface -> chip carrier PCB
     input  wire SPI_CLK,   // SPI shift clock
@@ -61,6 +57,11 @@ module daq_core #(
     // GPIO -> PCB control signals
     output wire RST_B,   // Chip reset (active low)
     output wire AMPEN_B, // Input amplifier enable (active low)
+
+    // GPIO1 -> comparator input-delay control
+    output wire [4:0] COMP_IDELAY_TAPS,
+    output wire       COMP_IDELAY_LOAD,
+    input  wire       COMP_IDELAY_RDY,
 
     // comp_out data -> bram_fifo (instantiated at top level)
     // The fast_spi_rx module captures the 1-bit comparator output stream,
@@ -93,6 +94,9 @@ module daq_core #(
     localparam integer FastSpiRxBaseAddr = 32'h40000;
     localparam integer FastSpiRxHighAddr = 32'h400FF;
 
+    localparam integer Gpio1BaseAddr = 32'h50000;
+    localparam integer Gpio1HighAddr = 32'h500FF;
+
     // Combined reset
     wire rst;
     assign rst = BUS_RST | RESET;
@@ -104,33 +108,28 @@ module daq_core #(
     wire fastrx_loopback_en;
     wire fastrx_in_tiehigh;
     wire debug_counter_en;
-    wire fastrx_test_en;
+    wire fastrx_seq_en;
     wire seq_fastrx_en;
     wire fastrx_en_mux;
 
     // 1. Sequencer (seq_gen)
     // Generates the timing waveform loaded from the host.
     // The serializer firmware uses a 64-bit sequencer word: each byte carries
-    // eight future time slices for one output channel. daq_top serializes the
-    // low byte lanes with 8:1 OSERDES blocks for the external LVDS ADC inputs.
-    // The low bits are still exposed here as legacy single-bit control/test
-    // signals for internal users.
-    // seq_out[0] = CLK_INIT          - legacy single-bit DAC initialization pulse
-    // seq_out[1] = CLK_SAMP          - legacy single-bit sample-and-hold trigger
-    // seq_out[2] = CLK_COMP          - legacy single-bit comparator clock
-    // seq_out[3] = CLK_LOGIC         - legacy single-bit SAR logic clock
-    // seq_out[4] = fastrx_test_en    - frame enable for fast_spi_rx SEN
-    // seq_out[5] = fastrx_test_data  - loopback test data for fast_spi_rx
+    // eight future time slices for one output channel. daq_top serializes byte
+    // lanes [0:3] with 8:1 OSERDES blocks for the external LVDS ADC inputs.
+    // FastRX samples once per 200 MHz SEQ_CLK word, so it only needs one SEN
+    // bit and one optional loopback-test data bit per sequencer word.
+    // seq_out[ 7: 0] = CLK_INIT serializer byte lane
+    // seq_out[15: 8] = CLK_SAMP serializer byte lane
+    // seq_out[23:16] = CLK_COMP serializer byte lane
+    // seq_out[31:24] = CLK_LOGIC serializer byte lane
+    // seq_out[32]    = RX_SEN frame-enable bit for fast_spi_rx SEN
+    // seq_out[33]    = RX_TEST loopback-data bit for fast_spi_rx SDI test mode
     wire [63:0] seq_out;
-    // LVDS clock outputs to chip
-    assign CLK_INIT         = seq_out[0];
-    assign CLK_SAMP         = seq_out[1];
-    assign CLK_COMP         = seq_out[2];
-    assign CLK_LOGIC        = seq_out[3];
 
     // Capture control signals
-    assign fastrx_test_en   = seq_out[4];
-    assign fastrx_test_data = seq_out[5];
+    assign fastrx_seq_en    = seq_out[32];
+    assign fastrx_test_data = seq_out[33];
     assign SEQ_SER_DATA     = seq_out;
 
     seq_gen #(
@@ -198,8 +197,8 @@ module daq_core #(
     // Bit 3: spi_loopback_en     - SPI SDO loopback (reads SDI instead of chip SDO)
     // Bit 4: debug_counter_en    - Replace fast_spi_rx FIFO output with up-counter
     // Bit 5: fastrx_in_tiehigh   - Force fastrx_in to constant 1
-    // Bit 6: seq_fastx_en        - Sequencer external start trigger
-    // Bit 7: fastrx_en_mux       - Mux select: 0=seq_fastx_en, 1=fastrx_test_en
+    // Bit 6: seq_fastrx_en       - Sequencer external start trigger
+    // Bit 7: fastrx_en_mux       - Mux select: 0=seq_fastrx_en, 1=RX_SEN sequencer bit
     wire [7:0] gpio;
     assign RST_B              = gpio[0];  // Active-low board reset
     assign AMPEN_B            = ~gpio[1];  // Active-low amp enable (gpio=1 → amp on)
@@ -230,6 +229,33 @@ module daq_core #(
         .IO(gpio)
     );
 
+    // 4. GPIO1: runtime comparator IDELAY control
+    // Bits 4:0 are output tap controls, bit 5 is the output load strobe,
+    // bit 6 reads IDELAYCTRL.RDY, and bit 7 is reserved low.
+    wire [7:0] gpio1;
+    assign COMP_IDELAY_TAPS = gpio1[4:0];
+    assign COMP_IDELAY_LOAD = gpio1[5];
+    assign gpio1[6]         = COMP_IDELAY_RDY;
+    assign gpio1[7]         = 1'b0;
+
+    gpio #(
+        .BASEADDR    (Gpio1BaseAddr),
+        .HIGHADDR    (Gpio1HighAddr),
+        .ABUSWIDTH   (ABUSWIDTH),
+        .IO_WIDTH    (8),
+        .IO_DIRECTION(8'h3F),          // Bits 5:0 outputs; bits 7:6 inputs
+        .IO_TRI      (0)
+    ) inst_gpio1 (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
+
+        .IO(gpio1)
+    );
+
     // 5. COMP_OUT Receiver (fast_spi_rx)
     // Captures the COMP_OUT stream using basil's fast_spi_rx module.
     // This replaces the hand-rolled shift register + FIFO implementation.
@@ -243,8 +269,9 @@ module daq_core #(
     //   [DATA_SIZE-1:0]  Captured data (DATA_SIZE bits)
     //
     wire fastrx_in;  // Input from comp, loopback test data, or tie-high
-    assign fastrx_in = fastrx_in_tiehigh ? 1'b1 : (fastrx_loopback_en ? fastrx_test_data : COMP_OUT);
-    assign fastrx_en = fastrx_en_mux ? fastrx_test_en : seq_fastrx_en;
+    assign fastrx_in = fastrx_in_tiehigh ? 1'b1 :
+        (fastrx_loopback_en ? fastrx_test_data : COMP_OUT);
+    assign fastrx_en = fastrx_en_mux ? fastrx_seq_en : seq_fastrx_en;
 
     // Intermediate wires between fast_spi_rx and module ports (for muxing)
     wire [31:0] fastrx_fifo_data;
@@ -255,7 +282,7 @@ module daq_core #(
         .HIGHADDR  (FastSpiRxHighAddr),
         .ABUSWIDTH (ABUSWIDTH),
         .IDENTIFIER(4'b0001),
-        .DATA_SIZE(17)      // 17 comparator edges per conversion, 2x oversampled at 400 MHz
+        .DATA_SIZE (17)                  // 17 comparator bits per conversion frame
     ) inst_fast_spi_rx (
         .BUS_CLK (BUS_CLK),
         .BUS_RST (rst),

@@ -19,7 +19,6 @@
 `include "WRAP_SiTCP_GMII_XC7K_32K.V"
 `include "SiTCP_XC7K_32K_BBT_V110.V"
 `include "TIMER.v"
-`include "daq_serdes.v"
 
 module daq_top (
     input wire FCLK_IN,       // 100 MHz system clock
@@ -143,11 +142,11 @@ module daq_top (
         .REF_JITTER1   (0.0),
         .STARTUP_WAIT  ("FALSE"),
 
-        .CLKOUT0_DIVIDE    (8),     // 1600/8 = 200 MHz sequencer word clock
+        .CLKOUT0_DIVIDE    (8),    // 1600/8 = 200 MHz sequencer word clock
         .CLKOUT0_DUTY_CYCLE(0.5),
         .CLKOUT0_PHASE     (0.0),
 
-        .CLKOUT1_DIVIDE    (2),     // 1600/2 = 800 MHz OSERDES DDR clock -> 1.6 GHz interval rate
+        .CLKOUT1_DIVIDE    (2),    // 1600/2 = 800 MHz OSERDES DDR clock -> 1.6 GHz interval rate
         .CLKOUT1_DUTY_CYCLE(0.5),
         .CLKOUT1_PHASE     (0.0)
     ) PLLE2_BASE_seq (
@@ -393,83 +392,146 @@ module daq_top (
     // The widened sequencer produces one 64-bit word every 5 ns.  Each active
     // byte lane holds eight future time slices for one ADC control input;
     // OSERDES emits each byte as a 1.6 GHz serialized LVDS interval stream.
-    wire clk_init, clk_samp, clk_comp, clk_logic;
+    // seq_gen already registers SEQ_SER_DATA on seq_clk. Feed it directly to
+    // OSERDES so the serialized controls stay word-aligned with RX_SEN.
     wire [63:0] seq_ser_data;
-    reg [63:0] seq_ser_data_q;
-    wire clk_init_ser, clk_samp_ser, clk_comp_ser, clk_logic_ser;
+    wire [31:0] seq_ser_data_tx;
+    wire [3:0] seq_ser;
 
-    always @(posedge seq_clk) begin
-        seq_ser_data_q <= seq_ser_data;
-    end
+    // Apply board-level polarity before serialization. Channel order is
+    // INIT, SAMP, COMP, LOGIC in byte lanes 0 through 3.
+    assign seq_ser_data_tx[7:0]   = ~seq_ser_data[7:0];
+    assign seq_ser_data_tx[15:8]  = seq_ser_data[15:8];
+    assign seq_ser_data_tx[23:16] = ~seq_ser_data[23:16];
+    assign seq_ser_data_tx[31:24] = ~seq_ser_data[31:24];
 
-    daq_serdes serdes_clk_init (
-        .clk(ser_clk),
-        .clkdiv(seq_clk),
-        .rst(rst),
-        .data(~seq_ser_data_q[7:0]),
-        .oq(clk_init_ser)
-    );
-    daq_serdes serdes_clk_samp (
-        .clk(ser_clk),
-        .clkdiv(seq_clk),
-        .rst(rst),
-        .data(seq_ser_data_q[15:8]),
-        .oq(clk_samp_ser)
-    );
-    daq_serdes serdes_clk_comp (
-        .clk(ser_clk),
-        .clkdiv(seq_clk),
-        .rst(rst),
-        .data(~seq_ser_data_q[23:16]),
-        .oq(clk_comp_ser)
-    );
-    daq_serdes serdes_clk_logic (
-        .clk(ser_clk),
-        .clkdiv(seq_clk),
-        .rst(rst),
-        .data(~seq_ser_data_q[31:24]),
-        .oq(clk_logic_ser)
-    );
+    genvar serdes_index;
+    generate
+        for (
+            serdes_index = 0; serdes_index < 4; serdes_index = serdes_index + 1
+        ) begin : gen_seq_serdes
+            OSERDESE2 #(
+                .DATA_RATE_OQ  ("DDR"),
+                .DATA_RATE_TQ  ("SDR"),
+                .DATA_WIDTH    (8),
+                .INIT_OQ       (1'b0),
+                .INIT_TQ       (1'b0),
+                .SERDES_MODE   ("MASTER"),
+                .SRVAL_OQ      (1'b0),
+                .SRVAL_TQ      (1'b0),
+                .TBYTE_CTL     ("FALSE"),
+                .TBYTE_SRC     ("FALSE"),
+                .TRISTATE_WIDTH(1)
+            ) oserdes (
+                .OQ(seq_ser[serdes_index]),
+                .OFB(),
+                .TQ(),
+                .TFB(),
+                .TBYTEOUT(),
+                .SHIFTOUT1(),
+                .SHIFTOUT2(),
+                .CLK(ser_clk),
+                .CLKDIV(seq_clk),
+                .D1(seq_ser_data_tx[serdes_index*8]),
+                .D2(seq_ser_data_tx[serdes_index*8+1]),
+                .D3(seq_ser_data_tx[serdes_index*8+2]),
+                .D4(seq_ser_data_tx[serdes_index*8+3]),
+                .D5(seq_ser_data_tx[serdes_index*8+4]),
+                .D6(seq_ser_data_tx[serdes_index*8+5]),
+                .D7(seq_ser_data_tx[serdes_index*8+6]),
+                .D8(seq_ser_data_tx[serdes_index*8+7]),
+                .OCE(1'b1),
+                .RST(rst),
+                .SHIFTIN1(1'b0),
+                .SHIFTIN2(1'b0),
+                .T1(1'b0),
+                .T2(1'b0),
+                .T3(1'b0),
+                .T4(1'b0),
+                .TBYTEIN(1'b0),
+                .TCE(1'b0)
+            );
+        end
+    endgenerate
 
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_init (
         .O (CLK_INIT_P),
         .OB(CLK_INIT_N),
-        .I (clk_init_ser)
+        .I (seq_ser[0])
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_samp (
         .O (CLK_SAMP_P),
         .OB(CLK_SAMP_N),
-        .I (clk_samp_ser)
+        .I (seq_ser[1])
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_comp (
         .O (CLK_COMP_P),
         .OB(CLK_COMP_N),
-        .I (clk_comp_ser)
+        .I (seq_ser[2])
     );
     OBUFDS #(
         .IOSTANDARD("LVDS_25")
     ) obufds_clk_logic (
         .O (CLK_LOGIC_P),
         .OB(CLK_LOGIC_N),
-        .I (clk_logic_ser)
+        .I (seq_ser[3])
     );
 
-    // Comparator output from chip (LVDS input)
+    // Comparator output from chip (LVDS input) with a Basil-controlled delay.
+    // GPIO1 loads a runtime tap value without rebuilding the bitstream; the
+    // power-up and reset value is zero taps.
+    wire comp_out_ibuf;
     wire comp_out;
+    wire [4:0] comp_idelay_taps;
+    wire comp_idelay_load;
+    wire comp_idelay_rdy;
+
+    (* IODELAY_GROUP = "frida_comp_rx_delay" *)
+    IDELAYCTRL idelayctrl_comp_out (
+        .RDY(comp_idelay_rdy),
+        .REFCLK(seq_clk),
+        .RST(rst)
+    );
+
     IBUFDS #(
         .DIFF_TERM   ("TRUE"),
         .IBUF_LOW_PWR("FALSE"),
         .IOSTANDARD  ("LVDS_25")
     ) ibufds_comp_out (
-        .O (comp_out),
+        .O (comp_out_ibuf),
         .I (COMP_OUT_P),
         .IB(COMP_OUT_N)
+    );
+
+    (* IODELAY_GROUP = "frida_comp_rx_delay" *)
+    IDELAYE2 #(
+        .CINVCTRL_SEL         ("FALSE"),
+        .DELAY_SRC            ("IDATAIN"),
+        .HIGH_PERFORMANCE_MODE("FALSE"),
+        .IDELAY_TYPE          ("VAR_LOAD"),
+        .IDELAY_VALUE         (0),
+        .PIPE_SEL             ("FALSE"),
+        .REFCLK_FREQUENCY     (200.0),
+        .SIGNAL_PATTERN       ("DATA")
+    ) idelaye2_comp_out (
+        .CNTVALUEOUT(),
+        .DATAOUT    (comp_out),
+        .C          (bus_clk),
+        .CE         (1'b0),
+        .CINVCTRL   (1'b0),
+        .CNTVALUEIN (comp_idelay_taps),
+        .DATAIN     (1'b0),
+        .IDATAIN    (comp_out_ibuf),
+        .INC        (1'b0),
+        .LD         (comp_idelay_load),
+        .LDPIPEEN   (1'b0),
+        .REGRST     (rst)
     );
 
 
@@ -491,10 +553,6 @@ module daq_top (
 
         .SEQ_CLK(seq_clk),
 
-        .CLK_INIT    (clk_init),
-        .CLK_SAMP    (clk_samp),
-        .CLK_COMP    (clk_comp),
-        .CLK_LOGIC   (clk_logic),
         .SEQ_SER_DATA(seq_ser_data),
 
         .SPI_CLK (spi_clk),   // 10 MHz SPI clock
@@ -505,6 +563,10 @@ module daq_top (
 
         .RST_B  (rst_b),
         .AMPEN_B(ampen_b),
+
+        .COMP_IDELAY_TAPS(comp_idelay_taps),
+        .COMP_IDELAY_LOAD(comp_idelay_load),
+        .COMP_IDELAY_RDY (comp_idelay_rdy),
 
         .FASTRX_FIFO_DATA_OUT (fastrx_fifo_data_out),
         .FASTRX_FIFO_READ_NEXT(fastrx_fifo_read_next),
@@ -519,26 +581,23 @@ module daq_top (
     // SPI Signals and Level shifter reference voltages
     (* dont_touch = "true" *) wire v_0v_lo = 1'b0;
     (* dont_touch = "true" *) wire v_2v5_hi = 1'b1;
-    assign V_0V_LO  = v_0v_lo;
-    assign V_2V5_HI = v_2v5_hi;
-    assign SPI_SCLK = spi_sclk;
-    assign SPI_SDI  = spi_sdi;
-    assign spi_sdo  = SPI_SDO;  // Signal coming from ASIC
-    assign SPI_CS_B = spi_cs_b;
-    assign RST_B    = rst_b;
-    assign AMPEN_B  = ampen_b;
+    assign V_0V_LO   = v_0v_lo;
+    assign V_2V5_HI  = v_2v5_hi;
+    assign SPI_SCLK  = spi_sclk;
+    assign SPI_SDI   = spi_sdi;
+    assign spi_sdo   = SPI_SDO;  // Signal coming from ASIC
+    assign SPI_CS_B  = spi_cs_b;
+    assign RST_B     = rst_b;
+    assign AMPEN_B   = ampen_b;
 
 
     // PMOD debug header for logic analyzer
     // PMOD[0..3] = PMOD1..4 (pins 1-4), PMOD[4..7] = PMOD7..10 (pins 7-10)
     // Pins 5,6,11,12 are GND/VCC — not available as signals.
-    assign PMOD[0]  = spi_sclk;  // Pin 1: SPI_SCLK
-    assign PMOD[1]  = spi_sdi;   // Pin 2: SPI_SDI  (MOSI)
-    assign PMOD[2]  = spi_sdo;   // Pin 3: SPI_SDO  (MISO)
-    assign PMOD[3]  = comp_out;  // Pin 4: now comp_out, prev was SPI_CS_B
-    assign PMOD[4]  = clk_init;  // Pin 7: CLK_INIT
-    assign PMOD[5]  = clk_samp;  // Pin 8: CLK_SAMP
-    assign PMOD[6]  = clk_comp;  // Pin 9: CLK_COMP
-    assign PMOD[7]  = clk_logic; // Pin 10: CLK_LOGIC
+    assign PMOD[0]   = spi_sclk;  // Pin 1: SPI_SCLK
+    assign PMOD[1]   = spi_sdi;  // Pin 2: SPI_SDI  (MOSI)
+    assign PMOD[2]   = spi_sdo;  // Pin 3: SPI_SDO  (MISO)
+    assign PMOD[3]   = spi_cs_b;  // Pin 4: SPI_CS_B
+    assign PMOD[7:4] = 4'b0000;  // Pins 7-10: unused
 
 endmodule

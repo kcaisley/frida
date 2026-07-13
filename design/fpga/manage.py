@@ -23,6 +23,7 @@ SITCP_REPO = "https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7"
 # Paths relative to this file's location (lives in design/fpga/)
 _FPGA_DIR = Path(__file__).resolve().parent
 _SITCP_DIR = _FPGA_DIR / "SiTCP"
+_DEFAULT_FLASH_FILE = _FPGA_DIR / "bit" / "frida_bdaq53_kx1.mcs"
 
 # Build targets: platform -> (fpga_part, xdc_file, flash_size_mb)
 TARGETS = {
@@ -168,8 +169,11 @@ def flash(filepath):
     .bit/.bin files are written to FPGA SRAM (volatile).
     .mcs files are written to SPI flash (persistent).
     """
+    path = Path(filepath).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"FPGA image not found: {path}")
+    filepath = str(path)
     _require_vivado()
-    filepath = str(Path(filepath).resolve())
 
     # Try vivado_lab first (free), fall back to full vivado
     # Run from fpga dir so Vivado writes logs/journals there, not cwd
@@ -467,7 +471,7 @@ def main():
     parser.add_argument(
         "--flash",
         nargs="?",
-        const="design/fpga/bit/frida_bdaq53_kx1.mcs",
+        const=str(_DEFAULT_FLASH_FILE),
         metavar="FILE",
         help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG (default: frida_bdaq53_kx1.mcs).",
     )

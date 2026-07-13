@@ -44,24 +44,23 @@ vivado build/bdaq53_kx1.xpr
 
 This opens the full project with synthesis and implementation results intact.
 
-## Running board-level tests
+## Running hardware checks
 
-Tests verify each FPGA module (SPI, GPIO, sequencer, fast_spi_rx) in both
-simulation (Icarus) and on hardware. After compiling and flashing:
+After compiling and flashing, use the serializer/sequencer check to inspect the
+current raw 64-bit pattern packing and capture the output waveforms:
 
 ```bash
-# simulation (runs on any machine with Icarus)
-uv run pytest flow/scans/test_daq.py -k test_daq_sim --cocotb-simulator icarus -v
-
-# hardware (requires FPGA connected via Ethernet)
-uv run pytest flow/scans/test_daq.py -m hw -v
+uv run python flow/scans/test_serdes.py
 ```
 
-Notes:
-- `test_spi_loopback_hw` requires the FRIDA chip connected (SPI data
-  loops through the chip's shift register)
-- `test_sequencer_loopback_hw` works with the FPGA alone (uses the
-  internal loopback mux on GPIO bit 2)
+Run the complete ADC hardware scan with:
+
+```bash
+uv run python -m flow.scans.basic
+```
+
+Both commands require the FPGA hardware and instruments described by the Basil
+maps in `flow/scans/`.
 
 ## Files
 
