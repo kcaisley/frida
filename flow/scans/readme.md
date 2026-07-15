@@ -1,3 +1,7 @@
+# Basil API commands
+
+Here is the collection of the commands which I'm using in these scans, to interface with the hardware via the `basil` firmware.
+
 
 | Method / Register     | fifo              | seq_gen                            | spi                                | gpio              | fast_spi_rx                       | pulse_gen                         |
 | --------------------- | ----------------- | ---------------------------------- | ---------------------------------- | ----------------- | --------------------------------- | --------------------------------- |
