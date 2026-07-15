@@ -1,22 +1,48 @@
-# Agilent 33250A Function/Arbitrary Waveform Generator
-#
-# Connected via USB-to-RS232 adapter.
-# Sine, square, ramp, pulse, noise, DC, arbitrary waveforms.
+# FRIDA ADC laboratory stimulus instruments:
+#   - Agilent 33250A waveform generator over a Prolific USB-to-RS232 adapter
+#   - TTi QL355TP power supply over its direct USB serial interface
 
-name: frida-awg
+name: frida-instruments
 version: 0.1.0
 
 transfer_layer:
   - name: awg_intf
     type: Serial
     init:
-      port: "/dev/ttyUSB0"  # TODO: update with actual serial port
-      baudrate: 9600         # 33250A default
+      port: /dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller_D-if00-port0
+      read_termination: "\n"
+      write_termination: "\n"
+      baudrate: 57600
+      # Linux does not implement pySerial's automatic DSR/DTR flow control.
+      # With it disabled, pySerial asserts the adapter's DTR output. In the
+      # 33250A's DTR/DSR mode, a full-handshake null-modem cable must cross
+      # that signal to the instrument's DSR input before it will transmit.
+      dsrdtr: false
       parity: "N"
       stopbits: 1
+      bytesize: 8
+      timeout: 2
+
+  - name: psu_intf
+    type: Serial
+    init:
+      port: /dev/serial/by-id/usb-TTi_QL355TP_Power_Supply_tb3XC59T-if00-port0
+      read_termination: "\r\n"
+      write_termination: "\n"
+      baudrate: 19200
+      xonxoff: true
+      parity: "N"
+      stopbits: 1
+      bytesize: 8
       timeout: 2
 
 hw_drivers:
   - name: awg
     type: agilent33250a
     interface: awg_intf
+    init:
+      device: Agilent 33250A
+
+  - name: psu
+    type: tti_ql355tp
+    interface: psu_intf
