@@ -136,26 +136,18 @@ uv run flow simulate -c comp -t ihp130 -m min -s spectre
 uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
 ```
 
-### `flow scan`
+### Hardware ADC scans
 
-Measure or simulate the fabricated prototype ASIC in the full DUT harness, under various test modes.
-
-```bash
-flow scan --sequence [required]
-```
+The hardware scan is a direct Basil workflow rather than a `flow` subcommand.
+Configure the scan constants at the top of `flow/scans/basic.py`, then run:
 
 ```bash
---emulate [true,false] # configurations either physical hardware measurement, or emulated cosimulation with cocotb. Default is false, meaning physical hardware.
---channel [0,1,2,3,..15] # determines which channels receive sequencer, and which channel the compmux enables, goes into spi register.
---dacstate [four 16 bit numbers written in binary notation] # goes into spi register, states the dacp and dacn A (init state, always used) and B (final state, which is only used in dacmode=calib)
---dacmode [normal,calib] # whether to enable normal operation, or A->B state calibration mode. These are values in the spi register.
---diffcaps [true,false] # goes into spi register
---input [manual,ramp,sine,dc]  # determines an input sequencer from the external power supply. Manual meas I externally set it. the others come from a preset. list of input sequences, which are aligned to the sequence. Default is manual.
---sequence [none, adc, comp, calib] # determines which sequence to apply (in the hdl sequencer)
---rate [integer] # full sequence runs per second. Determines both the divider for the repeat rate of the sequencer, and the update rate on the input voltage]
---cycles [integer] # default = 1, for each input, number of repetitions of the sequencer/inputs. If more than one channel is selected, that provides a higher level of sweep.
---results [default=false, true]. # Determine if results are written just in output, or if they are actually saved to the files system in the path defined in the cli (I think the default is in frida/build/?)
+uv run python -m flow.scans.basic
 ```
+
+The script configures the chip, loads the raw 64-bit serializer pattern,
+captures and decodes 17-bit FastRX data, and writes CSV files and plots under
+`build/`.
 
 # Installation
 

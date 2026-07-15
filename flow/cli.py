@@ -23,15 +23,6 @@ SUBCKTS = ["samp", "comp", "cdac", "adc"]
 LAYOUTS = ["comp"]
 TESTBENCHES = ["samp", "comp", "cdac", "adc"]
 
-
-def _str_to_bool(s: str) -> bool:
-    return s.lower() in ("true", "1", "yes")
-
-
-def _parse_int(s: str) -> int:
-    return int(s, 0)
-
-
 # Hosts with SPICE simulators and PDKs available
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
 
@@ -114,118 +105,12 @@ def main():
     p.add_argument("--verilog", type=Path, help="Verilog file for port reordering (sp_clean only)")
     p.add_argument("--module", help="Module name for port reordering (sp_clean only)")
 
-    # Scan
-    p = sub.add_parser("scan", help="Measure or simulate the prototype ASIC")
-    p.add_argument(
-        "--sequence",
-        required=True,
-        choices=["none", "adc", "comp", "samp_comp", "calib", "fastrx"],
-        help="Sequencer pattern: none, adc (full SAR), comp (cont. clock), "
-        "samp_comp (single sample+compare), calib (init→sample→comp→DAC→comp)",
-    )
-    p.add_argument(
-        "--emulate",
-        default="false",
-        choices=["true", "false"],
-        help="Emulate with cocotb cosimulation instead of physical hardware (default: false)",
-    )
-    p.add_argument(
-        "--channel",
-        type=int,
-        nargs="+",
-        default=None,
-        help="ADC channels to scan (0..15). Multiple channels sweep sequentially.",
-    )
-    p.add_argument(
-        "--dacstate",
-        type=_parse_int,
-        nargs="+",
-        default=None,
-        help="DAC state values in Python int notation (0b..., 0x..., decimal). "
-        "2 values for normal mode, 4 for calib mode.",
-    )
-    p.add_argument(
-        "--dacmode",
-        default=None,
-        choices=["normal", "calib"],
-        help="DAC operating mode",
-    )
-    p.add_argument(
-        "--diffcaps",
-        choices=["true", "false"],
-        default=None,
-        help="Enable DAC differential caps",
-    )
-    p.add_argument(
-        "--input-mode",
-        default=None,
-        choices=["manual", "ramp", "sine", "dc"],
-        help="Input voltage source mode",
-    )
-    p.add_argument(
-        "--clkdiv",
-        type=int,
-        default=1,
-        help="Sequencer clock divider (1 = 200 MHz full speed)",
-    )
-    p.add_argument(
-        "--cycles",
-        type=int,
-        default=1,
-        help="Number of sequence repetitions per voltage step (0 = forever)",
-    )
-    p.add_argument(
-        "--loopback",
-        default="none",
-        choices=["none", "spi", "fastrx", "both"],
-        help="Loopback mode: none, spi (FPGA SPI SDO loopback), fastrx (fast RX loopback), both",
-    )
-    p.add_argument(
-        "--fifo",
-        default="fastrx",
-        choices=["fastrx", "counter"],
-        help="Data source for the FASTRX FIFO: fastrx (captured COMP_OUT), counter (up-counter for FIFO/chain verification)",
-    )
-    p.add_argument(
-        "--save",
-        choices=["true", "false"],
-        default="false",
-        help="Save captured results to build/scan/ as NPZ",
-    )
-    p.add_argument(
-        "--vdd",
-        type=float,
-        default=None,
-        help="Supply voltage",
-    )
-    p.add_argument(
-        "--diffamp",
-        choices=["true", "false"],
-        default=None,
-        help="Enable PCB input differential amplifier",
-    )
-    p.add_argument(
-        "--fastrx",
-        choices=["compout", "tiehigh"],
-        default=None,
-        help="FASTRX input source: compout (external COMP_OUT pin), tiehigh (force fastrx_in to 1)",
-    )
-    p.add_argument(
-        "--fastrx_en_mux",
-        choices=["seqout", "gpio"],
-        default="gpio",
-        help="fastrx_en source: seqout (sequencer FASTRX_EN track), gpio (gpio[6] drives both trigger and en)",
-    )
-
     argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
 
     if args.command == "convert":
         _run_convert(args)
-        return
-    if args.command == "scan":
-        _run_scan(args)
         return
 
     set_pdk(args.tech)
@@ -239,50 +124,6 @@ def main():
         _run_layout(args)
     elif args.command == "simulate":
         _run_simulate(args)
-
-
-def _run_scan(args):
-    """Validate scan arguments and dispatch to run_scan."""
-    from .scans.scan import run_scan
-
-    N_ADCS = 16
-
-    chip_config_args = {
-        "channel": args.channel,
-        "dacstate": args.dacstate,
-        "dacmode": args.dacmode,
-        "diffcaps": args.diffcaps,
-        "input_mode": args.input_mode,
-    }
-
-    if args.sequence == "fastrx":
-        provided = [name for name, value in chip_config_args.items() if value is not None]
-        if provided:
-            raise SystemExit(
-                f"--sequence=fastrx does not accept chip-config arguments: {', '.join(f'--{name}' for name in provided)}"
-            )
-        if args.fastrx is None:
-            args.fastrx = "compout"
-        if args.fastrx == "tiehigh" and args.loopback == "fastrx":
-            raise SystemExit("--fastrx=tiehigh and --loopback=fastrx are mutually exclusive")
-    elif args.sequence == "none" and args.fifo == "counter":
-        # Counter-only mode: no chip config needed, no sequencer loaded
-        pass
-    else:
-        missing = [name for name, value in chip_config_args.items() if value is None]
-        if missing:
-            raise SystemExit(f"Missing required chip-config arguments: {', '.join(f'--{name}' for name in missing)}")
-        if args.loopback == "fastrx":
-            raise SystemExit("--loopback=fastrx is only valid with --sequence=fastrx")
-        if any(ch < 0 or ch >= N_ADCS for ch in args.channel):
-            raise SystemExit(f"Channels must be 0..{N_ADCS - 1}")
-    args.emulate = _str_to_bool(args.emulate)
-    if args.diffcaps is not None:
-        args.diffcaps = _str_to_bool(args.diffcaps)
-    if args.diffamp is not None:
-        args.diffamp = _str_to_bool(args.diffamp)
-    args.save = _str_to_bool(args.save)
-    run_scan(args)
 
 
 def _run_convert(args):

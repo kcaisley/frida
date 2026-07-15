@@ -15,7 +15,7 @@
 *
 * Reference: design/pcb/frida65A.kicad_sch (input amplifier section)
 
-* ths4541.sp must be included by the top-level wrapper (tb_adc.sp or amscontrol.scs)
+* ths4541.sp must be included by the top-level wrapper (for example tb_adc.sp)
 
 .subckt sediff vin_p_ext vin_p vin_n vdd
 
