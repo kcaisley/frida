@@ -19,21 +19,37 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from flow.scans.basic import N_SWEEP_POINTS, V_START, V_STOP, VINP_SWEEP_V
-
 VDD = 1.2
+N_CONVERSIONS = 121
+TRANSFER_V_START = 0.0
+TRANSFER_V_STOP = 1.2
+TRANSFER_V_STEP = 0.01
+TRANSFER_VINP_SWEEP = tuple(
+    TRANSFER_V_START + step * TRANSFER_V_STEP
+    for step in range(round((TRANSFER_V_STOP - TRANSFER_V_START) / TRANSFER_V_STEP) + 1)
+)
 CONVPER_S = 1.28e-6
-SEQ_BIT_S = 20e-9
+SERDES_RATIO = 8
+SEQ_WORDS = 32
+# Use the same 32x8 track format as the FPGA while retaining the slower PEX
+# conversion period. Each simulated serializer interval is therefore 5 ns.
+SERDES_INTERVAL_S = CONVPER_S / (SEQ_WORDS * SERDES_RATIO)
 EDGE_S = 0.1e-9
 OUTDIR = Path(__file__).resolve().parents[2] / "build" / "adc_pex" / "pwl"
 PLOT_PATH = Path(__file__).resolve().parents[2] / "build" / "adc_pex" / "pwl_waveforms.png"
 
-TRACKS = {
-    "seq_init": "00 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
-    "seq_samp": "00 00 11 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
-    "seq_comp": "00 00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00",
-    # basic.py LOGIC track maps to the ADC seq_update input.
-    "seq_update": "00 01 00 00 00 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 00 00 00 00 00 00 00 00 00 00 00",
+SEQ_PATTERNS = {
+    "INIT": "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "SAMP": "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "COMP": "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "LOGIC": "00000000 00001111 00000000 00000000 00000000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+}
+
+PWL_TRACK_NAMES = {
+    "INIT": "seq_init",
+    "SAMP": "seq_samp",
+    "COMP": "seq_comp",
+    "LOGIC": "seq_update",
 }
 
 
@@ -78,54 +94,61 @@ def plot_pwl_waveforms(waveforms: dict[str, list[tuple[float, float]]], out: Pat
 
 
 def vin_p_points() -> list[tuple[float, float]]:
-    if N_SWEEP_POINTS < 2:
-        raise ValueError("N_SWEEP_POINTS must be at least 2")
+    if len(TRANSFER_VINP_SWEEP) != N_CONVERSIONS:
+        raise ValueError(f"transfer sweep has {len(TRANSFER_VINP_SWEEP)} points, expected {N_CONVERSIONS}")
 
-    points = [(0.0, VINP_SWEEP_V[0])]
-    previous = VINP_SWEEP_V[0]
-    for index, value in enumerate(VINP_SWEEP_V[1:], start=1):
+    points = [(0.0, TRANSFER_VINP_SWEEP[0])]
+    previous = TRANSFER_VINP_SWEEP[0]
+    for index, value in enumerate(TRANSFER_VINP_SWEEP[1:], start=1):
         time_s = index * CONVPER_S
         points.append((time_s - EDGE_S, previous))
         points.append((time_s, value))
         previous = value
-    points.append((N_SWEEP_POINTS * CONVPER_S, previous))
+    points.append((N_CONVERSIONS * CONVPER_S, previous))
     return points
 
 
 def track_bits(pattern: str) -> list[int]:
-    bits = [int(bit) for bit in pattern.replace(" ", "")]
-    if len(bits) != 64:
-        raise ValueError(f"expected 64 sequencer bits, got {len(bits)} from {pattern!r}")
-    return bits
+    words = pattern.split()
+    if len(words) != SEQ_WORDS:
+        raise ValueError(f"expected {SEQ_WORDS} serializer words, got {len(words)} from {pattern!r}")
+    for word in words:
+        if len(word) != SERDES_RATIO or any(bit not in "01" for bit in word):
+            raise ValueError(f"invalid serializer word {word!r}; expected {SERDES_RATIO} bits")
+    return [int(bit) for word in words for bit in word]
 
 
 def sequencer_points(pattern: str) -> list[tuple[float, float]]:
     bits = track_bits(pattern)
-    timeline = bits * N_SWEEP_POINTS
+    timeline = bits * N_CONVERSIONS
     points: list[tuple[float, float]] = [(0.0, timeline[0] * VDD)]
     previous = timeline[0]
 
     for index, bit in enumerate(timeline[1:], start=1):
         if bit == previous:
             continue
-        boundary_s = index * SEQ_BIT_S
+        boundary_s = index * SERDES_INTERVAL_S
         points.append((boundary_s, previous * VDD))
         points.append((boundary_s + EDGE_S, bit * VDD))
         previous = bit
 
-    points.append((N_SWEEP_POINTS * CONVPER_S, previous * VDD))
+    points.append((N_CONVERSIONS * CONVPER_S, previous * VDD))
     return points
 
 
 def main() -> None:
     print("Generating ADC PEX Spectre PWL files")
-    print(f"Sweep points: {N_SWEEP_POINTS} Vin_p values from {V_START:.3f} V to {V_STOP:.3f} V")
-    print(f"Vdiff range: {V_START - 0.6:.3f} V to {V_STOP - 0.6:.3f} V")
-    print(f"Conversion period: {CONVPER_S / 1e-6:.3f} us, tstop: {N_SWEEP_POINTS * CONVPER_S / 1e-6:.3f} us")
+    print(f"Sweep points: {N_CONVERSIONS} Vin_p values from {TRANSFER_V_START:.3f} V to {TRANSFER_V_STOP:.3f} V")
+    print(f"Vdiff range: {TRANSFER_V_START - 0.6:.3f} V to {TRANSFER_V_STOP - 0.6:.3f} V")
+    print(f"Conversion period: {CONVPER_S / 1e-6:.3f} us, tstop: {N_CONVERSIONS * CONVPER_S / 1e-6:.3f} us")
+    print(
+        f"Track format: {SEQ_WORDS} words x {SERDES_RATIO}:1 intervals; "
+        f"simulated interval: {SERDES_INTERVAL_S / 1e-9:.3f} ns"
+    )
 
     waveforms = {"vin_p": vin_p_points()}
-    for name, pattern in TRACKS.items():
-        waveforms[name] = sequencer_points(pattern)
+    for track, name in PWL_TRACK_NAMES.items():
+        waveforms[name] = sequencer_points(SEQ_PATTERNS[track])
 
     for name, points in waveforms.items():
         write_pwl(OUTDIR / f"{name}.pwl", points)

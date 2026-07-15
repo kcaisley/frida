@@ -4,15 +4,15 @@ Run from /local/frida:
     uv run python -m flow.scans.scan_compout
 
 This is a single-input hardware scan intended to make the comparator output bit
-sequence easy to inspect.  It drives Vin_p to 700 mV while Vin_n is assumed to be
-600 mV, then runs a custom 64-bit sequencer pattern:
+sequence easy to inspect. Set the external inputs to Vin_p=700 mV and
+Vin_n=600 mV before running the custom 32-word serializer pattern:
 
-- INIT pulse as in ``basic.py``.
-- Initial LOGIC pulse as in ``basic.py``.
-- SAMP high for four sequencer chunks.
-- 10 comparator pulses with no SAR logic updates.
-- One LOGIC pulse to apply the MSB DAC update.
-- 7 more comparator pulses.
+- INIT and SAMP pulses match ``basic.py``.
+- The first 10 comparator pulses have no SAR logic updates.
+- One LOGIC pulse applies the MSB DAC update.
+- The final 7 comparator pulses complete the 17-bit conversion.
+- RX_SEN stays high for exactly 17 cycles of the 200 MHz FastRX clock, producing
+  one FastRX word with no oversampling or phase decimation.
 
 For the intended debug condition, the rough expected comparator sequence is ten
 ones followed by seven zeros: ``11111111110000000``.
@@ -23,73 +23,61 @@ from __future__ import annotations
 from pathlib import Path
 from time import sleep
 
-from flow.scans.basic import CODE_WEIGHTS, NUM_CAPTURE_BITS, scpi_float, spi_config_to_bytes
+from flow.scans.basic import (
+    ADC_CODE_WEIGHTS,
+    NUM_CAPTURE_BITS,
+    SEQ_GEN_LANES,
+    SERDES_RATIO,
+    bitarray_to_seq_gen_format,
+    decode_conversion,
+    spi_config_to_bytes,
+)
 
 ADC_INDEX = 0
+CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
 VIN_P = 0.700
 VIN_N = 0.600
-SLEEP_TIME = 0.2
-SEQ_SIZE = 64
+SEQ_WORDS = 32
 CAPTURE_REPEATS = 1
 EXPECTED_COMP_BITS = "1" * 10 + "0" * 7
 MAX_PRINT_WORDS = 12
 
-# Literal 64-bit sequencer tracks, grouped as two sequencer chunks per token.
-# The sequencer is temporal left-to-right: bit 0, bit 1, ..., bit 63.
-# Exactly 34 enabled samples: enough for two 17-bit FastRX words, with no
-# extra SEN-fall partial-word flush.
+# Each eight-bit output word is temporal left-to-right and becomes eight
+# 0.625 ns intervals at the OSERDES output. RX_SEN/RX_TEST remain one bit per
+# 5 ns sequencer word because they are internal FPGA controls.
 # fmt: off
-#                  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
-INIT_PATTERN    = "00 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
-SAMP_PATTERN    = "00 00 11 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
-COMP_PATTERN    = "00 00 00 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00"
-LOGIC_PATTERN   = "00 01 00 00 00 00 00 00 00 00 00 00 00 00 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
-RX_EN_PATTERN   = "00 00 00 00 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 10 00 00 00 00 00 00 00 00 00 00"
-RX_TEST_PATTERN = "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+SEQ_PATTERNS = {
+    "INIT":    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "SAMP":    "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "COMP":    "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "LOGIC":   "00000000 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "RX_SEN":  "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0",
+    "RX_TEST": "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+}
 # fmt: on
-COMP_BITS = tuple(range(9, 42, 2))
 
 
-def pattern_high_bits(pattern: str) -> tuple[int, ...]:
-    bits = pattern.replace(" ", "")
-    if len(bits) != SEQ_SIZE:
-        raise ValueError(f"expected {SEQ_SIZE} bits, got {len(bits)} from {pattern!r}")
-    return tuple(index for index, bit in enumerate(bits) if bit == "1")
-
-
-def bitarray_from_pattern(pattern: str):
-    from bitarray import bitarray
-
-    bits = pattern.replace(" ", "")
-    if len(bits) != SEQ_SIZE:
-        raise ValueError(f"expected {SEQ_SIZE} bits, got {len(bits)} from {pattern!r}")
-    return bitarray(pattern)
+def active_words(pattern: str) -> tuple[int, ...]:
+    words = pattern.split()
+    if len(words) != SEQ_WORDS:
+        raise ValueError(f"expected {SEQ_WORDS} words, got {len(words)} from {pattern!r}")
+    return tuple(index for index, word in enumerate(words) if "1" in word)
 
 
 def print_sequencer_summary() -> None:
-    rx_en_bits = pattern_high_bits(RX_EN_PATTERN)
-    print("Custom comp_out debug sequencer")
-    print(f"  INIT    {INIT_PATTERN}  high={pattern_high_bits(INIT_PATTERN)}")
-    print(f"  SAMP    {SAMP_PATTERN}  high={pattern_high_bits(SAMP_PATTERN)}")
-    print(f"  COMP    {COMP_PATTERN}  high={pattern_high_bits(COMP_PATTERN)}")
-    print(f"  LOGIC   {LOGIC_PATTERN}  high={pattern_high_bits(LOGIC_PATTERN)}")
-    print(f"  RX_EN   {RX_EN_PATTERN}  high={rx_en_bits[0]}..{rx_en_bits[-1]} ({len(rx_en_bits)} chunks)")
-    print(f"  RX_TEST {RX_TEST_PATTERN}  high=off")
-    print(f"  comparator pulse bits: {COMP_BITS}")
+    print("Custom comp_out serializer/FastRX debug sequencer")
+    for name, pattern in SEQ_PATTERNS.items():
+        print(f"  {name:<7} active words={active_words(pattern)}")
     print(f"  rough expected Bbits: {EXPECTED_COMP_BITS}")
 
 
 def configure_sequencer(daq) -> None:
-    daq["seq0"].clear()
-    daq["seq0"]["INIT"][0:SEQ_SIZE] = bitarray_from_pattern(INIT_PATTERN)
-    daq["seq0"]["SAMP"][0:SEQ_SIZE] = bitarray_from_pattern(SAMP_PATTERN)
-    daq["seq0"]["COMP"][0:SEQ_SIZE] = bitarray_from_pattern(COMP_PATTERN)
-    daq["seq0"]["LOGIC"][0:SEQ_SIZE] = bitarray_from_pattern(LOGIC_PATTERN)
-    daq["seq0"]["RX_EN"][0:SEQ_SIZE] = bitarray_from_pattern(RX_EN_PATTERN)
-    daq["seq0"]["RX_TEST"][0:SEQ_SIZE] = bitarray_from_pattern(RX_TEST_PATTERN)
+    memory = bitarray_to_seq_gen_format(SEQ_PATTERNS, SERDES_RATIO, SEQ_GEN_LANES)
 
-    daq["seq0"].write(SEQ_SIZE)
-    daq["seq0"].set_size(SEQ_SIZE)
+    # Bypass TrackRegister: its byte/bit reversal only matches the original
+    # 8-bit sequencer, not the current 64-bit serializer memory layout.
+    daq["seq0"]._drv.set_data(memory)
+    daq["seq0"].set_size(SEQ_WORDS)
     daq["seq0"].set_clk_divide(1)
     daq["seq0"].set_repeat(CAPTURE_REPEATS)
     daq["seq0"].set_en_ext_start(False)
@@ -130,25 +118,8 @@ def configure_adc_spi(daq, adc_index: int) -> None:
     print(f"ADC {adc_index:02d} SPI verify: {((expected[1:] ^ readback[1:]).count(1))} mismatches (skip bit 0)")
 
 
-def decode_words_with_phase(spi0: int, spi1: int, data_size: int, phase: int) -> tuple[str, int]:
-    samples = [(spi0 >> i) & 1 for i in range(data_size - 1, -1, -1)]
-    samples += [(spi1 >> i) & 1 for i in range(data_size - 1, -1, -1)]
-    bits = [samples[phase + 2 * i] for i in range(NUM_CAPTURE_BITS)]
-    bbits = "".join(str(bit) for bit in bits)
-    dout = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
-    return bbits, dout
-
-
-def parsed_samples(daq, data: list[int], data_size: int) -> list[int]:
-    samples: list[int] = []
-    for word in data:
-        _, _, spi_data = daq["fastrx0"].parse_word(int(word))
-        samples.extend((spi_data >> i) & 1 for i in range(data_size - 1, -1, -1))
-    return samples
-
-
-def print_decoded_data(daq, data, data_size: int, *, label: str, full_sequence_aligned: bool) -> None:
-    print(f"{label}: FIFO words: {len(data)}")
+def print_decoded_data(daq, data, data_size: int) -> None:
+    print(f"RX_SEN capture: FIFO words: {len(data)}")
     for i, word in enumerate(data[:MAX_PRINT_WORDS]):
         identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(word))
         data_str = f"{spi_data:0{data_size}b}"
@@ -160,62 +131,11 @@ def print_decoded_data(daq, data, data_size: int, *, label: str, full_sequence_a
     if len(data) > MAX_PRINT_WORDS:
         print(f"... skipped {len(data) - MAX_PRINT_WORDS} additional FIFO words")
 
-    if len(data) >= 2:
-        raw_word0 = int(data[0])
-        raw_word1 = int(data[1])
-        _, _, spi0 = daq["fastrx0"].parse_word(raw_word0)
-        _, _, spi1 = daq["fastrx0"].parse_word(raw_word1)
-        for phase in (0, 1):
-            bbits, dout = decode_words_with_phase(spi0, spi1, data_size, phase)
-            marker = " <- expected" if bbits == EXPECTED_COMP_BITS else ""
-            print(f"first two words decoded with phase {phase}: Bbits={bbits} Dout={dout}{marker}")
-
-    if full_sequence_aligned:
-        samples = parsed_samples(daq, data, data_size)
-        if len(samples) > max(COMP_BITS):
-            comp_bits = "".join(str(samples[index]) for index in COMP_BITS)
-            print(f"samples at COMP_BITS {COMP_BITS}: {comp_bits} expected≈{EXPECTED_COMP_BITS}")
-        else:
-            print(
-                f"not enough full-sequence samples to extract COMP_BITS: got {len(samples)}, need {max(COMP_BITS) + 1}"
-            )
-
-
-def capture_with_seqout_rx_en(daq, data_size: int) -> list[int]:
-    daq["fifo0"]["RESET"]
-    daq["fifo0"].get_data()
-
-    daq["seq0"].start()
-    sleep(0.01)
-    while not daq["seq0"].is_done():
-        sleep(0.1)
-        print("waiting for sequencer")
-
-    return list(daq["fifo0"].get_data())
-
-
-def capture_with_gpio_window(daq, data_size: int) -> list[int]:
-    print("Retrying with GPIO external-start / full-sequence FastRX enable window")
-    daq["fifo0"]["RESET"]
-    daq["fifo0"].get_data()
-    daq["fastrx0"].reset()
-    daq["fastrx0"].set_en(True)
-
-    daq["seq0"].set_en_ext_start(True)
-    daq["gpio0"]["RX_EN_MUX"] = 0
-    daq["gpio0"].write()
-
-    daq["gpio0"]["SEQ_START"] = 1
-    daq["gpio0"].write()
-    sleep(0.0001)
-    daq["gpio0"]["SEQ_START"] = 0
-    daq["gpio0"].write()
-
-    while not daq["seq0"].is_done():
-        sleep(0.1)
-        print("waiting for sequencer")
-
-    return list(daq["fifo0"].get_data())
+    if data:
+        _, _, spi_data = daq["fastrx0"].parse_word(int(data[0]))
+        bbits, dout = decode_conversion(spi_data, data_size, CODE_WEIGHTS)
+        marker = " <- expected" if bbits == EXPECTED_COMP_BITS else ""
+        print(f"first word decoded: Bbits={bbits} Dout={dout}{marker}")
 
 
 def capture_once(daq, data_size: int) -> None:
@@ -223,13 +143,15 @@ def capture_once(daq, data_size: int) -> None:
     daq["gpio0"].write()
     daq["seq0"].set_en_ext_start(False)
 
-    data = capture_with_seqout_rx_en(daq, data_size)
-    print_decoded_data(daq, data, data_size, label="seqout RX_EN capture", full_sequence_aligned=False)
-    if data:
-        return
+    daq["fifo0"]["RESET"]
+    daq["fifo0"].get_data()
+    daq["seq0"].start()
+    sleep(0.01)
+    while not daq["seq0"].is_done():
+        sleep(0.1)
+        print("waiting for sequencer")
 
-    data = capture_with_gpio_window(daq, data_size)
-    print_decoded_data(daq, data, data_size, label="GPIO-window capture", full_sequence_aligned=False)
+    print_decoded_data(daq, list(daq["fifo0"].get_data()), data_size)
 
 
 def main() -> None:
@@ -260,19 +182,11 @@ def main() -> None:
 
         configure_adc_spi(daq, ADC_INDEX)
 
-        daq["psu0"].source_volt()
-        daq["psu0"].set_voltage(VIN_P)
-        daq["psu0"].on()
-        sleep(SLEEP_TIME)
-        vin_read = scpi_float(daq["psu0"].get_voltage())
-        print(f"Vin_p set/read: {VIN_P:.6g} V / {vin_read:.6g} V; Vin_n assumed {VIN_N:.6g} V")
+        print(f"Using externally supplied Vin_p={VIN_P:.6g} V and Vin_n={VIN_N:.6g} V")
 
         capture_once(daq, data_size)
     finally:
-        try:
-            daq["psu0"].off()
-        finally:
-            daq.close()
+        daq.close()
 
     print("Done.")
 

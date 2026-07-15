@@ -11,10 +11,9 @@ Then parse the generated raw files into CSVs and transfer plots:
 
 The raw/CSV paths are listed in ``ADC_PEX_POSTPROCESS_RUNS`` below.
 
-The output CSV uses the same columns as ``flow/scans/basic.py``.  Spectre does
-not produce Basil FastRX packet words, so ``raw_word*`` and ``spi*`` are
-synthetic 17-bit words packed from the sampled comparator bits.  They are still
-constructed so that the same Bbits/Dout decode convention is represented.
+The output CSV uses the same columns as ``flow/scans/basic.py``. Spectre does
+not produce a Basil FastRX packet, so ``raw_word`` and ``spi`` contain the same
+synthetic 17-bit word packed from the sampled comparator bits.
 """
 
 from __future__ import annotations
@@ -23,10 +22,11 @@ import bisect
 import sys
 from pathlib import Path
 
-from flow.scans.basic import CODE_WEIGHTS, NUM_CAPTURE_BITS
-from flow.scans.plot import plot_adc_transfer, write_adc_csv
+from flow.scans.basic import ADC_CODE_WEIGHTS, NUM_CAPTURE_BITS
+from flow.scans.plot import plot_adc_transfer, plot_code_histogram, plot_decision_paths, write_adc_csv
 
 ADC_INDEX = 0
+CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
 LOGIC_THRESHOLD_V = 0.6
 COMP_SAMPLE_DELAY_S = 10e-9
 COMP_SIGNAL = "comp_out"
@@ -48,6 +48,12 @@ ADC_PEX_BSS_TITLE = "FRIDA ADC PEX BSS voltage sweep"
 ADC_PEX_BSS_LABEL = "PEX BSS conversions"
 ADC_PEX_BSS_COLOR = "orange"
 
+ADC_PEX_NOISE_NAME = "noise"
+ADC_PEX_NOISE_RAW = Path("build/adc_pex_noise/tb_adc_pex_noise.raw")
+ADC_PEX_NOISE_CSV = Path("build/adc_pex_noise/adc00_dinit0101010101010101_noise_pex.csv")
+ADC_PEX_NOISE_DAC_INIT = "0101010101010101"
+ADC_PEX_NOISE_SETUP = "pex"
+
 ADC_PEX_POSTPROCESS_RUNS = [
     {
         "name": ADC_PEX_MONOTONIC_NAME,
@@ -56,6 +62,7 @@ ADC_PEX_POSTPROCESS_RUNS = [
         "title": ADC_PEX_MONOTONIC_TITLE,
         "label": ADC_PEX_MONOTONIC_LABEL,
         "color": ADC_PEX_MONOTONIC_COLOR,
+        "plot": "transfer",
     },
     {
         "name": ADC_PEX_BSS_NAME,
@@ -64,67 +71,81 @@ ADC_PEX_POSTPROCESS_RUNS = [
         "title": ADC_PEX_BSS_TITLE,
         "label": ADC_PEX_BSS_LABEL,
         "color": ADC_PEX_BSS_COLOR,
+        "plot": "transfer",
+    },
+    {
+        "name": ADC_PEX_NOISE_NAME,
+        "raw": ADC_PEX_NOISE_RAW,
+        "csv": ADC_PEX_NOISE_CSV,
+        "plot": "noise",
+        "dac_init_state": ADC_PEX_NOISE_DAC_INIT,
+        "setup": ADC_PEX_NOISE_SETUP,
     },
 ]
 
 
-def parse_spectre_nutascii(path: Path) -> dict[str, list[float]]:
-    """Parse a Spectre nutascii raw file into ``signal_name -> values`` lists."""
-    text = path.read_text(errors="replace")
-    if "Values:\n" not in text:
-        raise ValueError(f"{path} does not look like complete nutascii output: missing 'Values:' section")
+def parse_spectre_nutascii(path: Path, selected_signals: set[str] | None = None) -> dict[str, list[float]]:
+    """Parse a Spectre nutascii raw file into ``signal_name -> values`` lists.
 
-    header, data_text = text.split("Values:\n", 1)
-    var_names: list[str] = []
-    in_vars = False
+    ``selected_signals`` keeps large PEX transient-noise runs tractable by only
+    storing the few top-level signals needed for ADC decoding.
+    """
+    header_lines = []
+    with path.open(errors="replace") as f:
+        for line in f:
+            if line.strip() == "Values:":
+                break
+            header_lines.append(line)
+        else:
+            raise ValueError(f"{path} does not look like complete nutascii output: missing 'Values:' section")
 
-    for line in header.splitlines():
-        parts = line.strip().split()
-        if not parts:
-            continue
+        var_names: list[str] = []
+        in_vars = False
+        for line in header_lines:
+            parts = line.strip().split()
+            if not parts:
+                continue
 
-        if parts[0] == "Variables:":
-            in_vars = True
-            # Spectre may put variable zero on the same line:
-            #   Variables:  0  time  s
-            if len(parts) >= 4 and parts[1].isdigit():
-                var_names.append(parts[2])
-            continue
+            if parts[0] == "Variables:":
+                in_vars = True
+                if len(parts) >= 4 and parts[1].isdigit():
+                    var_names.append(parts[2])
+                continue
 
-        if in_vars:
-            if parts[0].isdigit() and len(parts) >= 3:
-                var_names.append(parts[1])
-            elif not parts[0].isdigit():
-                in_vars = False
+            if in_vars:
+                if parts[0].isdigit() and len(parts) >= 3:
+                    var_names.append(parts[1])
+                elif not parts[0].isdigit():
+                    in_vars = False
 
-    if not var_names:
-        raise ValueError(f"could not parse variable list from {path}")
+        if not var_names:
+            raise ValueError(f"could not parse variable list from {path}")
 
-    n_vars = len(var_names)
-    values: list[float] = []
-    for token in data_text.split():
-        try:
-            values.append(float(token))
-        except ValueError:
-            pass
+        n_vars = len(var_names)
+        selected = selected_signals or set(var_names)
+        selected_indices = {index: name for index, name in enumerate(var_names) if name in selected}
+        parsed = {name: [] for name in selected_indices.values()}
+        stride = n_vars + 1  # point index plus all variable values
+        tokens: list[str] = []
+        n_points = 0
 
-    stride = n_vars + 1  # point index plus all variable values
-    n_points = len(values) // stride
-    if n_points == 0:
-        raise ValueError(f"no raw data points parsed from {path}")
+        for line in f:
+            tokens.extend(line.split())
+            while len(tokens) >= stride:
+                point_tokens = tokens[:stride]
+                del tokens[:stride]
+                base = 1
+                for index, name in selected_indices.items():
+                    parsed[name].append(float(point_tokens[base + index]))
+                n_points += 1
 
-    remainder = len(values) % stride
-    if remainder:
-        print(
-            f"warning: ignoring {remainder} trailing numeric tokens in {path}; raw may be from an interrupted run",
-            file=sys.stderr,
-        )
-
-    parsed = {name: [] for name in var_names}
-    for point in range(n_points):
-        base = point * stride + 1
-        for offset, name in enumerate(var_names):
-            parsed[name].append(values[base + offset])
+        if n_points == 0:
+            raise ValueError(f"no raw data points parsed from {path}")
+        if tokens:
+            print(
+                f"warning: ignoring {len(tokens)} trailing numeric tokens in {path}; raw may be from an interrupted run",
+                file=sys.stderr,
+            )
 
     return parsed
 
@@ -171,19 +192,6 @@ def bits_to_word(bits: list[int]) -> int:
     return word
 
 
-def synthetic_fast_rx_words(bits: list[int]) -> tuple[int, int]:
-    """Pack B16..B0 into two synthetic 17-bit words.
-
-    ``basic.py`` decimates even samples from two 17-bit words.  Put each ADC bit
-    into those even sample positions and fill the unused odd sample positions
-    with zero.
-    """
-    samples = [0] * (2 * NUM_CAPTURE_BITS)
-    for i, bit in enumerate(bits):
-        samples[2 * i] = int(bit)
-    return bits_to_word(samples[:NUM_CAPTURE_BITS]), bits_to_word(samples[NUM_CAPTURE_BITS:])
-
-
 def rows_from_raw(
     data: dict[str, list[float]],
     *,
@@ -217,7 +225,7 @@ def rows_from_raw(
         bits = [int(nearest_value(times, comp, sample_time) > threshold) for sample_time in sample_times]
         bbits = "".join(str(bit) for bit in bits)
         dout = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
-        spi0, spi1 = synthetic_fast_rx_words(bits)
+        spi = bits_to_word(bits)
         vin_set = nearest_value(times, vinp, conversion_edges[0])
         vin_read = vin_set
         vin_n = nearest_value(times, vinn, conversion_edges[0])
@@ -230,16 +238,13 @@ def rows_from_raw(
                 "vin_read_v": vin_read,
                 "vdiff_v": vin_set - vin_n,
                 "conversion_index": 0,
-                "raw_word0": spi0,
-                "raw_word1": spi1,
-                "id0": 0,
-                "id1": 0,
-                "frame0": sweep_index,
-                "frame1": sweep_index,
-                "spi0": spi0,
-                "spi1": spi1,
+                "raw_word": spi,
+                "id": 0,
+                "frame": sweep_index,
+                "spi": spi,
                 "Bbits": bbits,
                 "Dout": dout,
+                "Dout_raw": dout,
             }
         )
         print(f"conversion {sweep_index:02d}: Vin_p={vin_set:.6g} V Vin_n={vin_n:.6g} V Bbits={bbits} Dout={dout}")
@@ -258,7 +263,7 @@ def process_run(run: dict[str, object]) -> None:
         return
 
     print(f"processing {run['name']}: {raw}")
-    data = parse_spectre_nutascii(raw)
+    data = parse_spectre_nutascii(raw, {"time", COMP_SIGNAL, CLOCK_SIGNAL, VINP_SIGNAL, VINN_SIGNAL})
     rows = rows_from_raw(
         data,
         adc_index=ADC_INDEX,
@@ -270,14 +275,32 @@ def process_run(run: dict[str, object]) -> None:
         vinn_signal=VINN_SIGNAL,
     )
     write_adc_csv(ADC_INDEX, rows, csv.parent, csv_path=csv)
-    plot_adc_transfer(
-        ADC_INDEX,
-        rows,
-        csv.parent,
-        title=str(run["title"]),
-        label=str(run["label"]),
-        color=str(run["color"]),
-    )
+
+    adc_cfg = {
+        "adc_index": ADC_INDEX,
+        "artifact_stem": csv.stem.removesuffix("_noise_pex"),
+        "setup": str(run.get("setup", "")),
+        "dac_init_state": str(run.get("dac_init_state", "n/a")),
+        "dac_diffcaps": True,
+        "num_samples": len(rows),
+        "seq_base_freq_hz": 50_000_000,
+        "conversion_steps": 40,
+        "input_ramp": "fixed 612 mV",
+        "code_range": (1, 4094),
+        "code_weights": CODE_WEIGHTS,
+    }
+    if run.get("plot") == "noise":
+        plot_code_histogram(adc_cfg, csv, csv.parent)
+        plot_decision_paths(
+            adc_cfg,
+            csv,
+            csv.parent,
+            filter_mode="all",
+            show_reference_lines=False,
+            show_mean_path=False,
+        )
+    else:
+        plot_adc_transfer(adc_cfg, csv, csv.parent)
 
 
 def main() -> None:

@@ -14,19 +14,21 @@ from pathlib import Path
 
 from flow.old.behavioral import SAR_ADC
 from flow.scans.basic import (
-    CAP_WEIGHTS,
-    CODE_WEIGHTS,
+    ADC_CAP_WEIGHTS,
+    ADC_CODE_WEIGHTS,
     N_SWEEP_POINTS,
     NUM_CAPTURE_BITS,
     V_START,
     V_STOP,
-    VINP_SWEEP_V,
+    VINP_SWEEP,
 )
 from flow.scans.plot import plot_adc_transfer, write_adc_csv
-from flow.scans.scan_spice import synthetic_fast_rx_words
+from flow.scans.scan_spice import bits_to_word
 
 # Sweep settings matched to flow/scans/basic.py.
 ADC_INDEX = 0
+CAP_WEIGHTS = ADC_CAP_WEIGHTS[ADC_INDEX]
+CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
 VIN_N = 0.600
 CONVERSIONS_PER_VIN = 1
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "behavioral_scan"
@@ -110,7 +112,7 @@ def behavioral_bbits(adc: SAR_ADC, vin_p: float, vin_n: float) -> tuple[str, int
 
 
 def sweep_voltages() -> tuple[float, ...]:
-    return VINP_SWEEP_V
+    return VINP_SWEEP
 
 
 def build_rows(adc: SAR_ADC, attenuation: float) -> list[dict[str, object]]:
@@ -125,7 +127,7 @@ def build_rows(adc: SAR_ADC, attenuation: float) -> list[dict[str, object]]:
         for conversion_index in range(CONVERSIONS_PER_VIN):
             bbits, dout = behavioral_bbits(adc, sampled_vin_p, sampled_vin_n)
             bits = [int(bit) for bit in bbits]
-            spi0, spi1 = synthetic_fast_rx_words(bits)
+            spi = bits_to_word(bits)
             rows.append(
                 {
                     "adc": ADC_INDEX,
@@ -134,16 +136,13 @@ def build_rows(adc: SAR_ADC, attenuation: float) -> list[dict[str, object]]:
                     "vin_read_v": vin_p,
                     "vdiff_v": vin_p - VIN_N,
                     "conversion_index": conversion_index,
-                    "raw_word0": spi0,
-                    "raw_word1": spi1,
-                    "id0": 0,
-                    "id1": 0,
-                    "frame0": sweep_index,
-                    "frame1": sweep_index,
-                    "spi0": spi0,
-                    "spi1": spi1,
+                    "raw_word": spi,
+                    "id": 0,
+                    "frame": sweep_index,
+                    "spi": spi,
                     "Bbits": bbits,
                     "Dout": dout,
+                    "Dout_raw": dout,
                 }
             )
             print(f"  conversion {conversion_index:02d}: Bbits={bbits} Dout={dout}")
@@ -166,16 +165,14 @@ def main() -> None:
     print(f"Vin sweep: {N_SWEEP_POINTS} points from {V_START:.3f} V to {V_STOP:.3f} V")
 
     rows = build_rows(adc, attenuation)
-    write_adc_csv(ADC_INDEX, rows, SCAN_OUTDIR)
+    csv_path = write_adc_csv(ADC_INDEX, rows, SCAN_OUTDIR)
     if WRITE_PLOT:
-        plot_adc_transfer(
-            ADC_INDEX,
-            rows,
-            SCAN_OUTDIR,
-            title=f"FRIDA ADC {ADC_INDEX:02d} behavioral voltage sweep",
-            label="behavioral conversions",
-            color="red",
-        )
+        adc_cfg = {
+            "adc_index": ADC_INDEX,
+            "artifact_stem": f"adc{ADC_INDEX:02d}_behavioral",
+            "dac_init_state": "behavioral",
+        }
+        plot_adc_transfer(adc_cfg, csv_path, SCAN_OUTDIR)
 
 
 if __name__ == "__main__":
