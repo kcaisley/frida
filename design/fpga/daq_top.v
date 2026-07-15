@@ -9,11 +9,15 @@
 // FRIDA core (self-contained: includes its basil functional module deps
 // and the utility modules they rely on)
 `include "daq_core.v"
+`include "pll_drp.v"
+`include "clock_reset_sync.v"
 
 // Additional basil utility modules (directly used by daq_top)
 `include "utils/fifo_32_to_8.v"
 `include "utils/rgmii_io.v"
 `include "utils/rbcp_to_bus.v"
+`include "utils/clock_divider.v"
+`include "i2c/i2c.v"
 
 // SiTCP (patched with `default_nettype wire by manage.py get_sitcp)
 `include "WRAP_SiTCP_GMII_XC7K_32K.V"
@@ -24,6 +28,13 @@ module daq_top (
     input wire FCLK_IN,       // 100 MHz system clock
     input wire RESET_BUTTON,  // Active-low reset button
     input wire USER_BUTTON,   // Active-low user button (SW_USER_B)
+
+    // BDAQ53 programmable Si570 clock and control
+    input  wire MGT_REFCLK0_P,
+    input  wire MGT_REFCLK0_N,
+    output wire MGT_REF_SEL,
+    inout  wire I2C_SCL,
+    inout  wire I2C_SDA,
 
     // LED
     output wire [7:0] LED,
@@ -83,9 +94,11 @@ module daq_top (
 
     // PLL 1: Communication clocks (SiTCP / Ethernet)
     // 100 MHz * 10 = 1000 MHz VCO
-    wire rst;
+    wire comm_rst;
     wire bus_clk_pll, clk125_pll_tx, clk125_pll_tx90, spi_clk_pll;
+    wire idelay_ref_pll;
     wire pll_feedback, locked;
+    wire bus_clk;
 
     PLLE2_BASE #(
         .BANDWIDTH     ("OPTIMIZED"),
@@ -110,13 +123,17 @@ module daq_top (
 
         .CLKOUT3_DIVIDE    (100),  // 1000/100 = 10 MHz (spi_clk)
         .CLKOUT3_DUTY_CYCLE(0.5),
-        .CLKOUT3_PHASE     (0.0)
+        .CLKOUT3_PHASE     (0.0),
+
+        .CLKOUT4_DIVIDE    (5),    // Fixed 200 MHz IDELAYCTRL reference
+        .CLKOUT4_DUTY_CYCLE(0.5),
+        .CLKOUT4_PHASE     (0.0)
     ) PLLE2_BASE_comm (
         .CLKOUT0 (bus_clk_pll),
         .CLKOUT1 (clk125_pll_tx),
         .CLKOUT2 (clk125_pll_tx90),
         .CLKOUT3 (spi_clk_pll),
-        .CLKOUT4 (),
+        .CLKOUT4 (idelay_ref_pll),
         .CLKOUT5 (),
         .CLKFBOUT(pll_feedback),
         .LOCKED  (locked),
@@ -126,18 +143,41 @@ module daq_top (
         .CLKFBIN (pll_feedback)
     );
 
-    // PLL 2: serializer sequencer clocks
-    //   100 MHz * 16 = 1600 MHz VCO
-    //   CLKOUT0: 1600/8 = 200 MHz fabric sequencer word clock
-    //   CLKOUT1: 1600/2 = 800 MHz OSERDES DDR clock, giving a 1.6 GHz serialized interval rate
+    // PLL 2: variable serializer/sequencer clocks. The BDAQ53 mux selects the
+    // Si570 MGT reference, and IBUFDS_GTE2 makes it available to the CMT PLL.
+    //   100--200 MHz * 8 = 800--1600 MHz VCO
+    //   CLKOUT0 divide 4*N: sequencer/FastRX word clock
+    //   CLKOUT1 divide N:   OSERDES DDR clock
+    wire si570_clk_ibufds, si570_clk;
     wire seq_clk_pll, ser_clk_pll;
     wire pll2_feedback, locked2;
+    wire [15:0] pll_drp_do;
+    wire [15:0] pll_drp_di;
+    wire [6:0] pll_drp_daddr;
+    wire pll_drp_drdy, pll_drp_den, pll_drp_dwe, pll_drp_reset;
 
-    PLLE2_BASE #(
+    assign MGT_REF_SEL = 1'b1;
+
+    IBUFDS_GTE2 i_si570_refclk (
+        .O    (si570_clk_ibufds),
+        .ODIV2(),
+        .CEB  (1'b0),
+        .I    (MGT_REFCLK0_P),
+        .IB   (MGT_REFCLK0_N)
+    );
+
+    // This is the same proven BDAQ53 MGT-reference path used by TJ-Monopix2.
+    // The BUFG also permits the Si570 to reach a PLL outside the MGT region.
+    BUFG bufg_si570_clk (
+        .O(si570_clk),
+        .I(si570_clk_ibufds)
+    );
+
+    PLLE2_ADV #(
         .BANDWIDTH     ("OPTIMIZED"),
-        .CLKFBOUT_MULT (16),           // 100 MHz * 16 = 1600 MHz VCO
+        .CLKFBOUT_MULT (8),            // 100--200 MHz * 8 = 800--1600 MHz VCO
         .CLKFBOUT_PHASE(0.0),
-        .CLKIN1_PERIOD (10.000),
+        .CLKIN1_PERIOD (5.000),        // constrain the fastest Si570 setting
         .DIVCLK_DIVIDE (1),
         .REF_JITTER1   (0.0),
         .STARTUP_WAIT  ("FALSE"),
@@ -148,8 +188,10 @@ module daq_top (
 
         .CLKOUT1_DIVIDE    (2),    // 1600/2 = 800 MHz OSERDES DDR clock -> 1.6 GHz interval rate
         .CLKOUT1_DUTY_CYCLE(0.5),
-        .CLKOUT1_PHASE     (0.0)
-    ) PLLE2_BASE_seq (
+        .CLKOUT1_PHASE     (0.0),
+
+        .COMPENSATION("ZHOLD")
+    ) PLLE2_ADV_seq (
         .CLKOUT0 (seq_clk_pll),
         .CLKOUT1 (ser_clk_pll),
         .CLKOUT2 (),
@@ -158,14 +200,23 @@ module daq_top (
         .CLKOUT5 (),
         .CLKFBOUT(pll2_feedback),
         .LOCKED  (locked2),
-        .CLKIN1  (FCLK_IN),
-        .PWRDWN  (0),
-        .RST     (!RESET_BUTTON),
+        .CLKIN1  (si570_clk),
+        .CLKIN2  (1'b0),
+        .CLKINSEL(1'b1),
+        .PWRDWN  (1'b0),
+        .RST     (comm_rst | pll_drp_reset),
+        .DADDR   (pll_drp_daddr),
+        .DCLK    (bus_clk),
+        .DEN     (pll_drp_den),
+        .DI      (pll_drp_di),
+        .DO      (pll_drp_do),
+        .DRDY    (pll_drp_drdy),
+        .DWE     (pll_drp_dwe),
         .CLKFBIN (pll2_feedback)
     );
 
-    wire bus_clk;
     wire clk125_tx, clk125_tx90, clk125_rx, seq_clk, ser_clk, spi_clk;
+    wire idelay_ref_clk;
     BUFG bufg_bus_clk (
         .O(bus_clk),
         .I(bus_clk_pll)
@@ -173,6 +224,10 @@ module daq_top (
     BUFG bufg_spi_clk (
         .O(spi_clk),
         .I(spi_clk_pll)
+    );
+    BUFG bufg_idelay_ref_clk (
+        .O(idelay_ref_clk),
+        .I(idelay_ref_pll)
     );
     BUFG bufg_clk125tx (
         .O(clk125_tx),
@@ -195,7 +250,9 @@ module daq_top (
         .I(ser_clk_pll)
     );
 
-    assign rst = !RESET_BUTTON | !locked | !locked2;
+    // The communication/control plane remains available while PLL 2 is
+    // reconfigured, so Python can complete and observe the DRP transaction.
+    assign comm_rst = !RESET_BUTTON | !locked;
 
 
     // RGMII I/O
@@ -276,7 +333,7 @@ module daq_top (
 
     WRAP_SiTCP_GMII_XC7K_32K sitcp (
         .CLK           (bus_clk),        // in  : System Clock >129MHz
-        .RST           (rst),            // in  : System reset
+        .RST           (comm_rst),       // in  : System reset
         // Configuration parameters
         .FORCE_DEFAULTn(1'b0),           // in  : Load default parameters
         .EXT_IP_ADDR   (32'hc0a80a10),   // in  : 192.168.10.16
@@ -322,7 +379,7 @@ module daq_top (
         .TCP_CLOSE_REQ (tcp_close_req),
         .TCP_CLOSE_ACK (tcp_close_req),
         // FIFO I/F
-        .TCP_RX_WC     (1'b1),
+        .TCP_RX_WC     (16'h0001),
         .TCP_RX_WR     (tcp_rx_wr),
         .TCP_RX_DATA   (tcp_rx_data),
         .TCP_TX_FULL   (tcp_tx_full),
@@ -361,6 +418,76 @@ module daq_top (
         .BUS_RD  (bus_rd),
         .BUS_ADD (bus_add),
         .BUS_DATA(bus_data)
+    );
+
+    // Si570 control remains on the fixed communication clock domain, so it
+    // stays accessible while the variable serializer PLL loses/reacquires lock.
+    wire i2c_clk;
+    clock_divider #(
+        .DIVISOR(1428)  // (100 MHz * 10 / 7) / 1428 = 100.04 kHz
+    ) i_clock_divisor_i2c (
+        .CLK  (bus_clk),
+        .RESET(bus_rst),
+        .CE   (),
+        .CLOCK(i2c_clk)
+    );
+
+    i2c #(
+        .BASEADDR(32'h00070000),
+        .HIGHADDR(32'h000700ff),
+        .ABUSWIDTH(32),
+        .MEM_BYTES(32)
+    ) i_i2c (
+        .BUS_CLK (bus_clk),
+        .BUS_RST (bus_rst),
+        .BUS_ADD (bus_add),
+        .BUS_DATA(bus_data),
+        .BUS_RD  (bus_rd),
+        .BUS_WR  (bus_wr),
+        .I2C_CLK (i2c_clk),
+        .I2C_SDA (I2C_SDA),
+        .I2C_SCL (I2C_SCL)
+    );
+
+    // GPIO2 commands this controller over the Basil bus. The PLL remains at
+    // its fixed D=1 and M=8; only the paired output dividers are rewritten.
+    wire [4:0] seq_pll_request_n;
+    wire seq_pll_apply_toggle;
+    wire seq_pll_applied_toggle;
+    wire seq_pll_busy;
+    wire seq_pll_locked;
+    wire seq_pll_error;
+    wire [4:0] seq_pll_active_n;
+    wire pll_datapath_hold;
+    wire oserdes_reset;
+
+    pll_drp pll_drp_seq (
+        .CLK                 (bus_clk),
+        .RST                 (comm_rst | bus_rst),
+        .REQUEST_N           (seq_pll_request_n),
+        .APPLY_TOGGLE        (seq_pll_apply_toggle),
+        .PLL_LOCKED          (locked2),
+        .DRP_DO              (pll_drp_do),
+        .DRP_DRDY            (pll_drp_drdy),
+        .DRP_DADDR           (pll_drp_daddr),
+        .DRP_DI              (pll_drp_di),
+        .DRP_DEN             (pll_drp_den),
+        .DRP_DWE             (pll_drp_dwe),
+        .PLL_RESET           (pll_drp_reset),
+        .APPLIED_TOGGLE      (seq_pll_applied_toggle),
+        .BUSY                (seq_pll_busy),
+        .LOCKED              (seq_pll_locked),
+        .ERROR               (seq_pll_error),
+        .ACTIVE_N            (seq_pll_active_n),
+        .DATAPATH_HOLD       (pll_datapath_hold)
+    );
+
+    // OSERDESE2 internally retimes reset into both clock domains. AMD UG471
+    // requires external deassertion to be synchronous to CLKDIV (seq_clk).
+    clock_reset_sync oserdes_reset_sync (
+        .CLK        (seq_clk),
+        .ASYNC_RESET(comm_rst | pll_datapath_hold),
+        .RESET      (oserdes_reset)
     );
 
 
@@ -441,7 +568,7 @@ module daq_top (
                 .D7(seq_ser_data_tx[serdes_index*8+6]),
                 .D8(seq_ser_data_tx[serdes_index*8+7]),
                 .OCE(1'b1),
-                .RST(rst),
+                .RST(oserdes_reset),
                 .SHIFTIN1(1'b0),
                 .SHIFTIN2(1'b0),
                 .T1(1'b0),
@@ -495,8 +622,8 @@ module daq_top (
     (* IODELAY_GROUP = "frida_comp_rx_delay" *)
     IDELAYCTRL idelayctrl_comp_out (
         .RDY(comp_idelay_rdy),
-        .REFCLK(seq_clk),
-        .RST(rst)
+        .REFCLK(idelay_ref_clk),
+        .RST(comm_rst)
     );
 
     IBUFDS #(
@@ -531,7 +658,7 @@ module daq_top (
         .INC        (1'b0),
         .LD         (comp_idelay_load),
         .LDPIPEEN   (1'b0),
-        .REGRST     (rst)
+        .REGRST     (comm_rst)
     );
 
 
@@ -553,6 +680,14 @@ module daq_top (
 
         .SEQ_CLK(seq_clk),
 
+        .SEQ_PLL_REQUEST_N     (seq_pll_request_n),
+        .SEQ_PLL_APPLY_TOGGLE  (seq_pll_apply_toggle),
+        .SEQ_PLL_APPLIED_TOGGLE(seq_pll_applied_toggle),
+        .SEQ_PLL_BUSY          (seq_pll_busy),
+        .SEQ_PLL_LOCKED        (seq_pll_locked),
+        .SEQ_PLL_ERROR         (seq_pll_error),
+        .SEQ_PLL_ACTIVE_N      (seq_pll_active_n),
+
         .SEQ_SER_DATA(seq_ser_data),
 
         .SPI_CLK (spi_clk),   // 10 MHz SPI clock
@@ -573,7 +708,8 @@ module daq_top (
         .FASTRX_FIFO_EMPTY    (fastrx_fifo_empty),
 
         .COMP_OUT(comp_out),  // Comparator signal, input to fastrx
-        .RESET   (rst),
+        .RESET   (comm_rst),
+        .SEQ_RESET(pll_datapath_hold),
         .LED_OUT (LED)
     );
 

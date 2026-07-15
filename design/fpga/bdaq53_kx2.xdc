@@ -5,23 +5,27 @@
 # ===== Clocks =====
 create_clock -period 10.000 -name CLK_SYS -add [get_ports FCLK_IN]
 create_clock -period 8.000 -name CLK_RGMII_RX -add [get_ports rgmii_rxc]
+create_clock -period 5.000 -name CLK_SI570 -add [get_ports MGT_REFCLK0_P]
 
 # ===== PLL generated clocks =====
-# Serializer sequencer clocks: seq_clk_pll is the 200 MHz fabric word clock;
-# ser_clk_pll is the 800 MHz OSERDES DDR clock for a 1.6 GHz interval stream.
+# Serializer constraints describe Si570=200 MHz, N=2: 200/800 MHz.
 create_generated_clock -name bus_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 7 [get_nets bus_clk_pll]
 create_generated_clock -name clk125_pll_tx -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx]
 create_generated_clock -name clk125_pll_tx90 -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 8 [get_nets clk125_pll_tx90]
-create_generated_clock -name seq_clk_pll -source [get_ports FCLK_IN] -multiply_by 16 -divide_by 8 [get_nets seq_clk_pll]
-create_generated_clock -name ser_clk_pll -source [get_ports FCLK_IN] -multiply_by 16 -divide_by 2 [get_nets ser_clk_pll]
+create_generated_clock -name seq_clk_pll -source [get_ports MGT_REFCLK0_P] -multiply_by 8 -divide_by 8 [get_nets seq_clk_pll]
+create_generated_clock -name ser_clk_pll -source [get_ports MGT_REFCLK0_P] -multiply_by 8 -divide_by 2 [get_nets ser_clk_pll]
 create_generated_clock -name spi_clk_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 100 [get_nets spi_clk_pll]
+create_generated_clock -name idelay_ref_pll -source [get_ports FCLK_IN] -multiply_by 10 -divide_by 5 [get_nets idelay_ref_pll]
+create_generated_clock -name i2c_clk -source [get_pins PLLE2_BASE_comm/CLKOUT0] -divide_by 1428 [get_pins i_clock_divisor_i2c/CLOCK_reg/Q]
 
 set_clock_groups -asynchronous \
     -group {bus_clk_pll} \
     -group {clk125_pll_tx clk125_pll_tx90} \
     -group CLK_RGMII_RX \
     -group {spi_clk_pll} \
-    -group {seq_clk_pll}  ;# peripheral config regs are stable before generated clocks start
+    -group {idelay_ref_pll} \
+    -group {i2c_clk} \
+    -group {seq_clk_pll ser_clk_pll}  ;# paired variable clocks share PLL 2
 
 # ===== SiTCP timing =====
 set_max_delay -datapath_only -from [get_clocks clk125_pll_tx] -to [get_ports {rgmii_txd[*]}] 4.000
@@ -33,6 +37,19 @@ set_max_delay -datapath_only -from [get_clocks clk125_pll_tx90] -to [get_ports r
 # ===== System clock (100 MHz) =====
 set_property PACKAGE_PIN AA4 [get_ports FCLK_IN]
 set_property IOSTANDARD LVCMOS15 [get_ports FCLK_IN]
+
+# ===== BDAQ53 Si570 programmable reference =====
+# The MGT differential input has a dedicated electrical standard; do not set
+# an IOSTANDARD on MGT_REFCLK0_P/N.
+set_property PACKAGE_PIN H6 [get_ports MGT_REFCLK0_P]
+set_property PACKAGE_PIN H5 [get_ports MGT_REFCLK0_N]
+set_property PACKAGE_PIN D23 [get_ports MGT_REF_SEL]
+set_property IOSTANDARD LVCMOS33 [get_ports MGT_REF_SEL]
+set_property PULLUP true [get_ports MGT_REF_SEL]
+set_property PACKAGE_PIN L23 [get_ports I2C_SCL]
+set_property PACKAGE_PIN C24 [get_ports I2C_SDA]
+set_property IOSTANDARD LVCMOS33 [get_ports {I2C_SCL I2C_SDA}]
+set_property SLEW SLOW [get_ports {I2C_SCL I2C_SDA}]
 
 # ===== Reset button =====
 set_property PACKAGE_PIN G9 [get_ports RESET_BUTTON]

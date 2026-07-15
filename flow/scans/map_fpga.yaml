@@ -29,17 +29,6 @@ transfer_layer:
     #       baudrate: 9600
     #       timeout: 0.05
 
-    # ADC input source meter: Keithley 2450 over VISA.
-    # Find the exact resource with:
-    #   uv run python -c "import pyvisa; print(pyvisa.ResourceManager('@py').list_resources())"
-    - name: visa0
-      type: Visa
-      init:
-          # USB example: USB0::1510::9296::<serialNumber>::0::INSTR
-          # TCP/IP example: TCPIP0::<ip-address>::INSTR
-          resource_name: USB0::1510::9296::04058943::0::INSTR
-          backend: "@py"
-          query_delay: 0.1
 
 hw_drivers:
     # FIFO for ADC data readback (TCP streaming, no basil bus involvement).
@@ -50,11 +39,9 @@ hw_drivers:
       type: sitcp_fifo
       interface: tcp
 
-    # Sequencer for ADC timing signals
-    # Generates: CLK_INIT, CLK_SAMP, CLK_COMP, CLK_LOGIC,
-    #   FASTRX_EN, FASTRX_TEST_DATA
-    # TrackRegister tracks renamed to short aliases for direct script access:
-    #   INIT, SAMP, COMP, LOGIC, RX_EN, RX_TEST, SPARE, SPARE2
+    # 64-bit sequencer for serializer-backed ADC timing signals.
+    # Byte lanes 0-3 carry INIT/SAMP/COMP/LOGIC serializer data; bits 32-33
+    # carry RX_SEN and RX_TEST control data.
     - name: seq0
       type: seq_gen
       interface: tcp
@@ -84,12 +71,43 @@ hw_drivers:
     # Fast SPI receiver for COMP_OUT capture
     # Replaces hand-rolled shift register + FIFO
     # Clocked directly from SEQ_CLK (same clock as seq_gen)
-    # SEN driven by seq_out[4] (RX_EN)
+    # SEN driven by seq_out[32] (RX_SEN)
     # SDI connected to COMP_OUT from chip
     - name: fastrx0
       type: fast_spi_rx
       interface: tcp
       base_addr: 0x40000
+
+    # GPIO1 controls the comparator input IDELAY and reports IDELAYCTRL status.
+    # Bits 4:0: tap value; bit 5: load strobe; bit 6: ready input; bit 7: spare input.
+    - name: gpio1
+      type: gpio
+      interface: tcp
+      base_addr: 0x50000
+      size: 8
+
+    # GPIO2 commands the top-level PLLE2_ADV output-divider controller.
+    # D=1 and M=8 are fixed; the Si570 supplies a 100--200 MHz input.
+    - name: gpio2
+      type: gpio
+      interface: tcp
+      base_addr: 0x60000
+      size: 16
+
+    # I2C master and the BDAQ53 Si570 programmable oscillator. The oscillator
+    # uses its 8-bit I2C address (0xBA) and is initialized to the fastest input.
+    - name: i2c0
+      type: i2c
+      interface: tcp
+      base_addr: 0x70000
+
+    - name: si570
+      type: si570
+      hw_driver: i2c0
+      base_addr: 0xBA
+      init:
+          frequency: 200.0
+          factory_frequency: 156.25
 
     # Previous power supply for ADC input voltage (Korad KA3005P)
     # Connected via USB serial adapter.
@@ -97,18 +115,13 @@ hw_drivers:
     #   type: ka3005p
     #   interface: serial0
 
-    # Source meter for ADC input voltage (Keithley 2450)
-    - name: psu0
-      type: scpi
-      interface: visa0
-      init:
-          device: Keithley 2450
 
-# The register layer, provides a higher level way, to name the large bannks of registers used for certain blocks.
-# This will change the API of how these blocks are used, but bring the benefit of convenient aliases.
+# The register layer, provides a higher level way, to name the large banks of registers used for certain blocks.
+# This changes the API of how these blocks are used, but brings the benefit of convenient aliases.
 registers:
-    # Track register for sequencer waveforms
-    # 8 tracks matching daq_core.v seq_out[7:0]
+    # Legacy 8-bit TrackRegister wrapper retained for its delegated seq_gen
+    # control methods. Current serializer scripts bypass its packing through
+    # seq0._drv.set_data() and write the raw 64-bit memory image directly.
     - name: seq0
       type: TrackRegister
       hw_driver: seq0
@@ -144,7 +157,7 @@ registers:
     #   4: DBG_FIFO      - Debug counter into FIFO
     #   5: RX_TIEHIGH    - Tie fast_spi_rx input high
     #   6: SEQ_START     - Sequencer external start / fastrx_en
-    #   7: RX_EN_MUX     - fastrx_en source: 0=gpio[6], 1=seq_out[4]
+    #   7: RX_EN_MUX     - fastrx_en source: 0=gpio[6], 1=seq_out[32]
     - name: gpio0
       type: StdRegister
       hw_driver: gpio0
@@ -174,3 +187,51 @@ registers:
           - name: RX_EN_MUX
             size: 1
             offset: 7
+
+    # GPIO1 register for runtime COMP_OUT input-delay control.
+    # Call read() before inspecting COMP_IDELAY_RDY.
+    - name: gpio1
+      type: StdRegister
+      hw_driver: gpio1
+      size: 8
+      fields:
+          - name: COMP_IDELAY_TAPS
+            size: 5
+            offset: 4
+          - name: COMP_IDELAY_LOAD
+            size: 1
+            offset: 5
+          - name: COMP_IDELAY_RDY
+            size: 1
+            offset: 6
+
+    # GPIO2 register for the sequencer/serializer PLL DRP controller.
+    # With Si570 frequency FIN, REQUEST_N selects word_clk=2*FIN/N and
+    # serializer_clk=8*FIN/N. Toggle APPLY_TOGGLE to submit a command.
+    # Poll the returned status until the PLL has relocked.
+    - name: gpio2
+      type: StdRegister
+      hw_driver: gpio2
+      size: 16
+      fields:
+          - name: REQUEST_N
+            size: 5
+            offset: 4
+          - name: APPLY_TOGGLE
+            size: 1
+            offset: 5
+          - name: APPLIED_TOGGLE
+            size: 1
+            offset: 7
+          - name: BUSY
+            size: 1
+            offset: 8
+          - name: LOCKED
+            size: 1
+            offset: 9
+          - name: ERROR
+            size: 1
+            offset: 10
+          - name: ACTIVE_N
+            size: 5
+            offset: 15

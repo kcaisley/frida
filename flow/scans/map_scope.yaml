@@ -1,6 +1,6 @@
 # Tektronix MSO54 Mixed Signal Oscilloscope
 #
-# Connected via Ethernet on the BDAQ53 subnet (192.168.10.x).
+# Connected via its raw SCPI socket on the BDAQ53 subnet.
 # 4 analog channels, waveform capture, triggering.
 
 name: frida-scope
@@ -10,9 +10,15 @@ transfer_layer:
   - name: scope_intf
     type: Visa
     init:
-      resource: "TCPIP::192.168.10.18::INSTR"
+      resource_name: "TCPIP::192.168.10.60::4000::SOCKET"
+      backend: "@py"
+      read_termination: "\n"
+      write_termination: "\n"
+      timeout: 10000
 
 hw_drivers:
   - name: scope
     type: tektronix_oscilloscope
     interface: scope_intf
+    init:
+      device: Tektronix Oscilloscope

@@ -20,6 +20,7 @@
 //   0x30000     - gpio0: board and FastRX controls
 //   0x40000     - fast_spi_rx
 //   0x50000     - gpio1: comparator IDELAY controls and ready status
+//   0x60000     - gpio2: sequencer PLL command and status
 
 `timescale 1ns / 10ps
 
@@ -40,8 +41,17 @@ module daq_core #(
     input wire                 BUS_RD,
     input wire                 BUS_WR,
 
-    // Sequencer word clock from the PLL: 200 MHz, 5 ns period.
+    // Programmable sequencer word clock from the PLL: 20 to 200 MHz.
     input wire SEQ_CLK,
+
+    // GPIO2 interface to the top-level PLLE2_ADV DRP controller.
+    output wire [4:0] SEQ_PLL_REQUEST_N,
+    output wire       SEQ_PLL_APPLY_TOGGLE,
+    input  wire       SEQ_PLL_APPLIED_TOGGLE,
+    input  wire       SEQ_PLL_BUSY,
+    input  wire       SEQ_PLL_LOCKED,
+    input  wire       SEQ_PLL_ERROR,
+    input  wire [4:0] SEQ_PLL_ACTIVE_N,
 
     // Packed serializer word. Byte lanes [0:3] carry INIT/SAMP/COMP/LOGIC;
     // bits 32 and 33 carry FastRX SEN and loopback test data.
@@ -73,8 +83,9 @@ module daq_core #(
     // Comparator output from LVDS receiver
     input wire COMP_OUT,
 
-    // Global reset (independent of BUS_RST, e.g. PLL not locked)
+    // Global communication reset and variable-clock datapath reset.
     input wire RESET,
+    input wire SEQ_RESET,
 
     // LED output
     output wire [7:0] LED_OUT
@@ -97,9 +108,15 @@ module daq_core #(
     localparam integer Gpio1BaseAddr = 32'h50000;
     localparam integer Gpio1HighAddr = 32'h500FF;
 
-    // Combined reset
-    wire rst;
-    assign rst = BUS_RST | RESET;
+    localparam integer Gpio2BaseAddr = 32'h60000;
+    localparam integer Gpio2HighAddr = 32'h600FF;
+
+    // Keep the bus/GPIO control plane alive while the variable PLL and its
+    // sequencer/FastRX datapath are reset during a DRP update.
+    wire control_rst;
+    wire seq_rst;
+    assign control_rst = BUS_RST | RESET;
+    assign seq_rst     = control_rst | SEQ_RESET;
 
     // Capture control wires (used by sequencer outputs and fast_spi_rx)
     wire fastrx_clk;
@@ -140,7 +157,7 @@ module daq_core #(
         .OUT_BITS (64)
     ) inst_seq_gen (
         .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
+        .BUS_RST (seq_rst),
         .BUS_ADD (BUS_ADD),
         .BUS_DATA(BUS_DATA),
         .BUS_RD  (BUS_RD),
@@ -172,7 +189,7 @@ module daq_core #(
         .MEM_BYTES(32)            // 256 bits > 180 bits needed
     ) inst_spi (
         .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
+        .BUS_RST (control_rst),
         .BUS_ADD (BUS_ADD),
         .BUS_DATA(BUS_DATA),
         .BUS_RD  (BUS_RD),
@@ -220,7 +237,7 @@ module daq_core #(
         .IO_TRI      (0)
     ) inst_gpio (
         .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
+        .BUS_RST (control_rst),
         .BUS_ADD (BUS_ADD),
         .BUS_DATA(BUS_DATA),
         .BUS_RD  (BUS_RD),
@@ -247,7 +264,7 @@ module daq_core #(
         .IO_TRI      (0)
     ) inst_gpio1 (
         .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
+        .BUS_RST (control_rst),
         .BUS_ADD (BUS_ADD),
         .BUS_DATA(BUS_DATA),
         .BUS_RD  (BUS_RD),
@@ -256,7 +273,39 @@ module daq_core #(
         .IO(gpio1)
     );
 
-    // 5. COMP_OUT Receiver (fast_spi_rx)
+    // 5. GPIO2: variable sequencer/serializer clock control
+    // Bits 4:0 request N. With Si570 input FIN, word_clk=2*FIN/N and
+    // serializer_clk=8*FIN/N; fixed PLL D=1 and M=8.
+    // Bit 5 is a command toggle; bit 7 acknowledges the accepted toggle.
+    // Bits 8:10 report busy, locked, and error; bits 15:11 report active N.
+    wire [15:0] gpio2;
+    assign SEQ_PLL_REQUEST_N     = gpio2[4:0];
+    assign SEQ_PLL_APPLY_TOGGLE = gpio2[5];
+    assign gpio2[7]             = SEQ_PLL_APPLIED_TOGGLE;
+    assign gpio2[8]             = SEQ_PLL_BUSY;
+    assign gpio2[9]             = SEQ_PLL_LOCKED;
+    assign gpio2[10]            = SEQ_PLL_ERROR;
+    assign gpio2[15:11]         = SEQ_PLL_ACTIVE_N;
+
+    gpio #(
+        .BASEADDR    (Gpio2BaseAddr),
+        .HIGHADDR    (Gpio2HighAddr),
+        .ABUSWIDTH   (ABUSWIDTH),
+        .IO_WIDTH    (16),
+        .IO_DIRECTION(16'h007F),  // Bits 6:0 outputs; bits 15:7 inputs
+        .IO_TRI      (0)
+    ) inst_gpio2 (
+        .BUS_CLK (BUS_CLK),
+        .BUS_RST (control_rst),
+        .BUS_ADD (BUS_ADD),
+        .BUS_DATA(BUS_DATA),
+        .BUS_RD  (BUS_RD),
+        .BUS_WR  (BUS_WR),
+
+        .IO(gpio2)
+    );
+
+    // 6. COMP_OUT Receiver (fast_spi_rx)
     // Captures the COMP_OUT stream using basil's fast_spi_rx module.
     // This replaces the hand-rolled shift register + FIFO implementation.
     //
@@ -285,7 +334,7 @@ module daq_core #(
         .DATA_SIZE (17)                  // 17 comparator bits per conversion frame
     ) inst_fast_spi_rx (
         .BUS_CLK (BUS_CLK),
-        .BUS_RST (rst),
+        .BUS_RST (seq_rst),
         .BUS_ADD (BUS_ADD),
         .BUS_DATA(BUS_DATA),
         .BUS_RD  (BUS_RD),
@@ -304,7 +353,7 @@ module daq_core #(
     // the upstream FIFO chain independently.
     reg [31:0] debug_counter;
     always @(posedge BUS_CLK) begin
-        if (rst) begin
+        if (seq_rst) begin
             debug_counter <= 32'd0;
         end else if (debug_counter_en) begin
             if (FASTRX_FIFO_READ_NEXT) begin
@@ -320,7 +369,7 @@ module daq_core #(
     assign FASTRX_FIFO_EMPTY    = debug_counter_en ? 1'b0 : fastrx_fifo_empty;
 
 
-    // 6. LEDs: All 8 LEDs set to high
+    // 7. LEDs: All 8 LEDs set to high
     assign LED_OUT              = 8'b11111111;
 
 endmodule

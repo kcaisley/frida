@@ -75,6 +75,7 @@ _autosave-*
 
 # Vivado / FPGA
 design/fpga/SiTCP
+design/fpga/xapp888
 design/fpga/bit/
 design/fpga/build/
 design/fpga/reports/

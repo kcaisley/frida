@@ -1,4 +1,4 @@
-"""Minimal serializer-sequencer pattern test.
+"""Measure the FPGA sequencer and serializer over several PLL frequencies.
 
 Each pattern string is a space-separated list of serializer words.  Each word
 is ``serdes_ratio`` bits wide and represents that many serialized time slices
@@ -6,260 +6,110 @@ for one output channel.  The function spreads each track across
 ``serdes_ratio`` parallel sequencer lanes, which the FPGA's 8:1 OSERDES
 recombines into a single high-speed serial output.
 
+For every tested PLL output divider, the scope captures one complete pattern
+from a two-repeat sequencer run. The test counts zero crossings on all four
+outputs and extracts the serialized timing from the continuous COMP pulse
+train.
+
 Run from the repository root after programming the serializer firmware:
 
-    uv run python flow/scans/test_serdes.py
+    uv run python -m flow.scans.test_serdes
 """
 
 from __future__ import annotations
 
-import csv
-import socket
 import time
-from array import array
 from pathlib import Path
+from statistics import fmean
+from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import numpy as np
 from yaml import safe_load
 
-from flow.scans.plot import (
-    LEGEND_FACE_COLOR,
-    NORD_BLUE,
-    NORD_GREEN,
-    NORD_RED,
-    PNG_FACE_COLOR,
-    SPINE_COLOR,
-    TEXT_COLOR,
-    style_ax,
-    style_grid,
+from flow.circuit.measure import find_crossings
+from flow.scans.basic import bitarray_to_seq_gen_format
+from flow.scans.plldrp import (
+    calculate_pll_frequency,
+    select_pll_configuration,
+    set_pll_divider,
 )
+from flow.scans.plot import plot_scope_csv, write_scope_csv
+from flow.scans.scope import response_value, wait_for_scope_armed, wait_for_scope_capture
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
-SCOPE_IP = "192.168.10.60"
-SCOPE_PORT = 4000
+SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
 SCOPE_OUT_DIR = Path("build/scope")
 SCOPE_BANDWIDTH_HZ = 2.0e9
-SEQ_CLK_HZ = 200.0e6
+# These 16 requested symbol rates cause the selector to exercise Si570 inputs
+# from 100 to 200 MHz and PLL output dividers from 2 to 20, including 1.6 GBd.
+SERDES_TEST_SYMBOL_RATES_BPS = tuple(
+    rate_mbd * 1e6 for rate_mbd in (80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 900, 1000, 1200, 1400, 1600)
+)
+SEQUENCE_REPEATS = 2
+EXPECTED_ZERO_CROSSINGS = {
+    "seq_init": 2,
+    "seq_samp": 2,
+    "seq_comp": 34,
+    "seq_logic": 34,
+}
+COMP_TRACK = "seq_comp"
+ZERO_CROSSING_LEVEL_V = 0.0
+PERIOD_RELATIVE_TOLERANCE = 0.05
+SCOPE_HORIZONTAL_SCALE_AT_200_MHZ_S = 20.0e-9
+# Keep the initial INIT rising edge away from the left record boundary while
+# retaining the final COMP transitions at the fastest setting.
+SCOPE_POST_TRIGGER_AT_200_MHZ_S = 90.0e-9
+SI570_SETTLE_TIME_S = 0.02
+
+# The current scope cabling has LOGIC on CH3 and the continuous COMP pulse
+# train on CH4. Keep this physical mapping explicit so the timing extraction
+# follows COMP rather than LOGIC's isolated marker pulse.
+SCOPE_TRACKS = {1: "seq_init", 2: "seq_samp", 3: "seq_logic", 4: "seq_comp"}
 
 SERDES_RATIO = 8
+SEQ_GEN_LANES = 8
 # fmt: off
 SEQ_PATTERNS = {
     "INIT":    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "SAMP":    "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "COMP":    "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
-    #"COMP":    "01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 01010101 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "LOGIC":   "00000000 00001111 00000000 00000000 00000000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
-    "RX_EN":   "00000000 00000000 00000000 00000000 00000000 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
-    "RX_TEST": "00000000 00000000 00000000 00000000 11111111 11111111 00001111 00001111 00001111 00001111 00000000 11111111 00001111 11111111 11111111 00001111 00001111 00001111 00001111 00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
+    "RX_SEN":  "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0",
+    "RX_TEST": "0 0 0 0 1 1 0 0 0 0 0 1 0 1 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0",
 }
 # fmt: on
 
 
-def bitarray_to_seq_gen_format(
-    patterns: dict[str, str],
-    serdes_ratio: int,
-) -> array:
-    """Build the raw sequencer memory image from per-track serializer patterns.
-
-    Each pattern string is space-separated serializer words, one per sequencer
-    fabric tick.  Each word is ``serdes_ratio`` bits: the first character is
-    OSERDES D1 (data[0]), the last is D8 (data[7]).
-
-    The function spreads each track across ``serdes_ratio`` parallel sequencer
-    lanes.  The FPGA's ``ramb_8_to_n`` (WIDTH>8) packs one byte per lane per
-    sequencer word, so byte 0 of each word is the first track's OSERDES byte,
-    byte 1 is the second track's, etc.  Unused lanes are zero-filled.
-
-    Returns an ``array("B")`` ready for ``seq_gen.set_data()``.
-    """
-    tracks = tuple(patterns.keys())
-    n_tracks = len(tracks)
-
-    # Parse and validate all patterns.
-    parsed: dict[str, list[str]] = {}
-    seq_words: int | None = None
-    for name, pattern in patterns.items():
-        words = pattern.split()
-        if seq_words is None:
-            seq_words = len(words)
-        elif len(words) != seq_words:
-            raise ValueError(f"{name}: expected {seq_words} words, got {len(words)}")
-        for word in words:
-            if len(word) != serdes_ratio or any(bit not in "01" for bit in word):
-                raise ValueError(f"{name}: invalid serializer word {word!r}")
-        parsed[name] = words
-
-    assert seq_words is not None
-    used_bits_per_word = n_tracks * serdes_ratio
-    if used_bits_per_word % 8:
-        raise ValueError(f"used_bits_per_word={used_bits_per_word} is not byte-aligned")
-
-    # The FPGA serializer sequencer is currently OUT_BITS=64: eight byte-wide
-    # lanes per sequencer word.  Only six lanes are used here
-    # (INIT/SAMP/COMP/LOGIC/RX_EN/RX_TEST); the remaining two lanes must be
-    # explicitly padded so each following word starts on the next 64-bit RAM row.
-    seq_gen_lanes = 8
-    if n_tracks > seq_gen_lanes:
-        raise ValueError(f"{n_tracks} tracks do not fit in {seq_gen_lanes} seq_gen lanes")
-
-    memory = array("B")
-    for word_index in range(seq_words):
-        for name in tracks:
-            value = 0
-            for lane, bit in enumerate(parsed[name][word_index]):
-                value |= int(bit) << lane
-            memory.append(value)
-        memory.extend(0 for _ in range(seq_gen_lanes - n_tracks))
-
-    expected = seq_words * seq_gen_lanes
-    if len(memory) != expected:
-        raise RuntimeError(f"expected {expected} bytes, built {len(memory)}")
-    return memory
-
-
-def capture_and_plot_scope_waveforms(
-    ip: str = SCOPE_IP,
-    port: int = SCOPE_PORT,
-    out_dir: Path = SCOPE_OUT_DIR,
-) -> tuple[Path, Path]:
-    labels = {1: "seq_init", 2: "seq_samp", 3: "seq_comp", 4: "seq_logic"}
-
-    def write(sock: socket.socket, command: str) -> None:
-        sock.sendall(command.encode() + b"\n")
-
-    def query(sock: socket.socket, command: str) -> str:
-        write(sock, command)
-        data = bytearray()
-        while not data.endswith(b"\n"):
-            data.extend(sock.recv(1_000_000))
-        return data.decode(errors="replace").strip()
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-
-    traces: dict[int, tuple[list[float], list[float], list[int]]] = {}
-    with socket.create_connection((ip, port), timeout=5) as scope:
-        scope.settimeout(10)
-        print(query(scope, "*IDN?"))
-        for channel in labels:
-            write(scope, f"DATA:SOURCE CH{channel}")
-            write(scope, "DATA:ENCdg ASCII")
-            write(scope, "DATA:WIDTH 2")
-            write(scope, "DATA:START 1")
-            write(scope, f"DATA:STOP {query(scope, 'HORizontal:RECOrdlength?').split()[-1]}")
-
-            xincr = float(query(scope, "WFMOutpre:XINCR?").split()[-1])
-            xzero = float(query(scope, "WFMOutpre:XZERO?").split()[-1])
-            pt_off = float(query(scope, "WFMOutpre:PT_OFF?").split()[-1])
-            ymult = float(query(scope, "WFMOutpre:YMULT?").split()[-1])
-            yoff = float(query(scope, "WFMOutpre:YOFF?").split()[-1])
-            yzero = float(query(scope, "WFMOutpre:YZERO?").split()[-1])
-
-            raw = [int(value) for value in query(scope, "CURVE?").split(",") if value]
-            time_s = [xzero + (index - pt_off) * xincr for index in range(len(raw))]
-            volts = [(value - yoff) * ymult + yzero for value in raw]
-            traces[channel] = (time_s, volts, raw)
-
-    csv_path = out_dir / f"serdes_scope_{stamp}.csv"
-    with csv_path.open("w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["time_s", *[f"{labels[channel]}_v" for channel in labels], *[f"{labels[channel]}_raw" for channel in labels]]
+def validate_capture(waveforms: dict[int, Any], symbol_rate_bps: float) -> tuple[float, float]:
+    """Check crossing counts and return measured COMP interval and symbol rate."""
+    crossing_times: dict[str, tuple[float, ...]] = {}
+    for channel, track in SCOPE_TRACKS.items():
+        waveform = waveforms[channel]
+        signal = np.asarray(waveform.data)
+        times = waveform.x_scale.offset + np.arange(len(signal)) * waveform.x_scale.slope
+        crossings = find_crossings(signal, times, ZERO_CROSSING_LEVEL_V, rising=True)
+        crossings.extend(find_crossings(signal, times, ZERO_CROSSING_LEVEL_V, rising=False))
+        crossing_times[track] = tuple(sorted(crossings))
+        expected_count = EXPECTED_ZERO_CROSSINGS[track]
+        assert len(crossings) == expected_count, (
+            f"{track} on scope CH{channel}: expected {expected_count} zero crossings, measured {len(crossings)}"
         )
-        n_samples = min(len(trace[0]) for trace in traces.values())
-        for index in range(n_samples):
-            writer.writerow(
-                [
-                    traces[1][0][index],
-                    *[traces[channel][1][index] for channel in labels],
-                    *[traces[channel][2][index] for channel in labels],
-                ]
-            )
 
-    png_path = out_dir / f"serdes_scope_{stamp}.png"
-    plot_paths = plot_scope_csv(csv_path, png_path)
+    comp_crossings = crossing_times[COMP_TRACK]
+    comp_intervals_s = tuple(right - left for left, right in zip(comp_crossings, comp_crossings[1:]))
+    measured_interval_s = fmean(comp_intervals_s)
 
-    print(f"Saved scope waveform CSV: {csv_path}")
-    for plot_path in plot_paths:
-        print(f"Saved scope waveform plot: {plot_path}")
-    return csv_path, png_path
-
-
-def plot_scope_csv(csv_path: Path, png_path: Path | None = None) -> tuple[Path, ...]:
-    labels = ["seq_init", "seq_samp", "seq_comp", "seq_logic"]
-    colors = [NORD_BLUE, NORD_GREEN, NORD_RED, "#D08770"]
-
-    rows = []
-    with csv_path.open(newline="") as f:
-        rows = list(csv.DictReader(f))
-
-    time_ns = [float(row["time_s"]) * 1e9 for row in rows]
-    voltages = {label: [float(row[f"{label}_v"]) for row in rows] for label in labels}
-
-    active_indices = []
-    edge_count = max(1, len(rows) // 20)
-    for label in labels:
-        values = voltages[label]
-        span = max(values) - min(values)
-        if span <= 1e-3:
-            continue
-        baseline_samples = sorted(values[:edge_count] + values[-edge_count:])
-        baseline = baseline_samples[len(baseline_samples) // 2]
-        threshold = 0.15 * span
-        active_indices.extend(index for index, value in enumerate(values) if abs(value - baseline) > threshold)
-
-    if active_indices:
-        start = time_ns[min(active_indices)]
-        stop = time_ns[max(active_indices)]
-        pad = 0.05 * (stop - start)
-        xlim = (start - pad, stop + pad)
-    else:
-        xlim = (time_ns[0], time_ns[-1])
-
-    fig, axes = plt.subplots(4, 1, figsize=(8, 6.4), sharex=True)
-    fig.patch.set_facecolor(PNG_FACE_COLOR)
-    axes[0].set_title("Measured ADC LVDS sequencer inputs", color=TEXT_COLOR, pad=6)
-
-    for ax, label, color in zip(axes, labels, colors, strict=True):
-        volts = [float(row[f"{label}_v"]) for row in rows]
-        ax.plot(time_ns, volts, color=color, linewidth=1.2)
-        ax.set_ylabel(f"{label} (V)", fontfamily="monospace")
-        ax.set_xlim(*xlim)
-        style_ax(ax)
-        style_grid(ax)
-
-    info = "\n".join(
-        (
-            f"Sequencer rate: {SEQ_CLK_HZ / 1e6:.0f} MHz",
-            f"8:1 serializer rate: {SEQ_CLK_HZ * SERDES_RATIO / 1e9:.1f} GHz",
-            f"Scope bandwidth: {SCOPE_BANDWIDTH_HZ / 1e9:.1f} GHz",
-        )
-    )
-    axes[0].text(
-        0.98,
-        0.88,
-        info,
-        transform=axes[0].transAxes,
-        ha="right",
-        va="top",
-        color=TEXT_COLOR,
-        bbox={"boxstyle": "round", "facecolor": LEGEND_FACE_COLOR, "edgecolor": SPINE_COLOR, "alpha": 0.9},
+    # Each COMP half-cycle contains four serialized unit intervals.
+    expected_interval_s = 4.0 / symbol_rate_bps
+    relative_error = abs(measured_interval_s - expected_interval_s) / expected_interval_s
+    assert relative_error <= PERIOD_RELATIVE_TOLERANCE, (
+        f"COMP mean crossing interval {measured_interval_s * 1e9:.4g} ns differs from "
+        f"expected {expected_interval_s * 1e9:.4g} ns by {relative_error:.2%}; "
+        f"limit is {PERIOD_RELATIVE_TOLERANCE:.0%}"
     )
 
-    axes[-1].set_xlabel("Time (ns)")
-    fig.subplots_adjust(left=0.13, right=0.985, bottom=0.09, top=0.93, hspace=0.18)
-    png_path = png_path or csv_path.with_suffix(".png")
-    plot_paths = (png_path, png_path.with_suffix(".pdf"), png_path.with_suffix(".svg"))
-    for plot_path in plot_paths:
-        save_kwargs = {"facecolor": PNG_FACE_COLOR}
-        if plot_path.suffix == ".png":
-            save_kwargs["dpi"] = 200
-        fig.savefig(plot_path, **save_kwargs)
-    plt.close(fig)
-    return plot_paths
+    measured_symbol_rate_bps = 4.0 / measured_interval_s
+    return measured_interval_s, measured_symbol_rate_bps
 
 
 def main() -> None:
@@ -270,31 +120,134 @@ def main() -> None:
     config["hw_drivers"] = [driver for driver in config["hw_drivers"] if driver["name"] != "psu0"]
     daq = Dut(config)
     daq.init()
+    try:
+        daq["gpio0"]["RST_B"] = 0
+        daq["gpio0"].write()
+        daq["gpio0"]["RST_B"] = 1
+        daq["gpio0"].write()
 
-    daq["gpio0"]["RST_B"] = 0
-    daq["gpio0"].write()
-    daq["gpio0"]["RST_B"] = 1
-    daq["gpio0"].write()
+        memory = bitarray_to_seq_gen_format(SEQ_PATTERNS, SERDES_RATIO, SEQ_GEN_LANES)
+        # Write raw bytes directly to seq_gen memory, bypassing TrackRegister.
+        # TrackRegister.write() does bit/byte reversal that only matches the
+        # original 8-bit-wide sequencer; for the 64-bit serializer firmware the
+        # reversal scrambles the OSERDES byte lanes.  _drv reaches through the
+        # TrackRegister (RL) wrapper to the underlying seq_gen (HL) driver, which
+        # exposes set_data() for writing sequencer memory verbatim.
+        scope_dut = Dut(str(SCOPE_MAP_PATH))
+        scope_dut.init()
+        try:
+            scope = scope_dut["scope"]
+            print(scope.get_name().strip())
+            original_horizontal_scale = response_value(scope.get_horizontal_scale())
+            original_horizontal_position = response_value(scope._intf.query("HORizontal:POSition?"))
+            original_stop_after = response_value(scope.get_acquire_stop_after())
+            original_acquire_state = response_value(scope.get_acquire_state())
 
-    repeat = 2
-    memory = bitarray_to_seq_gen_format(SEQ_PATTERNS, SERDES_RATIO)
-    # Write raw bytes directly to seq_gen memory, bypassing TrackRegister.
-    # TrackRegister.write() does bit/byte reversal that only matches the
-    # original 8-bit-wide sequencer; for the 64-bit serializer firmware the
-    # reversal scrambles the OSERDES byte lanes.  _drv reaches through the
-    # TrackRegister (RL) wrapper to the underlying seq_gen (HL) driver, which
-    # exposes set_data() for writing sequencer memory verbatim.
-    daq["seq0"]._drv.set_data(memory)
-    daq["seq0"].set_size(len(SEQ_PATTERNS["INIT"].split()))
-    daq["seq0"].set_clk_divide(1)
-    daq["seq0"].set_repeat(repeat)
-    daq["seq0"].set_en_ext_start(False)
-    daq["seq0"].start()
+            try:
+                scope.set_acquire_state("STOP")
+                scope.set_acquire_stop_after("SEQUENCE")
 
-    print(f"Loaded serializer sequencer pattern: repeat={repeat}")
-    print("Started sequencer")
+                for target_symbol_rate_bps in SERDES_TEST_SYMBOL_RATES_BPS:
+                    assert daq["seq0"].is_ready, "sequencer must be idle before changing the PLL divider"
+                    si570_frequency_hz, divider_n = select_pll_configuration(target_symbol_rate_bps)
+                    seq_clk_hz, serializer_clk_hz = calculate_pll_frequency(
+                        divider_n,
+                        input_frequency_hz=si570_frequency_hz,
+                    )
+                    symbol_rate_bps = 2.0 * serializer_clk_hz
+                    assert symbol_rate_bps == target_symbol_rate_bps
 
-    capture_and_plot_scope_waveforms()
+                    daq["si570"].frequency_change(si570_frequency_hz / 1e6)
+                    time.sleep(SI570_SETTLE_TIME_S)
+                    set_pll_divider(daq["gpio2"], divider_n)
+
+                    # Program the sequencer only after its new clock is locked,
+                    # matching the clock-domain setup order used by the proven
+                    # single-frequency test.
+                    daq["seq0"]._drv.set_data(memory)
+                    daq["seq0"].set_size(len(SEQ_PATTERNS["INIT"].split()))
+                    daq["seq0"].set_clk_divide(1)
+                    daq["seq0"].set_repeat(SEQUENCE_REPEATS)
+                    daq["seq0"].set_en_ext_start(False)
+
+                    clock_scale = 200.0e6 / seq_clk_hz
+                    horizontal_scale_s = SCOPE_HORIZONTAL_SCALE_AT_200_MHZ_S * clock_scale
+                    scope.set_acquire_state("STOP")
+                    scope.set_horizontal_scale(horizontal_scale_s)
+                    # The MSO54 rounds requested timebases to supported steps.
+                    # Use its accepted scale to retain the complete first
+                    # pattern while excluding the beginning of repeat two.
+                    actual_horizontal_scale_s = float(response_value(scope.get_horizontal_scale()))
+                    horizontal_divisions = float(response_value(scope.get_horizontal_divisions()))
+                    record_span_s = actual_horizontal_scale_s * horizontal_divisions
+                    post_trigger_s = SCOPE_POST_TRIGGER_AT_200_MHZ_S * clock_scale
+                    horizontal_position_percent = 100.0 * (1.0 - post_trigger_s / record_span_s)
+                    if not 0.0 <= horizontal_position_percent <= 100.0:
+                        raise ValueError(
+                            f"calculated invalid scope horizontal position {horizontal_position_percent:g}% "
+                            f"for N={divider_n}"
+                        )
+                    scope._intf.write(f"HORizontal:POSition {horizontal_position_percent:g}")
+                    scope.set_acquire_state("RUN")
+                    acquisition_count_before = wait_for_scope_armed(scope)
+
+                    daq["seq0"].start()
+                    wait_for_scope_capture(scope, acquisition_count_before)
+                    waveforms = scope.get_waveforms(SCOPE_TRACKS)
+
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    stem = (
+                        f"serdes_{target_symbol_rate_bps / 1e6:g}mbd_"
+                        f"fin{si570_frequency_hz / 1e6:g}mhz_n{divider_n:02d}_{timestamp}"
+                    )
+                    csv_path = SCOPE_OUT_DIR / f"{stem}.csv"
+                    write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
+
+                    measured_interval_s, measured_symbol_rate_bps = validate_capture(
+                        waveforms,
+                        symbol_rate_bps,
+                    )
+
+                    plot_paths = plot_scope_csv(
+                        csv_path,
+                        *SCOPE_TRACKS.values(),
+                        title=(f"Measured ADC LVDS sequencer inputs ({symbol_rate_bps / 1e6:g} MBd, N={divider_n})"),
+                        info_lines=(
+                            f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
+                            f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
+                            f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
+                            f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
+                            f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
+                            f"Scope bandwidth: {SCOPE_BANDWIDTH_HZ / 1e9:.1f} GHz",
+                        ),
+                    )
+                    for plot_path in plot_paths:
+                        print(f"Saved scope waveform plot: {plot_path}")
+
+                    print(
+                        f"PASS target={target_symbol_rate_bps / 1e6:g} MBd: "
+                        f"Si570={si570_frequency_hz / 1e6:g} MHz, N={divider_n:2d}, "
+                        f"seq={seq_clk_hz / 1e6:g} MHz, "
+                        f"serializer_clk={serializer_clk_hz / 1e6:g} MHz, "
+                        f"measured={measured_symbol_rate_bps / 1e6:g} MBd, "
+                        f"COMP interval={measured_interval_s * 1e9:g} ns, "
+                        f"crossings={tuple(EXPECTED_ZERO_CROSSINGS.values())}"
+                    )
+            finally:
+                scope.set_acquire_state("STOP")
+                scope.set_horizontal_scale(original_horizontal_scale)
+                scope._intf.write(f"HORizontal:POSition {original_horizontal_position}")
+                scope.set_acquire_stop_after(original_stop_after)
+                scope.set_acquire_state(original_acquire_state)
+        finally:
+            scope_dut.close()
+    finally:
+        try:
+            daq["si570"].frequency_change(200.0)
+            time.sleep(SI570_SETTLE_TIME_S)
+            set_pll_divider(daq["gpio2"], 2)
+        finally:
+            daq.close()
 
 
 if __name__ == "__main__":
