@@ -1,0 +1,33 @@
+`verilator_config
+
+// Basil is maintained and linted in its own repository. Keep it in FRIDA's
+// elaboration graph so syntax and integration errors are still detected, but
+// do not make FRIDA commits responsible for warnings inside the submodule.
+lint_off -file "*libs/basil/*"
+
+// Width-family diagnostics require an explicit rule waiver in addition to the
+// file-wide lint setting above.
+lint_off -rule WIDTHCONCAT -file "*libs/basil/*"
+
+// The Basil I2C controller implements its dual-clock byte memory as two
+// procedural write ports. This is intentional and synthesizes as distributed
+// storage in the FPGA implementation.
+lint_off -rule MULTIDRIVEN -file "*libs/basil/*"
+
+// SiTCP is distributed as vendor HDL and contains a black-box core interface.
+// Its intentionally undriven outputs and unused inputs are completed by the
+// encrypted implementation during the Vivado build.
+lint_off -file "*design/fpga/SiTCP/*"
+// The stub is textually included from daq_top.v, so Verilator associates its
+// undriven black-box outputs with the including source file.
+lint_off -rule UNDRIVEN -file "*design/fpga/daq_top.v"
+
+// FRIDA deliberately leaves optional primitive and SiTCP wrapper ports open.
+lint_off -rule PINCONNECTEMPTY -file "*design/fpga/daq_top.v"
+lint_off -rule PINCONNECTEMPTY -file "*design/fpga/daq_core.v"
+
+// Status outputs retained for the board wrapper and unused upper sequencer
+// bits are part of stable interfaces, even though this top does not consume
+// them internally.
+lint_off -rule UNUSEDSIGNAL -file "*design/fpga/daq_top.v"
+lint_off -rule UNUSEDSIGNAL -file "*design/fpga/daq_core.v"

@@ -41,7 +41,13 @@ verible:
             - libs/basil
     lint:
         enabled: true
+        # always-comb: FPGA .v sources use Verilog-2005 always @*.
+        # explicit-parameter-storage-type: Explicit string parameter types are
+        # SystemVerilog-only; FPGA .v sources use Verilog-2005.
+        # unpacked-dimensions-range-ordering: Its [size] shorthand is
+        # SystemVerilog-only; FPGA .v sources use explicit Verilog-2005 ranges.
         args:
+            - --rules=-module-filename,-always-comb,-explicit-parameter-storage-type,-unpacked-dimensions-range-ordering
         exclude_dirs:
 
 verilator:
@@ -49,25 +55,12 @@ verilator:
         enabled: true
         args:
             - --lint-only
+            - --language
+            - 1364-2005
             - -Wall
             - --top-module
             - daq_top
-            - -Wno-DECLFILENAME
-            - -Wno-MODDUP
-            - -Wno-PINMISSING
-            - -Wno-EOFNEWLINE
-            - -Wno-SYNCASYNCNET
-            - -Wno-MULTITOP
-            - -Wno-TIMESCALEMOD
-            - -Wno-PINCONNECTEMPTY
-            - -Wno-GENUNNAMED
-            - -Wno-WIDTHCONCAT
-            - -Wno-WIDTHTRUNC
-            - -Wno-WIDTHEXPAND
-            - -Wno-REDEFMACRO
-            - -Wno-UNUSEDSIGNAL
-            - -Wno-UNDRIVEN
-            - -Wno-UNUSEDPARAM
+            - verilator.vlt
             - -Ilibs/basil/basil/firmware/modules
             - -Ilibs/basil/basil/firmware/modules/utils
             - -Ilibs/basil/basil/firmware/modules/includes

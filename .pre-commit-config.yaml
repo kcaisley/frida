@@ -17,14 +17,10 @@ repos:
   - repo: local
     hooks:
       - id: verilator-lint-fpga
-        name: verilator lint
+        name: verilator lint (Verilog-2005)
         entry: >-
-          verilator --lint-only -Wall --top-module daq_top
-          -Wno-DECLFILENAME -Wno-MULTITOP -Wno-TIMESCALEMOD
-          -Wno-PINCONNECTEMPTY -Wno-GENUNNAMED -Wno-WIDTHCONCAT
-          -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-REDEFMACRO
-          -Wno-UNUSEDSIGNAL -Wno-UNDRIVEN -Wno-UNUSEDPARAM
-          -Wno-MODDUP -Wno-PINMISSING -Wno-EOFNEWLINE -Wno-SYNCASYNCNET
+          verilator --lint-only --language 1364-2005 -Wall --top-module daq_top
+          verilator.vlt
           -Ilibs/basil/basil/firmware/modules
           -Ilibs/basil/basil/firmware/modules/utils
           -Ilibs/basil/basil/firmware/modules/includes
@@ -32,7 +28,12 @@ repos:
           -Idesign/fpga
           -Idesign/fpga/SiTCP
         language: system
+        pass_filenames: false
         files: '^design/fpga/.*\.v$'
+        args: [design/fpga/daq_top.v]
+        # Keep -Wall enabled for FRIDA sources. verilator.vlt leaves Basil in
+        # the elaborated design but prevents its internal warnings from
+        # blocking commits in this repository.
 
   # Verible format + lint for Verilog
   - repo: local
@@ -63,10 +64,19 @@ repos:
         types: [verilog]
         files: '\.(v|sv)$'
       - id: verible-lint
-        name: verible lint
-        entry: verible-verilog-lint --rules=-module-filename
+        name: verible style lint
+        entry: verible-verilog-lint --rules=-module-filename,-always-comb,-explicit-parameter-storage-type,-unpacked-dimensions-range-ordering
         language: system
         types: [verilog]
         files: '\.(v|sv)$'
         # module-filename disabled: Many modules in libs/basil and design/ have
         # intentional name/filename mismatches (e.g., adc.v vs adc_macro.v for different variants)
+        # always-comb disabled: FPGA .v sources use Verilog-2005 always @*;
+        # always_comb is a SystemVerilog construct.
+        # explicit-parameter-storage-type disabled: Explicit string parameter
+        # types are SystemVerilog-only, while FPGA .v sources are Verilog-2005.
+        # unpacked-dimensions-range-ordering disabled: Verible requires the
+        # SystemVerilog [size] shorthand for zero-based unpacked dimensions,
+        # which FPGA .v sources cannot use under Verilog-2005.
+        # Verible parses SystemVerilog. Verilator above enforces Verilog-2005
+        # for FPGA .v sources.

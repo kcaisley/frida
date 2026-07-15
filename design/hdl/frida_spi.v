@@ -12,7 +12,6 @@
  * for design/hdl/spi.v without changing the surrounding FRIDA hierarchy.
  */
 
-// verilog_lint: waive-start module-filename
 module spi_register (
     input  wire         rst_b,     // Active-low async reset
     input  wire         spi_cs_b,  // SPI chip select (active low)
@@ -60,4 +59,3 @@ module spi_register (
     );
 
 endmodule
-// verilog_lint: waive-stop module-filename

@@ -10,7 +10,6 @@
  * existing FRIDA hierarchy and to avoid colliding with Basil's module spi.
  */
 
-// verilog_lint: waive-start module-filename
 module spi_register (
     input  wire         rst_b,     // Active-low async reset
     input  wire         spi_cs_b,  // SPI chip select (active low)
@@ -43,4 +42,3 @@ module spi_register (
     end
 
 endmodule
-// verilog_lint: waive-stop module-filename
