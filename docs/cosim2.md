@@ -1,3 +1,6 @@
+> **Stale design note:** This document records an earlier approach and may
+> reference files or flows that no longer exist.
+
 # Plan: Rewrite flow/scans/ with cocotb-native + cocotbext-ams
 
 ## Context

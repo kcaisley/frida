@@ -1,3 +1,6 @@
+> **Stale design note:** This document records an earlier approach and may
+> reference files or flows that no longer exist.
+
 # Plan: Mixed-Signal Co-Simulation (v2)
 
 Uses Cadence Xcelium (digital) + Spectre (analog) via AMS Designer for
