@@ -18,7 +18,7 @@
 [submodule "libs/basil"]
 	path = libs/basil
 	url = git@github.com:SiLab-Bonn/basil.git
-	branch = cosimulation
+	branch = behavioral-modules
 [submodule "libs/cocotb"]
 	path = libs/cocotb
 	url = https://github.com/cocotb/cocotb.git
