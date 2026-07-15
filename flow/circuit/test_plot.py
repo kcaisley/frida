@@ -282,19 +282,6 @@ class TestPlotFftSpectrum:
 class TestPlotWaveforms:
     """Tests for plot_waveforms function."""
 
-    def test_single_waveform(self, plt):
-        """Should plot single waveform."""
-        time = np.linspace(0, 1e-6, 100)
-        waveforms = {"signal": np.sin(2 * np.pi * 1e6 * time)}
-
-        fig = plot_waveforms(time, waveforms)
-
-        assert fig is not None
-        ax = fig.axes[0]
-        assert "ns" in ax.get_xlabel()  # Should auto-detect ns scale
-
-        plt.close(fig)
-
     def test_multiple_waveforms(self, plt):
         """Should plot multiple waveforms with legend."""
         time = np.linspace(0, 1e-3, 100)

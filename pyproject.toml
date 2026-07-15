@@ -57,14 +57,12 @@ typeCheckingMode = "off"
 # Add its Python bindings path so the type checker can resolve `import ROOT`.
 extraPaths = ["libs/Hdl21", "libs/Vlsir/VlsirTools", "libs/Vlsir/bindings/python", "../libs/root/lib"]
 exclude = [
-    "**/libs/cocotbext-ams",
-    "**/libs/spicebind",
     "**/libs/basil",
 ]
 
 [tool.ruff]
 line-length = 120
-exclude = ["libs/cocotbext-ams", "libs/spicebind", "libs/basil"]
+exclude = ["libs/basil"]
 
 [tool.ruff.lint]
 ignore = ["E741"]  # Allow 'l' for transistor length
@@ -73,11 +71,7 @@ ignore = ["E741"]  # Allow 'l' for transistor length
 "**/old/**" = ["F841", "F401"]
 "pdk/**" = ["F401", "F403", "F405"]
 
-[project.entry-points.pytest11]
-cocotb = "cocotb_tools.pytest.plugin"
-
 [tool.pytest.ini_options]
-addopts = ["-k", "not test_plot"]
 testpaths = ["flow", "pdk"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
 markers = [
