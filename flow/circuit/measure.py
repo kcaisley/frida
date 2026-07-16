@@ -29,6 +29,7 @@ Extraction functions (sim-only):
 
 Measurement functions (shared, numpy arrays only):
 - find_crossings() - find threshold crossing times
+- amplitude_spectrum() - one-sided FFT amplitude spectrum
 - diff_to_single() - differential to single-ended
 - quantize_to_bits() - analog to digital threshold
 - redundant_bits_to_code() - weighted bit sum for redundant SAR
@@ -229,6 +230,42 @@ def find_crossings(
                 crossings.append(float(t))
 
     return crossings
+
+
+def amplitude_spectrum(
+    signal: np.ndarray,
+    sample_interval_s: float,
+    *,
+    window: str = "hann",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the one-sided frequency and peak-amplitude spectrum.
+
+    The amplitude array uses the same units as ``signal``.  DC is retained so
+    the function is useful for both periodic and constant waveforms.
+    """
+    samples = np.asarray(signal, dtype=float)
+    if samples.ndim != 1:
+        raise ValueError(f"signal must be one-dimensional, got shape {samples.shape}")
+    if len(samples) < 3:
+        raise ValueError(f"signal must contain at least three samples, got {len(samples)}")
+    if not np.isfinite(sample_interval_s) or sample_interval_s <= 0:
+        raise ValueError(f"sample_interval_s must be positive and finite, got {sample_interval_s}")
+
+    if window == "hann":
+        weights = np.hanning(len(samples))
+    elif window == "none":
+        weights = np.ones(len(samples))
+    else:
+        raise ValueError(f"unsupported FFT window {window!r}; expected 'hann' or 'none'")
+
+    coherent_gain = float(np.sum(weights))
+    spectrum = np.abs(np.fft.rfft(samples * weights)) / coherent_gain
+    if len(samples) % 2 == 0:
+        spectrum[1:-1] *= 2.0
+    else:
+        spectrum[1:] *= 2.0
+    frequencies_hz = np.fft.rfftfreq(len(samples), d=sample_interval_s)
+    return frequencies_hz, spectrum
 
 
 # ==== Analog Preprocessing ====

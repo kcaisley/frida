@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from .measure import (
+    amplitude_spectrum,
     code_to_voltage,
     compute_enob_fft,
     compute_static_error,
@@ -89,6 +90,32 @@ class TestFindCrossings:
         crossings = find_crossings(signal, time, 0.5, rising=True)
         assert len(crossings) == 1
         assert abs(crossings[0] - 0.5) < 1e-10
+
+
+class TestAmplitudeSpectrum:
+    """Tests for generic one-sided amplitude spectra."""
+
+    def test_recovers_dc_and_coherent_tone_amplitudes(self):
+        sample_frequency_hz = 1.0e9
+        sample_count = 10_000
+        times_s = np.arange(sample_count) / sample_frequency_hz
+        signal = 0.6 + 0.5 * np.sin(2.0 * np.pi * 20.0e6 * times_s)
+
+        frequencies_hz, amplitudes = amplitude_spectrum(signal, 1.0 / sample_frequency_hz)
+
+        tone_bin = int(np.argmin(np.abs(frequencies_hz - 20.0e6)))
+        assert amplitudes[0] == pytest.approx(0.6, rel=1e-6)
+        assert amplitudes[tone_bin] == pytest.approx(0.5, rel=1e-6)
+
+    def test_rejects_invalid_inputs(self):
+        with pytest.raises(ValueError, match="one-dimensional"):
+            amplitude_spectrum(np.ones((2, 2)), 1.0)
+        with pytest.raises(ValueError, match="at least three samples"):
+            amplitude_spectrum(np.ones(2), 1.0)
+        with pytest.raises(ValueError, match="positive and finite"):
+            amplitude_spectrum(np.ones(3), 0.0)
+        with pytest.raises(ValueError, match="unsupported FFT window"):
+            amplitude_spectrum(np.ones(3), 1.0, window="invalid")
 
 
 # ==== Test Analog Preprocessing ====

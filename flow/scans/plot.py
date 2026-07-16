@@ -9,12 +9,16 @@ from __future__ import annotations
 import csv
 import math
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+from flow.circuit.measure import amplitude_spectrum
 
 PNG_FACE_COLOR = "white"
 TEXT_COLOR = "#2E3440"
@@ -25,6 +29,14 @@ GRID_MINOR_COLOR = "#E5E9F0"
 NORD_RED = "#BF616A"
 NORD_GREEN = "#A3BE8C"
 NORD_BLUE = "#5E81AC"
+
+
+@dataclass(frozen=True)
+class SubplotSpec:
+    """Caller-provided presentation details for one plotted signal."""
+
+    ylabel: str
+    info_lines: tuple[str, ...] = ()
 
 plt.rcParams.update(
     {
@@ -230,27 +242,55 @@ def write_scope_csv(
     return csv_path
 
 
-def plot_scope_csv(
+def _add_info_box(ax, lines: tuple[str, ...]) -> None:
+    """Add a consistently styled information box to one plot axis."""
+    ax.text(
+        0.98,
+        0.88,
+        "\n".join(lines),
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        color=TEXT_COLOR,
+        bbox={"boxstyle": "round", "facecolor": LEGEND_FACE_COLOR, "edgecolor": SPINE_COLOR, "alpha": 0.9},
+    )
+
+
+def _validate_subplots(subplots: dict[str, SubplotSpec]) -> None:
+    """Validate caller-supplied signal selection and presentation details."""
+    if not 1 <= len(subplots) <= 4:
+        raise ValueError(f"expected one to four subplots, got {len(subplots)}")
+    empty_labels = [signal for signal, spec in subplots.items() if not spec.ylabel]
+    if empty_labels:
+        raise ValueError(f"subplot labels must not be empty: {', '.join(empty_labels)}")
+
+
+def _add_subplot_info(axes, subplots: dict[str, SubplotSpec]) -> None:
+    """Place each supplied information block on its corresponding subplot."""
+    for ax, spec in zip(axes, subplots.values(), strict=True):
+        if spec.info_lines:
+            _add_info_box(ax, spec.info_lines)
+
+
+def plot_time_domain_csv(
     csv_path: Path,
-    *track_names: str,
+    subplots: dict[str, SubplotSpec],
+    *,
     png_path: Path | None = None,
     title: str | None = None,
-    info_lines: tuple[str, ...] = (),
 ) -> tuple[Path, ...]:
-    """Plot one to four voltage tracks from a scope CSV.
+    """Plot one to four time-domain signals from a CSV.
 
-    The CSV must contain a ``time_s`` column and one ``<track>_v`` column for
-    each requested track. The active waveform region is detected automatically
-    and exported as PNG, PDF, and SVG.
+    The CSV must contain a ``time_s`` column plus each column named in
+    ``subplots``. Mapping order determines subplot order; labels and annotations
+    come entirely from ``subplots``. The active region is detected automatically.
     """
-    if not 1 <= len(track_names) <= 4:
-        raise ValueError(f"expected one to four track names, got {len(track_names)}")
-    if len(set(track_names)) != len(track_names):
-        raise ValueError(f"track names must be unique, got {track_names}")
+    _validate_subplots(subplots)
+    signal_names = tuple(subplots)
 
     with csv_path.open(newline="") as f:
         reader = csv.DictReader(f)
-        required_columns = {"time_s", *(f"{track}_v" for track in track_names)}
+        required_columns = {"time_s", *signal_names}
         missing_columns = sorted(required_columns.difference(reader.fieldnames or ()))
         if missing_columns:
             raise ValueError(f"{csv_path} is missing required columns: {', '.join(missing_columns)}")
@@ -260,12 +300,12 @@ def plot_scope_csv(
         raise ValueError(f"{csv_path} must contain at least two waveform samples")
 
     time_ns = [float(row["time_s"]) * 1e9 for row in rows]
-    voltages = {track: [float(row[f"{track}_v"]) for row in rows] for track in track_names}
+    signals = {signal: [float(row[signal]) for row in rows] for signal in signal_names}
 
     active_indices: list[int] = []
     edge_count = max(1, len(rows) // 20)
-    for track in track_names:
-        values = voltages[track]
+    for signal in signal_names:
+        values = signals[signal]
         span = max(values) - min(values)
         if span <= 1e-3:
             continue
@@ -283,11 +323,17 @@ def plot_scope_csv(
     else:
         xlim = (time_ns[0], time_ns[-1])
 
+    use_microseconds = max(abs(xlim[0]), abs(xlim[1]), xlim[1] - xlim[0]) >= 1_000.0
+    time_divisor = 1_000.0 if use_microseconds else 1.0
+    time_unit = "µs" if use_microseconds else "ns"
+    plot_times = [time / time_divisor for time in time_ns]
+    plot_xlim = tuple(limit / time_divisor for limit in xlim)
+
     colors = (NORD_BLUE, NORD_GREEN, NORD_RED, "#D08770")
     fig, axes_grid = plt.subplots(
-        len(track_names),
+        len(signal_names),
         1,
-        figsize=(8, max(2.8, 1.6 * len(track_names))),
+        figsize=(8, max(2.8, 1.6 * len(signal_names))),
         sharex=True,
         squeeze=False,
     )
@@ -296,29 +342,113 @@ def plot_scope_csv(
     if title:
         axes[0].set_title(title, color=TEXT_COLOR, pad=6)
 
-    for ax, track, color in zip(axes, track_names, colors[: len(track_names)], strict=True):
-        ax.plot(time_ns, voltages[track], color=color, linewidth=1.2)
-        ax.set_ylabel(f"{track} (V)", fontfamily="monospace")
-        ax.set_xlim(*xlim)
+    for ax, signal, spec, color in zip(
+        axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True
+    ):
+        ax.plot(plot_times, signals[signal], color=color, linewidth=1.2)
+        ax.set_ylabel(spec.ylabel)
+        ax.set_xlim(*plot_xlim)
         style_ax(ax)
         style_grid(ax)
+    _add_subplot_info(axes, subplots)
 
-    if info_lines:
-        axes[0].text(
-            0.98,
-            0.88,
-            "\n".join(info_lines),
-            transform=axes[0].transAxes,
-            ha="right",
-            va="top",
-            color=TEXT_COLOR,
-            bbox={"boxstyle": "round", "facecolor": LEGEND_FACE_COLOR, "edgecolor": SPINE_COLOR, "alpha": 0.9},
-        )
-
-    axes[-1].set_xlabel("Time (ns)")
-    fig.subplots_adjust(left=0.13, right=0.985, bottom=0.09, top=0.93, hspace=0.18)
+    axes[-1].set_xlabel(f"Time ({time_unit})")
+    bottom_margin = min(0.2, 0.5 / fig.get_figheight())
+    fig.subplots_adjust(left=0.13, right=0.985, bottom=bottom_margin, top=0.93, hspace=0.18)
 
     png_path = png_path or csv_path.with_suffix(".png")
+    if png_path.suffix.lower() != ".png":
+        raise ValueError(f"png_path must have a .png suffix, got {png_path}")
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    plot_paths = (png_path, png_path.with_suffix(".pdf"), png_path.with_suffix(".svg"))
+    for plot_path in plot_paths:
+        save_kwargs = {"facecolor": PNG_FACE_COLOR}
+        if plot_path.suffix == ".png":
+            save_kwargs["dpi"] = 200
+        fig.savefig(plot_path, **save_kwargs)
+    plt.close(fig)
+    return plot_paths
+
+
+def plot_frequency_domain_csv(
+    csv_path: Path,
+    subplots: dict[str, SubplotSpec],
+    *,
+    png_path: Path | None = None,
+    title: str | None = None,
+    max_frequency_hz: float | None = None,
+) -> tuple[Path, ...]:
+    """Plot one-sided FFT amplitude spectra for time-domain CSV signals."""
+    _validate_subplots(subplots)
+    signal_names = tuple(subplots)
+
+    with csv_path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        required_columns = {"time_s", *signal_names}
+        missing_columns = sorted(required_columns.difference(reader.fieldnames or ()))
+        if missing_columns:
+            raise ValueError(f"{csv_path} is missing required columns: {', '.join(missing_columns)}")
+        rows = list(reader)
+
+    if len(rows) < 3:
+        raise ValueError(f"{csv_path} must contain at least three waveform samples")
+    times_s = np.asarray([float(row["time_s"]) for row in rows])
+    sample_intervals_s = np.diff(times_s)
+    sample_interval_s = float(np.median(sample_intervals_s))
+    if not np.allclose(sample_intervals_s, sample_interval_s, rtol=1e-6, atol=1e-18):
+        raise ValueError(f"{csv_path} does not have a uniformly sampled time axis")
+
+    spectra = {}
+    frequencies_hz = None
+    for signal_name in signal_names:
+        signal = np.asarray([float(row[signal_name]) for row in rows])
+        frequencies_hz, amplitudes = amplitude_spectrum(signal, sample_interval_s)
+        spectra[signal_name] = 20.0 * np.log10(np.maximum(amplitudes, 1e-12))
+    assert frequencies_hz is not None
+
+    frequency_limit_hz = frequencies_hz[-1]
+    if max_frequency_hz is not None:
+        if max_frequency_hz <= 0:
+            raise ValueError(f"max_frequency_hz must be positive, got {max_frequency_hz}")
+        frequency_limit_hz = min(frequency_limit_hz, max_frequency_hz)
+    if frequency_limit_hz >= 1e9:
+        frequency_scale, frequency_unit = 1e9, "GHz"
+    elif frequency_limit_hz >= 1e6:
+        frequency_scale, frequency_unit = 1e6, "MHz"
+    elif frequency_limit_hz >= 1e3:
+        frequency_scale, frequency_unit = 1e3, "kHz"
+    else:
+        frequency_scale, frequency_unit = 1.0, "Hz"
+    plot_frequencies = frequencies_hz / frequency_scale
+    plot_limit = frequency_limit_hz / frequency_scale
+
+    colors = (NORD_BLUE, NORD_GREEN, NORD_RED, "#D08770")
+    fig, axes_grid = plt.subplots(
+        len(signal_names),
+        1,
+        figsize=(8, max(2.8, 1.6 * len(signal_names))),
+        sharex=True,
+        squeeze=False,
+    )
+    fig.patch.set_facecolor(PNG_FACE_COLOR)
+    axes = axes_grid[:, 0]
+    if title:
+        axes[0].set_title(title, color=TEXT_COLOR, pad=6)
+    for ax, signal, spec, color in zip(
+        axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True
+    ):
+        ax.plot(plot_frequencies, spectra[signal], color=color, linewidth=1.2)
+        ax.set_ylabel(spec.ylabel)
+        ax.set_xlim(0.0, plot_limit)
+        ax.set_ylim(-140.0, max(5.0, float(np.max(spectra[signal])) + 5.0))
+        style_ax(ax)
+        style_grid(ax)
+    _add_subplot_info(axes, subplots)
+    axes[-1].set_xlabel(f"Frequency ({frequency_unit})")
+    bottom_margin = min(0.2, 0.5 / fig.get_figheight())
+    fig.subplots_adjust(left=0.15, right=0.985, bottom=bottom_margin, top=0.93, hspace=0.18)
+
+    png_path = png_path or csv_path.with_name(f"{csv_path.stem}_spectrum.png")
     if png_path.suffix.lower() != ".png":
         raise ValueError(f"png_path must have a .png suffix, got {png_path}")
     png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -915,7 +1045,7 @@ def plot_code_density_linearity(adc_cfg: dict, rows_or_csv: list[dict] | Path, o
 
 
 def plot_adc_overlay(sources: list[tuple[str, Path, str]], out_path: Path = OVERLAY_PLOT) -> Path:
-    """Overlay transfer curves from multiple basic.py-style ADC CSV files."""
+    """Overlay transfer curves from multiple scan_adc.py-style ADC CSV files."""
     fig, ax = plt.subplots(figsize=(7, 5), facecolor=PNG_FACE_COLOR)
     fig.patch.set_facecolor(PNG_FACE_COLOR)
     plotted = 0

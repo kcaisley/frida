@@ -28,12 +28,13 @@ from yaml import safe_load
 
 from flow.circuit.measure import find_crossings
 from flow.scans.basic import bitarray_to_seq_gen_format
+from flow.scans.instruments import instrument_dut
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,
     set_pll_divider,
 )
-from flow.scans.plot import plot_scope_csv, write_scope_csv
+from flow.scans.plot import SubplotSpec, plot_time_domain_csv, write_scope_csv
 from flow.scans.scope import response_value, wait_for_scope_armed, wait_for_scope_capture
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
@@ -133,7 +134,7 @@ def main() -> None:
         # reversal scrambles the OSERDES byte lanes.  _drv reaches through the
         # TrackRegister (RL) wrapper to the underlying seq_gen (HL) driver, which
         # exposes set_data() for writing sequencer memory verbatim.
-        scope_dut = Dut(str(SCOPE_MAP_PATH))
+        scope_dut = instrument_dut(SCOPE_MAP_PATH)
         scope_dut.init()
         try:
             scope = scope_dut["scope"]
@@ -208,18 +209,26 @@ def main() -> None:
                         symbol_rate_bps,
                     )
 
-                    plot_paths = plot_scope_csv(
+                    plot_paths = plot_time_domain_csv(
                         csv_path,
-                        *SCOPE_TRACKS.values(),
+                        {
+                            "seq_init_v": SubplotSpec(ylabel="INIT (V)"),
+                            "seq_samp_v": SubplotSpec(ylabel="SAMP (V)"),
+                            "seq_logic_v": SubplotSpec(ylabel="LOGIC (V)"),
+                            f"{COMP_TRACK}_v": SubplotSpec(
+                                ylabel="COMP (V)",
+                                info_lines=(
+                                    f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
+                                    f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
+                                    f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
+                                    f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
+                                    f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
+                                    f"Scope bandwidth: "
+                                    f"{float(response_value(scope.get_bandwidth(channel=4))) / 1e9:.1f} GHz",
+                                ),
+                            ),
+                        },
                         title=(f"Measured ADC LVDS sequencer inputs ({symbol_rate_bps / 1e6:g} MBd, N={divider_n})"),
-                        info_lines=(
-                            f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
-                            f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
-                            f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
-                            f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
-                            f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
-                            f"Scope bandwidth: {SCOPE_BANDWIDTH_HZ / 1e9:.1f} GHz",
-                        ),
                     )
                     for plot_path in plot_paths:
                         print(f"Saved scope waveform plot: {plot_path}")
