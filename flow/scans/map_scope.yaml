@@ -12,6 +12,7 @@ transfer_layer:
     init:
       resource_name: "TCPIP::192.168.10.60::4000::SOCKET"
       backend: "@py"
+      list_resources: false
       read_termination: "\n"
       write_termination: "\n"
       timeout: 10000

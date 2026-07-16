@@ -1,0 +1,23 @@
+# TTi QL355TP power supply on its direct USB serial interface.
+
+name: frida-supply
+version: 0.1.0
+
+transfer_layer:
+  - name: supply_intf
+    type: Serial
+    init:
+      port: /dev/serial/by-id/usb-TTi_QL355TP_Power_Supply_tb3XC59T-if00-port0
+      read_termination: "\r\n"
+      write_termination: "\n"
+      baudrate: 19200
+      xonxoff: true
+      parity: "N"
+      stopbits: 1
+      bytesize: 8
+      timeout: 2
+
+hw_drivers:
+  - name: supply
+    type: tti_ql355tp
+    interface: supply_intf

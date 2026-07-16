@@ -25,6 +25,7 @@ dependencies = [
     "bitarray",
     "pyvisa",
     "pyvisa-py",
+    "gpib-ctypes",
     "pyserial",
     "pyusb>=1.3.1",
 ]
