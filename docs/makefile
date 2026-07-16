@@ -114,6 +114,10 @@ $(IMAGES_DIR)/%.pdf: $(IMAGES_DIR)/%.tex
 	$(LATEXMK) -pdf -interaction=nonstopmode -halt-on-error -outdir=$(IMAGES_DIR) $<
 	@echo "Created $@"
 
+$(IMAGES_DIR)/adc_symbol.png: $(IMAGES_DIR)/adc_symbol.pdf
+	pdftoppm -png -r 600 -singlefile $< $(@:.png=)
+	@echo "Created $@ at 600 DPI"
+
 $(IMAGES_DIR)/%.png: $(IMAGES_DIR)/%.pdf
 	pdftoppm -png -r 300 -singlefile $< $(@:.png=)
 	@echo "Created $@"
