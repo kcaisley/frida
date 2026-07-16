@@ -5,7 +5,7 @@ from __future__ import annotations
 from bitarray import bitarray
 import pytest
 
-from flow.scans import basic
+from flow.scans import scan_adc
 from flow.scans.plot import decision_path_from_bbits, filter_decision_path_rows, transfer_points
 from flow.scans.scan_compout import SEQ_WORDS, active_words
 from flow.scans.scan_spice import bits_to_word, nearest_value, require_signal, rising_edges
@@ -56,7 +56,7 @@ def unpack_spi_payload(payload: bytes) -> bitarray:
 
 def test_bitarray_to_seq_gen_format_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
-    memory = basic.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=8)
+    memory = scan_adc.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=8)
 
     assert list(memory) == [
         0x81,
@@ -83,47 +83,49 @@ def test_bitarray_to_seq_gen_format_rejects_invalid_patterns() -> None:
     mismatched = serializer_patterns()
     mismatched["INIT"] = "10000001"
     with pytest.raises(ValueError, match="expected 1 words, got 2"):
-        basic.bitarray_to_seq_gen_format(mismatched, serdes_ratio=8, seq_gen_lanes=8)
+        scan_adc.bitarray_to_seq_gen_format(mismatched, serdes_ratio=8, seq_gen_lanes=8)
 
     invalid_width = serializer_patterns()
     invalid_width["LOGIC"] = "1010101 01010101"
     with pytest.raises(ValueError, match=r"expected 8 bit\(s\)"):
-        basic.bitarray_to_seq_gen_format(invalid_width, serdes_ratio=8, seq_gen_lanes=8)
+        scan_adc.bitarray_to_seq_gen_format(invalid_width, serdes_ratio=8, seq_gen_lanes=8)
 
     with pytest.raises(ValueError, match="needs at least five"):
-        basic.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=4)
+        scan_adc.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=4)
 
 
 def test_default_input_mode_is_manual() -> None:
-    assert basic.INPUT_MODE == "manual"
+    assert scan_adc.INPUT_MODE == "manual"
 
 
 def test_nominal_adc_rates_map_to_supported_symbol_rates() -> None:
     """Map 1--10 MSPS active conversions onto 160--1600 MBd."""
-    assert tuple(basic.nominal_adc_rate_to_symbol_rate(rate) for rate in basic.NOMINAL_ADC_SAMPLE_RATES_HZ) == tuple(
+    assert tuple(
+        scan_adc.nominal_adc_rate_to_symbol_rate(rate) for rate in scan_adc.NOMINAL_ADC_SAMPLE_RATES_HZ
+    ) == tuple(
         rate_mbd * 1e6 for rate_mbd in range(160, 1601, 160)
     )
     with pytest.raises(ValueError, match="must be positive"):
-        basic.nominal_adc_rate_to_symbol_rate(0)
+        scan_adc.nominal_adc_rate_to_symbol_rate(0)
 
 
 def test_rate_specific_rx_sen_windows_capture_exactly_17_bits() -> None:
-    for rate_hz in basic.NOMINAL_ADC_SAMPLE_RATES_HZ:
-        start_word = basic.RX_SEN_START_WORD_BY_RATE_HZ[round(rate_hz)]
-        words = basic.patterns_with_rx_sen_start(start_word)["RX_SEN"].split()
-        assert len(words) == basic.SEQUENCE_STEPS
-        assert words.count("1") == basic.NUM_CAPTURE_BITS
-        assert words[start_word : start_word + basic.NUM_CAPTURE_BITS] == ["1"] * basic.NUM_CAPTURE_BITS
+    for rate_hz in scan_adc.NOMINAL_ADC_SAMPLE_RATES_HZ:
+        start_word = scan_adc.RX_SEN_START_WORD_BY_RATE_HZ[round(rate_hz)]
+        words = scan_adc.patterns_with_rx_sen_start(start_word)["RX_SEN"].split()
+        assert len(words) == scan_adc.SEQUENCE_STEPS
+        assert words.count("1") == scan_adc.NUM_CAPTURE_BITS
+        assert words[start_word : start_word + scan_adc.NUM_CAPTURE_BITS] == ["1"] * scan_adc.NUM_CAPTURE_BITS
         assert words[-1] == "0"
 
     with pytest.raises(ValueError, match="must leave a low word"):
-        basic.patterns_with_rx_sen_start(15)
+        scan_adc.patterns_with_rx_sen_start(15)
 
 
 def test_spi_config_to_bytes_places_fields_and_reverses_for_transmission(capsys) -> None:
     """Verify the critical 180-bit field map, ADC selection, and wire-order reversal."""
     config = spi_config()
-    payload = basic.spi_config_to_bytes(config)
+    payload = scan_adc.spi_config_to_bytes(config)
     logical = unpack_spi_payload(payload)
 
     assert len(payload) == 23
@@ -155,22 +157,22 @@ def test_spi_config_to_bytes_places_fields_and_reverses_for_transmission(capsys)
 def test_spi_config_to_bytes_rejects_invalid_fields(override: dict, message: str) -> None:
     """Reject malformed DAC, ADC, and mux fields before generating an SPI payload."""
     with pytest.raises(ValueError, match=message):
-        basic.spi_config_to_bytes(spi_config(**override))
+        scan_adc.spi_config_to_bytes(spi_config(**override))
 
 
 def test_decode_conversion_uses_msb_first_samples_and_weights() -> None:
     """Verify FastRX temporal bit order, weighted recombination, and size validation."""
-    assert basic.decode_conversion(0b101101, data_size=6, code_weights=[8, 4, 2, 1]) == ("1011", 11)
+    assert scan_adc.decode_conversion(0b101101, data_size=6, code_weights=[8, 4, 2, 1]) == ("1011", 11)
 
     with pytest.raises(ValueError, match="smaller than 5 ADC code bits"):
-        basic.decode_conversion(0b1011, data_size=4, code_weights=[16, 8, 4, 2, 1])
+        scan_adc.decode_conversion(0b1011, data_size=4, code_weights=[16, 8, 4, 2, 1])
 
 
 def test_normalize_code_scales_to_twelve_bits() -> None:
     """Pin down ADC normalization endpoints and Python rounding behavior."""
-    assert basic.normalize_code(0, [1, 1]) == 0
-    assert basic.normalize_code(2, [1, 1]) == 4095
-    assert basic.normalize_code(1, [1, 1]) == 2048
+    assert scan_adc.normalize_code(0, [1, 1]) == 0
+    assert scan_adc.normalize_code(2, [1, 1]) == 4095
+    assert scan_adc.normalize_code(1, [1, 1]) == 2048
 
 
 def test_rising_edges_detects_strict_threshold_crossings() -> None:

@@ -27,7 +27,7 @@ import numpy as np
 from yaml import safe_load
 
 from flow.circuit.measure import find_crossings
-from flow.scans.basic import bitarray_to_seq_gen_format
+from flow.scans.scan_adc import bitarray_to_seq_gen_format
 from flow.scans.instruments import instrument_dut
 from flow.scans.plldrp import (
     calculate_pll_frequency,

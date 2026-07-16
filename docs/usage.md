@@ -139,10 +139,10 @@ uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
 ### Hardware ADC scans
 
 The hardware scan is a direct Basil workflow rather than a `flow` subcommand.
-Configure the scan constants at the top of `flow/scans/basic.py`, then run:
+Configure the scan constants at the top of `flow/scans/scan_adc.py`, then run:
 
 ```bash
-uv run python -m flow.scans.basic
+uv run python -m flow.scans.scan_adc
 ```
 
 The script configures the chip, loads the raw 64-bit serializer pattern,

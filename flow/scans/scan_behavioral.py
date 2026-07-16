@@ -1,11 +1,11 @@
-"""Run the legacy behavioral SAR ADC model as a basic.py-style scan.
+"""Run the legacy behavioral SAR ADC model as a scan_adc.py-style scan.
 
 Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral
 
 The generated CSV uses the same columns and ADC conversion constants as
-``flow/scans/basic.py``.  Importing those constants is safe because the hardware
-scan in ``basic.py`` only runs through its ``main()`` entry point.
+``flow/scans/scan_adc.py``. Importing those constants is safe because the hardware
+scan in ``scan_adc.py`` only runs through its ``main()`` entry point.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from flow.old.behavioral import SAR_ADC
-from flow.scans.basic import (
+from flow.scans.scan_adc import (
     ADC_CAP_WEIGHTS,
     ADC_CODE_WEIGHTS,
     N_SWEEP_POINTS,
@@ -25,7 +25,7 @@ from flow.scans.basic import (
 from flow.scans.plot import plot_adc_transfer, write_adc_csv
 from flow.scans.scan_spice import bits_to_word
 
-# Sweep settings matched to flow/scans/basic.py.
+# Sweep settings matched to flow/scans/scan_adc.py.
 ADC_INDEX = 0
 CAP_WEIGHTS = ADC_CAP_WEIGHTS[ADC_INDEX]
 CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
@@ -100,7 +100,7 @@ def input_attenuation(params: dict[str, dict[str, object]]) -> float:
 
 
 def behavioral_bbits(adc: SAR_ADC, vin_p: float, vin_n: float) -> tuple[str, int]:
-    """Run one conversion and return Bbits/Dout using basic.py's recombination."""
+    """Run one conversion and return Bbits/Dout using scan_adc.py's recombination."""
     adc.sample_and_convert(vin_p, vin_n, do_calculate_energy=False, do_plot=False, do_normalize_result=False)
     bits = [int(bit) for bit in adc.comp_result]
     if len(bits) != NUM_CAPTURE_BITS:

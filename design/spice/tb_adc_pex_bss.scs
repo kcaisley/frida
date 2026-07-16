@@ -36,7 +36,7 @@ vzeros   (vlogic0 0) vsource dc=0
 vvin_p (vin_p 0) vsource type=pwl file="build/adc_pex/pwl/vin_p.pwl"
 vvin_n (vin_n 0) vsource dc=vcm
 
-* Sequencer clocks from basic.py, using the current FPGA sequencer clock:
+* Sequencer clocks from scan_adc.py, using the current FPGA sequencer clock:
 * daq_top.v PLL2 CLKOUT0 = 800 MHz / 16 = 50 MHz, so each sequencer bit is 20 ns.
 * These external PWL files are expanded for all 121 conversion periods by
 * design/spice/gen_tb_adc_pex_pwl.py.

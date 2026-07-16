@@ -1,4 +1,4 @@
-"""Convert Spectre ADC PEX nutascii output into basic.py-style scan CSV.
+"""Convert Spectre ADC PEX nutascii output into scan_adc.py-style scan CSV.
 
 Before running this parser, first run the configured Spectre PEX decks:
 
@@ -11,7 +11,7 @@ Then parse the generated raw files into CSVs and transfer plots:
 
 The raw/CSV paths are listed in ``ADC_PEX_POSTPROCESS_RUNS`` below.
 
-The output CSV uses the same columns as ``flow/scans/basic.py``. Spectre does
+The output CSV uses the same columns as ``flow/scans/scan_adc.py``. Spectre does
 not produce a Basil FastRX packet, so ``raw_word`` and ``spi`` contain the same
 synthetic 17-bit word packed from the sampled comparator bits.
 """
@@ -22,7 +22,7 @@ import bisect
 import sys
 from pathlib import Path
 
-from flow.scans.basic import ADC_CODE_WEIGHTS, NUM_CAPTURE_BITS
+from flow.scans.scan_adc import ADC_CODE_WEIGHTS, NUM_CAPTURE_BITS
 from flow.scans.plot import plot_adc_transfer, plot_code_histogram, plot_decision_paths, write_adc_csv
 
 ADC_INDEX = 0

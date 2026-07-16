@@ -7,7 +7,7 @@ This is a single-input hardware scan intended to make the comparator output bit
 sequence easy to inspect. Set the external inputs to Vin_p=700 mV and
 Vin_n=600 mV before running the custom 32-word serializer pattern:
 
-- INIT and SAMP pulses match ``basic.py``.
+- INIT and SAMP pulses match ``scan_adc.py``.
 - The first 10 comparator pulses have no SAR logic updates.
 - One LOGIC pulse applies the MSB DAC update.
 - The final 7 comparator pulses complete the 17-bit conversion.
@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 from time import sleep
 
-from flow.scans.basic import (
+from flow.scans.scan_adc import (
     ADC_CODE_WEIGHTS,
     NUM_CAPTURE_BITS,
     SEQ_GEN_LANES,

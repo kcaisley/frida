@@ -1,4 +1,4 @@
-"""FRIDA ADC basic scan and readout script."""
+"""FRIDA ADC scan and readout script."""
 
 import csv
 from array import array
@@ -8,6 +8,7 @@ from time import sleep
 
 from bitarray import bitarray
 
+from flow.scans.instruments import instrument_dut
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.plot import (
     plot_adc_transfer,
@@ -319,7 +320,7 @@ def main(
     # Step 1: Connect to the FPGA DAQ and, unless inputs are manual, the AWG.
     map_dir = Path(__file__).resolve().parent
     daq = Dut(str(map_dir / "map_fpga.yaml"))
-    instruments = Dut(str(map_dir / "map_awg.yaml")) if INPUT_MODE == "awg" else None
+    instruments = instrument_dut(map_dir / "map_awg.yaml") if INPUT_MODE == "awg" else None
     daq.init()
     summary_rows: list[dict] = []
     try:

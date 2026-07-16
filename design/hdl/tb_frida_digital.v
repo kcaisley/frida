@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 // Pure-Verilog Icarus testbench for the TSMC65 FRIDA pad-level top.
-// Stimulus mirrors flow/scans/basic.py reset/SPI/sequence timing, but runs an
+// Stimulus mirrors flow/scans/scan_adc.py reset/SPI/sequence timing, but runs an
 // ADC config-field alignment scan with a simple comparator-clock ADC model.
 //
 // Compile this bench with frida_spi.v and without adc.v/adc_macro.v; this file
@@ -17,7 +17,7 @@ module tb_frida_digital;
     // assumed mapping, 4'b0101 will select ADC10 instead of ADC5.
     localparam [3:0] MUX_BITS_UNDER_TEST = 4'b0101;
 
-    // Temporal left-to-right tracks copied from flow/scans/basic.py.
+    // Temporal left-to-right tracks copied from flow/scans/scan_adc.py.
     localparam [63:0] SEQ_INIT_PATTERN  = 64'b0011000000000000000000000000000000000000000000000000000000000000;
     localparam [63:0] SEQ_SAMP_PATTERN  = 64'b0000111100000000000000000000000000000000000000000000000000000000;
     localparam [63:0] SEQ_COMP_PATTERN  = 64'b0000000001010101010101010101010101010101010000000000000000000000;
@@ -160,7 +160,7 @@ module tb_frida_digital;
         begin
             cfg = {SPI_BITS{1'b0}};
 
-            // Same DAC values as the first basic.py scan case.
+            // Same DAC values as the first scan_adc.py scan case.
             cfg[63:48]  = 16'b0111111111111111;
             cfg[47:32]  = 16'b1111111111111111;
             cfg[31:16]  = 16'b0111111111111111;

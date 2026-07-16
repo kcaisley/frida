@@ -56,7 +56,7 @@ uv run python flow/scans/test_serdes.py
 Run the complete ADC hardware scan with:
 
 ```bash
-uv run python -m flow.scans.basic
+uv run python -m flow.scans.scan_adc
 ```
 
 Both commands require the FPGA hardware and instruments described by the Basil
