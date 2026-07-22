@@ -9,6 +9,11 @@ SLIDES_DIR := slides
 IMAGES_DIR := images
 OUTDIR := tex
 
+DOCUMENT_TEX := $(wildcard *.tex)
+DOCUMENT_NAMES := $(basename $(notdir $(DOCUMENT_TEX)))
+DOCUMENT_PDFS := $(addprefix $(OUTDIR)/,$(addsuffix .pdf,$(DOCUMENT_NAMES)))
+DOCUMENT_ALIASES := $(DOCUMENT_NAMES)
+
 SLIDE_TEX := $(wildcard $(SLIDES_DIR)/*.tex)
 SLIDE_NAMES := $(basename $(notdir $(SLIDE_TEX)))
 SLIDE_PDFS := $(addprefix $(OUTDIR)/,$(addsuffix .pdf,$(SLIDE_NAMES)))
@@ -71,12 +76,12 @@ COLLATERAL := \
 	$(WAVEDROM_PNGS) \
 	$(PHYS_RESULTS)
 
-.PHONY: all help clean clean-figure-intermediates figures netlistsvgs wavedroms decks $(SLIDE_ALIASES)
+.PHONY: all help clean clean-figure-intermediates figures netlistsvgs wavedroms documents decks $(DOCUMENT_ALIASES) $(SLIDE_ALIASES)
 .SECONDARY: $(NETLISTSVG_FROM_V_JSON) $(NETLISTSVG_SVG) $(WAVEDROM_SVG)
 
 .DEFAULT_GOAL := all
 
-all: $(COLLATERAL) decks clean-figure-intermediates
+all: $(COLLATERAL) documents decks clean-figure-intermediates
 	@echo "Built all generated collateral and TeX documents"
 
 figures: $(FIGURE_PDFS) $(FIGURE_PNGS) clean-figure-intermediates
@@ -85,26 +90,38 @@ netlistsvgs: $(NETLISTSVG_PDFS)
 
 wavedroms: $(WAVEDROM_SVG) $(WAVEDROM_PDFS) $(WAVEDROM_PNGS)
 
+documents: $(DOCUMENT_PDFS)
+
 decks: $(SLIDE_PDFS)
 
 help:
 	@echo "Usage:"
 	@echo "  make                  Build generated collateral, then all TeX documents"
+	@echo "  make outline          Build the thesis outline into $(OUTDIR)/outline.pdf"
 	@echo "  make 2026_07_07_fsic.tex  Build one TeX document into $(OUTDIR)/2026_07_07_fsic.pdf"
 	@echo "  make images/foo.pdf   Build one generated image asset"
 	@echo "  make clean            Remove generated build artifacts"
 	@echo ""
 	@echo "TeX sources:"
-	@printf '  - %s\n' $(SLIDE_TEX)
+	@printf '  - %s\n' $(DOCUMENT_TEX) $(SLIDE_TEX)
 	@echo ""
 	@echo "Generated collateral sources:"
 	@printf '  - %s\n' $(FIGURE_TEX) $(NETLISTSVG_V) $(NETLISTSVG_INPUT_JSON) $(WAVEDROM_JSON)
+
+$(OUTDIR)/%.pdf: %.tex
+	mkdir -p $(OUTDIR)
+	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
+	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
+	@echo "Created $@"
 
 $(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
 	mkdir -p $(OUTDIR)
 	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
 	@echo "Created $@"
+
+$(DOCUMENT_NAMES): %: $(OUTDIR)/%.pdf
+	@true
 
 $(addsuffix .tex,$(SLIDE_NAMES)): %.tex: $(OUTDIR)/%.pdf
 	@true
