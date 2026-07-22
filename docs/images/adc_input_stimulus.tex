@@ -1,0 +1,123 @@
+\documentclass[border=5pt]{standalone}
+\usepackage[american]{circuitikz}
+\usetikzlibrary{calc,positioning}
+\standaloneenv{circuitikz}
+
+\begin{document}
+\begin{circuitikz}[
+  american,
+  every node/.style={font=\scriptsize},
+  wire/.style={line width=0.7pt},
+  netlabel/.style={font=\ttfamily\scriptsize},
+  blocklabel/.style={font=\sffamily\scriptsize, align=center},
+  note/.style={font=\sffamily\tiny, align=center, text=black!65},
+]
+\ctikzset{
+  bipoles/length=1.0cm,
+  resistors/scale=0.75,
+  capacitors/scale=0.70,
+  sources/scale=0.92,
+}
+
+% Fully differential amplifier body, drawn explicitly to keep the TI pin order.
+\coordinate (amp_tip) at (3.8,0);
+\coordinate (amp_nw) at (2.25,1.25);
+\coordinate (amp_sw) at (2.25,-1.25);
+\draw[fill=black!3, line width=0.8pt]
+  (amp_nw) -- (amp_tip) -- (amp_sw) -- cycle;
+\node[font=\sffamily\small] at (2.78,0) {THS4541};
+
+\coordinate (inp)  at (2.25,0.58);
+\coordinate (inn)  at (2.25,-0.58);
+% Intersections of y=+/-0.58 with the two sloped output edges.
+\coordinate (outm) at (3.08,0.58);
+\coordinate (outp) at (3.08,-0.58);
+\node[font=\sffamily\tiny, right] at (inp) {$+$};
+\node[font=\sffamily\tiny, right] at (inn) {$-$};
+\node[font=\sffamily\tiny, left] at (outm) {$-$};
+\node[font=\sffamily\tiny, left] at (outp) {$+$};
+
+% 33250A single-ended sinusoidal source.  The 50-ohm output impedance is
+% included in the source annotation rather than drawn as a separate resistor.
+\coordinate (src_top) at (-4.35,0.58);
+\draw[wire] (src_top) to[sV, l_=\texttt{$v_{\mathrm{AWG}}(t)$}]
+  ++(0,-1.15) coordinate (src_gnd);
+\node[ground] at (src_gnd) {};
+\node[blocklabel, align=center] at (-4.35,1.43)
+  {Keysight 33250A\\$R_{\mathrm{out}}=50\,\Omega$};
+
+% Driven positive input: coax termination and 499-ohm gain resistor.
+\coordinate (vinext) at (-2.65,0.58);
+\draw[wire] (src_top) -- (vinext) node[circ]{};
+\node[netlabel, above] at (vinext) {VIN\_P\_EXT};
+\draw[wire] (vinext) to[R, l_=$54.9\,\Omega$] ++(0,-1.15)
+  node[ground]{};
+\draw[wire] (vinext) to[R, l=$499\,\Omega$] (inp);
+
+% Single-ended negative reference: 50 ohms in parallel with 54.9 ohms.
+\coordinate (vref) at (-1.30,-0.58);
+\draw[wire] (vref) node[circ]{} to[R, l=$499\,\Omega$] (inn);
+\node[netlabel, above] at (vref) {VREF $\approx 0\,\mathrm{V}$};
+\draw[wire] ($(vref)+(-0.25,0)$) -- ++(0,-0.25)
+  to[R, l_=$50\,\Omega$] ++(0,-0.95) node[ground]{};
+\draw[wire] ($(vref)+(0.25,0)$) -- ++(0,-0.25)
+  to[R, l=$54.9\,\Omega$] ++(0,-0.95) node[ground]{};
+% Matched 499-ohm feedback paths.
+\coordinate (fb_left) at (1.90,0);
+\coordinate (fb_right) at (3.60,0);
+\draw[wire] (inp) -- (1.90,0.58) -- (1.90,1.82)
+  to[R, l=$499\,\Omega$] (3.60,1.82)
+  -- (3.60,0.58) -- (outm);
+\draw[wire] (1.90,1.82) -- (1.90,2.48)
+  to[C, l=$51\,\mathrm{pF}$] (3.60,2.48)
+  -- (3.60,1.82);
+\draw[wire] (inn) -- (1.90,-0.58) -- (1.90,-1.82)
+  to[R, l_=$499\,\Omega$] (3.60,-1.82)
+  -- (3.60,-0.58) -- (outp);
+\draw[wire] (1.90,-1.82) -- (1.90,-2.48)
+  to[C, l_=$51\,\mathrm{pF}$] (3.60,-2.48)
+  -- (3.60,-1.82);
+
+% External common-mode control, shown on the FDA's dedicated centre input.
+\draw[wire] (0.55,0) -- (2.25,0);
+\node[netlabel, fill=white, inner sep=1.5pt] at (1.35,0) {VOCM\_EXT};
+\node[font=\sffamily\tiny, below] at (1.35,-0.08) {$0.615\,\mathrm{V}$};
+
+% ADC-facing differential RC network from the PCB.
+\coordinate (vin_n_adc) at (6.45,0.58);
+\coordinate (vin_p_adc) at (6.45,-0.58);
+\draw[wire] (outm) to[R, l=$499\,\Omega$] (vin_n_adc)
+  -- (7.66,0.58);
+\draw[wire] (outp) to[R, l_=$499\,\Omega$] (vin_p_adc)
+  -- (7.66,-0.58);
+\draw[wire] (vin_n_adc) to[C, l=$51\,\mathrm{pF}$] (vin_p_adc);
+\node[netlabel, above] at (7.05,0.58) {VIN\_N\_ADC};
+\node[netlabel, below] at (7.05,-0.58) {VIN\_P\_ADC};
+
+% FRIDA ADC symbol and serialized comparator output.
+\coordinate (adc_tip) at (7.25,0);
+\coordinate (adc_nw) at (8.10,1.20);
+\coordinate (adc_ne) at (10.35,1.20);
+\coordinate (adc_se) at (10.35,-1.20);
+\coordinate (adc_sw) at (8.10,-1.20);
+\draw[fill=black!5, line width=0.8pt]
+  (adc_tip) -- (adc_nw) -- (adc_ne) -- (adc_se) -- (adc_sw) -- cycle;
+\node[font=\ttfamily\bfseries\small] at (8.85,0) {frida\_adc};
+\draw[wire, -{Triangle[length=1.5mm,width=1.8mm]}]
+  (10.35,0) -- (11.45,0) node[netlabel, right]{comp\_out};
+\node[note, below] at (10.88,-0.08) {20\,Mbaud};
+
+% Low-frequency gain and ideal first-order bandwidth estimates.
+\node[note, align=left, anchor=north west] at (6.85,-1.65) {
+  $\alpha=R_F/R_G=499/499=1$\\
+  $Z_A=2R_G\frac{1+\alpha}{2+\alpha}=665\,\Omega$ (THS4541 Eq. 12)\\
+  $Z_{\mathrm{in}}=54.9\,\Omega\parallel Z_A=50.7\,\Omega$\\
+  $A_{\mathrm{eff}}\approx\alpha\frac{Z_{\mathrm{in}}}{50\,\Omega+Z_{\mathrm{in}}}=0.504\ \mathrm{V/V}$\\[1pt]
+  $H(s)\approx\frac{A_{\mathrm{eff}}}
+    {(1+sR_FC_F)(1+s\,2R_OC_O)}$\\
+  $f_{\mathrm{FB}}=[2\pi R_FC_F]^{-1}=6.25\,\mathrm{MHz}$\\
+  $f_{\mathrm{OUT}}=[2\pi(2R_O)C_O]^{-1}=3.13\,\mathrm{MHz}$\\
+  $f_{-3\mathrm{dB}}\approx2.62\,\mathrm{MHz}$ (ideal cascaded poles)};
+
+\end{circuitikz}
+\end{document}

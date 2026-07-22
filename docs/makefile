@@ -118,6 +118,10 @@ $(IMAGES_DIR)/adc_symbol.png: $(IMAGES_DIR)/adc_symbol.pdf
 	pdftoppm -png -r 600 -singlefile $< $(@:.png=)
 	@echo "Created $@ at 600 DPI"
 
+$(IMAGES_DIR)/adc_input_stimulus.png: $(IMAGES_DIR)/adc_input_stimulus.pdf
+	pdftoppm -png -r 600 -singlefile $< $(@:.png=)
+	@echo "Created $@ at 600 DPI"
+
 $(IMAGES_DIR)/%.png: $(IMAGES_DIR)/%.pdf
 	pdftoppm -png -r 300 -singlefile $< $(@:.png=)
 	@echo "Created $@"
