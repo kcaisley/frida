@@ -7,13 +7,16 @@ for one output channel.  The function spreads each track across
 recombines into a single high-speed serial output.
 
 For every tested PLL output divider, the scope captures one complete pattern
-from a two-repeat sequencer run. The test counts zero crossings on all four
-outputs and extracts the serialized timing from the continuous COMP pulse
-train.
+from a two-repeat sequencer run. The test counts transitions on the
+connected COMP and LOGIC outputs and extracts the serialized timing from the
+continuous COMP pulse train.
 
 Run from the repository root after programming the serializer firmware:
 
-    uv run python -m flow.scans.test_serdes
+    uv run python -m flow.scans.loopback_serdes
+
+The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
+Their outputs are disabled and reset to 0 V when the test exits.
 """
 
 from __future__ import annotations
@@ -27,8 +30,7 @@ import numpy as np
 from yaml import safe_load
 
 from flow.circuit.measure import find_crossings
-from flow.scans.scan_adc import bitarray_to_seq_gen_format
-from flow.scans.instruments import instrument_dut
+from flow.scans.scan_adc import convert_dict_to_seqgen_fmt
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,
@@ -39,33 +41,53 @@ from flow.scans.scope import response_value, wait_for_scope_armed, wait_for_scop
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
+SMU_MAP_PATH = Path(__file__).resolve().parent / "map_smu.yaml"
 SCOPE_OUT_DIR = Path("build/scope")
 SCOPE_BANDWIDTH_HZ = 2.0e9
+SCOPE_VERTICAL_SCALE_V = 0.2
 # These 16 requested symbol rates cause the selector to exercise Si570 inputs
 # from 100 to 200 MHz and PLL output dividers from 2 to 20, including 1.6 GBd.
 SERDES_TEST_SYMBOL_RATES_BPS = tuple(
     rate_mbd * 1e6 for rate_mbd in (80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 900, 1000, 1200, 1400, 1600)
 )
 SEQUENCE_REPEATS = 2
-EXPECTED_ZERO_CROSSINGS = {
+EXPECTED_TRANSITIONS = {
     "seq_init": 2,
     "seq_samp": 2,
     "seq_comp": 34,
     "seq_logic": 34,
 }
 COMP_TRACK = "seq_comp"
-ZERO_CROSSING_LEVEL_V = 0.0
 PERIOD_RELATIVE_TOLERANCE = 0.05
 SCOPE_HORIZONTAL_SCALE_AT_200_MHZ_S = 20.0e-9
-# Keep the initial INIT rising edge away from the left record boundary while
-# retaining the final COMP transitions at the fastest setting.
-SCOPE_POST_TRIGGER_AT_200_MHZ_S = 90.0e-9
+# Trigger on LOGIC's early marker pulse. Keep the beginning of the pattern
+# visible while retaining every COMP transition and excluding repeat two.
+SCOPE_POST_TRIGGER_AT_200_MHZ_S = 120.0e-9
 SI570_SETTLE_TIME_S = 0.02
+SCOPE_CAPTURE_SETTLE_TIME_S = 0.1
+SCOPE_CAPTURE_ATTEMPTS = 3
 
-# The current scope cabling has LOGIC on CH3 and the continuous COMP pulse
-# train on CH4. Keep this physical mapping explicit so the timing extraction
-# follows COMP rather than LOGIC's isolated marker pulse.
-SCOPE_TRACKS = {1: "seq_init", 2: "seq_samp", 3: "seq_logic", 4: "seq_comp"}
+SMU_RAILS = (
+    ("smu1", "VDD_A"),
+    ("smu2", "VDD_D"),
+    ("smu3", "VDD_DAC"),
+)
+SMU_SUPPLY_V = 1.2
+SMU_VOLTAGE_RANGE_V = 2.0
+SMU_CURRENT_COMPLIANCE_A = 500.0e-6
+SMU_SETTLE_TIME_S = 0.5
+SMU_MINIMUM_LOADED_V = 1.15
+
+# The current scope cabling has the continuous COMP pulse train on CH2 and
+# LOGIC on CH3. INIT and SAMP are intentionally not acquired.
+COMP_SCOPE_CHANNEL = 2
+LOGIC_SCOPE_CHANNEL = 3
+TRIGGER_SCOPE_CHANNEL = LOGIC_SCOPE_CHANNEL
+SCOPE_TRACKS = {
+    COMP_SCOPE_CHANNEL: "seq_comp",
+    LOGIC_SCOPE_CHANNEL: "seq_logic",
+}
+SCOPE_CHANNELS = (1, 2, 3, 4)
 
 SERDES_RATIO = 8
 SEQ_GEN_LANES = 8
@@ -88,12 +110,15 @@ def validate_capture(waveforms: dict[int, Any], symbol_rate_bps: float) -> tuple
         waveform = waveforms[channel]
         signal = np.asarray(waveform.data)
         times = waveform.x_scale.offset + np.arange(len(signal)) * waveform.x_scale.slope
-        crossings = find_crossings(signal, times, ZERO_CROSSING_LEVEL_V, rising=True)
-        crossings.extend(find_crossings(signal, times, ZERO_CROSSING_LEVEL_V, rising=False))
+        low_v, high_v = np.percentile(signal, (1.0, 99.0))
+        crossing_level_v = float((low_v + high_v) / 2.0)
+        crossings = find_crossings(signal, times, crossing_level_v, rising=True)
+        crossings.extend(find_crossings(signal, times, crossing_level_v, rising=False))
         crossing_times[track] = tuple(sorted(crossings))
-        expected_count = EXPECTED_ZERO_CROSSINGS[track]
+        expected_count = EXPECTED_TRANSITIONS[track]
         assert len(crossings) == expected_count, (
-            f"{track} on scope CH{channel}: expected {expected_count} zero crossings, measured {len(crossings)}"
+            f"{track} on scope CH{channel}: expected {expected_count} transitions, measured {len(crossings)} "
+            f"at {crossing_level_v:g} V"
         )
 
     comp_crossings = crossing_times[COMP_TRACK]
@@ -114,27 +139,80 @@ def validate_capture(waveforms: dict[int, Any], symbol_rate_bps: float) -> tuple
 
 
 def main() -> None:
+    from gpib_ctypes import make_default_gpib
+
+    make_default_gpib()
     from basil.dut import Dut
+
+    if not 0.0 < SMU_SUPPLY_V <= 1.2:
+        raise ValueError("SMU supply voltage must remain in 0..1.2 V")
+    if not 0.0 < SMU_CURRENT_COMPLIANCE_A <= 500.0e-6:
+        raise ValueError("SMU current compliance must remain in 0..500 uA")
 
     config = safe_load(MAP_PATH.read_text())
     config["transfer_layer"] = [layer for layer in config["transfer_layer"] if layer["name"] != "visa0"]
     config["hw_drivers"] = [driver for driver in config["hw_drivers"] if driver["name"] != "psu0"]
     daq = Dut(config)
+    smu_dut = Dut(str(SMU_MAP_PATH))
+    smus = []
     daq.init()
     try:
+        smu_dut.init()
+        smus = [(smu_dut[name], rail) for name, rail in SMU_RAILS]
+
+        # Configure all three chip domains with their outputs disabled. Keep
+        # these recognizable Basil operations visible because their ordering,
+        # voltage ceiling, and current compliance are safety critical.
+        for smu, rail in smus:
+            smu.off()
+            smu.set_voltage(0.0)
+            smu.source_volt()
+            smu.four_wire_off()
+            smu.set_voltage_range(SMU_VOLTAGE_RANGE_V)
+            smu.set_current_limit(SMU_CURRENT_COMPLIANCE_A)
+            smu.current_sense_autorange_on()
+            smu.set_current_nplc(10.0)
+            smu.autozero_on()
+            smu.set_voltage(SMU_SUPPLY_V)
+            programmed_voltage_v = float(smu.get_source_voltage())
+            programmed_compliance_a = float(smu.get_current_limit())
+            if not 0.0 < programmed_voltage_v <= SMU_SUPPLY_V:
+                raise RuntimeError(f"{rail}: unsafe voltage setpoint readback {programmed_voltage_v:g} V")
+            if not 0.0 < programmed_compliance_a <= SMU_CURRENT_COMPLIANCE_A:
+                raise RuntimeError(f"{rail}: unsafe current compliance readback {programmed_compliance_a:g} A")
+
+        # Enable the domains back-to-back so the chip is not powered through
+        # one domain for an extended interval.
+        for smu, _rail in smus:
+            smu.on()
+        time.sleep(SMU_SETTLE_TIME_S)
+
+        for smu, rail in smus:
+            measured_voltage_v = float(smu.get_voltage())
+            measured_current_a = float(smu.get_current())
+            print(
+                f"{rail}: {measured_voltage_v:.6f} V, "
+                f"{measured_current_a * 1e6:.3f} uA "
+                f"(limit {SMU_CURRENT_COMPLIANCE_A * 1e6:g} uA)"
+            )
+            if measured_voltage_v < SMU_MINIMUM_LOADED_V:
+                raise RuntimeError(
+                    f"{rail}: measured only {measured_voltage_v:g} V; the SMU is likely in current compliance"
+                )
+            if measured_voltage_v > SMU_SUPPLY_V + 5.0e-3:
+                raise RuntimeError(f"{rail}: measured unsafe voltage {measured_voltage_v:g} V")
+
         daq["gpio0"]["RST_B"] = 0
         daq["gpio0"].write()
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        memory = bitarray_to_seq_gen_format(SEQ_PATTERNS, SERDES_RATIO, SEQ_GEN_LANES)
-        # Write raw bytes directly to seq_gen memory, bypassing TrackRegister.
-        # TrackRegister.write() does bit/byte reversal that only matches the
-        # original 8-bit-wide sequencer; for the 64-bit serializer firmware the
-        # reversal scrambles the OSERDES byte lanes.  _drv reaches through the
-        # TrackRegister (RL) wrapper to the underlying seq_gen (HL) driver, which
-        # exposes set_data() for writing sequencer memory verbatim.
-        scope_dut = instrument_dut(SCOPE_MAP_PATH)
+        memory = convert_dict_to_seqgen_fmt(
+            SEQ_PATTERNS,
+            SERDES_RATIO,
+            SEQ_GEN_LANES,
+        )
+        scope_dut = Dut(str(SCOPE_MAP_PATH))
         scope_dut.init()
         try:
             scope = scope_dut["scope"]
@@ -143,10 +221,37 @@ def main() -> None:
             original_horizontal_position = response_value(scope._intf.query("HORizontal:POSition?"))
             original_stop_after = response_value(scope.get_acquire_stop_after())
             original_acquire_state = response_value(scope.get_acquire_state())
+            original_trigger_mode = response_value(scope.get_trigger_mode())
+            original_trigger_type = response_value(scope.get_trigger_type())
+            original_trigger_source = response_value(scope.get_triggr_source())
+            original_trigger_slope = response_value(scope.get_trigger_edge_slope())
+            original_trigger_level = response_value(scope.get_trigger_level(channel=TRIGGER_SCOPE_CHANNEL))
+            original_channel_display = {
+                channel: response_value(scope._intf.query(f"DISplay:GLObal:CH{channel}:STATE?"))
+                for channel in SCOPE_TRACKS
+            }
 
             try:
                 scope.set_acquire_state("STOP")
                 scope.set_acquire_stop_after("SEQUENCE")
+                for channel in SCOPE_CHANNELS:
+                    scope.set_vertical_scale(
+                        SCOPE_VERTICAL_SCALE_V,
+                        channel=channel,
+                    )
+                    scope.set_vertical_position(0.0, channel=channel)
+                    scope.set_vertical_offset(0.0, channel=channel)
+                    scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+                for channel in SCOPE_TRACKS:
+                    scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+                scope.set_trigger_type("EDGE")
+                scope.set_trigger_source(channel=TRIGGER_SCOPE_CHANNEL)
+                scope.set_trigger_edge_slope("RISE")
+                scope.set_trigger_level(
+                    0.0,
+                    channel=TRIGGER_SCOPE_CHANNEL,
+                )
+                scope.set_trigger_mode("NORMAL")
 
                 for target_symbol_rate_bps in SERDES_TEST_SYMBOL_RATES_BPS:
                     assert daq["seq0"].is_ready, "sequencer must be idle before changing the PLL divider"
@@ -165,7 +270,11 @@ def main() -> None:
                     # Program the sequencer only after its new clock is locked,
                     # matching the clock-domain setup order used by the proven
                     # single-frequency test.
-                    daq["seq0"]._drv.set_data(memory)
+                    # This public Basil seq_gen programming sequence is exercised
+                    # by test_seqgen.py; its raw-memory packing helper is tested
+                    # by test_helpers.py. Do not use TrackRegister.write(), whose
+                    # legacy reversal does not match the 64-bit memory layout.
+                    daq["seq0"].set_data(memory)
                     daq["seq0"].set_size(len(SEQ_PATTERNS["INIT"].split()))
                     daq["seq0"].set_clk_divide(1)
                     daq["seq0"].set_repeat(SEQUENCE_REPEATS)
@@ -189,12 +298,27 @@ def main() -> None:
                             f"for N={divider_n}"
                         )
                     scope._intf.write(f"HORizontal:POSition {horizontal_position_percent:g}")
-                    scope.set_acquire_state("RUN")
-                    acquisition_count_before = wait_for_scope_armed(scope)
+                    for capture_attempt in range(1, SCOPE_CAPTURE_ATTEMPTS + 1):
+                        scope._intf.write("ACQuire:NUMACq:RESET")
+                        scope.set_acquire_state("RUN")
+                        acquisition_count_before = wait_for_scope_armed(scope)
 
-                    daq["seq0"].start()
-                    wait_for_scope_capture(scope, acquisition_count_before)
-                    waveforms = scope.get_waveforms(SCOPE_TRACKS)
+                        daq["seq0"].start()
+                        wait_for_scope_capture(scope, acquisition_count_before)
+                        time.sleep(SCOPE_CAPTURE_SETTLE_TIME_S)
+                        waveforms = scope.get_waveforms(SCOPE_TRACKS)
+                        missing_channels = sorted(set(SCOPE_TRACKS).difference(waveforms))
+                        if not missing_channels:
+                            break
+                        print(
+                            f"Scope capture attempt {capture_attempt}/{SCOPE_CAPTURE_ATTEMPTS} "
+                            f"did not return channels {missing_channels}; re-arming"
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"scope did not return channels {missing_channels} after "
+                            f"{SCOPE_CAPTURE_ATTEMPTS} acquisitions"
+                        )
 
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     stem = (
@@ -212,8 +336,6 @@ def main() -> None:
                     plot_paths = plot_time_domain_csv(
                         csv_path,
                         {
-                            "seq_init_v": SubplotSpec(ylabel="INIT (V)"),
-                            "seq_samp_v": SubplotSpec(ylabel="SAMP (V)"),
                             "seq_logic_v": SubplotSpec(ylabel="LOGIC (V)"),
                             f"{COMP_TRACK}_v": SubplotSpec(
                                 ylabel="COMP (V)",
@@ -224,7 +346,7 @@ def main() -> None:
                                     f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
                                     f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
                                     f"Scope bandwidth: "
-                                    f"{float(response_value(scope.get_bandwidth(channel=4))) / 1e9:.1f} GHz",
+                                    f"{float(response_value(scope.get_bandwidth(channel=COMP_SCOPE_CHANNEL))) / 1e9:.1f} GHz",
                                 ),
                             ),
                         },
@@ -240,12 +362,31 @@ def main() -> None:
                         f"serializer_clk={serializer_clk_hz / 1e6:g} MHz, "
                         f"measured={measured_symbol_rate_bps / 1e6:g} MBd, "
                         f"COMP interval={measured_interval_s * 1e9:g} ns, "
-                        f"crossings={tuple(EXPECTED_ZERO_CROSSINGS.values())}"
+                        f"transitions=COMP:{EXPECTED_TRANSITIONS['seq_comp']},"
+                        f"LOGIC:{EXPECTED_TRANSITIONS['seq_logic']}"
                     )
             finally:
                 scope.set_acquire_state("STOP")
                 scope.set_horizontal_scale(original_horizontal_scale)
                 scope._intf.write(f"HORizontal:POSition {original_horizontal_position}")
+                scope.set_trigger_mode(original_trigger_mode)
+                scope.set_trigger_type(original_trigger_type)
+                scope._intf.write(f"TRIGger:A:EDGe:SOUrce {original_trigger_source}")
+                scope.set_trigger_edge_slope(original_trigger_slope)
+                scope.set_trigger_level(
+                    original_trigger_level,
+                    channel=TRIGGER_SCOPE_CHANNEL,
+                )
+                # Leave every analog channel in the standard high-bandwidth,
+                # zero-offset state instead of restoring stale per-channel
+                # offsets from an earlier measurement.
+                for channel in SCOPE_CHANNELS:
+                    scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+                    scope.set_vertical_position(0.0, channel=channel)
+                    scope.set_vertical_offset(0.0, channel=channel)
+                    scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+                for channel, display in original_channel_display.items():
+                    scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE {display}")
                 scope.set_acquire_stop_after(original_stop_after)
                 scope.set_acquire_state(original_acquire_state)
         finally:
@@ -256,7 +397,16 @@ def main() -> None:
             time.sleep(SI570_SETTLE_TIME_S)
             set_pll_divider(daq["gpio2"], 2)
         finally:
-            daq.close()
+            try:
+                daq.close()
+            finally:
+                for smu, rail in smus:
+                    try:
+                        smu.off()
+                        smu.set_voltage(0.0)
+                    except Exception as error:
+                        print(f"WARNING: could not disable and zero {rail}: {error}")
+                smu_dut.close()
 
 
 if __name__ == "__main__":

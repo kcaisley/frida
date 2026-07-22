@@ -50,7 +50,7 @@ After compiling and flashing, use the serializer/sequencer check to inspect the
 current raw 64-bit pattern packing and capture the output waveforms:
 
 ```bash
-uv run python flow/scans/test_serdes.py
+uv run python -m flow.scans.loopback_serdes
 ```
 
 Run the complete ADC hardware scan with:
