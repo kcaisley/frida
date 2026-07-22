@@ -19,9 +19,10 @@
 	path = libs/basil
 	url = git@github.com:SiLab-Bonn/basil.git
 	branch = behavioral-modules
-[submodule "libs/cocotb"]
-	path = libs/cocotb
-	url = https://github.com/cocotb/cocotb.git
 [submodule "libs/gawm"]
 	path = libs/gawm
 	url = https://github.com/rpgraca/gawm.git
+[submodule "libs/ubonn-thesis"]
+	path = libs/ubonn-thesis
+	url = https://gitlab.uni-bonn.de/uni/ubonn-thesis.git
+	branch = master
