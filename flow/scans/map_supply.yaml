@@ -1,23 +1,22 @@
-# TTi QL355TP power supply on its direct USB serial interface.
+# HP/Agilent E3634A VOCM supply at front-panel GPIB address 05.
 
-name: frida-supply
+name: frida-vocm-supply
 version: 0.1.0
 
 transfer_layer:
-  - name: supply_intf
-    type: Serial
+  - name: vocm_supply_intf
+    type: Visa
     init:
-      port: /dev/serial/by-id/usb-TTi_QL355TP_Power_Supply_tb3XC59T-if00-port0
-      read_termination: "\r\n"
+      resource_name: "GPIB0::5::INSTR"
+      backend: "@py"
+      list_resources: false
+      read_termination: "\n"
       write_termination: "\n"
-      baudrate: 19200
-      xonxoff: true
-      parity: "N"
-      stopbits: 1
-      bytesize: 8
-      timeout: 2
+      timeout: 3000
 
 hw_drivers:
-  - name: supply
-    type: tti_ql355tp
-    interface: supply_intf
+  - name: vocm_supply
+    type: scpi
+    interface: vocm_supply_intf
+    init:
+      device: Agilent E3634A

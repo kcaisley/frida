@@ -1,0 +1,58 @@
+# Three Keithley 2400 SourceMeters sharing the NI GPIB-USB-B adapter.
+# Front-panel GPIB addresses are 02, 03, and 04 respectively.
+
+name: frida-smus
+version: 0.1.0
+
+transfer_layer:
+  - name: smu1_intf
+    type: Visa
+    init:
+      resource_name: "GPIB0::2::INSTR"
+      backend: "@py"
+      list_resources: false
+      read_termination: "\n"
+      write_termination: "\n"
+      timeout: 3000
+
+  - name: smu2_intf
+    type: Visa
+    init:
+      resource_name: "GPIB0::3::INSTR"
+      backend: "@py"
+      list_resources: false
+      read_termination: "\n"
+      write_termination: "\n"
+      timeout: 3000
+
+  - name: smu3_intf
+    type: Visa
+    init:
+      resource_name: "GPIB0::4::INSTR"
+      backend: "@py"
+      list_resources: false
+      read_termination: "\n"
+      write_termination: "\n"
+      timeout: 3000
+
+hw_drivers:
+  - name: smu1
+    type: scpi
+    interface: smu1_intf
+    init:
+      device: Keithley 2400
+      enable_formatting: true
+
+  - name: smu2
+    type: scpi
+    interface: smu2_intf
+    init:
+      device: Keithley 2400
+      enable_formatting: true
+
+  - name: smu3
+    type: scpi
+    interface: smu3_intf
+    init:
+      device: Keithley 2400
+      enable_formatting: true

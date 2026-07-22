@@ -1,4 +1,4 @@
-# Agilent 33250A waveform generator on the NI GPIB-USB-B adapter.
+# Agilent 33250A waveform generator at front-panel GPIB address 01.
 
 name: frida-awg
 version: 0.1.0
@@ -7,7 +7,7 @@ transfer_layer:
   - name: awg_intf
     type: Visa
     init:
-      resource_name: "GPIB0::10::INSTR"
+      resource_name: "GPIB0::1::INSTR"
       backend: "@py"
       list_resources: false
       read_termination: "\n"
