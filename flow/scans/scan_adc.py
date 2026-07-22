@@ -8,7 +8,6 @@ from time import sleep
 
 from bitarray import bitarray
 
-from flow.scans.instruments import instrument_dut
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.plot import (
     plot_adc_transfer,
@@ -45,6 +44,41 @@ if INPUT_MODE not in ("manual", "awg"):
     raise ValueError(f"INPUT_MODE must be 'manual' or 'awg', got {INPUT_MODE!r}")
 MANUAL_VIN_P_V = 0.615  # Externally applied Vin_p in manual mode; AWG setpoint otherwise.
 MANUAL_VIN_N_V = 0.615  # Externally applied Vin_n; not programmed by this script.
+
+# Empirical instrument-to-ADC calibration measured on 2026-07-22 at the
+# connected ADC input. The validated region is |Vdiff| <= 1 V and
+# 0.4 V <= Vin_cm <= 0.8 V; the 1 V endpoint was measured at Vin_cm=0.6 V.
+# Positive AWG voltage produces negative ADC differential voltage with the
+# present THS4541 wiring.
+#
+# Each AWG polynomial uses the basis
+# (1, A, A^2, D, A*D, D^2), where A=|Vdiff| and D=Vin_cm-0.6 V. Separate
+# magnitude and center models account for the repeatable gain and differential
+# offset dependence on requested amplitude and common mode.
+AWG_VDIFF_MAGNITUDE_COEFFICIENTS = (
+    2.265447848881228,
+    -0.3005942675774198,
+    0.20746371783097167,
+    -0.13495070088311512,
+    -0.08153988321949701,
+    0.1537466159659059,
+)
+AWG_CENTER_COEFFICIENTS = (
+    -0.03749354410501951,
+    0.0464882208329994,
+    -0.022513114873877624,
+    -0.025158294762495398,
+    0.00015199446637113683,
+    -0.08383413425431123,
+)
+AWG_CALIBRATION_VIN_CM_V = 0.600
+
+# Linear E3634A setpoint correction retained from the preceding sweeps. Its
+# readback remains only a proxy for ADC-side common mode until Vin_p and Vin_n
+# are each measured relative to ground.
+VIN_CM_SUPPLY_OFFSET_V = -0.014316241071428943
+VIN_CM_SUPPLY_GAIN = 0.9985304375000002
+
 V_START = MANUAL_VIN_P_V
 V_STOP = MANUAL_VIN_P_V
 V_STEP = 0.400
@@ -108,39 +142,56 @@ ALIGNMENT_MAX_SIGMA_CODES = 50
 ALIGNMENT_MAX_RANGE_CODES = 128
 
 
-def scpi_float(value) -> float:
-    """Convert a SCPI response to float, accepting comma-separated readback strings."""
-    return float(str(value).strip().split(",")[0])
+def convert_vdiff_input_to_awg_supply(
+    vin_diff: float,
+    vin_cm: float,
+) -> tuple[float, float]:
+    """Return calibrated AWG and VIN_CM-supply voltages for ADC input targets.
+
+    ``vin_diff`` is ``Vin_p - Vin_n`` at the ADC and ``vin_cm`` is their
+    desired common mode, both in volts. The returned tuple is
+    ``(awg_voltage, vin_cm_supply_voltage)``, also in volts. This is a pure
+    software conversion and performs no instrument I/O.
+    """
+    amplitude_v = abs(vin_diff)
+    common_mode_delta_v = vin_cm - AWG_CALIBRATION_VIN_CM_V
+    basis = (
+        1.0,
+        amplitude_v,
+        amplitude_v**2,
+        common_mode_delta_v,
+        amplitude_v * common_mode_delta_v,
+        common_mode_delta_v**2,
+    )
+    awg_v_per_vdiff = sum(
+        coefficient * term
+        for coefficient, term in zip(
+            AWG_VDIFF_MAGNITUDE_COEFFICIENTS,
+            basis,
+            strict=True,
+        )
+    )
+    awg_center_v = sum(
+        coefficient * term
+        for coefficient, term in zip(
+            AWG_CENTER_COEFFICIENTS,
+            basis,
+            strict=True,
+        )
+    )
+    awg_voltage = awg_center_v - vin_diff * awg_v_per_vdiff
+    vin_cm_supply_voltage = VIN_CM_SUPPLY_OFFSET_V + VIN_CM_SUPPLY_GAIN * vin_cm
+    return awg_voltage, vin_cm_supply_voltage
 
 
-def count_csv_rows(path: Path) -> int:
-    """Count data rows in a CSV file, excluding the header."""
-    with path.open(newline="") as f:
-        return sum(1 for _ in csv.DictReader(f))
-
-
-def nominal_adc_rate_to_symbol_rate(sample_rate_hz: float) -> float:
+def convert_sample_rate_to_baud(sample_rate_hz: float) -> float:
     """Convert the 20-period nominal ADC rate into the required DDR symbol rate."""
     if sample_rate_hz <= 0:
         raise ValueError("sample_rate_hz must be positive")
     return sample_rate_hz * ADC_ACTIVE_STEPS * SERDES_RATIO
 
 
-def set_comp_idelay(daq, taps: int) -> None:
-    """Load one 0..31 comparator-input IDELAY setting through GPIO1."""
-    if isinstance(taps, bool) or not isinstance(taps, int) or not 0 <= taps <= 31:
-        raise ValueError(f"COMP IDELAY taps must be an integer in 0..31, got {taps!r}")
-    daq["gpio1"].read()
-    if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-        raise RuntimeError("comparator IDELAYCTRL is not ready")
-    daq["gpio1"]["COMP_IDELAY_TAPS"] = taps
-    daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-    daq["gpio1"].write()
-    daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-    daq["gpio1"].write()
-
-
-def patterns_with_rx_sen_start(start_word: int) -> dict[str, str]:
+def add_fastrx_capture_window(start_word: int) -> dict[str, str]:
     """Return the ADC patterns with one legal 17-word FastRX capture window."""
     stop_word = start_word + NUM_CAPTURE_BITS
     if start_word < 0 or stop_word >= SEQUENCE_STEPS:
@@ -154,17 +205,16 @@ def patterns_with_rx_sen_start(start_word: int) -> dict[str, str]:
     return patterns
 
 
-def normalize_code(code: int, code_weights: list[int]) -> int:
-    """Scale a weighted ADC code onto the common 0..4095 output range."""
-    return round(code * NORMALIZED_CODE_MAX / sum(code_weights))
-
-
-def decode_conversion(spi_data: int, data_size: int, code_weights: list[int]) -> tuple[str, int]:
-    """Decode one FastRX word into Bbits and recombine W16..W0 into Dout.
+def convert_fastrx_to_bout_and_dout(
+    spi_data: int,
+    data_size: int,
+    code_weights: list[int],
+) -> tuple[str, int]:
+    """Decode one FastRX word into Bout and recombine W16..W0 into raw Dout.
 
     fast_spi_rx shifts samples left, so temporal order within each displayed word is
     left-to-right: bit DATA_SIZE-1 -> bit 0. The 17-bit output is labeled
-    Bbits = B16..B0 and recombined directly with code_weights = W16..W0.
+    Bout = B16..B0 and recombined directly with code_weights = W16..W0.
     """
     samples = [(spi_data >> i) & 1 for i in range(data_size - 1, -1, -1)]
     num_capture_bits = len(code_weights)
@@ -172,12 +222,17 @@ def decode_conversion(spi_data: int, data_size: int, code_weights: list[int]) ->
         raise ValueError(f"FastRX DATA_SIZE={data_size} is smaller than {num_capture_bits} ADC code bits")
 
     bits = samples[:num_capture_bits]
-    Bbits = "".join(str(bit) for bit in bits)
-    Dout = sum(weight * bit for weight, bit in zip(code_weights, bits, strict=True))
-    return Bbits, Dout
+    bout = "".join(str(bit) for bit in bits)
+    dout = sum(weight * bit for weight, bit in zip(code_weights, bits, strict=True))
+    return bout, dout
 
 
-def bitarray_to_seq_gen_format(
+def convert_dout_to_normalized_dout(dout: int, code_weights: list[int]) -> int:
+    """Scale a weighted raw Dout onto the common 0..4095 output range."""
+    return round(dout * NORMALIZED_CODE_MAX / sum(code_weights))
+
+
+def convert_dict_to_seqgen_fmt(
     patterns: dict[str, str],
     serdes_ratio: int,
     seq_gen_lanes: int,
@@ -188,10 +243,25 @@ def bitarray_to_seq_gen_format(
     lane 4 is internal control: bit 0 is RX_SEN (seq_out[32]) and bit 1 is
     RX_TEST (seq_out[33]). The remaining physical 64-bit lanes are padded.
     """
+    required_tracks = set(SERDES_TRACKS) | set(CONTROL_BITS)
+    missing_tracks = sorted(required_tracks - set(patterns))
+    unexpected_tracks = sorted(set(patterns) - required_tracks)
+    if missing_tracks or unexpected_tracks:
+        raise ValueError(
+            f"sequencer tracks must be exactly {sorted(required_tracks)}; "
+            f"missing={missing_tracks}, unexpected={unexpected_tracks}"
+        )
+    if isinstance(serdes_ratio, bool) or not isinstance(serdes_ratio, int) or not 1 <= serdes_ratio <= 8:
+        raise ValueError("serdes_ratio must be an integer in 1..8")
+    if isinstance(seq_gen_lanes, bool) or not isinstance(seq_gen_lanes, int) or seq_gen_lanes < 5:
+        raise ValueError("serializer plus RX_SEN/RX_TEST control byte needs at least five sequencer byte lanes")
+
     parsed: dict[str, list[str]] = {}
     seq_words: int | None = None
     for name, pattern in patterns.items():
         words = pattern.split()
+        if not words:
+            raise ValueError(f"{name}: sequencer pattern must not be empty")
         if seq_words is None:
             seq_words = len(words)
         elif len(words) != seq_words:
@@ -204,8 +274,6 @@ def bitarray_to_seq_gen_format(
         parsed[name] = words
 
     assert seq_words is not None
-    if seq_gen_lanes < 5:
-        raise ValueError("serializer plus RX_SEN/RX_TEST control byte needs at least five sequencer byte lanes")
 
     memory = array("B")
     for word_index in range(seq_words):
@@ -306,6 +374,11 @@ def main(
     validate_alignment: bool = True,
     fail_on_alignment_error: bool = False,
 ) -> None:
+    if INPUT_MODE == "awg":
+        from gpib_ctypes import make_default_gpib
+
+        make_default_gpib()
+
     from basil.dut import Dut
 
     adc_indices = tuple(adc_indices)
@@ -317,10 +390,21 @@ def main(
     if conversions_per_vin <= 0:
         raise ValueError("conversions_per_vin must be positive")
 
+    # TODO: Add the three Keithley SMUs before enabling ADC scans. Follow the
+    # proven power sequence in loopback_serdes.py: with every output disabled,
+    # select voltage-source/two-wire mode, set the 2 V range, 500 uA compliance,
+    # and 1.2 V setpoint, then verify each setpoint and compliance readback.
+    # Enable VDD_A, VDD_D, and VDD_DAC back-to-back, allow them to settle, and
+    # verify their loaded voltages before toggling RST_B or programming the chip.
+    # Keep the supplies on throughout acquisition, then disable and reset all
+    # three to 0 V in the outer finally block. An unpowered ADC input did not
+    # load the FPGA LVDS drivers correctly and produced a large apparent
+    # differential offset on the scope despite zero scope-channel offset.
+
     # Step 1: Connect to the FPGA DAQ and, unless inputs are manual, the AWG.
     map_dir = Path(__file__).resolve().parent
     daq = Dut(str(map_dir / "map_fpga.yaml"))
-    instruments = instrument_dut(map_dir / "map_awg.yaml") if INPUT_MODE == "awg" else None
+    instruments = Dut(str(map_dir / "map_awg.yaml")) if INPUT_MODE == "awg" else None
     daq.init()
     summary_rows: list[dict] = []
     try:
@@ -331,6 +415,9 @@ def main(
             print("Manual input mode: laboratory source control disabled")
 
         # Release the chip and select the physical comparator input plus sequencer SEN.
+        # Program GPIO0 board and FastRX controls. The underlying GPIO field
+        # writes and readback are exercised by
+        # test_gpio.py::test_gpio0_debug_control_write_and_readback.
         daq["gpio0"]["RST_B"] = 0
         daq["gpio0"].write()
         daq["gpio0"]["RST_B"] = 1
@@ -347,13 +434,17 @@ def main(
                 raise ValueError(f"no calibrated RX_SEN start word for {nominal_sample_rate_hz:g} Hz")
             rx_sen_start_word = RX_SEN_START_WORD_BY_RATE_HZ[rate_hz]
             rate_idelay_taps = COMP_IDELAY_TAPS_BY_RATE_HZ[rate_hz] if comp_idelay_taps is None else comp_idelay_taps
-            rate_patterns = patterns_with_rx_sen_start(rx_sen_start_word)
+            rate_patterns = add_fastrx_capture_window(rx_sen_start_word)
             seq_words = len(rate_patterns["INIT"].split())
             if seq_words != SEQUENCE_STEPS:
                 raise RuntimeError(f"sequencer pattern has {seq_words} words, expected {SEQUENCE_STEPS}")
-            sequencer_memory = bitarray_to_seq_gen_format(rate_patterns, SERDES_RATIO, SEQ_GEN_LANES)
+            sequencer_memory = convert_dict_to_seqgen_fmt(
+                rate_patterns,
+                SERDES_RATIO,
+                SEQ_GEN_LANES,
+            )
 
-            target_symbol_rate_bps = nominal_adc_rate_to_symbol_rate(nominal_sample_rate_hz)
+            target_symbol_rate_bps = convert_sample_rate_to_baud(nominal_sample_rate_hz)
             si570_frequency_hz, pll_divider_n = select_pll_configuration(target_symbol_rate_bps)
             seq_clk_hz, serializer_clk_hz = calculate_pll_frequency(
                 pll_divider_n,
@@ -370,12 +461,49 @@ def main(
             )
             daq["si570"].frequency_change(si570_frequency_hz / 1e6)
             sleep(0.02)
+            # The complete GPIO2 request/acknowledge/lock transaction is
+            # exercised by test_plldrp.py::test_pll_register_write_and_readback;
+            # raw GPIO2 command/status fields are covered by
+            # test_gpio.py::test_gpio2_pll_command_and_status_registers.
             set_pll_divider(daq["gpio2"], pll_divider_n)
-            set_comp_idelay(daq, rate_idelay_taps)
 
-            # The PLL transaction resets seq_gen and FastRX. Reconfigure both only
-            # after the new clock pair is locked.
-            daq["seq0"]._drv.set_data(sequencer_memory)
+            # ------------------------------------------------------------------
+            # Program the comparator-input IDELAY.
+            #
+            # GPIO1 exposes the IDELAYCTRL ready flag, five-bit tap value, and
+            # load strobe. Pulse LOAD only after confirming that its controller
+            # is ready. This exact transaction is exercised by
+            # test_gpio.py::test_gpio1_comp_idelay_programming.
+            # ------------------------------------------------------------------
+            if (
+                isinstance(rate_idelay_taps, bool)
+                or not isinstance(rate_idelay_taps, int)
+                or not 0 <= rate_idelay_taps <= 31
+            ):
+                raise ValueError(f"COMP IDELAY taps must be an integer in 0..31, got {rate_idelay_taps!r}")
+            daq["gpio1"].read()
+            if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
+                raise RuntimeError("comparator IDELAYCTRL is not ready")
+            daq["gpio1"]["COMP_IDELAY_TAPS"] = rate_idelay_taps
+            daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
+            daq["gpio1"].write()
+            daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
+            daq["gpio1"].write()
+
+            # ------------------------------------------------------------------
+            # Program the sequencer and FastRX.
+            #
+            # The PLL transaction resets both blocks, so reconfigure them only
+            # after the new clock pair is locked. This public Basil seq_gen
+            # programming sequence is exercised by
+            # test_seqgen.py::test_seq_gen_memory_and_register_readback; its raw
+            # memory-packing helper is tested by
+            # test_helpers.py::test_convert_dict_to_seqgen_fmt_packs_serializer_lanes.
+            #
+            # Do not use TrackRegister.write(): its legacy bit/byte reversal
+            # does not match the current 64-bit sequencer-memory layout.
+            # ------------------------------------------------------------------
+            daq["seq0"].set_data(sequencer_memory)
             daq["seq0"].set_size(seq_words)
             daq["seq0"].set_clk_divide(1)
             daq["seq0"].set_repeat(conversions_per_vin)
@@ -440,7 +568,8 @@ def main(
                         instruments["awg"].set_DC(f"DEF,DEF,{voltage}")
                         instruments["awg"].set_enable(1)
                         sleep(SLEEP_TIME)
-                        actual = scpi_float(instruments["awg"].get_voltage_offset())
+                        # The Agilent may append comma-separated status fields.
+                        actual = float(str(instruments["awg"].get_voltage_offset()).strip().split(",")[0])
                     else:
                         print(f"{case_name}: capturing {conversions_per_vin} conversions at fixed external input")
                         actual = voltage
@@ -472,8 +601,15 @@ def main(
                     bbits_list = []
                     for conversion_index, raw_word in enumerate(int(word) for word in data):
                         identifier, frame, spi_data = daq["fastrx0"].parse_word(raw_word)
-                        bbits, dout_raw = decode_conversion(spi_data, data_size, code_weights)
-                        dout = normalize_code(dout_raw, code_weights)
+                        bbits, dout_raw = convert_fastrx_to_bout_and_dout(
+                            spi_data,
+                            data_size,
+                            code_weights,
+                        )
+                        dout = convert_dout_to_normalized_dout(
+                            dout_raw,
+                            code_weights,
+                        )
                         bbits_list.append(bbits)
                         dout_list.append(dout)
                         dout_raw_list.append(dout_raw)
@@ -541,7 +677,8 @@ def main(
                 csv_path = SCAN_OUTDIR / f"{artifact_stem}_{SCAN_MODE}_{SETUP}.csv"
                 write_adc_csv(adc_index, rows, SCAN_OUTDIR, csv_path=csv_path)
                 expected_rows = len(VINP_SWEEP) * conversions_per_vin
-                actual_rows = count_csv_rows(csv_path)
+                with csv_path.open(newline="") as csv_file:
+                    actual_rows = sum(1 for _ in csv.DictReader(csv_file))
                 if actual_rows != expected_rows:
                     raise RuntimeError(f"{csv_path} has {actual_rows} rows, expected {expected_rows}")
                 print(f"{csv_path}: validated {actual_rows} rows")

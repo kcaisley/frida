@@ -1,4 +1,4 @@
-"""Unit tests for generic scan time- and frequency-domain plotting."""
+"""Software-only plotting unit tests; no hardware I/O is performed."""
 
 from __future__ import annotations
 

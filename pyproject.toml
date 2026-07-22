@@ -75,8 +75,9 @@ ignore = ["E741"]  # Allow 'l' for transistor length
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
+addopts = "-m 'not hw'"
 markers = [
-    "hw: requires physical FPGA hardware (skip with -m 'not hw')",
+    "hw: requires physical FPGA or laboratory hardware (deselected by default)",
 ]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.

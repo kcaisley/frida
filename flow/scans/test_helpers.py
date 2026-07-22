@@ -1,4 +1,4 @@
-"""Unit tests for in-memory scan helpers."""
+"""Software-only tests for pure scan helpers; no hardware I/O is performed."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import pytest
 
 from flow.scans import scan_adc
 from flow.scans.plot import decision_path_from_bbits, filter_decision_path_rows, transfer_points
-from flow.scans.scan_compout import SEQ_WORDS, active_words
 from flow.scans.scan_spice import bits_to_word, nearest_value, require_signal, rising_edges
 
 
@@ -54,9 +53,13 @@ def unpack_spi_payload(payload: bytes) -> bitarray:
     return transmitted[:180][::-1]
 
 
-def test_bitarray_to_seq_gen_format_packs_serializer_lanes() -> None:
+def test_convert_dict_to_seqgen_fmt_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
-    memory = scan_adc.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=8)
+    memory = scan_adc.convert_dict_to_seqgen_fmt(
+        serializer_patterns(),
+        serdes_ratio=8,
+        seq_gen_lanes=8,
+    )
 
     assert list(memory) == [
         0x81,
@@ -77,49 +80,148 @@ def test_bitarray_to_seq_gen_format_packs_serializer_lanes() -> None:
         0x00,
     ]
 
+    minimum_width_memory = scan_adc.convert_dict_to_seqgen_fmt(
+        serializer_patterns(),
+        serdes_ratio=8,
+        seq_gen_lanes=5,
+    )
+    assert list(minimum_width_memory) == [
+        0x81,
+        0x0F,
+        0xF0,
+        0x55,
+        0x01,
+        0xAA,
+        0x00,
+        0xFF,
+        0xAA,
+        0x02,
+    ]
 
-def test_bitarray_to_seq_gen_format_rejects_invalid_patterns() -> None:
+
+def test_convert_dict_to_seqgen_fmt_rejects_invalid_patterns() -> None:
     """Reject mismatched lengths, invalid widths, and undersized sequencer words."""
     mismatched = serializer_patterns()
     mismatched["INIT"] = "10000001"
     with pytest.raises(ValueError, match="expected 1 words, got 2"):
-        scan_adc.bitarray_to_seq_gen_format(mismatched, serdes_ratio=8, seq_gen_lanes=8)
+        scan_adc.convert_dict_to_seqgen_fmt(
+            mismatched,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
 
     invalid_width = serializer_patterns()
     invalid_width["LOGIC"] = "1010101 01010101"
     with pytest.raises(ValueError, match=r"expected 8 bit\(s\)"):
-        scan_adc.bitarray_to_seq_gen_format(invalid_width, serdes_ratio=8, seq_gen_lanes=8)
+        scan_adc.convert_dict_to_seqgen_fmt(
+            invalid_width,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
 
     with pytest.raises(ValueError, match="needs at least five"):
-        scan_adc.bitarray_to_seq_gen_format(serializer_patterns(), serdes_ratio=8, seq_gen_lanes=4)
+        scan_adc.convert_dict_to_seqgen_fmt(
+            serializer_patterns(),
+            serdes_ratio=8,
+            seq_gen_lanes=4,
+        )
+
+    invalid_control = serializer_patterns()
+    invalid_control["RX_SEN"] = "10 0"
+    with pytest.raises(ValueError, match=r"expected 1 bit\(s\)"):
+        scan_adc.convert_dict_to_seqgen_fmt(
+            invalid_control,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
+
+    missing_track = serializer_patterns()
+    del missing_track["COMP"]
+    with pytest.raises(ValueError, match=r"missing=\['COMP'\]"):
+        scan_adc.convert_dict_to_seqgen_fmt(
+            missing_track,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
+
+    unexpected_track = serializer_patterns()
+    unexpected_track["SPARE"] = "0 0"
+    with pytest.raises(ValueError, match=r"unexpected=\['SPARE'\]"):
+        scan_adc.convert_dict_to_seqgen_fmt(
+            unexpected_track,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
+
+    empty_patterns = {name: "" for name in serializer_patterns()}
+    with pytest.raises(ValueError, match="must not be empty"):
+        scan_adc.convert_dict_to_seqgen_fmt(
+            empty_patterns,
+            serdes_ratio=8,
+            seq_gen_lanes=8,
+        )
+
+    with pytest.raises(ValueError, match="serdes_ratio must be an integer in 1..8"):
+        scan_adc.convert_dict_to_seqgen_fmt(
+            serializer_patterns(),
+            serdes_ratio=9,
+            seq_gen_lanes=8,
+        )
 
 
 def test_default_input_mode_is_manual() -> None:
     assert scan_adc.INPUT_MODE == "manual"
 
 
-def test_nominal_adc_rates_map_to_supported_symbol_rates() -> None:
+def test_convert_vdiff_input_to_awg_supply_applies_empirical_calibration() -> None:
+    """Check the software-only amplitude, center, and supply calibration."""
+    negative_awg, supply_v = scan_adc.convert_vdiff_input_to_awg_supply(
+        1.0,
+        0.600,
+    )
+    positive_awg, negative_peak_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(-1.0, 0.600)
+    assert negative_awg == pytest.approx(-2.1858357372806774)
+    assert positive_awg == pytest.approx(2.158798860988882)
+    assert supply_v == pytest.approx(0.5848020214285712)
+    assert negative_peak_supply_v == pytest.approx(supply_v)
+
+    # The endpoint midpoint is the fitted AWG center, while their separation
+    # supplies the requested sine amplitude. Both depend on |Vdiff| and Vin_cm.
+    assert (negative_awg + positive_awg) / 2.0 == pytest.approx(-0.013518438145897704)
+    assert positive_awg - negative_awg == pytest.approx(4.344634598269559)
+
+    zero_awg, low_common_mode_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(0.0, 0.400)
+    assert zero_awg == pytest.approx(-0.03581525052269288)
+    assert low_common_mode_supply_v == pytest.approx(0.38509593392857114)
+
+
+def test_convert_sample_rate_to_baud_maps_nominal_adc_rates() -> None:
     """Map 1--10 MSPS active conversions onto 160--1600 MBd."""
-    assert tuple(
-        scan_adc.nominal_adc_rate_to_symbol_rate(rate) for rate in scan_adc.NOMINAL_ADC_SAMPLE_RATES_HZ
-    ) == tuple(
+    assert tuple(scan_adc.convert_sample_rate_to_baud(rate) for rate in scan_adc.NOMINAL_ADC_SAMPLE_RATES_HZ) == tuple(
         rate_mbd * 1e6 for rate_mbd in range(160, 1601, 160)
     )
     with pytest.raises(ValueError, match="must be positive"):
-        scan_adc.nominal_adc_rate_to_symbol_rate(0)
+        scan_adc.convert_sample_rate_to_baud(0)
 
 
-def test_rate_specific_rx_sen_windows_capture_exactly_17_bits() -> None:
+def test_add_fastrx_capture_window_captures_exactly_17_bits() -> None:
     for rate_hz in scan_adc.NOMINAL_ADC_SAMPLE_RATES_HZ:
         start_word = scan_adc.RX_SEN_START_WORD_BY_RATE_HZ[round(rate_hz)]
-        words = scan_adc.patterns_with_rx_sen_start(start_word)["RX_SEN"].split()
+        words = scan_adc.add_fastrx_capture_window(start_word)["RX_SEN"].split()
         assert len(words) == scan_adc.SEQUENCE_STEPS
         assert words.count("1") == scan_adc.NUM_CAPTURE_BITS
         assert words[start_word : start_word + scan_adc.NUM_CAPTURE_BITS] == ["1"] * scan_adc.NUM_CAPTURE_BITS
         assert words[-1] == "0"
+        patterns = scan_adc.add_fastrx_capture_window(start_word)
+        assert all(
+            patterns[name] == original_pattern
+            for name, original_pattern in scan_adc.SEQ_PATTERNS.items()
+            if name != "RX_SEN"
+        )
 
-    with pytest.raises(ValueError, match="must leave a low word"):
-        scan_adc.patterns_with_rx_sen_start(15)
+    for invalid_start in (-1, 15):
+        with pytest.raises(ValueError, match="must leave a low word"):
+            scan_adc.add_fastrx_capture_window(invalid_start)
 
 
 def test_spi_config_to_bytes_places_fields_and_reverses_for_transmission(capsys) -> None:
@@ -160,19 +262,27 @@ def test_spi_config_to_bytes_rejects_invalid_fields(override: dict, message: str
         scan_adc.spi_config_to_bytes(spi_config(**override))
 
 
-def test_decode_conversion_uses_msb_first_samples_and_weights() -> None:
+def test_convert_fastrx_to_bout_and_dout_uses_msb_first_samples_and_weights() -> None:
     """Verify FastRX temporal bit order, weighted recombination, and size validation."""
-    assert scan_adc.decode_conversion(0b101101, data_size=6, code_weights=[8, 4, 2, 1]) == ("1011", 11)
+    assert scan_adc.convert_fastrx_to_bout_and_dout(
+        0b101101,
+        data_size=6,
+        code_weights=[8, 4, 2, 1],
+    ) == ("1011", 11)
 
     with pytest.raises(ValueError, match="smaller than 5 ADC code bits"):
-        scan_adc.decode_conversion(0b1011, data_size=4, code_weights=[16, 8, 4, 2, 1])
+        scan_adc.convert_fastrx_to_bout_and_dout(
+            0b1011,
+            data_size=4,
+            code_weights=[16, 8, 4, 2, 1],
+        )
 
 
-def test_normalize_code_scales_to_twelve_bits() -> None:
+def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
     """Pin down ADC normalization endpoints and Python rounding behavior."""
-    assert scan_adc.normalize_code(0, [1, 1]) == 0
-    assert scan_adc.normalize_code(2, [1, 1]) == 4095
-    assert scan_adc.normalize_code(1, [1, 1]) == 2048
+    assert scan_adc.convert_dout_to_normalized_dout(0, [1, 1]) == 0
+    assert scan_adc.convert_dout_to_normalized_dout(2, [1, 1]) == 4095
+    assert scan_adc.convert_dout_to_normalized_dout(1, [1, 1]) == 2048
 
 
 def test_rising_edges_detects_strict_threshold_crossings() -> None:
@@ -273,14 +383,3 @@ def test_filter_decision_path_rows_handles_empty_and_invalid_modes() -> None:
     assert filter_decision_path_rows([], "same_dout") == ([], "same_dout_empty")
     with pytest.raises(ValueError, match="unknown decision-path filter mode"):
         filter_decision_path_rows([], "invalid")
-
-
-def test_active_words_returns_indices_and_validates_pattern_length() -> None:
-    """Identify active sequencer words and reject patterns with the wrong length."""
-    words = ["00000000"] * SEQ_WORDS
-    words[1] = "00000001"
-    words[7] = "10000000"
-
-    assert active_words(" ".join(words)) == (1, 7)
-    with pytest.raises(ValueError, match=f"expected {SEQ_WORDS} words, got {SEQ_WORDS - 1}"):
-        active_words(" ".join(words[:-1]))

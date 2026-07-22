@@ -23,13 +23,15 @@ from __future__ import annotations
 from pathlib import Path
 from time import sleep
 
+from bitarray import bitarray
+
 from flow.scans.scan_adc import (
     ADC_CODE_WEIGHTS,
     NUM_CAPTURE_BITS,
     SEQ_GEN_LANES,
     SERDES_RATIO,
-    bitarray_to_seq_gen_format,
-    decode_conversion,
+    convert_dict_to_seqgen_fmt,
+    convert_fastrx_to_bout_and_dout,
     spi_config_to_bytes,
 )
 
@@ -57,107 +59,17 @@ SEQ_PATTERNS = {
 # fmt: on
 
 
-def active_words(pattern: str) -> tuple[int, ...]:
-    words = pattern.split()
-    if len(words) != SEQ_WORDS:
-        raise ValueError(f"expected {SEQ_WORDS} words, got {len(words)} from {pattern!r}")
-    return tuple(index for index, word in enumerate(words) if "1" in word)
-
-
-def print_sequencer_summary() -> None:
-    print("Custom comp_out serializer/FastRX debug sequencer")
-    for name, pattern in SEQ_PATTERNS.items():
-        print(f"  {name:<7} active words={active_words(pattern)}")
-    print(f"  rough expected Bbits: {EXPECTED_COMP_BITS}")
-
-
-def configure_sequencer(daq) -> None:
-    memory = bitarray_to_seq_gen_format(SEQ_PATTERNS, SERDES_RATIO, SEQ_GEN_LANES)
-
-    # Bypass TrackRegister: its byte/bit reversal only matches the original
-    # 8-bit sequencer, not the current 64-bit serializer memory layout.
-    daq["seq0"]._drv.set_data(memory)
-    daq["seq0"].set_size(SEQ_WORDS)
-    daq["seq0"].set_clk_divide(1)
-    daq["seq0"].set_repeat(CAPTURE_REPEATS)
-    daq["seq0"].set_en_ext_start(False)
-
-
-def configure_adc_spi(daq, adc_index: int) -> None:
-    from bitarray import bitarray
-
-    spi_config = {
-        "dac_astate_p": "1111111111111111",
-        "dac_bstate_p": "1111111111111111",
-        "dac_astate_n": "1111111111111111",
-        "dac_bstate_n": "1111111111111111",
-        "en_init": 1,
-        "en_samp_p": 1,
-        "en_samp_n": 1,
-        "en_comp": 1,
-        "en_update": 1,
-        "dac_mode": 1,
-        "dac_diffcaps": 1,
-        "mux_sel": adc_index,
-    }
-
-    spi_bytes = spi_config_to_bytes(spi_config)
-    for _ in range(2):
-        daq["spi0"].set_data(list(spi_bytes))
-        daq["spi0"].set_size(180)
-        daq["spi0"].start()
-        daq["spi0"].wait_for_ready()
-
-    raw = bytes(daq["spi0"].get_data(size=23))
-    readback = bitarray()
-    readback.frombytes(raw)
-    readback = readback[:180]
-    expected = bitarray()
-    expected.frombytes(spi_bytes)
-    expected = expected[:180]
-    print(f"ADC {adc_index:02d} SPI verify: {((expected[1:] ^ readback[1:]).count(1))} mismatches (skip bit 0)")
-
-
-def print_decoded_data(daq, data, data_size: int) -> None:
-    print(f"RX_SEN capture: FIFO words: {len(data)}")
-    for i, word in enumerate(data[:MAX_PRINT_WORDS]):
-        identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(word))
-        data_str = f"{spi_data:0{data_size}b}"
-        frame_str = f"{frame_counter:0{28 - data_size}b}" if 28 - data_size > 0 else ""
-        if frame_str:
-            print(f"[{i}] ID={identifier:04b} frame={frame_str} data={data_str}")
-        else:
-            print(f"[{i}] ID={identifier:04b} data={data_str}")
-    if len(data) > MAX_PRINT_WORDS:
-        print(f"... skipped {len(data) - MAX_PRINT_WORDS} additional FIFO words")
-
-    if data:
-        _, _, spi_data = daq["fastrx0"].parse_word(int(data[0]))
-        bbits, dout = decode_conversion(spi_data, data_size, CODE_WEIGHTS)
-        marker = " <- expected" if bbits == EXPECTED_COMP_BITS else ""
-        print(f"first word decoded: Bbits={bbits} Dout={dout}{marker}")
-
-
-def capture_once(daq, data_size: int) -> None:
-    daq["gpio0"]["RX_EN_MUX"] = 1
-    daq["gpio0"].write()
-    daq["seq0"].set_en_ext_start(False)
-
-    daq["fifo0"]["RESET"]
-    daq["fifo0"].get_data()
-    daq["seq0"].start()
-    sleep(0.01)
-    while not daq["seq0"].is_done():
-        sleep(0.1)
-        print("waiting for sequencer")
-
-    print_decoded_data(daq, list(daq["fifo0"].get_data()), data_size)
-
-
 def main() -> None:
     from basil.dut import Dut
 
-    print_sequencer_summary()
+    print("Custom comp_out serializer/FastRX debug sequencer")
+    for name, pattern in SEQ_PATTERNS.items():
+        words = pattern.split()
+        if len(words) != SEQ_WORDS:
+            raise ValueError(f"{name}: expected {SEQ_WORDS} words, got {len(words)} from {pattern!r}")
+        active_word_indices = tuple(index for index, word in enumerate(words) if "1" in word)
+        print(f"  {name:<7} active words={active_word_indices}")
+    print(f"  rough expected Bbits: {EXPECTED_COMP_BITS}")
 
     daq = Dut(str(Path(__file__).resolve().parent / "map_fpga.yaml"))
     daq.init()
@@ -167,7 +79,20 @@ def main() -> None:
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        configure_sequencer(daq)
+        memory = convert_dict_to_seqgen_fmt(
+            SEQ_PATTERNS,
+            SERDES_RATIO,
+            SEQ_GEN_LANES,
+        )
+        # This public Basil seq_gen programming sequence is exercised by
+        # test_seqgen.py; its raw-memory packing helper is tested by
+        # test_helpers.py. Do not use TrackRegister.write(), whose legacy
+        # bit/byte reversal does not match the current 64-bit memory layout.
+        daq["seq0"].set_data(memory)
+        daq["seq0"].set_size(SEQ_WORDS)
+        daq["seq0"].set_clk_divide(1)
+        daq["seq0"].set_repeat(CAPTURE_REPEATS)
+        daq["seq0"].set_en_ext_start(False)
 
         daq["gpio0"]["RX_LOOPBACK"] = 0
         daq["gpio0"].write()
@@ -180,11 +105,74 @@ def main() -> None:
         if data_size != NUM_CAPTURE_BITS:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {NUM_CAPTURE_BITS}")
 
-        configure_adc_spi(daq, ADC_INDEX)
+        spi_config = {
+            "dac_astate_p": "1111111111111111",
+            "dac_bstate_p": "1111111111111111",
+            "dac_astate_n": "1111111111111111",
+            "dac_bstate_n": "1111111111111111",
+            "en_init": 1,
+            "en_samp_p": 1,
+            "en_samp_n": 1,
+            "en_comp": 1,
+            "en_update": 1,
+            "dac_mode": 1,
+            "dac_diffcaps": 1,
+            "mux_sel": ADC_INDEX,
+        }
+
+        spi_bytes = spi_config_to_bytes(spi_config)
+        for _ in range(2):
+            daq["spi0"].set_data(list(spi_bytes))
+            daq["spi0"].set_size(180)
+            daq["spi0"].start()
+            daq["spi0"].wait_for_ready()
+
+        raw = bytes(daq["spi0"].get_data(size=23))
+        readback = bitarray()
+        readback.frombytes(raw)
+        readback = readback[:180]
+        expected = bitarray()
+        expected.frombytes(spi_bytes)
+        expected = expected[:180]
+        mismatches = (expected[1:] ^ readback[1:]).count(1)
+        print(f"ADC {ADC_INDEX:02d} SPI verify: {mismatches} mismatches (skip bit 0)")
 
         print(f"Using externally supplied Vin_p={VIN_P:.6g} V and Vin_n={VIN_N:.6g} V")
 
-        capture_once(daq, data_size)
+        daq["gpio0"]["RX_EN_MUX"] = 1
+        daq["gpio0"].write()
+        daq["seq0"].set_en_ext_start(False)
+
+        daq["fifo0"]["RESET"]
+        daq["fifo0"].get_data()
+        daq["seq0"].start()
+        sleep(0.01)
+        while not daq["seq0"].is_done():
+            sleep(0.1)
+            print("waiting for sequencer")
+
+        data = list(daq["fifo0"].get_data())
+        print(f"RX_SEN capture: FIFO words: {len(data)}")
+        for i, word in enumerate(data[:MAX_PRINT_WORDS]):
+            identifier, frame_counter, spi_data = daq["fastrx0"].parse_word(int(word))
+            data_str = f"{spi_data:0{data_size}b}"
+            frame_str = f"{frame_counter:0{28 - data_size}b}" if 28 - data_size > 0 else ""
+            if frame_str:
+                print(f"[{i}] ID={identifier:04b} frame={frame_str} data={data_str}")
+            else:
+                print(f"[{i}] ID={identifier:04b} data={data_str}")
+        if len(data) > MAX_PRINT_WORDS:
+            print(f"... skipped {len(data) - MAX_PRINT_WORDS} additional FIFO words")
+
+        if data:
+            _, _, spi_data = daq["fastrx0"].parse_word(int(data[0]))
+            bbits, dout = convert_fastrx_to_bout_and_dout(
+                spi_data,
+                data_size,
+                CODE_WEIGHTS,
+            )
+            marker = " <- expected" if bbits == EXPECTED_COMP_BITS else ""
+            print(f"first word decoded: Bbits={bbits} Dout={dout}{marker}")
     finally:
         daq.close()
 

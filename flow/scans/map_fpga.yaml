@@ -120,8 +120,8 @@ hw_drivers:
 # This changes the API of how these blocks are used, but brings the benefit of convenient aliases.
 registers:
     # Legacy 8-bit TrackRegister wrapper retained for its delegated seq_gen
-    # control methods. Current serializer scripts bypass its packing through
-    # seq0._drv.set_data() and write the raw 64-bit memory image directly.
+    # methods. Current serializer scripts call seq0.set_data() through that
+    # delegation and do not use TrackRegister.write() or its legacy packing.
     - name: seq0
       type: TrackRegister
       hw_driver: seq0
