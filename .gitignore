@@ -11,6 +11,7 @@ __pycache__
 .venv*
 uv.lock
 phys/results/
+.complexipy_cache
 
 # Cadence / EDA
 .cadence

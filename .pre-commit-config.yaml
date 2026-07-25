@@ -13,6 +13,10 @@ repos:
         language: system
         types: [python]
 
+      # TODO: add `uvx ty check flow/scans` after the planned consolidation of
+      # plot.py, analysis.py, and flow/circuit/measure.py resolves the remaining
+      # first-party typing diagnostics.
+
   # Verilog lint — FPGA firmware
   - repo: local
     hooks:
