@@ -14,12 +14,8 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
-from flow.scans.scan_adc import (
-    SEQ_GEN_LANES,
-    SEQ_PATTERNS,
-    SERDES_RATIO,
-    convert_dict_to_seqgen_fmt,
-)
+from flow.scans.params import AdcTbParams
+from flow.scans.scan_adc import convert_params_to_seqgen_fmt
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 TEST_CLK_DIVIDE = 1
@@ -29,12 +25,9 @@ pytestmark = pytest.mark.hw
 
 def test_seq_gen_memory_and_register_readback() -> None:
     """Hardware: write and read back seq_gen memory and control registers."""
-    memory = convert_dict_to_seqgen_fmt(
-        SEQ_PATTERNS,
-        SERDES_RATIO,
-        SEQ_GEN_LANES,
-    )
-    sequence_words = len(SEQ_PATTERNS["INIT"].split())
+    params = AdcTbParams()
+    memory = convert_params_to_seqgen_fmt(params, rx_sen_start_word=5)
+    sequence_words = len(params.seq_init_pattern) // 8
 
     # Limit this test to the sequencer so unrelated FPGA blocks cannot prevent
     # its initialization or be modified as a side effect.

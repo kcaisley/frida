@@ -1,4 +1,4 @@
-"""Convert Spectre ADC PEX nutascii output into scan_adc.py-style scan CSV.
+"""Convert Spectre ADC PEX nutascii output into typed ADC conversion CSVs.
 
 Before running this parser, first run the configured Spectre PEX decks:
 
@@ -11,22 +11,33 @@ Then parse the generated raw files into CSVs and transfer plots:
 
 The raw/CSV paths are listed in ``ADC_PEX_POSTPROCESS_RUNS`` below.
 
-The output CSV uses the same columns as ``flow/scans/scan_adc.py``. Spectre does
-not produce a Basil FastRX packet, so ``raw_word`` and ``spi`` contain the same
-synthetic 17-bit word packed from the sampled comparator bits.
+The output CSV uses the same :class:`AdcConversion` fields as the physical
+scan. Spectre does not produce a Basil FastRX packet, so ``raw_word`` and
+``spi`` contain the same synthetic 17-bit word packed from the sampled
+comparator bits. A temporary in-memory legacy view feeds the existing plotting
+functions; no legacy-format CSV is written.
 """
 
 from __future__ import annotations
 
 import bisect
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
-from flow.scans.scan_adc import ADC_CODE_WEIGHTS, NUM_CAPTURE_BITS
-from flow.scans.plot import plot_adc_transfer, plot_code_histogram, plot_decision_paths, write_adc_csv
+from flow.cdac import get_cdac_weights
+from flow.scans.params import AdcTbParams
+from flow.scans.plot import plot_adc_transfer, plot_code_histogram, plot_decision_paths
+from flow.scans.results import AdcConversion, write_adc_conversions
+from flow.scans.scan_adc import (
+    convert_dac_caps_to_adc_weights,
+    convert_dout_to_normalized_dout,
+)
 
 ADC_INDEX = 0
-CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
+PARAMS = AdcTbParams()
+CODE_WEIGHTS = convert_dac_caps_to_adc_weights(get_cdac_weights(PARAMS.dut.cdac))
+NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 LOGIC_THRESHOLD_V = 0.6
 COMP_SAMPLE_DELAY_S = 10e-9
 COMP_SIGNAL = "comp_out"
@@ -192,7 +203,7 @@ def bits_to_word(bits: list[int]) -> int:
     return word
 
 
-def rows_from_raw(
+def convert_raw_to_adc_conversions(
     data: dict[str, list[float]],
     *,
     adc_index: int,
@@ -202,7 +213,9 @@ def rows_from_raw(
     clock_signal: str,
     vinp_signal: str,
     vinn_signal: str,
-) -> list[dict[str, object]]:
+) -> tuple[list[AdcConversion], list[dict[str, object]]]:
+    """Sample comparator decisions and return typed rows plus a plot view."""
+
     times = require_signal(data, "time")
     comp = require_signal(data, comp_signal)
     clock = require_signal(data, clock_signal)
@@ -218,19 +231,37 @@ def rows_from_raw(
             file=sys.stderr,
         )
 
-    rows: list[dict[str, object]] = []
+    conversions: list[AdcConversion] = []
+    plot_rows: list[dict[str, object]] = []
     for sweep_index in range(n_complete):
         conversion_edges = edge_times[sweep_index * NUM_CAPTURE_BITS : (sweep_index + 1) * NUM_CAPTURE_BITS]
         sample_times = [edge + sample_delay for edge in conversion_edges]
         bits = [int(nearest_value(times, comp, sample_time) > threshold) for sample_time in sample_times]
-        bbits = "".join(str(bit) for bit in bits)
-        dout = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
+        bout = "".join(str(bit) for bit in bits)
+        dout_raw = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
+        dout = convert_dout_to_normalized_dout(
+            dout_raw,
+            CODE_WEIGHTS,
+            PARAMS.dut.adc_bits,
+        )
         spi = bits_to_word(bits)
         vin_set = nearest_value(times, vinp, conversion_edges[0])
         vin_read = vin_set
         vin_n = nearest_value(times, vinn, conversion_edges[0])
 
-        rows.append(
+        conversions.append(
+            AdcConversion(
+                conversion_index=sweep_index,
+                raw_word=spi,
+                identifier=0,
+                frame=sweep_index,
+                spi=spi,
+                bout=bout,
+                dout_raw=dout_raw,
+                dout=dout,
+            )
+        )
+        plot_rows.append(
             {
                 "adc": adc_index,
                 "sweep_index": sweep_index,
@@ -242,17 +273,21 @@ def rows_from_raw(
                 "id": 0,
                 "frame": sweep_index,
                 "spi": spi,
-                "Bbits": bbits,
+                "Bbits": bout,
                 "Dout": dout,
-                "Dout_raw": dout,
+                "Dout_raw": dout_raw,
             }
         )
-        print(f"conversion {sweep_index:02d}: Vin_p={vin_set:.6g} V Vin_n={vin_n:.6g} V Bbits={bbits} Dout={dout}")
+        print(
+            f"conversion {sweep_index:02d}: Vin_p={vin_set:.6g} V "
+            f"Vin_n={vin_n:.6g} V Bout={bout} "
+            f"Dout_raw={dout_raw} Dout={dout}"
+        )
 
-    return rows
+    return conversions, plot_rows
 
 
-def process_run(run: dict[str, object]) -> None:
+def process_run(run: Mapping[str, object]) -> None:
     raw = run["raw"]
     csv = run["csv"]
     if not isinstance(raw, Path) or not isinstance(csv, Path):
@@ -264,7 +299,7 @@ def process_run(run: dict[str, object]) -> None:
 
     print(f"processing {run['name']}: {raw}")
     data = parse_spectre_nutascii(raw, {"time", COMP_SIGNAL, CLOCK_SIGNAL, VINP_SIGNAL, VINN_SIGNAL})
-    rows = rows_from_raw(
+    conversions, plot_rows = convert_raw_to_adc_conversions(
         data,
         adc_index=ADC_INDEX,
         threshold=LOGIC_THRESHOLD_V,
@@ -274,7 +309,8 @@ def process_run(run: dict[str, object]) -> None:
         vinp_signal=VINP_SIGNAL,
         vinn_signal=VINN_SIGNAL,
     )
-    write_adc_csv(ADC_INDEX, rows, csv.parent, csv_path=csv)
+    write_adc_conversions(csv, conversions)
+    print(f"ADC {ADC_INDEX:02d}: saved typed data to {csv}")
 
     adc_cfg = {
         "adc_index": ADC_INDEX,
@@ -282,7 +318,7 @@ def process_run(run: dict[str, object]) -> None:
         "setup": str(run.get("setup", "")),
         "dac_init_state": str(run.get("dac_init_state", "n/a")),
         "dac_diffcaps": True,
-        "num_samples": len(rows),
+        "num_samples": len(conversions),
         "seq_base_freq_hz": 50_000_000,
         "conversion_steps": 40,
         "input_ramp": "fixed 612 mV",
@@ -290,17 +326,17 @@ def process_run(run: dict[str, object]) -> None:
         "code_weights": CODE_WEIGHTS,
     }
     if run.get("plot") == "noise":
-        plot_code_histogram(adc_cfg, csv, csv.parent)
+        plot_code_histogram(adc_cfg, plot_rows, csv.parent)
         plot_decision_paths(
             adc_cfg,
-            csv,
+            plot_rows,
             csv.parent,
             filter_mode="all",
             show_reference_lines=False,
             show_mean_path=False,
         )
     else:
-        plot_adc_transfer(adc_cfg, csv, csv.parent)
+        plot_adc_transfer(adc_cfg, plot_rows, csv.parent)
 
 
 def main() -> None:

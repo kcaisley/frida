@@ -1,41 +1,44 @@
-"""Run the legacy behavioral SAR ADC model as a scan_adc.py-style scan.
+"""Run one shared ADC parameter configuration through the legacy model.
 
 Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral
 
-The generated CSV uses the same columns and ADC conversion constants as
-``flow/scans/scan_adc.py``. Importing those constants is safe because the hardware
-scan in ``scan_adc.py`` only runs through its ``main()`` entry point.
+The generated CSV uses the same typed :class:`AdcConversion` schema as the
+physical scan. A small in-memory compatibility view is passed to the legacy
+transfer plotter; no legacy-format CSV is written.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import hdl21 as h
+
+from flow.cdac import get_cdac_weights
 from flow.old.behavioral import SAR_ADC
+from flow.scans.params import AdcTbParams
+from flow.scans.plot import plot_adc_transfer
+from flow.scans.results import AdcConversion, write_adc_conversions
 from flow.scans.scan_adc import (
-    ADC_CAP_WEIGHTS,
-    ADC_CODE_WEIGHTS,
-    N_SWEEP_POINTS,
-    NUM_CAPTURE_BITS,
-    V_START,
-    V_STOP,
-    VINP_SWEEP,
+    convert_dac_caps_to_adc_weights,
+    convert_dout_to_normalized_dout,
 )
-from flow.scans.plot import plot_adc_transfer, write_adc_csv
 from flow.scans.scan_spice import bits_to_word
 
-# Sweep settings matched to flow/scans/scan_adc.py.
 ADC_INDEX = 0
-CAP_WEIGHTS = ADC_CAP_WEIGHTS[ADC_INDEX]
-CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
-VIN_N = 0.600
-CONVERSIONS_PER_VIN = 1
+PARAMS = AdcTbParams(
+    conversions=1,
+    vin_cm=h.Vdc.Params(dc=0.600),
+    vin_diff=h.Vdc.Params(dc=0.015),
+)
+CAP_WEIGHTS = get_cdac_weights(PARAMS.dut.cdac)
+CODE_WEIGHTS = convert_dac_caps_to_adc_weights(CAP_WEIGHTS)
+NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "behavioral_scan"
 WRITE_PLOT = True
 
 # FRIDA ADC physical/configuration settings.
-ADC_CLOCK_HZ = 1.0 / 1.28e-6
+ADC_CLOCK_HZ = float(PARAMS.symbol_rate) / len(PARAMS.seq_init_pattern)
 UNIT_CAPACITANCE = 1e-15
 PARASITIC_RATIO = 1.0  # Cpar/Cdac, passed into the legacy CDAC switching model.
 # Keep this false by default: flow.old.behavioral already uses Cpar in the DAC
@@ -60,7 +63,7 @@ def build_frida_params() -> dict[str, dict[str, object]]:
         "ADC": {
             "sampling_frequency": ADC_CLOCK_HZ,
             "use_calibration": False,
-            "resolution": 12,
+            "resolution": PARAMS.dut.adc_bits,
         },
         "COMP": {
             "offset_voltage": COMPARATOR_OFFSET,
@@ -99,61 +102,40 @@ def input_attenuation(params: dict[str, dict[str, object]]) -> float:
     return cdac_capacitance / (cdac_capacitance + parasitic_capacitance)
 
 
-def behavioral_bbits(adc: SAR_ADC, vin_p: float, vin_n: float) -> tuple[str, int]:
-    """Run one conversion and return Bbits/Dout using scan_adc.py's recombination."""
+def convert_behavioral_to_bout_and_dout(
+    adc: SAR_ADC,
+    vin_p: float,
+    vin_n: float,
+) -> tuple[str, int, int]:
+    """Run one conversion and return Bout plus raw and normalized Dout."""
+
     adc.sample_and_convert(vin_p, vin_n, do_calculate_energy=False, do_plot=False, do_normalize_result=False)
     bits = [int(bit) for bit in adc.comp_result]
     if len(bits) != NUM_CAPTURE_BITS:
         raise RuntimeError(f"behavioral model produced {len(bits)} bits, expected {NUM_CAPTURE_BITS}")
 
-    bbits = "".join(str(bit) for bit in bits)
-    dout = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
-    return bbits, dout
-
-
-def sweep_voltages() -> tuple[float, ...]:
-    return VINP_SWEEP
-
-
-def build_rows(adc: SAR_ADC, attenuation: float) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    vcm = VIN_N
-
-    for sweep_index, vin_p in enumerate(sweep_voltages()):
-        sampled_vin_p = vcm + attenuation * (vin_p - vcm)
-        sampled_vin_n = vcm + attenuation * (VIN_N - vcm)
-        print(f"sweep {sweep_index:02d}: Vin_p={vin_p:.6g} V, Vin_n={VIN_N:.6g} V, sampled Vin_p={sampled_vin_p:.6g} V")
-
-        for conversion_index in range(CONVERSIONS_PER_VIN):
-            bbits, dout = behavioral_bbits(adc, sampled_vin_p, sampled_vin_n)
-            bits = [int(bit) for bit in bbits]
-            spi = bits_to_word(bits)
-            rows.append(
-                {
-                    "adc": ADC_INDEX,
-                    "sweep_index": sweep_index,
-                    "vin_set_v": vin_p,
-                    "vin_read_v": vin_p,
-                    "vdiff_v": vin_p - VIN_N,
-                    "conversion_index": conversion_index,
-                    "raw_word": spi,
-                    "id": 0,
-                    "frame": sweep_index,
-                    "spi": spi,
-                    "Bbits": bbits,
-                    "Dout": dout,
-                    "Dout_raw": dout,
-                }
-            )
-            print(f"  conversion {conversion_index:02d}: Bbits={bbits} Dout={dout}")
-
-    return rows
+    bout = "".join(str(bit) for bit in bits)
+    dout_raw = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
+    dout = convert_dout_to_normalized_dout(
+        dout_raw,
+        CODE_WEIGHTS,
+        PARAMS.dut.adc_bits,
+    )
+    return bout, dout_raw, dout
 
 
 def main() -> None:
     params = build_frida_params()
     adc = SAR_ADC(params)
     attenuation = input_attenuation(params) if APPLY_INPUT_ATTENUATION else 1.0
+    if not isinstance(PARAMS.vin_diff, h.Vdc.Params):
+        raise TypeError("the legacy behavioral adapter currently requires a DC vin_diff")
+    vin_diff_v = float(PARAMS.vin_diff.dc)
+    vin_cm_v = float(PARAMS.vin_cm.dc)
+    vin_p = vin_cm_v + vin_diff_v / 2.0
+    vin_n = vin_cm_v - vin_diff_v / 2.0
+    sampled_vin_p = vin_cm_v + attenuation * (vin_p - vin_cm_v)
+    sampled_vin_n = vin_cm_v + attenuation * (vin_n - vin_cm_v)
 
     cdac_capacitance = sum(CAP_WEIGHTS) * UNIT_CAPACITANCE
     cpar = params["CDAC"]["parasitic_capacitance"]
@@ -162,17 +144,50 @@ def main() -> None:
     print(f"Bit weights W16..W0: {CODE_WEIGHTS}")
     print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={float(cpar) / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
-    print(f"Vin sweep: {N_SWEEP_POINTS} points from {V_START:.3f} V to {V_STOP:.3f} V")
+    print(f"Vin_p={vin_p:.6g} V, Vin_n={vin_n:.6g} V, sampled Vin_p={sampled_vin_p:.6g} V")
 
-    rows = build_rows(adc, attenuation)
-    csv_path = write_adc_csv(ADC_INDEX, rows, SCAN_OUTDIR)
+    conversions = []
+    plot_rows = []
+    for conversion_index in range(PARAMS.conversions):
+        bout, dout_raw, dout = convert_behavioral_to_bout_and_dout(
+            adc,
+            sampled_vin_p,
+            sampled_vin_n,
+        )
+        spi = bits_to_word([int(bit) for bit in bout])
+        conversions.append(
+            AdcConversion(
+                conversion_index=conversion_index,
+                raw_word=spi,
+                identifier=0,
+                frame=conversion_index,
+                spi=spi,
+                bout=bout,
+                dout_raw=dout_raw,
+                dout=dout,
+            )
+        )
+        plot_rows.append(
+            {
+                "vin_set_v": vin_p,
+                "vdiff_v": vin_diff_v,
+                "conversion_index": conversion_index,
+                "Bbits": bout,
+                "Dout": dout,
+            }
+        )
+        print(f"conversion {conversion_index:02d}: Bout={bout} Dout_raw={dout_raw} Dout={dout}")
+
+    csv_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.csv"
+    write_adc_conversions(csv_path, conversions)
+    print(f"ADC {ADC_INDEX:02d}: saved typed data to {csv_path}")
     if WRITE_PLOT:
         adc_cfg = {
             "adc_index": ADC_INDEX,
             "artifact_stem": f"adc{ADC_INDEX:02d}_behavioral",
             "dac_init_state": "behavioral",
         }
-        plot_adc_transfer(adc_cfg, csv_path, SCAN_OUTDIR)
+        plot_adc_transfer(adc_cfg, plot_rows, SCAN_OUTDIR)
 
 
 if __name__ == "__main__":

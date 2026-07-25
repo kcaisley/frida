@@ -30,7 +30,8 @@ import numpy as np
 from yaml import safe_load
 
 from flow.circuit.measure import find_crossings
-from flow.scans.scan_adc import convert_dict_to_seqgen_fmt
+from flow.scans.params import AdcTbParams
+from flow.scans.scan_adc import convert_params_to_seqgen_fmt
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,
@@ -89,16 +90,12 @@ SCOPE_TRACKS = {
 }
 SCOPE_CHANNELS = (1, 2, 3, 4)
 
-SERDES_RATIO = 8
-SEQ_GEN_LANES = 8
 # fmt: off
 SEQ_PATTERNS = {
     "INIT":    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "SAMP":    "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "COMP":    "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "LOGIC":   "00000000 00001111 00000000 00000000 00000000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
-    "RX_SEN":  "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0",
-    "RX_TEST": "0 0 0 0 1 1 0 0 0 0 0 1 0 1 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0",
 }
 # fmt: on
 
@@ -207,11 +204,13 @@ def main() -> None:
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        memory = convert_dict_to_seqgen_fmt(
-            SEQ_PATTERNS,
-            SERDES_RATIO,
-            SEQ_GEN_LANES,
+        params = AdcTbParams(
+            seq_init_pattern=SEQ_PATTERNS["INIT"].replace(" ", ""),
+            seq_samp_pattern=SEQ_PATTERNS["SAMP"].replace(" ", ""),
+            seq_comp_pattern=SEQ_PATTERNS["COMP"].replace(" ", ""),
+            seq_logic_pattern=SEQ_PATTERNS["LOGIC"].replace(" ", ""),
         )
+        memory = convert_params_to_seqgen_fmt(params, rx_sen_start_word=5)
         scope_dut = Dut(str(SCOPE_MAP_PATH))
         scope_dut.init()
         try:
@@ -275,7 +274,7 @@ def main() -> None:
                     # by test_helpers.py. Do not use TrackRegister.write(), whose
                     # legacy reversal does not match the 64-bit memory layout.
                     daq["seq0"].set_data(memory)
-                    daq["seq0"].set_size(len(SEQ_PATTERNS["INIT"].split()))
+                    daq["seq0"].set_size(len(params.seq_init_pattern) // 8)
                     daq["seq0"].set_clk_divide(1)
                     daq["seq0"].set_repeat(SEQUENCE_REPEATS)
                     daq["seq0"].set_en_ext_start(False)

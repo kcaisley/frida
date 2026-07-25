@@ -9,13 +9,17 @@ analyses, and simulator execution options belong to their respective runners.
 from __future__ import annotations
 
 import math
-from typing import Optional, Union
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import hdl21 as h
 from hdl21.prefix import G, m
+from yaml import safe_load
 
 from flow.adc import AdcParams
-from flow.cdac import CdacParams, RedunStrat
+from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
+
+MAP_BOARD_PATH = Path(__file__).resolve().parent / "map_board.yaml"
 
 
 @h.paramclass
@@ -97,15 +101,10 @@ class AdcTbParams:
         desc="Input-driver common mode",
         default=h.Vdc.Params(dc=615 * m),
     )
-    vin_p = h.Param(
+    vin_diff = h.Param(
         dtype=Union[h.Vdc.Params, h.Vsin.Params, h.Vpwl.Params],
-        desc="Positive ADC input stimulus",
-        default=h.Vdc.Params(dc=615 * m),
-    )
-    vin_n = h.Param(
-        dtype=h.Vdc.Params,
-        desc="Negative ADC input",
-        default=h.Vdc.Params(dc=615 * m),
+        desc="Differential ADC input stimulus, Vin_p - Vin_n",
+        default=h.Vdc.Params(dc=0.0),
     )
 
     # Unitless digital patterns. All four use the shared symbol_rate above.
@@ -162,6 +161,50 @@ def validate_params(params: AdcTbParams) -> None:
         raise ValueError("symbol_rate must be positive")
     if params.conversions <= 0:
         raise ValueError("conversions must be positive")
+    if params.dut.adc_bits <= 0:
+        raise ValueError("dut.adc_bits must be positive")
+    if params.dut.n_cycles <= 0:
+        raise ValueError("dut.n_cycles must be positive")
+    get_cdac_weights(params.dut.cdac)
+
+    # HDL21 source fields are Optional, so require the values needed by both
+    # the physical and simulation backends here.
+    for field in ("vdd_a", "vdd_d", "vdd_dac", "vdd_io", "vin_cm"):
+        source = getattr(params, field)
+        if source.dc is None:
+            raise ValueError(f"{field}.dc must be set")
+        try:
+            source_value = float(source.dc)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field}.dc must be numeric, got {source.dc!r}") from exc
+        if not math.isfinite(source_value):
+            raise ValueError(f"{field}.dc must be finite, got {source.dc!r}")
+
+    if isinstance(params.vin_diff, h.Vdc.Params):
+        if params.vin_diff.dc is None:
+            raise ValueError("vin_diff.dc must be set")
+        vin_diff_values = (params.vin_diff.dc,)
+    elif isinstance(params.vin_diff, h.Vsin.Params):
+        if params.vin_diff.voff is None or params.vin_diff.vamp is None or params.vin_diff.freq is None:
+            raise ValueError("vin_diff sine source requires voff, vamp, and freq")
+        vin_diff_values = (params.vin_diff.voff, params.vin_diff.vamp, params.vin_diff.freq)
+        if float(params.vin_diff.vamp) < 0:
+            raise ValueError("vin_diff sine amplitude must not be negative")
+        if float(params.vin_diff.freq) <= 0:
+            raise ValueError("vin_diff sine frequency must be positive")
+    elif isinstance(params.vin_diff, h.Vpwl.Params):
+        if not params.vin_diff.wave.strip():
+            raise ValueError("vin_diff PWL wave must not be empty")
+        vin_diff_values = ()
+    else:
+        raise TypeError(f"unsupported vin_diff source type {type(params.vin_diff).__name__}")
+    for value in vin_diff_values:
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"vin_diff source values must be numeric, got {value!r}") from exc
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"vin_diff source values must be finite, got {value!r}")
 
     # Physical selection is optional for simulation, but when present all three
     # fields must identify an enabled ADC on one board.
@@ -228,35 +271,161 @@ def validate_params(params: AdcTbParams) -> None:
         lengths.add(len(pattern))
     if len(lengths) != 1:
         raise ValueError("all four sequencer patterns must have equal length")
+    sequence_length = lengths.pop()
+    if sequence_length % 8:
+        raise ValueError("all four sequencer patterns must contain a whole number of eight-symbol words")
 
 
-def _build_variants() -> list[AdcTbParams]:
-    """Build the initial physical-measurement sweep.
+def load_board_map() -> dict[str, Any]:
+    """Load the physical-board inventory and calibration map."""
 
-    The sweep matches the current hardware characterization: each of the sixteen
-    ADCs is observed independently at nominal rates from 1 to 10 MSPS. The ADC
-    conversion occupies 160 serialized symbols, so those rates correspond to
-    symbol rates from 160 MBd to 1.6 GBd. Other axes can be added as explicit
-    lists and loops as measurement plans are finalized.
+    return safe_load(MAP_BOARD_PATH.read_text())
+
+
+def convert_sample_rate_to_baud(params: AdcTbParams, sample_rate_hz: float) -> float:
+    """Convert an active ADC conversion rate to the required symbol rate.
+
+    The active conversion spans the first through last asserted symbol on any
+    of the four timing lanes. Idle padding after that span affects the complete
+    pattern-repeat rate, but does not change the requested active conversion
+    timing.
     """
 
-    board_id_list = ["frida65a_001"]
-    adc_index_list = list(range(16))
-    symbol_rate_list = [rate * 160e6 for rate in range(1, 11)]
-    vin_p_list = [h.Vdc.Params(dc=615 * m)]
+    if not math.isfinite(sample_rate_hz) or sample_rate_hz <= 0:
+        raise ValueError("sample_rate_hz must be finite and positive")
+    patterns = (
+        params.seq_init_pattern,
+        params.seq_samp_pattern,
+        params.seq_comp_pattern,
+        params.seq_logic_pattern,
+    )
+    active_indices = [
+        index for index in range(len(params.seq_init_pattern)) if any(pattern[index] == "1" for pattern in patterns)
+    ]
+    if not active_indices:
+        raise ValueError("sequencer patterns contain no active symbols")
+    active_span_symbols = active_indices[-1] - active_indices[0] + 1
+    return sample_rate_hz * active_span_symbols
+
+
+def build_variants() -> list[AdcTbParams]:
+    """Build the first ADC00 DC, sine, and triangle measurement campaign."""
+
+    board_id = "frida65a_001"
+    adc_index = 0
+    sample_rate_list = (1e6, 5e6, 10e6)
+    dc_operating_points = (
+        (0.100, 0.400),
+        (0.150, 0.600),
+        (0.200, 0.800),
+    )
+    dynamic_sample_rate_list_hz = tuple(rate * 0.5e6 for rate in range(1, 21))
+    dynamic_input_frequency_hz = 9_998.770151
+    dynamic_common_modes = (0.400, 0.600, 0.800)
+    board_map = load_board_map()
+    board = board_map["boards"][board_id]
+    flavor_name = board["adc_channels"][adc_index]
+    cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
+    dut = AdcParams(
+        adc_bits=12,
+        n_cycles=16,
+        cdac=CdacParams(
+            n_dac=11,
+            n_extra=5,
+            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            weights=cap_weights,
+        ),
+    )
+    active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
+    template = AdcTbParams(
+        dut=dut,
+        board_id=board_id,
+        observed_adc=adc_index,
+        active_adc_mask=active_adc_mask,
+    )
 
     variants: list[AdcTbParams] = []
-    for board_id in board_id_list:
-        for adc_index in adc_index_list:
-            for symbol_rate in symbol_rate_list:
-                for vin_p in vin_p_list:
-                    params = AdcTbParams(
-                        board_id=board_id,
-                        observed_adc=adc_index,
-                        active_adc_mask=tuple(int(index == adc_index) for index in reversed(range(16))),
-                        symbol_rate=symbol_rate,
-                        vin_p=vin_p,
-                    )
-                    validate_params(params)
-                    variants.append(params)
+
+    # Short fixed-input smoke check, intended to expose capture framing or
+    # gross ADC instability before the long acquisitions begin.
+    smoke = AdcTbParams(
+        dut=dut,
+        board_id=board_id,
+        observed_adc=adc_index,
+        active_adc_mask=active_adc_mask,
+        symbol_rate=convert_sample_rate_to_baud(template, 1e6),
+        conversions=100,
+        vin_cm=h.Vdc.Params(dc=0.600),
+        vin_diff=h.Vdc.Params(dc=0.005),
+    )
+    validate_params(smoke)
+    variants.append(smoke)
+
+    # Three fixed differential operating points at three conversion rates.
+    for sample_rate in sample_rate_list:
+        symbol_rate = convert_sample_rate_to_baud(template, sample_rate)
+        for vin_diff, vin_cm in dc_operating_points:
+            params = AdcTbParams(
+                dut=dut,
+                board_id=board_id,
+                observed_adc=adc_index,
+                active_adc_mask=active_adc_mask,
+                symbol_rate=symbol_rate,
+                conversions=1_000,
+                vin_cm=h.Vdc.Params(dc=vin_cm),
+                vin_diff=h.Vdc.Params(dc=vin_diff),
+            )
+            validate_params(params)
+            variants.append(params)
+
+    # A fixed near-full-scale, intentionally non-coherent sine isolates
+    # conversion-speed degradation over twenty active ADC rates and all three
+    # agreed common modes. Each requested 0.5..10 MSPS rate maps to
+    # 80..1600 MBd through the 160-symbol active span; the complete 256-symbol
+    # record-repeat rate is stored separately.
+    for dynamic_sample_rate_hz in dynamic_sample_rate_list_hz:
+        for vin_cm in dynamic_common_modes:
+            params = AdcTbParams(
+                dut=dut,
+                board_id=board_id,
+                observed_adc=adc_index,
+                active_adc_mask=active_adc_mask,
+                symbol_rate=convert_sample_rate_to_baud(
+                    template,
+                    dynamic_sample_rate_hz,
+                ),
+                conversions=1_000_000,
+                vin_cm=h.Vdc.Params(dc=vin_cm),
+                vin_diff=h.Vsin.Params(
+                    voff=0.0,
+                    vamp=0.500,
+                    freq=dynamic_input_frequency_hz,
+                ),
+            )
+            validate_params(params)
+            variants.append(params)
+
+    # Full-scale triangle ramps exercise the complete measured ADC range.
+    # Endpoint-code bins 0 and 4095 are intentionally retained in raw data;
+    # the later INL/DNL analysis discards those saturated bins.
+    for sample_rate in sample_rate_list:
+        symbol_rate = convert_sample_rate_to_baud(template, sample_rate)
+        actual_sample_rate = symbol_rate / len(template.seq_init_pattern)
+        input_frequency = actual_sample_rate / 1000.123
+        half_period = 0.5 / input_frequency
+        period = 1.0 / input_frequency
+        wave = f"0 -0.65 {half_period:.12g} 0.65 {period:.12g} -0.65"
+        for vin_cm in dynamic_common_modes:
+            params = AdcTbParams(
+                dut=dut,
+                board_id=board_id,
+                observed_adc=adc_index,
+                active_adc_mask=active_adc_mask,
+                symbol_rate=symbol_rate,
+                conversions=1_000_000,
+                vin_cm=h.Vdc.Params(dc=vin_cm),
+                vin_diff=h.Vpwl.Params(wave=wave),
+            )
+            validate_params(params)
+            variants.append(params)
     return variants

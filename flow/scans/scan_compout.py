@@ -25,38 +25,51 @@ from time import sleep
 
 from bitarray import bitarray
 
+from flow.cdac import get_cdac_weights
+from flow.scans.params import AdcTbParams
 from flow.scans.scan_adc import (
-    ADC_CODE_WEIGHTS,
-    NUM_CAPTURE_BITS,
-    SEQ_GEN_LANES,
-    SERDES_RATIO,
-    convert_dict_to_seqgen_fmt,
+    convert_dac_caps_to_adc_weights,
     convert_fastrx_to_bout_and_dout,
-    spi_config_to_bytes,
+    convert_params_to_seqgen_fmt,
+    convert_params_to_spi_fmt,
 )
 
 ADC_INDEX = 0
-CODE_WEIGHTS = ADC_CODE_WEIGHTS[ADC_INDEX]
 VIN_P = 0.700
 VIN_N = 0.600
 SEQ_WORDS = 32
 CAPTURE_REPEATS = 1
-EXPECTED_COMP_BITS = "1" * 10 + "0" * 7
+EXPECTED_BOUT = "1" * 10 + "0" * 7
 MAX_PRINT_WORDS = 12
 
 # Each eight-bit output word is temporal left-to-right and becomes eight
-# 0.625 ns intervals at the OSERDES output. RX_SEN/RX_TEST remain one bit per
-# 5 ns sequencer word because they are internal FPGA controls.
+# 0.625 ns intervals at the OSERDES output. The formatter derives RX_SEN from
+# RX_SEN_START_WORD and leaves the internal RX_TEST control low.
 # fmt: off
 SEQ_PATTERNS = {
     "INIT":    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "SAMP":    "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "COMP":    "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
     "LOGIC":   "00000000 00001111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
-    "RX_SEN":  "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0",
-    "RX_TEST": "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
 }
 # fmt: on
+
+RX_SEN_START_WORD = 5
+PARAMS = AdcTbParams(
+    board_id="frida65a_001",
+    observed_adc=ADC_INDEX,
+    active_adc_mask=tuple(int(index == ADC_INDEX) for index in reversed(range(16))),
+    dac_astate_p=(1,) * 16,
+    dac_bstate_p=(1,) * 16,
+    dac_astate_n=(1,) * 16,
+    dac_bstate_n=(1,) * 16,
+    seq_init_pattern=SEQ_PATTERNS["INIT"].replace(" ", ""),
+    seq_samp_pattern=SEQ_PATTERNS["SAMP"].replace(" ", ""),
+    seq_comp_pattern=SEQ_PATTERNS["COMP"].replace(" ", ""),
+    seq_logic_pattern=SEQ_PATTERNS["LOGIC"].replace(" ", ""),
+)
+CODE_WEIGHTS = convert_dac_caps_to_adc_weights(get_cdac_weights(PARAMS.dut.cdac))
+NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 
 
 def main() -> None:
@@ -69,7 +82,7 @@ def main() -> None:
             raise ValueError(f"{name}: expected {SEQ_WORDS} words, got {len(words)} from {pattern!r}")
         active_word_indices = tuple(index for index, word in enumerate(words) if "1" in word)
         print(f"  {name:<7} active words={active_word_indices}")
-    print(f"  rough expected Bbits: {EXPECTED_COMP_BITS}")
+    print(f"  rough expected Bout: {EXPECTED_BOUT}")
 
     daq = Dut(str(Path(__file__).resolve().parent / "map_fpga.yaml"))
     daq.init()
@@ -79,10 +92,9 @@ def main() -> None:
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        memory = convert_dict_to_seqgen_fmt(
-            SEQ_PATTERNS,
-            SERDES_RATIO,
-            SEQ_GEN_LANES,
+        memory = convert_params_to_seqgen_fmt(
+            PARAMS,
+            rx_sen_start_word=RX_SEN_START_WORD,
         )
         # This public Basil seq_gen programming sequence is exercised by
         # test_seqgen.py; its raw-memory packing helper is tested by
@@ -105,22 +117,7 @@ def main() -> None:
         if data_size != NUM_CAPTURE_BITS:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {NUM_CAPTURE_BITS}")
 
-        spi_config = {
-            "dac_astate_p": "1111111111111111",
-            "dac_bstate_p": "1111111111111111",
-            "dac_astate_n": "1111111111111111",
-            "dac_bstate_n": "1111111111111111",
-            "en_init": 1,
-            "en_samp_p": 1,
-            "en_samp_n": 1,
-            "en_comp": 1,
-            "en_update": 1,
-            "dac_mode": 1,
-            "dac_diffcaps": 1,
-            "mux_sel": ADC_INDEX,
-        }
-
-        spi_bytes = spi_config_to_bytes(spi_config)
+        spi_bytes = convert_params_to_spi_fmt(PARAMS)
         for _ in range(2):
             daq["spi0"].set_data(list(spi_bytes))
             daq["spi0"].set_size(180)
@@ -166,13 +163,13 @@ def main() -> None:
 
         if data:
             _, _, spi_data = daq["fastrx0"].parse_word(int(data[0]))
-            bbits, dout = convert_fastrx_to_bout_and_dout(
+            bout, dout = convert_fastrx_to_bout_and_dout(
                 spi_data,
                 data_size,
                 CODE_WEIGHTS,
             )
-            marker = " <- expected" if bbits == EXPECTED_COMP_BITS else ""
-            print(f"first word decoded: Bbits={bbits} Dout={dout}{marker}")
+            marker = " <- expected" if bout == EXPECTED_BOUT else ""
+            print(f"first word decoded: Bout={bout} Dout={dout}{marker}")
     finally:
         daq.close()
 
