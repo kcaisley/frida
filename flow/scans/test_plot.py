@@ -8,7 +8,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.scans.plot import SubplotSpec, plot_frequency_domain_csv, plot_time_domain_csv
+from flow.scans.analysis import analyze_adc_sine_fit
+from flow.scans.plot import (
+    SubplotSpec,
+    count_output_codes,
+    plot_adc_sine_fit,
+    plot_dynamic_enob_sweep,
+    plot_frequency_domain_csv,
+    plot_time_domain_csv,
+)
 
 
 def write_signal_csv(path: Path, *, sample_count: int = 1_024, sample_interval_s: float = 1.0e-9) -> None:
@@ -99,3 +107,66 @@ def test_plot_validation_rejects_invalid_subplots_and_limits(tmp_path: Path) -> 
         plot_time_domain_csv(csv_path, {"missing": SubplotSpec("Missing")})
     with pytest.raises(ValueError, match="max_frequency_hz must be positive"):
         plot_frequency_domain_csv(csv_path, {"voltage_v": SubplotSpec("Voltage")}, max_frequency_hz=0.0)
+
+
+def test_count_output_codes_accepts_legacy_and_typed_result_fields(tmp_path: Path) -> None:
+    legacy_counts, legacy_total = count_output_codes([{"Dout": "4"}, {"Dout": "7"}], num_codes=8)
+    assert legacy_total == 2
+    assert legacy_counts == [0, 0, 0, 0, 1, 0, 0, 1]
+
+    path = tmp_path / "typed.csv"
+    path.write_text("conversion_index,dout\n0,4\n1,7\n")
+    typed_counts, typed_total = count_output_codes(path, num_codes=8)
+    assert typed_total == legacy_total
+    assert typed_counts == legacy_counts
+
+
+def test_sine_fit_and_dynamic_enob_plots(tmp_path: Path) -> None:
+    """Render one fit/residual plot and one multi-frequency ENOB summary."""
+
+    sample_rate_hz = 100_000.0
+    times_s = np.arange(4_096) / sample_rate_hz
+    rng = np.random.default_rng(42)
+    results = []
+    for input_frequency_hz in (1_000.0, 8_000.0):
+        samples = (
+            2_048.0
+            + 1_200.0 * np.sin(2.0 * np.pi * input_frequency_hz * times_s + 0.2)
+            + rng.normal(0.0, 2.0, times_s.size)
+        )
+        results.append(
+            analyze_adc_sine_fit(
+                samples,
+                sample_rate_hz,
+                input_frequency_hz,
+            )
+        )
+
+    fit_path = plot_adc_sine_fit(results[0], tmp_path / "sine_fit.png")
+    sweep_path = plot_dynamic_enob_sweep(results, tmp_path / "dynamic_enob.png")
+    rate_sweep_path = plot_dynamic_enob_sweep(
+        results,
+        tmp_path / "dynamic_rate.png",
+        x_values_hz=(1.0e6, 2.0e6),
+        x_label="Active conversion rate (Hz)",
+    )
+    for path in (fit_path, sweep_path, rate_sweep_path):
+        assert path.is_file()
+        assert path.stat().st_size > 0
+
+    with pytest.raises(ValueError, match="max_plot_samples must be positive"):
+        plot_adc_sine_fit(results[0], tmp_path / "invalid.png", max_plot_samples=0)
+    with pytest.raises(ValueError, match="max_spectrum_points must be positive"):
+        plot_adc_sine_fit(
+            results[0],
+            tmp_path / "invalid.png",
+            max_spectrum_points=0,
+        )
+    with pytest.raises(ValueError, match="at least one"):
+        plot_dynamic_enob_sweep([], tmp_path / "empty.png")
+    with pytest.raises(ValueError, match="one value per result"):
+        plot_dynamic_enob_sweep(
+            results,
+            tmp_path / "mismatch.png",
+            x_values_hz=(1.0e6,),
+        )

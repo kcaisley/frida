@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import math
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from flow.circuit.measure import amplitude_spectrum
+from flow.scans.analysis import SineFitResult
 
 PNG_FACE_COLOR = "white"
 TEXT_COLOR = "#2E3440"
@@ -37,6 +39,7 @@ class SubplotSpec:
 
     ylabel: str
     info_lines: tuple[str, ...] = ()
+
 
 plt.rcParams.update(
     {
@@ -342,9 +345,7 @@ def plot_time_domain_csv(
     if title:
         axes[0].set_title(title, color=TEXT_COLOR, pad=6)
 
-    for ax, signal, spec, color in zip(
-        axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True
-    ):
+    for ax, signal, spec, color in zip(axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True):
         ax.plot(plot_times, signals[signal], color=color, linewidth=1.2)
         ax.set_ylabel(spec.ylabel)
         ax.set_xlim(*plot_xlim)
@@ -434,9 +435,7 @@ def plot_frequency_domain_csv(
     axes = axes_grid[:, 0]
     if title:
         axes[0].set_title(title, color=TEXT_COLOR, pad=6)
-    for ax, signal, spec, color in zip(
-        axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True
-    ):
+    for ax, signal, spec, color in zip(axes, signal_names, subplots.values(), colors[: len(signal_names)], strict=True):
         ax.plot(plot_frequencies, spectra[signal], color=color, linewidth=1.2)
         ax.set_ylabel(spec.ylabel)
         ax.set_xlim(0.0, plot_limit)
@@ -882,19 +881,20 @@ def plot_noise_histogram_grid(adc_runs: list[tuple[dict, Path]], outdir: Path) -
 
 
 def count_output_codes(rows_or_csv: list[dict] | Path, num_codes: int = 4096) -> tuple[list[int], int]:
-    """Count Dout occurrences without loading large CSV files into memory."""
+    """Count legacy ``Dout`` or typed-result ``dout`` values without bulk loading."""
+
     counts = [0] * num_codes
     total = 0
     if isinstance(rows_or_csv, Path):
         with rows_or_csv.open(newline="") as f:
             for row in csv.DictReader(f):
-                code = int(row["Dout"])
+                code = int(row["Dout"] if "Dout" in row else row["dout"])
                 if 0 <= code < num_codes:
                     counts[code] += 1
                     total += 1
     else:
         for row in rows_or_csv:
-            code = int(row["Dout"])
+            code = int(row["Dout"] if "Dout" in row else row["dout"])
             if 0 <= code < num_codes:
                 counts[code] += 1
                 total += 1
@@ -1042,6 +1042,255 @@ def plot_code_density_linearity(adc_cfg: dict, rows_or_csv: list[dict] | Path, o
     plt.close(fig)
     print(f"ADC {adc_index:02d}: saved DNL/INL plot to {plot_path}")
     return plot_path
+
+
+def plot_adc_sine_fit(
+    result: SineFitResult,
+    output_path: Path,
+    *,
+    title: str = "ADC sine fit and residual",
+    max_plot_samples: int = 5_000,
+    max_spectrum_points: int = 20_000,
+) -> Path:
+    """Plot one ADC sine fit, residual, and frequency spectrum."""
+
+    if max_plot_samples <= 0:
+        raise ValueError("max_plot_samples must be positive")
+    if max_spectrum_points <= 0:
+        raise ValueError("max_spectrum_points must be positive")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plot_samples = min(result.sample_count, max_plot_samples)
+    time_s = result.time_s[:plot_samples]
+    measured_codes = result.measured_codes[:plot_samples]
+    fitted_codes = result.fitted_codes[:plot_samples]
+    residual_codes = result.residual_codes[:plot_samples]
+
+    duration_s = float(time_s[-1] - time_s[0]) if plot_samples > 1 else 0.0
+    if duration_s < 1e-6:
+        time_scale = 1e9
+        time_unit = "ns"
+    elif duration_s < 1e-3:
+        time_scale = 1e6
+        time_unit = "µs"
+    elif duration_s < 1.0:
+        time_scale = 1e3
+        time_unit = "ms"
+    else:
+        time_scale = 1.0
+        time_unit = "s"
+    plot_time = time_s * time_scale
+
+    spectrum_frequency_hz = result.spectrum_frequency_hz[1:]
+    spectrum_dbfs = result.spectrum_dbfs[1:]
+    if len(spectrum_frequency_hz) > max_spectrum_points:
+        stride = math.ceil(len(spectrum_frequency_hz) / max_spectrum_points)
+        full_groups = len(spectrum_frequency_hz) // stride
+        grouped_length = full_groups * stride
+        grouped_frequencies = np.mean(
+            spectrum_frequency_hz[:grouped_length].reshape(full_groups, stride),
+            axis=1,
+        )
+        grouped_spectrum = np.max(
+            spectrum_dbfs[:grouped_length].reshape(full_groups, stride),
+            axis=1,
+        )
+        if grouped_length < len(spectrum_frequency_hz):
+            grouped_frequencies = np.append(
+                grouped_frequencies,
+                np.mean(spectrum_frequency_hz[grouped_length:]),
+            )
+            grouped_spectrum = np.append(
+                grouped_spectrum,
+                np.max(spectrum_dbfs[grouped_length:]),
+            )
+        spectrum_frequency_hz = grouped_frequencies
+        spectrum_dbfs = grouped_spectrum
+
+    fig, (ax_fit, ax_residual, ax_spectrum) = plt.subplots(
+        3,
+        1,
+        figsize=(10, 9),
+        height_ratios=(2, 1, 1.2),
+        facecolor=PNG_FACE_COLOR,
+    )
+    fig.patch.set_facecolor(PNG_FACE_COLOR)
+    ax_fit.plot(
+        plot_time,
+        measured_codes,
+        color=NORD_BLUE,
+        linewidth=0.7,
+        alpha=0.8,
+        label="Measured ADC output",
+    )
+    ax_fit.plot(
+        plot_time,
+        fitted_codes,
+        color=NORD_RED,
+        linewidth=1.2,
+        label="Four-parameter sine fit",
+    )
+    ax_residual.plot(
+        plot_time,
+        residual_codes,
+        color=NORD_GREEN,
+        linewidth=0.7,
+    )
+    ax_residual.axhline(0.0, color=SPINE_COLOR, linewidth=0.8)
+    ax_spectrum.semilogx(
+        spectrum_frequency_hz,
+        spectrum_dbfs,
+        color=NORD_BLUE,
+        linewidth=0.8,
+    )
+    ax_spectrum.axvline(
+        result.fitted_frequency_hz,
+        color=NORD_RED,
+        linewidth=1.0,
+        linestyle="--",
+        label="Fitted fundamental",
+    )
+
+    _add_info_box(
+        ax_fit,
+        (
+            f"Samples: {result.sample_count:,}",
+            f"Sample rate: {format_frequency_hz(result.sample_rate_hz)}",
+            f"Input frequency: {format_frequency_hz(result.input_frequency_hz)}",
+            f"Fitted frequency: {format_frequency_hz(result.fitted_frequency_hz)}",
+            f"Amplitude: {result.amplitude_codes:.3f} codes ({result.amplitude_dbfs:.2f} dBFS)",
+            f"Residual: {result.residual_rms_codes:.3f} LSB RMS",
+            f"Fit SINAD: {result.sinad_db:.2f} dB",
+            f"Fit ENOB: {result.enob_bits:.3f} bits",
+        ),
+    )
+    _add_info_box(
+        ax_spectrum,
+        (
+            f"FFT SNDR: {result.spectral_sndr_db:.2f} dB",
+            f"FFT SNR: {result.spectral_snr_db:.2f} dB",
+            f"THD: {result.spectral_thd_db:.2f} dB",
+            f"SFDR: {result.spectral_sfdr_db:.2f} dB",
+            f"FFT ENOB: {result.spectral_enob_bits:.3f} bits",
+        ),
+    )
+    ax_fit.set_title(title)
+    ax_fit.set_ylabel("ADC output code")
+    ax_residual.set_xlabel(f"Time ({time_unit})")
+    ax_residual.set_ylabel("Fit residual (LSB)")
+    ax_fit.set_xlim(float(plot_time[0]), float(plot_time[-1]))
+    ax_residual.set_xlim(float(plot_time[0]), float(plot_time[-1]))
+    ax_fit.tick_params(labelbottom=False)
+    ax_spectrum.set_xlabel("Frequency (Hz)")
+    ax_spectrum.set_ylabel("Amplitude (dBFS)")
+    style_legend(ax_fit, loc="upper left")
+    style_legend(ax_spectrum, loc="lower left")
+    for ax in (ax_fit, ax_residual, ax_spectrum):
+        style_grid(ax)
+        style_ax(ax)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=400, facecolor=PNG_FACE_COLOR)
+    plt.close(fig)
+    print(f"Saved ADC sine-fit plot: {output_path}")
+    return output_path
+
+
+def plot_dynamic_enob_sweep(
+    results: Sequence[SineFitResult],
+    output_path: Path,
+    *,
+    title: str = "Dynamic ENOB versus input frequency",
+    x_values_hz: Sequence[float] | None = None,
+    x_label: str = "Input frequency (Hz)",
+    series_label: str | None = None,
+) -> Path:
+    """Plot spectral ENOB and SNDR over an input- or conversion-rate sweep.
+
+    By default each result is placed at its input frequency and grouped by
+    record sample rate. ``x_values_hz`` can instead provide one explicit sweep
+    coordinate per result, such as the active ADC conversion rate.
+    """
+
+    if not results:
+        raise ValueError("dynamic ENOB sweep requires at least one sine-fit result")
+    if x_values_hz is not None:
+        if len(x_values_hz) != len(results):
+            raise ValueError("x_values_hz must contain one value per result")
+        if any(not math.isfinite(value) or value <= 0 for value in x_values_hz):
+            raise ValueError("x_values_hz values must be finite and positive")
+    if not x_label.strip():
+        raise ValueError("x_label must not be empty")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    series: list[tuple[str, list[tuple[float, SineFitResult]]]] = []
+    if x_values_hz is None:
+        by_sample_rate: dict[float, list[SineFitResult]] = defaultdict(list)
+        for result in results:
+            by_sample_rate[result.sample_rate_hz].append(result)
+        for sample_rate_hz, rate_results in sorted(by_sample_rate.items()):
+            series.append(
+                (
+                    f"fs = {format_frequency_hz(sample_rate_hz)}",
+                    [
+                        (result.input_frequency_hz, result)
+                        for result in sorted(
+                            rate_results,
+                            key=lambda item: item.input_frequency_hz,
+                        )
+                    ],
+                )
+            )
+    else:
+        series.append(
+            (
+                series_label or "ADC dynamic performance",
+                sorted(
+                    zip(x_values_hz, results, strict=True),
+                    key=lambda item: item[0],
+                ),
+            )
+        )
+
+    fig, (ax_enob, ax_sndr) = plt.subplots(
+        2,
+        1,
+        figsize=(9, 7),
+        sharex=True,
+        facecolor=PNG_FACE_COLOR,
+    )
+    fig.patch.set_facecolor(PNG_FACE_COLOR)
+    for label, points in series:
+        x_values = [point[0] for point in points]
+        point_results = [point[1] for point in points]
+        ax_enob.plot(
+            x_values,
+            [result.spectral_enob_bits for result in point_results],
+            marker="o",
+            linewidth=1.2,
+            label=label,
+        )
+        ax_sndr.plot(
+            x_values,
+            [result.spectral_sndr_db for result in point_results],
+            marker="o",
+            linewidth=1.2,
+            label=label,
+        )
+
+    ax_enob.set_xscale("log")
+    ax_sndr.set_xscale("log")
+    ax_enob.set_title(title)
+    ax_enob.set_ylabel("Effective number of bits (ENOB)")
+    ax_sndr.set_xlabel(x_label)
+    ax_sndr.set_ylabel("SNDR (dB)")
+    for ax in (ax_enob, ax_sndr):
+        style_grid(ax)
+        style_ax(ax)
+    style_legend(ax_enob)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=400, facecolor=PNG_FACE_COLOR)
+    plt.close(fig)
+    print(f"Saved dynamic ENOB sweep plot: {output_path}")
+    return output_path
 
 
 def plot_adc_overlay(sources: list[tuple[str, Path, str]], out_path: Path = OVERLAY_PLOT) -> Path:
