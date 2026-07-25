@@ -30,6 +30,7 @@ class AdcParams:
     """ADC parameters."""
 
     # Top-level ADC parameter
+    adc_bits = h.Param(dtype=int, desc="Nominal normalized ADC resolution", default=12)
     n_cycles = h.Param(dtype=int, desc="Number of SAR comparison cycles", default=16)
 
     # Component parameters

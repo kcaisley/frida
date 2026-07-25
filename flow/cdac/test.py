@@ -18,3 +18,27 @@ def test_cdac_weights():
     params = CdacParams(n_dac=8, n_extra=2, redun_strat=RedunStrat.SUBRDX2_LIM)
     weights = get_cdac_weights(params)
     assert len(weights) == 10
+
+
+def test_explicit_cdac_weights_override_strategy():
+    """Explicit physical weights bypass the strategy calculation."""
+    explicit = (8, 5, 2, 1)
+    params = CdacParams(
+        n_dac=3,
+        n_extra=1,
+        redun_strat=RedunStrat.SUBRDX2,
+        weights=explicit,
+    )
+    assert get_cdac_weights(params) == list(explicit)
+
+
+def test_explicit_cdac_weights_are_validated():
+    """Reject the wrong count and non-positive values."""
+    for weights in ((8, 4, 2), (8, 4, 0, 1)):
+        params = CdacParams(n_dac=3, n_extra=1, weights=weights)
+        try:
+            get_cdac_weights(params)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid explicit weights {weights}")

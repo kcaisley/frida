@@ -22,3 +22,4 @@ def test_adc_weights():
 
     expected = np.array([768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1])
     np.testing.assert_array_equal(weights, expected)
+    assert params.adc_bits == 12

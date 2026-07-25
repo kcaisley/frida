@@ -9,6 +9,7 @@ Supports multiple architectures including:
 
 import math
 from enum import Enum, auto
+from typing import Optional
 
 import hdl21 as h
 from hdl21.prefix import f
@@ -47,10 +48,19 @@ class CdacParams:
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
     mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
+    weights = h.Param(
+        dtype=Optional[tuple[int, ...]],
+        desc="Explicit unit-capacitor weights; overrides redun_strat when set",
+        default=None,
+    )
 
 
 def is_valid_cdac_params(p: CdacParams) -> bool:
     """Check if this CDAC configuration is valid."""
+    if p.weights is not None:
+        return len(p.weights) == p.n_dac + p.n_extra and all(
+            not isinstance(weight, bool) and isinstance(weight, int) and weight > 0 for weight in p.weights
+        )
     # RDX2 only works with n_extra=0
     if p.redun_strat == RedunStrat.RDX2 and p.n_extra != 0:
         return False
@@ -62,6 +72,12 @@ def is_valid_cdac_params(p: CdacParams) -> bool:
 
 def get_cdac_weights(p: CdacParams) -> list[int]:
     """Get the capacitor weights for a CDAC configuration."""
+    if p.weights is not None:
+        if not is_valid_cdac_params(p):
+            raise ValueError(
+                f"Explicit CDAC weights must contain exactly n_dac + n_extra = {p.n_dac + p.n_extra} positive integers"
+            )
+        return list(p.weights)
     weights = _calc_weights(p.n_dac, p.n_extra, p.redun_strat)
     if weights is None:
         raise ValueError(f"Invalid CDAC params: {p}")
