@@ -139,15 +139,18 @@ uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
 ### Hardware ADC scans
 
 The hardware scan is a direct Basil workflow rather than a `flow` subcommand.
-Configure the scan constants at the top of `flow/scans/scan_adc.py`, then run:
+Define the desired flat sweep in `flow/scans/params.py::build_variants()`, then
+run:
 
 ```bash
 uv run python -m flow.scans.scan_adc
 ```
 
-The script configures the chip, loads the raw 64-bit serializer pattern,
-captures and decodes 17-bit FastRX data, and writes CSV files and plots under
-`build/`.
+The script configures the supplies, input stimulus, chip, clocks, sequencer,
+and FastRX for each complete parameter variant. It writes one typed acquisition
+CSV per variant plus a run manifest under a fresh timestamped
+`build/scan_adc/` directory. Analysis and plotting are separate from raw data
+acquisition.
 
 # Installation
 

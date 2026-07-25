@@ -92,11 +92,14 @@ hardware-driver calls.
 
 | Function | File | Role |
 | --- | --- | --- |
-| `convert_sample_rate_to_baud()` | `scan_adc.py` | Convert the nominal ADC sample rate to the required DDR symbol rate. |
-| `add_fastrx_capture_window()` | `scan_adc.py` | Place the 17-bit FastRX capture window in a sequencer pattern. |
-| `convert_dict_to_seqgen_fmt()` | `scan_adc.py` | Pack INIT, SAMP, COMP, LOGIC, RX_SEN, and RX_TEST into raw 64-bit sequencer words. |
-| `spi_config_to_bytes()` | `scan_adc.py` | Pack the FRIDA chip's 180-bit slow-control image in wire order. |
+| `convert_sample_rate_to_baud()` | `params.py` | Derive symbol rate from a requested active-conversion rate and the timing-pattern active span. |
+| `convert_dac_caps_to_adc_weights()` | `scan_adc.py` | Convert physical CDAC weights C16..C1 into decision weights W16..W0. |
+| `convert_params_to_seqgen_fmt()` | `scan_adc.py` | Pack the four parameterized timing patterns and derived RX_SEN window into raw 64-bit sequencer words. |
+| `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
 | `convert_fastrx_to_bout_and_dout()` / `convert_dout_to_normalized_dout()` | `scan_adc.py` | Decode FastRX comparator decisions and normalize the weighted ADC result. |
+| `write_adc_conversions()` / `read_adc_conversions()` | `results.py` | Round-trip the typed raw and decoded fields of one acquisition CSV. |
+| `analyze_adc_sine_fit()` | `analysis.py` | Perform a four-parameter sine fit and calculate residual RMS, SINAD, and ENOB from one continuous ADC record. |
+| `plot_adc_sine_fit()` / `plot_dynamic_enob_sweep()` | `plot.py` | Plot one measured/fitted waveform with its residual, or aggregate ENOB versus input frequency. |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
 | `find_crossings()` | `flow/circuit/measure.py` | Analyze waveform threshold crossings; this is generic analysis, not scope control. |
@@ -112,9 +115,29 @@ The three mapped GPIO blocks have state-restoring hardware tests:
 uv run pytest -q -s -m hw flow/scans/test_gpio.py
 ```
 
+The sequencer-to-FastRX path has a separate exact-bit hardware test. It routes
+a recognizable 17-bit sequence through the FPGA-internal loopback, then checks
+the received bit order, frame counters, word count, and overflow counter:
+
+```bash
+uv run pytest -q -s -m hw flow/scans/test_fastrx.py
+```
+
 `scope.py` contains capture synchronization around the Basil scope driver, and
 `plot.py` contains CSV and plotting support. Neither module adds methods to the
 Basil hardware API.
+
+`params.py` expands the full sweep into a flat `list[AdcTbParams]`; each item
+produces exactly one CSV. `map_board.yaml` maps its `board_id` to physical ADC
+flavors, explicit CDAC weights, safe supply limits, input calibration, and
+capture alignment. Each invocation creates a new timestamped directory under
+`build/scan_adc/` and records parameters, derived values, instrument readback,
+CSV paths, and completion state in `manifest.json`.
+
+Each configuration is acquired in one uninterrupted sequencer/FastRX run.
+After acquisition, `scan_adc.py` serializes the in-memory result to CSV in
+bounded row batches; those file-write batches do not segment the sampled
+record or reset the FastRX frame counter.
 
 † Added to the Basil API by the FRIDA project. These implementations now live
 in `libs/basil` and are called like normal Basil methods; they are not helpers
