@@ -7,7 +7,7 @@ to 0 V when the check exits, including after a failed assertion or GPIB error.
 
 Run from the repository root with:
 
-    uv run python -m flow.scans.check_smu
+    uv run python -m flow.scans.loopback_smu
 """
 
 from pathlib import Path
