@@ -4,13 +4,13 @@ Usage:
     flow primitive -c mosfet -t ihp130 -m max -v
     flow netlist -c samp -t ihp130 -m max
     flow simulate -c comp -s spectre --host jupiter
+    flow convert --from cdl --to sp --file design.cdl --outdir build/netlist
 """
 
 import argparse
 import logging
 import shutil
 import socket
-import subprocess
 from pathlib import Path
 
 import argcomplete
@@ -20,7 +20,6 @@ from .pdks import list_pdks, set_pdk
 # Available cells per flow command
 PRIMITIVES = ["mosfet", "momcap"]
 SUBCKTS = ["samp", "comp", "cdac", "adc"]
-LAYOUTS = ["comp"]
 TESTBENCHES = ["samp", "comp", "cdac", "adc"]
 
 # Hosts with SPICE simulators and PDKs available
@@ -59,7 +58,7 @@ def main():
         "-f",
         "--fmt",
         default="spectre",
-        choices=["spectre", "ngspice", "cdl", "verilog"],
+        choices=["spectre", "ngspice", "verilog"],
         help="Netlist output format",
     )
     p.add_argument(
@@ -69,12 +68,6 @@ def main():
         help="dut: subcircuits only; stim: TB wrapper + sources; full: complete sim input",
     )
     p.add_argument("--montecarlo", action="store_true", help="Add Monte Carlo analysis to sim input")
-    p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
-
-    # Layout
-    p = sub.add_parser("layout", help="Run place-and-route via OpenROAD")
-    p.add_argument("-c", "--cell", required=True, choices=LAYOUTS, help="Circuit block")
-    p.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
     p.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
     # Simulate
@@ -95,7 +88,7 @@ def main():
 
     # Convert
     p = sub.add_parser("convert", help="Convert netlists between formats (OA/CDL/SP)")
-    p.add_argument("--from", dest="src_fmt", required=True, choices=["oa", "cdl", "sp"], help="Source format")
+    p.add_argument("--from", dest="src_fmt", required=True, choices=["oa", "cdl"], help="Source format")
     p.add_argument("--to", dest="dst_fmt", required=True, choices=["cdl", "sp", "sp_clean"], help="Target format")
     p.add_argument("--file", type=Path, help="Input file path (required for cdl/sp sources)")
     p.add_argument("--cdslib", type=Path, help="Path to cds.lib (required for --from oa)")
@@ -120,8 +113,6 @@ def main():
         _run_primitive(args)
     elif args.command == "netlist":
         _run_netlist(args)
-    elif args.command == "layout":
-        _run_layout(args)
     elif args.command == "simulate":
         _run_simulate(args)
 
@@ -130,6 +121,8 @@ def _run_convert(args):
     from .util.netlist import cdl_to_sp, clean_cdl, oa_to_cdl
 
     src, dst = args.src_fmt, args.dst_fmt
+    if bool(args.verilog) != bool(args.module):
+        raise SystemExit("--verilog and --module must be used together")
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     if src == "oa":
@@ -174,10 +167,8 @@ def _run_netlist(args):
     from importlib import import_module
 
     # Validate scope + format combinations
-    if args.scope != "dut" and args.fmt in ("cdl", "verilog"):
+    if args.scope != "dut" and args.fmt == "verilog":
         raise SystemExit(f"--fmt={args.fmt} only supports --scope=dut (got --scope={args.scope})")
-    if args.fmt == "cdl":
-        raise SystemExit("--fmt=cdl is not supported by the installed vlsirtools backend")
     if args.montecarlo and args.scope != "full":
         raise SystemExit(f"--montecarlo requires --scope=full (got --scope={args.scope})")
 
@@ -209,22 +200,6 @@ def _run_simulate(args):
         sim_server=args.host,
         outdir=args.out,
         verbose=True,
-    )
-
-
-def _check_openroad():
-    if not shutil.which("openroad"):
-        raise SystemExit("OpenROAD binary not found on PATH")
-
-
-def _run_layout(args):
-    _check_openroad()
-    script = Path(__file__).parent / args.cell / "layout.py"
-    if not script.exists():
-        raise SystemExit(f"No layout script found for cell '{args.cell}' at {script}")
-    subprocess.run(
-        ["openroad", "-exit", "-python", str(script), args.cell, args.tech],
-        check=True,
     )
 
 

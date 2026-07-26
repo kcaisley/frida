@@ -1,145 +1,181 @@
 # Usage
 
-FRIDA uses a `flow` CLI with four subcommands:
+FRIDA provides a small `flow` command for analog generation, simulation, and
+netlist conversion:
 
-```
+```text
 flow primitive   Generate layout primitives
-flow netlist     Generate netlists
-flow layout      Run place-and-route via OpenROAD
-flow simulate    Run simulations
+flow netlist     Generate circuit and testbench netlists
+flow simulate    Run SPICE simulations
+flow convert     Convert OA/CDL netlists
 ```
 
-Run from the repo root with `uv run`:
+Run commands from the repository root through `uv`:
 
 ```bash
-uv run flow netlist -c comp -t ihp130
+uv run flow --help
+uv run flow netlist --help
 ```
 
-## Subcommands
+Digital lint, simulation, synthesis, and implementation use their stock tools
+directly. There is no separate build-system orchestration layer.
 
-### `flow primitive`
+## `flow primitive`
 
-Generate layout primitives (GDS).
+Generate GDS layout primitives:
 
 ```bash
-flow primitive -c <cell> -t <tech> -m <mode> [-v] [-o <dir>]
+uv run flow primitive -c <cell> [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 ```
 
-| Flag | Values | Default |
-|------|--------|---------|
-| `-c, --cell` | `mosfet`, `momcap` | (required) |
+| Option | Values | Default |
+|---|---|---|
+| `-c, --cell` | `mosfet`, `momcap` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
-| `-v, --visual` | (flag) | off |
+| `-v, --visual` | open the result in KLayout | off |
 | `-o, --out` | output directory | `build` |
-
-Example:
 
 ```bash
 uv run flow primitive -c mosfet -t ihp130 -m max -v
 ```
 
-### `flow netlist`
+## `flow netlist`
 
-Generate netlists at varying levels of scope.
+Generate one or more netlists:
 
 ```bash
-flow netlist -c <cell> -t <tech> -m <mode> [-f <fmt>] [--scope <scope>] [--montecarlo] [-o <dir>]
+uv run flow netlist -c <cell> [-t <tech>] [-m <mode>] \
+  [-f <format>] [--scope <scope>] [--montecarlo] [-o <dir>]
 ```
 
-| Flag | Values | Default |
-|------|--------|---------|
-| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
+| Option | Values | Default |
+|---|---|---|
+| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `max` |
-| `-f, --fmt` | `spectre`, `ngspice`, `cdl`, `verilog` | `spectre` |
+| `-f, --fmt` | `spectre`, `ngspice`, `verilog` | `spectre` |
 | `--scope` | `dut`, `stim`, `full` | `full` |
-| `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `build/<cell>` |
+| `--montecarlo` | add Monte Carlo analysis | off |
+| `-o, --out` | output root | `build` |
 
-The `--mode` flag controls how many parameter variants are generated:
-`max` writes all valid combinations, while `min` writes only the first 10.
-
-The `--scope` flag controls what is included in the generated netlist:
+`min` writes the first ten parameter variants; `max` writes all valid
+variants. Results are written below `<output root>/<cell>/`.
 
 | Scope | Contents |
-|-------|----------|
-| `dut` | Subcircuit definitions only (DUT hierarchy) |
-| `stim` | DUT subcircuits + testbench wrapper with stimulus sources and DUT instantiation |
-| `full` | Complete simulator input: stim + analysis statements, options, and save commands |
+|---|---|
+| `dut` | DUT subcircuit hierarchy only |
+| `stim` | DUT plus testbench wrapper and stimulus |
+| `full` | complete simulator input, including analyses and save commands |
 
-The `cdl` and `verilog` formats only support `--scope=dut`. The `--montecarlo`
-flag requires `--scope=full`.
-
-Examples:
+`verilog` only supports `--scope dut`. Monte Carlo requires `--scope full`.
 
 ```bash
-# Full sim-input netlist for comparator (all variants, default scope)
+# Complete Spectre input for all comparator variants
 uv run flow netlist -c comp -t ihp130
 
-# DUT-only subcircuit definitions in Verilog
+# DUT-only Verilog
 uv run flow netlist -c comp -t ihp130 --scope dut -f verilog
 
-# Testbench with stimulus but no analysis commands
+# Stimulus wrapper without analysis commands
 uv run flow netlist -c adc -t tsmc65 --scope stim
 
-# Full sim-input with Monte Carlo wrapper
+# Complete input with Monte Carlo analysis
 uv run flow netlist -c comp -t ihp130 --montecarlo
 ```
 
-### `flow layout`
+## `flow simulate`
 
-Run place-and-route via OpenROAD. Requires `openroad` on `PATH`.
-
-```bash
-flow layout -c <cell> -t <tech> [-o <dir>]
-```
-
-| Flag | Values | Default |
-|------|--------|---------|
-| `-c, --cell` | `comp` | (required) |
-| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-o, --out` | output directory | `build` |
-
-Example:
+Generate netlists and run a supported SPICE simulator:
 
 ```bash
-uv run flow layout -c comp -t ihp130
+uv run flow simulate -c <cell> [-t <tech>] [-m <mode>] \
+  [-s <simulator>] [--host <host>] [--montecarlo] [-o <dir>]
 ```
 
-### `flow simulate`
-
-Generate netlists and run simulation. Requires a supported simulator on `PATH`
-(or use `--host` for remote execution).
-
-```bash
-flow simulate -c <cell> -t <tech> -m <mode> [-s <sim>] [--host <host>] [--montecarlo] [-o <dir>]
-```
-
-| Flag | Values | Default |
-|------|--------|---------|
-| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | (required) |
+| Option | Values | Default |
+|---|---|---|
+| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
 | `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
-| `--host` | remote hostname | local |
-| `--montecarlo` | (flag) | off |
-| `-o, --out` | output directory | `build/<cell>` |
+| `--host` | remote SpiceServer hostname | local |
+| `--montecarlo` | add Monte Carlo analysis | off |
+| `-o, --out` | output directory | `build` |
 
-Examples:
+Local simulation is restricted to the configured simulation hosts and requires
+the selected simulator executable on `PATH`. Supplying `--host` delegates the
+run to SpiceServer.
 
 ```bash
-# Local Spectre simulation
 uv run flow simulate -c comp -t ihp130 -m min -s spectre
-
-# Remote simulation on jupiter
 uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
 ```
 
-### Hardware ADC scans
+See [`spice_server.md`](spice_server.md) for remote-server setup.
 
-The hardware scan is a direct Basil workflow rather than a `flow` subcommand.
-Define the desired flat sweep in `flow/scans/params.py::build_variants()`, then
+## `flow convert`
+
+Convert an OpenAccess schematic or an existing CDL file:
+
+```bash
+uv run flow convert --from <oa|cdl> --to <cdl|sp|sp_clean> \
+  --outdir <dir> [source options]
+```
+
+| Source | Supported outputs | Required source options |
+|---|---|---|
+| OpenAccess | `cdl`, `sp`, `sp_clean` | `--cdslib`, `--oalib`, `--oacell` |
+| CDL file | `sp`, `sp_clean` | `--file` |
+
+`sp_clean` removes filler and decap instances and normalizes OpenROAD hierarchy
+names. To reorder a subcircuit using a Verilog module declaration, pass
+`--verilog` and `--module` together.
+
+```bash
+uv run flow convert \
+  --from cdl --to sp \
+  --file design/spice/core.cdl \
+  --outdir build/netlist
+
+uv run flow convert \
+  --from oa --to sp_clean \
+  --cdslib cadence/cds.lib --oalib frida --oacell core \
+  --verilog design/hdl/frida_core.v --module frida_core \
+  --outdir build/netlist
+```
+
+## Digital checks
+
+The normal software test suite includes both SPI-register implementations as
+cocotb tests. It uses Icarus by default:
+
+```bash
+uv run pytest
+uv run pytest -q -s test/test_spi_register.py
+```
+
+Use another cocotb-supported simulator through `SIM`:
+
+```bash
+SIM=verilator uv run pytest -q -s test/test_spi_register.py
+```
+
+The simulator is a system dependency, not a Python package. For Ubuntu:
+
+```bash
+sudo apt install iverilog
+```
+
+Verible, Verilator, Yosys, and OpenROAD can likewise be run directly for
+linting, synthesis, and physical implementation. The existing OpenROAD design
+configuration is under `design/`; see [`openroad.md`](openroad.md) for the
+project-specific notes.
+
+## ADC scans
+
+Hardware acquisition is a direct Basil workflow rather than a `flow`
+subcommand. Define the sweep in `flow/scans/params.py::build_variants()`, then
 run:
 
 ```bash
@@ -147,17 +183,19 @@ uv run python -m flow.scans.scan_adc
 ```
 
 The script configures the supplies, input stimulus, chip, clocks, sequencer,
-and FastRX for each complete parameter variant. It writes one typed acquisition
-CSV per variant plus a run manifest under a fresh timestamped
-`build/scan_adc/` directory. Analysis and plotting are separate from raw data
-acquisition.
+and FastRX. Each run writes typed acquisition CSV files and a manifest below a
+fresh timestamped `build/scan_adc/` directory.
 
-# Installation
+Behavioral and SPICE-backed scans use the same acquisition schema:
 
-## Python Environment
+```bash
+uv run python -m flow.scans.scan_behavioral
+uv run python -m flow.scans.scan_spice
+```
 
-FRIDA uses [`uv`](https://docs.astral.sh/uv/) to manage Python dependencies.
-Clone the repo, install dependencies, and run the smoketest suite:
+## Environment setup
+
+Clone with submodules, create the environment, and run the software checks:
 
 ```bash
 git clone --recursive git@github.com:kcaisley/frida.git
@@ -166,91 +204,6 @@ uv sync
 uv run pytest
 ```
 
-`uv sync` creates a virtualenv and installs all pinned dependencies from the
-lockfile. `uv run pytest` runs the test suite as a quick sanity check that the
-environment is set up correctly.
-
-## Spectre
-
-FRIDA uses Cadence Spectre for signoff-oriented analog simulations. Ensure it
-is installed and visible on `PATH` on whichever host runs the simulations.
-
-```bash
-which spectre
-spectre -W
-```
-
-## Ngspice
-
-FRIDA can also use `ngspice` for open-source simulation flows. The commands
-below build from source; use either the Ubuntu path or the RHEL path depending
-on your OS.
-
-```bash
-# Ubuntu 24.04 dependency install
-sudo apt-get update
-sudo apt-get install -y \
-  build-essential autoconf automake libtool bison flex \
-  libx11-6 libx11-dev libxaw7 libxaw7-dev libxmu6 libxmu-dev \
-  libxext6 libxext-dev libxft2 libxft-dev \
-  libfontconfig1 libfontconfig1-dev libxrender1 libxrender-dev \
-  libfreetype6 libfreetype-dev libreadline8 libreadline-dev
-
-# RHEL 9 dependency install
-sudo dnf install -y epel-release
-sudo dnf install -y \
-  gcc gcc-c++ make autoconf automake libtool bison flex \
-  libX11 libX11-devel libXaw libXaw-devel libXmu libXmu-devel \
-  libXext libXext-devel libXft libXft-devel \
-  fontconfig fontconfig-devel freetype freetype-devel \
-  libXrender libXrender-devel readline-devel
-
-# Clone and build
-mkdir -p ~/libs
-git clone https://git.code.sf.net/p/ngspice/ngspice ~/libs/ngspice
-cd ~/libs/ngspice
-./autogen.sh
-mkdir -p release
-cd release
-../configure --with-x --enable-xspice --enable-cider --enable-openmp --with-readline=yes
-make -j"$(nproc)"
-sudo make install
-sudo ldconfig
-
-# Verify
-which ngspice
-ngspice --version
-```
-
-For waveform viewing, [`gaw`](https://www.rvq.fr/linux/gaw.php) is useful.
-When producing raw binary files, ensure `utf_8` encoding is used for the
-plaintext section.
-
-## OpenROAD
-
-FRIDA's digital implementation flow uses OpenROAD. The commands below clone,
-build, and install system-wide to `/usr/local` following the upstream
-[Build Guide](https://openroad.readthedocs.io/en/latest/user/Build.html).
-
-```bash
-git clone --recursive https://github.com/The-OpenROAD-Project/OpenROAD.git ~/libs/OpenROAD
-cd ~/libs/OpenROAD
-
-sudo ./etc/DependencyInstaller.sh -base
-./etc/DependencyInstaller.sh -common -local
-./etc/Build.sh
-sudo make -C build install
-
-# Verify
-which openroad
-openroad -version
-```
-
-## Remote SpiceServer Setup (for `--host`)
-
-Use this when FRIDA runs on one machine and simulations run on a remote host
-through `spice_server`.
-
-Detailed build/runtime instructions and known-issue notes are in:
-
-- [`docs/spice_server.md`](spice_server.md)
+Cadence Spectre, ngspice, Xyce, Icarus, KLayout, and OpenROAD are external
+executables. Install only the tools needed for the workflows you run and make
+them available on `PATH`.

@@ -1,21 +1,22 @@
-"""Run one shared ADC parameter configuration through the legacy model.
+"""Run one shared ADC parameter configuration through the behavioral model.
 
 Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral
 
 The generated CSV uses the same typed :class:`AdcConversion` schema as the
-physical scan. A small in-memory compatibility view is passed to the legacy
-transfer plotter; no legacy-format CSV is written.
+physical scan. A small in-memory compatibility view is passed to the transfer
+plotter; no legacy-format CSV is written.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import hdl21 as h
 
+from flow.adc.behavioral import SAR_ADC
 from flow.cdac import get_cdac_weights
-from flow.old.behavioral import SAR_ADC
 from flow.scans.params import AdcTbParams
 from flow.scans.plot import plot_adc_transfer
 from flow.scans.results import AdcConversion, write_adc_conversions
@@ -40,8 +41,8 @@ WRITE_PLOT = True
 # FRIDA ADC physical/configuration settings.
 ADC_CLOCK_HZ = float(PARAMS.symbol_rate) / len(PARAMS.seq_init_pattern)
 UNIT_CAPACITANCE = 1e-15
-PARASITIC_RATIO = 1.0  # Cpar/Cdac, passed into the legacy CDAC switching model.
-# Keep this false by default: flow.old.behavioral already uses Cpar in the DAC
+PARASITIC_RATIO = 1.0  # Cpar/Cdac, passed into the behavioral CDAC switching model.
+# Keep this false by default: the behavioral CDAC already uses Cpar in the DAC
 # switching denominator.  Applying an extra wrapper-level attenuation halves the
 # transfer range a second time and yields only about half the output codes.
 APPLY_INPUT_ATTENUATION = False
@@ -55,7 +56,7 @@ SWITCHING_STRAT = "monotonic"
 
 
 def build_frida_params() -> dict[str, dict[str, object]]:
-    """Build parameters for the legacy behavioral model matching FRIDA's ADC."""
+    """Build parameters for the behavioral model matching FRIDA's ADC."""
     cdac_capacitance = sum(CAP_WEIGHTS) * UNIT_CAPACITANCE
     parasitic_capacitance = PARASITIC_RATIO * cdac_capacitance
 
@@ -92,13 +93,13 @@ def input_attenuation(params: dict[str, dict[str, object]]) -> float:
     """Return optional sampled input gain from top-plate parasitic loading.
 
     This is available for experiments, but is disabled by default because the
-    legacy CDAC model already includes ``parasitic_capacitance`` in the DAC
+    behavioral CDAC model already includes ``parasitic_capacitance`` in the DAC
     switching denominator.  Enabling both mechanisms double-counts Cpar for the
     transfer curve.
     """
     cdac = params["CDAC"]
-    cdac_capacitance = sum(CAP_WEIGHTS) * float(cdac["unit_capacitance"])
-    parasitic_capacitance = float(cdac["parasitic_capacitance"])
+    cdac_capacitance = sum(CAP_WEIGHTS) * cast(float, cdac["unit_capacitance"])
+    parasitic_capacitance = cast(float, cdac["parasitic_capacitance"])
     return cdac_capacitance / (cdac_capacitance + parasitic_capacitance)
 
 
@@ -129,7 +130,7 @@ def main() -> None:
     adc = SAR_ADC(params)
     attenuation = input_attenuation(params) if APPLY_INPUT_ATTENUATION else 1.0
     if not isinstance(PARAMS.vin_diff, h.Vdc.Params):
-        raise TypeError("the legacy behavioral adapter currently requires a DC vin_diff")
+        raise TypeError("the behavioral adapter currently requires a DC vin_diff")
     vin_diff_v = float(PARAMS.vin_diff.dc)
     vin_cm_v = float(PARAMS.vin_cm.dc)
     vin_p = vin_cm_v + vin_diff_v / 2.0
@@ -138,11 +139,11 @@ def main() -> None:
     sampled_vin_n = vin_cm_v + attenuation * (vin_n - vin_cm_v)
 
     cdac_capacitance = sum(CAP_WEIGHTS) * UNIT_CAPACITANCE
-    cpar = params["CDAC"]["parasitic_capacitance"]
+    cpar = cast(float, params["CDAC"]["parasitic_capacitance"])
     print("Behavioral FRIDA ADC configuration")
     print(f"Cap weights C16..C1: {CAP_WEIGHTS}")
     print(f"Bit weights W16..W0: {CODE_WEIGHTS}")
-    print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={float(cpar) / 1e-15:.3f} fF")
+    print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
     print(f"Vin_p={vin_p:.6g} V, Vin_n={vin_n:.6g} V, sampled Vin_p={sampled_vin_p:.6g} V")
 

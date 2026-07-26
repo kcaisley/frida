@@ -9,7 +9,6 @@ dependencies = [
     "pydantic",
     "pytest",
     "argcomplete",
-    "siliconcompiler",
     "klayout",
     "protobuf",
     "hdl21",
@@ -69,11 +68,11 @@ exclude = ["libs/basil"]
 ignore = ["E741"]  # Allow 'l' for transistor length
 
 [tool.ruff.lint.per-file-ignores]
-"**/old/**" = ["F841", "F401"]
+"flow/adc/behavioral.py" = ["F841", "F401"]
 "pdk/**" = ["F401", "F403", "F405"]
 
 [tool.pytest.ini_options]
-testpaths = ["flow", "pdk"]
+testpaths = ["flow", "pdk", "test"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
 addopts = "-m 'not hw'"
 markers = [
