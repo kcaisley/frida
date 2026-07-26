@@ -16,14 +16,21 @@ from .subckt import (
     AdcParams,
     get_adc_weights,
 )
-from .testbench import AdcTb, AdcTbParams, sim_input
 
 __all__ = [
     "Adc",
-    "AdcParams",
     "AdcDigital",
-    "get_adc_weights",
+    "AdcParams",
     "AdcTb",
     "AdcTbParams",
+    "get_adc_weights",
     "sim_input",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"AdcTb", "AdcTbParams", "sim_input"}:
+        from importlib import import_module
+
+        return getattr(import_module(f"{__name__}.testbench"), name)
+    raise AttributeError(name)

@@ -21,6 +21,7 @@ from ..circuit import (
     select_variants,
     wrap_monte_carlo,
 )
+from ..circuit.commands import testbench_main
 from .subckt import (
     CapType,
     Cdac,
@@ -261,3 +262,7 @@ def run_simulate(
             outdir=str(outdir),
         )
     run_simulations(sims, sim_options, sim_server=sim_server)
+
+
+if __name__ == "__main__":
+    testbench_main("flow.cdac.testbench", "cdac", run_netlist, run_simulate)

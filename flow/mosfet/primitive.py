@@ -7,6 +7,7 @@ from pathlib import Path
 
 import klayout.db as kdb
 
+from ..circuit.commands import primitive_main
 from ..layout.dsl import (
     L,
     load_generic_layers,
@@ -265,3 +266,7 @@ def run_layout(tech: str, mode: str, visual: bool, outdir: Path) -> None:
         )
         if visual and artifacts.gds is not None:
             gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
+
+
+if __name__ == "__main__":
+    primitive_main("flow.mosfet.primitive", run_layout)

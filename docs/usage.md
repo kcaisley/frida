@@ -1,57 +1,62 @@
 # Usage
 
-FRIDA provides a small `flow` command for analog generation, simulation, and
-netlist conversion:
+FRIDA commands run through the Python module that owns the operation:
 
 ```text
-flow primitive   Generate layout primitives
-flow netlist     Generate circuit and testbench netlists
-flow simulate    Run SPICE simulations
-flow convert     Convert OA/CDL netlists
+python -m flow.<block>.primitive
+python -m flow.<block>.testbench
+python -m flow.util.netlist
+python -m flow.scans.<scan>
 ```
 
-Run commands from the repository root through `uv`:
+There is no installed `flow` executable or separate build-system orchestration
+layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
-uv run flow --help
-uv run flow netlist --help
+uv run python -m flow.comp.testbench --help
+uv run python -m flow.comp.testbench netlist --help
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools
-directly. There is no separate build-system orchestration layer.
+directly.
 
-## `flow primitive`
+## Layout primitives
 
-Generate GDS layout primitives:
+The MOSFET and MOM-capacitor generators are directly executable modules:
 
 ```bash
-uv run flow primitive -c <cell> [-t <tech>] [-m <mode>] [-v] [-o <dir>]
+uv run python -m flow.mosfet.primitive \
+  [-t <tech>] [-m <mode>] [-v] [-o <dir>]
+
+uv run python -m flow.momcap.primitive \
+  [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 ```
 
 | Option | Values | Default |
 |---|---|---|
-| `-c, --cell` | `mosfet`, `momcap` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
-| `-v, --visual` | open the result in KLayout | off |
+| `-v, --visual` | render the generated GDS | off |
 | `-o, --out` | output directory | `build` |
 
 ```bash
-uv run flow primitive -c mosfet -t ihp130 -m max -v
+uv run python -m flow.mosfet.primitive -t ihp130 -m max -v
 ```
 
-## `flow netlist`
+## Circuit netlists
 
-Generate one or more netlists:
+Each circuit testbench module generates its own netlists:
 
 ```bash
-uv run flow netlist -c <cell> [-t <tech>] [-m <mode>] \
-  [-f <format>] [--scope <scope>] [--montecarlo] [-o <dir>]
+uv run python -m flow.<block>.testbench netlist \
+  [-t <tech>] [-m <mode>] [-f <format>] \
+  [--scope <scope>] [--montecarlo] [-o <dir>]
 ```
+
+Replace `<block>` with `samp`, `comp`, `cdac`, or `adc`.
 
 | Option | Values | Default |
 |---|---|---|
-| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `max` |
 | `-f, --fmt` | `spectre`, `ngspice`, `verilog` | `spectre` |
@@ -60,7 +65,7 @@ uv run flow netlist -c <cell> [-t <tech>] [-m <mode>] \
 | `-o, --out` | output root | `build` |
 
 `min` writes the first ten parameter variants; `max` writes all valid
-variants. Results are written below `<output root>/<cell>/`.
+variants. Results are written below `<output root>/<block>/`.
 
 | Scope | Contents |
 |---|---|
@@ -71,31 +76,31 @@ variants. Results are written below `<output root>/<cell>/`.
 `verilog` only supports `--scope dut`. Monte Carlo requires `--scope full`.
 
 ```bash
-# Complete Spectre input for all comparator variants
-uv run flow netlist -c comp -t ihp130
+# Complete Spectre input for every comparator variant
+uv run python -m flow.comp.testbench netlist -t ihp130
 
 # DUT-only Verilog
-uv run flow netlist -c comp -t ihp130 --scope dut -f verilog
+uv run python -m flow.comp.testbench netlist -t ihp130 --scope dut -f verilog
 
-# Stimulus wrapper without analysis commands
-uv run flow netlist -c adc -t tsmc65 --scope stim
+# ADC stimulus wrapper without analysis commands
+uv run python -m flow.adc.testbench netlist -t tsmc65 --scope stim
 
-# Complete input with Monte Carlo analysis
-uv run flow netlist -c comp -t ihp130 --montecarlo
+# Complete comparator input with Monte Carlo analysis
+uv run python -m flow.comp.testbench netlist -t ihp130 --montecarlo
 ```
 
-## `flow simulate`
+## Circuit simulation
 
-Generate netlists and run a supported SPICE simulator:
+The same testbench modules run SPICE simulations:
 
 ```bash
-uv run flow simulate -c <cell> [-t <tech>] [-m <mode>] \
-  [-s <simulator>] [--host <host>] [--montecarlo] [-o <dir>]
+uv run python -m flow.<block>.testbench simulate \
+  [-t <tech>] [-m <mode>] [-s <simulator>] \
+  [--host <host>] [--montecarlo] [-o <dir>]
 ```
 
 | Option | Values | Default |
 |---|---|---|
-| `-c, --cell` | `samp`, `comp`, `cdac`, `adc` | required |
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
 | `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
@@ -103,47 +108,37 @@ uv run flow simulate -c <cell> [-t <tech>] [-m <mode>] \
 | `--montecarlo` | add Monte Carlo analysis | off |
 | `-o, --out` | output directory | `build` |
 
-Local simulation is restricted to the configured simulation hosts and requires
-the selected simulator executable on `PATH`. Supplying `--host` delegates the
-run to SpiceServer.
+Local simulation requires the selected simulator executable on `PATH` and a
+configured simulation host. Supplying `--host` delegates the run to
+SpiceServer.
 
 ```bash
-uv run flow simulate -c comp -t ihp130 -m min -s spectre
-uv run flow simulate -c comp -t tsmc65 -s spectre --host jupiter
+uv run python -m flow.comp.testbench simulate -t ihp130 -m min -s spectre
+uv run python -m flow.comp.testbench simulate -t tsmc65 -s spectre --host jupiter
 ```
 
 See [`spice_server.md`](spice_server.md) for remote-server setup.
 
-## `flow convert`
+## Netlist conversion
 
-Convert an OpenAccess schematic or an existing CDL file:
-
-```bash
-uv run flow convert --from <oa|cdl> --to <cdl|sp|sp_clean> \
-  --outdir <dir> [source options]
-```
-
-| Source | Supported outputs | Required source options |
-|---|---|---|
-| OpenAccess | `cdl`, `sp`, `sp_clean` | `--cdslib`, `--oalib`, `--oacell` |
-| CDL file | `sp`, `sp_clean` | `--file` |
-
-`sp_clean` removes filler and decap instances and normalizes OpenROAD hierarchy
-names. To reorder a subcircuit using a Verilog module declaration, pass
-`--verilog` and `--module` together.
+Netlist utilities are subcommands of their owning module:
 
 ```bash
-uv run flow convert \
-  --from cdl --to sp \
-  --file design/spice/core.cdl \
+uv run python -m flow.util.netlist oa-to-cdl \
+  --cdslib cadence/cds.lib --lib frida --cell core \
   --outdir build/netlist
 
-uv run flow convert \
-  --from oa --to sp_clean \
-  --cdslib cadence/cds.lib --oalib frida --oacell core \
-  --verilog design/hdl/frida_core.v --module frida_core \
-  --outdir build/netlist
+uv run python -m flow.util.netlist cdl-to-sp \
+  design/spice/core.cdl build/netlist/core.sp
+
+uv run python -m flow.util.netlist clean-cdl \
+  design/spice/core.cdl build/netlist/core.sp \
+  --verilog design/hdl/frida_core.v --module frida_core
 ```
+
+`clean-cdl` removes filler and decap instances and normalizes OpenROAD
+hierarchy names. Pass `--verilog` and `--module` together to reorder the
+subcircuit ports using a Verilog module declaration.
 
 ## Digital checks
 
@@ -168,23 +163,20 @@ sudo apt install iverilog
 ```
 
 Verible, Verilator, Yosys, and OpenROAD can likewise be run directly for
-linting, synthesis, and physical implementation. The existing OpenROAD design
-configuration is under `design/`; see [`openroad.md`](openroad.md) for the
-project-specific notes.
+linting, synthesis, and physical implementation. The OpenROAD configuration is
+under `design/`; see [`openroad.md`](openroad.md) for project-specific notes.
 
 ## ADC scans
 
-Hardware acquisition is a direct Basil workflow rather than a `flow`
-subcommand. Define the sweep in `flow/scans/params.py::build_variants()`, then
-run:
+Hardware acquisition is a direct Basil module:
 
 ```bash
 uv run python -m flow.scans.scan_adc
 ```
 
-The script configures the supplies, input stimulus, chip, clocks, sequencer,
-and FastRX. Each run writes typed acquisition CSV files and a manifest below a
-fresh timestamped `build/scan_adc/` directory.
+Define the sweep in `flow/scans/params.py::build_variants()`. Each run writes
+typed acquisition CSV files and a manifest below a fresh timestamped
+`build/scan_adc/` directory.
 
 Behavioral and SPICE-backed scans use the same acquisition schema:
 

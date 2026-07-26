@@ -8,7 +8,6 @@ dependencies = [
     "scipy",
     "pydantic",
     "pytest",
-    "argcomplete",
     "klayout",
     "protobuf",
     "hdl21",
@@ -35,9 +34,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["flow", "pdk"]
-
-[project.scripts]
-flow = "flow.cli:main"
 
 [tool.uv]
 package = true
