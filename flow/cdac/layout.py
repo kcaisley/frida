@@ -1,13 +1,52 @@
-import sys
-import klayout.db as db
-import cdac
+"""TSMC65-specific physical layout generator for the FRIDA capacitor array.
 
-# Get GDS layer purpose numbers for a PDK
-from utils.layers import load_layers_from_lyt
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+WARNING: TRANSITIONAL ARRAY-LAYOUT CODE
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+The single MOM-capacitor layout used here has been reimplemented as the
+technology-aware generator in :mod:`flow.momcap.primitive`. That implementation
+is the source of truth for an individual MOM capacitor.
+
+This module is retained because it still contains unique FRIDA array placement,
+shielding, via, routing, and pin-generation logic. Its locally constructed unit
+cell duplicates the older single-MOM implementation and must eventually be
+replaced by instances generated through ``flow.momcap.primitive``.
+
+Do not copy new single-capacitor geometry or design rules into this file.
+"""
+
+from __future__ import annotations
+
+import argparse
+from importlib import import_module
+from pathlib import Path
+from typing import Any
+
+from klayout import db
+
+from flow.layout.dsl import load_generic_layers
+from flow.layout.tech import remap_layers
+
+from .subckt import CdacParams, get_cdac_weights
 
 # TODO: This implementation works for my technology of choice, but has many 'magic numbers' which won't work on another technology.
 # In the future, I should factor these out use something like 'lambda rules', to be technology agnostic.
+
+FRIDA_CAP_WEIGHTS = (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)
+UNARY_WEIGHT = 64
+
+
+def partition_weights(weights: list[int], coarse_weight: int) -> list[list[int]]:
+    """Split each electrical weight into physical coarse units and a remainder."""
+    partitioned = []
+    for weight in weights:
+        chunks = [coarse_weight] * (weight // coarse_weight)
+        remainder = weight % coarse_weight
+        if remainder:
+            chunks.append(remainder)
+        partitioned.append(chunks)
+    return partitioned
 
 
 def ring(width, height, thickness):
@@ -106,7 +145,6 @@ def create_m5_shielding_with_cutouts(
     inset = 0.12  # Distance from edge
 
     # Calculate actual via positions (matching the via creation logic)
-    x_offset = strips_xspace + ring_thickness
     y_offset = strips_yspace + ring_thickness
     via_inset = 0.12
     via_cutout_size = 0.32
@@ -119,10 +157,8 @@ def create_m5_shielding_with_cutouts(
 
     # Define exclusion zones around actual via positions
     via_margin = 0.2  # Margin around via cutouts
-    bottom_exclusion_start = bottom_via_y - via_margin
     bottom_exclusion_end = bottom_via_y + via_cutout_size + via_margin
     top_exclusion_start = top_via_y - via_margin
-    top_exclusion_end = top_via_y + via_cutout_size + via_margin
 
     # Calculate usable Y space (between via exclusion zones)
     usable_y_start = bottom_exclusion_end
@@ -176,8 +212,6 @@ def create_strip_end_cutouts_and_vias(
     strips_xdim,
     strips_ydim_base,
     strips_yspace,
-    strips_ydim_step,
-    strip_ydim_diff,
     strips_xspace,
     ring_thickness,
     layers,
@@ -199,16 +233,6 @@ def create_strip_end_cutouts_and_vias(
     cutout_size = 0.32
     via_inset = 0.12  # 0.12um inset from strip ends
     m5_square_size = 0.12  # 0.12x0.12 um M5 metal squares
-
-    # Calculate strip positions (matching the strip_pair function)
-    y1 = strips_ydim_base + strips_yspace
-    ydiff = strips_ydim_step * strip_ydim_diff
-
-    # Strip 1 dimensions
-    strip1_height = strips_ydim_base + ydiff
-    # Strip 2 dimensions
-    strip2_y_start = y1 + ydiff
-    strip2_height = strips_ydim_base
 
     # Account for positioning offset due to centering inside ring
     x_offset = strips_xspace + ring_thickness
@@ -316,8 +340,6 @@ def unit_length_cap(
         strips_xdim,
         strips_ydim_base,
         strips_yspace,
-        strips_ydim_step,
-        strips_ydim_diff,
         strips_xspace,
         ring_xdim,
         layers,
@@ -485,30 +507,30 @@ def create_m4_routing_strips(
     return m4_shapes, m4_pin_labels
 
 
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python caparray.py <output_path>")
-        sys.exit(1)
+def build_layout(cell_name: str, pdk_layout: Any) -> db.Layout:
+    """Build the transitional FRIDA capacitor-array layout.
 
-    output_path = sys.argv[1]
-
-    # Extract cell name from output path
-    import os
-
-    cell_name = os.path.splitext(os.path.basename(output_path))[0]
-    lyt_file_path = "~/asiclab/tech/tsmc65/tsmc65.lyt"
-
-    # Calculate weights and perform analysis
-    unary_weight = 64
-    weights, w_base, w_redun = cdac.generate_weights(11, 8, [5, 6], 2)
-    print(f"Base weights: {w_base}, Redundant weights: {w_redun}")
-    partitioned_weights = cdac.analyze_weights(weights, unary_weight)
+    ``pdk_layout`` supplies ``DBU`` and ``layer_map()``. Keeping it injectable
+    lets the geometry be regression-tested without a site-specific PDK install.
+    """
+    # Preserve the physical array implemented by the original generator while
+    # validating its electrical weights through the maintained CDAC API.
+    weights = get_cdac_weights(
+        CdacParams(
+            n_dac=11,
+            n_extra=5,
+            weights=FRIDA_CAP_WEIGHTS,
+        )
+    )
+    partitioned_weights = partition_weights(weights, UNARY_WEIGHT)
+    print(f"CDAC weights: {weights}")
+    print(f"Partitioned weights: {partitioned_weights}")
 
     # Physical dimensions
     strips_xdim = 0.120
     strips_ydim_min = 1
     strips_ydim_step = 0.4
-    strips_ydim_base = strips_ydim_min + (strips_ydim_step * unary_weight)
+    strips_ydim_base = strips_ydim_min + (strips_ydim_step * UNARY_WEIGHT)
 
     strips_xspace = 0.1
     strips_yspace = 0.1
@@ -520,11 +542,19 @@ def main():
     interior_x = strips_xdim + 2 * strips_xspace
     interior_y = strips_ydim + 2 * strips_yspace
 
-    # Create layout and load layers from technology file
+    # Build on generic layers, then remap to the maintained PDK layer map.
     ly = db.Layout()
-    ly.dbu = 0.001  # sets the database unit to 1 nm
-
-    layers = load_layers_from_lyt(ly, lyt_file_path)
+    ly.dbu = pdk_layout.DBU
+    generic = load_generic_layers(ly)
+    layers = {
+        "M4": generic.M4,
+        "M5": generic.M5,
+        "M6": generic.M6,
+        "VIA4": generic.VIA4,
+        "VIA5": generic.VIA5,
+        "PIN4": generic.PIN4,
+        "PIN6": generic.PIN6,
+    }
 
     # Create the top-level cell
     top_cell = ly.create_cell(cell_name)
@@ -579,9 +609,8 @@ def main():
         top_cell.shapes(layers["M4"]).insert(shape)
 
     # Add M4 pin labels and rectangles to the top cell on M4.PIN layer
-    if "M4" in layers:
-        # Create M4.PIN layer (layer 134, datatype 0 based on LEF file pattern)
-        m4_pin_layer = ly.layer(134, 0, "M4.PIN")
+    if "PIN4" in layers:
+        m4_pin_layer = layers["PIN4"]
 
         # Pin rectangle size (0.01 x 0.01 μm)
         pin_rect_size = 0.01
@@ -601,9 +630,8 @@ def main():
             top_cell.shapes(m4_pin_layer).insert(pin_rect)
 
     # Add cap_topplate pin label and rectangle at top left corner of the first capacitor's outer ring
-    if "M6" in layers:
-        # Create M6.PIN layer for the top plate connection
-        m6_pin_layer = ly.layer(136, 0, "M6.PIN")
+    if "PIN6" in layers:
+        m6_pin_layer = layers["PIN6"]
 
         # Position centered in the top ring of the first (leftmost) capacitor
         topplate_x = 0 + 0.06  # Right 0.06 from left edge
@@ -623,8 +651,32 @@ def main():
         )
         top_cell.shapes(m6_pin_layer).insert(topplate_rect)
 
-    # Write the layout
-    ly.write(output_path)
+    # Convert generic layer identifiers to the selected PDK before writing.
+    remap_layers(ly, pdk_layout.layer_map())
+    return ly
+
+
+def main() -> None:
+    """Generate the transitional TSMC65 FRIDA capacitor-array layout."""
+    parser = argparse.ArgumentParser(
+        prog="python -m flow.cdac.layout",
+        description="Generate the legacy FRIDA capacitor-array GDS",
+    )
+    parser.add_argument("output", type=Path, help="Output GDS path")
+    parser.add_argument(
+        "-t",
+        "--tech",
+        default="tsmc65",
+        choices=("tsmc65",),
+        help="Target technology; this transitional generator is currently TSMC65-specific",
+    )
+    args = parser.parse_args()
+    output_path: Path = args.output
+    pdk_layout = import_module(f"pdk.{args.tech}.layout")
+    ly = build_layout(output_path.stem, pdk_layout)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ly.write(str(output_path))
     print(f"Layout written to: {output_path}")
 
 

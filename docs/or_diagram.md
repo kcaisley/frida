@@ -18,7 +18,7 @@ Inputs
 ├── primitive lefs      (from primitive generator sweep)
 └── netlist             (from hdl21 compilation of e.g. Comp)
 
-layout.py  (runs in FRIDA under uv, called by `flow layout`)
+layout.py  (passed directly to OpenROAD)
 │
 ├── 1. Netlist analysis
 │   ├── extract symmetric pairs from naming / topology (_p ↔ _n)
@@ -94,7 +94,7 @@ flowchart LR
         netlist[/"netlist<br/>(hdl21 Comp)"/]
     end
 
-    subgraph layout ["layout.py — runs in FRIDA (uv run flow layout)"]
+    subgraph layout ["layout.py — passed directly to OpenROAD"]
         direction LR
 
         analysis["1. Netlist analysis<br/>• symmetry pair extraction<br/>• partition into half-A / half-B<br/>• stem-cell mapping<br/>• emit half-circuit verilog"]

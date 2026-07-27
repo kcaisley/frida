@@ -11,7 +11,7 @@ root = [
 ]
 
 [src]
-exclude = ["libs/", "old/", ".venv/"]
+exclude = ["libs/", ".venv/"]
 
 # Suppress rules that mostly fire on library metaprogramming / incomplete
 # type stubs (hdl21, pydantic, numpy, matplotlib). Re-enable as ty matures.

@@ -9,10 +9,27 @@ from hdl21.pdk import Corner
 
 # ==== Helpers ====
 
+_SUPPORTED_TECHS = ("ihp130", "tsmc65", "tsmc28", "tower180")
+
+
+def _pdk_module(tech: str, suffix: str = ""):
+    """Import a PDK module, skipping when its git submodule is unavailable."""
+    package = f"pdk.{tech}"
+    module_name = f"{package}.{suffix}" if suffix else package
+    try:
+        module = import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name in {package, module_name}:
+            pytest.skip(f"{package} is unavailable; initialize the {package.replace('.', '/')} git submodule")
+        raise
+    if suffix == "" and getattr(module, "__file__", None) is None:
+        pytest.skip(f"{package} is unavailable; initialize the {package.replace('.', '/')} git submodule")
+    return module
+
 
 def _install_class(tech: str):
     """Import and return the Install class for a given PDK."""
-    return import_module(f"pdk.{tech}.pdk_logic").Install
+    return _pdk_module(tech, "pdk_logic").Install
 
 
 _LOCAL_INSTALL_BASES = {
@@ -25,33 +42,33 @@ _LOCAL_INSTALL_BASES = {
 # ==== Supply-Rail Metadata ====
 
 
-def test_supply_rails_have_vdd() -> None:
+@pytest.mark.parametrize("tech", _SUPPORTED_TECHS)
+def test_supply_rails_have_vdd(tech: str) -> None:
     """Each supported PDK exposes at least one VDD rail entry."""
-    for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
-        cls = _install_class(tech)
-        assert "VDD" in cls.SUPPLY_RAILS, f"{tech} missing VDD in SUPPLY_RAILS"
-        assert cls.SUPPLY_RAILS["VDD"]["nominal"] > 0.0
+    cls = _install_class(tech)
+    assert "VDD" in cls.SUPPLY_RAILS, f"{tech} missing VDD in SUPPLY_RAILS"
+    assert cls.SUPPLY_RAILS["VDD"]["nominal"] > 0.0
 
 
-def test_install_supply_voltage_corner_mapping() -> None:
+@pytest.mark.parametrize("tech", _SUPPORTED_TECHS)
+def test_install_supply_voltage_corner_mapping(tech: str) -> None:
     """Install.supply_voltage() maps corners to min/nominal/max."""
-    for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
-        cls = _install_class(tech)
-        vdd = cls.SUPPLY_RAILS["VDD"]
-        assert cls.supply_voltage(Corner.SLOW, "VDD") == vdd["min"]
-        assert cls.supply_voltage(Corner.TYP, "VDD") == vdd["nominal"]
-        assert cls.supply_voltage(Corner.FAST, "VDD") == vdd["max"]
+    cls = _install_class(tech)
+    vdd = cls.SUPPLY_RAILS["VDD"]
+    assert cls.supply_voltage(Corner.SLOW, "VDD") == vdd["min"]
+    assert cls.supply_voltage(Corner.TYP, "VDD") == vdd["nominal"]
+    assert cls.supply_voltage(Corner.FAST, "VDD") == vdd["max"]
 
 
-def test_supplyvals_resolves_via_install() -> None:
+@pytest.mark.parametrize("tech", _SUPPORTED_TECHS)
+def test_supplyvals_resolves_via_install(tech: str) -> None:
     """SupplyVals.corner() resolves VDD through Install.supply_voltage()."""
     from flow.circuit.params import SupplyVals
 
-    for tech in ("ihp130", "tsmc65", "tsmc28", "tower180"):
-        cls = _install_class(tech)
-        expected = cls.supply_voltage(Corner.TYP, "VDD")
-        vals = SupplyVals.corner(Corner.TYP, tech_name=tech)
-        assert float(vals.VDD) == expected
+    cls = _install_class(tech)
+    expected = cls.supply_voltage(Corner.TYP, "VDD")
+    vals = SupplyVals.corner(Corner.TYP, tech_name=tech)
+    assert float(vals.VDD) == expected
 
 
 # ==== Walker Scaling of Unitless MOS Dimensions ====
@@ -78,8 +95,8 @@ def test_unitless_mos_dimensions_scale_by_pdk_defaults(
     - `w=2*UNIT` -> `2 * pdk_default_w`
     - `l=1*UNIT` -> `1 * pdk_default_l`
     """
-    pdk_module = import_module(f"pdk.{tech_name}")
-    compile_fn = getattr(pdk_module, "compile")
+    pdk_module = _pdk_module(tech_name)
+    compile_fn = pdk_module.compile
 
     @h.module
     class Dut:
@@ -97,34 +114,20 @@ def test_unitless_mos_dimensions_scale_by_pdk_defaults(
 # Base installation paths are defined here in the test harness.
 # Run pdk/<tech>/local.sh to populate the local /eda/kits/ cache from asiclab003.
 
-_LOCAL_INSTALL_TECHS = ("tsmc65", "tsmc28", "tower180")
-
-
-def _local_spice_params():
-    """Collect (tech, install, resolved_path) tuples for local-install validation."""
-    params = []
-    for tech in _LOCAL_INSTALL_TECHS:
-        cls = _install_class(tech)
-        install = cls(pdk_path=_LOCAL_INSTALL_BASES[tech])
-        for relpath in cls.LOCAL_SPICE_FILES:
-            params.append(
-                pytest.param(
-                    tech,
-                    install,
-                    install.pdk_path / relpath,
-                    id=f"{tech}/{relpath.name}",
-                )
-            )
-    return params
-
-
-@pytest.mark.parametrize("tech, install, path", _local_spice_params())
-def test_local_pdk_spice_files_exist(tech: str, install, path: Path) -> None:
+@pytest.mark.site_pdk
+@pytest.mark.parametrize("tech", _LOCAL_INSTALL_BASES)
+def test_local_pdk_spice_files_exist(tech: str) -> None:
     """Verify that locally cached PDK SPICE files are present.
 
     The test harness supplies each PDK's site-specific base path and instantiates
     its Install object locally. If this test fails, run:
         bash pdk/<tech>/local.sh
     """
+    cls = _install_class(tech)
+    install = cls(pdk_path=_LOCAL_INSTALL_BASES[tech])
+    paths = [install.pdk_path / relpath for relpath in cls.LOCAL_SPICE_FILES]
+
     assert install.pdk_path == _LOCAL_INSTALL_BASES[tech]
-    assert path.exists(), f"Missing local PDK file: {path}\nRun bash pdk/{tech}/local.sh to sync from asiclab003."
+    assert paths, f"{tech} does not define any LOCAL_SPICE_FILES"
+    missing = [path for path in paths if not path.exists()]
+    assert not missing, f"Missing local PDK files: {missing}\nRun bash pdk/{tech}/local.sh to sync from asiclab003."

@@ -1,3 +1,5 @@
+"""Cocotb checks shared by the behavioral and explicit-cell SPI registers."""
+
 import cocotb
 from cocotb.triggers import Timer
 

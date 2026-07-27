@@ -26,7 +26,10 @@ _plt = None
 
 def configure_matplotlib():
     """
-    Configure matplotlib for headless plotting with LaTeX.
+    Configure matplotlib for headless plotting.
+
+    External LaTeX rendering is opt-in through ``FRIDA_USE_TEX=1`` so plots
+    remain portable on machines without a complete TeX font installation.
 
     Returns:
         matplotlib.pyplot module
@@ -49,11 +52,13 @@ def configure_matplotlib():
     finally:
         sys.stdout = old_stdout
 
+    use_tex = os.getenv("FRIDA_USE_TEX", "").lower() in {"1", "true", "yes"}
     plt.rcParams.update(
         {
-            "text.usetex": True,
+            "text.usetex": use_tex,
+            "mathtext.fontset": "cm",
             "font.family": "serif",
-            "font.serif": ["Computer Modern Roman"],
+            "font.serif": ["Computer Modern Roman", "DejaVu Serif"],
             "font.size": 11,
             "axes.titlesize": 12,
             "axes.labelsize": 11,
@@ -67,7 +72,6 @@ def configure_matplotlib():
 
 def _get_plt():
     """Get pyplot, configuring if needed."""
-    global _plt
     if _plt is None:
         configure_matplotlib()
     assert _plt is not None
@@ -95,7 +99,7 @@ def save_plot(fig, filename_base: str, output_dir: Path = Path("build")) -> list
         try:
             fig.savefig(path, dpi=150 if ext == "png" else None)
             saved.append(str(path))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - keep saving the other format
             print(f"Warning: Could not save {path}: {e}")
 
     return saved
@@ -530,7 +534,7 @@ def plot_monte_carlo_histogram(
         transform=ax.transAxes,
         verticalalignment="top",
         fontsize=9,
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8},
     )
 
     if title:

@@ -57,7 +57,8 @@ gtkwave and bspwave both understand natively (see Step 4).
 
 ### 3. SPICE netlist format for Spectre's parser
 
-Post-process with `fix_spice_for_spectre()` in `flow netlist` (see Step 2).
+Post-process with `fix_spice_for_spectre()` in the relevant
+`flow.<block>.testbench` module (see Step 2).
 
 ### 4. Connect module configuration for supplies
 
@@ -117,7 +118,7 @@ read. The generated `.sp` files need post-processing:
 5. **Subcircuit naming**: Use simple names (e.g. `comp`) not hashed names
    (`Comp_a427ac9f7a74...`)
 
-Post-processing script (or integrate into `flow netlist`):
+Post-processing script (or integrate into the relevant testbench module):
 ```python
 def fix_spice_for_spectre(inpath: Path, outpath: Path, subckt_name: str):
     """Post-process HDL21 ngspice netlist for Spectre AMS compatibility."""
@@ -203,8 +204,8 @@ Fix the HDL21 comparator netlist generator so it produces correct SPICE.
 Verify by generating both the DUT subcircuit and a SPICE testbench, then
 running a standalone Spectre simulation.
 
-1. Fix `flow netlist --scope dut` to produce a clean `.subckt` (Step 2 fixes)
-2. Fix `flow netlist --scope sim` to produce a self-contained SPICE testbench
+1. Fix `python -m flow.<block>.testbench netlist --scope dut` to produce a clean `.subckt` (Step 2 fixes)
+2. Fix `python -m flow.<block>.testbench netlist --scope stim` to produce a self-contained SPICE testbench
    (Vpwl/Vpulse sources, transient analysis, PDK model includes)
 3. Run `spectre comp_sim.sp` and verify the comparator toggles correctly
 4. Parse the `.raw` output to confirm expected waveforms
@@ -533,7 +534,7 @@ def run_ams_cocotb_singlepass(
 
 **Pass criterion**: cocotb drives all stimulus, reads outputs and internal
 nodes. Same waveform results as Steps 5/6 but with no inline Verilog
-stimulus. Runs via `python test_comp.py` (direct) or `uv run flow simulate`.
+stimulus. Runs through `python -m flow.comp.testbench simulate`.
 
 ---
 
@@ -546,7 +547,8 @@ move from `build/test*/` to `flow/` and `design/` as appropriate.
 
 ### Step 8: HDL21 scope=cosim netlist generation
 
-Add `--scope cosim` to `flow netlist` to generate AMS-ready files.
+Add `--scope cosim` to the testbench-module `netlist` command to generate
+AMS-ready files.
 For Xcelium AMS, this means:
 
 | Scope | Produces | Purpose |
@@ -658,7 +660,7 @@ For block-level characterization (standalone Xcelium AMS):
 
 ### Step 11: Basil contributions (for integration test path)
 
-The `flow simulate` CLI (Step 7) handles cocotb + Xcelium AMS launching
+The module-level testbench command (Step 7) handles cocotb + Xcelium AMS launching
 directly. Basil contributions are needed only for integration tests that
 use the full FPGA + chip + analog path via SiSim/SerialSim.
 
@@ -698,7 +700,7 @@ driving `wreal` ports via `real` variables (see Step 5 signal chain).
 
 3. **SPICE netlist format**: HDL21's ngspice netlister output needs
    post-processing for Spectre compatibility. Integrate
-   `fix_spice_for_spectre()` into `flow netlist` (Step 2).
+   `fix_spice_for_spectre()` into the relevant testbench module (Step 2).
 
 4. ~~**VCD wreal compatibility**~~: **Resolved.** Mirror `wreal` → `real`
    in testbench with selective `$dumpvars` (Step 5). VCD contains only

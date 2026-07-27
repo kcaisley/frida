@@ -9,13 +9,20 @@ Exports:
 """
 
 from .subckt import Samp, SampParams, SwitchType
-from .testbench import SampTb, SampTbParams, sim_input
 
 __all__ = [
     "Samp",
     "SampParams",
-    "SwitchType",
     "SampTb",
     "SampTbParams",
+    "SwitchType",
     "sim_input",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"SampTb", "SampTbParams", "sim_input"}:
+        from importlib import import_module
+
+        return getattr(import_module(f"{__name__}.testbench"), name)
+    raise AttributeError(name)

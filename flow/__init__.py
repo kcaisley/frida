@@ -15,8 +15,6 @@ from .cdac import (
     CapType,
     Cdac,
     CdacParams,
-    CdacTb,
-    CdacTbParams,
     RedunStrat,
     SplitStrat,
     get_cdac_n_bits,
@@ -73,10 +71,10 @@ from .circuit import (
     # Simulation options
     sim_options,
 )
-from .comp import Comp, CompParams, CompTb, CompTbParams, is_valid_comp_params
-from .samp import Samp, SampParams, SampTb, SampTbParams, SwitchType
+from .comp import Comp, CompParams, is_valid_comp_params
+from .samp import Samp, SampParams, SwitchType
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - grouped by API domain
     # Generators
     "Samp",
     "SampParams",
@@ -146,3 +144,21 @@ __all__ = [
     "save_plot",
     # Pytest
 ]
+
+_TESTBENCH_EXPORTS = {
+    "CdacTb": ("flow.cdac.testbench", "CdacTb"),
+    "CdacTbParams": ("flow.cdac.testbench", "CdacTbParams"),
+    "CompTb": ("flow.comp.testbench", "CompTb"),
+    "CompTbParams": ("flow.comp.testbench", "CompTbParams"),
+    "SampTb": ("flow.samp.testbench", "SampTb"),
+    "SampTbParams": ("flow.samp.testbench", "SampTbParams"),
+}
+
+
+def __getattr__(name: str):
+    if name in _TESTBENCH_EXPORTS:
+        from importlib import import_module
+
+        module_name, attribute = _TESTBENCH_EXPORTS[name]
+        return getattr(import_module(module_name), attribute)
+    raise AttributeError(name)
