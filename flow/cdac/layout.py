@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 from klayout import db
 
@@ -506,24 +507,12 @@ def create_m4_routing_strips(
     return m4_shapes, m4_pin_labels
 
 
-def main() -> None:
-    """Generate the transitional TSMC65 FRIDA capacitor-array layout."""
-    parser = argparse.ArgumentParser(
-        prog="python -m flow.cdac.layout",
-        description="Generate the legacy FRIDA capacitor-array GDS",
-    )
-    parser.add_argument("output", type=Path, help="Output GDS path")
-    parser.add_argument(
-        "-t",
-        "--tech",
-        default="tsmc65",
-        choices=("tsmc65",),
-        help="Target technology; this transitional generator is currently TSMC65-specific",
-    )
-    args = parser.parse_args()
-    output_path: Path = args.output
-    cell_name = output_path.stem
+def build_layout(cell_name: str, pdk_layout: Any) -> db.Layout:
+    """Build the transitional FRIDA capacitor-array layout.
 
+    ``pdk_layout`` supplies ``DBU`` and ``layer_map()``. Keeping it injectable
+    lets the geometry be regression-tested without a site-specific PDK install.
+    """
     # Preserve the physical array implemented by the original generator while
     # validating its electrical weights through the maintained CDAC API.
     weights = get_cdac_weights(
@@ -554,7 +543,6 @@ def main() -> None:
     interior_y = strips_ydim + 2 * strips_yspace
 
     # Build on generic layers, then remap to the maintained PDK layer map.
-    pdk_layout = import_module(f"pdk.{args.tech}.layout")
     ly = db.Layout()
     ly.dbu = pdk_layout.DBU
     generic = load_generic_layers(ly)
@@ -665,6 +653,28 @@ def main() -> None:
 
     # Convert generic layer identifiers to the selected PDK before writing.
     remap_layers(ly, pdk_layout.layer_map())
+    return ly
+
+
+def main() -> None:
+    """Generate the transitional TSMC65 FRIDA capacitor-array layout."""
+    parser = argparse.ArgumentParser(
+        prog="python -m flow.cdac.layout",
+        description="Generate the legacy FRIDA capacitor-array GDS",
+    )
+    parser.add_argument("output", type=Path, help="Output GDS path")
+    parser.add_argument(
+        "-t",
+        "--tech",
+        default="tsmc65",
+        choices=("tsmc65",),
+        help="Target technology; this transitional generator is currently TSMC65-specific",
+    )
+    args = parser.parse_args()
+    output_path: Path = args.output
+    pdk_layout = import_module(f"pdk.{args.tech}.layout")
+    ly = build_layout(output_path.stem, pdk_layout)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ly.write(str(output_path))
     print(f"Layout written to: {output_path}")

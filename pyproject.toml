@@ -6,6 +6,8 @@ dependencies = [
     # Core
     "numpy",
     "scipy",
+    "matplotlib",
+    "pyyaml",
     "pydantic",
     "pytest",
     "klayout",
@@ -20,6 +22,7 @@ dependencies = [
     "vcdvcd",
     "pexpect",
     "gitpython",
+    "setuptools",  # basil imports pkg_resources at runtime
     "bitarray",
     "pyvisa",
     "pyvisa-py",
@@ -70,9 +73,10 @@ ignore = ["E741"]  # Allow 'l' for transistor length
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
-addopts = "-m 'not hw'"
+addopts = "-m 'not hw and not site_pdk'"
 markers = [
     "hw: requires physical FPGA or laboratory hardware (deselected by default)",
+    "site_pdk: requires site-local PDK installations under /eda/kits (deselected by default)",
 ]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
