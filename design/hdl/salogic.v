@@ -26,8 +26,8 @@ module salogic (
     input wire        comp_n,        // Comparator output negative used for state update
 
     // Outputs
-    output reg [15:0] dac_state_p,  // Current output register positive
-    output reg [15:0] dac_state_n   // Current output register negative
+    output wire [15:0] dac_state_p,  // Current output register positive
+    output wire [15:0] dac_state_n   // Current output register negative
 
     // Power supply signals
 `ifdef USE_POWER_PINS
