@@ -1,5 +1,6 @@
 """Smoke tests for the CDAC generator."""
 
+from .layout import FRIDA_CAP_WEIGHTS, UNARY_WEIGHT, partition_weights
 from .subckt import Cdac, CdacParams, RedunStrat, get_cdac_weights
 
 
@@ -42,3 +43,10 @@ def test_explicit_cdac_weights_are_validated():
             pass
         else:
             raise AssertionError(f"accepted invalid explicit weights {weights}")
+
+
+def test_transitional_layout_preserves_frida_weights():
+    partitioned = partition_weights(list(FRIDA_CAP_WEIGHTS), UNARY_WEIGHT)
+
+    assert [sum(group) for group in partitioned] == list(FRIDA_CAP_WEIGHTS)
+    assert all(0 < chunk <= UNARY_WEIGHT for group in partitioned for chunk in group)

@@ -32,6 +32,17 @@ uv run python -m flow.momcap.primitive \
   [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 ```
 
+The transitional TSMC65 FRIDA capacitor-array generator is also preserved as:
+
+```bash
+uv run python -m flow.cdac.layout [-t tsmc65] <output.gds>
+```
+
+`flow.momcap.primitive` is the maintained source of truth for an individual
+MOM capacitor. The CDAC layout module retains unique array placement, shielding,
+via, routing, and pin logic, but still duplicates the older single-capacitor
+geometry and must eventually instantiate the maintained MOM generator.
+
 | Option | Values | Default |
 |---|---|---|
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
