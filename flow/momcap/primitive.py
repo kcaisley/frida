@@ -7,6 +7,7 @@ from pathlib import Path
 
 import klayout.db as kdb
 
+from ..circuit.commands import primitive_main
 from ..layout.dsl import (
     L,
     load_generic_layers,
@@ -156,7 +157,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
         paint_plate_and_ring(G.M5)
         paint_plate_and_ring(G.M6)
         # VIA4: connects M4 ↔ M5
-        v4_R = getattr(R, "VIA4")
+        v4_R = R.VIA4
         v4_w = v4_R.width
         v4_sp = getattr(v4_R.spacing, "VIA4", v4_w)
         fill_inner_vias(G.VIA4, v4_w, v4_sp)
@@ -170,7 +171,7 @@ def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
         paint_plate_and_ring(G.M6)
         paint_plate_and_ring(G.M7)
         # VIA5: connects M5 ↔ M6
-        v5_R = getattr(R, "VIA5")
+        v5_R = R.VIA5
         v5_w = v5_R.width
         v5_sp = getattr(v5_R.spacing, "VIA5", v5_w)
         fill_inner_vias(G.VIA5, v5_w, v5_sp)
@@ -241,3 +242,7 @@ def run_layout(tech: str, mode: str, visual: bool, outdir: Path) -> None:
         )
         if visual and artifacts.gds is not None:
             gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
+
+
+if __name__ == "__main__":
+    primitive_main("flow.momcap.primitive", run_layout)

@@ -22,6 +22,7 @@ from ..circuit import (
     select_variants,
     wrap_monte_carlo,
 )
+from ..circuit.commands import testbench_main
 from ..comp import CompParams
 from ..samp import SampParams
 from .subckt import Adc, AdcParams
@@ -376,3 +377,7 @@ def run_simulate(
             outdir=str(outdir),
         )
     run_simulations(sims, sim_options, sim_server=sim_server)
+
+
+if __name__ == "__main__":
+    testbench_main("flow.adc.testbench", "adc", run_netlist, run_simulate)

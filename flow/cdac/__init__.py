@@ -21,18 +21,25 @@ from .subckt import (
     get_cdac_weights,
     is_valid_cdac_params,
 )
-from .testbench import CdacTb, CdacTbParams, sim_input
 
 __all__ = [
     "CapType",
     "Cdac",
     "CdacParams",
-    "RedunStrat",
-    "SplitStrat",
-    "is_valid_cdac_params",
-    "get_cdac_weights",
-    "get_cdac_n_bits",
     "CdacTb",
     "CdacTbParams",
+    "RedunStrat",
+    "SplitStrat",
+    "get_cdac_n_bits",
+    "get_cdac_weights",
+    "is_valid_cdac_params",
     "sim_input",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"CdacTb", "CdacTbParams", "sim_input"}:
+        from importlib import import_module
+
+        return getattr(import_module(f"{__name__}.testbench"), name)
+    raise AttributeError(name)

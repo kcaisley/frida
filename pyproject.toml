@@ -7,10 +7,12 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
+<<<<<<< HEAD
+=======
+    "pyyaml",
+>>>>>>> refs/remotes/origin/main
     "pydantic",
     "pytest",
-    "argcomplete",
-    "siliconcompiler",
     "klayout",
     "protobuf",
     "hdl21",
@@ -23,6 +25,7 @@ dependencies = [
     "vcdvcd",
     "pexpect",
     "gitpython",
+    "setuptools",  # basil imports pkg_resources at runtime
     "bitarray",
     "pyvisa",
     "pyvisa-py",
@@ -42,9 +45,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["flow", "pdk"]
-
-[project.scripts]
-flow = "flow.cli:main"
 
 [tool.uv]
 package = true
@@ -75,15 +75,16 @@ exclude = ["libs/basil"]
 ignore = ["E741"]  # Allow 'l' for transistor length
 
 [tool.ruff.lint.per-file-ignores]
-"**/old/**" = ["F841", "F401"]
+"flow/adc/behavioral.py" = ["F841", "F401"]
 "pdk/**" = ["F401", "F403", "F405"]
 
 [tool.pytest.ini_options]
-testpaths = ["flow", "pdk"]
+testpaths = ["flow", "pdk", "test"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
-addopts = "-m 'not hw'"
+addopts = "-m 'not hw and not site_pdk'"
 markers = [
     "hw: requires physical FPGA or laboratory hardware (deselected by default)",
+    "site_pdk: requires site-local PDK installations under /eda/kits (deselected by default)",
 ]
 # Suppress protobuf deprecation warning from vlsirtools dependency.
 # The warning is about Python 3.14 C API changes in google._upb._message.
