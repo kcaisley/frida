@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from bitarray import bitarray
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from flow.adc import AdcParams
 from flow.cdac import CdacParams, RedunStrat
+from flow.analysis.models import AdcConversion
 from flow.scans import scan_adc
 from flow.scans.loopback_fastrx import (
     SCOPE_DECISION_SAMPLE_FRACTION,
     extract_scope_decisions,
 )
 from flow.scans.params import AdcTbParams, load_board_map
-from flow.scans.plot import decision_path_from_bbits, filter_decision_path_rows, transfer_points
 from flow.scans.scan_spice import (
     bits_to_word,
     convert_raw_to_adc_conversions,
@@ -22,6 +24,8 @@ from flow.scans.scan_spice import (
     require_signal,
     rising_edges,
 )
+from flow.scans.results import write_adc_conversions
+from flow.scans.scope import write_scope_csv
 
 
 def serializer_params(**overrides) -> AdcTbParams:
@@ -68,6 +72,49 @@ def unpack_spi_payload(payload: bytes) -> bitarray:
     transmitted.frombytes(payload)
     assert transmitted[180:].to01() == "0000"
     return transmitted[:180][::-1]
+
+
+def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
+    """Raw acquisition writer preserves time, voltage, and instrument codes."""
+
+    x_scale = SimpleNamespace(offset=-1.0e-9, slope=0.5e-9, unit="s")
+    waveforms = {
+        1: SimpleNamespace(
+            x_scale=x_scale,
+            data=np.asarray([0.1, 0.2, 0.3]),
+            raw_data=np.asarray([10, 20, 30]),
+        ),
+        3: SimpleNamespace(
+            x_scale=x_scale,
+            data=np.asarray([1.0, 0.0, 1.0]),
+            raw_data=np.asarray([100, 0, 100]),
+        ),
+    }
+    path = tmp_path / "scope" / "capture.csv"
+
+    assert write_scope_csv(path, waveforms, {1: "input", 3: "logic"}) == path
+    assert path.read_text().splitlines() == [
+        "time_s,input_v,logic_v,input_raw,logic_raw",
+        "-1e-09,0.1,1.0,10,100",
+        "-5e-10,0.2,0.0,20,0",
+        "0.0,0.3,1.0,30,100",
+    ]
+
+
+def test_write_adc_conversions_persists_and_appends_raw_rows(tmp_path) -> None:
+    """Raw ADC writer preserves the shared acquisition schema."""
+
+    first = AdcConversion(0, 0xA1234567, 0xA, 3, 0x12345, "101", 5, 6)
+    second = AdcConversion(1, 0xA7654321, 0xA, 4, 0x14321, "010", 7, 8)
+    path = tmp_path / "adc" / "conversions.csv"
+
+    assert write_adc_conversions(path, (first,)) == 1
+    assert write_adc_conversions(path, (second,), append=True) == 1
+    assert path.read_text().splitlines() == [
+        "conversion_index,raw_word,identifier,frame,spi,bout,dout_raw,dout",
+        "0,2703443303,10,3,74565,101,5,6",
+        "1,2808431393,10,4,82721,010,7,8",
+    ]
 
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
@@ -326,7 +373,7 @@ def test_convert_raw_to_adc_conversions_writes_typed_and_plot_views() -> None:
         stop_s = start_s + 20.0e-9
         comp_out_v[(times_s >= start_s) & (times_s < stop_s)] = 1.2 * int(bit)
 
-    conversions, plot_rows = convert_raw_to_adc_conversions(
+    conversions, analysis_columns = convert_raw_to_adc_conversions(
         {
             "time": times_s.tolist(),
             "seq_comp": clock_v.tolist(),
@@ -334,7 +381,6 @@ def test_convert_raw_to_adc_conversions_writes_typed_and_plot_views() -> None:
             "vin_p": np.full_like(times_s, 0.650).tolist(),
             "vin_n": np.full_like(times_s, 0.600).tolist(),
         },
-        adc_index=0,
         threshold=0.6,
         sample_delay=10.0e-9,
         comp_signal="comp_out",
@@ -347,9 +393,9 @@ def test_convert_raw_to_adc_conversions_writes_typed_and_plot_views() -> None:
     assert conversions[0].bout == expected_bout
     assert conversions[0].spi == int(expected_bout, 2)
     assert conversions[0].dout_raw == conversions[0].dout
-    assert plot_rows[0]["Bbits"] == expected_bout
-    assert plot_rows[0]["Dout"] == conversions[0].dout
-    assert plot_rows[0]["vdiff_v"] == pytest.approx(0.050)
+    assert analysis_columns["bout"][0] == expected_bout
+    assert analysis_columns["dout"][0] == conversions[0].dout
+    assert analysis_columns["vin_diff_v"][0] == pytest.approx(0.050)
 
 
 def test_require_signal_resolves_exact_and_unique_suffix_matches() -> None:
@@ -370,55 +416,3 @@ def test_require_signal_rejects_ambiguous_and_missing_names() -> None:
         require_signal(data, "comp")
     with pytest.raises(KeyError, match="not found"):
         require_signal(data, "clock")
-
-
-def test_decision_path_from_bbits_tracks_decided_and_undecided_weights() -> None:
-    """Convert ADC decisions and weights into a validated running code estimate."""
-    assert decision_path_from_bbits("101", [8, 4, 2], initial_estimate=10.0) == [10.0, 11.0, 9.0, 10.0]
-
-    with pytest.raises(ValueError, match="3 bits, expected 2"):
-        decision_path_from_bbits("101", [2, 1])
-
-
-def test_transfer_points_groups_averages_and_sorts_rows() -> None:
-    """Group repeated conversions and return sorted mean transfer points in millivolts."""
-    rows = [
-        {"vdiff_v": "0.2", "Dout": "10"},
-        {"vdiff_v": "-0.1", "Dout": "1"},
-        {"vdiff_v": "-0.1", "Dout": "3"},
-    ]
-
-    assert transfer_points(rows) == ([-100.0, 200.0], [2.0, 10.0])
-
-
-def test_filter_decision_path_rows_supports_all_modes() -> None:
-    """Verify deterministic row selection and labels for every supported filter mode."""
-    rows = [
-        {"Dout": "10", "conversion_index": 0},
-        {"Dout": "11", "conversion_index": 1},
-        {"Dout": "10", "conversion_index": 2},
-    ]
-
-    selected, label = filter_decision_path_rows(rows, "single", row_index=1)
-    assert selected == [rows[1]]
-    assert label == "single_row0001_dout11"
-
-    selected, label = filter_decision_path_rows(rows, "same_dout")
-    assert selected == [rows[0], rows[2]]
-    assert label == "same_dout10"
-
-    selected, label = filter_decision_path_rows(rows, "same_dout", dout=11)
-    assert selected == [rows[1]]
-    assert label == "same_dout11"
-
-    selected, label = filter_decision_path_rows(rows, "all")
-    assert selected is rows
-    assert label == "all"
-
-
-def test_filter_decision_path_rows_handles_empty_and_invalid_modes() -> None:
-    """Handle empty selections and reject unknown decision-path filter modes."""
-    assert filter_decision_path_rows([], "single") == ([], "single_empty")
-    assert filter_decision_path_rows([], "same_dout") == ([], "same_dout_empty")
-    with pytest.raises(ValueError, match="unknown decision-path filter mode"):
-        filter_decision_path_rows([], "invalid")

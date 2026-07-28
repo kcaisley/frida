@@ -18,7 +18,9 @@ from bitarray import bitarray
 from flow.cdac import get_cdac_weights
 from flow.scans.params import AdcTbParams, build_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.scans.results import AdcConversion, parameter_digest, to_json_data, write_adc_conversions
+from flow.analysis.io import parameter_digest, to_json_data
+from flow.analysis.models import AdcConversion
+from flow.scans.results import write_adc_conversions
 
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "scan_adc"
 

@@ -97,12 +97,14 @@ hardware-driver calls.
 | `convert_params_to_seqgen_fmt()` | `scan_adc.py` | Pack the four parameterized timing patterns and derived RX_SEN window into raw 64-bit sequencer words. |
 | `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
 | `convert_fastrx_to_bout_and_dout()` / `convert_dout_to_normalized_dout()` | `scan_adc.py` | Decode FastRX comparator decisions and normalize the weighted ADC result. |
-| `write_adc_conversions()` / `read_adc_conversions()` | `results.py` | Round-trip the typed raw and decoded fields of one acquisition CSV. |
-| `analyze_adc_sine_fit()` | `analysis.py` | Perform a four-parameter sine fit and calculate residual RMS, SINAD, and ENOB from one continuous ADC record. |
-| `plot_adc_sine_fit()` / `plot_dynamic_enob_sweep()` | `plot.py` | Plot one measured/fitted waveform with its residual, or aggregate ENOB versus input frequency. |
+| `write_adc_conversions()` | `results.py` | Persist the typed raw and decoded fields of one ADC acquisition CSV. |
+| `write_scope_csv()` | `scope.py` | Persist aligned voltage and instrument-code columns from one raw scope acquisition. |
+| `read_adc_conversions()` | `flow/analysis/io.py` | Read one acquisition CSV into typed conversion rows for post-processing. |
+| `analyze_adc_dynamic()` | `flow/analysis/adc.py` | Perform a four-parameter sine fit plus FFT analysis and report residual RMS, SNR, SNDR, THD, SFDR, and ENOB. |
+| `render_plot()` | `flow/analysis/plot.py` | Render an explicit typed time-domain, spectrum, transfer, distribution, linearity, decision-path, dynamic, or sweep plot request. |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
-| `find_crossings()` | `flow/circuit/measure.py` | Analyze waveform threshold crossings; this is generic analysis, not scope control. |
+| `analyze_crossings()` | `flow/analysis/measure.py` | Analyze waveform threshold crossings from normalized run data; this is generic analysis, not scope control. |
 
 The comparator-input IDELAY transaction is intentionally inline in
 `scan_adc.py`: it reads the GPIO1 ready flag, sets the tap value, and pulses
@@ -123,9 +125,9 @@ the received bit order, frame counters, word count, and overflow counter:
 uv run pytest -q -s -m hw flow/scans/test_fastrx.py
 ```
 
-`scope.py` contains capture synchronization around the Basil scope driver, and
-`plot.py` contains CSV and plotting support. Neither module adds methods to the
-Basil hardware API.
+`scope.py` contains capture synchronization around the Basil scope driver.
+Backend-neutral result I/O, numerical post-processing, and rendering live in
+`flow/analysis`; none of these modules adds methods to the Basil hardware API.
 
 `params.py` expands the full sweep into a flat `list[AdcTbParams]`; each item
 produces exactly one CSV. `map_board.yaml` maps its `board_id` to physical ADC

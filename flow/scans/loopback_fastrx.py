@@ -38,34 +38,37 @@ from time import monotonic, sleep
 from typing import Any
 
 import hdl21 as h
-import matplotlib
 import numpy as np
 from bitarray import bitarray
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 from basil.HL.tektronix_oscilloscope import response_value
 from flow.adc import AdcParams
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from flow.circuit.measure import find_crossings
+from flow.analysis.measure import analyze_crossings
+from flow.analysis.adc import analyze_adc_distribution
+from flow.analysis.models import (
+    AdcConversion,
+    AdcSettings,
+    AnalysisKind,
+    AnalysisRequest,
+    AnalysisSpec,
+    BackendKind,
+    BlockKind,
+    PlotKind,
+    PlotRequest,
+    PlotSpec,
+    SourceFormat,
+    SourceSpec,
+    WaveformSettings,
+)
 from flow.scans.params import AdcTbParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.scans.plot import (
-    LEGEND_FACE_COLOR,
-    NORD_BLUE,
-    NORD_GREEN,
-    NORD_RED,
-    PNG_FACE_COLOR,
-    SPINE_COLOR,
-    SubplotSpec,
-    plot_time_domain_csv,
-    style_ax,
-    style_grid,
-    style_legend,
-    write_scope_csv,
+from flow.analysis.plot import render_plot
+from flow.analysis.io import (
+    read_run,
+    to_json_data,
 )
-from flow.scans.results import AdcConversion, to_json_data, write_adc_conversions
+from flow.scans.results import write_adc_conversions
 from flow.scans.scan_adc import (
     calculate_fastrx_capture_alignment,
     convert_dac_caps_to_adc_weights,
@@ -75,7 +78,11 @@ from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
 )
-from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
+from flow.scans.scope import (
+    wait_for_scope_armed,
+    wait_for_scope_capture,
+    write_scope_csv,
+)
 
 MAP_DIR = Path(__file__).resolve().parent
 OUT_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_fastrx"
@@ -162,15 +169,33 @@ def extract_scope_decisions(
     if comp_out_high_v - comp_out_low_v < 0.1:
         raise ValueError("scope COMP_OUT waveform does not have a valid logic swing")
 
-    falling_edges_s = tuple(
-        edge_s
-        for edge_s in find_crossings(
-            comp_v,
-            times_s,
-            comp_threshold_v,
-            rising=False,
+    scope_run = read_run(
+        SourceSpec(
+            "scope_decision_vector",
+            BackendKind.MEASUREMENT,
+            BlockKind.GENERIC,
+            SourceFormat.COLUMN_MAPPING,
+            {"time_s": times_s, "seq_comp_v": comp_v},
+            table_name="waveforms",
         )
-        if edge_s >= 0.0
+    )
+    crossing_result = analyze_crossings(
+        AnalysisRequest(
+            AnalysisSpec(
+                "comp_falling_edges",
+                AnalysisKind.CROSSINGS,
+                (scope_run.run_id,),
+                WaveformSettings(
+                    signal_columns=("seq_comp_v",),
+                    thresholds=(comp_threshold_v,),
+                    rising=False,
+                ),
+            ),
+            runs=(scope_run,),
+        )
+    )
+    falling_edges_s = tuple(
+        float(edge_s) for edge_s in crossing_result.table("crossings").column("crossing_axis") if edge_s >= 0.0
     )
     if len(falling_edges_s) < decision_count:
         raise ValueError(
@@ -203,64 +228,6 @@ def extract_scope_decisions(
         sample_times_s=sample_times_s,
         sample_values_v=tuple(sample_values_v),
     )
-
-
-def save_noise_histogram(
-    codes: list[int],
-    path: Path,
-    *,
-    symbol_rate_bps: float,
-    logic_offset: int,
-) -> tuple[Path, ...]:
-    """Save one fixed-input ADC code histogram in PNG, PDF, and SVG."""
-
-    if not codes:
-        raise ValueError("cannot plot an empty ADC code histogram")
-    mean_code = fmean(codes)
-    sigma_code = pstdev(codes)
-    minimum_code = min(codes)
-    maximum_code = max(codes)
-    bins = np.arange(minimum_code - 0.5, maximum_code + 1.5, 1.0)
-
-    fig, ax = plt.subplots(figsize=(7, 5), facecolor=PNG_FACE_COLOR)
-    ax.hist(codes, bins=bins, color=NORD_BLUE, edgecolor="white", alpha=0.8)
-    ax.set_title(f"ADC01 fixed-input noise: {symbol_rate_bps / 1e6:g} MBd, LOGIC offset {logic_offset:+d}")
-    ax.set_xlabel("Normalized output code (LSB)")
-    ax.set_ylabel("Conversions per code")
-    ax.text(
-        0.98,
-        0.95,
-        "\n".join(
-            (
-                f"Vdiff: {VIN_DIFF_V * 1e3:g} mV",
-                f"Vin_cm: {VIN_CM_V:g} V",
-                f"Samples: {len(codes):,}",
-                f"Mean: {mean_code:.3f} LSB",
-                f"σ: {sigma_code:.3f} LSB",
-                f"Range: {minimum_code}..{maximum_code}",
-            )
-        ),
-        transform=ax.transAxes,
-        ha="right",
-        va="top",
-        bbox={
-            "boxstyle": "round",
-            "facecolor": LEGEND_FACE_COLOR,
-            "edgecolor": SPINE_COLOR,
-            "alpha": 0.9,
-        },
-    )
-    style_ax(ax)
-    style_grid(ax)
-    fig.tight_layout()
-    paths = (path, path.with_suffix(".pdf"), path.with_suffix(".svg"))
-    for output_path in paths:
-        kwargs = {"facecolor": PNG_FACE_COLOR}
-        if output_path.suffix == ".png":
-            kwargs["dpi"] = 200
-        fig.savefig(output_path, **kwargs)
-    plt.close(fig)
-    return paths
 
 
 def main() -> None:
@@ -646,13 +613,22 @@ def main() -> None:
             )
             scope_csv_path = run_dir / f"{stem}_scope.csv"
             adc_csv_path = run_dir / f"{stem}_adc.csv"
+            scope_run = read_run(
+                SourceSpec(
+                    f"{stem}_scope",
+                    BackendKind.MEASUREMENT,
+                    BlockKind.GENERIC,
+                    SourceFormat.SCOPE_WAVEFORMS,
+                    (waveforms, SCOPE_TRACKS),
+                    table_name="waveforms",
+                )
+            )
             write_scope_csv(scope_csv_path, waveforms, SCOPE_TRACKS)
 
-            scope_times_s = waveforms[1].x_scale.offset + np.arange(len(waveforms[1].data)) * waveforms[1].x_scale.slope
             scope_decisions = extract_scope_decisions(
-                np.asarray(scope_times_s, dtype=float),
-                np.asarray(waveforms[2].data, dtype=float),
-                np.asarray(waveforms[4].data, dtype=float),
+                np.asarray(scope_run.table("waveforms").column("time_s"), dtype=float),
+                np.asarray(scope_run.table("waveforms").column("seq_comp_v"), dtype=float),
+                np.asarray(scope_run.table("waveforms").column("comp_out_v"), dtype=float),
                 symbol_rate_bps=symbol_rate_bps,
                 decision_count=data_size,
                 output_inverted=SCOPE_COMP_OUT_INVERTED,
@@ -722,31 +698,81 @@ def main() -> None:
                 f"Bit mismatches: {bit_mismatches}/17",
                 f"ADC σ: {sigma_code:.3f} LSB",
             )
-            plot_time_domain_csv(
-                scope_csv_path,
-                {
-                    "adc_vdiff_v": SubplotSpec("CH1 ADC Vdiff (V)"),
-                    "seq_comp_v": SubplotSpec("CH2 COMP (V)"),
-                    "seq_logic_v": SubplotSpec("CH3 LOGIC (V)"),
-                    "comp_out_v": SubplotSpec(
-                        "CH4 COMP_OUT (V)",
-                        info_lines,
+            render_plot(
+                PlotRequest(
+                    PlotSpec(
+                        name=f"{stem}_scope",
+                        kind=PlotKind.TIME_DOMAIN,
+                        input_ids=(scope_run.run_id,),
+                        output_path=scope_csv_path.with_suffix(".png"),
+                        title=(f"ADC01 scope/FastRX capture: {symbol_rate_bps / 1e6:g} MBd, LOGIC {logic_offset:+d}"),
+                        table="waveforms",
+                        y_columns=(
+                            "adc_vdiff_v",
+                            "seq_comp_v",
+                            "seq_logic_v",
+                            "comp_out_v",
+                        ),
+                        labels={
+                            "adc_vdiff_v": "CH1 ADC Vdiff (V)",
+                            "seq_comp_v": "CH2 COMP (V)",
+                            "seq_logic_v": "CH3 LOGIC (V)",
+                            "comp_out_v": "CH4 COMP_OUT (V)",
+                        },
+                        info_lines={"comp_out_v": info_lines},
                     ),
-                },
-                title=(f"ADC01 scope/FastRX capture: {symbol_rate_bps / 1e6:g} MBd, LOGIC {logic_offset:+d}"),
+                    runs=(scope_run,),
+                )
             )
-            save_noise_histogram(
-                codes,
-                run_dir / f"{stem}_hist.png",
-                symbol_rate_bps=symbol_rate_bps,
-                logic_offset=logic_offset,
+            adc_run = read_run(
+                SourceSpec(
+                    f"{stem}_adc",
+                    BackendKind.MEASUREMENT,
+                    BlockKind.ADC,
+                    SourceFormat.ADC_CSV,
+                    adc_csv_path,
+                    table_name="conversions",
+                    parameters={
+                        "vin_diff_v": VIN_DIFF_V,
+                        "vin_cm_v": VIN_CM_V,
+                        "symbol_rate_bps": symbol_rate_bps,
+                        "logic_offset_symbols": logic_offset,
+                    },
+                )
+            )
+            distribution_result = analyze_adc_distribution(
+                AnalysisRequest(
+                    AnalysisSpec(
+                        f"{stem}_distribution",
+                        AnalysisKind.ADC_DISTRIBUTION,
+                        (adc_run.run_id,),
+                        AdcSettings(adc_bits=params.dut.adc_bits),
+                    ),
+                    runs=(adc_run,),
+                )
+            )
+            render_plot(
+                PlotRequest(
+                    PlotSpec(
+                        name=f"{stem}_hist",
+                        kind=PlotKind.DISTRIBUTION,
+                        input_ids=(distribution_result.name,),
+                        output_path=run_dir / f"{stem}_hist.png",
+                        title=(
+                            f"ADC01 fixed-input noise: {symbol_rate_bps / 1e6:g} MBd, LOGIC offset {logic_offset:+d}"
+                        ),
+                    ),
+                    results=(distribution_result,),
+                )
             )
 
             summary_rows.append(
                 {
                     "symbol_rate_bps": symbol_rate_bps,
                     "active_conversion_rate_hz": symbol_rate_bps / 160.0,
+                    "active_conversion_rate_msps": symbol_rate_bps / 160.0e6,
                     "logic_offset_symbols": logic_offset,
+                    "comparator_time_percent": 50.0 + 12.5 * logic_offset,
                     "rx_sen_start_word": rx_sen_start_word,
                     "comp_idelay_taps": comp_idelay_taps,
                     "predicted_data_arrival_s": alignment.data_arrival_s,
@@ -769,67 +795,44 @@ def main() -> None:
                 writer.writeheader()
                 writer.writerows(summary_rows)
 
-        # Plot the complete rate sweep as one trend line per LOGIC offset.
-        fig, ax = plt.subplots(figsize=(8, 5), facecolor=PNG_FACE_COLOR)
-        colors = {
-            -3: "#4C566A",
-            -2: NORD_BLUE,
-            -1: NORD_GREEN,
-            0: NORD_RED,
-            1: "#D08770",
-            2: "#B48EAD",
-            3: "#88C0D0",
-        }
-        for logic_offset in logic_offsets:
-            color = colors[logic_offset]
-            offset_rows = [row for row in summary_rows if row["logic_offset_symbols"] == logic_offset]
-            rates_msps = np.asarray([row["active_conversion_rate_hz"] / 1e6 for row in offset_rows])
-            ax.plot(
-                rates_msps,
-                [row["sigma_dout_lsb"] for row in offset_rows],
-                marker="o",
-                markersize=3.0,
-                linewidth=0.75,
-                color=color,
-                label=f"{50.0 + 12.5 * logic_offset:g}%",
+        # Render the complete rate sweep from its persisted summary table.
+        # The reciprocal lower axis uses Tdecision_ns = 50 / rate_MSPS because
+        # one active conversion contains twenty decision cycles.
+        summary_run = read_run(
+            SourceSpec(
+                "fastrx_summary",
+                BackendKind.MEASUREMENT,
+                BlockKind.ADC,
+                SourceFormat.CSV,
+                summary_path,
+                table_name="sweep",
             )
-        ax.set_xlabel("Active conversion rate (MSPS)")
-        ax.set_ylabel("Output σ (LSB)")
-        ax.set_ylim(0.0, 10.0)
-        whole_rate_ticks_msps = tuple(range(1, 11))
-        ax.set_xticks(whole_rate_ticks_msps)
-        style_ax(ax)
-        style_grid(ax)
-        style_legend(ax, ncol=4, title="COMP→LOGIC interval")
-
-        # Each active conversion contains twenty eight-symbol sequencer words,
-        # so Tdecision = 1 / (20 * conversion_rate). Add a second bottom axis
-        # showing selected rates as their equivalent decision-cycle durations.
-        decision_axis = ax.twiny()
-        decision_axis.set_xlim(ax.get_xlim())
-        decision_axis.xaxis.set_ticks_position("bottom")
-        decision_axis.xaxis.set_label_position("bottom")
-        decision_axis.spines["bottom"].set_position(("outward", 42))
-        decision_axis.spines["top"].set_visible(False)
-        decision_axis.set_xticks(whole_rate_ticks_msps)
-        decision_axis.set_xticklabels([f"{50.0 / rate:.3g}" for rate in whole_rate_ticks_msps])
-        decision_axis.set_xlabel("Time per decision cycle (ns)")
-        decision_axis.tick_params(colors=SPINE_COLOR)
-        decision_axis.xaxis.label.set_color(SPINE_COLOR)
-        decision_axis.spines["bottom"].set_color(SPINE_COLOR)
-        ax.set_title("Decision variation in LSB vs Conversion rate")
-        fig.tight_layout()
-        trend_paths = (
-            run_dir / "decision_variation_vs_conversion_rate.png",
-            run_dir / "decision_variation_vs_conversion_rate.pdf",
-            run_dir / "decision_variation_vs_conversion_rate.svg",
         )
-        for output_path in trend_paths:
-            kwargs = {"facecolor": PNG_FACE_COLOR}
-            if output_path.suffix == ".png":
-                kwargs["dpi"] = 200
-            fig.savefig(output_path, **kwargs)
-        plt.close(fig)
+        render_plot(
+            PlotRequest(
+                PlotSpec(
+                    name="decision_variation_vs_conversion_rate",
+                    kind=PlotKind.SWEEP,
+                    input_ids=(summary_run.run_id,),
+                    output_path=run_dir / "decision_variation_vs_conversion_rate.png",
+                    title="Decision variation in LSB vs Conversion rate",
+                    table="sweep",
+                    x_column="active_conversion_rate_msps",
+                    y_columns=("sigma_dout_lsb",),
+                    group_column="comparator_time_percent",
+                    labels={
+                        "active_conversion_rate_msps": "Active conversion rate (MSPS)",
+                        "sigma_dout_lsb": "Output σ (LSB)",
+                    },
+                    legend_title="COMP→LOGIC interval",
+                    y_limit=(0.0, 10.0),
+                    x_ticks=tuple(float(rate) for rate in range(1, 11)),
+                    secondary_x_reciprocal=50.0,
+                    secondary_x_label="Time per decision cycle (ns)",
+                ),
+                runs=(summary_run,),
+            )
+        )
 
         manifest_path.write_text(
             json.dumps(

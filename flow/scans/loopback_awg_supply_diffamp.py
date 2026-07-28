@@ -31,10 +31,24 @@ import numpy as np
 import pytest
 
 from basil.HL.tektronix_oscilloscope import response_value
-from flow.circuit.measure import find_crossings
-from flow.scans.plot import SubplotSpec, plot_time_domain_csv, write_scope_csv
+from flow.analysis.measure import analyze_crossings
+from flow.analysis.models import (
+    AnalysisKind,
+    AnalysisRequest,
+    AnalysisSpec,
+    BackendKind,
+    BlockKind,
+    PlotKind,
+    PlotRequest,
+    PlotSpec,
+    SourceFormat,
+    SourceSpec,
+    WaveformSettings,
+)
+from flow.analysis.plot import render_plot
+from flow.analysis.io import read_run
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import wait_for_scope_armed
+from flow.scans.scope import wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
 CAPTURE_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_awg_supply_diffamp"
@@ -343,27 +357,48 @@ def main() -> None:
             awg.set_enable(0)
             if SCOPE_CHANNEL not in waveforms:
                 raise RuntimeError(f"scope did not return fine CH{SCOPE_CHANNEL}")
-            waveform = waveforms[SCOPE_CHANNEL]
-            samples = np.asarray(waveform.data, dtype=float)
+
+            point_name = f"vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv_{run_timestamp}"
+            scope_run = read_run(
+                SourceSpec(
+                    point_name,
+                    BackendKind.MEASUREMENT,
+                    BlockKind.GENERIC,
+                    SourceFormat.SCOPE_WAVEFORMS,
+                    (waveforms, SCOPE_TRACKS),
+                    table_name="waveforms",
+                )
+            )
+            waveform_table = scope_run.table("waveforms")
+            samples = np.asarray(waveform_table.column("vdiff_ch1_v"), dtype=float)
             if samples.size == 0:
                 raise RuntimeError(f"scope returned an empty CH{SCOPE_CHANNEL} waveform")
-            times = waveform.x_scale.offset + np.arange(samples.size) * waveform.x_scale.slope
+            times = np.asarray(waveform_table.column("time_s"), dtype=float)
             low_v, high_v = np.percentile(samples, (0.5, 99.5))
             crossing_level_v = float((low_v + high_v) / 2.0)
 
-            point_name = f"vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv_{run_timestamp}"
             csv_path = CAPTURE_DIR / f"{point_name}.csv"
             # Save the raw capture before analysis so a failed assertion still
             # leaves the exact waveform available for diagnosis.
             write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
             print(f"  saved {samples.size} samples spanning {times[-1] - times[0]:.9g} s: {csv_path}")
 
-            raw_crossings = find_crossings(
-                samples,
-                times,
-                crossing_level_v,
-                rising=True,
+            crossing_result = analyze_crossings(
+                AnalysisRequest(
+                    AnalysisSpec(
+                        f"{point_name}_crossings",
+                        AnalysisKind.CROSSINGS,
+                        (scope_run.run_id,),
+                        WaveformSettings(
+                            signal_columns=("vdiff_ch1_v",),
+                            thresholds=(crossing_level_v,),
+                            rising=True,
+                        ),
+                    ),
+                    runs=(scope_run,),
+                )
             )
+            raw_crossings = crossing_result.table("crossings").column("crossing_axis")
             minimum_crossing_separation_s = 0.75 / AWG_FREQUENCY_HZ
             rising_crossings = []
             for crossing in raw_crossings:
@@ -394,24 +429,32 @@ def main() -> None:
             measured_vdiff_vpp = float(2.0 * np.hypot(fit_coefficients[1], fit_coefficients[2]))
             measured_residual_rms_v = float(np.sqrt(np.mean((samples - fitted_samples) ** 2)))
 
-            plot_paths = plot_time_domain_csv(
-                csv_path,
-                {
-                    "vdiff_ch1_v": SubplotSpec(
-                        ylabel="CH1 differential voltage (V)",
-                        info_lines=(
-                            f"Target: {AWG_FREQUENCY_HZ / 1e6:.6f} MHz, +/-{vdiff_peak_v:.6f} V ({target_vdiff_vpp:.6f} Vpp)",
-                            f"Target Vin_cm: {vin_cm_v:.6f} V; implied inputs: {adc_input_min_v:.6f}..{adc_input_max_v:.6f} V",
-                            f"AWG: {awg_amplitude_vpp:.6f} Vpp, {awg_offset_v:.6f} V offset",
-                            f"VIN_CM proxy: set={vin_cm_supply_v:.6f} V, read={vin_cm_measured_v:.6f} V",
-                            f"Measured: {measured_frequency_hz / 1e6:.6f} MHz, {measured_vdiff_vpp:.6f} Vpp, {measured_vdiff_offset_v:.6f} V offset",
-                            f"Sine-fit residual: {measured_residual_rms_v * 1e3:.3f} mV RMS",
-                        ),
-                    )
-                },
-                title=(f"THS4541 differential loopback: Vdiff=+/-{vdiff_peak_v:g} V, Vin_cm={vin_cm_v:g} V"),
+            plot_artifacts = render_plot(
+                PlotRequest(
+                    PlotSpec(
+                        name=point_name,
+                        kind=PlotKind.TIME_DOMAIN,
+                        input_ids=(scope_run.run_id,),
+                        output_path=csv_path.with_suffix(".png"),
+                        title=(f"THS4541 differential loopback: Vdiff=+/-{vdiff_peak_v:g} V, Vin_cm={vin_cm_v:g} V"),
+                        table="waveforms",
+                        y_columns=("vdiff_ch1_v",),
+                        labels={"vdiff_ch1_v": "CH1 differential voltage (V)"},
+                        info_lines={
+                            "vdiff_ch1_v": (
+                                f"Target: {AWG_FREQUENCY_HZ / 1e6:.6f} MHz, +/-{vdiff_peak_v:.6f} V ({target_vdiff_vpp:.6f} Vpp)",
+                                f"Target Vin_cm: {vin_cm_v:.6f} V; implied inputs: {adc_input_min_v:.6f}..{adc_input_max_v:.6f} V",
+                                f"AWG: {awg_amplitude_vpp:.6f} Vpp, {awg_offset_v:.6f} V offset",
+                                f"VIN_CM proxy: set={vin_cm_supply_v:.6f} V, read={vin_cm_measured_v:.6f} V",
+                                f"Measured: {measured_frequency_hz / 1e6:.6f} MHz, {measured_vdiff_vpp:.6f} Vpp, {measured_vdiff_offset_v:.6f} V offset",
+                                f"Sine-fit residual: {measured_residual_rms_v * 1e3:.3f} mV RMS",
+                            ),
+                        },
+                    ),
+                    runs=(scope_run,),
+                )
             )
-            for plot_path in plot_paths:
+            for plot_path in plot_artifacts.paths:
                 print(f"  saved waveform plot: {plot_path}")
 
             print(

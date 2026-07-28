@@ -441,7 +441,7 @@ SPICE sim → parse waveforms → compute offset/noise/settling/ENOB → assert 
 
 That latter piece would be yours to add as a custom task.
 
-This maps very naturally to what FRIDA already has. Your measurement layer already separates waveform extraction from numpy-based measurement functions [measure.py#L1](file:///home/kcaisley/frida/flow/circuit/measure.py#L1). You already have functions for settling, delay, average power, offset, charge injection, etc. [measure.py#L306](file:///home/kcaisley/frida/flow/circuit/measure.py#L306). That is basically the analog equivalent of a cocotb checker, but post-simulation instead of live over VPI.
+This maps very naturally to what FRIDA already has. The analysis package separates backend result normalization from NumPy-based measurement functions [measure.py#L1](file:///local/frida/flow/analysis/measure.py#L1). It includes typed analyses for settling, delay, average power, offset, charge injection, and related metrics [measure.py#L262](file:///local/frida/flow/analysis/measure.py#L262). That is basically the analog equivalent of a cocotb checker, but post-simulation instead of live over VPI.
 
 I would make FRIDA’s analog “happy path” in SC look like this:
 

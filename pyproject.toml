@@ -6,6 +6,7 @@ dependencies = [
     # Core
     "numpy",
     "scipy",
+    "matplotlib",
     "pydantic",
     "pytest",
     "argcomplete",
@@ -28,6 +29,11 @@ dependencies = [
     "gpib-ctypes",
     "pyserial",
     "pyusb>=1.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "ty==0.0.63",
 ]
 
 [build-system]

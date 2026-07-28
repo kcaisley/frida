@@ -34,17 +34,17 @@ classes for every block and every calculation:
 - `AnalysisResult`: reusable metrics and result tables.
 - `PlotRequest` and `PlotArtifacts`: analysis results, output settings, and
   generated paths.
-- `AnalysisPlan` and `AnalysisReport`: explicit sources, analysis jobs, plots,
-  and persisted outputs.
+- `AnalysisPlan` and `AnalysisReport`: explicit sources, analysis jobs,
+  in-memory results, and requested plot artifacts.
 
 `RunData.block` identifies whether the run concerns an ADC, comparator, CDAC,
 or sampler. Each analysis validates the canonical columns it requires.
 Backend adapters translate scope channel names, HDL21 signal names, Spectre
 signal names, and scan CSV columns into these canonical columns.
 
-All numerical data uses SI units internally. HDL21 parameter objects are stored
-as backend-neutral JSON snapshots, including their original type and parameter
-digest, so the analysis package does not depend on HDL21 parameter classes.
+All numerical data uses SI units internally. HDL21 parameter objects are
+normalized to backend-neutral plain data at the adapter boundary, so the
+analysis package does not depend on HDL21 parameter classes.
 
 Only genuinely different algorithm families receive small typed settings
 records, for example event timing, histogram, sine/FFT, settling, and fitting
@@ -134,13 +134,13 @@ The runner:
 2. validates the required tables and columns;
 3. executes named jobs in dependency order;
 4. renders requested plots;
-5. writes result tables as CSV;
-6. writes `analysis_manifest.json` containing provenance, parameter digests,
-   scalar metrics, warnings, and artifact paths;
-7. returns an `AnalysisReport`.
+5. returns an `AnalysisReport` containing the normalized runs, numerical
+   results, and requested plot paths.
 
-Raw acquisition files remain the source of truth. Derived array data is stored
-as CSV rather than NPZ or pickle.
+Raw scan CSV files and their scan-level `manifest.json` remain the source of
+truth. Numerical analyses remain in memory and do not create derived CSV or
+JSON files. Plotting writes image files only when a plot job explicitly
+requests them.
 
 ## Second phase: mechanical package move
 
@@ -177,7 +177,8 @@ functional refactor.
 - Test comparator, CDAC, and sampler analyses.
 - Test plot creation, labels, selected series, axis scaling, and configurable
   formats without pixel-level image comparisons.
-- Test a complete mixed-backend `AnalysisPlan` and its manifest.
+- Test a complete mixed-backend `AnalysisPlan`, including explicit plot
+  artifacts and in-memory result dependencies.
 - Retain compatibility tests for historical ADC CSV data.
 - Verify that the second-phase move leaves numerical results and artifacts
   unchanged.

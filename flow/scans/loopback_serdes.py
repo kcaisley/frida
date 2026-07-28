@@ -24,12 +24,25 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from statistics import fmean
-from typing import Any
 
 import numpy as np
 from yaml import safe_load
 
-from flow.circuit.measure import find_crossings
+from flow.analysis.measure import analyze_crossings
+from flow.analysis.models import (
+    AnalysisKind,
+    AnalysisRequest,
+    AnalysisSpec,
+    BackendKind,
+    BlockKind,
+    PlotKind,
+    PlotRequest,
+    PlotSpec,
+    RunData,
+    SourceFormat,
+    SourceSpec,
+    WaveformSettings,
+)
 from flow.scans.params import AdcTbParams
 from flow.scans.scan_adc import convert_params_to_seqgen_fmt
 from flow.scans.plldrp import (
@@ -37,8 +50,14 @@ from flow.scans.plldrp import (
     select_pll_configuration,
     set_pll_divider,
 )
-from flow.scans.plot import SubplotSpec, plot_time_domain_csv, write_scope_csv
-from flow.scans.scope import response_value, wait_for_scope_armed, wait_for_scope_capture
+from flow.analysis.plot import render_plot
+from flow.analysis.io import read_run
+from flow.scans.scope import (
+    response_value,
+    wait_for_scope_armed,
+    wait_for_scope_capture,
+    write_scope_csv,
+)
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
@@ -100,17 +119,32 @@ SEQ_PATTERNS = {
 # fmt: on
 
 
-def validate_capture(waveforms: dict[int, Any], symbol_rate_bps: float) -> tuple[float, float]:
+def validate_capture(scope_run: RunData, symbol_rate_bps: float) -> tuple[float, float]:
     """Check crossing counts and return measured COMP interval and symbol rate."""
+    table = scope_run.table("waveforms")
     crossing_times: dict[str, tuple[float, ...]] = {}
     for channel, track in SCOPE_TRACKS.items():
-        waveform = waveforms[channel]
-        signal = np.asarray(waveform.data)
-        times = waveform.x_scale.offset + np.arange(len(signal)) * waveform.x_scale.slope
+        signal = np.asarray(table.column(f"{track}_v"))
         low_v, high_v = np.percentile(signal, (1.0, 99.0))
         crossing_level_v = float((low_v + high_v) / 2.0)
-        crossings = find_crossings(signal, times, crossing_level_v, rising=True)
-        crossings.extend(find_crossings(signal, times, crossing_level_v, rising=False))
+        crossings = []
+        for rising in (True, False):
+            result = analyze_crossings(
+                AnalysisRequest(
+                    AnalysisSpec(
+                        f"{track}_{'rising' if rising else 'falling'}",
+                        AnalysisKind.CROSSINGS,
+                        (scope_run.run_id,),
+                        WaveformSettings(
+                            signal_columns=(f"{track}_v",),
+                            thresholds=(crossing_level_v,),
+                            rising=rising,
+                        ),
+                    ),
+                    runs=(scope_run,),
+                )
+            )
+            crossings.extend(result.table("crossings").column("crossing_axis"))
         crossing_times[track] = tuple(sorted(crossings))
         expected_count = EXPECTED_TRANSITIONS[track]
         assert len(crossings) == expected_count, (
@@ -325,33 +359,55 @@ def main() -> None:
                         f"fin{si570_frequency_hz / 1e6:g}mhz_n{divider_n:02d}_{timestamp}"
                     )
                     csv_path = SCOPE_OUT_DIR / f"{stem}.csv"
+                    scope_run = read_run(
+                        SourceSpec(
+                            stem,
+                            BackendKind.MEASUREMENT,
+                            BlockKind.GENERIC,
+                            SourceFormat.SCOPE_WAVEFORMS,
+                            (waveforms, SCOPE_TRACKS),
+                            table_name="waveforms",
+                        )
+                    )
                     write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
 
                     measured_interval_s, measured_symbol_rate_bps = validate_capture(
-                        waveforms,
+                        scope_run,
                         symbol_rate_bps,
                     )
 
-                    plot_paths = plot_time_domain_csv(
-                        csv_path,
-                        {
-                            "seq_logic_v": SubplotSpec(ylabel="LOGIC (V)"),
-                            f"{COMP_TRACK}_v": SubplotSpec(
-                                ylabel="COMP (V)",
-                                info_lines=(
-                                    f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
-                                    f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
-                                    f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
-                                    f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
-                                    f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
-                                    f"Scope bandwidth: "
-                                    f"{float(response_value(scope.get_bandwidth(channel=COMP_SCOPE_CHANNEL))) / 1e9:.1f} GHz",
+                    plot_artifacts = render_plot(
+                        PlotRequest(
+                            PlotSpec(
+                                name=stem,
+                                kind=PlotKind.TIME_DOMAIN,
+                                input_ids=(scope_run.run_id,),
+                                output_path=csv_path.with_suffix(".png"),
+                                title=(
+                                    f"Measured ADC LVDS sequencer inputs ({symbol_rate_bps / 1e6:g} MBd, N={divider_n})"
                                 ),
+                                table="waveforms",
+                                y_columns=("seq_logic_v", f"{COMP_TRACK}_v"),
+                                labels={
+                                    "seq_logic_v": "LOGIC (V)",
+                                    f"{COMP_TRACK}_v": "COMP (V)",
+                                },
+                                info_lines={
+                                    f"{COMP_TRACK}_v": (
+                                        f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
+                                        f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
+                                        f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
+                                        f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
+                                        f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
+                                        f"Scope bandwidth: "
+                                        f"{float(response_value(scope.get_bandwidth(channel=COMP_SCOPE_CHANNEL))) / 1e9:.1f} GHz",
+                                    ),
+                                },
                             ),
-                        },
-                        title=(f"Measured ADC LVDS sequencer inputs ({symbol_rate_bps / 1e6:g} MBd, N={divider_n})"),
+                            runs=(scope_run,),
+                        )
                     )
-                    for plot_path in plot_paths:
+                    for plot_path in plot_artifacts.paths:
                         print(f"Saved scope waveform plot: {plot_path}")
 
                     print(

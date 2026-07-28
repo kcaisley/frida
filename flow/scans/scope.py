@@ -2,13 +2,76 @@
 
 from __future__ import annotations
 
+import csv
 import time
+from pathlib import Path
 from typing import Any
 
 from basil.HL.tektronix_oscilloscope import response_value
 
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
+
+
+def write_scope_csv(
+    csv_path: Path,
+    waveforms: Any,
+    track_names: dict[int, str],
+) -> Path:
+    """Persist one raw, aligned oscilloscope acquisition as CSV."""
+
+    channels = tuple(track_names)
+    if not channels:
+        raise ValueError("at least one scope track is required")
+    if len(set(track_names.values())) != len(track_names):
+        raise ValueError(f"scope track names must be unique, got {tuple(track_names.values())}")
+
+    missing_channels = sorted(set(channels).difference(waveforms))
+    if missing_channels:
+        raise ValueError(f"scope did not return waveforms for channels {missing_channels}")
+
+    reference_x_scale = waveforms[channels[0]].x_scale
+    if reference_x_scale.unit.lower() not in {"s", "sec", "seconds"}:
+        raise ValueError(f"expected scope time axis in seconds, got {reference_x_scale.unit!r}")
+
+    sample_counts: dict[int, int] = {}
+    for channel in channels:
+        waveform = waveforms[channel]
+        if waveform.x_scale != reference_x_scale:
+            raise ValueError(
+                f"scope channel {channel} has horizontal scale {waveform.x_scale}, expected {reference_x_scale}"
+            )
+        if len(waveform.data) != len(waveform.raw_data):
+            raise ValueError(
+                f"scope channel {channel} has {len(waveform.data)} voltage samples "
+                f"but {len(waveform.raw_data)} raw samples"
+            )
+        sample_counts[channel] = len(waveform.raw_data)
+
+    if len(set(sample_counts.values())) != 1:
+        raise ValueError(f"scope channels have different sample counts: {sample_counts}")
+
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "time_s",
+                *(f"{track_names[channel]}_v" for channel in channels),
+                *(f"{track_names[channel]}_raw" for channel in channels),
+            ]
+        )
+        for index in range(next(iter(sample_counts.values()))):
+            writer.writerow(
+                [
+                    reference_x_scale.offset + index * reference_x_scale.slope,
+                    *(waveforms[channel].data[index] for channel in channels),
+                    *(waveforms[channel].raw_data[index] for channel in channels),
+                ]
+            )
+
+    print(f"Saved scope waveform CSV: {csv_path}")
+    return csv_path
 
 
 def wait_for_scope_capture(

@@ -4,8 +4,7 @@ Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral
 
 The generated CSV uses the same typed :class:`AdcConversion` schema as the
-physical scan. A small in-memory compatibility view is passed to the legacy
-transfer plotter; no legacy-format CSV is written.
+physical scan and is normalized through the shared analysis pipeline.
 """
 
 from __future__ import annotations
@@ -16,9 +15,23 @@ import hdl21 as h
 
 from flow.cdac import get_cdac_weights
 from flow.old.behavioral import SAR_ADC
+from flow.analysis.models import (
+    AdcConversion,
+    AdcSettings,
+    AnalysisKind,
+    AnalysisPlan,
+    AnalysisSpec,
+    BackendKind,
+    BlockKind,
+    PlotKind,
+    PlotSpec,
+    SourceFormat,
+    SourceSpec,
+)
+from flow.analysis.runner import run_analysis_plan
 from flow.scans.params import AdcTbParams
-from flow.scans.plot import plot_adc_transfer
-from flow.scans.results import AdcConversion, write_adc_conversions
+from flow.analysis.io import to_json_data
+from flow.scans.results import write_adc_conversions
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
     convert_dout_to_normalized_dout,
@@ -147,7 +160,6 @@ def main() -> None:
     print(f"Vin_p={vin_p:.6g} V, Vin_n={vin_n:.6g} V, sampled Vin_p={sampled_vin_p:.6g} V")
 
     conversions = []
-    plot_rows = []
     for conversion_index in range(PARAMS.conversions):
         bout, dout_raw, dout = convert_behavioral_to_bout_and_dout(
             adc,
@@ -167,27 +179,48 @@ def main() -> None:
                 dout=dout,
             )
         )
-        plot_rows.append(
-            {
-                "vin_set_v": vin_p,
-                "vdiff_v": vin_diff_v,
-                "conversion_index": conversion_index,
-                "Bbits": bout,
-                "Dout": dout,
-            }
-        )
         print(f"conversion {conversion_index:02d}: Bout={bout} Dout_raw={dout_raw} Dout={dout}")
 
     csv_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.csv"
     write_adc_conversions(csv_path, conversions)
     print(f"ADC {ADC_INDEX:02d}: saved typed data to {csv_path}")
     if WRITE_PLOT:
-        adc_cfg = {
-            "adc_index": ADC_INDEX,
-            "artifact_stem": f"adc{ADC_INDEX:02d}_behavioral",
-            "dac_init_state": "behavioral",
-        }
-        plot_adc_transfer(adc_cfg, plot_rows, SCAN_OUTDIR)
+        analysis_name = f"adc{ADC_INDEX:02d}_behavioral_transfer"
+        run_analysis_plan(
+            AnalysisPlan(
+                sources=(
+                    SourceSpec(
+                        run_id=f"adc{ADC_INDEX:02d}_behavioral",
+                        backend=BackendKind.BEHAVIORAL,
+                        block=BlockKind.ADC,
+                        format=SourceFormat.ADC_CSV,
+                        source=csv_path,
+                        table_name="conversions",
+                        parameters={
+                            "vin_diff_v": vin_diff_v,
+                            "testbench": to_json_data(PARAMS),
+                        },
+                    ),
+                ),
+                analyses=(
+                    AnalysisSpec(
+                        name=analysis_name,
+                        kind=AnalysisKind.ADC_TRANSFER,
+                        input_ids=(f"adc{ADC_INDEX:02d}_behavioral",),
+                        settings=AdcSettings(adc_bits=PARAMS.dut.adc_bits),
+                    ),
+                ),
+                plots=(
+                    PlotSpec(
+                        name=analysis_name,
+                        kind=PlotKind.TRANSFER,
+                        input_ids=(analysis_name,),
+                        output_path=SCAN_OUTDIR / f"{analysis_name}.png",
+                        title="FRIDA behavioral ADC transfer",
+                    ),
+                ),
+            )
+        )
 
 
 if __name__ == "__main__":
