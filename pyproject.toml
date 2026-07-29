@@ -7,10 +7,7 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-<<<<<<< HEAD
-=======
     "pyyaml",
->>>>>>> refs/remotes/origin/main
     "pydantic",
     "pytest",
     "klayout",

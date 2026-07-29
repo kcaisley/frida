@@ -4,12 +4,7 @@ Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral
 
 The generated CSV uses the same typed :class:`AdcConversion` schema as the
-<<<<<<< HEAD
 physical scan and is normalized through the shared analysis pipeline.
-=======
-physical scan. A small in-memory compatibility view is passed to the transfer
-plotter; no legacy-format CSV is written.
->>>>>>> refs/remotes/origin/main
 """
 
 from __future__ import annotations
@@ -21,8 +16,6 @@ import hdl21 as h
 
 from flow.adc.behavioral import SAR_ADC
 from flow.cdac import get_cdac_weights
-<<<<<<< HEAD
-from flow.old.behavioral import SAR_ADC
 from flow.analysis.models import (
     AdcConversion,
     AdcSettings,
@@ -37,8 +30,6 @@ from flow.analysis.models import (
     SourceSpec,
 )
 from flow.analysis.runner import run_analysis_plan
-=======
->>>>>>> refs/remotes/origin/main
 from flow.scans.params import AdcTbParams
 from flow.analysis.io import to_json_data
 from flow.scans.results import write_adc_conversions
