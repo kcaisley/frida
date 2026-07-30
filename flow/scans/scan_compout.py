@@ -56,7 +56,7 @@ SEQ_PATTERNS = {
 
 RX_SEN_START_WORD = 5
 PARAMS = AdcTbParams(
-    board_id="frida65a_001",
+    board_id="00",
     observed_adc=ADC_INDEX,
     active_adc_mask=tuple(int(index == ADC_INDEX) for index in reversed(range(16))),
     dac_astate_p=(1,) * 16,

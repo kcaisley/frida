@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from bitarray import bitarray
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from bitarray import bitarray
 
 from flow.adc import AdcParams
 from flow.cdac import CdacParams, RedunStrat
-from flow.analysis.models import AdcConversion
 from flow.scans import scan_adc
 from flow.scans.loopback_fastrx import (
     SCOPE_DECISION_SAMPLE_FRACTION,
@@ -19,13 +18,12 @@ from flow.scans.loopback_fastrx import (
 from flow.scans.params import AdcTbParams, load_board_map
 from flow.scans.scan_spice import (
     bits_to_word,
-    convert_raw_to_adc_conversions,
+    convert_raw_to_adc_measurement,
     nearest_value,
     require_signal,
     rising_edges,
 )
-from flow.scans.results import write_adc_conversions
-from flow.scans.scope import write_scope_csv
+from flow.scans.scope import plot_scope_waveforms, write_scope_csv
 
 
 def serializer_params(**overrides) -> AdcTbParams:
@@ -47,7 +45,7 @@ def serializer_params(**overrides) -> AdcTbParams:
 def spi_params(**overrides) -> AdcTbParams:
     """Return physical parameters with independently recognizable SPI fields."""
     config = {
-        "board_id": "frida65a_001",
+        "board_id": "00",
         "observed_adc": 3,
         "active_adc_mask": tuple(int(index in (3, 9)) for index in reversed(range(16))),
         "dac_astate_p": tuple(int(bit) for bit in "1010101010101010"),
@@ -99,22 +97,14 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
         "-5e-10,0.2,0.0,20,0",
         "0.0,0.3,1.0,30,100",
     ]
-
-
-def test_write_adc_conversions_persists_and_appends_raw_rows(tmp_path) -> None:
-    """Raw ADC writer preserves the shared acquisition schema."""
-
-    first = AdcConversion(0, 0xA1234567, 0xA, 3, 0x12345, "101", 5, 6)
-    second = AdcConversion(1, 0xA7654321, 0xA, 4, 0x14321, "010", 7, 8)
-    path = tmp_path / "adc" / "conversions.csv"
-
-    assert write_adc_conversions(path, (first,)) == 1
-    assert write_adc_conversions(path, (second,), append=True) == 1
-    assert path.read_text().splitlines() == [
-        "conversion_index,raw_word,identifier,frame,spi,bout,dout_raw,dout",
-        "0,2703443303,10,3,74565,101,5,6",
-        "1,2808431393,10,4,82721,010,7,8",
-    ]
+    assert plot_scope_waveforms(
+        tmp_path / "scope" / "capture",
+        waveforms,
+        {1: "input", 3: "logic"},
+        title="Synthetic scope capture",
+        info_lines={"input": ("Nominal: 0.2 V",)},
+        formats=("png",),
+    ) == (tmp_path / "scope" / "capture.png",)
 
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
@@ -247,6 +237,52 @@ def test_convert_fastrx_to_bout_and_dout_uses_msb_first_samples_and_weights() ->
         )
 
 
+def test_convert_fastrx_words_to_adc_matches_scalar_decode_and_validates_headers() -> None:
+    """Vector decoding preserves scalar bit order, weights, frames, and identifiers."""
+
+    data_size = 4
+    code_weights = [8, 4, 2, 1]
+    spi_values = (0b1011, 0b0101, 0b1110)
+    words = np.asarray(
+        [(1 << 28) | (frame << data_size) | spi for frame, spi in enumerate(spi_values)],
+        dtype=np.uint32,
+    )
+
+    bout, dout_raw, dout = scan_adc.convert_fastrx_words_to_adc(
+        words,
+        data_size,
+        code_weights,
+        adc_bits=12,
+    )
+
+    scalar = [scan_adc.convert_fastrx_to_bout_and_dout(spi, data_size, code_weights) for spi in spi_values]
+    assert ["".join(str(bit) for bit in row) for row in bout] == [bits for bits, _raw in scalar]
+    assert dout_raw.tolist() == [raw for _bits, raw in scalar]
+    assert dout.tolist() == [
+        scan_adc.convert_dout_to_normalized_dout(raw, code_weights, adc_bits=12) for _bits, raw in scalar
+    ]
+
+    invalid_identifier = words.copy()
+    invalid_identifier[1] &= np.uint32(0x0FFFFFFF)
+    with pytest.raises(RuntimeError, match="conversion 1 has identifier"):
+        scan_adc.convert_fastrx_words_to_adc(
+            invalid_identifier,
+            data_size,
+            code_weights,
+            adc_bits=12,
+        )
+
+    invalid_frame = words.copy()
+    invalid_frame[2] ^= np.uint32(1 << data_size)
+    with pytest.raises(RuntimeError, match="conversion 2 has frame"):
+        scan_adc.convert_fastrx_words_to_adc(
+            invalid_frame,
+            data_size,
+            code_weights,
+            adc_bits=12,
+        )
+
+
 def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
     """Pin down ADC normalization endpoints and Python rounding behavior."""
     assert scan_adc.convert_dout_to_normalized_dout(0, [1, 1], adc_bits=12) == 0
@@ -255,30 +291,48 @@ def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
 
 
 def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> None:
-    """Software-only: reproduce validated word/tap points from the timing model."""
+    """Software-only: keep arbitrary rates inside the bounded data aperture."""
 
-    timing = load_board_map()["boards"]["frida65a_001"]["capture_timing_model"]
-    expected_points = {
-        80.0e6: (6, 0),
-        240.0e6: (7, 31),
-        720.0e6: (8, 31),
-        1.6e9: (9, 0),
-    }
-    for symbol_rate_bps, expected in expected_points.items():
+    timing = load_board_map()["boards"]["00"]["capture_timing_model"]
+    rates_mbd = (*range(80, 1601), 80.125, 681.37, 1163.25, 1599.875)
+    for rate_mbd in rates_mbd:
+        symbol_rate_bps = rate_mbd * 1.0e6
         alignment = scan_adc.calculate_fastrx_capture_alignment(
             AdcTbParams(symbol_rate=symbol_rate_bps),
             **timing,
         )
         sequencer_period_s = 8.0 / symbol_rate_bps
-        assert alignment.first_comp_transition_symbol == 36
-        assert (
-            alignment.rx_sen_start_word,
-            alignment.comp_idelay_taps,
-        ) == expected
-        assert alignment.capture_edge_s >= alignment.data_arrival_s
-        assert alignment.setup_margin_s >= timing["minimum_setup_s"]
-        assert alignment.hold_margin_s >= 0.0
-        assert alignment.setup_margin_s + alignment.hold_margin_s == pytest.approx(sequencer_period_s)
+        assert alignment.first_comp_transition_symbol == 36 - alignment.control_phase_advance_symbols
+        assert 0 <= alignment.control_phase_advance_symbols <= timing["maximum_control_phase_advance_symbols"]
+        assert 0 <= alignment.comp_idelay_taps < timing["idelay_tap_count"]
+        assert alignment.latest_data_arrival_s <= alignment.capture_edge_s
+        assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
+        assert alignment.hold_margin_s >= timing["minimum_capture_margin_s"]
+        assert alignment.setup_margin_s + alignment.hold_margin_s == pytest.approx(
+            sequencer_period_s - timing["external_comp_delay_max_s"] + timing["external_comp_delay_min_s"]
+        )
+
+    # Hardware regression: repeated 1.52 GBd sine acquisitions were clean at
+    # taps 18/20 but contained rare gross errors at taps 22/24. Preserve the
+    # hold-bounded setup-side guard at 1.4 and 1.6 GBd.
+    alignment_1400 = scan_adc.calculate_fastrx_capture_alignment(
+        AdcTbParams(symbol_rate=1.4e9),
+        **timing,
+    )
+    alignment_1600 = scan_adc.calculate_fastrx_capture_alignment(
+        AdcTbParams(symbol_rate=1.6e9),
+        **timing,
+    )
+    assert (
+        alignment_1400.control_phase_advance_symbols,
+        alignment_1400.rx_sen_start_word,
+        alignment_1400.comp_idelay_taps,
+    ) == (7, 8, 20)
+    assert (
+        alignment_1600.control_phase_advance_symbols,
+        alignment_1600.rx_sen_start_word,
+        alignment_1600.comp_idelay_taps,
+    ) == (0, 9, 3)
 
 
 def test_extract_scope_decisions_samples_at_98_percent_of_each_cycle() -> None:
@@ -360,8 +414,8 @@ def test_bits_to_word_packs_msb_first() -> None:
     assert bits_to_word([True, False, True]) == 0b101
 
 
-def test_convert_raw_to_adc_conversions_writes_typed_and_plot_views() -> None:
-    """Decode one synthetic Spectre conversion into the shared result schema."""
+def test_convert_raw_to_adc_measurement_decodes_typed_measurement(tmp_path) -> None:
+    """Decode one synthetic Spectre conversion into typed DAQ and wave sections."""
 
     expected_bout = "10110100101100101"
     times_s = np.arange(0.0, 350.0e-9, 1.0e-9)
@@ -373,29 +427,25 @@ def test_convert_raw_to_adc_conversions_writes_typed_and_plot_views() -> None:
         stop_s = start_s + 20.0e-9
         comp_out_v[(times_s >= start_s) & (times_s < stop_s)] = 1.2 * int(bit)
 
-    conversions, analysis_columns = convert_raw_to_adc_conversions(
+    measurement = convert_raw_to_adc_measurement(
         {
             "time": times_s.tolist(),
             "seq_comp": clock_v.tolist(),
+            "seq_update": np.zeros_like(times_s).tolist(),
             "comp_out": comp_out_v.tolist(),
             "vin_p": np.full_like(times_s, 0.650).tolist(),
             "vin_n": np.full_like(times_s, 0.600).tolist(),
         },
-        threshold=0.6,
-        sample_delay=10.0e-9,
-        comp_signal="comp_out",
-        clock_signal="seq_comp",
-        vinp_signal="vin_p",
-        vinn_signal="vin_n",
+        params=AdcTbParams(conversions=1),
+        raw_path=tmp_path / "synthetic.raw",
     )
 
-    assert len(conversions) == 1
-    assert conversions[0].bout == expected_bout
-    assert conversions[0].spi == int(expected_bout, 2)
-    assert conversions[0].dout_raw == conversions[0].dout
-    assert analysis_columns["bout"][0] == expected_bout
-    assert analysis_columns["dout"][0] == conversions[0].dout
-    assert analysis_columns["vin_diff_v"][0] == pytest.approx(0.050)
+    assert measurement.info.backend == "spice"
+    assert "".join(str(bit) for bit in measurement.daq.bout[0]) == expected_bout
+    assert measurement.daq.dout_raw[0] > 0
+    assert measurement.daq.dout[0] > 0
+    assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
+    assert measurement.wave.comp_out_v.shape[0] == 1
 
 
 def test_require_signal_resolves_exact_and_unique_suffix_matches() -> None:

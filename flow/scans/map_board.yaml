@@ -12,7 +12,7 @@ adc_flavors:
     cdac_weights: [768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1]
 
 boards:
-  frida65a_001:
+  "00":
     # SPI / comparator-mux index to physical CDAC flavor.
     adc_channels:
       0: radix17
@@ -68,21 +68,26 @@ boards:
       vin_cm_supply_gain: 0.9985304375000002
 
     # Analytical COMP_OUT capture model. FPGA delays and clock skew come from
-    # the routed KX1 timing report. The external delay is rounded up from the
-    # 5.262 ns maximum observed across 119 COMP/COMP_OUT transitions on
-    # 2026-07-25. The 2 ns setup margin deliberately covers unmodelled
-    # comparator propagation variation. Its selected word/tap pairs produced
-    # exact 17-bit scope/FastRX agreement at all 140 combinations of 20 symbol
-    # rates and seven LOGIC offsets measured on 2026-07-25.
+    # the routed KX1 timing report. The external bounds cover the 3.649--6.764
+    # ns COMP-to-COMP_OUT delays observed across 669 transitions on 2026-07-30.
+    # Setup is calculated from the latest current decision and hold from the
+    # earliest following decision. All four ADC control lanes may move earlier
+    # together, preserving every relative timing interval while moving the
+    # returned decisions away from a FastRX clock boundary.
     capture_timing_model:
       seqgen_pipeline_cycles: 1.0
       oserdes_to_output_s: 2.004e-9
-      external_comp_delay_s: 5.3e-9
+      external_comp_delay_min_s: 3.5e-9
+      external_comp_delay_max_s: 6.9e-9
       comp_input_to_fastrx_d_s: 5.740e-9
       # Routed serializer-clock insertion is 10.216 ns; FastRX capture-clock
       # insertion is 8.661 ns, giving 1.555 ns of launch-to-capture skew.
       launch_to_capture_clock_skew_s: 1.555e-9
       idelay_tap_s: 78.125e-12
       idelay_tap_count: 32
-      minimum_setup_s: 2.0e-9
-      minimum_hold_s: 0.0
+      # Use up to five setup-side taps while retaining the modeled hold margin.
+      # At 1.52 GBd, repeated 200k-conversion sine captures were clean at taps
+      # 18/20 but contained rare gross errors at taps 22/24.
+      idelay_setup_backoff_taps: 5
+      maximum_control_phase_advance_symbols: 7
+      minimum_capture_margin_s: 0.5e-9

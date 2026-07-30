@@ -2,37 +2,42 @@
 
 from __future__ import annotations
 
-import json
+import itertools
 import math
 import re
 from array import array
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Any, Mapping
+from typing import Any
 
 import hdl21 as h
+import numpy as np
 from bitarray import bitarray
+from pyvisa.errors import VisaIOError
 
+from flow.analysis.io import scope_records_to_adc_wave, write_measurement
+from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
 from flow.scans.params import AdcTbParams, build_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.analysis.io import parameter_digest, to_json_data
-from flow.analysis.models import AdcConversion
-from flow.scans.results import write_adc_conversions
+from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
 
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "scan_adc"
 
 
 @dataclass(frozen=True, slots=True)
 class FastRxCaptureAlignment:
-    """One analytically selected FastRX word/ IDELAY capture point."""
+    """One analytically selected FastRX timing aperture."""
 
     rx_sen_start_word: int
     comp_idelay_taps: int
+    control_phase_advance_symbols: int
     first_comp_transition_symbol: int
-    data_arrival_s: float
+    earliest_data_arrival_s: float
+    latest_data_arrival_s: float
     capture_edge_s: float
     setup_margin_s: float
     hold_margin_s: float
@@ -47,12 +52,12 @@ def convert_vdiff_input_to_awg_supply(
 
     ``vin_diff`` is ``Vin_p - Vin_n`` at the ADC. The returned tuple is the
     single-ended AWG voltage and E3634A setpoint. This function performs no
-    instrument I/O. With no explicit calibration it uses frida65a_001 from
+    instrument I/O. With no explicit calibration it uses board 00 from
     ``map_board.yaml`` for convenient software tests and loopback scripts.
     """
 
     if calibration is None:
-        calibration = load_board_map()["boards"]["frida65a_001"]["input_calibration"]
+        calibration = load_board_map()["boards"]["00"]["input_calibration"]
 
     amplitude_v = abs(vin_diff)
     common_mode_delta_v = vin_cm - float(calibration["awg_calibration_vin_cm_v"])
@@ -114,6 +119,56 @@ def convert_fastrx_to_bout_and_dout(
     return bout, dout
 
 
+def convert_fastrx_words_to_adc(
+    words: Sequence[int] | np.ndarray,
+    data_size: int,
+    code_weights: list[int],
+    adc_bits: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Decode and validate one complete FastRX acquisition in host memory.
+
+    ``data_size`` is read from the FPGA once by the caller. Keeping this pure
+    conversion separate avoids Basil ``parse_word()`` re-reading that hardware
+    register for every captured word.
+    """
+
+    fastrx_words = np.asarray(words, dtype=np.uint32)
+    if fastrx_words.ndim != 1:
+        raise ValueError("FastRX words must be one-dimensional")
+    if not 1 <= data_size <= 28:
+        raise ValueError("FastRX data_size must be in 1..28")
+    if len(code_weights) != data_size:
+        raise ValueError(f"received {data_size} FastRX bits for {len(code_weights)} ADC weights")
+    if adc_bits <= 0:
+        raise ValueError("adc_bits must be positive")
+
+    identifiers = (fastrx_words >> 28) & 0xF
+    invalid_identifiers = np.flatnonzero(identifiers != 1)
+    if invalid_identifiers.size:
+        index = int(invalid_identifiers[0])
+        raise RuntimeError(f"FastRX conversion {index} has identifier {int(identifiers[index]):#x}, expected 0x1")
+
+    frame_counter_bits = 28 - data_size
+    frame_counter_modulus = 1 << frame_counter_bits
+    frames = (fastrx_words >> data_size) & (frame_counter_modulus - 1)
+    expected_frames = np.arange(len(fastrx_words), dtype=np.uint32) % frame_counter_modulus
+    invalid_frames = np.flatnonzero(frames != expected_frames)
+    if invalid_frames.size:
+        index = int(invalid_frames[0])
+        raise RuntimeError(
+            f"FastRX conversion {index} has frame {int(frames[index])}, expected {int(expected_frames[index])}"
+        )
+
+    spi_data = fastrx_words & ((1 << data_size) - 1)
+    bit_positions = np.arange(data_size - 1, -1, -1, dtype=np.uint32)
+    bout = ((spi_data[:, None] >> bit_positions) & 1).astype(np.uint8)
+    weights = np.asarray(code_weights, dtype=np.int64)
+    dout_raw = bout @ weights
+    normalized_code_max = (1 << adc_bits) - 1
+    dout = np.rint(dout_raw * normalized_code_max / np.sum(weights)).astype(np.int64)
+    return bout, dout_raw, dout
+
+
 def convert_dout_to_normalized_dout(dout: int, code_weights: list[int], adc_bits: int) -> int:
     """Scale ideal-weight raw Dout onto the configured nominal ADC range."""
 
@@ -127,118 +182,161 @@ def calculate_fastrx_capture_alignment(
     *,
     seqgen_pipeline_cycles: float,
     oserdes_to_output_s: float,
-    external_comp_delay_s: float,
+    external_comp_delay_min_s: float,
+    external_comp_delay_max_s: float,
     comp_input_to_fastrx_d_s: float,
     launch_to_capture_clock_skew_s: float,
     idelay_tap_s: float,
     idelay_tap_count: int,
-    minimum_setup_s: float = 0.0,
-    minimum_hold_s: float = 0.0,
+    idelay_setup_backoff_taps: int,
+    maximum_control_phase_advance_symbols: int,
+    minimum_capture_margin_s: float,
 ) -> FastRxCaptureAlignment:
-    """Select the integer FastRX capture word and comparator IDELAY tap.
+    """Center FastRX sampling inside the measured comparator-data aperture.
 
-    The first possible COMP_OUT transition is derived from the serialized COMP
-    pattern. Its arrival at the FastRX D input is the sum of its symbol
-    position, the sequencer-to-OSERDES pipeline, the routed external path, the
-    launch/capture clock-insertion skew, and the selected IDELAY. FastRX samples
-    once per sequencer word. Every legal tap is evaluated against the next
-    word-clock edge, and the point maximizing the smaller setup/ hold margin is
-    returned.
+    Setup uses the latest measured COMP_OUT transition, whereas hold uses the
+    earliest possible transition of the following decision. This distinction
+    is essential because physical comparator propagation delay is not constant.
+    FastRX samples once per sequencer word. The search evaluates every legal
+    RX_SEN word and IDELAY tap, and may advance all four ADC control lanes
+    together by up to seven symbols. Every relative ADC timing interval is
+    therefore unchanged.
 
-    ``seq_logic`` is intentionally absent from this timing calculation. It
-    updates the SAR/CDAC state for the following comparison, but COMP_OUT is
-    driven directly by the comparator clocked from ``seq_comp``.
+    The selected setting maximizes the smaller of its setup and hold margins.
+    Candidates are accepted only when both margins meet
+    ``minimum_capture_margin_s``. The final IDELAY is moved toward the setup
+    side by up to ``idelay_setup_backoff_taps``. The largest legal backoff
+    which retains the minimum modeled hold margin is used.
     """
 
     validate_params(params)
     numeric_fields = {
         "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
         "oserdes_to_output_s": oserdes_to_output_s,
-        "external_comp_delay_s": external_comp_delay_s,
+        "external_comp_delay_min_s": external_comp_delay_min_s,
+        "external_comp_delay_max_s": external_comp_delay_max_s,
         "comp_input_to_fastrx_d_s": comp_input_to_fastrx_d_s,
         "launch_to_capture_clock_skew_s": launch_to_capture_clock_skew_s,
         "idelay_tap_s": idelay_tap_s,
-        "minimum_setup_s": minimum_setup_s,
-        "minimum_hold_s": minimum_hold_s,
+        "minimum_capture_margin_s": minimum_capture_margin_s,
     }
     for field, value in numeric_fields.items():
         if not math.isfinite(value) or value < 0.0:
             raise ValueError(f"{field} must be finite and non-negative")
     if isinstance(idelay_tap_count, bool) or not isinstance(idelay_tap_count, int) or idelay_tap_count <= 0:
         raise ValueError("idelay_tap_count must be a positive integer")
-
+    if (
+        isinstance(idelay_setup_backoff_taps, bool)
+        or not isinstance(idelay_setup_backoff_taps, int)
+        or idelay_setup_backoff_taps < 0
+    ):
+        raise ValueError("idelay_setup_backoff_taps must be a non-negative integer")
+    if (
+        isinstance(maximum_control_phase_advance_symbols, bool)
+        or not isinstance(maximum_control_phase_advance_symbols, int)
+        or not 0 <= maximum_control_phase_advance_symbols <= 7
+    ):
+        raise ValueError("maximum_control_phase_advance_symbols must be an integer in 0..7")
+    if external_comp_delay_min_s > external_comp_delay_max_s:
+        raise ValueError("external comparator minimum delay must not exceed its maximum delay")
     symbol_rate_bps = float(params.symbol_rate)
     sequencer_period_s = 8.0 / symbol_rate_bps
-
-    comp_pattern = params.seq_comp_pattern
-    phase_symbols = float(params.seq_comp_phase_delay_symbols)
-    if not phase_symbols.is_integer():
+    sequence_words = len(params.seq_comp_pattern) // 8
+    capture_bits = len(convert_dac_caps_to_adc_weights(get_cdac_weights(params.dut.cdac)))
+    if not float(params.seq_comp_phase_delay_symbols).is_integer():
         raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
-    shift = int(phase_symbols) % len(comp_pattern)
-    if shift:
-        comp_pattern = comp_pattern[-shift:] + comp_pattern[:-shift]
-    first_comp_transition_symbol = next(
-        (
-            symbol_index
-            for symbol_index in range(1, len(comp_pattern))
-            if comp_pattern[symbol_index] != comp_pattern[symbol_index - 1]
-        ),
-        -1,
-    )
-    if first_comp_transition_symbol < 0:
-        raise ValueError("seq_comp_pattern contains no transition")
 
-    base_arrival_s = (
-        first_comp_transition_symbol / symbol_rate_bps
-        + seqgen_pipeline_cycles * sequencer_period_s
-        + oserdes_to_output_s
-        + external_comp_delay_s
-        + comp_input_to_fastrx_d_s
-        + launch_to_capture_clock_skew_s
-    )
-
-    candidates: list[tuple[float, float, int, int, float, float, float]] = []
-    for taps in range(idelay_tap_count):
-        data_arrival_s = base_arrival_s + taps * idelay_tap_s
-        capture_word = math.ceil((data_arrival_s + minimum_setup_s) / sequencer_period_s - 1.0e-12)
-        capture_edge_s = capture_word * sequencer_period_s
-        setup_margin_s = capture_edge_s - data_arrival_s
-        hold_margin_s = data_arrival_s + sequencer_period_s - capture_edge_s
-        if setup_margin_s < minimum_setup_s or hold_margin_s < minimum_hold_s:
-            continue
-        smaller_margin_s = min(
-            setup_margin_s - minimum_setup_s,
-            hold_margin_s - minimum_hold_s,
+    candidates = []
+    for phase_advance in range(maximum_control_phase_advance_symbols + 1):
+        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
+        shift = phase_symbols % len(params.seq_comp_pattern)
+        comp_pattern = (
+            params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern
         )
-        candidates.append(
-            (
-                smaller_margin_s,
-                -abs(setup_margin_s - hold_margin_s),
-                -taps,
-                capture_word,
-                data_arrival_s,
-                setup_margin_s,
-                hold_margin_s,
-            )
+        first_transition = next(
+            (index for index in range(1, len(comp_pattern)) if comp_pattern[index] != comp_pattern[index - 1]),
+            -1,
         )
+        if first_transition < 0:
+            raise ValueError("seq_comp_pattern contains no transition")
+        common_delay_s = (
+            first_transition / symbol_rate_bps
+            + seqgen_pipeline_cycles * sequencer_period_s
+            + oserdes_to_output_s
+            + comp_input_to_fastrx_d_s
+            + launch_to_capture_clock_skew_s
+        )
+        for taps in range(idelay_tap_count):
+            tap_delay_s = taps * idelay_tap_s
+            earliest_arrival_s = common_delay_s + external_comp_delay_min_s + tap_delay_s
+            latest_arrival_s = common_delay_s + external_comp_delay_max_s + tap_delay_s
+            for capture_word in range(sequence_words - capture_bits):
+                capture_edge_s = capture_word * sequencer_period_s
+                setup_margin_s = capture_edge_s - latest_arrival_s
+                hold_margin_s = earliest_arrival_s + sequencer_period_s - capture_edge_s
+                smaller_margin_s = min(setup_margin_s, hold_margin_s)
+                if smaller_margin_s < minimum_capture_margin_s:
+                    continue
+                candidates.append(
+                    (
+                        smaller_margin_s,
+                        -abs(setup_margin_s - hold_margin_s),
+                        -phase_advance,
+                        -taps,
+                        capture_word,
+                        phase_advance,
+                        taps,
+                        first_transition,
+                        earliest_arrival_s,
+                        latest_arrival_s,
+                        setup_margin_s,
+                        hold_margin_s,
+                    )
+                )
 
     if not candidates:
-        raise ValueError("no legal FastRX capture word/ IDELAY setting satisfies the requested margins")
-
+        raise ValueError("no safe FastRX capture aperture exists at this symbol rate")
+    selected = max(candidates)
     (
         _smaller_margin_s,
         _negative_imbalance_s,
-        negative_taps,
+        _negative_phase_advance,
+        _negative_taps,
         capture_word,
-        data_arrival_s,
+        phase_advance,
+        taps,
+        first_comp_transition_symbol,
+        earliest_arrival_s,
+        latest_arrival_s,
         setup_margin_s,
         hold_margin_s,
-    ) = max(candidates)
+    ) = selected
+    if idelay_tap_s > 0.0:
+        hold_backoff_taps = max(
+            0,
+            math.floor((hold_margin_s - minimum_capture_margin_s) / idelay_tap_s + 1.0e-12),
+        )
+    else:
+        hold_backoff_taps = 0
+    applied_backoff_taps = min(
+        taps,
+        idelay_setup_backoff_taps,
+        hold_backoff_taps,
+    )
+    guarded_taps = taps - applied_backoff_taps
+    guard_shift_s = (guarded_taps - taps) * idelay_tap_s
+    taps = guarded_taps
+    earliest_arrival_s += guard_shift_s
+    latest_arrival_s += guard_shift_s
+    setup_margin_s -= guard_shift_s
+    hold_margin_s += guard_shift_s
     return FastRxCaptureAlignment(
         rx_sen_start_word=capture_word,
-        comp_idelay_taps=-negative_taps,
+        comp_idelay_taps=taps,
+        control_phase_advance_symbols=phase_advance,
         first_comp_transition_symbol=first_comp_transition_symbol,
-        data_arrival_s=data_arrival_s,
+        earliest_data_arrival_s=earliest_arrival_s,
+        latest_data_arrival_s=latest_arrival_s,
         capture_edge_s=capture_word * sequencer_period_s,
         setup_margin_s=setup_margin_s,
         hold_margin_s=hold_margin_s,
@@ -392,7 +490,7 @@ def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
         values.append(float(match.group(1)) * SUFFIXES[suffix])
 
     points = tuple((values[index], values[index + 1]) for index in range(0, len(values), 2))
-    if any(right[0] <= left[0] for left, right in zip(points, points[1:])):
+    if any(right[0] <= left[0] for left, right in itertools.pairwise(points)):
         raise ValueError("PWL times must increase strictly")
     return points
 
@@ -402,11 +500,23 @@ def main() -> None:
 
     SETUP_SETTLE_S = 0.2
     SMU_SETTLE_S = 0.5
+    SMU_CURRENT_NPLC = 10.0
+    ACTIVE_POWER_SETTLE_S = 0.1
     SI570_SETTLE_S = 0.02
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
     FASTRX_TRAILING_DRAIN_S = 0.01
-    CSV_WRITE_BATCH_ROWS = 10_000
     MAX_RAW_FASTRX_WORDS = 20
+    SCOPE_TRACKS = {
+        "vin_diff_v": 1,
+        "seq_comp_v": 2,
+        "seq_logic_v": 3,
+        "comp_out_v": 4,
+    }
+    SCOPE_TRIGGER_CHANNEL = 3
+    SCOPE_RECORD_LENGTH = 10_000
+    SCOPE_BANDWIDTH_HZ = 2.0e9
+    SCOPE_VERTICAL_SCALE_V = 0.2
+    SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
     variants = build_variants()
     if not variants:
@@ -426,60 +536,6 @@ def main() -> None:
     run_timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir = SCAN_OUTDIR / run_timestamp
     run_dir.mkdir(parents=True, exist_ok=False)
-    manifest_path = run_dir / "manifest.json"
-
-    manifest = {
-        "schema_version": 1,
-        "started_at": datetime.now().astimezone().isoformat(),
-        "board_id": board_id,
-        "board_map": str(Path(__file__).resolve().parent / "map_board.yaml"),
-        "board_configuration": to_json_data(board),
-        "status": "running",
-        "variants": [],
-    }
-
-    for index, params in enumerate(variants):
-        source = params.vin_diff
-        if isinstance(source, h.Vdc.Params):
-            source_label = f"dc{float(source.dc) * 1e3:+.0f}mv".replace("+", "p").replace("-", "m")
-        elif isinstance(source, h.Vsin.Params):
-            source_label = (
-                (f"sin{float(source.freq):g}hz_{float(source.voff) * 1e3:+g}mv_{2 * float(source.vamp) * 1e3:g}mvpp")
-                .replace("+", "p")
-                .replace("-", "m")
-            )
-        elif isinstance(source, h.Vpwl.Params):
-            source_points = parse_pwl_wave(source.wave)
-            source_period_s = source_points[-1][0] - source_points[0][0]
-            source_min_v = min(value for _time, value in source_points)
-            source_max_v = max(value for _time, value in source_points)
-            source_label = (
-                (f"pwl{1.0 / source_period_s:g}hz_{source_min_v * 1e3:+g}to{source_max_v * 1e3:+g}mv")
-                .replace("+", "p")
-                .replace("-", "m")
-            )
-        else:
-            raise TypeError(f"unsupported differential source type {type(source).__name__}")
-
-        stem = (
-            f"{index:04d}_{board_id}_adc{params.observed_adc:02d}_"
-            f"{float(params.symbol_rate) / 1e6:g}mbd_{source_label}_"
-            f"vcm{float(params.vin_cm.dc) * 1e3:g}mv_"
-            f"vdda{float(params.vdd_a.dc) * 1e3:g}mv_"
-            f"vddd{float(params.vdd_d.dc) * 1e3:g}mv_"
-            f"vddac{float(params.vdd_dac.dc) * 1e3:g}mv_"
-            f"t{float(params.temperature_c):g}c_{parameter_digest(params)}"
-        )
-        manifest["variants"].append(
-            {
-                "index": index,
-                "parameter_digest": parameter_digest(params),
-                "csv_path": f"{stem}.csv",
-                "status": "pending",
-                "parameters": to_json_data(params),
-            }
-        )
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
     from gpib_ctypes import make_default_gpib
 
@@ -491,18 +547,20 @@ def main() -> None:
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
     smu_dut = Dut(str(map_dir / "map_smu.yaml"))
+    scope_dut = Dut(str(map_dir / "map_scope.yaml"))
     initialized_duts = []
-    daq = awg = vin_cm_supply = None
+    daq = awg = vin_cm_supply = scope = None
     smus = []
 
     try:
-        for dut in (daq_dut, awg_dut, vin_cm_dut, smu_dut):
+        for dut in (daq_dut, awg_dut, vin_cm_dut, smu_dut, scope_dut):
             dut.init()
             initialized_duts.append(dut)
 
         daq = daq_dut
         awg = awg_dut["awg"]
         vin_cm_supply = vin_cm_dut["vocm_supply"]
+        scope = scope_dut["scope"]
         smus = [
             (smu_dut["smu1"], "VDD_A", "vdd_a"),
             (smu_dut["smu2"], "VDD_D", "vdd_d"),
@@ -516,10 +574,28 @@ def main() -> None:
             smu.off()
             smu.set_voltage(0.0)
 
-        for variant_entry, params in zip(manifest["variants"], variants, strict=True):
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
+        scope._intf.write("HORizontal:POSition 20")
+        for channel in SCOPE_TRACKS.values():
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+            scope.set_coupling("DC", channel=channel)
+            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
+        scope.set_trigger_mode("NORMAL")
+
+        for variant_index, params in enumerate(variants):
             try:
                 print(
-                    f"\n=== variant {variant_entry['index'] + 1}/{len(variants)}: "
+                    f"\n=== variant {variant_index + 1}/{len(variants)}: "
                     f"ADC {params.observed_adc:02d}, {float(params.symbol_rate) / 1e6:g} MBd ==="
                 )
                 supply_limits = board["supply_limits"]
@@ -546,7 +622,7 @@ def main() -> None:
                     smu.set_voltage_range(float(supply_limits["smu_voltage_range_v"]))
                     smu.set_current_limit(float(supply_limits["smu_current_compliance_a"]))
                     smu.current_sense_autorange_on()
-                    smu.set_current_nplc(10.0)
+                    smu.set_current_nplc(SMU_CURRENT_NPLC)
                     smu.autozero_on()
                     smu.set_voltage(requested_voltage_v)
 
@@ -556,8 +632,20 @@ def main() -> None:
 
                 for smu, rail, field in smus:
                     requested_voltage_v = float(getattr(params, field).dc)
-                    measured_voltage_v = float(smu.get_voltage())
-                    measured_current_a = float(smu.get_current())
+                    for read_attempt in range(3):
+                        try:
+                            measured_voltage_v = float(smu.get_voltage())
+                            measured_current_a = float(smu.get_current())
+                            break
+                        except (UnicodeDecodeError, ValueError, VisaIOError) as error:
+                            if read_attempt == 2:
+                                raise RuntimeError(f"{rail} readback failed after three attempts") from error
+                            print(f"WARNING: retrying malformed {rail} GPIB readback: {error}")
+                            # Linux-GPIB occasionally leaves a partial reply in
+                            # the device buffer. Selected-device clear discards
+                            # it without changing the programmed source values.
+                            smu._intf._resource.clear()
+                            sleep(0.1)
                     if measured_voltage_v > maximum_supply_v + 5e-3:
                         raise RuntimeError(f"{rail} measured unsafe voltage {measured_voltage_v:g} V")
                     if measured_voltage_v < requested_voltage_v - loaded_voltage_tolerance_v:
@@ -716,12 +804,23 @@ def main() -> None:
                 # Derive the FastRX capture word and comparator IDELAY from
                 # the routed FPGA and measured external-path timing. The
                 # equation is software-tested in test_helpers.py and its exact
-                # 17-bit result was checked against simultaneous CH4 scope
-                # captures by loopback_fastrx.py at 140 rate/LOGIC points.
+                # 17-bit result is checked against simultaneous CH4 scope
+                # captures by loopback_fastrx.py, including alignment-boundary
+                # and maximum-rate points.
                 capture_alignment = calculate_fastrx_capture_alignment(
                     params,
                     **board["capture_timing_model"],
                 )
+                phase_advance = capture_alignment.control_phase_advance_symbols
+                if phase_advance:
+                    params = replace(
+                        params,
+                        seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
+                        seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
+                        seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
+                        seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
+                    )
+                    validate_params(params)
                 rx_sen_start_word = capture_alignment.rx_sen_start_word
                 comp_idelay_taps = capture_alignment.comp_idelay_taps
 
@@ -791,15 +890,60 @@ def main() -> None:
                 if spi_mismatches:
                     raise RuntimeError(f"SPI configuration readback has {spi_mismatches} mismatches")
 
+                # Measure active-conversion power while the parameterized
+                # sequencer pattern repeats continuously. FastRX is disabled
+                # for this separate power interval so its FIFO cannot grow
+                # while the three slow Keithley readings are taken. Each
+                # current value is one 10-NPLC average, not a time waveform.
+                daq["seq0"].reset()
+                daq["fastrx0"].reset()
+                sleep(0.001)
+                daq["seq0"].set_size(sequence_words)
+                daq["seq0"].set_clk_divide(1)
+                daq["seq0"].set_repeat(0)
+                daq["seq0"].set_en_ext_start(False)
+                daq["fastrx0"].set_en(False)
+                daq["fifo0"]["RESET"]
+                daq["fifo0"].get_data()
+                daq["seq0"].start()
+                sleep(ACTIVE_POWER_SETTLE_S)
+                try:
+                    for smu, rail, field in smus:
+                        for read_attempt in range(3):
+                            try:
+                                active_voltage_v = float(smu.get_voltage())
+                                active_average_current_a = float(smu.get_current())
+                                break
+                            except (UnicodeDecodeError, ValueError, VisaIOError) as error:
+                                if read_attempt == 2:
+                                    raise RuntimeError(f"{rail} active readback failed after three attempts") from error
+                                print(f"WARNING: retrying malformed active {rail} GPIB readback: {error}")
+                                smu._intf._resource.clear()
+                                sleep(0.1)
+                        if active_voltage_v > maximum_supply_v + 5e-3:
+                            raise RuntimeError(f"{rail} measured unsafe active voltage {active_voltage_v:g} V")
+                        if active_voltage_v < float(getattr(params, field).dc) - loaded_voltage_tolerance_v:
+                            raise RuntimeError(
+                                f"{rail} active voltage {active_voltage_v:g} V is more than "
+                                f"{loaded_voltage_tolerance_v:g} V below its setpoint"
+                            )
+                        smu_readback[field].update(
+                            {
+                                "active_voltage_v": active_voltage_v,
+                                "active_average_current_a": active_average_current_a,
+                                "active_average_power_w": abs(active_voltage_v * active_average_current_a),
+                            }
+                        )
+                finally:
+                    daq["seq0"].reset()
+                    sleep(0.001)
+
                 # Capture every requested conversion in one uninterrupted
                 # sequencer run. The 65,536-word FPGA FIFO feeds gigabit
                 # SiTCP, whose Basil transfer layer drains continuously into
                 # host memory. test_fastrx.py exercises the same unchunked
                 # framing path. FIFO_SIZE is the number of bytes already
                 # buffered by the host-side transfer layer.
-                csv_path = run_dir / variant_entry["csv_path"]
-                frame_counter_bits = 28 - data_size
-                frame_counter_modulus = 1 << frame_counter_bits
                 expected_capture_s = params.conversions * len(params.seq_init_pattern) / symbol_rate_bps
                 capture_timeout_s = max(
                     FASTRX_CAPTURE_TIMEOUT_S,
@@ -819,6 +963,18 @@ def main() -> None:
                 daq["fastrx0"].set_en(True)
                 daq["fifo0"]["RESET"]
                 daq["fifo0"].get_data()
+
+                # Arm one representative four-channel scope acquisition before
+                # starting the shared sequencer/FastRX run. The HDF5 writer
+                # associates this record with conversion zero; the remaining
+                # conversions retain only their DAQ values.
+                conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+                scope.set_horizontal_scale(conversion_period_s / 8.0)
+                scope.set_acquire_state("RUN")
+                acquisition_count_before = wait_for_scope_armed(
+                    scope,
+                    timeout_s=SCOPE_CAPTURE_TIMEOUT_S,
+                )
 
                 deadline = monotonic() + capture_timeout_s
                 daq["seq0"].start()
@@ -845,63 +1001,60 @@ def main() -> None:
                 raw_data = daq["fifo0"].get_data()
                 if len(raw_data) != params.conversions:
                     raise RuntimeError(f"expected {params.conversions} FastRX words, received {len(raw_data)}")
+                wait_for_scope_capture(
+                    scope,
+                    acquisition_count_before,
+                    timeout_s=SCOPE_CAPTURE_TIMEOUT_S,
+                )
+                scope_waveforms = scope.get_waveforms(
+                    {channel: name.removesuffix("_v") for name, channel in SCOPE_TRACKS.items()}
+                )
+                missing_scope_channels = sorted(set(SCOPE_TRACKS.values()).difference(scope_waveforms))
+                if missing_scope_channels:
+                    raise RuntimeError(f"scope did not return channels {missing_scope_channels}")
 
                 fastrx_lost_count = int(daq["fastrx0"].get_lost_count())
                 if fastrx_lost_count:
                     raise RuntimeError(f"FastRX lost {fastrx_lost_count} words during the continuous acquisition")
 
-                # Decode and write in bounded host-memory batches. These CSV
-                # batches do not interrupt or segment the physical capture.
-                rows_written = 0
-                preview_rows = []
-                rows = []
-                for conversion_index, word in enumerate(raw_data):
-                    raw_word = int(word)
-                    identifier, frame, spi_data = daq["fastrx0"].parse_word(raw_word)
-                    if identifier != 1:
-                        raise RuntimeError(
-                            f"FastRX conversion {conversion_index} has identifier {identifier:#x}, expected 0x1"
-                        )
-                    expected_frame = conversion_index % frame_counter_modulus
-                    if frame != expected_frame:
-                        raise RuntimeError(
-                            f"FastRX conversion {conversion_index} has frame {frame}, expected {expected_frame}"
-                        )
-                    bout, dout_raw = convert_fastrx_to_bout_and_dout(
-                        spi_data,
-                        data_size,
-                        code_weights,
+                conversion_index_values = np.arange(params.conversions, dtype=np.int64)
+                conversion_times_s = conversion_index_values * conversion_period_s
+                if isinstance(source, h.Vdc.Params):
+                    vin_diff_values_v = np.full(params.conversions, float(source.dc))
+                elif isinstance(source, h.Vsin.Params):
+                    phase_rad = math.radians(float(source.phase or 0.0))
+                    delay_s = float(source.td or 0.0)
+                    vin_diff_values_v = np.full(params.conversions, float(source.voff))
+                    active = conversion_times_s >= delay_s
+                    vin_diff_values_v[active] += float(source.vamp) * np.sin(
+                        2.0 * np.pi * float(source.freq) * (conversion_times_s[active] - delay_s) + phase_rad
                     )
-                    dout = convert_dout_to_normalized_dout(
-                        dout_raw,
-                        code_weights,
-                        params.dut.adc_bits,
-                    )
-                    row = AdcConversion(
-                        conversion_index=conversion_index,
-                        raw_word=raw_word,
-                        identifier=identifier,
-                        frame=frame,
-                        spi=spi_data,
-                        bout=bout,
-                        dout_raw=dout_raw,
-                        dout=dout,
-                    )
-                    rows.append(row)
-                    if len(preview_rows) < MAX_RAW_FASTRX_WORDS:
-                        preview_rows.append(row)
-                    if len(rows) == CSV_WRITE_BATCH_ROWS or conversion_index + 1 == params.conversions:
-                        rows_written += write_adc_conversions(
-                            csv_path,
-                            rows,
-                            append=rows_written > 0,
-                        )
-                        rows = []
+                elif isinstance(source, h.Vpwl.Params):
+                    points = parse_pwl_wave(source.wave)
+                    point_times_s = np.asarray([point[0] for point in points])
+                    point_values_v = np.asarray([point[1] for point in points])
+                    period_s = point_times_s[-1] - point_times_s[0]
+                    relative_times_s = np.mod(conversion_times_s - point_times_s[0], period_s) + point_times_s[0]
+                    vin_diff_values_v = np.interp(relative_times_s, point_times_s, point_values_v)
+                else:
+                    raise TypeError(f"unsupported differential source type {type(source).__name__}")
 
-                for row in preview_rows:
+                fastrx_words = np.asarray(raw_data, dtype=np.uint32)
+                bout_values, dout_raw_values, dout_values = convert_fastrx_words_to_adc(
+                    fastrx_words,
+                    data_size,
+                    code_weights,
+                    params.dut.adc_bits,
+                )
+                frame_counter_modulus = 1 << (28 - data_size)
+                for conversion_index in range(min(params.conversions, MAX_RAW_FASTRX_WORDS)):
+                    word = int(fastrx_words[conversion_index])
+                    identifier = (word >> 28) & 0xF
+                    frame = (word >> data_size) & (frame_counter_modulus - 1)
+                    spi_data = word & ((1 << data_size) - 1)
                     print(
-                        f"[{row.conversion_index}] ID={row.identifier:04b} frame={row.frame} "
-                        f"data={row.spi:0{data_size}b} Dout={row.dout}"
+                        f"[{conversion_index}] ID={identifier:04b} frame={frame} "
+                        f"data={spi_data:0{data_size}b} Dout={int(dout_values[conversion_index])}"
                     )
                 all_patterns = (
                     params.seq_init_pattern,
@@ -916,60 +1069,106 @@ def main() -> None:
                 ]
                 active_span_symbols = active_indices[-1] - active_indices[0] + 1
 
-                variant_entry.update(
-                    {
-                        "status": "complete",
-                        "rows": rows_written,
-                        "derived": {
-                            "cap_weights": cap_weights,
-                            "code_weights": code_weights,
-                            "capture_bits": len(code_weights),
-                            "sequence_words": sequence_words,
-                            "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
-                            "active_conversion_rate_hz": symbol_rate_bps / active_span_symbols,
-                            "si570_frequency_hz": si570_frequency_hz,
-                            "pll_divider_n": pll_divider_n,
-                            "sequencer_frequency_hz": sequencer_frequency_hz,
-                            "serializer_frequency_hz": serializer_frequency_hz,
-                            "rx_sen_start_word": rx_sen_start_word,
-                            "comp_idelay_taps": comp_idelay_taps,
-                            "capture_data_arrival_s": capture_alignment.data_arrival_s,
-                            "capture_edge_s": capture_alignment.capture_edge_s,
-                            "capture_setup_margin_s": capture_alignment.setup_margin_s,
-                            "capture_hold_margin_s": capture_alignment.hold_margin_s,
-                        },
-                        "readback": {
-                            "smu": smu_readback,
-                            "vin_cm_supply_set_v": vin_cm_supply_v,
-                            "vin_cm_supply_measured_v": float(vin_cm_supply.get_voltage()),
-                            "vin_cm_supply_measured_a": float(vin_cm_supply.get_current()),
-                            "stimulus": stimulus_readback,
-                            "spi_mismatches": spi_mismatches,
-                            "fastrx_lost_count": fastrx_lost_count,
-                        },
-                    }
+                if isinstance(source, h.Vdc.Params):
+                    source_label = f"dc{float(source.dc) * 1e3:+.0f}mv"
+                elif isinstance(source, h.Vsin.Params):
+                    source_label = (
+                        f"sin{float(source.freq):g}hz_"
+                        f"{float(source.voff) * 1e3:+g}mv_"
+                        f"{2 * float(source.vamp) * 1e3:g}mvpp"
+                    )
+                else:
+                    source_points = parse_pwl_wave(source.wave)
+                    source_period_s = source_points[-1][0] - source_points[0][0]
+                    source_label = (
+                        f"pwl{1.0 / source_period_s:g}hz_"
+                        f"{min(value for _time, value in source_points) * 1e3:+g}to"
+                        f"{max(value for _time, value in source_points) * 1e3:+g}mv"
+                    )
+                source_label = source_label.replace("+", "p").replace("-", "m")
+                logic_comp_offset = float(params.seq_logic_phase_delay_symbols) - float(
+                    params.seq_comp_phase_delay_symbols
                 )
-                manifest_path.write_text(json.dumps(to_json_data(manifest), indent=2, sort_keys=True) + "\n")
-                print(f"Saved {rows_written} conversions to {csv_path}")
+                logic_phase_label = f"{logic_comp_offset:+g}".replace("+", "p").replace("-", "m")
+                stem = (
+                    f"{variant_index:04d}_{board_id}_adc{params.observed_adc:02d}_"
+                    f"{float(params.symbol_rate) / 1e6:g}mbd_{source_label}_"
+                    f"logic{logic_phase_label}sym_"
+                    f"vcm{float(params.vin_cm.dc) * 1e3:g}mv_"
+                    f"vdda{float(params.vdd_a.dc) * 1e3:g}mv_"
+                    f"vddd{float(params.vdd_d.dc) * 1e3:g}mv_"
+                    f"vddac{float(params.vdd_dac.dc) * 1e3:g}mv_"
+                    f"t{float(params.temperature_c):g}c"
+                )
+                h5_path = run_dir / f"{stem}.h5"
+                readbacks = {
+                    "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
+                    "active_conversion_rate_hz": symbol_rate_bps / active_span_symbols,
+                    "si570_frequency_hz": si570_frequency_hz,
+                    "pll_divider_n": pll_divider_n,
+                    "sequencer_frequency_hz": sequencer_frequency_hz,
+                    "serializer_frequency_hz": serializer_frequency_hz,
+                    "rx_sen_start_word": rx_sen_start_word,
+                    "comp_idelay_taps": comp_idelay_taps,
+                    "capture_control_phase_advance_symbols": phase_advance,
+                    "capture_earliest_data_arrival_s": capture_alignment.earliest_data_arrival_s,
+                    "capture_latest_data_arrival_s": capture_alignment.latest_data_arrival_s,
+                    "capture_edge_s": capture_alignment.capture_edge_s,
+                    "capture_setup_margin_s": capture_alignment.setup_margin_s,
+                    "capture_hold_margin_s": capture_alignment.hold_margin_s,
+                    "vin_cm_supply_set_v": vin_cm_supply_v,
+                    "vin_cm_supply_measured_v": float(vin_cm_supply.get_voltage()),
+                    "vin_cm_supply_measured_a": float(vin_cm_supply.get_current()),
+                    "spi_mismatches": spi_mismatches,
+                    "fastrx_lost_count": fastrx_lost_count,
+                    "active_power_current_nplc": SMU_CURRENT_NPLC,
+                }
+                for field, values in smu_readback.items():
+                    for quantity, value in values.items():
+                        readbacks[f"{field}_{quantity}"] = value
+                for name, value in stimulus_readback.items():
+                    if isinstance(value, (str, int, float, bool)):
+                        readbacks[f"stimulus_{name}"] = value
+
+                measurement = MeasAdcExt(
+                    info=MeasInfo(
+                        schema_version=1,
+                        measurement_type="MeasAdcExt",
+                        backend="physical",
+                        timestamp_utc=datetime.now().astimezone(),
+                        instruments={
+                            "awg": str(awg.get_name()).strip(),
+                            "vin_cm_supply": str(vin_cm_supply.get_name()).strip(),
+                            "scope": str(scope.get_name()).strip(),
+                            **{field: str(smu.get_name()).strip() for smu, _rail, field in smus},
+                        },
+                        readbacks=readbacks,
+                    ),
+                    param=params,
+                    daq=AdcDaq(
+                        conversion_index=conversion_index_values,
+                        bout=bout_values,
+                        dout_raw=dout_raw_values,
+                        dout=dout_values,
+                        vin_diff_v=vin_diff_values_v,
+                        fastrx_word=fastrx_words,
+                    ),
+                    wave=scope_records_to_adc_wave(
+                        [scope_waveforms],
+                        [0],
+                        SCOPE_TRACKS,
+                    ),
+                )
+                write_measurement(h5_path, measurement)
+                print(f"Saved {params.conversions} conversions and one scope record to {h5_path}")
 
                 awg.set_enable(0)
                 vin_cm_supply.set_enable(0)
-            except Exception as error:
-                variant_entry["status"] = "failed"
-                variant_entry["error"] = f"{type(error).__name__}: {error}"
-                manifest["status"] = "failed"
-                manifest_path.write_text(json.dumps(to_json_data(manifest), indent=2, sort_keys=True) + "\n")
+            except Exception:
+                print(f"Variant {variant_index + 1}/{len(variants)} failed; shutting down all hardware")
                 raise
 
-        manifest["status"] = "complete"
-        manifest["completed_at"] = datetime.now().astimezone().isoformat()
-        manifest_path.write_text(json.dumps(to_json_data(manifest), indent=2, sort_keys=True) + "\n")
-        print(f"Completed {len(variants)} variants; manifest: {manifest_path}")
-    except Exception as error:
-        manifest["status"] = "failed"
-        manifest["error"] = f"{type(error).__name__}: {error}"
-        manifest_path.write_text(json.dumps(to_json_data(manifest), indent=2, sort_keys=True) + "\n")
-        raise
+        print(f"Completed {len(variants)} variants in {run_dir}")
     finally:
         if daq is not None:
             try:
@@ -985,25 +1184,25 @@ def main() -> None:
                 daq["si570"].frequency_change(200.0)
                 sleep(SI570_SETTLE_S)
                 set_pll_divider(daq["gpio2"], 2)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not restore the default FPGA clock: {error}")
         if awg is not None:
             try:
                 awg.set_DC("DEF,DEF,0")
                 awg.set_enable(0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not disable the AWG: {error}")
         if vin_cm_supply is not None:
             try:
                 vin_cm_supply.set_enable(0)
                 vin_cm_supply.set_voltage(0.0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not disable the Vin_cm supply: {error}")
         for smu, _rail, _field in smus:
             try:
                 smu.off()
                 smu.set_voltage(0.0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not disable an SMU: {error}")
         for dut in reversed(initialized_duts):
             dut.close()

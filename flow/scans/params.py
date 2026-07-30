@@ -1,16 +1,17 @@
 """Shared parameters for physical and simulated ADC tests.
 
 One :class:`AdcTbParams` instance describes one static test configuration and
-therefore one result CSV. Time-varying analog and digital stimuli remain inside
-that configuration. Instrument command pacing, FPGA capture calibration, SPICE
-analyses, and simulator execution options belong to their respective runners.
+therefore one typed HDF5 measurement. Time-varying analog and digital stimuli
+remain inside that configuration. Instrument command pacing, FPGA capture
+calibration, SPICE analyses, and simulator execution options belong to their
+respective runners.
 """
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import hdl21 as h
 from hdl21.prefix import G, m
@@ -46,14 +47,14 @@ class AdcTbParams:
     conversions = h.Param(dtype=int, desc="Conversions retained in the result", default=10_000)
 
     # Optional physical-measurement selection. Simulations leave these unset.
-    board_id = h.Param(dtype=Optional[str], desc="Physical board identifier", default=None)
+    board_id = h.Param(dtype=str | None, desc="Physical board identifier", default=None)
     observed_adc = h.Param(
-        dtype=Optional[int],
+        dtype=int | None,
         desc="ADC routed to the comparator-output mux",
         default=None,
     )
     active_adc_mask = h.Param(
-        dtype=Optional[tuple[int, ...]],
+        dtype=tuple[int, ...] | None,
         desc="ADC enable mask ordered from ADC 15 through ADC 0",
         default=None,
     )
@@ -102,7 +103,7 @@ class AdcTbParams:
         default=h.Vdc.Params(dc=615 * m),
     )
     vin_diff = h.Param(
-        dtype=Union[h.Vdc.Params, h.Vsin.Params, h.Vpwl.Params],
+        dtype=h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params,
         desc="Differential ADC input stimulus, Vin_p - Vin_n",
         default=h.Vdc.Params(dc=0.0),
     )
@@ -309,82 +310,42 @@ def convert_sample_rate_to_baud(params: AdcTbParams, sample_rate_hz: float) -> f
 
 
 def build_variants() -> list[AdcTbParams]:
-    """Build the first ADC00 DC, sine, and triangle measurement campaign."""
+    """Build the ADC00/ADC01 +2-symbol dynamic conversion-rate campaign."""
 
-    board_id = "frida65a_001"
-    adc_index = 0
-    sample_rate_list = (1e6, 5e6, 10e6)
-    dc_operating_points = (
-        (0.100, 0.400),
-        (0.150, 0.600),
-        (0.200, 0.800),
-    )
-    dynamic_sample_rate_list_hz = tuple(rate * 0.5e6 for rate in range(1, 21))
-    dynamic_input_frequency_hz = 9_998.770151
-    dynamic_common_modes = (0.400, 0.600, 0.800)
+    board_id = "00"
+    adc_index_list = (0, 1)
+    # The current Si570/PLL/OSERDES path has an 80 MBd minimum. With the
+    # 160-symbol active conversion this limits true active timing to 0.5 MSPS.
+    active_conversion_rate_list_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
+    conversions = 1_000_000
+    input_frequency_hz = 9_998.770151
+    input_peak_v = 0.500
+    input_common_mode_v = 0.600
     board_map = load_board_map()
     board = board_map["boards"][board_id]
-    flavor_name = board["adc_channels"][adc_index]
-    cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
-    dut = AdcParams(
-        adc_bits=12,
-        n_cycles=16,
-        cdac=CdacParams(
-            n_dac=11,
-            n_extra=5,
-            redun_strat=RedunStrat.SUBRDX2_OVLY,
-            weights=cap_weights,
-        ),
-    )
-    active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
-    template = AdcTbParams(
-        dut=dut,
-        board_id=board_id,
-        observed_adc=adc_index,
-        active_adc_mask=active_adc_mask,
-    )
 
     variants: list[AdcTbParams] = []
-
-    # Short fixed-input smoke check, intended to expose capture framing or
-    # gross ADC instability before the long acquisitions begin.
-    smoke = AdcTbParams(
-        dut=dut,
-        board_id=board_id,
-        observed_adc=adc_index,
-        active_adc_mask=active_adc_mask,
-        symbol_rate=convert_sample_rate_to_baud(template, 1e6),
-        conversions=100,
-        vin_cm=h.Vdc.Params(dc=0.600),
-        vin_diff=h.Vdc.Params(dc=0.005),
-    )
-    validate_params(smoke)
-    variants.append(smoke)
-
-    # Three fixed differential operating points at three conversion rates.
-    for sample_rate in sample_rate_list:
-        symbol_rate = convert_sample_rate_to_baud(template, sample_rate)
-        for vin_diff, vin_cm in dc_operating_points:
-            params = AdcTbParams(
-                dut=dut,
-                board_id=board_id,
-                observed_adc=adc_index,
-                active_adc_mask=active_adc_mask,
-                symbol_rate=symbol_rate,
-                conversions=1_000,
-                vin_cm=h.Vdc.Params(dc=vin_cm),
-                vin_diff=h.Vdc.Params(dc=vin_diff),
-            )
-            validate_params(params)
-            variants.append(params)
-
-    # A fixed near-full-scale, intentionally non-coherent sine isolates
-    # conversion-speed degradation over twenty active ADC rates and all three
-    # agreed common modes. Each requested 0.5..10 MSPS rate maps to
-    # 80..1600 MBd through the 160-symbol active span; the complete 256-symbol
-    # record-repeat rate is stored separately.
-    for dynamic_sample_rate_hz in dynamic_sample_rate_list_hz:
-        for vin_cm in dynamic_common_modes:
+    for adc_index in adc_index_list:
+        flavor_name = board["adc_channels"][adc_index]
+        cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
+        dut = AdcParams(
+            adc_bits=12,
+            n_cycles=16,
+            cdac=CdacParams(
+                n_dac=11,
+                n_extra=5,
+                redun_strat=RedunStrat.SUBRDX2_OVLY,
+                weights=cap_weights,
+            ),
+        )
+        active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
+        template = AdcTbParams(
+            dut=dut,
+            board_id=board_id,
+            observed_adc=adc_index,
+            active_adc_mask=active_adc_mask,
+        )
+        for active_conversion_rate_hz in active_conversion_rate_list_hz:
             params = AdcTbParams(
                 dut=dut,
                 board_id=board_id,
@@ -392,39 +353,16 @@ def build_variants() -> list[AdcTbParams]:
                 active_adc_mask=active_adc_mask,
                 symbol_rate=convert_sample_rate_to_baud(
                     template,
-                    dynamic_sample_rate_hz,
+                    active_conversion_rate_hz,
                 ),
-                conversions=1_000_000,
-                vin_cm=h.Vdc.Params(dc=vin_cm),
+                conversions=conversions,
+                vin_cm=h.Vdc.Params(dc=input_common_mode_v),
                 vin_diff=h.Vsin.Params(
                     voff=0.0,
-                    vamp=0.500,
-                    freq=dynamic_input_frequency_hz,
+                    vamp=input_peak_v,
+                    freq=input_frequency_hz,
                 ),
-            )
-            validate_params(params)
-            variants.append(params)
-
-    # Full-scale triangle ramps exercise the complete measured ADC range.
-    # Endpoint-code bins 0 and 4095 are intentionally retained in raw data;
-    # the later INL/DNL analysis discards those saturated bins.
-    for sample_rate in sample_rate_list:
-        symbol_rate = convert_sample_rate_to_baud(template, sample_rate)
-        actual_sample_rate = symbol_rate / len(template.seq_init_pattern)
-        input_frequency = actual_sample_rate / 1000.123
-        half_period = 0.5 / input_frequency
-        period = 1.0 / input_frequency
-        wave = f"0 -0.65 {half_period:.12g} 0.65 {period:.12g} -0.65"
-        for vin_cm in dynamic_common_modes:
-            params = AdcTbParams(
-                dut=dut,
-                board_id=board_id,
-                observed_adc=adc_index,
-                active_adc_mask=active_adc_mask,
-                symbol_rate=symbol_rate,
-                conversions=1_000_000,
-                vin_cm=h.Vdc.Params(dc=vin_cm),
-                vin_diff=h.Vpwl.Params(wave=wave),
+                seq_logic_phase_delay_symbols=2.0,
             )
             validate_params(params)
             variants.append(params)

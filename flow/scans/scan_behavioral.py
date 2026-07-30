@@ -1,43 +1,31 @@
-"""Run one shared ADC parameter configuration through the behavioral model.
+"""Run one shared ADC configuration through the behavioral model.
 
 Run from /local/frida:
+
     uv run python -m flow.scans.scan_behavioral
 
-The generated CSV uses the same typed :class:`AdcConversion` schema as the
-physical scan and is normalized through the shared analysis pipeline.
+The generated HDF5 file uses the same typed measurement schema as the
+physical scan.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
 import hdl21 as h
+import numpy as np
 
 from flow.adc.behavioral import SAR_ADC
+from flow.analysis.io import build_adc_interface_wave, write_measurement
+from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
-from flow.analysis.models import (
-    AdcConversion,
-    AdcSettings,
-    AnalysisKind,
-    AnalysisPlan,
-    AnalysisSpec,
-    BackendKind,
-    BlockKind,
-    PlotKind,
-    PlotSpec,
-    SourceFormat,
-    SourceSpec,
-)
-from flow.analysis.runner import run_analysis_plan
 from flow.scans.params import AdcTbParams
-from flow.analysis.io import to_json_data
-from flow.scans.results import write_adc_conversions
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
     convert_dout_to_normalized_dout,
 )
-from flow.scans.scan_spice import bits_to_word
 
 ADC_INDEX = 0
 PARAMS = AdcTbParams(
@@ -49,18 +37,12 @@ CAP_WEIGHTS = get_cdac_weights(PARAMS.dut.cdac)
 CODE_WEIGHTS = convert_dac_caps_to_adc_weights(CAP_WEIGHTS)
 NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "behavioral_scan"
-WRITE_PLOT = True
 
-# FRIDA ADC physical/configuration settings.
 ADC_CLOCK_HZ = float(PARAMS.symbol_rate) / len(PARAMS.seq_init_pattern)
 UNIT_CAPACITANCE = 1e-15
-PARASITIC_RATIO = 1.0  # Cpar/Cdac, passed into the behavioral CDAC switching model.
-# Keep this false by default: the behavioral CDAC already uses Cpar in the DAC
-# switching denominator.  Applying an extra wrapper-level attenuation halves the
-# transfer range a second time and yields only about half the output codes.
+PARASITIC_RATIO = 1.0
 APPLY_INPUT_ATTENUATION = False
 
-# Non-idealities.  Defaults are deterministic for comparison against PEX.
 COMPARATOR_NOISE = 0.0
 COMPARATOR_OFFSET = 0.0
 REFERENCE_NOISE = 0.0
@@ -69,10 +51,10 @@ SWITCHING_STRAT = "monotonic"
 
 
 def build_frida_params() -> dict[str, dict[str, object]]:
-    """Build parameters for the behavioral model matching FRIDA's ADC."""
+    """Build behavioral-model parameters matching FRIDA's ADC."""
+
     cdac_capacitance = sum(CAP_WEIGHTS) * UNIT_CAPACITANCE
     parasitic_capacitance = PARASITIC_RATIO * cdac_capacitance
-
     return {
         "ADC": {
             "sampling_frequency": ADC_CLOCK_HZ,
@@ -83,7 +65,6 @@ def build_frida_params() -> dict[str, dict[str, object]]:
             "offset_voltage": COMPARATOR_OFFSET,
             "common_mode_dependent_offset_gain": 0.0,
             "threshold_voltage_noise": COMPARATOR_NOISE,
-            # Historical examples included this field, although COMPARATOR does not use it.
             "capacitor_mismatch_error": 0.0,
         },
         "CDAC": {
@@ -103,13 +84,8 @@ def build_frida_params() -> dict[str, dict[str, object]]:
 
 
 def input_attenuation(params: dict[str, dict[str, object]]) -> float:
-    """Return optional sampled input gain from top-plate parasitic loading.
+    """Return optional sampled input gain from top-plate parasitic loading."""
 
-    This is available for experiments, but is disabled by default because the
-    behavioral CDAC model already includes ``parasitic_capacitance`` in the DAC
-    switching denominator.  Enabling both mechanisms double-counts Cpar for the
-    transfer curve.
-    """
     cdac = params["CDAC"]
     cdac_capacitance = sum(CAP_WEIGHTS) * cast(float, cdac["unit_capacitance"])
     parasitic_capacitance = cast(float, cdac["parasitic_capacitance"])
@@ -123,11 +99,16 @@ def convert_behavioral_to_bout_and_dout(
 ) -> tuple[str, int, int]:
     """Run one conversion and return Bout plus raw and normalized Dout."""
 
-    adc.sample_and_convert(vin_p, vin_n, do_calculate_energy=False, do_plot=False, do_normalize_result=False)
+    adc.sample_and_convert(
+        vin_p,
+        vin_n,
+        do_calculate_energy=False,
+        do_plot=False,
+        do_normalize_result=False,
+    )
     bits = [int(bit) for bit in adc.comp_result]
     if len(bits) != NUM_CAPTURE_BITS:
         raise RuntimeError(f"behavioral model produced {len(bits)} bits, expected {NUM_CAPTURE_BITS}")
-
     bout = "".join(str(bit) for bit in bits)
     dout_raw = sum(weight * bit for weight, bit in zip(CODE_WEIGHTS, bits, strict=True))
     dout = convert_dout_to_normalized_dout(
@@ -158,70 +139,47 @@ def main() -> None:
     print(f"Bit weights W16..W0: {CODE_WEIGHTS}")
     print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
-    print(f"Vin_p={vin_p:.6g} V, Vin_n={vin_n:.6g} V, sampled Vin_p={sampled_vin_p:.6g} V")
 
-    conversions = []
+    bout_values = np.empty((PARAMS.conversions, NUM_CAPTURE_BITS), dtype=np.uint8)
+    dout_raw_values = np.empty(PARAMS.conversions, dtype=np.int64)
+    dout_values = np.empty(PARAMS.conversions, dtype=np.int64)
     for conversion_index in range(PARAMS.conversions):
         bout, dout_raw, dout = convert_behavioral_to_bout_and_dout(
             adc,
             sampled_vin_p,
             sampled_vin_n,
         )
-        spi = bits_to_word([int(bit) for bit in bout])
-        conversions.append(
-            AdcConversion(
-                conversion_index=conversion_index,
-                raw_word=spi,
-                identifier=0,
-                frame=conversion_index,
-                spi=spi,
-                bout=bout,
-                dout_raw=dout_raw,
-                dout=dout,
-            )
+        bout_values[conversion_index] = np.fromiter(
+            (int(bit) for bit in bout),
+            dtype=np.uint8,
+            count=NUM_CAPTURE_BITS,
         )
+        dout_raw_values[conversion_index] = dout_raw
+        dout_values[conversion_index] = dout
         print(f"conversion {conversion_index:02d}: Bout={bout} Dout_raw={dout_raw} Dout={dout}")
 
-    csv_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.csv"
-    write_adc_conversions(csv_path, conversions)
-    print(f"ADC {ADC_INDEX:02d}: saved typed data to {csv_path}")
-    if WRITE_PLOT:
-        analysis_name = f"adc{ADC_INDEX:02d}_behavioral_transfer"
-        run_analysis_plan(
-            AnalysisPlan(
-                sources=(
-                    SourceSpec(
-                        run_id=f"adc{ADC_INDEX:02d}_behavioral",
-                        backend=BackendKind.BEHAVIORAL,
-                        block=BlockKind.ADC,
-                        format=SourceFormat.ADC_CSV,
-                        source=csv_path,
-                        table_name="conversions",
-                        parameters={
-                            "vin_diff_v": vin_diff_v,
-                            "testbench": to_json_data(PARAMS),
-                        },
-                    ),
-                ),
-                analyses=(
-                    AnalysisSpec(
-                        name=analysis_name,
-                        kind=AnalysisKind.ADC_TRANSFER,
-                        input_ids=(f"adc{ADC_INDEX:02d}_behavioral",),
-                        settings=AdcSettings(adc_bits=PARAMS.dut.adc_bits),
-                    ),
-                ),
-                plots=(
-                    PlotSpec(
-                        name=analysis_name,
-                        kind=PlotKind.TRANSFER,
-                        input_ids=(analysis_name,),
-                        output_path=SCAN_OUTDIR / f"{analysis_name}.png",
-                        title="FRIDA behavioral ADC transfer",
-                    ),
-                ),
-            )
-        )
+    measurement = MeasAdcExt(
+        info=MeasInfo(
+            schema_version=1,
+            measurement_type="MeasAdcExt",
+            backend="behavioral",
+            timestamp_utc=datetime.now().astimezone(),
+            instruments={"model": f"{SAR_ADC.__module__}.{SAR_ADC.__name__}"},
+            readbacks={"input_attenuation": attenuation},
+        ),
+        param=PARAMS,
+        daq=AdcDaq(
+            conversion_index=np.arange(PARAMS.conversions),
+            bout=bout_values,
+            dout_raw=dout_raw_values,
+            dout=dout_values,
+            vin_diff_v=np.full(PARAMS.conversions, vin_diff_v),
+        ),
+        wave=build_adc_interface_wave(PARAMS, bout_values[0]),
+    )
+    h5_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.h5"
+    write_measurement(h5_path, measurement)
+    print(f"ADC {ADC_INDEX:02d}: saved typed measurement to {h5_path}")
 
 
 if __name__ == "__main__":

@@ -10,10 +10,10 @@ Run from the repository root with:
     uv run pytest -q -s -m hw flow/scans/test_fastrx.py
 """
 
+import dataclasses
 from pathlib import Path
 from time import monotonic, sleep
 
-import dataclasses
 import pytest
 from yaml import safe_load
 
@@ -34,7 +34,7 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
     """Hardware: capture every test bit in order with contiguous frame IDs."""
 
     params = AdcTbParams()
-    timing_model = load_board_map()["boards"]["frida65a_001"]["capture_timing_model"]
+    timing_model = load_board_map()["boards"]["00"]["capture_timing_model"]
     capture_start_words = sorted(
         {
             calculate_fastrx_capture_alignment(

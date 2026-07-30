@@ -26,54 +26,42 @@ Run the complete campaign:
 from __future__ import annotations
 
 import argparse
-import csv
 import dataclasses
-import json
 import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from statistics import fmean, pstdev
 from time import monotonic, sleep
 from typing import Any
 
 import hdl21 as h
 import numpy as np
+from basil.HL.tektronix_oscilloscope import response_value
 from bitarray import bitarray
 
-from basil.HL.tektronix_oscilloscope import response_value
 from flow.adc import AdcParams
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from flow.analysis.measure import analyze_crossings
-from flow.analysis.adc import analyze_adc_distribution
-from flow.analysis.models import (
-    AdcConversion,
-    AdcSettings,
-    AnalysisKind,
-    AnalysisRequest,
-    AnalysisSpec,
-    BackendKind,
-    BlockKind,
-    PlotKind,
-    PlotRequest,
-    PlotSpec,
-    SourceFormat,
-    SourceSpec,
-    WaveformSettings,
+from flow.analysis.adc import (
+    analyze_adc_noise,
+    analyze_adc_noise_sweep,
 )
+from flow.analysis.io import (
+    scope_records_to_adc_wave,
+    write_measurement,
+)
+from flow.analysis.measure import find_crossings
+from flow.analysis.plots import (
+    plot_adc_noise,
+    plot_adc_noise_sweep,
+    plot_measurement_waveforms,
+)
+from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
+from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
 from flow.scans.params import AdcTbParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.analysis.plot import render_plot
-from flow.analysis.io import (
-    read_run,
-    to_json_data,
-)
-from flow.scans.results import write_adc_conversions
 from flow.scans.scan_adc import (
     calculate_fastrx_capture_alignment,
     convert_dac_caps_to_adc_weights,
-    convert_dout_to_normalized_dout,
-    convert_fastrx_to_bout_and_dout,
+    convert_fastrx_words_to_adc,
     convert_params_to_seqgen_fmt,
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
@@ -81,13 +69,12 @@ from flow.scans.scan_adc import (
 from flow.scans.scope import (
     wait_for_scope_armed,
     wait_for_scope_capture,
-    write_scope_csv,
 )
 
 MAP_DIR = Path(__file__).resolve().parent
 OUT_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_fastrx"
 
-BOARD_ID = "frida65a_001"
+BOARD_ID = "00"
 ADC_INDEX = 1
 VIN_DIFF_V = 0.050
 VIN_CM_V = 0.800
@@ -169,33 +156,15 @@ def extract_scope_decisions(
     if comp_out_high_v - comp_out_low_v < 0.1:
         raise ValueError("scope COMP_OUT waveform does not have a valid logic swing")
 
-    scope_run = read_run(
-        SourceSpec(
-            "scope_decision_vector",
-            BackendKind.MEASUREMENT,
-            BlockKind.GENERIC,
-            SourceFormat.COLUMN_MAPPING,
-            {"time_s": times_s, "seq_comp_v": comp_v},
-            table_name="waveforms",
-        )
-    )
-    crossing_result = analyze_crossings(
-        AnalysisRequest(
-            AnalysisSpec(
-                "comp_falling_edges",
-                AnalysisKind.CROSSINGS,
-                (scope_run.run_id,),
-                WaveformSettings(
-                    signal_columns=("seq_comp_v",),
-                    thresholds=(comp_threshold_v,),
-                    rising=False,
-                ),
-            ),
-            runs=(scope_run,),
-        )
-    )
     falling_edges_s = tuple(
-        float(edge_s) for edge_s in crossing_result.table("crossings").column("crossing_axis") if edge_s >= 0.0
+        float(edge_s)
+        for edge_s in find_crossings(
+            comp_v,
+            times_s,
+            comp_threshold_v,
+            rising=False,
+        )
+        if edge_s >= 0.0
     )
     if len(falling_edges_s) < decision_count:
         raise ValueError(
@@ -324,8 +293,6 @@ def main() -> None:
     run_timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir = OUT_DIR / run_timestamp
     run_dir.mkdir(parents=True, exist_ok=False)
-    summary_path = run_dir / "summary.csv"
-    manifest_path = run_dir / "manifest.json"
     print(f"Saving {len(symbol_rates_bps) * len(logic_offsets)} capture points to {run_dir}")
 
     from gpib_ctypes import make_default_gpib
@@ -343,6 +310,7 @@ def main() -> None:
     smus: list[tuple[Any, str]] = []
     scope_state: dict[str, Any] | None = None
     summary_rows: list[dict[str, Any]] = []
+    measurements: list[MeasAdcExt] = []
 
     try:
         for instrument_dut in (
@@ -498,6 +466,16 @@ def main() -> None:
                 params,
                 **timing_model,
             )
+            phase_advance = alignment.control_phase_advance_symbols
+            if phase_advance:
+                params = dataclasses.replace(
+                    params,
+                    seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
+                    seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
+                    seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
+                    seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
+                )
+                validate_params(params)
             rx_sen_start_word = alignment.rx_sen_start_word
             comp_idelay_taps = alignment.comp_idelay_taps
             sequencer_memory = convert_params_to_seqgen_fmt(
@@ -506,7 +484,7 @@ def main() -> None:
             )
 
             si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
-            sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
+            _sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
                 pll_divider_n,
                 input_frequency_hz=si570_frequency_hz,
             )
@@ -517,7 +495,7 @@ def main() -> None:
             print(
                 f"\n[{point_index}/{len(symbol_rates_bps) * len(logic_offsets)}] "
                 f"{symbol_rate_bps / 1e6:g} MBd, LOGIC {logic_offset:+d}: "
-                f"RX_SEN={rx_sen_start_word}, tap={comp_idelay_taps}, "
+                f"phase advance={phase_advance}, RX_SEN={rx_sen_start_word}, tap={comp_idelay_taps}, "
                 f"predicted setup={alignment.setup_margin_s * 1e9:.3f} ns, "
                 f"hold={alignment.hold_margin_s * 1e9:.3f} ns"
             )
@@ -611,67 +589,27 @@ def main() -> None:
                 f"logic{logic_offset:+d}_rx{rx_sen_start_word:02d}_"
                 f"tap{comp_idelay_taps:02d}"
             )
-            scope_csv_path = run_dir / f"{stem}_scope.csv"
-            adc_csv_path = run_dir / f"{stem}_adc.csv"
-            scope_run = read_run(
-                SourceSpec(
-                    f"{stem}_scope",
-                    BackendKind.MEASUREMENT,
-                    BlockKind.GENERIC,
-                    SourceFormat.SCOPE_WAVEFORMS,
-                    (waveforms, SCOPE_TRACKS),
-                    table_name="waveforms",
-                )
+            scope_reference = waveforms[1]
+            scope_time_s = (
+                scope_reference.x_scale.offset + np.arange(len(scope_reference.data)) * scope_reference.x_scale.slope
             )
-            write_scope_csv(scope_csv_path, waveforms, SCOPE_TRACKS)
-
             scope_decisions = extract_scope_decisions(
-                np.asarray(scope_run.table("waveforms").column("time_s"), dtype=float),
-                np.asarray(scope_run.table("waveforms").column("seq_comp_v"), dtype=float),
-                np.asarray(scope_run.table("waveforms").column("comp_out_v"), dtype=float),
+                scope_time_s,
+                np.asarray(waveforms[2].data, dtype=float),
+                np.asarray(waveforms[4].data, dtype=float),
                 symbol_rate_bps=symbol_rate_bps,
                 decision_count=data_size,
                 output_inverted=SCOPE_COMP_OUT_INVERTED,
             )
 
-            adc_rows = []
-            codes = []
-            first_fastrx_bits = ""
-            frame_counter_modulus = 1 << (28 - data_size)
-            for conversion_index, word in enumerate(raw_data):
-                raw_word = int(word)
-                identifier, frame, spi_data = daq["fastrx0"].parse_word(raw_word)
-                if identifier != 1:
-                    raise RuntimeError(f"conversion {conversion_index}: identifier={identifier}, expected 1")
-                expected_frame = conversion_index % frame_counter_modulus
-                if frame != expected_frame:
-                    raise RuntimeError(f"conversion {conversion_index}: frame={frame}, expected {expected_frame}")
-                bout, dout_raw = convert_fastrx_to_bout_and_dout(
-                    spi_data,
-                    data_size,
-                    code_weights,
-                )
-                dout = convert_dout_to_normalized_dout(
-                    dout_raw,
-                    code_weights,
-                    params.dut.adc_bits,
-                )
-                if conversion_index == 0:
-                    first_fastrx_bits = bout
-                codes.append(dout)
-                adc_rows.append(
-                    AdcConversion(
-                        conversion_index=conversion_index,
-                        raw_word=raw_word,
-                        identifier=identifier,
-                        frame=frame,
-                        spi=spi_data,
-                        bout=bout,
-                        dout_raw=dout_raw,
-                        dout=dout,
-                    )
-                )
-            write_adc_conversions(adc_csv_path, adc_rows)
+            fastrx_words = np.asarray(raw_data, dtype=np.uint32)
+            bout_values, dout_raw_values, dout_values = convert_fastrx_words_to_adc(
+                fastrx_words,
+                data_size,
+                code_weights,
+                params.dut.adc_bits,
+            )
+            first_fastrx_bits = "".join(str(bit) for bit in bout_values[0])
 
             bit_mismatches = sum(
                 scope_bit != fastrx_bit
@@ -681,8 +619,8 @@ def main() -> None:
                     strict=True,
                 )
             )
-            mean_code = fmean(codes)
-            sigma_code = pstdev(codes)
+            mean_code = float(np.mean(dout_values))
+            sigma_code = float(np.std(dout_values))
             print(
                 f"scope={scope_decisions.bits}, FastRX={first_fastrx_bits}, "
                 f"mismatches={bit_mismatches}/17; "
@@ -692,78 +630,67 @@ def main() -> None:
             info_lines = (
                 f"Rate: {symbol_rate_bps / 1e6:g} MBd",
                 f"LOGIC phase: {logic_offset:+d} symbols",
+                f"Shared COMP/LOGIC advance: {phase_advance} symbols",
                 f"RX_SEN word / IDELAY: {rx_sen_start_word} / {comp_idelay_taps}",
                 f"Scope bits: {scope_decisions.bits}",
                 f"FastRX bits: {first_fastrx_bits}",
                 f"Bit mismatches: {bit_mismatches}/17",
                 f"ADC σ: {sigma_code:.3f} LSB",
             )
-            render_plot(
-                PlotRequest(
-                    PlotSpec(
-                        name=f"{stem}_scope",
-                        kind=PlotKind.TIME_DOMAIN,
-                        input_ids=(scope_run.run_id,),
-                        output_path=scope_csv_path.with_suffix(".png"),
-                        title=(f"ADC01 scope/FastRX capture: {symbol_rate_bps / 1e6:g} MBd, LOGIC {logic_offset:+d}"),
-                        table="waveforms",
-                        y_columns=(
-                            "adc_vdiff_v",
-                            "seq_comp_v",
-                            "seq_logic_v",
-                            "comp_out_v",
-                        ),
-                        labels={
-                            "adc_vdiff_v": "CH1 ADC Vdiff (V)",
-                            "seq_comp_v": "CH2 COMP (V)",
-                            "seq_logic_v": "CH3 LOGIC (V)",
-                            "comp_out_v": "CH4 COMP_OUT (V)",
-                        },
-                        info_lines={"comp_out_v": info_lines},
-                    ),
-                    runs=(scope_run,),
-                )
-            )
-            adc_run = read_run(
-                SourceSpec(
-                    f"{stem}_adc",
-                    BackendKind.MEASUREMENT,
-                    BlockKind.ADC,
-                    SourceFormat.ADC_CSV,
-                    adc_csv_path,
-                    table_name="conversions",
-                    parameters={
-                        "vin_diff_v": VIN_DIFF_V,
-                        "vin_cm_v": VIN_CM_V,
-                        "symbol_rate_bps": symbol_rate_bps,
-                        "logic_offset_symbols": logic_offset,
+            measurement = MeasAdcExt(
+                info=MeasInfo(
+                    schema_version=1,
+                    measurement_type="MeasAdcExt",
+                    backend="physical",
+                    timestamp_utc=datetime.now().astimezone(),
+                    instruments={
+                        "awg": str(awg.get_name()).strip(),
+                        "vin_cm_supply": str(vin_cm_supply.get_name()).strip(),
+                        "scope": str(scope.get_name()).strip(),
                     },
-                )
+                    readbacks={
+                        "rx_sen_start_word": rx_sen_start_word,
+                        "comp_idelay_taps": comp_idelay_taps,
+                        "control_phase_advance_symbols": phase_advance,
+                        "scope_fastrx_bit_mismatches": bit_mismatches,
+                        "scope_bits": scope_decisions.bits,
+                        "fastrx_bits": first_fastrx_bits,
+                        "predicted_setup_margin_s": alignment.setup_margin_s,
+                        "predicted_hold_margin_s": alignment.hold_margin_s,
+                    },
+                ),
+                param=params,
+                daq=AdcDaq(
+                    conversion_index=np.arange(conversions),
+                    bout=bout_values,
+                    dout_raw=dout_raw_values,
+                    dout=dout_values,
+                    vin_diff_v=np.full(conversions, VIN_DIFF_V),
+                    fastrx_word=fastrx_words,
+                ),
+                wave=scope_records_to_adc_wave(
+                    [waveforms],
+                    [0],
+                    {
+                        "vin_diff_v": 1,
+                        "seq_comp_v": 2,
+                        "seq_logic_v": 3,
+                        "comp_out_v": 4,
+                    },
+                ),
             )
-            distribution_result = analyze_adc_distribution(
-                AnalysisRequest(
-                    AnalysisSpec(
-                        f"{stem}_distribution",
-                        AnalysisKind.ADC_DISTRIBUTION,
-                        (adc_run.run_id,),
-                        AdcSettings(adc_bits=params.dut.adc_bits),
-                    ),
-                    runs=(adc_run,),
-                )
+            h5_path = run_dir / f"{stem}.h5"
+            write_measurement(h5_path, measurement)
+            measurements.append(measurement)
+            plot_measurement_waveforms(
+                measurement,
+                info_lines=info_lines,
+                output_path=run_dir / f"{stem}_scope",
             )
-            render_plot(
-                PlotRequest(
-                    PlotSpec(
-                        name=f"{stem}_hist",
-                        kind=PlotKind.DISTRIBUTION,
-                        input_ids=(distribution_result.name,),
-                        output_path=run_dir / f"{stem}_hist.png",
-                        title=(
-                            f"ADC01 fixed-input noise: {symbol_rate_bps / 1e6:g} MBd, LOGIC offset {logic_offset:+d}"
-                        ),
-                    ),
-                    results=(distribution_result,),
-                )
+            plot_adc_noise(
+                [measurement],
+                analyze_adc_noise([measurement]),
+                output_path=run_dir / f"{stem}_hist",
             )
 
             summary_rows.append(
@@ -775,7 +702,9 @@ def main() -> None:
                     "comparator_time_percent": 50.0 + 12.5 * logic_offset,
                     "rx_sen_start_word": rx_sen_start_word,
                     "comp_idelay_taps": comp_idelay_taps,
-                    "predicted_data_arrival_s": alignment.data_arrival_s,
+                    "control_phase_advance_symbols": phase_advance,
+                    "predicted_earliest_data_arrival_s": alignment.earliest_data_arrival_s,
+                    "predicted_latest_data_arrival_s": alignment.latest_data_arrival_s,
                     "predicted_capture_edge_s": alignment.capture_edge_s,
                     "predicted_setup_margin_s": alignment.setup_margin_s,
                     "predicted_hold_margin_s": alignment.hold_margin_s,
@@ -784,81 +713,25 @@ def main() -> None:
                     "bit_mismatches": bit_mismatches,
                     "mean_dout_lsb": mean_code,
                     "sigma_dout_lsb": sigma_code,
-                    "minimum_dout_lsb": min(codes),
-                    "maximum_dout_lsb": max(codes),
-                    "scope_csv": str(scope_csv_path),
-                    "adc_csv": str(adc_csv_path),
+                    "minimum_dout_lsb": int(np.min(dout_values)),
+                    "maximum_dout_lsb": int(np.max(dout_values)),
+                    "measurement_h5": str(h5_path),
                 }
             )
-            with summary_path.open("w", newline="") as output:
-                writer = csv.DictWriter(output, fieldnames=list(summary_rows[0]))
-                writer.writeheader()
-                writer.writerows(summary_rows)
 
-        # Render the complete rate sweep from its persisted summary table.
-        # The reciprocal lower axis uses Tdecision_ns = 50 / rate_MSPS because
-        # one active conversion contains twenty decision cycles.
-        summary_run = read_run(
-            SourceSpec(
-                "fastrx_summary",
-                BackendKind.MEASUREMENT,
-                BlockKind.ADC,
-                SourceFormat.CSV,
-                summary_path,
-                table_name="sweep",
-            )
-        )
-        render_plot(
-            PlotRequest(
-                PlotSpec(
-                    name="decision_variation_vs_conversion_rate",
-                    kind=PlotKind.SWEEP,
-                    input_ids=(summary_run.run_id,),
-                    output_path=run_dir / "decision_variation_vs_conversion_rate.png",
-                    title="Decision variation in LSB vs Conversion rate",
-                    table="sweep",
-                    x_column="active_conversion_rate_msps",
-                    y_columns=("sigma_dout_lsb",),
-                    group_column="comparator_time_percent",
-                    labels={
-                        "active_conversion_rate_msps": "Active conversion rate (MSPS)",
-                        "sigma_dout_lsb": "Output σ (LSB)",
-                    },
-                    legend_title="COMP→LOGIC interval",
-                    y_limit=(0.0, 10.0),
-                    x_ticks=tuple(float(rate) for rate in range(1, 11)),
-                    secondary_x_reciprocal=50.0,
-                    secondary_x_label="Time per decision cycle (ns)",
-                ),
-                runs=(summary_run,),
-            )
-        )
-
-        manifest_path.write_text(
-            json.dumps(
-                {
-                    "board_id": BOARD_ID,
-                    "adc_index": ADC_INDEX,
-                    "vin_diff_v": VIN_DIFF_V,
-                    "vin_cm_v": VIN_CM_V,
-                    "conversions_per_point": conversions,
-                    "scope_comp_out_inverted": SCOPE_COMP_OUT_INVERTED,
-                    "timing_model": to_json_data(timing_model),
-                    "points": summary_rows,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
+        plot_adc_noise_sweep(
+            measurements,
+            analyze_adc_noise_sweep(measurements),
+            output_path=run_dir / "decision_variation_vs_conversion_rate",
         )
 
         mismatched_points = [row for row in summary_rows if row["bit_mismatches"]]
         if mismatched_points:
             raise AssertionError(
                 f"{len(mismatched_points)}/{len(summary_rows)} points did not "
-                f"match all 17 scope and FastRX bits; see {summary_path}"
+                f"match all 17 scope and FastRX bits; see {run_dir}"
             )
-        print(f"PASS: all {len(summary_rows)} points matched all 17 scope/FastRX bits; summary: {summary_path}")
+        print(f"PASS: all {len(summary_rows)} points matched all 17 scope/FastRX bits; measurements: {run_dir}")
     finally:
         if daq is not None:
             try:
@@ -874,25 +747,25 @@ def main() -> None:
                 daq["si570"].frequency_change(200.0)
                 sleep(SI570_SETTLE_S)
                 set_pll_divider(daq["gpio2"], 2)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not restore FPGA defaults: {error}")
         if awg is not None:
             try:
                 awg.set_DC("DEF,DEF,0")
                 awg.set_enable(0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not disable and zero the AWG: {error}")
         if vin_cm_supply is not None:
             try:
                 vin_cm_supply.set_enable(0)
                 vin_cm_supply.set_voltage(0.0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not disable and zero Vin_cm: {error}")
         for smu, rail in smus:
             try:
                 smu.off()
                 smu.set_voltage(0.0)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not disable and zero {rail}: {error}")
         if scope is not None and scope_state is not None:
             try:
@@ -917,7 +790,7 @@ def main() -> None:
                     scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE {scope_state['display'][channel]}")
                 scope.set_acquire_stop_after(scope_state["acquire_stop_after"])
                 scope.set_acquire_state(scope_state["acquire_state"])
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - best-effort state restoration
                 print(f"WARNING: could not fully restore scope state: {error}")
         for instrument_dut in reversed(initialized_duts):
             instrument_dut.close()
