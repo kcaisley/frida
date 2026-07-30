@@ -198,7 +198,7 @@ def physical_adc_plus2_dynamic_rate_sweep(output_dir: Path) -> tuple[Path, ...]:
     power_paths = plot_adc_power_sweep(
         measurements,
         power,
-        output_path=output_dir / "adc00_adc01_power_vs_conversion_rate",
+        output_path=output_dir / "adc_power_vs_conversion_rate",
     )
     return (*dynamic_paths, *power_paths)
 

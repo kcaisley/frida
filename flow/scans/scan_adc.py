@@ -897,12 +897,44 @@ def main() -> None:
                 # current value is one 10-NPLC average, not a time waveform.
                 daq["seq0"].reset()
                 daq["fastrx0"].reset()
+                daq["fastrx0"].set_en(False)
                 sleep(0.001)
+
+                # Establish the static baseline after the ADC slow-control
+                # image and input stimulus are configured, but while the
+                # sequencer and FastRX remain stopped. The power analysis
+                # subtracts these readings from the active readings below.
+                for smu, rail, field in smus:
+                    for read_attempt in range(3):
+                        try:
+                            static_voltage_v = float(smu.get_voltage())
+                            static_average_current_a = float(smu.get_current())
+                            break
+                        except (UnicodeDecodeError, ValueError, VisaIOError) as error:
+                            if read_attempt == 2:
+                                raise RuntimeError(f"{rail} static readback failed after three attempts") from error
+                            print(f"WARNING: retrying malformed static {rail} GPIB readback: {error}")
+                            smu._intf._resource.clear()
+                            sleep(0.1)
+                    if static_voltage_v > maximum_supply_v + 5e-3:
+                        raise RuntimeError(f"{rail} measured unsafe static voltage {static_voltage_v:g} V")
+                    if static_voltage_v < float(getattr(params, field).dc) - loaded_voltage_tolerance_v:
+                        raise RuntimeError(
+                            f"{rail} static voltage {static_voltage_v:g} V is more than "
+                            f"{loaded_voltage_tolerance_v:g} V below its setpoint"
+                        )
+                    smu_readback[field].update(
+                        {
+                            "static_voltage_v": static_voltage_v,
+                            "static_average_current_a": static_average_current_a,
+                            "static_average_power_w": abs(static_voltage_v * static_average_current_a),
+                        }
+                    )
+
                 daq["seq0"].set_size(sequence_words)
                 daq["seq0"].set_clk_divide(1)
                 daq["seq0"].set_repeat(0)
                 daq["seq0"].set_en_ext_start(False)
-                daq["fastrx0"].set_en(False)
                 daq["fifo0"]["RESET"]
                 daq["fifo0"].get_data()
                 daq["seq0"].start()

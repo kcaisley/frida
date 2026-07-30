@@ -706,14 +706,19 @@ class AnalysisAdcDynamicSweep:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcPowerSweep:
-    """Active ADC supply power across conversion rates."""
+    """Static-baseline and incremental ADC supply power across conversion rates."""
 
     sample_rate_hz: FloatArray
     active_conversion_rate_hz: FloatArray
     observed_adc: IntArray
-    vdd_a_power_w: FloatArray
-    vdd_d_power_w: FloatArray
-    vdd_dac_power_w: FloatArray
+    vdd_a_static_power_w: FloatArray
+    vdd_d_static_power_w: FloatArray
+    vdd_dac_static_power_w: FloatArray
+    vdd_a_dynamic_power_w: FloatArray
+    vdd_d_dynamic_power_w: FloatArray
+    vdd_dac_dynamic_power_w: FloatArray
+    total_static_power_w: FloatArray
+    total_dynamic_power_w: FloatArray
     total_power_w: FloatArray
 
 

@@ -247,8 +247,12 @@ def test_power_sweep_uses_active_smu_readbacks() -> None:
     for adc_index, sample_rate_hz in ((0, 100_000.0), (1, 200_000.0)):
         readbacks = {}
         for rail, current_a in (("vdd_a", 2e-6), ("vdd_d", 40e-6), ("vdd_dac", 20e-6)):
+            readbacks[f"{rail}_measured_voltage_v"] = 1.2
+            readbacks[f"{rail}_measured_current_a"] = 0.5 * current_a
             readbacks[f"{rail}_active_average_current_a"] = current_a
             readbacks[f"{rail}_active_average_power_w"] = 1.2 * current_a
+            if adc_index == 1:
+                readbacks[f"{rail}_static_average_power_w"] = 0.25 * 1.2 * current_a
         measurements.append(
             adc_measurement(
                 [100, 101, 102] * 3,
@@ -261,7 +265,10 @@ def test_power_sweep_uses_active_smu_readbacks() -> None:
     power = analyze_adc_power_sweep(measurements)
 
     np.testing.assert_array_equal(power.observed_adc, (0, 1))
-    np.testing.assert_allclose(power.vdd_d_power_w, (48e-6, 48e-6))
+    np.testing.assert_allclose(power.vdd_d_static_power_w, (24e-6, 12e-6))
+    np.testing.assert_allclose(power.vdd_d_dynamic_power_w, (24e-6, 36e-6))
+    np.testing.assert_allclose(power.total_static_power_w, (37.2e-6, 18.6e-6))
+    np.testing.assert_allclose(power.total_dynamic_power_w, (37.2e-6, 55.8e-6))
     np.testing.assert_allclose(power.total_power_w, (74.4e-6, 74.4e-6))
 
 

@@ -577,32 +577,66 @@ def analyze_adc_dynamic_sweep(
 
 
 def analyze_adc_power_sweep(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcPowerSweep:
-    """Collect active-conversion power from physical measurements."""
+    """Separate measured active power into static-baseline and incremental parts.
+
+    New captures provide a configured-idle ``static_average_power_w`` for each
+    rail. Older captures fall back to their supply-on voltage/current readback,
+    which predates the active sequencer interval but is sufficient to analyze
+    the existing physical campaign.
+    """
 
     if not measurements:
         raise ValueError("ADC power sweep requires at least one measurement")
     rail_names = ("vdd_a", "vdd_d", "vdd_dac")
-    power_by_rail: dict[str, list[float]] = {rail: [] for rail in rail_names}
+    static_power_by_rail: dict[str, list[float]] = {rail: [] for rail in rail_names}
+    active_power_by_rail: dict[str, list[float]] = {rail: [] for rail in rail_names}
     observed_adc = []
     for msmt in measurements:
         if msmt.param.observed_adc is None:
             raise ValueError("ADC power sweep requires observed_adc in every measurement")
         observed_adc.append(msmt.param.observed_adc)
         for rail in rail_names:
-            power_key = f"{rail}_active_average_power_w"
-            if power_key not in msmt.info.readbacks:
+            active_power_key = f"{rail}_active_average_power_w"
+            if active_power_key not in msmt.info.readbacks:
                 raise ValueError(f"ADC measurement is missing active-power readbacks for {rail}")
-            power_by_rail[rail].append(float(msmt.info.readbacks[power_key]))
+            active_power_by_rail[rail].append(float(msmt.info.readbacks[active_power_key]))
 
-    vdd_a_power_w = np.asarray(power_by_rail["vdd_a"])
-    vdd_d_power_w = np.asarray(power_by_rail["vdd_d"])
-    vdd_dac_power_w = np.asarray(power_by_rail["vdd_dac"])
+            static_power_key = f"{rail}_static_average_power_w"
+            if static_power_key in msmt.info.readbacks:
+                static_power_w = float(msmt.info.readbacks[static_power_key])
+            else:
+                voltage_key = f"{rail}_measured_voltage_v"
+                current_key = f"{rail}_measured_current_a"
+                if voltage_key not in msmt.info.readbacks or current_key not in msmt.info.readbacks:
+                    raise ValueError(f"ADC measurement is missing static-power readbacks for {rail}")
+                static_power_w = abs(float(msmt.info.readbacks[voltage_key]) * float(msmt.info.readbacks[current_key]))
+            static_power_by_rail[rail].append(static_power_w)
+
+    vdd_a_active_power_w = np.asarray(active_power_by_rail["vdd_a"])
+    vdd_d_active_power_w = np.asarray(active_power_by_rail["vdd_d"])
+    vdd_dac_active_power_w = np.asarray(active_power_by_rail["vdd_dac"])
+    # Independent slow SMU averages can differ by a few nanowatts. Cap a
+    # baseline at its active reading rather than reporting negative added
+    # dynamic power from measurement noise.
+    vdd_a_static_power_w = np.minimum(np.asarray(static_power_by_rail["vdd_a"]), vdd_a_active_power_w)
+    vdd_d_static_power_w = np.minimum(np.asarray(static_power_by_rail["vdd_d"]), vdd_d_active_power_w)
+    vdd_dac_static_power_w = np.minimum(np.asarray(static_power_by_rail["vdd_dac"]), vdd_dac_active_power_w)
+    vdd_a_dynamic_power_w = vdd_a_active_power_w - vdd_a_static_power_w
+    vdd_d_dynamic_power_w = vdd_d_active_power_w - vdd_d_static_power_w
+    vdd_dac_dynamic_power_w = vdd_dac_active_power_w - vdd_dac_static_power_w
+    total_static_power_w = vdd_a_static_power_w + vdd_d_static_power_w + vdd_dac_static_power_w
+    total_dynamic_power_w = vdd_a_dynamic_power_w + vdd_d_dynamic_power_w + vdd_dac_dynamic_power_w
     return AnalysisAdcPowerSweep(
         sample_rate_hz=np.asarray([_pattern_repeat_rate_hz(msmt) for msmt in measurements]),
         active_conversion_rate_hz=np.asarray([_active_conversion_rate_hz(msmt) for msmt in measurements]),
         observed_adc=np.asarray(observed_adc, dtype=np.int64),
-        vdd_a_power_w=vdd_a_power_w,
-        vdd_d_power_w=vdd_d_power_w,
-        vdd_dac_power_w=vdd_dac_power_w,
-        total_power_w=vdd_a_power_w + vdd_d_power_w + vdd_dac_power_w,
+        vdd_a_static_power_w=vdd_a_static_power_w,
+        vdd_d_static_power_w=vdd_d_static_power_w,
+        vdd_dac_static_power_w=vdd_dac_static_power_w,
+        vdd_a_dynamic_power_w=vdd_a_dynamic_power_w,
+        vdd_d_dynamic_power_w=vdd_d_dynamic_power_w,
+        vdd_dac_dynamic_power_w=vdd_dac_dynamic_power_w,
+        total_static_power_w=total_static_power_w,
+        total_dynamic_power_w=total_dynamic_power_w,
+        total_power_w=total_static_power_w + total_dynamic_power_w,
     )

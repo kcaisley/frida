@@ -160,6 +160,8 @@ def test_dynamic_rate_and_power_sweep_plots(tmp_path: Path) -> None:
         samples = np.rint(2_048.0 + 1_200.0 * np.sin(2.0 * np.pi * 1_000.0 * time_s))
         readbacks = {}
         for rail, current_a in (("vdd_a", 2e-6), ("vdd_d", 40e-6), ("vdd_dac", 20e-6)):
+            readbacks[f"{rail}_measured_voltage_v"] = 1.2
+            readbacks[f"{rail}_measured_current_a"] = 0.5 * current_a
             readbacks[f"{rail}_active_average_current_a"] = current_a
             readbacks[f"{rail}_active_average_power_w"] = 1.2 * current_a
         measurements.append(
@@ -183,13 +185,20 @@ def test_dynamic_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     assert "enob (bit)" in dynamic_svg
     assert "input-referred noise (mv rms)" in dynamic_svg
     assert "time per decision cycle (ns)" in dynamic_svg
-    assert_plot_formats(
-        plot_adc_power_sweep(
-            measurements,
-            analyze_adc_power_sweep(measurements),
-            output_path=tmp_path / "power",
-        )
+    power_paths = plot_adc_power_sweep(
+        measurements,
+        analyze_adc_power_sweep(measurements),
+        output_path=tmp_path / "power",
     )
+    assert len(power_paths) == 6
+    assert_plot_formats(power_paths[:3])
+    assert_plot_formats(power_paths[3:])
+    for svg_path in (power_paths[2], power_paths[5]):
+        power_svg = svg_path.read_text()
+        assert "static and dynamic supply power" in power_svg
+        assert "VDD_A static" in power_svg
+        assert "VDD_A dynamic" in power_svg
+        assert "Total:" in power_svg
 
 
 def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:

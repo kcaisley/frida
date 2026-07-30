@@ -12,6 +12,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import to_rgba
 
 from flow.analysis.types import (
     AnalysisAdcDecisionPaths,
@@ -735,46 +736,77 @@ def plot_adc_power_sweep(
     output_path: Path,
     formats: Sequence[str] = DEFAULT_FORMATS,
 ) -> tuple[Path, ...]:
-    """Plot active ADC total and per-rail power versus conversion rate."""
+    """Plot one six-component stacked static/dynamic power chart per ADC."""
 
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8.5, 7.0))
-    rail_powers = (
-        ("VDD_A", analysis.vdd_a_power_w, NORD_BLUE),
-        ("VDD_D", analysis.vdd_d_power_w, NORD_RED),
-        ("VDD_DAC", analysis.vdd_dac_power_w, NORD_GREEN),
-    )
-    line_styles = ("-", "--", ":", "-.")
-    for adc_position, adc_index in enumerate(np.unique(analysis.observed_adc)):
+    output_path = Path(output_path)
+    paths = []
+    rail_colors = (NORD_BLUE, NORD_RED, NORD_GREEN)
+    for adc_index in np.unique(analysis.observed_adc):
         selected = analysis.observed_adc == adc_index
         order = np.argsort(analysis.active_conversion_rate_hz[selected])
         rate_msps = analysis.active_conversion_rate_hz[selected][order] / 1e6
-        adc_label = f"ADC{adc_index:02d}" if adc_index >= 0 else "ADC unspecified"
-        axes[0].plot(
-            rate_msps,
-            analysis.total_power_w[selected][order] * 1e6,
-            marker="o",
-            color=NORD_COLORS[adc_position % len(NORD_COLORS)],
-            label=adc_label,
+        component_labels = (
+            "VDD_A static",
+            "VDD_D static",
+            "VDD_DAC static",
+            "VDD_A dynamic",
+            "VDD_D dynamic",
+            "VDD_DAC dynamic",
         )
-        for rail, power_w, color in rail_powers:
-            axes[1].plot(
-                rate_msps,
-                power_w[selected][order] * 1e6,
-                marker="o",
-                color=color,
-                linestyle=line_styles[adc_position % len(line_styles)],
-                label=f"{adc_label} {rail}",
+        component_power_uw = tuple(
+            values[selected][order] * 1e6
+            for values in (
+                analysis.vdd_a_static_power_w,
+                analysis.vdd_d_static_power_w,
+                analysis.vdd_dac_static_power_w,
+                analysis.vdd_a_dynamic_power_w,
+                analysis.vdd_d_dynamic_power_w,
+                analysis.vdd_dac_dynamic_power_w,
             )
-    axes[0].set_ylabel("Total measured power (µW)")
-    axes[1].set_ylabel("Measured rail power (µW)")
-    axes[1].set_xlabel("Active conversion rate (MSPS)")
-    for ax in axes:
+        )
+        component_colors = (
+            *rail_colors,
+            *(to_rgba(color, 0.42) for color in rail_colors),
+        )
+
+        fig, ax = plt.subplots(figsize=(8.5, 5.5))
+        collections = ax.stackplot(
+            rate_msps,
+            *component_power_uw,
+            labels=component_labels,
+            colors=component_colors,
+        )
+        for collection, color in zip(collections, (*rail_colors, *rail_colors), strict=True):
+            collection.set_edgecolor(color)
+            collection.set_linewidth(0.7)
+        total_power_uw = analysis.total_power_w[selected][order] * 1e6
+        ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR, linewidth=1.0)
+
+        low_index = 0
+        high_index = -1
+        endpoint_lines = [f"{rate_msps[low_index]:g} → {rate_msps[high_index]:g} MSPS (µW)"]
+        endpoint_lines.extend(
+            f"{label}: {values[low_index]:.2f} → {values[high_index]:.2f}"
+            for label, values in zip(component_labels, component_power_uw, strict=True)
+        )
+        endpoint_lines.append(f"Total: {total_power_uw[low_index]:.2f} → {total_power_uw[high_index]:.2f}")
+        _add_info_box(ax, endpoint_lines, location="upper left")
+
+        ax.set_ylabel("Measured supply power (µW)")
+        ax.set_xlabel("Active conversion rate (MSPS)")
+        ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
+        if np.max(rate_msps) >= 1.0:
+            ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
+        ax.set_ylim(0.0, max(float(np.max(total_power_uw)) * 1.25, 1.0))
         style_ax(ax)
         style_grid(ax)
-        style_legend(ax)
-    _add_info_box(axes[0], _measurement_group_lines(measurements), location="upper left")
-    fig.suptitle("ADC active-conversion power")
-    return _save_figure(fig, output_path, formats)
+        style_legend(ax, ncol=2, loc="upper right")
+        adc_label = f"ADC{adc_index:02d}" if adc_index >= 0 else "ADC unspecified"
+        ax.set_title(f"{adc_label} static and dynamic supply power")
+
+        adc_output_path = output_path.with_name(f"{output_path.stem}_adc{adc_index:02d}{output_path.suffix}")
+        paths.extend(_save_figure(fig, adc_output_path, formats))
+    return tuple(paths)
 
 
 @with_plot_style
