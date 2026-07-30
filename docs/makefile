@@ -9,6 +9,10 @@ SLIDES_DIR := slides
 IMAGES_DIR := images
 OUTDIR := tex
 
+THESIS_THEME_DIR := $(abspath ../libs/ubonn-thesis)
+THESIS_STYLE := $(THESIS_THEME_DIR)/ubonn-thesis.sty
+export TEXINPUTS := $(THESIS_THEME_DIR)//:$(TEXINPUTS)
+
 DOCUMENT_TEX := $(wildcard *.tex)
 DOCUMENT_NAMES := $(basename $(notdir $(DOCUMENT_TEX)))
 DOCUMENT_PDFS := $(addprefix $(OUTDIR)/,$(addsuffix .pdf,$(DOCUMENT_NAMES)))
@@ -113,6 +117,8 @@ $(OUTDIR)/%.pdf: %.tex
 	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
 	@echo "Created $@"
+
+$(OUTDIR)/outline.pdf: $(THESIS_STYLE)
 
 $(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
 	mkdir -p $(OUTDIR)
