@@ -186,8 +186,10 @@ uv run python -m flow.scans.scan_adc
 ```
 
 Define the sweep in `flow/scans/params.py::build_variants()`. Each run writes
-typed acquisition CSV files and a manifest below a fresh timestamped
-`build/scan_adc/` directory.
+one typed HDF5 measurement per parameter variant below a fresh timestamped
+`build/scan_adc/` directory. Each file contains the complete parameters,
+instrument readbacks, all ADC conversions, and representative scope waveforms;
+there is no separate CSV or manifest.
 
 Behavioral and SPICE-backed scans use the same acquisition schema:
 

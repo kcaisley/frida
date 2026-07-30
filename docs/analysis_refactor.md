@@ -372,8 +372,8 @@ arguments rather than `PlotSpec` objects.
 
 ## Explicit runner functions
 
-`runner.py` is a readable notebook-like collection of named, no-argument
-Python functions. Each function:
+`runner.py` is a readable notebook-like collection of named Python functions.
+Each function:
 
 1. names every HDF5 input path explicitly relative to:
 
@@ -383,19 +383,24 @@ Python functions. Each function:
 
 2. loads typed measurements;
 3. calls one analysis;
-4. calls its plot function with an explicit output path.
+4. calls its plot function beneath the supplied analysis-output directory.
 
-There is no CLI, globbing, registry, automatic discovery, `main()`, or generic
-plan executor. Pipelines are invoked manually:
+There is no input-file globbing, automatic discovery, or generic plan
+executor. A small explicit target table supports a positional command-line
+interface:
 
 ```bash
-uv run python -c \
-  'from flow.analysis.runner import adc_dynamic_rate_sweep; adc_dynamic_rate_sweep()'
+uv run python -m flow.analysis.runner physical_adc_plus2_dynamic_rate_sweep
 ```
 
-Initially the file contains the documented pattern but no functions pointing
-at rejected legacy manifests. A real pipeline is added only after its new HDF5
-capture has been inspected and its analysis has been validated ad hoc.
+Omitting the target runs every registered pipeline. The entry point creates
+one `build/analysis/adc/YYYYMMDD_HHMMSS` directory per invocation and passes it
+to every selected target, keeping derived plots separate from raw scan data.
+It prints one completion line with artifact count and elapsed time per target.
+A missing recorded HDF5 input is reported and skipped in the all-target mode;
+selecting that same target explicitly remains a hard error.
+A real pipeline is added only after its HDF5 capture has been inspected and
+its analysis has been validated ad hoc.
 
 ## Migration sequence
 
