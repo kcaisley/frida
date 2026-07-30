@@ -20,6 +20,26 @@ repos:
         files: ^flow/analysis/.*\.py$
         pass_filenames: false
 
+  # LaTeX formatting
+  - repo: https://github.com/WGUNDERWOOD/tex-fmt
+    rev: v0.5.7
+    hooks:
+      - id: tex-fmt
+        args: [--fail-on-change, --nowrap, --tabsize, "2"]
+        files: ^docs/(outline|thesis/.*)\.tex$
+
+  # LaTeX linting (requires chktex on PATH). Scope these hooks to thesis
+  # sources: ChkTeX misreads much of the TikZ and Beamer syntax elsewhere.
+  - repo: local
+    hooks:
+      - id: chktex
+        name: chktex LaTeX lint
+        entry: chktex --quiet
+        args: [--nowarn, "1"]
+        language: system
+        types: [tex]
+        files: ^docs/(outline|thesis/.*)\.tex$
+
   # Verilog lint — FPGA firmware
   - repo: local
     hooks:
