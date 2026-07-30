@@ -35,7 +35,7 @@ repos:
     hooks:
       - id: chktex
         name: chktex LaTeX lint
-        entry: scripts/chktex.sh
+        entry: docs/chktex.sh
         language: system
         types: [tex]
         files: ^docs/.*\.tex$
