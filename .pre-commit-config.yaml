@@ -28,17 +28,17 @@ repos:
         args: [--fail-on-change, --nowrap, --tabsize, "2"]
         files: ^docs/(outline|thesis/.*)\.tex$
 
-  # LaTeX linting (requires chktex on PATH). Scope these hooks to thesis
-  # sources: ChkTeX misreads much of the TikZ and Beamer syntax elsewhere.
+  # LaTeX linting (requires chktex on PATH). ChkTeX's legacy parser reports
+  # false positives for the TikZ coordinates and Beamer constructs used here;
+  # mute those warning classes while retaining all of its other checks.
   - repo: local
     hooks:
       - id: chktex
         name: chktex LaTeX lint
-        entry: chktex --quiet
-        args: [--nowarn, "1"]
+        entry: scripts/chktex.sh
         language: system
         types: [tex]
-        files: ^docs/(outline|thesis/.*)\.tex$
+        files: ^docs/.*\.tex$
 
   # Verilog lint — FPGA firmware
   - repo: local
