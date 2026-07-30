@@ -600,7 +600,6 @@
 - Test benching and verification of netlisted designs (and later parasitic extracted layout)
 - Goals: Generation of input stimulus and measurements in a simulator agnostic manner, comparison with physical hardware measurement, cosimulation (e.g. mixed-signal).
 - Issue: Most simulators like the include statement to be in-line in the first, meaning even if each of our netlists variations has the same module name, there isn't any good proceedural way to plug and play different
-- Tips: gawm is great for spice waveform viewing.
 - There isn't any workable solution which I've found so far, which supports: tnoise simulation of circuits
 - Also many commercial pdks provide spice decks which have inconsistencies in with ngspice / xyce.
 - Tips: parsing spice simulation waveforms is a bit tricky because even if you select .nutraw as the output format, some do column first and others row first notation. pynut, psf\_utils, spicelib, psfparser
