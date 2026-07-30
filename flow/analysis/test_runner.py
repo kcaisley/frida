@@ -1,111 +1,97 @@
-"""Software-only integration test for explicit post-processing plans."""
+"""Software-only tests for the explicit analysis-pipeline command line."""
 
-import numpy as np
+from __future__ import annotations
 
-from flow.analysis.models import (
-    AdcSettings,
-    AnalysisKind,
-    AnalysisPlan,
-    AnalysisSpec,
-    BackendKind,
-    BlockKind,
-    PlotKind,
-    PlotSpec,
-    SourceFormat,
-    SourceSpec,
-)
-from flow.analysis.runner import run_analysis_plan
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+from flow.analysis import runner
 
 
-def test_analysis_plan_returns_results_and_renders_requested_plots(tmp_path) -> None:
-    source = SourceSpec(
-        "adc",
-        BackendKind.BEHAVIORAL,
-        BlockKind.ADC,
-        SourceFormat.COLUMN_MAPPING,
-        {
-            "vin_diff_v": (-0.1, -0.1, 0.1, 0.1),
-            "dout": (10, 12, 20, 22),
-        },
-        table_name="conversions",
+def test_main_runs_named_target_in_one_timestamped_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pass one shared derived-artifact directory to the selected target."""
+
+    received_output_dirs: list[Path] = []
+
+    def example_target(output_dir: Path) -> tuple[Path, ...]:
+        received_output_dirs.append(output_dir)
+        artifact = output_dir / "example.png"
+        artifact.write_bytes(b"plot")
+        return (artifact,)
+
+    monkeypatch.setattr(runner, "ANALYSIS_OUTPUT_BASE", tmp_path)
+    monkeypatch.setattr(runner, "TARGETS", {"example_target": example_target})
+    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "example_target"])
+
+    runner.main()
+
+    assert len(received_output_dirs) == 1
+    output_dir = received_output_dirs[0]
+    assert output_dir.parent == tmp_path
+    assert re.fullmatch(r"\d{8}_\d{6}", output_dir.name)
+    assert (output_dir / "example.png").read_bytes() == b"plot"
+    output = capsys.readouterr().out
+    assert f"Analysis output: {output_dir}" in output
+    assert "Completed example_target: 1 artifacts in " in output
+
+
+def test_main_without_target_runs_all_in_registration_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Run all targets in one output directory when no name is supplied."""
+
+    calls: list[tuple[str, Path]] = []
+
+    def first(output_dir: Path) -> tuple[Path, ...]:
+        calls.append(("first", output_dir))
+        return ()
+
+    def second(output_dir: Path) -> tuple[Path, ...]:
+        calls.append(("second", output_dir))
+        return ()
+
+    def missing(output_dir: Path) -> tuple[Path, ...]:
+        calls.append(("missing", output_dir))
+        raise FileNotFoundError(2, "missing input", "capture.h5")
+
+    monkeypatch.setattr(runner, "ANALYSIS_OUTPUT_BASE", tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "TARGETS",
+        {"first": first, "missing": missing, "second": second},
     )
-    analysis = AnalysisSpec(
-        "transfer",
-        AnalysisKind.ADC_TRANSFER,
-        ("adc",),
-        AdcSettings(),
-    )
-    plot = PlotSpec(
-        "transfer_plot",
-        PlotKind.TRANSFER,
-        ("transfer",),
-        tmp_path / "plots" / "transfer",
-        formats=("png",),
-    )
-    report = run_analysis_plan(
-        AnalysisPlan(
-            sources=(source,),
-            analyses=(analysis,),
-            plots=(plot,),
-        )
-    )
+    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner"])
 
-    assert report.results[0].metric("input_points") == 2
-    assert report.runs[0].run_id == "adc"
-    assert report.plots[0].paths == (tmp_path / "plots" / "transfer.png",)
-    assert not tuple(tmp_path.glob("**/*.csv"))
-    assert not tuple(tmp_path.glob("**/analysis_manifest.json"))
+    runner.main()
+
+    assert [name for name, _output_dir in calls] == ["first", "missing", "second"]
+    assert len({output_dir for _name, output_dir in calls}) == 1
+    output = capsys.readouterr().out
+    assert output.count("Completed ") == 2
+    assert "Completed first: 0 artifacts in " in output
+    assert "Completed second: 0 artifacts in " in output
+    assert "Skipped missing: missing capture.h5 after " in output
 
 
-def test_analysis_plan_resolves_result_dependencies_out_of_order() -> None:
-    sample_rate_hz = 100_000.0
-    sample_count = 2_048
-    sources = []
-    dynamics = []
-    for index, frequency_hz in enumerate((1_000.0, 5_000.0)):
-        time_s = np.arange(sample_count) / sample_rate_hz
-        run_id = f"sine{index}"
-        result_name = f"dynamic{index}"
-        sources.append(
-            SourceSpec(
-                run_id,
-                BackendKind.BEHAVIORAL,
-                BlockKind.ADC,
-                SourceFormat.COLUMN_MAPPING,
-                {"dout": 2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * frequency_hz * time_s)},
-                table_name="conversions",
-            )
-        )
-        dynamics.append(
-            AnalysisSpec(
-                result_name,
-                AnalysisKind.ADC_DYNAMIC,
-                (run_id,),
-                AdcSettings(
-                    sample_rate_hz=sample_rate_hz,
-                    input_frequency_hz=frequency_hz,
-                    frequency_search_fraction=0.0,
-                ),
-            )
-        )
+def test_main_rejects_unknown_target(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Reject arbitrary function names before creating an output directory."""
 
-    sweep = AnalysisSpec(
-        "sweep",
-        AnalysisKind.ADC_DYNAMIC_SWEEP,
-        tuple(spec.name for spec in dynamics),
-        AdcSettings(),
-    )
-    report = run_analysis_plan(
-        AnalysisPlan(
-            sources=tuple(sources),
-            analyses=(sweep, *dynamics),
-            plots=(),
-        )
-    )
+    monkeypatch.setattr(runner, "TARGETS", {"known_target": lambda _output_dir: ()})
+    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "unknown_target"])
 
-    assert tuple(result.name for result in report.results) == (
-        "dynamic0",
-        "dynamic1",
-        "sweep",
-    )
-    assert report.results[-1].metric("point_count") == 2
+    with pytest.raises(SystemExit, match="2"):
+        runner.main()
+
+    assert "invalid choice: 'unknown_target'" in capsys.readouterr().err

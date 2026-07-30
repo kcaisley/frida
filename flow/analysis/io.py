@@ -1,170 +1,53 @@
-"""Typed acquisition rows plus backend-neutral result adapters."""
+"""Typed HDF5 measurement I/O and raw simulator/ scope adapters."""
 
 from __future__ import annotations
 
-import csv
 import dataclasses
-import hashlib
-import json
+import importlib
 import math
 import sys
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, cast
 
-from hdl21.prefix import Prefixed
+import h5py
 import numpy as np
+from hdl21.prefix import Prefix, Prefixed
 
-from flow.analysis.models import (
-    AdcConversion,
-    DataColumn,
-    DataTable,
-    RunData,
-    SourceFormat,
-    SourceSpec,
+from flow.analysis.types import (
+    MEASUREMENT_TYPES,
+    AdcDaq,
+    AdcExtWave,
+    AdcIntWave,
+    Backend,
+    CompDaq,
+    CompExtWave,
+    CompIntWave,
+    DacExtDaq,
+    DacExtWave,
+    DacIntDaq,
+    DacIntWave,
+    MeasAdcExt,
+    MeasAdcInt,
+    MeasCompExt,
+    MeasCompInt,
+    MeasDacExt,
+    MeasDacInt,
+    MeasInfo,
+    MeasSampInt,
+    Measurement,
+    SampDaq,
+    SampIntWave,
 )
 
 
-def read_adc_conversions(path: Path) -> list[AdcConversion]:
-    """Read one acquisition CSV into typed conversion rows."""
+def _dataclass_fields(value) -> tuple[Any, ...]:
+    """Return fields for standard dataclasses and HDL21 parameter classes."""
 
-    with path.open(newline="") as input_file:
-        return [AdcConversion.from_csv_row(row) for row in csv.DictReader(input_file)]
-
-
-def to_json_data(value: Any) -> Any:
-    """Convert nested HDL21 parameters and scan metadata to JSON data."""
-
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError(f"cannot serialize non-finite value {value!r}")
-        return value
-    if isinstance(value, Prefixed):
-        return to_json_data(float(value))
-    if isinstance(value, np.generic):
-        return to_json_data(value.item())
-    if isinstance(value, np.ndarray):
-        return [to_json_data(item) for item in value.tolist()]
-    if isinstance(value, Enum):
-        return value.name
-    if isinstance(value, Path):
-        return str(value)
-    if dataclasses.is_dataclass(value):
-        data = {field.name: to_json_data(getattr(value, field.name)) for field in dataclasses.fields(value)}
-        data["type"] = type(value).__name__
-        return data
-    if isinstance(value, Mapping):
-        return {str(key): to_json_data(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [to_json_data(item) for item in value]
-    raise TypeError(f"cannot serialize {type(value).__name__} to manifest JSON")
-
-
-def parameter_digest(params: Any) -> str:
-    """Return a short stable identifier for one complete parameter object."""
-
-    encoded = json.dumps(to_json_data(params), sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()[:8]
-
-
-ADC_COLUMN_ALIASES = {
-    "Bbits": "bout",
-    "Dout": "dout",
-    "Dout_raw": "dout_raw",
-    "raw_word0": "raw_word",
-    "id0": "identifier",
-    "frame0": "frame",
-    "spi0": "spi",
-}
-
-
-def _column_unit(name: str) -> str:
-    """Infer SI display units from one canonical column name."""
-
-    suffix_units = {
-        "_s": "s",
-        "_hz": "Hz",
-        "_v": "V",
-        "_a": "A",
-        "_w": "W",
-        "_f": "F",
-        "_ohm": "Ω",
-        "_codes": "LSB",
-        "_db": "dB",
-        "_dbfs": "dBFS",
-        "_bits": "bit",
-    }
-    for suffix, unit in suffix_units.items():
-        if name.lower().endswith(suffix):
-            return unit
-    return ""
-
-
-def _values_to_array(values: Sequence[Any], name: str) -> np.ndarray:
-    """Convert one raw column to the narrowest useful NumPy dtype."""
-
-    strings = [str(value).strip() for value in values]
-    if name.lower() in {"bout", "bbits", "bits", "pattern"}:
-        return np.asarray(strings, dtype=np.str_)
-    try:
-        return np.asarray([int(value, 0) for value in strings], dtype=np.int64)
-    except ValueError:
-        pass
-    try:
-        return np.asarray([float(value) for value in strings], dtype=np.float64)
-    except ValueError:
-        return np.asarray(strings, dtype=np.str_)
-
-
-def _table_from_columns(
-    name: str,
-    columns: Mapping[str, Sequence[Any] | np.ndarray],
-    units: Mapping[str, str],
-) -> DataTable:
-    """Normalize column mappings into one aligned table."""
-
-    return DataTable(
-        name=name,
-        columns=tuple(
-            DataColumn(
-                column_name,
-                np.asarray(values) if isinstance(values, np.ndarray) else _values_to_array(values, column_name),
-                units.get(column_name, _column_unit(column_name)),
-            )
-            for column_name, values in columns.items()
-        ),
-    )
-
-
-def _read_csv_columns(path: Path) -> tuple[tuple[str, ...], dict[str, list[str]]]:
-    """Read one CSV without imposing an ADC- or waveform-specific schema."""
-
-    with path.open(newline="") as input_file:
-        reader = csv.DictReader(input_file)
-        fieldnames = tuple(reader.fieldnames or ())
-        if not fieldnames:
-            raise ValueError(f"{path} has no CSV header")
-        columns = {field: [] for field in fieldnames}
-        for row in reader:
-            for field in fieldnames:
-                columns[field].append(row[field])
-    return fieldnames, columns
-
-
-def _select_columns(
-    raw_columns: Mapping[str, Sequence[Any] | np.ndarray],
-    column_map: Mapping[str, str],
-) -> dict[str, Sequence[Any] | np.ndarray]:
-    """Map canonical names to raw names, retaining every column by default."""
-
-    if not column_map:
-        return dict(raw_columns)
-    missing = sorted(set(column_map.values()).difference(raw_columns))
-    if missing:
-        raise ValueError(f"raw result is missing selected columns: {', '.join(missing)}")
-    return {canonical: raw_columns[raw] for canonical, raw in column_map.items()}
+    return tuple(value.__dataclass_fields__.values())
 
 
 def _spectre_variable_names(header_lines: Sequence[str], path: Path) -> list[str]:
@@ -246,104 +129,384 @@ def parse_spectre_nutascii(
         )
 
 
-RawColumns = Mapping[str, Sequence[Any] | np.ndarray]
+# =============================================================================
+# Typed HDF5 measurement format
+# =============================================================================
 
 
-def _read_csv_source(spec: SourceSpec) -> tuple[RawColumns, tuple[Path, ...]]:
-    path = Path(spec.source)
-    _fieldnames, loaded_columns = _read_csv_columns(path)
-    if spec.format is not SourceFormat.ADC_CSV:
-        return loaded_columns, (path,)
-    canonical_columns: dict[str, Sequence[Any] | np.ndarray] = {}
-    for raw_name, values in loaded_columns.items():
-        canonical_name = ADC_COLUMN_ALIASES.get(raw_name, raw_name)
-        if canonical_name not in canonical_columns:
-            canonical_columns[canonical_name] = values
-    return canonical_columns, (path,)
+SECTION_TYPES = {
+    MeasAdcExt.__name__: (AdcDaq, AdcExtWave),
+    MeasAdcInt.__name__: (AdcDaq, AdcIntWave),
+    MeasCompExt.__name__: (CompDaq, CompExtWave),
+    MeasCompInt.__name__: (CompDaq, CompIntWave),
+    MeasSampInt.__name__: (SampDaq, SampIntWave),
+    MeasDacExt.__name__: (DacExtDaq, DacExtWave),
+    MeasDacInt.__name__: (DacIntDaq, DacIntWave),
+}
 
 
-def _read_mapping_source(spec: SourceSpec) -> tuple[RawColumns, tuple[Path, ...]]:
-    if not isinstance(spec.source, Mapping):
-        raise TypeError("COLUMN_MAPPING source must implement Mapping")
-    return spec.source, ()
+def _qualified_type(value_type: type) -> str:
+    return f"{value_type.__module__}:{value_type.__qualname__}"
 
 
-def _read_scope_source(spec: SourceSpec) -> tuple[RawColumns, tuple[Path, ...]]:
-    if not isinstance(spec.source, tuple) or len(spec.source) != 2:
-        raise TypeError("SCOPE_WAVEFORMS source must be (waveforms, track_names)")
-    waveforms, track_names = spec.source
-    channels = tuple(track_names)
-    if not channels:
-        raise ValueError("at least one scope track is required")
-    if len(set(track_names.values())) != len(track_names):
-        raise ValueError("scope track names must be unique")
-    missing_channels = sorted(set(channels).difference(waveforms))
-    if missing_channels:
-        raise ValueError(f"scope did not return channels {missing_channels}")
-    reference_scale = waveforms[channels[0]].x_scale
-    sample_counts = {channel: len(waveforms[channel].data) for channel in channels}
-    if len(set(sample_counts.values())) != 1:
-        raise ValueError(f"scope channels have different sample counts: {sample_counts}")
-    for channel in channels:
-        waveform = waveforms[channel]
-        if waveform.x_scale != reference_scale:
-            raise ValueError(f"scope channel {channel} has a different horizontal scale")
-        if len(waveform.data) != len(waveform.raw_data):
-            raise ValueError(f"scope channel {channel} voltage and raw data are not aligned")
-    sample_count = next(iter(sample_counts.values()))
-    return (
-        {
-            "time_s": reference_scale.offset + np.arange(sample_count) * reference_scale.slope,
-            **{f"{track_names[channel]}_v": np.asarray(waveforms[channel].data) for channel in channels},
-            **{f"{track_names[channel]}_raw": np.asarray(waveforms[channel].raw_data) for channel in channels},
-        },
-        (),
+def _resolve_type(name: str) -> type:
+    module_name, qualname = name.split(":", 1)
+    value = importlib.import_module(module_name)
+    for part in qualname.split("."):
+        value = getattr(value, part)
+    if not isinstance(value, type):
+        raise TypeError(f"{name!r} does not resolve to a type")
+    return value
+
+
+def _decode_string(value):
+    if isinstance(value, bytes):
+        return value.decode()
+    return value
+
+
+def _create_dataset(parent: h5py.Group, name: str, value, *, wave: bool = False) -> h5py.Dataset:
+    """Create one scalar or array dataset with useful waveform chunking."""
+
+    array = np.asarray(value)
+    kwargs = {}
+    if array.ndim and array.size:
+        kwargs["compression"] = "gzip"
+        if wave and array.ndim >= 2:
+            kwargs["chunks"] = (1, *array.shape[1:])
+    if array.dtype.kind in {"U", "O"}:
+        string_dtype = h5py.string_dtype("utf-8")
+        return parent.create_dataset(name, data=np.asarray(value, dtype=object), dtype=string_dtype, **kwargs)
+    return parent.create_dataset(name, data=value, **kwargs)
+
+
+def _write_native(parent: h5py.Group, name: str, value) -> None:
+    """Write one nested parameter or run-information value natively to HDF5."""
+
+    if value is None:
+        group = parent.create_group(name)
+        group.attrs["_kind"] = "none"
+        return
+    if isinstance(value, Prefixed):
+        dataset = _create_dataset(parent, name, str(value.number))
+        dataset.attrs["_kind"] = "prefixed"
+        dataset.attrs["_prefix"] = value.prefix.name
+        return
+    if isinstance(value, Enum):
+        dataset = _create_dataset(parent, name, value.name)
+        dataset.attrs["_kind"] = "enum"
+        dataset.attrs["_type"] = _qualified_type(type(value))
+        return
+    if isinstance(value, Path):
+        dataset = _create_dataset(parent, name, str(value))
+        dataset.attrs["_kind"] = "path"
+        return
+    if isinstance(value, datetime):
+        dataset = _create_dataset(parent, name, value.isoformat())
+        dataset.attrs["_kind"] = "datetime"
+        return
+    if dataclasses.is_dataclass(value):
+        group = parent.create_group(name)
+        group.attrs["_kind"] = "dataclass"
+        group.attrs["_type"] = _qualified_type(type(value))
+        for data_field in dataclasses.fields(value):
+            _write_native(group, data_field.name, getattr(value, data_field.name))
+        return
+    if isinstance(value, Mapping):
+        group = parent.create_group(name)
+        group.attrs["_kind"] = "mapping"
+        for key, item in value.items():
+            _write_native(group, str(key), item)
+        return
+    if isinstance(value, (tuple, list)):
+        array = np.asarray(value)
+        if array.ndim == 1 and array.dtype.kind != "O":
+            dataset = _create_dataset(parent, name, array)
+            dataset.attrs["_kind"] = "tuple" if isinstance(value, tuple) else "list"
+            return
+        group = parent.create_group(name)
+        group.attrs["_kind"] = "tuple" if isinstance(value, tuple) else "list"
+        for index, item in enumerate(value):
+            _write_native(group, str(index), item)
+        return
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, (bool, int, float, str, np.ndarray)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"cannot persist non-finite scalar {value!r}")
+        _create_dataset(parent, name, value)
+        return
+    raise TypeError(f"cannot persist {type(value).__name__} in measurement HDF5")
+
+
+def _read_native(node: h5py.Group | h5py.Dataset):
+    """Read one value written by :func:`_write_native`."""
+
+    kind = _decode_string(node.attrs.get("_kind", ""))
+    if isinstance(node, h5py.Dataset):
+        value = node[()]
+        if isinstance(value, np.ndarray) and value.dtype.kind in {"S", "O"}:
+            value = value.astype(str)
+        elif isinstance(value, bytes):
+            value = value.decode()
+        elif isinstance(value, np.generic):
+            value = value.item()
+        if kind == "enum":
+            enum_type = _resolve_type(_decode_string(node.attrs["_type"]))
+            return enum_type[value]
+        if kind == "path":
+            return Path(value)
+        if kind == "datetime":
+            return datetime.fromisoformat(value)
+        if kind == "prefixed":
+            return Prefixed.new(
+                Decimal(value),
+                Prefix[_decode_string(node.attrs["_prefix"])],
+            )
+        if kind == "tuple":
+            return tuple(value.tolist())
+        if kind == "list":
+            return value.tolist()
+        return value
+
+    if kind == "none":
+        return None
+    if kind in {"tuple", "list"}:
+        values = [_read_native(node[key]) for key in sorted(node, key=int)]
+        return tuple(values) if kind == "tuple" else values
+    if kind == "mapping":
+        return {key: _read_native(node[key]) for key in node}
+    if kind == "dataclass":
+        value_type = _resolve_type(_decode_string(node.attrs["_type"]))
+        return value_type(
+            **{data_field.name: _read_native(node[data_field.name]) for data_field in _dataclass_fields(value_type)}
+        )
+    raise ValueError(f"unsupported HDF5 value kind {kind!r} at {node.name}")
+
+
+def _write_section(parent: h5py.File, name: str, section) -> None:
+    group = parent.create_group(name)
+    group.attrs["_type"] = _qualified_type(type(section))
+    for data_field in dataclasses.fields(section):
+        value = getattr(section, data_field.name)
+        if value is None:
+            continue
+        _create_dataset(group, data_field.name, value, wave=name == "wave")
+
+
+def _read_section(group: h5py.Group, section_type: type):
+    values = {}
+    missing = []
+    for data_field in _dataclass_fields(section_type):
+        if data_field.name in group:
+            values[data_field.name] = np.asarray(group[data_field.name][()])
+        elif data_field.default is dataclasses.MISSING and data_field.default_factory is dataclasses.MISSING:
+            missing.append(data_field.name)
+    if missing:
+        raise ValueError(f"{group.name} is missing required datasets {missing}")
+    return section_type(**values)
+
+
+def write_measurement(path: Path, msmt: Measurement) -> Path:
+    """Write one typed physical, behavioral, or SPICE measurement."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as output:
+        info = output.create_group("info")
+        _write_native(info, "schema_version", msmt.info.schema_version)
+        _write_native(info, "measurement_type", msmt.info.measurement_type)
+        _write_native(info, "backend", msmt.info.backend)
+        _write_native(info, "timestamp_utc", msmt.info.timestamp_utc)
+        _write_native(info, "instruments", msmt.info.instruments)
+        _write_native(info, "readbacks", msmt.info.readbacks)
+        param = output.create_group("param")
+        param.attrs["_kind"] = "dataclass"
+        param.attrs["_type"] = _qualified_type(type(msmt.param))
+        for data_field in _dataclass_fields(msmt.param):
+            _write_native(param, data_field.name, getattr(msmt.param, data_field.name))
+        _write_section(output, "daq", msmt.daq)
+        _write_section(output, "wave", msmt.wave)
+    return path
+
+
+def read_measurement(path: Path) -> Measurement:
+    """Read one HDF5 file into its concrete typed in-memory measurement."""
+
+    path = Path(path)
+    with h5py.File(path, "r") as input_file:
+        required_groups = {"info", "param", "daq", "wave"}
+        missing = sorted(required_groups.difference(input_file))
+        if missing:
+            raise ValueError(f"{path} is missing required HDF5 groups {missing}")
+        info_group = input_file["info"]
+        required_info = {
+            "schema_version",
+            "measurement_type",
+            "backend",
+            "timestamp_utc",
+            "instruments",
+            "readbacks",
+        }
+        missing_info = sorted(required_info.difference(info_group))
+        if missing_info:
+            raise ValueError(f"{path} is missing required /info datasets {missing_info}")
+        measurement_type = str(_read_native(info_group["measurement_type"]))
+        try:
+            measurement_class = MEASUREMENT_TYPES[measurement_type]
+            daq_type, wave_type = SECTION_TYPES[measurement_type]
+        except KeyError:
+            raise ValueError(f"unsupported measurement type {measurement_type!r}") from None
+        info = MeasInfo(
+            schema_version=int(_read_native(info_group["schema_version"])),
+            measurement_type=measurement_type,
+            backend=cast(Backend, str(_read_native(info_group["backend"]))),
+            timestamp_utc=_read_native(info_group["timestamp_utc"]),
+            instruments=_read_native(info_group["instruments"]),
+            readbacks=_read_native(info_group["readbacks"]),
+            source_path=path,
+        )
+        param = _read_native(input_file["param"])
+        daq = _read_section(input_file["daq"], daq_type)
+        wave = _read_section(input_file["wave"], wave_type)
+    return measurement_class(info=info, param=param, daq=daq, wave=wave)
+
+
+def scope_records_to_adc_wave(
+    records: Sequence[Mapping[int, Any]],
+    conversion_index: Sequence[int],
+    channels: Mapping[str, int],
+) -> AdcExtWave:
+    """Convert aligned triggered scope records into an external ADC wave section."""
+
+    required = {"vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"}
+    if set(channels) != required:
+        raise ValueError(f"scope channels must map exactly {sorted(required)}")
+    if len(records) != len(conversion_index):
+        raise ValueError("scope record count must match waveform conversion indices")
+
+    time_s = None
+    signals = {name: [] for name in required}
+    for record_number, record in enumerate(records):
+        missing_channels = sorted(set(channels.values()).difference(record))
+        if missing_channels:
+            raise ValueError(f"scope record {record_number} is missing channels {missing_channels}")
+        reference = record[next(iter(channels.values()))]
+        record_time = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
+        if time_s is None:
+            time_s = record_time
+        elif not np.array_equal(record_time, time_s):
+            raise ValueError(f"scope record {record_number} has a different time axis")
+        for name, channel in channels.items():
+            values = np.asarray(record[channel].data, dtype=np.float64)
+            if len(values) != len(record_time):
+                raise ValueError(f"scope record {record_number} channel {channel} is not aligned")
+            signals[name].append(values)
+    if time_s is None:
+        raise ValueError("at least one scope record is required")
+    return AdcExtWave(
+        conversion_index=np.asarray(conversion_index),
+        time_s=time_s,
+        **{name: np.stack(values) for name, values in signals.items()},
     )
 
 
-def _read_sim_result_source(spec: SourceSpec) -> tuple[RawColumns, tuple[Path, ...]]:
-    analyses = getattr(spec.source, "an", None)
-    if not analyses:
-        raise ValueError("SIM_RESULT source contains no analyses")
-    if not 0 <= spec.analysis_index < len(analyses):
-        raise IndexError(f"SIM_RESULT analysis_index={spec.analysis_index} is outside 0..{len(analyses) - 1}")
-    return analyses[spec.analysis_index].data, ()
+def interpolate_wave_records(
+    time_s: Sequence[float] | np.ndarray,
+    signals: Mapping[str, Sequence[float] | np.ndarray],
+    windows_s: Sequence[tuple[float, float]],
+    samples_per_record: int,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Interpolate adaptive-time simulation data onto dense relative records."""
+
+    source_time = np.asarray(time_s, dtype=np.float64)
+    if source_time.ndim != 1 or len(source_time) < 2 or np.any(np.diff(source_time) <= 0):
+        raise ValueError("source time must be one-dimensional and strictly increasing")
+    if samples_per_record < 2:
+        raise ValueError("samples_per_record must be at least two")
+    normalized_signals = {name: np.asarray(values, dtype=np.float64) for name, values in signals.items()}
+    if any(values.shape != source_time.shape for values in normalized_signals.values()):
+        raise ValueError("all adaptive-time signals must align with source time")
+    durations = np.asarray([stop - start for start, stop in windows_s], dtype=np.float64)
+    if len(durations) == 0 or np.any(durations <= 0) or not np.allclose(durations, durations[0]):
+        raise ValueError("waveform windows must be non-empty and have equal positive duration")
+    relative_time = np.linspace(0.0, durations[0], samples_per_record)
+    records = {name: [] for name in normalized_signals}
+    for start, stop in windows_s:
+        if start < source_time[0] or stop > source_time[-1]:
+            raise ValueError(f"waveform window {(start, stop)} lies outside source time")
+        sample_times = start + relative_time
+        for name, values in normalized_signals.items():
+            records[name].append(np.interp(sample_times, source_time, values))
+    return relative_time, {name: np.stack(values) for name, values in records.items()}
 
 
-def _read_spectre_source(spec: SourceSpec) -> tuple[RawColumns, tuple[Path, ...]]:
-    path = Path(spec.source)
-    selected_signals = set(spec.column_map.values()) if spec.column_map else None
-    return parse_spectre_nutascii(path, selected_signals), (path,)
+def build_adc_interface_wave(
+    params,
+    bout: Sequence[int],
+    *,
+    conversion_index: int = 0,
+    samples_per_symbol: int = 4,
+) -> AdcExtWave:
+    """Build one dense behavioral ADC-interface waveform from test parameters."""
 
+    if samples_per_symbol <= 0:
+        raise ValueError("samples_per_symbol must be positive")
+    bout = np.asarray(bout, dtype=np.uint8)
+    if bout.ndim != 1 or np.any((bout != 0) & (bout != 1)):
+        raise ValueError("Bout must be one binary decision vector")
 
-def read_run(spec: SourceSpec) -> RunData:
-    """Normalize one raw physical, behavioral, or SPICE source."""
+    sequence_length = len(params.seq_init_pattern)
 
-    readers = {
-        SourceFormat.CSV: _read_csv_source,
-        SourceFormat.SCOPE_CSV: _read_csv_source,
-        SourceFormat.ADC_CSV: _read_csv_source,
-        SourceFormat.COLUMN_MAPPING: _read_mapping_source,
-        SourceFormat.SCOPE_WAVEFORMS: _read_scope_source,
-        SourceFormat.SIM_RESULT: _read_sim_result_source,
-        SourceFormat.SPECTRE_NUTASCII: _read_spectre_source,
-    }
-    try:
-        reader = readers[spec.format]
-    except KeyError:
-        raise ValueError(f"unsupported source format {spec.format.value!r}") from None
-    raw_columns, source_paths = reader(spec)
+    def shifted_pattern(name: str) -> np.ndarray:
+        pattern = getattr(params, f"seq_{name}_pattern")
+        phase = float(getattr(params, f"seq_{name}_phase_delay_symbols"))
+        if not phase.is_integer():
+            raise ValueError("behavioral interface wave requires whole-symbol phase offsets")
+        shift = int(phase) % sequence_length
+        if shift:
+            pattern = pattern[-shift:] + pattern[:-shift]
+        return np.repeat(
+            np.fromiter((int(bit) for bit in pattern), dtype=np.uint8),
+            samples_per_symbol,
+        )
 
-    selected_columns = _select_columns(raw_columns, spec.column_map)
-    table = _table_from_columns(spec.table_name, selected_columns, spec.units)
-    parameters = to_json_data(spec.parameters)
-    if not isinstance(parameters, dict):
-        raise TypeError("source parameters must normalize to a JSON object")
-    return RunData(
-        run_id=spec.run_id,
-        backend=spec.backend,
-        block=spec.block,
-        tables=(table,),
-        parameters=parameters,
-        source_paths=source_paths,
+    seq_comp = shifted_pattern("comp")
+    seq_logic = shifted_pattern("logic")
+    comp_symbols = seq_comp.reshape(sequence_length, samples_per_symbol)[:, 0]
+    falling_symbols = np.flatnonzero((comp_symbols[:-1] == 1) & (comp_symbols[1:] == 0)) + 1
+    if len(falling_symbols) < len(bout):
+        raise ValueError(
+            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout)} bits"
+        )
+    comp_out_symbols = np.zeros(sequence_length, dtype=np.uint8)
+    state = 0
+    decision_index = 0
+    for symbol in range(sequence_length):
+        if decision_index < len(bout) and symbol == falling_symbols[decision_index]:
+            state = int(bout[decision_index])
+            decision_index += 1
+        comp_out_symbols[symbol] = state
+
+    symbol_period_s = 1.0 / float(params.symbol_rate)
+    time_s = np.arange(sequence_length * samples_per_symbol, dtype=np.float64)
+    time_s *= symbol_period_s / samples_per_symbol
+    source = params.vin_diff
+    if hasattr(source, "dc") and source.dc is not None:
+        vin_diff_v = np.full_like(time_s, float(source.dc))
+    elif hasattr(source, "voff") and source.voff is not None:
+        vin_diff_v = np.full_like(time_s, float(source.voff))
+        vin_diff_v += float(source.vamp) * np.sin(
+            2.0 * np.pi * float(source.freq) * time_s + np.deg2rad(float(source.phase or 0.0))
+        )
+    else:
+        vin_diff_v = np.zeros_like(time_s)
+    logic_high_v = float(params.vdd_d.dc)
+    return AdcExtWave(
+        conversion_index=np.asarray([conversion_index], dtype=np.int64),
+        time_s=time_s,
+        vin_diff_v=vin_diff_v[None, :],
+        seq_comp_v=(logic_high_v * seq_comp)[None, :],
+        seq_logic_v=(logic_high_v * seq_logic)[None, :],
+        comp_out_v=(logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
     )

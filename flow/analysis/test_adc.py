@@ -3,57 +3,84 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 
+import hdl21 as h
 import numpy as np
 import pytest
 
 from flow.analysis.adc import (
-    analyze_adc_code_density,
     analyze_adc_decision_paths,
-    analyze_adc_distribution,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
-    analyze_adc_endpoint_linearity,
+    analyze_adc_noise,
+    analyze_adc_noise_sweep,
+    analyze_adc_nonlin,
+    analyze_adc_power_sweep,
     analyze_adc_transfer,
 )
-from flow.analysis.models import (
-    AdcSettings,
-    AnalysisKind,
-    AnalysisRequest,
-    AnalysisSpec,
-    BackendKind,
-    BlockKind,
-    DataColumn,
-    DataTable,
-    RunData,
-)
+from flow.analysis.types import AdcDaq, AdcExtWave, InfoValue, MeasAdcExt, MeasInfo
+from flow.scans.params import AdcTbParams
 
 
-def adc_run(run_id: str, *, parameters=None, **columns) -> RunData:
-    return RunData(
-        run_id,
-        BackendKind.BEHAVIORAL,
-        BlockKind.ADC,
-        (
-            DataTable(
-                "conversions",
-                tuple(DataColumn(name, np.asarray(values)) for name, values in columns.items()),
-            ),
-        ),
-        parameters=parameters or {},
-    )
-
-
-def adc_request(
-    run: RunData,
-    kind: AnalysisKind,
-    settings: AdcSettings,
+def adc_measurement(
+    dout,
     *,
-    name: str = "analysis",
-) -> AnalysisRequest:
-    return AnalysisRequest(
-        AnalysisSpec(name, kind, (run.run_id,), settings),
-        runs=(run,),
+    vin_diff_v: float | Sequence[float] | np.ndarray = 0.0,
+    sample_rate_hz: float = 1.0e6,
+    input_frequency_hz: float = 10.0e3,
+    logic_phase_delay_symbols: float = 0.0,
+    observed_adc: int | None = None,
+    readbacks: Mapping[str, InfoValue] | None = None,
+) -> MeasAdcExt:
+    """Build one compact external ADC measurement for numerical tests."""
+
+    dout = np.asarray(dout, dtype=np.int64)
+    vin_diff_array = np.asarray(vin_diff_v, dtype=np.float64)
+    if vin_diff_array.ndim == 0:
+        vin_diff_array = np.full(len(dout), vin_diff_array.item())
+    template = AdcTbParams()
+    measurement_selection = {}
+    if observed_adc is not None:
+        measurement_selection = {
+            "board_id": "test_board",
+            "observed_adc": observed_adc,
+            "active_adc_mask": tuple(int(index == observed_adc) for index in reversed(range(16))),
+        }
+    param = AdcTbParams(
+        conversions=len(dout),
+        symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
+        vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
+        seq_logic_phase_delay_symbols=logic_phase_delay_symbols,
+        **measurement_selection,
+    )
+    time_s = np.linspace(0.0, 1.0 / sample_rate_hz, 8)
+    zeros = np.zeros((1, len(time_s)))
+    return MeasAdcExt(
+        info=MeasInfo(
+            schema_version=1,
+            measurement_type="MeasAdcExt",
+            backend="behavioral",
+            timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC),
+            readbacks=dict(readbacks or {}),
+        ),
+        param=param,
+        daq=AdcDaq(
+            conversion_index=np.arange(len(dout)),
+            bout=np.zeros((len(dout), 17), dtype=np.uint8),
+            dout_raw=dout,
+            dout=dout,
+            vin_diff_v=vin_diff_array,
+        ),
+        wave=AdcExtWave(
+            conversion_index=np.asarray([0], dtype=np.int64),
+            time_s=time_s,
+            vin_diff_v=zeros,
+            seq_comp_v=zeros,
+            seq_logic_v=zeros,
+            comp_out_v=zeros,
+        ),
     )
 
 
@@ -62,38 +89,56 @@ def test_dynamic_analysis_recovers_sine_and_spectral_metrics() -> None:
     sample_rate_hz = 1.0e6
     input_frequency_hz = 12_345.678
     sample_count = 20_000
-    amplitude_codes = 1_500.0
-    offset_codes = 2_040.0
-    phase_rad = 0.37
-    noise_rms_codes = 2.0
+    amplitude = 1_500.0
+    offset = 2_040.0
+    phase = 0.37
+    noise_rms = 2.0
     time_s = np.arange(sample_count) / sample_rate_hz
-    samples = (
-        offset_codes
-        + amplitude_codes * np.sin(2.0 * np.pi * input_frequency_hz * time_s + phase_rad)
-        + rng.normal(0.0, noise_rms_codes, sample_count)
+    samples = np.rint(
+        offset
+        + amplitude * np.sin(2.0 * np.pi * input_frequency_hz * time_s + phase)
+        + rng.normal(0.0, noise_rms, sample_count)
     )
-    run = adc_run("sine", dout=samples)
-    result = analyze_adc_dynamic(
-        adc_request(
-            run,
-            AnalysisKind.ADC_DYNAMIC,
-            AdcSettings(
-                sample_rate_hz=sample_rate_hz,
-                input_frequency_hz=input_frequency_hz * (1.0 + 5e-6),
-            ),
-        )
+    msmt = adc_measurement(
+        samples,
+        sample_rate_hz=sample_rate_hz,
+        input_frequency_hz=input_frequency_hz * (1.0 + 5e-6),
+    )
+    result = analyze_adc_dynamic(msmt)
+
+    assert result.sample_count == sample_count
+    assert result.fitted_frequency_hz == pytest.approx(input_frequency_hz, abs=0.02)
+    assert result.amplitude_dout == pytest.approx(amplitude, rel=2e-4)
+    assert result.offset_dout == pytest.approx(offset, abs=0.05)
+    assert result.phase_rad == pytest.approx(phase, abs=2e-4)
+    assert result.residual_rms_dout == pytest.approx(math.hypot(noise_rms, 1 / math.sqrt(12)), rel=0.05)
+    assert result.input_referred_residual_rms_v == pytest.approx(result.residual_rms_dout * 0.5 / result.amplitude_dout)
+    assert result.input_referred_noise_rms_v > 0
+    assert result.enob_bits == pytest.approx((result.sinad_db - 1.76) / 6.02)
+    assert len(result.fitted_dout) == sample_count
+
+
+def test_dynamic_analysis_counts_sine_fit_residual_tails() -> None:
+    """Count each ±24 LSB tail without deleting samples from the analysis."""
+
+    sample_rate_hz = 1.0e6
+    input_frequency_hz = 15_625.0
+    time_s = np.arange(8_192) / sample_rate_hz
+    samples = np.rint(2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * input_frequency_hz * time_s))
+    samples[1_234] += 40.0
+    samples[4_321] -= 40.0
+    msmt = adc_measurement(
+        samples,
+        sample_rate_hz=sample_rate_hz,
+        input_frequency_hz=input_frequency_hz,
     )
 
-    assert result.metric("sample_count") == sample_count
-    assert result.metric("fitted_frequency_hz") == pytest.approx(input_frequency_hz, abs=0.02)
-    assert result.metric("amplitude_codes") == pytest.approx(amplitude_codes, rel=2e-4)
-    assert result.metric("offset_codes") == pytest.approx(offset_codes, abs=0.05)
-    assert result.metric("phase_rad") == pytest.approx(phase_rad, abs=2e-4)
-    assert result.metric("residual_rms_codes") == pytest.approx(noise_rms_codes, rel=0.03)
-    assert result.metric("enob_bits") == pytest.approx(
-        (result.metric("sinad_db") - 1.76) / 6.02
-    )
-    assert len(result.table("fit")) == sample_count
+    result = analyze_adc_dynamic(msmt)
+    assert result.residual_tail_limit_dout == 24.0
+    assert result.expected_residual_tail_count == pytest.approx(len(samples) * 0.0027)
+    assert result.negative_residual_tail_count == 1
+    assert result.positive_residual_tail_count == 1
+    assert result.maximum_abs_residual_dout > 39.0
 
 
 def test_dynamic_analysis_separates_noise_and_harmonics() -> None:
@@ -102,254 +147,168 @@ def test_dynamic_analysis_separates_noise_and_harmonics() -> None:
     input_frequency_hz = 12_345.678
     sample_count = 65_536
     time_s = np.arange(sample_count) / sample_rate_hz
-    samples = (
+    samples = np.rint(
         2_048.0
         + 1_500.0 * np.sin(2.0 * np.pi * input_frequency_hz * time_s + 0.2)
         + 15.0 * np.sin(2.0 * np.pi * 2.0 * input_frequency_hz * time_s - 0.1)
         + rng.normal(0.0, 1.0, sample_count)
     )
-    run = adc_run("sine", dout=samples)
     result = analyze_adc_dynamic(
-        adc_request(
-            run,
-            AnalysisKind.ADC_DYNAMIC,
-            AdcSettings(
-                sample_rate_hz=sample_rate_hz,
-                input_frequency_hz=input_frequency_hz,
-            ),
+        adc_measurement(
+            samples,
+            sample_rate_hz=sample_rate_hz,
+            input_frequency_hz=input_frequency_hz,
         )
     )
 
-    assert result.metric("spectral_snr_db") == pytest.approx(60.51, abs=0.15)
-    assert result.metric("spectral_thd_db") == pytest.approx(-40.0, abs=0.15)
-    assert result.metric("spectral_sfdr_db") == pytest.approx(40.0, abs=0.15)
-    assert result.metric("spectral_sndr_db") == pytest.approx(39.96, abs=0.15)
-    assert result.metric("spectral_enob_bits") == pytest.approx(
-        (result.metric("spectral_sndr_db") - 1.76) / 6.02
-    )
+    assert result.spectral_snr_db == pytest.approx(59.9, abs=0.5)
+    assert result.spectral_thd_db == pytest.approx(-40.0, abs=0.15)
+    assert result.spectral_sfdr_db == pytest.approx(40.0, abs=0.15)
+    assert result.spectral_sndr_db == pytest.approx(39.96, abs=0.2)
 
 
-def test_transfer_distribution_and_code_density_share_normalized_data() -> None:
-    run = adc_run(
-        "ramp",
-        vin_diff_v=(-0.1, -0.1, 0.0, 0.0, 0.1, 0.1),
-        dout=(0, 0, 1, 2, 3, 3),
+def test_transfer_noise_and_code_density_use_typed_adc_data() -> None:
+    msmt = adc_measurement(
+        [0, 0, 1, 2, 3, 3],
+        vin_diff_v=[-0.1, -0.1, 0.0, 0.0, 0.1, 0.1],
     )
-    settings = AdcSettings(adc_bits=2, code_range=(1, 2))
-    transfer = analyze_adc_transfer(
-        adc_request(run, AnalysisKind.ADC_TRANSFER, settings, name="transfer")
-    )
-    distribution = analyze_adc_distribution(
-        adc_request(run, AnalysisKind.ADC_DISTRIBUTION, settings, name="distribution")
-    )
-    linearity = analyze_adc_code_density(
-        adc_request(run, AnalysisKind.ADC_CODE_DENSITY, settings, name="linearity")
-    )
+    transfer = analyze_adc_transfer([msmt])
+    noise = analyze_adc_noise([msmt])
+    linearity = analyze_adc_nonlin(msmt, method="code_density", code_range=(1, 2))
 
-    np.testing.assert_allclose(
-        transfer.table("transfer").column("mean_code"),
-        (0.0, 1.5, 3.0),
-    )
-    np.testing.assert_array_equal(
-        distribution.table("distribution").column("count"),
-        (2, 1, 1, 2),
-    )
-    assert linearity.metric("ideal_count") == 1.0
-    assert linearity.metric("missing_codes") == 0
-    np.testing.assert_allclose(linearity.table("linearity").column("dnl"), (0.0, 0.0))
+    np.testing.assert_allclose(transfer.mean_dout, (0.0, 1.5, 3.0))
+    np.testing.assert_array_equal(noise.count.sum(axis=0)[:4], (2, 1, 1, 2))
+    assert linearity.ideal_count == 1.0
+    assert linearity.missing_codes == 0
+    np.testing.assert_allclose(linearity.dnl, (0.0, 0.0))
 
 
 def test_endpoint_linearity_interpolates_static_code_transitions() -> None:
     inputs = np.linspace(-0.6, 0.6, 129)
-    ideal_codes = np.linspace(0.0, 15.0, len(inputs))
-    ideal_run = adc_run("ideal_static", vin_diff_v=inputs, dout=ideal_codes)
-    ideal = analyze_adc_endpoint_linearity(
-        adc_request(
-            ideal_run,
-            AnalysisKind.ADC_ENDPOINT_LINEARITY,
-            AdcSettings(adc_bits=4),
-            name="endpoint",
-        )
+    ideal_codes = np.rint(np.linspace(0.0, 15.0, len(inputs)))
+    ideal = analyze_adc_nonlin(
+        adc_measurement(ideal_codes, vin_diff_v=inputs),
+        method="endpoint",
     )
-    assert ideal.metric("endpoint_lsb_v") == pytest.approx(0.08)
-    assert ideal.metric("maximum_abs_dnl") < 1e-12
-    assert ideal.metric("maximum_abs_inl") < 1e-12
-    assert ideal.metric("missing_codes") == 0
+    assert ideal.endpoint_lsb_v == pytest.approx(0.08, abs=0.01)
+    assert ideal.missing_codes == 0
 
-    nonlinear_codes = ideal_codes + 0.15 * np.sin(np.pi * ideal_codes / 15.0)
-    nonlinear_run = adc_run(
-        "nonlinear_static",
-        vin_diff_v=inputs,
-        dout=nonlinear_codes,
+    nonlinear_codes = np.rint(
+        np.linspace(0.0, 15.0, len(inputs)) + 0.6 * np.sin(np.pi * np.linspace(0.0, 15.0, len(inputs)) / 15.0)
     )
-    nonlinear = analyze_adc_endpoint_linearity(
-        adc_request(
-            nonlinear_run,
-            AnalysisKind.ADC_ENDPOINT_LINEARITY,
-            AdcSettings(adc_bits=4),
-            name="endpoint",
-        )
+    nonlinear = analyze_adc_nonlin(
+        adc_measurement(nonlinear_codes, vin_diff_v=inputs),
+        method="endpoint",
     )
-    assert nonlinear.metric("maximum_abs_inl") > 0.05
+    assert nonlinear.maximum_abs_inl > 0.05
 
 
-def test_transfer_can_take_one_scalar_input_from_each_run_metadata() -> None:
-    runs = (
-        RunData(
-            "low",
-            BackendKind.MEASUREMENT,
-            BlockKind.ADC,
-            (DataTable("conversions", (DataColumn("dout", np.asarray([10, 12])),)),),
-            parameters={"vin_diff_v": -0.1},
-        ),
-        RunData(
-            "high",
-            BackendKind.MEASUREMENT,
-            BlockKind.ADC,
-            (DataTable("conversions", (DataColumn("dout", np.asarray([20, 22])),)),),
-            parameters={"vin_diff_v": 0.1},
-        ),
+def test_decision_paths_select_matching_output_codes() -> None:
+    msmt = adc_measurement([5, 5, 3])
+    bout = np.asarray(
+        [
+            [1, 0, 1] + [0] * 14,
+            [1, 0, 1] + [0] * 14,
+            [0, 1, 1] + [0] * 14,
+        ],
+        dtype=np.uint8,
     )
-    spec = AnalysisSpec(
-        "transfer",
-        AnalysisKind.ADC_TRANSFER,
-        ("low", "high"),
-        AdcSettings(),
-    )
-    result = analyze_adc_transfer(AnalysisRequest(spec, runs=runs))
-    np.testing.assert_allclose(result.table("transfer").column("mean_code"), (11.0, 21.0))
+    object.__setattr__(msmt.daq, "bout", bout)
+    paths = analyze_adc_decision_paths(msmt, selection="same_dout")
+
+    assert paths.estimate_dout.shape == (2, 18)
+    np.testing.assert_array_equal(paths.final_dout, (5, 5))
 
 
-def test_decision_paths_and_dynamic_sweep_use_common_result_tables() -> None:
-    decision_run = adc_run(
-        "decisions",
-        bout=("101", "101", "011"),
-        dout=(5, 5, 3),
-    )
-    paths = analyze_adc_decision_paths(
-        adc_request(
-            decision_run,
-            AnalysisKind.ADC_DECISION_PATHS,
-            AdcSettings(
-                adc_bits=3,
-                code_weights=(4, 2, 1),
-                selection="same_code",
-            ),
-            name="paths",
-        )
-    )
-    assert paths.metric("path_count") == 2
-    assert len(paths.table("decision_paths")) == 8
-
-    dynamic_results = []
-    for index, frequency in enumerate((1_000.0, 5_000.0)):
-        sample_rate = 100_000.0
-        time_s = np.arange(2_048) / sample_rate
-        run = adc_run(
-            f"sine{index}",
-            parameters={
-                "conversion_rate_hz": sample_rate,
-                "logic_offset": index - 1,
-            },
-            dout=2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * frequency * time_s),
-        )
-        dynamic_results.append(
-            analyze_adc_dynamic(
-                adc_request(
-                    run,
-                    AnalysisKind.ADC_DYNAMIC,
-                    AdcSettings(
-                        sample_rate_hz=sample_rate,
-                        input_frequency_hz=frequency,
-                        frequency_search_fraction=0.0,
-                    ),
-                    name=f"dynamic{index}",
-                )
+def test_dynamic_sweep_retains_rate_frequency_and_logic_phase() -> None:
+    measurements = []
+    for index, frequency_hz in enumerate((1_000.0, 5_000.0)):
+        sample_rate_hz = 100_000.0
+        time_s = np.arange(2_048) / sample_rate_hz
+        samples = np.rint(2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * frequency_hz * time_s))
+        measurements.append(
+            adc_measurement(
+                samples,
+                sample_rate_hz=sample_rate_hz,
+                input_frequency_hz=frequency_hz,
+                logic_phase_delay_symbols=index - 1,
             )
         )
-    spec = AnalysisSpec(
-        "sweep",
-        AnalysisKind.ADC_DYNAMIC_SWEEP,
-        tuple(result.name for result in dynamic_results),
-        AdcSettings(),
+    sweep = analyze_adc_dynamic_sweep(measurements, frequency_search_fraction=0.0)
+    np.testing.assert_allclose(sweep.input_frequency_hz, (1_000.0, 5_000.0))
+    np.testing.assert_allclose(sweep.sample_rate_hz, (100_000.0, 100_000.0))
+    np.testing.assert_array_equal(sweep.logic_phase_delay_symbols, (-1, 0))
+    np.testing.assert_array_equal(sweep.observed_adc, (-1, -1))
+    assert np.all(sweep.input_referred_noise_rms_v > 0)
+
+
+def test_power_sweep_uses_active_smu_readbacks() -> None:
+    measurements = []
+    for adc_index, sample_rate_hz in ((0, 100_000.0), (1, 200_000.0)):
+        readbacks = {}
+        for rail, current_a in (("vdd_a", 2e-6), ("vdd_d", 40e-6), ("vdd_dac", 20e-6)):
+            readbacks[f"{rail}_active_average_current_a"] = current_a
+            readbacks[f"{rail}_active_average_power_w"] = 1.2 * current_a
+        measurements.append(
+            adc_measurement(
+                [100, 101, 102] * 3,
+                sample_rate_hz=sample_rate_hz,
+                observed_adc=adc_index,
+                readbacks=readbacks,
+            )
+        )
+
+    power = analyze_adc_power_sweep(measurements)
+
+    np.testing.assert_array_equal(power.observed_adc, (0, 1))
+    np.testing.assert_allclose(power.vdd_d_power_w, (48e-6, 48e-6))
+    np.testing.assert_allclose(power.total_power_w, (74.4e-6, 74.4e-6))
+
+
+def test_noise_sweep_uses_active_rate_while_dynamic_uses_true_repeat_rate() -> None:
+    """Keep nominal timing sweeps distinct from the waveform sampling interval."""
+
+    low = adc_measurement(
+        [100, 101, 100],
+        sample_rate_hz=1.0e6,
+        logic_phase_delay_symbols=-3,
     )
-    sweep = analyze_adc_dynamic_sweep(
-        AnalysisRequest(spec, results=tuple(dynamic_results))
+    high = adc_measurement(
+        [100, 102, 101],
+        sample_rate_hz=2.0e6,
+        logic_phase_delay_symbols=3,
     )
-    assert sweep.metric("point_count") == 2
+
+    sweep = analyze_adc_noise_sweep([low, high])
+
+    # The default pattern has 160 active symbols within a 256-symbol repeat.
+    np.testing.assert_allclose(sweep.sample_rate_hz, [1.6e6, 3.2e6])
+    np.testing.assert_allclose(sweep.comparator_time_percent, [12.5, 87.5])
+    assert sweep.input_lsb_v == pytest.approx(1.2 / 4095)
     np.testing.assert_allclose(
-        sweep.table("dynamic_sweep").column("input_frequency_hz"),
-        (1_000.0, 5_000.0),
-    )
-    custom_spec = AnalysisSpec(
-        "custom_sweep",
-        AnalysisKind.ADC_DYNAMIC_SWEEP,
-        tuple(result.name for result in dynamic_results),
-        AdcSettings(
-            sweep_axis="conversion_rate_hz",
-            sweep_group="logic_offset",
-        ),
-    )
-    custom_sweep = analyze_adc_dynamic_sweep(
-        AnalysisRequest(custom_spec, results=tuple(dynamic_results))
-    )
-    np.testing.assert_allclose(
-        custom_sweep.table("dynamic_sweep").column("conversion_rate_hz"),
-        (100_000.0, 100_000.0),
-    )
-    np.testing.assert_array_equal(
-        custom_sweep.table("dynamic_sweep").column("logic_offset"),
-        (-1, 0),
+        sweep.input_referred_noise_rms_v,
+        sweep.std_dout * 1.2 / 4095,
     )
 
 
 @pytest.mark.parametrize(
     ("samples", "sample_rate_hz", "input_frequency_hz", "message"),
     [
-        ([1.0] * 7, 1_000.0, 10.0, "at least eight"),
-        ([1.0] * 8, 0.0, 10.0, "sample_rate_hz"),
-        ([1.0] * 8, 1_000.0, 500.0, "Nyquist"),
+        ([1] * 7, 1_000.0, 10.0, "at least eight"),
+        ([1] * 8, 0.0, 10.0, "sample_rate_hz"),
+        ([1] * 8, 1_000.0, 500.0, "Nyquist"),
     ],
 )
 def test_dynamic_analysis_rejects_invalid_records(
-    samples: list[float],
+    samples: list[int],
     sample_rate_hz: float,
     input_frequency_hz: float,
     message: str,
 ) -> None:
-    run = adc_run("invalid", dout=samples)
+    msmt = adc_measurement(samples)
     with pytest.raises(ValueError, match=message):
         analyze_adc_dynamic(
-            adc_request(
-                run,
-                AnalysisKind.ADC_DYNAMIC,
-                AdcSettings(
-                    sample_rate_hz=sample_rate_hz,
-                    input_frequency_hz=input_frequency_hz,
-                ),
-            )
+            msmt,
+            sample_rate_hz=sample_rate_hz,
+            input_frequency_hz=input_frequency_hz,
         )
-
-
-def test_dynamic_analysis_reports_time_domain_sinad_consistently() -> None:
-    sample_rate_hz = 100_000.0
-    input_frequency_hz = 1_000.0
-    time_s = np.arange(1_000) / sample_rate_hz
-    samples = 2_000.0 + 500.0 * np.sin(2.0 * np.pi * input_frequency_hz * time_s)
-    run = adc_run("exact", dout=samples)
-    result = analyze_adc_dynamic(
-        adc_request(
-            run,
-            AnalysisKind.ADC_DYNAMIC,
-            AdcSettings(
-                sample_rate_hz=sample_rate_hz,
-                input_frequency_hz=input_frequency_hz,
-                frequency_search_fraction=0.0,
-            ),
-        )
-    )
-    assert result.metric("fitted_frequency_hz") == input_frequency_hz
-    assert result.metric("amplitude_codes") == pytest.approx(500.0)
-    assert result.metric("offset_codes") == pytest.approx(2_000.0)
-    assert result.metric("residual_rms_codes") < 1e-9
-    assert math.isinf(result.metric("sinad_db")) or result.metric("sinad_db") > 250.0

@@ -7,6 +7,7 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
+    "h5py",
     "pyyaml",
     "pydantic",
     "pytest",
@@ -29,6 +30,7 @@ dependencies = [
     "gpib-ctypes",
     "pyserial",
     "pyusb>=1.3.1",
+    "ruff>=0.16.1",
 ]
 
 [dependency-groups]
@@ -51,7 +53,6 @@ hdl21 = { path = "libs/Hdl21", editable = true }
 vlsir = { path = "libs/Vlsir/bindings/python", editable = true }
 vlsirtools = { path = "libs/Vlsir/VlsirTools", editable = true }
 basil-daq = { path = "libs/basil", editable = true }
-
 
 [tool.pyright]
 # Keep a single pyright config here. Zed uses basedpyright for Python,

@@ -1,32 +1,22 @@
-"""Backend-neutral waveform measurements.
+"""Small hardware-free waveform and converter calculations.
 
-Public entry points consume :class:`AnalysisRequest` and return
-:class:`AnalysisResult`.  The private NumPy kernels intentionally retain
-ordinary array arguments so the numerical implementation stays direct and
-easy to test.
+Functions in this module operate directly on NumPy arrays and scalars. They
+neither know about HDF5 nor create analysis-result objects.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
-
-from flow.analysis.models import (
-    AnalysisKind,
-    AnalysisRequest,
-    AnalysisResult,
-    DataColumn,
-    DataTable,
-    Metric,
-    StatisticsSettings,
-    WaveformSettings,
-)
+from scipy.signal.windows import blackmanharris
 
 
-def _find_crossings(
-    signal: np.ndarray,
-    axis: np.ndarray,
+def find_crossings(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
     threshold: float,
     *,
     rising: bool,
@@ -57,11 +47,11 @@ def _find_crossings(
     return axis[indices] + fractions * (axis[indices + 1] - axis[indices])
 
 
-def _amplitude_spectrum(
-    signal: np.ndarray,
+def amplitude_spectrum(
+    signal: Sequence[float] | np.ndarray,
     sample_interval_s: float,
     *,
-    window: str,
+    window: str = "hann",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return a one-sided peak-amplitude spectrum including DC."""
 
@@ -75,10 +65,12 @@ def _amplitude_spectrum(
 
     if window == "hann":
         weights = np.hanning(len(samples))
+    elif window == "blackman_harris":
+        weights = blackmanharris(len(samples), sym=False)
     elif window == "none":
         weights = np.ones(len(samples))
     else:
-        raise ValueError("FFT window must be 'hann' or 'none'")
+        raise ValueError("FFT window must be 'hann', 'blackman_harris', or 'none'")
 
     coherent_gain = float(np.sum(weights))
     spectrum = np.abs(np.fft.rfft(samples * weights)) / coherent_gain
@@ -89,61 +81,68 @@ def _amplitude_spectrum(
     return np.fft.rfftfreq(len(samples), d=sample_interval_s), spectrum
 
 
-def _sample_at_edges(
-    axis: np.ndarray,
-    clock: np.ndarray,
-    signals: tuple[np.ndarray, ...],
+def sample_at_edges(
+    axis: Sequence[float] | np.ndarray,
+    clock: Sequence[float] | np.ndarray,
+    signals: Sequence[Sequence[float] | np.ndarray],
     threshold: float,
     *,
-    rising: bool,
-    sample_fraction: float,
+    rising: bool = True,
+    sample_fraction: float = 0.5,
 ) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
     """Sample signals at a fixed fraction of each clock interval."""
 
     if not 0.0 <= sample_fraction <= 1.0:
         raise ValueError("sample_fraction must be in [0, 1]")
-    edges = _find_crossings(clock, axis, threshold, rising=rising)
+    axis_array = np.asarray(axis, dtype=np.float64)
+    edges = find_crossings(clock, axis_array, threshold, rising=rising)
     if len(edges) < 2:
-        return np.asarray([], dtype=float), tuple(np.asarray([], dtype=float) for _ in signals)
+        empty = tuple(np.asarray([], dtype=np.float64) for _ in signals)
+        return np.asarray([], dtype=np.float64), empty
     sample_axis = edges[:-1] + sample_fraction * np.diff(edges)
-    return sample_axis, tuple(np.interp(sample_axis, axis, signal) for signal in signals)
+    sampled = tuple(np.interp(sample_axis, axis_array, np.asarray(signal, dtype=np.float64)) for signal in signals)
+    return sample_axis, sampled
 
 
-def _settling_time(
-    axis: np.ndarray,
-    signal: np.ndarray,
+def measure_settling(
+    axis: Sequence[float] | np.ndarray,
+    signal: Sequence[float] | np.ndarray,
     *,
-    target: float | None,
-    tolerance: float,
+    target: float | None = None,
+    relative_tolerance: float = 0.01,
 ) -> float:
     """Return the first coordinate after which a signal remains settled."""
 
-    if tolerance <= 0 or not math.isfinite(tolerance):
+    axis = np.asarray(axis, dtype=np.float64)
+    signal = np.asarray(signal, dtype=np.float64)
+    if axis.ndim != 1 or signal.ndim != 1 or len(axis) != len(signal):
+        raise ValueError("settling axis and signal must be aligned one-dimensional arrays")
+    if relative_tolerance <= 0 or not math.isfinite(relative_tolerance):
         raise ValueError("settling tolerance must be positive and finite")
     if len(signal) == 0:
         return math.nan
     target = float(signal[-1]) if target is None else float(target)
-    limit = tolerance if abs(target) < 1e-15 else abs(target) * tolerance
-    settled = np.abs(np.asarray(signal) - target) < limit
-    for index in range(len(settled)):
-        if np.all(settled[index:]):
-            return float(axis[index])
-    return math.nan
+    limit = relative_tolerance if abs(target) < 1e-15 else abs(target) * relative_tolerance
+    settled = np.abs(signal - target) < limit
+    suffix_settled = np.logical_and.accumulate(settled[::-1])[::-1]
+    indices = np.flatnonzero(suffix_settled)
+    return float(axis[indices[0]]) if len(indices) else math.nan
 
 
-def _delay(
-    axis: np.ndarray,
-    trigger: np.ndarray,
-    response: np.ndarray,
+def measure_delay(
+    axis: Sequence[float] | np.ndarray,
+    trigger: Sequence[float] | np.ndarray,
+    response: Sequence[float] | np.ndarray,
     trigger_threshold: float,
     response_threshold: float,
     *,
-    rising: bool,
+    trigger_rising: bool = True,
+    response_rising: bool = True,
 ) -> tuple[float, float, float]:
     """Return trigger time, first following response time, and delay."""
 
-    trigger_edges = _find_crossings(trigger, axis, trigger_threshold, rising=rising)
-    response_edges = _find_crossings(response, axis, response_threshold, rising=rising)
+    trigger_edges = find_crossings(trigger, axis, trigger_threshold, rising=trigger_rising)
+    response_edges = find_crossings(response, axis, response_threshold, rising=response_rising)
     if not len(trigger_edges):
         return math.nan, math.nan, math.nan
     trigger_time = float(trigger_edges[0])
@@ -154,33 +153,41 @@ def _delay(
     return trigger_time, response_time, response_time - trigger_time
 
 
-def _average_power(current: np.ndarray, voltage: float | np.ndarray) -> float:
+def measure_average_power(
+    current_a: Sequence[float] | np.ndarray,
+    voltage_v: float | Sequence[float] | np.ndarray,
+) -> float:
     """Return mean positive consumed power."""
 
-    current = np.asarray(current, dtype=np.float64)
+    current = np.asarray(current_a, dtype=np.float64)
+    if current.ndim != 1:
+        raise ValueError("power current must be one-dimensional")
     if not len(current):
         return math.nan
-    if np.ndim(voltage):
-        voltage_array = np.asarray(voltage, dtype=np.float64)
-        if len(voltage_array) != len(current):
-            raise ValueError("power voltage and current waveforms must be aligned")
-        return float(np.mean(np.abs(current * voltage_array)))
-    return float(voltage) * float(np.mean(np.abs(current)))
+    voltage = np.asarray(voltage_v, dtype=np.float64)
+    if voltage.ndim == 0:
+        return float(voltage.item()) * float(np.mean(np.abs(current)))
+    if voltage.shape != current.shape:
+        raise ValueError("power voltage and current waveforms must be aligned")
+    return float(np.mean(np.abs(current * voltage)))
 
 
-def _offset_crossing(
-    input_difference: np.ndarray,
-    output_difference: np.ndarray,
-    axis: np.ndarray,
+def measure_offset_crossing(
+    input_difference: Sequence[float] | np.ndarray,
+    output_difference: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
 ) -> float:
     """Return the input value at the first output zero crossing."""
 
-    if len(input_difference) != len(output_difference):
-        raise ValueError("offset input and output arrays must be aligned")
+    input_difference = np.asarray(input_difference, dtype=np.float64)
+    output_difference = np.asarray(output_difference, dtype=np.float64)
+    axis = np.asarray(axis, dtype=np.float64)
+    if input_difference.shape != output_difference.shape or input_difference.shape != axis.shape:
+        raise ValueError("offset input, output, and axis arrays must be aligned")
     crossings = np.concatenate(
         (
-            _find_crossings(output_difference, axis, 0.0, rising=True),
-            _find_crossings(output_difference, axis, 0.0, rising=False),
+            find_crossings(output_difference, axis, 0.0, rising=True),
+            find_crossings(output_difference, axis, 0.0, rising=False),
         )
     )
     if not len(crossings):
@@ -189,12 +196,21 @@ def _offset_crossing(
     return float(np.interp(crossing, axis, input_difference))
 
 
-def _endpoint_linearity(codes: np.ndarray, outputs: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+def measure_charge_injection(v_before: float, v_after: float) -> float:
+    """Return the sampled-node voltage step caused by a switching event."""
+
+    return float(v_after - v_before)
+
+
+def endpoint_linearity(
+    codes: Sequence[float] | np.ndarray,
+    outputs: Sequence[float] | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float]:
     """Return DNL, INL, and endpoint LSB from a monotonic transfer."""
 
     codes = np.asarray(codes, dtype=np.float64)
     outputs = np.asarray(outputs, dtype=np.float64)
-    if len(codes) != len(outputs):
+    if codes.ndim != 1 or outputs.ndim != 1 or len(codes) != len(outputs):
         raise ValueError("linearity code and output arrays must be aligned")
     if len(codes) < 2:
         return np.asarray([]), np.asarray([]), math.nan
@@ -209,344 +225,215 @@ def _endpoint_linearity(codes: np.ndarray, outputs: np.ndarray) -> tuple[np.ndar
     return dnl, inl, lsb
 
 
-def _statistics(values: np.ndarray) -> tuple[Metric, ...]:
+def statistics(values: Sequence[float] | np.ndarray) -> dict[str, float]:
     """Return common scalar statistics."""
 
     values = np.asarray(values, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("statistics values must be one-dimensional")
     if not len(values):
-        return (
-            Metric("count", 0),
-            Metric("mean", math.nan),
-            Metric("std", math.nan),
-            Metric("minimum", math.nan),
-            Metric("maximum", math.nan),
-            Metric("sigma3_low", math.nan),
-            Metric("sigma3_high", math.nan),
-        )
+        return {
+            "count": 0.0,
+            "mean": math.nan,
+            "std": math.nan,
+            "minimum": math.nan,
+            "maximum": math.nan,
+            "sigma3_low": math.nan,
+            "sigma3_high": math.nan,
+        }
     mean = float(np.mean(values))
     std = float(np.std(values))
-    return (
-        Metric("count", len(values)),
-        Metric("mean", mean),
-        Metric("std", std),
-        Metric("minimum", float(np.min(values))),
-        Metric("maximum", float(np.max(values))),
-        Metric("sigma3_low", mean - 3.0 * std),
-        Metric("sigma3_high", mean + 3.0 * std),
-    )
-
-
-def _run(request: AnalysisRequest):
-    if len(request.spec.input_ids) != 1:
-        raise ValueError(f"{request.spec.kind.value} measurement requires exactly one input run")
-    input_id = request.spec.input_ids[0]
-    for run in request.runs:
-        if run.run_id == input_id:
-            return run
-    raise KeyError(f"measurement request has no run {input_id!r}")
-
-
-def _column(run, name: str) -> tuple[np.ndarray, str]:
-    matches = [
-        (table.column(name), table.unit(name))
-        for table in run.tables
-        if name in table.column_names
-    ]
-    if not matches:
-        raise KeyError(f"run {run.run_id!r} has no column {name!r}")
-    if len(matches) > 1:
-        raise KeyError(f"run {run.run_id!r} contains ambiguous column {name!r}")
-    return matches[0]
-
-
-def analyze_crossings(request: AnalysisRequest) -> AnalysisResult:
-    """Measure threshold crossings in one waveform."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("crossing analysis requires WaveformSettings")
-    if len(settings.signal_columns) != 1 or len(settings.thresholds) != 1:
-        raise ValueError("crossing analysis requires one signal and one threshold")
-    run = _run(request)
-    axis, axis_unit = _column(run, settings.axis_column)
-    signal, _signal_unit = _column(run, settings.signal_columns[0])
-    crossings = _find_crossings(
-        signal,
-        axis,
-        settings.thresholds[0],
-        rising=settings.rising,
-    )
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.CROSSINGS,
-        request.spec.input_ids,
-        metrics=(Metric("crossing_count", len(crossings)),),
-        tables=(
-            DataTable(
-                "crossings",
-                (DataColumn("crossing_axis", crossings, axis_unit),),
-            ),
-        ),
-    )
-
-
-def analyze_spectrum(request: AnalysisRequest) -> AnalysisResult:
-    """Calculate one-sided amplitude spectra for aligned waveforms."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("spectrum analysis requires WaveformSettings")
-    if not settings.signal_columns:
-        raise ValueError("spectrum analysis requires at least one signal")
-    run = _run(request)
-    axis, axis_unit = _column(run, settings.axis_column)
-    if axis_unit not in {"", "s"}:
-        raise ValueError("spectrum axis must use seconds")
-    if len(axis) < 3:
-        raise ValueError("spectrum axis requires at least three samples")
-    intervals = np.diff(np.asarray(axis, dtype=np.float64))
-    interval = float(np.median(intervals))
-    if not np.allclose(intervals, interval, rtol=1e-6, atol=1e-18):
-        raise ValueError("spectrum axis must be uniformly sampled")
-
-    result_columns = []
-    frequency_hz = None
-    for signal_name in settings.signal_columns:
-        signal, signal_unit = _column(run, signal_name)
-        frequencies, amplitudes = _amplitude_spectrum(
-            signal,
-            interval,
-            window=settings.window,
-        )
-        if frequency_hz is None:
-            frequency_hz = frequencies
-            result_columns.append(DataColumn("frequency_hz", frequencies, "Hz"))
-        result_columns.append(DataColumn(f"{signal_name}_amplitude", amplitudes, signal_unit))
-    assert frequency_hz is not None
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.SPECTRUM,
-        request.spec.input_ids,
-        metrics=(
-            Metric("sample_count", len(axis)),
-            Metric("sample_interval_s", interval, "s"),
-            Metric("nyquist_hz", float(frequency_hz[-1]), "Hz"),
-        ),
-        tables=(DataTable("spectrum", tuple(result_columns)),),
-    )
-
-
-def analyze_edge_samples(request: AnalysisRequest) -> AnalysisResult:
-    """Sample waveforms at a stable point in each clock interval."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("edge-sampling analysis requires WaveformSettings")
-    if len(settings.signal_columns) < 2 or len(settings.thresholds) != 1:
-        raise ValueError("edge sampling requires a clock, at least one signal, and one threshold")
-    run = _run(request)
-    axis, axis_unit = _column(run, settings.axis_column)
-    clock, _ = _column(run, settings.signal_columns[0])
-    sampled_names = settings.signal_columns[1:]
-    sampled_inputs = tuple(_column(run, name)[0] for name in sampled_names)
-    sample_axis, sampled = _sample_at_edges(
-        axis,
-        clock,
-        sampled_inputs,
-        settings.thresholds[0],
-        rising=settings.rising,
-        sample_fraction=settings.sample_fraction,
-    )
-    columns = [DataColumn("sample_axis", sample_axis, axis_unit)]
-    for name, values in zip(sampled_names, sampled, strict=True):
-        columns.append(DataColumn(name, values, _column(run, name)[1]))
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.EDGE_SAMPLES,
-        request.spec.input_ids,
-        metrics=(Metric("sample_count", len(sample_axis)),),
-        tables=(DataTable("edge_samples", tuple(columns)),),
-    )
-
-
-def analyze_delay(request: AnalysisRequest) -> AnalysisResult:
-    """Measure the first response delay after one trigger edge."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("delay analysis requires WaveformSettings")
-    if len(settings.signal_columns) != 2 or len(settings.thresholds) != 2:
-        raise ValueError("delay analysis requires trigger/ response signals and thresholds")
-    run = _run(request)
-    axis, axis_unit = _column(run, settings.axis_column)
-    trigger, _ = _column(run, settings.signal_columns[0])
-    response, _ = _column(run, settings.signal_columns[1])
-    trigger_time, response_time, delay = _delay(
-        axis,
-        trigger,
-        response,
-        settings.thresholds[0],
-        settings.thresholds[1],
-        rising=settings.rising,
-    )
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.DELAY,
-        request.spec.input_ids,
-        metrics=(
-            Metric("trigger_axis", trigger_time, axis_unit),
-            Metric("response_axis", response_time, axis_unit),
-            Metric("delay", delay, axis_unit),
-        ),
-    )
-
-
-def analyze_settling(request: AnalysisRequest) -> AnalysisResult:
-    """Measure the first point after which a waveform stays within tolerance."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("settling analysis requires WaveformSettings")
-    if len(settings.signal_columns) != 1:
-        raise ValueError("settling analysis requires one signal")
-    run = _run(request)
-    axis, axis_unit = _column(run, settings.axis_column)
-    signal, signal_unit = _column(run, settings.signal_columns[0])
-    tolerance = 0.01 if settings.tolerance is None else settings.tolerance
-    settling = _settling_time(
-        axis,
-        signal,
-        target=settings.target,
-        tolerance=tolerance,
-    )
-    target = float(signal[-1]) if settings.target is None else settings.target
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.SETTLING,
-        request.spec.input_ids,
-        metrics=(
-            Metric("settling_axis", settling, axis_unit),
-            Metric("target", target, signal_unit),
-            Metric("relative_tolerance", tolerance),
-        ),
-    )
-
-
-def analyze_power(request: AnalysisRequest) -> AnalysisResult:
-    """Measure mean consumed power from current and voltage."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("power analysis requires WaveformSettings")
-    if len(settings.signal_columns) not in {1, 2}:
-        raise ValueError("power analysis requires current and optional voltage columns")
-    run = _run(request)
-    current, _ = _column(run, settings.signal_columns[0])
-    if len(settings.signal_columns) == 2:
-        voltage, _ = _column(run, settings.signal_columns[1])
-    elif settings.target is not None:
-        voltage = settings.target
-    else:
-        raise ValueError("power analysis requires a voltage column or target supply voltage")
-    power = _average_power(current, voltage)
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.POWER,
-        request.spec.input_ids,
-        metrics=(Metric("average_power_w", power, "W"),),
-    )
-
-
-def analyze_offset(request: AnalysisRequest) -> AnalysisResult:
-    """Measure input-referred offset at an output zero crossing."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("offset analysis requires WaveformSettings")
-    if len(settings.signal_columns) != 2:
-        raise ValueError("offset analysis requires input- and output-difference columns")
-    run = _run(request)
-    axis, _ = _column(run, settings.axis_column)
-    input_difference, input_unit = _column(run, settings.signal_columns[0])
-    output_difference, _ = _column(run, settings.signal_columns[1])
-    offset = _offset_crossing(input_difference, output_difference, axis)
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.OFFSET,
-        request.spec.input_ids,
-        metrics=(Metric("input_offset", offset, input_unit),),
-    )
-
-
-def analyze_charge_injection(request: AnalysisRequest) -> AnalysisResult:
-    """Measure a waveform step between two explicit axis coordinates."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, WaveformSettings):
-        raise TypeError("charge-injection analysis requires WaveformSettings")
-    if len(settings.signal_columns) != 1 or len(settings.thresholds) != 2:
-        raise ValueError("charge injection requires one signal and before/after axis coordinates")
-    run = _run(request)
-    axis, _ = _column(run, settings.axis_column)
-    signal, signal_unit = _column(run, settings.signal_columns[0])
-    before = float(np.interp(settings.thresholds[0], axis, signal))
-    after = float(np.interp(settings.thresholds[1], axis, signal))
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.CHARGE_INJECTION,
-        request.spec.input_ids,
-        metrics=(
-            Metric("before", before, signal_unit),
-            Metric("after", after, signal_unit),
-            Metric("charge_injection", after - before, signal_unit),
-        ),
-    )
-
-
-def analyze_statistics(request: AnalysisRequest) -> AnalysisResult:
-    """Calculate a reusable scalar statistical summary."""
-
-    settings = request.spec.settings
-    if not isinstance(settings, StatisticsSettings):
-        raise TypeError("statistics analysis requires StatisticsSettings")
-    run = _run(request)
-    values, unit = _column(run, settings.value_column)
-    metrics = tuple(Metric(metric.name, metric.value, unit if metric.name != "count" else "") for metric in _statistics(values))
-    counts, edges = np.histogram(values, bins=settings.histogram_bins)
-    return AnalysisResult(
-        request.spec.name,
-        AnalysisKind.STATISTICS,
-        request.spec.input_ids,
-        metrics=metrics,
-        tables=(
-            DataTable(
-                "histogram",
-                (
-                    DataColumn("bin_start", edges[:-1], unit),
-                    DataColumn("bin_stop", edges[1:], unit),
-                    DataColumn("count", counts),
-                ),
-            ),
-        ),
-    )
-
-
-def analyze_waveform(request: AnalysisRequest) -> AnalysisResult:
-    """Dispatch a generic waveform or scalar measurement request."""
-
-    handlers = {
-        AnalysisKind.CROSSINGS: analyze_crossings,
-        AnalysisKind.EDGE_SAMPLES: analyze_edge_samples,
-        AnalysisKind.SPECTRUM: analyze_spectrum,
-        AnalysisKind.DELAY: analyze_delay,
-        AnalysisKind.SETTLING: analyze_settling,
-        AnalysisKind.POWER: analyze_power,
-        AnalysisKind.OFFSET: analyze_offset,
-        AnalysisKind.CHARGE_INJECTION: analyze_charge_injection,
-        AnalysisKind.STATISTICS: analyze_statistics,
+    return {
+        "count": float(len(values)),
+        "mean": mean,
+        "std": std,
+        "minimum": float(np.min(values)),
+        "maximum": float(np.max(values)),
+        "sigma3_low": mean - 3.0 * std,
+        "sigma3_high": mean + 3.0 * std,
     }
-    try:
-        handler = handlers[request.spec.kind]
-    except KeyError:
-        raise ValueError(f"{request.spec.kind.value!r} is not a generic measurement") from None
-    return handler(request)
+
+
+def diff_to_single(pos: Sequence[float] | np.ndarray, neg: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Convert positive and negative waveforms to one differential waveform."""
+
+    pos = np.asarray(pos, dtype=np.float64)
+    neg = np.asarray(neg, dtype=np.float64)
+    if pos.shape != neg.shape:
+        raise ValueError("positive and negative waveforms must have equal shapes")
+    return pos - neg
+
+
+def quantize_to_bits(
+    values: Sequence[float] | np.ndarray,
+    *,
+    threshold: float = 0.5,
+) -> np.ndarray:
+    """Quantize an analog waveform to uint8 zero/one values."""
+
+    values = np.asarray(values, dtype=np.float64)
+    return np.asarray(values >= threshold, dtype=np.uint8)
+
+
+def redundant_bits_to_code(
+    bits: Sequence[int] | np.ndarray,
+    weights: Sequence[float] | np.ndarray,
+) -> float:
+    """Recombine one redundant SAR decision vector with its code weights."""
+
+    bits = np.asarray(bits, dtype=np.uint8)
+    weights = np.asarray(weights, dtype=np.float64)
+    if bits.ndim != 1 or weights.ndim != 1 or len(bits) != len(weights):
+        raise ValueError("decision bits and weights must be aligned one-dimensional arrays")
+    if np.any((bits != 0) & (bits != 1)):
+        raise ValueError("decision bits must contain only zero or one")
+    return float(bits @ weights)
+
+
+def code_to_voltage(
+    code: float | Sequence[float] | np.ndarray,
+    *,
+    v_min: float,
+    v_max: float,
+    adc_bits: int,
+) -> np.ndarray:
+    """Map unipolar ADC codes linearly onto a voltage range."""
+
+    if adc_bits <= 0:
+        raise ValueError("adc_bits must be positive")
+    return v_min + np.asarray(code, dtype=np.float64) * (v_max - v_min) / ((1 << adc_bits) - 1)
+
+
+def histogram_inl_dnl(
+    counts: Sequence[int] | np.ndarray,
+    *,
+    first_code: int = 1,
+    last_code: int | None = None,
+) -> dict[str, Any]:
+    """Calculate code-density DNL and endpoint-corrected INL."""
+
+    counts = np.asarray(counts, dtype=np.int64)
+    if counts.ndim != 1 or not len(counts):
+        raise ValueError("histogram counts must be a non-empty one-dimensional array")
+    last_code = len(counts) - 2 if last_code is None else last_code
+    if not 0 <= first_code <= last_code < len(counts):
+        raise ValueError(f"code range must fit within 0..{len(counts) - 1}")
+    codes = np.arange(first_code, last_code + 1, dtype=np.int64)
+    active_counts = counts[first_code : last_code + 1]
+    ideal_count = float(np.mean(active_counts))
+    dnl = active_counts / ideal_count - 1.0 if ideal_count else np.zeros_like(active_counts, dtype=float)
+    raw_inl = np.concatenate(([0.0], np.cumsum(dnl[:-1], dtype=np.float64)))
+    inl = raw_inl - np.linspace(raw_inl[0], raw_inl[-1], len(raw_inl)) if len(raw_inl) > 1 else raw_inl
+    return {
+        "codes": codes,
+        "counts": active_counts,
+        "ideal_count": ideal_count,
+        "dnl": dnl,
+        "inl": inl,
+        "missing_codes": int(np.count_nonzero(active_counts == 0)),
+    }
+
+
+def find_code_transitions(
+    inputs: Sequence[float] | np.ndarray,
+    outputs: Sequence[float] | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Interpolate input coordinates at each half-code transition."""
+
+    inputs = np.asarray(inputs, dtype=np.float64)
+    outputs = np.asarray(outputs, dtype=np.float64)
+    if inputs.ndim != 1 or outputs.ndim != 1 or len(inputs) != len(outputs):
+        raise ValueError("transition inputs and outputs must be aligned")
+    if len(inputs) < 2:
+        return np.asarray([], dtype=np.int64), np.asarray([], dtype=np.float64)
+    order = np.argsort(inputs)
+    inputs = inputs[order]
+    outputs = outputs[order]
+    direction = 1.0 if outputs[-1] >= outputs[0] else -1.0
+    increasing = direction * outputs
+    if np.any(np.diff(increasing) < 0):
+        raise ValueError("code transition extraction requires a monotonic transfer")
+    first = math.ceil(increasing[0] - 0.5)
+    last = math.floor(increasing[-1] - 0.5)
+    codes = np.arange(first, last + 1, dtype=np.int64)
+    transitions = np.interp(codes + 0.5, increasing, inputs)
+    return np.asarray(direction * codes, dtype=np.int64), transitions
+
+
+def compute_static_error(
+    inputs: Sequence[float] | np.ndarray,
+    outputs: Sequence[float] | np.ndarray,
+) -> dict[str, Any]:
+    """Calculate endpoint gain, offset, DNL, and INL from a static transfer."""
+
+    codes, transitions = find_code_transitions(inputs, outputs)
+    if len(transitions) < 2:
+        raise ValueError("static error requires at least two code transitions")
+    lsb_v = float((transitions[-1] - transitions[0]) / (len(transitions) - 1))
+    ideal = transitions[0] + np.arange(len(transitions)) * lsb_v
+    inl = (transitions - ideal) / lsb_v
+    dnl = np.diff(transitions) / lsb_v - 1.0
+    return {
+        "codes": codes,
+        "transitions_v": transitions,
+        "lsb_v": lsb_v,
+        "dnl": dnl,
+        "inl": inl,
+    }
+
+
+def compute_enob_fft(
+    codes: Sequence[float] | np.ndarray,
+    *,
+    sample_rate_hz: float,
+    input_frequency_hz: float,
+    adc_bits: int,
+    maximum_harmonic_order: int = 5,
+) -> dict[str, Any]:
+    """Calculate windowed ADC SNR, SNDR, THD, SFDR, and ENOB."""
+
+    codes = np.asarray(codes, dtype=np.float64)
+    if codes.ndim != 1 or len(codes) < 8:
+        raise ValueError("FFT ENOB requires at least eight one-dimensional samples")
+    if not 0 < input_frequency_hz < sample_rate_hz / 2:
+        raise ValueError("input frequency must lie between zero and Nyquist")
+    window = blackmanharris(len(codes), sym=False)
+    spectrum = np.fft.rfft((codes - np.mean(codes)) * window)
+    power = np.abs(spectrum) ** 2
+    power[0] = 0.0
+    bin_width = sample_rate_hz / len(codes)
+
+    def tone_bins(frequency_hz: float) -> set[int]:
+        center = round(frequency_hz / bin_width)
+        return set(range(max(1, center - 4), min(len(power), center + 5)))
+
+    fundamental = tone_bins(input_frequency_hz)
+    harmonics: set[int] = set()
+    for order in range(2, maximum_harmonic_order + 1):
+        wrapped = (order * input_frequency_hz) % sample_rate_hz
+        harmonics.update(tone_bins(min(wrapped, sample_rate_hz - wrapped)) - fundamental)
+    noise = set(range(1, len(power))) - fundamental - harmonics
+    fundamental_power = float(np.sum(power[list(fundamental)]))
+    harmonic_power = float(np.sum(power[list(harmonics)]))
+    noise_power = float(np.sum(power[list(noise)]))
+    sndr_db = 10.0 * math.log10(fundamental_power / (noise_power + harmonic_power))
+    snr_db = 10.0 * math.log10(fundamental_power / noise_power)
+    thd_db = 10.0 * math.log10(harmonic_power / fundamental_power) if harmonic_power else -math.inf
+    frequency_hz = np.fft.rfftfreq(len(codes), 1.0 / sample_rate_hz)
+    peak_codes = ((1 << adc_bits) - 1) / 2.0
+    amplitude = 2.0 * np.abs(spectrum) / np.sum(window)
+    amplitude_dbfs = 20.0 * np.log10(np.maximum(amplitude / peak_codes, np.finfo(float).tiny))
+    return {
+        "sndr_db": sndr_db,
+        "snr_db": snr_db,
+        "thd_db": thd_db,
+        "enob_bits": (sndr_db - 1.76) / 6.02,
+        "frequency_hz": frequency_hz,
+        "amplitude_dbfs": amplitude_dbfs,
+    }
+
+
+def mc_statistics(values: Sequence[float] | np.ndarray) -> dict[str, float]:
+    """Alias the shared statistical summary for Monte Carlo results."""
+
+    return statistics(values)
