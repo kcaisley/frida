@@ -71,16 +71,16 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
 
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
-    msmt = adc_measurement([1, 2, 3])
+    msmt = adc_measurement([1, 2, 3], internal=True)
     paths = plot_measurement_waveforms(
         msmt,
-        signal_names=("vin_diff_v", "comp_out_v"),
+        signal_names=("vin_diff_v", "dac_botplate_p_15_v"),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
     svg = paths[-1].read_text()
     assert "vin_diff_v" in svg
-    assert "comp_out_v" in svg
+    assert "dac_botplate_p_15_v" in svg
     assert "Time (" in svg
     assert "Recorded: 2026-07-29 00:00" in svg
     assert "LOGIC offset:" not in svg
@@ -90,6 +90,7 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
     msmt = adc_measurement(
         np.repeat(np.arange(16), 8),
         vin_diff_v=np.repeat(np.linspace(-0.6, 0.6, 16), 8),
+        internal=True,
     )
     outputs = (
         plot_adc_transfer(

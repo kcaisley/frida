@@ -22,7 +22,7 @@ from flow.analysis.types import (
     AnalysisAdcNonlin,
     AnalysisAdcPowerSweep,
     AnalysisAdcTransfer,
-    MeasAdcExt,
+    MeasAdc,
 )
 from flow.cdac import get_cdac_weights
 
@@ -30,13 +30,13 @@ ADC_DYNAMIC_RESIDUAL_TAIL_LIMIT_DOUT = 24.0
 ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION = 0.0027
 
 
-def _pattern_repeat_rate_hz(msmt: MeasAdcExt) -> float:
+def _pattern_repeat_rate_hz(msmt: MeasAdc) -> float:
     """Return the true sampling rate including sequencer idle padding."""
 
     return float(msmt.param.symbol_rate) / len(msmt.param.seq_init_pattern)
 
 
-def _active_conversion_rate_hz(msmt: MeasAdcExt) -> float:
+def _active_conversion_rate_hz(msmt: MeasAdc) -> float:
     """Return the nominal conversion rate excluding idle padding."""
 
     patterns = (
@@ -51,7 +51,7 @@ def _active_conversion_rate_hz(msmt: MeasAdcExt) -> float:
     return float(msmt.param.symbol_rate) / (active[-1] - active[0] + 1)
 
 
-def _input_frequency_hz(msmt: MeasAdcExt) -> float:
+def _input_frequency_hz(msmt: MeasAdc) -> float:
     """Return the programmed sine frequency from the measurement parameters."""
 
     source = msmt.param.vin_diff
@@ -146,7 +146,7 @@ def _calculate_adc_spectrum(
 
 
 def analyze_adc_dynamic(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     *,
     sample_rate_hz: float | None = None,
     input_frequency_hz: float | None = None,
@@ -287,7 +287,7 @@ def analyze_adc_dynamic(
     )
 
 
-def analyze_adc_transfer(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcTransfer:
+def analyze_adc_transfer(measurements: Sequence[MeasAdc]) -> AnalysisAdcTransfer:
     """Calculate mean ADC output and dispersion versus differential input."""
 
     if not measurements:
@@ -305,7 +305,7 @@ def analyze_adc_transfer(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcTrans
     )
 
 
-def _endpoint_nonlin(msmt: MeasAdcExt) -> AnalysisAdcNonlin:
+def _endpoint_nonlin(msmt: MeasAdc) -> AnalysisAdcNonlin:
     inputs = msmt.daq.vin_diff_v
     dout = msmt.daq.dout.astype(np.float64)
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
@@ -337,7 +337,7 @@ def _endpoint_nonlin(msmt: MeasAdcExt) -> AnalysisAdcNonlin:
 
 
 def _code_density_nonlin(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     *,
     code_range: tuple[int, int] | None,
 ) -> AnalysisAdcNonlin:
@@ -364,7 +364,7 @@ def _code_density_nonlin(
 
 
 def analyze_adc_nonlin(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     *,
     method: Literal["endpoint", "code_density"] = "endpoint",
     code_range: tuple[int, int] | None = None,
@@ -378,7 +378,7 @@ def analyze_adc_nonlin(
     raise ValueError("ADC nonlinearity method must be 'endpoint' or 'code_density'")
 
 
-def analyze_adc_noise(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcNoise:
+def analyze_adc_noise(measurements: Sequence[MeasAdc]) -> AnalysisAdcNoise:
     """Calculate code statistics and one histogram per static input point."""
 
     if not measurements:
@@ -420,7 +420,7 @@ def analyze_adc_noise(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcNoise:
 
 
 def analyze_adc_noise_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
 ) -> AnalysisAdcNoiseSweep:
     """Combine fixed-input code variation across conversion timing settings."""
 
@@ -474,7 +474,7 @@ def analyze_adc_noise_sweep(
 
 
 def analyze_adc_decision_paths(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     *,
     selection: Literal["single", "same_dout", "all"] = "single",
     row_index: int = 0,
@@ -526,7 +526,7 @@ def analyze_adc_decision_paths(
 
 
 def analyze_adc_dynamic_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     *,
     frequency_search_fraction: float = 0.02,
     maximum_harmonic_order: int = 5,
@@ -576,7 +576,7 @@ def analyze_adc_dynamic_sweep(
     )
 
 
-def analyze_adc_power_sweep(measurements: Sequence[MeasAdcExt]) -> AnalysisAdcPowerSweep:
+def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPowerSweep:
     """Separate measured active power into static-baseline and incremental parts.
 
     New captures provide a configured-idle ``static_average_power_w`` for each

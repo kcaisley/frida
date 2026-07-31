@@ -9,6 +9,27 @@ from pathlib import Path
 import pytest
 
 from flow.analysis import runner
+from flow.analysis.test_adc import adc_measurement
+
+
+@pytest.mark.parametrize("internal", (False, True), ids=("external", "internal"))
+def test_read_adc_accepts_only_typed_adc_measurements(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    internal: bool,
+) -> None:
+    """Accept both ADC views while retaining a concrete runtime type check."""
+
+    path = tmp_path / "adc.h5"
+    path.touch()
+    expected = adc_measurement([0], internal=internal)
+    monkeypatch.setattr(runner, "read_measurement", lambda _path: expected)
+
+    assert runner._read_adc(path) is expected
+
+    monkeypatch.setattr(runner, "read_measurement", lambda _path: object())
+    with pytest.raises(TypeError, match="expected MeasAdcExt or MeasAdcInt"):
+        runner._read_adc(path)
 
 
 def test_main_runs_named_target_in_one_timestamped_directory(

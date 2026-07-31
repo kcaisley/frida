@@ -22,6 +22,7 @@ from flow.analysis.types import (
     DacExtWave,
     DacIntDaq,
     DacIntWave,
+    MeasAdc,
     MeasAdcExt,
     MeasAdcInt,
     MeasCompExt,
@@ -101,20 +102,35 @@ def all_measurements():
         vin_diff_v=np.asarray([0.0], dtype=np.float64),
     )
     adc_int_names = (
+        "vin_diff_v",
+        "seq_comp_v",
+        "seq_logic_v",
+        "comp_out_v",
         "vin_p_v",
         "vin_n_v",
         "seq_init_v",
         "seq_samp_v",
-        "seq_comp_v",
-        "seq_logic_v",
-        "comp_out_v",
         "vdac_p_v",
         "vdac_n_v",
         "clk_samp_p_v",
+        "clk_samp_p_b_v",
         "clk_samp_n_v",
+        "clk_samp_n_b_v",
         "clk_comp_v",
         "comp_out_p_v",
         "comp_out_n_v",
+        "dac_state_p_15_v",
+        "dac_state_p_8_v",
+        "dac_state_p_0_v",
+        "dac_state_n_15_v",
+        "dac_state_n_8_v",
+        "dac_state_n_0_v",
+        "dac_botplate_p_15_v",
+        "dac_botplate_p_8_v",
+        "dac_botplate_p_0_v",
+        "dac_botplate_n_15_v",
+        "dac_botplate_n_8_v",
+        "dac_botplate_n_0_v",
         "vdd_a_i",
         "vdd_d_i",
         "vdd_dac_i",
@@ -222,6 +238,41 @@ def assert_sections_equal(expected, actual) -> None:
             np.testing.assert_array_equal(actual_value, expected_value)
 
 
+def test_adc_internal_wave_is_explicit_external_superset() -> None:
+    """Keep shared analyses valid while retaining the important internal nodes."""
+
+    external_fields = set(AdcExtWave.__dataclass_fields__)
+    internal_fields = set(AdcIntWave.__dataclass_fields__)
+    signal_fields = internal_fields.difference({"conversion_index", "time_s"})
+
+    assert external_fields <= internal_fields
+    assert len(signal_fields) >= 30
+    assert {
+        "clk_samp_p_v",
+        "clk_samp_p_b_v",
+        "clk_samp_n_v",
+        "clk_samp_n_b_v",
+        "clk_comp_v",
+        "comp_out_p_v",
+        "comp_out_n_v",
+        "dac_state_p_15_v",
+        "dac_state_p_8_v",
+        "dac_state_p_0_v",
+        "dac_state_n_15_v",
+        "dac_state_n_8_v",
+        "dac_state_n_0_v",
+        "dac_botplate_p_15_v",
+        "dac_botplate_p_8_v",
+        "dac_botplate_p_0_v",
+        "dac_botplate_n_15_v",
+        "dac_botplate_n_8_v",
+        "dac_botplate_n_0_v",
+        "vdd_a_i",
+        "vdd_d_i",
+        "vdd_dac_i",
+    } <= signal_fields
+
+
 def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> None:
     """Round-trip exact array dtypes, values, parameters, and run information."""
 
@@ -261,6 +312,9 @@ def test_every_measurement_type_round_trips(tmp_path: Path, measurement) -> None
     loaded = read_measurement(path)
 
     assert type(loaded) is type(measurement)
+    if isinstance(loaded, (MeasAdcExt, MeasAdcInt)):
+        adc: MeasAdc = loaded
+        assert adc is loaded
     assert loaded.param == measurement.param
     assert loaded.info.measurement_type == measurement.info.measurement_type
     assert_sections_equal(measurement.daq, loaded.daq)

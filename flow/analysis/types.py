@@ -196,24 +196,39 @@ class AdcExtWave:
 
 @dataclass(frozen=True, slots=True)
 class AdcIntWave:
-    """Internally observable ADC waveforms from simulation."""
+    """External and internal ADC waveforms from simulation."""
 
     conversion_index: IntArray
     time_s: FloatArray
+    vin_diff_v: FloatArray
+    seq_comp_v: FloatArray
+    seq_logic_v: FloatArray
+    comp_out_v: FloatArray
     vin_p_v: FloatArray
     vin_n_v: FloatArray
     seq_init_v: FloatArray
     seq_samp_v: FloatArray
-    seq_comp_v: FloatArray
-    seq_logic_v: FloatArray
-    comp_out_v: FloatArray
     vdac_p_v: FloatArray
     vdac_n_v: FloatArray
     clk_samp_p_v: FloatArray
+    clk_samp_p_b_v: FloatArray
     clk_samp_n_v: FloatArray
+    clk_samp_n_b_v: FloatArray
     clk_comp_v: FloatArray
     comp_out_p_v: FloatArray
     comp_out_n_v: FloatArray
+    dac_state_p_15_v: FloatArray
+    dac_state_p_8_v: FloatArray
+    dac_state_p_0_v: FloatArray
+    dac_state_n_15_v: FloatArray
+    dac_state_n_8_v: FloatArray
+    dac_state_n_0_v: FloatArray
+    dac_botplate_p_15_v: FloatArray
+    dac_botplate_p_8_v: FloatArray
+    dac_botplate_p_0_v: FloatArray
+    dac_botplate_n_15_v: FloatArray
+    dac_botplate_n_8_v: FloatArray
+    dac_botplate_n_0_v: FloatArray
     vdd_a_i: FloatArray
     vdd_d_i: FloatArray
     vdd_dac_i: FloatArray
@@ -267,6 +282,9 @@ class MeasAdcInt:
                 f"param.conversions={self.param.conversions} does not match {len(self.daq.conversion_index)} ADC rows"
             )
         _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, self.wave.conversion_index)
+
+
+type MeasAdc = MeasAdcExt | MeasAdcInt
 
 
 @dataclass(frozen=True, slots=True)
@@ -579,7 +597,7 @@ class MeasDacInt:
         _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
 
 
-type Measurement = MeasAdcExt | MeasAdcInt | MeasCompExt | MeasCompInt | MeasSampInt | MeasDacExt | MeasDacInt
+type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasDacExt | MeasDacInt
 
 
 # =============================================================================

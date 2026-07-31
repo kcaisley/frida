@@ -39,18 +39,18 @@ from flow.analysis.plots import (
     plot_adc_transfer,
     plot_measurement_waveforms,
 )
-from flow.analysis.types import MeasAdcExt
+from flow.analysis.types import MeasAdc, MeasAdcExt, MeasAdcInt
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 ANALYSIS_OUTPUT_BASE = BASE_PATH / "build" / "analysis" / "adc"
 
 
-def _read_adc(path: Path) -> MeasAdcExt:
+def _read_adc(path: Path) -> MeasAdc:
     if not path.is_file():
         raise FileNotFoundError(2, "measurement input not found", path)
     msmt = read_measurement(path)
-    if not isinstance(msmt, MeasAdcExt):
-        raise TypeError(f"{path} contains {type(msmt).__name__}, expected MeasAdcExt")
+    if not isinstance(msmt, (MeasAdcExt, MeasAdcInt)):
+        raise TypeError(f"{path} contains {type(msmt).__name__}, expected MeasAdcExt or MeasAdcInt")
     return msmt
 
 

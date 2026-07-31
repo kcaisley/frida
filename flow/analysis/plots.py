@@ -26,7 +26,7 @@ from flow.analysis.types import (
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
-    MeasAdcExt,
+    MeasAdc,
     MeasCompExt,
     MeasCompInt,
     Measurement,
@@ -357,7 +357,7 @@ def plot_measurement_waveforms(
 
 @with_plot_style
 def plot_adc_transfer(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcTransfer,
     *,
     output_path: Path,
@@ -391,7 +391,7 @@ def plot_adc_transfer(
 
 @with_plot_style
 def plot_adc_nonlin(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     analysis: AnalysisAdcNonlin,
     *,
     output_path: Path,
@@ -426,7 +426,7 @@ def plot_adc_nonlin(
 
 @with_plot_style
 def plot_adc_noise(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcNoise,
     *,
     output_path: Path,
@@ -459,7 +459,7 @@ def plot_adc_noise(
 
 @with_plot_style
 def plot_adc_noise_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcNoiseSweep,
     *,
     output_path: Path,
@@ -535,7 +535,7 @@ def plot_adc_noise_sweep(
 
 @with_plot_style
 def plot_adc_dynamic(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     analysis: AnalysisAdcDynamic,
     *,
     output_path: Path,
@@ -581,7 +581,7 @@ def plot_adc_dynamic(
 
 @with_plot_style
 def plot_adc_dynamic_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcDynamicSweep,
     *,
     output_path: Path,
@@ -612,7 +612,7 @@ def plot_adc_dynamic_sweep(
 
 @with_plot_style
 def plot_adc_dynamic_rate_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcDynamicSweep,
     *,
     output_path: Path,
@@ -730,7 +730,7 @@ def plot_adc_dynamic_rate_sweep(
 
 @with_plot_style
 def plot_adc_power_sweep(
-    measurements: Sequence[MeasAdcExt],
+    measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcPowerSweep,
     *,
     output_path: Path,
@@ -811,7 +811,7 @@ def plot_adc_power_sweep(
 
 @with_plot_style
 def plot_adc_decision_paths(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     analysis: AnalysisAdcDecisionPaths,
     *,
     output_path: Path,

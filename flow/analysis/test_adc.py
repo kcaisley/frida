@@ -20,7 +20,16 @@ from flow.analysis.adc import (
     analyze_adc_power_sweep,
     analyze_adc_transfer,
 )
-from flow.analysis.types import AdcDaq, AdcExtWave, InfoValue, MeasAdcExt, MeasInfo
+from flow.analysis.types import (
+    AdcDaq,
+    AdcExtWave,
+    AdcIntWave,
+    InfoValue,
+    MeasAdc,
+    MeasAdcExt,
+    MeasAdcInt,
+    MeasInfo,
+)
 from flow.scans.params import AdcTbParams
 
 
@@ -33,8 +42,9 @@ def adc_measurement(
     logic_phase_delay_symbols: float = 0.0,
     observed_adc: int | None = None,
     readbacks: Mapping[str, InfoValue] | None = None,
-) -> MeasAdcExt:
-    """Build one compact external ADC measurement for numerical tests."""
+    internal: bool = False,
+) -> MeasAdc:
+    """Build one compact external or internal ADC measurement for numerical tests."""
 
     dout = np.asarray(dout, dtype=np.int64)
     vin_diff_array = np.asarray(vin_diff_v, dtype=np.float64)
@@ -57,6 +67,61 @@ def adc_measurement(
     )
     time_s = np.linspace(0.0, 1.0 / sample_rate_hz, 8)
     zeros = np.zeros((1, len(time_s)))
+    daq = AdcDaq(
+        conversion_index=np.arange(len(dout)),
+        bout=np.zeros((len(dout), 17), dtype=np.uint8),
+        dout_raw=dout,
+        dout=dout,
+        vin_diff_v=vin_diff_array,
+    )
+    if internal:
+        return MeasAdcInt(
+            info=MeasInfo(
+                schema_version=1,
+                measurement_type="MeasAdcInt",
+                backend="spice",
+                timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC),
+                readbacks=dict(readbacks or {}),
+            ),
+            param=param,
+            daq=daq,
+            wave=AdcIntWave(
+                conversion_index=np.asarray([0], dtype=np.int64),
+                time_s=time_s,
+                vin_diff_v=zeros,
+                seq_comp_v=zeros,
+                seq_logic_v=zeros,
+                comp_out_v=zeros,
+                vin_p_v=zeros,
+                vin_n_v=zeros,
+                seq_init_v=zeros,
+                seq_samp_v=zeros,
+                vdac_p_v=zeros,
+                vdac_n_v=zeros,
+                clk_samp_p_v=zeros,
+                clk_samp_p_b_v=zeros,
+                clk_samp_n_v=zeros,
+                clk_samp_n_b_v=zeros,
+                clk_comp_v=zeros,
+                comp_out_p_v=zeros,
+                comp_out_n_v=zeros,
+                dac_state_p_15_v=zeros,
+                dac_state_p_8_v=zeros,
+                dac_state_p_0_v=zeros,
+                dac_state_n_15_v=zeros,
+                dac_state_n_8_v=zeros,
+                dac_state_n_0_v=zeros,
+                dac_botplate_p_15_v=zeros,
+                dac_botplate_p_8_v=zeros,
+                dac_botplate_p_0_v=zeros,
+                dac_botplate_n_15_v=zeros,
+                dac_botplate_n_8_v=zeros,
+                dac_botplate_n_0_v=zeros,
+                vdd_a_i=zeros,
+                vdd_d_i=zeros,
+                vdd_dac_i=zeros,
+            ),
+        )
     return MeasAdcExt(
         info=MeasInfo(
             schema_version=1,
@@ -66,13 +131,7 @@ def adc_measurement(
             readbacks=dict(readbacks or {}),
         ),
         param=param,
-        daq=AdcDaq(
-            conversion_index=np.arange(len(dout)),
-            bout=np.zeros((len(dout), 17), dtype=np.uint8),
-            dout_raw=dout,
-            dout=dout,
-            vin_diff_v=vin_diff_array,
-        ),
+        daq=daq,
         wave=AdcExtWave(
             conversion_index=np.asarray([0], dtype=np.int64),
             time_s=time_s,
@@ -181,6 +240,35 @@ def test_transfer_noise_and_code_density_use_typed_adc_data() -> None:
     assert linearity.ideal_count == 1.0
     assert linearity.missing_codes == 0
     np.testing.assert_allclose(linearity.dnl, (0.0, 0.0))
+
+
+def test_shared_adc_analyses_accept_internal_measurements() -> None:
+    """Analyze simulated ADC data through the same public entry points."""
+
+    static = adc_measurement(
+        [0, 0, 1, 2, 3, 3],
+        vin_diff_v=[-0.1, -0.1, 0.0, 0.0, 0.1, 0.1],
+        internal=True,
+    )
+    assert isinstance(static, MeasAdcInt)
+    assert analyze_adc_transfer([static]).sample_count.sum() == 6
+    assert analyze_adc_noise([static]).sample_count.sum() == 6
+    assert analyze_adc_nonlin(
+        static,
+        method="code_density",
+        code_range=(1, 2),
+    ).missing_codes == 0
+
+    sample_rate_hz = 100_000.0
+    input_frequency_hz = 1_000.0
+    time_s = np.arange(2_048) / sample_rate_hz
+    dynamic = adc_measurement(
+        np.rint(2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * input_frequency_hz * time_s)),
+        sample_rate_hz=sample_rate_hz,
+        input_frequency_hz=input_frequency_hz,
+        internal=True,
+    )
+    assert analyze_adc_dynamic(dynamic).sample_count == len(time_s)
 
 
 def test_endpoint_linearity_interpolates_static_code_transitions() -> None:
