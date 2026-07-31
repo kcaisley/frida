@@ -67,6 +67,21 @@ def test_explicit_cdac_weights_override_strategy():
     assert get_cdac_weights(params) == list(explicit)
 
 
+def test_cdac_connects_msb_to_largest_weight():
+    """Connect the MSB-first weight list to bus bits from MSB down to LSB."""
+    params = CdacParams(
+        n_dac=3,
+        n_extra=1,
+        weights=(8, 5, 2, 1),
+    )
+    module = Cdac(params)
+
+    assert float(module.C_3.of.params.c) == 8e-15
+    assert module.MP_buf_3.conns["g"].index == 3
+    assert float(module.C_0.of.params.c) == 1e-15
+    assert module.MP_buf_0.conns["g"].index == 0
+
+
 def test_explicit_cdac_weights_are_validated():
     """Reject the wrong count and non-positive values."""
     for weights in ((8, 4, 2), (8, 4, 0, 1)):

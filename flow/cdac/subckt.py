@@ -9,7 +9,6 @@ Supports multiple architectures including:
 
 import math
 from enum import Enum, auto
-from typing import Optional
 
 import hdl21 as h
 from hdl21.prefix import f
@@ -49,7 +48,7 @@ class CdacParams:
     mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
     weights = h.Param(
-        dtype=Optional[tuple[int, ...]],
+        dtype=tuple[int, ...] | None,
         desc="Explicit unit-capacitor weights; overrides redun_strat when set",
         default=None,
     )
@@ -118,8 +117,11 @@ def Cdac(param: CdacParams) -> h.Module:
     # Build each DAC bit
     threshold = 64  # Split threshold for vdiv/diffcap
 
-    for idx, weight in enumerate(weights):
-        _build_dac_bit(Cdac, param, idx, weight, threshold)
+    # ``weights`` is ordered MSB-first, matching the ADC decision sequence.
+    # HDL buses use bit ``n_bits - 1`` as their MSB, so associate the first
+    # (largest) weight with that bit and work downward to bit zero.
+    for bit, weight in zip(reversed(range(n_bits)), weights, strict=True):
+        _build_dac_bit(Cdac, param, bit, weight, threshold)
 
     return Cdac
 
