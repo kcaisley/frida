@@ -16,13 +16,6 @@ from flow.scans.loopback_fastrx import (
     extract_scope_decisions,
 )
 from flow.scans.params import AdcTbParams, load_board_map
-from flow.scans.scan_spice import (
-    bits_to_word,
-    convert_raw_to_adc_measurement,
-    nearest_value,
-    require_signal,
-    rising_edges,
-)
 from flow.scans.scope import plot_scope_waveforms, write_scope_csv
 
 
@@ -384,85 +377,3 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
     assert [voltage_v for _, voltage_v in points] == pytest.approx([-0.1, 0.1, -0.1])
     with pytest.raises(ValueError, match="increase strictly"):
         scan_adc.parse_pwl_wave("1u 0 0 1")
-
-
-def test_rising_edges_detects_strict_threshold_crossings() -> None:
-    """Detect only low-to-high threshold crossings and reject mismatched traces."""
-    times = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-    values = [0.0, 0.5, 0.6, 1.0, 0.4, 0.9]
-
-    assert rising_edges(times, values, threshold=0.5) == [2.0, 5.0]
-    with pytest.raises(ValueError):
-        rising_edges(times, values[:-1], threshold=0.5)
-
-
-def test_nearest_value_handles_endpoints_nearest_samples_and_ties() -> None:
-    """Verify endpoint clamping, nearest-sample lookup, and deterministic ties."""
-    times = [0.0, 1.0, 2.0]
-    values = [10.0, 20.0, 30.0]
-
-    assert nearest_value(times, values, -1.0) == 10.0
-    assert nearest_value(times, values, 3.0) == 30.0
-    assert nearest_value(times, values, 1.6) == 30.0
-    assert nearest_value(times, values, 1.5) == 20.0
-
-
-def test_bits_to_word_packs_msb_first() -> None:
-    """Verify deterministic MSB-first packing for empty, integer, and Boolean bits."""
-    assert bits_to_word([]) == 0
-    assert bits_to_word([1, 0, 1, 1]) == 0b1011
-    assert bits_to_word([True, False, True]) == 0b101
-
-
-def test_convert_raw_to_adc_measurement_decodes_typed_measurement(tmp_path) -> None:
-    """Decode one synthetic Spectre conversion into typed DAQ and wave sections."""
-
-    expected_bout = "10110100101100101"
-    times_s = np.arange(0.0, 350.0e-9, 1.0e-9)
-    phase_s = np.mod(times_s, 20.0e-9)
-    clock_v = np.where(phase_s >= 10.0e-9, 1.2, 0.0)
-    comp_out_v = np.zeros_like(times_s)
-    for decision_index, bit in enumerate(expected_bout):
-        start_s = 10.0e-9 + decision_index * 20.0e-9
-        stop_s = start_s + 20.0e-9
-        comp_out_v[(times_s >= start_s) & (times_s < stop_s)] = 1.2 * int(bit)
-
-    measurement = convert_raw_to_adc_measurement(
-        {
-            "time": times_s.tolist(),
-            "seq_comp": clock_v.tolist(),
-            "seq_update": np.zeros_like(times_s).tolist(),
-            "comp_out": comp_out_v.tolist(),
-            "vin_p": np.full_like(times_s, 0.650).tolist(),
-            "vin_n": np.full_like(times_s, 0.600).tolist(),
-        },
-        params=AdcTbParams(conversions=1),
-        raw_path=tmp_path / "synthetic.raw",
-    )
-
-    assert measurement.info.backend == "spice"
-    assert "".join(str(bit) for bit in measurement.daq.bout[0]) == expected_bout
-    assert measurement.daq.dout_raw[0] > 0
-    assert measurement.daq.dout[0] > 0
-    assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
-    assert measurement.wave.comp_out_v.shape[0] == 1
-
-
-def test_require_signal_resolves_exact_and_unique_suffix_matches() -> None:
-    """Resolve exact signal names first and unique hierarchical suffixes second."""
-    exact = [1.0]
-    suffix = [2.0]
-    data = {"time": exact, "top.i_adc.comp": suffix}
-
-    assert require_signal(data, "time") is exact
-    assert require_signal(data, "comp") is suffix
-
-
-def test_require_signal_rejects_ambiguous_and_missing_names() -> None:
-    """Report ambiguous suffix matches and missing signal names clearly."""
-    data = {"a.comp": [1.0], "b.comp": [2.0]}
-
-    with pytest.raises(KeyError, match="ambiguous"):
-        require_signal(data, "comp")
-    with pytest.raises(KeyError, match="not found"):
-        require_signal(data, "clock")

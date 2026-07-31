@@ -1,45 +1,14 @@
-"""Software-only tests for raw-source adapters used by typed measurements."""
+"""Software-only tests for HDF5 and acquisition-wave adapters."""
 
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from flow.analysis.io import (
     build_adc_interface_wave,
-    parse_spectre_nutascii,
     scope_records_to_adc_wave,
 )
 from flow.scans.params import AdcTbParams
-
-
-def test_spectre_nutascii_parser_selects_named_signals(tmp_path) -> None:
-    raw_path = tmp_path / "spectre.raw"
-    raw_path.write_text(
-        "Title: test\n"
-        "Variables:\n"
-        "0 time time\n"
-        "1 out voltage\n"
-        "2 unused voltage\n"
-        "Values:\n"
-        "0 0.0 0.1 7.0\n"
-        "1 1e-9 0.4 8.0\n"
-        "2 2e-9 0.9 9.0\n"
-    )
-
-    values = parse_spectre_nutascii(raw_path, {"time", "out"})
-
-    assert set(values) == {"time", "out"}
-    np.testing.assert_allclose(values["time"], [0.0, 1.0e-9, 2.0e-9])
-    np.testing.assert_allclose(values["out"], [0.1, 0.4, 0.9])
-
-
-def test_spectre_nutascii_parser_rejects_incomplete_output(tmp_path) -> None:
-    raw_path = tmp_path / "incomplete.raw"
-    raw_path.write_text("Title: incomplete\nVariables:\n0 time time\n")
-
-    with pytest.raises(ValueError, match="missing 'Values:'"):
-        parse_spectre_nutascii(raw_path)
 
 
 def test_scope_records_build_dense_adc_external_wave() -> None:

@@ -1,12 +1,11 @@
-"""Typed HDF5 measurement I/O and raw simulator/ scope adapters."""
+"""Typed HDF5 measurement I/O and acquisition-wave adapters."""
 
 from __future__ import annotations
 
 import dataclasses
 import importlib
 import math
-import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -48,85 +47,6 @@ def _dataclass_fields(value) -> tuple[Any, ...]:
     """Return fields for standard dataclasses and HDL21 parameter classes."""
 
     return tuple(value.__dataclass_fields__.values())
-
-
-def _spectre_variable_names(header_lines: Sequence[str], path: Path) -> list[str]:
-    """Extract the ordered NUTASCII variable list from its header."""
-
-    variable_names: list[str] = []
-    in_variables = False
-    for line in header_lines:
-        parts = line.strip().split()
-        if not parts:
-            continue
-        if parts[0] == "Variables:":
-            in_variables = True
-            if len(parts) >= 4 and parts[1].isdigit():
-                variable_names.append(parts[2])
-            continue
-        if in_variables:
-            if parts[0].isdigit() and len(parts) >= 3:
-                variable_names.append(parts[1])
-            elif not parts[0].isdigit():
-                in_variables = False
-    if not variable_names:
-        raise ValueError(f"could not parse variable list from {path}")
-    return variable_names
-
-
-def _spectre_values(
-    lines: Iterable[str],
-    variable_names: Sequence[str],
-    selected_signals: set[str] | None,
-    path: Path,
-) -> dict[str, np.ndarray]:
-    """Parse the NUTASCII value section for selected variables."""
-
-    selected = selected_signals or set(variable_names)
-    selected_indices = {index: name for index, name in enumerate(variable_names) if name in selected}
-    parsed: dict[str, list[float]] = {name: [] for name in selected_indices.values()}
-    stride = len(variable_names) + 1
-    tokens: list[str] = []
-    point_count = 0
-    for line in lines:
-        tokens.extend(line.split())
-        while len(tokens) >= stride:
-            point_tokens = tokens[:stride]
-            del tokens[:stride]
-            for index, name in selected_indices.items():
-                parsed[name].append(float(point_tokens[1 + index]))
-            point_count += 1
-    if point_count == 0:
-        raise ValueError(f"no raw data points parsed from {path}")
-    if tokens:
-        print(
-            f"warning: ignoring {len(tokens)} trailing NUTASCII tokens in {path}",
-            file=sys.stderr,
-        )
-    return {name: np.asarray(values, dtype=np.float64) for name, values in parsed.items()}
-
-
-def parse_spectre_nutascii(
-    path: Path,
-    selected_signals: set[str] | None = None,
-) -> dict[str, np.ndarray]:
-    """Parse a Spectre NUTASCII raw file into named one-dimensional arrays."""
-
-    header_lines: list[str] = []
-    with path.open(errors="replace") as input_file:
-        for line in input_file:
-            if line.strip() == "Values:":
-                break
-            header_lines.append(line)
-        else:
-            raise ValueError(f"{path} does not look like complete NUTASCII output: missing 'Values:' section")
-        variable_names = _spectre_variable_names(header_lines, path)
-        return _spectre_values(
-            input_file,
-            variable_names,
-            selected_signals,
-            path,
-        )
 
 
 # =============================================================================

@@ -42,20 +42,35 @@ prototype remains.
 ```text
 flow/analysis/
     types.py       typed measurement sections and analysis dataclasses
-    io.py          raw-result adapters and shared HDF5 read/write support
+    io.py          shared HDF5 read/write and acquisition-wave adapters
     measure.py     small numerical waveform helpers
     adc.py         typed ADC analyses
     comp.py        typed comparator analyses
     plots.py       typed ADC, comparator, and waveform plots
     runner.py      manually invoked, explicitly named analysis pipelines
+flow/spice/
+    io.py          Spectre raw reader and typed measurement conversion
 ```
 
 `flow/analysis/io.py` owns the shared measurement-file boundary for every
 backend. Physical scans, behavioral simulations, and SPICE post-processing
 construct the appropriate typed measurement and pass it to the same HDF5
-writer. The module also contains adapters which parse external source formats,
-such as Spectre raw output and scope records, into the arrays required by the
-typed measurement. It does not acquire hardware or run a simulator.
+writer. It also converts scope records and behavioral interface traces into
+the arrays required by typed measurements. It does not acquire hardware or run
+a simulator.
+
+`flow/spice/io.py` owns Spectre-specific result parsing. The current ADC PEX
+decks select `rawfmt=nutascii`, not NUTBIN, so the reader streams NUTASCII text
+records and retains only the requested signals. It converts comparator output
+waveforms into typed ADC decisions and delegates HDF5 persistence to the shared
+writer above. Dense SPICE waveforms may be retained for fewer conversions than
+the complete DAQ result, which keeps large transient-noise conversions
+practical without changing ADC analyses.
+
+Rail-power readbacks are only produced when the raw file contains explicitly
+saved supply-current signals. The existing June 2026 ADC PEX decks define the
+supply-voltage setpoints but their raw files do not save source currents, so
+their power is unavailable and is not inferred from unrelated waveforms.
 
 CDAC and sampler analysis modules will be added when real analyses and data
 exist; their measurement types are defined now.
