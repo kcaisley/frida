@@ -260,21 +260,34 @@ def convert_spectre_adc_to_measurement(
         conversions=complete_conversions,
     )
 
+    # Align waveform records to the repeated sequencer-pattern boundary, not
+    # to SEQ_INIT's rising edge inside that pattern. This retains the pre-INIT
+    # portion of each conversion and lets the final complete pattern fit in a
+    # simulation which stops after exactly ``conversions * pattern_period``.
+    waveform_starts_s = conversion_starts_s - (conversion_starts_s[0] - times_s[0])
     if complete_conversions > 1:
-        record_duration_s = float(np.median(np.diff(conversion_starts_s)))
+        record_duration_s = float(np.median(np.diff(waveform_starts_s)))
+        final_record_stop_s = waveform_starts_s[-1] + record_duration_s
+        if final_record_stop_s > times_s[-1] and np.isclose(
+            final_record_stop_s,
+            times_s[-1],
+            rtol=1e-9,
+            atol=0.0,
+        ):
+            record_duration_s = float(times_s[-1] - waveform_starts_s[-1])
     else:
         record_duration_s = min(
-            float(times_s[-1] - conversion_starts_s[0]),
+            float(times_s[-1] - waveform_starts_s[0]),
             len(params.seq_init_pattern) / float(params.symbol_rate),
         )
-    eligible_indices = np.flatnonzero(conversion_starts_s + record_duration_s <= times_s[-1])
+    eligible_indices = np.flatnonzero(waveform_starts_s + record_duration_s <= times_s[-1])
     if len(eligible_indices) > maximum_waveform_records:
         selected_positions = np.unique(
             np.rint(np.linspace(0, len(eligible_indices) - 1, maximum_waveform_records)).astype(np.int64)
         )
         eligible_indices = eligible_indices[selected_positions]
     waveform_conversion_indices = eligible_indices
-    waveform_starts_s = conversion_starts_s[waveform_conversion_indices]
+    waveform_starts_s = waveform_starts_s[waveform_conversion_indices]
     relative_time_s, waveform_records = interpolate_wave_records(
         times_s,
         signals,

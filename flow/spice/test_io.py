@@ -51,9 +51,14 @@ def test_nutascii_reader_rejects_incomplete_output(tmp_path: Path) -> None:
 def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     expected_bout = "10110100101100101"
     time_step_s = 0.05e-9
-    times_s = np.arange(0.0, 170.0e-9 + time_step_s / 2, time_step_s)
-    comp_edge_times_s = 5.0e-9 + np.arange(17) * 8.0e-9
-    logic_edge_times_s = comp_edge_times_s[:-1] + 3.0e-9
+    conversion_offsets_s = np.asarray([0.0, 170.0e-9])
+    times_s = np.arange(0.0, 340.0e-9 + time_step_s / 2, time_step_s)
+    comp_edge_times_s = np.concatenate(
+        [offset_s + 5.0e-9 + np.arange(17) * 8.0e-9 for offset_s in conversion_offsets_s]
+    )
+    logic_edge_times_s = np.concatenate(
+        [offset_s + 5.0e-9 + np.arange(16) * 8.0e-9 + 3.0e-9 for offset_s in conversion_offsets_s]
+    )
 
     # The ADC has 17 comparator decisions but only 16 DAC-update/ LOGIC edges:
     # its final decision does not update the CDAC. Put each decision transition
@@ -68,11 +73,12 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         seq_logic_v[(times_s >= edge_s) & (times_s < edge_s + 0.5e-9)] = 1.2
 
     comp_out_v = np.zeros_like(times_s)
-    for decision_index, bit in enumerate(expected_bout):
+    repeated_bout = expected_bout * len(conversion_offsets_s)
+    for decision_index, bit in enumerate(repeated_bout):
         transition_s = comp_edge_times_s[decision_index] + 0.97 * 3.0e-9
         stop_s = (
             comp_edge_times_s[decision_index + 1] + 0.97 * 3.0e-9
-            if decision_index + 1 < len(expected_bout)
+            if decision_index + 1 < len(repeated_bout)
             else times_s[-1] + time_step_s
         )
         comp_out_v[(times_s >= transition_s) & (times_s < stop_s)] = 1.2 * int(bit)
@@ -88,7 +94,8 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
             "vin_p_v": np.full_like(times_s, 0.650),
             "vin_n_v": np.full_like(times_s, 0.600),
             "seq_init_v": np.where(
-                (times_s >= 1.0e-9) & (times_s < 2.0e-9),
+                ((times_s >= 1.0e-9) & (times_s < 2.0e-9))
+                | ((times_s >= 171.0e-9) & (times_s < 172.0e-9)),
                 1.2,
                 0.0,
             ),
@@ -125,7 +132,7 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         lines.append(" ".join([str(point_index)] + [f"{values[name][point_index]:.16g}" for name in names]))
     raw_path.write_text("\n".join(lines) + "\n")
 
-    params = AdcTbParams(conversions=1)
+    params = AdcTbParams(conversions=2)
     early_measurement = convert_spectre_adc_to_measurement(
         values,
         params=params,
@@ -142,7 +149,7 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         h5_path,
         params=params,
         signal_names=signal_names,
-        maximum_waveform_records=1,
+        maximum_waveform_records=2,
     )
     measurement = read_measurement(h5_path)
 
@@ -153,12 +160,15 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     assert measurement.info.readbacks["supply_power_available"] is True
     assert measurement.info.readbacks["supply_current_convention"] == "positive_current_draw"
     assert measurement.info.readbacks["vdd_d_active_average_power_w"] == pytest.approx(48.0e-6)
-    assert "".join(str(bit) for bit in measurement.daq.bout[0]) == expected_bout
+    assert len(measurement.daq.conversion_index) == 2
+    assert all("".join(str(bit) for bit in row) == expected_bout for row in measurement.daq.bout)
     np.testing.assert_array_equal(measurement.daq.bout[0, -2:], [0, 1])
     assert measurement.daq.dout_raw[0] > 0
     assert measurement.daq.dout[0] > 0
     assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
-    assert measurement.wave.comp_out_v.shape == (1, 2_000)
+    np.testing.assert_array_equal(measurement.wave.conversion_index, [0, 1])
+    assert measurement.wave.comp_out_v.shape == (2, 2_000)
+    assert measurement.wave.seq_init_v[0, 0] == pytest.approx(0.0)
     np.testing.assert_allclose(measurement.wave.vdd_a_i, 2.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_d_i, 40.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_dac_i, 20.0e-6)
