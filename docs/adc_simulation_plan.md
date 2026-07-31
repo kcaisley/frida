@@ -24,6 +24,19 @@ With no target, the command will list the available targets and exit. Separate
 `_single_point` targets are unnecessary because `--check` provides that
 coverage.
 
+## Implementation status
+
+- [x] Use the shared `AdcTbParams` for both generated and extracted views.
+- [x] Match the synthesized digital and extracted ADC pin interfaces.
+- [x] Generate the four named campaign matrices and native Spectre stimuli.
+- [x] Save 31 selected voltages and currents in NUTASCII.
+- [x] Convert generated and PEX results to the shared `MeasAdcInt` HDF5 schema.
+- [x] Run DC and sine `--check` cases for both ADC views.
+- [x] Verify comparator activity, decision decoding, rail power, and HDF5 plots.
+- [x] Add software coverage for campaigns, pin order, decoding, and analysis compatibility.
+- [x] Remove the superseded hand-written decks and post-processing script.
+- [ ] Complete the four production noise campaigns.
+
 ## Testbench and simulation targets
 
 Rewrite `flow/adc/testbench.py` around the canonical
@@ -139,10 +152,11 @@ Convert Spectre supply-source current to current drawn by the ADC using:
 Idraw = -Isource
 ```
 
-Compute average rail power using:
+Compute average rail power over the possibly nonuniform transient time grid
+using:
 
 ```text
-Prail = mean(Vrail * Idraw)
+Prail = integral(Vrail * Idraw, time) / (time[-1] - time[0])
 ```
 
 Decode comparator decisions immediately before the LOGIC/update edge instead
@@ -174,8 +188,9 @@ Add software tests for:
 - `MeasAdcInt` HDF5 round trips.
 - Shared `MeasAdc` analysis compatibility.
 
-Run `--check` once for each DUT view and inspect the generated netlist, Spectre
-report, raw data, HDF5 hierarchy, decoded ADC result, and three rail currents.
-Do not launch the four full noise campaigns during implementation; they remain
-explicitly user-invoked because complete PEX runs may require many hours or
-days.
+Run `--check` for both stimulus classes and DUT views and inspect the generated
+netlist, Spectre report, raw data, HDF5 hierarchy, decoded ADC result, and three
+rail currents. Start production campaigns only after these checks pass.
+Generated campaigns require hours; complete PEX campaigns can require days, so
+their timestamped outputs may remain in progress after the implementation
+itself is complete.
