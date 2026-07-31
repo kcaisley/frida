@@ -17,17 +17,9 @@ from pathlib import Path
 import numpy as np
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
-from flow.analysis.types import AdcDaq, AdcExtWave, MeasAdcExt, MeasInfo
+from flow.analysis.types import AdcDaq, AdcIntWave, MeasAdcInt, MeasInfo
 from flow.cdac import get_cdac_weights
 from flow.scans.params import AdcTbParams
-
-ADC_PEX_SIGNALS = {
-    "comp_out_v": "comp_out",
-    "seq_comp_v": "seq_comp",
-    "seq_logic_v": "seq_update",
-    "vin_p_v": "vin_p",
-    "vin_n_v": "vin_n",
-}
 
 
 def read_spectre_nutascii(
@@ -131,29 +123,64 @@ def convert_spectre_adc_to_measurement(
     *,
     params: AdcTbParams,
     raw_path: Path,
+    signal_names: Mapping[str, str],
     threshold_v: float = 0.6,
-    comparator_sample_delay_s: float = 10e-9,
+    decision_sample_fraction: float = 0.98,
     waveform_samples: int = 2_000,
     maximum_waveform_records: int = 128,
-    rail_current_signals: Mapping[str, str] | None = None,
-) -> MeasAdcExt:
-    """Decode comparator decisions and dense interface waves from ADC PEX data."""
+) -> MeasAdcInt:
+    """Decode one Spectre ADC result into the typed internal contract.
 
-    required_signals = {"time", *ADC_PEX_SIGNALS.values()}
-    missing = sorted(required_signals.difference(data))
+    ``signal_names`` maps canonical :class:`AdcIntWave` fields to Spectre
+    variable names. Spectre reports voltage-source current into the source's
+    positive terminal; the stored supply currents reverse that sign so that
+    positive values mean current drawn by the ADC.
+    """
+
+    raw_wave_names = tuple(
+        field.name
+        for field in dataclasses.fields(AdcIntWave)
+        if field.name not in {"conversion_index", "time_s", "vin_diff_v"}
+    )
+    expected_names = {"time_s", *raw_wave_names}
+    missing_names = sorted(expected_names.difference(signal_names))
+    unexpected_names = sorted(set(signal_names).difference(expected_names))
+    if missing_names or unexpected_names:
+        raise ValueError(
+            "signal_names must map exactly the raw AdcIntWave signals; "
+            f"missing={missing_names}, unexpected={unexpected_names}"
+        )
+    raw_names = tuple(signal_names.values())
+    if any(not isinstance(name, str) or not name for name in raw_names):
+        raise ValueError("signal_names values must be non-empty raw variable names")
+    if len(set(raw_names)) != len(raw_names):
+        raise ValueError("signal_names raw variable names must be unique")
+    missing = sorted(set(raw_names).difference(data))
     if missing:
-        raise KeyError(f"ADC PEX data is missing required signals {missing}")
+        raise KeyError(f"Spectre data is missing mapped signals {missing}")
+    if not 0.0 < decision_sample_fraction < 1.0:
+        raise ValueError("decision_sample_fraction must lie strictly between zero and one")
     if waveform_samples < 2:
         raise ValueError("waveform_samples must be at least two")
     if maximum_waveform_records <= 0:
         raise ValueError("maximum_waveform_records must be positive")
 
-    times_s = np.asarray(data["time"], dtype=np.float64)
-    signals = {name: np.asarray(data[raw_name], dtype=np.float64) for name, raw_name in ADC_PEX_SIGNALS.items()}
+    times_s = np.asarray(data[signal_names["time_s"]], dtype=np.float64)
+    signals = {
+        name: np.asarray(data[signal_names[name]], dtype=np.float64)
+        for name in raw_wave_names
+    }
+    for name in ("vdd_a_i", "vdd_d_i", "vdd_dac_i"):
+        signals[name] = -signals[name]
+    signals["vin_diff_v"] = signals["vin_p_v"] - signals["vin_n_v"]
     if times_s.ndim != 1 or len(times_s) < 2 or np.any(np.diff(times_s) <= 0):
         raise ValueError("Spectre time must be one-dimensional and strictly increasing")
     if any(values.shape != times_s.shape for values in signals.values()):
-        raise ValueError("all ADC PEX signals must align with Spectre time")
+        raise ValueError("all mapped Spectre signals must align with Spectre time")
+    if not np.all(np.isfinite(times_s)) or any(
+        not np.all(np.isfinite(values)) for values in signals.values()
+    ):
+        raise ValueError("Spectre time and mapped signals must contain only finite values")
 
     code_weights = np.asarray(
         [2 * weight for weight in get_cdac_weights(params.dut.cdac)] + [1],
@@ -161,26 +188,71 @@ def convert_spectre_adc_to_measurement(
     )
     if len(code_weights) != 17:
         raise ValueError(f"ADC measurement format requires 17 decisions, got {len(code_weights)}")
-    clock_high = signals["seq_comp_v"] > threshold_v
-    edge_indices = np.flatnonzero(clock_high[1:] & ~clock_high[:-1]) + 1
-    complete_conversions = len(edge_indices) // len(code_weights)
-    if complete_conversions == 0:
-        raise ValueError("Spectre result contains no complete ADC conversion")
-    used_edges = edge_indices[: complete_conversions * len(code_weights)]
-    edge_times_s = times_s[used_edges].reshape(complete_conversions, len(code_weights))
-    sample_times_s = edge_times_s + comparator_sample_delay_s
 
-    right_indices = np.searchsorted(times_s, sample_times_s)
-    right_indices = np.clip(right_indices, 1, len(times_s) - 1)
-    left_indices = right_indices - 1
-    choose_right = np.abs(times_s[right_indices] - sample_times_s) < np.abs(sample_times_s - times_s[left_indices])
-    sample_indices = np.where(choose_right, right_indices, left_indices)
-    bout = (signals["comp_out_v"][sample_indices] > threshold_v).astype(np.uint8)
+    edge_indices: dict[str, np.ndarray] = {}
+    for name in ("seq_init_v", "seq_comp_v", "seq_logic_v"):
+        high = signals[name] > threshold_v
+        edge_indices[name] = np.flatnonzero(
+            high & np.concatenate((np.asarray([True]), ~high[:-1]))
+        )
+    conversion_start_indices = edge_indices["seq_init_v"]
+    if len(conversion_start_indices) == 0:
+        raise ValueError("Spectre result contains no SEQ_INIT rising edge")
+
+    comp_edges_by_conversion = []
+    logic_times_by_conversion = []
+    for conversion_number, start_index in enumerate(conversion_start_indices):
+        stop_index = (
+            conversion_start_indices[conversion_number + 1]
+            if conversion_number + 1 < len(conversion_start_indices)
+            else len(times_s)
+        )
+        comp_edges = edge_indices["seq_comp_v"]
+        comp_edges = comp_edges[(comp_edges >= start_index) & (comp_edges < stop_index)]
+        if len(comp_edges) != len(code_weights):
+            raise ValueError(
+                f"conversion {conversion_number} contains {len(comp_edges)} COMP rising edges; "
+                f"expected exactly {len(code_weights)}"
+            )
+        logic_edges = edge_indices["seq_logic_v"]
+        logic_edges = logic_edges[(logic_edges > comp_edges[0]) & (logic_edges < stop_index)]
+        logic_positions = np.searchsorted(logic_edges, comp_edges, side="right")
+        matched = logic_positions < len(logic_edges)
+        if np.count_nonzero(matched) != len(code_weights) - 1 or not np.all(matched[:-1]) or matched[-1]:
+            raise ValueError(
+                f"conversion {conversion_number} must have following LOGIC edges "
+                "for its first 16 COMP edges and no update after its final decision"
+            )
+        matched_logic_edges = logic_edges[logic_positions[:-1]]
+        if len(np.unique(matched_logic_edges)) != len(code_weights) - 1:
+            raise ValueError(
+                f"conversion {conversion_number} does not pair each COMP edge "
+                "with a unique following LOGIC edge"
+            )
+        comp_edges_by_conversion.append(comp_edges)
+        comp_times = times_s[comp_edges]
+        logic_times = times_s[matched_logic_edges]
+        final_interval_s = float(np.median(logic_times - comp_times[:-1]))
+        logic_times_by_conversion.append(
+            np.concatenate((logic_times, [comp_times[-1] + final_interval_s]))
+        )
+
+    comp_edge_indices = np.stack(comp_edges_by_conversion)
+    comp_edge_times_s = times_s[comp_edge_indices]
+    logic_edge_times_s = np.stack(logic_times_by_conversion)
+    sample_times_s = comp_edge_times_s + decision_sample_fraction * (
+        logic_edge_times_s - comp_edge_times_s
+    )
+    bout = (
+        np.interp(sample_times_s.ravel(), times_s, signals["comp_out_v"])
+        .reshape(sample_times_s.shape)
+        > threshold_v
+    ).astype(np.uint8)
     dout_raw = bout @ code_weights
     dout = np.rint(dout_raw * ((1 << params.dut.adc_bits) - 1) / np.sum(code_weights)).astype(np.int64)
-    vin_diff = signals["vin_p_v"] - signals["vin_n_v"]
-    conversion_starts_s = edge_times_s[:, 0]
-    vin_diff_v = np.interp(conversion_starts_s, times_s, vin_diff)
+    conversion_starts_s = times_s[conversion_start_indices]
+    vin_diff_v = np.interp(comp_edge_times_s[:, 0], times_s, signals["vin_diff_v"])
+    complete_conversions = len(conversion_start_indices)
     # HDL21 paramclasses are runtime dataclasses, although their decorator's
     # typing stub does not currently expose that fact to ty.
     params = dataclasses.replace(
@@ -205,12 +277,7 @@ def convert_spectre_adc_to_measurement(
     waveform_starts_s = conversion_starts_s[waveform_conversion_indices]
     relative_time_s, waveform_records = interpolate_wave_records(
         times_s,
-        {
-            "vin_diff_v": vin_diff,
-            "seq_comp_v": signals["seq_comp_v"],
-            "seq_logic_v": signals["seq_logic_v"],
-            "comp_out_v": signals["comp_out_v"],
-        },
+        signals,
         [(float(start_s), float(start_s + record_duration_s)) for start_s in waveform_starts_s],
         waveform_samples,
     )
@@ -219,34 +286,28 @@ def convert_spectre_adc_to_measurement(
         "raw_file": Path(raw_path).name,
         "raw_format": "spectre_nutascii",
         "raw_points": len(times_s),
-        "ignored_trailing_comparator_edges": len(edge_indices) - complete_conversions * len(code_weights),
-        "supply_power_available": bool(rail_current_signals),
+        "decision_sample_fraction": decision_sample_fraction,
+        "supply_power_available": True,
+        "supply_current_convention": "positive_current_draw",
     }
-    if rail_current_signals:
-        required_rails = {"vdd_a", "vdd_d", "vdd_dac"}
-        if set(rail_current_signals) != required_rails:
-            raise ValueError(f"rail current signals must map exactly {sorted(required_rails)}")
-        rail_voltages = {
-            "vdd_a": float(params.vdd_a.dc),
-            "vdd_d": float(params.vdd_d.dc),
-            "vdd_dac": float(params.vdd_dac.dc),
-        }
-        for rail, signal_name in rail_current_signals.items():
-            if rail not in rail_voltages:
-                raise ValueError(f"unsupported ADC supply rail {rail!r}")
-            if signal_name not in data:
-                raise KeyError(f"ADC PEX data does not contain current signal {signal_name!r}")
-            current_a = np.asarray(data[signal_name], dtype=np.float64)
-            if current_a.shape != times_s.shape:
-                raise ValueError(f"current signal {signal_name!r} is not aligned")
-            average_current_a = float(np.mean(np.abs(current_a)))
-            readbacks[f"{rail}_active_average_current_a"] = average_current_a
-            readbacks[f"{rail}_active_average_power_w"] = rail_voltages[rail] * average_current_a
+    rail_voltages = {
+        "vdd_a": float(params.vdd_a.dc),
+        "vdd_d": float(params.vdd_d.dc),
+        "vdd_dac": float(params.vdd_dac.dc),
+    }
+    for rail, voltage_v in rail_voltages.items():
+        current_draw_a = signals[f"{rail}_i"]
+        duration_s = float(times_s[-1] - times_s[0])
+        average_current_a = float(
+            np.trapezoid(current_draw_a, times_s) / duration_s
+        )
+        readbacks[f"{rail}_active_average_current_a"] = average_current_a
+        readbacks[f"{rail}_active_average_power_w"] = voltage_v * average_current_a
 
-    return MeasAdcExt(
+    return MeasAdcInt(
         info=MeasInfo(
             schema_version=1,
-            measurement_type="MeasAdcExt",
+            measurement_type="MeasAdcInt",
             backend="spice",
             timestamp_utc=datetime.fromtimestamp(
                 Path(raw_path).stat().st_mtime,
@@ -263,7 +324,7 @@ def convert_spectre_adc_to_measurement(
             dout=dout,
             vin_diff_v=vin_diff_v,
         ),
-        wave=AdcExtWave(
+        wave=AdcIntWave(
             conversion_index=waveform_conversion_indices,
             time_s=relative_time_s,
             **waveform_records,
@@ -276,20 +337,18 @@ def convert_spectre_adc_raw_to_h5(
     h5_path: Path,
     *,
     params: AdcTbParams,
-    rail_current_signals: Mapping[str, str] | None = None,
+    signal_names: Mapping[str, str],
     maximum_waveform_records: int = 128,
 ) -> Path:
-    """Read one ADC PEX raw file and write the shared typed HDF5 format."""
+    """Read one Spectre ADC raw file and write the shared typed HDF5 format."""
 
-    selected_signals = {"time", *ADC_PEX_SIGNALS.values()}
-    if rail_current_signals:
-        selected_signals.update(rail_current_signals.values())
+    selected_signals = set(signal_names.values())
     data = read_spectre_nutascii(raw_path, selected_signals)
     measurement = convert_spectre_adc_to_measurement(
         data,
         params=params,
         raw_path=raw_path,
-        rail_current_signals=rail_current_signals,
+        signal_names=signal_names,
         maximum_waveform_records=maximum_waveform_records,
     )
     return write_measurement(h5_path, measurement)

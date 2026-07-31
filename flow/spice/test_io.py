@@ -1,15 +1,17 @@
 """Software-only tests for Spectre NUTASCII and typed ADC HDF5 conversion."""
 
+import dataclasses
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from flow.analysis.io import read_measurement
-from flow.analysis.types import MeasAdcExt
+from flow.analysis.types import AdcIntWave, MeasAdcInt
 from flow.scans.params import AdcTbParams
 from flow.spice.io import (
     convert_spectre_adc_raw_to_h5,
+    convert_spectre_adc_to_measurement,
     read_spectre_nutascii,
 )
 
@@ -48,25 +50,63 @@ def test_nutascii_reader_rejects_incomplete_output(tmp_path: Path) -> None:
 
 def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     expected_bout = "10110100101100101"
-    times_s = np.arange(0.0, 370.0e-9, 1.0e-9)
-    phase_s = np.mod(times_s, 20.0e-9)
-    seq_comp_v = np.where(phase_s >= 10.0e-9, 1.2, 0.0)
+    time_step_s = 0.05e-9
+    times_s = np.arange(0.0, 170.0e-9 + time_step_s / 2, time_step_s)
+    comp_edge_times_s = 5.0e-9 + np.arange(17) * 8.0e-9
+    logic_edge_times_s = comp_edge_times_s[:-1] + 3.0e-9
+
+    # The ADC has 17 comparator decisions but only 16 DAC-update/ LOGIC edges:
+    # its final decision does not update the CDAC. Put each decision transition
+    # at 97% of the COMP-to-LOGIC interval. The production 98% sampling point
+    # must decode the new bit, whereas an earlier 95% sample still sees the
+    # preceding decision. This also checks extrapolation of the final interval.
+    seq_comp_v = np.zeros_like(times_s)
+    seq_logic_v = np.zeros_like(times_s)
+    for edge_s in comp_edge_times_s:
+        seq_comp_v[(times_s >= edge_s) & (times_s < edge_s + 0.5e-9)] = 1.2
+    for edge_s in logic_edge_times_s:
+        seq_logic_v[(times_s >= edge_s) & (times_s < edge_s + 0.5e-9)] = 1.2
+
     comp_out_v = np.zeros_like(times_s)
     for decision_index, bit in enumerate(expected_bout):
-        start_s = 10.0e-9 + decision_index * 20.0e-9
-        stop_s = start_s + 20.0e-9
-        comp_out_v[(times_s >= start_s) & (times_s < stop_s)] = 1.2 * int(bit)
+        transition_s = comp_edge_times_s[decision_index] + 0.97 * 3.0e-9
+        stop_s = (
+            comp_edge_times_s[decision_index + 1] + 0.97 * 3.0e-9
+            if decision_index + 1 < len(expected_bout)
+            else times_s[-1] + time_step_s
+        )
+        comp_out_v[(times_s >= transition_s) & (times_s < stop_s)] = 1.2 * int(bit)
+
+    raw_wave_names = tuple(
+        field.name
+        for field in dataclasses.fields(AdcIntWave)
+        if field.name not in {"conversion_index", "time_s", "vin_diff_v"}
+    )
+    values = {name: np.zeros_like(times_s) for name in raw_wave_names}
+    values.update(
+        {
+            "vin_p_v": np.full_like(times_s, 0.650),
+            "vin_n_v": np.full_like(times_s, 0.600),
+            "seq_init_v": np.where(
+                (times_s >= 1.0e-9) & (times_s < 2.0e-9),
+                1.2,
+                0.0,
+            ),
+            "seq_comp_v": seq_comp_v,
+            "seq_logic_v": seq_logic_v,
+            "comp_out_v": comp_out_v,
+            # Spectre voltage-source current is into the source positive
+            # terminal, hence negative while each rail delivers current.
+            "vdd_a_i": np.full_like(times_s, -2.0e-6),
+            "vdd_d_i": np.full_like(times_s, -40.0e-6),
+            "vdd_dac_i": np.full_like(times_s, -20.0e-6),
+        }
+    )
     values = {
         "time": times_s,
-        "comp_out": comp_out_v,
-        "seq_comp": seq_comp_v,
-        "seq_update": np.zeros_like(times_s),
-        "vin_p": np.full_like(times_s, 0.650),
-        "vin_n": np.full_like(times_s, 0.600),
-        "ivdd_a": np.full_like(times_s, -2.0e-6),
-        "ivdd_d": np.full_like(times_s, -40.0e-6),
-        "ivdd_dac": np.full_like(times_s, -20.0e-6),
+        **values,
     }
+    signal_names = {"time_s": "time", **{name: name for name in raw_wave_names}}
     raw_path = tmp_path / "adc.raw"
     names = tuple(values)
     lines = [
@@ -75,33 +115,50 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         f"No. Points: {len(times_s)}",
         "Variables:",
     ]
-    lines.extend(f"{index} {name} {'s' if name == 'time' else 'V'}" for index, name in enumerate(names))
+    lines.extend(
+        f"{index} {name} "
+        f"{'s' if name == 'time' else 'A' if name.endswith('_i') else 'V'}"
+        for index, name in enumerate(names)
+    )
     lines.append("Values:")
     for point_index in range(len(times_s)):
         lines.append(" ".join([str(point_index)] + [f"{values[name][point_index]:.16g}" for name in names]))
     raw_path.write_text("\n".join(lines) + "\n")
 
+    params = AdcTbParams(conversions=1)
+    early_measurement = convert_spectre_adc_to_measurement(
+        values,
+        params=params,
+        raw_path=raw_path,
+        signal_names=signal_names,
+        decision_sample_fraction=0.95,
+        maximum_waveform_records=1,
+    )
+    assert "".join(str(bit) for bit in early_measurement.daq.bout[0]) != expected_bout
+
     h5_path = tmp_path / "adc.h5"
     convert_spectre_adc_raw_to_h5(
         raw_path,
         h5_path,
-        params=AdcTbParams(conversions=1),
-        rail_current_signals={
-            "vdd_a": "ivdd_a",
-            "vdd_d": "ivdd_d",
-            "vdd_dac": "ivdd_dac",
-        },
+        params=params,
+        signal_names=signal_names,
         maximum_waveform_records=1,
     )
     measurement = read_measurement(h5_path)
 
-    assert isinstance(measurement, MeasAdcExt)
+    assert isinstance(measurement, MeasAdcInt)
     assert measurement.info.backend == "spice"
     assert measurement.info.readbacks["raw_format"] == "spectre_nutascii"
+    assert measurement.info.readbacks["decision_sample_fraction"] == pytest.approx(0.98)
     assert measurement.info.readbacks["supply_power_available"] is True
+    assert measurement.info.readbacks["supply_current_convention"] == "positive_current_draw"
     assert measurement.info.readbacks["vdd_d_active_average_power_w"] == pytest.approx(48.0e-6)
     assert "".join(str(bit) for bit in measurement.daq.bout[0]) == expected_bout
+    np.testing.assert_array_equal(measurement.daq.bout[0, -2:], [0, 1])
     assert measurement.daq.dout_raw[0] > 0
     assert measurement.daq.dout[0] > 0
     assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
     assert measurement.wave.comp_out_v.shape == (1, 2_000)
+    np.testing.assert_allclose(measurement.wave.vdd_a_i, 2.0e-6)
+    np.testing.assert_allclose(measurement.wave.vdd_d_i, 40.0e-6)
+    np.testing.assert_allclose(measurement.wave.vdd_dac_i, 20.0e-6)
