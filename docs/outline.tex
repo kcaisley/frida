@@ -1,10 +1,30 @@
-\documentclass[11pt,a4paper]{report}
+\documentclass[PhD, UKenglish]{scrbook}
+
+% The Uni Bonn thesis package is provided by libs/ubonn-thesis. The docs
+% Makefile adds that submodule to TEXINPUTS so the package can be loaded by
+% name, just as in the upstream thesis skeleton.
+\usepackage[
+  twoside=false,
+  biblatex=false,
+  newtx=false,
+  siunitx=false,
+  numerr=false,
+  numpmcorr=false,
+  hepparticles=false,
+  mhchem=false
+]{ubonn-thesis}
 
 \begin{document}
 
 \raggedbottom
 
+\frontmatter
+\pagestyle{scrplain}
+
 \tableofcontents
+
+\mainmatter
+\pagestyle{scrheadings}
 
 \chapter{Radiation imaging systems}
 
@@ -37,6 +57,8 @@
 \subsection{Power consumption}
 \subsection{Layout area}
 
+\clearpage
+
 \section{Study of the complete SAR ADC}
 \subsection{CDAC switching scheme}
 \subsection{System nonlinearity}
@@ -46,7 +68,7 @@
 \subsection{Control-sequence optimization}
 \subsection{Control logic}
 
-\chapter{Implementation of a 65\,nm prototype}
+\chapter[Implementation of a 65 nm prototype]{Implementation of a 65\,nm prototype}
 
 \chapter{First-prototype measurements}
 
