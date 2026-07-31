@@ -7,7 +7,7 @@ Exports:
 - AdcDigital: ExternalModule for synthesized digital block
 - get_adc_weights: Get capacitor weights for ADC configuration
 - AdcTb: Testbench generator
-- AdcTbParams: Testbench parameters
+- AdcTbParams: Shared physical/ simulation test parameters
 """
 
 from .subckt import (
@@ -24,12 +24,11 @@ __all__ = [
     "AdcTb",
     "AdcTbParams",
     "get_adc_weights",
-    "sim_input",
 ]
 
 
 def __getattr__(name: str):
-    if name in {"AdcTb", "AdcTbParams", "sim_input"}:
+    if name in {"AdcTb", "AdcTbParams"}:
         from importlib import import_module
 
         return getattr(import_module(f"{__name__}.testbench"), name)
