@@ -90,6 +90,37 @@ def spice_adc_noise(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def spice_hdl21gen_10msps_cm600mv_noise(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze the validated generated-ADC transient-noise production case."""
+
+    msmt = _read_adc(
+        BASE_PATH
+        / "build/adc/hdl21gen_noise_vs_rate_cm/20260731_0803/"
+        "10msps_cm600mv_dc50mv/result.h5"
+    )
+    analysis = analyze_adc_noise([msmt])
+    noise_paths = plot_adc_noise(
+        [msmt],
+        analysis,
+        output_path=output_dir / "spice_hdl21gen_10msps_cm600mv_noise",
+    )
+    waveform_paths = plot_measurement_waveforms(
+        msmt,
+        record_index=0,
+        signal_names=(
+            "vin_p_v",
+            "vin_n_v",
+            "seq_comp_v",
+            "seq_logic_v",
+            "comp_out_v",
+            "comp_out_p_v",
+            "comp_out_n_v",
+        ),
+        output_path=output_dir / "spice_hdl21gen_10msps_cm600mv_waveforms",
+    )
+    return (*noise_paths, *waveform_paths)
+
+
 def physical_adc00_80mbd_dynamic(output_dir: Path) -> tuple[Path, ...]:
     """Analyze the validated 29 July ADC00 physical sine acquisition."""
 
@@ -274,6 +305,7 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
         behavioral_adc_transfer,
         spice_adc_monotonic_transfer,
         spice_adc_noise,
+        spice_hdl21gen_10msps_cm600mv_noise,
         physical_adc00_80mbd_dynamic,
         physical_adc_plus2_dynamic_rate_sweep,
         physical_fastrx_alignment_boundary_sweep,
