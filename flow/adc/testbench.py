@@ -481,7 +481,10 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         f"strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
     )
     if not check:
-        tran += " noisefmin=1 noisefmax=25G noiseseed=1"
+        # A finite transient cannot represent noise below 1 / tstop. Spectre
+        # silently raises smaller values to this limit, so record the actual
+        # simulated band explicitly in every generated production deck.
+        tran += f" noisefmin={1.0 / tstop_s:.12g} noisefmax=25G noiseseed=1"
     attrs.append(h.Literal(tran))
     write_sim_netlist(hs.Sim(tb=tb, attrs=attrs), deck_path, compact=True)
 

@@ -159,7 +159,7 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
     assert "rawfmt=nutascii" in production_text
     assert "tran tran stop=4.8e-07" in production_text
     assert "strobeperiod=3.90625e-11 strobeoutput=strobeonly" in production_text
-    assert "noisefmin=1 noisefmax=25G noiseseed=1" in production_text
+    assert "noisefmin=2083333.33333 noisefmax=25G noiseseed=1" in production_text
     assert "dyn_setuphold" not in production_text
 
     written.clear()

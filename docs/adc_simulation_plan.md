@@ -55,8 +55,10 @@ differential input, common mode, and alternating DAC initialization.
 
 Save the external ADC signals, internal clocks and nodes, comparator nodes,
 CDAC nodes, and signed current waveforms for all three supply sources. Use
-Spectre transient noise from 1 Hz to 25 GHz with seed 1 for production
-campaigns.
+Spectre transient noise from the lowest frequency represented by each finite
+transient, `1 / tstop`, to 25 GHz with seed 1 for production campaigns. This
+is the effective lower limit Spectre otherwise applies automatically. Use
+seed 1 for deterministic campaign reproduction.
 
 Each target creates its own timestamped directory beneath:
 
