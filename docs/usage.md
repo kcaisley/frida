@@ -93,8 +93,8 @@ uv run python -m flow.comp.testbench netlist -t ihp130
 # DUT-only Verilog
 uv run python -m flow.comp.testbench netlist -t ihp130 --scope dut -f verilog
 
-# ADC stimulus wrapper without analysis commands
-uv run python -m flow.adc.testbench netlist -t tsmc65 --scope stim
+# CDAC stimulus wrapper without analysis commands
+uv run python -m flow.cdac.testbench netlist -t tsmc65 --scope stim
 
 # Complete comparator input with Monte Carlo analysis
 uv run python -m flow.comp.testbench netlist -t ihp130 --montecarlo
@@ -191,12 +191,20 @@ one typed HDF5 measurement per parameter variant below a fresh timestamped
 instrument readbacks, all ADC conversions, and representative scope waveforms;
 there is no separate CSV or manifest.
 
-Behavioral and SPICE-backed scans use the same acquisition schema:
+Behavioral and SPICE-backed scans use the same acquisition schema. The ADC
+Spectre flow exposes four explicit generated and extracted campaigns:
 
 ```bash
 uv run python -m flow.scans.scan_behavioral
-uv run python -m flow.scans.scan_spice
+uv run python -m flow.adc.testbench hdl21gen_noise_vs_rate_cm
+uv run python -m flow.adc.testbench frida65a_noise_vs_rate_cm
+uv run python -m flow.adc.testbench hdl21gen_noise_large_signal
+uv run python -m flow.adc.testbench frida65a_noise_large_signal
 ```
+
+Add `--check` to generate every deck in one campaign and run one representative
+100 ns case without transient noise. Results are written below
+`build/adc/<target>/<YYYYMMDD_HHMM>/`; omitting the target lists all choices.
 
 ## Environment setup
 
