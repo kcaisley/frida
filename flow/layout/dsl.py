@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from dataclasses import MISSING, dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, get_type_hints
+from typing import Any, get_type_hints
 
 import klayout.db as kdb
 
@@ -225,7 +226,7 @@ def paramclass(
     # 21) Apply dataclass transform with caller-selected frozen/slots options.
     out = dataclass(frozen=frozen, slots=slots)(cls)
     # 22) Mark output type so generator() can verify parameter-class annotations.
-    setattr(out, "__layout_paramclass__", True)
+    out.__layout_paramclass__ = True
     # 23) Return transformed class.
     return out
 
@@ -254,9 +255,9 @@ def generator(fn: Callable[..., Any]) -> Callable[..., Any]:
         raise TypeError(f"First generator argument must be a @paramclass type, got {first_annotation}.")
 
     # 8) Tag function for optional downstream introspection.
-    setattr(fn, "__layout_generator__", True)
+    fn.__layout_generator__ = True
     # 9) Store validated signature for optional downstream tooling.
-    setattr(fn, "__layout_generator_signature__", signature)
+    fn.__layout_generator_signature__ = signature
     # 10) Return original function unchanged.
     return fn
 

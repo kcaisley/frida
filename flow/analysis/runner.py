@@ -137,14 +137,10 @@ def adc00_adc01_noise_power_and_code_diagnostics(output_dir: Path) -> tuple[Path
     physical_noise_100mv = analyze_adc_noise_sweep(measurements_100mv)
     generated_dir = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
     generated_measurements = [
-        _read_adc(generated_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5")
-        for rate_msps in (2, 6, 10)
+        _read_adc(generated_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5") for rate_msps in (2, 6, 10)
     ]
     pex_dir = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
-    pex_measurements = [
-        _read_adc(pex_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5")
-        for rate_msps in (2, 6, 10)
-    ]
+    pex_measurements = [_read_adc(pex_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5") for rate_msps in (2, 6, 10)]
     generated_noise = analyze_adc_noise_sweep(generated_measurements)
     pex_noise = analyze_adc_noise_sweep(pex_measurements)
     generated_diagnostic_paths = []
@@ -464,9 +460,7 @@ def adc00_adc01_noise_power_and_code_diagnostics(output_dir: Path) -> tuple[Path
                         f"ADC{adc_index:02d} {input_mv} mV campaign does not contain one {rate_msps} MSPS run"
                     )
                 analysis = analyze_adc_decision_paths(matches[0], selection="all")
-                output_path = output_dir / (
-                    f"adc{adc_index:02d}_{input_mv}mv_{rate_msps}msps_decision_path_density"
-                )
+                output_path = output_dir / (f"adc{adc_index:02d}_{input_mv}mv_{rate_msps}msps_decision_path_density")
                 decision_density_paths.extend(
                     plot_adc_decision_path_density(matches[0], analysis, output_path=output_path)
                 )

@@ -126,20 +126,22 @@ def test_transitional_layout_gds_smoke(tmp_path: Path):
     assert output.stat().st_size > 0
     assert loaded.cells() == 42
     assert [cell.name for cell in top_cells] == ["frida_caparray"]
-    assert {
-        (loaded.get_info(index).layer, loaded.get_info(index).datatype) for index in loaded.layer_indexes()
-    } == {(13, 0), (13, 1), (14, 0), (15, 0), (16, 0), (17, 0), (17, 1)}
+    assert {(loaded.get_info(index).layer, loaded.get_info(index).datatype) for index in loaded.layer_indexes()} == {
+        (13, 0),
+        (13, 1),
+        (14, 0),
+        (15, 0),
+        (16, 0),
+        (17, 0),
+        (17, 1),
+    }
 
     top = top_cells[0]
-    pin4_texts = {
-        shape.text.string for shape in top.shapes(_layer_index(loaded, 13, 1)).each() if shape.is_text()
-    }
+    pin4_texts = {shape.text.string for shape in top.shapes(_layer_index(loaded, 13, 1)).each() if shape.is_text()}
     expected_bottom_pins = {
         f"cap_botplate_{side}[{bit}]" for side in ("m", "d") for bit in range(len(FRIDA_CAP_WEIGHTS))
     }
-    pin6_texts = {
-        shape.text.string for shape in top.shapes(_layer_index(loaded, 17, 1)).each() if shape.is_text()
-    }
+    pin6_texts = {shape.text.string for shape in top.shapes(_layer_index(loaded, 17, 1)).each() if shape.is_text()}
 
     assert pin4_texts == expected_bottom_pins
     assert pin6_texts == {"cap_topplate"}

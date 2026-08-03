@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import klayout.db as db
-import klayout.lay as lay
+from klayout import db, lay
 
 
 def gds_to_png_with_pdk_style(

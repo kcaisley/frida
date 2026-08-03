@@ -516,7 +516,7 @@ def esd_module(
 def logic_module(
     modname: str,
     family: str,
-    terminals: List[str],
+    terminals: list[str],
 ) -> h.ExternalModule:
     """Create IHP digital logic cell ExternalModule.
 

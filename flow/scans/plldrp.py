@@ -15,9 +15,9 @@ Only ``N=2..20`` is accepted by the current FPGA DRP controller.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
-import logging
 from time import monotonic, sleep
 from typing import Any
 

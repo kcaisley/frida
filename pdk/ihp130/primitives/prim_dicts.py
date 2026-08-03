@@ -27,14 +27,14 @@ from hdl21.primitives import (
 from ..pdk_data import *
 
 # MOS transistor key: (name, MosType, MosVth, MosFamily)
-MosKey = Tuple[str, MosType, MosVth, MosFamily]
+MosKey = tuple[str, MosType, MosVth, MosFamily]
 
 # ==== MOS Transistors ====
 # IHP has 4 main MOS types:
 # - sg13_lv_nmos/pmos: Low-voltage (1.2V core), min L=0.13µm
 # - sg13_hv_nmos/pmos: High-voltage (3.3V I/O), min L=0.45µm
 
-xtors: Dict[MosKey, h.ExternalModule] = {
+xtors: dict[MosKey, h.ExternalModule] = {
     # Low-voltage NMOS (1.2V core)
     ("LV_NMOS", MosType.NMOS, MosVth.STD, MosFamily.CORE): xtor_module("sg13_lv_nmos", params=IhpMosParams),
     # Low-voltage PMOS (1.2V core)
@@ -53,7 +53,7 @@ xtors: Dict[MosKey, h.ExternalModule] = {
 # - npn13G2_5t, npn13G2l_5t, npn13G2v_5t: 5-terminal variants
 # - pnpMPA: Lateral PNP (3 terminals: c, b, e)
 
-bjts: Dict[str, h.ExternalModule] = {
+bjts: dict[str, h.ExternalModule] = {
     # Standard 4-terminal HBTs
     "npn13G2": hbt_module("npn13G2", params=IhpHbtParams, num_terminals=4),
     "npn13G2l": hbt_module("npn13G2l", params=IhpHbtParams, num_terminals=4),
@@ -72,7 +72,7 @@ bjts: Dict[str, h.ExternalModule] = {
 # - rhigh: High-resistivity polysilicon (~1k ohm/sq)
 # - rppd: P-doped polysilicon (~300 ohm/sq)
 
-ress: Dict[str, h.ExternalModule] = {
+ress: dict[str, h.ExternalModule] = {
     "rsil": res_module("rsil", numterminals=3, params=IhpResParams),
     "rhigh": res_module("rhigh", numterminals=3, params=IhpResParams),
     "rppd": res_module("rppd", numterminals=3, params=IhpResParams),
@@ -83,13 +83,13 @@ ress: Dict[str, h.ExternalModule] = {
 # - cap_rfcmim: RF MIM capacitor (3-terminal: PLUS, MINUS, bn)
 # - sg13_hv_svaricap: Varactor (4-terminal: G1, W, G2, bn)
 
-caps: Dict[str, h.ExternalModule] = {
+caps: dict[str, h.ExternalModule] = {
     "cap_cmim": cap_module("cap_cmim", numterminals=2, params=IhpCapParams),
     "cap_rfcmim": cap_module("cap_rfcmim", numterminals=3, params=IhpCapParams),
 }
 
 # Varactors (separate dict due to different terminal structure)
-varicaps: Dict[str, h.ExternalModule] = {
+varicaps: dict[str, h.ExternalModule] = {
     "sg13_hv_svaricap": varicap_module("sg13_hv_svaricap", params=IhpVaricapParams),
 }
 
@@ -97,11 +97,11 @@ varicaps: Dict[str, h.ExternalModule] = {
 # - schottky_nbl1: Schottky diode (3-terminal: A, C, S)
 # - diodevdd_2kv/4kv, diodevss_2kv/4kv: ESD protection (3-terminal: VDD, PAD, VSS)
 
-diodes: Dict[str, h.ExternalModule] = {
+diodes: dict[str, h.ExternalModule] = {
     "schottky_nbl1": schottky_module("schottky_nbl1", params=IhpDiodeParams),
 }
 
-esd_devices: Dict[str, h.ExternalModule] = {
+esd_devices: dict[str, h.ExternalModule] = {
     "diodevdd_2kv": esd_module("diodevdd_2kv", params=IhpEsdParams),
     "diodevdd_4kv": esd_module("diodevdd_4kv", params=IhpEsdParams),
     "diodevss_2kv": esd_module("diodevss_2kv", params=IhpEsdParams),
@@ -116,11 +116,11 @@ esd_devices: Dict[str, h.ExternalModule] = {
 class Cache:
     """Module-scope cache for device calls."""
 
-    mos_modcalls: Dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
-    res_modcalls: Dict[PhysicalResistorParams, h.ExternalModuleCall] = field(default_factory=dict)
-    cap_modcalls: Dict[PhysicalCapacitorParams, h.ExternalModuleCall] = field(default_factory=dict)
-    diode_modcalls: Dict[DiodeParams, h.ExternalModuleCall] = field(default_factory=dict)
-    bjt_modcalls: Dict[BipolarParams, h.ExternalModuleCall] = field(default_factory=dict)
+    mos_modcalls: dict[MosParams, h.ExternalModuleCall] = field(default_factory=dict)
+    res_modcalls: dict[PhysicalResistorParams, h.ExternalModuleCall] = field(default_factory=dict)
+    cap_modcalls: dict[PhysicalCapacitorParams, h.ExternalModuleCall] = field(default_factory=dict)
+    diode_modcalls: dict[DiodeParams, h.ExternalModuleCall] = field(default_factory=dict)
+    bjt_modcalls: dict[BipolarParams, h.ExternalModuleCall] = field(default_factory=dict)
 
 
 CACHE = Cache()

@@ -197,7 +197,7 @@ def test_clean_cdl_bad_module_raises(tmp_path):
 
 
 def test_list_cells(tmp_path):
-    import klayout.db as db
+    from klayout import db
 
     ly = db.Layout()
     l1 = ly.layer(1, 0)
@@ -222,7 +222,7 @@ def test_list_cells(tmp_path):
 
 
 def test_list_cells_empty(tmp_path):
-    import klayout.db as db
+    from klayout import db
 
     ly = db.Layout()
     ly.create_cell("ONLY")
@@ -238,7 +238,7 @@ def test_list_cells_empty(tmp_path):
 
 
 def test_gds_list_layers(tmp_path):
-    import klayout.db as db
+    from klayout import db
 
     ly = db.Layout()
     l1 = ly.layer(19, 0)
@@ -281,7 +281,7 @@ def test_lyt_list_layers(tmp_path):
 
 def test_list_layers_same_value_format(tmp_path):
     """Both gds.list_layers() and lyt.list_layers() return dict[str, tuple[int, int]]."""
-    import klayout.db as db
+    from klayout import db
 
     ly = db.Layout()
     cell = ly.create_cell("TOP")

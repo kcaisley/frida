@@ -114,9 +114,7 @@ def test_pex_external_module_preserves_extracted_positional_pin_order() -> None:
     )
     assert [port.name for port in sim.Frida65aPexAdc.port_list] == list(ports)
     for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
-        assert {name for name in ports if name.startswith(f"{bus_name}_")} == {
-            f"{bus_name}_{bit}" for bit in range(16)
-        }
+        assert {name for name in ports if name.startswith(f"{bus_name}_")} == {f"{bus_name}_{bit}" for bit in range(16)}
 
 
 @pytest.mark.parametrize("view", ["frida65a", "hdl21gen"])
@@ -147,9 +145,7 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
         execute=False,
     )
     assert set(written) == {"input.scs"}
-    production_text = "\n".join(
-        attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal)
-    )
+    production_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
     assert "rawfmt=nutascii" in production_text
     assert "tran tran stop=4.8e-07" in production_text
     assert "strobeperiod=3.90625e-11 strobeoutput=strobeonly" in production_text
@@ -165,12 +161,8 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
         execute=False,
     )
     assert set(written) == {"checks.scs", "input.scs"}
-    check_text = "\n".join(
-        attr.text for attr in written["checks.scs"].attrs if isinstance(attr, h.Literal)
-    )
-    capture_text = "\n".join(
-        attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal)
-    )
+    check_text = "\n".join(attr.text for attr in written["checks.scs"].attrs if isinstance(attr, h.Literal))
+    capture_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
     assert "tran tran stop=1e-07" in check_text
     assert "dyn_setuphold" in check_text
     assert "dyn_subcktpwr" in check_text
@@ -200,9 +192,7 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
         check=False,
         execute=False,
     )
-    slow_text = "\n".join(
-        attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal)
-    )
+    slow_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
     assert "strobeperiod=5e-11 strobeoutput=strobeonly" in slow_text
 
 

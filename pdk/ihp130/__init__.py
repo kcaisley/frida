@@ -29,7 +29,7 @@ from .pdk_logic import *
 
 # The optional external-data installation.
 # Set by an instantiator of `Install`, if available.
-install: Optional[Install] = None
+install: Install | None = None
 
 # And register as a PDK module
 register(pdk_logic)

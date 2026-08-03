@@ -364,14 +364,10 @@ def _run_spectre_case(
             "clk_comp_v": "xtop.xadc.N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
             "comp_out_p_v": "xtop.xadc.N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
             "comp_out_n_v": "xtop.xadc.N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
-            "dac_state_p_15_v": (
-                "xtop.xadc.N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g"
-            ),
+            "dac_state_p_15_v": ("xtop.xadc.N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g"),
             "dac_state_p_8_v": "xtop.xadc.N_DAC_STATE_P_MAIN<8>_XXcapdriver_p_main/XXxor8/MMM_u2-M_u3_g",
             "dac_state_p_0_v": "xtop.xadc.N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor0/MMM_u2-M_u3_g",
-            "dac_state_n_15_v": (
-                "xtop.xadc.N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g"
-            ),
+            "dac_state_n_15_v": ("xtop.xadc.N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g"),
             "dac_state_n_8_v": "xtop.xadc.N_DAC_STATE_N_MAIN<8>_XXcapdriver_n_main/XXxor8/MMM_u2-M_u3_g",
             "dac_state_n_0_v": "xtop.xadc.N_DAC_STATE_N_MAIN<0>_XXcapdriver_n_main/XXxor0/MMM_u2-M_u3_g",
             "dac_botplate_p_15_v": (
@@ -465,10 +461,7 @@ check_nodecap dyn_nodecap node=[xtop.vin_p xtop.vin_n xtop.comp_out] time=[50n 9
 check_setuphold dyn_setuphold node=[xtop.comp_out] ref_node=xtop.seq_logic setup_time=50p hold_time=50p
 check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
             ),
-            h.Literal(
-                f"tran tran stop={tstop_s:.12g} "
-                f"strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
-            ),
+            h.Literal(f"tran tran stop={tstop_s:.12g} strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"),
         ]
         # Spectre circuit-check reports require a PSF-style raw directory,
         # whereas NUTASCII uses one plain file. Keep their runs separate to
@@ -476,10 +469,7 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         write_sim_netlist(hs.Sim(tb=tb, attrs=check_attrs), check_deck_path, compact=True)
     attrs.append(h.Literal("saveOptions options save=selected rawfmt=nutascii"))
     attrs.append(h.Literal("save \\\n    " + " \\\n    ".join(save_names)))
-    tran = (
-        f"tran tran stop={tstop_s:.12g} "
-        f"strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
-    )
+    tran = f"tran tran stop={tstop_s:.12g} strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
     if not check:
         # A finite transient cannot represent noise below 1 / tstop. Spectre
         # silently raises smaller values to this limit, so record the actual
@@ -491,9 +481,7 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
     if not execute:
         return None
     if shutil.which("spectre") is None:
-        raise RuntimeError(
-            "spectre is not on PATH; source design/spice/workspace.sh before running ADC simulations"
-        )
+        raise RuntimeError("spectre is not on PATH; source design/spice/workspace.sh before running ADC simulations")
     if raw_path.is_dir():
         shutil.rmtree(raw_path)
     elif raw_path.exists():

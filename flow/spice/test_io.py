@@ -94,8 +94,7 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
             "vin_p_v": np.full_like(times_s, 0.650),
             "vin_n_v": np.full_like(times_s, 0.600),
             "seq_init_v": np.where(
-                ((times_s >= 1.0e-9) & (times_s < 2.0e-9))
-                | ((times_s >= 171.0e-9) & (times_s < 172.0e-9)),
+                ((times_s >= 1.0e-9) & (times_s < 2.0e-9)) | ((times_s >= 171.0e-9) & (times_s < 172.0e-9)),
                 1.2,
                 0.0,
             ),
@@ -123,8 +122,7 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         "Variables:",
     ]
     lines.extend(
-        f"{index} {name} "
-        f"{'s' if name == 'time' else 'A' if name.endswith('_i') else 'V'}"
+        f"{index} {name} {'s' if name == 'time' else 'A' if name.endswith('_i') else 'V'}"
         for index, name in enumerate(names)
     )
     lines.append("Values:")

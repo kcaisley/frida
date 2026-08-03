@@ -13,7 +13,6 @@ Run from the repository root with:
 from pathlib import Path
 from time import sleep
 
-
 MAP_PATH = Path(__file__).resolve().parent / "map_smu.yaml"
 SMU_RAILS = (
     ("smu1", "VDD_A"),

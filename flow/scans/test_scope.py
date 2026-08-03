@@ -8,7 +8,6 @@ Run from the repository root with:
 from pathlib import Path
 
 import pytest
-
 from basil.HL.tektronix_oscilloscope import response_value
 
 MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"

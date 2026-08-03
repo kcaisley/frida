@@ -14,10 +14,9 @@ The script will:
 2. Create a new cleaned DEF file with the original name
 """
 
-import sys
-import re
 import os
-from typing import List, Tuple
+import re
+import sys
 
 # DBU conversion: 2000 DBU = 1 micrometer
 DBU_PER_UM = 2000
@@ -40,7 +39,7 @@ CORE_X_MIN = 0
 CORE_X_MAX = int(60.0 * DBU_PER_UM)  # 120000 DBU
 
 
-def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
+def parse_m1_followpin_line(line: str) -> tuple[int, int, int, int, bool]:
     """
     Parse M1 FOLLOWPIN line to extract width and coordinates.
 
@@ -79,7 +78,7 @@ def parse_m1_followpin_line(line: str) -> Tuple[int, int, int, int, bool]:
     return None
 
 
-def compute_segments(y: int, x_min: int, x_max: int) -> List[Tuple[int, int]]:
+def compute_segments(y: int, x_min: int, x_max: int) -> list[tuple[int, int]]:
     """
     Compute non-overlapping segments for a horizontal stripe at given Y coordinate.
 
@@ -107,8 +106,7 @@ def compute_segments(y: int, x_min: int, x_max: int) -> List[Tuple[int, int]]:
             segments.append((current_x, blk_x_min))
 
         # Skip past the blockage
-        if current_x < blk_x_max:
-            current_x = blk_x_max
+        current_x = max(current_x, blk_x_max)
 
     # Add final segment from last blockage to end
     if current_x < x_max:
@@ -118,8 +116,8 @@ def compute_segments(y: int, x_min: int, x_max: int) -> List[Tuple[int, int]]:
 
 
 def create_m1_followpin_lines(
-    width: int, y: int, segments: List[Tuple[int, int]], is_routed: bool = False
-) -> List[str]:
+    width: int, y: int, segments: list[tuple[int, int]], is_routed: bool = False
+) -> list[str]:
     """
     Create M1 FOLLOWPIN line(s) for the given segments.
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 def list_cells(gds_path: Path) -> list[str]:
     """Return a sorted list of cell names in a GDS file."""
-    import klayout.db as db
+    from klayout import db
 
     layout = db.Layout()
     layout.read(str(gds_path))
@@ -26,7 +26,7 @@ def list_layers(gds_path: Path) -> dict[str, tuple[int, int]]:
     dict[str, tuple[int, int]]
         e.g. ``{"19/0": (19, 0), "20/0": (20, 0)}``
     """
-    import klayout.db as db
+    from klayout import db
 
     layout = db.Layout()
     layout.read(str(gds_path))

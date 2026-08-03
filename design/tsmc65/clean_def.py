@@ -24,11 +24,10 @@ Check mode:
     Reports all single-cut vias that should be multi-cut without modifying files.
 """
 
-import sys
-import re
 import os
+import re
 import shutil
-from typing import List, Dict, Set, Tuple
+import sys
 
 # List of cell types that require multi-cut vias (width > 0.3 µm on output pins)
 TARGET_CELLS = {
@@ -47,15 +46,15 @@ TARGET_CELLS = {
 }
 
 
-def parse_def_file(filepath: str) -> List[str]:
+def parse_def_file(filepath: str) -> list[str]:
     """Read the DEF file into memory as a list of lines."""
     with open(filepath, "r") as f:
         return f.readlines()
 
 
 def find_target_instances(
-    lines: List[str],
-) -> Tuple[Dict[str, str], Dict[str, Tuple[int, int]]]:
+    lines: list[str],
+) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
     """
     Find all instances of target cell types in the COMPONENTS section.
 
@@ -95,7 +94,7 @@ def find_target_instances(
     return cell_types, cell_locations
 
 
-def find_nets_with_target_outputs(lines: List[str], target_instances: Dict[str, str]) -> Set[str]:
+def find_nets_with_target_outputs(lines: list[str], target_instances: dict[str, str]) -> set[str]:
     """
     Find all nets connected to the Z (output) pins of target instances.
 
@@ -170,7 +169,7 @@ def is_via_near_cell(via_x: int, via_y: int, cell_x: int, cell_y: int, max_dista
     return distance <= max_distance_um
 
 
-def determine_via_orientation(lines: List[str], line_idx: int, via_x: int, via_y: int) -> str:
+def determine_via_orientation(lines: list[str], line_idx: int, via_x: int, via_y: int) -> str:
     """
     Determine the orientation of the via based on surrounding metal routing.
 
@@ -223,9 +222,12 @@ def determine_via_orientation(lines: List[str], line_idx: int, via_x: int, via_y
 
                 # Check if this segment is near our via
                 tolerance = 10000  # 5 µm tolerance in DEF units (2000 units/µm)
-                if abs(x1 - via_x) < tolerance and abs(y1 - via_y) < tolerance:
-                    metal_segments.append((x1, y1, x2, y2))
-                elif abs(x2 - via_x) < tolerance and abs(y2 - via_y) < tolerance:
+                if (
+                    abs(x1 - via_x) < tolerance
+                    and abs(y1 - via_y) < tolerance
+                    or abs(x2 - via_x) < tolerance
+                    and abs(y2 - via_y) < tolerance
+                ):
                     metal_segments.append((x1, y1, x2, y2))
             except ValueError:
                 continue
@@ -257,11 +259,11 @@ def determine_via_orientation(lines: List[str], line_idx: int, via_x: int, via_y
 
 
 def replace_vias_in_nets(
-    lines: List[str],
-    target_nets: Set[str],
-    target_instances: Dict[str, str],
-    cell_locations: Dict[str, Tuple[int, int]],
-) -> Tuple[List[str], int]:
+    lines: list[str],
+    target_nets: set[str],
+    target_instances: dict[str, str],
+    cell_locations: dict[str, tuple[int, int]],
+) -> tuple[list[str], int]:
     """
     Replace VIA12_1cut_V with VIA12_2cut_E/W/N/S in the target nets.
 
@@ -359,10 +361,10 @@ def replace_vias_in_nets(
 
 
 def check_vias_in_nets(
-    lines: List[str],
-    target_nets: Set[str],
-    target_instances: Dict[str, str],
-    cell_locations: Dict[str, Tuple[int, int]],
+    lines: list[str],
+    target_nets: set[str],
+    target_instances: dict[str, str],
+    cell_locations: dict[str, tuple[int, int]],
 ) -> int:
     """
     Check for single-cut vias in target nets without modifying the file.
@@ -439,7 +441,7 @@ def check_vias_in_nets(
     return issues
 
 
-def write_def_file(filepath: str, lines: List[str]):
+def write_def_file(filepath: str, lines: list[str]):
     """Write the modified DEF file."""
     with open(filepath, "w") as f:
         f.writelines(lines)
@@ -460,7 +462,7 @@ def main():
         print("Usage:")
         print("  Fix mode:   python3 clean_def.py <input.def> <backup.def> <output.def>")
         print("  Check mode: python3 clean_def.py -check <input.def>")
-        print("")
+        print()
         print("Examples:")
         print("  python3 clean_def.py 6_final.def 6_badvia.def 6_final.def")
         print("  python3 clean_def.py -check 6_final.def")

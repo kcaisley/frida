@@ -114,6 +114,7 @@ def test_unitless_mos_dimensions_scale_by_pdk_defaults(
 # Base installation paths are defined here in the test harness.
 # Run pdk/<tech>/local.sh to populate the local /eda/kits/ cache from asiclab003.
 
+
 @pytest.mark.site_pdk
 @pytest.mark.parametrize("tech", _LOCAL_INSTALL_BASES)
 def test_local_pdk_spice_files_exist(tech: str) -> None:

@@ -166,10 +166,7 @@ def convert_spectre_adc_to_measurement(
         raise ValueError("maximum_waveform_records must be positive")
 
     times_s = np.asarray(data[signal_names["time_s"]], dtype=np.float64)
-    signals = {
-        name: np.asarray(data[signal_names[name]], dtype=np.float64)
-        for name in raw_wave_names
-    }
+    signals = {name: np.asarray(data[signal_names[name]], dtype=np.float64) for name in raw_wave_names}
     for name in ("vdd_a_i", "vdd_d_i", "vdd_dac_i"):
         signals[name] = -signals[name]
     signals["vin_diff_v"] = signals["vin_p_v"] - signals["vin_n_v"]
@@ -177,9 +174,7 @@ def convert_spectre_adc_to_measurement(
         raise ValueError("Spectre time must be one-dimensional and strictly increasing")
     if any(values.shape != times_s.shape for values in signals.values()):
         raise ValueError("all mapped Spectre signals must align with Spectre time")
-    if not np.all(np.isfinite(times_s)) or any(
-        not np.all(np.isfinite(values)) for values in signals.values()
-    ):
+    if not np.all(np.isfinite(times_s)) or any(not np.all(np.isfinite(values)) for values in signals.values()):
         raise ValueError("Spectre time and mapped signals must contain only finite values")
 
     code_weights = np.asarray(
@@ -192,9 +187,7 @@ def convert_spectre_adc_to_measurement(
     edge_indices: dict[str, np.ndarray] = {}
     for name in ("seq_init_v", "seq_comp_v", "seq_logic_v"):
         high = signals[name] > threshold_v
-        edge_indices[name] = np.flatnonzero(
-            high & np.concatenate((np.asarray([True]), ~high[:-1]))
-        )
+        edge_indices[name] = np.flatnonzero(high & np.concatenate((np.asarray([True]), ~high[:-1])))
     conversion_start_indices = edge_indices["seq_init_v"]
     if len(conversion_start_indices) == 0:
         raise ValueError("Spectre result contains no SEQ_INIT rising edge")
@@ -226,27 +219,20 @@ def convert_spectre_adc_to_measurement(
         matched_logic_edges = logic_edges[logic_positions[:-1]]
         if len(np.unique(matched_logic_edges)) != len(code_weights) - 1:
             raise ValueError(
-                f"conversion {conversion_number} does not pair each COMP edge "
-                "with a unique following LOGIC edge"
+                f"conversion {conversion_number} does not pair each COMP edge with a unique following LOGIC edge"
             )
         comp_edges_by_conversion.append(comp_edges)
         comp_times = times_s[comp_edges]
         logic_times = times_s[matched_logic_edges]
         final_interval_s = float(np.median(logic_times - comp_times[:-1]))
-        logic_times_by_conversion.append(
-            np.concatenate((logic_times, [comp_times[-1] + final_interval_s]))
-        )
+        logic_times_by_conversion.append(np.concatenate((logic_times, [comp_times[-1] + final_interval_s])))
 
     comp_edge_indices = np.stack(comp_edges_by_conversion)
     comp_edge_times_s = times_s[comp_edge_indices]
     logic_edge_times_s = np.stack(logic_times_by_conversion)
-    sample_times_s = comp_edge_times_s + decision_sample_fraction * (
-        logic_edge_times_s - comp_edge_times_s
-    )
+    sample_times_s = comp_edge_times_s + decision_sample_fraction * (logic_edge_times_s - comp_edge_times_s)
     bout = (
-        np.interp(sample_times_s.ravel(), times_s, signals["comp_out_v"])
-        .reshape(sample_times_s.shape)
-        > threshold_v
+        np.interp(sample_times_s.ravel(), times_s, signals["comp_out_v"]).reshape(sample_times_s.shape) > threshold_v
     ).astype(np.uint8)
     dout_raw = bout @ code_weights
     dout = np.rint(dout_raw * ((1 << params.dut.adc_bits) - 1) / np.sum(code_weights)).astype(np.int64)
@@ -316,9 +302,7 @@ def convert_spectre_adc_to_measurement(
     for rail, voltage_v in rail_voltages.items():
         current_draw_a = signals[f"{rail}_i"]
         duration_s = float(times_s[-1] - times_s[0])
-        average_current_a = float(
-            np.trapezoid(current_draw_a, times_s) / duration_s
-        )
+        average_current_a = float(np.trapezoid(current_draw_a, times_s) / duration_s)
         readbacks[f"{rail}_active_average_current_a"] = average_current_a
         readbacks[f"{rail}_active_average_power_w"] = voltage_v * average_current_a
 

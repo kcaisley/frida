@@ -18,7 +18,7 @@ def list_layers(lyt_path: Path) -> dict[str, tuple[int, int]]:
     dict[str, tuple[int, int]]
         e.g. ``{"M1": (19, 0), "VIA1": (51, 0), ...}``
     """
-    import klayout.db as db
+    from klayout import db
 
     tech = db.Technology()
     tech.load(str(lyt_path))

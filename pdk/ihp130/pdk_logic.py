@@ -102,7 +102,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for LV MOS devices.
         """
-        corner_map: Dict[h.pdk.Corner, str] = {
+        corner_map: dict[h.pdk.Corner, str] = {
             h.pdk.Corner.TYP: "tt",
             h.pdk.Corner.FAST: "ff",
             h.pdk.Corner.SLOW: "ss",
@@ -125,7 +125,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for HV MOS devices.
         """
-        corner_map: Dict[h.pdk.Corner, str] = {
+        corner_map: dict[h.pdk.Corner, str] = {
             h.pdk.Corner.TYP: "tt",
             h.pdk.Corner.FAST: "ff",
             h.pdk.Corner.SLOW: "ss",
@@ -148,7 +148,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for HBT devices.
         """
-        corner_map: Dict[h.pdk.Corner, str] = {
+        corner_map: dict[h.pdk.Corner, str] = {
             h.pdk.Corner.TYP: "tt",
             h.pdk.Corner.FAST: "ff",
             h.pdk.Corner.SLOW: "ss",
@@ -171,7 +171,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for resistor devices.
         """
-        corner_map: Dict[h.pdk.Corner, str] = {
+        corner_map: dict[h.pdk.Corner, str] = {
             h.pdk.Corner.TYP: "tt",
             h.pdk.Corner.FAST: "ff",
             h.pdk.Corner.SLOW: "ss",
@@ -194,7 +194,7 @@ class Install(PdkInstallation):
         Returns:
             h.sim.Lib: The model library include for capacitor devices.
         """
-        corner_map: Dict[h.pdk.Corner, str] = {
+        corner_map: dict[h.pdk.Corner, str] = {
             h.pdk.Corner.TYP: "tt",
             h.pdk.Corner.FAST: "ff",
             h.pdk.Corner.SLOW: "ss",
@@ -488,7 +488,7 @@ class IhpWalker(h.HierarchyWalker):
         CACHE.bjt_modcalls[params] = modcall
         return modcall
 
-    def scale_param(self, orig: Optional[h.Scalar], default: h.Prefixed) -> h.Scalar:
+    def scale_param(self, orig: h.Scalar | None, default: h.Prefixed) -> h.Scalar:
         """
         Scale device parameter value.
 
