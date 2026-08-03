@@ -25,5 +25,5 @@ def __getattr__(name: str):
     if name in {"CompTb", "CompTbParams", "sim_input"}:
         from importlib import import_module
 
-        return getattr(import_module(f"{__name__}.testbench"), name)
+        return getattr(import_module(f"{__name__}.sim"), name)
     raise AttributeError(name)

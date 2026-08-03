@@ -27,14 +27,14 @@ class SampParams:
     """Sampling switch parameters.
 
     Device sizing uses multiplier-based scaling:
-    - mos_w: Width multiplier (w=10 means 10×Wmin, e.g., 1.2µm for a 65nm node)
+    - mos_w: Width multiplier (the default 32 is approximately 4µm in FRIDA65A)
     - mos_l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for a 65nm node)
 
     This approach allows the same design to be portable across PDKs.
     """
 
-    switch_type = h.Param(dtype=SwitchType, desc="Switch topology", default=SwitchType.NMOS)
-    mos_w = h.Param(dtype=int, desc="Width multiplier (× Wmin)", default=10)
+    switch_type = h.Param(dtype=SwitchType, desc="Switch topology", default=SwitchType.TGATE)
+    mos_w = h.Param(dtype=int, desc="Width multiplier (× Wmin)", default=32)
     mos_l = h.Param(dtype=int, desc="Length multiplier (× Lmin)", default=1)
     mos_vth = h.Param(dtype=MosVth, desc="Threshold voltage flavor", default=MosVth.LOW)
 

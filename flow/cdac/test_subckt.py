@@ -1,4 +1,4 @@
-"""Smoke tests for the CDAC generator."""
+"""Software-only tests for the CDAC subcircuit and layout generators."""
 
 from pathlib import Path
 
@@ -46,6 +46,8 @@ def test_cdac():
 
 def test_cdac_weights():
     """Test weight calculation for different strategies."""
+    assert get_cdac_weights(CdacParams()) == list(FRIDA_CAP_WEIGHTS)
+
     params = CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2)
     weights = get_cdac_weights(params)
     assert len(weights) == 8
@@ -80,6 +82,17 @@ def test_cdac_connects_msb_to_largest_weight():
     assert module.MP_buf_3.conns["g"].index == 3
     assert float(module.C_0.of.params.c) == 1e-15
     assert module.MP_buf_0.conns["g"].index == 0
+
+
+def test_default_cdac_driver_strengths_match_frida_bands() -> None:
+    """Use 4×, 2×, and 1× driver bands from MSB to LSB."""
+    params = CdacParams()
+    module = Cdac(params)
+    strengths = (4, 4, 2, 2) + (1,) * 12
+
+    for bit, strength in zip(reversed(range(16)), strengths, strict=True):
+        assert getattr(module, f"MP_drv_{bit}").of.params.w == params.driver_p_w * strength
+        assert getattr(module, f"MN_drv_{bit}").of.params.w == params.driver_n_w * strength
 
 
 def test_explicit_cdac_weights_are_validated():

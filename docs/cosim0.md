@@ -58,7 +58,7 @@ gtkwave and bspwave both understand natively (see Step 4).
 ### 3. SPICE netlist format for Spectre's parser
 
 Post-process with `fix_spice_for_spectre()` in the relevant
-`flow.<block>.testbench` module (see Step 2).
+`flow.<block>.sim` module (see Step 2).
 
 ### 4. Connect module configuration for supplies
 
@@ -204,8 +204,8 @@ Fix the HDL21 comparator netlist generator so it produces correct SPICE.
 Verify by generating both the DUT subcircuit and a SPICE testbench, then
 running a standalone Spectre simulation.
 
-1. Fix `python -m flow.<block>.testbench netlist --scope dut` to produce a clean `.subckt` (Step 2 fixes)
-2. Fix `python -m flow.<block>.testbench netlist --scope stim` to produce a self-contained SPICE testbench
+1. Fix `python -m flow.<block>.sim netlist --scope dut` to produce a clean `.subckt` (Step 2 fixes)
+2. Fix `python -m flow.<block>.sim netlist --scope stim` to produce a self-contained SPICE testbench
    (Vpwl/Vpulse sources, transient analysis, PDK model includes)
 3. Run `spectre comp_sim.sp` and verify the comparator toggles correctly
 4. Parse the `.raw` output to confirm expected waveforms
@@ -534,7 +534,7 @@ def run_ams_cocotb_singlepass(
 
 **Pass criterion**: cocotb drives all stimulus, reads outputs and internal
 nodes. Same waveform results as Steps 5/6 but with no inline Verilog
-stimulus. Runs through `python -m flow.comp.testbench simulate`.
+stimulus. Runs through `python -m flow.comp.sim simulate`.
 
 ---
 

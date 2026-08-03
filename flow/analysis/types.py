@@ -10,9 +10,9 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from flow.cdac.testbench import CdacTbParams
-from flow.comp.testbench import CompTbParams
-from flow.samp.testbench import SampTbParams
+from flow.cdac.sim import CdacTbParams
+from flow.comp.sim import CompTbParams
+from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcTbParams
 
 type Backend = Literal["physical", "behavioral", "spice"]

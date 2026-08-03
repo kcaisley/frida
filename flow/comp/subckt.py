@@ -6,6 +6,7 @@ Supports multiple topologies including:
 - Standard/dynamic biasing
 - Single/double stage latches
 - Various power-gating and reset configurations
+- Static transistor-level output decision storage
 """
 
 from enum import Enum, auto
@@ -50,7 +51,7 @@ class CompParams:
         desc="Input diff pair type (NMOS or PMOS)",
         default=MosType.NMOS,
     )
-    preamp_bias = h.Param(dtype=Bias, desc="Biasing type", default=Bias.DYNAMIC)
+    preamp_bias = h.Param(dtype=Bias, desc="Biasing type", default=Bias.SWITCHED)
 
     # Latch transistor pairs — each can be clocked, signaled, or omitted
     latch_outer_on_xtors = h.Param(dtype=State, desc="Outer on devices", default=State.OMIT)
@@ -59,19 +60,30 @@ class CompParams:
     latch_inner_init_xtors = h.Param(dtype=State, desc="Inner init devices", default=State.CLOCK)
 
     # Device sizing (multipliers of Wmin/Lmin)
-    diffpair_w = h.Param(dtype=int, desc="Diff pair width multiplier", default=40)
-    diffpair_l = h.Param(dtype=int, desc="Diff pair length multiplier", default=1)
+    diffpair_w = h.Param(dtype=int, desc="Diff pair width multiplier", default=32)
+    diffpair_l = h.Param(dtype=int, desc="Diff pair length multiplier", default=4)
     diffpair_vth = h.Param(dtype=MosVth, desc="Diff pair Vth", default=MosVth.LOW)
 
-    tail_w = h.Param(dtype=int, desc="Tail width multiplier", default=20)
-    tail_l = h.Param(dtype=int, desc="Tail length multiplier", default=2)
-    tail_vth = h.Param(dtype=MosVth, desc="Tail Vth", default=MosVth.STD)
+    tail_w = h.Param(dtype=int, desc="Tail width multiplier", default=4)
+    tail_l = h.Param(dtype=int, desc="Tail length multiplier", default=16)
+    tail_vth = h.Param(dtype=MosVth, desc="Tail Vth", default=MosVth.LOW)
 
-    rst_w = h.Param(dtype=int, desc="Reset device width multiplier", default=20)
+    rst_w = h.Param(dtype=int, desc="Reset device width multiplier", default=8)
     rst_vth = h.Param(dtype=MosVth, desc="Reset Vth", default=MosVth.LOW)
 
-    latch_w = h.Param(dtype=int, desc="Latch device width multiplier", default=20)
+    latch_w = h.Param(dtype=int, desc="Latch device width multiplier", default=4)
     latch_vth = h.Param(dtype=MosVth, desc="Latch Vth", default=MosVth.LOW)
+
+    srlatch_n_w = h.Param(
+        dtype=int,
+        desc="Output SR-latch NMOS width multiplier",
+        default=4,
+    )
+    srlatch_p_w = h.Param(
+        dtype=int,
+        desc="Output SR-latch PMOS width multiplier",
+        default=8,
+    )
 
 
 def is_valid_comp_params(param: CompParams) -> bool:
@@ -84,6 +96,9 @@ def is_valid_comp_params(param: CompParams) -> bool:
     Double stage: at least one on device pair must exist, and at least
     one of the four device pairs must be signaled (not just clocked).
     """
+    if param.srlatch_n_w <= 0 or param.srlatch_p_w <= 0:
+        return False
+
     if param.latch_inner_init_xtors == State.OMIT:
         return False
 
@@ -114,7 +129,8 @@ def Comp(param: CompParams) -> h.Module:
     """
     Comparator generator.
 
-    Generates Strong-ARM or two-stage comparators based on parameters.
+    Generates Strong-ARM or two-stage comparators with held differential
+    decisions based on parameters.
 
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
@@ -149,8 +165,8 @@ def Comp(param: CompParams) -> h.Module:
     # Build latch
     _build_latch(Comp, param)
 
-    # Build output buffers
-    _build_output_buffers(Comp, param, Comp.innerp, Comp.innern)
+    # Hold each dynamic decision through comparator reset for the SAR update.
+    _build_output_srlatch(Comp, param, Comp.innerp, Comp.innern)
 
     return Comp
 
@@ -208,6 +224,9 @@ def _build_preamp(module, param: CompParams):
         module.Mtail = h.Mos(tp=tail_type, vth=param.tail_vth, w=param.tail_w, l=param.tail_l)(
             d=module.tail, g=on_clk, s=on_rail, b=on_rail
         )
+        module.Mtail_reset = h.Mos(tp=reset_type, vth=param.tail_vth, w=param.tail_w, l=1)(
+            d=module.tail, g=on_clk, s=init_rail, b=init_rail
+        )
     elif param.preamp_bias == Bias.DYNAMIC:
         # Source of tail device connects to a cap node that stores charge
         # during init (via mbias) and sources current during comparison
@@ -223,7 +242,7 @@ def _build_preamp(module, param: CompParams):
     # Reset/precharge devices (minimum length = 1)
     # Precharge preamp outputs during reset phase.
     # For NMOS input: PMOS reset gate=clk → ON when clk=0, OFF when clk=1
-    # For PMOS input: NMOS reset gate=clkb → ON when clkb=0, OFF when clkb=1
+    # For PMOS input: NMOS reset gate=clkb → ON when clkb=1, OFF when clkb=0
     module.Mrst_p = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(
         d=module.preamp_n, g=on_clk, s=init_rail, b=init_rail
     )
@@ -301,10 +320,10 @@ def _build_latch(module, param: CompParams):
         init_inner_gate_p = latch_clk
         init_inner_gate_n = latch_clk
 
-    module.Minner_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
+    module.Minner_init_p = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
         d=module.innerp, g=init_inner_gate_p, s=latch_init_rail, b=latch_init_rail
     )
-    module.Minner_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
+    module.Minner_init_n = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
         d=module.innern, g=init_inner_gate_n, s=latch_init_rail, b=latch_init_rail
     )
 
@@ -384,10 +403,10 @@ def _build_latch(module, param: CompParams):
             outer_init_gate_p = latch_clk
             outer_init_gate_n = latch_clk
 
-        module.Mouter_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
+        module.Mouter_init_p = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
             d=module.outerp, g=outer_init_gate_p, s=latch_init_rail, b=latch_init_rail
         )
-        module.Mouter_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
+        module.Mouter_init_n = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
             d=module.outern, g=outer_init_gate_n, s=latch_init_rail, b=latch_init_rail
         )
 
@@ -395,25 +414,128 @@ def _build_latch(module, param: CompParams):
 # fmt: on
 
 
-def _build_output_buffers(module, param: CompParams, innerp, innern):
-    """Build output buffer inverters driven by latch nodes.
+def _build_output_srlatch(module, param: CompParams, innerp, innern):
+    """Build a static CMOS SR latch and buffered differential outputs.
 
-    TODO: Output polarity differs between single and double stage.
-    Either add a second inverter stage for single stage so outp/outn
-    init state is always both-low, or have downstream logic account
-    for the polarity difference.
+    The dynamic comparator nodes return to their common reset level after each
+    evaluation. Input inverters turn their differential decision into either
+    active-high or active-low set/reset pulses. A cross-coupled NOR or NAND
+    latch, selected from the dynamic-node reset polarity, retains that decision
+    until the next comparison. Two inverter stages isolate the latch from its
+    output load while preserving the one-hot output polarity.
     """
-    module.Mbuf_outp_top = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.outp, g=innern, s=module.vdd, b=module.vdd
+
+    n_w = param.srlatch_n_w
+    p_w = param.srlatch_p_w
+
+    # Convert the dynamic inner nodes into the former direct-buffer outputs.
+    # During evaluation exactly one of these differential signals asserts.
+    module.decision_p = h.Signal(desc="Dynamic positive decision")
+    module.decision_n = h.Signal(desc="Dynamic negative decision")
+    module.Mdecision_p_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+        d=module.decision_p, g=innern, s=module.vdd, b=module.vdd
     )
-    module.Mbuf_outp_bot = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.outp, g=innern, s=module.vss, b=module.vss
+    module.Mdecision_p_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+        d=module.decision_p, g=innern, s=module.vss, b=module.vss
     )
-    module.Mbuf_outn_top = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.outn, g=innerp, s=module.vdd, b=module.vdd
+    module.Mdecision_n_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+        d=module.decision_n, g=innerp, s=module.vdd, b=module.vdd
     )
-    module.Mbuf_outn_bot = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.outn, g=innerp, s=module.vss, b=module.vss
+    module.Mdecision_n_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+        d=module.decision_n, g=innerp, s=module.vss, b=module.vss
+    )
+
+    module.sr_p = h.Signal(desc="Held positive decision")
+    module.sr_n = h.Signal(desc="Held negative decision")
+    module.sr_p_stack = h.Signal()
+    module.sr_n_stack = h.Signal()
+
+    preamp_resets_high = param.preamp_diff_xtors == MosType.NMOS
+    inner_resets_high = preamp_resets_high if param.comp_stages == Stages.SINGLE else not preamp_resets_high
+
+    if inner_resets_high:
+        # decision_p/n are low between comparisons. Cross-coupled NOR gates
+        # accept their active-high assertion and retain the resulting state.
+        module.Msr_p_p_decision = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_p_stack, g=module.decision_n, s=module.vdd, b=module.vdd
+        )
+        module.Msr_p_p_feedback = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_p, g=module.sr_n, s=module.sr_p_stack, b=module.vdd
+        )
+        module.Msr_p_n_decision = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_p, g=module.decision_n, s=module.vss, b=module.vss
+        )
+        module.Msr_p_n_feedback = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_p, g=module.sr_n, s=module.vss, b=module.vss
+        )
+
+        module.Msr_n_p_decision = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_n_stack, g=module.decision_p, s=module.vdd, b=module.vdd
+        )
+        module.Msr_n_p_feedback = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_n, g=module.sr_p, s=module.sr_n_stack, b=module.vdd
+        )
+        module.Msr_n_n_decision = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_n, g=module.decision_p, s=module.vss, b=module.vss
+        )
+        module.Msr_n_n_feedback = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_n, g=module.sr_p, s=module.vss, b=module.vss
+        )
+    else:
+        # decision_p/n are high between comparisons. Cross-coupled NAND gates
+        # accept their active-low assertion and retain the resulting state.
+        module.Msr_p_p_decision = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_p, g=module.decision_p, s=module.vdd, b=module.vdd
+        )
+        module.Msr_p_p_feedback = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_p, g=module.sr_n, s=module.vdd, b=module.vdd
+        )
+        module.Msr_p_n_decision = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_p, g=module.decision_p, s=module.sr_p_stack, b=module.vss
+        )
+        module.Msr_p_n_feedback = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_p_stack, g=module.sr_n, s=module.vss, b=module.vss
+        )
+
+        module.Msr_n_p_decision = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_n, g=module.decision_n, s=module.vdd, b=module.vdd
+        )
+        module.Msr_n_p_feedback = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+            d=module.sr_n, g=module.sr_p, s=module.vdd, b=module.vdd
+        )
+        module.Msr_n_n_decision = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_n, g=module.decision_n, s=module.sr_n_stack, b=module.vss
+        )
+        module.Msr_n_n_feedback = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+            d=module.sr_n_stack, g=module.sr_p, s=module.vss, b=module.vss
+        )
+
+    # Two inverter stages buffer the static latch without changing polarity.
+    module.outp_b = h.Signal()
+    module.outn_b = h.Signal()
+    module.Mbuf1_outp_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+        d=module.outp_b, g=module.sr_p, s=module.vdd, b=module.vdd
+    )
+    module.Mbuf1_outp_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+        d=module.outp_b, g=module.sr_p, s=module.vss, b=module.vss
+    )
+    module.Mbuf1_outn_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=p_w, l=1)(
+        d=module.outn_b, g=module.sr_n, s=module.vdd, b=module.vdd
+    )
+    module.Mbuf1_outn_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=n_w, l=1)(
+        d=module.outn_b, g=module.sr_n, s=module.vss, b=module.vss
+    )
+    module.Mbuf2_outp_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=2 * p_w, l=1)(
+        d=module.outp, g=module.outp_b, s=module.vdd, b=module.vdd
+    )
+    module.Mbuf2_outp_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=2 * n_w, l=1)(
+        d=module.outp, g=module.outp_b, s=module.vss, b=module.vss
+    )
+    module.Mbuf2_outn_p = h.Mos(tp=MosType.PMOS, vth=param.latch_vth, w=2 * p_w, l=1)(
+        d=module.outn, g=module.outn_b, s=module.vdd, b=module.vdd
+    )
+    module.Mbuf2_outn_n = h.Mos(tp=MosType.NMOS, vth=param.latch_vth, w=2 * n_w, l=1)(
+        d=module.outn, g=module.outn_b, s=module.vss, b=module.vss
     )
 
 

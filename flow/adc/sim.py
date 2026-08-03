@@ -1,4 +1,4 @@
-"""Unified HDL21 testbench and named Spectre campaigns for the FRIDA ADC."""
+"""HDL21 testbench and named Spectre simulation runner for the FRIDA ADC."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import p
 
-from flow.circuit.sim import write_sim_netlist
+from flow.circuit.netlist import write_sim_netlist
 from flow.pdks import set_pdk
 from flow.scans.params import AdcTbParams, convert_sample_rate_to_baud, validate_params
 from flow.spice.io import convert_spectre_adc_raw_to_h5
@@ -32,13 +32,11 @@ STANDARD_CELL_SPICE = (
 )
 DIGITAL_SPICE = BASE_PATH / "design" / "spice" / "adc_digital.sp"
 TARGETS = (
-    "frida65a_noise_vs_rate_cm",
-    "hdl21gen_noise_vs_rate_cm",
-    "frida65a_noise_large_signal",
-    "hdl21gen_noise_large_signal",
+    "frida65a_noise_vs_rate",
+    "hdl21gen_noise_vs_rate",
 )
 
-# Set by the command-line entry point so the four public campaign functions
+# Set by the command-line entry point so the two public campaign functions
 # remain zero-argument, manually callable entry points.
 _CHECK_MODE = False
 
@@ -321,6 +319,8 @@ def _run_spectre_case(
     """Generate one complete deck and optionally run and convert it."""
 
     validate_params(params)
+    if params.conversions > 100:
+        raise ValueError("ADC Spectre cases are limited to 100 conversions")
     case_dir.mkdir(parents=True, exist_ok=True)
     deck_path = case_dir / "input.scs"
     raw_path = case_dir / "result.raw"
@@ -510,6 +510,8 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
                 check_deck_path.name,
                 "+preset=mx",
                 "+mt=4",
+                "+lqtimeout",
+                "3600",
                 "+escchars",
                 "-raw",
                 checks_path.name,
@@ -527,6 +529,8 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         deck_path.name,
         "+preset=mx",
         "+mt=4",
+        "+lqtimeout",
+        "3600",
         "+escchars",
         "-raw",
         raw_path.name,
@@ -545,31 +549,31 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
     return h5_path
 
 
-def frida65a_noise_vs_rate_cm() -> None:
+def frida65a_noise_vs_rate() -> None:
     """Run the extracted ADC fixed-input noise sweep."""
 
-    output_dir = OUTPUT_BASE / "frida65a_noise_vs_rate_cm" / time.strftime("%Y%m%d_%H%M")
+    output_dir = OUTPUT_BASE / "frida65a_noise_vs_rate" / time.strftime("%Y%m%d_%H%M")
     alternating = tuple(int(bit) for bit in "0101010101010101")
     template = AdcTbParams()
     cases = []
     # Run shortest cases first so each campaign produces useful results early.
-    for rate_msps in (10, 5, 1):
-        for common_mode_v in (0.2, 0.6, 1.0):
-            cases.append(
-                (
-                    f"{rate_msps}msps_cm{round(common_mode_v * 1000)}mv_dc50mv",
-                    AdcTbParams(
-                        symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                        conversions=100,
-                        vin_cm=h.Vdc.Params(dc=common_mode_v),
-                        vin_diff=h.Vdc.Params(dc=0.05),
-                        dac_astate_p=alternating,
-                        dac_bstate_p=(0,) * 16,
-                        dac_astate_n=alternating,
-                        dac_bstate_n=(0,) * 16,
-                    ),
-                )
+    for rate_msps in (10, 6, 2):
+        cases.append(
+            (
+                f"{rate_msps}msps_cm600mv_dc50mv",
+                AdcTbParams(
+                    symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
+                    conversions=20,
+                    vin_cm=h.Vdc.Params(dc=0.6),
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    seq_logic_phase_delay_symbols=2.0,
+                    dac_astate_p=alternating,
+                    dac_bstate_p=(0,) * 16,
+                    dac_astate_n=alternating,
+                    dac_bstate_n=(0,) * 16,
+                ),
             )
+        )
     for name, params in cases:
         _run_spectre_case(
             params,
@@ -610,31 +614,31 @@ def frida65a_noise_vs_rate_cm() -> None:
         )
 
 
-def hdl21gen_noise_vs_rate_cm() -> None:
+def hdl21gen_noise_vs_rate() -> None:
     """Run the generated ADC fixed-input noise sweep."""
 
-    output_dir = OUTPUT_BASE / "hdl21gen_noise_vs_rate_cm" / time.strftime("%Y%m%d_%H%M")
+    output_dir = OUTPUT_BASE / "hdl21gen_noise_vs_rate" / time.strftime("%Y%m%d_%H%M")
     alternating = tuple(int(bit) for bit in "0101010101010101")
     template = AdcTbParams()
     cases = []
     # Run shortest cases first so each campaign produces useful results early.
-    for rate_msps in (10, 5, 1):
-        for common_mode_v in (0.2, 0.6, 1.0):
-            cases.append(
-                (
-                    f"{rate_msps}msps_cm{round(common_mode_v * 1000)}mv_dc50mv",
-                    AdcTbParams(
-                        symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                        conversions=100,
-                        vin_cm=h.Vdc.Params(dc=common_mode_v),
-                        vin_diff=h.Vdc.Params(dc=0.05),
-                        dac_astate_p=alternating,
-                        dac_bstate_p=(0,) * 16,
-                        dac_astate_n=alternating,
-                        dac_bstate_n=(0,) * 16,
-                    ),
-                )
+    for rate_msps in (10, 6, 2):
+        cases.append(
+            (
+                f"{rate_msps}msps_cm600mv_dc50mv",
+                AdcTbParams(
+                    symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
+                    conversions=20,
+                    vin_cm=h.Vdc.Params(dc=0.6),
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    seq_logic_phase_delay_symbols=2.0,
+                    dac_astate_p=alternating,
+                    dac_bstate_p=(0,) * 16,
+                    dac_astate_n=alternating,
+                    dac_bstate_n=(0,) * 16,
+                ),
             )
+        )
     for name, params in cases:
         _run_spectre_case(
             params,
@@ -670,130 +674,6 @@ def hdl21gen_noise_vs_rate_cm() -> None:
             params,
             view="hdl21gen",
             case_dir=output_dir / "check_10msps_cm600mv_dc50mv",
-            check=True,
-            execute=True,
-        )
-
-
-def frida65a_noise_large_signal() -> None:
-    """Run the extracted ADC 1 Vpp sine sweep."""
-
-    output_dir = OUTPUT_BASE / "frida65a_noise_large_signal" / time.strftime("%Y%m%d_%H%M")
-    alternating = tuple(int(bit) for bit in "0101010101010101")
-    template = AdcTbParams()
-    cases = [
-        (
-            f"{rate_msps}msps_cm600mv_sine1000mvpp",
-            AdcTbParams(
-                symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                conversions=1_000,
-                vin_cm=h.Vdc.Params(dc=0.6),
-                vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=9_998.770151),
-                dac_astate_p=alternating,
-                dac_bstate_p=(0,) * 16,
-                dac_astate_n=alternating,
-                dac_bstate_n=(0,) * 16,
-            ),
-        )
-        for rate_msps in (10, 5, 1)
-    ]
-    for name, params in cases:
-        _run_spectre_case(
-            params,
-            view="frida65a",
-            case_dir=output_dir / name,
-            check=False,
-            execute=not _CHECK_MODE,
-        )
-    if _CHECK_MODE:
-        params = next(params for name, params in cases if name.startswith("10msps"))
-        first_active = min(
-            index
-            for index in range(len(params.seq_init_pattern))
-            if any(
-                pattern[index] == "1"
-                for pattern in (
-                    params.seq_init_pattern,
-                    params.seq_samp_pattern,
-                    params.seq_comp_pattern,
-                    params.seq_logic_pattern,
-                )
-            )
-        )
-        params = dataclasses.replace(
-            params,  # ty: ignore[invalid-argument-type]
-            conversions=1,
-            seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
-            seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
-            seq_comp_pattern=params.seq_comp_pattern[first_active:] + params.seq_comp_pattern[:first_active],
-            seq_logic_pattern=params.seq_logic_pattern[first_active:] + params.seq_logic_pattern[:first_active],
-        )
-        _run_spectre_case(
-            params,
-            view="frida65a",
-            case_dir=output_dir / "check_10msps_cm600mv_sine1000mvpp",
-            check=True,
-            execute=True,
-        )
-
-
-def hdl21gen_noise_large_signal() -> None:
-    """Run the generated ADC 1 Vpp sine sweep."""
-
-    output_dir = OUTPUT_BASE / "hdl21gen_noise_large_signal" / time.strftime("%Y%m%d_%H%M")
-    alternating = tuple(int(bit) for bit in "0101010101010101")
-    template = AdcTbParams()
-    cases = [
-        (
-            f"{rate_msps}msps_cm600mv_sine1000mvpp",
-            AdcTbParams(
-                symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                conversions=1_000,
-                vin_cm=h.Vdc.Params(dc=0.6),
-                vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=9_998.770151),
-                dac_astate_p=alternating,
-                dac_bstate_p=(0,) * 16,
-                dac_astate_n=alternating,
-                dac_bstate_n=(0,) * 16,
-            ),
-        )
-        for rate_msps in (10, 5, 1)
-    ]
-    for name, params in cases:
-        _run_spectre_case(
-            params,
-            view="hdl21gen",
-            case_dir=output_dir / name,
-            check=False,
-            execute=not _CHECK_MODE,
-        )
-    if _CHECK_MODE:
-        params = next(params for name, params in cases if name.startswith("10msps"))
-        first_active = min(
-            index
-            for index in range(len(params.seq_init_pattern))
-            if any(
-                pattern[index] == "1"
-                for pattern in (
-                    params.seq_init_pattern,
-                    params.seq_samp_pattern,
-                    params.seq_comp_pattern,
-                    params.seq_logic_pattern,
-                )
-            )
-        )
-        params = dataclasses.replace(
-            params,  # ty: ignore[invalid-argument-type]
-            conversions=1,
-            seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
-            seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
-            seq_comp_pattern=params.seq_comp_pattern[first_active:] + params.seq_comp_pattern[:first_active],
-            seq_logic_pattern=params.seq_logic_pattern[first_active:] + params.seq_logic_pattern[:first_active],
-        )
-        _run_spectre_case(
-            params,
-            view="hdl21gen",
-            case_dir=output_dir / "check_10msps_cm600mv_sine1000mvpp",
             check=True,
             execute=True,
         )

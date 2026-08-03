@@ -7,7 +7,6 @@ Supports multiple architectures including:
 - Variable bit widths with dynamic port generation
 """
 
-import math
 from enum import Enum, auto
 
 import hdl21 as h
@@ -47,6 +46,21 @@ class CdacParams:
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
     mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
+    driver_p_w = h.Param(
+        dtype=int,
+        desc="Unit PMOS output-driver width multiplier",
+        default=9,
+    )
+    driver_n_w = h.Param(
+        dtype=int,
+        desc="Unit NMOS output-driver width multiplier",
+        default=7,
+    )
+    driver_strengths = h.Param(
+        dtype=tuple[int, ...] | None,
+        desc="Optional MSB-first output-driver strength multipliers",
+        default=None,
+    )
     weights = h.Param(
         dtype=tuple[int, ...] | None,
         desc="Explicit unit-capacitor weights; overrides redun_strat when set",
@@ -56,6 +70,16 @@ class CdacParams:
 
 def is_valid_cdac_params(p: CdacParams) -> bool:
     """Check if this CDAC configuration is valid."""
+    if p.driver_p_w <= 0 or p.driver_n_w <= 0:
+        return False
+    if p.driver_strengths is not None:
+        if len(p.driver_strengths) != p.n_dac + p.n_extra:
+            return False
+        if any(
+            isinstance(strength, bool) or not isinstance(strength, int) or strength <= 0
+            for strength in p.driver_strengths
+        ):
+            return False
     if p.weights is not None:
         return len(p.weights) == p.n_dac + p.n_extra and all(
             not isinstance(weight, bool) and isinstance(weight, int) and weight > 0 for weight in p.weights
@@ -102,6 +126,12 @@ def Cdac(param: CdacParams) -> h.Module:
 
     weights = get_cdac_weights(param)
     n_bits = len(weights)
+    if param.driver_strengths is None:
+        # Match the fabricated FRIDA driver bands: the two largest capacitors
+        # use 4× output stages, the next two use 2×, and all others use 1×.
+        driver_strengths = (4, 4, 2, 2)[:n_bits] + (1,) * max(0, n_bits - 4)
+    else:
+        driver_strengths = param.driver_strengths
 
     @h.module
     class Cdac:
@@ -120,18 +150,25 @@ def Cdac(param: CdacParams) -> h.Module:
     # ``weights`` is ordered MSB-first, matching the ADC decision sequence.
     # HDL buses use bit ``n_bits - 1`` as their MSB, so associate the first
     # (largest) weight with that bit and work downward to bit zero.
-    for bit, weight in zip(reversed(range(n_bits)), weights, strict=True):
-        _build_dac_bit(Cdac, param, bit, weight, threshold)
+    for bit, weight, driver_strength in zip(
+        reversed(range(n_bits)),
+        weights,
+        driver_strengths,
+        strict=True,
+    ):
+        _build_dac_bit(Cdac, param, bit, weight, driver_strength, threshold)
 
     return Cdac
 
 
-def _calc_driver_width(c: int, m: int) -> int:
-    """Calculate driver width multiplier based on capacitor load (sqrt scaling)."""
-    return max(10, int(math.sqrt(c * m)) * 10)
-
-
-def _build_dac_bit(mod, param: CdacParams, idx: int, weight: int, threshold: int):
+def _build_dac_bit(
+    mod,
+    param: CdacParams,
+    idx: int,
+    weight: int,
+    driver_strength: int,
+    threshold: int,
+):
     """Build one DAC bit: buffer + driver + capacitor(s)."""
 
     # Create intermediate signal for this bit
@@ -147,20 +184,39 @@ def _build_dac_bit(mod, param: CdacParams, idx: int, weight: int, threshold: int
     setattr(mod, f"MN_buf_{idx}", MN_buf)
 
     if param.split_strat == SplitStrat.NO_SPLIT:
-        _build_nosplit_bit(mod, param, idx, weight, inter, bot)
+        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)
     elif param.split_strat == SplitStrat.VDIV_SPLIT:
-        _build_nosplit_bit(mod, param, idx, weight, inter, bot)  # Simplified
+        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)  # Simplified
     else:  # DIFFCAP_SPLIT
-        _build_nosplit_bit(mod, param, idx, weight, inter, bot)  # Simplified
+        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)  # Simplified
 
 
-def _build_nosplit_bit(mod, param: CdacParams, idx: int, weight: int, inter, bot):
+def _build_nosplit_bit(
+    mod,
+    param: CdacParams,
+    idx: int,
+    weight: int,
+    driver_strength: int,
+    inter,
+    bot,
+):
     """No split: c=1, m=weight (simplified using multiplier)."""
-    driver_w = _calc_driver_width(1, weight)
 
-    # Driver inverter (width scales with capacitor weight)
-    MP_drv = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=driver_w, l=1)(d=bot, g=inter, s=mod.vdd, b=mod.vdd)
-    MN_drv = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=driver_w, l=1)(d=bot, g=inter, s=mod.vss, b=mod.vss)
+    # Approximate the fabricated XOR output stage with portable transistors.
+    # Strength changes in three discrete bands instead of scaling continuously
+    # with capacitor weight.
+    MP_drv = h.Mos(
+        tp=MosType.PMOS,
+        vth=param.mos_vth,
+        w=param.driver_p_w * driver_strength,
+        l=1,
+    )(d=bot, g=inter, s=mod.vdd, b=mod.vdd)
+    MN_drv = h.Mos(
+        tp=MosType.NMOS,
+        vth=param.mos_vth,
+        w=param.driver_n_w * driver_strength,
+        l=1,
+    )(d=bot, g=inter, s=mod.vss, b=mod.vss)
     setattr(mod, f"MP_drv_{idx}", MP_drv)
     setattr(mod, f"MN_drv_{idx}", MN_drv)
 

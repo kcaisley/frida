@@ -2,22 +2,20 @@
 
 ## Summary
 
-Replace the hand-written ADC simulation decks with four named HDL21 targets
+Replace the hand-written ADC simulation decks with two named HDL21 targets
 using the shared `AdcTbParams`. Both the extracted FRIDA65A ADC and the
 HDL21-generated ADC will produce compatible typed HDF5 measurements.
 
 The public targets will be:
 
-- `frida65a_noise_vs_rate_cm`
-- `hdl21gen_noise_vs_rate_cm`
-- `frida65a_noise_large_signal`
-- `hdl21gen_noise_large_signal`
+- `frida65a_noise_vs_rate`
+- `hdl21gen_noise_vs_rate`
 
 They will be invoked with:
 
 ```text
-uv run python -m flow.adc.testbench <target>
-uv run python -m flow.adc.testbench <target> --check
+uv run python -m flow.adc.sim <target>
+uv run python -m flow.adc.sim <target> --check
 ```
 
 With no target, the command will list the available targets and exit. Separate
@@ -28,18 +26,18 @@ coverage.
 
 - [x] Use the shared `AdcTbParams` for both generated and extracted views.
 - [x] Match the synthesized digital and extracted ADC pin interfaces.
-- [x] Generate the four named campaign matrices and native Spectre stimuli.
+- [x] Generate the two named fixed-input campaign matrices and native Spectre stimuli.
 - [x] Save 31 selected voltages and currents in NUTASCII.
 - [x] Convert generated and PEX results to the shared `MeasAdcInt` HDF5 schema.
-- [x] Run DC and sine `--check` cases for both ADC views.
+- [x] Run fixed-input `--check` cases for both ADC views.
 - [x] Verify comparator activity, decision decoding, rail power, and HDF5 plots.
 - [x] Add software coverage for campaigns, pin order, decoding, and analysis compatibility.
 - [x] Remove the superseded hand-written decks and post-processing script.
-- [ ] Complete the four production noise campaigns.
+- [x] Complete the two revised production noise campaigns.
 
 ## Testbench and simulation targets
 
-Rewrite `flow/adc/testbench.py` around the canonical
+Rewrite `flow/adc/sim.py` around the canonical
 `flow.scans.params.AdcTbParams`.
 
 Support two DUT views:
@@ -50,8 +48,8 @@ Support two DUT views:
 
 Add separate VDD_A, VDD_D, and VDD_DAC ports to the generated ADC, with the
 CDAC powered from VDD_DAC. Generate the analog and digital stimuli from
-`AdcTbParams`, including `Vbit` sequencer signals, phase offsets, DC or sine
-differential input, common mode, and alternating DAC initialization.
+`AdcTbParams`, including `Vbit` sequencer signals, phase offsets, a fixed DC
+differential input and common mode, and alternating DAC initialization.
 
 Save the external ADC signals, internal clocks and nodes, comparator nodes,
 CDAC nodes, and signed current waveforms for all three supply sources. Use
@@ -66,26 +64,21 @@ Each target creates its own timestamped directory beneath:
 build/adc/<target>/<YYYYMMDD_HHMM>/
 ```
 
-### Noise versus rate and common mode
+### Fixed-input noise versus rate
 
-The `*_noise_vs_rate_cm` targets contain:
+The `*_noise_vs_rate` targets contain:
 
-- Active ADC rates of 1, 5, and 10 MSPS.
-- Common-mode voltages of 200, 600, and 1000 mV.
+- Active ADC rates of 2, 6, and 10 MSPS.
+- A fixed 600 mV common-mode voltage. Other common modes are excluded from
+  these long-running PEX campaigns.
 - A +50 mV DC differential input.
-- 100 conversions per configuration.
-- Nine independent raw and HDF5 results.
+- 20 conversions per configuration. These simulations are sanity checks; the
+  physical measurements provide the high-statistics noise characterization.
+- Three independent raw and HDF5 results per DUT view.
 
-### Large-signal noise
-
-The `*_noise_large_signal` targets contain:
-
-- Active ADC rates of 1, 5, and 10 MSPS.
-- A 600 mV common-mode voltage.
-- A 1.0 Vpp differential sine input.
-- A tone frequency of 9,998.770151 Hz.
-- 1,000 conversions per configuration.
-- Three independent raw and HDF5 results.
+No ADC Spectre case may request more than 100 conversions. Sine campaigns are
+excluded: at practical PEX runtimes they do not provide enough observations
+near any one input voltage for a useful fixed-input noise estimate.
 
 All cases use alternating A-state `0101010101010101` and zero B-state
 `0000000000000000` initialization.
@@ -96,7 +89,7 @@ The `--check` mode generates every production deck belonging to the selected
 target, but runs Spectre on only one representative configuration:
 
 - 10 MSPS and 600 mV common mode.
-- The target-appropriate DC or sine stimulus.
+- The +50 mV DC differential stimulus.
 - Noise disabled.
 - One active conversion.
 - A transient capped at 100 ns.
@@ -165,6 +158,32 @@ Decode comparator decisions immediately before the LOGIC/update edge instead
 of using a fixed 10 ns delay. Require a complete internal and current signal
 mapping for new simulations; legacy raw files without these signals do not
 need to remain compatible.
+
+Store every complete SPICE waveform record on one uniform 25 ps grid for every
+ADC rate; do not discard records during the default raw-to-HDF5 conversion.
+Record the native raw timestep and whether the dense waveform grid required
+interpolation. A finer HDF5 grid does not recover bandwidth missing from a
+coarser Spectre result; campaign files may interpolate a coarser native grid,
+and expose that fact in their readback metadata. Dedicated high-fidelity
+captures should instead request native simulator points at 25 ps or finer.
+Continue computing full-run rail power from the native Spectre time grid before
+waveform resampling. The converter retains an explicit optional record limit
+for specialized callers, but campaign output does not set it.
+
+Publish each HDF5 result atomically from a same-directory temporary file after
+the writer closes successfully, so collectors and analysis readers can never
+observe a partially written measurement.
+
+The 25 ps interval is based on 5 ps diagnostic transients, not only the ADC
+symbol rate. FFTs over one steady 10 MSPS pattern showed less than 0.75% energy
+above its 20 GHz Nyquist limit for inspected generated control, clock, CDAC,
+and comparator voltages, and less than 0.1% for extracted control, clock, and
+CDAC voltages. Saturated extracted comparator nodes were noise dominated and
+placed 2.4--3.4% of their roughly millivolt-level residual energy above 20 GHz;
+this accepted loss does not hide control edges. At 50 ps, extracted `comp_out`
+retention fell to 90.63%. Supply-current impulses are also broadband, but
+full-run power is integrated on the native Spectre grid before HDF5
+interpolation.
 
 ## Cleanup
 

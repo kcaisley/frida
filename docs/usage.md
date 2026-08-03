@@ -4,7 +4,7 @@ FRIDA commands run through the Python module that owns the operation:
 
 ```text
 python -m flow.<block>.primitive
-python -m flow.<block>.testbench
+python -m flow.<block>.sim
 python -m flow.util.netlist
 python -m flow.scans.<scan>
 ```
@@ -13,8 +13,8 @@ There is no installed `flow` executable or separate build-system orchestration
 layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
-uv run python -m flow.comp.testbench --help
-uv run python -m flow.comp.testbench netlist --help
+uv run python -m flow.comp.sim --help
+uv run python -m flow.comp.sim netlist --help
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools
@@ -59,7 +59,7 @@ uv run python -m flow.mosfet.primitive -t ihp130 -m max -v
 Each circuit testbench module generates its own netlists:
 
 ```bash
-uv run python -m flow.<block>.testbench netlist \
+uv run python -m flow.<block>.sim netlist \
   [-t <tech>] [-m <mode>] [-f <format>] \
   [--scope <scope>] [--montecarlo] [-o <dir>]
 ```
@@ -88,16 +88,16 @@ variants. Results are written below `<output root>/<block>/`.
 
 ```bash
 # Complete Spectre input for every comparator variant
-uv run python -m flow.comp.testbench netlist -t ihp130
+uv run python -m flow.comp.sim netlist -t ihp130
 
 # DUT-only Verilog
-uv run python -m flow.comp.testbench netlist -t ihp130 --scope dut -f verilog
+uv run python -m flow.comp.sim netlist -t ihp130 --scope dut -f verilog
 
 # CDAC stimulus wrapper without analysis commands
-uv run python -m flow.cdac.testbench netlist -t tsmc65 --scope stim
+uv run python -m flow.cdac.sim netlist -t tsmc65 --scope stim
 
 # Complete comparator input with Monte Carlo analysis
-uv run python -m flow.comp.testbench netlist -t ihp130 --montecarlo
+uv run python -m flow.comp.sim netlist -t ihp130 --montecarlo
 ```
 
 ## Circuit simulation
@@ -105,9 +105,9 @@ uv run python -m flow.comp.testbench netlist -t ihp130 --montecarlo
 The same testbench modules run SPICE simulations:
 
 ```bash
-uv run python -m flow.<block>.testbench simulate \
+uv run python -m flow.<block>.sim simulate \
   [-t <tech>] [-m <mode>] [-s <simulator>] \
-  [--host <host>] [--montecarlo] [-o <dir>]
+  [--montecarlo] [-o <dir>]
 ```
 
 | Option | Values | Default |
@@ -115,20 +115,16 @@ uv run python -m flow.<block>.testbench simulate \
 | `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
 | `-m, --mode` | `min`, `max` | `min` |
 | `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
-| `--host` | remote SpiceServer hostname | local |
 | `--montecarlo` | add Monte Carlo analysis | off |
 | `-o, --out` | output directory | `build` |
 
-Local simulation requires the selected simulator executable on `PATH` and a
-configured simulation host. Supplying `--host` delegates the run to
-SpiceServer.
+Simulation requires the selected simulator executable on `PATH` and a
+configured simulation host.
 
 ```bash
-uv run python -m flow.comp.testbench simulate -t ihp130 -m min -s spectre
-uv run python -m flow.comp.testbench simulate -t tsmc65 -s spectre --host jupiter
+uv run python -m flow.comp.sim simulate -t ihp130 -m min -s spectre
+uv run python -m flow.comp.sim simulate -t tsmc65 -s spectre
 ```
-
-See [`spice_server.md`](spice_server.md) for remote-server setup.
 
 ## Netlist conversion
 
@@ -192,14 +188,12 @@ instrument readbacks, all ADC conversions, and representative scope waveforms;
 there is no separate CSV or manifest.
 
 Behavioral and SPICE-backed scans use the same acquisition schema. The ADC
-Spectre flow exposes four explicit generated and extracted campaigns:
+Spectre flow exposes one fixed-input noise campaign for each DUT view:
 
 ```bash
 uv run python -m flow.scans.scan_behavioral
-uv run python -m flow.adc.testbench hdl21gen_noise_vs_rate_cm
-uv run python -m flow.adc.testbench frida65a_noise_vs_rate_cm
-uv run python -m flow.adc.testbench hdl21gen_noise_large_signal
-uv run python -m flow.adc.testbench frida65a_noise_large_signal
+uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
+uv run python -m flow.adc.sim frida65a_noise_vs_rate
 ```
 
 Add `--check` to generate every deck in one campaign and run one representative

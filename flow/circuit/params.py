@@ -66,47 +66,7 @@ class SupplyVals:
         return cls(VDD=cls.VDD_VALS[idx])
 
 
-@dataclass
-class Tsmc65SupplyVals(SupplyVals):
-    """
-    TSMC 65nm LP supply voltage values.
+def temperature_c(corner: Corner) -> int:
+    """Map a PVT temperature corner to degrees Celsius."""
 
-    Nominal VDD: 1.2V
-    Corners: -10%, nominal, +10%
-    """
-
-    VDD_VALS: ClassVar[list] = [1080 * m, 1200 * m, 1320 * m]
-
-
-@dataclass
-class Tsmc28SupplyVals(SupplyVals):
-    """
-    TSMC 28nm HPC+ supply voltage values.
-
-    Nominal VDD: 0.9V
-    Corners: -10%, nominal, +10%
-    """
-
-    VDD_VALS: ClassVar[list] = [810 * m, 900 * m, 990 * m]
-
-
-@dataclass
-class Tower180SupplyVals(SupplyVals):
-    """
-    Tower 180nm supply voltage values.
-
-    Nominal VDD: 1.8V
-    Corners: -10%, nominal, +10%
-    """
-
-    VDD_VALS: ClassVar[list] = [1620 * m, 1800 * m, 1980 * m]
-
-
-class Project:
-    """Project-level settings for temperature mapping."""
-
-    @staticmethod
-    def temper(corner: Corner) -> int:
-        """Map temperature corner to degrees Celsius."""
-        vals = {Corner.SLOW: -40, Corner.TYP: 25, Corner.FAST: 125}
-        return vals[corner]
+    return {Corner.SLOW: -40, Corner.TYP: 25, Corner.FAST: 125}[corner]

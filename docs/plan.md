@@ -183,7 +183,7 @@ have working implementations in our `libs/` dependencies:
 - **Structural Verilog**: `vlsirtools` (`libs/Vlsir/VlsirTools`) already has a
   `VerilogNetlister` in `vlsirtools/netlist/verilog.py` that emits structural
   Verilog from `vlsir.circuit.Package`. Frida already uses this — the CLI
-  supports `python -m flow.comp.testbench netlist -f verilog` and
+  supports `python -m flow.comp.sim netlist -f verilog` and
   `run_netlist_variants()` in
   `flow/circuit/netlist.py` handles the `fmt="verilog"` path.
 
@@ -578,7 +578,7 @@ Wire up all three components for the comparator as a proof-of-concept.
 ```
 Phase 0: Verify existing tools work (no code changes — just testing)
   ├── Compile Layout21: cargo build --release in libs/Layout21/
-  ├── Test vlsirtools verilog: python -m flow.comp.testbench netlist -t ihp130 -f verilog
+  ├── Test vlsirtools verilog: python -m flow.comp.sim netlist -t ihp130 -f verilog
   └── Identify any gaps (ExternalModule handling, missing proto2lef binary)
 
 Phase 1: Constraint types (no dependencies)

@@ -31,7 +31,6 @@ gantt
 
     section Simulation (PyOPUS)
     PyOPUS integration & remote sim    :2026-01-24, 2026-02-01
-    Remote SpiceServer path            :2026-02-15, 2026-02-16
 
     section PCB Design
     Test PCB prototype schematic       :2025-11-10, 2025-11-12

@@ -126,8 +126,8 @@ def convert_spectre_adc_to_measurement(
     signal_names: Mapping[str, str],
     threshold_v: float = 0.6,
     decision_sample_fraction: float = 0.98,
-    waveform_samples: int = 2_000,
-    maximum_waveform_records: int = 128,
+    waveform_sample_interval_s: float = 25e-12,
+    maximum_waveform_records: int | None = None,
 ) -> MeasAdcInt:
     """Decode one Spectre ADC result into the typed internal contract.
 
@@ -160,9 +160,9 @@ def convert_spectre_adc_to_measurement(
         raise KeyError(f"Spectre data is missing mapped signals {missing}")
     if not 0.0 < decision_sample_fraction < 1.0:
         raise ValueError("decision_sample_fraction must lie strictly between zero and one")
-    if waveform_samples < 2:
-        raise ValueError("waveform_samples must be at least two")
-    if maximum_waveform_records <= 0:
+    if not np.isfinite(waveform_sample_interval_s) or waveform_sample_interval_s <= 0:
+        raise ValueError("waveform_sample_interval_s must be finite and positive")
+    if maximum_waveform_records is not None and maximum_waveform_records <= 0:
         raise ValueError("maximum_waveform_records must be positive")
 
     times_s = np.asarray(data[signal_names["time_s"]], dtype=np.float64)
@@ -281,7 +281,7 @@ def convert_spectre_adc_to_measurement(
             len(params.seq_init_pattern) / float(params.symbol_rate),
         )
     eligible_indices = np.flatnonzero(waveform_starts_s + record_duration_s <= times_s[-1])
-    if len(eligible_indices) > maximum_waveform_records:
+    if maximum_waveform_records is not None and len(eligible_indices) > maximum_waveform_records:
         selected_positions = np.unique(
             np.rint(np.linspace(0, len(eligible_indices) - 1, maximum_waveform_records)).astype(np.int64)
         )
@@ -292,13 +292,18 @@ def convert_spectre_adc_to_measurement(
         times_s,
         signals,
         [(float(start_s), float(start_s + record_duration_s)) for start_s in waveform_starts_s],
-        waveform_samples,
+        waveform_sample_interval_s,
     )
 
     readbacks: dict[str, str | int | float | bool] = {
         "raw_file": Path(raw_path).name,
         "raw_format": "spectre_nutascii",
         "raw_points": len(times_s),
+        "raw_max_timestep_s": float(np.max(np.diff(times_s))),
+        "waveform_sample_interval_s": waveform_sample_interval_s,
+        "waveform_interpolated_from_coarser_raw": bool(
+            np.max(np.diff(times_s)) > waveform_sample_interval_s * (1.0 + 1e-9)
+        ),
         "decision_sample_fraction": decision_sample_fraction,
         "supply_power_available": True,
         "supply_current_convention": "positive_current_draw",
@@ -351,7 +356,8 @@ def convert_spectre_adc_raw_to_h5(
     *,
     params: AdcTbParams,
     signal_names: Mapping[str, str],
-    maximum_waveform_records: int = 128,
+    waveform_sample_interval_s: float = 25e-12,
+    maximum_waveform_records: int | None = None,
 ) -> Path:
     """Read one Spectre ADC raw file and write the shared typed HDF5 format."""
 
@@ -362,6 +368,7 @@ def convert_spectre_adc_raw_to_h5(
         params=params,
         raw_path=raw_path,
         signal_names=signal_names,
+        waveform_sample_interval_s=waveform_sample_interval_s,
         maximum_waveform_records=maximum_waveform_records,
     )
     return write_measurement(h5_path, measurement)

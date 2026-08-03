@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from vlsirtools.spice import SimOptions, SupportedSimulators
 
 from flow.circuit import commands
 from flow.util import netlist
@@ -35,7 +36,7 @@ def test_testbench_netlist_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         sys,
         "argv",
         [
-            "python -m flow.comp.testbench",
+            "python -m flow.comp.sim",
             "netlist",
             "-t",
             "ihp130",
@@ -51,7 +52,7 @@ def test_testbench_netlist_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     )
 
     commands.testbench_main(
-        "flow.comp.testbench",
+        "flow.comp.sim",
         "comp",
         lambda **kwargs: calls.append(kwargs),
         lambda **_kwargs: pytest.fail("simulation runner was called"),
@@ -68,6 +69,52 @@ def test_testbench_netlist_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
             "verbose": True,
         }
     ]
+
+
+def test_testbench_simulate_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Build local simulation options without obsolete SpiceServer arguments."""
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(commands, "set_pdk", lambda _tech: None)
+    monkeypatch.setattr(commands, "_check_simulator", lambda _simulator: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "python -m flow.comp.sim",
+            "simulate",
+            "-t",
+            "ihp130",
+            "-m",
+            "min",
+            "-s",
+            "spectre",
+            "-o",
+            str(tmp_path),
+        ],
+    )
+
+    commands.testbench_main(
+        "flow.comp.sim",
+        "comp",
+        lambda **_kwargs: pytest.fail("netlist runner was called"),
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    assert len(calls) == 1
+    call = calls[0]
+    options = call.pop("sim_options")
+    assert isinstance(options, SimOptions)
+    assert options.rundir == tmp_path
+    assert options.simulator is SupportedSimulators.SPECTRE
+    assert call == {
+        "tech": "ihp130",
+        "mode": "min",
+        "montecarlo": False,
+        "simulator": "spectre",
+        "outdir": tmp_path,
+        "verbose": True,
+    }
 
 
 def test_netlist_conversion_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

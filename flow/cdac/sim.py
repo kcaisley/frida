@@ -1,6 +1,4 @@
-"""
-CDAC testbench and runner functions for FRIDA.
-"""
+"""CDAC testbench, netlisting, and simulation runner for FRIDA."""
 
 from pathlib import Path
 
@@ -9,19 +7,16 @@ import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpwl
 
-from ..circuit import (
-    Project,
-    Pvt,
-    SupplyVals,
+from ..circuit.commands import testbench_main
+from ..circuit.netlist import (
     get_param_axes,
     print_netlist_summary,
     pwl_points_to_wave,
     run_netlist_variants,
-    run_simulations,
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.commands import testbench_main
+from ..circuit.params import Pvt, SupplyVals, temperature_c
 from .subckt import (
     CapType,
     Cdac,
@@ -124,7 +119,7 @@ def _build_pwl_points(
 
 def sim_input(params: CdacTbParams) -> hs.Sim:
     """Create transient simulation with stepped DAC codes."""
-    sim_temp = Project.temper(params.pvt.t)
+    sim_temp = temperature_c(params.pvt.t)
 
     n_codes = 2**params.cdac.n_dac
 
@@ -227,7 +222,6 @@ def run_simulate(
     montecarlo: bool,
     simulator: str,
     sim_options,
-    sim_server,
     outdir: Path,
     verbose: bool = False,
 ) -> None:
@@ -261,8 +255,8 @@ def run_simulate(
             wall_time=wall_time,
             outdir=str(outdir),
         )
-    run_simulations(sims, sim_options, sim_server=sim_server)
+    h.sim.run(sims, sim_options)
 
 
 if __name__ == "__main__":
-    testbench_main("flow.cdac.testbench", "cdac", run_netlist, run_simulate)
+    testbench_main("flow.cdac.sim", "cdac", run_netlist, run_simulate)

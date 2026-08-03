@@ -1,4 +1,4 @@
-"""Software-only tests for the named HDL21 ADC simulation campaigns."""
+"""Software-only tests for the named ADC simulation campaigns."""
 
 from __future__ import annotations
 
@@ -11,35 +11,30 @@ import pytest
 
 from flow.scans.params import AdcTbParams
 
-from . import testbench
+from . import sim
 
 
 def test_named_simulation_targets_are_explicit() -> None:
     """Keep the command-line target set small, stable, and searchable."""
 
-    assert testbench.TARGETS == (
-        "frida65a_noise_vs_rate_cm",
-        "hdl21gen_noise_vs_rate_cm",
-        "frida65a_noise_large_signal",
-        "hdl21gen_noise_large_signal",
+    assert sim.TARGETS == (
+        "frida65a_noise_vs_rate",
+        "hdl21gen_noise_vs_rate",
     )
-    assert all(callable(getattr(testbench, name)) for name in testbench.TARGETS)
+    assert all(callable(getattr(sim, name)) for name in sim.TARGETS)
 
 
 @pytest.mark.parametrize(
-    ("target_name", "view", "large_signal"),
+    ("target_name", "view"),
     [
-        ("frida65a_noise_vs_rate_cm", "frida65a", False),
-        ("hdl21gen_noise_vs_rate_cm", "hdl21gen", False),
-        ("frida65a_noise_large_signal", "frida65a", True),
-        ("hdl21gen_noise_large_signal", "hdl21gen", True),
+        ("frida65a_noise_vs_rate", "frida65a"),
+        ("hdl21gen_noise_vs_rate", "hdl21gen"),
     ],
 )
 def test_named_campaigns_expand_to_the_expected_matrix(
     monkeypatch: pytest.MonkeyPatch,
     target_name: str,
     view: str,
-    large_signal: bool,
 ) -> None:
     """Expand every public campaign into complete parameters without Spectre."""
 
@@ -48,19 +43,11 @@ def test_named_campaigns_expand_to_the_expected_matrix(
     def record_case(params: AdcTbParams, **kwargs: Any) -> None:
         calls.append({"params": params, **kwargs})
 
-    monkeypatch.setattr(testbench, "_CHECK_MODE", False)
-    monkeypatch.setattr(testbench, "_run_spectre_case", record_case)
-    getattr(testbench, target_name)()
+    monkeypatch.setattr(sim, "_CHECK_MODE", False)
+    monkeypatch.setattr(sim, "_run_spectre_case", record_case)
+    getattr(sim, target_name)()
 
-    expected_names = (
-        tuple(f"{rate}msps_cm600mv_sine1000mvpp" for rate in (10, 5, 1))
-        if large_signal
-        else tuple(
-            f"{rate}msps_cm{common_mode_mv}mv_dc50mv"
-            for rate in (10, 5, 1)
-            for common_mode_mv in (200, 600, 1000)
-        )
-    )
+    expected_names = tuple(f"{rate}msps_cm600mv_dc50mv" for rate in (10, 6, 2))
     assert tuple(call["case_dir"].name for call in calls) == expected_names
     assert all(call["view"] == view for call in calls)
     assert all(call["check"] is False for call in calls)
@@ -73,23 +60,30 @@ def test_named_campaigns_expand_to_the_expected_matrix(
         assert params.dac_astate_n == alternating
         assert params.dac_bstate_p == (0,) * 16
         assert params.dac_bstate_n == (0,) * 16
-        if large_signal:
-            assert params.conversions == 1_000
-            assert isinstance(params.vin_diff, h.Vsin.Params)
-            assert float(params.vin_diff.voff) == pytest.approx(0.0)
-            assert float(params.vin_diff.vamp) == pytest.approx(0.5)
-            assert float(params.vin_diff.freq) == pytest.approx(9_998.770151)
-            assert float(params.vin_cm.dc) == pytest.approx(0.6)
-        else:
-            assert params.conversions == 100
-            assert isinstance(params.vin_diff, h.Vdc.Params)
-            assert float(params.vin_diff.dc) == pytest.approx(0.05)
+        assert params.conversions == 20
+        assert isinstance(params.vin_diff, h.Vdc.Params)
+        assert float(params.vin_diff.dc) == pytest.approx(0.05)
+        assert float(params.vin_cm.dc) == pytest.approx(0.6)
+        assert float(params.seq_logic_phase_delay_symbols) == pytest.approx(2.0)
+
+
+def test_spectre_cases_reject_more_than_one_hundred_conversions(tmp_path: Path) -> None:
+    """Keep every production transient bounded to at most 100 conversions."""
+
+    with pytest.raises(ValueError, match="limited to 100 conversions"):
+        sim._run_spectre_case(
+            AdcTbParams(conversions=101),
+            view="hdl21gen",
+            case_dir=tmp_path / "too-long",
+            check=False,
+            execute=False,
+        )
 
 
 def test_pex_external_module_preserves_extracted_positional_pin_order() -> None:
     """Pin the irregular Calibre port order rather than sorting logical buses."""
 
-    ports = testbench.FRIDA65A_PEX_PORTS
+    ports = sim.FRIDA65A_PEX_PORTS
     assert len(ports) == 84
     assert len(set(ports)) == len(ports)
     assert ports[:20] == (
@@ -118,7 +112,7 @@ def test_pex_external_module_preserves_extracted_positional_pin_order() -> None:
     assert hashlib.sha256("\0".join(ports).encode()).hexdigest() == (
         "f6789370c748077856692f87bb0971751777fdd2f913b99c0ba9e09860a5cb25"
     )
-    assert [port.name for port in testbench.Frida65aPexAdc.port_list] == list(ports)
+    assert [port.name for port in sim.Frida65aPexAdc.port_list] == list(ports)
     for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
         assert {name for name in ports if name.startswith(f"{bus_name}_")} == {
             f"{bus_name}_{bit}" for bit in range(16)
@@ -139,13 +133,13 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
         assert compact is True
         written[path.name] = sim
 
-    monkeypatch.setattr(testbench, "set_pdk", lambda _: None)
-    monkeypatch.setattr(testbench, "AdcTb", lambda params, selected_view: h.Module(name="TestTb"))
-    monkeypatch.setattr(testbench.h.pdk, "compile", lambda module: module)
-    monkeypatch.setattr(testbench, "write_sim_netlist", record_deck)
+    monkeypatch.setattr(sim, "set_pdk", lambda _: None)
+    monkeypatch.setattr(sim, "AdcTb", lambda params, selected_view: h.Module(name="TestTb"))
+    monkeypatch.setattr(sim.h.pdk, "compile", lambda module: module)
+    monkeypatch.setattr(sim, "write_sim_netlist", record_deck)
 
     params = AdcTbParams(conversions=3)
-    testbench._run_spectre_case(
+    sim._run_spectre_case(
         params,
         view=view,
         case_dir=tmp_path / "production",
@@ -163,7 +157,7 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
     assert "dyn_setuphold" not in production_text
 
     written.clear()
-    testbench._run_spectre_case(
+    sim._run_spectre_case(
         params,
         view=view,
         case_dir=tmp_path / "check",
@@ -199,8 +193,8 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
     assert len(saved_signals) == len(set(saved_signals))
 
     written.clear()
-    testbench._run_spectre_case(
-        AdcTbParams(symbol_rate=160e6),
+    sim._run_spectre_case(
+        AdcTbParams(symbol_rate=160e6, conversions=3),
         view=view,
         case_dir=tmp_path / "slow",
         check=False,
@@ -210,3 +204,40 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
         attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal)
     )
     assert "strobeperiod=5e-11 strobeoutput=strobeonly" in slow_text
+
+
+def test_spectre_commands_wait_for_a_license(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Queue check and production runs instead of failing on license pressure."""
+
+    commands: list[list[str]] = []
+    monkeypatch.setattr(sim, "set_pdk", lambda _: None)
+    monkeypatch.setattr(sim, "AdcTb", lambda params, selected_view: h.Module(name="TestTb"))
+    monkeypatch.setattr(sim.h.pdk, "compile", lambda module: module)
+    monkeypatch.setattr(sim, "write_sim_netlist", lambda sim_input, path, compact: path.write_text(""))
+    monkeypatch.setattr(sim.shutil, "which", lambda command: "/usr/bin/spectre")
+    monkeypatch.setattr(
+        sim.subprocess,
+        "run",
+        lambda command, **kwargs: commands.append(command),
+    )
+    monkeypatch.setattr(
+        sim,
+        "convert_spectre_adc_raw_to_h5",
+        lambda raw_path, h5_path, **kwargs: h5_path,
+    )
+
+    sim._run_spectre_case(
+        AdcTbParams(conversions=1),
+        view="hdl21gen",
+        case_dir=tmp_path / "case",
+        check=True,
+        execute=True,
+    )
+
+    assert len(commands) == 2
+    for command in commands:
+        timeout_index = command.index("+lqtimeout")
+        assert command[timeout_index + 1] == "3600"

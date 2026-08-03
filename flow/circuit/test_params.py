@@ -5,7 +5,15 @@ from importlib import import_module
 import pytest
 from hdl21.pdk import Corner
 
-from .params import SupplyVals
+from .params import SupplyVals, temperature_c
+
+
+def test_temperature_corner_mapping() -> None:
+    """Map each PVT temperature corner to its physical temperature."""
+
+    assert temperature_c(Corner.SLOW) == -40
+    assert temperature_c(Corner.TYP) == 25
+    assert temperature_c(Corner.FAST) == 125
 
 
 @pytest.mark.parametrize(

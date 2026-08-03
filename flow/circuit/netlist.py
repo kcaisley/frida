@@ -1,75 +1,24 @@
-"""
-Consistent naming utilities for netlists and test artifacts.
-
-Provides functions to generate filenames from parameter objects and
-to extract parameter axes for summary tables.
-"""
+"""HDL21 netlist writing, PWL formatting, and legacy block-sweep support."""
 
 import hashlib
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable
+from pathlib import Path
+from typing import IO, Any
 
 import hdl21 as h
 import hdl21.sim as hs
+from hdl21.sim import to_proto
+from vlsirtools.netlist import NetlistOptions
 from vlsirtools.netlist import netlist as write_pkg_netlist
+from vlsirtools.netlist.spectre import SpectreNetlister
+from vlsirtools.netlist.spice import NgspiceNetlister, XyceNetlister
 from vlsirtools.spice import SupportedSimulators
 
 
-def generate_staircase_pwl(
-    v_start: float,
-    v_stop: float,
-    v_step: float,
-    t_step: float,
-    t_rise: float,
-    t_delay: float = 0.0,
-) -> list[tuple[float, float]]:
-    """
-    Generate staircase PWL points for ADC transfer function tests.
-
-    Each step holds for t_step duration, then ramps over t_rise to the next
-    level. This is quasi-static, matching physical measurement conditions.
-    """
-    points: list[tuple[float, float]] = []
-    n_steps = int(abs(v_stop - v_start) / v_step) + 1
-    t = t_delay
-    sign = 1 if v_stop >= v_start else -1
-
-    for i in range(n_steps):
-        v = v_start + sign * i * v_step
-        points.append((t, v))
-        t += t_step
-        if i < n_steps - 1:
-            points.append((t, v))
-            t += t_rise
-
-    return points
-
-
 def pwl_points_to_wave(points: list[tuple[float, float]]) -> str:
-    """Format PWL points as a waveform string for `Vpwl(wave=...)`."""
+    """Format time/value points for HDL21's string-valued ``Vpwl.wave`` parameter."""
     return " ".join(f"{t:.12e} {v:.6e}" for t, v in points)
-
-
-def pwl_to_spice_literal(
-    name: str,
-    p_node: str,
-    n_node: str,
-    points: list[tuple[float, float]],
-) -> str:
-    """
-    Generate SPICE PWL source literal string.
-
-    Args:
-        name: Source name (e.g., "vin")
-        p_node: Positive node name
-        n_node: Negative node name
-        points: List of (time, voltage) tuples
-
-    Returns:
-        SPICE PWL source string
-    """
-    pwl_str = pwl_points_to_wave(points)
-    return f"V{name} {p_node} {n_node} PWL({pwl_str})"
 
 
 def params_to_filename(
@@ -193,8 +142,6 @@ def run_netlist_variants(
     """
     import time
 
-    from .sim import write_sim_netlist
-
     valid_scopes = ("dut", "stim", "full")
     if scope not in valid_scopes:
         raise ValueError(f"Invalid scope '{scope}', must be one of {valid_scopes}")
@@ -252,7 +199,7 @@ def run_netlist_variants(
             tb_name = _sanitize_module_name(tb.name if tb.name is not None else "Tb")
             with open(netlist_path, "w") as f:
                 write_pkg_netlist(pkg=pkg, dest=f, fmt=norm_fmt)
-                f.write(_format_top_instance(tb_name, norm_fmt))
+                f.write(f"\nxtop 0 {tb_name}\n")
 
     elif scope == "dut":
         # DUT subcircuit definitions only
@@ -275,13 +222,27 @@ def run_netlist_variants(
     return wall_time
 
 
-def _format_top_instance(module_name: str, fmt: str) -> str:
-    """Format the top-level DUT instantiation line for the given netlist format."""
-    if fmt == "spectre":
-        return f"\nxtop 0 {module_name}\n"
-    else:
-        # SPICE-family formats (ngspice, hspice, etc.)
-        return f"\nxtop 0 {module_name}\n"
+def write_sim_netlist(
+    sim: hs.Sim,
+    dest: str | Path | IO[str],
+    compact: bool = True,
+    simulator: SupportedSimulators = SupportedSimulators.SPECTRE,
+) -> None:
+    """Write one HDL21 simulation input using the selected simulator dialect."""
+
+    proto = to_proto(sim)
+    options = NetlistOptions(compact=compact)
+    netlister_cls = {
+        SupportedSimulators.SPECTRE: SpectreNetlister,
+        SupportedSimulators.NGSPICE: NgspiceNetlister,
+        SupportedSimulators.XYCE: XyceNetlister,
+    }[simulator]
+
+    if isinstance(dest, (str, Path)):
+        with open(dest, "w") as stream:
+            netlister_cls(dest=stream, opts=options).write_sim_input(proto)
+        return
+    netlister_cls(dest=dest, opts=options).write_sim_input(proto)
 
 
 def _sanitize_module_name(module_name: str) -> str:
@@ -304,28 +265,23 @@ def _pdk_name_from_module(pdk_module: Any) -> str:
     return "unknown"
 
 
-def wrap_monte_carlo(sim: hs.Sim, mc_config: Any | None = None) -> hs.Sim:
-    """
-    Wrap transient analysis in Monte Carlo.
-
-    Args:
-        sim: HDL21 Sim object
-        mc_config: MCConfig instance (default uses MCConfig())
-    """
-    from .sim import MCConfig
-
-    if mc_config is None:
-        mc_config = MCConfig()
+def wrap_monte_carlo(sim: hs.Sim, *, npts: int = 10, seed: int | None = 12345) -> hs.Sim:
+    """Replace one transient, DC, or AC analysis with a Monte Carlo sweep containing it."""
 
     for attr in sim.attrs:
         if isinstance(attr, hs.MonteCarlo):
             return sim
 
-    tran = next((attr for attr in sim.attrs if isinstance(attr, hs.Tran)), None)
-    if tran is None:
-        raise ValueError("No transient analysis found in simulation")
+    analysis_types = (hs.Tran, hs.Dc, hs.Ac)
+    analysis_indices = [index for index, attr in enumerate(sim.attrs) if isinstance(attr, analysis_types)]
+    if not analysis_indices:
+        raise ValueError("No transient, DC, or AC analysis found in simulation")
+    if len(analysis_indices) != 1:
+        raise ValueError("Monte Carlo wrapping requires exactly one transient, DC, or AC analysis")
 
-    sim.add(hs.MonteCarlo(inner=[tran], npts=mc_config.numruns, seed=mc_config.seed))
+    analysis_index = analysis_indices[0]
+    analysis = sim.attrs[analysis_index]
+    sim.attrs[analysis_index] = hs.MonteCarlo(inner=[analysis], npts=npts, seed=seed)
     return sim
 
 

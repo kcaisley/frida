@@ -3,39 +3,50 @@ Tests for netlist utilities.
 """
 
 import hdl21 as h
+import hdl21.sim as hs
 from hdl21.prefix import f
 
 from ..samp.subckt import SampParams
 from .netlist import (
-    generate_staircase_pwl,
     get_param_axes,
     params_to_filename,
+    pwl_points_to_wave,
+    wrap_monte_carlo,
 )
 
 
-def test_generate_staircase_pwl():
-    """Test staircase PWL generation."""
-    points = generate_staircase_pwl(
-        v_start=0.0,
-        v_stop=1.0,
-        v_step=0.1,
-        t_step=1e-6,
-        t_rise=1e-9,
+def test_pwl_points_to_wave_matches_hdl21_vpwl_format() -> None:
+    """Format point pairs for HDL21's string-valued Vpwl parameter."""
+
+    wave = pwl_points_to_wave([(0.0, 0.0), (1e-9, 1.2)])
+    assert wave == "0.000000000000e+00 0.000000e+00 1.000000000000e-09 1.200000e+00"
+    assert h.Vpwl.Params(wave=wave).wave == wave
+
+
+def test_wrap_monte_carlo_nests_and_replaces_inner_analysis() -> None:
+    """Monte Carlo contains, rather than accompanies, each supported inner analysis."""
+
+    analyses = (
+        hs.Tran(tstop=1e-9),
+        hs.Dc(var="x", sweep=hs.PointSweep([1.0])),
+        hs.Ac(sweep=hs.LogSweep(start=1.0, stop=1e9, npts=10)),
     )
+    for analysis in analyses:
+        sim = hs.Sim(tb=h.Module(name="Tb"), attrs=[analysis])
+        wrap_monte_carlo(sim, npts=7, seed=11)
 
-    assert len(points) > 0
-    assert points[0] == (0.0, 0.0)
-
-    voltages = [v for t, v in points]
-    for i in range(len(voltages) - 1):
-        assert voltages[i] <= voltages[i + 1]
+        assert not any(isinstance(attr, (hs.Tran, hs.Dc, hs.Ac)) for attr in sim.attrs)
+        monte_carlo = next(attr for attr in sim.attrs if isinstance(attr, hs.MonteCarlo))
+        assert monte_carlo.inner == [analysis]
+        assert monte_carlo.npts == 7
+        assert monte_carlo.seed == 11
 
 
 def test_params_to_filename_samp_defaults():
     """Test filename generation for default SampParams."""
     params = SampParams()
     filename = params_to_filename("samp", params, "ihp130")
-    assert filename == "samp_nmos_10_1_low_ihp130.sp"
+    assert filename == "samp_tgate_32_1_low_ihp130.sp"
 
 
 def test_params_to_filename_prefixed_value():

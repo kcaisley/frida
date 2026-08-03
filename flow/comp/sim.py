@@ -1,6 +1,4 @@
-"""
-Comparator testbench and runner functions for FRIDA.
-"""
+"""Comparator testbench, netlisting, and simulation runner for FRIDA."""
 
 from pathlib import Path
 
@@ -9,19 +7,16 @@ import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 
-from ..circuit import (
-    Project,
-    Pvt,
-    SupplyVals,
+from ..circuit.commands import testbench_main
+from ..circuit.netlist import (
     get_param_axes,
     print_netlist_summary,
     pwl_points_to_wave,
     run_netlist_variants,
-    run_simulations,
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.commands import testbench_main
+from ..circuit.params import Pvt, SupplyVals, temperature_c
 from .subckt import Comp, CompParams, is_valid_comp_params
 
 
@@ -157,7 +152,7 @@ def _build_pwl_points(
 
 def sim_input(params: CompTbParams) -> hs.Sim:
     """Create transient simulation with stepped vcm/vdiff inputs."""
-    sim_temp = Project.temper(params.pvt.t)
+    sim_temp = temperature_c(params.pvt.t)
 
     # S-curve sweep definition
     cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
@@ -260,7 +255,6 @@ def run_simulate(
     montecarlo: bool,
     simulator: str,
     sim_options,
-    sim_server,
     outdir: Path,
     verbose: bool = False,
 ) -> None:
@@ -294,8 +288,8 @@ def run_simulate(
             wall_time=wall_time,
             outdir=str(outdir),
         )
-    run_simulations(sims, sim_options, sim_server=sim_server)
+    h.sim.run(sims, sim_options)
 
 
 if __name__ == "__main__":
-    testbench_main("flow.comp.testbench", "comp", run_netlist, run_simulate)
+    testbench_main("flow.comp.sim", "comp", run_netlist, run_simulate)

@@ -1,4 +1,4 @@
-"""Smoke tests for the ADC generator."""
+"""Software-only tests for the ADC generator."""
 
 from pathlib import Path
 

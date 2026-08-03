@@ -9,6 +9,8 @@ import socket
 from collections.abc import Callable
 from pathlib import Path
 
+from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+
 from flow.pdks import list_pdks, set_pdk
 
 SIM_HOSTS = {"jupiter", "juno", "asiclab003"}
@@ -48,7 +50,10 @@ def testbench_main(
     run_simulate: Callable[..., None],
 ) -> None:
     """Parse module-level netlist or simulation options for one testbench."""
-    _configure_logging()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - [%(levelname)s] (%(threadName)s) %(message)s",
+    )
     parser = argparse.ArgumentParser(
         prog=f"python -m {module_name}",
         description=f"Generate and simulate the {block} testbench",
@@ -80,8 +85,6 @@ def testbench_main(
         choices=["spectre", "ngspice", "xyce"],
         help="SPICE simulator backend",
     )
-    simulate.add_argument("--host", default=None, help="Remote SpiceServer host")
-
     args = parser.parse_args()
     set_pdk(args.tech)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -104,14 +107,17 @@ def testbench_main(
         )
         return
 
-    _check_simulator(args.simulator, args.host)
+    _check_simulator(args.simulator)
     run_simulate(
         tech=args.tech,
         mode=args.mode,
         montecarlo=args.montecarlo,
         simulator=args.simulator,
-        sim_options=_make_sim_options(args.out, args.simulator),
-        sim_server=args.host,
+        sim_options=SimOptions(
+            rundir=args.out,
+            fmt=ResultFormat.SIM_DATA,
+            simulator=SupportedSimulators(args.simulator),
+        ),
         outdir=args.out,
         verbose=True,
     )
@@ -130,29 +136,11 @@ def _add_common_testbench_options(parser: argparse.ArgumentParser, default_mode:
     parser.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
 
 
-def _check_simulator(simulator: str, host: str | None) -> None:
+def _check_simulator(simulator: str) -> None:
     """Verify that a local simulator is available."""
-    if host:
-        return
     hostname = socket.gethostname().split(".")[0].lower()
     if hostname not in SIM_HOSTS:
         hosts = ", ".join(sorted(SIM_HOSTS))
         raise SystemExit(f"Simulator unavailable: host '{hostname}' not in allow-list ({hosts})")
     if not any(shutil.which(binary) for binary in SIMULATOR_BINARIES[simulator]):
         raise SystemExit(f"Simulator binary '{simulator}' not found on PATH")
-
-
-def _make_sim_options(outdir: Path, simulator: str):
-    """Build vlsirtools simulation options."""
-    from vlsirtools.spice import SupportedSimulators  # type: ignore[import-untyped]
-
-    from flow.circuit.sim import get_sim_options
-
-    return get_sim_options(rundir=outdir, simulator=SupportedSimulators(simulator))
-
-
-def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - [%(levelname)s] (%(threadName)s) %(message)s",
-    )

@@ -40,15 +40,9 @@ flowchart LR
     VLSIR --> CONV
     CONV -->|"return tetris.proto and derived artifacts"| POST
 
-    subgraph SIMRPC["Simulation RPC service"]
-        SPICE_SERVER["spice_server RPC"]
-        SIM["Spectre or Ngspice"]
-        SPICE_SERVER -->|"run .scs or .sp netlist"| SIM
-        SIM -->|"return waveform .raw file"| SPICE_SERVER
-    end
-
-    CONV -->|"vlsirtools netlisting: circuit.proto -> .scs or .sp"| SPICE_SERVER
-    SPICE_SERVER -->|"simulation result .raw path or payload"| POST
+    SIM["Spectre or Ngspice"]
+    CONV -->|"vlsirtools netlisting: circuit.proto -> .scs or .sp"| SIM
+    SIM -->|"simulation result .raw path"| POST
 
     subgraph ORRPC["OpenROAD RPC service proposed"]
         OR_ADAPTER["OpenROAD frontend adapters"]

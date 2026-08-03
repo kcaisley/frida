@@ -149,13 +149,15 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         h5_path,
         params=params,
         signal_names=signal_names,
-        maximum_waveform_records=2,
     )
     measurement = read_measurement(h5_path)
 
     assert isinstance(measurement, MeasAdcInt)
     assert measurement.info.backend == "spice"
     assert measurement.info.readbacks["raw_format"] == "spectre_nutascii"
+    assert measurement.info.readbacks["raw_max_timestep_s"] == pytest.approx(time_step_s)
+    assert measurement.info.readbacks["waveform_sample_interval_s"] == pytest.approx(25e-12)
+    assert measurement.info.readbacks["waveform_interpolated_from_coarser_raw"] is True
     assert measurement.info.readbacks["decision_sample_fraction"] == pytest.approx(0.98)
     assert measurement.info.readbacks["supply_power_available"] is True
     assert measurement.info.readbacks["supply_current_convention"] == "positive_current_draw"
@@ -167,7 +169,8 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     assert measurement.daq.dout[0] > 0
     assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
     np.testing.assert_array_equal(measurement.wave.conversion_index, [0, 1])
-    assert measurement.wave.comp_out_v.shape == (2, 2_000)
+    assert measurement.wave.comp_out_v.shape == (2, 6_800)
+    np.testing.assert_allclose(np.diff(measurement.wave.time_s), 25e-12)
     assert measurement.wave.seq_init_v[0, 0] == pytest.approx(0.0)
     np.testing.assert_allclose(measurement.wave.vdd_a_i, 2.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_d_i, 40.0e-6)

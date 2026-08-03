@@ -1,6 +1,4 @@
-"""
-Sampler testbench and runner functions for FRIDA.
-"""
+"""Sampler testbench, netlisting, and simulation runner for FRIDA."""
 
 from pathlib import Path
 
@@ -9,18 +7,15 @@ import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
 from hdl21.primitives import C, MosVth, Vdc, Vpulse
 
-from ..circuit import (
-    Project,
-    Pvt,
-    SupplyVals,
+from ..circuit.commands import testbench_main
+from ..circuit.netlist import (
     get_param_axes,
     print_netlist_summary,
     run_netlist_variants,
-    run_simulations,
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.commands import testbench_main
+from ..circuit.params import Pvt, SupplyVals, temperature_c
 from .subckt import Samp, SampParams, SwitchType
 
 
@@ -104,7 +99,7 @@ def SampTb(params: SampTbParams) -> h.Module:
 
 def sim_input(params: SampTbParams) -> hs.Sim:
     """Create simulation input for sampler characterization."""
-    sim_temp = Project.temper(params.pvt.t)
+    sim_temp = temperature_c(params.pvt.t)
 
     @hs.sim
     class SampSim:
@@ -181,7 +176,6 @@ def run_simulate(
     montecarlo: bool,
     simulator: str,
     sim_options,
-    sim_server,
     outdir: Path,
     verbose: bool = False,
 ) -> None:
@@ -215,8 +209,8 @@ def run_simulate(
             wall_time=wall_time,
             outdir=str(outdir),
         )
-    run_simulations(sims, sim_options, sim_server=sim_server)
+    h.sim.run(sims, sim_options)
 
 
 if __name__ == "__main__":
-    testbench_main("flow.samp.testbench", "samp", run_netlist, run_simulate)
+    testbench_main("flow.samp.sim", "samp", run_netlist, run_simulate)

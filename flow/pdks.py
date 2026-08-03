@@ -23,11 +23,11 @@ _PDK_PACKAGES: dict[str, str] = {
 # Each entry is (dotted_module_path, class_name).
 _CACHED_GENERATORS: list[tuple[str, str]] = [
     ("flow.samp.subckt", "Samp"),
-    ("flow.samp.testbench", "SampTb"),
+    ("flow.samp.sim", "SampTb"),
     ("flow.comp.subckt", "Comp"),
-    ("flow.comp.testbench", "CompTb"),
+    ("flow.comp.sim", "CompTb"),
     ("flow.cdac.subckt", "Cdac"),
-    ("flow.cdac.testbench", "CdacTb"),
+    ("flow.cdac.sim", "CdacTb"),
 ]
 
 

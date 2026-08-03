@@ -277,8 +277,8 @@ class FridaHdl21NetlistTask(Task):
         import json
 
         from flow.pdks import set_pdk
-        from flow.comp.testbench import run_netlist as comp_netlist
-        from flow.samp.testbench import run_netlist as samp_netlist
+        from flow.comp.sim import run_netlist as comp_netlist
+        from flow.samp.sim import run_netlist as samp_netlist
 
         tech = self.project.get("asic", "pdk")
         formats = self.get("var", "formats")
@@ -341,11 +341,10 @@ with design.active_fileset("rtl"):
 
 with design.active_fileset("hdl21"):
     design.add_file("flow/comp/subckt.py", dataroot="frida", filetype="python")
-    design.add_file("flow/comp/testbench.py", dataroot="frida", filetype="python")
+    design.add_file("flow/comp/sim.py", dataroot="frida", filetype="python")
     design.add_file("flow/samp/subckt.py", dataroot="frida", filetype="python")
-    design.add_file("flow/samp/testbench.py", dataroot="frida", filetype="python")
+    design.add_file("flow/samp/sim.py", dataroot="frida", filetype="python")
     design.add_file("flow/circuit/netlist.py", dataroot="frida", filetype="python")
-    design.add_file("flow/circuit/sim.py", dataroot="frida", filetype="python")
 
 project = ASIC(design)
 project.add_fileset(["rtl", "hdl21"])
