@@ -16,7 +16,7 @@ from flow.analysis.types import (
     MeasCompExt,
     MeasCompInt,
 )
-from flow.circuit import SupplyVals
+from flow.circuit.params import SupplyVals
 
 CompMeasurement = MeasCompExt | MeasCompInt
 

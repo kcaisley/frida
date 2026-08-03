@@ -56,7 +56,7 @@ def test_main_runs_named_target_in_one_timestamped_directory(
     assert len(received_output_dirs) == 1
     output_dir = received_output_dirs[0]
     assert output_dir.parent == tmp_path
-    assert re.fullmatch(r"\d{8}_\d{6}", output_dir.name)
+    assert re.fullmatch(r"\d{8}_\d{4}", output_dir.name)
     assert (output_dir / "example.png").read_bytes() == b"plot"
     output = capsys.readouterr().out
     assert f"Analysis output: {output_dir}" in output

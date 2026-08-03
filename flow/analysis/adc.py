@@ -148,16 +148,14 @@ def _calculate_adc_spectrum(
 def analyze_adc_dynamic(
     msmt: MeasAdc,
     *,
-    sample_rate_hz: float | None = None,
-    input_frequency_hz: float | None = None,
     frequency_search_fraction: float = 0.02,
     maximum_harmonic_order: int = 5,
 ) -> AnalysisAdcDynamic:
     """Fit one sine acquisition and calculate time- and frequency-domain metrics."""
 
     measured_dout = np.asarray(msmt.daq.dout, dtype=np.float64)
-    sample_rate_hz = _pattern_repeat_rate_hz(msmt) if sample_rate_hz is None else float(sample_rate_hz)
-    input_frequency_hz = _input_frequency_hz(msmt) if input_frequency_hz is None else float(input_frequency_hz)
+    sample_rate_hz = _pattern_repeat_rate_hz(msmt)
+    input_frequency_hz = _input_frequency_hz(msmt)
     adc_bits = msmt.param.dut.adc_bits
     if measured_dout.ndim != 1 or measured_dout.size < 8:
         raise ValueError("ADC sine fit requires at least eight one-dimensional samples")
@@ -426,6 +424,10 @@ def analyze_adc_noise_sweep(
 
     if not measurements:
         raise ValueError("ADC noise sweep requires at least one measurement")
+    adc_bits = measurements[0].param.dut.adc_bits
+    if any(msmt.param.dut.adc_bits != adc_bits for msmt in measurements):
+        raise ValueError("ADC noise sweep measurements must use one output resolution")
+    number_codes = 1 << adc_bits
     input_lsb_values_v = np.asarray(
         [float(msmt.param.vdd_dac.dc) / ((1 << msmt.param.dut.adc_bits) - 1) for msmt in measurements],
         dtype=np.float64,
@@ -445,9 +447,12 @@ def analyze_adc_noise_sweep(
     comparator_percent = []
     mean_dout = []
     std_dout = []
+    pretrigger_vin_diff_mean_v = []
+    pretrigger_vin_diff_noise_rms_v = []
     minimum_dout = []
     maximum_dout = []
     bit_mismatches = []
+    counts = []
     for msmt in measurements:
         phase = float(msmt.param.seq_logic_phase_delay_symbols) - float(msmt.param.seq_comp_phase_delay_symbols)
         sample_rate_hz.append(_active_conversion_rate_hz(msmt))
@@ -455,9 +460,23 @@ def analyze_adc_noise_sweep(
         comparator_percent.append(50.0 + 12.5 * phase)
         mean_dout.append(float(np.mean(msmt.daq.dout)))
         std_dout.append(float(np.std(msmt.daq.dout)))
+        pretrigger = msmt.wave.time_s < 0.0
+        if np.any(pretrigger):
+            quiet_input = msmt.wave.vin_diff_v[:, pretrigger]
+            pretrigger_vin_diff_mean_v.append(float(np.mean(quiet_input)))
+            pretrigger_vin_diff_noise_rms_v.append(
+                float(np.sqrt(np.mean((quiet_input - np.mean(quiet_input, axis=1, keepdims=True)) ** 2)))
+            )
+        else:
+            pretrigger_vin_diff_mean_v.append(float("nan"))
+            pretrigger_vin_diff_noise_rms_v.append(float("nan"))
         minimum_dout.append(int(np.min(msmt.daq.dout)))
         maximum_dout.append(int(np.max(msmt.daq.dout)))
         bit_mismatches.append(int(msmt.info.readbacks.get("scope_fastrx_bit_mismatches", 0)))
+        valid_dout = msmt.daq.dout[(msmt.daq.dout >= 0) & (msmt.daq.dout < number_codes)]
+        if len(valid_dout) != len(msmt.daq.dout):
+            raise ValueError("ADC noise sweep contains output codes outside its resolution")
+        counts.append(np.bincount(valid_dout, minlength=number_codes))
     std_dout_array = np.asarray(std_dout)
     return AnalysisAdcNoiseSweep(
         sample_rate_hz=np.asarray(sample_rate_hz),
@@ -465,11 +484,15 @@ def analyze_adc_noise_sweep(
         comparator_time_percent=np.asarray(comparator_percent),
         input_lsb_v=float(input_lsb_values_v[0]),
         input_referred_noise_rms_v=std_dout_array * input_lsb_values_v,
+        pretrigger_vin_diff_mean_v=np.asarray(pretrigger_vin_diff_mean_v),
+        pretrigger_vin_diff_noise_rms_v=np.asarray(pretrigger_vin_diff_noise_rms_v),
         mean_dout=np.asarray(mean_dout),
         std_dout=std_dout_array,
         minimum_dout=np.asarray(minimum_dout, dtype=np.int64),
         maximum_dout=np.asarray(maximum_dout, dtype=np.int64),
         bit_mismatches=np.asarray(bit_mismatches, dtype=np.int64),
+        code=np.arange(number_codes, dtype=np.int64),
+        count=np.asarray(counts, dtype=np.int64),
     )
 
 
@@ -502,9 +525,10 @@ def analyze_adc_decision_paths(
     else:
         raise ValueError("decision-path selection must be 'single', 'same_dout', or 'all'")
 
-    initial_estimate = ((1 << msmt.param.dut.adc_bits) - 1) / 2.0
+    normalized_code_max = (1 << msmt.param.dut.adc_bits) - 1
+    raw_code_max = float(np.sum(weights))
     paths = np.empty((len(selected), len(weights) + 1), dtype=np.float64)
-    paths[:, 0] = initial_estimate
+    paths[:, 0] = normalized_code_max / 2.0
     for row, conversion in enumerate(selected):
         decided = 0.0
         remaining = float(np.sum(weights))
@@ -514,7 +538,7 @@ def analyze_adc_decision_paths(
         ):
             decided += bit * weight
             remaining -= weight
-            paths[row, cycle] = decided + 0.5 * remaining
+            paths[row, cycle] = (decided + 0.5 * remaining) * normalized_code_max / raw_code_max
     return AnalysisAdcDecisionPaths(
         selection=selection,
         conversion_index=msmt.daq.conversion_index[selected],

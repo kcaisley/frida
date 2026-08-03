@@ -655,11 +655,15 @@ class AnalysisAdcNoiseSweep:
     comparator_time_percent: FloatArray
     input_lsb_v: float
     input_referred_noise_rms_v: FloatArray
+    pretrigger_vin_diff_mean_v: FloatArray
+    pretrigger_vin_diff_noise_rms_v: FloatArray
     mean_dout: FloatArray
     std_dout: FloatArray
     minimum_dout: IntArray
     maximum_dout: IntArray
     bit_mismatches: IntArray
+    code: IntArray | None = None
+    count: IntArray | None = None
 
 
 @dataclass(frozen=True, slots=True)

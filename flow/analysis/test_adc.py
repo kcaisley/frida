@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import hdl21 as h
 import numpy as np
 import pytest
 
+from flow.adc import AdcParams
 from flow.analysis.adc import (
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
@@ -30,6 +32,7 @@ from flow.analysis.types import (
     MeasAdcInt,
     MeasInfo,
 )
+from flow.cdac import CdacParams
 from flow.scans.params import AdcTbParams
 
 
@@ -253,11 +256,14 @@ def test_shared_adc_analyses_accept_internal_measurements() -> None:
     assert isinstance(static, MeasAdcInt)
     assert analyze_adc_transfer([static]).sample_count.sum() == 6
     assert analyze_adc_noise([static]).sample_count.sum() == 6
-    assert analyze_adc_nonlin(
-        static,
-        method="code_density",
-        code_range=(1, 2),
-    ).missing_codes == 0
+    assert (
+        analyze_adc_nonlin(
+            static,
+            method="code_density",
+            code_range=(1, 2),
+        ).missing_codes
+        == 0
+    )
 
     sample_rate_hz = 100_000.0
     input_frequency_hz = 1_000.0
@@ -306,6 +312,35 @@ def test_decision_paths_select_matching_output_codes() -> None:
 
     assert paths.estimate_dout.shape == (2, 18)
     np.testing.assert_array_equal(paths.final_dout, (5, 5))
+
+
+def test_decision_paths_normalize_redundant_raw_weights() -> None:
+    """Keep the running estimate in nominal ADC LSB for non-4095 raw sums."""
+
+    msmt = adc_measurement([4095])
+    weights = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
+    object.__setattr__(
+        msmt,
+        "param",
+        AdcTbParams(
+            **(
+                vars(msmt.param)
+                | {
+                    "dut": AdcParams(
+                        adc_bits=12,
+                        n_cycles=16,
+                        cdac=CdacParams(n_dac=11, n_extra=5, weights=weights),
+                    )
+                }
+            )
+        ),
+    )
+    object.__setattr__(msmt.daq, "bout", np.ones((1, 17), dtype=np.uint8))
+
+    paths = analyze_adc_decision_paths(msmt, selection="all")
+
+    assert paths.estimate_dout[0, 0] == pytest.approx(2047.5)
+    assert paths.estimate_dout[0, -1] == pytest.approx(4095.0)
 
 
 def test_dynamic_sweep_retains_rate_frequency_and_logic_phase() -> None:
@@ -384,6 +419,30 @@ def test_noise_sweep_uses_active_rate_while_dynamic_uses_true_repeat_rate() -> N
         sweep.input_referred_noise_rms_v,
         sweep.std_dout * 1.2 / 4095,
     )
+    assert np.all(np.isnan(sweep.pretrigger_vin_diff_mean_v))
+    assert np.all(np.isnan(sweep.pretrigger_vin_diff_noise_rms_v))
+
+
+def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
+    msmt = adc_measurement([100, 101, 100])
+    time_s = np.asarray((-2.0, -1.0, 0.0, 1.0)) * 1e-9
+    vin_diff_v = np.asarray(((-0.051, -0.049, -0.040, -0.060),))
+    msmt = replace(
+        msmt,
+        wave=replace(
+            msmt.wave,
+            time_s=time_s,
+            vin_diff_v=vin_diff_v,
+            seq_comp_v=np.zeros_like(vin_diff_v),
+            seq_logic_v=np.zeros_like(vin_diff_v),
+            comp_out_v=np.zeros_like(vin_diff_v),
+        ),
+    )
+
+    sweep = analyze_adc_noise_sweep([msmt])
+
+    np.testing.assert_allclose(sweep.pretrigger_vin_diff_mean_v, [-0.05])
+    np.testing.assert_allclose(sweep.pretrigger_vin_diff_noise_rms_v, [0.001])
 
 
 @pytest.mark.parametrize(
@@ -401,9 +460,17 @@ def test_dynamic_analysis_rejects_invalid_records(
     message: str,
 ) -> None:
     msmt = adc_measurement(samples)
+    msmt = replace(
+        msmt,
+        param=AdcTbParams(
+            **(
+                vars(msmt.param)
+                | {
+                    "symbol_rate": sample_rate_hz * len(msmt.param.seq_init_pattern),
+                    "vin_diff": h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
+                }
+            )
+        ),
+    )
     with pytest.raises(ValueError, match=message):
-        analyze_adc_dynamic(
-            msmt,
-            sample_rate_hz=sample_rate_hz,
-            input_frequency_hz=input_frequency_hz,
-        )
+        analyze_adc_dynamic(msmt)

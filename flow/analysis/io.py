@@ -198,9 +198,20 @@ def _read_native(node: h5py.Group | h5py.Dataset):
         return {key: _read_native(node[key]) for key in node}
     if kind == "dataclass":
         value_type = _resolve_type(_decode_string(node.attrs["_type"]))
-        return value_type(
-            **{data_field.name: _read_native(node[data_field.name]) for data_field in _dataclass_fields(value_type)}
-        )
+        values = {}
+        missing = []
+        for data_field in _dataclass_fields(value_type):
+            if data_field.name in node:
+                values[data_field.name] = _read_native(node[data_field.name])
+            elif data_field.default is not dataclasses.MISSING:
+                values[data_field.name] = data_field.default
+            elif data_field.default_factory is not dataclasses.MISSING:
+                values[data_field.name] = data_field.default_factory()
+            else:
+                missing.append(data_field.name)
+        if missing:
+            raise ValueError(f"{node.name} is missing required parameter fields {missing}")
+        return value_type(**values)
     raise ValueError(f"unsupported HDF5 value kind {kind!r} at {node.name}")
 
 
@@ -232,21 +243,27 @@ def write_measurement(path: Path, msmt: Measurement) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(path, "w") as output:
-        info = output.create_group("info")
-        _write_native(info, "schema_version", msmt.info.schema_version)
-        _write_native(info, "measurement_type", msmt.info.measurement_type)
-        _write_native(info, "backend", msmt.info.backend)
-        _write_native(info, "timestamp_utc", msmt.info.timestamp_utc)
-        _write_native(info, "instruments", msmt.info.instruments)
-        _write_native(info, "readbacks", msmt.info.readbacks)
-        param = output.create_group("param")
-        param.attrs["_kind"] = "dataclass"
-        param.attrs["_type"] = _qualified_type(type(msmt.param))
-        for data_field in _dataclass_fields(msmt.param):
-            _write_native(param, data_field.name, getattr(msmt.param, data_field.name))
-        _write_section(output, "daq", msmt.daq)
-        _write_section(output, "wave", msmt.wave)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.unlink(missing_ok=True)
+    try:
+        with h5py.File(temporary_path, "w") as output:
+            info = output.create_group("info")
+            _write_native(info, "schema_version", msmt.info.schema_version)
+            _write_native(info, "measurement_type", msmt.info.measurement_type)
+            _write_native(info, "backend", msmt.info.backend)
+            _write_native(info, "timestamp_utc", msmt.info.timestamp_utc)
+            _write_native(info, "instruments", msmt.info.instruments)
+            _write_native(info, "readbacks", msmt.info.readbacks)
+            param = output.create_group("param")
+            param.attrs["_kind"] = "dataclass"
+            param.attrs["_type"] = _qualified_type(type(msmt.param))
+            for data_field in _dataclass_fields(msmt.param):
+                _write_native(param, data_field.name, getattr(msmt.param, data_field.name))
+            _write_section(output, "daq", msmt.daq)
+            _write_section(output, "wave", msmt.wave)
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     return path
 
 
@@ -335,22 +352,27 @@ def interpolate_wave_records(
     time_s: Sequence[float] | np.ndarray,
     signals: Mapping[str, Sequence[float] | np.ndarray],
     windows_s: Sequence[tuple[float, float]],
-    samples_per_record: int,
+    sample_interval_s: float,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Interpolate adaptive-time simulation data onto dense relative records."""
+    """Interpolate adaptive-time simulation data onto uniform relative records."""
 
     source_time = np.asarray(time_s, dtype=np.float64)
     if source_time.ndim != 1 or len(source_time) < 2 or np.any(np.diff(source_time) <= 0):
         raise ValueError("source time must be one-dimensional and strictly increasing")
-    if samples_per_record < 2:
-        raise ValueError("samples_per_record must be at least two")
+    if not np.isfinite(sample_interval_s) or sample_interval_s <= 0:
+        raise ValueError("sample_interval_s must be finite and positive")
     normalized_signals = {name: np.asarray(values, dtype=np.float64) for name, values in signals.items()}
     if any(values.shape != source_time.shape for values in normalized_signals.values()):
         raise ValueError("all adaptive-time signals must align with source time")
     durations = np.asarray([stop - start for start, stop in windows_s], dtype=np.float64)
     if len(durations) == 0 or np.any(durations <= 0) or not np.allclose(durations, durations[0]):
         raise ValueError("waveform windows must be non-empty and have equal positive duration")
-    relative_time = np.linspace(0.0, durations[0], samples_per_record)
+    # Use a half-open [0, duration) grid so adjacent waveform records do not
+    # duplicate their shared boundary sample.
+    sample_count = int(np.ceil(durations[0] / sample_interval_s))
+    if sample_count < 2:
+        raise ValueError("sample_interval_s must provide at least two samples per record")
+    relative_time = np.arange(sample_count, dtype=np.float64) * sample_interval_s
     records = {name: [] for name in normalized_signals}
     for start, stop in windows_s:
         if start < source_time[0] or stop > source_time[-1]:

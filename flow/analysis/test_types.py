@@ -9,6 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
+import flow.analysis.io as analysis_io
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
     AdcDaq,
@@ -34,9 +35,9 @@ from flow.analysis.types import (
     SampDaq,
     SampIntWave,
 )
-from flow.cdac.testbench import CdacTbParams
-from flow.comp.testbench import CompTbParams
-from flow.samp.testbench import SampTbParams
+from flow.cdac.sim import CdacTbParams
+from flow.comp.sim import CompTbParams
+from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcTbParams
 
 
@@ -304,6 +305,23 @@ def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> N
         np.testing.assert_array_equal(actual, expected)
 
 
+def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -> None:
+    """Keep older HDF5 results readable when parameter classes gain fields."""
+
+    path = write_measurement(tmp_path / "legacy.h5", adc_measurement())
+    with h5py.File(path, "a") as stored:
+        cdac = stored["param/dut/cdac"]
+        del cdac["driver_p_w"]
+        del cdac["driver_n_w"]
+        del cdac["driver_strengths"]
+
+    loaded = read_measurement(path)
+    assert isinstance(loaded, MeasAdcExt)
+    assert loaded.param.dut.cdac.driver_p_w == 9
+    assert loaded.param.dut.cdac.driver_n_w == 7
+    assert loaded.param.dut.cdac.driver_strengths is None
+
+
 @pytest.mark.parametrize("measurement", all_measurements(), ids=lambda value: type(value).__name__)
 def test_every_measurement_type_round_trips(tmp_path: Path, measurement) -> None:
     """Use the same writer and reader for every supported measurement class."""
@@ -330,6 +348,26 @@ def test_reader_rejects_missing_required_dataset(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="missing required datasets.*comp_out_v"):
         read_measurement(path)
+
+
+def test_failed_measurement_write_preserves_existing_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Publish HDF5 atomically so readers never observe a partial replacement."""
+
+    path = write_measurement(tmp_path / "measurement.h5", adc_measurement())
+    original = path.read_bytes()
+
+    def fail_section(*args, **kwargs) -> None:
+        raise RuntimeError("injected persistence failure")
+
+    monkeypatch.setattr(analysis_io, "_write_section", fail_section)
+    with pytest.raises(RuntimeError, match="injected persistence failure"):
+        write_measurement(path, adc_measurement())
+
+    assert path.read_bytes() == original
+    assert not path.with_name(f".{path.name}.tmp").exists()
 
 
 def test_adc_sections_reject_invalid_bits_shapes_and_wave_mapping() -> None:
@@ -378,8 +416,8 @@ def test_adaptive_simulation_waveforms_interpolate_to_dense_records() -> None:
         time_s,
         {"signal_v": 2.0 * time_s},
         [(0.0, 1.0), (1.0, 2.0)],
-        samples_per_record=3,
+        sample_interval_s=0.5,
     )
 
-    np.testing.assert_allclose(relative_time, [0.0, 0.5, 1.0])
-    np.testing.assert_allclose(records["signal_v"], [[0.0, 1.0, 2.0], [2.0, 3.0, 4.0]])
+    np.testing.assert_allclose(relative_time, [0.0, 0.5])
+    np.testing.assert_allclose(records["signal_v"], [[0.0, 1.0], [2.0, 3.0]])

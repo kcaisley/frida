@@ -12,7 +12,12 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import to_rgba
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, LogNorm, to_rgba
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+from matplotlib.ticker import AutoMinorLocator, NullLocator
+from PIL import Image
 
 from flow.analysis.types import (
     AnalysisAdcDecisionPaths,
@@ -34,6 +39,7 @@ from flow.analysis.types import (
 
 DEFAULT_FORMATS = ("png", "pdf", "svg")
 PNG_DPI = 200
+FULL_HD_FIGSIZE = (9.6, 5.4)
 
 # Nord presentation colors. The ordering gives all plots a stable semantic
 # sequence instead of inheriting Matplotlib's version-dependent default cycle.
@@ -50,6 +56,8 @@ NORD_ORANGE = "#D08770"
 NORD_PURPLE = "#B48EAD"
 NORD_CYAN = "#88C0D0"
 NORD_YELLOW = "#EBCB8B"
+NORD_TEAL = "#8FBCBB"
+NORD_LIGHT_BLUE = "#81A1C1"
 NORD_DARK = "#4C566A"
 NORD_COLORS = (
     NORD_BLUE,
@@ -59,6 +67,8 @@ NORD_COLORS = (
     NORD_PURPLE,
     NORD_CYAN,
     NORD_YELLOW,
+    NORD_TEAL,
+    NORD_LIGHT_BLUE,
     NORD_DARK,
 )
 TIMING_COLORS = {
@@ -153,7 +163,14 @@ def style_ax(ax: plt.Axes) -> None:
 def style_grid(ax: plt.Axes) -> None:
     """Apply the shared light grid."""
 
-    ax.minorticks_on()
+    # Retain explicitly selected minor-tick intervals, such as the 0.25 MSPS
+    # measurement spacing. ``minorticks_on`` would replace them with an
+    # AutoMinorLocator and produce misleading 0.20 MSPS tick marks.
+    if isinstance(ax.xaxis.get_minor_locator(), NullLocator):
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+    if isinstance(ax.yaxis.get_minor_locator(), NullLocator):
+        ax.yaxis.set_minor_locator(AutoMinorLocator())
+    ax.set_axisbelow(True)
     ax.grid(
         True,
         which="major",
@@ -229,6 +246,8 @@ def _save_figure(
     fig: plt.Figure,
     output_path: Path,
     formats: Sequence[str],
+    *,
+    exact_canvas: bool = False,
 ) -> tuple[Path, ...]:
     output_path = Path(output_path)
     if output_path.suffix:
@@ -238,20 +257,21 @@ def _save_figure(
     fig.patch.set_facecolor(PLOT_FACE_COLOR)
     fig.tight_layout()
     paths = []
+    bbox_inches = None if exact_canvas else "tight"
     for output_format in formats:
         path = output_path.with_suffix(f".{output_format}")
         if output_format.lower() == "png":
             fig.savefig(
                 path,
-                bbox_inches="tight",
                 facecolor=PLOT_FACE_COLOR,
                 dpi=PNG_DPI,
+                bbox_inches=bbox_inches,
             )
         else:
             fig.savefig(
                 path,
-                bbox_inches="tight",
                 facecolor=PLOT_FACE_COLOR,
+                bbox_inches=bbox_inches,
             )
         paths.append(path)
     plt.close(fig)
@@ -261,7 +281,7 @@ def _save_figure(
 def _measurement_lines(msmt: Measurement) -> tuple[str, ...]:
     lines = (
         f"Backend: {msmt.info.backend}",
-        f"Recorded: {msmt.info.timestamp_utc.strftime('%Y-%m-%d %H:%M')}",
+        f"Datetime: {msmt.info.timestamp_utc.strftime('%Y-%m-%d %H:%M')}",
     )
     board_id = getattr(msmt.param, "board_id", None)
     observed_adc = getattr(msmt.param, "observed_adc", None)
@@ -281,7 +301,7 @@ def _measurement_group_lines(measurements: Sequence[Measurement]) -> tuple[str, 
     backends = sorted({msmt.info.backend for msmt in measurements})
     lines = (
         f"Backend: {', '.join(backends)}",
-        f"Recorded: {first.info.timestamp_utc.strftime('%Y-%m-%d %H:%M')}",
+        f"Datetime: {first.info.timestamp_utc.strftime('%Y-%m-%d %H:%M')}",
     )
     board_ids = sorted(
         {str(board_id) for msmt in measurements if (board_id := getattr(msmt.param, "board_id", None)) is not None}
@@ -463,74 +483,379 @@ def plot_adc_noise_sweep(
     analysis: AnalysisAdcNoiseSweep,
     *,
     output_path: Path,
+    quadratic_guide: bool = False,
+    series_labels: Sequence[str] | None = None,
+    title: str = "ADC noise performance vs conversion rate",
     formats: Sequence[str] = DEFAULT_FORMATS,
 ) -> tuple[Path, ...]:
-    """Plot decision variation versus conversion rate and timing allocation."""
+    """Plot noise, equivalent full-scale SNR, and ENOB on one rate panel.
 
-    fig, ax = plt.subplots(figsize=(9.0, 5.5))
+    A quadratic guide is useful for comparing sparse SPICE sweeps with the
+    densely measured physical trend. With exactly three rates it is an
+    interpolation, not an independently validated predictive model.
+    """
+
+    if series_labels is not None and len(series_labels) != len(analysis.sample_rate_hz):
+        raise ValueError("series_labels must contain one label per noise-sweep point")
+    if not np.isfinite(analysis.input_lsb_v) or analysis.input_lsb_v <= 0.0:
+        raise ValueError("noise-sweep plot requires a finite positive input LSB")
+
+    # The SNR and ENOB axes use a full-scale sine whose peak-to-peak
+    # range is the ADC input range represented by all output codes.
+    adc_bits = measurements[0].param.dut.adc_bits
+    full_scale_rms_lsb = ((1 << adc_bits) - 1) / (2.0 * np.sqrt(2.0))
+    noise_rms_v = np.asarray(analysis.input_referred_noise_rms_v)
+    if np.any(~np.isfinite(noise_rms_v)) or np.any(noise_rms_v < 0.0):
+        raise ValueError("noise-sweep plot requires finite nonnegative input-referred noise")
+    noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
+
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
     conversion_rate_msps = analysis.sample_rate_hz / 1e6
-    for comparator_percent in np.unique(analysis.comparator_time_percent):
-        selected = analysis.comparator_time_percent == comparator_percent
-        order = np.argsort(conversion_rate_msps[selected])
-        ax.plot(
-            conversion_rate_msps[selected][order],
-            analysis.std_dout[selected][order],
-            marker="o",
-            markersize=3,
-            linewidth=0.8,
-            color=TIMING_COLORS.get(float(comparator_percent), NORD_DARK),
-            label=f"{comparator_percent:g}%",
+    if series_labels is None:
+        labels = tuple(f"{value:g}%" for value in np.unique(analysis.comparator_time_percent))
+        selections = tuple(
+            analysis.comparator_time_percent == value for value in np.unique(analysis.comparator_time_percent)
         )
-    ax.set_xlabel("Active conversion rate (MSPS)")
-    ax.set_ylabel("Input-referred noise RMS (LSB)")
-    ax.set_ylim(0.0, 10.0)
-    ax.set_xticks(np.arange(1.0, 11.0))
-    ax.set_title("Decision variation in LSB vs conversion rate")
+        colors = tuple(
+            TIMING_COLORS.get(float(value), NORD_DARK) for value in np.unique(analysis.comparator_time_percent)
+        )
+    else:
+        labels = tuple(dict.fromkeys(series_labels))
+        label_values = np.asarray(series_labels)
+        selections = tuple(label_values == label for label in labels)
+        colors = tuple(NORD_COLORS[index % len(NORD_COLORS)] for index in range(len(labels)))
+
+    for label, selected, color in zip(labels, selections, colors, strict=True):
+        order = np.argsort(conversion_rate_msps[selected])
+        selected_rate = conversion_rate_msps[selected][order]
+        selected_noise_lsb = noise_rms_lsb[selected][order]
+        if label == "Input stimulus noise":
+            ax.hlines(
+                float(np.mean(selected_noise_lsb)),
+                float(selected_rate[0]),
+                float(selected_rate[-1]),
+                color=color,
+                linestyle=":",
+                linewidth=1.4,
+                label=label,
+            )
+        else:
+            ax.plot(
+                selected_rate,
+                selected_noise_lsb,
+                marker="o",
+                markersize=3,
+                linewidth=0.8,
+                color=color,
+                label=label,
+            )
+        if quadratic_guide and len(np.unique(selected_rate)) >= 3:
+            coefficients = np.polyfit(selected_rate, selected_noise_lsb, deg=2)
+            fit_rate = np.linspace(float(selected_rate[0]), float(selected_rate[-1]), 200)
+            fit_label = "Quadratic guide (3 points)" if len(selected_rate) == 3 else "Quadratic fit"
+            ax.plot(
+                fit_rate,
+                np.polyval(coefficients, fit_rate),
+                linestyle="--",
+                linewidth=1.2,
+                color=color,
+                alpha=0.8,
+                label=fit_label,
+            )
+    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_ylabel("Input-referred noise (LSB RMS)")
+    ax.invert_yaxis()
+    ax.set_ylim(10.25, -0.25)
+    ax.set_yticks(np.arange(0.0, 11.0, 1.0))
+    ax.set_xticks(np.arange(0.0, 11.0, 1.0))
+    ax.set_xlim(0.0, 10.25)
+    ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
+    ax.set_title(title)
     style_ax(ax)
+    ax.tick_params(which="both", right=False)
     style_grid(ax)
     style_legend(
         ax,
-        ncol=4,
-        title="COMP→LOGIC interval\n(as % of decision cycle)",
-        loc="lower left",
+        ncol=4 if series_labels is None else 1,
+        title="COMP→LOGIC interval\n(as % of decision cycle)" if series_labels is None else None,
+        loc="lower left" if series_labels is not None else "upper left",
     )
-    secondary = ax.twiny()
-    secondary.set_xlim(ax.get_xlim())
-    secondary.xaxis.set_ticks_position("bottom")
-    secondary.xaxis.set_label_position("bottom")
-    secondary.spines["bottom"].set_position(("outward", 38))
-    secondary.spines["bottom"].set_color(SPINE_COLOR)
-    secondary.spines["top"].set_visible(False)
-    secondary.set_xlabel("Time per decision cycle (ns)")
+    noise_mv_axis = ax.secondary_yaxis(
+        "left",
+        functions=(
+            lambda noise_lsb: np.asarray(noise_lsb) * analysis.input_lsb_v * 1e3,
+            lambda noise_mv: np.asarray(noise_mv) / (analysis.input_lsb_v * 1e3),
+        ),
+    )
+    noise_mv_axis.spines["left"].set_position(("outward", 58))
+    noise_mv_axis.spines["left"].set_color(SPINE_COLOR)
+    noise_mv_axis.set_ylabel("Input-referred noise (mV RMS)")
+    noise_mv_axis.tick_params(direction="in", which="both", left=True, right=False, colors=TEXT_COLOR)
+    noise_mv_axis.yaxis.label.set_color(TEXT_COLOR)
+
+    enob_axis = ax.secondary_yaxis(
+        "right",
+        functions=(
+            lambda noise_lsb: (
+                (
+                    20.0
+                    * (
+                        np.log10(full_scale_rms_lsb)
+                        - np.log10(np.maximum(np.asarray(noise_lsb), np.finfo(np.float64).tiny))
+                    )
+                    - 1.76
+                )
+                / 6.02
+            ),
+            lambda enob_bits: full_scale_rms_lsb * np.power(10.0, -(6.02 * np.asarray(enob_bits) + 1.76) / 20.0),
+        ),
+    )
+    enob_axis.spines["right"].set_color(SPINE_COLOR)
+    enob_axis.set_ylabel("ENOB (bit)")
+    enob_axis.set_yticks(np.arange(7.0, 13.0, 1.0))
+    enob_axis.tick_params(direction="in", which="both", left=False, right=True, colors=TEXT_COLOR)
+    enob_axis.yaxis.label.set_color(TEXT_COLOR)
+
+    snr_axis = ax.secondary_yaxis(
+        "right",
+        functions=(
+            lambda noise_lsb: (
+                20.0
+                * (
+                    np.log10(full_scale_rms_lsb)
+                    - np.log10(np.maximum(np.asarray(noise_lsb), np.finfo(np.float64).tiny))
+                )
+            ),
+            lambda snr_db: full_scale_rms_lsb * np.power(10.0, -np.asarray(snr_db) / 20.0),
+        ),
+    )
+    snr_axis.spines["right"].set_position(("outward", 58))
+    snr_axis.spines["right"].set_color(SPINE_COLOR)
+    snr_axis.set_ylabel("SNR (dB)")
+    snr_axis.set_yticks(np.arange(45.0, 71.0, 5.0))
+    snr_axis.tick_params(direction="in", which="both", left=False, right=True, colors=TEXT_COLOR)
+    snr_axis.yaxis.label.set_color(TEXT_COLOR)
+
+    decision_time_axis = ax.twiny()
+    decision_time_axis.set_xlim(ax.get_xlim())
+    decision_time_axis.xaxis.set_ticks_position("bottom")
+    decision_time_axis.xaxis.set_label_position("bottom")
+    decision_time_axis.spines["bottom"].set_position(("outward", 38))
+    decision_time_axis.spines["bottom"].set_color(SPINE_COLOR)
+    decision_time_axis.spines["top"].set_visible(False)
+    decision_time_axis.set_xlabel("Time per decision cycle (ns)")
     labeled_rates_msps = np.arange(1.0, 11.0)
     decision_cycle_ns = 50.0 / labeled_rates_msps
-    secondary.set_xticks(labeled_rates_msps)
-    secondary.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
-    secondary.tick_params(
+    decision_time_axis.set_xticks(labeled_rates_msps)
+    decision_time_axis.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
+    decision_time_axis.tick_params(
         direction="in",
         which="both",
         top=False,
         bottom=True,
         colors=TEXT_COLOR,
     )
-    secondary.xaxis.label.set_color(TEXT_COLOR)
-    secondary_y = ax.secondary_yaxis(
-        "right",
-        functions=(
-            lambda noise_lsb: noise_lsb * analysis.input_lsb_v * 1e3,
-            lambda noise_mv: noise_mv / (analysis.input_lsb_v * 1e3),
+    decision_time_axis.xaxis.label.set_color(TEXT_COLOR)
+    info_lines = _measurement_group_lines(measurements)
+    vin_diff_dc = getattr(measurements[0].param.vin_diff, "dc", None)
+    vin_cm_dc = getattr(measurements[0].param.vin_cm, "dc", None)
+    if vin_diff_dc is not None and all(
+        getattr(msmt.param.vin_diff, "dc", None) == vin_diff_dc for msmt in measurements
+    ):
+        info_lines += (f"Vdiff: {float(vin_diff_dc) * 1e3:g} mV DC",)
+    if vin_cm_dc is not None and all(getattr(msmt.param.vin_cm, "dc", None) == vin_cm_dc for msmt in measurements):
+        info_lines += (f"Vcm: {float(vin_cm_dc) * 1e3:g} mV",)
+    _add_info_box(ax, info_lines, location="lower right")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_adc_noise_distribution_sweep(
+    measurements: Sequence[MeasAdc],
+    analysis: AnalysisAdcNoiseSweep,
+    *,
+    output_path: Path,
+    title: str | None = None,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot left-facing output-code histograms along the conversion-rate axis."""
+
+    if analysis.code is None or analysis.count is None:
+        raise ValueError("noise-distribution plot requires per-rate histogram counts")
+    if analysis.count.shape != (len(analysis.sample_rate_hz), len(analysis.code)):
+        raise ValueError("noise-distribution histogram dimensions do not match its rates and codes")
+    observed_adcs = {msmt.param.observed_adc for msmt in measurements}
+    if len(observed_adcs) != 1:
+        raise ValueError("noise-distribution plot requires measurements from one ADC")
+
+    order = np.argsort(analysis.sample_rate_hz)
+    rates_msps = analysis.sample_rate_hz[order] / 1e6
+    if len(np.unique(rates_msps)) != len(rates_msps):
+        raise ValueError("noise-distribution plot requires one histogram per conversion rate")
+    counts = analysis.count[order]
+    populated = np.flatnonzero(np.any(counts > 0, axis=0))
+    if not len(populated):
+        raise ValueError("noise-distribution plot has no populated output codes")
+    first_code = max(0, int(populated[0]) - 2)
+    last_code = min(len(analysis.code) - 1, int(populated[-1]) + 2)
+    codes = analysis.code[first_code : last_code + 1]
+    visible_counts = counts[:, first_code : last_code + 1]
+
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
+    maximum_count = int(np.max(visible_counts))
+    histogram_scale = int(np.ceil(maximum_count / 10_000.0) * 10_000)
+    if len(rates_msps) == 1:
+        maximum_width_msps = 0.2
+    else:
+        maximum_width_msps = 0.8 * float(np.min(np.diff(rates_msps)))
+    for rate_msps, histogram in zip(rates_msps, visible_counts, strict=True):
+        populated_codes = histogram > 0
+        widths = maximum_width_msps * histogram[populated_codes] / histogram_scale
+        ax.barh(
+            codes[populated_codes],
+            widths,
+            left=rate_msps - widths / 2.0,
+            height=1.0,
+            facecolor=to_rgba(NORD_BLUE, 0.25),
+            edgecolor=NORD_BLUE,
+            linewidth=0.45,
+        )
+    mean = analysis.mean_dout[order]
+    std = analysis.std_dout[order]
+    if std[0] <= 0.0:
+        raise ValueError("noise-distribution plot requires nonzero variation at its lowest rate")
+    ax.plot(rates_msps, mean, color=NORD_RED, linewidth=1.2, marker="o", markersize=2.5, label="Mean")
+    ax.plot(rates_msps, mean - std, color=NORD_ORANGE, linewidth=0.9, linestyle="--", label="Mean ±1σ")
+    ax.plot(rates_msps, mean + std, color=NORD_ORANGE, linewidth=0.9, linestyle="--")
+    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_ylabel("ADC output code (LSB)")
+    ax.set_xticks(np.arange(0.0, 11.0, 1.0))
+    ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
+    ax.set_xlim(0.0, 10.25)
+    ax.set_ylim(mean[0] - 3.0 * std[0], mean[0] + 3.0 * std[0])
+    adc_index = next(iter(observed_adcs))
+    adc_label = "ADC" if adc_index is None else f"ADC{adc_index:02d}"
+    ax.set_title(title or f"{adc_label} fixed-input output-code distributions")
+    style_ax(ax)
+    style_grid(ax)
+    style_legend(ax, loc="upper left")
+    _add_info_box(
+        ax,
+        (
+            f"Global histogram scale: {histogram_scale:,} conversions",
+            *_measurement_group_lines(measurements),
         ),
+        location="upper right",
     )
-    secondary_y.set_ylabel("Input-referred noise RMS (mV)")
-    secondary_y.tick_params(
-        direction="in",
-        which="both",
-        colors=TEXT_COLOR,
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_adc_noise_violin_sweep(
+    measurements: Sequence[MeasAdc],
+    analysis: AnalysisAdcNoiseSweep,
+    *,
+    output_path: Path,
+    title: str | None = None,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot KDE violins with exact per-LSB count boxes at each conversion rate."""
+
+    if analysis.code is None or analysis.count is None:
+        raise ValueError("noise-violin plot requires per-rate histogram counts")
+    if len(measurements) != len(analysis.sample_rate_hz):
+        raise ValueError("noise-violin measurements and analysis must have equal lengths")
+    observed_adcs = {msmt.param.observed_adc for msmt in measurements}
+    if len(observed_adcs) != 1:
+        raise ValueError("noise-violin plot requires measurements from one ADC")
+
+    order = np.argsort(analysis.sample_rate_hz)
+    rates_msps = analysis.sample_rate_hz[order] / 1e6
+    if len(np.unique(rates_msps)) != len(rates_msps):
+        raise ValueError("noise-violin plot requires one distribution per conversion rate")
+    distributions = [measurements[index].daq.dout for index in order]
+    if any(len(np.unique(values)) < 2 for values in distributions):
+        raise ValueError("noise-violin KDE requires at least two output codes at every rate")
+    positions = np.arange(len(rates_msps), dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
+    parts = ax.violinplot(
+        distributions,
+        positions,
+        points=60,
+        widths=0.7,
+        showmeans=True,
+        showextrema=True,
+        showmedians=False,
+        bw_method=0.5,
     )
-    secondary_y.spines["right"].set_color(SPINE_COLOR)
-    secondary_y.yaxis.label.set_color(TEXT_COLOR)
-    _add_info_box(ax, _measurement_group_lines(measurements), location="upper left")
-    return _save_figure(fig, output_path, formats)
+    for body in parts["bodies"]:
+        body.set_facecolor(to_rgba(NORD_CYAN, 0.14))
+        body.set_edgecolor("none")
+        body.set_linewidth(0.0)
+        body.set_alpha(1.0)
+    for name, color, linewidth in (
+        ("cmeans", NORD_RED, 1.2),
+        ("cmins", NORD_DARK, 0.7),
+        ("cmaxes", NORD_DARK, 0.7),
+        ("cbars", NORD_DARK, 0.7),
+    ):
+        parts[name].set_color(color)
+        parts[name].set_linewidth(linewidth)
+
+    maximum_count = int(np.max(analysis.count))
+    histogram_scale = int(np.ceil(maximum_count / 10_000.0) * 10_000)
+    for position, histogram in zip(positions, analysis.count[order], strict=True):
+        populated_codes = histogram > 0
+        widths = 0.7 * histogram[populated_codes] / histogram_scale
+        ax.barh(
+            analysis.code[populated_codes],
+            widths,
+            left=position - widths / 2.0,
+            height=0.88,
+            facecolor=to_rgba(NORD_BLUE, 0.58),
+            edgecolor=to_rgba(NORD_DARK, 0.9),
+            linewidth=0.4,
+            zorder=2,
+        )
+
+    integer_rates = np.flatnonzero(np.isclose(rates_msps, np.round(rates_msps)) & (rates_msps >= 1.0))
+    ax.set_xticks(integer_rates)
+    ax.set_xticklabels(tuple(f"{rates_msps[index]:g}" for index in integer_rates))
+    ax.set_xticks(positions, minor=True)
+    ax.set_xlim(-0.8, float(positions[-1]) + 0.8)
+    low_rate_mean = analysis.mean_dout[order][0]
+    low_rate_std = analysis.std_dout[order][0]
+    if low_rate_std <= 0.0:
+        raise ValueError("noise-violin plot requires nonzero variation at its lowest rate")
+    ax.set_ylim(low_rate_mean - 3.0 * low_rate_std, low_rate_mean + 3.0 * low_rate_std)
+    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_ylabel("ADC output code (LSB)")
+    adc_index = next(iter(observed_adcs))
+    adc_label = "ADC" if adc_index is None else f"ADC{adc_index:02d}"
+    ax.set_title(title or f"{adc_label} fixed-input output-code violin distributions")
+    style_ax(ax)
+    style_grid(ax)
+    style_legend(
+        ax,
+        handles=(
+            Patch(facecolor=to_rgba(NORD_CYAN, 0.14), edgecolor="none", label="KDE (bandwidth 0.5)"),
+            Patch(facecolor=to_rgba(NORD_BLUE, 0.58), edgecolor=NORD_DARK, label="Exact LSB counts"),
+            Line2D((), (), color=NORD_RED, linewidth=1.2, label="Mean"),
+            Line2D((), (), color=NORD_DARK, linewidth=0.7, label="Extrema"),
+        ),
+        loc="upper left",
+        ncol=3,
+    )
+    _add_info_box(
+        ax,
+        (
+            f"Global LSB-bin scale: {histogram_scale:,} conversions",
+            *_measurement_group_lines(measurements),
+        ),
+        location="upper right",
+    )
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style
@@ -611,124 +936,6 @@ def plot_adc_dynamic_sweep(
 
 
 @with_plot_style
-def plot_adc_dynamic_rate_sweep(
-    measurements: Sequence[MeasAdc],
-    analysis: AnalysisAdcDynamicSweep,
-    *,
-    output_path: Path,
-    formats: Sequence[str] = DEFAULT_FORMATS,
-) -> tuple[Path, ...]:
-    """Plot SNDR/ENOB and input-referred noise on one rate-sweep panel."""
-
-    if not measurements:
-        raise ValueError("ADC dynamic rate plot requires at least one measurement")
-    input_amplitudes_v = []
-    for msmt in measurements:
-        amplitude_v = getattr(msmt.param.vin_diff, "vamp", None)
-        if amplitude_v is None:
-            raise ValueError("ADC dynamic rate plot requires sine inputs with amplitude set")
-        input_amplitudes_v.append(abs(float(amplitude_v)))
-    if not np.allclose(input_amplitudes_v, input_amplitudes_v[0], rtol=1e-12, atol=0.0):
-        raise ValueError("one input-referred-noise axis requires equal sine amplitudes")
-    input_rms_mv = input_amplitudes_v[0] * 1e3 / np.sqrt(2.0)
-
-    fig, ax = plt.subplots(figsize=(9.0, 5.5))
-    for adc_position, adc_index in enumerate(np.unique(analysis.observed_adc)):
-        selected = analysis.observed_adc == adc_index
-        order = np.argsort(analysis.active_conversion_rate_hz[selected])
-        rate_msps = analysis.active_conversion_rate_hz[selected][order] / 1e6
-        label = f"ADC{adc_index:02d}" if adc_index >= 0 else "ADC unspecified"
-        color = NORD_COLORS[adc_position % len(NORD_COLORS)]
-        ax.plot(
-            rate_msps,
-            analysis.spectral_sndr_db[selected][order],
-            marker="o",
-            color=color,
-            label=label,
-        )
-
-    ax.set_xlabel("Active conversion rate (MSPS)")
-    ax.set_ylabel("SNDR (dB)")
-    ax.set_xticks(np.arange(0.0, 11.0, 1.0))
-    ax.set_xlim(0.0, 10.25)
-    style_ax(ax)
-    style_grid(ax)
-    ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
-
-    enob_axis = ax.secondary_yaxis(
-        "left",
-        functions=(
-            lambda sndr_db: (sndr_db - 1.76) / 6.02,
-            lambda enob_bits: 6.02 * enob_bits + 1.76,
-        ),
-    )
-    enob_axis.spines["left"].set_position(("outward", 48))
-    enob_axis.spines["left"].set_color(SPINE_COLOR)
-    enob_axis.set_ylabel("ENOB (bit)")
-    enob_axis.tick_params(
-        direction="in",
-        which="both",
-        left=True,
-        right=False,
-        colors=TEXT_COLOR,
-    )
-    enob_axis.yaxis.label.set_color(TEXT_COLOR)
-
-    noise_axis = ax.secondary_yaxis(
-        "left",
-        functions=(
-            lambda sndr_db: input_rms_mv * np.power(10.0, -np.asarray(sndr_db) / 20.0),
-            lambda noise_mv: (
-                20.0 * (np.log10(input_rms_mv) - np.log10(np.maximum(np.asarray(noise_mv), np.finfo(np.float64).tiny)))
-            ),
-        ),
-    )
-    noise_axis.spines["left"].set_position(("outward", 96))
-    noise_axis.spines["left"].set_color(SPINE_COLOR)
-    noise_axis.set_ylabel("Input-referred noise (mV RMS)")
-    noise_axis.tick_params(
-        direction="in",
-        which="both",
-        left=True,
-        right=False,
-        colors=TEXT_COLOR,
-    )
-    noise_axis.yaxis.label.set_color(TEXT_COLOR)
-
-    decision_time_axis = ax.twiny()
-    decision_time_axis.set_xlim(ax.get_xlim())
-    decision_time_axis.xaxis.set_ticks_position("bottom")
-    decision_time_axis.xaxis.set_label_position("bottom")
-    decision_time_axis.spines["bottom"].set_position(("outward", 38))
-    decision_time_axis.spines["bottom"].set_color(SPINE_COLOR)
-    decision_time_axis.spines["top"].set_visible(False)
-    decision_time_axis.set_xlabel("Time per decision cycle (ns)")
-    labeled_rates_msps = np.arange(1.0, 11.0)
-    decision_time_axis.set_xticks(labeled_rates_msps)
-    decision_time_axis.set_xticklabels(tuple(f"{50.0 / rate:.3g}" for rate in labeled_rates_msps))
-    decision_time_axis.tick_params(
-        direction="in",
-        which="both",
-        top=False,
-        bottom=True,
-        colors=TEXT_COLOR,
-    )
-    decision_time_axis.xaxis.label.set_color(TEXT_COLOR)
-
-    style_legend(ax, ncol=2, loc="upper right")
-    _add_info_box(
-        ax,
-        (
-            f"Input: {2.0 * input_amplitudes_v[0] * 1e3:g} mVpp sine",
-            *_measurement_group_lines(measurements),
-        ),
-        location="lower left",
-    )
-    ax.set_title("ADC dynamic performance vs conversion rate")
-    return _save_figure(fig, output_path, formats)
-
-
-@with_plot_style
 def plot_adc_power_sweep(
     measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcPowerSweep,
@@ -797,6 +1004,7 @@ def plot_adc_power_sweep(
         ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
         if np.max(rate_msps) >= 1.0:
             ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
+        ax.set_xticks(np.arange(0.0, float(np.max(rate_msps)) + 0.251, 0.25), minor=True)
         ax.set_ylim(0.0, max(float(np.max(total_power_uw)) * 1.25, 1.0))
         style_ax(ax)
         style_grid(ax)
@@ -841,7 +1049,7 @@ def plot_adc_decision_paths(
     ax.set_ylabel("Running estimate (LSB)")
     ax.set_title("ADC decision paths")
     style_ax(ax)
-    style_grid(ax)
+    ax.grid(False, which="both")
     style_legend(ax)
     _add_info_box(
         ax,
@@ -853,6 +1061,230 @@ def plot_adc_decision_paths(
         ),
     )
     return _save_figure(fig, output_path, formats)
+
+
+def _draw_adc_decision_path_density(
+    msmt: MeasAdc,
+    analysis: AnalysisAdcDecisionPaths,
+    *,
+    paths: np.ndarray,
+    normalization_max: int,
+    fig: plt.Figure | None = None,
+) -> plt.Figure:
+    """Draw one cumulative decision-path-density frame."""
+
+    cycles = np.arange(analysis.estimate_dout.shape[1], dtype=np.float64)
+    substeps_per_decision = 8
+    cycle_step = 1.0 / substeps_per_decision
+    horizontal_bins = (len(cycles) - 1) * substeps_per_decision + 1
+    cycle_edges = np.arange(horizontal_bins + 1, dtype=np.float64) * cycle_step
+    fine_cycles = cycle_edges[:-1] + cycle_step / 2.0
+    normalized_code_max = (1 << msmt.param.dut.adc_bits) - 1
+    code_edges = np.arange(-0.5, normalized_code_max + 1.5, 1.0)
+    count = np.zeros((len(cycle_edges) - 1, len(code_edges) - 1), dtype=np.float64)
+    for first_row in range(0, len(paths), 10_000):
+        path_chunk = paths[first_row : first_row + 10_000]
+        # A SAR estimate is a discrete state, not a continuously changing
+        # voltage. Hold each estimate through its decision interval and jump
+        # to the next value exactly at the following integer cycle.
+        held = np.repeat(path_chunk[:, :-1], substeps_per_decision, axis=1)
+        held = np.concatenate((held, path_chunk[:, -1, None]), axis=1)
+        path_count, _, _ = np.histogram2d(
+            np.broadcast_to(fine_cycles, held.shape).ravel(),
+            held.ravel(),
+            bins=(cycle_edges, code_edges),
+        )
+        count += path_count
+
+    # Draw transitions independently from the rectangular density cells. This
+    # keeps each connector thin and places its endpoints exactly at the two
+    # held estimates, without consuming or overlapping a fractional-cycle bin.
+    transition_segments = []
+    transition_occupancies = []
+    for cycle in range(1, len(cycles)):
+        transitions, occupancies = np.unique(
+            paths[:, (cycle - 1, cycle)],
+            axis=0,
+            return_counts=True,
+        )
+        changed = transitions[:, 0] != transitions[:, 1]
+        transitions = transitions[changed]
+        occupancies = occupancies[changed]
+        order = np.argsort(occupancies)
+        for transition, occupancy in zip(transitions[order], occupancies[order], strict=True):
+            transition_segments.append(
+                (
+                    (float(cycle), float(transition[0])),
+                    (float(cycle), float(transition[1])),
+                )
+            )
+            transition_occupancies.append(float(occupancy))
+
+    populated_count = np.ma.masked_equal(count.T, 0.0)
+    nord_density = LinearSegmentedColormap.from_list(
+        "nord_decision_density",
+        (NORD_LIGHT_BLUE, NORD_ORANGE, NORD_YELLOW),
+    )
+    # Keep zero occupancy solid blue, but start every positive occupancy at a
+    # visibly lighter Frost color. This distinction is especially important
+    # after GIF palette quantization: sparse horizontal holds must not disappear
+    # while their anti-aliased vertical connectors remain visible.
+    nord_density.set_bad(NORD_BLUE, alpha=1.0)
+    density_norm = LogNorm(vmin=1, vmax=max(2, normalization_max))
+
+    if fig is None:
+        fig = plt.figure(figsize=FULL_HD_FIGSIZE)
+    else:
+        fig.clear()
+    ax = fig.subplots()
+    ax.set_facecolor(NORD_BLUE)
+    mesh = ax.pcolormesh(
+        cycle_edges,
+        code_edges,
+        populated_count,
+        cmap=nord_density,
+        norm=density_norm,
+        shading="flat",
+        rasterized=True,
+    )
+    if transition_segments:
+        connectors = LineCollection(
+            transition_segments,
+            cmap=nord_density,
+            norm=density_norm,
+            linewidths=0.65,
+            capstyle="butt",
+            rasterized=True,
+            zorder=3,
+        )
+        connectors.set_array(np.asarray(transition_occupancies))
+        ax.add_collection(connectors)
+    colorbar = fig.colorbar(mesh, ax=ax, pad=0.02)
+    colorbar.set_label("Conversions per path")
+    colorbar.ax.tick_params(colors=TEXT_COLOR)
+    colorbar.outline.set_edgecolor(SPINE_COLOR)
+    colorbar.ax.yaxis.label.set_color(TEXT_COLOR)
+
+    populated_min = int(np.floor(np.min(analysis.estimate_dout) + 0.5))
+    populated_max = int(np.floor(np.max(analysis.estimate_dout) + 0.5))
+    ax.set_xlim(-0.5, cycles[-1] + 0.5)
+    ax.set_ylim(max(-0.5, populated_min - 8.5), min(normalized_code_max + 0.5, populated_max + 8.5))
+    ax.set_xticks(cycles)
+    ax.set_xticklabels(("Initial", *(str(cycle) for cycle in range(1, len(cycles)))))
+    ax.set_xlabel("Decision cycle")
+    ax.set_ylabel("Running estimate (LSB)")
+    adc_index = msmt.param.observed_adc
+    adc_label = "ADC" if adc_index is None else f"ADC{adc_index:02d}"
+    input_dc = getattr(msmt.param.vin_diff, "dc", None)
+    input_mv = float(input_dc) * 1e3 if input_dc is not None else None
+    rate_hz = msmt.info.readbacks.get("active_conversion_rate_hz")
+    details = []
+    if input_mv is not None:
+        details.append(f"{input_mv:g} mV DC")
+    if isinstance(rate_hz, (int, float)):
+        details.append(f"{float(rate_hz) / 1e6:g} Msps")
+    suffix = f" ({', '.join(details)})" if details else ""
+    ax.set_title(f"{adc_label} decision-path density{suffix}")
+    style_ax(ax)
+    ax.set_facecolor(NORD_BLUE)
+    ax.grid(False, which="both")
+    _add_info_box(
+        ax,
+        (
+            f"Conversions: {len(paths):,}",
+            *_measurement_lines(msmt),
+        ),
+        location="upper right",
+    )
+    return fig
+
+
+@with_plot_style
+def plot_adc_decision_path_density(
+    msmt: MeasAdc,
+    analysis: AnalysisAdcDecisionPaths,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot how frequently conversions follow each running SAR trajectory."""
+
+    if analysis.selection != "all":
+        raise ValueError("decision-path density requires an analysis containing all conversions")
+    if not len(analysis.estimate_dout):
+        raise ValueError("decision-path density requires at least one conversion")
+    fig = _draw_adc_decision_path_density(
+        msmt,
+        analysis,
+        paths=analysis.estimate_dout,
+        normalization_max=len(analysis.estimate_dout),
+    )
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def animate_adc_decision_path_density(
+    msmt: MeasAdc,
+    analysis: AnalysisAdcDecisionPaths,
+    *,
+    output_path: Path,
+    frame_count: int = 24,
+    fps: int = 4,
+) -> tuple[Path, ...]:
+    """Animate the cumulative population of the SAR decision-path density."""
+
+    if analysis.selection != "all":
+        raise ValueError("decision-path density requires an analysis containing all conversions")
+    total_conversions = len(analysis.estimate_dout)
+    if not total_conversions:
+        raise ValueError("decision-path density requires at least one conversion")
+    if frame_count < 2:
+        raise ValueError("frame_count must be at least two")
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+
+    cumulative_counts = np.unique(
+        np.rint(
+            np.geomspace(
+                1,
+                total_conversions,
+                num=frame_count,
+            )
+        ).astype(np.int64)
+    )
+    if cumulative_counts[-1] != total_conversions:
+        cumulative_counts = np.append(cumulative_counts, total_conversions)
+
+    path = Path(output_path).with_suffix(".gif")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig = plt.figure(figsize=FULL_HD_FIGSIZE, dpi=PNG_DPI)
+    frames = []
+    for cumulative_count in cumulative_counts:
+        _draw_adc_decision_path_density(
+            msmt,
+            analysis,
+            paths=analysis.estimate_dout[:cumulative_count],
+            normalization_max=total_conversions,
+            fig=fig,
+        )
+        fig.tight_layout()
+        fig.canvas.draw()
+        frames.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba()).copy()).convert("RGB"))
+    plt.close(fig)
+
+    frame_duration_ms = round(1_000 / fps)
+    durations_ms = [frame_duration_ms] * len(frames)
+    durations_ms[-1] += 1_000
+    frames[0].save(
+        path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations_ms,
+        loop=0,
+        disposal=2,
+        optimize=False,
+    )
+    return (path,)
 
 
 @with_plot_style

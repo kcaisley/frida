@@ -18,7 +18,7 @@ from flow.analysis.types import (
     MeasCompInt,
     MeasInfo,
 )
-from flow.comp.testbench import CompTbParams
+from flow.comp.sim import CompTbParams
 
 
 def comparator_measurement() -> MeasCompInt:

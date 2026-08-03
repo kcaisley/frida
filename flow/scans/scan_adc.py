@@ -514,8 +514,21 @@ def main() -> None:
     }
     SCOPE_TRIGGER_CHANNEL = 3
     SCOPE_RECORD_LENGTH = 10_000
-    SCOPE_BANDWIDTH_HZ = 2.0e9
-    SCOPE_VERTICAL_SCALE_V = 0.2
+    SCOPE_BANDWIDTH_HZ = {
+        "vin_diff_v": 200.0e6,
+        "seq_comp_v": 2.0e9,
+        "seq_logic_v": 2.0e9,
+        "comp_out_v": 2.0e9,
+    }
+    SCOPE_VERTICAL_SCALE_V = {
+        # The differential probe reports the connected polarity opposite to
+        # ``vin_diff``. Use 50 mV/div so both the 50 and 100 mV DC campaigns
+        # remain comfortably inside CH1's zero-offset acquisition range.
+        "vin_diff_v": 0.05,
+        "seq_comp_v": 0.2,
+        "seq_logic_v": 0.2,
+        "comp_out_v": 0.2,
+    }
     SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
     variants = build_variants()
@@ -551,6 +564,7 @@ def main() -> None:
     initialized_duts = []
     daq = awg = vin_cm_supply = scope = None
     smus = []
+    instrument_identities = {}
 
     try:
         for dut in (daq_dut, awg_dut, vin_cm_dut, smu_dut, scope_dut):
@@ -566,6 +580,12 @@ def main() -> None:
             (smu_dut["smu2"], "VDD_D", "vdd_d"),
             (smu_dut["smu3"], "VDD_DAC", "vdd_dac"),
         ]
+        instrument_identities = {
+            "awg": str(awg.get_name()).strip(),
+            "vin_cm_supply": str(vin_cm_supply.get_name()).strip(),
+            "scope": str(scope.get_name()).strip(),
+            **{field: str(smu.get_name()).strip() for smu, _rail, field in smus},
+        }
 
         awg.set_enable(0)
         vin_cm_supply.set_enable(0)
@@ -579,13 +599,13 @@ def main() -> None:
         scope.set_acquire_stop_after("SEQUENCE")
         scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
         scope._intf.write("HORizontal:POSition 20")
-        for channel in SCOPE_TRACKS.values():
+        for signal_name, channel in SCOPE_TRACKS.items():
             scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
             scope.set_coupling("DC", channel=channel)
-            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V[signal_name], channel=channel)
             scope.set_vertical_position(0.0, channel=channel)
             scope.set_vertical_offset(0.0, channel=channel)
-            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ[signal_name], channel=channel)
         scope.set_trigger_type("EDGE")
         scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
         scope.set_trigger_edge_slope("RISE")
@@ -1154,6 +1174,9 @@ def main() -> None:
                     "spi_mismatches": spi_mismatches,
                     "fastrx_lost_count": fastrx_lost_count,
                     "active_power_current_nplc": SMU_CURRENT_NPLC,
+                    "scope_vin_diff_bandwidth_hz": SCOPE_BANDWIDTH_HZ["vin_diff_v"],
+                    "scope_vin_diff_vertical_scale_v_per_div": SCOPE_VERTICAL_SCALE_V["vin_diff_v"],
+                    "scope_record_length_requested": SCOPE_RECORD_LENGTH,
                 }
                 for field, values in smu_readback.items():
                     for quantity, value in values.items():
@@ -1168,12 +1191,7 @@ def main() -> None:
                         measurement_type="MeasAdcExt",
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
-                        instruments={
-                            "awg": str(awg.get_name()).strip(),
-                            "vin_cm_supply": str(vin_cm_supply.get_name()).strip(),
-                            "scope": str(scope.get_name()).strip(),
-                            **{field: str(smu.get_name()).strip() for smu, _rail, field in smus},
-                        },
+                        instruments=instrument_identities,
                         readbacks=readbacks,
                     ),
                     param=params,

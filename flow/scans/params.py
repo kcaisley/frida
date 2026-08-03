@@ -310,17 +310,17 @@ def convert_sample_rate_to_baud(params: AdcTbParams, sample_rate_hz: float) -> f
 
 
 def build_variants() -> list[AdcTbParams]:
-    """Build the ADC00/ADC01 +2-symbol dynamic conversion-rate campaign."""
+    """Build the ADC00 seven-offset fixed-input timing campaign."""
 
     board_id = "00"
-    adc_index_list = (0, 1)
+    adc_index_list = (0,)
     # The current Si570/PLL/OSERDES path has an 80 MBd minimum. With the
     # 160-symbol active conversion this limits true active timing to 0.5 MSPS.
     active_conversion_rate_list_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    conversions = 1_000_000
-    input_frequency_hz = 9_998.770151
-    input_peak_v = 0.500
-    input_common_mode_v = 0.600
+    logic_offset_list = tuple(range(-3, 4))
+    conversions = 1_000
+    input_differential_v = 0.050
+    input_common_mode_v = 0.800
     board_map = load_board_map()
     board = board_map["boards"][board_id]
 
@@ -345,25 +345,22 @@ def build_variants() -> list[AdcTbParams]:
             observed_adc=adc_index,
             active_adc_mask=active_adc_mask,
         )
-        for active_conversion_rate_hz in active_conversion_rate_list_hz:
-            params = AdcTbParams(
-                dut=dut,
-                board_id=board_id,
-                observed_adc=adc_index,
-                active_adc_mask=active_adc_mask,
-                symbol_rate=convert_sample_rate_to_baud(
-                    template,
-                    active_conversion_rate_hz,
-                ),
-                conversions=conversions,
-                vin_cm=h.Vdc.Params(dc=input_common_mode_v),
-                vin_diff=h.Vsin.Params(
-                    voff=0.0,
-                    vamp=input_peak_v,
-                    freq=input_frequency_hz,
-                ),
-                seq_logic_phase_delay_symbols=2.0,
-            )
-            validate_params(params)
-            variants.append(params)
+        for logic_offset in logic_offset_list:
+            for active_conversion_rate_hz in active_conversion_rate_list_hz:
+                params = AdcTbParams(
+                    dut=dut,
+                    board_id=board_id,
+                    observed_adc=adc_index,
+                    active_adc_mask=active_adc_mask,
+                    symbol_rate=convert_sample_rate_to_baud(
+                        template,
+                        active_conversion_rate_hz,
+                    ),
+                    conversions=conversions,
+                    vin_cm=h.Vdc.Params(dc=input_common_mode_v),
+                    vin_diff=h.Vdc.Params(dc=input_differential_v),
+                    seq_logic_phase_delay_symbols=float(logic_offset),
+                )
+                validate_params(params)
+                variants.append(params)
     return variants
