@@ -13,7 +13,7 @@ to ground.
 
 Run from the repository root with:
 
-    uv run python -m flow.scans.loopback_awg_supply_diffamp
+    uv run python -m flow.scans.loopback_diffamp
 
 The AWG and VIN_CM outputs are disabled and reset to 0 V when the check exits,
 including after an assertion or communication failure. The three ASIC supply
@@ -36,7 +36,7 @@ from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
 from flow.scans.scope import plot_scope_waveforms, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
-CAPTURE_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_awg_supply_diffamp"
+CAPTURE_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_diffamp"
 
 AWG_FREQUENCY_HZ = 1.0e6
 VIN_CM_CURRENT_LIMIT_A = 10.0e-3
