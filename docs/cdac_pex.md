@@ -4,10 +4,10 @@ This table compares the intended behavioral capacitor values in `caparray.cdl` /
 
 Definitions:
 
-- **Intended**: behavioral CDL model values from `caparray.cdl`.
-- **Layout P-side**: current layout-derived PEX values from the `VDAC_P` branch of `adc_1layer_radix17.pex.netlist`.
-- **Extracted avg**: average of the P-side and N-side PEX values.
-- **Eff**: effective switched capacitance, `main - diff`.
+- Intended: behavioral CDL model values from `caparray.cdl`.
+- Layout P-side: current layout-derived PEX values from the `VDAC_P` branch of `adc_1layer_radix17.pex.netlist`.
+- Extracted avg: average of the P-side and N-side PEX values.
+- Eff: effective switched capacitance, `main - diff`.
 
 The fresh PEX files used were generated in `/users/kcaisley/asiclab/tech/tsmc65/cds/PEX` on 2026-06-08 around 22:48.
 
@@ -29,7 +29,7 @@ The fresh PEX files used were generated in `/users/kcaisley/asiclab/tech/tsmc65/
 | 2 | 2 | 26.800 | 25.200 | 1.600 | 4.354 | 4.106 | 0.248 | 4.352 | 4.105 | 0.247 | 0.154 |
 | 1 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
 | 0 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
-| **Sum** | **2047** | **1884.800** | **247.200** | **1637.600** | **305.720** | **41.340** | **264.380** | **305.686** | **41.324** | **264.361** | **0.161** |
+| Sum | 2047 | 1884.800 | 247.200 | 1637.600 | 305.720 | 41.340 | 264.380 | 305.686 | 41.324 | 264.361 | 0.161 |
 
 ## Notes
 
@@ -45,7 +45,7 @@ The extracted values in this table come from the fresh xACT-style PEX netlist:
 /users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist
 ```
 
-Do **not** use the stale side files for this run unless their timestamps show they were regenerated:
+Do not use the stale side files for this run unless their timestamps show they were regenerated:
 
 ```text
 adc_1layer_radix17.pex.netlist.ADC_1LAYER_RADIX17.pxi
@@ -74,7 +74,7 @@ DAC_DRIVE_BOTPLATE_MAIN_N<bit>
 DAC_DRIVE_BOTPLATE_DIFF_N<bit>
 ```
 
-The value for each table entry is the sum of **all** capacitors between the topplate net and the corresponding botplate net, including all colon-suffixed subnodes. For example:
+The value for each table entry is the sum of all capacitors between the topplate net and the corresponding botplate net, including all colon-suffixed subnodes. For example:
 
 ```text
 main_P[15] = sum Cx where one terminal matches VDAC_P or VDAC_P:<subnode>
@@ -90,7 +90,7 @@ Manual search in `coupling_capacitance.report` is useful for spot-checking large
 DAC_DRIVE_BOTPLATE_MAIN_P<15>  VDAC_P
 ```
 
-but it is **not sufficient** for the complete table, because the report can omit smaller logical pair couplings. The full PEX netlist should be parsed and summed.
+but it is not sufficient for the complete table, because the report can omit smaller logical pair couplings. The full PEX netlist should be parsed and summed.
 
 The parser used was a one-off Python script equivalent to:
 
