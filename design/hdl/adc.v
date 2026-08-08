@@ -114,14 +114,14 @@ module adc (
 
     // Four Capacitor Drivers (4×16-bit instances)
 
-    // The dac_drive_invert signal, when low, causes that bank of 16x drivers to output a drive level opposite from the dac_state input signals
-    // This feature isn't needed on the two _main drivers, so this control input is tied high
-    // However, it should be available via dac_diffcaps on the two _diff drivers. It's active low.
+    // dac_drive_invert is active high. The main banks always follow the SAR
+    // state, while dac_diffcaps optionally makes the difference banks switch
+    // oppositely, matching the fabricated active-high XOR implementation.
 
-    // P-side main capacitor driver (active low: 1 = no invert)
+    // P-side main capacitor driver (0 = no invert)
     capdriver capdriver_p_main (
         .dac_state       (dac_state_p),                // SAR logic positive output
-        .dac_drive_invert(1'b1),                       // Main drivers: no inversion (active low)
+        .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_p)   // To positive main capacitor array
 `ifdef USE_POWER_PINS,
         .vdd_dac         (vdd_dac),
@@ -129,10 +129,10 @@ module adc (
 `endif
     );
 
-    // P-side diff capacitor driver (active low: 1 = no invert)
+    // P-side diff capacitor driver (1 = invert)
     capdriver capdriver_p_diff (
         .dac_state(dac_state_p),  // SAR logic positive output
-        .dac_drive_invert(dac_diffcaps),  // No inversion for positive side diff caps (active low)
+        .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_p)  // To positive diff capacitor array
 `ifdef USE_POWER_PINS,
         .vdd_dac(vdd_dac),
@@ -140,10 +140,10 @@ module adc (
 `endif
     );
 
-    // N-side main capacitor driver (active low: 1 = no invert)
+    // N-side main capacitor driver (0 = no invert)
     capdriver capdriver_n_main (
         .dac_state       (dac_state_n),                // SAR logic negative output
-        .dac_drive_invert(1'b1),                       // Main drivers: no inversion (active low)
+        .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_n)   // To negative main capacitor array
 `ifdef USE_POWER_PINS,
         .vdd_dac         (vdd_dac),
@@ -151,10 +151,10 @@ module adc (
 `endif
     );
 
-    // N-side diff capacitor driver (active low: 0 = invert)
+    // N-side diff capacitor driver (1 = invert)
     capdriver capdriver_n_diff (
         .dac_state(dac_state_n),  // SAR logic negative output
-        .dac_drive_invert(dac_diffcaps),  // Invert diff caps for negative side (active low)
+        .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_n)  // To negative diff capacitor array
 `ifdef USE_POWER_PINS,
         .vdd_dac(vdd_dac),
