@@ -5,9 +5,8 @@ from __future__ import annotations
 import itertools
 import math
 import re
-from array import array
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
@@ -21,26 +20,13 @@ from pyvisa.errors import VisaIOError
 from flow.analysis.io import scope_records_to_adc_wave, write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
+from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
 from flow.scans.params import AdcTbParams, build_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
+from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "scan_adc"
-
-
-@dataclass(frozen=True, slots=True)
-class FastRxCaptureAlignment:
-    """One analytically selected FastRX timing aperture."""
-
-    rx_sen_start_word: int
-    comp_idelay_taps: int
-    control_phase_advance_symbols: int
-    first_comp_transition_symbol: int
-    earliest_data_arrival_s: float
-    latest_data_arrival_s: float
-    capture_edge_s: float
-    setup_margin_s: float
-    hold_margin_s: float
 
 
 def convert_vdiff_input_to_awg_supply(
@@ -60,35 +46,138 @@ def convert_vdiff_input_to_awg_supply(
         calibration = load_board_map()["boards"]["00"]["input_calibration"]
 
     amplitude_v = abs(vin_diff)
-    common_mode_delta_v = vin_cm - float(calibration["awg_calibration_vin_cm_v"])
-    basis = (
-        1.0,
-        amplitude_v,
-        amplitude_v**2,
-        common_mode_delta_v,
-        amplitude_v * common_mode_delta_v,
-        common_mode_delta_v**2,
+    small_signal_limit_v = calibration.get("small_signal_maximum_abs_vdiff_v")
+    blend_maximum_v = calibration.get("small_to_large_blend_maximum_abs_vdiff_v")
+    if blend_maximum_v is not None:
+        if small_signal_limit_v is None:
+            raise ValueError("small-to-large input-calibration blend requires a small-signal limit")
+        blend_maximum_v = float(blend_maximum_v)
+        if not math.isfinite(blend_maximum_v) or blend_maximum_v <= float(small_signal_limit_v):
+            raise ValueError("small-to-large input-calibration blend maximum must exceed the small-signal limit")
+    use_small_signal = small_signal_limit_v is not None and amplitude_v <= float(small_signal_limit_v) + 1.0e-15
+    use_blend = (
+        small_signal_limit_v is not None
+        and blend_maximum_v is not None
+        and float(small_signal_limit_v) < amplitude_v < blend_maximum_v
     )
-    awg_v_per_vdiff = sum(
-        float(coefficient) * term
-        for coefficient, term in zip(
-            calibration["awg_vdiff_magnitude_coefficients"],
-            basis,
-            strict=True,
+    small_signal_gain: float | None = None
+    small_signal_center_v: float | None = None
+    if use_small_signal or use_blend:
+        common_modes = np.asarray(calibration["small_signal_common_mode_v"], dtype=np.float64)
+        magnitude_values = np.asarray(
+            calibration["small_signal_awg_vdiff_magnitude_v_per_vdiff"],
+            dtype=np.float64,
         )
-    )
-    awg_center_v = sum(
-        float(coefficient) * term
-        for coefficient, term in zip(
-            calibration["awg_center_coefficients"],
-            basis,
-            strict=True,
+        center_values = np.asarray(calibration["small_signal_awg_center_v"], dtype=np.float64)
+        if (
+            common_modes.ndim != 1
+            or len(common_modes) < 2
+            or len(magnitude_values) != len(common_modes)
+            or len(center_values) != len(common_modes)
+            or not np.all(np.isfinite(common_modes))
+            or not np.all(np.isfinite(magnitude_values))
+            or not np.all(np.isfinite(center_values))
+            or np.any(np.diff(common_modes) <= 0.0)
+            or np.any(magnitude_values <= 0.0)
+        ):
+            raise ValueError("small-signal input calibration table is malformed")
+        if not common_modes[0] <= vin_cm <= common_modes[-1]:
+            raise ValueError("Vin_cm is outside the small-signal input calibration table")
+        small_signal_gain = float(np.interp(vin_cm, common_modes, magnitude_values))
+        small_signal_center_v = float(np.interp(vin_cm, common_modes, center_values))
+    if use_small_signal:
+        assert small_signal_gain is not None
+        assert small_signal_center_v is not None
+        awg_v_per_vdiff = small_signal_gain
+        awg_center_v = small_signal_center_v
+    else:
+        polynomial_minimum_vin_cm_v = float(
+            calibration.get("polynomial_minimum_vin_cm_v", calibration["minimum_vin_cm_v"])
         )
-    )
-    awg_voltage = awg_center_v - vin_diff * awg_v_per_vdiff
-    vin_cm_supply_voltage = (
-        float(calibration["vin_cm_supply_offset_v"]) + float(calibration["vin_cm_supply_gain"]) * vin_cm
-    )
+        polynomial_maximum_vin_cm_v = float(
+            calibration.get("polynomial_maximum_vin_cm_v", calibration["maximum_vin_cm_v"])
+        )
+        if not polynomial_minimum_vin_cm_v <= vin_cm <= polynomial_maximum_vin_cm_v:
+            raise ValueError("Vin_cm is outside the large-signal input calibration range")
+        common_mode_delta_v = vin_cm - float(calibration["awg_calibration_vin_cm_v"])
+        basis = (
+            1.0,
+            amplitude_v,
+            amplitude_v**2,
+            common_mode_delta_v,
+            amplitude_v * common_mode_delta_v,
+            common_mode_delta_v**2,
+        )
+        awg_v_per_vdiff = sum(
+            float(coefficient) * term
+            for coefficient, term in zip(
+                calibration["awg_vdiff_magnitude_coefficients"],
+                basis,
+                strict=True,
+            )
+        )
+        awg_center_v = sum(
+            float(coefficient) * term
+            for coefficient, term in zip(
+                calibration["awg_center_coefficients"],
+                basis,
+                strict=True,
+            )
+        )
+        if use_blend:
+            assert small_signal_limit_v is not None
+            assert blend_maximum_v is not None
+            assert small_signal_gain is not None
+            assert small_signal_center_v is not None
+            boundary_amplitude_v = float(small_signal_limit_v)
+            boundary_basis = (
+                1.0,
+                boundary_amplitude_v,
+                boundary_amplitude_v**2,
+                common_mode_delta_v,
+                boundary_amplitude_v * common_mode_delta_v,
+                common_mode_delta_v**2,
+            )
+            polynomial_boundary_gain = sum(
+                float(coefficient) * term
+                for coefficient, term in zip(
+                    calibration["awg_vdiff_magnitude_coefficients"],
+                    boundary_basis,
+                    strict=True,
+                )
+            )
+            polynomial_boundary_center_v = sum(
+                float(coefficient) * term
+                for coefficient, term in zip(
+                    calibration["awg_center_coefficients"],
+                    boundary_basis,
+                    strict=True,
+                )
+            )
+            correction_weight = (blend_maximum_v - amplitude_v) / (blend_maximum_v - boundary_amplitude_v)
+            awg_v_per_vdiff += correction_weight * (small_signal_gain - polynomial_boundary_gain)
+            awg_center_v += correction_weight * (small_signal_center_v - polynomial_boundary_center_v)
+    awg_voltage = awg_center_v + vin_diff * awg_v_per_vdiff
+    supply_common_modes = calibration.get("vin_cm_supply_common_mode_v")
+    if supply_common_modes is None:
+        vin_cm_supply_voltage = (
+            float(calibration["vin_cm_supply_offset_v"]) + float(calibration["vin_cm_supply_gain"]) * vin_cm
+        )
+    else:
+        supply_common_modes_array = np.asarray(supply_common_modes, dtype=np.float64)
+        supply_setpoints = np.asarray(calibration["vin_cm_supply_set_v"], dtype=np.float64)
+        if (
+            supply_common_modes_array.ndim != 1
+            or len(supply_common_modes_array) < 2
+            or len(supply_setpoints) != len(supply_common_modes_array)
+            or not np.all(np.isfinite(supply_common_modes_array))
+            or not np.all(np.isfinite(supply_setpoints))
+            or np.any(np.diff(supply_common_modes_array) <= 0.0)
+        ):
+            raise ValueError("Vin_cm supply calibration table is malformed")
+        if not supply_common_modes_array[0] <= vin_cm <= supply_common_modes_array[-1]:
+            raise ValueError("Vin_cm is outside the supply calibration table")
+        vin_cm_supply_voltage = float(np.interp(vin_cm, supply_common_modes_array, supply_setpoints))
     return awg_voltage, vin_cm_supply_voltage
 
 
@@ -102,305 +191,12 @@ def convert_dac_caps_to_adc_weights(cap_weights: list[int] | tuple[int, ...]) ->
     return [2 * weight for weight in cap_weights] + [1]
 
 
-def convert_fastrx_to_bout_and_dout(
-    spi_data: int,
-    data_size: int,
-    code_weights: list[int],
-) -> tuple[str, int]:
-    """Decode one FastRX word into Bout and ideal-weight raw Dout."""
-
-    samples = [(spi_data >> index) & 1 for index in range(data_size - 1, -1, -1)]
-    if len(samples) < len(code_weights):
-        raise ValueError(f"FastRX DATA_SIZE={data_size} is smaller than {len(code_weights)} ADC code bits")
-
-    bits = samples[: len(code_weights)]
-    bout = "".join(str(bit) for bit in bits)
-    dout = sum(weight * bit for weight, bit in zip(code_weights, bits, strict=True))
-    return bout, dout
-
-
-def convert_fastrx_words_to_adc(
-    words: Sequence[int] | np.ndarray,
-    data_size: int,
-    code_weights: list[int],
-    adc_bits: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Decode and validate one complete FastRX acquisition in host memory.
-
-    ``data_size`` is read from the FPGA once by the caller. Keeping this pure
-    conversion separate avoids Basil ``parse_word()`` re-reading that hardware
-    register for every captured word.
-    """
-
-    fastrx_words = np.asarray(words, dtype=np.uint32)
-    if fastrx_words.ndim != 1:
-        raise ValueError("FastRX words must be one-dimensional")
-    if not 1 <= data_size <= 28:
-        raise ValueError("FastRX data_size must be in 1..28")
-    if len(code_weights) != data_size:
-        raise ValueError(f"received {data_size} FastRX bits for {len(code_weights)} ADC weights")
-    if adc_bits <= 0:
-        raise ValueError("adc_bits must be positive")
-
-    identifiers = (fastrx_words >> 28) & 0xF
-    invalid_identifiers = np.flatnonzero(identifiers != 1)
-    if invalid_identifiers.size:
-        index = int(invalid_identifiers[0])
-        raise RuntimeError(f"FastRX conversion {index} has identifier {int(identifiers[index]):#x}, expected 0x1")
-
-    frame_counter_bits = 28 - data_size
-    frame_counter_modulus = 1 << frame_counter_bits
-    frames = (fastrx_words >> data_size) & (frame_counter_modulus - 1)
-    expected_frames = np.arange(len(fastrx_words), dtype=np.uint32) % frame_counter_modulus
-    invalid_frames = np.flatnonzero(frames != expected_frames)
-    if invalid_frames.size:
-        index = int(invalid_frames[0])
-        raise RuntimeError(
-            f"FastRX conversion {index} has frame {int(frames[index])}, expected {int(expected_frames[index])}"
-        )
-
-    spi_data = fastrx_words & ((1 << data_size) - 1)
-    bit_positions = np.arange(data_size - 1, -1, -1, dtype=np.uint32)
-    bout = ((spi_data[:, None] >> bit_positions) & 1).astype(np.uint8)
-    weights = np.asarray(code_weights, dtype=np.int64)
-    dout_raw = bout @ weights
-    normalized_code_max = (1 << adc_bits) - 1
-    dout = np.rint(dout_raw * normalized_code_max / np.sum(weights)).astype(np.int64)
-    return bout, dout_raw, dout
-
-
 def convert_dout_to_normalized_dout(dout: int, code_weights: list[int], adc_bits: int) -> int:
     """Scale ideal-weight raw Dout onto the configured nominal ADC range."""
 
     if adc_bits <= 0:
         raise ValueError("adc_bits must be positive")
     return round(dout * ((1 << adc_bits) - 1) / sum(code_weights))
-
-
-def calculate_fastrx_capture_alignment(
-    params: AdcTbParams,
-    *,
-    seqgen_pipeline_cycles: float,
-    oserdes_to_output_s: float,
-    external_comp_delay_min_s: float,
-    external_comp_delay_max_s: float,
-    comp_input_to_fastrx_d_s: float,
-    launch_to_capture_clock_skew_s: float,
-    idelay_tap_s: float,
-    idelay_tap_count: int,
-    idelay_setup_backoff_taps: int,
-    maximum_control_phase_advance_symbols: int,
-    minimum_capture_margin_s: float,
-) -> FastRxCaptureAlignment:
-    """Center FastRX sampling inside the measured comparator-data aperture.
-
-    Setup uses the latest measured COMP_OUT transition, whereas hold uses the
-    earliest possible transition of the following decision. This distinction
-    is essential because physical comparator propagation delay is not constant.
-    FastRX samples once per sequencer word. The search evaluates every legal
-    RX_SEN word and IDELAY tap, and may advance all four ADC control lanes
-    together by up to seven symbols. Every relative ADC timing interval is
-    therefore unchanged.
-
-    The selected setting maximizes the smaller of its setup and hold margins.
-    Candidates are accepted only when both margins meet
-    ``minimum_capture_margin_s``. The final IDELAY is moved toward the setup
-    side by up to ``idelay_setup_backoff_taps``. The largest legal backoff
-    which retains the minimum modeled hold margin is used.
-    """
-
-    validate_params(params)
-    numeric_fields = {
-        "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
-        "oserdes_to_output_s": oserdes_to_output_s,
-        "external_comp_delay_min_s": external_comp_delay_min_s,
-        "external_comp_delay_max_s": external_comp_delay_max_s,
-        "comp_input_to_fastrx_d_s": comp_input_to_fastrx_d_s,
-        "launch_to_capture_clock_skew_s": launch_to_capture_clock_skew_s,
-        "idelay_tap_s": idelay_tap_s,
-        "minimum_capture_margin_s": minimum_capture_margin_s,
-    }
-    for field, value in numeric_fields.items():
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError(f"{field} must be finite and non-negative")
-    if isinstance(idelay_tap_count, bool) or not isinstance(idelay_tap_count, int) or idelay_tap_count <= 0:
-        raise ValueError("idelay_tap_count must be a positive integer")
-    if (
-        isinstance(idelay_setup_backoff_taps, bool)
-        or not isinstance(idelay_setup_backoff_taps, int)
-        or idelay_setup_backoff_taps < 0
-    ):
-        raise ValueError("idelay_setup_backoff_taps must be a non-negative integer")
-    if (
-        isinstance(maximum_control_phase_advance_symbols, bool)
-        or not isinstance(maximum_control_phase_advance_symbols, int)
-        or not 0 <= maximum_control_phase_advance_symbols <= 7
-    ):
-        raise ValueError("maximum_control_phase_advance_symbols must be an integer in 0..7")
-    if external_comp_delay_min_s > external_comp_delay_max_s:
-        raise ValueError("external comparator minimum delay must not exceed its maximum delay")
-    symbol_rate_bps = float(params.symbol_rate)
-    sequencer_period_s = 8.0 / symbol_rate_bps
-    sequence_words = len(params.seq_comp_pattern) // 8
-    capture_bits = len(convert_dac_caps_to_adc_weights(get_cdac_weights(params.dut.cdac)))
-    if not float(params.seq_comp_phase_delay_symbols).is_integer():
-        raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
-
-    candidates = []
-    for phase_advance in range(maximum_control_phase_advance_symbols + 1):
-        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
-        shift = phase_symbols % len(params.seq_comp_pattern)
-        comp_pattern = (
-            params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern
-        )
-        first_transition = next(
-            (index for index in range(1, len(comp_pattern)) if comp_pattern[index] != comp_pattern[index - 1]),
-            -1,
-        )
-        if first_transition < 0:
-            raise ValueError("seq_comp_pattern contains no transition")
-        common_delay_s = (
-            first_transition / symbol_rate_bps
-            + seqgen_pipeline_cycles * sequencer_period_s
-            + oserdes_to_output_s
-            + comp_input_to_fastrx_d_s
-            + launch_to_capture_clock_skew_s
-        )
-        for taps in range(idelay_tap_count):
-            tap_delay_s = taps * idelay_tap_s
-            earliest_arrival_s = common_delay_s + external_comp_delay_min_s + tap_delay_s
-            latest_arrival_s = common_delay_s + external_comp_delay_max_s + tap_delay_s
-            for capture_word in range(sequence_words - capture_bits):
-                capture_edge_s = capture_word * sequencer_period_s
-                setup_margin_s = capture_edge_s - latest_arrival_s
-                hold_margin_s = earliest_arrival_s + sequencer_period_s - capture_edge_s
-                smaller_margin_s = min(setup_margin_s, hold_margin_s)
-                if smaller_margin_s < minimum_capture_margin_s:
-                    continue
-                candidates.append(
-                    (
-                        smaller_margin_s,
-                        -abs(setup_margin_s - hold_margin_s),
-                        -phase_advance,
-                        -taps,
-                        capture_word,
-                        phase_advance,
-                        taps,
-                        first_transition,
-                        earliest_arrival_s,
-                        latest_arrival_s,
-                        setup_margin_s,
-                        hold_margin_s,
-                    )
-                )
-
-    if not candidates:
-        raise ValueError("no safe FastRX capture aperture exists at this symbol rate")
-    selected = max(candidates)
-    (
-        _smaller_margin_s,
-        _negative_imbalance_s,
-        _negative_phase_advance,
-        _negative_taps,
-        capture_word,
-        phase_advance,
-        taps,
-        first_comp_transition_symbol,
-        earliest_arrival_s,
-        latest_arrival_s,
-        setup_margin_s,
-        hold_margin_s,
-    ) = selected
-    if idelay_tap_s > 0.0:
-        hold_backoff_taps = max(
-            0,
-            math.floor((hold_margin_s - minimum_capture_margin_s) / idelay_tap_s + 1.0e-12),
-        )
-    else:
-        hold_backoff_taps = 0
-    applied_backoff_taps = min(
-        taps,
-        idelay_setup_backoff_taps,
-        hold_backoff_taps,
-    )
-    guarded_taps = taps - applied_backoff_taps
-    guard_shift_s = (guarded_taps - taps) * idelay_tap_s
-    taps = guarded_taps
-    earliest_arrival_s += guard_shift_s
-    latest_arrival_s += guard_shift_s
-    setup_margin_s -= guard_shift_s
-    hold_margin_s += guard_shift_s
-    return FastRxCaptureAlignment(
-        rx_sen_start_word=capture_word,
-        comp_idelay_taps=taps,
-        control_phase_advance_symbols=phase_advance,
-        first_comp_transition_symbol=first_comp_transition_symbol,
-        earliest_data_arrival_s=earliest_arrival_s,
-        latest_data_arrival_s=latest_arrival_s,
-        capture_edge_s=capture_word * sequencer_period_s,
-        setup_margin_s=setup_margin_s,
-        hold_margin_s=hold_margin_s,
-    )
-
-
-def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_start_word: int) -> array[int]:
-    """Pack ADC timing parameters into the FPGA's 64-bit sequencer memory.
-
-    Fixed implementation details are intentionally local: the four OSERDES
-    lanes each consume eight symbols per word, the physical sequencer stores
-    eight byte lanes, RX_SEN is bit zero of byte lane four, and RX_TEST is bit
-    one. The FPGA does not currently expose these constants through registers.
-    """
-
-    SERDES_RATIO = 8
-    SEQGEN_BYTE_LANES = 8
-    SERDES_FIELDS = (
-        ("INIT", "seq_init_pattern", "seq_init_phase_delay_symbols"),
-        ("SAMP", "seq_samp_pattern", "seq_samp_phase_delay_symbols"),
-        ("COMP", "seq_comp_pattern", "seq_comp_phase_delay_symbols"),
-        ("LOGIC", "seq_logic_pattern", "seq_logic_phase_delay_symbols"),
-    )
-    RX_SEN_BIT = 0
-    RX_TEST_BIT = 1
-
-    validate_params(params)
-    parsed: dict[str, list[str]] = {}
-    sequence_symbols = len(params.seq_init_pattern)
-    for name, pattern_field, phase_field in SERDES_FIELDS:
-        pattern = getattr(params, pattern_field)
-        phase_symbols = float(getattr(params, phase_field))
-        if not phase_symbols.is_integer():
-            raise ValueError(f"physical {phase_field} must be a whole number of serialized symbols")
-        shift = int(phase_symbols) % sequence_symbols
-        if shift:
-            pattern = pattern[-shift:] + pattern[:-shift]
-        parsed[name] = [pattern[index : index + SERDES_RATIO] for index in range(0, len(pattern), SERDES_RATIO)]
-
-    sequence_words = sequence_symbols // SERDES_RATIO
-    capture_bits = len(convert_dac_caps_to_adc_weights(get_cdac_weights(params.dut.cdac)))
-    rx_sen_stop_word = rx_sen_start_word + capture_bits
-    if rx_sen_start_word < 0 or rx_sen_stop_word >= sequence_words:
-        raise ValueError(
-            f"RX_SEN window {rx_sen_start_word}..{rx_sen_stop_word - 1} must leave a low word "
-            f"before the {sequence_words}-word repeat"
-        )
-    rx_sen_words = [0] * sequence_words
-    rx_sen_words[rx_sen_start_word:rx_sen_stop_word] = [1] * capture_bits
-
-    memory = array("B")
-    for word_index in range(sequence_words):
-        for name, _pattern_field, _phase_field in SERDES_FIELDS:
-            value = 0
-            for lane, bit in enumerate(parsed[name][word_index]):
-                value |= int(bit) << lane
-            memory.append(value)
-
-        control = rx_sen_words[word_index] << RX_SEN_BIT
-        control |= 0 << RX_TEST_BIT
-        memory.append(control)
-        memory.extend(0 for _ in range(SEQGEN_BYTE_LANES - 5))
-
-    return memory
 
 
 def convert_params_to_spi_fmt(params: AdcTbParams) -> bytes:
@@ -521,9 +317,8 @@ def main() -> None:
         "comp_out_v": 2.0e9,
     }
     SCOPE_VERTICAL_SCALE_V = {
-        # The differential probe reports the connected polarity opposite to
-        # ``vin_diff``. Use 50 mV/div so both the 50 and 100 mV DC campaigns
-        # remain comfortably inside CH1's zero-offset acquisition range.
+        # Use 50 mV/div so the 50 and 100 mV DC campaigns remain comfortably
+        # inside CH1's zero-offset acquisition range.
         "vin_diff_v": 0.05,
         "seq_comp_v": 0.2,
         "seq_logic_v": 0.2,
@@ -545,6 +340,82 @@ def main() -> None:
     board_id = next(iter(board_ids))
     board_map = load_board_map()
     board = board_map["boards"][board_id]
+
+    supply_limits = board["supply_limits"]
+    minimum_supply_v = float(supply_limits["minimum_voltage_v"])
+    maximum_supply_v = float(supply_limits["maximum_voltage_v"])
+    signal_headroom_v = float(supply_limits["signal_headroom_v"])
+    fixed_vdd_io_v = float(board["fixed_vdd_io_v"])
+    calibration = board["input_calibration"]
+    for params in variants:
+        if not math.isclose(float(params.vdd_io.dc), fixed_vdd_io_v, abs_tol=1.0e-12):
+            raise ValueError(
+                f"VDD_IO is fixed at {fixed_vdd_io_v:g} V on {board_id}; variant requests {float(params.vdd_io.dc):g} V"
+            )
+        for rail, field in (("VDD_A", "vdd_a"), ("VDD_D", "vdd_d"), ("VDD_DAC", "vdd_dac")):
+            requested_voltage_v = float(getattr(params, field).dc)
+            if not minimum_supply_v <= requested_voltage_v <= maximum_supply_v:
+                raise ValueError(
+                    f"{rail} request {requested_voltage_v:g} V is outside {minimum_supply_v:g}..{maximum_supply_v:g} V"
+                )
+
+        vin_cm_v = float(params.vin_cm.dc)
+        source = params.vin_diff
+        if isinstance(source, h.Vdc.Params):
+            vin_diff_min_v = vin_diff_max_v = float(source.dc)
+        elif isinstance(source, h.Vsin.Params):
+            if source.voff is None or source.vamp is None or source.freq is None:
+                raise ValueError("sine stimulus requires voff, vamp, and freq")
+            vin_diff_min_v = float(source.voff) - float(source.vamp)
+            vin_diff_max_v = float(source.voff) + float(source.vamp)
+        elif isinstance(source, h.Vpwl.Params):
+            points = parse_pwl_wave(source.wave)
+            if len(points) not in (2, 3):
+                raise ValueError("physical PWL input must be a two-point ramp or three-point triangle")
+            if len(points) == 3 and not math.isclose(points[0][1], points[-1][1], abs_tol=1.0e-12):
+                raise ValueError("three-point physical PWL input must return to its starting voltage")
+            vin_diff_min_v = min(value for _time, value in points)
+            vin_diff_max_v = max(value for _time, value in points)
+        else:
+            raise TypeError(f"unsupported differential source type {type(source).__name__}")
+
+        maximum_abs_vdiff_v = float(calibration["maximum_abs_vdiff_v"])
+        minimum_vin_cm_v = float(calibration["minimum_vin_cm_v"])
+        maximum_vin_cm_v = float(calibration["maximum_vin_cm_v"])
+        if max(abs(vin_diff_min_v), abs(vin_diff_max_v)) > maximum_abs_vdiff_v:
+            raise ValueError(f"requested Vdiff exceeds the calibrated +/-{maximum_abs_vdiff_v:g} V range")
+        if not minimum_vin_cm_v <= vin_cm_v <= maximum_vin_cm_v:
+            raise ValueError(
+                f"requested Vin_cm={vin_cm_v:g} V is outside the calibrated "
+                f"{minimum_vin_cm_v:g}..{maximum_vin_cm_v:g} V range"
+            )
+        _awg_at_min_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
+            vin_diff_min_v,
+            vin_cm_v,
+            calibration,
+        )
+        _awg_at_max_v, second_supply_v = convert_vdiff_input_to_awg_supply(
+            vin_diff_max_v,
+            vin_cm_v,
+            calibration,
+        )
+        if not math.isclose(vin_cm_supply_v, second_supply_v, abs_tol=1.0e-12):
+            raise RuntimeError("Vin_cm calibration changed across differential-input endpoints")
+        if not 0.0 <= vin_cm_supply_v <= maximum_supply_v:
+            raise ValueError(f"calibrated Vin_cm supply request {vin_cm_supply_v:g} V is unsafe")
+
+        minimum_input_v = -signal_headroom_v
+        maximum_input_v = float(params.vdd_a.dc) + signal_headroom_v
+        for vin_diff_v in (vin_diff_min_v, vin_diff_max_v):
+            vin_p_v = vin_cm_v + vin_diff_v / 2.0
+            vin_n_v = vin_cm_v - vin_diff_v / 2.0
+            if not (
+                minimum_input_v - 1.0e-12 <= vin_p_v <= maximum_input_v + 1.0e-12
+                and minimum_input_v - 1.0e-12 <= vin_n_v <= maximum_input_v + 1.0e-12
+            ):
+                raise ValueError(
+                    f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
+                )
 
     run_timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir = SCAN_OUTDIR / run_timestamp
@@ -618,22 +489,15 @@ def main() -> None:
                     f"\n=== variant {variant_index + 1}/{len(variants)}: "
                     f"ADC {params.observed_adc:02d}, {float(params.symbol_rate) / 1e6:g} MBd ==="
                 )
-                supply_limits = board["supply_limits"]
-                maximum_supply_v = float(supply_limits["maximum_voltage_v"])
                 loaded_voltage_tolerance_v = float(supply_limits["loaded_voltage_tolerance_v"])
-                fixed_vdd_io_v = float(board["fixed_vdd_io_v"])
-                if not math.isclose(float(params.vdd_io.dc), fixed_vdd_io_v, abs_tol=1e-12):
-                    raise ValueError(
-                        f"VDD_IO is fixed at {fixed_vdd_io_v:g} V on {board_id}; "
-                        f"variant requests {float(params.vdd_io.dc):g} V"
-                    )
 
                 smu_readback = {}
                 for smu, rail, field in smus:
                     requested_voltage_v = float(getattr(params, field).dc)
-                    if not 0.0 < requested_voltage_v <= maximum_supply_v:
+                    if not minimum_supply_v <= requested_voltage_v <= maximum_supply_v:
                         raise ValueError(
-                            f"{rail} request {requested_voltage_v:g} V is outside 0..{maximum_supply_v:g} V"
+                            f"{rail} request {requested_voltage_v:g} V is outside "
+                            f"{minimum_supply_v:g}..{maximum_supply_v:g} V"
                         )
                     smu.off()
                     smu.set_voltage(0.0)
@@ -681,7 +545,6 @@ def main() -> None:
                     }
 
                 vin_cm_v = float(params.vin_cm.dc)
-                calibration = board["input_calibration"]
                 source = params.vin_diff
                 if isinstance(source, h.Vdc.Params):
                     vin_diff_min_v = vin_diff_max_v = float(source.dc)
@@ -776,10 +639,18 @@ def main() -> None:
                     )
                 if not 0.0 <= vin_cm_supply_v <= maximum_supply_v:
                     raise ValueError(f"calibrated Vin_cm supply request {vin_cm_supply_v:g} V is unsafe")
-                if vin_cm_v + vin_diff_max_v / 2.0 > maximum_supply_v or vin_cm_v - vin_diff_max_v / 2.0 < 0.0:
-                    raise ValueError("requested positive Vdiff endpoint drives an ADC input outside its supply rails")
-                if vin_cm_v + vin_diff_min_v / 2.0 > maximum_supply_v or vin_cm_v - vin_diff_min_v / 2.0 < 0.0:
-                    raise ValueError("requested negative Vdiff endpoint drives an ADC input outside its supply rails")
+                minimum_input_v = -signal_headroom_v
+                maximum_input_v = float(params.vdd_a.dc) + signal_headroom_v
+                for vin_diff_v in (vin_diff_min_v, vin_diff_max_v):
+                    vin_p_v = vin_cm_v + vin_diff_v / 2.0
+                    vin_n_v = vin_cm_v - vin_diff_v / 2.0
+                    if not (
+                        minimum_input_v - 1.0e-12 <= vin_p_v <= maximum_input_v + 1.0e-12
+                        and minimum_input_v - 1.0e-12 <= vin_n_v <= maximum_input_v + 1.0e-12
+                    ):
+                        raise ValueError(
+                            f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
+                        )
 
                 vin_cm_supply.set_enable(0)
                 vin_cm_supply.set_voltage_range("P25V")
@@ -825,7 +696,7 @@ def main() -> None:
                 # the routed FPGA and measured external-path timing. The
                 # equation is software-tested in test_helpers.py and its exact
                 # 17-bit result is checked against simultaneous CH4 scope
-                # captures by loopback_fastrx.py, including alignment-boundary
+                # captures by test_fastrx.py, including alignment-boundary
                 # and maximum-rate points.
                 capture_alignment = calculate_fastrx_capture_alignment(
                     params,
@@ -875,8 +746,12 @@ def main() -> None:
                 # test_helpers.py checks the software-only memory packing.
                 cap_weights = get_cdac_weights(params.dut.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
-                sequencer_memory = convert_params_to_seqgen_fmt(params, rx_sen_start_word)
                 sequence_words = len(params.seq_init_pattern) // 8
+                rx_sen_stop_word = rx_sen_start_word + len(code_weights)
+                rx_sen_pattern = (
+                    "0" * rx_sen_start_word + "1" * len(code_weights) + "0" * (sequence_words - rx_sen_stop_word)
+                )
+                sequencer_memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
                 daq["seq0"].set_data(sequencer_memory)
                 daq["seq0"].set_size(sequence_words)
                 daq["seq0"].set_clk_divide(1)

@@ -10,6 +10,7 @@ respective runners.
 from __future__ import annotations
 
 import math
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,65 @@ class AdcTbParams:
         dtype=tuple[int, ...] | None,
         desc="ADC enable mask ordered from ADC 15 through ADC 0",
         default=None,
+    )
+
+    # Physical comparator/CDAC scan identity. These fields keep every scan
+    # axis in the persisted parameter object instead of passing hidden runner
+    # switches alongside it.
+    campaign = h.Param(
+        dtype=str,
+        desc="Acquisition campaign encoded by this fixed configuration",
+        default="adc",
+    )
+    sampling_mode = h.Param(
+        dtype=str,
+        desc="Comparator input mode: track continuously or sample and hold",
+        default="track",
+    )
+    sweep_stage = h.Param(
+        dtype=str,
+        desc="Fixed, coarse, or fine transition-search point",
+        default="fixed",
+    )
+    sweep_min_v = h.Param(
+        dtype=h.Scalar | None,
+        desc="Inclusive adaptive differential-input lower bound",
+        default=None,
+    )
+    sweep_max_v = h.Param(
+        dtype=h.Scalar | None,
+        desc="Inclusive adaptive differential-input upper bound",
+        default=None,
+    )
+    sweep_step_v = h.Param(
+        dtype=h.Scalar | None,
+        desc="Differential-input step for this transition-search stage",
+        default=None,
+    )
+    requested_dac_rail_percent = h.Param(
+        dtype=h.Scalar | None,
+        desc="Requested P-side VDD_DAC coupling percentage; N is complementary",
+        default=None,
+    )
+    cdac_side = h.Param(
+        dtype=str | None,
+        desc="Selected CDAC side for A-to-B scans: p or n",
+        default=None,
+    )
+    cdac_element = h.Param(
+        dtype=int | None,
+        desc="Selected CDAC element in C16-to-C1 order, zero based",
+        default=None,
+    )
+    cdac_direction = h.Param(
+        dtype=str | None,
+        desc="Selected CDAC transition direction: 1to0 or 0to1",
+        default=None,
+    )
+    settling_time_s = h.Param(
+        dtype=h.Scalar,
+        desc="Delay after sampling or DAC update before comparison",
+        default=0.0,
     )
 
     # Slow digital configuration. Logical one is resolved to the digital supply
@@ -148,6 +208,7 @@ def validate_params(params: AdcTbParams) -> None:
         "seq_samp_phase_delay_symbols",
         "seq_comp_phase_delay_symbols",
         "seq_logic_phase_delay_symbols",
+        "settling_time_s",
     ):
         value = getattr(params, field)
         try:
@@ -160,6 +221,8 @@ def validate_params(params: AdcTbParams) -> None:
     # Clock and acquisition lengths must describe a test which can run.
     if scalar_values["symbol_rate"] <= 0:
         raise ValueError("symbol_rate must be positive")
+    if scalar_values["settling_time_s"] < 0:
+        raise ValueError("settling_time_s must be non-negative")
     if params.conversions <= 0:
         raise ValueError("conversions must be positive")
     if params.dut.adc_bits <= 0:
@@ -228,6 +291,60 @@ def validate_params(params: AdcTbParams) -> None:
         if params.active_adc_mask[mask_index] != 1:
             raise ValueError("active_adc_mask must include observed_adc")
 
+    campaigns = {
+        "adc",
+        "comp_common_mode",
+        "comp_sampling_noise",
+        "cdac_ab",
+    }
+    if params.campaign not in campaigns:
+        raise ValueError(f"campaign must be one of {sorted(campaigns)}, got {params.campaign!r}")
+    if params.sampling_mode not in {"track", "hold"}:
+        raise ValueError("sampling_mode must be 'track' or 'hold'")
+    if params.sweep_stage not in {"fixed", "coarse", "fine"}:
+        raise ValueError("sweep_stage must be 'fixed', 'coarse', or 'fine'")
+    sweep_controls = (params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
+    if any(value is not None for value in sweep_controls):
+        if not all(value is not None for value in sweep_controls):
+            raise ValueError("sweep_min_v, sweep_max_v, and sweep_step_v must be set together")
+        sweep_min_v, sweep_max_v, sweep_step_v = (float(value) for value in sweep_controls if value is not None)
+        if not all(math.isfinite(value) for value in (sweep_min_v, sweep_max_v, sweep_step_v)):
+            raise ValueError("adaptive sweep controls must be finite")
+        if sweep_min_v > sweep_max_v:
+            raise ValueError("sweep_min_v must not exceed sweep_max_v")
+        if sweep_step_v <= 0.0:
+            raise ValueError("sweep_step_v must be positive")
+        if isinstance(params.vin_diff, h.Vdc.Params) and not sweep_min_v <= float(params.vin_diff.dc) <= sweep_max_v:
+            raise ValueError("vin_diff.dc must lie inside the adaptive sweep bounds")
+
+    if params.requested_dac_rail_percent is not None:
+        try:
+            rail_percent = float(params.requested_dac_rail_percent)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("requested_dac_rail_percent must be numeric") from exc
+        if not math.isfinite(rail_percent) or not 0.0 <= rail_percent <= 100.0:
+            raise ValueError("requested_dac_rail_percent must be finite and in 0..100")
+    if params.campaign == "comp_sampling_noise":
+        if params.requested_dac_rail_percent is None:
+            raise ValueError("comp_sampling_noise requires requested_dac_rail_percent")
+    elif params.requested_dac_rail_percent is not None:
+        raise ValueError("requested_dac_rail_percent is only valid for comp_sampling_noise")
+
+    cdac_selectors = (params.cdac_side, params.cdac_element, params.cdac_direction)
+    if params.campaign == "cdac_ab":
+        if any(value is None for value in cdac_selectors):
+            raise ValueError("cdac_ab requires cdac_side, cdac_element, and cdac_direction")
+        if params.cdac_side not in {"p", "n"}:
+            raise ValueError("cdac_side must be 'p' or 'n'")
+        if params.cdac_element is None or not 0 <= params.cdac_element < 16:
+            raise ValueError("cdac_element must be in 0..15")
+        if params.cdac_direction not in {"1to0", "0to1"}:
+            raise ValueError("cdac_direction must be '1to0' or '0to1'")
+        if params.sampling_mode != "hold":
+            raise ValueError("cdac_ab requires sampling_mode='hold'")
+    elif any(value is not None for value in cdac_selectors):
+        raise ValueError("CDAC side, element, and direction are only valid for cdac_ab")
+
     # Slow configuration fields are physical logic bits rather than arbitrary
     # integers.
     for field in (
@@ -277,8 +394,9 @@ def validate_params(params: AdcTbParams) -> None:
         raise ValueError("all four sequencer patterns must contain a whole number of eight-symbol words")
 
 
+@cache
 def load_board_map() -> dict[str, Any]:
-    """Load the physical-board inventory and calibration map."""
+    """Load and cache the read-only physical-board inventory and calibration map."""
 
     return safe_load(MAP_BOARD_PATH.read_text())
 

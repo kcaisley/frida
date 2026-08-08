@@ -13,14 +13,15 @@ import pytest
 
 from flow.adc import AdcParams
 from flow.analysis.adc import (
+    analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
-    analyze_adc_noise,
     analyze_adc_noise_sweep,
-    analyze_adc_nonlin,
+    analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
     analyze_adc_transfer,
+    combine_adc_noise_comparison,
 )
 from flow.analysis.types import (
     AdcDaq,
@@ -235,8 +236,8 @@ def test_transfer_noise_and_code_density_use_typed_adc_data() -> None:
         vin_diff_v=[-0.1, -0.1, 0.0, 0.0, 0.1, 0.1],
     )
     transfer = analyze_adc_transfer([msmt])
-    noise = analyze_adc_noise([msmt])
-    linearity = analyze_adc_nonlin(msmt, method="code_density", code_range=(1, 2))
+    noise = analyze_adc_code_distribution([msmt])
+    linearity = analyze_adc_nonlinearity(msmt, method="code_density", code_range=(1, 2))
 
     np.testing.assert_allclose(transfer.mean_dout, (0.0, 1.5, 3.0))
     np.testing.assert_array_equal(noise.count.sum(axis=0)[:4], (2, 1, 1, 2))
@@ -255,9 +256,9 @@ def test_shared_adc_analyses_accept_internal_measurements() -> None:
     )
     assert isinstance(static, MeasAdcInt)
     assert analyze_adc_transfer([static]).sample_count.sum() == 6
-    assert analyze_adc_noise([static]).sample_count.sum() == 6
+    assert analyze_adc_code_distribution([static]).sample_count.sum() == 6
     assert (
-        analyze_adc_nonlin(
+        analyze_adc_nonlinearity(
             static,
             method="code_density",
             code_range=(1, 2),
@@ -280,7 +281,7 @@ def test_shared_adc_analyses_accept_internal_measurements() -> None:
 def test_endpoint_linearity_interpolates_static_code_transitions() -> None:
     inputs = np.linspace(-0.6, 0.6, 129)
     ideal_codes = np.rint(np.linspace(0.0, 15.0, len(inputs)))
-    ideal = analyze_adc_nonlin(
+    ideal = analyze_adc_nonlinearity(
         adc_measurement(ideal_codes, vin_diff_v=inputs),
         method="endpoint",
     )
@@ -290,7 +291,7 @@ def test_endpoint_linearity_interpolates_static_code_transitions() -> None:
     nonlinear_codes = np.rint(
         np.linspace(0.0, 15.0, len(inputs)) + 0.6 * np.sin(np.pi * np.linspace(0.0, 15.0, len(inputs)) / 15.0)
     )
-    nonlinear = analyze_adc_nonlin(
+    nonlinear = analyze_adc_nonlinearity(
         adc_measurement(nonlinear_codes, vin_diff_v=inputs),
         method="endpoint",
     )
@@ -443,6 +444,49 @@ def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
 
     np.testing.assert_allclose(sweep.pretrigger_vin_diff_mean_v, [-0.05])
     np.testing.assert_allclose(sweep.pretrigger_vin_diff_noise_rms_v, [0.001])
+
+
+def test_noise_comparison_combines_dc_dynamic_and_simulated_series() -> None:
+    dc_noise = analyze_adc_noise_sweep(
+        [
+            adc_measurement([100, 101, 100], sample_rate_hz=2.0e6),
+            adc_measurement([100, 102, 101], sample_rate_hz=1.0e6),
+        ]
+    )
+    dc_noise_100mv = analyze_adc_noise_sweep(
+        [
+            adc_measurement([200, 201, 200], sample_rate_hz=1.0e6),
+            adc_measurement([200, 202, 201], sample_rate_hz=2.0e6),
+        ]
+    )
+    sample_rate_hz = 100_000.0
+    input_frequency_hz = 1_000.0
+    time_s = np.arange(2_048) / sample_rate_hz
+    sine_dynamic = analyze_adc_dynamic_sweep(
+        [
+            adc_measurement(
+                np.rint(2_048.0 + 1_000.0 * np.sin(2.0 * np.pi * input_frequency_hz * time_s)),
+                sample_rate_hz=sample_rate_hz,
+                input_frequency_hz=input_frequency_hz,
+            )
+        ],
+        frequency_search_fraction=0.0,
+    )
+
+    comparison = combine_adc_noise_comparison(
+        (dc_noise, dc_noise_100mv),
+        sine_dynamic,
+        (dc_noise,),
+    )
+
+    assert len(comparison.sample_rate_hz) == 9
+    np.testing.assert_array_equal(comparison.sample_rate_hz[:2], np.sort(dc_noise.sample_rate_hz))
+    np.testing.assert_array_equal(comparison.sample_rate_hz[-2:], dc_noise.sample_rate_hz)
+    assert comparison.input_lsb_v == dc_noise.input_lsb_v
+
+    mismatched_lsb = replace(dc_noise, input_lsb_v=2.0 * dc_noise.input_lsb_v)
+    with pytest.raises(ValueError, match="one nominal input LSB scale"):
+        combine_adc_noise_comparison((dc_noise, mismatched_lsb), sine_dynamic)
 
 
 @pytest.mark.parametrize(

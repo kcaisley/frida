@@ -8,8 +8,13 @@
 adc_flavors:
   radix17:
     cdac_weights: [768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1]
+    # Fixed top-plate capacitance expressed in the same normalized units as
+    # cdac_weights. Extracted from adc_1layer_radix17 PEX on 2026-06-09.
+    cdac_topplate_parasitic_weight: 1387.6806380557318
   radix20:
     cdac_weights: [768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1]
+    # Extracted from adc_2layer_radix20 PEX on 2026-06-08.
+    cdac_topplate_parasitic_weight: 583.9422430420866
 
 boards:
   "00":
@@ -36,36 +41,182 @@ boards:
     fixed_vdd_io_v: 1.2
 
     supply_limits:
-      maximum_voltage_v: 1.2
+      minimum_voltage_v: 1.1
+      maximum_voltage_v: 1.3
+      signal_headroom_v: 0.05
       loaded_voltage_tolerance_v: 0.05
       smu_voltage_range_v: 2.0
       smu_current_compliance_a: 0.0005
       vin_cm_current_limit_a: 0.01
 
-    # Empirical instrument-to-ADC calibration measured on 2026-07-22 at the
-    # connected ADC input. Validated for |Vdiff| <= 1 V and
-    # 0.4 V <= Vin_cm <= 0.8 V. Positive AWG voltage produces negative Vdiff.
+    # Empirical instrument-to-ADC calibration measured at the connected ADC
+    # input. Small signals use a common-mode table; larger signals retain the
+    # polynomial over 0.4--0.8 V. Positive AWG voltage produces positive Vdiff.
     input_calibration:
       maximum_abs_vdiff_v: 1.0
-      minimum_vin_cm_v: 0.4
-      maximum_vin_cm_v: 0.8
+      minimum_vin_cm_v: 0.1
+      maximum_vin_cm_v: 1.2
+      accepted_at_utc: "2026-08-05T00:41:25Z"
+      accepted_source_summaries:
+        - build/loopback_diffamp/summary_20260804_045720.csv
+        - build/loopback_diffamp/summary_20260804_050701.csv
+        - build/loopback_diffamp/summary_20260805_023417.csv
+      small_signal_vdiff_relative_tolerance: 0.02
+      large_signal_vdiff_relative_tolerance: 0.005
+      polynomial_minimum_vin_cm_v: 0.4
+      polynomial_maximum_vin_cm_v: 0.8
+      small_signal_maximum_abs_vdiff_v: 0.025
+      # Taper the measured small-signal calibration correction to zero at the first
+      # accepted large-signal anchor, avoiding a discontinuous AWG command.
+      small_to_large_blend_maximum_abs_vdiff_v: 0.2
+      small_signal_common_mode_v:
+        - 0.1
+        - 0.2
+        - 0.3
+        - 0.4
+        - 0.5
+        - 0.6
+        - 0.7
+        - 0.8
+        - 0.9
+        - 1.0
+        - 1.1
+        - 1.18
+        - 1.2
+      small_signal_awg_vdiff_magnitude_v_per_vdiff:
+        - 2.588605504
+        - 2.387039953
+        - 2.342063194
+        - 2.32597496
+        - 2.306159476
+        - 2.297477921
+        - 2.281715618
+        - 2.267062432
+        - 2.279796607
+        - 2.256825522
+        - 2.255244783
+        - 2.2590448
+        - 2.25999480425
+      small_signal_awg_center_v:
+        - -0.08636721347676918
+        - -0.05163920930709544
+        - -0.04711042065100508
+        - -0.04582207028177367
+        - -0.04593118469825695
+        - -0.04791724052301814
+        - -0.05060870398824761
+        - -0.056031018494913556
+        - -0.06306106378424295
+        - -0.07205090904532634
+        - -0.08442620992910829
+        - -0.09553980829375305
+        - -0.09831820788491424
+      small_signal_source_summaries:
+        - build/loopback_diffamp/summary_20260804_043442.csv
+        - build/loopback_diffamp/summary_20260804_043934.csv
+        - build/loopback_diffamp/summary_20260804_044418.csv
+        - build/loopback_diffamp/summary_20260804_044810.csv
+        - build/loopback_diffamp/summary_20260805_023417.csv
+      vin_cm_supply_common_mode_v:
+        - 0.1
+        - 0.2
+        - 0.3
+        - 0.4
+        - 0.5
+        - 0.6
+        - 0.7
+        - 0.8
+        - 0.9
+        - 1.0
+        - 1.1
+        - 1.18
+        - 1.2
+      vin_cm_supply_set_v:
+        - 0.08283609
+        - 0.1802291
+        - 0.2807991
+        - 0.3806216
+        - 0.4809513
+        - 0.5811476
+        - 0.6803828
+        - 0.7808461
+        - 0.8807755
+        - 0.9808384
+        - 1.081301
+        - 1.161239
+        - 1.1812235
       awg_calibration_vin_cm_v: 0.6
       awg_vdiff_magnitude_coefficients:
-        - 2.265447848881228
-        - -0.3005942675774198
-        - 0.20746371783097167
-        - -0.13495070088311512
-        - -0.08153988321949701
-        - 0.1537466159659059
+        - 2.2513973110424867
+        - -0.3116668336739934
+        - 0.22388790244856832
+        - -0.08902810328509066
+        - -0.18426842070965369
+        - 0.14648967748494326
       awg_center_coefficients:
-        - -0.03749354410501951
-        - 0.0464882208329994
-        - -0.022513114873877624
-        - -0.025158294762495398
-        - 0.00015199446637113683
-        - -0.08383413425431123
-      vin_cm_supply_offset_v: -0.014316241071428943
-      vin_cm_supply_gain: 0.9985304375000002
+        - -0.03671447340052964
+        - 0.00556246917793871
+        - 0.013122955541807379
+        - -0.046240861278647245
+        - 0.043549676159792335
+        - -0.09666518112842887
+      polynomial_source_summaries:
+        - build/loopback_diffamp/summary_20260804_041440.csv
+        - build/loopback_diffamp/summary_20260804_050103.csv
+        - build/loopback_diffamp/summary_20260804_050351.csv
+      vin_cm_supply_offset_v: -0.01869217609031749
+      vin_cm_supply_gain: 0.9993280269186272
+
+    # Manually accepted comparator S-curve calibrations at Vin_cm = 0.8 V.
+    # Each source glob is relative to the repository root and includes all
+    # coarse/fine trials used by the voltage-ordered Wilson analysis.
+    comparator_calibration:
+      0:
+        offset_v: 0.011375641025641026
+        noise_sigma_v: 0.0004679058486319688
+        vin_cm_v: 0.8
+        accepted_at_utc: "2026-08-04T04:25:19Z"
+        source_hdf5_globs:
+          - build/scan_comp/20260804_051653/*adc00*.h5
+      1:
+        offset_v: 0.00985263157894737
+        noise_sigma_v: 0.00044458202336662815
+        vin_cm_v: 0.8
+        accepted_at_utc: "2026-08-04T04:25:19Z"
+        source_hdf5_globs:
+          - build/scan_comp/20260804_053759/*adc01*.h5
+      2:
+        offset_v: 0.010177570093457944
+        noise_sigma_v: 0.00046171819651938664
+        vin_cm_v: 0.8
+        accepted_at_utc: "2026-08-04T04:25:19Z"
+        source_hdf5_globs:
+          - build/scan_comp/20260804_051653/*adc02*.h5
+      3:
+        offset_v: 0.01196334830878979
+        noise_sigma_v: 0.0003614842917818984
+        vin_cm_v: 0.8
+        accepted_at_utc: "2026-08-04T04:25:19Z"
+        source_hdf5_globs:
+          - build/scan_comp/20260804_054953/*adc03*.h5
+
+    # Manually accepted, acquisition-planning-only scale between the PEX CDAC
+    # step and the direction-averaged measured C16 step. These values center
+    # later adaptive sweeps; measured per-curve P50 values, never these scales,
+    # drive capacitance extraction. List order is dac_diffcaps = 0, 1, i.e.
+    # fabricated main+diff followed by normal main-diff operation.
+    cdac_sweep_center_calibration:
+      0:
+        scale_by_diffcaps: [0.8230766558822209, 0.8087373278916857]
+        accepted_at_utc: "2026-08-04T11:22:00+02:00"
+        source_hdf5_globs:
+          - build/scan_cdac/20260804_103656/*adc00*.h5
+      2:
+        scale_by_diffcaps: [1.061691094905829, 1.041627104743899]
+        accepted_at_utc: "2026-08-04T10:36:00+02:00"
+        source_hdf5_globs:
+          - build/scan_cdac/20260804_100358/*adc02*.h5
+          - build/scan_cdac/20260804_101107/*adc02*.h5
 
     # Analytical COMP_OUT capture model. FPGA delays and clock skew come from
     # the routed KX1 timing report. The external bounds cover the 3.649--6.764

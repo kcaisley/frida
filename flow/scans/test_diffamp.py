@@ -2,9 +2,11 @@
 
 The Agilent 33250A applies a 1 MHz sine to the single-ended THS4541 input,
 the E3634A sets its output common mode, and the differential probe on MSO54
-CH1 measures ``Vin_p - Vin_n``. Seven safe amplitude/common-mode combinations
-are captured. Each differential amplitude, frequency, and E3634A voltage
-readback must agree with its target to 0.5%.
+CH1 measures ``Vin_p - Vin_n``. Safe points qualify every 0.1--1.1 V
+comparator common mode, the guarded 1.18 V near-rail point, the requested
+0.7--1.2 V 50 mVpp campaign envelope, and the existing larger amplitudes. Differential
+amplitude must agree within 2% in the small-signal regime and 0.5% at
+larger amplitudes; frequency and E3634A voltage readback remain within 0.5%.
 
 CH1 is differential and therefore cannot independently measure output common
 mode. The VIN_CM assertion checks the calibrated E3634A readback as a proxy;
@@ -13,7 +15,7 @@ to ground.
 
 Run from the repository root with:
 
-    uv run python -m flow.scans.loopback_diffamp
+    uv run pytest -q -s -m hw flow/scans/test_diffamp.py
 
 The AWG and VIN_CM outputs are disabled and reset to 0 V when the check exits,
 including after an assertion or communication failure. The three ASIC supply
@@ -23,6 +25,8 @@ SMUs are not accessed by this loopback.
 from __future__ import annotations
 
 import csv
+import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from statistics import median
 from time import sleep, strftime
@@ -44,10 +48,13 @@ SCOPE_CHANNEL = 1
 SCOPE_TRACKS = {SCOPE_CHANNEL: "vdiff_ch1"}
 
 # Values in this table are sine peak amplitudes: for example 1.0 V means a
-# differential waveform from -1.0 V to +1.0 V, or 2.0 Vpp. The full-scale
-# case is restricted to 0.6 V common mode so each ADC input remains in the
-# 0.1--1.1 V range. The smaller amplitudes exercise all three common modes.
+# differential waveform from -1.0 V to +1.0 V, or 2.0 Vpp. The 20 mV points
+# qualify the small-signal comparator regime at every requested common mode.
+# Larger historical points retain the polynomial amplitude-calibration checks.
 TEST_POINTS = (
+    *((0.02, index * 0.1) for index in range(1, 12)),
+    (0.02, 1.18),
+    *((0.025, round(index * 0.1, 1)) for index in range(7, 13)),
     (0.2, 0.4),
     (0.2, 0.6),
     (0.2, 0.8),
@@ -58,9 +65,12 @@ TEST_POINTS = (
 )
 
 RELATIVE_TOLERANCE = 0.005
+SMALL_SIGNAL_VDIFF_RELATIVE_TOLERANCE = 0.02
+SMALL_SIGNAL_MAXIMUM_VDIFF_PEAK_V = 0.025
 VDIFF_OFFSET_ABSOLUTE_TOLERANCE_V = 5.0e-3
 AWG_PROGRAMMING_ABSOLUTE_TOLERANCE_V = 0.5e-3
 MAX_ADC_INPUT_V = 1.2
+REQUESTED_NEAR_RAIL_INPUT_MAXIMUM_V = 1.2125
 MAX_VDIFF_PEAK_V = 1.0
 MAX_ABSOLUTE_AWG_V = 2.25
 
@@ -73,7 +83,67 @@ SCOPE_BANDWIDTH_HZ = 250.0e6
 SCOPE_COARSE_VERTICAL_SCALE_V = 0.4
 
 
-def main() -> None:
+def calculate_refitted_input_calibration(
+    rows: Sequence[Mapping[str, float | str | int | bool]],
+    *,
+    awg_calibration_vin_cm_v: float,
+) -> dict[str, float | tuple[float, ...]]:
+    """Fit candidate AWG and Vin_cm coefficients from loopback summaries."""
+
+    if len(rows) < 6:
+        raise ValueError("input calibration refit requires at least six loopback points")
+    amplitudes = np.asarray([float(row["target_vdiff_peak_v"]) for row in rows])
+    common_modes = np.asarray([float(row["target_vin_cm_v"]) for row in rows])
+    programmed_half_amplitudes = np.asarray([float(row["awg_amplitude_vpp"]) / 2.0 for row in rows])
+    programmed_centers = np.asarray([float(row["awg_offset_v"]) for row in rows])
+    measured_half_amplitudes = np.asarray([float(row["measured_vdiff_vpp"]) / 2.0 for row in rows])
+    measured_offsets = np.asarray([float(row["measured_vdiff_offset_v"]) for row in rows])
+    if (
+        np.any(amplitudes <= 0.0)
+        or np.any(programmed_half_amplitudes <= 0.0)
+        or np.any(measured_half_amplitudes <= 0.0)
+    ):
+        raise ValueError("input calibration refit requires positive programmed and measured amplitudes")
+
+    common_mode_delta = common_modes - awg_calibration_vin_cm_v
+    basis = np.column_stack(
+        (
+            np.ones_like(amplitudes),
+            amplitudes,
+            amplitudes**2,
+            common_mode_delta,
+            amplitudes * common_mode_delta,
+            common_mode_delta**2,
+        )
+    )
+    if np.linalg.matrix_rank(basis) < basis.shape[1]:
+        raise ValueError("loopback points do not span the six-term AWG calibration basis")
+    required_v_per_vdiff = programmed_half_amplitudes / measured_half_amplitudes
+    required_centers = programmed_centers - measured_offsets * required_v_per_vdiff
+    magnitude_coefficients = np.linalg.lstsq(basis, required_v_per_vdiff, rcond=None)[0]
+    center_coefficients = np.linalg.lstsq(basis, required_centers, rcond=None)[0]
+
+    programmed_supply_v = np.asarray([float(row["vin_cm_supply_set_v"]) for row in rows])
+    measured_supply_v = np.asarray([float(row["vin_cm_supply_read_v"]) for row in rows])
+    supply_fit = np.linalg.lstsq(
+        np.column_stack((np.ones_like(programmed_supply_v), programmed_supply_v)),
+        measured_supply_v,
+        rcond=None,
+    )[0]
+    supply_offset, supply_slope = (float(value) for value in supply_fit)
+    if not math.isfinite(supply_slope) or supply_slope <= 0.0:
+        raise ValueError("Vin_cm supply refit produced a non-positive gain")
+    return {
+        "awg_vdiff_magnitude_coefficients": tuple(float(value) for value in magnitude_coefficients),
+        "awg_center_coefficients": tuple(float(value) for value in center_coefficients),
+        "vin_cm_supply_offset_v": -supply_offset / supply_slope,
+        "vin_cm_supply_gain": 1.0 / supply_slope,
+    }
+
+
+@pytest.mark.hw
+def test_diffamp_calibration() -> None:
+    """Hardware: qualify the calibrated differential-amplifier stimulus path."""
     # Validate every requested output condition before opening or changing an
     # instrument. Vin_p and Vin_n each span Vin_cm +/- Vdiff_peak/2.
     for vdiff_peak_v, vin_cm_v in TEST_POINTS:
@@ -81,10 +151,15 @@ def main() -> None:
         adc_input_max_v = vin_cm_v + vdiff_peak_v / 2.0
         if not 0.0 < vdiff_peak_v <= MAX_VDIFF_PEAK_V:
             raise ValueError(f"Vdiff peak {vdiff_peak_v:g} V must be in 0..{MAX_VDIFF_PEAK_V:g} V")
-        if not 0.0 <= adc_input_min_v <= adc_input_max_v <= MAX_ADC_INPUT_V:
+        requested_near_rail_point = (
+            math.isclose(vin_cm_v, 1.2, abs_tol=1.0e-12)
+            and vdiff_peak_v <= SMALL_SIGNAL_MAXIMUM_VDIFF_PEAK_V + 1.0e-12
+            and adc_input_max_v <= REQUESTED_NEAR_RAIL_INPUT_MAXIMUM_V + 1.0e-12
+        )
+        if not 0.0 <= adc_input_min_v or (adc_input_max_v > MAX_ADC_INPUT_V and not requested_near_rail_point):
             raise ValueError(
                 f"Vdiff peak {vdiff_peak_v:g} V at Vin_cm={vin_cm_v:g} V "
-                f"would put an ADC input outside 0..{MAX_ADC_INPUT_V:g} V"
+                "would put an ADC input outside the qualified campaign envelope"
             )
         if vdiff_peak_v == MAX_VDIFF_PEAK_V and vin_cm_v != 0.6:
             raise ValueError("the 1 V differential peak is only allowed at 0.6 V common mode")
@@ -112,6 +187,7 @@ def main() -> None:
     scope = None
     scope_state = None
     run_timestamp = strftime("%Y%m%d_%H%M%S")
+    summary_path = CAPTURE_DIR / f"summary_{run_timestamp}.csv"
     summary_rows: list[dict[str, float | str | int]] = []
 
     try:
@@ -290,6 +366,7 @@ def main() -> None:
             )
             scope.set_acquire_state("STOP")
             scope._intf.write("ACQuire:NUMACq:RESET")
+            scope._intf.query("*OPC?")
             scope.set_acquire_state("RUN")
             wait_for_scope_armed(scope, timeout_s=SCOPE_ARM_TIMEOUT_S)
             awg.set_enable(1)
@@ -299,6 +376,7 @@ def main() -> None:
             scope.set_acquire_state("STOP")
 
             coarse_waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
+            awg.set_enable(0)
             if SCOPE_CHANNEL not in coarse_waveforms:
                 raise RuntimeError(f"scope did not return coarse CH{SCOPE_CHANNEL}")
             coarse_waveform = coarse_waveforms[SCOPE_CHANNEL]
@@ -323,17 +401,20 @@ def main() -> None:
             # for the 0.5% amplitude assertion without assuming zero offset.
             scope.set_vertical_offset(coarse_offset_v, channel=SCOPE_CHANNEL)
             scope.set_vertical_scale(
-                target_vdiff_vpp / 8.0,
+                max(target_vdiff_vpp, coarse_vpp) / 6.0,
                 channel=SCOPE_CHANNEL,
             )
             scope.set_trigger_level(
-                coarse_offset_v + 2.0 * vdiff_peak_v,
+                coarse_offset_v,
                 channel=SCOPE_CHANNEL,
             )
             scope.set_acquire_state("STOP")
             scope._intf.write("ACQuire:NUMACq:RESET")
+            scope._intf.query("*OPC?")
             scope.set_acquire_state("RUN")
             wait_for_scope_armed(scope, timeout_s=SCOPE_ARM_TIMEOUT_S)
+            awg.set_enable(1)
+            sleep(SETTLE_TIME_S)
             scope.force_trigger()
             sleep(SCOPE_ACQUISITION_SETTLE_S)
             scope.set_acquire_state("STOP")
@@ -357,6 +438,15 @@ def main() -> None:
             # leaves the exact waveform available for diagnosis.
             write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
             print(f"  saved {samples.size} samples spanning {times[-1] - times[0]:.9g} s: {csv_path}")
+            endpoint_fraction = max(
+                float(np.mean(samples == np.min(samples))),
+                float(np.mean(samples == np.max(samples))),
+            )
+            if endpoint_fraction > 0.01:
+                raise AssertionError(
+                    f"scope CH{SCOPE_CHANNEL} fine capture is clipped "
+                    f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
+                )
 
             raw_crossings = find_crossings(
                 samples,
@@ -440,27 +530,45 @@ def main() -> None:
                     "measured_residual_rms_v": measured_residual_rms_v,
                     "frequency_relative_error": measured_frequency_hz / AWG_FREQUENCY_HZ - 1.0,
                     "vdiff_vpp_relative_error": measured_vdiff_vpp / target_vdiff_vpp - 1.0,
+                    "vdiff_vpp_relative_tolerance": (
+                        SMALL_SIGNAL_VDIFF_RELATIVE_TOLERANCE
+                        if vdiff_peak_v <= SMALL_SIGNAL_MAXIMUM_VDIFF_PEAK_V
+                        else RELATIVE_TOLERANCE
+                    ),
                     "vin_cm_relative_error": vin_cm_measured_v / vin_cm_v - 1.0,
                     "frequency_within_tolerance": abs(measured_frequency_hz / AWG_FREQUENCY_HZ - 1.0)
                     <= RELATIVE_TOLERANCE,
                     "vdiff_vpp_within_tolerance": abs(measured_vdiff_vpp / target_vdiff_vpp - 1.0)
-                    <= RELATIVE_TOLERANCE,
+                    <= (
+                        SMALL_SIGNAL_VDIFF_RELATIVE_TOLERANCE
+                        if vdiff_peak_v <= SMALL_SIGNAL_MAXIMUM_VDIFF_PEAK_V
+                        else RELATIVE_TOLERANCE
+                    ),
                     "vin_cm_within_tolerance": abs(vin_cm_measured_v / vin_cm_v - 1.0) <= RELATIVE_TOLERANCE,
                     "vdiff_offset_within_tolerance": abs(measured_vdiff_offset_v) <= VDIFF_OFFSET_ABSOLUTE_TOLERANCE_V,
                     "scope_csv": str(csv_path),
                 }
             )
-
-        summary_path = CAPTURE_DIR / f"summary_{run_timestamp}.csv"
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        with summary_path.open("w", newline="") as summary_file:
-            writer = csv.DictWriter(
-                summary_file,
-                fieldnames=list(summary_rows[0]),
-            )
-            writer.writeheader()
-            writer.writerows(summary_rows)
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            with summary_path.open("w", newline="") as summary_file:
+                writer = csv.DictWriter(
+                    summary_file,
+                    fieldnames=list(summary_rows[0]),
+                )
+                writer.writeheader()
+                writer.writerows(summary_rows)
         print(f"Saved loopback summary: {summary_path}")
+        try:
+            candidate_calibration = calculate_refitted_input_calibration(
+                summary_rows,
+                awg_calibration_vin_cm_v=0.6,
+            )
+        except ValueError as error:
+            print(f"Polynomial calibration refit unavailable for this point set: {error}")
+        else:
+            print("Candidate input-calibration coefficients (manual review required):")
+            for field, value in candidate_calibration.items():
+                print(f"  {field}: {value!r}")
 
         # Pytest's comparison objects provide concise, value-rich failure
         # reports even though this guarded loopback is run as a module. Run the
@@ -482,8 +590,12 @@ def main() -> None:
             ), f"{label}: measured {row['measured_frequency_hz']} Hz, expected {AWG_FREQUENCY_HZ} Hz within 0.5%"
             assert row["measured_vdiff_vpp"] == pytest.approx(
                 row["target_vdiff_vpp"],
-                rel=RELATIVE_TOLERANCE,
-            ), f"{label}: measured {row['measured_vdiff_vpp']} Vpp, expected {row['target_vdiff_vpp']} Vpp within 0.5%"
+                rel=row["vdiff_vpp_relative_tolerance"],
+            ), (
+                f"{label}: measured {row['measured_vdiff_vpp']} Vpp, "
+                f"expected {row['target_vdiff_vpp']} Vpp within "
+                f"{100 * row['vdiff_vpp_relative_tolerance']:g}%"
+            )
             # Relative error is undefined for the intended zero differential
             # DC offset, so constrain it separately to 5 mV.
             assert row["measured_vdiff_offset_v"] == pytest.approx(
@@ -558,7 +670,3 @@ def main() -> None:
 
         for dut in reversed(initialized_duts):
             dut.close()
-
-
-if __name__ == "__main__":
-    main()

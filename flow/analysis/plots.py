@@ -18,28 +18,37 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, NullLocator
 from PIL import Image
+from scipy.special import ndtr
 
 from flow.analysis.types import (
+    AnalysisAdcCodeDistribution,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcDynamicSweep,
-    AnalysisAdcNoise,
     AnalysisAdcNoiseSweep,
-    AnalysisAdcNonlin,
+    AnalysisAdcNonlinearity,
     AnalysisAdcPowerSweep,
     AnalysisAdcTransfer,
+    AnalysisCdacCapMismatch,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
     MeasAdc,
+    MeasCdacExt,
     MeasCompExt,
     MeasCompInt,
     Measurement,
 )
+from flow.scans.params import load_board_map
 
 DEFAULT_FORMATS = ("png", "pdf", "svg")
 PNG_DPI = 200
 FULL_HD_FIGSIZE = (9.6, 5.4)
+DETAILED_16_9_FIGSIZE = (16.0, 9.0)
+COMMON_MODE_DISPLAY_MIN_V = 0.7
+COMMON_MODE_DISPLAY_MAX_V = 1.2
+COMPARATOR_INPUT_ERROR_MINIMUM_MV = 0.0
+COMPARATOR_INPUT_ERROR_MAXIMUM_MV = 25.0
 
 # Nord presentation colors. The ordering gives all plots a stable semantic
 # sequence instead of inheriting Matplotlib's version-dependent default cycle.
@@ -59,6 +68,12 @@ NORD_YELLOW = "#EBCB8B"
 NORD_TEAL = "#8FBCBB"
 NORD_LIGHT_BLUE = "#81A1C1"
 NORD_DARK = "#4C566A"
+SAMPLING_TRACK_COLORS = ("#B7C9DF", "#8FAAC9", NORD_BLUE, "#486C99", "#34547C")
+SAMPLING_HOLD_COLORS = ("#E7B8BC", "#D78E96", NORD_RED, "#A64E58", "#873B47")
+COMMON_MODE_COLOR_MAP = LinearSegmentedColormap.from_list(
+    "common_mode_nord_blue_to_red",
+    (NORD_BLUE, NORD_RED),
+)
 NORD_COLORS = (
     NORD_BLUE,
     NORD_RED,
@@ -345,6 +360,8 @@ def plot_measurement_waveforms(
 ) -> tuple[Path, ...]:
     """Plot selected dense waveform signals from one measurement record."""
 
+    if msmt.wave is None:
+        raise ValueError("measurement does not contain a commissioned waveform")
     record_ids = getattr(msmt.wave, "conversion_index", None)
     if record_ids is None:
         record_ids = msmt.wave.trial_index
@@ -410,9 +427,9 @@ def plot_adc_transfer(
 
 
 @with_plot_style
-def plot_adc_nonlin(
+def plot_adc_nonlinearity(
     msmt: MeasAdc,
-    analysis: AnalysisAdcNonlin,
+    analysis: AnalysisAdcNonlinearity,
     *,
     output_path: Path,
     formats: Sequence[str] = DEFAULT_FORMATS,
@@ -445,9 +462,9 @@ def plot_adc_nonlin(
 
 
 @with_plot_style
-def plot_adc_noise(
+def plot_adc_code_distribution(
     measurements: Sequence[MeasAdc],
-    analysis: AnalysisAdcNoise,
+    analysis: AnalysisAdcCodeDistribution,
     *,
     output_path: Path,
     formats: Sequence[str] = DEFAULT_FORMATS,
@@ -473,7 +490,7 @@ def plot_adc_noise(
         style_ax(ax)
         style_grid(ax)
     _add_info_box(axes[1], _measurement_group_lines(measurements), location="upper left")
-    fig.suptitle("ADC output noise")
+    fig.suptitle("ADC output-code distribution")
     return _save_figure(fig, output_path, formats)
 
 
@@ -1313,11 +1330,514 @@ def plot_comp_offset_noise(
         (
             f"Offset: {analysis.offset_v * 1e3:.3g} mV",
             f"Input noise σ: {analysis.noise_sigma_v * 1e3:.3g} mV",
+            f"Decision polarity: {'increasing' if analysis.decision_polarity > 0 else 'decreasing'}",
+            f"Validity: {analysis.validity}",
             *_measurement_group_lines(measurements),
         ),
         location="lower right",
     )
     return _save_figure(fig, output_path, formats)
+
+
+@with_plot_style
+def plot_comp_campaign(
+    measurement_groups: Sequence[Sequence[MeasCompExt | MeasCompInt]],
+    analyses: Sequence[AnalysisCompOffsetNoise],
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot one ADC's common-mode or complementary-CDAC sampling campaign."""
+
+    if (
+        not measurement_groups
+        or len(measurement_groups) != len(analyses)
+        or any(not group for group in measurement_groups)
+    ):
+        raise ValueError("comparator campaign plot requires aligned non-empty measurement groups and analyses")
+    campaigns = {getattr(group[0].param, "campaign", "") for group in measurement_groups}
+    adc_indices = {getattr(group[0].param, "observed_adc", None) for group in measurement_groups}
+    if len(campaigns) != 1 or len(adc_indices) != 1:
+        raise ValueError("comparator campaign plot requires one campaign and one ADC")
+    campaign = next(iter(campaigns))
+    adc_index = next(iter(adc_indices))
+    if not isinstance(adc_index, int):
+        raise TypeError("comparator campaign plot requires an observed ADC index")
+    if campaign == "comp_sampling_noise":
+        return _plot_comp_sampling_campaign(
+            measurement_groups,
+            analyses,
+            adc_index=adc_index,
+            output_path=output_path,
+            formats=formats,
+        )
+    if campaign == "comp_common_mode":
+        return _plot_comp_common_mode_campaign(
+            measurement_groups,
+            analyses,
+            adc_index=adc_index,
+            output_path=output_path,
+            formats=formats,
+        )
+    raise ValueError(f"unsupported comparator campaign {campaign!r}")
+
+
+def _plot_comp_sampling_campaign(
+    measurement_groups: Sequence[Sequence[MeasCompExt | MeasCompInt]],
+    analyses: Sequence[AnalysisCompOffsetNoise],
+    *,
+    adc_index: int,
+    output_path: Path,
+    formats: Sequence[str],
+) -> tuple[Path, ...]:
+    """Plot one ADC's matched track/ hold curves over VDAC coupling."""
+
+    grouped_results = {
+        (float(group[0].param.requested_dac_rail_percent), group[0].param.sampling_mode): (
+            group,
+            analysis,
+        )
+        for group, analysis in zip(measurement_groups, analyses, strict=True)
+    }
+    coupling_percentages = (0.0, 25.0, 50.0, 75.0, 100.0)
+    expected_results = {
+        (coupling_percent, mode) for coupling_percent in coupling_percentages for mode in ("track", "hold")
+    }
+    if set(grouped_results) != expected_results:
+        raise ValueError("sampling-noise plot requires five matched track and hold coupling pairs")
+    common_modes_v = {float(measurement.param.vin_cm.dc) for group in measurement_groups for measurement in group}
+    if common_modes_v != {0.7}:
+        raise ValueError("sampling-noise plot requires Vin_cm = 0.7 V")
+
+    fig, (curve_ax, violin_ax) = plt.subplots(1, 2, figsize=DETAILED_16_9_FIGSIZE)
+    mode_colors = {
+        "track": SAMPLING_TRACK_COLORS,
+        "hold": SAMPLING_HOLD_COLORS,
+    }
+    mode_offsets = {"track": -2.6, "hold": 2.6}
+    for coupling_index, coupling_percent_p in enumerate(coupling_percentages):
+        coupling_percent_n = 100.0 - coupling_percent_p
+        for mode in ("track", "hold"):
+            _group, analysis = grouped_results[(coupling_percent_p, mode)]
+            threshold_mv = analysis.offset_v * 1e3
+            noise_mv = analysis.noise_sigma_v * 1e3
+            if not (
+                analysis.validity == "valid" and np.isfinite(threshold_mv) and np.isfinite(noise_mv) and noise_mv > 0.0
+            ):
+                raise ValueError(
+                    f"sampling-noise plot requires a valid {mode} fit at "
+                    f"P/N = {coupling_percent_p:g}/{coupling_percent_n:g}%"
+                )
+            color = mode_colors[mode][coupling_index]
+            curve_label = f"{mode.title()} P/N = {coupling_percent_p:g}/{coupling_percent_n:g}%"
+            curve_ax.scatter(
+                analysis.vin_diff_v * 1e3,
+                analysis.decision_probability,
+                s=9.0,
+                color=color,
+                alpha=0.32,
+                edgecolors="none",
+                zorder=2,
+            )
+            fit_input_v = np.linspace(
+                float(np.min(analysis.vin_diff_v)),
+                float(np.max(analysis.vin_diff_v)),
+                1001,
+            )
+            fit_probability = ndtr(
+                analysis.decision_polarity * (fit_input_v - analysis.offset_v) / analysis.noise_sigma_v
+            )
+            curve_ax.plot(
+                fit_input_v * 1e3,
+                fit_probability,
+                linewidth=2.0,
+                color=color,
+                label=curve_label,
+                zorder=3,
+            )
+
+            distribution_mv = np.linspace(
+                threshold_mv - 4.0 * noise_mv,
+                threshold_mv + 4.0 * noise_mv,
+                401,
+            )
+            density = np.exp(-0.5 * ((distribution_mv - threshold_mv) / noise_mv) ** 2)
+            violin_center = coupling_percent_p + mode_offsets[mode]
+            violin_half_width = 2.15 * density
+            violin_ax.fill_betweenx(
+                distribution_mv,
+                violin_center - violin_half_width,
+                violin_center + violin_half_width,
+                color=color,
+                alpha=0.60,
+                linewidth=0.8,
+                edgecolor=color,
+            )
+            violin_ax.plot(
+                violin_center,
+                threshold_mv,
+                marker="o",
+                markersize=3.5,
+                color=color,
+            )
+            annotation_y_mv = max(
+                COMPARATOR_INPUT_ERROR_MINIMUM_MV + 0.35,
+                threshold_mv - 4.0 * noise_mv - 0.45,
+            )
+            violin_ax.text(
+                violin_center,
+                annotation_y_mv,
+                f"μ={threshold_mv:.2f}\nσ={noise_mv:.2f}",
+                horizontalalignment="center",
+                verticalalignment="top",
+                fontsize="xx-small",
+                color=TEXT_COLOR,
+            )
+
+    curve_ax.axhline(0.5, color=SPINE_COLOR, linewidth=0.6)
+    curve_ax.set_xlim(COMPARATOR_INPUT_ERROR_MINIMUM_MV, COMPARATOR_INPUT_ERROR_MAXIMUM_MV)
+    curve_ax.set_xlabel("Differential input (mV)")
+    curve_ax.set_ylabel("Decision probability")
+    curve_ax.set_ylim(-0.02, 1.02)
+    curve_ax.set_title("Comparator S-curves (CDF)")
+    style_legend(curve_ax, loc="lower right", ncols=2)
+
+    violin_ax.set_xlim(-8.0, 108.0)
+    violin_ax.set_ylim(COMPARATOR_INPUT_ERROR_MINIMUM_MV, COMPARATOR_INPUT_ERROR_MAXIMUM_MV)
+    violin_ax.set_xticks(
+        coupling_percentages,
+        [f"{value:g}/{100.0 - value:g}" for value in coupling_percentages],
+    )
+    violin_ax.set_xlabel("VDAC coupling (P/N % of VDD_DAC)")
+    violin_ax.set_ylabel("Input error (mV)")
+    violin_ax.set_title("Gaussian fit of μ (threshold) and σ (noise)")
+    style_legend(
+        violin_ax,
+        handles=(
+            Patch(facecolor=NORD_BLUE, edgecolor=NORD_BLUE, alpha=0.60, label="Track"),
+            Patch(facecolor=NORD_RED, edgecolor=NORD_RED, alpha=0.60, label="Hold"),
+        ),
+        loc="upper right",
+    )
+
+    for ax in (curve_ax, violin_ax):
+        style_ax(ax)
+        style_grid(ax)
+    fig.suptitle(f"ADC{adc_index:02d} Threshold dispersion and input-referred noise vs VDAC coupling at Vin_cm = 0.7 V")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+def _plot_comp_common_mode_campaign(
+    measurement_groups: Sequence[Sequence[MeasCompExt | MeasCompInt]],
+    analyses: Sequence[AnalysisCompOffsetNoise],
+    *,
+    adc_index: int,
+    output_path: Path,
+    formats: Sequence[str],
+) -> tuple[Path, ...]:
+    """Plot one ADC's comparator response over common-mode input."""
+
+    selected_results = [
+        (group, analysis)
+        for group, analysis in zip(measurement_groups, analyses, strict=True)
+        if COMMON_MODE_DISPLAY_MIN_V <= float(group[0].param.vin_cm.dc) <= COMMON_MODE_DISPLAY_MAX_V
+    ]
+    if not selected_results:
+        raise ValueError("common-mode plot has no curves in the 0.7..1.2 V display range")
+
+    selected_results.sort(key=lambda result: float(result[0][0].param.vin_cm.dc))
+    fig, (curve_ax, violin_ax) = plt.subplots(1, 2, figsize=DETAILED_16_9_FIGSIZE)
+    common_modes_v = []
+    for group, analysis in selected_results:
+        common_mode_v = float(group[0].param.vin_cm.dc)
+        threshold_mv = analysis.offset_v * 1e3
+        noise_mv = analysis.noise_sigma_v * 1e3
+        gradient_position = (common_mode_v - COMMON_MODE_DISPLAY_MIN_V) / (
+            COMMON_MODE_DISPLAY_MAX_V - COMMON_MODE_DISPLAY_MIN_V
+        )
+        color = COMMON_MODE_COLOR_MAP(float(np.clip(gradient_position, 0.0, 1.0)))
+        common_modes_v.append(common_mode_v)
+
+        curve_ax.scatter(
+            analysis.vin_diff_v * 1e3,
+            analysis.decision_probability,
+            s=9.0,
+            color=color,
+            alpha=0.40,
+            edgecolors="none",
+            zorder=2,
+        )
+
+        valid_fit = (
+            analysis.validity == "valid" and np.isfinite(threshold_mv) and np.isfinite(noise_mv) and noise_mv > 0.0
+        )
+        if valid_fit:
+            fit_input_v = np.linspace(
+                float(np.min(analysis.vin_diff_v)),
+                float(np.max(analysis.vin_diff_v)),
+                1001,
+            )
+            fit_probability = ndtr(
+                analysis.decision_polarity * (fit_input_v - analysis.offset_v) / analysis.noise_sigma_v
+            )
+            curve_ax.plot(
+                fit_input_v * 1e3,
+                fit_probability,
+                linewidth=2.0,
+                color=color,
+                label=f"Vin_cm = {common_mode_v:.3g} V",
+                zorder=3,
+            )
+            distribution_mv = np.linspace(
+                threshold_mv - 4.0 * noise_mv,
+                threshold_mv + 4.0 * noise_mv,
+                401,
+            )
+            density = np.exp(-0.5 * ((distribution_mv - threshold_mv) / noise_mv) ** 2)
+            violin_half_width_v = 0.035 * density
+            violin_ax.fill_betweenx(
+                distribution_mv,
+                common_mode_v - violin_half_width_v,
+                common_mode_v + violin_half_width_v,
+                color=color,
+                alpha=0.55,
+                linewidth=0.8,
+                edgecolor=color,
+            )
+            violin_ax.plot(common_mode_v, threshold_mv, marker="o", markersize=4.0, color=color)
+            annotation_y_mv = max(
+                COMPARATOR_INPUT_ERROR_MINIMUM_MV + 0.35,
+                threshold_mv - 4.0 * noise_mv - 0.55,
+            )
+            annotation = f"μ={threshold_mv:.2f} mV\nσ={noise_mv:.2f} mV"
+        else:
+            curve_ax.plot(
+                analysis.vin_diff_v * 1e3,
+                analysis.decision_probability,
+                linewidth=0.8,
+                color=color,
+                alpha=0.75,
+                label=f"Vin_cm = {common_mode_v:.3g} V (fit invalid)",
+                zorder=3,
+            )
+            annotation_y_mv = COMPARATOR_INPUT_ERROR_MINIMUM_MV + 0.35
+            annotation = "fit invalid"
+        violin_ax.text(
+            common_mode_v,
+            annotation_y_mv,
+            annotation,
+            horizontalalignment="center",
+            verticalalignment="top",
+            fontsize="x-small",
+            color=TEXT_COLOR,
+        )
+
+    curve_ax.axhline(0.5, color=SPINE_COLOR, linewidth=0.6)
+    curve_ax.set_xlim(COMPARATOR_INPUT_ERROR_MINIMUM_MV, COMPARATOR_INPUT_ERROR_MAXIMUM_MV)
+    curve_ax.set_ylim(-0.02, 1.02)
+    curve_ax.set_xlabel("Differential input (mV)")
+    curve_ax.set_ylabel("Decision probability")
+    curve_ax.set_title("Comparator S-curve (CDF)")
+    style_legend(curve_ax, loc="lower right")
+
+    violin_ax.set_xlim(
+        min(common_modes_v) - 0.05,
+        max(common_modes_v) + 0.05,
+    )
+    violin_ax.set_ylim(COMPARATOR_INPUT_ERROR_MINIMUM_MV, COMPARATOR_INPUT_ERROR_MAXIMUM_MV)
+    violin_ax.set_xticks(common_modes_v, [f"{value:.1f}" for value in common_modes_v])
+    violin_ax.set_xlabel("Common-mode input (V)")
+    violin_ax.set_ylabel("Input error (mV)")
+    violin_ax.set_title("Gaussian fit of μ (threshold) and σ (noise)")
+
+    for ax in (curve_ax, violin_ax):
+        style_ax(ax)
+        style_grid(ax)
+    fig.suptitle(f"ADC{adc_index:02d} Threshold dispersion and input-referred noise vs common mode")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+def _expected_cdac_effective_fraction(
+    measurements: Sequence[MeasCdacExt],
+) -> np.ndarray:
+    """Return flavor-aware normalized main-minus-diff PEX expectations."""
+
+    if not measurements:
+        raise ValueError("CDAC expectation requires measurements")
+    params = measurements[0].param
+    weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
+    total_weights = 65.0 * np.ceil(weights / 64.0)
+    recorded_parasitics = {
+        float(measurement.info.readbacks["cdac_topplate_parasitic_weight"])
+        for measurement in measurements
+        if "cdac_topplate_parasitic_weight" in measurement.info.readbacks
+    }
+    if len(recorded_parasitics) > 1:
+        raise ValueError("CDAC measurements contain inconsistent top-plate parasitic expectations")
+    if recorded_parasitics:
+        topplate_parasitic_weight = next(iter(recorded_parasitics))
+    else:
+        board_id = getattr(params, "board_id", None)
+        adc_index = getattr(params, "observed_adc", None)
+        if board_id is None or adc_index is None:
+            topplate_parasitic_weight = 0.0
+        else:
+            board_map = load_board_map()
+            board = board_map["boards"][board_id]
+            flavor = board["adc_channels"][adc_index]
+            topplate_parasitic_weight = float(
+                board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0)
+            )
+    if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
+        raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
+    return weights / (np.sum(total_weights) + topplate_parasitic_weight)
+
+
+@with_plot_style
+def plot_cdac_cap_mismatch(
+    measurements: Sequence[MeasCdacExt],
+    analysis: AnalysisCdacCapMismatch,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot one ADC's normalized A-to-B main/diff weights and diagnostics."""
+
+    if not measurements:
+        raise ValueError("CDAC A-to-B plot requires measurements")
+    elements = np.arange(1, analysis.effective_fraction.shape[1] + 1)
+    expected_effective = _expected_cdac_effective_fraction(measurements)
+    fig, axes_grid = plt.subplots(2, 3, figsize=DETAILED_16_9_FIGSIZE)
+    axes = axes_grid.ravel()
+    for side, label, color in ((0, "P", NORD_BLUE), (1, "N", NORD_RED)):
+        axes[0].plot(
+            elements,
+            analysis.effective_fraction[side],
+            "o-",
+            color=color,
+            label=f"{label} normal (diffcaps=1, main-diff)",
+        )
+        axes[1].plot(
+            elements,
+            analysis.effective_fraction[side] - expected_effective,
+            "o-",
+            color=color,
+            label=f"{label} residual",
+        )
+        axes[3].plot(elements, analysis.main_fraction[side], "o-", color=color, label=f"{label} main")
+        axes[3].plot(
+            elements,
+            analysis.diff_fraction[side],
+            "s--",
+            color=color,
+            alpha=0.8,
+            label=f"{label} diff",
+        )
+        axes[4].plot(
+            elements,
+            analysis.direction_bias[side, :, 0],
+            marker="o",
+            linestyle="-" if side == 0 else "--",
+            color=color,
+            label=f"{label} diffcaps=0 (main+diff)",
+        )
+        axes[4].plot(
+            elements,
+            analysis.direction_bias[side, :, 1],
+            marker="s",
+            linestyle="-" if side == 0 else "--",
+            color=color,
+            alpha=0.7,
+            label=f"{label} diffcaps=1 (main-diff)",
+        )
+        axes[5].plot(
+            elements,
+            2.0 * analysis.diff_fraction[side],
+            "o-",
+            color=color,
+            label=f"{label} (w_plus - w_minus)",
+        )
+    axes[0].plot(elements, expected_effective, "k--", linewidth=0.8, label="ideal/PEX expectation")
+    axes[2].plot(
+        elements,
+        analysis.effective_fraction[0] - analysis.effective_fraction[1],
+        "o-",
+        color=NORD_PURPLE,
+        label="P-N effective",
+    )
+    axes[0].set_ylabel("Normalized effective C/Ctotal_top")
+    axes[1].set_ylabel("Effective residual from expectation")
+    axes[2].set_ylabel("Normalized asymmetry / bias")
+    axes[3].set_ylabel("Normalized component C/Ctotal_top")
+    axes[4].set_ylabel("Switching-direction half-difference")
+    axes[5].set_ylabel("Diffcap separation")
+    for ax in axes:
+        ax.set_xlabel("Element in C16-to-C1 order")
+        ax.set_xticks(elements)
+        style_ax(ax)
+        style_grid(ax)
+        style_legend(ax)
+    fig.suptitle(f"ADC{analysis.adc_index:02d} A-to-B CDAC capacitance")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_cdac_cap_mismatch_comparison(
+    measurement_groups: Sequence[Sequence[MeasCdacExt]],
+    analyses: Sequence[AnalysisCdacCapMismatch],
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Compare normalized A-to-B CDAC extraction across ADC00–ADC03."""
+
+    if len(measurement_groups) != 4 or len(analyses) != 4 or any(not group for group in measurement_groups):
+        raise ValueError("CDAC comparison requires four aligned non-empty measurement groups and analyses")
+    if {analysis.adc_index for analysis in analyses} != {0, 1, 2, 3}:
+        raise ValueError("CDAC comparison requires exactly ADC00 through ADC03")
+    if any(
+        getattr(group[0].param, "observed_adc", None) != analysis.adc_index
+        for group, analysis in zip(measurement_groups, analyses, strict=True)
+    ):
+        raise ValueError("CDAC comparison measurement groups do not match their analyses")
+
+    fig, axes_grid = plt.subplots(2, 2, figsize=DETAILED_16_9_FIGSIZE)
+    axes = axes_grid.ravel()
+    aligned = sorted(zip(measurement_groups, analyses, strict=True), key=lambda item: item[1].adc_index)
+    element_counts = {analysis.effective_fraction.shape[1] for analysis in analyses}
+    if len(element_counts) != 1:
+        raise ValueError("CDAC comparison requires matching element counts")
+    elements = np.arange(1, next(iter(element_counts)) + 1)
+    for group, analysis in aligned:
+        expected = _expected_cdac_effective_fraction(group)
+        effective_mean = (analysis.effective_fraction[0] + analysis.effective_fraction[1]) / 2.0
+        diffcap_separation_mean = analysis.diff_fraction[0] + analysis.diff_fraction[1]
+        label = f"ADC{analysis.adc_index:02d}"
+        color = NORD_COLORS[analysis.adc_index]
+        axes[0].plot(elements, effective_mean, "o-", color=color, label=label)
+        axes[1].plot(elements, effective_mean - expected, "o-", color=color, label=label)
+        axes[2].plot(
+            elements,
+            analysis.effective_fraction[0] - analysis.effective_fraction[1],
+            "o-",
+            color=color,
+            label=label,
+        )
+        axes[3].plot(elements, diffcap_separation_mean, "o-", color=color, label=label)
+
+    axes[0].set_ylabel("Mean P/N effective fraction")
+    axes[1].set_ylabel("Residual from ideal/PEX expectation")
+    axes[2].set_ylabel("P-N effective asymmetry")
+    axes[3].set_ylabel("Mean P/N diffcap separation")
+    for ax in axes:
+        ax.axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+        ax.set_xlabel("Element in C16-to-C1 order")
+        ax.set_xticks(elements)
+        style_ax(ax)
+        style_grid(ax)
+        style_legend(ax)
+    fig.suptitle("ADC00–ADC03 A-to-B CDAC comparison")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style

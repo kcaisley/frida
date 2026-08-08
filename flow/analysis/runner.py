@@ -7,10 +7,12 @@ pipelines; each pipeline names and validates its input campaign.
 
 Run one named pipeline from the repository root with:
 
-    uv run python -m flow.analysis.runner adc00_adc01_noise_power_and_code_diagnostics
+    uv run python -m flow.analysis.runner adc_noise_vs_rate
 
-Omit the target name to run every registered pipeline. One invocation writes
-all derived artifacts beneath one timestamped ``build/analysis/adc`` directory.
+Omit the target name to run every registered pipeline. Comparator targets write
+beneath ``build/analysis/comp``; the remaining targets write beneath
+``build/analysis/adc``. Each analysis domain uses one timestamped directory per
+invocation.
 """
 
 from __future__ import annotations
@@ -25,435 +27,347 @@ import hdl21 as h
 import numpy as np
 
 from flow.analysis.adc import (
+    analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
-    analyze_adc_noise,
     analyze_adc_noise_sweep,
     analyze_adc_power_sweep,
     analyze_adc_transfer,
+    combine_adc_noise_comparison,
 )
+from flow.analysis.cdac import analyze_cdac_cap_mismatch
+from flow.analysis.comp import analyze_comp_offset_noise, classify_comp_common_mode_validity
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import (
     animate_adc_decision_path_density,
+    plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
     plot_adc_dynamic,
-    plot_adc_noise,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_noise_violin_sweep,
     plot_adc_power_sweep,
     plot_adc_transfer,
+    plot_cdac_cap_mismatch,
+    plot_cdac_cap_mismatch_comparison,
+    plot_comp_campaign,
     plot_measurement_waveforms,
 )
-from flow.analysis.types import AnalysisAdcNoiseSweep, MeasAdc, MeasAdcExt, MeasAdcInt
+from flow.analysis.types import MeasAdcExt, MeasAdcInt, MeasCdacExt, MeasCompExt
+from flow.scans.params import load_board_map
 
 BASE_PATH = Path(__file__).resolve().parents[2]
-ANALYSIS_OUTPUT_BASE = BASE_PATH / "build" / "analysis" / "adc"
 
 
-def _read_adc(path: Path) -> MeasAdc:
-    if not path.is_file():
-        raise FileNotFoundError(2, "measurement input not found", path)
-    msmt = read_measurement(path)
-    if not isinstance(msmt, (MeasAdcExt, MeasAdcInt)):
-        raise TypeError(f"{path} contains {type(msmt).__name__}, expected MeasAdcExt or MeasAdcInt")
-    return msmt
+def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
+    """Plot transfer curves for the configured ADC measurements."""
+
+    INPUT_H5_BY_ADC = {
+        0: BASE_PATH / "build/adc_pex_monotonic/adc_00.h5",
+    }
+
+    if not INPUT_H5_BY_ADC or any(
+        not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in INPUT_H5_BY_ADC
+    ):
+        raise ValueError("INPUT_H5_BY_ADC must map ADC indices in 0..15 to measurement files")
+    artifacts = []
+    for adc_index, input_h5 in INPUT_H5_BY_ADC.items():
+        if not input_h5.is_file():
+            raise FileNotFoundError(2, "measurement input not found", input_h5)
+        measurement = read_measurement(input_h5)
+        if not isinstance(measurement, (MeasAdcExt, MeasAdcInt)):
+            raise TypeError(f"{input_h5} contains {type(measurement).__name__}, expected MeasAdcExt or MeasAdcInt")
+        analysis = analyze_adc_transfer([measurement])
+        artifacts.extend(
+            plot_adc_transfer(
+                [measurement],
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_transfer_curve",
+            )
+        )
+    return tuple(artifacts)
 
 
-def adc00_pex_transfer(output_dir: Path) -> tuple[Path, ...]:
-    """Plot the ADC00 PEX monotonic transfer measurement."""
+def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
+    """Compare configured physical ADC input-referred noise across rate and backends."""
 
-    msmt = _read_adc(BASE_PATH / "build/adc_pex_monotonic/adc_00.h5")
-    analysis = analyze_adc_transfer([msmt])
-    return plot_adc_transfer(
-        [msmt],
-        analysis,
-        output_path=output_dir / "adc00_pex_transfer",
-    )
+    ADC_INDICES = (0, 1)
+    PHYSICAL_NOISE_RUN_DIRS = {
+        50: BASE_PATH / "build/scan_adc/20260801_194930",
+        100: BASE_PATH / "build/scan_adc/20260802_021624",
+    }
+    SINE_RUN_DIR = BASE_PATH / "build/scan_adc/20260730_215145_complete"
+    GENERATED_NOISE_RUN_DIR = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
+    PEX_NOISE_RUN_DIR = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
+    RATES_MBD = tuple(range(80, 1601, 40))
+    SIMULATION_RATES_MSPS = (2, 6, 10)
+    EXPECTED_CONVERSIONS = 100_000
 
-
-def adc00_adc01_noise_power_and_code_diagnostics(output_dir: Path) -> tuple[Path, ...]:
-    """Plot ADC00/ADC01 noise, power, code-distribution, and decision diagnostics."""
-
-    run_dir = BASE_PATH / "build/scan_adc/20260801_194930"
-    measurements = []
-    for adc_position, adc_index in enumerate((0, 1)):
-        for rate_position, rate_mbd in enumerate(range(80, 1601, 40)):
-            file_index = adc_position * 39 + rate_position
-            measurements.append(
-                _read_adc(
-                    run_dir
-                    / (
-                        f"{file_index:04d}_00_adc{adc_index:02d}_{rate_mbd}mbd_"
-                        "dcp50mv_logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_"
-                        "vddac1200mv_t25c.h5"
+    if (
+        not ADC_INDICES
+        or len(set(ADC_INDICES)) != len(ADC_INDICES)
+        or any(not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in ADC_INDICES)
+    ):
+        raise ValueError("ADC_INDICES must contain unique ADC indices in 0..15")
+    physical_measurements: dict[int, dict[int, list[MeasAdcExt]]] = {}
+    for input_mv, run_dir in PHYSICAL_NOISE_RUN_DIRS.items():
+        measurements_by_adc = {}
+        for adc_index in ADC_INDICES:
+            adc_measurements = []
+            for rate_mbd in RATES_MBD:
+                matches = sorted(
+                    run_dir.glob(
+                        f"*_00_adc{adc_index:02d}_{rate_mbd}mbd_dcp{input_mv}mv_logicp2sym_"
+                        "vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
                     )
                 )
-            )
-    if any(
-        not isinstance(msmt.param.vin_diff, h.Vdc.Params) or float(msmt.param.vin_diff.dc) != 0.05
-        for msmt in measurements
-    ):
-        raise ValueError("physical DC-noise pipeline requires a fixed 50 mV differential input")
-    if any(
-        len(msmt.daq.dout) != 100_000
-        or int(msmt.info.readbacks.get("fastrx_lost_count", 0))
-        or int(msmt.info.readbacks.get("spi_mismatches", 0))
-        for msmt in measurements
-    ):
-        raise ValueError("physical 50 mV DC-noise campaign contains incomplete or invalid captures")
-
-    run_dir_100mv = BASE_PATH / "build/scan_adc/20260802_021624"
-    measurements_100mv = []
-    for adc_position, adc_index in enumerate((0, 1)):
-        for rate_position, rate_mbd in enumerate(range(80, 1601, 40)):
-            file_index = adc_position * 39 + rate_position
-            measurements_100mv.append(
-                _read_adc(
-                    run_dir_100mv
-                    / (
-                        f"{file_index:04d}_00_adc{adc_index:02d}_{rate_mbd}mbd_"
-                        "dcp100mv_logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_"
-                        "vddac1200mv_t25c.h5"
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"ADC{adc_index:02d} {input_mv} mV noise campaign requires one {rate_mbd} MBd file, "
+                        f"found {len(matches)}"
                     )
+                measurement = read_measurement(matches[0])
+                if not isinstance(measurement, MeasAdcExt):
+                    raise TypeError(f"{matches[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+                adc_measurements.append(measurement)
+            expected_input_v = input_mv * 1.0e-3
+            if any(
+                measurement.param.observed_adc != adc_index
+                or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
+                or not np.isclose(float(measurement.param.vin_diff.dc), expected_input_v)
+                for measurement in adc_measurements
+            ):
+                raise ValueError(
+                    f"ADC{adc_index:02d} physical noise campaign requires a fixed {input_mv} mV differential input"
+                )
+            if any(
+                len(measurement.daq.dout) != EXPECTED_CONVERSIONS
+                or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+                or int(measurement.info.readbacks.get("spi_mismatches", 0))
+                for measurement in adc_measurements
+            ):
+                raise ValueError(
+                    f"ADC{adc_index:02d} physical {input_mv} mV noise campaign contains incomplete or invalid captures"
+                )
+            measurements_by_adc[adc_index] = adc_measurements
+        physical_measurements[input_mv] = measurements_by_adc
+
+    generated_measurements = []
+    pex_measurements = []
+    for rate_msps in SIMULATION_RATES_MSPS:
+        generated_path = GENERATED_NOISE_RUN_DIR / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+        generated_measurement = read_measurement(generated_path)
+        if not isinstance(generated_measurement, MeasAdcInt):
+            raise TypeError(f"{generated_path} contains {type(generated_measurement).__name__}, expected MeasAdcInt")
+        generated_measurements.append(generated_measurement)
+
+        pex_path = PEX_NOISE_RUN_DIR / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+        pex_measurement = read_measurement(pex_path)
+        if not isinstance(pex_measurement, MeasAdcInt):
+            raise TypeError(f"{pex_path} contains {type(pex_measurement).__name__}, expected MeasAdcInt")
+        pex_measurements.append(pex_measurement)
+    sine_measurements: dict[int, list[MeasAdcExt]] = {}
+    for adc_index in ADC_INDICES:
+        adc_measurements = []
+        for rate_mbd in RATES_MBD:
+            matches = sorted(
+                SINE_RUN_DIR.glob(
+                    f"*_00_adc{adc_index:02d}_{rate_mbd}mbd_sin9998.77hz_p0mv_1000mvpp_"
+                    "logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
                 )
             )
-    if any(
-        not isinstance(msmt.param.vin_diff, h.Vdc.Params) or float(msmt.param.vin_diff.dc) != 0.1
-        for msmt in measurements_100mv
-    ):
-        raise ValueError("physical DC-noise pipeline requires a fixed 100 mV differential input")
-    if any(
-        len(msmt.daq.dout) != 100_000
-        or int(msmt.info.readbacks.get("fastrx_lost_count", 0))
-        or int(msmt.info.readbacks.get("spi_mismatches", 0))
-        for msmt in measurements_100mv
-    ):
-        raise ValueError("physical 100 mV DC-noise campaign contains incomplete or invalid captures")
+            if len(matches) != 1:
+                raise ValueError(
+                    f"ADC{adc_index:02d} sine campaign requires one {rate_mbd} MBd file, found {len(matches)}"
+                )
+            measurement = read_measurement(matches[0])
+            if not isinstance(measurement, MeasAdcExt):
+                raise TypeError(f"{matches[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+            if measurement.param.observed_adc != adc_index:
+                raise ValueError(f"ADC{adc_index:02d} sine campaign contains a mismatched ADC index")
+            adc_measurements.append(measurement)
+        sine_measurements[adc_index] = adc_measurements
 
-    physical_noise = analyze_adc_noise_sweep(measurements)
-    physical_noise_100mv = analyze_adc_noise_sweep(measurements_100mv)
-    generated_dir = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
-    generated_measurements = [
-        _read_adc(generated_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5") for rate_msps in (2, 6, 10)
-    ]
-    pex_dir = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
-    pex_measurements = [_read_adc(pex_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5") for rate_msps in (2, 6, 10)]
     generated_noise = analyze_adc_noise_sweep(generated_measurements)
     pex_noise = analyze_adc_noise_sweep(pex_measurements)
-    generated_diagnostic_paths = []
-    for rate_msps, msmt in zip((2, 6, 10), generated_measurements, strict=True):
-        generated_diagnostic_paths.extend(
-            plot_adc_noise(
-                [msmt],
-                analyze_adc_noise([msmt]),
+    artifacts = []
+    reference_rates = None
+    for adc_index in ADC_INDICES:
+        dc_measurements = physical_measurements[50][adc_index]
+        dc100_measurements = physical_measurements[100][adc_index]
+        physical_noise = analyze_adc_noise_sweep(dc_measurements)
+        physical_noise_100mv = analyze_adc_noise_sweep(dc100_measurements)
+        sine_dynamic = analyze_adc_dynamic_sweep(sine_measurements[adc_index])
+        order = np.argsort(physical_noise.sample_rate_hz)
+        physical_rates = physical_noise.sample_rate_hz[order]
+        if reference_rates is None:
+            reference_rates = physical_rates
+        elif not np.array_equal(physical_rates, reference_rates):
+            raise ValueError("configured ADC physical noise sweeps use different conversion rates")
+        comparison_measurements = [
+            *dc_measurements,
+            *dc_measurements,
+            *dc100_measurements,
+            *sine_measurements[adc_index],
+        ]
+        series_labels = [
+            *("Input stimulus noise" for _ in physical_rates),
+            *("Measured (50 mV DC)" for _ in dc_measurements),
+            *("Measured (100 mV DC)" for _ in dc100_measurements),
+            *("Measured (1 V sine)" for _ in sine_measurements[adc_index]),
+        ]
+        simulated_noise_sweeps = []
+        if adc_index == ADC_INDICES[0]:
+            simulated_noise_sweeps.extend((generated_noise, pex_noise))
+            comparison_measurements.extend((*generated_measurements, *pex_measurements))
+            series_labels.extend(
+                (
+                    *("SPICE Ideal (50 mV DC)" for _ in generated_measurements),
+                    *("SPICE PEX (50 mV DC)" for _ in pex_measurements),
+                )
+            )
+
+        comparison = combine_adc_noise_comparison(
+            (physical_noise, physical_noise_100mv),
+            sine_dynamic,
+            simulated_noise_sweeps,
+        )
+        artifacts.extend(
+            plot_adc_noise_sweep(
+                comparison_measurements,
+                comparison,
+                output_path=output_dir / f"adc{adc_index:02d}_noise_vs_conversion_rate",
+                series_labels=series_labels,
+                title=f"ADC{adc_index:02d} input-referred noise vs conversion rate",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
+    """Plot configured ADC fixed-input distributions and selected decision paths."""
+
+    ADC_INDICES = (0, 1)
+    PHYSICAL_NOISE_RUN_DIRS = {
+        50: BASE_PATH / "build/scan_adc/20260801_194930",
+        100: BASE_PATH / "build/scan_adc/20260802_021624",
+    }
+    GENERATED_NOISE_RUN_DIR = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
+    RATES_MBD = tuple(range(80, 1601, 40))
+    SIMULATION_RATES_MSPS = (2, 6, 10)
+    DECISION_PATH_RATES_MSPS = (2, 10)
+    EXPECTED_CONVERSIONS = 100_000
+
+    if (
+        not ADC_INDICES
+        or len(set(ADC_INDICES)) != len(ADC_INDICES)
+        or any(not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in ADC_INDICES)
+    ):
+        raise ValueError("ADC_INDICES must contain unique ADC indices in 0..15")
+    physical_measurements: dict[int, dict[int, list[MeasAdcExt]]] = {}
+    for input_mv, run_dir in PHYSICAL_NOISE_RUN_DIRS.items():
+        measurements_by_adc = {}
+        for adc_index in ADC_INDICES:
+            adc_measurements = []
+            for rate_mbd in RATES_MBD:
+                matches = sorted(
+                    run_dir.glob(
+                        f"*_00_adc{adc_index:02d}_{rate_mbd}mbd_dcp{input_mv}mv_logicp2sym_"
+                        "vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+                    )
+                )
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"ADC{adc_index:02d} {input_mv} mV noise campaign requires one {rate_mbd} MBd file, "
+                        f"found {len(matches)}"
+                    )
+                measurement = read_measurement(matches[0])
+                if not isinstance(measurement, MeasAdcExt):
+                    raise TypeError(f"{matches[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+                adc_measurements.append(measurement)
+            expected_input_v = input_mv * 1.0e-3
+            if any(
+                measurement.param.observed_adc != adc_index
+                or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
+                or not np.isclose(float(measurement.param.vin_diff.dc), expected_input_v)
+                for measurement in adc_measurements
+            ):
+                raise ValueError(
+                    f"ADC{adc_index:02d} physical noise campaign requires a fixed {input_mv} mV differential input"
+                )
+            if any(
+                len(measurement.daq.dout) != EXPECTED_CONVERSIONS
+                or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+                or int(measurement.info.readbacks.get("spi_mismatches", 0))
+                for measurement in adc_measurements
+            ):
+                raise ValueError(
+                    f"ADC{adc_index:02d} physical {input_mv} mV noise campaign contains incomplete or invalid captures"
+                )
+            measurements_by_adc[adc_index] = adc_measurements
+        physical_measurements[input_mv] = measurements_by_adc
+
+    generated_measurements = []
+    for rate_msps in SIMULATION_RATES_MSPS:
+        path = GENERATED_NOISE_RUN_DIR / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcInt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
+        generated_measurements.append(measurement)
+    artifacts = []
+    for input_mv in PHYSICAL_NOISE_RUN_DIRS:
+        for adc_index in ADC_INDICES:
+            adc_measurements = physical_measurements[input_mv][adc_index]
+            artifacts.extend(
+                plot_adc_noise_distribution_sweep(
+                    adc_measurements,
+                    analyze_adc_noise_sweep(adc_measurements),
+                    output_path=output_dir / f"adc{adc_index:02d}_{input_mv}mv_dc_output_code_distributions",
+                    title=f"ADC{adc_index:02d} {input_mv} mV fixed-input output-code distributions",
+                )
+            )
+
+    for input_mv in PHYSICAL_NOISE_RUN_DIRS:
+        for adc_index in ADC_INDICES:
+            adc_measurements = physical_measurements[input_mv][adc_index]
+            artifacts.extend(
+                plot_adc_noise_violin_sweep(
+                    adc_measurements,
+                    analyze_adc_noise_sweep(adc_measurements),
+                    output_path=output_dir / f"adc{adc_index:02d}_{input_mv}mv_dc_output_code_violins",
+                    title=f"ADC{adc_index:02d} {input_mv} mV fixed-input output-code violin distributions",
+                )
+            )
+
+    for rate_msps, measurement in zip(SIMULATION_RATES_MSPS, generated_measurements, strict=True):
+        artifacts.extend(
+            plot_adc_code_distribution(
+                [measurement],
+                analyze_adc_code_distribution([measurement]),
                 output_path=output_dir / f"spice_hdl21gen_{rate_msps}msps_output_code_histogram",
             )
         )
-        generated_diagnostic_paths.extend(
+        artifacts.extend(
             plot_adc_decision_paths(
-                msmt,
-                analyze_adc_decision_paths(msmt, selection="all"),
+                measurement,
+                analyze_adc_decision_paths(measurement, selection="all"),
                 output_path=output_dir / f"spice_hdl21gen_{rate_msps}msps_decision_paths",
             )
         )
-    sine_run_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
-    sine_adc00_measurements = [
-        _read_adc(
-            sine_run_dir
-            / (
-                f"{rate_position:04d}_00_adc00_{rate_mbd}mbd_"
-                "sin9998.77hz_p0mv_1000mvpp_logicp2sym_vcm600mv_"
-                "vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
-            )
-        )
-        for rate_position, rate_mbd in enumerate(range(80, 1601, 40))
-    ]
-    sine_adc00_dynamic = analyze_adc_dynamic_sweep(sine_adc00_measurements)
-    sine_adc01_measurements = [
-        _read_adc(
-            sine_run_dir
-            / (
-                f"{39 + rate_position:04d}_00_adc01_{rate_mbd}mbd_"
-                "sin9998.77hz_p0mv_1000mvpp_logicp2sym_vcm600mv_"
-                "vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
-            )
-        )
-        for rate_position, rate_mbd in enumerate(range(80, 1601, 40))
-    ]
-    sine_adc01_dynamic = analyze_adc_dynamic_sweep(sine_adc01_measurements)
-    adc00_80mbd_measurement = sine_adc00_measurements[0]
-    adc00_80mbd_detail_paths = (
-        *plot_measurement_waveforms(
-            adc00_80mbd_measurement,
-            record_index=0,
-            output_path=output_dir / "adc00_80mbd_sine_waveforms",
-        ),
-        *plot_adc_dynamic(
-            adc00_80mbd_measurement,
-            analyze_adc_dynamic(adc00_80mbd_measurement),
-            output_path=output_dir / "adc00_80mbd_sine_fit_and_spectrum",
-        ),
-    )
-    sine_measurements = (*sine_adc00_measurements, *sine_adc01_measurements)
-    power_paths = plot_adc_power_sweep(
-        sine_measurements,
-        analyze_adc_power_sweep(sine_measurements),
-        output_path=output_dir / "adc_power_vs_conversion_rate",
-    )
-    if not np.allclose(
-        (physical_noise.input_lsb_v, generated_noise.input_lsb_v, pex_noise.input_lsb_v),
-        physical_noise.input_lsb_v,
-        rtol=1e-12,
-        atol=0.0,
-    ):
-        raise ValueError("physical/SPICE comparison requires one nominal input LSB scale")
 
-    dc_adc00_selected = np.asarray([msmt.param.observed_adc == 0 for msmt in measurements])
-    dc_adc01_selected = np.asarray([msmt.param.observed_adc == 1 for msmt in measurements])
-    dc_adc00_measurements = [msmt for msmt in measurements if msmt.param.observed_adc == 0]
-    dc_adc01_measurements = [msmt for msmt in measurements if msmt.param.observed_adc == 1]
-    dc100_adc00_selected = np.asarray([msmt.param.observed_adc == 0 for msmt in measurements_100mv])
-    dc100_adc01_selected = np.asarray([msmt.param.observed_adc == 1 for msmt in measurements_100mv])
-    dc100_adc00_measurements = [msmt for msmt in measurements_100mv if msmt.param.observed_adc == 0]
-    dc100_adc01_measurements = [msmt for msmt in measurements_100mv if msmt.param.observed_adc == 1]
-    adc00_order = np.argsort(physical_noise.sample_rate_hz[dc_adc00_selected])
-    adc01_order = np.argsort(physical_noise.sample_rate_hz[dc_adc01_selected])
-    physical_rates = physical_noise.sample_rate_hz[dc_adc00_selected][adc00_order]
-    probe_adc00_noise = physical_noise.pretrigger_vin_diff_noise_rms_v[dc_adc00_selected][adc00_order]
-    probe_adc00_mean = physical_noise.pretrigger_vin_diff_mean_v[dc_adc00_selected][adc00_order]
-    probe_adc01_noise = physical_noise.pretrigger_vin_diff_noise_rms_v[dc_adc01_selected][adc01_order]
-    probe_adc01_mean = physical_noise.pretrigger_vin_diff_mean_v[dc_adc01_selected][adc01_order]
-    compared_noise_v = np.concatenate(
-        (
-            probe_adc00_noise,
-            physical_noise.input_referred_noise_rms_v[dc_adc00_selected],
-            physical_noise_100mv.input_referred_noise_rms_v[dc100_adc00_selected],
-            sine_adc00_dynamic.input_referred_noise_rms_v,
-            generated_noise.input_referred_noise_rms_v,
-            pex_noise.input_referred_noise_rms_v,
-        )
-    )
-    comparison = AnalysisAdcNoiseSweep(
-        sample_rate_hz=np.concatenate(
-            (
-                physical_rates,
-                physical_noise.sample_rate_hz[dc_adc00_selected],
-                physical_noise_100mv.sample_rate_hz[dc100_adc00_selected],
-                sine_adc00_dynamic.active_conversion_rate_hz,
-                generated_noise.sample_rate_hz,
-                pex_noise.sample_rate_hz,
-            )
-        ),
-        logic_phase_delay_symbols=np.concatenate(
-            (
-                np.full(len(physical_rates), 2.0),
-                physical_noise.logic_phase_delay_symbols[dc_adc00_selected],
-                physical_noise_100mv.logic_phase_delay_symbols[dc100_adc00_selected],
-                sine_adc00_dynamic.logic_phase_delay_symbols,
-                generated_noise.logic_phase_delay_symbols,
-                pex_noise.logic_phase_delay_symbols,
-            )
-        ),
-        comparator_time_percent=np.concatenate(
-            (
-                np.full(len(physical_rates), 75.0),
-                physical_noise.comparator_time_percent[dc_adc00_selected],
-                physical_noise_100mv.comparator_time_percent[dc100_adc00_selected],
-                50.0 + 12.5 * sine_adc00_dynamic.logic_phase_delay_symbols,
-                generated_noise.comparator_time_percent,
-                pex_noise.comparator_time_percent,
-            )
-        ),
-        input_lsb_v=physical_noise.input_lsb_v,
-        input_referred_noise_rms_v=compared_noise_v,
-        pretrigger_vin_diff_mean_v=np.concatenate(
-            (
-                probe_adc00_mean,
-                physical_noise.pretrigger_vin_diff_mean_v[dc_adc00_selected],
-                physical_noise_100mv.pretrigger_vin_diff_mean_v[dc100_adc00_selected],
-                np.full(len(sine_adc00_measurements), np.nan),
-                generated_noise.pretrigger_vin_diff_mean_v,
-                pex_noise.pretrigger_vin_diff_mean_v,
-            )
-        ),
-        pretrigger_vin_diff_noise_rms_v=np.concatenate(
-            (
-                probe_adc00_noise,
-                physical_noise.pretrigger_vin_diff_noise_rms_v[dc_adc00_selected],
-                physical_noise_100mv.pretrigger_vin_diff_noise_rms_v[dc100_adc00_selected],
-                np.full(len(sine_adc00_measurements), np.nan),
-                generated_noise.pretrigger_vin_diff_noise_rms_v,
-                pex_noise.pretrigger_vin_diff_noise_rms_v,
-            )
-        ),
-        mean_dout=np.zeros(len(compared_noise_v)),
-        std_dout=compared_noise_v / physical_noise.input_lsb_v,
-        minimum_dout=np.zeros(len(compared_noise_v), dtype=np.int64),
-        maximum_dout=np.zeros(len(compared_noise_v), dtype=np.int64),
-        bit_mismatches=np.zeros(len(compared_noise_v), dtype=np.int64),
-    )
-    comparison_measurements = (
-        *dc_adc00_measurements,
-        *dc_adc00_measurements,
-        *dc100_adc00_measurements,
-        *sine_adc00_measurements,
-        *generated_measurements,
-        *pex_measurements,
-    )
-    adc00_paths = plot_adc_noise_sweep(
-        comparison_measurements,
-        comparison,
-        output_path=output_dir / "adc00_noise_vs_conversion_rate",
-        series_labels=(
-            *("Input stimulus noise" for _ in physical_rates),
-            *("Measured (50 mV DC)" for _ in dc_adc00_measurements),
-            *("Measured (100 mV DC)" for _ in dc100_adc00_measurements),
-            *("Measured (1 V sine)" for _ in sine_adc00_measurements),
-            *("SPICE Ideal (50 mV DC)" for _ in generated_measurements),
-            *("SPICE PEX (50 mV DC)" for _ in pex_measurements),
-        ),
-        title="ADC00 input-referred noise vs conversion rate",
-    )
-    adc01_rates = physical_noise.sample_rate_hz[dc_adc01_selected][adc01_order]
-    if not np.array_equal(adc01_rates, physical_rates):
-        raise ValueError("ADC00 and ADC01 physical noise sweeps use different conversion rates")
-    adc01_noise_v = np.concatenate(
-        (
-            probe_adc01_noise,
-            physical_noise.input_referred_noise_rms_v[dc_adc01_selected],
-            physical_noise_100mv.input_referred_noise_rms_v[dc100_adc01_selected],
-            sine_adc01_dynamic.input_referred_noise_rms_v,
-        )
-    )
-    adc01_comparison = AnalysisAdcNoiseSweep(
-        sample_rate_hz=np.concatenate(
-            (
-                adc01_rates,
-                physical_noise.sample_rate_hz[dc_adc01_selected],
-                physical_noise_100mv.sample_rate_hz[dc100_adc01_selected],
-                sine_adc01_dynamic.active_conversion_rate_hz,
-            )
-        ),
-        logic_phase_delay_symbols=np.concatenate(
-            (
-                np.full(len(adc01_rates), 2.0),
-                physical_noise.logic_phase_delay_symbols[dc_adc01_selected],
-                physical_noise_100mv.logic_phase_delay_symbols[dc100_adc01_selected],
-                sine_adc01_dynamic.logic_phase_delay_symbols,
-            )
-        ),
-        comparator_time_percent=np.concatenate(
-            (
-                np.full(len(adc01_rates), 75.0),
-                physical_noise.comparator_time_percent[dc_adc01_selected],
-                physical_noise_100mv.comparator_time_percent[dc100_adc01_selected],
-                50.0 + 12.5 * sine_adc01_dynamic.logic_phase_delay_symbols,
-            )
-        ),
-        input_lsb_v=physical_noise.input_lsb_v,
-        input_referred_noise_rms_v=adc01_noise_v,
-        pretrigger_vin_diff_mean_v=np.concatenate(
-            (
-                probe_adc01_mean,
-                physical_noise.pretrigger_vin_diff_mean_v[dc_adc01_selected],
-                physical_noise_100mv.pretrigger_vin_diff_mean_v[dc100_adc01_selected],
-                np.full(len(sine_adc01_measurements), np.nan),
-            )
-        ),
-        pretrigger_vin_diff_noise_rms_v=np.concatenate(
-            (
-                probe_adc01_noise,
-                physical_noise.pretrigger_vin_diff_noise_rms_v[dc_adc01_selected],
-                physical_noise_100mv.pretrigger_vin_diff_noise_rms_v[dc100_adc01_selected],
-                np.full(len(sine_adc01_measurements), np.nan),
-            )
-        ),
-        mean_dout=np.zeros(len(adc01_noise_v)),
-        std_dout=adc01_noise_v / physical_noise.input_lsb_v,
-        minimum_dout=np.zeros(len(adc01_noise_v), dtype=np.int64),
-        maximum_dout=np.zeros(len(adc01_noise_v), dtype=np.int64),
-        bit_mismatches=np.zeros(len(adc01_noise_v), dtype=np.int64),
-    )
-    adc01_measurements = (
-        *dc_adc01_measurements,
-        *dc_adc01_measurements,
-        *dc100_adc01_measurements,
-        *sine_adc01_measurements,
-    )
-    adc01_paths = plot_adc_noise_sweep(
-        adc01_measurements,
-        adc01_comparison,
-        output_path=output_dir / "adc01_noise_vs_conversion_rate",
-        series_labels=(
-            *("Input stimulus noise" for _ in adc01_rates),
-            *("Measured (50 mV DC)" for _ in dc_adc01_measurements),
-            *("Measured (100 mV DC)" for _ in dc100_adc01_measurements),
-            *("Measured (1 V sine)" for _ in sine_adc01_measurements),
-        ),
-        title="ADC01 input-referred noise vs conversion rate",
-    )
-    adc00_distribution_paths = plot_adc_noise_distribution_sweep(
-        dc_adc00_measurements,
-        analyze_adc_noise_sweep(dc_adc00_measurements),
-        output_path=output_dir / "adc00_50mv_dc_output_code_distributions",
-        title="ADC00 50 mV fixed-input output-code distributions",
-    )
-    adc01_distribution_paths = plot_adc_noise_distribution_sweep(
-        dc_adc01_measurements,
-        analyze_adc_noise_sweep(dc_adc01_measurements),
-        output_path=output_dir / "adc01_50mv_dc_output_code_distributions",
-        title="ADC01 50 mV fixed-input output-code distributions",
-    )
-    adc00_100mv_distribution_paths = plot_adc_noise_distribution_sweep(
-        dc100_adc00_measurements,
-        analyze_adc_noise_sweep(dc100_adc00_measurements),
-        output_path=output_dir / "adc00_100mv_dc_output_code_distributions",
-        title="ADC00 100 mV fixed-input output-code distributions",
-    )
-    adc01_100mv_distribution_paths = plot_adc_noise_distribution_sweep(
-        dc100_adc01_measurements,
-        analyze_adc_noise_sweep(dc100_adc01_measurements),
-        output_path=output_dir / "adc01_100mv_dc_output_code_distributions",
-        title="ADC01 100 mV fixed-input output-code distributions",
-    )
-    adc00_violin_paths = plot_adc_noise_violin_sweep(
-        dc_adc00_measurements,
-        analyze_adc_noise_sweep(dc_adc00_measurements),
-        output_path=output_dir / "adc00_50mv_dc_output_code_violins",
-        title="ADC00 50 mV fixed-input output-code violin distributions",
-    )
-    adc01_violin_paths = plot_adc_noise_violin_sweep(
-        dc_adc01_measurements,
-        analyze_adc_noise_sweep(dc_adc01_measurements),
-        output_path=output_dir / "adc01_50mv_dc_output_code_violins",
-        title="ADC01 50 mV fixed-input output-code violin distributions",
-    )
-    adc00_100mv_violin_paths = plot_adc_noise_violin_sweep(
-        dc100_adc00_measurements,
-        analyze_adc_noise_sweep(dc100_adc00_measurements),
-        output_path=output_dir / "adc00_100mv_dc_output_code_violins",
-        title="ADC00 100 mV fixed-input output-code violin distributions",
-    )
-    adc01_100mv_violin_paths = plot_adc_noise_violin_sweep(
-        dc100_adc01_measurements,
-        analyze_adc_noise_sweep(dc100_adc01_measurements),
-        output_path=output_dir / "adc01_100mv_dc_output_code_violins",
-        title="ADC01 100 mV fixed-input output-code violin distributions",
-    )
-    decision_density_paths = []
-    for input_mv, adc00_measurements, adc01_measurements in (
-        (50, dc_adc00_measurements, dc_adc01_measurements),
-        (100, dc100_adc00_measurements, dc100_adc01_measurements),
-    ):
-        for adc_index, adc_measurements in ((0, adc00_measurements), (1, adc01_measurements)):
-            for rate_msps in (2, 10):
+    for input_mv in PHYSICAL_NOISE_RUN_DIRS:
+        for adc_index in ADC_INDICES:
+            adc_measurements = physical_measurements[input_mv][adc_index]
+            for rate_msps in DECISION_PATH_RATES_MSPS:
                 matches = [
-                    msmt
-                    for msmt in adc_measurements
-                    if np.isclose(float(msmt.info.readbacks["active_conversion_rate_hz"]), rate_msps * 1e6)
+                    measurement
+                    for measurement in adc_measurements
+                    if np.isclose(
+                        float(measurement.info.readbacks["active_conversion_rate_hz"]),
+                        rate_msps * 1e6,
+                    )
                 ]
                 if len(matches) != 1:
                     raise ValueError(
@@ -461,72 +375,155 @@ def adc00_adc01_noise_power_and_code_diagnostics(output_dir: Path) -> tuple[Path
                     )
                 analysis = analyze_adc_decision_paths(matches[0], selection="all")
                 output_path = output_dir / (f"adc{adc_index:02d}_{input_mv}mv_{rate_msps}msps_decision_path_density")
-                decision_density_paths.extend(
-                    plot_adc_decision_path_density(matches[0], analysis, output_path=output_path)
+                artifacts.extend(plot_adc_decision_path_density(matches[0], analysis, output_path=output_path))
+                artifacts.extend(animate_adc_decision_path_density(matches[0], analysis, output_path=output_path))
+    return tuple(artifacts)
+
+
+def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
+    """Plot power sweeps and detailed 80 MBd sine captures for configured ADCs."""
+
+    ADC_INDICES = (0, 1)
+    SINE_RUN_DIR = BASE_PATH / "build/scan_adc/20260730_215145_complete"
+    RATES_MBD = tuple(range(80, 1601, 40))
+    DETAIL_RATE_MBD = 80
+
+    if (
+        not ADC_INDICES
+        or len(set(ADC_INDICES)) != len(ADC_INDICES)
+        or any(not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in ADC_INDICES)
+    ):
+        raise ValueError("ADC_INDICES must contain unique ADC indices in 0..15")
+    sine_measurements_by_adc: dict[int, list[MeasAdcExt]] = {}
+    for adc_index in ADC_INDICES:
+        adc_measurements = []
+        for rate_mbd in RATES_MBD:
+            matches = sorted(
+                SINE_RUN_DIR.glob(
+                    f"*_00_adc{adc_index:02d}_{rate_mbd}mbd_sin9998.77hz_p0mv_1000mvpp_"
+                    "logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
                 )
-                decision_density_paths.extend(
-                    animate_adc_decision_path_density(matches[0], analysis, output_path=output_path)
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    f"ADC{adc_index:02d} sine campaign requires one {rate_mbd} MBd file, found {len(matches)}"
                 )
+            measurement = read_measurement(matches[0])
+            if not isinstance(measurement, MeasAdcExt):
+                raise TypeError(f"{matches[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+            if measurement.param.observed_adc != adc_index:
+                raise ValueError(f"ADC{adc_index:02d} sine campaign contains a mismatched ADC index")
+            adc_measurements.append(measurement)
+        sine_measurements_by_adc[adc_index] = adc_measurements
+
+    sine_measurements = [
+        measurement for adc_index in ADC_INDICES for measurement in sine_measurements_by_adc[adc_index]
+    ]
+    artifacts = []
+    artifacts.extend(
+        plot_adc_power_sweep(
+            sine_measurements,
+            analyze_adc_power_sweep(sine_measurements),
+            output_path=output_dir / "adc_power_vs_conversion_rate",
+        )
+    )
+    for adc_index in ADC_INDICES:
+        detail_measurement = sine_measurements_by_adc[adc_index][RATES_MBD.index(DETAIL_RATE_MBD)]
+        artifacts.extend(
+            plot_measurement_waveforms(
+                detail_measurement,
+                record_index=0,
+                output_path=output_dir / f"adc{adc_index:02d}_{DETAIL_RATE_MBD}mbd_sine_waveforms",
+            )
+        )
+        artifacts.extend(
+            plot_adc_dynamic(
+                detail_measurement,
+                analyze_adc_dynamic(detail_measurement),
+                output_path=output_dir / f"adc{adc_index:02d}_{DETAIL_RATE_MBD}mbd_sine_fit_and_spectrum",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_rate_characterization(output_dir: Path) -> tuple[Path, ...]:
+    """Run the configured ADC rate-sweep noise, code-distribution, and power analyses."""
+
     return (
-        *adc00_paths,
-        *adc01_paths,
-        *adc00_distribution_paths,
-        *adc01_distribution_paths,
-        *adc00_100mv_distribution_paths,
-        *adc01_100mv_distribution_paths,
-        *adc00_violin_paths,
-        *adc01_violin_paths,
-        *adc00_100mv_violin_paths,
-        *adc01_100mv_violin_paths,
-        *power_paths,
-        *generated_diagnostic_paths,
-        *adc00_80mbd_detail_paths,
-        *decision_density_paths,
+        *adc_noise_vs_rate(output_dir),
+        *adc_code_distributions(output_dir),
+        *adc_power_vs_rate(output_dir),
     )
 
 
-def adc00_adc01_logic_offset_noise(output_dir: Path) -> tuple[Path, ...]:
-    """Plot the matched ADC00 and ADC01 fixed-input sweeps over seven LOGIC offsets."""
+def adc_noise_vs_comp_time(output_dir: Path) -> tuple[Path, ...]:
+    """Plot ADC input-referred noise versus conversion rate and comparator timing."""
 
-    expected_points = {
-        (float(rate_mbd), float(logic_offset)) for rate_mbd in range(80, 1601, 40) for logic_offset in range(-3, 4)
-    }
-    campaigns = (
-        (
-            "ADC00",
+    ADC_INDICES = (0, 1)
+    LOGIC_OFFSET_RUNS = {
+        0: (
             BASE_PATH / "build/scan_adc/20260802_081407",
             "*_00_adc00_*mbd_dcp50mv_logic*sym_vcm800mv_*.h5",
         ),
-        (
-            "ADC01",
+        1: (
             BASE_PATH / "build/loopback_fastrx/20260729_181030",
             "adc01_*mbd_logic*_rx*_tap*.h5",
         ),
-    )
+    }
+    RATES_MBD = tuple(range(80, 1601, 40))
+    LOGIC_OFFSETS = tuple(range(-3, 4))
+    EXPECTED_POINTS = {
+        (float(rate_mbd), float(logic_offset)) for rate_mbd in RATES_MBD for logic_offset in LOGIC_OFFSETS
+    }
+    EXPECTED_POINT_COUNT = len(EXPECTED_POINTS)
+    EXPECTED_VIN_DIFF_V = 0.05
+    EXPECTED_VIN_CM_V = 0.8
+
+    if (
+        not ADC_INDICES
+        or len(set(ADC_INDICES)) != len(ADC_INDICES)
+        or any(not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in ADC_INDICES)
+    ):
+        raise ValueError("ADC_INDICES must contain unique ADC indices in 0..15")
     artifacts = []
-    for adc_name, run_dir, pattern in campaigns:
+    for adc_index in ADC_INDICES:
+        adc_name = f"ADC{adc_index:02d}"
+        if adc_index not in LOGIC_OFFSET_RUNS:
+            raise ValueError(f"{adc_name} has no registered LOGIC-offset campaign")
+        run_dir, pattern = LOGIC_OFFSET_RUNS[adc_index]
         measurement_paths = sorted(run_dir.glob(pattern))
-        if len(measurement_paths) != 39 * 7:
+        if len(measurement_paths) != EXPECTED_POINT_COUNT:
             raise ValueError(
-                f"{adc_name} seven-offset pipeline requires 273 HDF5 inputs, found {len(measurement_paths)}"
+                f"{adc_name} seven-offset pipeline requires {EXPECTED_POINT_COUNT} HDF5 inputs, "
+                f"found {len(measurement_paths)}"
             )
-        measurements = [_read_adc(path) for path in measurement_paths]
+        measurements = []
+        for path in measurement_paths:
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasAdcExt):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
+            measurements.append(measurement)
         observed_points = {
             (
-                float(msmt.param.symbol_rate) / 1e6,
-                float(msmt.param.seq_logic_phase_delay_symbols) - float(msmt.param.seq_comp_phase_delay_symbols),
+                float(measurement.param.symbol_rate) / 1e6,
+                float(measurement.param.seq_logic_phase_delay_symbols)
+                - float(measurement.param.seq_comp_phase_delay_symbols),
             )
-            for msmt in measurements
+            for measurement in measurements
         }
-        if observed_points != expected_points:
+        if observed_points != EXPECTED_POINTS:
             raise ValueError(f"{adc_name} seven-offset pipeline has missing or unexpected rate/offset points")
         if any(
-            not isinstance(msmt.param.vin_diff, h.Vdc.Params)
-            or float(msmt.param.vin_diff.dc) != 0.05
-            or float(msmt.param.vin_cm.dc) != 0.8
-            for msmt in measurements
+            measurement.param.observed_adc != adc_index
+            or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
+            or float(measurement.param.vin_diff.dc) != EXPECTED_VIN_DIFF_V
+            or float(measurement.param.vin_cm.dc) != EXPECTED_VIN_CM_V
+            for measurement in measurements
         ):
-            raise ValueError(f"{adc_name} seven-offset pipeline requires a 50 mV DC input at 800 mV common mode")
+            raise ValueError(
+                f"{adc_name} seven-offset pipeline requires a {EXPECTED_VIN_DIFF_V * 1e3:g} mV DC input "
+                f"at {EXPECTED_VIN_CM_V * 1e3:g} mV common mode"
+            )
 
         noise = analyze_adc_noise_sweep(measurements)
         artifacts.extend(
@@ -539,18 +536,290 @@ def adc00_adc01_logic_offset_noise(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def comp_system_common_mode(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze and plot separate ADC00–ADC03 comparator common-mode campaigns."""
+
+    RUN_DIRS = (BASE_PATH / "build/scan_comp/20260805_171216",)
+    ADC_INDICES = (0, 1, 2, 3)
+    EXPECTED_VIN_CM_V = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
+    EXPECTED_COMMON_MODES = set(EXPECTED_VIN_CM_V)
+
+    measurement_paths = sorted(path for run_dir in RUN_DIRS for path in run_dir.glob("*.h5"))
+    if not measurement_paths:
+        missing = RUN_DIRS[0] if RUN_DIRS else BASE_PATH / "build/scan_comp"
+        raise FileNotFoundError(2, "accepted comparator common-mode inputs not found", missing)
+    measurements = []
+    for path in measurement_paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasCompExt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCompExt")
+        if measurement.param.campaign != "comp_common_mode":
+            raise ValueError(f"{path} is not a comp_common_mode point")
+        if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
+            measurement.info.readbacks.get("spi_mismatches", 0)
+        ):
+            raise ValueError(f"{path} contains a corrupt physical capture")
+        measurements.append(measurement)
+    if {measurement.param.observed_adc for measurement in measurements} != set(ADC_INDICES):
+        raise ValueError("comparator common-mode runner requires ADC00 through ADC03")
+
+    artifacts = []
+    for adc_index in ADC_INDICES:
+        adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
+        grouped: dict[float, list[MeasCompExt]] = {}
+        for measurement in adc_measurements:
+            grouped.setdefault(float(measurement.param.vin_cm.dc), []).append(measurement)
+        board_ids = {measurement.param.board_id for measurement in adc_measurements}
+        configured_vdd_a = {float(measurement.param.vdd_a.dc) for measurement in adc_measurements}
+        if len(board_ids) != 1 or None in board_ids or len(configured_vdd_a) != 1:
+            raise ValueError(f"ADC{adc_index:02d} common-mode campaign requires one board and VDD_A")
+        if set(grouped) != EXPECTED_COMMON_MODES:
+            raise ValueError(f"ADC{adc_index:02d} common-mode campaign is missing a Vin_cm curve")
+        groups = [grouped[value] for value in sorted(grouped)]
+        analyses = [analyze_comp_offset_noise(group) for group in groups]
+        analyses = list(classify_comp_common_mode_validity(groups, analyses))
+        artifacts.extend(
+            plot_comp_campaign(
+                groups,
+                analyses,
+                output_path=output_dir / f"adc{adc_index:02d}_comparator_common_mode",
+            )
+        )
+    return tuple(artifacts)
+
+
+def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze and plot separate ADC00–ADC03 track/hold comparator campaigns."""
+
+    RUN_DIRS = (
+        BASE_PATH / "build/scan_comp/20260805_183915",
+        BASE_PATH / "build/scan_comp/20260805_192902",
+    )
+    ADC_INDICES = (0, 1, 2, 3)
+    EXPECTED_VIN_CM_V = 0.7
+    COUPLING_PERCENTAGES = (0.0, 25.0, 50.0, 75.0, 100.0)
+    SAMPLING_MODES = ("track", "hold")
+    EXPECTED_GROUPS = {(coupling_percent, mode) for coupling_percent in COUPLING_PERCENTAGES for mode in SAMPLING_MODES}
+
+    run_measurement_paths = [sorted(run_dir.glob("*.h5")) for run_dir in RUN_DIRS]
+    if not any(run_measurement_paths):
+        missing = RUN_DIRS[0] if RUN_DIRS else BASE_PATH / "build/scan_comp"
+        raise FileNotFoundError(2, "accepted comparator sampling-noise inputs not found", missing)
+    measurements_by_point: dict[tuple[int, float, str, float, float], MeasCompExt] = {}
+    for measurement_paths in run_measurement_paths:
+        measurements_in_run: dict[tuple[int, float, str, float, float], MeasCompExt] = {}
+        for path in measurement_paths:
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasCompExt):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCompExt")
+            if measurement.param.campaign != "comp_sampling_noise":
+                raise ValueError(f"{path} is not a comp_sampling_noise point")
+            if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
+                measurement.info.readbacks.get("spi_mismatches", 0)
+            ):
+                raise ValueError(f"{path} contains a corrupt physical capture")
+            coupling_percent = measurement.param.requested_dac_rail_percent
+            if coupling_percent is None:
+                raise ValueError(f"{path} is missing its P-side VDAC coupling")
+            point_key = (
+                int(measurement.param.observed_adc),
+                float(coupling_percent),
+                measurement.param.sampling_mode,
+                float(measurement.param.vin_cm.dc),
+                float(measurement.param.vin_diff.dc),
+            )
+            if point_key in measurements_in_run:
+                raise ValueError(f"{path} duplicates a sampling-noise point within one accepted run")
+            measurements_in_run[point_key] = measurement
+        measurements_by_point.update(measurements_in_run)
+    measurements = list(measurements_by_point.values())
+    if {measurement.param.observed_adc for measurement in measurements} != set(ADC_INDICES):
+        raise ValueError("comparator sampling-noise runner requires ADC00 through ADC03")
+
+    artifacts = []
+    for adc_index in ADC_INDICES:
+        adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
+        if {float(measurement.param.vin_cm.dc) for measurement in adc_measurements} != {EXPECTED_VIN_CM_V}:
+            raise ValueError(f"ADC{adc_index:02d} sampling-noise campaign requires Vin_cm = {EXPECTED_VIN_CM_V} V")
+        grouped: dict[tuple[float, str], list[MeasCompExt]] = {}
+        for measurement in adc_measurements:
+            coupling_percent = measurement.param.requested_dac_rail_percent
+            if coupling_percent is None:
+                raise ValueError("sampling-noise point is missing its P-side VDAC coupling")
+            grouped.setdefault((float(coupling_percent), measurement.param.sampling_mode), []).append(measurement)
+        if set(grouped) != EXPECTED_GROUPS:
+            raise ValueError(
+                f"ADC{adc_index:02d} sampling-noise campaign requires "
+                f"{len(COUPLING_PERCENTAGES)} matched track/hold couplings"
+            )
+        groups = [grouped[key] for key in sorted(grouped)]
+        analyses = [analyze_comp_offset_noise(group) for group in groups]
+        artifacts.extend(
+            plot_comp_campaign(
+                groups,
+                analyses,
+                output_path=output_dir / f"adc{adc_index:02d}_comparator_sampling_noise",
+            )
+        )
+    return tuple(artifacts)
+
+
+def cdac_system_cap_mismatch(output_dir: Path) -> tuple[Path, ...]:
+    """Extract and plot ADC00–ADC03 capacitor mismatch from A-to-B transitions."""
+
+    RUN_DIRS = (
+        BASE_PATH / "build/scan_cdac/20260804_171234",
+        BASE_PATH / "build/scan_cdac/20260804_193030",
+        BASE_PATH / "build/scan_cdac/20260804_193631",
+    )
+    ADC_INDICES = (0, 1, 2, 3)
+    CDAC_SIDES = ("p", "n")
+    CDAC_ELEMENTS = tuple(range(16))
+    CDAC_DIRECTIONS = ("1to0", "0to1")
+    DIFFCAP_MODES = (0, 1)
+    EXPECTED_CURVES = {
+        (side, element, direction, diffcaps)
+        for side in CDAC_SIDES
+        for element in CDAC_ELEMENTS
+        for direction in CDAC_DIRECTIONS
+        for diffcaps in DIFFCAP_MODES
+    }
+    board_map = load_board_map()
+
+    run_measurement_paths = [sorted(run_dir.glob("*.h5")) for run_dir in RUN_DIRS]
+    if not any(run_measurement_paths):
+        missing = RUN_DIRS[0] if RUN_DIRS else BASE_PATH / "build/scan_cdac"
+        raise FileNotFoundError(2, "accepted A-to-B CDAC inputs not found", missing)
+    selected_curve_measurements: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
+    for measurement_paths in run_measurement_paths:
+        grouped_in_run: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
+        for path in measurement_paths:
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasCdacExt):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCdacExt")
+            if measurement.param.campaign != "cdac_ab":
+                raise ValueError(f"{path} is not a cdac_ab point")
+            if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
+                measurement.info.readbacks.get("spi_mismatches", 0)
+            ):
+                raise ValueError(f"{path} contains a corrupt physical capture")
+            params = measurement.param
+            if (
+                params.observed_adc is None
+                or params.cdac_side is None
+                or params.cdac_element is None
+                or params.cdac_direction is None
+            ):
+                raise ValueError("CDAC measurement is missing its ADC, side, element, or direction")
+            curve_key = (
+                params.observed_adc,
+                params.cdac_side,
+                params.cdac_element,
+                params.cdac_direction,
+                params.dac_diffcaps,
+            )
+            grouped_in_run.setdefault(curve_key, []).append(measurement)
+        for key, curve_measurements in grouped_in_run.items():
+            physical_measurements = [
+                measurement for measurement in curve_measurements if measurement.info.backend == "physical"
+            ]
+            if physical_measurements:
+                session_ids = {
+                    measurement.info.readbacks.get("acquisition_session_id") for measurement in physical_measurements
+                }
+                completed = [
+                    measurement
+                    for measurement in physical_measurements
+                    if measurement.info.readbacks.get("curve_complete") is True
+                ]
+                latest_timestamp = max(measurement.info.timestamp_utc for measurement in physical_measurements)
+                if (
+                    len(physical_measurements) != len(curve_measurements)
+                    or None in session_ids
+                    or len(session_ids) != 1
+                    or len(completed) != 1
+                    or completed[0].info.timestamp_utc != latest_timestamp
+                ):
+                    raise ValueError(f"accepted CDAC run contains an incomplete or mixed-session curve {key}")
+        # Directory order is deliberate: a later directory atomically replaces
+        # every point of a selectively reacquired curve from an earlier directory.
+        selected_curve_measurements.update(grouped_in_run)
+    measurements = [
+        measurement
+        for curve_key in sorted(selected_curve_measurements)
+        for measurement in selected_curve_measurements[curve_key]
+    ]
+    if {measurement.param.observed_adc for measurement in measurements} != set(ADC_INDICES):
+        raise ValueError("A-to-B CDAC runner requires ADC00 through ADC03")
+
+    artifacts = []
+    adc_groups = []
+    analyses = []
+    for adc_index in ADC_INDICES:
+        adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
+        observed_curves = {
+            (
+                measurement.param.cdac_side,
+                measurement.param.cdac_element,
+                measurement.param.cdac_direction,
+                measurement.param.dac_diffcaps,
+            )
+            for measurement in adc_measurements
+        }
+        if observed_curves != EXPECTED_CURVES:
+            raise ValueError(f"ADC{adc_index:02d} A-to-B CDAC campaign is incomplete")
+        board_ids = {measurement.param.board_id for measurement in adc_measurements}
+        if len(board_ids) != 1 or None in board_ids:
+            raise ValueError(f"ADC{adc_index:02d} CDAC measurements require exactly one board_id")
+        board_id = next(board_id for board_id in board_ids if board_id is not None)
+        calibrations = board_map["boards"][board_id].get("comparator_calibration", {})
+        calibration = calibrations.get(adc_index, calibrations.get(str(adc_index)))
+        if calibration is None:
+            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator_calibration")
+        analysis = analyze_cdac_cap_mismatch(
+            adc_measurements,
+            comparator_offset_v=float(calibration["offset_v"]),
+        )
+        adc_groups.append(adc_measurements)
+        analyses.append(analysis)
+        artifacts.extend(
+            plot_cdac_cap_mismatch(
+                adc_measurements,
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_cdac_cap_mismatch",
+            )
+        )
+    artifacts.extend(
+        plot_cdac_cap_mismatch_comparison(
+            adc_groups,
+            analyses,
+            output_path=output_dir / "adc00_adc03_cdac_cap_mismatch_comparison",
+        )
+    )
+    return tuple(artifacts)
+
+
 TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
     target.__name__: target
     for target in (
-        adc00_pex_transfer,
-        adc00_adc01_noise_power_and_code_diagnostics,
-        adc00_adc01_logic_offset_noise,
+        adc_transfer_curve,
+        adc_noise_vs_rate,
+        adc_code_distributions,
+        adc_power_vs_rate,
+        adc_rate_characterization,
+        adc_noise_vs_comp_time,
+        comp_system_common_mode,
+        comp_system_sampling_noise,
+        cdac_system_cap_mismatch,
     )
 }
+AGGREGATE_TARGETS = {"adc_rate_characterization"}
 
 
 def main() -> None:
     """Run one named analysis pipeline, or every target when none is named."""
+
+    ANALYSIS_OUTPUT_BASE = BASE_PATH / "build/analysis"
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -560,12 +829,18 @@ def main() -> None:
         help="analysis-pipeline function to run; omit to run all targets",
     )
     args = parser.parse_args()
-    output_dir = ANALYSIS_OUTPUT_BASE / datetime.now().astimezone().strftime("%Y%m%d_%H%M")
-    output_dir.mkdir(parents=True, exist_ok=False)
-    print(f"Analysis output: {output_dir}")
     run_all = args.target is None
-    target_names = tuple(TARGETS) if run_all else (args.target,)
+    target_names = tuple(name for name in TARGETS if name not in AGGREGATE_TARGETS) if run_all else (args.target,)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M")
+    output_dirs: dict[str, Path] = {}
     for target_name in target_names:
+        domain = "comp" if target_name.startswith("comp_") else "adc"
+        output_dir = output_dirs.get(domain)
+        if output_dir is None:
+            output_dir = ANALYSIS_OUTPUT_BASE / domain / timestamp
+            output_dir.mkdir(parents=True, exist_ok=False)
+            output_dirs[domain] = output_dir
+            print(f"Analysis output: {output_dir}")
         start_time = perf_counter()
         try:
             artifacts = TARGETS[target_name](output_dir)

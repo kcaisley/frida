@@ -15,7 +15,7 @@ import pytest
 from yaml import safe_load
 
 from flow.scans.params import AdcTbParams
-from flow.scans.scan_adc import convert_params_to_seqgen_fmt
+from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 TEST_CLK_DIVIDE = 1
@@ -26,8 +26,9 @@ pytestmark = pytest.mark.hw
 def test_seq_gen_memory_and_register_readback() -> None:
     """Hardware: write and read back seq_gen memory and control registers."""
     params = AdcTbParams()
-    memory = convert_params_to_seqgen_fmt(params, rx_sen_start_word=5)
     sequence_words = len(params.seq_init_pattern) // 8
+    rx_sen_pattern = "0" * 5 + "1" * 17 + "0" * (sequence_words - 22)
+    memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
 
     # Limit this test to the sequencer so unrelated FPGA blocks cannot prevent
     # its initialization or be modified as a side effect.
@@ -54,7 +55,7 @@ def test_seq_gen_memory_and_register_readback() -> None:
         }
 
         # This is the same public Basil sequence used by scan_adc.py,
-        # scan_compout.py, and loopback_serdes.py. The packing helper is tested
+        # scan_comp.py, scan_cdac.py, and test_serdes.py. The packing helper is tested
         # independently by test_helpers.py.
         seq.set_data(memory)
         seq.set_size(sequence_words)

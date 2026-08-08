@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,16 +14,18 @@ from PIL import Image
 
 import flow.analysis.plots as analysis_plots
 from flow.analysis.adc import (
+    analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
-    analyze_adc_noise,
     analyze_adc_noise_sweep,
-    analyze_adc_nonlin,
+    analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
     analyze_adc_transfer,
 )
+from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.plots import (
+    COMMON_MODE_COLOR_MAP,
     GRID_MAJOR_COLOR,
     LEGEND_FACE_COLOR,
     NORD_COLORS,
@@ -30,23 +33,31 @@ from flow.analysis.plots import (
     TEXT_COLOR,
     animate_adc_decision_path_density,
     apply_plot_style,
+    plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
-    plot_adc_noise,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_noise_violin_sweep,
-    plot_adc_nonlin,
+    plot_adc_nonlinearity,
     plot_adc_power_sweep,
     plot_adc_transfer,
+    plot_cdac_cap_mismatch,
+    plot_cdac_cap_mismatch_comparison,
+    plot_comp_campaign,
     plot_measurement_waveforms,
     style_ax,
     style_grid,
     style_legend,
 )
 from flow.analysis.test_adc import adc_measurement
+from flow.analysis.test_comp import comparator_measurement
+from flow.analysis.test_types import all_measurements
+from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq
+from flow.scans.scan_cdac import _build_cdac_params
+from flow.scans.scan_comp import _build_comp_params
 
 
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:
@@ -98,6 +109,272 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "LOGIC offset:" not in svg
 
 
+def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:
+    comparator_groups = []
+    comparator_analyses = []
+    for vin_cm_v in (0.6, 0.8):
+        group = []
+        for vin_diff_v, ones in ((-1e-3, 100), (0.0, 50), (1e-3, 0)):
+            base = comparator_measurement()
+            group.append(
+                replace(
+                    base,
+                    param=_build_comp_params(
+                        adc_index=0,
+                        campaign="comp_common_mode",
+                        sampling_mode="track",
+                        sweep_stage="fixed",
+                        vin_cm_v=vin_cm_v,
+                        vin_diff_v=vin_diff_v,
+                        conversions=100,
+                    ),
+                    daq=CompDaq(
+                        trial_index=np.arange(100),
+                        vin_diff_v=np.full(100, vin_diff_v),
+                        vin_cm_v=np.full(100, vin_cm_v),
+                        decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
+                    ),
+                )
+            )
+        comparator_groups.append(group)
+        comparator_analyses.append(analyze_comp_offset_noise(group))
+    comparator_paths = plot_comp_campaign(
+        comparator_groups,
+        comparator_analyses,
+        output_path=tmp_path / "comp_campaign",
+        formats=("png",),
+    )
+    assert comparator_paths[0].is_file()
+    assert plt.imread(comparator_paths[0]).shape[:2] == (1800, 3200)
+
+    params = _build_cdac_params(
+        adc_index=0,
+        side="p",
+        element=0,
+        direction="1to0",
+        dac_diffcaps=0,
+        vin_diff_v=0.3,
+        conversions=1,
+        sweep_stage="fixed",
+    )
+    cdac_measurement = replace(all_measurements()[4], param=params)
+    cdac_analysis = AnalysisCdacCapMismatch(
+        adc_index=0,
+        curve_element=np.asarray([0]),
+        curve_side=np.asarray([0], dtype=np.uint8),
+        curve_direction=np.asarray([0], dtype=np.uint8),
+        curve_diffcaps=np.asarray([0], dtype=np.uint8),
+        transition_v=np.asarray([0.3]),
+        normalized_step=np.asarray([-0.25]),
+        curve_valid=np.asarray([1], dtype=np.uint8),
+        main_fraction=np.full((2, 16), 0.02),
+        diff_fraction=np.full((2, 16), 0.005),
+        effective_fraction=np.full((2, 16), 0.015),
+        direction_bias=np.zeros((2, 16, 2)),
+    )
+    cdac_paths = plot_cdac_cap_mismatch(
+        [cdac_measurement],
+        cdac_analysis,
+        output_path=tmp_path / "cdac_ab",
+        formats=("png",),
+    )
+    assert cdac_paths[0].is_file()
+    assert plt.imread(cdac_paths[0]).shape[:2] == (1800, 3200)
+
+    comparison_groups = []
+    comparison_analyses = []
+    for adc_index in range(4):
+        adc_params = _build_cdac_params(
+            adc_index=adc_index,
+            side="p",
+            element=0,
+            direction="1to0",
+            dac_diffcaps=0,
+            vin_diff_v=0.3,
+            conversions=1,
+            sweep_stage="fixed",
+        )
+        comparison_groups.append([replace(cdac_measurement, param=adc_params)])
+        comparison_analyses.append(replace(cdac_analysis, adc_index=adc_index))
+    comparison_paths = plot_cdac_cap_mismatch_comparison(
+        comparison_groups,
+        comparison_analyses,
+        output_path=tmp_path / "cdac_ab_comparison",
+        formats=("png",),
+    )
+    assert comparison_paths[0].is_file()
+    assert plt.imread(comparison_paths[0]).shape[:2] == (1800, 3200)
+
+
+def test_comparator_common_mode_crop_and_sampling_noise_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    figures = []
+
+    def capture_figure(fig, *_args, **_kwargs):
+        figures.append(fig)
+        return ()
+
+    monkeypatch.setattr(analysis_plots, "_save_figure", capture_figure)
+
+    def group(
+        campaign: str,
+        mode: str,
+        vin_cm_v: float,
+        *,
+        center_v: float = 0.0,
+        coupling_percent: float | None = None,
+    ):
+        measurements = []
+        for vin_diff_v, ones in (
+            (center_v - 1.0e-3, 0),
+            (center_v, 50),
+            (center_v + 1.0e-3, 100),
+        ):
+            base = comparator_measurement()
+            measurements.append(
+                replace(
+                    base,
+                    param=_build_comp_params(
+                        adc_index=0,
+                        campaign=campaign,
+                        sampling_mode=mode,
+                        sweep_stage="fixed",
+                        vin_cm_v=vin_cm_v,
+                        vin_diff_v=vin_diff_v,
+                        conversions=100,
+                        requested_dac_rail_percent=coupling_percent,
+                    ),
+                    daq=CompDaq(
+                        trial_index=np.arange(100),
+                        vin_diff_v=np.full(100, vin_diff_v),
+                        vin_cm_v=np.full(100, vin_cm_v),
+                        decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
+                    ),
+                )
+            )
+        return measurements
+
+    common_groups = [
+        group("comp_common_mode", "track", vin_cm_v, center_v=10.0e-3) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
+    ]
+    plot_comp_campaign(
+        common_groups,
+        [analyze_comp_offset_noise(values) for values in common_groups],
+        output_path=Path("unused_common"),
+    )
+    common_figure = figures[-1]
+    assert [ax.get_title() for ax in common_figure.axes] == [
+        "Comparator S-curve (CDF)",
+        "Gaussian fit of μ (threshold) and σ (noise)",
+    ]
+    assert common_figure.axes[0].get_xlim() == pytest.approx((0.0, 25.0))
+    assert common_figure.axes[0].get_xlabel() == "Differential input (mV)"
+    assert common_figure.axes[1].get_ylim() == pytest.approx((0.0, 25.0))
+    assert [
+        line.get_label() for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")
+    ] == [
+        "Vin_cm = 0.7 V",
+        "Vin_cm = 0.8 V",
+        "Vin_cm = 1 V",
+    ]
+    assert common_figure.axes[1].get_xticks() == pytest.approx((0.7, 0.8, 1.0))
+    assert common_figure.axes[1].get_xlim() == pytest.approx((0.65, 1.05))
+    assert common_figure.axes[1].get_xlabel() == "Common-mode input (V)"
+    assert common_figure.axes[1].get_ylabel() == "Input error (mV)"
+    common_fit_lines = [line for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")]
+    assert len(common_figure.axes[0].collections) == 3
+    assert all(len(line.get_xdata()) == 1_001 for line in common_fit_lines)
+    expected_common_mode_colors = [
+        COMMON_MODE_COLOR_MAP((vin_cm_v - 0.7) / (1.2 - 0.7)) for vin_cm_v in (0.7, 0.8, 1.0)
+    ]
+    for line, expected_color in zip(common_fit_lines, expected_common_mode_colors, strict=True):
+        np.testing.assert_allclose(mcolors.to_rgba(line.get_color()), expected_color)
+    for violin, expected_color in zip(
+        common_figure.axes[1].collections,
+        expected_common_mode_colors,
+        strict=True,
+    ):
+        np.testing.assert_allclose(violin.get_facecolor()[0, :3], expected_color[:3], atol=0.01)
+        assert violin.get_facecolor()[0, 3] == pytest.approx(0.55)
+
+    sampling_groups = [
+        group(
+            "comp_sampling_noise",
+            mode,
+            0.7,
+            center_v=10.0e-3 + coupling_percent * 5.0e-6 + (0.2e-3 if mode == "hold" else 0.0),
+            coupling_percent=coupling_percent,
+        )
+        for coupling_percent in (0.0, 25.0, 50.0, 75.0, 100.0)
+        for mode in ("track", "hold")
+    ]
+    plot_comp_campaign(
+        sampling_groups,
+        [analyze_comp_offset_noise(values) for values in sampling_groups],
+        output_path=Path("unused_sampling"),
+    )
+    sampling_figure = figures[-1]
+    assert [ax.get_title() for ax in sampling_figure.axes] == [
+        "Comparator S-curves (CDF)",
+        "Gaussian fit of μ (threshold) and σ (noise)",
+    ]
+    assert sampling_figure.axes[0].get_xlim() == pytest.approx((0.0, 25.0))
+    curve_labels = [text.get_text() for text in sampling_figure.axes[0].get_legend().get_texts()]
+    assert len(curve_labels) == 10
+    assert any(label == "Track P/N = 0/100%" for label in curve_labels)
+    assert any(label == "Hold P/N = 100/0%" for label in curve_labels)
+    sampling_fit_lines = [line for line in sampling_figure.axes[0].get_lines() if " P/N = " in line.get_label()]
+    assert len(sampling_fit_lines) == 10
+    assert len(sampling_figure.axes[0].collections) == 10
+    assert all(len(line.get_xdata()) == 1_001 for line in sampling_fit_lines)
+    distribution_ax = sampling_figure.axes[1]
+    assert distribution_ax.get_xlim() == pytest.approx((-8.0, 108.0))
+    assert distribution_ax.get_ylim() == pytest.approx((0.0, 25.0))
+    assert distribution_ax.get_xticks() == pytest.approx((0.0, 25.0, 50.0, 75.0, 100.0))
+    assert distribution_ax.get_xlabel() == "VDAC coupling (P/N % of VDD_DAC)"
+    assert distribution_ax.get_ylabel() == "Input error (mV)"
+    distribution_labels = [text.get_text() for text in distribution_ax.get_legend().get_texts()]
+    assert distribution_labels == ["Track", "Hold"]
+    assert len(distribution_ax.collections) == 10
+    assert len(distribution_ax.texts) == 10
+    assert "Vin_cm = 0.7 V" in sampling_figure._suptitle.get_text()
+
+    for fig in figures:
+        plt.close(fig)
+
+
+def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
+    params = _build_cdac_params(
+        adc_index=0,
+        side="p",
+        element=0,
+        direction="1to0",
+        dac_diffcaps=0,
+        vin_diff_v=0.3,
+        conversions=1,
+        sweep_stage="fixed",
+    )
+    base = replace(all_measurements()[4], param=params)
+    measurement = replace(
+        base,
+        info=replace(base.info, readbacks={"cdac_topplate_parasitic_weight": 100.0}),
+    )
+    weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
+    expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
+    np.testing.assert_allclose(
+        analysis_plots._expected_cdac_effective_fraction([measurement]),
+        expected,
+    )
+
+    inconsistent = replace(
+        measurement,
+        info=replace(measurement.info, readbacks={"cdac_topplate_parasitic_weight": 200.0}),
+    )
+    with pytest.raises(ValueError, match="inconsistent"):
+        analysis_plots._expected_cdac_effective_fraction([measurement, inconsistent])
+
+
 def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
     msmt = adc_measurement(
         np.repeat(np.arange(16), 8),
@@ -110,14 +387,14 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
             analyze_adc_transfer([msmt]),
             output_path=tmp_path / "transfer",
         ),
-        plot_adc_noise(
+        plot_adc_code_distribution(
             [msmt],
-            analyze_adc_noise([msmt]),
+            analyze_adc_code_distribution([msmt]),
             output_path=tmp_path / "noise",
         ),
-        plot_adc_nonlin(
+        plot_adc_nonlinearity(
             msmt,
-            analyze_adc_nonlin(msmt, method="code_density", code_range=(1, 14)),
+            analyze_adc_nonlinearity(msmt, method="code_density", code_range=(1, 14)),
             output_path=tmp_path / "nonlin",
         ),
     )

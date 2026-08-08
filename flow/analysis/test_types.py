@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,20 +17,20 @@ from flow.analysis.types import (
     AdcExtWave,
     AdcIntWave,
     Backend,
+    CdacExtDaq,
+    CdacExtWave,
+    CdacIntDaq,
+    CdacIntWave,
     CompDaq,
     CompExtWave,
     CompIntWave,
-    DacExtDaq,
-    DacExtWave,
-    DacIntDaq,
-    DacIntWave,
     MeasAdc,
     MeasAdcExt,
     MeasAdcInt,
+    MeasCdacExt,
+    MeasCdacInt,
     MeasCompExt,
     MeasCompInt,
-    MeasDacExt,
-    MeasDacInt,
     MeasInfo,
     MeasSampInt,
     SampDaq,
@@ -142,6 +143,14 @@ def all_measurements():
         vin_cm_v=np.asarray([0.6], dtype=np.float64),
         decision=np.asarray([1], dtype=np.uint8),
     )
+    comp_ext_daq = CompDaq(
+        trial_index=np.asarray([0], dtype=np.int64),
+        vin_diff_v=np.asarray([0.0], dtype=np.float64),
+        vin_cm_v=np.asarray([0.6], dtype=np.float64),
+        decision=np.asarray([1], dtype=np.uint8),
+        fastrx_word=np.asarray([0x10000001], dtype=np.uint32),
+        fastrx_frame=np.asarray([0], dtype=np.uint32),
+    )
     dac_states = np.zeros((1, 16), dtype=np.uint8)
     return (
         MeasAdcInt(
@@ -156,8 +165,8 @@ def all_measurements():
         ),
         MeasCompExt(
             info=info("MeasCompExt", "physical"),
-            param=CompTbParams(),
-            daq=comp_daq,
+            param=AdcTbParams(conversions=1),
+            daq=comp_ext_daq,
             wave=CompExtWave(
                 trial_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
@@ -195,31 +204,36 @@ def all_measurements():
                 **dense_signals(("vin_v", "sampled_v", "clk_v", "clk_b_v", "vdd_i")),
             ),
         ),
-        MeasDacExt(
-            info=info("MeasDacExt", "physical"),
-            param=CdacTbParams(),
-            daq=DacExtDaq(
+        MeasCdacExt(
+            info=info("MeasCdacExt", "physical"),
+            param=AdcTbParams(conversions=1),
+            daq=CdacExtDaq(
                 trial_index=np.asarray([0], dtype=np.int64),
                 dac_state_p=dac_states,
                 dac_state_n=dac_states,
                 vin_diff_v=np.asarray([0.0], dtype=np.float64),
                 decision=np.asarray([1], dtype=np.uint8),
+                dac_state_before_p=dac_states,
+                dac_state_before_n=dac_states,
+                vin_cm_v=np.asarray([0.8], dtype=np.float64),
+                fastrx_word=np.asarray([0x10000001], dtype=np.uint32),
+                fastrx_frame=np.asarray([0], dtype=np.uint32),
             ),
-            wave=DacExtWave(
+            wave=CdacExtWave(
                 trial_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
-                **dense_signals(("vin_diff_v", "seq_comp_v", "comp_out_v")),
+                **dense_signals(("vin_diff_v", "seq_comp_v", "comp_out_v", "seq_logic_v")),
             ),
         ),
-        MeasDacInt(
-            info=info("MeasDacInt"),
+        MeasCdacInt(
+            info=info("MeasCdacInt"),
             param=CdacTbParams(),
-            daq=DacIntDaq(
+            daq=CdacIntDaq(
                 trial_index=np.asarray([0], dtype=np.int64),
                 dac_state_p=dac_states,
                 dac_state_n=dac_states,
             ),
-            wave=DacIntWave(
+            wave=CdacIntWave(
                 trial_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
                 **dense_signals(("vdac_p_v", "vdac_n_v", "update_v", "vdd_i")),
@@ -337,6 +351,87 @@ def test_every_measurement_type_round_trips(tmp_path: Path, measurement) -> None
     assert loaded.info.measurement_type == measurement.info.measurement_type
     assert_sections_equal(measurement.daq, loaded.daq)
     assert_sections_equal(measurement.wave, loaded.wave)
+
+
+@pytest.mark.parametrize("measurement_index", (1, 4), ids=("comparator", "cdac"))
+def test_external_decision_measurement_without_scope_waveform_round_trips(
+    tmp_path: Path,
+    measurement_index: int,
+) -> None:
+    original = replace(all_measurements()[measurement_index], wave=None)
+
+    loaded = read_measurement(write_measurement(tmp_path / f"no_wave_{measurement_index}.h5", original))
+
+    assert type(loaded) is type(original)
+    assert loaded.wave is None
+    assert_sections_equal(original.daq, loaded.daq)
+
+
+@pytest.mark.parametrize("measurement_index", (2, 5), ids=("MeasCompInt-AdcTbParams", "MeasCdacInt-AdcTbParams"))
+def test_whole_adc_internal_measurement_parameter_pairings_round_trip(
+    tmp_path: Path,
+    measurement_index: int,
+) -> None:
+    """Keep whole-chip and PEX results on their native AdcTbParams stack."""
+
+    original = replace(
+        all_measurements()[measurement_index],
+        param=AdcTbParams(conversions=1),
+    )
+    loaded = read_measurement(write_measurement(tmp_path / f"pairing_{measurement_index}.h5", original))
+
+    assert type(loaded) is type(original)
+    assert type(loaded.param) is AdcTbParams
+    assert loaded.param == original.param
+
+
+def test_schema_v1_external_cdac_without_switching_fields_remains_readable(tmp_path: Path) -> None:
+    """Treat legacy P/N state arrays as the after-update state."""
+
+    current = all_measurements()[4]
+    legacy = replace(
+        current,
+        daq=CdacExtDaq(
+            trial_index=current.daq.trial_index,
+            dac_state_p=current.daq.dac_state_p,
+            dac_state_n=current.daq.dac_state_n,
+            vin_diff_v=current.daq.vin_diff_v,
+            decision=current.daq.decision,
+        ),
+    )
+    loaded = read_measurement(write_measurement(tmp_path / "legacy_cdac.h5", legacy))
+
+    assert isinstance(loaded, MeasCdacExt)
+    assert loaded.daq.dac_state_before_p is None
+    assert loaded.daq.dac_state_before_n is None
+    assert loaded.daq.vin_cm_v is None
+    assert loaded.daq.fastrx_word is None
+
+
+def test_schema_v2_physical_measurements_require_transport_and_switching_fields() -> None:
+    """Require the new acquisition evidence without invalidating schema-v1 files."""
+
+    comp = all_measurements()[1]
+    with pytest.raises(ValueError, match="schema-v2 physical MeasCompExt"):
+        replace(
+            comp,
+            info=replace(comp.info, schema_version=2),
+            daq=replace(comp.daq, fastrx_word=None, fastrx_frame=None),
+        )
+
+    cdac = all_measurements()[4]
+    with pytest.raises(ValueError, match="schema-v2 physical MeasCdacExt"):
+        replace(
+            cdac,
+            info=replace(cdac.info, schema_version=2),
+            daq=CdacExtDaq(
+                trial_index=cdac.daq.trial_index,
+                dac_state_p=cdac.daq.dac_state_p,
+                dac_state_n=cdac.daq.dac_state_n,
+                vin_diff_v=cdac.daq.vin_diff_v,
+                decision=cdac.daq.decision,
+            ),
+        )
 
 
 def test_reader_rejects_missing_required_dataset(tmp_path: Path) -> None:

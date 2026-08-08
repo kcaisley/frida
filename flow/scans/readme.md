@@ -94,14 +94,16 @@ hardware-driver calls.
 | --- | --- | --- |
 | `convert_sample_rate_to_baud()` | `params.py` | Derive symbol rate from a requested active-conversion rate and the timing-pattern active span. |
 | `convert_dac_caps_to_adc_weights()` | `scan_adc.py` | Convert physical CDAC weights C16..C1 into decision weights W16..W0. |
-| `convert_params_to_seqgen_fmt()` | `scan_adc.py` | Pack the four parameterized timing patterns and derived RX_SEN window into raw 64-bit sequencer words. |
+| `convert_params_to_seqgen_fmt()` | `seqgen.py` | Pack four parameterized timing strings and a caller-supplied one-bit-per-word RX_SEN string into raw 64-bit sequencer words. |
 | `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
-| `convert_fastrx_to_bout_and_dout()` / `convert_dout_to_normalized_dout()` | `scan_adc.py` | Decode FastRX comparator decisions and normalize the weighted ADC result. |
+| `convert_fastrx_words_to_adc()` / `convert_fastrx_words_to_comp()` | `fastrx.py` | Decode and validate ADC or one-bit comparator FastRX captures in a vectorized pass. |
+| `calculate_fastrx_capture_alignment()` / `calculate_single_sample_fastrx_capture_alignment()` | `fastrx.py` | Calculate legal RX_SEN placement, serializer phase advance, and comparator IDELAY settings from stored timing strings and board delays. |
+| `convert_dout_to_normalized_dout()` | `scan_adc.py` | Normalize one decoded weighted ADC result to the configured output-code range. |
 | `write_scope_csv()` | `scope.py` | Persist aligned voltage and instrument-code columns from one raw scope acquisition. |
 | `write_measurement()` / `read_measurement()` | `flow/analysis/io.py` | Persist and load one typed physical, behavioral, or SPICE measurement using the shared HDF5 schema. |
 | `scope_records_to_adc_wave()` | `flow/analysis/io.py` | Convert aligned triggered scope records into the dense external ADC waveform section. |
 | `analyze_adc_dynamic()` | `flow/analysis/adc.py` | Perform a four-parameter sine fit plus FFT analysis and report residual RMS, SNR, SNDR, THD, SFDR, and ENOB. |
-| `analyze_adc_transfer()` / `analyze_adc_nonlin()` / `analyze_adc_noise()` | `flow/analysis/adc.py` | Calculate typed static transfer, INL/DNL, and fixed-input noise results. |
+| `analyze_adc_transfer()` / `analyze_adc_nonlinearity()` / `analyze_adc_code_distribution()` | `flow/analysis/adc.py` | Calculate typed static transfer, INL/DNL, and fixed-input code-distribution results. |
 | `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics. |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |

@@ -13,7 +13,7 @@ continuous COMP pulse train.
 
 Run from the repository root after programming the serializer firmware:
 
-    uv run python -m flow.scans.loopback_serdes
+    uv run pytest -q -s -m hw flow/scans/test_serdes.py
 
 The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
 Their outputs are disabled and reset to 0 V when the test exits.
@@ -27,6 +27,7 @@ from pathlib import Path
 from statistics import fmean
 
 import numpy as np
+import pytest
 from yaml import safe_load
 
 from flow.analysis.measure import find_crossings
@@ -36,7 +37,6 @@ from flow.scans.plldrp import (
     select_pll_configuration,
     set_pll_divider,
 )
-from flow.scans.scan_adc import convert_params_to_seqgen_fmt
 from flow.scans.scope import (
     plot_scope_waveforms,
     response_value,
@@ -44,6 +44,7 @@ from flow.scans.scope import (
     wait_for_scope_capture,
     write_scope_csv,
 )
+from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
@@ -148,7 +149,9 @@ def validate_capture(waveforms, symbol_rate_bps: float) -> tuple[float, float]:
     return measured_interval_s, measured_symbol_rate_bps
 
 
-def main() -> None:
+@pytest.mark.hw
+def test_serdes_rates() -> None:
+    """Hardware: qualify sequencer serialization across all supported rates."""
     from gpib_ctypes import make_default_gpib
 
     make_default_gpib()
@@ -223,7 +226,9 @@ def main() -> None:
             seq_comp_pattern=SEQ_PATTERNS["COMP"].replace(" ", ""),
             seq_logic_pattern=SEQ_PATTERNS["LOGIC"].replace(" ", ""),
         )
-        memory = convert_params_to_seqgen_fmt(params, rx_sen_start_word=5)
+        sequence_words = len(params.seq_init_pattern) // 8
+        rx_sen_pattern = "0" * 5 + "1" * 17 + "0" * (sequence_words - 22)
+        memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
         scope_dut = Dut(str(SCOPE_MAP_PATH))
         scope_dut.init()
         try:
@@ -419,7 +424,3 @@ def main() -> None:
                     except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                         print(f"WARNING: could not disable and zero {rail}: {error}")
                 smu_dut.close()
-
-
-if __name__ == "__main__":
-    main()

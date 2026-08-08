@@ -101,7 +101,7 @@ class MeasInfo:
     source_path: Path | None = None
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
+        if self.schema_version not in (1, 2):
             raise ValueError(f"unsupported measurement schema version {self.schema_version}")
         if not self.measurement_type:
             raise ValueError("measurement_type must not be empty")
@@ -295,6 +295,8 @@ class CompDaq:
     vin_diff_v: FloatArray
     vin_cm_v: FloatArray
     decision: Uint8Array
+    fastrx_word: Uint32Array | None = None
+    fastrx_frame: Uint32Array | None = None
 
     def __post_init__(self) -> None:
         trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
@@ -303,22 +305,30 @@ class CompDaq:
         decision = _array_1d(self.decision, np.uint8, "daq.decision")
         if np.any((decision != 0) & (decision != 1)):
             raise ValueError("daq.decision values must be zero or one")
-        if (
-            _aligned_length(
-                {
-                    "trial_index": trial_index,
-                    "vin_diff_v": vin_diff_v,
-                    "vin_cm_v": vin_cm_v,
-                    "decision": decision,
-                }
-            )
-            == 0
-        ):
+        fields = {
+            "trial_index": trial_index,
+            "vin_diff_v": vin_diff_v,
+            "vin_cm_v": vin_cm_v,
+            "decision": decision,
+        }
+        fastrx_word = None
+        fastrx_frame = None
+        if self.fastrx_word is not None:
+            fastrx_word = _array_1d(self.fastrx_word, np.uint32, "daq.fastrx_word")
+            fields["fastrx_word"] = fastrx_word
+        if self.fastrx_frame is not None:
+            fastrx_frame = _array_1d(self.fastrx_frame, np.uint32, "daq.fastrx_frame")
+            fields["fastrx_frame"] = fastrx_frame
+        if (fastrx_word is None) != (fastrx_frame is None):
+            raise ValueError("daq.fastrx_word and daq.fastrx_frame must be provided together")
+        if _aligned_length(fields) == 0:
             raise ValueError("comparator DAQ must contain at least one trial")
         object.__setattr__(self, "trial_index", trial_index)
         object.__setattr__(self, "vin_diff_v", vin_diff_v)
         object.__setattr__(self, "vin_cm_v", vin_cm_v)
         object.__setattr__(self, "decision", decision)
+        object.__setattr__(self, "fastrx_word", fastrx_word)
+        object.__setattr__(self, "fastrx_frame", fastrx_frame)
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,12 +392,17 @@ class MeasCompExt:
     """Comparator measurement through external stimulus and decisions."""
 
     info: MeasInfo
-    param: CompTbParams
+    param: AdcTbParams
     daq: CompDaq
-    wave: CompExtWave
+    wave: CompExtWave | None
 
     def __post_init__(self) -> None:
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
+        if not isinstance(self.param, AdcTbParams):
+            raise TypeError("MeasCompExt requires AdcTbParams")
+        if self.info.backend == "physical" and self.info.schema_version >= 2 and self.daq.fastrx_word is None:
+            raise ValueError("schema-v2 physical MeasCompExt requires FastRX words and frames")
+        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.trial_index
+        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, wave_indices)
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,11 +410,15 @@ class MeasCompInt:
     """Comparator measurement with internal simulation waveforms."""
 
     info: MeasInfo
-    param: CompTbParams
+    param: CompTbParams | AdcTbParams
     daq: CompDaq
     wave: CompIntWave
 
     def __post_init__(self) -> None:
+        if not isinstance(self.param, (CompTbParams, AdcTbParams)):
+            raise TypeError("MeasCompInt requires CompTbParams or AdcTbParams")
+        if self.daq.fastrx_word is not None:
+            raise ValueError("MeasCompInt must not invent FastRX words")
         _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
 
 
@@ -457,7 +476,7 @@ class MeasSampInt:
 
 
 @dataclass(frozen=True, slots=True)
-class DacExtDaq:
+class CdacExtDaq:
     """External CDAC trial conditions and comparator decisions."""
 
     trial_index: IntArray
@@ -465,6 +484,11 @@ class DacExtDaq:
     dac_state_n: Uint8Array
     vin_diff_v: FloatArray
     decision: Uint8Array
+    dac_state_before_p: Uint8Array | None = None
+    dac_state_before_n: Uint8Array | None = None
+    vin_cm_v: FloatArray | None = None
+    fastrx_word: Uint32Array | None = None
+    fastrx_frame: Uint32Array | None = None
 
     def __post_init__(self) -> None:
         trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
@@ -477,33 +501,65 @@ class DacExtDaq:
                 raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
         if np.any((decision != 0) & (decision != 1)):
             raise ValueError("daq.decision values must be zero or one")
-        if (
-            _aligned_length(
-                {
-                    "trial_index": trial_index,
-                    "dac_state_p": dac_state_p,
-                    "dac_state_n": dac_state_n,
-                    "vin_diff_v": vin_diff_v,
-                    "decision": decision,
-                }
-            )
-            == 0
+        fields = {
+            "trial_index": trial_index,
+            "dac_state_p": dac_state_p,
+            "dac_state_n": dac_state_n,
+            "vin_diff_v": vin_diff_v,
+            "decision": decision,
+        }
+        optional_arrays = {}
+        for name, values, dtype, finite in (
+            ("dac_state_before_p", self.dac_state_before_p, np.uint8, False),
+            ("dac_state_before_n", self.dac_state_before_n, np.uint8, False),
+            ("vin_cm_v", self.vin_cm_v, np.float64, True),
+            ("fastrx_word", self.fastrx_word, np.uint32, False),
+            ("fastrx_frame", self.fastrx_frame, np.uint32, False),
         ):
+            if values is not None:
+                array = (
+                    _array_2d(values, dtype, f"daq.{name}")
+                    if name.startswith("dac_state")
+                    else _array_1d(
+                        values,
+                        dtype,
+                        f"daq.{name}",
+                        finite=finite,
+                    )
+                )
+                optional_arrays[name] = array
+                fields[name] = array
+        if (self.dac_state_before_p is None) != (self.dac_state_before_n is None):
+            raise ValueError("both before-update CDAC states must be provided together")
+        if (self.fastrx_word is None) != (self.fastrx_frame is None):
+            raise ValueError("daq.fastrx_word and daq.fastrx_frame must be provided together")
+        for name in ("dac_state_before_p", "dac_state_before_n"):
+            state = optional_arrays.get(name)
+            if state is not None and (state.shape[1:] != (16,) or np.any((state != 0) & (state != 1))):
+                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
+        if _aligned_length(fields) == 0:
             raise ValueError("external CDAC DAQ must contain at least one trial")
         object.__setattr__(self, "trial_index", trial_index)
         object.__setattr__(self, "dac_state_p", dac_state_p)
         object.__setattr__(self, "dac_state_n", dac_state_n)
         object.__setattr__(self, "vin_diff_v", vin_diff_v)
         object.__setattr__(self, "decision", decision)
+        for name in ("dac_state_before_p", "dac_state_before_n", "vin_cm_v", "fastrx_word", "fastrx_frame"):
+            object.__setattr__(self, name, optional_arrays.get(name))
 
 
 @dataclass(frozen=True, slots=True)
-class DacIntDaq:
+class CdacIntDaq:
     """Internal CDAC trial identifiers and input states."""
 
     trial_index: IntArray
     dac_state_p: Uint8Array
     dac_state_n: Uint8Array
+    dac_state_before_p: Uint8Array | None = None
+    dac_state_before_n: Uint8Array | None = None
+    vin_diff_v: FloatArray | None = None
+    vin_cm_v: FloatArray | None = None
+    decision: Uint8Array | None = None
 
     def __post_init__(self) -> None:
         trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
@@ -512,15 +568,48 @@ class DacIntDaq:
         for name, state in (("dac_state_p", dac_state_p), ("dac_state_n", dac_state_n)):
             if state.shape[1:] != (16,) or np.any((state != 0) & (state != 1)):
                 raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
-        if _aligned_length({"trial_index": trial_index, "dac_state_p": dac_state_p, "dac_state_n": dac_state_n}) == 0:
+        fields = {"trial_index": trial_index, "dac_state_p": dac_state_p, "dac_state_n": dac_state_n}
+        optional_arrays = {}
+        for name, values, dtype, finite in (
+            ("dac_state_before_p", self.dac_state_before_p, np.uint8, False),
+            ("dac_state_before_n", self.dac_state_before_n, np.uint8, False),
+            ("vin_diff_v", self.vin_diff_v, np.float64, True),
+            ("vin_cm_v", self.vin_cm_v, np.float64, True),
+            ("decision", self.decision, np.uint8, False),
+        ):
+            if values is not None:
+                array = (
+                    _array_2d(values, dtype, f"daq.{name}")
+                    if name.startswith("dac_state")
+                    else _array_1d(
+                        values,
+                        dtype,
+                        f"daq.{name}",
+                        finite=finite,
+                    )
+                )
+                optional_arrays[name] = array
+                fields[name] = array
+        if (self.dac_state_before_p is None) != (self.dac_state_before_n is None):
+            raise ValueError("both before-update CDAC states must be provided together")
+        for name in ("dac_state_before_p", "dac_state_before_n"):
+            state = optional_arrays.get(name)
+            if state is not None and (state.shape[1:] != (16,) or np.any((state != 0) & (state != 1))):
+                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
+        decision = optional_arrays.get("decision")
+        if decision is not None and np.any((decision != 0) & (decision != 1)):
+            raise ValueError("daq.decision values must be zero or one")
+        if _aligned_length(fields) == 0:
             raise ValueError("internal CDAC DAQ must contain at least one trial")
         object.__setattr__(self, "trial_index", trial_index)
         object.__setattr__(self, "dac_state_p", dac_state_p)
         object.__setattr__(self, "dac_state_n", dac_state_n)
+        for name in ("dac_state_before_p", "dac_state_before_n", "vin_diff_v", "vin_cm_v", "decision"):
+            object.__setattr__(self, name, optional_arrays.get(name))
 
 
 @dataclass(frozen=True, slots=True)
-class DacExtWave:
+class CdacExtWave:
     """Externally observable CDAC comparator-path waveforms."""
 
     trial_index: IntArray
@@ -528,25 +617,30 @@ class DacExtWave:
     vin_diff_v: FloatArray
     seq_comp_v: FloatArray
     comp_out_v: FloatArray
+    seq_logic_v: FloatArray | None = None
 
     def __post_init__(self) -> None:
+        wave_signals = {
+            "vin_diff_v": self.vin_diff_v,
+            "seq_comp_v": self.seq_comp_v,
+            "comp_out_v": self.comp_out_v,
+        }
+        if self.seq_logic_v is not None:
+            wave_signals["seq_logic_v"] = self.seq_logic_v
         indices, times, signals = _normalize_wave(
             self.trial_index,
             self.time_s,
-            {
-                "vin_diff_v": self.vin_diff_v,
-                "seq_comp_v": self.seq_comp_v,
-                "comp_out_v": self.comp_out_v,
-            },
+            wave_signals,
         )
         object.__setattr__(self, "trial_index", indices)
         object.__setattr__(self, "time_s", times)
         for name, values in signals.items():
             object.__setattr__(self, name, values)
+        object.__setattr__(self, "seq_logic_v", signals.get("seq_logic_v"))
 
 
 @dataclass(frozen=True, slots=True)
-class DacIntWave:
+class CdacIntWave:
     """Internally observable CDAC waveforms."""
 
     trial_index: IntArray
@@ -572,32 +666,43 @@ class DacIntWave:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasDacExt:
+class MeasCdacExt:
     """CDAC measurement inferred through the external comparator path."""
 
     info: MeasInfo
-    param: CdacTbParams
-    daq: DacExtDaq
-    wave: DacExtWave
+    param: AdcTbParams
+    daq: CdacExtDaq
+    wave: CdacExtWave | None
 
     def __post_init__(self) -> None:
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
+        if not isinstance(self.param, AdcTbParams):
+            raise TypeError("MeasCdacExt requires AdcTbParams")
+        if (
+            self.info.backend == "physical"
+            and self.info.schema_version >= 2
+            and (self.daq.dac_state_before_p is None or self.daq.vin_cm_v is None or self.daq.fastrx_word is None)
+        ):
+            raise ValueError("schema-v2 physical MeasCdacExt requires before states, Vin_cm, and FastRX words/ frames")
+        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.trial_index
+        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, wave_indices)
 
 
 @dataclass(frozen=True, slots=True)
-class MeasDacInt:
+class MeasCdacInt:
     """CDAC measurement with internal simulation waveforms."""
 
     info: MeasInfo
-    param: CdacTbParams
-    daq: DacIntDaq
-    wave: DacIntWave
+    param: CdacTbParams | AdcTbParams
+    daq: CdacIntDaq
+    wave: CdacIntWave
 
     def __post_init__(self) -> None:
+        if not isinstance(self.param, (CdacTbParams, AdcTbParams)):
+            raise TypeError("MeasCdacInt requires CdacTbParams or AdcTbParams")
         _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
 
 
-type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasDacExt | MeasDacInt
+type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasCdacExt | MeasCdacInt
 
 
 # =============================================================================
@@ -616,7 +721,7 @@ class AnalysisAdcTransfer:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcNonlin:
+class AnalysisAdcNonlinearity:
     """Endpoint or code-density ADC nonlinearity."""
 
     method: Literal["endpoint", "code_density"]
@@ -633,7 +738,7 @@ class AnalysisAdcNonlin:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcNoise:
+class AnalysisAdcCodeDistribution:
     """Code statistics and histograms for one or more static input points."""
 
     vin_diff_v: FloatArray
@@ -765,6 +870,26 @@ class AnalysisCompOffsetNoise:
     trial_count: IntArray
     offset_v: float
     noise_sigma_v: float
+    decision_polarity: Literal[-1, 1] = 1
+    validity: Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"] = "valid"
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCdacCapMismatch:
+    """A-to-B transition fits and normalized main/difference capacitances."""
+
+    adc_index: int
+    curve_element: IntArray
+    curve_side: Uint8Array
+    curve_direction: Uint8Array
+    curve_diffcaps: Uint8Array
+    transition_v: FloatArray
+    normalized_step: FloatArray
+    curve_valid: Uint8Array
+    main_fraction: FloatArray
+    diff_fraction: FloatArray
+    effective_fraction: FloatArray
+    direction_bias: FloatArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -788,16 +913,17 @@ class AnalysisCompPower:
 
 
 MEASUREMENT_TYPES = {
-    cls.__name__: cls for cls in (MeasAdcExt, MeasAdcInt, MeasCompExt, MeasCompInt, MeasSampInt, MeasDacExt, MeasDacInt)
+    cls.__name__: cls
+    for cls in (MeasAdcExt, MeasAdcInt, MeasCompExt, MeasCompInt, MeasSampInt, MeasCdacExt, MeasCdacInt)
 }
 
 
 PARAMETER_TYPES = {
     MeasAdcExt.__name__: AdcTbParams,
     MeasAdcInt.__name__: AdcTbParams,
-    MeasCompExt.__name__: CompTbParams,
-    MeasCompInt.__name__: CompTbParams,
+    MeasCompExt.__name__: AdcTbParams,
+    MeasCompInt.__name__: (CompTbParams, AdcTbParams),
     MeasSampInt.__name__: SampTbParams,
-    MeasDacExt.__name__: CdacTbParams,
-    MeasDacInt.__name__: CdacTbParams,
+    MeasCdacExt.__name__: AdcTbParams,
+    MeasCdacInt.__name__: (CdacTbParams, AdcTbParams),
 }

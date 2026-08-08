@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
+import hdl21 as h
 import numpy as np
 import pytest
 from bitarray import bitarray
 
 from flow.adc import AdcParams
 from flow.cdac import CdacParams, RedunStrat
-from flow.scans import scan_adc
-from flow.scans.loopback_fastrx import (
+from flow.scans import fastrx, scan_adc, seqgen
+from flow.scans.params import AdcTbParams, load_board_map
+from flow.scans.scope import plot_scope_waveforms, write_scope_csv
+from flow.scans.test_diffamp import calculate_refitted_input_calibration
+from flow.scans.test_fastrx import (
     SCOPE_DECISION_SAMPLE_FRACTION,
     extract_scope_decisions,
 )
-from flow.scans.params import AdcTbParams, load_board_map
-from flow.scans.scope import plot_scope_waveforms, write_scope_csv
 
 
 def serializer_params(**overrides) -> AdcTbParams:
@@ -102,7 +105,7 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
-    memory = scan_adc.convert_params_to_seqgen_fmt(serializer_params(), rx_sen_start_word=1)
+    memory = seqgen.convert_params_to_seqgen_fmt(serializer_params(), "0110")
 
     assert list(memory) == [
         0x81,
@@ -141,36 +144,123 @@ def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
 
 
 def test_convert_params_to_seqgen_fmt_rejects_invalid_capture_and_phase() -> None:
-    with pytest.raises(ValueError, match="must leave a low word"):
-        scan_adc.convert_params_to_seqgen_fmt(serializer_params(), rx_sen_start_word=2)
+    with pytest.raises(TypeError, match="binary string"):
+        seqgen.convert_params_to_seqgen_fmt(serializer_params(), [0, 1, 1, 0])  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must contain 4"):
+        seqgen.convert_params_to_seqgen_fmt(serializer_params(), "010")
+    with pytest.raises(ValueError, match="only zero and one"):
+        seqgen.convert_params_to_seqgen_fmt(serializer_params(), "01x0")
+    with pytest.raises(ValueError, match="leave a low word"):
+        seqgen.convert_params_to_seqgen_fmt(serializer_params(), "0011")
 
     with pytest.raises(ValueError, match="whole number"):
-        scan_adc.convert_params_to_seqgen_fmt(
+        seqgen.convert_params_to_seqgen_fmt(
             serializer_params(seq_comp_phase_delay_symbols=0.5),
-            rx_sen_start_word=1,
+            "0110",
         )
 
 
 def test_convert_vdiff_input_to_awg_supply_applies_empirical_calibration() -> None:
     """Check the software-only amplitude, center, and supply calibration."""
-    negative_awg, supply_v = scan_adc.convert_vdiff_input_to_awg_supply(
+    positive_awg, supply_v = scan_adc.convert_vdiff_input_to_awg_supply(
         1.0,
         0.600,
     )
-    positive_awg, negative_peak_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(-1.0, 0.600)
-    assert negative_awg == pytest.approx(-2.1858357372806774)
-    assert positive_awg == pytest.approx(2.158798860988882)
-    assert supply_v == pytest.approx(0.5848020214285712)
+    negative_awg, negative_peak_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(-1.0, 0.600)
+    assert positive_awg == pytest.approx(2.145589331136278)
+    assert negative_awg == pytest.approx(-2.1816474284978455)
+    assert supply_v == pytest.approx(0.5811476)
     assert negative_peak_supply_v == pytest.approx(supply_v)
+    assert positive_awg > negative_awg
 
     # The endpoint midpoint is the fitted AWG center, while their separation
     # supplies the requested sine amplitude. Both depend on |Vdiff| and Vin_cm.
-    assert (negative_awg + positive_awg) / 2.0 == pytest.approx(-0.013518438145897704)
-    assert positive_awg - negative_awg == pytest.approx(4.344634598269559)
+    assert (positive_awg + negative_awg) / 2.0 == pytest.approx(-0.0180290486807837)
+    assert positive_awg - negative_awg == pytest.approx(4.327236759634124)
 
     zero_awg, low_common_mode_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(0.0, 0.400)
-    assert zero_awg == pytest.approx(-0.03581525052269288)
-    assert low_common_mode_supply_v == pytest.approx(0.38509593392857114)
+    assert zero_awg == pytest.approx(-0.04582207028177367)
+    assert low_common_mode_supply_v == pytest.approx(0.3806216)
+
+    # Small DC inputs use the bounded common-mode table, including linear
+    # interpolation between physically measured nodes. Larger signals retain
+    # the original polynomial and cannot extrapolate beyond 0.4--0.8 V.
+    small_positive_awg, _ = scan_adc.convert_vdiff_input_to_awg_supply(0.02, 0.4)
+    interpolated_zero_awg, interpolated_supply_v = scan_adc.convert_vdiff_input_to_awg_supply(0.0, 0.45)
+    assert small_positive_awg == pytest.approx(0.0006974289182263279)
+    assert interpolated_zero_awg == pytest.approx(-0.04587662749001531)
+    assert interpolated_supply_v == pytest.approx(0.43078645)
+    with pytest.raises(ValueError, match="large-signal input calibration range"):
+        scan_adc.convert_vdiff_input_to_awg_supply(0.026, 0.3)
+
+
+def test_convert_vdiff_input_to_awg_supply_is_continuous_at_calibration_boundaries() -> None:
+    """The small- and large-signal calibration models must not reset a sweep."""
+
+    for vin_cm_v in (0.4, 0.6, 0.8):
+        for boundary_v in (0.025, 0.2):
+            for sign in (-1.0, 1.0):
+                below, _ = scan_adc.convert_vdiff_input_to_awg_supply(
+                    sign * (boundary_v - 1.0e-9),
+                    vin_cm_v,
+                )
+                above, _ = scan_adc.convert_vdiff_input_to_awg_supply(
+                    sign * (boundary_v + 1.0e-9),
+                    vin_cm_v,
+                )
+                assert above == pytest.approx(below, abs=1.0e-7)
+
+        requested_vdiff = np.linspace(-0.25, 0.25, 1001)
+        awg_setpoints = np.asarray(
+            [scan_adc.convert_vdiff_input_to_awg_supply(value, vin_cm_v)[0] for value in requested_vdiff]
+        )
+        assert np.all(np.diff(awg_setpoints) > 0.0)
+
+
+def test_input_calibration_refit_recovers_awg_and_supply_mapping() -> None:
+    magnitude_coefficients = np.asarray((2.2, 0.1, -0.02, 0.03, -0.01, 0.04))
+    center_coefficients = np.asarray((-0.03, 0.02, 0.01, -0.04, 0.015, 0.025))
+    supply_offset = -0.012
+    supply_gain = 0.997
+    rows = []
+    for amplitude_v, vin_cm_v in (
+        (0.1, 0.1),
+        (0.1, 0.3),
+        (0.1, 0.6),
+        (0.1, 0.9),
+        (0.2, 0.4),
+        (0.2, 0.8),
+        (0.5, 0.4),
+        (0.5, 0.8),
+        (1.0, 0.6),
+    ):
+        delta_v = vin_cm_v - 0.6
+        basis = np.asarray((1.0, amplitude_v, amplitude_v**2, delta_v, amplitude_v * delta_v, delta_v**2))
+        required_gain = float(basis @ magnitude_coefficients)
+        required_center = float(basis @ center_coefficients)
+        programmed_center = -0.02
+        programmed_half_amplitude = 2.0 * amplitude_v
+        measured_half_amplitude = programmed_half_amplitude / required_gain
+        measured_offset = (programmed_center - required_center) / required_gain
+        supply_set_v = supply_offset + supply_gain * vin_cm_v
+        rows.append(
+            {
+                "target_vdiff_peak_v": amplitude_v,
+                "target_vin_cm_v": vin_cm_v,
+                "awg_amplitude_vpp": 2.0 * programmed_half_amplitude,
+                "awg_offset_v": programmed_center,
+                "measured_vdiff_vpp": 2.0 * measured_half_amplitude,
+                "measured_vdiff_offset_v": measured_offset,
+                "vin_cm_supply_set_v": supply_set_v,
+                "vin_cm_supply_read_v": vin_cm_v,
+            }
+        )
+
+    result = calculate_refitted_input_calibration(rows, awg_calibration_vin_cm_v=0.6)
+    np.testing.assert_allclose(result["awg_vdiff_magnitude_coefficients"], magnitude_coefficients)
+    np.testing.assert_allclose(result["awg_center_coefficients"], center_coefficients)
+    assert result["vin_cm_supply_offset_v"] == pytest.approx(supply_offset)
+    assert result["vin_cm_supply_gain"] == pytest.approx(supply_gain)
 
 
 def test_convert_dac_caps_to_adc_weights_adds_terminal_decision() -> None:
@@ -214,24 +304,8 @@ def test_convert_params_to_spi_fmt_rejects_invalid_fields(override: dict[str, ob
         scan_adc.convert_params_to_spi_fmt(spi_params(**override))
 
 
-def test_convert_fastrx_to_bout_and_dout_uses_msb_first_samples_and_weights() -> None:
-    """Verify FastRX temporal bit order, weighted recombination, and size validation."""
-    assert scan_adc.convert_fastrx_to_bout_and_dout(
-        0b101101,
-        data_size=6,
-        code_weights=[8, 4, 2, 1],
-    ) == ("1011", 11)
-
-    with pytest.raises(ValueError, match="smaller than 5 ADC code bits"):
-        scan_adc.convert_fastrx_to_bout_and_dout(
-            0b1011,
-            data_size=4,
-            code_weights=[16, 8, 4, 2, 1],
-        )
-
-
-def test_convert_fastrx_words_to_adc_matches_scalar_decode_and_validates_headers() -> None:
-    """Vector decoding preserves scalar bit order, weights, frames, and identifiers."""
+def test_convert_fastrx_words_to_adc_preserves_bit_order_and_validates_headers() -> None:
+    """Vector decoding preserves bit order, weights, frames, and identifiers."""
 
     data_size = 4
     code_weights = [8, 4, 2, 1]
@@ -241,24 +315,23 @@ def test_convert_fastrx_words_to_adc_matches_scalar_decode_and_validates_headers
         dtype=np.uint32,
     )
 
-    bout, dout_raw, dout = scan_adc.convert_fastrx_words_to_adc(
+    bout, dout_raw, dout = fastrx.convert_fastrx_words_to_adc(
         words,
         data_size,
         code_weights,
         adc_bits=12,
     )
 
-    scalar = [scan_adc.convert_fastrx_to_bout_and_dout(spi, data_size, code_weights) for spi in spi_values]
-    assert ["".join(str(bit) for bit in row) for row in bout] == [bits for bits, _raw in scalar]
-    assert dout_raw.tolist() == [raw for _bits, raw in scalar]
+    assert ["".join(str(bit) for bit in row) for row in bout] == ["1011", "0101", "1110"]
+    assert dout_raw.tolist() == [11, 5, 14]
     assert dout.tolist() == [
-        scan_adc.convert_dout_to_normalized_dout(raw, code_weights, adc_bits=12) for _bits, raw in scalar
+        scan_adc.convert_dout_to_normalized_dout(raw, code_weights, adc_bits=12) for raw in (11, 5, 14)
     ]
 
     invalid_identifier = words.copy()
     invalid_identifier[1] &= np.uint32(0x0FFFFFFF)
     with pytest.raises(RuntimeError, match="conversion 1 has identifier"):
-        scan_adc.convert_fastrx_words_to_adc(
+        fastrx.convert_fastrx_words_to_adc(
             invalid_identifier,
             data_size,
             code_weights,
@@ -268,7 +341,7 @@ def test_convert_fastrx_words_to_adc_matches_scalar_decode_and_validates_headers
     invalid_frame = words.copy()
     invalid_frame[2] ^= np.uint32(1 << data_size)
     with pytest.raises(RuntimeError, match="conversion 2 has frame"):
-        scan_adc.convert_fastrx_words_to_adc(
+        fastrx.convert_fastrx_words_to_adc(
             invalid_frame,
             data_size,
             code_weights,
@@ -283,6 +356,51 @@ def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
     assert scan_adc.convert_dout_to_normalized_dout(1, [1, 1], adc_bits=12) == 2048
 
 
+def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_it(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    base = scan_adc.build_variants()[0]
+    boundary = replace(
+        base,
+        vin_cm=h.Vdc.Params(dc=0.8),
+        vin_diff=h.Vdc.Params(dc=0.9),
+    )
+    beyond = replace(boundary, vin_diff=h.Vdc.Params(dc=0.900002))
+    scan_outdir = tmp_path / "not-created"
+    monkeypatch.setattr(scan_adc, "build_variants", lambda: [boundary, beyond])
+    monkeypatch.setattr(scan_adc, "SCAN_OUTDIR", scan_outdir)
+
+    with pytest.raises(ValueError, match="ADC inputs"):
+        scan_adc.main()
+    assert not scan_outdir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "voltage_v", "message"),
+    (
+        ("vdd_a", 1.099, "VDD_A request"),
+        ("vdd_dac", 1.301, "VDD_DAC request"),
+        ("vdd_io", 1.3, "VDD_IO is fixed"),
+    ),
+)
+def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
+    monkeypatch,
+    tmp_path,
+    field: str,
+    voltage_v: float,
+    message: str,
+) -> None:
+    invalid = replace(scan_adc.build_variants()[0], **{field: h.Vdc.Params(dc=voltage_v)})
+    scan_outdir = tmp_path / "not-created"
+    monkeypatch.setattr(scan_adc, "build_variants", lambda: [invalid])
+    monkeypatch.setattr(scan_adc, "SCAN_OUTDIR", scan_outdir)
+
+    with pytest.raises(ValueError, match=message):
+        scan_adc.main()
+    assert not scan_outdir.exists()
+
+
 def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> None:
     """Software-only: keep arbitrary rates inside the bounded data aperture."""
 
@@ -290,7 +408,7 @@ def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> No
     rates_mbd = (*range(80, 1601), 80.125, 681.37, 1163.25, 1599.875)
     for rate_mbd in rates_mbd:
         symbol_rate_bps = rate_mbd * 1.0e6
-        alignment = scan_adc.calculate_fastrx_capture_alignment(
+        alignment = fastrx.calculate_fastrx_capture_alignment(
             AdcTbParams(symbol_rate=symbol_rate_bps),
             **timing,
         )
@@ -308,11 +426,11 @@ def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> No
     # Hardware regression: repeated 1.52 GBd sine acquisitions were clean at
     # taps 18/20 but contained rare gross errors at taps 22/24. Preserve the
     # hold-bounded setup-side guard at 1.4 and 1.6 GBd.
-    alignment_1400 = scan_adc.calculate_fastrx_capture_alignment(
+    alignment_1400 = fastrx.calculate_fastrx_capture_alignment(
         AdcTbParams(symbol_rate=1.4e9),
         **timing,
     )
-    alignment_1600 = scan_adc.calculate_fastrx_capture_alignment(
+    alignment_1600 = fastrx.calculate_fastrx_capture_alignment(
         AdcTbParams(symbol_rate=1.6e9),
         **timing,
     )

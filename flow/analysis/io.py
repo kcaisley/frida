@@ -22,19 +22,19 @@ from flow.analysis.types import (
     AdcExtWave,
     AdcIntWave,
     Backend,
+    CdacExtDaq,
+    CdacExtWave,
+    CdacIntDaq,
+    CdacIntWave,
     CompDaq,
     CompExtWave,
     CompIntWave,
-    DacExtDaq,
-    DacExtWave,
-    DacIntDaq,
-    DacIntWave,
     MeasAdcExt,
     MeasAdcInt,
+    MeasCdacExt,
+    MeasCdacInt,
     MeasCompExt,
     MeasCompInt,
-    MeasDacExt,
-    MeasDacInt,
     MeasInfo,
     MeasSampInt,
     Measurement,
@@ -60,8 +60,8 @@ SECTION_TYPES = {
     MeasCompExt.__name__: (CompDaq, CompExtWave),
     MeasCompInt.__name__: (CompDaq, CompIntWave),
     MeasSampInt.__name__: (SampDaq, SampIntWave),
-    MeasDacExt.__name__: (DacExtDaq, DacExtWave),
-    MeasDacInt.__name__: (DacIntDaq, DacIntWave),
+    MeasCdacExt.__name__: (CdacExtDaq, CdacExtWave),
+    MeasCdacInt.__name__: (CdacIntDaq, CdacIntWave),
 }
 
 
@@ -217,6 +217,9 @@ def _read_native(node: h5py.Group | h5py.Dataset):
 
 def _write_section(parent: h5py.File, name: str, section) -> None:
     group = parent.create_group(name)
+    if section is None:
+        group.attrs["_kind"] = "none"
+        return
     group.attrs["_type"] = _qualified_type(type(section))
     for data_field in dataclasses.fields(section):
         value = getattr(section, data_field.name)
@@ -226,6 +229,8 @@ def _write_section(parent: h5py.File, name: str, section) -> None:
 
 
 def _read_section(group: h5py.Group, section_type: type):
+    if group.attrs.get("_kind") == "none":
+        return None
     values = {}
     missing = []
     for data_field in _dataclass_fields(section_type):
