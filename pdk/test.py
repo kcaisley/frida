@@ -61,14 +61,13 @@ def test_install_supply_voltage_corner_mapping(tech: str) -> None:
 
 
 @pytest.mark.parametrize("tech", _SUPPORTED_TECHS)
-def test_supplyvals_resolves_via_install(tech: str) -> None:
-    """SupplyVals.corner() resolves VDD through Install.supply_voltage()."""
-    from flow.circuit.params import SupplyVals
+def test_supply_voltage_resolves_via_install(tech: str) -> None:
+    """supply_voltage() resolves VDD through Install.supply_voltage()."""
+    from flow.circuit.params import supply_voltage
 
     cls = _install_class(tech)
     expected = cls.supply_voltage(Corner.TYP, "VDD")
-    vals = SupplyVals.corner(Corner.TYP, tech_name=tech)
-    assert float(vals.VDD) == expected
+    assert float(supply_voltage(Corner.TYP, tech_name=tech)) == expected
 
 
 # ==== Walker Scaling of Unitless MOS Dimensions ====

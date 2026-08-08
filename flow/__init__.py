@@ -23,7 +23,7 @@ from .cdac import (
 )
 
 # Common circuit parameters
-from .circuit import Pvt, SupplyVals
+from .circuit import Pvt, PvtParams, supply_voltage
 from .comp import Comp, CompParams, is_valid_comp_params
 from .samp import Samp, SampParams, SwitchType
 
@@ -51,8 +51,9 @@ __all__ = [  # noqa: RUF022 - grouped by API domain
     "RedunStrat",
     "SplitStrat",
     "CapType",
+    "PvtParams",
     "Pvt",
-    "SupplyVals",
+    "supply_voltage",
 ]
 
 _TESTBENCH_EXPORTS = {

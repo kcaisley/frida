@@ -34,22 +34,6 @@ MAX_SYMBOL_RATE_BPS = 1_600_000_000.0
 
 
 @dataclass(frozen=True)
-class PllFrequency:
-    """Calculated clocks for one paired output-divider value ``N``."""
-
-    divider_n: int
-    input_frequency_hz: float
-    divclk_divide: int
-    clkfbout_mult: int
-    vco_frequency_hz: float
-    clkout0_divide: int
-    clkout1_divide: int
-    sequencer_frequency_hz: float
-    serializer_frequency_hz: float
-    ddr_line_rate_bps: float
-
-
-@dataclass(frozen=True)
 class PllDrpStatus:
     """GPIO2 readback after a DRP request."""
 
@@ -129,60 +113,6 @@ def select_pll_configuration(
             f"N={min(divider_values)}..{max(divider_values)}"
         )
     return max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
-
-
-def build_pll_frequency_table(
-    input_frequency_hz: float,
-    divclk_divide: int,
-    clkfbout_mult: int,
-    dividers: Iterable[int],
-) -> dict[int, PllFrequency]:
-    """Return a lookup from paired divider ``N`` to the resulting clocks.
-
-    ``input_frequency_hz`` is supplied by the Si570. ``divclk_divide`` (D)
-    and ``clkfbout_mult`` (M) describe the fixed hardware configuration. For every requested ``N``, the
-    current firmware uses output dividers ``O0=4*N`` and ``O1=N``.
-
-    This function performs calculation only; it does not access hardware or
-    enforce device-specific PFD/VCO limits.
-    """
-    if input_frequency_hz <= 0:
-        raise ValueError("input_frequency_hz must be positive")
-    if divclk_divide <= 0:
-        raise ValueError("divclk_divide must be positive")
-    if clkfbout_mult <= 0:
-        raise ValueError("clkfbout_mult must be positive")
-
-    vco_frequency_hz = input_frequency_hz * clkfbout_mult / divclk_divide
-    table: dict[int, PllFrequency] = {}
-    for divider_n in dividers:
-        sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
-            divider_n,
-            input_frequency_hz,
-            divclk_divide,
-            clkfbout_mult,
-        )
-        table[divider_n] = PllFrequency(
-            divider_n=divider_n,
-            input_frequency_hz=input_frequency_hz,
-            divclk_divide=divclk_divide,
-            clkfbout_mult=clkfbout_mult,
-            vco_frequency_hz=vco_frequency_hz,
-            clkout0_divide=4 * divider_n,
-            clkout1_divide=divider_n,
-            sequencer_frequency_hz=sequencer_frequency_hz,
-            serializer_frequency_hz=serializer_frequency_hz,
-            ddr_line_rate_bps=2 * serializer_frequency_hz,
-        )
-    return table
-
-
-PLL_FREQUENCY_TABLE = build_pll_frequency_table(
-    PLL_INPUT_FREQUENCY_HZ,
-    PLL_DIVCLK_DIVIDE,
-    PLL_CLKFBOUT_MULT,
-    PLL_DIVIDERS,
-)
 
 
 def _read_pll_status(gpio: Any) -> PllDrpStatus:

@@ -13,11 +13,7 @@ from time import sleep
 import pytest
 
 from flow.scans.plldrp import (
-    PLL_CLKFBOUT_MULT,
-    PLL_DIVCLK_DIVIDE,
     PLL_DIVIDERS,
-    PLL_INPUT_FREQUENCY_HZ,
-    build_pll_frequency_table,
     calculate_pll_frequency,
     select_pll_configuration,
     set_pll_divider,
@@ -47,38 +43,13 @@ TEST_SYMBOL_RATES_BPS = tuple(
 SI570_FACTORY_FREQUENCY_HZ = 156.25e6
 
 
-def test_build_pll_frequency_table() -> None:
+def test_calculate_supported_pll_frequencies() -> None:
     """Software-only: calculate all 19 divider settings without hardware I/O."""
-    table = build_pll_frequency_table(
-        PLL_INPUT_FREQUENCY_HZ,
-        PLL_DIVCLK_DIVIDE,
-        PLL_CLKFBOUT_MULT,
-        PLL_DIVIDERS,
-    )
-
-    assert tuple(table) == PLL_DIVIDERS
-    for divider, frequency in table.items():
+    for divider in PLL_DIVIDERS:
         sequencer_hz, serializer_hz = calculate_pll_frequency(divider)
-        assert frequency.divider_n == divider
-        assert frequency.clkout0_divide == 4 * divider
-        assert frequency.clkout1_divide == divider
-        assert frequency.sequencer_frequency_hz == sequencer_hz
-        assert frequency.serializer_frequency_hz == serializer_hz
-        assert frequency.sequencer_frequency_hz == pytest.approx(400_000_000 / divider)
-        assert frequency.serializer_frequency_hz == pytest.approx(1_600_000_000 / divider)
-        assert frequency.ddr_line_rate_bps == pytest.approx(3_200_000_000 / divider)
-
-    assert table[2].vco_frequency_hz == pytest.approx(1_600_000_000)
-    assert table[2].clkout0_divide == 8
-    assert table[2].clkout1_divide == 2
-    assert table[2].sequencer_frequency_hz == pytest.approx(200_000_000)
-    assert table[2].serializer_frequency_hz == pytest.approx(800_000_000)
-    assert table[2].ddr_line_rate_bps == pytest.approx(1_600_000_000)
-    assert table[20].clkout0_divide == 80
-    assert table[20].clkout1_divide == 20
-    assert table[20].sequencer_frequency_hz == pytest.approx(20_000_000)
-    assert table[20].serializer_frequency_hz == pytest.approx(80_000_000)
-    assert table[20].ddr_line_rate_bps == pytest.approx(160_000_000)
+        assert sequencer_hz == pytest.approx(400_000_000 / divider)
+        assert serializer_hz == pytest.approx(1_600_000_000 / divider)
+        assert 2 * serializer_hz == pytest.approx(3_200_000_000 / divider)
 
 
 def test_select_pll_configuration() -> None:

@@ -16,7 +16,7 @@ from ..circuit.netlist import (
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.params import Pvt, SupplyVals, temperature_c
+from ..circuit.params import PvtParams, supply_voltage, temperature_c
 from .subckt import (
     CapType,
     Cdac,
@@ -32,7 +32,7 @@ from .subckt import (
 class CdacTbParams:
     """CDAC testbench parameters."""
 
-    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
+    pvt = h.Param(dtype=PvtParams, desc="PVT conditions", default=PvtParams())
     cdac = h.Param(dtype=CdacParams, desc="CDAC parameters", default=CdacParams())
 
 
@@ -46,7 +46,7 @@ def CdacTb(params: CdacTbParams) -> h.Module:
     - DAC code inputs (driven by sim PWL)
     - Load capacitor on output
     """
-    supply = SupplyVals.corner(params.pvt.v)
+    vdd = supply_voltage(params.pvt.v)
     n_bits = get_cdac_n_bits(params.cdac)
 
     @h.module
@@ -64,7 +64,7 @@ def CdacTb(params: CdacTbParams) -> h.Module:
         # DAC code inputs (driven by sim PWL)
         dac_bits = h.Signal(width=n_bits)
 
-    CdacTb.vvdd = Vdc(dc=supply.VDD)(p=CdacTb.vdd, n=CdacTb.vss)
+    CdacTb.vvdd = Vdc(dc=vdd)(p=CdacTb.vdd, n=CdacTb.vss)
     CdacTb.cload = C(c=100 * f)(p=CdacTb.top, n=CdacTb.vss)
 
     CdacTb.dut = Cdac(params.cdac)(
@@ -80,7 +80,7 @@ def CdacTb(params: CdacTbParams) -> h.Module:
     for code in codes:
         for bit in range(n_bits):
             bit_is_set = (code >> bit) & 1
-            bit_values[bit].append(supply.VDD if bit_is_set else 0 * m)
+            bit_values[bit].append(vdd if bit_is_set else 0 * m)
 
     t_step = 200 * n
     t_rise = 100 * p

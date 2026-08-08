@@ -15,7 +15,7 @@ from ..circuit.netlist import (
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.params import Pvt, SupplyVals, temperature_c
+from ..circuit.params import PvtParams, supply_voltage, temperature_c
 from .subckt import Samp, SampParams, SwitchType
 
 
@@ -23,7 +23,7 @@ from .subckt import Samp, SampParams, SwitchType
 class SampTbParams:
     """Sampler testbench parameters."""
 
-    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
+    pvt = h.Param(dtype=PvtParams, desc="PVT conditions", default=PvtParams())
     samp = h.Param(dtype=SampParams, desc="Sampler parameters", default=SampParams())
     cload = h.Param(dtype=h.Prefixed, desc="Load capacitance", default=1 * f)
 
@@ -40,7 +40,7 @@ def SampTb(params: SampTbParams) -> h.Module:
     - Load capacitor
     - DUT sampler instance
     """
-    supply = SupplyVals.corner(params.pvt.v)
+    vdd = supply_voltage(params.pvt.v)
 
     @h.module
     class SampTb:
@@ -61,11 +61,11 @@ def SampTb(params: SampTbParams) -> h.Module:
         # Output with load capacitor
         dout = h.Signal()
 
-    SampTb.vvdd = Vdc(dc=supply.VDD)(p=SampTb.vdd, n=SampTb.vss)
+    SampTb.vvdd = Vdc(dc=vdd)(p=SampTb.vdd, n=SampTb.vss)
 
     SampTb.vclk = Vpulse(
         v1=0 * m,
-        v2=supply.VDD,
+        v2=vdd,
         period=100 * n,
         width=50 * n,
         rise=100 * p,
@@ -73,7 +73,7 @@ def SampTb(params: SampTbParams) -> h.Module:
         delay=0 * n,
     )(p=SampTb.clk, n=SampTb.vss)
     SampTb.vclk_b = Vpulse(
-        v1=supply.VDD,
+        v1=vdd,
         v2=0 * m,
         period=100 * n,
         width=50 * n,
@@ -82,7 +82,7 @@ def SampTb(params: SampTbParams) -> h.Module:
         delay=0 * n,
     )(p=SampTb.clk_b, n=SampTb.vss)
 
-    SampTb.vdin = Vdc(dc=supply.VDD / 2)(p=SampTb.din, n=SampTb.vss)
+    SampTb.vdin = Vdc(dc=vdd / 2)(p=SampTb.din, n=SampTb.vss)
     SampTb.cload = C(c=params.cload)(p=SampTb.dout, n=SampTb.vss)
 
     SampTb.dut = Samp(params.samp)(

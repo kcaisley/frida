@@ -1,5 +1,6 @@
 """Comparator testbench, netlisting, and simulation runner for FRIDA."""
 
+import math
 from pathlib import Path
 
 import hdl21 as h
@@ -16,7 +17,13 @@ from ..circuit.netlist import (
     select_variants,
     wrap_monte_carlo,
 )
-from ..circuit.params import Pvt, SupplyVals, temperature_c
+from ..circuit.params import (
+    PvtParams,
+    build_uniform_sweep_values,
+    supply_voltage,
+    temperature_c,
+    validate_uniform_sweep,
+)
 from .subckt import Comp, CompParams, is_valid_comp_params
 
 
@@ -24,8 +31,30 @@ from .subckt import Comp, CompParams, is_valid_comp_params
 class CompTbParams:
     """Comparator testbench parameters."""
 
-    pvt = h.Param(dtype=Pvt, desc="PVT conditions", default=Pvt())
+    pvt = h.Param(dtype=PvtParams, desc="PVT conditions", default=PvtParams())
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
+    vin_cm_values_v = h.Param(
+        dtype=tuple[h.Scalar, ...],
+        desc="Comparator input common-mode values",
+        default=(0.7, 0.8, 0.9, 1.0, 1.1, 1.2),
+    )
+    sweep_min_v = h.Param(dtype=h.Scalar, desc="Inclusive differential-input minimum", default=0.0)
+    sweep_max_v = h.Param(dtype=h.Scalar, desc="Inclusive differential-input maximum", default=25.0e-3)
+    sweep_step_v = h.Param(dtype=h.Scalar, desc="Differential-input grid step", default=100.0e-6)
+    conversions = h.Param(dtype=int, desc="Repeated decisions per differential-input point", default=1_000)
+
+
+def validate_comp_tb_params(params: CompTbParams) -> None:
+    """Validate standalone comparator testbench conditions."""
+
+    validate_uniform_sweep(params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
+    common_modes = tuple(float(value) for value in params.vin_cm_values_v)
+    if not common_modes or not all(math.isfinite(value) for value in common_modes):
+        raise ValueError("comparator common modes must be a non-empty finite sequence")
+    if len(set(common_modes)) != len(common_modes):
+        raise ValueError("comparator common modes must be unique")
+    if isinstance(params.conversions, bool) or params.conversions <= 0:
+        raise ValueError("comparator conversions must be a positive integer")
 
 
 @h.generator
@@ -40,7 +69,7 @@ def CompTb(params: CompTbParams) -> h.Module:
     - 10ns clock period, 40% duty cycle
     - 10fF output loading
     """
-    supply = SupplyVals.corner(params.pvt.v)
+    vdd = supply_voltage(params.pvt.v)
 
     @h.module
     class CompTb:
@@ -67,7 +96,7 @@ def CompTb(params: CompTbParams) -> h.Module:
         out_p = h.Signal()
         out_n = h.Signal()
 
-    CompTb.vvdd = Vdc(dc=supply.VDD)(p=CompTb.vdd, n=CompTb.vss)
+    CompTb.vvdd = Vdc(dc=vdd)(p=CompTb.vdd, n=CompTb.vss)
 
     CompTb.rsrc_p = R(r=1000)(p=CompTb.vin_p_src, n=CompTb.in_p)
     CompTb.rsrc_n = R(r=1000)(p=CompTb.vin_n_src, n=CompTb.in_n)
@@ -77,7 +106,7 @@ def CompTb(params: CompTbParams) -> h.Module:
     # Clocks: 10ns period, 40% duty cycle (4ns high = evaluation phase)
     CompTb.vclk = Vpulse(
         v1=0 * m,
-        v2=supply.VDD,
+        v2=vdd,
         period=10 * n,
         width=4 * n,
         rise=100 * p,
@@ -85,7 +114,7 @@ def CompTb(params: CompTbParams) -> h.Module:
         delay=500 * p,
     )(p=CompTb.clk, n=CompTb.vss)
     CompTb.vclkb = Vpulse(
-        v1=supply.VDD,
+        v1=vdd,
         v2=0 * m,
         period=10 * n,
         width=4 * n,
@@ -110,8 +139,9 @@ def CompTb(params: CompTbParams) -> h.Module:
         vss=CompTb.vss,
     )
 
-    cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
-    diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
+    validate_comp_tb_params(params)
+    cm_voltages = params.vin_cm_values_v
+    diff_voltages = build_uniform_sweep_values(params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
     vin_p_values: list[h.Scalar] = []
     vin_n_values: list[h.Scalar] = []
     for vcm in cm_voltages:
@@ -154,9 +184,9 @@ def sim_input(params: CompTbParams) -> hs.Sim:
     """Create transient simulation with stepped vcm/vdiff inputs."""
     sim_temp = temperature_c(params.pvt.t)
 
-    # S-curve sweep definition
-    cm_voltages = [300 * m, 400 * m, 500 * m, 600 * m, 700 * m]
-    diff_voltages = [i * 2 * m - 10 * m for i in range(11)]
+    validate_comp_tb_params(params)
+    cm_voltages = params.vin_cm_values_v
+    diff_voltages = build_uniform_sweep_values(params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
 
     t_step = 200 * n
     t_rise = 100 * p
