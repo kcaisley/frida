@@ -68,8 +68,8 @@ class CDAC:
         dnl_data = np.zeros(len(reg_data) - 1)
         inl_data = np.zeros(len(reg_data))
 
-        print("DAC array size %d" % self.params["array_size"])
-        print("lsb size %e" % self.lsb_size)
+        print(f"DAC array size {self.params['array_size']:d}")
+        print(f"lsb size {self.lsb_size:e}")
 
         for reg in reg_data:
             self.reset(0)
@@ -89,13 +89,13 @@ class CDAC:
             # plot[0].set_xticks(range(reg_data[0], reg_data[len(reg_data)-1]+1,  self.params['array_size']//4))
             plot[0].set_ylabel("Output voltage [V]")
             plot[0].grid(True)
-            plot[1].step(reg_data[:-1], dnl_data, where="post", label="DNL = %.3f" % dac_dnl_std)
+            plot[1].step(reg_data[:-1], dnl_data, where="post", label=f"DNL = {dac_dnl_std:.3f}")
             if dac_dnl_std < 0.0001:
                 plot[1].set_ylim(-1, 1)
             plot[1].set_ylabel("DNL [LSB]")
             plot[1].legend(loc="upper right")
             plot[1].grid(True)
-            plot[2].step(reg_data[:-1], inl_data, where="post", label="INL = %.3f" % dac_inl_std)
+            plot[2].step(reg_data[:-1], inl_data, where="post", label=f"INL = {dac_inl_std:.3f}")
             if dac_inl_std < 0.0001:
                 plot[2].set_ylim(-1, 1)
             plot[2].set_ylabel("INL [LSB]")
@@ -268,8 +268,8 @@ class CDAC_BSS(CDAC):
         noise_n = voltage_noise_sample * capacitance_at_vref_n / self.capacitance_sum_n
 
         # calculate how much of the voltage step is resolved, as a voltage with same sign
-        settling_error_p = delta_output_voltage_p * self.settling_time_error  #
-        settling_error_n = delta_output_voltage_n * self.settling_time_error  #
+        settling_error_p = delta_output_voltage_p * self.settling_time_error
+        settling_error_n = delta_output_voltage_n * self.settling_time_error
 
         # add noise and subtract the unresolved voltage step
         return (self.output_voltage_p + noise_p - settling_error_p), (
@@ -351,8 +351,8 @@ class SAR_ADC:
         parameters += f" Sample freq. {self.sampling_frequency / 1.0e6:.0f} Msps\n"
         parameters += f" LSB size     {self.lsb_size / 1.0e-3:.3f} mV\n"
         parameters += f" Redundancy   {self.redundancy}\n"
-        if not self.dac.use_individual_weights:
-            parameters += f" DAC radix    {self.dac.radix:.1f}\n"
+        if not self.dac.params["use_individual_weights"]:
+            parameters += f" DAC radix    {self.dac.params['radix']:.1f}\n"
         parameters += f" DAC capacitor array size  {self.dac.params['array_size']}\n"
         parameters += f" DAC unit capacitance      {self.dac.params['unit_capacitance'] / 1e-15:.1f} fF\n"
         parameters += f" DAC parasitic capacitance {self.dac.params['parasitic_capacitance'] / 1e-15:.1f} fF\n"
@@ -488,7 +488,7 @@ class SAR_ADC:
                 bin_edges,
                 code_density_hist,
                 where="pre",
-                label="Ideal bin count = %d" % values_per_bin,
+                label=f"Ideal bin count = {values_per_bin:d}",
             )
             plot[1].set_xticks(x_ticks)
             plot[1].set_ylabel("Counts per ADC code")
@@ -496,13 +496,13 @@ class SAR_ADC:
             plot[1].grid(True)
             plot[2].title.set_text("Differential Nonlinearity")
 
-            plot[2].step(bin_edges, dnl_data, where="post", label="DNL sigma = %.3f" % dnl_sigma)
+            plot[2].step(bin_edges, dnl_data, where="post", label=f"DNL sigma = {dnl_sigma:.3f}")
             plot[2].set_ylim(-2, 2)
             plot[2].set_ylabel("DNL [LSB]")
             plot[2].legend(loc="upper right")
             plot[2].grid(True)
             plot[3].title.set_text("Integral Nonlinearity")
-            plot[3].step(bin_edges, inl_data, where="post", label="INL sigma = %.3f" % inl_sigma)
+            plot[3].step(bin_edges, inl_data, where="post", label=f"INL sigma = {inl_sigma:.3f}")
             plot[3].set_ylim(-2, 2)
             plot[3].set_ylabel("INL [LSB]")
             plot[3].legend(loc="upper right")
@@ -565,7 +565,7 @@ class SAR_ADC:
             ax[1].plot(
                 time_array,
                 residual_array,
-                label="Residuals [LSB]\n Noise std = %.3f\n ENOB = %.2f" % (noise_std, self.enob),
+                label=f"Residuals [LSB]\n Noise std = {noise_std:.3f}\n ENOB = {self.enob:.2f}",
             )
             ax[1].legend(loc="upper right")
             ax[1].grid(True)
@@ -835,25 +835,25 @@ class SAR_ADC:
         output_both("", markdown_only=True)
 
         # Run analyses and collect results
-        figure1, ax1 = self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
+        self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
         plt.tight_layout()
         plot_path = f"{builddir}{testcase}_nonlinearity.png"
         plt.savefig(plot_path, dpi=300, bbox_inches="tight")
         plt.close()
 
-        figure2, ax2 = self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
+        self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
         plt.tight_layout()
         plot_path2 = f"{builddir}{testcase}_energy.png"
         plt.savefig(plot_path2, dpi=300, bbox_inches="tight")
         plt.close()
 
-        figure3, ax3 = self.calculate_enob(do_plot=True, num_samples=num_samples)
+        self.calculate_enob(do_plot=True, num_samples=num_samples)
         plt.tight_layout()
         plot_path3 = f"{builddir}{testcase}_enob.png"
         plt.savefig(plot_path3, dpi=300, bbox_inches="tight")
         plt.close()
 
-        figure4, ax4 = self.calculate_redundancy(do_plot=True)
+        self.calculate_redundancy(do_plot=True)
         plt.tight_layout()
         plot_path4 = f"{builddir}{testcase}_redundancy.png"
         plt.savefig(plot_path4, dpi=300, bbox_inches="tight")
@@ -1069,12 +1069,9 @@ class SAR_ADC:
             )  # FIXME: Based on binary only model. Also this variable isn't used?'
 
             figure, plot = plt.subplots(1, 1)
-            legend_title = (
-                # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
-                # % (input_voltage_p, input_voltage_n, result, ideal_result)
-                "Diff input voltage [%.3f, %.3f] \nADC code = %.2f"  # FIXME: Disable ideal result being added, as it's based on binary only model.
-                % (input_voltage_p, input_voltage_n, result)
-            )
+            # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
+            # % (input_voltage_p, input_voltage_n, result, ideal_result)
+            legend_title = f"Diff input voltage [{input_voltage_p:.3f}, {input_voltage_n:.3f}] \nADC code = {result:.2f}"  # FIXME: Disable ideal result being added, as it's based on binary only model.
             figure.suptitle("SAR Conversion")
             plot.stairs(dac_out_p, range(self.cycles + 1), baseline=False, label="p-side")
             plot.stairs(dac_out_n, range(self.cycles + 1), baseline=False, label="n-side")

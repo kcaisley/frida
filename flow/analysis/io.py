@@ -173,6 +173,8 @@ def _read_native(node: h5py.Group | h5py.Dataset):
             value = value.item()
         if kind == "enum":
             enum_type = _resolve_type(_decode_string(node.attrs["_type"]))
+            if not issubclass(enum_type, Enum):
+                raise TypeError(f"persisted enum type {enum_type.__name__!r} is not an Enum")
             return enum_type[value]
         if kind == "path":
             return Path(value)

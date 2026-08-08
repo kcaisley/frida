@@ -13,11 +13,13 @@ repos:
         language: system
         types: [python]
 
-      - id: ty-analysis
-        name: ty analysis type check
-        entry: uv run ty check flow/analysis
+      - id: ty-flow
+        name: ty flow type check
+        entry: >-
+          uv run ty check flow/analysis flow/scans flow/adc flow/cdac flow/comp
+          flow/samp
         language: system
-        files: ^flow/analysis/.*\.py$
+        files: ^flow/(analysis|scans|adc|cdac|comp|samp)/.*\.py$
         pass_filenames: false
 
   # LaTeX formatting

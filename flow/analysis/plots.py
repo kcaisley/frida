@@ -362,9 +362,13 @@ def plot_measurement_waveforms(
 
     if msmt.wave is None:
         raise ValueError("measurement does not contain a commissioned waveform")
+    # Conversion-based measurements and trial-based measurements use different
+    # record-index field names, so resolve both members of the waveform union.
     record_ids = getattr(msmt.wave, "conversion_index", None)
     if record_ids is None:
-        record_ids = msmt.wave.trial_index
+        record_ids = getattr(msmt.wave, "trial_index", None)
+    if record_ids is None:
+        raise ValueError("measurement waveform has no record index")
     if not 0 <= record_index < len(cast(Sequence[int], record_ids)):
         raise IndexError("waveform record_index is outside the measurement")
     names = tuple(

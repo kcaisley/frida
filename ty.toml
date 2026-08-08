@@ -13,23 +13,10 @@ root = [
 [src]
 exclude = ["libs/", ".venv/"]
 
-# Suppress rules that mostly fire on library metaprogramming / incomplete
-# type stubs (hdl21, pydantic, numpy, matplotlib). Re-enable as ty matures.
+# Some developer environments intentionally omit optional simulation dependencies.
+# Keep imports permissive while enforcing every other ty diagnostic.
 [rules]
-unknown-argument = "ignore"
 unresolved-import = "ignore"
-unresolved-attribute = "ignore"
-call-non-callable = "ignore"
-unsupported-operator = "ignore"
-no-matching-overload = "ignore"
-not-subscriptable = "ignore"
-invalid-type-form = "ignore"
 invalid-argument-type = "error"
-too-many-positional-arguments = "ignore"
-# hdl21 generator/param patterns
-invalid-return-type = "ignore"
-invalid-parameter-default = "ignore"
-not-iterable = "ignore"
-invalid-assignment = "ignore"
 # Require explicit type arguments for generic containers in first-party code.
 missing-type-argument = "error"

@@ -2,6 +2,7 @@
 
 import math
 from pathlib import Path
+from typing import cast
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -257,15 +258,19 @@ def run_netlist(
     def build_dut(comp_params: CompParams):
         return Comp(comp_params)
 
-    wall_time = run_netlist_variants(
-        "comp",
-        variants,
-        build_sim,
-        outdir,
-        simulator=fmt,
-        fmt=fmt,
-        scope=scope,
-        build_dut=build_dut,
+    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 netlist target.
+    wall_time = cast(
+        float,
+        run_netlist_variants(
+            "comp",
+            variants,
+            build_sim,
+            outdir,
+            simulator=fmt,
+            fmt=fmt,
+            scope=scope,
+            build_dut=build_dut,
+        ),
     )
     if verbose:
         print_netlist_summary(
@@ -299,14 +304,18 @@ def run_simulate(
             wrap_monte_carlo(sim)
         return CompTb(tb_params), sim
 
-    wall_time, sims = run_netlist_variants(
-        "comp",
-        variants,
-        build_sim,
-        outdir,
-        return_sims=True,
-        simulator=simulator,
-        scope="full",
+    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 simulation target.
+    wall_time, sims = cast(
+        tuple[float, list[hs.Sim]],
+        run_netlist_variants(
+            "comp",
+            variants,
+            build_sim,
+            outdir,
+            return_sims=True,
+            simulator=simulator,
+            scope="full",
+        ),
     )
     if verbose:
         print_netlist_summary(

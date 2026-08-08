@@ -145,7 +145,7 @@ def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
 
 def test_convert_params_to_seqgen_fmt_rejects_invalid_capture_and_phase() -> None:
     with pytest.raises(TypeError, match="binary string"):
-        seqgen.convert_params_to_seqgen_fmt(serializer_params(), [0, 1, 1, 0])  # type: ignore[arg-type]
+        seqgen.convert_params_to_seqgen_fmt(serializer_params(), [0, 1, 1, 0])  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="must contain 4"):
         seqgen.convert_params_to_seqgen_fmt(serializer_params(), "010")
     with pytest.raises(ValueError, match="only zero and one"):
