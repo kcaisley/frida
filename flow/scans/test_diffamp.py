@@ -574,6 +574,8 @@ def test_diffamp_calibration() -> None:
         # reports even though this guarded loopback is run as a module. Run the
         # accuracy checks only after every point and its artifacts are saved.
         for row in summary_rows:
+            vdiff_vpp_relative_tolerance = row["vdiff_vpp_relative_tolerance"]
+            assert isinstance(vdiff_vpp_relative_tolerance, (int, float))
             label = (
                 f"point {row['test_index']} (Vdiff={row['target_vdiff_vpp']} Vpp, Vin_cm={row['target_vin_cm_v']} V)"
             )
@@ -590,11 +592,11 @@ def test_diffamp_calibration() -> None:
             ), f"{label}: measured {row['measured_frequency_hz']} Hz, expected {AWG_FREQUENCY_HZ} Hz within 0.5%"
             assert row["measured_vdiff_vpp"] == pytest.approx(
                 row["target_vdiff_vpp"],
-                rel=row["vdiff_vpp_relative_tolerance"],
+                rel=vdiff_vpp_relative_tolerance,
             ), (
                 f"{label}: measured {row['measured_vdiff_vpp']} Vpp, "
                 f"expected {row['target_vdiff_vpp']} Vpp within "
-                f"{100 * row['vdiff_vpp_relative_tolerance']:g}%"
+                f"{100 * vdiff_vpp_relative_tolerance:g}%"
             )
             # Relative error is undefined for the intended zero differential
             # DC offset, so constrain it separately to 5 mV.

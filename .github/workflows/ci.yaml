@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ty:
+    name: Ty
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out FRIDA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out Python and HDL dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: 3.12.11
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Run Ty
+        run: uvx pre-commit run ty-flow --all-files --show-diff-on-failure
+
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out FRIDA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: 3.12.11
+          enable-cache: true
+
+      - name: Run Ruff lint
+        run: uvx pre-commit run ruff-lint --all-files --show-diff-on-failure
+
+      - name: Run Ruff format
+        if: ${{ always() }}
+        run: uvx pre-commit run ruff-format --all-files --show-diff-on-failure
+
+  pytest:
+    name: Pytest (software)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out FRIDA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out Python and HDL dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
+
+      - name: Install Icarus Verilog
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes iverilog
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: 3.12.11
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Run software tests
+        run: uv run pytest -m 'not hw and not site_pdk'

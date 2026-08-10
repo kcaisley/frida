@@ -161,6 +161,10 @@ def classify_comp_common_mode_validity(
 
     classified = list(analyses)
     common_mode_array = np.asarray(common_modes)
+    valid_analyses = np.asarray(
+        [candidate.validity == "valid" for candidate in analyses],
+        dtype=np.bool_,
+    )
     for index, analysis in enumerate(analyses):
         if analysis.validity != "unbracketed":
             continue
@@ -173,14 +177,8 @@ def classify_comp_common_mode_validity(
         if stuck_label is None:
             continue
 
-        lower_candidates = np.flatnonzero(
-            (common_mode_array < common_modes[index])
-            & np.asarray([candidate.validity == "valid" for candidate in analyses])
-        )
-        upper_candidates = np.flatnonzero(
-            (common_mode_array > common_modes[index])
-            & np.asarray([candidate.validity == "valid" for candidate in analyses])
-        )
+        lower_candidates = np.flatnonzero((common_mode_array < common_modes[index]) & valid_analyses)
+        upper_candidates = np.flatnonzero((common_mode_array > common_modes[index]) & valid_analyses)
         neighbor_indices = []
         if lower_candidates.size:
             neighbor_indices.append(int(lower_candidates[np.argmax(common_mode_array[lower_candidates])]))

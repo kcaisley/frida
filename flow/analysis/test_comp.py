@@ -45,7 +45,7 @@ def comparator_measurement() -> MeasCompInt:
             trial_index=trial_index,
             vin_diff_v=vin_diff_v,
             vin_cm_v=np.full(3, 0.6),
-            decision=np.asarray([0, 1, 1]),
+            decision=np.asarray([0, 1, 1], dtype=np.uint8),
         ),
         wave=CompIntWave(
             trial_index=trial_index,

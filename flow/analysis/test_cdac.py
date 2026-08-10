@@ -65,7 +65,7 @@ def test_analyze_cdac_cap_mismatch_recovers_main_diff_and_direction_pairs() -> N
                             fastrx_frame=np.arange(100, dtype=np.uint32),
                         ),
                         wave=CdacExtWave(
-                            trial_index=np.asarray([0]),
+                            trial_index=np.asarray([0], dtype=np.int64),
                             time_s=np.asarray([0.0, 1e-9]),
                             vin_diff_v=np.asarray([[vin_diff_v, vin_diff_v]]),
                             seq_comp_v=np.asarray([[0.0, 1.2]]),
@@ -174,7 +174,7 @@ def test_analyze_cdac_cap_mismatch_retains_side_asymmetry_and_direction_bias() -
                                 fastrx_frame=np.arange(100, dtype=np.uint32),
                             ),
                             wave=CdacExtWave(
-                                trial_index=np.asarray([0]),
+                                trial_index=np.asarray([0], dtype=np.int64),
                                 time_s=np.asarray([0.0, 1e-9]),
                                 vin_diff_v=np.asarray([[vin_diff_v, vin_diff_v]]),
                                 seq_comp_v=np.asarray([[0.0, 1.2]]),
