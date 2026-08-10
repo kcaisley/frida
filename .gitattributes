@@ -1,3 +1,6 @@
+# Keep all tracked text files in the repository's Unix LF format.
+* text=auto eol=lf
+
 # Set filetype of .sp files to something that won't use wrong syntax highlighting
 *.sp linguist-language=SPICE
 *.cdl linguist-language=SPICE

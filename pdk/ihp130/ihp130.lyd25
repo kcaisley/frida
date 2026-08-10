@@ -40,7 +40,7 @@
  <text># Stack definition
 
 Activ = input(1,0)
-nSD = input(7,0) 
+nSD = input(7,0)
 pSD = input(14,0)
 
 Metal1 = input(8, 0)
@@ -62,11 +62,11 @@ Cont = input(6, 0)
 
 # Resistor modelling
 SalBlock = input(28,0)
-PolyRes  = input(128,0) 
+PolyRes  = input(128,0)
 GatPoly  = input(5,0) | PolyRes
 Rhigh = SalBlock &amp; pSD &amp; nSD # SalBlock + pSD + nSD only in Rhigh
 Rppd  = SalBlock &amp; pSD - nSD # SalBlock + pSD only in Rppd
-Rsil  = PolyRes - Rhigh - Rppd 
+Rsil  = PolyRes - Rhigh - Rppd
 RGatPoly = GatPoly - Rhigh - Rppd - Rsil # Gatpoly around resistor
 
 # Cont can go down to substrate or stop at poly resistors

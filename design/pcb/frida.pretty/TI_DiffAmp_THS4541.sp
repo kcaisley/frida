@@ -4,7 +4,7 @@
 *****************************************************************************
 ** This model is designed as an aid for customers of Texas Instruments.
 ** TI and its licensors and suppliers make no warranties, either expressed
-** or implied, with respect to this model, including the warranties of 
+** or implied, with respect to this model, including the warranties of
 ** merchantability or fitness for a particular purpose.  The model is
 ** provided solely on an "as is" basis.  The entire risk as to its quality
 ** and performance is with the customer.
@@ -16,8 +16,8 @@
 * Model Type: All In One
 * Simulator: Pspice
 * Simulator Version: 17.2
-* EVM Order Number: N/A 
-* EVM Users Guide:  N/A 
+* EVM Order Number: N/A
+* EVM Users Guide:  N/A
 * Datasheet: August 2014
 *
 * Model Version: 2.0
@@ -31,16 +31,16 @@
 *
 *****************************************************************************
 * Notes:
-* 1. The following parameters are modeled: 
-*    Input Offset Voltage, Input Bias Current, Input Bias Current Offset 
-*    Current Consumption, Frequency Response, Voltage Noise, Current Noise, 
-*    Slew Rate, Large Signal Bandwidth, CMRR, PSRR, Input Resistance and 
+* 1. The following parameters are modeled:
+*    Input Offset Voltage, Input Bias Current, Input Bias Current Offset
+*    Current Consumption, Frequency Response, Voltage Noise, Current Noise,
+*    Slew Rate, Large Signal Bandwidth, CMRR, PSRR, Input Resistance and
 *    Cap, Input range, Output Impendance, Output swing, Output current
-*    CMFB frequency response, CMFB Slew Rate, CMFB offset, CMFB ib current, 
+*    CMFB frequency response, CMFB Slew Rate, CMFB offset, CMFB ib current,
 *    CMFB input resistance and capacitance, CMFB input range
 *
-* 2. The following parameters are not modeled: 
-*    Harmonic Distortion 
+* 2. The following parameters are not modeled:
+*    Harmonic Distortion
 *****************************************************************************
 
 
@@ -81,8 +81,8 @@ XAHDLI34 PD OUT IN sw_l4 PARAMS: VON=1.1
 X1 PD PDINV VCC VEE LOGIC1 0 DIGLEVSHIFTINV
 VLOGIC1 LOGIC1 0 1
 
-G1 VCCMAIN VEEMAIN VALUE = 
-+ { ( 9.1e-3 + 200e-6*V(VCC,VEE) ) * ( 1-V(PDINV) ) + 5e-6 * V(PDINV) }  
+G1 VCCMAIN VEEMAIN VALUE =
++ { ( 9.1e-3 + 200e-6*V(VCC,VEE) ) * ( 1-V(PDINV) ) + 5e-6 * V(PDINV) }
 
 *G0 NET4 NET7 POLY(1) VCC VEE  9.1e-3  200e-6
 *I2 NET037 NET051 5e-6
@@ -176,7 +176,7 @@ XAHDLINV0 RECCIRSIGNAL NET55 VCC VEE HPA_INV_IDEAL
 *XAHDLI50 RECCIRSIGNAL NET67 NET50 sw_l4 PARAMS: VON=1.1
 
 *XI3 PD VCC VEE VIMON NET45 THS4541_SWITCHES_HT1
-VXI3 VIMON NET45 0 
+VXI3 VIMON NET45 0
 
 E2 NET75 NET76 POLY(1) VCC VEE  0  2e-3
 E1 NET79 NET48 POLY(1) VCC VEE  0  2e-3
@@ -340,12 +340,12 @@ VLOGIC1 LOGIC1 0 1
 .PARAM ITAILMAX_X2 = { 5.0 }
 .PARAM ITAILMAX_Y2 = { 680m }
 
-.PARAM ITAILMAX_SLOPE = 
+.PARAM ITAILMAX_SLOPE =
 + { ( ITAILMAX_Y2 - ITAILMAX_Y1 ) / ( ITAILMAX_X2 - ITAILMAX_X1 ) }
-.PARAM ITAILMAX_INTCP = 
+.PARAM ITAILMAX_INTCP =
 + { ITAILMAX_Y1 - ITAILMAX_SLOPE * ITAILMAX_X1 }
 
-EITAILMAX ITAILMAX 0 VALUE = 
+EITAILMAX ITAILMAX 0 VALUE =
 + { ITAILMAX_SLOPE * V(VCC,VEE) + ITAILMAX_INTCP  }
 
 
@@ -355,12 +355,12 @@ EITAILMAX ITAILMAX 0 VALUE =
 .PARAM ITAILMIN_X2 = { 5.0 }
 .PARAM ITAILMIN_Y2 = { 680m }
 
-.PARAM ITAILMIN_SLOPE = 
+.PARAM ITAILMIN_SLOPE =
 + { ( ITAILMIN_Y2 - ITAILMIN_Y1 ) / ( ITAILMIN_X2 - ITAILMIN_X1 ) }
-.PARAM ITAILMIN_INTCP = 
+.PARAM ITAILMIN_INTCP =
 + { ITAILMIN_Y1 - ITAILMIN_SLOPE * ITAILMIN_X1 }
 
-EITAILMIN ITAILMIN 0 VALUE = 
+EITAILMIN ITAILMIN 0 VALUE =
 + { ITAILMIN_SLOPE * V(VCC,VEE) + ITAILMIN_INTCP  }
 
 
@@ -418,7 +418,7 @@ X1 VDD VSS A B 0 PSRR_DUAL_NEW PARAMS:
 
 
 .SUBCKT THS4541_CMRR_HT1 A B
- 
+
 X1 A B 0 CMRR_NEW PARAMS: CMRR = 106 FCMRR = 1000K
 .ENDS
 
@@ -507,7 +507,7 @@ E1  VO VI 1a GNDF 1
 C2  VDD VSS 10P
 .ENDS
 
-.SUBCKT PSRR_DUAL   VDD  VSS  VI  VO  GNDF 
+.SUBCKT PSRR_DUAL   VDD  VSS  VI  VO  GNDF
 + PARAMS: PSRRP = 130 FPSRRP = 1.6
 + PSRRN = 130 FPSRRN = 1.6
 .PARAM PI = 3.141592
@@ -529,7 +529,7 @@ E1  VO VI VALUE = {V(1,GNDF) + V(3,GNDF)}
 C3  VDD VSS 10P
 .ENDS
 
-.SUBCKT PSRR_DUAL_NEW   VDD  VSS  VI  VO  GNDF 
+.SUBCKT PSRR_DUAL_NEW   VDD  VSS  VI  VO  GNDF
 + PARAMS: PSRRP = 130 FPSRRP = 1.6
 + PSRRN = 130 FPSRRN = 1.6
 .PARAM PI = 3.141592
