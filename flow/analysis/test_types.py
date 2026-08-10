@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 
 import h5py
@@ -40,6 +41,12 @@ from flow.cdac.sim import CdacTbParams
 from flow.comp.sim import CompTbParams
 from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcTbParams
+
+
+class PersistenceMode(Enum):
+    """Small enum used to exercise native HDF5 enum persistence."""
+
+    NOMINAL = "nominal"
 
 
 def adc_measurement() -> MeasAdcExt:
@@ -317,6 +324,28 @@ def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> N
         actual = getattr(loaded.wave, field)
         assert actual.dtype == expected.dtype
         np.testing.assert_array_equal(actual, expected)
+
+
+def test_native_enum_round_trip(tmp_path: Path) -> None:
+    """Persist and restore enum identity from its qualified type metadata."""
+
+    path = tmp_path / "enum.h5"
+    with h5py.File(path, "w") as stored:
+        analysis_io._write_native(stored, "mode", PersistenceMode.NOMINAL)
+    with h5py.File(path, "r") as stored:
+        assert analysis_io._read_native(stored["mode"]) is PersistenceMode.NOMINAL
+
+
+def test_native_enum_reader_rejects_non_enum_type(tmp_path: Path) -> None:
+    """Reject corrupt enum metadata that resolves to an ordinary class."""
+
+    path = tmp_path / "invalid_enum.h5"
+    with h5py.File(path, "w") as stored:
+        dataset = stored.create_dataset("mode", data="NOMINAL")
+        dataset.attrs["_kind"] = "enum"
+        dataset.attrs["_type"] = "builtins:str"
+    with h5py.File(path, "r") as stored, pytest.raises(TypeError, match="is not an Enum"):
+        analysis_io._read_native(stored["mode"])
 
 
 def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -> None:

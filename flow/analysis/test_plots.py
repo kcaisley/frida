@@ -11,6 +11,7 @@ import pytest
 from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 from PIL import Image
+from PIL.GifImagePlugin import GifImageFile
 
 import flow.analysis.plots as analysis_plots
 from flow.analysis.adc import (
@@ -89,7 +90,9 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
     assert isinstance(ax.xaxis.get_minor_locator(), FixedLocator)
     assert np.array_equal(ax.get_xticks(minor=True), quarter_ticks[1:-1])
     assert ax.get_axisbelow() is True
-    assert ax.get_legend().get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
+    legend = ax.get_legend()
+    assert legend is not None
+    assert legend.get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
     plt.close(fig)
 
 
@@ -523,6 +526,7 @@ def test_decision_path_density_animation(tmp_path: Path) -> None:
     assert paths[0].stat().st_size > 0
     assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
     with Image.open(paths[0]) as animation:
+        assert isinstance(animation, GifImageFile)
         assert animation.n_frames == 3
         assert animation.info["duration"] == 250
         for frame_index in range(animation.n_frames):

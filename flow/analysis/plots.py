@@ -12,7 +12,8 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import LineCollection
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -362,9 +363,13 @@ def plot_measurement_waveforms(
 
     if msmt.wave is None:
         raise ValueError("measurement does not contain a commissioned waveform")
+    # Conversion-based measurements and trial-based measurements use different
+    # record-index field names, so resolve both members of the waveform union.
     record_ids = getattr(msmt.wave, "conversion_index", None)
     if record_ids is None:
-        record_ids = msmt.wave.trial_index
+        record_ids = getattr(msmt.wave, "trial_index", None)
+    if record_ids is None:
+        raise ValueError("measurement waveform has no record index")
     if not 0 <= record_index < len(cast(Sequence[int], record_ids)):
         raise IndexError("waveform record_index is outside the measurement")
     names = tuple(
@@ -806,7 +811,7 @@ def plot_adc_noise_violin_sweep(
         showmedians=False,
         bw_method=0.5,
     )
-    for body in parts["bodies"]:
+    for body in cast(Sequence[PolyCollection], parts["bodies"]):
         body.set_facecolor(to_rgba(NORD_CYAN, 0.14))
         body.set_edgecolor("none")
         body.set_linewidth(0.0)
@@ -1179,7 +1184,7 @@ def _draw_adc_decision_path_density(
     colorbar = fig.colorbar(mesh, ax=ax, pad=0.02)
     colorbar.set_label("Conversions per path")
     colorbar.ax.tick_params(colors=TEXT_COLOR)
-    colorbar.outline.set_edgecolor(SPINE_COLOR)
+    cast(Patch, colorbar.outline).set_edgecolor(SPINE_COLOR)
     colorbar.ax.yaxis.label.set_color(TEXT_COLOR)
 
     populated_min = int(np.floor(np.min(analysis.estimate_dout) + 0.5))
@@ -1285,8 +1290,9 @@ def animate_adc_decision_path_density(
             fig=fig,
         )
         fig.tight_layout()
-        fig.canvas.draw()
-        frames.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba()).copy()).convert("RGB"))
+        canvas = cast(FigureCanvasAgg, fig.canvas)
+        canvas.draw()
+        frames.append(Image.fromarray(np.asarray(canvas.buffer_rgba()).copy()).convert("RGB"))
     plt.close(fig)
 
     frame_duration_ms = round(1_000 / fps)

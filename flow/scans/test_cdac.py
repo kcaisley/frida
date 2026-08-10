@@ -9,7 +9,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.analysis.types import CdacExtDaq, CdacExtWave, MeasCdacExt, MeasInfo
+from flow.analysis.types import CdacExtDaq, CdacExtWave, InfoValue, MeasCdacExt, MeasInfo
 from flow.scans.fastrx import calculate_single_sample_fastrx_capture_alignment
 from flow.scans.params import AdcTbParams, load_board_map, validate_params
 from flow.scans.scan_cdac import (
@@ -126,7 +126,7 @@ def _resume_measurement(
     trials = params.conversions
     after_p = np.tile(params.dac_bstate_p, (trials, 1))
     after_n = np.tile(params.dac_bstate_n, (trials, 1))
-    readbacks: dict[str, str | bool] = {"curve_complete": curve_complete}
+    readbacks: dict[str, InfoValue] = {"curve_complete": curve_complete}
     if session_id is not None:
         readbacks["acquisition_session_id"] = session_id
     return MeasCdacExt(

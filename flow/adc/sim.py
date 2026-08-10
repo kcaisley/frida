@@ -586,7 +586,7 @@ def frida65a_noise_vs_rate() -> None:
             )
         )
         params = dataclasses.replace(
-            params,  # ty: ignore[invalid-argument-type]
+            params,
             conversions=1,
             seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
             seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
@@ -651,7 +651,7 @@ def hdl21gen_noise_vs_rate() -> None:
             )
         )
         params = dataclasses.replace(
-            params,  # ty: ignore[invalid-argument-type]
+            params,
             conversions=1,
             seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
             seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],

@@ -173,6 +173,8 @@ def _read_native(node: h5py.Group | h5py.Dataset):
             value = value.item()
         if kind == "enum":
             enum_type = _resolve_type(_decode_string(node.attrs["_type"]))
+            if not issubclass(enum_type, Enum):
+                raise TypeError(f"persisted enum type {enum_type.__name__!r} is not an Enum")
             return enum_type[value]
         if kind == "path":
             return Path(value)
@@ -399,8 +401,8 @@ def build_adc_interface_wave(
 
     if samples_per_symbol <= 0:
         raise ValueError("samples_per_symbol must be positive")
-    bout = np.asarray(bout, dtype=np.uint8)
-    if bout.ndim != 1 or np.any((bout != 0) & (bout != 1)):
+    bout_array = np.asarray(bout, dtype=np.uint8)
+    if bout_array.ndim != 1 or np.any((bout_array != 0) & (bout_array != 1)):
         raise ValueError("Bout must be one binary decision vector")
 
     sequence_length = len(params.seq_init_pattern)
@@ -422,16 +424,16 @@ def build_adc_interface_wave(
     seq_logic = shifted_pattern("logic")
     comp_symbols = seq_comp.reshape(sequence_length, samples_per_symbol)[:, 0]
     falling_symbols = np.flatnonzero((comp_symbols[:-1] == 1) & (comp_symbols[1:] == 0)) + 1
-    if len(falling_symbols) < len(bout):
+    if len(falling_symbols) < len(bout_array):
         raise ValueError(
-            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout)} bits"
+            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout_array)} bits"
         )
     comp_out_symbols = np.zeros(sequence_length, dtype=np.uint8)
     state = 0
     decision_index = 0
     for symbol in range(sequence_length):
-        if decision_index < len(bout) and symbol == falling_symbols[decision_index]:
-            state = int(bout[decision_index])
+        if decision_index < len(bout_array) and symbol == falling_symbols[decision_index]:
+            state = int(bout_array[decision_index])
             decision_index += 1
         comp_out_symbols[symbol] = state
 
