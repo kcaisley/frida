@@ -7,11 +7,13 @@ repos:
         entry: uvx ruff check --fix
         language: system
         types: [python]
+        files: ^flow/(analysis|scans|adc|cdac|comp|samp)/.*\.py$
       - id: ruff-format
         name: ruff format
         entry: uvx ruff format
         language: system
         types: [python]
+        files: ^flow/(analysis|scans|adc|cdac|comp|samp)/.*\.py$
 
       - id: ty-flow
         name: ty flow type check
