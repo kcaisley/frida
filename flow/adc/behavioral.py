@@ -522,11 +522,8 @@ class SAR_ADC:
         )  # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
         adc_offset = 0
 
-        time_array = np.arange(  # For 100ns sampling times, this means we have 1ms worth of capture
-            start=0,
-            stop=num_samples / self.sampling_frequency,
-            step=1 / self.sampling_frequency,
-        )
+        # For 100 ns sampling times, this gives 1 ms of capture.
+        time_array = np.arange(0, num_samples / self.sampling_frequency, 1 / self.sampling_frequency)
         input_voltage_array = np.empty(len(time_array))
         adc_data_array = np.empty(len(time_array))
 
