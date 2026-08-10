@@ -146,7 +146,7 @@ def _resume_measurement(
             decision=np.zeros(trials, dtype=np.uint8),
         ),
         wave=CdacExtWave(
-            trial_index=np.asarray([0]),
+            trial_index=np.asarray([0], dtype=np.int64),
             time_s=np.asarray([0.0, 1e-9]),
             vin_diff_v=np.zeros((1, 2)),
             seq_comp_v=np.zeros((1, 2)),

@@ -163,7 +163,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
     cdac_measurement = replace(all_measurements()[4], param=params)
     cdac_analysis = AnalysisCdacCapMismatch(
         adc_index=0,
-        curve_element=np.asarray([0]),
+        curve_element=np.asarray([0], dtype=np.int64),
         curve_side=np.asarray([0], dtype=np.uint8),
         curve_direction=np.asarray([0], dtype=np.uint8),
         curve_diffcaps=np.asarray([0], dtype=np.uint8),

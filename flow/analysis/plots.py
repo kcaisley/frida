@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -96,7 +96,7 @@ TIMING_COLORS = {
     75.0: NORD_PURPLE,
     87.5: NORD_CYAN,
 }
-PLOT_STYLE = {
+PLOT_STYLE: dict[Any, Any] = {
     "text.usetex": False,
     "mathtext.fontset": "cm",
     "font.family": "serif",
