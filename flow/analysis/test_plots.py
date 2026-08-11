@@ -412,6 +412,11 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     """Keep ramp plotters independent of measurements and CDAC fitting."""
 
     analysis = analyze_adc_ramp(adc_ramp_measurement())
+    nominal = analysis.curves[0]
+    analysis = replace(
+        analysis,
+        curves=(nominal, replace(nominal, label="Measured CDAC", transfer_mean_dout=nominal.transfer_mean_dout + 1.0)),
+    )
     outputs = (
         plot_adc_ramp_transfer(analysis, output_path=tmp_path / "ramp_transfer"),
         plot_adc_ramp_histogram(analysis, output_path=tmp_path / "ramp_histogram"),
@@ -419,6 +424,9 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     )
     for paths in outputs:
         assert_plot_formats(paths)
+        svg = paths[-1].read_text()
+        assert "Nominal CDAC" in svg
+        assert "Measured CDAC" in svg
 
 
 def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:

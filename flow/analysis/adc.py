@@ -24,6 +24,7 @@ from flow.analysis.types import (
     AnalysisAdcRamp,
     AnalysisAdcRampCurve,
     AnalysisAdcTransfer,
+    AnalysisCdacCapMismatch,
     MeasAdc,
 )
 from flow.cdac import get_cdac_weights
@@ -381,16 +382,19 @@ def analyze_adc_nonlinearity(
 def analyze_adc_ramp(
     measurement: MeasAdc,
     *,
+    cdac_analysis: AnalysisCdacCapMismatch | None = None,
     code_range: tuple[int, int] | None = None,
 ) -> AnalysisAdcRamp:
-    """Recover nominal-weight transfer and linearity from one repeated ramp.
+    """Recover nominal and measured-CDAC curves from one repeated ramp.
 
     Each large negative output jump identifies a sawtooth reset.  A line fit to
     those repeated resets recovers the actual ramp period and acquisition phase
     without assuming the AWG and FastRX started together.  That phase maps each
     conversion back to the requested -1 V to +1 V input, while the uniform code
     histogram supplies DNL and endpoint-corrected INL.  Clipped endpoint codes
-    are excluded from linearity by default.
+    are excluded from linearity by default.  When supplied, the accepted CDAC
+    analysis contributes its measured positive- and negative-side weights to a
+    second in-memory decoding of the same stored 17-bit decisions.
     """
 
     if not isinstance(measurement.param.vin_diff, h.Vpwl.Params):
@@ -403,20 +407,44 @@ def analyze_adc_ramp(
     if not vin_diff_max_v > vin_diff_min_v:
         raise ValueError("ADC ramp input must span a nonzero differential range")
 
-    weights = np.asarray(
+    nominal_weights = np.asarray(
         [2.0 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1.0],
         dtype=np.float64,
     )
     number_codes = 1 << measurement.param.dut.adc_bits
     code_max = number_codes - 1
-    if measurement.daq.bout.shape[1] != len(weights):
+    if measurement.daq.bout.shape[1] != len(nominal_weights):
         raise ValueError("ADC ramp decisions do not match the nominal CDAC weights")
-    raw = np.asarray(measurement.daq.bout, dtype=np.float64) @ weights
-    decoded = np.rint(raw * code_max / np.sum(weights)).astype(np.int64)
-    if np.any((decoded < 0) | (decoded >= number_codes)):
+    decisions = np.asarray(measurement.daq.bout, dtype=np.float64)
+    nominal_raw = decisions @ nominal_weights
+    nominal_decoded = np.rint(nominal_raw * code_max / np.sum(nominal_weights)).astype(np.int64)
+    if np.any((nominal_decoded < 0) | (nominal_decoded >= number_codes)):
         raise ValueError(f"ADC ramp contains output codes outside 0..{number_codes - 1}")
 
-    reset_conversion_index = np.flatnonzero(np.diff(decoded) < -0.5 * code_max).astype(np.int64) + 1
+    decodings = [("Nominal CDAC", nominal_weights, nominal_decoded)]
+    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
+    if cdac_analysis is not None:
+        if measurement.param.observed_adc is None or cdac_analysis.adc_index != measurement.param.observed_adc:
+            raise ValueError("CDAC and ramp analyses must refer to the same explicitly selected ADC")
+        measured_by_side = np.asarray(cdac_analysis.effective_fraction, dtype=np.float64)
+        nominal_cap_weights = nominal_weights[:-1]
+        if measured_by_side.shape != (2, len(nominal_cap_weights)):
+            raise ValueError("measured CDAC analysis does not match the ramp CDAC element count")
+        measured_cap_weights = np.sum(measured_by_side, axis=0)
+        if not np.all(np.isfinite(measured_cap_weights)) or np.any(measured_cap_weights <= 0.0):
+            raise ValueError("measured P/N CDAC weights must be finite and positive")
+        # The seventeenth SAR decision is a digital terminal half-step rather
+        # than another measured capacitor. Preserve its nominal one-unit size
+        # on the least-squares scale between nominal and measured cap weights.
+        measured_unit = float(
+            np.dot(nominal_cap_weights, measured_cap_weights) / np.dot(nominal_cap_weights, nominal_cap_weights)
+        )
+        measured_weights = np.concatenate((measured_cap_weights, [measured_unit]))
+        measured_raw = decisions @ measured_weights
+        measured_decoded = np.rint(measured_raw * code_max / np.sum(measured_weights)).astype(np.int64)
+        decodings.append(("Measured CDAC", measured_weights, measured_decoded))
+
+    reset_conversion_index = np.flatnonzero(np.diff(nominal_decoded) < -0.5 * code_max).astype(np.int64) + 1
     if len(reset_conversion_index) < 2:
         raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
     reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
@@ -435,46 +463,50 @@ def analyze_adc_ramp(
     ramp_frequency_hz = sample_rate_hz / period_samples
     ramp_phase_cycles = float(np.mod(-first_reset_sample / period_samples, 1.0))
     conversion_phase = np.mod(
-        (np.arange(len(decoded), dtype=np.float64) - first_reset_sample) / period_samples,
+        (np.arange(len(nominal_decoded), dtype=np.float64) - first_reset_sample) / period_samples,
         1.0,
     )
 
-    counts = np.bincount(decoded, minlength=number_codes).astype(np.int64)
     first_code, last_code = code_range or (1, number_codes - 2)
-    density = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
     transfer_bin = np.minimum((conversion_phase * number_codes).astype(np.int64), number_codes - 1)
     transfer_sample_count = np.bincount(transfer_bin, minlength=number_codes).astype(np.int64)
-    transfer_sum = np.bincount(transfer_bin, weights=decoded, minlength=number_codes)
     populated = transfer_sample_count > 0
     transfer_vin_diff_v = vin_diff_min_v + (
         (np.arange(number_codes, dtype=np.float64) + 0.5) / number_codes * (vin_diff_max_v - vin_diff_min_v)
     )
-    curve = AnalysisAdcRampCurve(
-        label="Nominal CDAC",
-        weights=weights,
-        transfer_vin_diff_v=transfer_vin_diff_v[populated],
-        transfer_mean_dout=transfer_sum[populated] / transfer_sample_count[populated],
-        transfer_sample_count=transfer_sample_count[populated],
-        code=np.arange(number_codes, dtype=np.int64),
-        count=counts,
-        linearity_code=density["codes"],
-        dnl=density["dnl"],
-        inl=density["inl"],
-        ideal_count=density["ideal_count"],
-        maximum_abs_dnl=float(np.max(np.abs(density["dnl"]))),
-        maximum_abs_inl=float(np.max(np.abs(density["inl"]))),
-        missing_codes=density["missing_codes"],
-    )
+    curves = []
+    for label, weights, decoded in decodings:
+        counts = np.bincount(decoded, minlength=number_codes).astype(np.int64)
+        density = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
+        transfer_sum = np.bincount(transfer_bin, weights=decoded, minlength=number_codes)
+        curves.append(
+            AnalysisAdcRampCurve(
+                label=label,
+                weights=weights,
+                transfer_vin_diff_v=transfer_vin_diff_v[populated],
+                transfer_mean_dout=transfer_sum[populated] / transfer_sample_count[populated],
+                transfer_sample_count=transfer_sample_count[populated],
+                code=np.arange(number_codes, dtype=np.int64),
+                count=counts,
+                linearity_code=density["codes"],
+                dnl=density["dnl"],
+                inl=density["inl"],
+                ideal_count=density["ideal_count"],
+                maximum_abs_dnl=float(np.max(np.abs(density["dnl"]))),
+                maximum_abs_inl=float(np.max(np.abs(density["inl"]))),
+                missing_codes=density["missing_codes"],
+            )
+        )
     return AnalysisAdcRamp(
-        adc_index=-1 if measurement.param.observed_adc is None else measurement.param.observed_adc,
-        sample_count=len(decoded),
+        adc_index=adc_index,
+        sample_count=len(nominal_decoded),
         sample_rate_hz=sample_rate_hz,
         ramp_frequency_hz=ramp_frequency_hz,
         ramp_phase_cycles=ramp_phase_cycles,
         reset_conversion_index=reset_conversion_index,
         vin_diff_min_v=vin_diff_min_v,
         vin_diff_max_v=vin_diff_max_v,
-        curves=(curve,),
+        curves=tuple(curves),
     )
 
 

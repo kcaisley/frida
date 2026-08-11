@@ -58,13 +58,13 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     assert {float(item.seq_logic_phase_delay_symbols) for item in variants} == set(range(-3, 4))
 
 
-def test_build_ramp_variants_covers_adc00_and_adc01() -> None:
+def test_build_ramp_variants_covers_adc00_through_adc03() -> None:
     """Describe one repeated full-scale ramp capture for each selected ADC."""
 
     variants = build_ramp_variants()
 
-    assert len(variants) == 2
-    assert {item.observed_adc for item in variants} == {0, 1}
+    assert len(variants) == 4
+    assert {item.observed_adc for item in variants} == set(range(4))
     assert all(item.board_id == "00" for item in variants)
     assert all(item.campaign == "adc_ramp" for item in variants)
     assert all(item.conversions == 4_000_000 for item in variants)
@@ -73,7 +73,7 @@ def test_build_ramp_variants_covers_adc00_and_adc01() -> None:
     assert all(isinstance(item.vin_diff, h.Vpwl.Params) for item in variants)
     assert {item.vin_diff.wave for item in variants} == {"0 -1 0.001 1"}
     assert {item.active_adc_mask for item in variants} == {
-        (0,) * (15 - adc_index) + (1,) + (0,) * adc_index for adc_index in range(2)
+        (0,) * (15 - adc_index) + (1,) + (0,) * adc_index for adc_index in range(4)
     }
 
 

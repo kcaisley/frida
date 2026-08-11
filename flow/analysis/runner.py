@@ -95,29 +95,65 @@ def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
 
 
 def adc_ramp_nonlinearity(output_dir: Path) -> tuple[Path, ...]:
-    """Analyze accepted ADC ramp captures without creating derived data files.
+    """Combine accepted ADC ramp and CDAC captures entirely in memory.
 
-    Replace each explicit placeholder with the accepted HDF5 capture after the
-    hardware campaign.  The ramp analysis infers AWG frequency and acquisition
-    phase from repeated output resets, then emits transfer, code-density, DNL,
-    and INL plots from the stored decisions and input intent.
+    Replace the explicit placeholders after the hardware campaigns. Each CDAC
+    tuple must list every accepted HDF5 point used by its A-to-B fit. The ramp
+    analysis infers AWG frequency and acquisition phase from repeated resets,
+    then decodes the stored decisions with nominal and measured CDAC weights.
+    No fitted weights or derived measurements are written back to HDF5.
     """
 
     RAMP_H5_BY_ADC = {
         0: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC00_RAMP.h5",
         1: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC01_RAMP.h5",
+        2: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC02_RAMP.h5",
+        3: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC03_RAMP.h5",
+    }
+    CDAC_H5_BY_ADC = {
+        0: (BASE_PATH / "build/scan_cdac/PLACEHOLDER_ADC00_CDAC_0000.h5",),
+        1: (BASE_PATH / "build/scan_cdac/PLACEHOLDER_ADC01_CDAC_0000.h5",),
+        2: (BASE_PATH / "build/scan_cdac/PLACEHOLDER_ADC02_CDAC_0000.h5",),
+        3: (BASE_PATH / "build/scan_cdac/PLACEHOLDER_ADC03_CDAC_0000.h5",),
     }
 
+    if set(RAMP_H5_BY_ADC) != set(CDAC_H5_BY_ADC):
+        raise ValueError("ramp and CDAC HDF5 mappings must select the same ADCs")
+    board_map = load_board_map()
     artifacts = []
     for adc_index, ramp_h5 in RAMP_H5_BY_ADC.items():
         if not ramp_h5.is_file():
             raise FileNotFoundError(2, "replace the ADC ramp HDF5 placeholder", ramp_h5)
-        measurement = read_measurement(ramp_h5)
-        if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{ramp_h5} contains {type(measurement).__name__}, expected MeasAdcExt")
-        if measurement.param.campaign != "adc_ramp" or measurement.param.observed_adc != adc_index:
+        ramp_measurement = read_measurement(ramp_h5)
+        if not isinstance(ramp_measurement, MeasAdcExt):
+            raise TypeError(f"{ramp_h5} contains {type(ramp_measurement).__name__}, expected MeasAdcExt")
+        if ramp_measurement.param.campaign != "adc_ramp" or ramp_measurement.param.observed_adc != adc_index:
             raise ValueError(f"{ramp_h5} is not the configured ADC{adc_index:02d} ramp capture")
-        analysis = analyze_adc_ramp(measurement)
+
+        cdac_paths = CDAC_H5_BY_ADC[adc_index]
+        if not cdac_paths:
+            raise ValueError(f"ADC{adc_index:02d} requires accepted CDAC HDF5 inputs")
+        cdac_measurements = []
+        for cdac_h5 in cdac_paths:
+            if not cdac_h5.is_file():
+                raise FileNotFoundError(2, "replace the CDAC HDF5 placeholder", cdac_h5)
+            cdac_measurement = read_measurement(cdac_h5)
+            if not isinstance(cdac_measurement, MeasCdacExt):
+                raise TypeError(f"{cdac_h5} contains {type(cdac_measurement).__name__}, expected MeasCdacExt")
+            if cdac_measurement.param.campaign != "cdac_ab" or cdac_measurement.param.observed_adc != adc_index:
+                raise ValueError(f"{cdac_h5} is not an ADC{adc_index:02d} A-to-B CDAC capture")
+            if cdac_measurement.param.board_id != ramp_measurement.param.board_id:
+                raise ValueError("CDAC and ramp HDF5 inputs must come from the same board")
+            cdac_measurements.append(cdac_measurement)
+        board_id = ramp_measurement.param.board_id
+        if board_id is None:
+            raise ValueError("physical ADC ramp capture must identify its board")
+        comparator_offset_v = float(board_map["boards"][board_id]["comparator_calibration"][adc_index]["offset_v"])
+        cdac_analysis = analyze_cdac_cap_mismatch(
+            cdac_measurements,
+            comparator_offset_v=comparator_offset_v,
+        )
+        analysis = analyze_adc_ramp(ramp_measurement, cdac_analysis=cdac_analysis)
         artifacts.extend(
             plot_adc_ramp_transfer(
                 analysis,

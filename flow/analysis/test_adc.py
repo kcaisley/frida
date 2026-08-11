@@ -28,6 +28,7 @@ from flow.analysis.types import (
     AdcDaq,
     AdcExtWave,
     AdcIntWave,
+    AnalysisCdacCapMismatch,
     InfoValue,
     MeasAdc,
     MeasAdcExt,
@@ -165,6 +166,7 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
     sample_count = len(bout)
     vin_diff_v = np.tile(np.linspace(-1.0, 1.0, samples_per_cycle, endpoint=False), cycles)
     base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
+    assert isinstance(base, MeasAdcExt)
     params = AdcTbParams(
         dut=base.param.dut,
         conversions=sample_count,
@@ -302,6 +304,37 @@ def test_ramp_analysis_infers_repeated_reset_frequency_and_phase() -> None:
     assert analysis.curves[0].label == "Nominal CDAC"
     assert analysis.curves[0].count.sum() == analysis.sample_count
     assert len(analysis.curves[0].transfer_vin_diff_v) == 4_096
+
+
+def test_ramp_analysis_redecodes_with_matching_measured_cdac_weights() -> None:
+    """Compose accepted CDAC weights with stored decisions without new HDF5."""
+
+    measurement = adc_ramp_measurement()
+    nominal_caps = 2.0 * np.asarray((768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1))
+    effective_fraction = np.stack((nominal_caps, nominal_caps)) * 5.0e-5
+    effective_fraction[0, 0] *= 1.1
+    cdac = AnalysisCdacCapMismatch(
+        adc_index=0,
+        curve_element=np.asarray([], dtype=np.int64),
+        curve_side=np.asarray([], dtype=np.uint8),
+        curve_direction=np.asarray([], dtype=np.uint8),
+        curve_diffcaps=np.asarray([], dtype=np.uint8),
+        transition_v=np.asarray([], dtype=np.float64),
+        normalized_step=np.asarray([], dtype=np.float64),
+        curve_valid=np.asarray([], dtype=np.uint8),
+        main_fraction=np.zeros((2, 16)),
+        diff_fraction=np.zeros((2, 16)),
+        effective_fraction=effective_fraction,
+        direction_bias=np.zeros((2, 16, 2)),
+    )
+
+    analysis = analyze_adc_ramp(measurement, cdac_analysis=cdac)
+
+    assert [curve.label for curve in analysis.curves] == ["Nominal CDAC", "Measured CDAC"]
+    assert all(curve.count.sum() == analysis.sample_count for curve in analysis.curves)
+    assert not np.array_equal(analysis.curves[0].weights, analysis.curves[1].weights)
+    with pytest.raises(ValueError, match="same explicitly selected ADC"):
+        analyze_adc_ramp(measurement, cdac_analysis=replace(cdac, adc_index=1))
 
 
 def test_shared_adc_analyses_accept_internal_measurements() -> None:

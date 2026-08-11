@@ -170,14 +170,48 @@ def test_adc_ramp_runner_uses_explicit_placeholders_and_completed_analysis(
     """Keep accepted ramp selection in the runner and plotting measurement-free."""
 
     measurements = {}
-    for adc_index in (0, 1):
-        path = tmp_path / f"build/scan_adc/PLACEHOLDER_ADC{adc_index:02d}_RAMP.h5"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
-        measurements[path] = adc_ramp_measurement(observed_adc=adc_index)
+    for adc_index in range(4):
+        ramp_path = tmp_path / f"build/scan_adc/PLACEHOLDER_ADC{adc_index:02d}_RAMP.h5"
+        ramp_path.parent.mkdir(parents=True, exist_ok=True)
+        ramp_path.touch()
+        measurements[ramp_path] = adc_ramp_measurement(observed_adc=adc_index)
+        cdac_path = tmp_path / f"build/scan_cdac/PLACEHOLDER_ADC{adc_index:02d}_CDAC_0000.h5"
+        cdac_path.parent.mkdir(parents=True, exist_ok=True)
+        cdac_path.touch()
+        measurements[cdac_path] = SimpleNamespace(
+            param=SimpleNamespace(
+                campaign="cdac_ab",
+                observed_adc=adc_index,
+                board_id="test_board",
+            )
+        )
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
     monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
-    monkeypatch.setattr(runner, "analyze_adc_ramp", lambda measurement: measurement.param.observed_adc)
+    monkeypatch.setattr(
+        runner,
+        "load_board_map",
+        lambda: {
+            "boards": {
+                "test_board": {
+                    "comparator_calibration": {index: {"offset_v": 0.0} for index in range(4)},
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_cdac_cap_mismatch",
+        lambda measurements, *, comparator_offset_v: SimpleNamespace(
+            adc_index=measurements[0].param.observed_adc,
+            comparator_offset_v=comparator_offset_v,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_adc_ramp",
+        lambda measurement, *, cdac_analysis: (measurement.param.observed_adc, cdac_analysis.adc_index),
+    )
     monkeypatch.setattr(
         runner,
         "plot_adc_ramp_transfer",
@@ -196,9 +230,9 @@ def test_adc_ramp_runner_uses_explicit_placeholders_and_completed_analysis(
 
     artifacts = runner.adc_ramp_nonlinearity(tmp_path / "output")
 
-    assert len(artifacts) == 6
+    assert len(artifacts) == 12
     assert artifacts[0] == tmp_path / "output/adc00_ramp_transfer.png"
-    assert artifacts[-1] == tmp_path / "output/adc01_ramp_nonlinearity.png"
+    assert artifacts[-1] == tmp_path / "output/adc03_ramp_nonlinearity.png"
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(

@@ -497,7 +497,7 @@ def build_ramp_variants() -> list[AdcTbParams]:
     """
 
     board_id = "00"
-    adc_indices = range(2)
+    adc_indices = range(4)
     active_conversion_rate_hz = 10.0e6
     conversions = 4_000_000
     input_common_mode_v = 0.600
