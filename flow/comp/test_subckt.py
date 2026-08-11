@@ -28,10 +28,14 @@ def test_default_comp_is_single_tail_nmos_strongarm() -> None:
         params.tail_w,
         params.tail_l,
         params.rst_w,
-        params.latch_w,
+        params.rst_l,
+        params.latch_on_w,
+        params.latch_on_l,
+        params.latch_init_w,
+        params.latch_init_l,
         params.srlatch_n_w,
         params.srlatch_p_w,
-    ) == (32, 4, 4, 16, 8, 4, 4, 8)
+    ) == (32, 4, 4, 16, 8, 1, 4, 1, 4, 1, 4, 8)
 
     module = Comp(params)
     assert module.Mtail.conns["s"] is module.vss
@@ -41,6 +45,7 @@ def test_default_comp_is_single_tail_nmos_strongarm() -> None:
     assert float(module.Mtail.of.params.w) == 4
     assert float(module.Mtail.of.params.l) == 16
     assert float(module.Minner_init_p.of.params.w) == 8
+    assert float(module.Mcross_on_p.of.params.w) == 4
     assert float(module.Mcross_init_p.of.params.w) == 4
     assert not hasattr(module, "Mbias")
     assert not hasattr(module, "Cbias")

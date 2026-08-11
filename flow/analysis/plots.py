@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection, PolyCollection
-from matplotlib.colors import LinearSegmentedColormap, LogNorm, to_rgba
+from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize, to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, NullLocator
@@ -31,6 +31,7 @@ from flow.analysis.types import (
     AnalysisAdcPowerSweep,
     AnalysisAdcTransfer,
     AnalysisCdacCapMismatch,
+    AnalysisCompCandidateSweep,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
@@ -74,6 +75,10 @@ SAMPLING_HOLD_COLORS = ("#E7B8BC", "#D78E96", NORD_RED, "#A64E58", "#873B47")
 COMMON_MODE_COLOR_MAP = LinearSegmentedColormap.from_list(
     "common_mode_nord_blue_to_red",
     (NORD_BLUE, NORD_RED),
+)
+COMP_SETTLING_COLOR_MAP = LinearSegmentedColormap.from_list(
+    "comparator_settling_nord",
+    (NORD_GREEN, NORD_YELLOW, NORD_RED),
 )
 NORD_COLORS = (
     NORD_BLUE,
@@ -1893,3 +1898,215 @@ def plot_comp_power(
     _add_info_box(ax, _measurement_group_lines(measurements))
     fig.suptitle("Comparator power")
     return _save_figure(fig, output_path, formats)
+
+
+@with_plot_style
+def plot_comp_candidate_sweep(
+    measurements: Sequence[MeasCompInt],
+    analysis: AnalysisCompCandidateSweep,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot candidate noise, power, and settling on one area-ordered axis."""
+
+    candidate_count = len(analysis.candidate_id)
+    if not candidate_count or len(measurements) != candidate_count:
+        raise ValueError("candidate comparison plot requires one measurement and analysis row per design")
+    aligned_lengths = {
+        len(analysis.total_active_area_units),
+        len(analysis.total_active_area_um2),
+        len(analysis.noise_sigma_v),
+        len(analysis.average_power_w),
+        len(analysis.maximum_settling_s),
+    }
+    if aligned_lengths != {candidate_count}:
+        raise ValueError("candidate comparison analysis fields are not aligned")
+    if np.any(np.diff(analysis.total_active_area_units) < 0):
+        raise ValueError("candidate comparison must be ordered by total active transistor area")
+
+    position = np.arange(candidate_count)
+    colors = {
+        "half": NORD_BLUE,
+        "double": NORD_ORANGE,
+        "fabricated": NORD_RED,
+    }
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16.0, 9.0))
+    metrics = (
+        (analysis.noise_sigma_v * 1e3, "Input-referred noise σ (mV)", "linear"),
+        (analysis.average_power_w * 1e6, "Average power (µW)", "log"),
+        (analysis.maximum_settling_s * 1e9, "Worst settling (ns)", "linear"),
+    )
+    for ax, (values, ylabel, scale) in zip(axes, metrics, strict=True):
+        for profile in ("half", "double", "fabricated"):
+            selected = np.asarray(analysis.size_profile) == profile
+            if not np.any(selected):
+                continue
+            ax.scatter(
+                position[selected],
+                values[selected],
+                s=14 if profile != "fabricated" else 52,
+                marker="o" if profile != "fabricated" else "*",
+                color=colors[profile],
+                alpha=0.72 if profile != "fabricated" else 1.0,
+                label={"half": "0.5× FRIDA widths", "double": "2× FRIDA widths", "fabricated": "FRIDA baseline"}[
+                    profile
+                ],
+                zorder=4 if profile == "fabricated" else 2,
+            )
+        ax.set_ylabel(ylabel)
+        ax.set_yscale(scale)
+        style_ax(ax)
+        style_grid(ax)
+
+    baseline = np.flatnonzero(np.asarray(analysis.size_profile) == "fabricated")
+    if len(baseline) != 1:
+        raise ValueError("candidate comparison requires exactly one fabricated baseline")
+    for ax in axes:
+        ax.axvline(baseline[0], color=NORD_RED, linestyle="--", linewidth=0.8, alpha=0.8)
+    style_legend(axes[0], ncol=3, loc="best")
+
+    tick_count = min(12, candidate_count)
+    tick_positions = np.unique(np.rint(np.linspace(0, candidate_count - 1, tick_count)).astype(int))
+    axes[-1].set_xticks(tick_positions)
+    axes[-1].set_xticklabels(tuple(f"{index}\n{analysis.total_active_area_um2[index]:.2f}" for index in tick_positions))
+    axes[-1].set_xlabel("Area-ordered candidate index\n(total instantiated MOS Σ(W×L) in µm²)")
+    axes[-1].set_xlim(-2, candidate_count + 1)
+    invalid_count = sum(validity != "valid" for validity in analysis.validity)
+    unresolved_count = int(np.count_nonzero(analysis.unresolved_fraction))
+    _add_info_box(
+        axes[0],
+        (
+            f"Candidates: {candidate_count}",
+            f"Invalid/unbracketed S-curves: {invalid_count}",
+            f"Candidates with unresolved retained trials: {unresolved_count}",
+            "Ordering: total MOS Σ(W×L), then HDL21 device-geometry signature",
+        ),
+        location="upper right",
+    )
+    fig.suptitle("FRIDA65 comparator candidate noise, power, and settling")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_comp_noise_power_tradeoff(
+    analysis: AnalysisCompCandidateSweep,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot valid, resolved candidate noise against power, colored by settling."""
+
+    candidate_count = len(analysis.candidate_id)
+    aligned_lengths = {
+        len(analysis.noise_sigma_v),
+        len(analysis.average_power_w),
+        len(analysis.maximum_settling_s),
+        len(analysis.unresolved_fraction),
+        len(analysis.validity),
+        len(analysis.size_profile),
+    }
+    if not candidate_count or aligned_lengths != {candidate_count}:
+        raise ValueError("candidate noise/power trade-off fields must be non-empty and aligned")
+
+    noise_mv = analysis.noise_sigma_v * 1e3
+    power_uw = analysis.average_power_w * 1e6
+    settling_ns = analysis.maximum_settling_s * 1e9
+    valid_scurve = np.asarray(analysis.validity) == "valid"
+    finite_positive = (
+        np.isfinite(noise_mv)
+        & np.isfinite(power_uw)
+        & np.isfinite(settling_ns)
+        & (noise_mv > 0.0)
+        & (power_uw > 0.0)
+        & (settling_ns > 0.0)
+    )
+    resolved = analysis.unresolved_fraction == 0.0
+    selected = valid_scurve & finite_positive & resolved
+    if not np.any(selected):
+        raise ValueError("candidate noise/power trade-off has no valid resolved designs")
+
+    selected_settling_ns = settling_ns[selected]
+    color_min = float(np.min(selected_settling_ns))
+    color_max = float(np.max(selected_settling_ns))
+    if np.isclose(color_min, color_max):
+        color_max = color_min + 1.0
+    color_norm = Normalize(vmin=color_min, vmax=color_max)
+    profiles = np.asarray(analysis.size_profile)
+
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
+    mappable = None
+    for profile, marker, label in (
+        ("half", "o", "0.5× FRIDA widths"),
+        ("double", "s", "2× FRIDA widths"),
+    ):
+        profile_selected = selected & (profiles == profile)
+        if not np.any(profile_selected):
+            continue
+        mappable = ax.scatter(
+            noise_mv[profile_selected],
+            power_uw[profile_selected],
+            c=settling_ns[profile_selected],
+            cmap=COMP_SETTLING_COLOR_MAP,
+            norm=color_norm,
+            marker=marker,
+            s=30,
+            alpha=0.82,
+            edgecolors=SPINE_COLOR,
+            linewidths=0.35,
+            label=label,
+            zorder=2,
+        )
+    if mappable is None:
+        raise RuntimeError("candidate noise/power trade-off did not plot a size profile")
+
+    baseline = np.flatnonzero(profiles == "fabricated")
+    if len(baseline) != 1:
+        raise ValueError("candidate noise/power trade-off requires exactly one fabricated baseline")
+    baseline_index = int(baseline[0])
+    if not selected[baseline_index]:
+        raise ValueError("fabricated baseline must have a valid, resolved noise/power result")
+    ax.scatter(
+        noise_mv[baseline_index],
+        power_uw[baseline_index],
+        marker="*",
+        s=180,
+        color=NORD_RED,
+        edgecolors=TEXT_COLOR,
+        linewidths=0.7,
+        label="FRIDA65A fabricated baseline",
+        zorder=5,
+    )
+    ax.annotate(
+        "FRIDA65A",
+        (noise_mv[baseline_index], power_uw[baseline_index]),
+        xytext=(8, 7),
+        textcoords="offset points",
+        color=TEXT_COLOR,
+        fontsize="small",
+    )
+
+    colorbar = fig.colorbar(mappable, ax=ax, pad=0.02)
+    colorbar.set_label("Worst settling time (ns)")
+    colorbar.ax.tick_params(colors=TEXT_COLOR)
+    cast(Patch, colorbar.outline).set_edgecolor(SPINE_COLOR)
+    colorbar.ax.yaxis.label.set_color(TEXT_COLOR)
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Input-referred noise σ (mV)")
+    ax.set_ylabel("Average power (µW)")
+    style_ax(ax)
+    style_grid(ax)
+    style_legend(ax, loc="upper right")
+    _add_info_box(
+        ax,
+        (
+            f"Valid resolved candidates: {int(np.count_nonzero(selected))}/{candidate_count}",
+            f"Invalid/unbracketed S-curves: {int(np.count_nonzero(~valid_scurve))}",
+            f"Valid candidates excluded as unresolved: {int(np.count_nonzero(valid_scurve & ~resolved))}",
+            "Lower-left is better; color encodes settling time",
+        ),
+        location="lower right",
+    )
+    fig.suptitle("FRIDA65 comparator noise–power trade-off")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)

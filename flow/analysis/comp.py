@@ -13,6 +13,7 @@ from scipy.stats import t as student_t
 
 from flow.analysis.measure import measure_average_power, measure_delay, measure_settling
 from flow.analysis.types import (
+    AnalysisCompCandidateSweep,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
@@ -214,13 +215,16 @@ def analyze_comp_timing(
     for source_index, measurement in enumerate(measurements):
         for record, trial_index in enumerate(measurement.wave.trial_index):
             clock = measurement.wave.clock_v[record]
-            output_difference = measurement.wave.vout_p_v[record] - measurement.wave.vout_n_v[record]
+            # Settling is a property of the dynamic comparator core. The held
+            # output latch can retain the previous decision throughout reset,
+            # so using vout_p-vout_n would often look resolved before the clock.
+            output_difference = measurement.wave.comp_p_v[record] - measurement.wave.comp_n_v[record]
             clock_threshold = (
                 float((np.min(clock) + np.max(clock)) / 2.0) if clock_threshold_v is None else clock_threshold_v
             )
             response = np.abs(output_difference)
             response_threshold = float(np.max(response) / 2.0) if decision_threshold_v is None else decision_threshold_v
-            _trigger_s, _response_s, delay_s = measure_delay(
+            trigger_s, _response_s, delay_s = measure_delay(
                 measurement.wave.time_s,
                 clock,
                 response,
@@ -230,14 +234,19 @@ def analyze_comp_timing(
             source_indices.append(source_index)
             trial_indices.append(trial_index)
             delays.append(delay_s)
-            settling.append(
-                measure_settling(
-                    measurement.wave.time_s,
-                    output_difference,
+            is_unresolved = abs(output_difference[-1]) < unresolved_threshold_v
+            if math.isfinite(trigger_s) and not is_unresolved:
+                evaluation = measurement.wave.time_s >= trigger_s
+                settled_at_s = measure_settling(
+                    measurement.wave.time_s[evaluation],
+                    output_difference[evaluation],
                     relative_tolerance=settling_tolerance,
                 )
-            )
-            unresolved.append(abs(output_difference[-1]) < unresolved_threshold_v)
+                settling_s = settled_at_s - trigger_s if math.isfinite(settled_at_s) else math.nan
+            else:
+                settling_s = math.nan
+            settling.append(settling_s)
+            unresolved.append(is_unresolved)
     return AnalysisCompTiming(
         source_index=np.asarray(source_indices, dtype=np.int64),
         trial_index=np.asarray(trial_indices, dtype=np.int64),
@@ -261,13 +270,127 @@ def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower
         raise ValueError("comparator power analysis requires measurements")
     supply_v = []
     average_power_w = []
+    energy_per_decision_j = []
     for measurement in measurements:
         voltage = _supply_voltage_v(measurement)
-        current = measurement.wave.vdd_i.reshape(-1)
+        stored_power = measurement.info.readbacks.get("vdd_active_average_power_w")
+        if stored_power is None:
+            current = measurement.wave.vdd_i.reshape(-1)
+            power = measure_average_power(current, voltage)
+        else:
+            power = float(stored_power)
+        stored_energy = measurement.info.readbacks.get("energy_per_decision_j")
+        if stored_energy is not None:
+            energy = float(stored_energy)
+        elif all(hasattr(measurement.param, name) for name in ("reset_time_s", "evaluation_time_s")):
+            energy = power * (float(measurement.param.reset_time_s) + float(measurement.param.evaluation_time_s))
+        else:
+            energy = math.nan
         supply_v.append(voltage)
-        average_power_w.append(measure_average_power(current, voltage))
+        average_power_w.append(power)
+        energy_per_decision_j.append(energy)
     return AnalysisCompPower(
         source_index=np.arange(len(measurements), dtype=np.int64),
         supply_v=np.asarray(supply_v),
         average_power_w=np.asarray(average_power_w),
+        energy_per_decision_j=np.asarray(energy_per_decision_j),
+    )
+
+
+def analyze_comp_candidate_sweep(measurements: Sequence[MeasCompInt]) -> AnalysisCompCandidateSweep:
+    """Reuse the typed comparator analyses and align one row per candidate."""
+
+    if not measurements:
+        raise ValueError("comparator candidate analysis requires measurements")
+
+    rows = []
+    seen_candidates = set()
+    for measurement in measurements:
+        readbacks = measurement.info.readbacks
+        required = {
+            "candidate_id",
+            "candidate_label",
+            "topology_index",
+            "size_profile",
+            "total_width_units",
+            "device_width_signature",
+            "total_active_area_units",
+            "total_active_area_um2",
+            "device_geometry_signature",
+        }
+        missing = sorted(required.difference(readbacks))
+        if missing:
+            raise ValueError(f"comparator candidate measurement is missing readbacks {missing}")
+        candidate_id = str(readbacks["candidate_id"])
+        if candidate_id in seen_candidates:
+            raise ValueError(f"duplicate comparator candidate {candidate_id!r}")
+        seen_candidates.add(candidate_id)
+
+        noise = analyze_comp_offset_noise([measurement])
+        timing = analyze_comp_timing([measurement])
+        power = analyze_comp_power([measurement])
+        finite_delay = timing.clock_to_decision_s[np.isfinite(timing.clock_to_decision_s)]
+        finite_settling = timing.settling_s[np.isfinite(timing.settling_s)]
+        unresolved_fraction = float(np.mean(timing.unresolved))
+        maximum_delay_s = float(np.max(finite_delay)) if len(finite_delay) else math.nan
+        if np.any(timing.unresolved):
+            maximum_settling_s = float(getattr(measurement.param, "evaluation_time_s", math.nan))
+        else:
+            maximum_settling_s = float(np.max(finite_settling)) if len(finite_settling) else math.nan
+        geometry_signature = str(readbacks["device_geometry_signature"])
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "candidate_label": str(readbacks["candidate_label"]),
+                "size_profile": str(readbacks["size_profile"]),
+                "validity": noise.validity,
+                "topology_index": int(readbacks["topology_index"]),
+                "total_width_units": int(readbacks["total_width_units"]),
+                "total_active_area_units": int(readbacks["total_active_area_units"]),
+                "total_active_area_um2": float(readbacks["total_active_area_um2"]),
+                "device_count": 0 if not geometry_signature else len(geometry_signature.split(",")),
+                "geometry_signature": geometry_signature,
+                "offset_v": noise.offset_v,
+                "noise_sigma_v": noise.noise_sigma_v,
+                "average_power_w": float(power.average_power_w[0]),
+                "energy_per_decision_j": float(power.energy_per_decision_j[0]),
+                "maximum_clock_to_decision_s": maximum_delay_s,
+                "maximum_settling_s": maximum_settling_s,
+                "unresolved_fraction": unresolved_fraction,
+            }
+        )
+
+    # Summed MOS W*L is the primary axis. The exact generator insertion-order
+    # geometry signature and candidate ID make ties stable and reproducible.
+    rows.sort(
+        key=lambda row: (
+            row["total_active_area_units"],
+            row["geometry_signature"],
+            row["candidate_id"],
+        )
+    )
+
+    def float_array(name: str) -> np.ndarray:
+        return np.asarray([row[name] for row in rows], dtype=np.float64)
+
+    def int_array(name: str) -> np.ndarray:
+        return np.asarray([row[name] for row in rows], dtype=np.int64)
+
+    return AnalysisCompCandidateSweep(
+        candidate_id=tuple(str(row["candidate_id"]) for row in rows),
+        candidate_label=tuple(str(row["candidate_label"]) for row in rows),
+        size_profile=tuple(str(row["size_profile"]) for row in rows),
+        validity=tuple(str(row["validity"]) for row in rows),
+        topology_index=int_array("topology_index"),
+        total_width_units=int_array("total_width_units"),
+        total_active_area_units=int_array("total_active_area_units"),
+        total_active_area_um2=float_array("total_active_area_um2"),
+        device_count=int_array("device_count"),
+        offset_v=float_array("offset_v"),
+        noise_sigma_v=float_array("noise_sigma_v"),
+        average_power_w=float_array("average_power_w"),
+        energy_per_decision_j=float_array("energy_per_decision_j"),
+        maximum_clock_to_decision_s=float_array("maximum_clock_to_decision_s"),
+        maximum_settling_s=float_array("maximum_settling_s"),
+        unresolved_fraction=float_array("unresolved_fraction"),
     )

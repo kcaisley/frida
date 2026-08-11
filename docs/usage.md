@@ -14,7 +14,7 @@ layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
 uv run python -m flow.comp.sim --help
-uv run python -m flow.comp.sim netlist --help
+uv run python -m flow.comp.sim
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools
@@ -64,7 +64,19 @@ uv run python -m flow.<block>.sim netlist \
   [--scope <scope>] [--montecarlo] [-o <dir>]
 ```
 
-Replace `<block>` with `samp`, `comp`, `cdac`, or `adc`.
+This flag-driven interface remains for `samp` and `cdac`. Comparator generation
+uses reviewed, zero-argument named targets instead:
+
+```bash
+# Fabricated-size comparator core only
+uv run python -m flow.comp.sim frida65_baseline_netlist
+
+# All 297 production decks, without simulation
+uv run python -m flow.comp.sim frida65_candidate_decks
+```
+
+The generic sampler/CDAC netlist command uses the following options; they do
+not apply to the named comparator targets.
 
 | Option | Values | Default |
 |---|---|---|
@@ -87,22 +99,13 @@ variants. Results are written below `<output root>/<block>/`.
 `verilog` only supports `--scope dut`. Monte Carlo requires `--scope full`.
 
 ```bash
-# Complete Spectre input for every comparator variant
-uv run python -m flow.comp.sim netlist -t ihp130
-
-# DUT-only Verilog
-uv run python -m flow.comp.sim netlist -t ihp130 --scope dut -f verilog
-
 # CDAC stimulus wrapper without analysis commands
 uv run python -m flow.cdac.sim netlist -t tsmc65 --scope stim
-
-# Complete comparator input with Monte Carlo analysis
-uv run python -m flow.comp.sim netlist -t ihp130 --montecarlo
 ```
 
 ## Circuit simulation
 
-The same testbench modules run SPICE simulations:
+The sampler and CDAC testbench modules retain the generic SPICE interface:
 
 ```bash
 uv run python -m flow.<block>.sim simulate \
@@ -122,9 +125,26 @@ Simulation requires the selected simulator executable on `PATH` and a
 configured simulation host.
 
 ```bash
-uv run python -m flow.comp.sim simulate -t ihp130 -m min -s spectre
-uv run python -m flow.comp.sim simulate -t tsmc65 -s spectre
+# Full transient-noise FRIDA-size baseline
+uv run python -m flow.comp.sim frida65_baseline_noise
+
+# Two deterministic campaign shards, intended for separate simulation hosts
+uv run python -m flow.comp.sim frida65_candidates_shard0
+uv run python -m flow.comp.sim frida65_candidates_shard1
+
+# After both shards have been collected under build/comp
+uv run python -m flow.comp.sim frida65_reconvert_h5
+uv run python -m flow.analysis.runner comp_candidate_sweep
 ```
+
+Comparator cases are resumable beneath
+`build/comp/frida65_candidate_scurve_power/candidates/`. Each completed case
+contains `input.scs`, `result.raw`, `spectre.log`, and typed `result.h5` files.
+The analysis target requires the complete 297-case manifest and writes its
+Σ(W×L)-ordered noise, power, and settling comparison beneath
+`build/analysis/comp`. It also writes a noise-versus-power trade-off plot for
+valid, resolved candidates, with settling encoded by color and the fabricated
+FRIDA comparator highlighted.
 
 ## Netlist conversion
 

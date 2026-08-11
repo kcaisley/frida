@@ -18,6 +18,8 @@ invocation.
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +39,11 @@ from flow.analysis.adc import (
     combine_adc_noise_comparison,
 )
 from flow.analysis.cdac import analyze_cdac_cap_mismatch
-from flow.analysis.comp import analyze_comp_offset_noise, classify_comp_common_mode_validity
+from flow.analysis.comp import (
+    analyze_comp_candidate_sweep,
+    analyze_comp_offset_noise,
+    classify_comp_common_mode_validity,
+)
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import (
     animate_adc_decision_path_density,
@@ -53,9 +59,11 @@ from flow.analysis.plots import (
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
     plot_comp_campaign,
+    plot_comp_candidate_sweep,
+    plot_comp_noise_power_tradeoff,
     plot_measurement_waveforms,
 )
-from flow.analysis.types import MeasAdcExt, MeasAdcInt, MeasCdacExt, MeasCompExt
+from flow.analysis.types import MeasAdcExt, MeasAdcInt, MeasCdacExt, MeasCompExt, MeasCompInt
 from flow.scans.params import load_board_map
 
 BASE_PATH = Path(__file__).resolve().parents[2]
@@ -664,6 +672,167 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze the complete generated-comparator noise/power/timing campaign."""
+
+    RUN_DIR = BASE_PATH / "build/comp/frida65_candidate_scurve_power"
+    EXPECTED_CANDIDATES = 297
+    manifest_path = RUN_DIR / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(2, "comparator candidate manifest not found", manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("campaign") != "frida65_candidate_scurve_power":
+        raise ValueError("comparator candidate manifest has the wrong campaign name")
+    manifest_candidates = manifest.get("candidates")
+    if not isinstance(manifest_candidates, list) or len(manifest_candidates) != EXPECTED_CANDIDATES:
+        raise ValueError(f"comparator candidate manifest must contain {EXPECTED_CANDIDATES} designs")
+    expected_ids = {str(candidate["candidate_id"]) for candidate in manifest_candidates}
+    if len(expected_ids) != EXPECTED_CANDIDATES:
+        raise ValueError("comparator candidate manifest contains duplicate IDs")
+
+    measurement_paths = sorted((RUN_DIR / "candidates").glob("*/result.h5"))
+    if len(measurement_paths) != EXPECTED_CANDIDATES:
+        raise ValueError(
+            f"comparator candidate runner requires {EXPECTED_CANDIDATES} H5 results, found {len(measurement_paths)}"
+        )
+    measurements = []
+    observed_ids = set()
+    for path in measurement_paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasCompInt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCompInt")
+        if measurement.info.backend != "spice" or measurement.info.readbacks.get("transient_noise") is not True:
+            raise ValueError(f"{path} is not a transient-noise SPICE comparator result")
+        candidate_id = str(measurement.info.readbacks.get("candidate_id", ""))
+        if candidate_id in observed_ids:
+            raise ValueError(f"duplicate comparator result for {candidate_id!r}")
+        observed_ids.add(candidate_id)
+        params = measurement.param
+        if (
+            tuple(float(value) for value in params.vin_cm_values_v) != (0.8,)
+            or not np.isclose(float(params.sweep_min_v), -3e-3)
+            or not np.isclose(float(params.sweep_max_v), 3e-3)
+            or not np.isclose(float(params.sweep_step_v), 100e-6)
+            or params.conversions != 100
+            or not np.isclose(float(params.reset_time_s), 10e-9)
+            or not np.isclose(float(params.evaluation_time_s), 30e-9)
+        ):
+            raise ValueError(f"{path} does not use the reviewed comparator S-curve testbench")
+        measurements.append(measurement)
+    if observed_ids != expected_ids:
+        missing = sorted(expected_ids.difference(observed_ids))
+        unexpected = sorted(observed_ids.difference(expected_ids))
+        raise ValueError(
+            f"comparator candidate results do not match manifest; missing={missing}, unexpected={unexpected}"
+        )
+
+    analysis = analyze_comp_candidate_sweep(measurements)
+    artifacts = list(
+        plot_comp_candidate_sweep(
+            measurements,
+            analysis,
+            output_path=output_dir / "comp_candidate_noise_power_settling",
+        )
+    )
+    artifacts.extend(
+        plot_comp_noise_power_tradeoff(
+            analysis,
+            output_path=output_dir / "comp_candidate_noise_power_tradeoff",
+        )
+    )
+    csv_path = output_dir / "comp_candidate_noise_power_settling.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "area_order",
+                "candidate_id",
+                "candidate_label",
+                "size_profile",
+                "topology_index",
+                "total_width_units",
+                "total_active_area_units",
+                "total_active_area_um2",
+                "device_count",
+                "comp_stages",
+                "preamp_diff_xtors",
+                "preamp_bias",
+                "latch_inner_on_xtors",
+                "latch_outer_on_xtors",
+                "latch_inner_init_xtors",
+                "latch_outer_init_xtors",
+                "diffpair_w",
+                "diffpair_l",
+                "tail_w",
+                "tail_l",
+                "rst_w",
+                "rst_l",
+                "latch_on_w",
+                "latch_on_l",
+                "latch_init_w",
+                "latch_init_l",
+                "srlatch_n_w",
+                "srlatch_p_w",
+                "validity",
+                "offset_v",
+                "noise_sigma_v",
+                "average_power_w",
+                "energy_per_decision_j",
+                "maximum_clock_to_decision_s",
+                "maximum_settling_s",
+                "unresolved_fraction",
+            )
+        )
+        measurement_by_id = {
+            str(measurement.info.readbacks["candidate_id"]): measurement for measurement in measurements
+        }
+        for index, candidate_id in enumerate(analysis.candidate_id):
+            comp = measurement_by_id[candidate_id].param.comp
+            writer.writerow(
+                (
+                    index,
+                    candidate_id,
+                    analysis.candidate_label[index],
+                    analysis.size_profile[index],
+                    analysis.topology_index[index],
+                    analysis.total_width_units[index],
+                    analysis.total_active_area_units[index],
+                    analysis.total_active_area_um2[index],
+                    analysis.device_count[index],
+                    comp.comp_stages.name,
+                    comp.preamp_diff_xtors.name,
+                    comp.preamp_bias.name,
+                    comp.latch_inner_on_xtors.name,
+                    comp.latch_outer_on_xtors.name,
+                    comp.latch_inner_init_xtors.name,
+                    comp.latch_outer_init_xtors.name,
+                    comp.diffpair_w,
+                    comp.diffpair_l,
+                    comp.tail_w,
+                    comp.tail_l,
+                    comp.rst_w,
+                    comp.rst_l,
+                    comp.latch_on_w,
+                    comp.latch_on_l,
+                    comp.latch_init_w,
+                    comp.latch_init_l,
+                    comp.srlatch_n_w,
+                    comp.srlatch_p_w,
+                    analysis.validity[index],
+                    analysis.offset_v[index],
+                    analysis.noise_sigma_v[index],
+                    analysis.average_power_w[index],
+                    analysis.energy_per_decision_j[index],
+                    analysis.maximum_clock_to_decision_s[index],
+                    analysis.maximum_settling_s[index],
+                    analysis.unresolved_fraction[index],
+                )
+            )
+    artifacts.append(csv_path)
+    return tuple(artifacts)
+
+
 def cdac_system_cap_mismatch(output_dir: Path) -> tuple[Path, ...]:
     """Extract and plot ADC00–ADC03 capacitor mismatch from A-to-B transitions."""
 
@@ -810,6 +979,7 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
         adc_noise_vs_comp_time,
         comp_system_common_mode,
         comp_system_sampling_noise,
+        comp_candidate_sweep,
         cdac_system_cap_mismatch,
     )
 }
