@@ -7,11 +7,13 @@ import numpy as np
 import pytest
 
 from flow.analysis.io import read_measurement
-from flow.analysis.types import AdcIntWave, MeasAdcInt
+from flow.analysis.types import AdcIntWave, CompIntWave, MeasAdcInt, MeasCompInt
+from flow.comp.sim import CompTbParams
 from flow.scans.params import AdcTbParams
 from flow.spice.io import (
     convert_spectre_adc_raw_to_h5,
     convert_spectre_adc_to_measurement,
+    convert_spectre_comp_raw_to_h5,
     read_spectre_nutascii,
 )
 
@@ -173,3 +175,105 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     np.testing.assert_allclose(measurement.wave.vdd_a_i, 2.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_d_i, 40.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_dac_i, 20.0e-6)
+
+
+def test_comp_raw_conversion_reuses_shared_typed_hdf5_path(tmp_path: Path) -> None:
+    params = CompTbParams(
+        sweep_min_v=-100e-6,
+        sweep_max_v=100e-6,
+        sweep_step_v=100e-6,
+        conversions=2,
+    )
+    time_step_s = 0.5e-9
+    cycle_s = 40e-9
+    trial_count = 6
+    times_s = np.arange(0.0, trial_count * cycle_s + time_step_s / 2.0, time_step_s)
+    decisions = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.uint8)
+    clock = np.zeros_like(times_s)
+    comp_difference = np.zeros_like(times_s)
+    output_difference = np.zeros_like(times_s)
+    previous_sign = -1.0
+    for trial, decision in enumerate(decisions):
+        start_s = trial * cycle_s
+        eval_start_s = start_s + 10e-9
+        stop_s = start_s + cycle_s
+        active = (times_s >= eval_start_s) & (times_s < stop_s)
+        clock[active] = 1.2
+        sign = 1.0 if decision else -1.0
+        resolved = (times_s >= eval_start_s + 2e-9) & (times_s < stop_s)
+        comp_difference[resolved] = sign
+        output_difference[(times_s >= start_s) & (times_s < eval_start_s + 2e-9)] = previous_sign
+        output_difference[resolved] = sign
+        previous_sign = sign
+
+    values = {
+        "time": times_s,
+        "vin_p": np.full_like(times_s, 0.8),
+        "vin_n": np.full_like(times_s, 0.8),
+        "clock": clock,
+        "vout_p": 0.6 + output_difference / 2.0,
+        "vout_n": 0.6 - output_difference / 2.0,
+        "comp_p": 0.6 + comp_difference / 2.0,
+        "comp_n": 0.6 - comp_difference / 2.0,
+        "vdd_i": np.full_like(times_s, -10e-6),
+    }
+    signal_names = {
+        "time_s": "time",
+        "vin_p_v": "vin_p",
+        "vin_n_v": "vin_n",
+        "clock_v": "clock",
+        "vout_p_v": "vout_p",
+        "vout_n_v": "vout_n",
+        "comp_p_v": "comp_p",
+        "comp_n_v": "comp_n",
+        "vdd_i": "vdd_i",
+    }
+    raw_path = tmp_path / "comp.raw"
+    names = tuple(values)
+    lines = [
+        "Title: synthetic comparator",
+        f"No. Variables: {len(names)}",
+        f"No. Points: {len(times_s)}",
+        "Variables:",
+    ]
+    lines.extend(
+        f"{index} {name} {'s' if name == 'time' else 'A' if name == 'vdd_i' else 'V'}"
+        for index, name in enumerate(names)
+    )
+    lines.append("Values:")
+    for point_index in range(len(times_s)):
+        lines.append(" ".join([str(point_index)] + [f"{values[name][point_index]:.16g}" for name in names]))
+    raw_path.write_text("\n".join(lines) + "\n")
+
+    h5_path = tmp_path / "comp.h5"
+    convert_spectre_comp_raw_to_h5(
+        raw_path,
+        h5_path,
+        params=params,
+        signal_names=signal_names,
+        candidate_id="synthetic",
+        candidate_label="Synthetic comparator",
+        topology_index=0,
+        size_profile="fabricated",
+        total_width_units=100,
+        device_width_signature=(("M0", 40), ("M1", 60)),
+        total_active_area_units=160,
+        total_active_area_um2=1.152,
+        device_geometry_signature=(("M0", 40, 1), ("M1", 60, 2)),
+    )
+    measurement = read_measurement(h5_path)
+
+    assert isinstance(measurement, MeasCompInt)
+    assert isinstance(measurement.wave, CompIntWave)
+    assert measurement.param == params
+    assert measurement.info.readbacks["candidate_id"] == "synthetic"
+    assert measurement.info.readbacks["total_active_area_units"] == 160
+    assert measurement.info.readbacks["total_active_area_um2"] == pytest.approx(1.152)
+    assert measurement.info.readbacks["raw_format"] == "spectre_nutascii"
+    assert measurement.info.readbacks["vdd_active_average_power_w"] == pytest.approx(12e-6)
+    assert measurement.info.readbacks["energy_per_decision_j"] == pytest.approx(480e-15)
+    np.testing.assert_allclose(measurement.daq.vin_diff_v, [-100e-6, -100e-6, 0.0, 0.0, 100e-6, 100e-6])
+    np.testing.assert_array_equal(measurement.daq.decision, decisions)
+    np.testing.assert_array_equal(measurement.wave.trial_index, np.arange(6))
+    assert measurement.wave.clock_v.shape == (6, 80)
+    np.testing.assert_allclose(measurement.wave.vdd_i, 10e-6)

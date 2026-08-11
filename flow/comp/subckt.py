@@ -69,9 +69,13 @@ class CompParams:
     tail_vth = h.Param(dtype=MosVth, desc="Tail Vth", default=MosVth.LOW)
 
     rst_w = h.Param(dtype=int, desc="Reset device width multiplier", default=8)
+    rst_l = h.Param(dtype=int, desc="Reset device length multiplier", default=1)
     rst_vth = h.Param(dtype=MosVth, desc="Reset Vth", default=MosVth.LOW)
 
-    latch_w = h.Param(dtype=int, desc="Latch device width multiplier", default=4)
+    latch_on_w = h.Param(dtype=int, desc="Latch evaluation-side width multiplier", default=4)
+    latch_on_l = h.Param(dtype=int, desc="Latch evaluation-side length multiplier", default=1)
+    latch_init_w = h.Param(dtype=int, desc="Latch precharge-side width multiplier", default=4)
+    latch_init_l = h.Param(dtype=int, desc="Latch precharge-side length multiplier", default=1)
     latch_vth = h.Param(dtype=MosVth, desc="Latch Vth", default=MosVth.LOW)
 
     srlatch_n_w = h.Param(
@@ -243,10 +247,10 @@ def _build_preamp(module, param: CompParams):
     # Precharge preamp outputs during reset phase.
     # For NMOS input: PMOS reset gate=clk → ON when clk=0, OFF when clk=1
     # For PMOS input: NMOS reset gate=clkb → ON when clkb=1, OFF when clkb=0
-    module.Mrst_p = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(
+    module.Mrst_p = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=param.rst_l)(
         d=module.preamp_n, g=on_clk, s=init_rail, b=init_rail
     )
-    module.Mrst_n = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=1)(
+    module.Mrst_n = h.Mos(tp=reset_type, vth=param.rst_vth, w=param.rst_w, l=param.rst_l)(
         d=module.preamp_p, g=on_clk, s=init_rail, b=init_rail
     )
 
@@ -303,12 +307,18 @@ def _build_latch(module, param: CompParams):
     module.innerp = h.Signal()
     module.innern = h.Signal()
 
-    module.Mcross_init_p = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.innerp, g=module.innern, s=latch_init_rail, b=latch_init_rail
-    )
-    module.Mcross_init_n = h.Mos(tp=latch_init_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=module.innern, g=module.innerp, s=latch_init_rail, b=latch_init_rail
-    )
+    module.Mcross_init_p = h.Mos(
+        tp=latch_init_type,
+        vth=param.latch_vth,
+        w=param.latch_init_w,
+        l=param.latch_init_l,
+    )(d=module.innerp, g=module.innern, s=latch_init_rail, b=latch_init_rail)
+    module.Mcross_init_n = h.Mos(
+        tp=latch_init_type,
+        vth=param.latch_vth,
+        w=param.latch_init_w,
+        l=param.latch_init_l,
+    )(d=module.innern, g=module.innerp, s=latch_init_rail, b=latch_init_rail)
 
     # --- Minner_init: inner init (reset) devices ---
     # When signaled: gates driven by preamp outputs (cross-coupled)
@@ -320,10 +330,10 @@ def _build_latch(module, param: CompParams):
         init_inner_gate_p = latch_clk
         init_inner_gate_n = latch_clk
 
-    module.Minner_init_p = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
+    module.Minner_init_p = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=param.rst_l)(
         d=module.innerp, g=init_inner_gate_p, s=latch_init_rail, b=latch_init_rail
     )
-    module.Minner_init_n = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
+    module.Minner_init_n = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=param.rst_l)(
         d=module.innern, g=init_inner_gate_n, s=latch_init_rail, b=latch_init_rail
     )
 
@@ -341,12 +351,18 @@ def _build_latch(module, param: CompParams):
             inner_on_gate_p = latch_clk
             inner_on_gate_n = latch_clk
 
-        module.Minner_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-            d=module.innerp, g=inner_on_gate_p, s=module.midp, b=latch_on_rail
-        )
-        module.Minner_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-            d=module.innern, g=inner_on_gate_n, s=module.midn, b=latch_on_rail
-        )
+        module.Minner_on_p = h.Mos(
+            tp=latch_on_type,
+            vth=param.latch_vth,
+            w=param.latch_on_w,
+            l=param.latch_on_l,
+        )(d=module.innerp, g=inner_on_gate_p, s=module.midp, b=latch_on_rail)
+        module.Minner_on_n = h.Mos(
+            tp=latch_on_type,
+            vth=param.latch_vth,
+            w=param.latch_on_w,
+            l=param.latch_on_l,
+        )(d=module.innern, g=inner_on_gate_n, s=module.midn, b=latch_on_rail)
 
     # --- Mcross_on: cross-coupled inverter pair, on side ---
     # Drains connect to midp/midn if inner_on devices exist, otherwise innerp/innern.
@@ -369,12 +385,18 @@ def _build_latch(module, param: CompParams):
         cross_on_src_p = latch_on_rail
         cross_on_src_n = latch_on_rail
 
-    module.Mcross_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=cross_on_drain_p, g=module.innern, s=cross_on_src_p, b=latch_on_rail
-    )
-    module.Mcross_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-        d=cross_on_drain_n, g=module.innerp, s=cross_on_src_n, b=latch_on_rail
-    )
+    module.Mcross_on_p = h.Mos(
+        tp=latch_on_type,
+        vth=param.latch_vth,
+        w=param.latch_on_w,
+        l=param.latch_on_l,
+    )(d=cross_on_drain_p, g=module.innern, s=cross_on_src_p, b=latch_on_rail)
+    module.Mcross_on_n = h.Mos(
+        tp=latch_on_type,
+        vth=param.latch_vth,
+        w=param.latch_on_w,
+        l=param.latch_on_l,
+    )(d=cross_on_drain_n, g=module.innerp, s=cross_on_src_n, b=latch_on_rail)
 
     # --- Mouter_on: outer on (currently steering) devices ---
     # Only available in double stage mode.
@@ -386,12 +408,18 @@ def _build_latch(module, param: CompParams):
             outer_on_gate_p = latch_clk
             outer_on_gate_n = latch_clk
 
-        module.Mouter_on_p = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-            d=module.outerp, g=outer_on_gate_p, s=latch_on_rail, b=latch_on_rail
-        )
-        module.Mouter_on_n = h.Mos(tp=latch_on_type, vth=param.latch_vth, w=param.latch_w, l=1)(
-            d=module.outern, g=outer_on_gate_n, s=latch_on_rail, b=latch_on_rail
-        )
+        module.Mouter_on_p = h.Mos(
+            tp=latch_on_type,
+            vth=param.latch_vth,
+            w=param.latch_on_w,
+            l=param.latch_on_l,
+        )(d=module.outerp, g=outer_on_gate_p, s=latch_on_rail, b=latch_on_rail)
+        module.Mouter_on_n = h.Mos(
+            tp=latch_on_type,
+            vth=param.latch_vth,
+            w=param.latch_on_w,
+            l=param.latch_on_l,
+        )(d=module.outern, g=outer_on_gate_n, s=latch_on_rail, b=latch_on_rail)
 
     # --- Mouter_init: outer init (reset) devices ---
     # Requires outer_on devices to exist (for outerp/outern nodes).
@@ -403,12 +431,18 @@ def _build_latch(module, param: CompParams):
             outer_init_gate_p = latch_clk
             outer_init_gate_n = latch_clk
 
-        module.Mouter_init_p = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
-            d=module.outerp, g=outer_init_gate_p, s=latch_init_rail, b=latch_init_rail
-        )
-        module.Mouter_init_n = h.Mos(tp=latch_init_type, vth=param.rst_vth, w=param.rst_w, l=1)(
-            d=module.outern, g=outer_init_gate_n, s=latch_init_rail, b=latch_init_rail
-        )
+        module.Mouter_init_p = h.Mos(
+            tp=latch_init_type,
+            vth=param.rst_vth,
+            w=param.rst_w,
+            l=param.rst_l,
+        )(d=module.outerp, g=outer_init_gate_p, s=latch_init_rail, b=latch_init_rail)
+        module.Mouter_init_n = h.Mos(
+            tp=latch_init_type,
+            vth=param.rst_vth,
+            w=param.rst_w,
+            l=param.rst_l,
+        )(d=module.outern, g=outer_init_gate_n, s=latch_init_rail, b=latch_init_rail)
 
 
 # fmt: on

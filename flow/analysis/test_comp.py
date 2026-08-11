@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from flow.analysis.comp import (
+    analyze_comp_candidate_sweep,
     analyze_comp_offset_noise,
     analyze_comp_power,
     analyze_comp_timing,
@@ -31,7 +32,6 @@ def comparator_measurement() -> MeasCompInt:
     vin_diff_v = np.asarray([-1e-3, 0.0, 1e-3])
     clock = np.tile(np.where(time_s >= 5e-9, 1.2, 0.0), (3, 1))
     output = np.stack([np.where(time_s >= 7e-9, sign, 0.0) for sign in (-1.0, 0.05, 1.0)])
-    zeros = np.zeros_like(output)
     return MeasCompInt(
         info=MeasInfo(
             schema_version=1,
@@ -55,8 +55,8 @@ def comparator_measurement() -> MeasCompInt:
             clock_v=clock,
             vout_p_v=0.6 + output / 2,
             vout_n_v=0.6 - output / 2,
-            comp_p_v=zeros,
-            comp_n_v=zeros,
+            comp_p_v=0.6 + output / 2,
+            comp_n_v=0.6 - output / 2,
             vdd_i=np.full_like(output, 10e-6),
         ),
     )
@@ -294,3 +294,59 @@ def test_comp_timing_and_power_use_internal_waveforms() -> None:
 
     power = analyze_comp_power([msmt])
     assert power.average_power_w[0] == pytest.approx(12e-6)
+    assert power.energy_per_decision_j[0] == pytest.approx(480e-15)
+
+
+def test_comp_candidate_sweep_reuses_metrics_and_orders_by_total_active_area() -> None:
+    base = comparator_measurement()
+    inputs = np.repeat(np.linspace(-2e-3, 2e-3, 5), 100)
+    decisions = np.concatenate(
+        [
+            np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
+            for ones in (0, 25, 50, 75, 100)
+        ]
+    )
+    daq = CompDaq(
+        trial_index=np.arange(len(inputs)),
+        vin_diff_v=inputs,
+        vin_cm_v=np.full(len(inputs), 0.8),
+        decision=decisions,
+    )
+
+    def candidate(candidate_id: str, width: int, area: int) -> MeasCompInt:
+        return replace(
+            base,
+            info=replace(
+                base.info,
+                readbacks={
+                    "vdd_v": 1.2,
+                    "vdd_active_average_power_w": width * 1e-9,
+                    "energy_per_decision_j": width * 40e-18,
+                    "candidate_id": candidate_id,
+                    "candidate_label": candidate_id,
+                    "topology_index": width,
+                    "size_profile": "half",
+                    "total_width_units": width,
+                    "device_width_signature": f"M0:{width}",
+                    "total_active_area_units": area,
+                    "total_active_area_um2": area * 0.0072,
+                    "device_geometry_signature": f"M0:{width}:{area}",
+                },
+            ),
+            daq=daq,
+        )
+
+    analysis = analyze_comp_candidate_sweep(
+        [
+            candidate("larger-area", width=100, area=200),
+            candidate("smaller-area", width=200, area=100),
+        ]
+    )
+
+    assert analysis.candidate_id == ("smaller-area", "larger-area")
+    np.testing.assert_array_equal(analysis.total_width_units, [200, 100])
+    np.testing.assert_array_equal(analysis.total_active_area_units, [100, 200])
+    np.testing.assert_allclose(analysis.total_active_area_um2, [0.72, 1.44])
+    np.testing.assert_allclose(analysis.average_power_w, [200e-9, 100e-9])
+    assert all(validity == "valid" for validity in analysis.validity)
+    np.testing.assert_allclose(analysis.maximum_settling_s, 30e-9)

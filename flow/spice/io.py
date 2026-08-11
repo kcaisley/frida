@@ -9,17 +9,23 @@ written by :func:`flow.analysis.io.write_measurement`.
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
-from flow.analysis.types import AdcDaq, AdcIntWave, MeasAdcInt, MeasInfo
+from flow.analysis.types import AdcDaq, AdcIntWave, CompDaq, CompIntWave, MeasAdcInt, MeasCompInt, MeasInfo
 from flow.cdac import get_cdac_weights
+from flow.circuit.params import supply_voltage
 from flow.scans.params import AdcTbParams
+
+if TYPE_CHECKING:
+    from flow.comp.sim import CompTbParams
 
 
 def read_spectre_nutascii(
@@ -242,7 +248,7 @@ def convert_spectre_adc_to_measurement(
     # HDL21 paramclasses are runtime dataclasses, although their decorator's
     # typing stub does not currently expose that fact to ty.
     params = dataclasses.replace(
-        params,  # ty: ignore[invalid-argument-type]
+        params,
         conversions=complete_conversions,
     )
 
@@ -354,5 +360,246 @@ def convert_spectre_adc_raw_to_h5(
         signal_names=signal_names,
         waveform_sample_interval_s=waveform_sample_interval_s,
         maximum_waveform_records=maximum_waveform_records,
+    )
+    return write_measurement(h5_path, measurement)
+
+
+def convert_spectre_comp_to_measurement(
+    data: Mapping[str, Sequence[float] | np.ndarray],
+    *,
+    params: CompTbParams,
+    raw_path: Path,
+    signal_names: Mapping[str, str],
+    candidate_id: str,
+    candidate_label: str,
+    topology_index: int,
+    size_profile: str,
+    total_width_units: int,
+    device_width_signature: Sequence[tuple[str, int]],
+    total_active_area_units: int,
+    total_active_area_um2: float,
+    device_geometry_signature: Sequence[tuple[str, int, int]],
+    waveform_sample_interval_s: float = 500e-12,
+    spectre_runtime_s: float | None = None,
+) -> MeasCompInt:
+    """Decode one Spectre comparator campaign result into ``MeasCompInt``.
+
+    This follows the ADC converter's selected-signal path: the same streamed
+    NUTASCII reader feeds nominal DAQ rows, uniformly interpolated waveform
+    records, full-trace supply-power readbacks, and the shared typed HDF5
+    writer. All 100 decisions at every input point are retained in ``daq``;
+    dense waveforms retain every trial at the three points nearest 50%
+    probability plus one representative trial everywhere else.
+    """
+
+    from flow.comp.sim import cycle_time_s, differential_values_v, simulation_stop_s, trial_count
+
+    raw_wave_names = tuple(
+        field.name for field in dataclasses.fields(CompIntWave) if field.name not in {"trial_index", "time_s"}
+    )
+    expected_names = {"time_s", *raw_wave_names}
+    missing_names = sorted(expected_names.difference(signal_names))
+    unexpected_names = sorted(set(signal_names).difference(expected_names))
+    if missing_names or unexpected_names:
+        raise ValueError(
+            "signal_names must map exactly the raw CompIntWave signals; "
+            f"missing={missing_names}, unexpected={unexpected_names}"
+        )
+    raw_names = tuple(signal_names.values())
+    if any(not isinstance(name, str) or not name for name in raw_names):
+        raise ValueError("signal_names values must be non-empty raw variable names")
+    if len(set(raw_names)) != len(raw_names):
+        raise ValueError("signal_names raw variable names must be unique")
+    missing = sorted(set(raw_names).difference(data))
+    if missing:
+        raise KeyError(f"Spectre data is missing mapped signals {missing}")
+    if not np.isfinite(waveform_sample_interval_s) or waveform_sample_interval_s <= 0.0:
+        raise ValueError("waveform_sample_interval_s must be finite and positive")
+    if not candidate_id or not candidate_label or not size_profile:
+        raise ValueError("comparator candidate metadata must be non-empty")
+    if topology_index < 0 or total_width_units <= 0 or total_active_area_units <= 0:
+        raise ValueError("comparator topology index, total width, and total area must be nonnegative/positive")
+    if not math.isfinite(total_active_area_um2) or total_active_area_um2 <= 0.0:
+        raise ValueError("comparator physical active area must be finite and positive")
+    if tuple(device_width_signature) != tuple((name, width) for name, width, _length in device_geometry_signature):
+        raise ValueError("comparator width and geometry signatures must describe the same devices")
+    if sum(width * length for _name, width, length in device_geometry_signature) != total_active_area_units:
+        raise ValueError("comparator total active area does not match its device geometry signature")
+
+    times_s = np.asarray(data[signal_names["time_s"]], dtype=np.float64)
+    signals = {name: np.asarray(data[signal_names[name]], dtype=np.float64) for name in raw_wave_names}
+    # Spectre voltage-source current is positive into the source. Store positive
+    # current delivered to the DUT, matching the ADC converter and analysis.
+    signals["vdd_i"] = -signals["vdd_i"]
+    if times_s.ndim != 1 or len(times_s) < 2 or np.any(np.diff(times_s) <= 0):
+        raise ValueError("Spectre time must be one-dimensional and strictly increasing")
+    if any(values.shape != times_s.shape for values in signals.values()):
+        raise ValueError("all mapped Spectre signals must align with Spectre time")
+    if not np.all(np.isfinite(times_s)) or any(not np.all(np.isfinite(values)) for values in signals.values()):
+        raise ValueError("Spectre time and mapped signals must contain only finite values")
+
+    expected_trial_count = trial_count(params)
+    cycle_s = cycle_time_s(params)
+    expected_stop_s = simulation_stop_s(params)
+    actual_duration_s = float(times_s[-1] - times_s[0])
+    if not np.isclose(actual_duration_s, expected_stop_s, rtol=1e-6, atol=waveform_sample_interval_s):
+        raise ValueError(
+            f"Spectre result duration {actual_duration_s:.12g} s does not match scheduled {expected_stop_s:.12g} s"
+        )
+
+    nominal_vdiff = []
+    nominal_vcm = []
+    point_first_trial = []
+    point_index = 0
+    for vcm in params.vin_cm_values_v:
+        for vdiff in differential_values_v(params):
+            first_trial = point_index * params.conversions
+            point_first_trial.append(first_trial)
+            nominal_vdiff.extend([vdiff] * params.conversions)
+            nominal_vcm.extend([float(vcm)] * params.conversions)
+            point_index += 1
+    if len(nominal_vdiff) != expected_trial_count:
+        raise RuntimeError("comparator nominal trial schedule is internally inconsistent")
+
+    # Sample just before the evaluation falling edge. Interpolation uses the
+    # uniformly stored raw grid but Spectre's transient-noise integration keeps
+    # its much finer internal timesteps.
+    decision_margin_s = max(float(params.transition_time_s) * 2.0, waveform_sample_interval_s / 2.0)
+    sample_times_s = times_s[0] + (np.arange(expected_trial_count) + 1) * cycle_s - decision_margin_s
+    out_p = np.interp(sample_times_s, times_s, signals["vout_p_v"])
+    out_n = np.interp(sample_times_s, times_s, signals["vout_n_v"])
+    decisions = (out_p > out_n).astype(np.uint8)
+
+    # Preserve all records at the three points closest to 50% probability and
+    # one representative record from every other S-curve point. Selecting from
+    # the measured decisions follows offset topologies whose metastable region
+    # is not centered at zero input, while bounding each production H5 file.
+    representative_trials = [first + params.conversions // 2 for first in point_first_trial]
+    point_probability = np.asarray(
+        [np.mean(decisions[first : first + params.conversions]) for first in point_first_trial],
+        dtype=np.float64,
+    )
+    transition_points = np.argsort(np.abs(point_probability - 0.5), kind="stable")[: min(3, len(point_first_trial))]
+    transition_trials = [
+        trial
+        for point in transition_points
+        for trial in range(point_first_trial[point], point_first_trial[point] + params.conversions)
+    ]
+    waveform_trial_indices = np.unique(np.asarray((*representative_trials, *transition_trials), dtype=np.int64))
+    record_duration_s = cycle_s - decision_margin_s
+    relative_time_s, waveform_records = interpolate_wave_records(
+        times_s,
+        signals,
+        [
+            (
+                float(times_s[0] + trial * cycle_s),
+                float(times_s[0] + trial * cycle_s + record_duration_s),
+            )
+            for trial in waveform_trial_indices
+        ],
+        waveform_sample_interval_s,
+    )
+
+    supply_v = float(supply_voltage(params.pvt.v, tech_name="tsmc65"))
+    average_current_a = float(np.trapezoid(signals["vdd_i"], times_s) / actual_duration_s)
+    average_power_w = supply_v * average_current_a
+    signature_text = ",".join(f"{name}:{width}" for name, width in device_width_signature)
+    geometry_text = ",".join(f"{name}:{width}:{length}" for name, width, length in device_geometry_signature)
+    readbacks: dict[str, str | int | float | bool] = {
+        "raw_file": Path(raw_path).name,
+        "raw_format": "spectre_nutascii",
+        "raw_points": len(times_s),
+        "raw_max_timestep_s": float(np.max(np.diff(times_s))),
+        "waveform_sample_interval_s": waveform_sample_interval_s,
+        "waveform_interpolated_from_coarser_raw": bool(
+            np.max(np.diff(times_s)) > waveform_sample_interval_s * (1.0 + 1e-9)
+        ),
+        "decision_sample_margin_s": decision_margin_s,
+        "supply_power_available": True,
+        "supply_current_convention": "positive_current_draw",
+        "vdd_v": supply_v,
+        "vdd_active_average_current_a": average_current_a,
+        "vdd_active_average_power_w": average_power_w,
+        "energy_per_decision_j": average_power_w * cycle_s,
+        "candidate_id": candidate_id,
+        "candidate_label": candidate_label,
+        "topology_index": topology_index,
+        "size_profile": size_profile,
+        "total_width_units": total_width_units,
+        "device_width_signature": signature_text,
+        "total_active_area_units": total_active_area_units,
+        "total_active_area_um2": total_active_area_um2,
+        "device_geometry_signature": geometry_text,
+        "transient_noise": True,
+        "transient_noise_seed": 1,
+        "transient_noise_max_hz": 25e9,
+    }
+    if spectre_runtime_s is not None:
+        if not math.isfinite(spectre_runtime_s) or spectre_runtime_s <= 0.0:
+            raise ValueError("Spectre runtime must be finite and positive")
+        readbacks["spectre_runtime_s"] = spectre_runtime_s
+
+    return MeasCompInt(
+        info=MeasInfo(
+            schema_version=1,
+            measurement_type="MeasCompInt",
+            backend="spice",
+            timestamp_utc=datetime.fromtimestamp(Path(raw_path).stat().st_mtime, tz=UTC),
+            instruments={"simulator": "Spectre"},
+            readbacks=readbacks,
+        ),
+        param=params,
+        daq=CompDaq(
+            trial_index=np.arange(expected_trial_count, dtype=np.int64),
+            vin_diff_v=np.asarray(nominal_vdiff, dtype=np.float64),
+            vin_cm_v=np.asarray(nominal_vcm, dtype=np.float64),
+            decision=decisions,
+        ),
+        wave=CompIntWave(
+            trial_index=waveform_trial_indices,
+            time_s=relative_time_s,
+            **waveform_records,
+        ),
+    )
+
+
+def convert_spectre_comp_raw_to_h5(
+    raw_path: Path,
+    h5_path: Path,
+    *,
+    params: CompTbParams,
+    signal_names: Mapping[str, str],
+    candidate_id: str,
+    candidate_label: str,
+    topology_index: int,
+    size_profile: str,
+    total_width_units: int,
+    device_width_signature: Sequence[tuple[str, int]],
+    total_active_area_units: int,
+    total_active_area_um2: float,
+    device_geometry_signature: Sequence[tuple[str, int, int]],
+    waveform_sample_interval_s: float = 500e-12,
+    spectre_runtime_s: float | None = None,
+) -> Path:
+    """Read one comparator raw file and write the shared typed HDF5 format."""
+
+    selected_signals = set(signal_names.values())
+    data = read_spectre_nutascii(raw_path, selected_signals)
+    measurement = convert_spectre_comp_to_measurement(
+        data,
+        params=params,
+        raw_path=raw_path,
+        signal_names=signal_names,
+        candidate_id=candidate_id,
+        candidate_label=candidate_label,
+        topology_index=topology_index,
+        size_profile=size_profile,
+        total_width_units=total_width_units,
+        device_width_signature=device_width_signature,
+        total_active_area_units=total_active_area_units,
+        total_active_area_um2=total_active_area_um2,
+        device_geometry_signature=device_geometry_signature,
+        waveform_sample_interval_s=waveform_sample_interval_s,
+        spectre_runtime_s=spectre_runtime_s,
     )
     return write_measurement(h5_path, measurement)
