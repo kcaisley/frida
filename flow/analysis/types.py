@@ -910,6 +910,29 @@ class AnalysisCompPower:
     source_index: IntArray
     supply_v: FloatArray
     average_power_w: FloatArray
+    energy_per_decision_j: FloatArray = field(default_factory=lambda: np.asarray([], dtype=np.float64))
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompCandidateSweep:
+    """Aligned candidate-level noise, power, and settling metrics."""
+
+    candidate_id: tuple[str, ...]
+    candidate_label: tuple[str, ...]
+    size_profile: tuple[str, ...]
+    validity: tuple[str, ...]
+    topology_index: IntArray
+    total_width_units: IntArray
+    total_active_area_units: IntArray
+    total_active_area_um2: FloatArray
+    device_count: IntArray
+    offset_v: FloatArray
+    noise_sigma_v: FloatArray
+    average_power_w: FloatArray
+    energy_per_decision_j: FloatArray
+    maximum_clock_to_decision_s: FloatArray
+    maximum_settling_s: FloatArray
+    unresolved_fraction: FloatArray
 
 
 MEASUREMENT_TYPES = {

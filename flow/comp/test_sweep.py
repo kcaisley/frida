@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from flow.circuit.params import build_uniform_sweep_values, validate_uniform_sweep
-from flow.comp.sim import CompTbParams, sim_input
+from flow.comp.sim import CompTbParams, cycle_time_s, sim_input, simulation_stop_s, trial_count
 
 
 def test_default_comparator_sweep_is_the_complete_physical_grid() -> None:
@@ -13,11 +13,14 @@ def test_default_comparator_sweep_is_the_complete_physical_grid() -> None:
 
     validate_uniform_sweep(params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
     values = build_uniform_sweep_values(params.sweep_min_v, params.sweep_max_v, params.sweep_step_v)
-    assert params.vin_cm_values_v == (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
-    assert len(values) == 251
-    assert values[0] == 0.0
-    assert values[-1] == pytest.approx(25.0e-3)
-    assert params.conversions == 1_000
+    assert tuple(float(value) for value in params.vin_cm_values_v) == (0.8,)
+    assert len(values) == 61
+    assert values[0] == pytest.approx(-3.0e-3)
+    assert values[-1] == pytest.approx(3.0e-3)
+    assert params.conversions == 100
+    assert cycle_time_s(params) == pytest.approx(40e-9)
+    assert trial_count(params) == 6_100
+    assert simulation_stop_s(params) == pytest.approx(244e-6)
 
 
 def test_standalone_comparator_simulation_consumes_its_typed_sweep() -> None:

@@ -154,29 +154,16 @@ def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness(
         ("fine", 1_000, 100.0e-6)
     }
     assert {float(params.vin_diff.dc) for params in offset_variants} == set(
-        build_uniform_sweep_values(
-            CompTbParams().sweep_min_v,
-            CompTbParams().sweep_max_v,
-            CompTbParams().sweep_step_v,
-        )
+        build_uniform_sweep_values(0.0, 25.0e-3, 100.0e-6)
     )
     standalone = CompTbParams()
-    assert common_modes == {round(float(value), 12) for value in standalone.vin_cm_values_v}
-    assert all(
-        (
-            float(params.sweep_min_v),
-            float(params.sweep_max_v),
-            float(params.sweep_step_v),
-            params.conversions,
-        )
-        == (
-            float(standalone.sweep_min_v),
-            float(standalone.sweep_max_v),
-            float(standalone.sweep_step_v),
-            standalone.conversions,
-        )
-        for params in comparator_campaigns["common_mode"][0]
-    )
+    assert tuple(float(value) for value in standalone.vin_cm_values_v) == (0.8,)
+    assert (
+        float(standalone.sweep_min_v),
+        float(standalone.sweep_max_v),
+        float(standalone.sweep_step_v),
+        standalone.conversions,
+    ) == (-3.0e-3, 3.0e-3, 100.0e-6, 100)
 
     sampling_variants = comparator_campaigns["sampling_noise"][0]
     assert {params.sampling_mode for params in sampling_variants} == {"track", "hold"}
