@@ -738,6 +738,41 @@ class AnalysisAdcNonlinearity:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAdcRampCurve:
+    """Transfer, histogram, and linearity from one decision-weight decoding."""
+
+    label: str
+    weights: FloatArray
+    transfer_vin_diff_v: FloatArray
+    transfer_mean_dout: FloatArray
+    transfer_sample_count: IntArray
+    code: IntArray
+    count: IntArray
+    linearity_code: IntArray
+    dnl: FloatArray
+    inl: FloatArray
+    ideal_count: float
+    maximum_abs_dnl: float
+    maximum_abs_inl: float
+    missing_codes: int
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcRamp:
+    """Inferred ramp timing and every completed decision-weight analysis."""
+
+    adc_index: int
+    sample_count: int
+    sample_rate_hz: float
+    ramp_frequency_hz: float
+    ramp_phase_cycles: float
+    reset_conversion_index: IntArray
+    vin_diff_min_v: float
+    vin_diff_max_v: float
+    curves: tuple[AnalysisAdcRampCurve, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisAdcCodeDistribution:
     """Code statistics and histograms for one or more static input points."""
 

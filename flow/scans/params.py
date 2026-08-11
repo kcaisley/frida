@@ -293,6 +293,7 @@ def validate_params(params: AdcTbParams) -> None:
 
     campaigns = {
         "adc",
+        "adc_ramp",
         "comp_common_mode",
         "comp_sampling_noise",
         "cdac_ab",
@@ -481,4 +482,61 @@ def build_variants() -> list[AdcTbParams]:
                 )
                 validate_params(params)
                 variants.append(params)
+    return variants
+
+
+def build_ramp_variants() -> list[AdcTbParams]:
+    """Build the ADC00--ADC03 full-scale triangular-ramp campaign.
+
+    Each ADC captures four million conversions while the requested ADC-side
+    differential input repeatedly traverses -1 V to +1 V and back.  The range
+    deliberately extends beyond the expected converter range so the endpoint
+    codes clip and the interior codes receive a uniform code-density stimulus.
+    The physical runner translates this stored intent through the board input
+    calibration when programming the AWG.
+    """
+
+    board_id = "00"
+    adc_indices = range(2)
+    active_conversion_rate_hz = 10.0e6
+    conversions = 4_000_000
+    input_common_mode_v = 0.600
+    ramp_period_s = 1.0e-3
+    board_map = load_board_map()
+    board = board_map["boards"][board_id]
+
+    variants = []
+    for adc_index in adc_indices:
+        flavor_name = board["adc_channels"][adc_index]
+        cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
+        dut = AdcParams(
+            adc_bits=12,
+            n_cycles=16,
+            cdac=CdacParams(
+                n_dac=11,
+                n_extra=5,
+                redun_strat=RedunStrat.SUBRDX2_OVLY,
+                weights=cap_weights,
+            ),
+        )
+        active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
+        template = AdcTbParams(
+            dut=dut,
+            board_id=board_id,
+            observed_adc=adc_index,
+            active_adc_mask=active_adc_mask,
+        )
+        params = AdcTbParams(
+            dut=dut,
+            board_id=board_id,
+            observed_adc=adc_index,
+            active_adc_mask=active_adc_mask,
+            campaign="adc_ramp",
+            symbol_rate=convert_sample_rate_to_baud(template, active_conversion_rate_hz),
+            conversions=conversions,
+            vin_cm=h.Vdc.Params(dc=input_common_mode_v),
+            vin_diff=h.Vpwl.Params(wave=f"0 -1 {ramp_period_s:g} 1"),
+        )
+        validate_params(params)
+        variants.append(params)
     return variants

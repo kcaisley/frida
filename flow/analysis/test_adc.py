@@ -20,6 +20,7 @@ from flow.analysis.adc import (
     analyze_adc_noise_sweep,
     analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
+    analyze_adc_ramp,
     analyze_adc_transfer,
     combine_adc_noise_comparison,
 )
@@ -147,6 +148,47 @@ def adc_measurement(
     )
 
 
+def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcExt:
+    """Build a repeated monotonic decision ramp with visible reset edges."""
+
+    samples_per_cycle = 4_096
+    rng = np.random.default_rng(20260812)
+    one_cycle_bout = rng.integers(0, 2, size=(samples_per_cycle, 17), dtype=np.uint8)
+    one_cycle_bout[0] = 0
+    one_cycle_bout[-1] = 1
+    nominal_weights = np.asarray(
+        [2 * value for value in (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)] + [1]
+    )
+    order = np.argsort(one_cycle_bout @ nominal_weights, kind="stable")
+    one_cycle_bout = one_cycle_bout[order]
+    bout = np.tile(one_cycle_bout, (cycles, 1))
+    sample_count = len(bout)
+    vin_diff_v = np.tile(np.linspace(-1.0, 1.0, samples_per_cycle, endpoint=False), cycles)
+    base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
+    params = AdcTbParams(
+        dut=base.param.dut,
+        conversions=sample_count,
+        symbol_rate=base.param.symbol_rate,
+        board_id="test_board",
+        observed_adc=observed_adc,
+        active_adc_mask=tuple(int(index == observed_adc) for index in reversed(range(16))),
+        campaign="adc_ramp",
+        vin_cm=h.Vdc.Params(dc=0.6),
+        vin_diff=h.Vpwl.Params(wave="0 -1 0.001 1"),
+    )
+    return replace(
+        base,
+        param=params,
+        daq=AdcDaq(
+            conversion_index=np.arange(sample_count),
+            bout=bout,
+            dout_raw=np.zeros(sample_count, dtype=np.int64),
+            dout=np.zeros(sample_count, dtype=np.int64),
+            vin_diff_v=vin_diff_v,
+        ),
+    )
+
+
 def test_dynamic_analysis_recovers_sine_and_spectral_metrics() -> None:
     rng = np.random.default_rng(12345)
     sample_rate_hz = 1.0e6
@@ -244,6 +286,22 @@ def test_transfer_noise_and_code_density_use_typed_adc_data() -> None:
     assert linearity.ideal_count == 1.0
     assert linearity.missing_codes == 0
     np.testing.assert_allclose(linearity.dnl, (0.0, 0.0))
+
+
+def test_ramp_analysis_infers_repeated_reset_frequency_and_phase() -> None:
+    """Use reset timing instead of assuming the AWG and capture start together."""
+
+    measurement = adc_ramp_measurement()
+    analysis = analyze_adc_ramp(measurement)
+
+    assert analysis.adc_index == 0
+    assert analysis.sample_count == 4 * 4_096
+    assert analysis.ramp_frequency_hz == pytest.approx(analysis.sample_rate_hz / 4_096)
+    assert len(analysis.reset_conversion_index) == 3
+    assert len(analysis.curves) == 1
+    assert analysis.curves[0].label == "Nominal CDAC"
+    assert analysis.curves[0].count.sum() == analysis.sample_count
+    assert len(analysis.curves[0].transfer_vin_diff_v) == 4_096
 
 
 def test_shared_adc_analyses_accept_internal_measurements() -> None:

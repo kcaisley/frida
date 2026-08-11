@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +21,7 @@ from flow.analysis.io import scope_records_to_adc_wave, write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcTbParams, build_variants, load_board_map, validate_params
+from flow.scans.params import AdcTbParams, build_ramp_variants, build_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
@@ -291,8 +291,8 @@ def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
     return points
 
 
-def main() -> None:
-    """Run every configured physical variant into a fresh timestamped directory."""
+def main(variants: Sequence[AdcTbParams] | None = None) -> None:
+    """Run the supplied physical variants into a fresh timestamped directory."""
 
     SETUP_SETTLE_S = 0.2
     SMU_SETTLE_S = 0.5
@@ -326,7 +326,7 @@ def main() -> None:
     }
     SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
-    variants = build_variants()
+    variants = list(build_variants() if variants is None else variants)
     if not variants:
         raise ValueError("build_variants() returned no ADC configurations")
     for params in variants:
@@ -1131,6 +1131,16 @@ def main() -> None:
                 print(f"Warning: could not disable an SMU: {error}")
         for dut in reversed(initialized_duts):
             dut.close()
+
+
+def ramp() -> None:
+    """Capture the ADC00--ADC03 triangular-ramp code-density campaign.
+
+    The parameters retain the intended -1 V to +1 V ADC differential input;
+    :func:`main` applies the board calibration only while programming the AWG.
+    """
+
+    main(build_ramp_variants())
 
 
 if __name__ == "__main__":

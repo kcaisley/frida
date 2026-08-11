@@ -13,7 +13,7 @@ import pytest
 
 import flow.analysis as analysis_api
 from flow.analysis import runner
-from flow.analysis.test_adc import adc_measurement
+from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -21,6 +21,7 @@ def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
 
     assert hasattr(analysis_api, "analyze_adc_code_distribution")
     assert hasattr(analysis_api, "analyze_adc_nonlinearity")
+    assert hasattr(analysis_api, "analyze_adc_ramp")
     assert hasattr(analysis_api, "analyze_cdac_cap_mismatch")
     assert not hasattr(analysis_api, "combine_adc_noise_comparison")
     assert not hasattr(analysis_api, "classify_comp_common_mode_validity")
@@ -39,6 +40,7 @@ def test_runner_keeps_input_selection_and_validation_in_public_runners() -> None
     assert private_functions == []
     assert not any(target_name.startswith("adc00_adc01_") for target_name in runner.TARGETS)
     assert "adc_transfer_curve" in runner.TARGETS
+    assert "adc_ramp_nonlinearity" in runner.TARGETS
     assert "adc00_pex_transfer" not in runner.TARGETS
     assert "adc_code_distributions" in runner.TARGETS
     assert "adc_code_diag" not in runner.TARGETS
@@ -159,6 +161,44 @@ def test_adc_transfer_curve_accepts_external_and_internal_measurements(
     )
 
     assert runner.adc_transfer_curve(tmp_path / "output") == (tmp_path / "output/adc00_transfer_curve.png",)
+
+
+def test_adc_ramp_runner_uses_explicit_placeholders_and_completed_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep accepted ramp selection in the runner and plotting measurement-free."""
+
+    measurements = {}
+    for adc_index in (0, 1):
+        path = tmp_path / f"build/scan_adc/PLACEHOLDER_ADC{adc_index:02d}_RAMP.h5"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        measurements[path] = adc_ramp_measurement(observed_adc=adc_index)
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(runner, "analyze_adc_ramp", lambda measurement: measurement.param.observed_adc)
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_ramp_transfer",
+        lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
+    )
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_ramp_histogram",
+        lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
+    )
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_nonlinearity",
+        lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
+    )
+
+    artifacts = runner.adc_ramp_nonlinearity(tmp_path / "output")
+
+    assert len(artifacts) == 6
+    assert artifacts[0] == tmp_path / "output/adc00_ramp_transfer.png"
+    assert artifacts[-1] == tmp_path / "output/adc01_ramp_nonlinearity.png"
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(

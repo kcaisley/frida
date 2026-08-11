@@ -21,6 +21,8 @@ from flow.analysis.types import (
     AnalysisAdcNoiseSweep,
     AnalysisAdcNonlinearity,
     AnalysisAdcPowerSweep,
+    AnalysisAdcRamp,
+    AnalysisAdcRampCurve,
     AnalysisAdcTransfer,
     MeasAdc,
 )
@@ -374,6 +376,106 @@ def analyze_adc_nonlinearity(
     if method == "code_density":
         return _code_density_nonlinearity(measurement, code_range=code_range)
     raise ValueError("ADC nonlinearity method must be 'endpoint' or 'code_density'")
+
+
+def analyze_adc_ramp(
+    measurement: MeasAdc,
+    *,
+    code_range: tuple[int, int] | None = None,
+) -> AnalysisAdcRamp:
+    """Recover nominal-weight transfer and linearity from one repeated ramp.
+
+    Each large negative output jump identifies a sawtooth reset.  A line fit to
+    those repeated resets recovers the actual ramp period and acquisition phase
+    without assuming the AWG and FastRX started together.  That phase maps each
+    conversion back to the requested -1 V to +1 V input, while the uniform code
+    histogram supplies DNL and endpoint-corrected INL.  Clipped endpoint codes
+    are excluded from linearity by default.
+    """
+
+    if not isinstance(measurement.param.vin_diff, h.Vpwl.Params):
+        raise TypeError("ADC ramp analysis requires a PWL differential-input source")
+    intended_input = np.asarray(measurement.daq.vin_diff_v, dtype=np.float64)
+    if intended_input.ndim != 1 or len(intended_input) < 2:
+        raise ValueError("ADC ramp analysis requires at least two intended input samples")
+    vin_diff_min_v = float(np.min(intended_input))
+    vin_diff_max_v = float(np.max(intended_input))
+    if not vin_diff_max_v > vin_diff_min_v:
+        raise ValueError("ADC ramp input must span a nonzero differential range")
+
+    weights = np.asarray(
+        [2.0 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1.0],
+        dtype=np.float64,
+    )
+    number_codes = 1 << measurement.param.dut.adc_bits
+    code_max = number_codes - 1
+    if measurement.daq.bout.shape[1] != len(weights):
+        raise ValueError("ADC ramp decisions do not match the nominal CDAC weights")
+    raw = np.asarray(measurement.daq.bout, dtype=np.float64) @ weights
+    decoded = np.rint(raw * code_max / np.sum(weights)).astype(np.int64)
+    if np.any((decoded < 0) | (decoded >= number_codes)):
+        raise ValueError(f"ADC ramp contains output codes outside 0..{number_codes - 1}")
+
+    reset_conversion_index = np.flatnonzero(np.diff(decoded) < -0.5 * code_max).astype(np.int64) + 1
+    if len(reset_conversion_index) < 2:
+        raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
+    reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
+    reset_design = np.column_stack((reset_number, np.ones(len(reset_number))))
+    period_samples, first_reset_sample = np.linalg.lstsq(
+        reset_design,
+        reset_conversion_index.astype(np.float64),
+        rcond=None,
+    )[0]
+    if not math.isfinite(period_samples) or period_samples <= 1.0:
+        raise ValueError("inferred ADC ramp period is invalid")
+    reset_residual_samples = reset_conversion_index - (period_samples * reset_number + first_reset_sample)
+    if float(np.max(np.abs(reset_residual_samples))) > 2.0:
+        raise ValueError("ADC ramp resets are not periodic within two conversions")
+    sample_rate_hz = _pattern_repeat_rate_hz(measurement)
+    ramp_frequency_hz = sample_rate_hz / period_samples
+    ramp_phase_cycles = float(np.mod(-first_reset_sample / period_samples, 1.0))
+    conversion_phase = np.mod(
+        (np.arange(len(decoded), dtype=np.float64) - first_reset_sample) / period_samples,
+        1.0,
+    )
+
+    counts = np.bincount(decoded, minlength=number_codes).astype(np.int64)
+    first_code, last_code = code_range or (1, number_codes - 2)
+    density = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
+    transfer_bin = np.minimum((conversion_phase * number_codes).astype(np.int64), number_codes - 1)
+    transfer_sample_count = np.bincount(transfer_bin, minlength=number_codes).astype(np.int64)
+    transfer_sum = np.bincount(transfer_bin, weights=decoded, minlength=number_codes)
+    populated = transfer_sample_count > 0
+    transfer_vin_diff_v = vin_diff_min_v + (
+        (np.arange(number_codes, dtype=np.float64) + 0.5) / number_codes * (vin_diff_max_v - vin_diff_min_v)
+    )
+    curve = AnalysisAdcRampCurve(
+        label="Nominal CDAC",
+        weights=weights,
+        transfer_vin_diff_v=transfer_vin_diff_v[populated],
+        transfer_mean_dout=transfer_sum[populated] / transfer_sample_count[populated],
+        transfer_sample_count=transfer_sample_count[populated],
+        code=np.arange(number_codes, dtype=np.int64),
+        count=counts,
+        linearity_code=density["codes"],
+        dnl=density["dnl"],
+        inl=density["inl"],
+        ideal_count=density["ideal_count"],
+        maximum_abs_dnl=float(np.max(np.abs(density["dnl"]))),
+        maximum_abs_inl=float(np.max(np.abs(density["inl"]))),
+        missing_codes=density["missing_codes"],
+    )
+    return AnalysisAdcRamp(
+        adc_index=-1 if measurement.param.observed_adc is None else measurement.param.observed_adc,
+        sample_count=len(decoded),
+        sample_rate_hz=sample_rate_hz,
+        ramp_frequency_hz=ramp_frequency_hz,
+        ramp_phase_cycles=ramp_phase_cycles,
+        reset_conversion_index=reset_conversion_index,
+        vin_diff_min_v=vin_diff_min_v,
+        vin_diff_max_v=vin_diff_max_v,
+        curves=(curve,),
+    )
 
 
 def analyze_adc_code_distribution(measurements: Sequence[MeasAdc]) -> AnalysisAdcCodeDistribution:

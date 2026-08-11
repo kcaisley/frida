@@ -29,6 +29,7 @@ from flow.analysis.types import (
     AnalysisAdcNoiseSweep,
     AnalysisAdcNonlinearity,
     AnalysisAdcPowerSweep,
+    AnalysisAdcRamp,
     AnalysisAdcTransfer,
     AnalysisCdacCapMismatch,
     AnalysisCompOffsetNoise,
@@ -432,20 +433,100 @@ def plot_adc_transfer(
 
 
 @with_plot_style
-def plot_adc_nonlinearity(
-    msmt: MeasAdc,
-    analysis: AnalysisAdcNonlinearity,
+def plot_adc_ramp_transfer(
+    analysis: AnalysisAdcRamp,
     *,
     output_path: Path,
     formats: Sequence[str] = DEFAULT_FORMATS,
 ) -> tuple[Path, ...]:
-    """Plot ADC DNL and INL from one typed nonlinearity result."""
+    """Plot the phase-reconstructed ramp transfer for every decoded curve."""
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    for curve in analysis.curves:
+        ax.plot(
+            curve.transfer_vin_diff_v * 1e3,
+            curve.transfer_mean_dout,
+            linewidth=1.0,
+            label=curve.label,
+        )
+    ax.set_xlabel("Inferred differential input (mV)")
+    ax.set_ylabel("Mean ADC output (LSB)")
+    ax.set_title(f"ADC{analysis.adc_index:02d} ramp transfer")
+    style_ax(ax)
+    style_grid(ax)
+    style_legend(ax)
+    _add_info_box(
+        ax,
+        (
+            f"Samples: {analysis.sample_count:,}",
+            f"Sample rate: {analysis.sample_rate_hz / 1e6:.6g} MS/s",
+            f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
+            f"Phase: {analysis.ramp_phase_cycles:.6f} cycles",
+        ),
+        location="lower right",
+    )
+    return _save_figure(fig, output_path, formats)
+
+
+@with_plot_style
+def plot_adc_ramp_histogram(
+    analysis: AnalysisAdcRamp,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot overlaid code-density histograms from completed ramp analyses."""
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    for curve in analysis.curves:
+        ax.step(curve.code, curve.count, where="mid", linewidth=0.9, label=curve.label)
+    ax.set_yscale("log")
+    ax.set_xlabel("Output code")
+    ax.set_ylabel("Count")
+    ax.set_title(f"ADC{analysis.adc_index:02d} ramp code density")
+    style_ax(ax)
+    style_grid(ax)
+    style_legend(ax)
+    return _save_figure(fig, output_path, formats)
+
+
+@with_plot_style
+def plot_adc_nonlinearity(
+    msmt: MeasAdc | AnalysisAdcRamp,
+    analysis: AnalysisAdcNonlinearity | None = None,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot static or overlaid ramp DNL and INL from completed results."""
 
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8.5, 6.2))
-    axes[0].plot(analysis.code, analysis.dnl, linewidth=0.9)
+    if isinstance(msmt, AnalysisAdcRamp):
+        ramp = msmt
+        for curve in ramp.curves:
+            axes[0].plot(curve.linearity_code, curve.dnl, linewidth=0.9, label=curve.label)
+            axes[1].plot(curve.linearity_code, curve.inl, linewidth=0.9, label=curve.label)
+        info_lines = (
+            f"Ramp: {ramp.ramp_frequency_hz:.6g} Hz",
+            *(f"{curve.label}: {curve.missing_codes} missing" for curve in ramp.curves),
+        )
+        title = f"ADC{ramp.adc_index:02d} ramp nonlinearity"
+        style_legend(axes[0])
+    else:
+        if analysis is None:
+            raise TypeError("static ADC nonlinearity plotting requires an analysis result")
+        axes[0].plot(analysis.code, analysis.dnl, linewidth=0.9)
+        axes[1].plot(analysis.code, analysis.inl, linewidth=0.9)
+        info_lines = (
+            f"Method: {analysis.method}",
+            f"max |DNL|: {analysis.maximum_abs_dnl:.3g} LSB",
+            f"max |INL|: {analysis.maximum_abs_inl:.3g} LSB",
+            f"Missing codes: {analysis.missing_codes}",
+            *_measurement_lines(msmt),
+        )
+        title = "ADC static nonlinearity"
     axes[0].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
     axes[0].set_ylabel("DNL (LSB)")
-    axes[1].plot(analysis.code, analysis.inl, linewidth=0.9)
     axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
     axes[1].set_ylabel("INL (LSB)")
     axes[1].set_xlabel("Output code")
@@ -454,15 +535,9 @@ def plot_adc_nonlinearity(
         style_grid(ax)
     _add_info_box(
         axes[0],
-        (
-            f"Method: {analysis.method}",
-            f"max |DNL|: {analysis.maximum_abs_dnl:.3g} LSB",
-            f"max |INL|: {analysis.maximum_abs_inl:.3g} LSB",
-            f"Missing codes: {analysis.missing_codes}",
-            *_measurement_lines(msmt),
-        ),
+        info_lines,
     )
-    fig.suptitle("ADC static nonlinearity")
+    fig.suptitle(title)
     return _save_figure(fig, output_path, formats)
 
 

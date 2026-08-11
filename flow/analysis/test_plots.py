@@ -22,6 +22,7 @@ from flow.analysis.adc import (
     analyze_adc_noise_sweep,
     analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
+    analyze_adc_ramp,
     analyze_adc_transfer,
 )
 from flow.analysis.comp import analyze_comp_offset_noise
@@ -44,6 +45,8 @@ from flow.analysis.plots import (
     plot_adc_noise_violin_sweep,
     plot_adc_nonlinearity,
     plot_adc_power_sweep,
+    plot_adc_ramp_histogram,
+    plot_adc_ramp_transfer,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -53,7 +56,7 @@ from flow.analysis.plots import (
     style_grid,
     style_legend,
 )
-from flow.analysis.test_adc import adc_measurement
+from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
 from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq
@@ -400,6 +403,19 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
             analyze_adc_nonlinearity(msmt, method="code_density", code_range=(1, 14)),
             output_path=tmp_path / "nonlin",
         ),
+    )
+    for paths in outputs:
+        assert_plot_formats(paths)
+
+
+def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
+    """Keep ramp plotters independent of measurements and CDAC fitting."""
+
+    analysis = analyze_adc_ramp(adc_ramp_measurement())
+    outputs = (
+        plot_adc_ramp_transfer(analysis, output_path=tmp_path / "ramp_transfer"),
+        plot_adc_ramp_histogram(analysis, output_path=tmp_path / "ramp_histogram"),
+        plot_adc_nonlinearity(analysis, output_path=tmp_path / "ramp_nonlinearity"),
     )
     for paths in outputs:
         assert_plot_formats(paths)

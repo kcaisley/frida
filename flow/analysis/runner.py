@@ -33,6 +33,7 @@ from flow.analysis.adc import (
     analyze_adc_dynamic_sweep,
     analyze_adc_noise_sweep,
     analyze_adc_power_sweep,
+    analyze_adc_ramp,
     analyze_adc_transfer,
     combine_adc_noise_comparison,
 )
@@ -48,7 +49,10 @@ from flow.analysis.plots import (
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_noise_violin_sweep,
+    plot_adc_nonlinearity,
     plot_adc_power_sweep,
+    plot_adc_ramp_histogram,
+    plot_adc_ramp_transfer,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -85,6 +89,51 @@ def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
                 [measurement],
                 analysis,
                 output_path=output_dir / f"adc{adc_index:02d}_transfer_curve",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_ramp_nonlinearity(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze accepted ADC ramp captures without creating derived data files.
+
+    Replace each explicit placeholder with the accepted HDF5 capture after the
+    hardware campaign.  The ramp analysis infers AWG frequency and acquisition
+    phase from repeated output resets, then emits transfer, code-density, DNL,
+    and INL plots from the stored decisions and input intent.
+    """
+
+    RAMP_H5_BY_ADC = {
+        0: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC00_RAMP.h5",
+        1: BASE_PATH / "build/scan_adc/PLACEHOLDER_ADC01_RAMP.h5",
+    }
+
+    artifacts = []
+    for adc_index, ramp_h5 in RAMP_H5_BY_ADC.items():
+        if not ramp_h5.is_file():
+            raise FileNotFoundError(2, "replace the ADC ramp HDF5 placeholder", ramp_h5)
+        measurement = read_measurement(ramp_h5)
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"{ramp_h5} contains {type(measurement).__name__}, expected MeasAdcExt")
+        if measurement.param.campaign != "adc_ramp" or measurement.param.observed_adc != adc_index:
+            raise ValueError(f"{ramp_h5} is not the configured ADC{adc_index:02d} ramp capture")
+        analysis = analyze_adc_ramp(measurement)
+        artifacts.extend(
+            plot_adc_ramp_transfer(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_transfer",
+            )
+        )
+        artifacts.extend(
+            plot_adc_ramp_histogram(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_histogram",
+            )
+        )
+        artifacts.extend(
+            plot_adc_nonlinearity(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_nonlinearity",
             )
         )
     return tuple(artifacts)
@@ -803,6 +852,7 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
     target.__name__: target
     for target in (
         adc_transfer_curve,
+        adc_ramp_nonlinearity,
         adc_noise_vs_rate,
         adc_code_distributions,
         adc_power_vs_rate,
