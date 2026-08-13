@@ -23,3 +23,6 @@
 	path = libs/ubonn-thesis
 	url = https://gitlab.uni-bonn.de/uni/ubonn-thesis.git
 	branch = master
+[submodule "libs/ADC-survey"]
+	path = libs/ADC-survey
+	url = https://github.com/bmurmann/ADC-survey.git
