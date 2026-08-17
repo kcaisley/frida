@@ -100,7 +100,10 @@ def test_code_density_cdf_lut_is_fractional_and_uses_training_only() -> None:
     assert lut.fractional_mapping[-1] == 15.0
     assert np.all(np.diff(lut.fractional_mapping[1:15]) > 0.0)
     assert np.any(lut.fractional_mapping[1:15] % 1.0 != 0.0)
-    np.testing.assert_array_equal(lut.decode(np.asarray([0, 7, 15])), lut.fractional_mapping[[0, 7, 15]])
+    np.testing.assert_array_equal(
+        lut.decode(np.asarray([0, 7, 15], dtype=np.int64)),
+        lut.fractional_mapping[[0, 7, 15]],
+    )
 
 
 def test_uniform_cdf_is_identity_and_integer_lossless_lut_cannot_correct() -> None:
