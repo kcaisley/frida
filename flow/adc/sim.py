@@ -9,13 +9,17 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import p
 
-from flow.circuit.netlist import write_sim_netlist
+from flow.circuit.netlist import write_spectre_input
 from flow.pdks import set_pdk
 from flow.scans.params import AdcTbParams, convert_sample_rate_to_baud, validate_params
 from flow.spice.io import convert_spectre_adc_raw_to_h5
@@ -23,7 +27,8 @@ from flow.spice.io import convert_spectre_adc_raw_to_h5
 from .subckt import Adc
 
 BASE_PATH = Path(__file__).resolve().parents[2]
-OUTPUT_BASE = BASE_PATH / "build" / "adc"
+MAX_PARALLEL_SIMULATIONS = 3
+SPECTRE_THREADS_PER_SIMULATION = 4
 PEX_NETLIST = Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")
 MODEL_LIBRARY = Path("/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs")
 STANDARD_CELL_SPICE = (
@@ -31,14 +36,6 @@ STANDARD_CELL_SPICE = (
     Path("/eda/kits/TSMC/65LP/2024/digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi"),
 )
 DIGITAL_SPICE = BASE_PATH / "design" / "spice" / "adc_digital.sp"
-TARGETS = (
-    "frida65a_noise_vs_rate",
-    "hdl21gen_noise_vs_rate",
-)
-
-# Set by the command-line entry point so the two public campaign functions
-# remain zero-argument, manually callable entry points.
-_CHECK_MODE = False
 
 
 # Exact positional signature of the Calibre-extracted FRIDA65A ADC. Friendly
@@ -308,15 +305,28 @@ def AdcTb(params: AdcTbParams, view: str) -> h.Module:
     return tb
 
 
-def _run_spectre_case(
+@dataclass(frozen=True, slots=True)
+class _AdcSpectreCase:
+    """One prepared ADC Spectre case and its conversion metadata."""
+
+    params: AdcTbParams
+    case_dir: Path
+    deck_path: Path
+    raw_path: Path
+    h5_path: Path
+    log_path: Path
+    signal_names: dict[str, str]
+    circuit_checks: bool
+
+
+def _prepare_spectre_case(
     params: AdcTbParams,
     *,
     view: str,
     case_dir: Path,
-    check: bool,
-    execute: bool,
-) -> Path | None:
-    """Generate one complete deck and optionally run and convert it."""
+    circuit_checks: bool,
+) -> _AdcSpectreCase:
+    """Generate one complete ADC Spectre case without executing it."""
 
     validate_params(params)
     if params.conversions > 100:
@@ -337,7 +347,7 @@ def _run_spectre_case(
     # 25 GHz transient noise; the stored grid resolves both source transitions
     # and each serializer symbol with at least sixteen samples.
     strobe_period_s = min(symbol_period_s / 16.0, 50e-12)
-    tstop_s = 100e-9 if check else params.conversions * pattern_period_s
+    tstop_s = 100e-9 if circuit_checks else params.conversions * pattern_period_s
 
     attrs: list[hs.SimAttr] = [
         hs.Lib(path=MODEL_LIBRARY, section="tt_lib"),
@@ -445,7 +455,7 @@ def _run_spectre_case(
         if canonical_name != "time_s"
     ]
     check_deck_path = case_dir / "checks.scs"
-    if check:
+    if circuit_checks:
         check_attrs = [
             *attrs,
             h.Literal("saveOptions options save=selected\nsave xtop.vin_p"),
@@ -466,27 +476,42 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         # Spectre circuit-check reports require a PSF-style raw directory,
         # whereas NUTASCII uses one plain file. Keep their runs separate to
         # avoid Spectre treating the same output path as both kinds.
-        write_sim_netlist(hs.Sim(tb=tb, attrs=check_attrs), check_deck_path, compact=True)
+        write_spectre_input(hs.Sim(tb=tb, attrs=check_attrs), check_deck_path)
     attrs.append(h.Literal("saveOptions options save=selected rawfmt=nutascii"))
     attrs.append(h.Literal("save \\\n    " + " \\\n    ".join(save_names)))
     tran = f"tran tran stop={tstop_s:.12g} strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
-    if not check:
+    if not circuit_checks:
         # A finite transient cannot represent noise below 1 / tstop. Spectre
         # silently raises smaller values to this limit, so record the actual
         # simulated band explicitly in every generated production deck.
         tran += f" noisefmin={1.0 / tstop_s:.12g} noisefmax=25G noiseseed=1"
     attrs.append(h.Literal(tran))
-    write_sim_netlist(hs.Sim(tb=tb, attrs=attrs), deck_path, compact=True)
+    write_spectre_input(hs.Sim(tb=tb, attrs=attrs), deck_path)
+    return _AdcSpectreCase(
+        params=params,
+        case_dir=case_dir,
+        deck_path=deck_path,
+        raw_path=raw_path,
+        h5_path=h5_path,
+        log_path=log_path,
+        signal_names=signal_names,
+        circuit_checks=circuit_checks,
+    )
 
-    if not execute:
-        return None
+
+def _execute_spectre_case(case: _AdcSpectreCase) -> Path:
+    """Execute and convert one already prepared ADC Spectre case."""
+
     if shutil.which("spectre") is None:
         raise RuntimeError("spectre is not on PATH; source design/spice/workspace.sh before running ADC simulations")
+    case_dir = case.case_dir
+    raw_path = case.raw_path
     if raw_path.is_dir():
         shutil.rmtree(raw_path)
     elif raw_path.exists():
         raw_path.unlink()
-    if check:
+    if case.circuit_checks:
+        check_deck_path = case_dir / "checks.scs"
         checks_path = case_dir / "checks"
         if checks_path.is_dir():
             shutil.rmtree(checks_path)
@@ -497,7 +522,7 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
                 "spectre",
                 check_deck_path.name,
                 "+preset=mx",
-                "+mt=4",
+                f"+mt={SPECTRE_THREADS_PER_SIMULATION}",
                 "+lqtimeout",
                 "3600",
                 "+escchars",
@@ -514,178 +539,205 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         )
     command = [
         "spectre",
-        deck_path.name,
+        case.deck_path.name,
         "+preset=mx",
-        "+mt=4",
+        f"+mt={SPECTRE_THREADS_PER_SIMULATION}",
         "+lqtimeout",
         "3600",
         "+escchars",
         "-raw",
         raw_path.name,
         "+log",
-        log_path.name,
+        case.log_path.name,
     ]
     started = time.perf_counter()
     subprocess.run(command, cwd=case_dir, check=True)
     convert_spectre_adc_raw_to_h5(
         raw_path,
-        h5_path,
-        params=params,
-        signal_names=signal_names,
+        case.h5_path,
+        params=case.params,
+        signal_names=case.signal_names,
     )
     print(f"{case_dir.name}: simulated and converted in {time.perf_counter() - started:.1f} s")
-    return h5_path
+    return case.h5_path
 
 
-def frida65a_noise_vs_rate() -> None:
+def _noise_vs_rate_cases() -> tuple[tuple[str, AdcTbParams], ...]:
+    """Build the reviewed fixed-input ADC noise cases."""
+
+    alternating = tuple(int(bit) for bit in "0101010101010101")
+    template = AdcTbParams()
+    cases = []
+    for rate_msps in (10, 6, 2):
+        cases.append(
+            (
+                f"{rate_msps}msps_cm600mv_dc50mv",
+                AdcTbParams(
+                    symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
+                    conversions=20,
+                    vin_cm=h.Vdc.Params(dc=0.6),
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    seq_logic_phase_delay_symbols=2.0,
+                    dac_astate_p=alternating,
+                    dac_bstate_p=(0,) * 16,
+                    dac_astate_n=alternating,
+                    dac_bstate_n=(0,) * 16,
+                ),
+            )
+        )
+    return tuple(cases)
+
+
+def _smoke_params() -> AdcTbParams:
+    """Reduce the 10 MS/s case to one immediately active conversion."""
+
+    params = next(params for name, params in _noise_vs_rate_cases() if name == "10msps_cm600mv_dc50mv")
+    first_active = min(
+        index
+        for index in range(len(params.seq_init_pattern))
+        if any(
+            pattern[index] == "1"
+            for pattern in (
+                params.seq_init_pattern,
+                params.seq_samp_pattern,
+                params.seq_comp_pattern,
+                params.seq_logic_pattern,
+            )
+        )
+    )
+    return dataclasses.replace(
+        params,
+        conversions=1,
+        seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
+        seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
+        seq_comp_pattern=params.seq_comp_pattern[first_active:] + params.seq_comp_pattern[:first_active],
+        seq_logic_pattern=params.seq_logic_pattern[first_active:] + params.seq_logic_pattern[:first_active],
+    )
+
+
+def _run_campaign(
+    run_dir: Path,
+    *,
+    view: str,
+    cases: Sequence[tuple[str, AdcTbParams]],
+    execute: bool,
+    circuit_checks: bool = False,
+) -> Path:
+    """Prepare one complete ADC run and optionally execute its cases."""
+
+    prepared = tuple(
+        _prepare_spectre_case(
+            params,
+            view=view,
+            case_dir=run_dir / name,
+            circuit_checks=circuit_checks,
+        )
+        for name, params in cases
+    )
+    if not execute:
+        print(f"Prepared {len(prepared)} ADC netlists beneath {run_dir}")
+        return run_dir
+    failures = []
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SIMULATIONS) as executor:
+        futures = {executor.submit(_execute_spectre_case, case): case for case in prepared}
+        for future in as_completed(futures):
+            case = futures[future]
+            try:
+                future.result()
+            except (OSError, RuntimeError, TypeError, ValueError, subprocess.CalledProcessError) as error:
+                failures.append((case.case_dir.name, repr(error)))
+    if failures:
+        raise RuntimeError(f"{len(failures)} ADC simulations failed: {failures}")
+    print(f"Completed {len(prepared)} ADC simulations beneath {run_dir}")
+    return run_dir
+
+
+def frida65a_noise_vs_rate_netlists() -> Path:
+    """Generate the extracted ADC fixed-input noise decks without running them."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, view="frida65a", cases=_noise_vs_rate_cases(), execute=False)
+
+
+def frida65a_noise_smoke() -> Path:
+    """Run one short extracted-ADC case with Spectre circuit checks."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="frida65a",
+        cases=(("10msps_cm600mv_dc50mv_smoke", _smoke_params()),),
+        execute=True,
+        circuit_checks=True,
+    )
+
+
+def frida65a_noise_vs_rate() -> Path:
     """Run the extracted ADC fixed-input noise sweep."""
 
-    output_dir = OUTPUT_BASE / "frida65a_noise_vs_rate" / time.strftime("%Y%m%d_%H%M")
-    alternating = tuple(int(bit) for bit in "0101010101010101")
-    template = AdcTbParams()
-    cases = []
-    # Run shortest cases first so each campaign produces useful results early.
-    for rate_msps in (10, 6, 2):
-        cases.append(
-            (
-                f"{rate_msps}msps_cm600mv_dc50mv",
-                AdcTbParams(
-                    symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                    conversions=20,
-                    vin_cm=h.Vdc.Params(dc=0.6),
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    seq_logic_phase_delay_symbols=2.0,
-                    dac_astate_p=alternating,
-                    dac_bstate_p=(0,) * 16,
-                    dac_astate_n=alternating,
-                    dac_bstate_n=(0,) * 16,
-                ),
-            )
-        )
-    for name, params in cases:
-        _run_spectre_case(
-            params,
-            view="frida65a",
-            case_dir=output_dir / name,
-            check=False,
-            execute=not _CHECK_MODE,
-        )
-    if _CHECK_MODE:
-        params = next(params for name, params in cases if name == "10msps_cm600mv_dc50mv")
-        first_active = min(
-            index
-            for index in range(len(params.seq_init_pattern))
-            if any(
-                pattern[index] == "1"
-                for pattern in (
-                    params.seq_init_pattern,
-                    params.seq_samp_pattern,
-                    params.seq_comp_pattern,
-                    params.seq_logic_pattern,
-                )
-            )
-        )
-        params = dataclasses.replace(
-            params,
-            conversions=1,
-            seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
-            seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
-            seq_comp_pattern=params.seq_comp_pattern[first_active:] + params.seq_comp_pattern[:first_active],
-            seq_logic_pattern=params.seq_logic_pattern[first_active:] + params.seq_logic_pattern[:first_active],
-        )
-        _run_spectre_case(
-            params,
-            view="frida65a",
-            case_dir=output_dir / "check_10msps_cm600mv_dc50mv",
-            check=True,
-            execute=True,
-        )
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, view="frida65a", cases=_noise_vs_rate_cases(), execute=True)
 
 
-def hdl21gen_noise_vs_rate() -> None:
-    """Run the generated ADC fixed-input noise sweep."""
+def hdl21gen_noise_vs_rate_netlists() -> Path:
+    """Generate the schematic ADC fixed-input noise decks without running them."""
 
-    output_dir = OUTPUT_BASE / "hdl21gen_noise_vs_rate" / time.strftime("%Y%m%d_%H%M")
-    alternating = tuple(int(bit) for bit in "0101010101010101")
-    template = AdcTbParams()
-    cases = []
-    # Run shortest cases first so each campaign produces useful results early.
-    for rate_msps in (10, 6, 2):
-        cases.append(
-            (
-                f"{rate_msps}msps_cm600mv_dc50mv",
-                AdcTbParams(
-                    symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                    conversions=20,
-                    vin_cm=h.Vdc.Params(dc=0.6),
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    seq_logic_phase_delay_symbols=2.0,
-                    dac_astate_p=alternating,
-                    dac_bstate_p=(0,) * 16,
-                    dac_astate_n=alternating,
-                    dac_bstate_n=(0,) * 16,
-                ),
-            )
-        )
-    for name, params in cases:
-        _run_spectre_case(
-            params,
-            view="hdl21gen",
-            case_dir=output_dir / name,
-            check=False,
-            execute=not _CHECK_MODE,
-        )
-    if _CHECK_MODE:
-        params = next(params for name, params in cases if name == "10msps_cm600mv_dc50mv")
-        first_active = min(
-            index
-            for index in range(len(params.seq_init_pattern))
-            if any(
-                pattern[index] == "1"
-                for pattern in (
-                    params.seq_init_pattern,
-                    params.seq_samp_pattern,
-                    params.seq_comp_pattern,
-                    params.seq_logic_pattern,
-                )
-            )
-        )
-        params = dataclasses.replace(
-            params,
-            conversions=1,
-            seq_init_pattern=params.seq_init_pattern[first_active:] + params.seq_init_pattern[:first_active],
-            seq_samp_pattern=params.seq_samp_pattern[first_active:] + params.seq_samp_pattern[:first_active],
-            seq_comp_pattern=params.seq_comp_pattern[first_active:] + params.seq_comp_pattern[:first_active],
-            seq_logic_pattern=params.seq_logic_pattern[first_active:] + params.seq_logic_pattern[:first_active],
-        )
-        _run_spectre_case(
-            params,
-            view="hdl21gen",
-            case_dir=output_dir / "check_10msps_cm600mv_dc50mv",
-            check=True,
-            execute=True,
-        )
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, view="hdl21gen", cases=_noise_vs_rate_cases(), execute=False)
+
+
+def hdl21gen_noise_smoke() -> Path:
+    """Run one short schematic-ADC case with Spectre circuit checks."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="hdl21gen",
+        cases=(("10msps_cm600mv_dc50mv_smoke", _smoke_params()),),
+        execute=True,
+        circuit_checks=True,
+    )
+
+
+def hdl21gen_noise_vs_rate() -> Path:
+    """Run the schematic ADC fixed-input noise sweep."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, view="hdl21gen", cases=_noise_vs_rate_cases(), execute=True)
+
+
+TARGETS: dict[str, Callable[[], Path]] = {
+    target.__name__: target
+    for target in (
+        frida65a_noise_vs_rate_netlists,
+        frida65a_noise_smoke,
+        frida65a_noise_vs_rate,
+        hdl21gen_noise_vs_rate_netlists,
+        hdl21gen_noise_smoke,
+        hdl21gen_noise_vs_rate,
+    )
+}
 
 
 def main() -> None:
     """Run one explicitly named ADC simulation campaign."""
 
-    global _CHECK_MODE
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=TARGETS)
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="generate all decks and run one <=100 ns representative case without transient noise",
-    )
+    parser.add_argument("target", nargs="?", choices=sorted(TARGETS))
     args = parser.parse_args()
     if args.target is None:
         print("Available ADC simulation targets:")
-        for target in TARGETS:
+        for target in sorted(TARGETS):
             print(f"  {target}")
         return
-    _CHECK_MODE = args.check
-    globals()[args.target]()
+    run_dir = TARGETS[args.target]()
+    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":

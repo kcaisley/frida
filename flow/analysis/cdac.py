@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 
 from flow.analysis.comp import analyze_comp_offset_noise
-from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt
+from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt, Measurement
 from flow.cdac import get_cdac_weights
 
 
@@ -75,6 +75,7 @@ def analyze_cdac_cap_mismatch(
     main_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
     diff_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
     effective_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
+    effective_fraction_by_direction = per_mode_direction[:, :, 1, :].copy()
     direction_bias = np.full((2, element_count, 2), np.nan, dtype=np.float64)
     for side in range(2):
         for element in range(element_count):
@@ -110,5 +111,131 @@ def analyze_cdac_cap_mismatch(
         main_fraction=main_fraction,
         diff_fraction=diff_fraction,
         effective_fraction=effective_fraction,
+        effective_fraction_by_direction=effective_fraction_by_direction,
         direction_bias=direction_bias,
     )
+
+
+def analyze_cdac_cap_mismatch_campaign(
+    measurement_runs: Sequence[Sequence[Measurement]],
+    *,
+    adc_indices: Sequence[int],
+    board_id: str,
+    comparator_offset_v_by_adc: Mapping[int, float],
+) -> tuple[
+    tuple[tuple[MeasCdacExt, ...], ...],
+    tuple[AnalysisCdacCapMismatch, ...],
+]:
+    """Reduce selectively reacquired runs and analyze one complete ADC campaign.
+
+    Each later run atomically replaces every point belonging to the same ADC,
+    side, element, direction, and diffcaps curve. Physical points from distinct
+    acquisition sessions are never combined into one fitted curve.
+    """
+
+    selected_adc_indices = tuple(adc_indices)
+    if not selected_adc_indices or len(set(selected_adc_indices)) != len(selected_adc_indices):
+        raise ValueError("CDAC campaign requires unique ADC indices")
+    if not board_id:
+        raise ValueError("CDAC campaign requires an explicit board_id")
+
+    selected_curve_measurements: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
+    for measurement_run in measurement_runs:
+        grouped_in_run: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
+        for measurement in measurement_run:
+            if not isinstance(measurement, MeasCdacExt):
+                raise TypeError(f"CDAC campaign contains {type(measurement).__name__}, expected MeasCdacExt")
+            if measurement.param.campaign != "cdac_ab":
+                raise ValueError("CDAC campaign contains a point outside campaign='cdac_ab'")
+            if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
+                measurement.info.readbacks.get("spi_mismatches", 0)
+            ):
+                raise ValueError("CDAC campaign contains a corrupt physical capture")
+            params = measurement.param
+            if (
+                params.observed_adc is None
+                or params.cdac_side is None
+                or params.cdac_element is None
+                or params.cdac_direction is None
+            ):
+                raise ValueError("CDAC measurement is missing its ADC, side, element, or direction")
+            if params.observed_adc not in selected_adc_indices:
+                raise ValueError(f"CDAC campaign contains unexpected ADC{params.observed_adc:02d}")
+            curve_key = (
+                params.observed_adc,
+                params.cdac_side,
+                params.cdac_element,
+                params.cdac_direction,
+                params.dac_diffcaps,
+            )
+            grouped_in_run.setdefault(curve_key, []).append(measurement)
+
+        for key, curve_measurements in grouped_in_run.items():
+            physical_measurements = [
+                measurement for measurement in curve_measurements if measurement.info.backend == "physical"
+            ]
+            if physical_measurements:
+                session_ids = {
+                    measurement.info.readbacks.get("acquisition_session_id") for measurement in physical_measurements
+                }
+                completed = [
+                    measurement
+                    for measurement in physical_measurements
+                    if measurement.info.readbacks.get("curve_complete") is True
+                ]
+                latest_timestamp = max(measurement.info.timestamp_utc for measurement in physical_measurements)
+                if (
+                    len(physical_measurements) != len(curve_measurements)
+                    or None in session_ids
+                    or len(session_ids) != 1
+                    or len(completed) != 1
+                    or completed[0].info.timestamp_utc != latest_timestamp
+                ):
+                    raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {key}")
+
+        selected_curve_measurements.update(grouped_in_run)
+
+    measurements = tuple(
+        measurement
+        for curve_key in sorted(selected_curve_measurements)
+        for measurement in selected_curve_measurements[curve_key]
+    )
+    if {measurement.param.observed_adc for measurement in measurements} != set(selected_adc_indices):
+        raise ValueError("CDAC campaign does not contain exactly the requested ADCs")
+
+    expected_curves = {
+        (side, element, direction, diffcaps)
+        for side in ("p", "n")
+        for element in range(16)
+        for direction in ("1to0", "0to1")
+        for diffcaps in (0, 1)
+    }
+    groups = []
+    analyses = []
+    for adc_index in selected_adc_indices:
+        adc_measurements = tuple(
+            measurement for measurement in measurements if measurement.param.observed_adc == adc_index
+        )
+        observed_curves = {
+            (
+                measurement.param.cdac_side,
+                measurement.param.cdac_element,
+                measurement.param.cdac_direction,
+                measurement.param.dac_diffcaps,
+            )
+            for measurement in adc_measurements
+        }
+        if observed_curves != expected_curves:
+            raise ValueError(f"ADC{adc_index:02d} A-to-B CDAC campaign is incomplete")
+        if {measurement.param.board_id for measurement in adc_measurements} != {board_id}:
+            raise ValueError(f"ADC{adc_index:02d} CDAC measurements do not match board {board_id}")
+        if adc_index not in comparator_offset_v_by_adc:
+            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator calibration")
+        groups.append(adc_measurements)
+        analyses.append(
+            analyze_cdac_cap_mismatch(
+                adc_measurements,
+                comparator_offset_v=float(comparator_offset_v_by_adc[adc_index]),
+            )
+        )
+    return tuple(groups), tuple(analyses)

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -35,10 +34,14 @@ from flow.analysis.adc import (
     analyze_adc_dynamic_sweep,
     analyze_adc_noise_sweep,
     analyze_adc_power_sweep,
+    analyze_adc_ramp,
     analyze_adc_transfer,
     combine_adc_noise_comparison,
 )
-from flow.analysis.cdac import analyze_cdac_cap_mismatch
+from flow.analysis.calibration1 import analyze as analyze_calibration1
+from flow.analysis.calibration2 import analyze as analyze_calibration2
+from flow.analysis.calibration3 import analyze as analyze_calibration3
+from flow.analysis.cdac import analyze_cdac_cap_mismatch_campaign
 from flow.analysis.comp import (
     analyze_comp_candidate_sweep,
     analyze_comp_offset_noise,
@@ -47,6 +50,7 @@ from flow.analysis.comp import (
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import (
     animate_adc_decision_path_density,
+    plot_adc_calibration_weights,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
@@ -54,7 +58,11 @@ from flow.analysis.plots import (
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_noise_violin_sweep,
+    plot_adc_nonlinearity,
     plot_adc_power_sweep,
+    plot_adc_ramp_histogram,
+    plot_adc_ramp_transfer,
+    plot_adc_ramp_weights,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -63,7 +71,12 @@ from flow.analysis.plots import (
     plot_comp_noise_power_tradeoff,
     plot_measurement_waveforms,
 )
-from flow.analysis.types import MeasAdcExt, MeasAdcInt, MeasCdacExt, MeasCompExt, MeasCompInt
+from flow.analysis.types import (
+    MeasAdcExt,
+    MeasAdcInt,
+    MeasCompExt,
+    MeasCompInt,
+)
 from flow.scans.params import load_board_map
 
 BASE_PATH = Path(__file__).resolve().parents[2]
@@ -95,6 +108,283 @@ def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
                 output_path=output_dir / f"adc{adc_index:02d}_transfer_curve",
             )
         )
+    return tuple(artifacts)
+
+
+def adc_ramp_nonlinearity(output_dir: Path) -> tuple[Path, ...]:
+    """Compare uncalibrated DOUT with BOUT decoded by accepted CDAC weights."""
+
+    adc_indices = (0, 1, 2, 3)
+    board_id = "00"
+    ramp_expected_conversions = 4_000_000
+    ramp_run_dir = BASE_PATH / "build/scan_adc/20260812_011910"
+    cdac_run_dirs = tuple(
+        BASE_PATH / "build/scan_cdac" / name for name in ("20260804_171234", "20260804_193030", "20260804_193631")
+    )
+    ramp_paths = sorted(ramp_run_dir.glob("*.h5"))
+    if not ramp_paths:
+        raise FileNotFoundError(2, "accepted ADC ramp inputs not found", ramp_run_dir)
+    ramp_by_adc = {}
+    for path in ramp_paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
+        adc_index = measurement.param.observed_adc
+        if (
+            measurement.param.campaign != "adc_ramp"
+            or measurement.param.board_id != board_id
+            or adc_index not in adc_indices
+            or len(measurement.daq.dout) != ramp_expected_conversions
+            or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+            or int(measurement.info.readbacks.get("spi_mismatches", 0))
+            or adc_index in ramp_by_adc
+        ):
+            raise ValueError(f"{path} is not a complete, valid ADC00--ADC03 ramp capture")
+        ramp_by_adc[adc_index] = measurement
+    if set(ramp_by_adc) != set(adc_indices):
+        raise ValueError("accepted ramp run does not contain exactly ADC00--ADC03")
+
+    cdac_paths_by_run = tuple(tuple(sorted(run_dir.glob("*.h5"))) for run_dir in cdac_run_dirs)
+    if not any(cdac_paths_by_run):
+        raise FileNotFoundError(2, "accepted A-to-B CDAC inputs not found", cdac_run_dirs[0])
+    comparator_calibrations = load_board_map()["boards"][board_id].get("comparator_calibration", {})
+    comparator_offset_v_by_adc = {
+        adc_index: float(comparator_calibrations[adc_index]["offset_v"]) for adc_index in adc_indices
+    }
+    cdac_groups, _cdac_analyses = analyze_cdac_cap_mismatch_campaign(
+        tuple(tuple(read_measurement(path) for path in paths) for paths in cdac_paths_by_run),
+        adc_indices=adc_indices,
+        board_id=board_id,
+        comparator_offset_v_by_adc=comparator_offset_v_by_adc,
+    )
+    cdac_group_by_adc = {group[0].param.observed_adc: group for group in cdac_groups}
+    artifacts = []
+    analyses = []
+    for adc_index in adc_indices:
+        ramp_measurement = ramp_by_adc[adc_index]
+        calibration = analyze_calibration1(
+            cdac_group_by_adc[adc_index],
+            comparator_offset_v=comparator_offset_v_by_adc[adc_index],
+        )
+        analysis = analyze_adc_ramp(ramp_measurement, calibrations=(calibration,))
+        if any(curve.maximum_transfer_reversal_dout > 2.0 for curve in analysis.curves):
+            raise ValueError(f"ADC{adc_index:02d} ramp transfer is not monotonic within 2 LSB")
+        analyses.append(analysis)
+        artifacts.extend(
+            plot_adc_ramp_transfer(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_transfer",
+            )
+        )
+        artifacts.extend(
+            plot_adc_ramp_histogram(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_histogram",
+            )
+        )
+        artifacts.extend(
+            plot_adc_ramp_weights(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_weights",
+            )
+        )
+        artifacts.extend(
+            plot_adc_nonlinearity(
+                analysis,
+                output_path=output_dir / f"adc{adc_index:02d}_ramp_nonlinearity",
+            )
+        )
+
+    csv_path = output_dir / "adc00_adc03_ramp_metrics.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "adc_index",
+                "decoding",
+                "sample_count",
+                "retained_sample_count",
+                "reset_excluded_sample_count",
+                "sample_rate_hz",
+                "ramp_frequency_hz",
+                "maximum_abs_dnl_lsb",
+                "maximum_abs_inl_lsb",
+                "missing_codes",
+                "maximum_transfer_reversal_dout",
+            )
+        )
+        for analysis in analyses:
+            for curve in analysis.curves:
+                writer.writerow(
+                    (
+                        analysis.adc_index,
+                        curve.decoding,
+                        analysis.sample_count,
+                        analysis.retained_sample_count,
+                        analysis.reset_excluded_sample_count,
+                        analysis.sample_rate_hz,
+                        analysis.ramp_frequency_hz,
+                        curve.maximum_abs_dnl,
+                        curve.maximum_abs_inl,
+                        curve.missing_codes,
+                        curve.maximum_transfer_reversal_dout,
+                    )
+                )
+    artifacts.append(csv_path)
+    return tuple(artifacts)
+
+
+def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
+    """Run all three ADC00 digital calibrations and compare them uniformly."""
+
+    # TODO: Extend this target to ADC01--ADC03 after ADC00 passes the
+    # independent-capture acceptance criteria.
+    adc_index = 0
+    board_id = "00"
+    ramp_expected_conversions = 4_000_000
+    ramp_run_dir = BASE_PATH / "build/scan_adc/20260812_011910"
+    ramp_paths = [path for path in sorted(ramp_run_dir.glob("*.h5")) if f"adc{adc_index:02d}" in path.name]
+    if len(ramp_paths) != 1:
+        raise FileNotFoundError(2, "accepted ADC00 ramp input not found", ramp_run_dir)
+    measurement = read_measurement(ramp_paths[0])
+    if not isinstance(measurement, MeasAdcExt):
+        raise TypeError(f"{ramp_paths[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+    if (
+        measurement.param.campaign != "adc_ramp"
+        or measurement.param.observed_adc != adc_index
+        or measurement.param.board_id != board_id
+        or len(measurement.daq.dout) != ramp_expected_conversions
+        or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+        or int(measurement.info.readbacks.get("spi_mismatches", 0))
+    ):
+        raise ValueError(f"{ramp_paths[0]} is not a complete, valid ADC00 ramp capture")
+
+    cdac_run_dirs = tuple(
+        BASE_PATH / "build/scan_cdac" / name for name in ("20260804_171234", "20260804_193030", "20260804_193631")
+    )
+    cdac_paths_by_run = tuple(
+        tuple(path for path in sorted(run_dir.glob("*.h5")) if f"adc{adc_index:02d}" in path.name)
+        for run_dir in cdac_run_dirs
+    )
+    if not any(cdac_paths_by_run):
+        raise FileNotFoundError(2, "accepted ADC00 A-to-B CDAC inputs not found", cdac_run_dirs[0])
+    comparator_calibrations = load_board_map()["boards"][board_id].get("comparator_calibration", {})
+    comparator_offset_v = float(comparator_calibrations[adc_index]["offset_v"])
+    cdac_groups, _cdac_analyses = analyze_cdac_cap_mismatch_campaign(
+        tuple(tuple(read_measurement(path) for path in paths) for paths in cdac_paths_by_run),
+        adc_indices=(adc_index,),
+        board_id=board_id,
+        comparator_offset_v_by_adc={adc_index: comparator_offset_v},
+    )
+    cdac_measurements = cdac_groups[0]
+
+    nominal_ramp = analyze_adc_ramp(measurement)
+    calibrations = (
+        analyze_calibration1(
+            cdac_measurements,
+            comparator_offset_v=comparator_offset_v,
+        ),
+        analyze_calibration2(measurement, nominal_ramp),
+        analyze_calibration3(measurement, nominal_ramp),
+    )
+    ramp = analyze_adc_ramp(measurement, calibrations=calibrations)
+
+    artifacts = list(
+        plot_adc_calibration_weights(
+            calibrations,
+            output_path=output_dir / f"adc{adc_index:02d}_calibration_weights",
+        )
+    )
+    artifacts.extend(
+        plot_adc_ramp_transfer(
+            ramp,
+            output_path=output_dir / f"adc{adc_index:02d}_calibration_transfer",
+        )
+    )
+    artifacts.extend(
+        plot_adc_ramp_histogram(
+            ramp,
+            output_path=output_dir / f"adc{adc_index:02d}_calibration_code_density",
+        )
+    )
+    artifacts.extend(
+        plot_adc_nonlinearity(
+            ramp,
+            output_path=output_dir / f"adc{adc_index:02d}_calibration_inl_dnl",
+        )
+    )
+
+    calibration_by_method = {calibration.method: calibration for calibration in calibrations}
+    metrics_path = output_dir / f"adc{adc_index:02d}_calibration_metrics.csv"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    with metrics_path.open("w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "decoding",
+                "training_sample_count",
+                "validation_sample_count",
+                "weights_from_measurement",
+                "output_gain",
+                "output_offset_lsb",
+                "maximum_abs_dnl_lsb",
+                "maximum_abs_inl_lsb",
+                "missing_codes",
+                "maximum_transfer_reversal_lsb",
+            )
+        )
+        for curve in ramp.curves:
+            calibration = calibration_by_method.get(curve.decoding)
+            writer.writerow(
+                (
+                    curve.decoding,
+                    0 if calibration is None else calibration.training_sample_count,
+                    0 if calibration is None else calibration.validation_sample_count,
+                    0 if calibration is None else int(np.count_nonzero(calibration.weight_from_measurement)),
+                    1.0 if calibration is None else calibration.output_gain,
+                    0.0 if calibration is None else calibration.output_offset_lsb,
+                    curve.maximum_abs_dnl,
+                    curve.maximum_abs_inl,
+                    curve.missing_codes,
+                    curve.maximum_transfer_reversal_dout,
+                )
+            )
+    artifacts.append(metrics_path)
+
+    weights_path = output_dir / f"adc{adc_index:02d}_calibration_weights.csv"
+    with weights_path.open("w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "decision_index",
+                "ideal_weight_lsb",
+                *(
+                    field
+                    for calibration in calibrations
+                    for field in (
+                        f"{calibration.method}_weight_lsb",
+                        f"{calibration.method}_from_measurement",
+                    )
+                ),
+            )
+        )
+        for decision_index in range(17):
+            writer.writerow(
+                (
+                    decision_index,
+                    calibrations[0].nominal_weight[decision_index],
+                    *(
+                        value
+                        for calibration in calibrations
+                        for value in (
+                            calibration.calibrated_weight[decision_index],
+                            bool(calibration.weight_from_measurement[decision_index]),
+                        )
+                    ),
+                )
+            )
+    artifacts.append(weights_path)
     return tuple(artifacts)
 
 
@@ -677,19 +967,6 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
 
     RUN_DIR = BASE_PATH / "build/comp/frida65_candidate_scurve_power"
     EXPECTED_CANDIDATES = 297
-    manifest_path = RUN_DIR / "manifest.json"
-    if not manifest_path.is_file():
-        raise FileNotFoundError(2, "comparator candidate manifest not found", manifest_path)
-    manifest = json.loads(manifest_path.read_text())
-    if manifest.get("campaign") != "frida65_candidate_scurve_power":
-        raise ValueError("comparator candidate manifest has the wrong campaign name")
-    manifest_candidates = manifest.get("candidates")
-    if not isinstance(manifest_candidates, list) or len(manifest_candidates) != EXPECTED_CANDIDATES:
-        raise ValueError(f"comparator candidate manifest must contain {EXPECTED_CANDIDATES} designs")
-    expected_ids = {str(candidate["candidate_id"]) for candidate in manifest_candidates}
-    if len(expected_ids) != EXPECTED_CANDIDATES:
-        raise ValueError("comparator candidate manifest contains duplicate IDs")
-
     measurement_paths = sorted((RUN_DIR / "candidates").glob("*/result.h5"))
     if len(measurement_paths) != EXPECTED_CANDIDATES:
         raise ValueError(
@@ -704,6 +981,8 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
         if measurement.info.backend != "spice" or measurement.info.readbacks.get("transient_noise") is not True:
             raise ValueError(f"{path} is not a transient-noise SPICE comparator result")
         candidate_id = str(measurement.info.readbacks.get("candidate_id", ""))
+        if not candidate_id:
+            raise ValueError(f"{path} does not identify its comparator candidate")
         if candidate_id in observed_ids:
             raise ValueError(f"duplicate comparator result for {candidate_id!r}")
         observed_ids.add(candidate_id)
@@ -719,13 +998,6 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
         ):
             raise ValueError(f"{path} does not use the reviewed comparator S-curve testbench")
         measurements.append(measurement)
-    if observed_ids != expected_ids:
-        missing = sorted(expected_ids.difference(observed_ids))
-        unexpected = sorted(observed_ids.difference(expected_ids))
-        raise ValueError(
-            f"comparator candidate results do not match manifest; missing={missing}, unexpected={unexpected}"
-        )
-
     analysis = analyze_comp_candidate_sweep(measurements)
     artifacts = list(
         plot_comp_candidate_sweep(
@@ -836,126 +1108,30 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
 def cdac_system_cap_mismatch(output_dir: Path) -> tuple[Path, ...]:
     """Extract and plot ADC00–ADC03 capacitor mismatch from A-to-B transitions."""
 
-    RUN_DIRS = (
-        BASE_PATH / "build/scan_cdac/20260804_171234",
-        BASE_PATH / "build/scan_cdac/20260804_193030",
-        BASE_PATH / "build/scan_cdac/20260804_193631",
+    adc_indices = (0, 1, 2, 3)
+    board_id = "00"
+    run_dirs = tuple(
+        BASE_PATH / "build/scan_cdac" / name for name in ("20260804_171234", "20260804_193030", "20260804_193631")
     )
-    ADC_INDICES = (0, 1, 2, 3)
-    CDAC_SIDES = ("p", "n")
-    CDAC_ELEMENTS = tuple(range(16))
-    CDAC_DIRECTIONS = ("1to0", "0to1")
-    DIFFCAP_MODES = (0, 1)
-    EXPECTED_CURVES = {
-        (side, element, direction, diffcaps)
-        for side in CDAC_SIDES
-        for element in CDAC_ELEMENTS
-        for direction in CDAC_DIRECTIONS
-        for diffcaps in DIFFCAP_MODES
-    }
-    board_map = load_board_map()
-
-    run_measurement_paths = [sorted(run_dir.glob("*.h5")) for run_dir in RUN_DIRS]
-    if not any(run_measurement_paths):
-        missing = RUN_DIRS[0] if RUN_DIRS else BASE_PATH / "build/scan_cdac"
-        raise FileNotFoundError(2, "accepted A-to-B CDAC inputs not found", missing)
-    selected_curve_measurements: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
-    for measurement_paths in run_measurement_paths:
-        grouped_in_run: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
-        for path in measurement_paths:
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasCdacExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCdacExt")
-            if measurement.param.campaign != "cdac_ab":
-                raise ValueError(f"{path} is not a cdac_ab point")
-            if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
-                measurement.info.readbacks.get("spi_mismatches", 0)
-            ):
-                raise ValueError(f"{path} contains a corrupt physical capture")
-            params = measurement.param
-            if (
-                params.observed_adc is None
-                or params.cdac_side is None
-                or params.cdac_element is None
-                or params.cdac_direction is None
-            ):
-                raise ValueError("CDAC measurement is missing its ADC, side, element, or direction")
-            curve_key = (
-                params.observed_adc,
-                params.cdac_side,
-                params.cdac_element,
-                params.cdac_direction,
-                params.dac_diffcaps,
-            )
-            grouped_in_run.setdefault(curve_key, []).append(measurement)
-        for key, curve_measurements in grouped_in_run.items():
-            physical_measurements = [
-                measurement for measurement in curve_measurements if measurement.info.backend == "physical"
-            ]
-            if physical_measurements:
-                session_ids = {
-                    measurement.info.readbacks.get("acquisition_session_id") for measurement in physical_measurements
-                }
-                completed = [
-                    measurement
-                    for measurement in physical_measurements
-                    if measurement.info.readbacks.get("curve_complete") is True
-                ]
-                latest_timestamp = max(measurement.info.timestamp_utc for measurement in physical_measurements)
-                if (
-                    len(physical_measurements) != len(curve_measurements)
-                    or None in session_ids
-                    or len(session_ids) != 1
-                    or len(completed) != 1
-                    or completed[0].info.timestamp_utc != latest_timestamp
-                ):
-                    raise ValueError(f"accepted CDAC run contains an incomplete or mixed-session curve {key}")
-        # Directory order is deliberate: a later directory atomically replaces
-        # every point of a selectively reacquired curve from an earlier directory.
-        selected_curve_measurements.update(grouped_in_run)
-    measurements = [
-        measurement
-        for curve_key in sorted(selected_curve_measurements)
-        for measurement in selected_curve_measurements[curve_key]
-    ]
-    if {measurement.param.observed_adc for measurement in measurements} != set(ADC_INDICES):
-        raise ValueError("A-to-B CDAC runner requires ADC00 through ADC03")
-
+    paths_by_run = tuple(tuple(sorted(run_dir.glob("*.h5"))) for run_dir in run_dirs)
+    if not any(paths_by_run):
+        raise FileNotFoundError(2, "accepted A-to-B CDAC inputs not found", run_dirs[0])
+    comparator_calibrations = load_board_map()["boards"][board_id].get("comparator_calibration", {})
+    adc_groups, analyses = analyze_cdac_cap_mismatch_campaign(
+        tuple(tuple(read_measurement(path) for path in paths) for paths in paths_by_run),
+        adc_indices=adc_indices,
+        board_id=board_id,
+        comparator_offset_v_by_adc={
+            adc_index: float(comparator_calibrations[adc_index]["offset_v"]) for adc_index in adc_indices
+        },
+    )
     artifacts = []
-    adc_groups = []
-    analyses = []
-    for adc_index in ADC_INDICES:
-        adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
-        observed_curves = {
-            (
-                measurement.param.cdac_side,
-                measurement.param.cdac_element,
-                measurement.param.cdac_direction,
-                measurement.param.dac_diffcaps,
-            )
-            for measurement in adc_measurements
-        }
-        if observed_curves != EXPECTED_CURVES:
-            raise ValueError(f"ADC{adc_index:02d} A-to-B CDAC campaign is incomplete")
-        board_ids = {measurement.param.board_id for measurement in adc_measurements}
-        if len(board_ids) != 1 or None in board_ids:
-            raise ValueError(f"ADC{adc_index:02d} CDAC measurements require exactly one board_id")
-        board_id = next(board_id for board_id in board_ids if board_id is not None)
-        calibrations = board_map["boards"][board_id].get("comparator_calibration", {})
-        calibration = calibrations.get(adc_index, calibrations.get(str(adc_index)))
-        if calibration is None:
-            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator_calibration")
-        analysis = analyze_cdac_cap_mismatch(
-            adc_measurements,
-            comparator_offset_v=float(calibration["offset_v"]),
-        )
-        adc_groups.append(adc_measurements)
-        analyses.append(analysis)
+    for adc_measurements, analysis in zip(adc_groups, analyses, strict=True):
         artifacts.extend(
             plot_cdac_cap_mismatch(
                 adc_measurements,
                 analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_cdac_cap_mismatch",
+                output_path=output_dir / f"adc{analysis.adc_index:02d}_cdac_cap_mismatch",
             )
         )
     artifacts.extend(
@@ -972,6 +1148,8 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
     target.__name__: target
     for target in (
         adc_transfer_curve,
+        adc_ramp_nonlinearity,
+        adc_calibration,
         adc_noise_vs_rate,
         adc_code_distributions,
         adc_power_vs_rate,

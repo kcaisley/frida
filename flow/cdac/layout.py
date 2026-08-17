@@ -434,7 +434,7 @@ def create_m4_routing_strips(
     bit_index = 15  # Start from MSB (bit 15)
 
     # Process each group in partitioned_weights (in reverse order as capacitors are placed)
-    for group_idx, group in enumerate(reversed(partitioned_weights)):
+    for group in reversed(partitioned_weights):
         group_size = len(group)
 
         if group_size == 1:

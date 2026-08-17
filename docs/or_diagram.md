@@ -176,5 +176,5 @@ flowchart LR
   execution model, `openroad`/`odb` api reference, symmetric routing workaround
 - [docs/or_analog.md](or_analog.md) — placement
   status, routing guides, Python vs Tcl comparison, ALOE appendix
-- [docs/plan.md](plan.md) — constraint types,
+- [docs/msor.md](msor.md) — constraint types,
   Tcl emitter design, end-to-end integration plan

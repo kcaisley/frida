@@ -5,7 +5,6 @@ Exports:
 - Adc: Full ADC generator (composes digital + analog)
 - AdcParams: ADC parameters
 - AdcDigital: ExternalModule for synthesized digital block
-- get_adc_weights: Get capacitor weights for ADC configuration
 - AdcTb: Testbench generator
 - AdcTbParams: Shared physical/ simulation test parameters
 """
@@ -14,7 +13,6 @@ from .subckt import (
     Adc,
     AdcDigital,
     AdcParams,
-    get_adc_weights,
 )
 
 __all__ = [
@@ -23,7 +21,6 @@ __all__ = [
     "AdcParams",
     "AdcTb",
     "AdcTbParams",
-    "get_adc_weights",
 ]
 
 

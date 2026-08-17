@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from flow.scans.params import AdcTbParams
 
 type Backend = Literal["physical", "behavioral", "spice"]
 type InfoValue = str | int | float | bool
+type AdcCalibrationMethod = Literal["calibration1", "calibration2", "calibration3"]
+type AdcDecoding = Literal["uncalibrated_dout", "calibration1", "calibration2", "calibration3"]
 type FloatArray = NDArray[np.float64]
 type IntArray = NDArray[np.int64]
 type Uint8Array = NDArray[np.uint8]
@@ -738,6 +741,109 @@ class AnalysisAdcNonlinearity:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAdcCalibration:
+    """Common output of each 17-decision digital calibration method.
+
+    All three calibration analyses normalize their BOUT coefficients to the
+    inclusive ADC output range, so a corrected fractional code is simply
+    ``BOUT @ calibrated_weight``. ``weight_from_measurement`` distinguishes
+    directly measured or fitted coefficients from nominally preserved ones.
+    In calibration 1 the terminal half-step is inferred, and in calibration 3
+    the unresolved noise-limited tail keeps its nominal ratios.
+    """
+
+    adc_index: int
+    method: AdcCalibrationMethod
+    label: str
+    code_max: int
+    nominal_weight: FloatArray
+    calibrated_weight: FloatArray
+    weight_from_measurement: NDArray[np.bool_]
+    training_sample_count: int
+    validation_sample_count: int
+    output_gain: float
+    output_offset_lsb: float
+
+    def __post_init__(self) -> None:
+        if self.method not in ("calibration1", "calibration2", "calibration3"):
+            raise ValueError(f"unknown ADC calibration method {self.method!r}")
+        if not self.label:
+            raise ValueError("ADC calibration label must not be empty")
+        if not isinstance(self.code_max, int) or self.code_max <= 0:
+            raise ValueError("ADC calibration code_max must be a positive integer")
+        nominal = _array_1d(self.nominal_weight, np.float64, "nominal_weight", finite=True)
+        calibrated = _array_1d(self.calibrated_weight, np.float64, "calibrated_weight", finite=True)
+        measured = _array_1d(
+            self.weight_from_measurement,
+            np.bool_,
+            "weight_from_measurement",
+        )
+        expected_shape = (17,)
+        if nominal.shape != expected_shape or calibrated.shape != expected_shape or measured.shape != expected_shape:
+            raise ValueError("ADC calibration requires exactly 17 aligned BOUT weights")
+        if np.any(nominal <= 0.0) or np.any(calibrated <= 0.0):
+            raise ValueError("ADC calibration weights must be positive")
+        tolerance = max(1.0e-10, self.code_max * 1.0e-12)
+        if not np.isclose(np.sum(nominal), self.code_max, rtol=0.0, atol=tolerance):
+            raise ValueError("nominal ADC calibration weights must sum to code_max")
+        if not np.isclose(np.sum(calibrated), self.code_max, rtol=0.0, atol=tolerance):
+            raise ValueError("calibrated ADC calibration weights must sum to code_max")
+        if self.training_sample_count < 0 or self.validation_sample_count < 0:
+            raise ValueError("ADC calibration sample counts must be nonnegative")
+        if not math.isfinite(self.output_gain) or self.output_gain <= 0.0:
+            raise ValueError("ADC calibration output_gain must be finite and positive")
+        if not math.isfinite(self.output_offset_lsb):
+            raise ValueError("ADC calibration output_offset_lsb must be finite")
+        object.__setattr__(self, "nominal_weight", nominal)
+        object.__setattr__(self, "calibrated_weight", calibrated)
+        object.__setattr__(self, "weight_from_measurement", measured)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcRampCurve:
+    """Per-decoding results derived from one shared ramp capture.
+
+    One instance represents nominal DOUT or one calibrated interpretation of
+    the stored BOUT decisions. Capture timing and inferred input phase live on
+    the containing :class:`AnalysisAdcRamp` and are not repeated here.
+    """
+
+    decoding: AdcDecoding
+    label: str
+    weights: FloatArray
+    transfer_vin_diff_v: FloatArray
+    transfer_mean_dout: FloatArray
+    transfer_sample_count: IntArray
+    code: IntArray
+    count: IntArray
+    linearity_code: IntArray
+    dnl: FloatArray
+    inl: FloatArray
+    ideal_count: float
+    maximum_abs_dnl: float
+    maximum_abs_inl: float
+    missing_codes: int
+    maximum_transfer_reversal_dout: float
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcRamp:
+    """Shared ramp reconstruction containing one curve per DOUT decoding."""
+
+    adc_index: int
+    sample_count: int
+    retained_sample_count: int
+    reset_excluded_sample_count: int
+    sample_rate_hz: float
+    ramp_frequency_hz: float
+    ramp_phase_cycles: float
+    reset_conversion_index: IntArray
+    vin_diff_min_v: float
+    vin_diff_max_v: float
+    curves: tuple[AnalysisAdcRampCurve, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisAdcCodeDistribution:
     """Code statistics and histograms for one or more static input points."""
 
@@ -889,6 +995,7 @@ class AnalysisCdacCapMismatch:
     main_fraction: FloatArray
     diff_fraction: FloatArray
     effective_fraction: FloatArray
+    effective_fraction_by_direction: FloatArray
     direction_bias: FloatArray
 
 
@@ -938,15 +1045,4 @@ class AnalysisCompCandidateSweep:
 MEASUREMENT_TYPES = {
     cls.__name__: cls
     for cls in (MeasAdcExt, MeasAdcInt, MeasCompExt, MeasCompInt, MeasSampInt, MeasCdacExt, MeasCdacInt)
-}
-
-
-PARAMETER_TYPES = {
-    MeasAdcExt.__name__: AdcTbParams,
-    MeasAdcInt.__name__: AdcTbParams,
-    MeasCompExt.__name__: AdcTbParams,
-    MeasCompInt.__name__: (CompTbParams, AdcTbParams),
-    MeasSampInt.__name__: SampTbParams,
-    MeasCdacExt.__name__: AdcTbParams,
-    MeasCdacInt.__name__: (CdacTbParams, AdcTbParams),
 }

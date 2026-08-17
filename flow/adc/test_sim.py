@@ -17,45 +17,26 @@ from . import sim
 def test_named_simulation_targets_are_explicit() -> None:
     """Keep the command-line target set small, stable, and searchable."""
 
-    assert sim.TARGETS == (
+    assert set(sim.TARGETS) == {
+        "frida65a_noise_vs_rate_netlists",
+        "frida65a_noise_smoke",
         "frida65a_noise_vs_rate",
+        "hdl21gen_noise_vs_rate_netlists",
+        "hdl21gen_noise_smoke",
         "hdl21gen_noise_vs_rate",
-    )
-    assert all(callable(getattr(sim, name)) for name in sim.TARGETS)
+    }
+    assert all(callable(target) for target in sim.TARGETS.values())
 
 
-@pytest.mark.parametrize(
-    ("target_name", "view"),
-    [
-        ("frida65a_noise_vs_rate", "frida65a"),
-        ("hdl21gen_noise_vs_rate", "hdl21gen"),
-    ],
-)
-def test_named_campaigns_expand_to_the_expected_matrix(
-    monkeypatch: pytest.MonkeyPatch,
-    target_name: str,
-    view: str,
-) -> None:
-    """Expand every public campaign into complete parameters without Spectre."""
+def test_named_campaigns_expand_to_the_expected_matrix() -> None:
+    """Expand the shared ADC campaign recipe into complete parameters."""
 
-    calls: list[dict[str, Any]] = []
-
-    def record_case(params: AdcTbParams, **kwargs: Any) -> None:
-        calls.append({"params": params, **kwargs})
-
-    monkeypatch.setattr(sim, "_CHECK_MODE", False)
-    monkeypatch.setattr(sim, "_run_spectre_case", record_case)
-    getattr(sim, target_name)()
-
+    cases = sim._noise_vs_rate_cases()
     expected_names = tuple(f"{rate}msps_cm600mv_dc50mv" for rate in (10, 6, 2))
-    assert tuple(call["case_dir"].name for call in calls) == expected_names
-    assert all(call["view"] == view for call in calls)
-    assert all(call["check"] is False for call in calls)
-    assert all(call["execute"] is True for call in calls)
+    assert tuple(name for name, _params in cases) == expected_names
 
     alternating = tuple(int(bit) for bit in "0101010101010101")
-    for call in calls:
-        params = call["params"]
+    for _name, params in cases:
         assert params.dac_astate_p == alternating
         assert params.dac_astate_n == alternating
         assert params.dac_bstate_p == (0,) * 16
@@ -71,12 +52,11 @@ def test_spectre_cases_reject_more_than_one_hundred_conversions(tmp_path: Path) 
     """Keep every production transient bounded to at most 100 conversions."""
 
     with pytest.raises(ValueError, match="limited to 100 conversions"):
-        sim._run_spectre_case(
+        sim._prepare_spectre_case(
             AdcTbParams(conversions=101),
             view="hdl21gen",
             case_dir=tmp_path / "too-long",
-            check=False,
-            execute=False,
+            circuit_checks=False,
         )
 
 
@@ -118,7 +98,7 @@ def test_pex_external_module_preserves_extracted_positional_pin_order() -> None:
 
 
 @pytest.mark.parametrize("view", ["frida65a", "hdl21gen"])
-def test_check_and_production_decks_have_distinct_runtime_settings(
+def test_smoke_and_production_decks_have_distinct_runtime_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     view: str,
@@ -127,22 +107,20 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
 
     written: dict[str, Any] = {}
 
-    def record_deck(sim: Any, path: Path, *, compact: bool) -> None:
-        assert compact is True
+    def record_deck(sim: Any, path: Path) -> None:
         written[path.name] = sim
 
     monkeypatch.setattr(sim, "set_pdk", lambda _: None)
-    monkeypatch.setattr(sim, "AdcTb", lambda params, selected_view: h.Module(name="TestTb"))
+    monkeypatch.setattr(sim, "AdcTb", lambda params, _selected_view: h.Module(name="TestTb"))
     monkeypatch.setattr(sim.h.pdk, "compile", lambda module: module)
-    monkeypatch.setattr(sim, "write_sim_netlist", record_deck)
+    monkeypatch.setattr(sim, "write_spectre_input", record_deck)
 
     params = AdcTbParams(conversions=3)
-    sim._run_spectre_case(
+    sim._prepare_spectre_case(
         params,
         view=view,
         case_dir=tmp_path / "production",
-        check=False,
-        execute=False,
+        circuit_checks=False,
     )
     assert set(written) == {"input.scs"}
     production_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
@@ -153,12 +131,11 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
     assert "dyn_setuphold" not in production_text
 
     written.clear()
-    sim._run_spectre_case(
+    sim._prepare_spectre_case(
         params,
         view=view,
         case_dir=tmp_path / "check",
-        check=True,
-        execute=False,
+        circuit_checks=True,
     )
     assert set(written) == {"checks.scs", "input.scs"}
     check_text = "\n".join(attr.text for attr in written["checks.scs"].attrs if isinstance(attr, h.Literal))
@@ -185,12 +162,11 @@ def test_check_and_production_decks_have_distinct_runtime_settings(
     assert len(saved_signals) == len(set(saved_signals))
 
     written.clear()
-    sim._run_spectre_case(
+    sim._prepare_spectre_case(
         AdcTbParams(symbol_rate=160e6, conversions=3),
         view=view,
         case_dir=tmp_path / "slow",
-        check=False,
-        execute=False,
+        circuit_checks=False,
     )
     slow_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
     assert "strobeperiod=5e-11 strobeoutput=strobeonly" in slow_text
@@ -204,9 +180,9 @@ def test_spectre_commands_wait_for_a_license(
 
     commands: list[list[str]] = []
     monkeypatch.setattr(sim, "set_pdk", lambda _: None)
-    monkeypatch.setattr(sim, "AdcTb", lambda params, selected_view: h.Module(name="TestTb"))
+    monkeypatch.setattr(sim, "AdcTb", lambda params, _selected_view: h.Module(name="TestTb"))
     monkeypatch.setattr(sim.h.pdk, "compile", lambda module: module)
-    monkeypatch.setattr(sim, "write_sim_netlist", lambda sim_input, path, compact: path.write_text(""))
+    monkeypatch.setattr(sim, "write_spectre_input", lambda sim_input, path: path.write_text(""))
     monkeypatch.setattr(sim.shutil, "which", lambda command: "/usr/bin/spectre")
     monkeypatch.setattr(
         sim.subprocess,
@@ -219,15 +195,16 @@ def test_spectre_commands_wait_for_a_license(
         lambda raw_path, h5_path, **kwargs: h5_path,
     )
 
-    sim._run_spectre_case(
+    case = sim._prepare_spectre_case(
         AdcTbParams(conversions=1),
         view="hdl21gen",
         case_dir=tmp_path / "case",
-        check=True,
-        execute=True,
+        circuit_checks=True,
     )
+    sim._execute_spectre_case(case)
 
     assert len(commands) == 2
     for command in commands:
         timeout_index = command.index("+lqtimeout")
         assert command[timeout_index + 1] == "3600"
+        assert f"+mt={sim.SPECTRE_THREADS_PER_SIMULATION}" in command

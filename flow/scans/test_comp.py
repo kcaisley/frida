@@ -10,8 +10,6 @@ import numpy as np
 import pytest
 
 from flow.cdac import get_cdac_weights
-from flow.circuit.params import build_uniform_sweep_values
-from flow.comp.sim import CompTbParams
 from flow.scans.fastrx import (
     calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
@@ -22,19 +20,33 @@ from flow.scans.scan_comp import (
     _build_comp_params,
     _comp_point_stem,
     build_common_mode_variants,
-    build_offset_variants,
-    build_sampling_noise_repair_variants,
     build_sampling_noise_variants,
 )
-from flow.scans.scan_comp import build_smoke_variants as build_comp_smoke_variants
 from flow.scans.scan_comp import (
-    run_scan as run_comp_scan,
+    scan as run_comp_scan,
 )
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 
+def build_comp_test_variants() -> list[AdcTbParams]:
+    """Build one balanced track point for each characterized ADC."""
+
+    return [
+        _build_comp_params(
+            adc_index=adc_index,
+            campaign="comp_common_mode",
+            sampling_mode="track",
+            sweep_stage="fixed",
+            vin_cm_v=0.8,
+            vin_diff_v=0.0,
+            conversions=128,
+        )
+        for adc_index in range(4)
+    ]
+
+
 def test_single_sample_seqgen_has_exactly_one_rx_sen_word() -> None:
-    params = build_comp_smoke_variants()[0]
+    params = build_comp_test_variants()[0]
     memory = convert_params_to_seqgen_fmt(params, "0" * 10 + "1" + "0" * 21)
     control = np.asarray(memory, dtype=np.uint8).reshape(-1, 8)[:, 4]
 
@@ -46,7 +58,7 @@ def test_single_sample_seqgen_has_exactly_one_rx_sen_word() -> None:
 
 def test_single_sample_alignment_covers_comparator_sequence() -> None:
     timing = load_board_map()["boards"]["00"]["capture_timing_model"]
-    template = build_comp_smoke_variants()[0]
+    template = build_comp_test_variants()[0]
     for rate_mbd in range(80, 1601):
         params = replace(template, symbol_rate=rate_mbd * 1.0e6)
         alignment = calculate_single_sample_fastrx_capture_alignment(params, **timing)
@@ -79,8 +91,8 @@ def test_partial_fastrx_decoder_validates_headers_frames_and_unused_bits() -> No
         convert_fastrx_words_to_comp(invalid_payload, data_size=17)
 
 
-def test_comparator_smoke_params_encode_balanced_track_point() -> None:
-    variants = build_comp_smoke_variants()
+def test_comparator_balanced_track_params_encode_expected_point() -> None:
+    variants = build_comp_test_variants()
 
     assert [params.observed_adc for params in variants] == [0, 1, 2, 3]
     for params in variants:
@@ -96,7 +108,7 @@ def test_comparator_smoke_params_encode_balanced_track_point() -> None:
 
 
 def test_comparator_setup_latches_sampling_enable_before_continuous_track() -> None:
-    measured = build_comp_smoke_variants()[0]
+    measured = build_comp_test_variants()[0]
     sequence_words = len(measured.seq_init_pattern) // 8
     init_words = ["00000000"] * sequence_words
     samp_words = ["00000000", *(["11111111"] * (sequence_words - 1))]
@@ -127,10 +139,26 @@ def test_comparator_setup_latches_sampling_enable_before_continuous_track() -> N
 def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness() -> None:
     """Cover every explicit ADC00--ADC03 comparator campaign axis."""
 
+    common_mode_variants = build_common_mode_variants(
+        adc_indices=(0, 1, 2, 3),
+        common_mode_values_v=(0.7, 0.8, 0.9, 1.0, 1.1, 1.2),
+        minimum_v=0.0,
+        maximum_v=25.0e-3,
+        step_v=100.0e-6,
+        conversions=1_000,
+    )
+    sampling_variants = build_sampling_noise_variants(
+        adc_indices=(0, 1, 2, 3),
+        coupling_percentages=(0.0, 25.0, 50.0, 75.0, 100.0),
+        vin_cm_v=0.7,
+        minimum_v=0.0,
+        maximum_v=25.0e-3,
+        step_v=100.0e-6,
+        conversions=1_000,
+    )
     comparator_campaigns = {
-        "offset": (build_offset_variants(), 1_004),
-        "common_mode": (build_common_mode_variants(), 6_024),
-        "sampling_noise": (build_sampling_noise_variants(), 10_040),
+        "common_mode": (common_mode_variants, 6_024),
+        "sampling_noise": (sampling_variants, 10_040),
     }
     for variants, expected_count in comparator_campaigns.values():
         assert len(variants) == expected_count
@@ -148,24 +176,6 @@ def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness(
         for params in comparator_campaigns["common_mode"][0]
     } == {("fine", 1_000, 100.0e-6)}
 
-    offset_variants = comparator_campaigns["offset"][0]
-    assert {float(params.vin_cm.dc) for params in offset_variants} == {0.8}
-    assert {(params.sweep_stage, params.conversions, float(params.sweep_step_v)) for params in offset_variants} == {
-        ("fine", 1_000, 100.0e-6)
-    }
-    assert {float(params.vin_diff.dc) for params in offset_variants} == set(
-        build_uniform_sweep_values(0.0, 25.0e-3, 100.0e-6)
-    )
-    standalone = CompTbParams()
-    assert tuple(float(value) for value in standalone.vin_cm_values_v) == (0.8,)
-    assert (
-        float(standalone.sweep_min_v),
-        float(standalone.sweep_max_v),
-        float(standalone.sweep_step_v),
-        standalone.conversions,
-    ) == (-3.0e-3, 3.0e-3, 100.0e-6, 100)
-
-    sampling_variants = comparator_campaigns["sampling_noise"][0]
     assert {params.sampling_mode for params in sampling_variants} == {"track", "hold"}
     assert {float(params.vin_cm.dc) for params in sampling_variants} == {0.7}
     assert {float(params.requested_dac_rail_percent) for params in sampling_variants} == {
@@ -197,7 +207,16 @@ def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness(
     )
     assert set(curve_point_counts.values()) == {251}
 
-    repair_variants = build_sampling_noise_repair_variants()
+    repair_variants = build_sampling_noise_variants(
+        adc_indices=(0, 1, 2, 3),
+        coupling_percentages=(0.0, 25.0, 50.0, 75.0, 100.0),
+        vin_cm_v=0.7,
+        minimum_v=0.0,
+        maximum_v=25.0e-3,
+        step_v=100.0e-6,
+        conversions=1_000,
+        selected_curves={(1, 100.0, "track"), (2, 75.0, "track")},
+    )
     assert len(repair_variants) == 502
     assert {
         (

@@ -10,6 +10,7 @@ respective runners.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -293,6 +294,7 @@ def validate_params(params: AdcTbParams) -> None:
 
     campaigns = {
         "adc",
+        "adc_ramp",
         "comp_common_mode",
         "comp_sampling_noise",
         "cdac_ab",
@@ -427,23 +429,33 @@ def convert_sample_rate_to_baud(params: AdcTbParams, sample_rate_hz: float) -> f
     return sample_rate_hz * active_span_symbols
 
 
-def build_variants() -> list[AdcTbParams]:
-    """Build the ADC00 seven-offset fixed-input timing campaign."""
+def build_adc_variants(
+    *,
+    board_id: str,
+    adc_indices: Sequence[int],
+    active_conversion_rates_hz: Sequence[float],
+    logic_offsets_symbols: Sequence[float],
+    conversions: int,
+    vin_cm_v: float,
+    vin_diff: h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params,
+    campaign: str = "adc",
+) -> list[AdcTbParams]:
+    """Build complete physical ADC configurations for one campaign."""
 
-    board_id = "00"
-    adc_index_list = (0,)
-    # The current Si570/PLL/OSERDES path has an 80 MBd minimum. With the
-    # 160-symbol active conversion this limits true active timing to 0.5 MSPS.
-    active_conversion_rate_list_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    logic_offset_list = tuple(range(-3, 4))
-    conversions = 1_000
-    input_differential_v = 0.050
-    input_common_mode_v = 0.800
+    adc_indices = tuple(adc_indices)
+    active_conversion_rates_hz = tuple(active_conversion_rates_hz)
+    logic_offsets_symbols = tuple(logic_offsets_symbols)
+    if not adc_indices or len(set(adc_indices)) != len(adc_indices):
+        raise ValueError("adc_indices must contain unique ADC selections")
+    if not active_conversion_rates_hz:
+        raise ValueError("active_conversion_rates_hz must not be empty")
+    if not logic_offsets_symbols:
+        raise ValueError("logic_offsets_symbols must not be empty")
     board_map = load_board_map()
     board = board_map["boards"][board_id]
 
     variants: list[AdcTbParams] = []
-    for adc_index in adc_index_list:
+    for adc_index in adc_indices:
         flavor_name = board["adc_channels"][adc_index]
         cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
         dut = AdcParams(
@@ -463,21 +475,24 @@ def build_variants() -> list[AdcTbParams]:
             observed_adc=adc_index,
             active_adc_mask=active_adc_mask,
         )
-        for logic_offset in logic_offset_list:
-            for active_conversion_rate_hz in active_conversion_rate_list_hz:
+        for logic_offset_symbols in logic_offsets_symbols:
+            for active_conversion_rate_hz in active_conversion_rates_hz:
                 params = AdcTbParams(
                     dut=dut,
                     board_id=board_id,
                     observed_adc=adc_index,
                     active_adc_mask=active_adc_mask,
+                    campaign=campaign,
                     symbol_rate=convert_sample_rate_to_baud(
                         template,
-                        active_conversion_rate_hz,
+                        float(active_conversion_rate_hz),
                     ),
                     conversions=conversions,
-                    vin_cm=h.Vdc.Params(dc=input_common_mode_v),
-                    vin_diff=h.Vdc.Params(dc=input_differential_v),
-                    seq_logic_phase_delay_symbols=float(logic_offset),
+                    vin_cm=h.Vdc.Params(dc=vin_cm_v),
+                    vin_diff=vin_diff,
+                    seq_logic_phase_delay_symbols=(
+                        float(template.seq_comp_phase_delay_symbols) + float(logic_offset_symbols)
+                    ),
                 )
                 validate_params(params)
                 variants.append(params)

@@ -8,7 +8,7 @@ from hdl21.prefix import m
 
 from flow.scans.params import (
     AdcTbParams,
-    build_variants,
+    build_adc_variants,
     convert_sample_rate_to_baud,
     validate_params,
 )
@@ -38,7 +38,15 @@ def test_analog_input_preserves_hdl21_source_type() -> None:
 
 
 def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
-    variants = build_variants()
+    variants = build_adc_variants(
+        board_id="00",
+        adc_indices=(0,),
+        active_conversion_rates_hz=tuple(rate * 0.25e6 for rate in range(2, 41)),
+        logic_offsets_symbols=tuple(range(-3, 4)),
+        conversions=1_000,
+        vin_cm_v=0.8,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )
 
     assert len(variants) == 7 * 39
     assert {item.observed_adc for item in variants} == {0}
@@ -55,6 +63,34 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     assert {float(item.vin_diff.dc) for item in variants} == {0.05}
     assert {float(item.vin_cm.dc) for item in variants} == {0.8}
     assert {float(item.seq_logic_phase_delay_symbols) for item in variants} == set(range(-3, 4))
+
+
+def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
+    """Describe one repeated full-scale ramp capture for each selected ADC."""
+
+    variants = build_adc_variants(
+        board_id="00",
+        adc_indices=(0, 1, 2, 3),
+        active_conversion_rates_hz=(1.0e6,),
+        logic_offsets_symbols=(0.0,),
+        conversions=4_000_000,
+        vin_cm_v=0.6,
+        vin_diff=h.Vpwl.Params(wave="0 -1 0.1 1"),
+        campaign="adc_ramp",
+    )
+
+    assert len(variants) == 4
+    assert {item.observed_adc for item in variants} == set(range(4))
+    assert all(item.board_id == "00" for item in variants)
+    assert all(item.campaign == "adc_ramp" for item in variants)
+    assert all(item.conversions == 4_000_000 for item in variants)
+    assert all(float(item.symbol_rate) == 160e6 for item in variants)
+    assert all(float(item.vin_cm.dc) == 0.6 for item in variants)
+    assert all(isinstance(item.vin_diff, h.Vpwl.Params) for item in variants)
+    assert {item.vin_diff.wave for item in variants} == {"0 -1 0.1 1"}
+    assert {item.active_adc_mask for item in variants} == {
+        (0,) * (15 - adc_index) + (1,) + (0,) * adc_index for adc_index in range(4)
+    }
 
 
 def test_convert_sample_rate_to_baud_uses_active_pattern_span() -> None:

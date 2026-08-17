@@ -17,9 +17,10 @@ Run from the repository root with:
 
     uv run pytest -q -s -m hw flow/scans/test_diffamp.py
 
-The AWG and VIN_CM outputs are disabled and reset to 0 V when the check exits,
-including after an assertion or communication failure. The three ASIC supply
-SMUs are not accessed by this loopback.
+The ASIC rails are powered at 1.2 V with 500 uA compliance before either input
+source is enabled. The AWG, VIN_CM, and ASIC supplies are disabled and reset to
+0 V when the check exits, including after an assertion or communication
+failure.
 """
 
 from __future__ import annotations
@@ -37,14 +38,19 @@ from basil.HL.tektronix_oscilloscope import response_value
 
 from flow.analysis.measure import find_crossings
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import plot_scope_waveforms, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import FRIDA_SCOPE_CHANNELS, plot_scope_waveforms, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
-CAPTURE_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_diffamp"
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_diffamp"
 
 AWG_FREQUENCY_HZ = 1.0e6
 VIN_CM_CURRENT_LIMIT_A = 10.0e-3
-SCOPE_CHANNEL = 1
+ASIC_SUPPLY_V = 1.2
+SMU_VOLTAGE_RANGE_V = 2.0
+SMU_CURRENT_COMPLIANCE_A = 500.0e-6
+SMU_MINIMUM_LOADED_V = 1.15
+SMU_SETTLE_TIME_S = 0.5
+SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["adc_vdiff"]
 SCOPE_TRACKS = {SCOPE_CHANNEL: "vdiff_ch1"}
 
 # Values in this table are sine peak amplitudes: for example 1.0 V means a
@@ -142,8 +148,13 @@ def calculate_refitted_input_calibration(
 
 
 @pytest.mark.hw
-def test_diffamp_calibration() -> None:
+def test_diffamp_calibration(linux_gpib_interface: None) -> None:
     """Hardware: qualify the calibrated differential-amplifier stimulus path."""
+    if not 0.0 < ASIC_SUPPLY_V <= 1.2:
+        raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
+    if not 0.0 < SMU_CURRENT_COMPLIANCE_A <= 500.0e-6:
+        raise ValueError("ASIC current compliance must remain in 0..500 uA")
+
     # Validate every requested output condition before opening or changing an
     # instrument. Vin_p and Vin_n each span Vin_cm +/- Vdiff_peak/2.
     for vdiff_peak_v, vin_cm_v in TEST_POINTS:
@@ -180,14 +191,18 @@ def test_diffamp_calibration() -> None:
 
     awg_dut = Dut(str(MAP_DIR / "map_awg.yaml"))
     supply_dut = Dut(str(MAP_DIR / "map_supply.yaml"))
+    smu_dut = Dut(str(MAP_DIR / "map_smu.yaml"))
     scope_dut = Dut(str(MAP_DIR / "map_scope.yaml"))
     initialized_duts = []
     awg = None
     supply = None
     scope = None
+    smus = []
     scope_state = None
     run_timestamp = strftime("%Y%m%d_%H%M%S")
-    summary_path = CAPTURE_DIR / f"summary_{run_timestamp}.csv"
+    run_dir = OUTPUT_DIR / run_timestamp
+    run_dir.mkdir(parents=True, exist_ok=False)
+    summary_path = run_dir / "summary.csv"
     summary_rows: list[dict[str, float | str | int]] = []
 
     try:
@@ -205,6 +220,43 @@ def test_diffamp_calibration() -> None:
         supply = supply_dut["vocm_supply"]
         supply.set_enable(0)
         supply.set_voltage(0.0)
+
+        smu_dut.init()
+        initialized_duts.append(smu_dut)
+        smus = [
+            (smu_dut["smu1"], "VDD_A"),
+            (smu_dut["smu2"], "VDD_D"),
+            (smu_dut["smu3"], "VDD_DAC"),
+        ]
+        for smu, _rail in smus:
+            smu.off()
+            smu.set_voltage(0.0)
+        for smu, rail in smus:
+            smu.source_volt()
+            smu.four_wire_off()
+            smu.set_voltage_range(SMU_VOLTAGE_RANGE_V)
+            smu.set_current_limit(SMU_CURRENT_COMPLIANCE_A)
+            smu.current_sense_autorange_on()
+            smu.set_current_nplc(10.0)
+            smu.autozero_on()
+            smu.set_voltage(ASIC_SUPPLY_V)
+            programmed_voltage_v = float(smu.get_source_voltage())
+            programmed_compliance_a = float(smu.get_current_limit())
+            if not 0.0 < programmed_voltage_v <= ASIC_SUPPLY_V:
+                raise RuntimeError(f"{rail}: unsafe voltage setpoint readback {programmed_voltage_v:g} V")
+            if not 0.0 < programmed_compliance_a <= SMU_CURRENT_COMPLIANCE_A:
+                raise RuntimeError(f"{rail}: unsafe current-compliance readback {programmed_compliance_a:g} A")
+        for smu, _rail in smus:
+            smu.on()
+        sleep(SMU_SETTLE_TIME_S)
+        for smu, rail in smus:
+            measured_voltage_v = float(smu.get_voltage())
+            measured_current_a = float(smu.get_current())
+            print(f"{rail}: {measured_voltage_v:.6f} V, {measured_current_a * 1e6:.3f} uA")
+            if not SMU_MINIMUM_LOADED_V <= measured_voltage_v <= ASIC_SUPPLY_V + 5.0e-3:
+                raise RuntimeError(f"{rail}: unsafe or compliance-limited voltage {measured_voltage_v:g} V")
+            if abs(measured_current_a) >= SMU_CURRENT_COMPLIANCE_A:
+                raise RuntimeError(f"{rail}: measured current {measured_current_a:g} A reached compliance")
 
         scope_dut.init()
         initialized_duts.append(scope_dut)
@@ -388,11 +440,8 @@ def test_diffamp_calibration() -> None:
             coarse_vpp = float(coarse_high_v - coarse_low_v)
             print(f"  coarse scope: offset={coarse_offset_v:.6f} V, Vpp={coarse_vpp:.6f} V")
             if coarse_vpp == 0.0:
-                coarse_name = (
-                    f"coarse_vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_"
-                    f"vcm{round(1e3 * vin_cm_v):04d}mv_{run_timestamp}.csv"
-                )
-                coarse_path = CAPTURE_DIR / coarse_name
+                coarse_name = f"coarse_vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv.csv"
+                coarse_path = run_dir / coarse_name
                 write_scope_csv(coarse_path, coarse_waveforms, SCOPE_TRACKS)
                 raise AssertionError(f"coarse CH{SCOPE_CHANNEL} capture is flat; saved {coarse_path}")
 
@@ -424,7 +473,7 @@ def test_diffamp_calibration() -> None:
             if SCOPE_CHANNEL not in waveforms:
                 raise RuntimeError(f"scope did not return fine CH{SCOPE_CHANNEL}")
 
-            point_name = f"vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv_{run_timestamp}"
+            point_name = f"vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv"
             waveform = waveforms[SCOPE_CHANNEL]
             samples = np.asarray(waveform.data, dtype=np.float64)
             if samples.size == 0:
@@ -433,7 +482,7 @@ def test_diffamp_calibration() -> None:
             low_v, high_v = np.percentile(samples, (0.5, 99.5))
             crossing_level_v = float((low_v + high_v) / 2.0)
 
-            csv_path = CAPTURE_DIR / f"{point_name}.csv"
+            csv_path = run_dir / f"{point_name}.csv"
             # Save the raw capture before analysis so a failed assertion still
             # leaves the exact waveform available for diagnosis.
             write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
@@ -557,7 +606,7 @@ def test_diffamp_calibration() -> None:
                 )
                 writer.writeheader()
                 writer.writerows(summary_rows)
-        print(f"Saved loopback summary: {summary_path}")
+        print(f"Saved test artifacts: {run_dir}")
         try:
             candidate_calibration = calculate_refitted_input_calibration(
                 summary_rows,
@@ -627,6 +676,13 @@ def test_diffamp_calibration() -> None:
                 supply.set_voltage(0.0)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not disable and zero VIN_CM: {error}")
+
+        for smu, rail in smus:
+            try:
+                smu.off()
+                smu.set_voltage(0.0)
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
+                print(f"WARNING: could not disable and zero {rail}: {error}")
 
         if scope is not None and scope_state is not None:
             try:

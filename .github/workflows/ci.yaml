@@ -73,7 +73,7 @@ jobs:
       - name: Check out Python and HDL dependencies
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
+          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil libs/ADC-survey
 
       - name: Install Icarus Verilog
         run: |

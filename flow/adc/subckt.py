@@ -18,7 +18,6 @@ Architecture:
 """
 
 import hdl21 as h
-import numpy as np
 from hdl21.primitives import MosType
 
 from ..cdac import Cdac, CdacParams, get_cdac_weights
@@ -42,11 +41,6 @@ class AdcParams:
     )
     samp = h.Param(dtype=SampParams, desc="Sampler parameters", default=SampParams())
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
-
-
-def get_adc_weights(p: AdcParams) -> np.ndarray:
-    """Get the capacitor weights for measurement functions."""
-    return np.array(get_cdac_weights(p.cdac))
 
 
 # ==== Digital Block ExternalModule ====

@@ -39,8 +39,13 @@ def analyze_comp_offset_noise(
     unique_input, inverse = np.unique(vin_diff_v, return_inverse=True)
     if len(unique_input) < 3:
         raise ValueError("comparator offset/noise analysis requires at least three inputs")
-    probability = np.asarray([np.mean(decisions[inverse == index]) for index in range(len(unique_input))])
     count = np.bincount(inverse, minlength=len(unique_input)).astype(np.int64)
+    decision_count = np.bincount(
+        inverse,
+        weights=np.asarray(decisions, dtype=np.float64),
+        minlength=len(unique_input),
+    )
+    probability = decision_count / count
     trend = float(np.dot(unique_input - np.mean(unique_input), probability - np.mean(probability)))
     decision_polarity = 1 if trend >= 0.0 else -1
 

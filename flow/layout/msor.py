@@ -74,7 +74,6 @@ floorplan = design.getFloorplan()
 site = floorplan.findSite(site_name)
 margin = design.micronToDBU(core_margin)
 site_h = site.getHeight()
-site_w = site.getWidth()
 
 # Compute die size from placement count, not utilization.
 # Each placement entry takes one slot on the left half. With symmetric mirroring,

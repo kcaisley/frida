@@ -23,18 +23,42 @@ from flow.scans.scan_cdac import (
     _validate_cdac_resume_curves,
     build_alternating_sweep_values,
     build_capacitor_variants,
-    build_commissioning_variants,
     build_fine_sweep_variants,
     build_next_coarse_sweep_variant,
     build_next_fine_sweep_variant,
 )
-from flow.scans.scan_cdac import build_smoke_variants as build_cdac_smoke_variants
 from flow.scans.scan_cdac import (
-    run_scan as run_cdac_scan,
+    scan as run_cdac_scan,
 )
 
 RADIX17 = (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)
 RADIX20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
+
+
+def build_cdac_test_variants() -> list[AdcTbParams]:
+    """Build one calibrated C16 transition point per characterized ADC."""
+
+    calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
+    return [
+        _build_cdac_params(
+            adc_index=adc_index,
+            side="p",
+            element=0,
+            direction="1to0",
+            dac_diffcaps=0,
+            vin_diff_v=_expected_transition_v(
+                adc_index,
+                "p",
+                0,
+                "1to0",
+                0,
+                float(calibrations[adc_index]["offset_v"]),
+            ),
+            conversions=128,
+            sweep_stage="fixed",
+        )
+        for adc_index in range(4)
+    ]
 
 
 def test_adaptive_sweep_alternates_and_fine_builder_uses_measured_bracket() -> None:
@@ -245,7 +269,7 @@ def test_dac_rail_codes_preserve_exact_ties() -> None:
 
 def test_single_sample_alignment_covers_late_cdac_sequence() -> None:
     timing = load_board_map()["boards"]["00"]["capture_timing_model"]
-    template = build_cdac_smoke_variants()[0]
+    template = build_cdac_test_variants()[0]
     for rate_mbd in range(80, 1601):
         params = replace(template, symbol_rate=rate_mbd * 1.0e6)
         alignment = calculate_single_sample_fastrx_capture_alignment(params, **timing)
@@ -398,8 +422,8 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
     assert _predict_cdac_step_v(params) == pytest.approx(expected)
 
 
-def test_cdac_smoke_plate_predictions_are_safe_and_adc00_through_adc03() -> None:
-    variants = build_cdac_smoke_variants()
+def test_cdac_test_plate_predictions_are_safe_and_adc00_through_adc03() -> None:
+    variants = build_cdac_test_variants()
     calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
 
     assert [params.observed_adc for params in variants] == [0, 1, 2, 3]
@@ -421,19 +445,11 @@ def test_cdac_smoke_plate_predictions_are_safe_and_adc00_through_adc03() -> None
 def test_default_cdac_campaign_cardinality_selection_and_point_uniqueness() -> None:
     """Cover every explicit ADC00--ADC03 CDAC campaign axis."""
 
-    commissioning = build_commissioning_variants()
-    assert len(commissioning) == 16
-    assert {
-        (params.observed_adc, params.cdac_side, params.cdac_element, params.cdac_direction, params.dac_diffcaps)
-        for params in commissioning
-    } == {
-        (adc_index, "p", 0, direction, diffcaps)
-        for adc_index in range(4)
-        for direction in ("1to0", "0to1")
-        for diffcaps in (0, 1)
-    }
-
-    capacitor_variants = build_capacitor_variants()
+    capacitor_variants = build_capacitor_variants(
+        adc_indices=(0, 1, 2, 3),
+        coarse_step_v=1.0e-3,
+        coarse_trials=128,
+    )
     assert len(capacitor_variants) == 512
     assert {
         (params.observed_adc, params.cdac_side, params.cdac_element, params.cdac_direction, params.dac_diffcaps)
@@ -470,7 +486,7 @@ def test_cdac_preflight_accepts_programmable_supply_boundaries(
     supply_v: float,
 ) -> None:
     boundary = replace(
-        build_cdac_smoke_variants()[0],
+        build_cdac_test_variants()[0],
         vdd_a=h.Vdc.Params(dc=supply_v),
         vdd_d=h.Vdc.Params(dc=supply_v),
         vdd_dac=h.Vdc.Params(dc=supply_v),
@@ -484,7 +500,7 @@ def test_cdac_preflight_accepts_programmable_supply_boundaries(
 
 
 def test_cdac_preflight_rejects_supply_and_fixed_io_before_hardware(tmp_path) -> None:
-    params = build_cdac_smoke_variants()[0]
+    params = build_cdac_test_variants()[0]
     for invalid, message in (
         (replace(params, vdd_a=h.Vdc.Params(dc=1.099)), "VDD_A request"),
         (replace(params, vdd_dac=h.Vdc.Params(dc=1.301)), "VDD_DAC request"),

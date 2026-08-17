@@ -12,8 +12,10 @@ Run from the repository root with:
     uv run pytest -q -s -m hw flow/scans/test_noise.py
 
 The run saves its raw waveform, a JSON summary, and a 16:9 Gaussian/FFT plot
-under ``build/loopback_noise``. The AWG and VIN_CM outputs are disabled
-and reset to 0 V on every exit; changed scope settings are restored.
+under ``build/test_noise/<timestamp>``. The ASIC rails are powered at 1.2 V with
+500 uA compliance before either input source is enabled. The AWG, VIN_CM, and
+ASIC supplies are disabled and reset to 0 V on every exit; changed scope
+settings are restored.
 """
 
 from __future__ import annotations
@@ -46,17 +48,22 @@ from flow.analysis.plots import (
     style_legend,
 )
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import FRIDA_SCOPE_CHANNELS, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
-CAPTURE_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_noise"
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_noise"
 
 AWG_DC_V = 0.0
 TARGET_VIN_CM_V = 0.8
 VIN_CM_CURRENT_LIMIT_A = 10.0e-3
+ASIC_SUPPLY_V = 1.2
+SMU_VOLTAGE_RANGE_V = 2.0
+SMU_CURRENT_COMPLIANCE_A = 500.0e-6
+SMU_MINIMUM_LOADED_V = 1.15
+SMU_SETTLE_TIME_S = 0.5
 SETTLE_TIME_S = 0.5
 
-SCOPE_CHANNEL = 1
+SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["adc_vdiff"]
 SCOPE_TRACKS = {SCOPE_CHANNEL: "vdiff_ch1"}
 SCOPE_BANDWIDTH_HZ = 20.0e6
 SCOPE_RECORD_LENGTH = 100_000
@@ -253,8 +260,13 @@ def plot_diffamp_noise(
 
 
 @pytest.mark.hw
-def test_diffamp_noise_loopback() -> None:
+def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
     """Configure the bench, acquire one quiet waveform, and save its analysis."""
+
+    if not 0.0 < ASIC_SUPPLY_V <= 1.2:
+        raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
+    if not 0.0 < SMU_CURRENT_COMPLIANCE_A <= 500.0e-6:
+        raise ValueError("ASIC current compliance must remain in 0..500 uA")
 
     calibrated_awg_zero_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
         0.0,
@@ -270,12 +282,15 @@ def test_diffamp_noise_loopback() -> None:
 
     awg_dut = Dut(str(MAP_DIR / "map_awg.yaml"))
     supply_dut = Dut(str(MAP_DIR / "map_supply.yaml"))
+    smu_dut = Dut(str(MAP_DIR / "map_smu.yaml"))
     scope_dut = Dut(str(MAP_DIR / "map_scope.yaml"))
     initialized_duts = []
     awg = supply = scope = None
+    smus = []
     scope_state = None
     run_timestamp = strftime("%Y%m%d_%H%M%S")
-    run_dir = CAPTURE_DIR / run_timestamp
+    run_dir = OUTPUT_DIR / run_timestamp
+    run_dir.mkdir(parents=True, exist_ok=False)
 
     try:
         awg_dut.init()
@@ -290,6 +305,43 @@ def test_diffamp_noise_loopback() -> None:
         supply.set_enable(0)
         supply.set_voltage(0.0)
 
+        smu_dut.init()
+        initialized_duts.append(smu_dut)
+        smus = [
+            (smu_dut["smu1"], "VDD_A"),
+            (smu_dut["smu2"], "VDD_D"),
+            (smu_dut["smu3"], "VDD_DAC"),
+        ]
+        for smu, _rail in smus:
+            smu.off()
+            smu.set_voltage(0.0)
+        for smu, rail in smus:
+            smu.source_volt()
+            smu.four_wire_off()
+            smu.set_voltage_range(SMU_VOLTAGE_RANGE_V)
+            smu.set_current_limit(SMU_CURRENT_COMPLIANCE_A)
+            smu.current_sense_autorange_on()
+            smu.set_current_nplc(10.0)
+            smu.autozero_on()
+            smu.set_voltage(ASIC_SUPPLY_V)
+            programmed_voltage_v = float(smu.get_source_voltage())
+            programmed_compliance_a = float(smu.get_current_limit())
+            if not 0.0 < programmed_voltage_v <= ASIC_SUPPLY_V:
+                raise RuntimeError(f"{rail}: unsafe voltage setpoint readback {programmed_voltage_v:g} V")
+            if not 0.0 < programmed_compliance_a <= SMU_CURRENT_COMPLIANCE_A:
+                raise RuntimeError(f"{rail}: unsafe current-compliance readback {programmed_compliance_a:g} A")
+        for smu, _rail in smus:
+            smu.on()
+        sleep(SMU_SETTLE_TIME_S)
+        for smu, rail in smus:
+            measured_voltage_v = float(smu.get_voltage())
+            measured_current_a = float(smu.get_current())
+            print(f"{rail}: {measured_voltage_v:.6f} V, {measured_current_a * 1e6:.3f} uA")
+            if not SMU_MINIMUM_LOADED_V <= measured_voltage_v <= ASIC_SUPPLY_V + 5.0e-3:
+                raise RuntimeError(f"{rail}: unsafe or compliance-limited voltage {measured_voltage_v:g} V")
+            if abs(measured_current_a) >= SMU_CURRENT_COMPLIANCE_A:
+                raise RuntimeError(f"{rail}: measured current {measured_current_a:g} A reached compliance")
+
         scope_dut.init()
         initialized_duts.append(scope_dut)
         scope = scope_dut["scope"]
@@ -297,9 +349,9 @@ def test_diffamp_noise_loopback() -> None:
         awg_id = str(awg.get_name()).strip()
         supply_id = str(supply.get_name()).strip()
         scope_id = str(scope.get_name()).strip()
-        probe_type = str(scope._intf.query("CH1:PROBE:ID:TYPE?")).strip().strip('"')
-        probe_resistance_ohm = float(response_value(scope._intf.query("CH1:PROBE:RESISTANCE?")))
-        probe_gain = float(response_value(scope._intf.query("CH1:PROBE:GAIN?")))
+        probe_type = str(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:ID:TYPE?")).strip().strip('"')
+        probe_resistance_ohm = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:RESISTANCE?")))
+        probe_gain = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:GAIN?")))
         print(f"AWG: {awg_id}")
         print(f"VIN_CM supply: {supply_id}")
         print(f"Scope: {scope_id}")
@@ -325,7 +377,7 @@ def test_diffamp_noise_loopback() -> None:
             "vertical_position": response_value(scope.get_vertical_position(channel=SCOPE_CHANNEL)),
             "vertical_offset": response_value(scope.get_vertical_offset(channel=SCOPE_CHANNEL)),
             "bandwidth": response_value(scope.get_bandwidth(channel=SCOPE_CHANNEL)),
-            "display": response_value(scope._intf.query("DISplay:GLObal:CH1:STATE?")),
+            "display": response_value(scope._intf.query(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE?")),
         }
 
         scope.set_acquire_state("STOP")
@@ -334,7 +386,7 @@ def test_diffamp_noise_loopback() -> None:
         scope.set_horizontal_scale(SCOPE_HORIZONTAL_SCALE_S)
         scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
         scope._intf.write("HORizontal:POSition 50")
-        scope._intf.write("DISplay:GLObal:CH1:STATE ON")
+        scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE ON")
         scope.set_coupling("DC", channel=SCOPE_CHANNEL)
         scope.set_vertical_position(0.0, channel=SCOPE_CHANNEL)
         scope.set_vertical_offset(0.0, channel=SCOPE_CHANNEL)
@@ -417,7 +469,6 @@ def test_diffamp_noise_loopback() -> None:
             sample_interval_s=float(waveform.x_scale.slope),
         )
         clipped = float(np.max(np.abs(samples_v - analysis.mean_v))) >= 4.5 * accepted_vertical_scale_v
-        run_dir.mkdir(parents=True, exist_ok=True)
         waveform_path = write_scope_csv(run_dir / "waveform.csv", waveforms, SCOPE_TRACKS)
         plot_paths = plot_diffamp_noise(
             samples_v,
@@ -478,6 +529,13 @@ def test_diffamp_noise_loopback() -> None:
                 supply.set_voltage(0.0)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"WARNING: could not disable and zero VIN_CM: {error}")
+
+        for smu, rail in smus:
+            try:
+                smu.off()
+                smu.set_voltage(0.0)
+            except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
+                print(f"WARNING: could not disable and zero {rail}: {error}")
         if scope is not None and scope_state is not None:
             try:
                 scope.set_acquire_state("STOP")
@@ -496,7 +554,7 @@ def test_diffamp_noise_loopback() -> None:
                 scope.set_vertical_position(scope_state["vertical_position"], channel=SCOPE_CHANNEL)
                 scope.set_vertical_offset(scope_state["vertical_offset"], channel=SCOPE_CHANNEL)
                 scope.set_bandwidth(scope_state["bandwidth"], channel=SCOPE_CHANNEL)
-                scope._intf.write(f"DISplay:GLObal:CH1:STATE {scope_state['display']}")
+                scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE {scope_state['display']}")
                 scope.set_acquire_stop_after(scope_state["acquire_stop_after"])
                 scope.set_acquire_state(scope_state["acquire_state"])
             except Exception as error:  # noqa: BLE001 - best-effort state restoration

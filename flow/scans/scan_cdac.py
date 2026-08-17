@@ -1,15 +1,14 @@
 """Acquire physical A-to-B CDAC transition S-curves as typed HDF5 points.
 
-Run one explicitly composed campaign from the repository root, for example::
-
-    uv run python -m flow.scans.scan_cdac smoke
+The public :func:`scan` function acquires a supplied list of complete
+``AdcTbParams`` objects. Named hardware campaigns live in
+``flow.scans.runner``.
 """
 
 from __future__ import annotations
 
-import argparse
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from functools import cache
@@ -540,48 +539,20 @@ def _expected_transition_v(
     return comparator_offset_v - side_sign * step_sign * center_scale * _predict_cdac_step_v(probe)
 
 
-def build_smoke_variants() -> list[AdcTbParams]:
-    """Build one calibrated ADC00–ADC03 C16 transition point."""
+def build_capacitor_variants(
+    *,
+    adc_indices: Sequence[int],
+    coarse_step_v: float,
+    coarse_trials: int,
+    selected_curves: Collection[tuple[int, str, int, str, int]] | None = None,
+) -> list[AdcTbParams]:
+    """Build adaptive seeds for all or selected ADC00–ADC03 A-to-B curves."""
 
+    selected_curves = None if selected_curves is None else set(selected_curves)
     board = load_board_map()["boards"]["00"]
     calibrations = board.get("comparator_calibration", {})
     variants = []
-    for adc_index in range(4):
-        calibration = calibrations.get(adc_index, calibrations.get(str(adc_index)))
-        if calibration is None:
-            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator_calibration")
-        center_v = _expected_transition_v(
-            adc_index,
-            "p",
-            0,
-            "1to0",
-            0,
-            float(calibration["offset_v"]),
-        )
-        variants.append(
-            _build_cdac_params(
-                adc_index=adc_index,
-                side="p",
-                element=0,
-                direction="1to0",
-                dac_diffcaps=0,
-                vin_diff_v=center_v,
-                conversions=128,
-                sweep_stage="fixed",
-            )
-        )
-    return variants
-
-
-def build_capacitor_variants() -> list[AdcTbParams]:
-    """Build one adaptive seed for every ADC00–ADC03 A-to-B S-curve."""
-
-    coarse_step_v = 1.0e-3
-    coarse_trials = 128
-    board = load_board_map()["boards"]["00"]
-    calibrations = board.get("comparator_calibration", {})
-    variants = []
-    for adc_index in range(4):
+    for adc_index in adc_indices:
         calibration = calibrations.get(adc_index, calibrations.get(str(adc_index)))
         if calibration is None:
             raise ValueError(f"ADC{adc_index:02d} has no accepted comparator_calibration")
@@ -590,6 +561,9 @@ def build_capacitor_variants() -> list[AdcTbParams]:
             for element in range(16):
                 for direction in ("1to0", "0to1"):
                     for dac_diffcaps in (0, 1):
+                        curve = (adc_index, side, element, direction, dac_diffcaps)
+                        if selected_curves is not None and curve not in selected_curves:
+                            continue
                         center_v = _expected_transition_v(
                             adc_index,
                             side,
@@ -617,63 +591,30 @@ def build_capacitor_variants() -> list[AdcTbParams]:
                         )
                         validate_params(seed)
                         variants.append(seed)
+    if selected_curves is not None:
+        observed_curves = {
+            (
+                params.observed_adc,
+                params.cdac_side,
+                params.cdac_element,
+                params.cdac_direction,
+                params.dac_diffcaps,
+            )
+            for params in variants
+        }
+        if observed_curves != selected_curves:
+            raise ValueError("selected CDAC curves are not in the capacitor campaign")
     return variants
 
 
-def build_commissioning_variants() -> list[AdcTbParams]:
-    """Build all four direction/diffcap modes for C16 on ADC00 through ADC03."""
-
-    coarse_step_v = 1.0e-3
-    coarse_trials = 128
-    board = load_board_map()["boards"]["00"]
-    calibrations = board.get("comparator_calibration", {})
-    variants = []
-    for adc_index in range(4):
-        calibration = calibrations.get(adc_index, calibrations.get(str(adc_index)))
-        if calibration is None:
-            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator_calibration")
-        comparator_offset_v = float(calibration["offset_v"])
-        for direction in ("1to0", "0to1"):
-            for dac_diffcaps in (0, 1):
-                center_v = _expected_transition_v(
-                    adc_index,
-                    "p",
-                    0,
-                    direction,
-                    dac_diffcaps,
-                    comparator_offset_v,
-                )
-                seed = _build_cdac_params(
-                    adc_index=adc_index,
-                    side="p",
-                    element=0,
-                    direction=direction,
-                    dac_diffcaps=dac_diffcaps,
-                    vin_diff_v=center_v,
-                    conversions=coarse_trials,
-                    sweep_stage="coarse",
-                )
-                minimum_v, maximum_v = _calculate_cdac_input_bounds(seed)
-                seed = replace(
-                    seed,
-                    sweep_min_v=minimum_v,
-                    sweep_max_v=maximum_v,
-                    sweep_step_v=coarse_step_v,
-                )
-                validate_params(seed)
-                variants.append(seed)
-    return variants
-
-
-def run_scan(
+def scan(
     variants: Sequence[AdcTbParams],
     *,
-    run_dir: Path | None = None,
+    run_dir: Path,
     capture_scope_per_curve: bool = True,
 ) -> Path:
     """Acquire or resume complete A-to-B variants in one run directory."""
 
-    scan_outdir = Path(__file__).resolve().parents[2] / "build" / "scan_cdac"
     topplate_precondition_s = 0.01
     smu_settle_s = 0.5
     vin_cm_settle_s = 0.5
@@ -778,12 +719,8 @@ def run_scan(
             if any(voltage < 0.4 - 1.0e-12 or voltage > float(params.vdd_a.dc) + 1.0e-12 for voltage in plate_voltages):
                 raise ValueError(f"predicted CDAC plate voltage is unsafe: {plate_voltages}")
 
-    if run_dir is None:
-        run_dir = scan_outdir / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-        run_dir.mkdir(parents=True, exist_ok=False)
-    else:
-        run_dir = Path(run_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     existing_paths: dict[str, Path] = {}
     coarse_observations: dict[tuple[Any, ...], dict[float, tuple[int, int]]] = {}
@@ -1401,42 +1338,3 @@ def run_scan(
                 print(f"Warning: could not disable an SMU: {error}")
         for dut in reversed(initialized_duts):
             dut.close()
-
-
-def run_smoke() -> Path:
-    """Acquire one calibrated C16 transition point for ADC00 through ADC03."""
-
-    return run_scan(build_smoke_variants())
-
-
-def run_capacitors() -> Path:
-    """Acquire all coarse ADC00–ADC03 A-to-B capacitor curves."""
-
-    return run_scan(build_capacitor_variants(), capture_scope_per_curve=False)
-
-
-def run_commissioning() -> Path:
-    """Acquire all four C16 transition modes on ADC00 through ADC03."""
-
-    return run_scan(build_commissioning_variants())
-
-
-RUNNERS: dict[str, Callable[[], Path]] = {
-    "smoke": run_smoke,
-    "commissioning": run_commissioning,
-    "capacitors": run_capacitors,
-}
-
-
-def main() -> None:
-    """Run one explicitly selected CDAC campaign."""
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", choices=sorted(RUNNERS), nargs="?", default="smoke")
-    args = parser.parse_args()
-    run_dir = RUNNERS[args.target]()
-    print(f"Completed CDAC {args.target} campaign in {run_dir}")
-
-
-if __name__ == "__main__":
-    main()
