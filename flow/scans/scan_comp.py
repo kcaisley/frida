@@ -1,17 +1,14 @@
 """Acquire physical comparator S-curves as fixed-input typed HDF5 points.
 
-Each public ``run_*`` function composes a distinct list of complete
-``AdcTbParams`` objects and passes it to :func:`run_scan`. Run one campaign
-from the repository root, for example::
-
-    uv run python -m flow.scans.scan_comp smoke
+The public :func:`scan` function acquires a supplied list of complete
+``AdcTbParams`` objects. Named hardware campaigns live in
+``flow.scans.runner``.
 """
 
 from __future__ import annotations
 
-import argparse
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -179,36 +176,22 @@ def _build_comp_params(
     return params
 
 
-def build_smoke_variants() -> list[AdcTbParams]:
-    """Build one fixed-input balanced-track point for ADC00 through ADC03."""
+def build_common_mode_variants(
+    *,
+    adc_indices: Sequence[int],
+    common_mode_values_v: Sequence[float],
+    minimum_v: float,
+    maximum_v: float,
+    step_v: float,
+    conversions: int,
+) -> list[AdcTbParams]:
+    """Build fixed-grid comparator common-mode S-curves."""
 
-    return [
-        _build_comp_params(
-            adc_index=adc_index,
-            campaign="comp_common_mode",
-            sampling_mode="track",
-            sweep_stage="fixed",
-            vin_cm_v=0.8,
-            vin_diff_v=0.0,
-            conversions=128,
-        )
-        for adc_index in range(4)
-    ]
-
-
-def build_common_mode_variants() -> list[AdcTbParams]:
-    """Build fixed 0--25 mV common-mode S-curves for ADC00 through ADC03."""
-
-    common_mode_values_v = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
-    minimum_v = 0.0
-    maximum_v = 25.0e-3
-    step_v = 100.0e-6
-    conversions = 1_000
     variants = []
     # Keep the slow GPIB common-mode supply fixed while all four ADCs are
     # measured at one Vin_cm value.
     for vin_cm_v in common_mode_values_v:
-        for adc_index in range(4):
+        for adc_index in adc_indices:
             for vin_diff_v in build_uniform_sweep_values(
                 minimum_v,
                 maximum_v,
@@ -231,51 +214,25 @@ def build_common_mode_variants() -> list[AdcTbParams]:
     return variants
 
 
-def build_offset_variants() -> list[AdcTbParams]:
-    """Build the fixed full-grid Vin_cm = 0.8 V offset calibration curves."""
-
-    vin_cm_v = 0.8
-    minimum_v = 0.0
-    maximum_v = 25.0e-3
-    step_v = 100.0e-6
-    conversions = 1_000
-    return [
-        _build_comp_params(
-            adc_index=adc_index,
-            campaign="comp_common_mode",
-            sampling_mode="track",
-            sweep_stage="fine",
-            vin_cm_v=vin_cm_v,
-            vin_diff_v=vin_diff_v,
-            conversions=conversions,
-            sweep_min_v=minimum_v,
-            sweep_max_v=maximum_v,
-            sweep_step_v=step_v,
-        )
-        for adc_index in range(4)
-        for vin_diff_v in build_uniform_sweep_values(
-            minimum_v,
-            maximum_v,
-            step_v,
-        )
-    ]
-
-
-def build_sampling_noise_variants() -> list[AdcTbParams]:
-    """Build complementary P/N VDAC-coupling track and hold S-curves."""
+def build_sampling_noise_variants(
+    *,
+    adc_indices: Sequence[int],
+    coupling_percentages: Sequence[float],
+    vin_cm_v: float,
+    minimum_v: float,
+    maximum_v: float,
+    step_v: float,
+    conversions: int,
+    selected_curves: Collection[tuple[int, float, str]] | None = None,
+) -> list[AdcTbParams]:
+    """Build all or selected complementary-CDAC track/hold S-curves."""
 
     from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
-    coupling_percentages = (0.0, 25.0, 50.0, 75.0, 100.0)
-    vin_cm_v = 0.7
-    minimum_v = 0.0
-    maximum_v = 25.0e-3
-    step_v = 100.0e-6
-    conversions = 1_000
     board_map = load_board_map()
     board = board_map["boards"]["00"]
     variants = []
-    for adc_index in range(4):
+    for adc_index in adc_indices:
         flavor = board["adc_channels"][adc_index]
         weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
         for coupling_percent_p in coupling_percentages:
@@ -308,37 +265,40 @@ def build_sampling_noise_variants() -> list[AdcTbParams]:
                             sweep_step_v=step_v,
                         )
                     )
-    return variants
-
-
-def build_sampling_noise_repair_variants() -> list[AdcTbParams]:
-    """Rebuild complete curves whose first 700 mV capture was non-monotonic."""
-
-    repair_curves = {
-        (1, 100.0, "track"),
-        (2, 75.0, "track"),
-    }
-    return [
+    if selected_curves is None:
+        return variants
+    selected_curves = set(selected_curves)
+    filtered = [
         params
-        for params in build_sampling_noise_variants()
+        for params in variants
         if (
             params.observed_adc,
             float(params.requested_dac_rail_percent),
             params.sampling_mode,
         )
-        in repair_curves
+        in selected_curves
     ]
+    observed_curves = {
+        (
+            params.observed_adc,
+            float(params.requested_dac_rail_percent),
+            params.sampling_mode,
+        )
+        for params in filtered
+    }
+    if observed_curves != selected_curves:
+        raise ValueError("selected comparator sampling-noise curves are not in the campaign")
+    return filtered
 
 
-def run_scan(
+def scan(
     variants: Sequence[AdcTbParams],
     *,
-    run_dir: Path | None = None,
+    run_dir: Path,
     capture_scope_per_curve: bool = True,
 ) -> Path:
     """Acquire or resume complete comparator parameters in one run directory."""
 
-    scan_outdir = Path(__file__).resolve().parents[2] / "build" / "scan_comp"
     smu_settle_s = 0.5
     vin_cm_settle_s = 0.5
     si570_settle_s = 0.02
@@ -438,12 +398,8 @@ def run_scan(
                     f"comparator inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
-    if run_dir is None:
-        run_dir = scan_outdir / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-        run_dir.mkdir(parents=True, exist_ok=False)
-    else:
-        run_dir = Path(run_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     existing_paths: dict[str, Path] = {}
     scope_captured_curves: set[tuple[Any, ...]] = set()
@@ -935,56 +891,3 @@ def run_scan(
                 print(f"Warning: could not disable an SMU: {error}")
         for dut in reversed(initialized_duts):
             dut.close()
-
-
-def run_smoke() -> Path:
-    """Acquire one balanced-track point for each initially selected ADC."""
-
-    return run_scan(build_smoke_variants())
-
-
-def run_common_mode() -> Path:
-    """Acquire the fixed full-grid comparator common-mode campaign."""
-
-    return run_scan(build_common_mode_variants(), capture_scope_per_curve=False)
-
-
-def run_offsets() -> Path:
-    """Acquire the fixed full-grid Vin_cm = 0.8 V offset calibration curves."""
-
-    return run_scan(build_offset_variants(), capture_scope_per_curve=False)
-
-
-def run_sampling_noise() -> Path:
-    """Acquire five matched complementary-CDAC track/hold S-curve pairs."""
-
-    return run_scan(build_sampling_noise_variants(), capture_scope_per_curve=False)
-
-
-def run_sampling_noise_repair() -> Path:
-    """Recapture the complete curves rejected by the first 700 mV analysis."""
-
-    return run_scan(build_sampling_noise_repair_variants(), capture_scope_per_curve=False)
-
-
-RUNNERS: dict[str, Callable[[], Path]] = {
-    "smoke": run_smoke,
-    "offsets": run_offsets,
-    "common-mode": run_common_mode,
-    "sampling-noise": run_sampling_noise,
-    "sampling-noise-repair": run_sampling_noise_repair,
-}
-
-
-def main() -> None:
-    """Run one explicitly selected comparator campaign."""
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", choices=sorted(RUNNERS), nargs="?", default="smoke")
-    args = parser.parse_args()
-    run_dir = RUNNERS[args.target]()
-    print(f"Completed comparator {args.target} campaign in {run_dir}")
-
-
-if __name__ == "__main__":
-    main()

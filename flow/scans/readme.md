@@ -1,5 +1,30 @@
 # Basil API used by the FRIDA scans
 
+## Scan development contracts
+
+`flow/scans/runner.py` is the executable hardware-scan entry point.  Each named
+target owns its complete parameter recipe and output path, builds a flat list
+of fully specified `*TbParams`, and hands those configurations to exactly one
+of `scan_adc.scan`, `scan_comp.scan`, or `scan_cdac.scan`.  The scan modules are
+acquisition libraries, not command-line programs.  A runner may define
+`BASE_PATH`; campaign-specific directories, selections, and constants belong
+inside the target that uses them.
+
+Each parameter configuration creates one typed HDF5 measurement in a new
+timestamped `build/scan_<kind>/<timestamp>/` directory.  The file contains one
+logical measurement with native `/info`, `/param`, `/daq`, and `/wave` groups.
+The HDF5 files themselves are the campaign record; do not add a manifest or a
+second sweep-policy object beside them.
+
+Keep Basil instrument calls, safety limits, output enables, resource lifetime,
+and `try`/`finally` shutdown visible in the scan procedure.  Extract helpers
+only for pure calculations/data transformations or for atomic FRIDA protocols
+that Basil does not expose, such as PLL handshakes, SPI packing, and FastRX
+decoding.  Do not wrap a short recognizable sequence of Basil calls merely to
+shorten a scan function.  When refactoring a sweep, preserve safety ordering,
+requested trials, frame/identifier and loss validation, SPI readback, and the
+waveforms needed to validate each distinct timing sequence.
+
 The scan scripts use three distinct interfaces:
 
 1. Generic, low-level Basil support shared by many hardware blocks.
@@ -129,6 +154,14 @@ uv run pytest -q -s -m hw flow/scans/test_fastrx.py
 ```
 
 `scope.py` contains capture synchronization around the Basil scope driver.
+Every physical scope test uses one fixed MSO54 hookup: CH1 is the TDP3500
+differential probe on the diffamp/ADC input, CH2 is the comparator clock, CH3
+is the LOGIC sequencer clock, and CH4 is the comparator output. INIT and SAMP
+remain part of the generated ASIC sequence but are not scope inputs. Tests
+configure and download only the subset of these four channels that they use.
+Saved hardware-test artifacts are grouped by test module and invocation under
+`build/test_diffamp/<timestamp>`, `build/test_noise/<timestamp>`,
+`build/test_fastrx/<timestamp>`, and `build/test_serdes/<timestamp>`.
 Backend-neutral result I/O, numerical post-processing, and rendering live in
 `flow/analysis`; none of these modules adds methods to the Basil hardware API.
 

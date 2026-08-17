@@ -53,10 +53,10 @@ current raw 64-bit pattern packing and capture the output waveforms:
 uv run pytest -q -s -m hw flow/scans/test_serdes.py
 ```
 
-Run the complete ADC hardware scan with:
+Run one explicitly selected ADC hardware campaign with:
 
 ```bash
-uv run python -m flow.scans.scan_adc
+uv run python -m flow.scans.runner adc_sine_conversion_rate
 ```
 
 Both commands require the FPGA hardware and instruments described by the Basil

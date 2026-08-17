@@ -21,12 +21,10 @@ from flow.analysis.io import scope_records_to_adc_wave, write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcTbParams, build_ramp_variants, build_variants, load_board_map, validate_params
+from flow.scans.params import AdcTbParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
-
-SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "scan_adc"
 
 
 def convert_vdiff_input_to_awg_supply(
@@ -291,8 +289,8 @@ def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
     return points
 
 
-def main(variants: Sequence[AdcTbParams] | None = None) -> None:
-    """Run the supplied physical variants into a fresh timestamped directory."""
+def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
+    """Run the supplied physical variants into the explicitly selected directory."""
 
     SETUP_SETTLE_S = 0.2
     SMU_SETTLE_S = 0.5
@@ -326,9 +324,9 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
     }
     SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
-    variants = list(build_variants() if variants is None else variants)
+    variants = list(variants)
     if not variants:
-        raise ValueError("build_variants() returned no ADC configurations")
+        raise ValueError("ADC scan requires at least one parameter variant")
     for params in variants:
         validate_params(params)
         if params.board_id is None or params.observed_adc is None or params.active_adc_mask is None:
@@ -417,8 +415,6 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
                     f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
-    run_timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    run_dir = SCAN_OUTDIR / run_timestamp
     run_dir.mkdir(parents=True, exist_ok=False)
 
     from gpib_ctypes import make_default_gpib
@@ -546,6 +542,13 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
 
                 vin_cm_v = float(params.vin_cm.dc)
                 source = params.vin_diff
+                scope_vin_diff_vertical_scale_v_per_div = (
+                    0.5 if isinstance(source, h.Vpwl.Params) else SCOPE_VERTICAL_SCALE_V["vin_diff_v"]
+                )
+                scope.set_vertical_scale(
+                    scope_vin_diff_vertical_scale_v_per_div,
+                    channel=SCOPE_TRACKS["vin_diff_v"],
+                )
                 if isinstance(source, h.Vdc.Params):
                     vin_diff_min_v = vin_diff_max_v = float(source.dc)
                     awg_voltage_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
@@ -616,6 +619,10 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
                     awg_offset_v = (awg_at_max_v + awg_at_min_v) / 2.0
                     awg.set_ramp(f"{1.0 / period_s},{awg_amplitude_vpp},{awg_offset_v}")
                     awg.set_function_ramp_symmetry(symmetry)
+                    maximum_slew_v_per_s = max(
+                        abs((right_value - left_value) / (right_time - left_time))
+                        for (left_time, left_value), (right_time, right_value) in itertools.pairwise(points)
+                    )
                     stimulus_readback = {
                         "kind": "pwl",
                         "points": points,
@@ -623,6 +630,7 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
                         "awg_amplitude_vpp": awg_amplitude_vpp,
                         "awg_offset_v": awg_offset_v,
                         "ramp_symmetry_percent": symmetry,
+                        "maximum_requested_slew_v_per_s": maximum_slew_v_per_s,
                     }
                 else:
                     raise TypeError(f"unsupported differential source type {type(source).__name__}")
@@ -1050,7 +1058,7 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
                     "fastrx_lost_count": fastrx_lost_count,
                     "active_power_current_nplc": SMU_CURRENT_NPLC,
                     "scope_vin_diff_bandwidth_hz": SCOPE_BANDWIDTH_HZ["vin_diff_v"],
-                    "scope_vin_diff_vertical_scale_v_per_div": SCOPE_VERTICAL_SCALE_V["vin_diff_v"],
+                    "scope_vin_diff_vertical_scale_v_per_div": scope_vin_diff_vertical_scale_v_per_div,
                     "scope_record_length_requested": SCOPE_RECORD_LENGTH,
                 }
                 for field, values in smu_readback.items():
@@ -1131,17 +1139,4 @@ def main(variants: Sequence[AdcTbParams] | None = None) -> None:
                 print(f"Warning: could not disable an SMU: {error}")
         for dut in reversed(initialized_duts):
             dut.close()
-
-
-def ramp() -> None:
-    """Capture the ADC00--ADC03 triangular-ramp code-density campaign.
-
-    The parameters retain the intended -1 V to +1 V ADC differential input;
-    :func:`main` applies the board calibration only while programming the AWG.
-    """
-
-    main(build_ramp_variants())
-
-
-if __name__ == "__main__":
-    main()
+    return run_dir
