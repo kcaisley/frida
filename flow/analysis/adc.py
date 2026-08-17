@@ -27,6 +27,7 @@ from flow.analysis.types import (
     AnalysisAdcRampCurve,
     AnalysisAdcTransfer,
     MeasAdc,
+    MeasAdcInt,
 )
 from flow.cdac import get_cdac_weights
 
@@ -906,12 +907,15 @@ def analyze_adc_dynamic_sweep(
 
 
 def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPowerSweep:
-    """Separate measured active power into static-baseline and incremental parts.
+    """Separate active power into static-baseline and incremental parts.
 
     New captures provide a configured-idle ``static_average_power_w`` for each
     rail. Older captures fall back to their supply-on voltage/current readback,
     which predates the active sequencer interval but is sufficient to analyze
-    the existing physical campaign.
+    the existing physical campaign. SPICE measurements average active power
+    from the first SEQ_INIT edge through one conversion period. Static power
+    is the signed, time-weighted mean over the settled idle tail between that
+    conversion and the next SEQ_INIT edge (or the end of the waveform).
     """
 
     if not measurements:
@@ -921,18 +925,66 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
     active_power_by_rail: dict[str, list[float]] = {rail: [] for rail in rail_names}
     observed_adc = []
     for measurement in measurements:
-        if measurement.param.observed_adc is None:
-            raise ValueError("ADC power sweep requires observed_adc in every measurement")
-        observed_adc.append(measurement.param.observed_adc)
+        observed_adc.append(-1 if measurement.param.observed_adc is None else measurement.param.observed_adc)
+        spice_static_indices = None
+        spice_active_start_s = None
+        spice_active_stop_s = None
+        if isinstance(measurement, MeasAdcInt):
+            waveform_time_s = measurement.wave.time_s
+            init_high = measurement.wave.seq_init_v[0] > 0.5 * float(measurement.param.vdd_d.dc)
+            init_rising = np.flatnonzero(init_high & np.concatenate((np.asarray([True]), ~init_high[:-1])))
+            if not len(init_rising):
+                raise ValueError("SPICE ADC power measurement contains no SEQ_INIT rising edge")
+            spice_active_start_s = float(waveform_time_s[init_rising[0]])
+            spice_active_stop_s = spice_active_start_s + 1.0 / _active_conversion_rate_hz(measurement)
+            if spice_active_stop_s >= waveform_time_s[-1]:
+                raise ValueError("SPICE ADC waveform does not contain one complete active conversion interval")
+            later_init_times_s = waveform_time_s[init_rising][waveform_time_s[init_rising] > spice_active_stop_s]
+            spice_idle_stop_s = float(later_init_times_s[0]) if len(later_init_times_s) else float(waveform_time_s[-1])
+            idle_duration_s = spice_idle_stop_s - spice_active_stop_s
+            if idle_duration_s <= 0.0:
+                raise ValueError("SPICE ADC waveform contains no idle interval after its active conversion")
+            # Exclude switching at the conversion boundary and any transition
+            # into the next record. The relative guard also keeps compact test
+            # records usable while production records receive a full 1 ns.
+            idle_guard_s = min(1.0e-9, idle_duration_s / 10.0)
+            spice_static_indices = np.flatnonzero(
+                (waveform_time_s >= spice_active_stop_s + idle_guard_s)
+                & (waveform_time_s <= spice_idle_stop_s - idle_guard_s)
+            )
+            if len(spice_static_indices) < 2:
+                raise ValueError("SPICE ADC power measurement requires at least two settled-idle samples")
         for rail in rail_names:
             active_power_key = f"{rail}_active_average_power_w"
-            if active_power_key not in measurement.info.readbacks:
-                raise ValueError(f"ADC measurement is missing active-power readbacks for {rail}")
-            active_power_by_rail[rail].append(float(measurement.info.readbacks[active_power_key]))
+            if isinstance(measurement, MeasAdcInt):
+                assert spice_active_start_s is not None and spice_active_stop_s is not None
+                waveform_time_s = measurement.wave.time_s
+                inside = (waveform_time_s > spice_active_start_s) & (waveform_time_s < spice_active_stop_s)
+                active_time_s = np.concatenate(
+                    (np.asarray([spice_active_start_s]), waveform_time_s[inside], np.asarray([spice_active_stop_s]))
+                )
+                rail_current_a = getattr(measurement.wave, f"{rail}_i")[0]
+                active_current_a = np.interp(active_time_s, waveform_time_s, rail_current_a)
+                active_average_current_a = float(
+                    np.trapezoid(active_current_a, active_time_s) / (spice_active_stop_s - spice_active_start_s)
+                )
+                active_power_w = float(getattr(measurement.param, rail).dc) * active_average_current_a
+            else:
+                if active_power_key not in measurement.info.readbacks:
+                    raise ValueError(f"ADC measurement is missing active-power readbacks for {rail}")
+                active_power_w = float(measurement.info.readbacks[active_power_key])
+            active_power_by_rail[rail].append(active_power_w)
 
             static_power_key = f"{rail}_static_average_power_w"
             if static_power_key in measurement.info.readbacks:
                 static_power_w = float(measurement.info.readbacks[static_power_key])
+            elif isinstance(measurement, MeasAdcInt):
+                assert spice_static_indices is not None
+                baseline_time_s = measurement.wave.time_s[spice_static_indices]
+                baseline_current_a = getattr(measurement.wave, f"{rail}_i")[0, spice_static_indices]
+                duration_s = float(baseline_time_s[-1] - baseline_time_s[0])
+                static_average_current_a = float(np.trapezoid(baseline_current_a, baseline_time_s) / duration_s)
+                static_power_w = float(getattr(measurement.param, rail).dc) * static_average_current_a
             else:
                 voltage_key = f"{rail}_measured_voltage_v"
                 current_key = f"{rail}_measured_current_a"
