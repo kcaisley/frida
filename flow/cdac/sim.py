@@ -1,32 +1,32 @@
-"""CDAC testbench, netlisting, and simulation runner for FRIDA."""
+"""CDAC testbench and named TSMC65 Spectre simulation targets."""
 
+import argparse
+import shutil
+import subprocess
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import cast
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, MosVth, Vdc, Vpwl
+from hdl21.primitives import C, Vdc, Vpwl
 
-from ..circuit.commands import testbench_main
-from ..circuit.netlist import (
-    get_param_axes,
-    print_netlist_summary,
-    pwl_points_to_wave,
-    run_netlist_variants,
-    select_variants,
-    wrap_monte_carlo,
-)
+from ..circuit.netlist import pwl_points_to_wave, write_spectre_input
 from ..circuit.params import PvtParams, supply_voltage, temperature_c
+from ..pdks import set_pdk
 from .subckt import (
-    CapType,
     Cdac,
     CdacParams,
-    RedunStrat,
-    SplitStrat,
     get_cdac_n_bits,
-    is_valid_cdac_params,
 )
+
+BASE_PATH = Path(__file__).resolve().parents[2]
+MAX_PARALLEL_SIMULATIONS = 1
+SPECTRE_THREADS_PER_SIMULATION = 4
+MODEL_LIBRARY = Path("/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs")
 
 
 @h.paramclass
@@ -119,8 +119,7 @@ def _build_pwl_points(
 
 
 def sim_input(params: CdacTbParams) -> hs.Sim:
-    """Create transient simulation with stepped DAC codes."""
-    sim_temp = temperature_c(params.pvt.t)
+    """Create one selected-signal TSMC65 CDAC code-ramp input."""
 
     n_codes = 2**params.cdac.n_dac
 
@@ -128,144 +127,127 @@ def sim_input(params: CdacTbParams) -> hs.Sim:
     t_rise = 100 * p
     t_stop = n_codes * t_step + (n_codes - 1) * t_rise
 
-    @hs.sim
-    class CdacSim:
-        tb = CdacTb(params)
-        tr = hs.Tran(tstop=t_stop, tstep=100 * p)
-        save = hs.Save(hs.SaveMode.ALL)
-        temp = hs.Options(name="temp", value=sim_temp)
-
-    return CdacSim
-
-
-def _build_variants():
-    """Build the full CDAC variant list."""
-    n_dac_list = [7, 9, 11]
-    n_extra_list = [0, 2, 4]
-    redun_strats = list(RedunStrat)
-    split_strats = list(SplitStrat)
-    cap_types = list(CapType)
-    vth_list = [MosVth.LOW, MosVth.STD]
-    unit_caps = [1 * f]
-
-    variants: list[CdacParams] = []
-
-    for n_dac in n_dac_list:
-        for n_extra in n_extra_list:
-            for redun_strat in redun_strats:
-                for split_strat in split_strats:
-                    for cap_type in cap_types:
-                        for vth in vth_list:
-                            for unit_cap in unit_caps:
-                                params = CdacParams(
-                                    n_dac=n_dac,
-                                    n_extra=n_extra,
-                                    redun_strat=redun_strat,
-                                    split_strat=split_strat,
-                                    cap_type=cap_type,
-                                    mos_vth=vth,
-                                    unit_cap=unit_cap,
-                                )
-                                if is_valid_cdac_params(params):
-                                    variants.append(params)
-
-    return variants
-
-
-def run_netlist(
-    tech: str,
-    mode: str,
-    montecarlo: bool,
-    fmt: str,
-    outdir: Path,
-    scope: str = "full",
-    verbose: bool = False,
-) -> None:
-    """Run CDAC netlist generation."""
-    all_variants = _build_variants()
-    variants = select_variants(all_variants, mode)
-
-    def build_sim(cdac_params: CdacParams):
-        tb_params = CdacTbParams(cdac=cdac_params)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return CdacTb(tb_params), sim
-
-    def build_dut(cdac_params: CdacParams):
-        return Cdac(cdac_params)
-
-    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 netlist target.
-    wall_time = cast(
-        float,
-        run_netlist_variants(
-            "cdac",
-            variants,
-            build_sim,
-            outdir,
-            simulator=fmt,
-            fmt=fmt,
-            scope=scope,
-            build_dut=build_dut,
-        ),
+    bit_names = " ".join(f"xtop.dac_bits_{bit}" for bit in range(get_cdac_n_bits(params.cdac)))
+    return hs.Sim(
+        tb=CdacTb(params),
+        attrs=[
+            hs.Lib(path=MODEL_LIBRARY, section="tt_lib"),
+            hs.Lib(path=MODEL_LIBRARY, section="pre_simu"),
+            hs.Options(name="temp", value=temperature_c(params.pvt.t)),
+            h.Literal("saveOptions options save=selected rawfmt=nutascii"),
+            h.Literal(f"save xtop.top xtop.vvdd:p {bit_names}"),
+            h.Literal(
+                f"tran tran stop={float(t_stop):.12g} strobeperiod={float(100 * p):.12g} strobeoutput=strobeonly"
+            ),
+        ],
     )
-    if verbose:
-        print_netlist_summary(
-            block="cdac",
-            pdk_name=tech,
-            count=len(variants),
-            total=len(all_variants),
-            param_axes=get_param_axes(all_variants),
-            wall_time=wall_time,
-            outdir=str(outdir),
-        )
 
 
-def run_simulate(
-    tech: str,
-    mode: str,
-    montecarlo: bool,
-    simulator: str,
-    sim_options,
-    outdir: Path,
-    verbose: bool = False,
-) -> None:
-    """Run CDAC simulation."""
-    all_variants = _build_variants()
-    variants = select_variants(all_variants, mode)
+@dataclass(frozen=True, slots=True)
+class _CdacSpectreCase:
+    params: CdacTbParams
+    case_dir: Path
+    deck_path: Path
+    raw_path: Path
+    log_path: Path
 
-    def build_sim(cdac_params: CdacParams):
-        tb_params = CdacTbParams(cdac=cdac_params)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return CdacTb(tb_params), sim
 
-    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 simulation target.
-    wall_time, sims = cast(
-        tuple[float, list[hs.Sim]],
-        run_netlist_variants(
-            "cdac",
-            variants,
-            build_sim,
-            outdir,
-            return_sims=True,
-            simulator=simulator,
-            scope="full",
-        ),
+def _prepare_case(run_dir: Path, params: CdacTbParams) -> _CdacSpectreCase:
+    """Generate one standalone CDAC Spectre input."""
+
+    set_pdk("tsmc65")
+    case_dir = run_dir / "baseline"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    deck_path = case_dir / "input.scs"
+    simulation = sim_input(params)
+    h.pdk.compile(simulation.tb)
+    write_spectre_input(simulation, deck_path)
+    return _CdacSpectreCase(
+        params=params,
+        case_dir=case_dir,
+        deck_path=deck_path,
+        raw_path=case_dir / "result.raw",
+        log_path=case_dir / "spectre.log",
     )
-    if verbose:
-        print_netlist_summary(
-            block="cdac",
-            pdk_name=tech,
-            count=len(variants),
-            total=len(all_variants),
-            param_axes=get_param_axes(all_variants),
-            wall_time=wall_time,
-            outdir=str(outdir),
-        )
-    h.sim.run(sims, sim_options)
+
+
+def _execute_case(case: _CdacSpectreCase) -> Path:
+    """Run one prepared standalone CDAC case."""
+
+    if shutil.which("spectre") is None:
+        raise RuntimeError("spectre is not on PATH; source design/spice/workspace.sh")
+    if case.raw_path.is_dir():
+        shutil.rmtree(case.raw_path)
+    elif case.raw_path.exists():
+        case.raw_path.unlink()
+    subprocess.run(
+        [
+            "spectre",
+            case.deck_path.name,
+            "+preset=mx",
+            f"+mt={SPECTRE_THREADS_PER_SIMULATION}",
+            "+lqtimeout",
+            "3600",
+            "+escchars",
+            "-raw",
+            case.raw_path.name,
+            "+log",
+            case.log_path.name,
+        ],
+        cwd=case.case_dir,
+        check=True,
+    )
+    return case.raw_path
+
+
+def _run_campaign(run_dir: Path, cases: Sequence[CdacTbParams], *, execute: bool) -> Path:
+    """Prepare one CDAC run and optionally execute every case."""
+
+    prepared = tuple(_prepare_case(run_dir, params) for params in cases)
+    if not execute:
+        print(f"Prepared {len(prepared)} CDAC netlist beneath {run_dir}")
+        return run_dir
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SIMULATIONS) as executor:
+        tuple(executor.map(_execute_case, prepared))
+    print(f"Completed {len(prepared)} CDAC simulation beneath {run_dir}")
+    return run_dir
+
+
+def frida65_baseline_netlist() -> Path:
+    """Generate one standalone fabricated-size CDAC netlist."""
+
+    run_dir = BASE_PATH / "build/sim/cdac" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, (CdacTbParams(),), execute=False)
+
+
+def frida65_baseline_transient() -> Path:
+    """Run one standalone fabricated-size CDAC code-ramp transient."""
+
+    run_dir = BASE_PATH / "build/sim/cdac" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, (CdacTbParams(),), execute=True)
+
+
+TARGETS: dict[str, Callable[[], Path]] = {
+    target.__name__: target for target in (frida65_baseline_netlist, frida65_baseline_transient)
+}
+
+
+def main() -> None:
+    """Run one explicitly named CDAC netlist or simulation target."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target", nargs="?", choices=sorted(TARGETS))
+    args = parser.parse_args()
+    if args.target is None:
+        print("Available CDAC simulation targets:")
+        for target in sorted(TARGETS):
+            print(f"  {target}")
+        return
+    run_dir = TARGETS[args.target]()
+    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":
-    testbench_main("flow.cdac.sim", "cdac", run_netlist, run_simulate)
+    main()

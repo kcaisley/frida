@@ -1,23 +1,28 @@
-"""Sampler testbench, netlisting, and simulation runner for FRIDA."""
+"""Sampler testbench and named TSMC65 Spectre simulation targets."""
 
+import argparse
+import shutil
+import subprocess
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import cast
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, m, n, p
-from hdl21.primitives import C, MosVth, Vdc, Vpulse
+from hdl21.primitives import C, Vdc, Vpulse
 
-from ..circuit.commands import testbench_main
-from ..circuit.netlist import (
-    get_param_axes,
-    print_netlist_summary,
-    run_netlist_variants,
-    select_variants,
-    wrap_monte_carlo,
-)
+from ..circuit.netlist import write_spectre_input
 from ..circuit.params import PvtParams, supply_voltage, temperature_c
-from .subckt import Samp, SampParams, SwitchType
+from ..pdks import set_pdk
+from .subckt import Samp, SampParams
+
+BASE_PATH = Path(__file__).resolve().parents[2]
+MAX_PARALLEL_SIMULATIONS = 1
+SPECTRE_THREADS_PER_SIMULATION = 4
+MODEL_LIBRARY = Path("/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs")
 
 
 @h.paramclass
@@ -99,127 +104,126 @@ def SampTb(params: SampTbParams) -> h.Module:
 
 
 def sim_input(params: SampTbParams) -> hs.Sim:
-    """Create simulation input for sampler characterization."""
-    sim_temp = temperature_c(params.pvt.t)
+    """Create one selected-signal TSMC65 sampler transient input."""
 
-    @hs.sim
-    class SampSim:
-        tb = SampTb(params)
-        tr = hs.Tran(tstop=500 * n, tstep=100 * p)
-
-        save_all = hs.Save(hs.SaveMode.ALL)
-        save = hs.Save(["xtop.din", "xtop.dout"])
-
-        temp = hs.Options(name="temp", value=sim_temp)
-
-    return SampSim
-
-
-def _build_variants():
-    """Build the full sampler variant list."""
-    return [
-        SampParams(switch_type=st, mos_w=w, mos_l=l, mos_vth=vth)
-        for st in SwitchType
-        for vth in [MosVth.LOW, MosVth.STD]
-        for w in [2, 5, 10, 20, 40]
-        for l in [1]
-    ]
-
-
-def run_netlist(
-    tech: str,
-    mode: str,
-    montecarlo: bool,
-    fmt: str,
-    outdir: Path,
-    scope: str = "full",
-    verbose: bool = False,
-) -> None:
-    """Run sampler netlist generation."""
-    all_variants = _build_variants()
-    variants = select_variants(all_variants, mode)
-
-    def build_sim(samp_params: SampParams):
-        tb_params = SampTbParams(samp=samp_params)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return SampTb(tb_params), sim
-
-    def build_dut(samp_params: SampParams):
-        return Samp(samp_params)
-
-    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 netlist target.
-    wall_time = cast(
-        float,
-        run_netlist_variants(
-            "samp",
-            variants,
-            build_sim,
-            outdir,
-            simulator=fmt,
-            fmt=fmt,
-            scope=scope,
-            build_dut=build_dut,
-        ),
+    return hs.Sim(
+        tb=SampTb(params),
+        attrs=[
+            hs.Lib(path=MODEL_LIBRARY, section="tt_lib"),
+            hs.Lib(path=MODEL_LIBRARY, section="pre_simu"),
+            hs.Options(name="temp", value=temperature_c(params.pvt.t)),
+            h.Literal("saveOptions options save=selected rawfmt=nutascii"),
+            h.Literal("save xtop.din xtop.dout xtop.clk xtop.clk_b xtop.vvdd:p"),
+            h.Literal("tran tran stop=500n strobeperiod=100p strobeoutput=strobeonly"),
+        ],
     )
-    if verbose:
-        print_netlist_summary(
-            block="samp",
-            pdk_name=tech,
-            count=len(variants),
-            total=len(all_variants),
-            param_axes=get_param_axes(all_variants),
-            wall_time=wall_time,
-            outdir=str(outdir),
-        )
 
 
-def run_simulate(
-    tech: str,
-    mode: str,
-    montecarlo: bool,
-    simulator: str,
-    sim_options,
-    outdir: Path,
-    verbose: bool = False,
-) -> None:
-    """Run sampler simulation."""
-    all_variants = _build_variants()
-    variants = select_variants(all_variants, mode)
+@dataclass(frozen=True, slots=True)
+class _SampSpectreCase:
+    params: SampTbParams
+    case_dir: Path
+    deck_path: Path
+    raw_path: Path
+    log_path: Path
 
-    def build_sim(samp_params: SampParams):
-        tb_params = SampTbParams(samp=samp_params)
-        sim = sim_input(tb_params)
-        if montecarlo:
-            wrap_monte_carlo(sim)
-        return SampTb(tb_params), sim
 
-    # TODO: Replace this flag-driven helper with a direct, idiomatic HDL21 simulation target.
-    wall_time, sims = cast(
-        tuple[float, list[hs.Sim]],
-        run_netlist_variants(
-            "samp",
-            variants,
-            build_sim,
-            outdir,
-            return_sims=True,
-            simulator=simulator,
-            scope="full",
-        ),
+def _prepare_case(run_dir: Path, params: SampTbParams) -> _SampSpectreCase:
+    """Generate one standalone sampler Spectre input."""
+
+    set_pdk("tsmc65")
+    case_dir = run_dir / "baseline"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    deck_path = case_dir / "input.scs"
+    simulation = sim_input(params)
+    h.pdk.compile(simulation.tb)
+    write_spectre_input(simulation, deck_path)
+    return _SampSpectreCase(
+        params=params,
+        case_dir=case_dir,
+        deck_path=deck_path,
+        raw_path=case_dir / "result.raw",
+        log_path=case_dir / "spectre.log",
     )
-    if verbose:
-        print_netlist_summary(
-            block="samp",
-            pdk_name=tech,
-            count=len(variants),
-            total=len(all_variants),
-            param_axes=get_param_axes(all_variants),
-            wall_time=wall_time,
-            outdir=str(outdir),
-        )
-    h.sim.run(sims, sim_options)
+
+
+def _execute_case(case: _SampSpectreCase) -> Path:
+    """Run one prepared standalone sampler case."""
+
+    if shutil.which("spectre") is None:
+        raise RuntimeError("spectre is not on PATH; source design/spice/workspace.sh")
+    if case.raw_path.is_dir():
+        shutil.rmtree(case.raw_path)
+    elif case.raw_path.exists():
+        case.raw_path.unlink()
+    subprocess.run(
+        [
+            "spectre",
+            case.deck_path.name,
+            "+preset=mx",
+            f"+mt={SPECTRE_THREADS_PER_SIMULATION}",
+            "+lqtimeout",
+            "3600",
+            "+escchars",
+            "-raw",
+            case.raw_path.name,
+            "+log",
+            case.log_path.name,
+        ],
+        cwd=case.case_dir,
+        check=True,
+    )
+    return case.raw_path
+
+
+def _run_campaign(run_dir: Path, cases: Sequence[SampTbParams], *, execute: bool) -> Path:
+    """Prepare one sampler run and optionally execute every case."""
+
+    prepared = tuple(_prepare_case(run_dir, params) for params in cases)
+    if not execute:
+        print(f"Prepared {len(prepared)} sampler netlist beneath {run_dir}")
+        return run_dir
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SIMULATIONS) as executor:
+        tuple(executor.map(_execute_case, prepared))
+    print(f"Completed {len(prepared)} sampler simulation beneath {run_dir}")
+    return run_dir
+
+
+def frida65_baseline_netlist() -> Path:
+    """Generate one standalone fabricated-size sampler netlist."""
+
+    run_dir = BASE_PATH / "build/sim/samp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, (SampTbParams(),), execute=False)
+
+
+def frida65_baseline_transient() -> Path:
+    """Run one standalone fabricated-size sampler transient."""
+
+    run_dir = BASE_PATH / "build/sim/samp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(run_dir, (SampTbParams(),), execute=True)
+
+
+TARGETS: dict[str, Callable[[], Path]] = {
+    target.__name__: target for target in (frida65_baseline_netlist, frida65_baseline_transient)
+}
+
+
+def main() -> None:
+    """Run one explicitly named sampler netlist or simulation target."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target", nargs="?", choices=sorted(TARGETS))
+    args = parser.parse_args()
+    if args.target is None:
+        print("Available sampler simulation targets:")
+        for target in sorted(TARGETS):
+            print(f"  {target}")
+        return
+    run_dir = TARGETS[args.target]()
+    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":
-    testbench_main("flow.samp.sim", "samp", run_netlist, run_simulate)
+    main()

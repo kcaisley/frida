@@ -1,11 +1,8 @@
-"""Software-only tests for the reviewed comparator candidate campaign."""
-
-from pathlib import Path
+"""Software-only tests for comparator simulation targets and campaigns."""
 
 from .sim import (
     TARGETS,
     TSMC65_AREA_UNIT_UM2,
-    _spectre_elapsed_seconds,
     build_candidates,
     frida65_fabricated_params,
 )
@@ -47,17 +44,8 @@ def test_candidate_campaign_covers_all_topologies_and_fabricated_baseline() -> N
 def test_comparator_runner_exposes_separate_artifact_and_campaign_targets() -> None:
     assert set(TARGETS) == {
         "frida65_baseline_netlist",
-        "frida65_candidate_decks",
+        "frida65_candidate_netlists",
+        "frida65_candidate_smoke",
         "frida65_baseline_noise",
-        "frida65_reconvert_h5",
-        "frida65_candidates_shard0",
-        "frida65_candidates_shard1",
-        "frida65_candidates_all",
+        "frida65_candidates",
     }
-
-
-def test_spectre_elapsed_seconds_supports_engineering_units(tmp_path: Path) -> None:
-    log_path = tmp_path / "spectre.log"
-    log_path.write_text("Intrinsic tran analysis time: CPU = 1.2 ks, elapsed = 1.234 ks.\n")
-
-    assert _spectre_elapsed_seconds(log_path) == 1234.0

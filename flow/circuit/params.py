@@ -3,6 +3,7 @@ Shared parameters, enums, and dataclasses for FRIDA HDL21 generators.
 """
 
 import math
+from typing import Protocol, cast
 
 import hdl21 as h
 from hdl21.pdk import Corner
@@ -29,6 +30,12 @@ Pvt = PvtParams
 _FALLBACK_VDD_VALUES = (1080 * m, 1200 * m, 1320 * m)  # -10%, nominal, +10%
 
 
+class _SupplyVoltageProvider(Protocol):
+    """Structural type implemented by each local PDK installation class."""
+
+    def supply_voltage(self, corner: Corner, rail: str = "VDD") -> h.Scalar: ...
+
+
 def supply_voltage(
     corner: Corner,
     rail_name: str = "VDD",
@@ -40,7 +47,7 @@ def supply_voltage(
         from pdk import _install_class, _resolve_tech_name
 
         name = _resolve_tech_name(tech_name)
-        install_cls = _install_class(name)
+        install_cls = cast(_SupplyVoltageProvider, _install_class(name))
         return install_cls.supply_voltage(corner, rail_name)
     except (
         ImportError,

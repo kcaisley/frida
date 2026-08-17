@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import math
-import re
 import shutil
 import subprocess
 import sys
@@ -12,13 +11,14 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 
-from flow.circuit.netlist import pwl_points_to_wave, write_sim_netlist
+from flow.circuit.netlist import pwl_points_to_wave, write_spectre_input
 from flow.circuit.params import (
     PvtParams,
     build_uniform_sweep_values,
@@ -38,12 +38,9 @@ if __name__ == "__main__":
     sys.modules["flow.comp.sim"] = sys.modules[__name__]
 
 BASE_PATH = Path(__file__).resolve().parents[2]
-OUTPUT_BASE = BASE_PATH / "build" / "comp"
-CAMPAIGN_NAME = "frida65_candidate_scurve_power"
-CAMPAIGN_DIR = OUTPUT_BASE / CAMPAIGN_NAME
 MODEL_LIBRARY = Path("/eda/kits/TSMC/65LP/2024/V1.7A_1/1p9m6x1z1u/models/spectre/toplevel.scs")
-MAX_PARALLEL_SPECTRE = 18
-SPECTRE_THREADS_PER_CASE = 1
+MAX_PARALLEL_SIMULATIONS = 18
+SPECTRE_THREADS_PER_SIMULATION = 1
 RAW_STROBE_PERIOD_S = 500e-12
 TRANSIENT_NOISE_MAX_HZ = 25e9
 TRANSIENT_NOISE_SEED = 1
@@ -440,48 +437,21 @@ def build_candidates() -> tuple[CompCandidate, ...]:
     return tuple(candidates)
 
 
-def _manifest_entry(candidate: CompCandidate) -> dict[str, object]:
-    return {
-        "candidate_id": candidate.candidate_id,
-        "label": candidate.label,
-        "topology_index": candidate.topology_index,
-        "size_profile": candidate.size_profile,
-        "total_width_units": candidate.total_width_units,
-        "total_active_area_units": candidate.total_active_area_units,
-        "total_active_area_um2": candidate.total_active_area_um2,
-        "device_width_signature": candidate.device_width_signature,
-        "device_geometry_signature": candidate.device_geometry_signature,
-        "comp_params": repr(candidate.comp),
-    }
+@dataclass(frozen=True, slots=True)
+class _CompSpectreCase:
+    """One prepared comparator Spectre case and its conversion metadata."""
+
+    candidate: CompCandidate
+    params: CompTbParams
+    case_dir: Path
+    deck_path: Path
+    raw_path: Path
+    h5_path: Path
+    log_path: Path
 
 
-def _write_manifest(candidates: Sequence[CompCandidate]) -> Path:
-    CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
-    manifest_path = CAMPAIGN_DIR / "manifest.json"
-    payload = {
-        "campaign": CAMPAIGN_NAME,
-        "pdk": "tsmc65",
-        "candidate_count": len(candidates),
-        "testbench": {
-            "vin_cm_v": 0.8,
-            "vin_diff_min_v": -3e-3,
-            "vin_diff_max_v": 3e-3,
-            "vin_diff_step_v": 100e-6,
-            "decisions_per_point": 100,
-            "reset_time_s": 10e-9,
-            "evaluation_time_s": 30e-9,
-            "transient_noise_max_hz": TRANSIENT_NOISE_MAX_HZ,
-        },
-        "candidates": [_manifest_entry(candidate) for candidate in candidates],
-    }
-    temporary = manifest_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n")
-    temporary.replace(manifest_path)
-    return manifest_path
-
-
-def _case_paths(candidate: CompCandidate) -> tuple[Path, Path, Path, Path, Path]:
-    case_dir = CAMPAIGN_DIR / "candidates" / candidate.candidate_id
+def _case_paths(run_dir: Path, candidate: CompCandidate) -> tuple[Path, Path, Path, Path, Path]:
+    case_dir = run_dir / "candidates" / candidate.candidate_id
     return (
         case_dir,
         case_dir / "input.scs",
@@ -491,233 +461,191 @@ def _case_paths(candidate: CompCandidate) -> tuple[Path, Path, Path, Path, Path]
     )
 
 
-def _prepare_case(candidate: CompCandidate, *, transient_noise: bool = True) -> tuple[Path, Path, Path, Path, Path]:
-    case_dir, deck_path, raw_path, h5_path, log_path = _case_paths(candidate)
+def _prepare_case(
+    run_dir: Path,
+    candidate: CompCandidate,
+    *,
+    params: CompTbParams | None = None,
+    transient_noise: bool = True,
+) -> _CompSpectreCase:
+    case_dir, deck_path, raw_path, h5_path, log_path = _case_paths(run_dir, candidate)
     case_dir.mkdir(parents=True, exist_ok=True)
-    params = CompTbParams(comp=candidate.comp)
+    params = CompTbParams(comp=candidate.comp) if params is None else params
+    if params.comp != candidate.comp:
+        raise ValueError("comparator case parameters must contain the selected candidate")
     sim = sim_input(params, transient_noise=transient_noise)
     h.pdk.compile(sim.tb)
-    write_sim_netlist(sim, deck_path, compact=True)
-    return case_dir, deck_path, raw_path, h5_path, log_path
-
-
-def _completed_case(candidate: CompCandidate) -> bool:
-    from flow.analysis.io import read_measurement
-    from flow.analysis.types import MeasCompInt
-
-    h5_path = _case_paths(candidate)[3]
-    if not h5_path.is_file():
-        return False
-    try:
-        measurement = read_measurement(h5_path)
-    except (OSError, TypeError, ValueError):
-        return False
-    return (
-        isinstance(measurement, MeasCompInt)
-        and measurement.info.readbacks.get("candidate_id") == candidate.candidate_id
+    write_spectre_input(sim, deck_path)
+    return _CompSpectreCase(
+        candidate=candidate,
+        params=params,
+        case_dir=case_dir,
+        deck_path=deck_path,
+        raw_path=raw_path,
+        h5_path=h5_path,
+        log_path=log_path,
     )
 
 
-def _execute_case(candidate: CompCandidate) -> Path:
+def _execute_case(case: _CompSpectreCase) -> Path:
     from flow.spice.io import convert_spectre_comp_raw_to_h5
 
-    case_dir, deck_path, raw_path, h5_path, log_path = _case_paths(candidate)
-    if raw_path.is_dir():
-        shutil.rmtree(raw_path)
-    elif raw_path.exists():
-        raw_path.unlink()
+    if case.raw_path.is_dir():
+        shutil.rmtree(case.raw_path)
+    elif case.raw_path.exists():
+        case.raw_path.unlink()
     command = [
         "spectre",
-        deck_path.name,
+        case.deck_path.name,
         "+preset=mx",
-        f"+mt={SPECTRE_THREADS_PER_CASE}",
+        f"+mt={SPECTRE_THREADS_PER_SIMULATION}",
         "+lqtimeout",
         "3600",
         "+escchars",
         "-raw",
-        raw_path.name,
+        case.raw_path.name,
         "+log",
-        log_path.name,
+        case.log_path.name,
     ]
     started = time.perf_counter()
-    subprocess.run(command, cwd=case_dir, check=True)
+    subprocess.run(command, cwd=case.case_dir, check=True)
     spectre_runtime_s = time.perf_counter() - started
-    params = CompTbParams(comp=candidate.comp)
     convert_spectre_comp_raw_to_h5(
-        raw_path,
-        h5_path,
-        params=params,
+        case.raw_path,
+        case.h5_path,
+        params=case.params,
         signal_names=COMP_SIGNAL_NAMES,
-        candidate_id=candidate.candidate_id,
-        candidate_label=candidate.label,
-        topology_index=candidate.topology_index,
-        size_profile=candidate.size_profile,
-        total_width_units=candidate.total_width_units,
-        device_width_signature=candidate.device_width_signature,
-        total_active_area_units=candidate.total_active_area_units,
-        total_active_area_um2=candidate.total_active_area_um2,
-        device_geometry_signature=candidate.device_geometry_signature,
+        candidate_id=case.candidate.candidate_id,
+        candidate_label=case.candidate.label,
+        topology_index=case.candidate.topology_index,
+        size_profile=case.candidate.size_profile,
+        total_width_units=case.candidate.total_width_units,
+        device_width_signature=case.candidate.device_width_signature,
+        total_active_area_units=case.candidate.total_active_area_units,
+        total_active_area_um2=case.candidate.total_active_area_um2,
+        device_geometry_signature=case.candidate.device_geometry_signature,
         spectre_runtime_s=spectre_runtime_s,
     )
-    print(f"{candidate.candidate_id}: simulated and converted in {time.perf_counter() - started:.1f} s", flush=True)
-    return h5_path
-
-
-def _convert_existing_case(candidate: CompCandidate) -> Path:
-    """Regenerate one typed H5 result from its retained production raw file."""
-
-    from flow.spice.io import convert_spectre_comp_raw_to_h5
-
-    _case_dir, _deck_path, raw_path, h5_path, log_path = _case_paths(candidate)
-    if not raw_path.is_file():
-        raise FileNotFoundError(2, "comparator candidate raw result not found", raw_path)
-    params = CompTbParams(comp=candidate.comp)
-    spectre_runtime_s = _spectre_elapsed_seconds(log_path) if log_path.is_file() else None
-    return convert_spectre_comp_raw_to_h5(
-        raw_path,
-        h5_path,
-        params=params,
-        signal_names=COMP_SIGNAL_NAMES,
-        candidate_id=candidate.candidate_id,
-        candidate_label=candidate.label,
-        topology_index=candidate.topology_index,
-        size_profile=candidate.size_profile,
-        total_width_units=candidate.total_width_units,
-        device_width_signature=candidate.device_width_signature,
-        total_active_area_units=candidate.total_active_area_units,
-        total_active_area_um2=candidate.total_active_area_um2,
-        device_geometry_signature=candidate.device_geometry_signature,
-        spectre_runtime_s=spectre_runtime_s,
+    print(
+        f"{case.candidate.candidate_id}: simulated and converted in {time.perf_counter() - started:.1f} s",
+        flush=True,
     )
+    return case.h5_path
 
 
-def _spectre_elapsed_seconds(log_path: Path) -> float | None:
-    """Read Spectre's elapsed transient runtime, including SI-prefixed units."""
-
-    match = re.search(
-        r"Intrinsic tran analysis time:.*?elapsed\s*=\s*([0-9.eE+-]+)\s*([fpnumkMGT]?s)\b",
-        log_path.read_text(errors="replace"),
-    )
-    if match is None:
-        return None
-    prefix_scale = {
-        "f": 1e-15,
-        "p": 1e-12,
-        "n": 1e-9,
-        "u": 1e-6,
-        "m": 1e-3,
-        "": 1.0,
-        "k": 1e3,
-        "M": 1e6,
-        "G": 1e9,
-        "T": 1e12,
-    }
-    return float(match.group(1)) * prefix_scale[match.group(2)[:-1]]
-
-
-def _run_candidates(candidates: Sequence[CompCandidate], *, execute: bool) -> tuple[Path, ...]:
-    """Prepare, resume, and optionally execute a deterministic candidate set."""
+def _run_candidates(
+    run_dir: Path,
+    candidates: Sequence[CompCandidate],
+    *,
+    execute: bool,
+    params: CompTbParams | None = None,
+    transient_noise: bool = True,
+) -> Path:
+    """Prepare one complete comparator run and optionally execute it."""
 
     set_pdk("tsmc65")
-    _write_manifest(build_candidates())
-    pending = []
-    completed = []
-    for candidate in candidates:
-        if execute and _completed_case(candidate):
-            completed.append(_case_paths(candidate)[3])
-            continue
-        _prepare_case(candidate)
-        pending.append(candidate)
+    prepared = tuple(
+        _prepare_case(
+            run_dir,
+            candidate,
+            params=params,
+            transient_noise=transient_noise,
+        )
+        for candidate in candidates
+    )
     if not execute:
-        print(f"Prepared {len(pending)} comparator decks beneath {CAMPAIGN_DIR}")
-        return tuple(_case_paths(candidate)[1] for candidate in pending)
+        print(f"Prepared {len(prepared)} comparator netlists beneath {run_dir}")
+        return run_dir
     if shutil.which("spectre") is None:
-        raise RuntimeError("spectre is not on PATH; source /eda/local/scripts/cadence_2024-25.sh")
+        raise RuntimeError("spectre is not on PATH; source design/spice/workspace.sh")
 
     failures = []
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SPECTRE) as executor:
-        futures = {executor.submit(_execute_case, candidate): candidate for candidate in pending}
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SIMULATIONS) as executor:
+        futures = {executor.submit(_execute_case, case): case for case in prepared}
         for future in as_completed(futures):
-            candidate = futures[future]
+            case = futures[future]
             try:
-                completed.append(future.result())
+                future.result()
             except (OSError, RuntimeError, TypeError, ValueError, subprocess.CalledProcessError) as error:
-                failures.append((candidate.candidate_id, repr(error)))
-                print(f"{candidate.candidate_id}: FAILED: {error}", flush=True)
+                failures.append((case.candidate.candidate_id, repr(error)))
+                print(f"{case.candidate.candidate_id}: FAILED: {error}", flush=True)
     if failures:
-        failure_path = CAMPAIGN_DIR / "failures.json"
+        failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(dict(failures), indent=2) + "\n")
         raise RuntimeError(f"{len(failures)} comparator cases failed; see {failure_path}")
-    (CAMPAIGN_DIR / "failures.json").unlink(missing_ok=True)
-    print(f"Completed {len(completed)} comparator cases beneath {CAMPAIGN_DIR}")
-    return tuple(sorted(completed))
+    print(f"Completed {len(prepared)} comparator simulations beneath {run_dir}")
+    return run_dir
 
 
-def frida65_baseline_netlist() -> None:
-    """Write the persistent fabricated-size comparator core netlist."""
+def frida65_baseline_netlist() -> Path:
+    """Write one fabricated-size comparator core netlist."""
 
     set_pdk("tsmc65")
-    output_dir = CAMPAIGN_DIR / "netlist"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
     module = Comp(frida65_fabricated_params())
     h.pdk.compile(module)
-    with (output_dir / "frida65_fabricated_baseline.scs").open("w") as output:
+    with (run_dir / "frida65_fabricated_baseline.scs").open("w") as output:
         h.netlist(module, dest=output, fmt="spectre")
+    return run_dir
 
 
-def frida65_candidate_decks() -> None:
-    """Write all reviewed candidate simulation decks without executing them."""
+def frida65_candidate_netlists() -> Path:
+    """Write all reviewed candidate simulation netlists without running them."""
 
-    _run_candidates(build_candidates(), execute=False)
+    run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_candidates(run_dir, build_candidates(), execute=False)
 
 
-def frida65_baseline_noise() -> None:
+def frida65_candidate_smoke() -> Path:
+    """Run one deterministic 40 ns baseline case to verify Spectre execution."""
+
+    run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    baseline = next(candidate for candidate in build_candidates() if candidate.size_profile == "fabricated")
+    params = CompTbParams(
+        comp=baseline.comp,
+        vin_cm_values_v=(0.8,),
+        sweep_min_v=0.0,
+        sweep_max_v=0.0,
+        sweep_step_v=100.0e-6,
+        conversions=1,
+    )
+    return _run_candidates(
+        run_dir,
+        (baseline,),
+        execute=True,
+        params=params,
+        transient_noise=False,
+    )
+
+
+def frida65_baseline_noise() -> Path:
     """Run the complete 61-point transient-noise S-curve for the baseline."""
 
-    candidates = build_candidates()
-    baseline = next(candidate for candidate in candidates if candidate.size_profile == "fabricated")
-    _run_candidates((baseline,), execute=True)
+    run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    baseline = next(candidate for candidate in build_candidates() if candidate.size_profile == "fabricated")
+    return _run_candidates(run_dir, (baseline,), execute=True)
 
 
-def frida65_reconvert_h5() -> None:
-    """Rebuild every typed H5 result from the collected raw campaign data."""
+def frida65_candidates() -> Path:
+    """Run all 297 reviewed comparator candidates as one complete campaign."""
 
-    candidates = build_candidates()
-    _write_manifest(candidates)
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        paths = tuple(executor.map(_convert_existing_case, candidates))
-    (CAMPAIGN_DIR / "failures.json").unlink(missing_ok=True)
-    print(f"Reconverted {len(paths)} comparator H5 results beneath {CAMPAIGN_DIR}")
+    run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_candidates(run_dir, build_candidates(), execute=True)
 
 
-def frida65_candidates_shard0() -> None:
-    """Run the even-index half of the reviewed candidate campaign."""
-
-    _run_candidates(build_candidates()[0::2], execute=True)
-
-
-def frida65_candidates_shard1() -> None:
-    """Run the odd-index half of the reviewed candidate campaign."""
-
-    _run_candidates(build_candidates()[1::2], execute=True)
-
-
-def frida65_candidates_all() -> None:
-    """Run all reviewed comparator candidates on one host."""
-
-    _run_candidates(build_candidates(), execute=True)
-
-
-TARGETS: dict[str, Callable[[], None]] = {
+TARGETS: dict[str, Callable[[], Path]] = {
     target.__name__: target
     for target in (
         frida65_baseline_netlist,
-        frida65_candidate_decks,
+        frida65_candidate_netlists,
+        frida65_candidate_smoke,
         frida65_baseline_noise,
-        frida65_reconvert_h5,
-        frida65_candidates_shard0,
-        frida65_candidates_shard1,
-        frida65_candidates_all,
+        frida65_candidates,
     )
 }
 
@@ -733,7 +661,8 @@ def main() -> None:
         for target in sorted(TARGETS):
             print(f"  {target}")
         return
-    TARGETS[args.target]()
+    run_dir = TARGETS[args.target]()
+    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":
