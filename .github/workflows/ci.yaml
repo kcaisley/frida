@@ -13,6 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  markdown:
+    name: Markdown
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out FRIDA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: 3.12.11
+          enable-cache: true
+
+      - name: Install mdl
+        run: gem install mdl --version 0.14.0 --no-document
+
+      - name: Run rumdl
+        run: uvx --from rumdl==0.2.55 rumdl check $(git ls-files '*.md')
+
+      - name: Run mdl
+        if: ${{ always() }}
+        run: mdl $(git ls-files '*.md')
+
   ty:
     name: Ty
     runs-on: ubuntu-latest

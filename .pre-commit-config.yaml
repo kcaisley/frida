@@ -24,6 +24,19 @@ repos:
         files: ^flow/(analysis|scans|adc|cdac|comp|samp)/.*\.py$
         pass_filenames: false
 
+      - id: rumdl-markdown
+        name: rumdl Markdown format and lint
+        entry: uvx --from rumdl==0.2.55 rumdl check --fix
+        language: system
+        types: [markdown]
+
+      - id: mdl-markdown
+        name: mdl Markdown lint
+        entry: mdl
+        language: ruby
+        additional_dependencies: [mdl:0.14.0]
+        types: [markdown]
+
   # LaTeX formatting
   - repo: https://github.com/WGUNDERWOOD/tex-fmt
     rev: v0.5.7
