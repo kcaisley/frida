@@ -1,3 +1,5 @@
+# KLayout technology notes
+
 - GDS Layer Numbers: Physical layer numbers and datatypes (e.g., `"M1": {"number": 15, "datatype": 0}`)
 - Layer Connectivity: Stack ordering relationships (`"previous": "CO", "next": "VIA1"`)
 - Material Classifications: Layer material types (`"metal"`, `"poly"`, `"diffusion"`, `"cut"`, `"implant"`, `"marker"`)
@@ -19,18 +21,22 @@
 - PDK Library Name: Technology library identifier for device models
 - Process Node: Technology node specifications and gamma correction factors
 - Property Mapping: Parameter name translations between tools
-
 - Layer properties are saved in a .lyp file. It can be produced using a Cadence .tf, display.df, and .layermap file
-    - .lyp is a XML file, essentially
-    - The code is found [here](https://github.com/klayoutmatthias/tf_import)
-- Once shape (rects, polygons, paths, labels) are written to a cell, the database unit is multiplied if they are the integer (non D-) types
+  - .lyp is a XML file, essentially
+  - The code is in [KLayout's `tf_import` repository](https://github.com/klayoutmatthias/tf_import)
+- Once shape (rects, polygons, paths, labels) are written to a cell, the database unit is multiplied if they are the
+  integer (non D-) types
 - Layers are attached to the ly = db.Layout() object via `layer1 = ly.layer(1, 2, "Poly")`
 - You can get info of a layer with `ly.get_info(layer1)`
 - Layouts contain a layers list, and a shapes list for each layer
 - Each shapes list contains the geometries (boxes, polygons, paths, and labels) which are on that layer
 - Can I define a cell, but not place instances of it?
-    - I don't think so. What happens is that when you first declare a geometric object, it doesn't belong to a cell, and so nothing exists in the layout
-    - But once you create a layout and create a cells, and insert the geometry to the shape list of the cells, it now exists in the layout.
-    - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open the layout, it will show the top level hierarchy cells, and the two instance of it
-
-- Concepts like pins and named instances are not part of the GDS and OASIS specification and that still is the basis of the program. It's possible to emulate those features (and others like net information) with user properties, but the interpretation of those is strongly dependent on the tools reading these files.
+  - I don't think so. What happens is that when you first declare a geometric object, it doesn't belong to a cell, and
+    so nothing exists in the layout
+  - But once you create a layout and create a cells, and insert the geometry to the shape list of the cells, it now
+    exists in the layout.
+  - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open
+    the layout, it will show the top level hierarchy cells, and the two instance of it
+- Concepts like pins and named instances are not part of the GDS and OASIS specification and that still is the basis of
+  the program. It's possible to emulate those features (and others like net information) with user properties, but the
+  interpretation of those is strongly dependent on the tools reading these files.

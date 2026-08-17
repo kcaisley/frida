@@ -1,6 +1,7 @@
 # Caparray capacitance comparison
 
-This table compares the intended behavioral capacitor values in `caparray.cdl` / `caparray.sp` against the current physical-layout extraction for `adc_1layer_radix17`.
+This table compares the intended behavioral capacitor values in `caparray.cdl` / `caparray.sp` against the current
+physical-layout extraction for `adc_1layer_radix17`.
 
 Definitions:
 
@@ -34,8 +35,10 @@ The fresh PEX files used were generated in `/users/kcaisley/asiclab/tech/tsmc65/
 ## Notes
 
 - The extracted `main - diff` relative weights match the intended `CAP_WEIGHTS` well after normalization.
-- The absolute effective capacitance scale is about `16.1%` of the intended behavioral CDL value, or about `6.2x` smaller.
-- The current physical result is consistent with the second layer in the 2-layer experiment being disconnected rather than contributing a parallel capacitance.
+- The absolute effective capacitance scale is about `16.1%` of the intended behavioral CDL value, or about `6.2x`
+  smaller.
+- The current physical result is consistent with the second layer in the 2-layer experiment being disconnected rather
+  than contributing a parallel capacitance.
 
 ## How the extracted values were read
 
@@ -52,7 +55,8 @@ adc_1layer_radix17.pex.netlist.ADC_1LAYER_RADIX17.pxi
 adc_1layer_radix17.pex.netlist.pex
 ```
 
-For the 2026-06-08 xACT/report run, the updated file was the top-level `adc_1layer_radix17.pex.netlist`, which contains lumped capacitor lines like:
+For the 2026-06-08 xACT/report run, the updated file was the top-level `adc_1layer_radix17.pex.netlist`, which contains
+lumped capacitor lines like:
 
 ```spice
 C12345 VDAC_P:17 DAC_DRIVE_BOTPLATE_MAIN_P<15>:42 0.123f
@@ -74,7 +78,8 @@ DAC_DRIVE_BOTPLATE_MAIN_N<bit>
 DAC_DRIVE_BOTPLATE_DIFF_N<bit>
 ```
 
-The value for each table entry is the sum of all capacitors between the topplate net and the corresponding botplate net, including all colon-suffixed subnodes. For example:
+The value for each table entry is the sum of all capacitors between the topplate net and the corresponding botplate net,
+including all colon-suffixed subnodes. For example:
 
 ```text
 main_P[15] = sum Cx where one terminal matches VDAC_P or VDAC_P:<subnode>
@@ -90,7 +95,8 @@ Manual search in `coupling_capacitance.report` is useful for spot-checking large
 DAC_DRIVE_BOTPLATE_MAIN_P<15>  VDAC_P
 ```
 
-but it is not sufficient for the complete table, because the report can omit smaller logical pair couplings. The full PEX netlist should be parsed and summed.
+but it is not sufficient for the complete table, because the report can omit smaller logical pair couplings. The full
+PEX netlist should be parsed and summed.
 
 The parser used was a one-off Python script equivalent to:
 

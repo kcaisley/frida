@@ -1,19 +1,23 @@
 # Schematic drawing conventions
 
-These notes capture the preferred style for hand-drawn schematic and block-diagram figures in this repository, especially Circuitikz figures used in presentations.
+These notes capture the preferred style for hand-drawn schematic and block-diagram figures in this repository,
+especially Circuitikz figures used in presentations.
 
 ## General style
 
 - Prefer clean analog-schematic aesthetics over auto-generated-looking wiring.
 - Use Circuitikz for transistor-level schematics and TikZ for block diagrams.
 - Use European Circuitikz mode for schematics:
+
   ```tex
   \usepackage[european]{circuitikz}
   ...
   \begin{circuitikz}[scale=1, european]
   ```
+
 - Use `scale=1` unless there is a strong reason not to.
-- Prefer coordinates on integer or half-integer grid points where practical, but do not force ugly transistor geometry just to make every anchor land exactly on the grid.
+- Prefer coordinates on integer or half-integer grid points where practical, but do not force ugly transistor geometry
+  just to make every anchor land exactly on the grid.
 - Use default `nmos` and `pmos` symbols. Do not tune MOS geometry to force grid alignment; the tuned symbols looked bad.
 - Use actual Circuitikz anchors (`.D`, `.S`, `.G`) for wiring, rather than guessing where terminals visually end.
 
@@ -21,61 +25,81 @@ These notes capture the preferred style for hand-drawn schematic and block-diagr
 
 - Place important circuit nodes explicitly, then anchor devices by the terminal connected to that node.
 - For shared drain nodes, define a coordinate and place both devices by `anchor=D`:
+
   ```tex
   \coordinate (XP) at (0,2);
   \node[pmos, anchor=D] (mp_xp) at (XP) {};
   \node[nmos, anchor=D] (mn_inn) at (XP) {};
   ```
+
 - Derive intermediate nodes from real device anchors instead of hard-coding positions:
+
   ```tex
   \coordinate (SRCMID) at ($(mn_inn.S)!0.5!(mn_inp.S)$);
   \node[nmos, anchor=D] (mn_tail) at (SRCMID) {};
   ```
-- Connect wires to terminal anchors (`mn_inn.S`, `mp_xp.G`, etc.). This avoids small visual stubs and misalignments caused by the internal dimensions of Circuitikz symbols.
-- Mirroring devices is acceptable when it improves schematic readability. For example, mirror PMOS load/precharge devices so their gates point inward.
+
+- Connect wires to terminal anchors (`mn_inn.S`, `mp_xp.G`, etc.). This avoids small visual stubs and misalignments
+  caused by the internal dimensions of Circuitikz symbols.
+- Mirroring devices is acceptable when it improves schematic readability. For example, mirror PMOS load/precharge
+  devices so their gates point inward.
 
 ## Wires and routing
 
 - Keep routing horizontal and vertical by default.
-- Avoid arbitrary diagonal wires. For a double-tail latch, diagonal wires should only be used for intentional cross-coupled connections.
+- Avoid arbitrary diagonal wires. For a double-tail latch, diagonal wires should only be used for intentional
+  cross-coupled connections.
 - Keep source/drain/gate stubs short. Do not add unnecessary wire length just to label a net.
-- Output nodes may have short horizontal stubs if they improve readability, but avoid drawing extra wires over MOS terminal stubs because overdraw can make one side look visually thicker.
+- Output nodes may have short horizontal stubs if they improve readability, but avoid drawing extra wires over MOS
+  terminal stubs because overdraw can make one side look visually thicker.
 - Use consistent wire widths. Current preferred styles:
+
   ```tex
   wire/.style={line width=0.7pt},
   transistor/.style={line width=0.7pt},
   rail/.style={line width=1.4pt},
   ```
-- For differential circuits, keep the left/right halves visually symmetric unless an intentional asymmetry is being explained.
-- Route bias and clock signals from the outside edge toward device gates; avoid routing labels through the interior of the analog core.
+
+- For differential circuits, keep the left/right halves visually symmetric unless an intentional asymmetry is being
+  explained.
+- Route bias and clock signals from the outside edge toward device gates; avoid routing labels through the interior of
+  the analog core.
 
 ## Rails and supply symbols
 
 - Do not use Circuitikz `node[vdd]` for VDD rails in presentation schematics; it renders as an upward arrow.
 - Prefer manually drawn thick horizontal VDD rails:
+
   ```tex
   \draw[rail] ($(vdd_xp)+(-0.5,0)$) -- ($(vdd_xp)+(0.5,0)$);
   ```
+
 - Keep the vertical connection from device source to VDD rail short.
 - Use the standard Circuitikz `ground` node for ground.
 - Keep the ground connection stub short; avoid long dangling vertical wires before the ground symbol.
-- American and European Circuitikz modes render `node[vdd]` and `node[ground]` identically, so the manual rail is intentional.
+- American and European Circuitikz modes render `node[vdd]` and `node[ground]` identically, so the manual rail is
+  intentional.
 
 ## Text, fonts, and labels
 
 - Net names should be lowercase, monospace, and compact, e.g. `inn`, `inp`, `xp`, `xn`, `clk`.
 - Device annotations should be monospace, left-aligned, and split over three lines:
+
   ```tex
   MP1\\w=120n\\l=100n
   ```
+
 - Use compact nanometer notation with no spaces and no `m`: `w=480n`, not `w=480 nm`.
 - Use `\ttfamily\footnotesize` for both net labels and device annotations unless the figure becomes too crowded:
+
   ```tex
   netlabel/.style={font=\ttfamily\footnotesize},
   devlabel/.style={font=\ttfamily\footnotesize, align=left},
   ```
+
 - Device label clumps should be placed close to their devices but not overlap wires or neighboring labels.
-- When possible, align clumps by their left edge (`align=left`, with an explicit `anchor=west` or `anchor=east` placement) so the device name, `w=...`, and `l=...` form a readable column.
+- When possible, align clumps by their left edge (`align=left`, with an explicit `anchor=west` or `anchor=east`
+  placement) so the device name, `w=...`, and `l=...` form a readable column.
 
 ## Block-diagram style
 
@@ -85,7 +109,8 @@ These notes capture the preferred style for hand-drawn schematic and block-diagr
 - Use rounded rectangles and the presentation palette consistently; avoid mixing arbitrary fill colors.
 - Put command-line or generated-file snippets in monospace terminal-like boxes, not free-floating text.
 - Use short labels on arrows. Put detailed explanations in slide notes, captions, or surrounding text.
-- If a diagram is used in a final deck, keep either the generating `.tex` source or a short note describing the generation path.
+- If a diagram is used in a final deck, keep either the generating `.tex` source or a short note describing the
+  generation path.
 
 ## Example sizing conventions
 
@@ -127,7 +152,10 @@ Use these as starting points for future comparator/preamp schematics rather than
 Keep source files only for figures that are canonical or expected to be edited again. For the FSiC 2026 deck:
 
 1. Keep the retained rendered PDFs that are directly referenced by `docs/slides/2026_07_07_fsic.tex`.
-2. Keep `.tex` sources for the canonical preamp schematics (`preamp_test.tex` and `preamp_pmos.tex`) because they encode the drawing conventions.
+2. Keep `.tex` sources for the canonical preamp schematics (`preamp_test.tex` and `preamp_pmos.tex`) because they encode
+   the drawing conventions.
 3. Treat temporary visual checks (`*_check*.png`, `*_render*.png`, ad-hoc compact variants) as disposable.
-4. Recreate comparator and double-tail Circuitikz sources later only if those schematics return to the final deck or become canonical documentation figures.
-5. For block diagrams such as `adc_block.pdf`, `adc_discrete_model.pdf`, and `arch.pdf`, either keep their original editable source if available or document the generation path before deleting intermediary files.
+4. Recreate comparator and double-tail Circuitikz sources later only if those schematics return to the final deck or
+   become canonical documentation figures.
+5. For block diagrams such as `adc_block.pdf`, `adc_discrete_model.pdf`, and `arch.pdf`, either keep their original
+   editable source if available or document the generation path before deleting intermediary files.

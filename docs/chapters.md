@@ -1,15 +1,14 @@
+# Giga-count rate radiation imaging detectors
 
+## Radiation imaging detectors
 
-Title: Giga-count rate radiation imaging detectors
-
-
-Radition imaging detectors
 - Energy deposition, signal creation: mostly for electrons and photons
 - Ionizing and lattice bulk damage (TID, NIEL, etc)
 - Solid state detector materials
 - Imaging modalities (rates, resolutions, fluences required)
 
-Review of existing systems
+## Review of existing systems
+
 - Achitectures: mostly counting
 - Front ends types integrating vs discriminating
 - Max count rates, hit loss, power consumption, pixel pitch

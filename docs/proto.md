@@ -21,6 +21,7 @@ Note: in this repo the shared utility schema is `utils.proto` (not `util.proto`)
 | Use track/grid-native layout abstraction | `vlsir.tetris.Cell` | `abstract`, `layout`, track/cut/assign/placement primitives |
 
 Typical flow:
+
 1. Build `vlsir.circuit.Package`.
 2. Use `vlsir.netlist.NetlistInput` for text netlisting and/or use `vlsir.spice.SimInput` for simulation.
 3. Build `vlsir.raw.Cell` or `vlsir.tetris.Cell` for physical data.
@@ -64,6 +65,7 @@ flowchart LR
 ```
 
 Core `vlsir.layout.raw` targets for bridging:
+
 - `Rect`: `Rectangle`
 - `Poly`: `Polygon`
 - `Path`: `Path`
@@ -73,42 +75,48 @@ Core `vlsir.layout.raw` targets for bridging:
 
 | Option | Language | Link | Status | Native Output / In-Process Format | `vlsir.raw` Coverage | VLSIR Bridge Effort | Open PDK Examples |
 |---|---|---|---|---|---|---|---|
-| BFG (C++) | C++ | https://github.com/growly/bfg | Active (pushed `2026-02-18`) | Direct `vlsir.raw.Library` + `vlsir.circuit.Package` (`.pb` / `.txt`) | Strong `Rect/Poly/Inst/Text/Abs`; paths typically polygonized | Low | Sky130 + GF180 generators |
-| Layout21 (Rust) | Rust | https://github.com/dan-fritchman/Layout21 | Active-ish (pushed `2025-02-25`) | Native raw/tetris model + `gds2proto` / `proto2gds` converters | Full `Rect/Poly/Path/Inst/Text/Abs`, plus tetris | Very Low | Sky130 examples in converter tests/resources |
-| Substrate2 | Rust | https://github.com/ucb-substrate/substrate2 | Active (pushed `2026-02-18`) | Native `layir`/`scir` IR + `gdsconv`; protobuf (`tonic/prost`) used for cache RPC | Good `Rect/Poly/Inst/Text`; no native `Path`; `Abs`/blockage conventions need adapter | Medium | Sky130 PDK crate and examples |
-| GDSTK | C++ + Python | https://github.com/heitzmann/gdstk | Active (pushed `2026-01-27`) | C++/Python geometry for GDS/OASIS | Good `Rect/Poly/Path/Inst/Text`; `Abs` must be synthesized | Medium | PDK-agnostic (no built-in Sky130/IHP primitives) |
-| StemCells concept (papers) | N/A (papers) | https://doi.org/10.1109/TVLSI.2021.3105028, http://purl.stanford.edu/mv779vk8233 | Research concept (no OSS code) | Algorithmic/template concept | Theoretical only | Very High | None (published concept) |
-| ALIGN primitive generation | Python + C++ | https://github.com/ALIGN-analoglayout/ALIGN-public | Active (pushed `2026-01-13`) | SPICE + `.const.json` -> internal JSON + GDS | Practical via JSON/GDS (`Rect/Poly/Inst`); `Abs` partial | Medium-High | Mock FinFET + ALIGN PDK adapters; no first-class IHP/Sky130 primitive libs |
-| MAGICAL + ConstGen | C++ + Python | https://github.com/magical-eda/MAGICAL | Lower activity (pushed `2024-04-24`) | Internal flow + output GDS + `.sym`/`.symnet` constraints | Mostly via post-conversion from GDS | High | Example analog circuits; no clear maintained IHP/Sky130 primitive path |
-| GDSFactory core | Python | https://github.com/gdsfactory/gdsfactory | Very active (pushed `2026-02-19`) | Python component graph -> GDS/OASIS/etc + metadata | Strong `Rect/Poly/Path/Inst/Text`; `Abs` from ports + outlines with adapter | Medium-Low | Generic framework, many PDKs |
-| GDSFactory IHP PDK (`cells` + `cells2`) | Python | https://github.com/gdsfactory/ihp | Active (pushed `2026-02-17`) | Pure Python parametric cells + wrapped legacy PyCells | Good direct mapping to `Rect/Poly/Path/Inst/Text`; `Abs` derivable | Medium-Low | IHP SG13G2 NMOS/PMOS/res/cap/others |
-| GDSFactory Sky130 PDK | Python | https://github.com/gdsfactory/skywater130 | Active (pushed `2026-02-17`) | Python PCells on top of gdsfactory | Good direct mapping to raw primitives | Medium-Low | Sky130 NMOS/PMOS/caps/res/etc in `sky130/pcells` |
-| Official IHP Open PDK (KLayout PyCells) | Python (KLayout) | https://github.com/IHP-GmbH/IHP-Open-PDK | Active preview (pushed `2026-02-17`) | KLayout tech + Python PyCells (`sg13g2_pycell_lib`) + GDS/LEF libs | Good via KLayout DB (`Rect/Poly/Path/Inst/Text`), `Abs` from pin/obs layers | Medium | IHP SG13G2 official primitives incl MOS/res/cap |
-| Official SkyWater PDK | Mixed (Magic TCL + Python + collateral) | https://github.com/google/skywater-pdk | Maintained but older cadence (pushed `2024-10-28`), experimental-preview docs | Primitive libs + Magic TCL parameterized generators + fixed collateral | Mostly post-generated GDS conversion; limited native Python PCell path | High | SKY130 official primitive libs; wrappers commonly via other tools |
-| KLayout PyPI API (`klayout.db`) | Python (C++ backend) | https://www.klayout.org/klayout-pypi | Active (KLayout pushed `2026-02-14`) | Python geometry DB API (subset of full KLayout) | Strong `Rect/Poly/Path/Inst/Text`; `Abs` requires convention/adapter | Medium-Low | Tooling used by IHP Open PDK and many custom scripts |
-| ciccreator | C++ | https://github.com/wulffern/ciccreator | Active-ish (pushed `2025-06-22`) | Custom `*.cic` format (README: GDS/SPICE removed; use `cicpy` converters) | Indirect via conversion pipeline | High | Some Sky130-related ecosystem mention (`aicex`) |
-| BAG (Blue Cheetah) | Python | https://github.com/bluecheetah/bag | Active-ish (pushed `2024-07-24`) | OA-centric analog generator flow | Potentially high, but requires custom OA->VLSIR bridge | High | Mostly non-open/ NDA PDK usage patterns |
-| Laygo2 | Python | https://github.com/niftylab/laygo2 | Maintenance mode (README note since Sep 2024; pushed `2025-06-22`) | Grid/template-based Python layout generation | Good geometry-level mapping; abstract metadata custom | Medium | Open examples exist; no strong official IHP/Sky130 primitive stack |
+| BFG (C++) | C++ | <https://github.com/growly/bfg> | Active (pushed `2026-02-18`) | Direct `vlsir.raw.Library` + `vlsir.circuit.Package` (`.pb` / `.txt`) | Strong `Rect/Poly/Inst/Text/Abs`; paths typically polygonized | Low | Sky130 + GF180 generators |
+| Layout21 (Rust) | Rust | <https://github.com/dan-fritchman/Layout21> | Active-ish (pushed `2025-02-25`) | Native raw/tetris model + `gds2proto` / `proto2gds` converters | Full `Rect/Poly/Path/Inst/Text/Abs`, plus tetris | Very Low | Sky130 examples in converter tests/resources |
+| Substrate2 | Rust | <https://github.com/ucb-substrate/substrate2> | Active (pushed `2026-02-18`) | Native `layir`/`scir` IR + `gdsconv`; protobuf (`tonic/prost`) used for cache RPC | Good `Rect/Poly/Inst/Text`; no native `Path`; `Abs`/blockage conventions need adapter | Medium | Sky130 PDK crate and examples |
+| GDSTK | C++ + Python | <https://github.com/heitzmann/gdstk> | Active (pushed `2026-01-27`) | C++/Python geometry for GDS/OASIS | Good `Rect/Poly/Path/Inst/Text`; `Abs` must be synthesized | Medium | PDK-agnostic (no built-in Sky130/IHP primitives) |
+| StemCells concept (papers) | N/A (papers) | <https://doi.org/10.1109/TVLSI.2021.3105028>, <http://purl.stanford.edu/mv779vk8233> | Research concept (no OSS code) | Algorithmic/template concept | Theoretical only | Very High | None (published concept) |
+| ALIGN primitive generation | Python + C++ | <https://github.com/ALIGN-analoglayout/ALIGN-public> | Active (pushed `2026-01-13`) | SPICE + `.const.json` -> internal JSON + GDS | Practical via JSON/GDS (`Rect/Poly/Inst`); `Abs` partial | Medium-High | Mock FinFET + ALIGN PDK adapters; no first-class IHP/Sky130 primitive libs |
+| MAGICAL + ConstGen | C++ + Python | <https://github.com/magical-eda/MAGICAL> | Lower activity (pushed `2024-04-24`) | Internal flow + output GDS + `.sym`/`.symnet` constraints | Mostly via post-conversion from GDS | High | Example analog circuits; no clear maintained IHP/Sky130 primitive path |
+| GDSFactory core | Python | <https://github.com/gdsfactory/gdsfactory> | Very active (pushed `2026-02-19`) | Python component graph -> GDS/OASIS/etc + metadata | Strong `Rect/Poly/Path/Inst/Text`; `Abs` from ports + outlines with adapter | Medium-Low | Generic framework, many PDKs |
+| GDSFactory IHP PDK (`cells` + `cells2`) | Python | <https://github.com/gdsfactory/ihp> | Active (pushed `2026-02-17`) | Pure Python parametric cells + wrapped legacy PyCells | Good direct mapping to `Rect/Poly/Path/Inst/Text`; `Abs` derivable | Medium-Low | IHP SG13G2 NMOS/PMOS/res/cap/others |
+| GDSFactory Sky130 PDK | Python | <https://github.com/gdsfactory/skywater130> | Active (pushed `2026-02-17`) | Python PCells on top of gdsfactory | Good direct mapping to raw primitives | Medium-Low | Sky130 NMOS/PMOS/caps/res/etc in `sky130/pcells` |
+| Official IHP Open PDK (KLayout PyCells) | Python (KLayout) | <https://github.com/IHP-GmbH/IHP-Open-PDK> | Active preview (pushed `2026-02-17`) | KLayout tech + Python PyCells (`sg13g2_pycell_lib`) + GDS/LEF libs | Good via KLayout DB (`Rect/Poly/Path/Inst/Text`), `Abs` from pin/obs layers | Medium | IHP SG13G2 official primitives incl MOS/res/cap |
+| Official SkyWater PDK | Mixed (Magic TCL + Python + collateral) | <https://github.com/google/skywater-pdk> | Maintained but older cadence (pushed `2024-10-28`), experimental-preview docs | Primitive libs + Magic TCL parameterized generators + fixed collateral | Mostly post-generated GDS conversion; limited native Python PCell path | High | SKY130 official primitive libs; wrappers commonly via other tools |
+| KLayout PyPI API (`klayout.db`) | Python (C++ backend) | <https://www.klayout.org/klayout-pypi> | Active (KLayout pushed `2026-02-14`) | Python geometry DB API (subset of full KLayout) | Strong `Rect/Poly/Path/Inst/Text`; `Abs` requires convention/adapter | Medium-Low | Tooling used by IHP Open PDK and many custom scripts |
+| ciccreator | C++ | <https://github.com/wulffern/ciccreator> | Active-ish (pushed `2025-06-22`) | Custom `*.cic` format (README: GDS/SPICE removed; use `cicpy` converters) | Indirect via conversion pipeline | High | Some Sky130-related ecosystem mention (`aicex`) |
+| BAG (Blue Cheetah) | Python | <https://github.com/bluecheetah/bag> | Active-ish (pushed `2024-07-24`) | OA-centric analog generator flow | Potentially high, but requires custom OA->VLSIR bridge | High | Mostly non-open/ NDA PDK usage patterns |
+| Laygo2 | Python | <https://github.com/niftylab/laygo2> | Maintenance mode (README note since Sep 2024; pushed `2025-06-22`) | Grid/template-based Python layout generation | Good geometry-level mapping; abstract metadata custom | Medium | Open examples exist; no strong official IHP/Sky130 primitive stack |
 
 ### Notes
-- `substrate2` does use protobuf, but for cache RPC (`libs/cache/proto/*.proto` + `tonic/prost` codegen), not as a VLSIR-like circuit/layout interchange schema.
+
+- `substrate2` does use protobuf, but for cache RPC (`libs/cache/proto/*.proto` + `tonic/prost` codegen), not as a
+  VLSIR-like circuit/layout interchange schema.
 - For your immediate goal (unit NMOS/PMOS + resistor + MOM/MIM cap footprints), the lowest-friction paths are:
   1. `IHP` and `skywater130` gdsfactory PDKs (Python-first),
   2. official IHP KLayout PyCells,
   3. direct KLayout PyPI API for custom generators.
-- BFG/Layout21 are the strongest references for **native VLSIR-first** layout serialization, but are not drop-in PDK primitive providers for your exact device set.
+- BFG/Layout21 are the strongest references for **native VLSIR-first** layout serialization, but are not drop-in PDK
+  primitive providers for your exact device set.
 
 ## Primitive Drawing Command Comparison (Generator-Level)
 
 Expanded scan scope for this table:
+
 - `BFG`: `libs/bfg/src/**/*.cc`, `libs/bfg/src/**/*.h`
 - `IHP PyCells`: `libs/IHP/ihp/cells2/ihp_pycell/**/*.py`
 - `IHP GDSFactory PCells`: `libs/IHP/ihp/cells/**/*.py`, `libs/IHP/ihp/cells2/**/*.py`
 - `KLayout API check`: runtime introspection via `uv run python` on `klayout.db` (PyPI package)
 
 Top API counts from the expanded scan:
+
 - `BFG`: `AddRectangle (221)`, `SetActiveLayerByName (137)`, `MakeVia (88)`, `AddPolygon (81)`, `SavePoint (57)`
-- `IHP PyCells`: `dbCreateRect (473)`, `dbCreatePolygon (192)`, `dbCreateRectArray (134)`, `dbCreateLabel (79)`, `MkPin (63)`
+- `IHP PyCells`: `dbCreateRect (473)`, `dbCreatePolygon (192)`, `dbCreateRectArray (134)`, `dbCreateLabel (79)`,
+  `MkPin (63)`
 - `IHP GDSFactory`: `components.rectangle (176)`, `add_ref (160)`, `add_port (97)`, `add_label (39)`, `boolean (15)`
 
 ### BFG Primitive Library Layering (`libs/bfg/src/layout.h`)
@@ -123,6 +131,7 @@ Top API counts from the expanded scan:
 ### Transistor Generator Leaf Audit
 
 Audit scope:
+
 - FRIDA KLayout PyPI: `flow/layout/nmos.py`, `flow/layout/layout.py`
 - Layout21: API and schema capability review from `layout21raw` and `layout21tetris`
 - BFG: `libs/bfg/src/atoms/sky130_simple_transistor.cc`
@@ -130,6 +139,7 @@ Audit scope:
 - IHP GDSFactory: `libs/IHP/ihp/cells/fet_transistors.py`, wrapper path `libs/IHP/ihp/cells2/mos_transistors.py`
 
 Legend:
+
 - `✅` API/function family is available in the library
 - `⚠️` partial support or composition required
 - `❌️` not available as a first-class API item
@@ -167,7 +177,9 @@ primitive-cell generators.
 
 Legend: ✅ = directly supported in spec/parser, ⚠️ = partial/indirect, ❌️ = not first-class.
 
-`tech.proto` today is mostly a layer catalog: `Technology` with `LayerInfo` entries (`name`, `index`, `sub_index`) and a `LayerPurpose` type (`LABEL`, `DRAWING`, `PIN`, `OBSTRUCTION`, `OUTLINE`). It does not yet include rule-deck rules such as pitch/width/spacing/enclosure.
+`tech.proto` today is mostly a layer catalog: `Technology` with `LayerInfo` entries (`name`, `index`, `sub_index`) and a
+`LayerPurpose` type (`LABEL`, `DRAWING`, `PIN`, `OBSTRUCTION`, `OUTLINE`). It does not yet include rule-deck rules such
+as pitch/width/spacing/enclosure.
 
 | Rule (Y-axis) | CICC / ciccreator | ALIGN | MAGICAL | TECHLEF + OpenROAD |
 |---|---|---|---|---|
@@ -224,8 +236,11 @@ Legend: ✅ = first-class constraint/support, ⚠️ = indirect or limited, ❌�
 ## Literature-Grounded Constraint Priorities (Wei + Fritchman Ch. 7)
 
 - Hard classes to preserve: `technological constraints` (DRC) and `functional constraints` (post-layout performance).
-- Geometric constraints to carry explicitly: symmetry (devices and nets), proximity, routing shielding, wire widening/multi-wire for critical current paths, common-centroid/interdigitation where needed, and flexible floorplanning.
-- ALIGN-centric practical list from Fritchman Ch.7: virtual hierarchy (`Group`), symmetry, `Order`/`Align`/`Floorplan`, route-layer requests, and multi-track routing requests.
+- Geometric constraints to carry explicitly: symmetry (devices and nets), proximity, routing shielding, wire
+  widening/multi-wire for critical current paths, common-centroid/interdigitation where needed, and flexible
+  floorplanning.
+- ALIGN-centric practical list from Fritchman Ch.7: virtual hierarchy (`Group`), symmetry, `Order`/`Align`/`Floorplan`,
+  route-layer requests, and multi-track routing requests.
 
 ## Evidence: Examples + Ingest Code Paths
 
@@ -265,6 +280,7 @@ Legend: ✅ = first-class constraint/support, ⚠️ = indirect or limited, ❌�
 The older proto sketch previously shown here is superseded.
 
 Current source of truth is `Vlsir/protos/tech.proto`, where `RuleDeck` already includes:
+
 - LEF units and manufacturing grid
 - per-layer rule sets
 - via and via-rule definitions
@@ -272,11 +288,15 @@ Current source of truth is `Vlsir/protos/tech.proto`, where `RuleDeck` already i
 - typed sub-structures for routing, cuts, antenna, density, spacing tables, and enclosure rules
 
 FRIDA layout API alignment:
-- `TechnologyData` now carries layout-facing process identity only (`name`, `packages`, `model_libraries`, `layer_infos`, `rule_deck`)
+
+- `TechnologyData` now carries layout-facing process identity only (`name`, `packages`, `model_libraries`,
+  `layer_infos`, `rule_deck`)
 - transistor minimum rules are not serialized in the layout tech payload
-- minimum poly `WIDTH` and `MINLENGTH` remain in per-layer rule statements and define min transistor geometry for primitive generators
+- minimum poly `WIDTH` and `MINLENGTH` remain in per-layer rule statements and define min transistor geometry for
+  primitive generators
 
 Design intent:
+
 - Layout package should not carry netlist-runtime voltage rail policy.
 - Voltage rails remain part of netlist/simulation PDK metadata, not the layout-rule API.
 
@@ -327,25 +347,29 @@ message Constraint {
 ```
 
 Required field coverage for concept completeness (informed by CICC/ALIGN/MAGICAL):
+
 - Symmetry + matching: device pairs, self-symmetry, net-pair pin mapping, symmetry axis.
 - Grouping + hierarchy: virtual groups and template/group names.
 - Relative placement: order, alignment edge/center, row/column floorplan.
 - Shape/outline controls: boundary, halo, aspect ratio, distance constraints.
 - Grid legality: direction, pitch, legal offsets/scalings.
 - Pin intent: side/region/location, mirrored/grouped IO where needed.
-- Routing intent: min/max layers, width/spacing multiplier, shielding net, criticality, multi-wire multiplier, do-not-route lists.
+- Routing intent: min/max layers, width/spacing multiplier, shielding net, criticality, multi-wire multiplier,
+  do-not-route lists.
 - Analog structures: guard ring parameters and cap-group ratios/dummy policy.
 - Objective metadata: hard/soft and priority, plus optional charge-flow waveforms.
 
 ### 3) Translator Interface Requirements (Hdl21 -> VLSIR -> OpenROAD/KLayout)
 
 To avoid ad-hoc sidecars as the primary data model, each run should emit:
+
 - `circuit.proto`: connectivity and parameters.
 - `layout/raw.proto`: generated primitive or assembled geometry.
 - `tech.proto` (extended): process rules consumed by generators and route mapping.
 - `constraints.proto` (new): placement/routing/matching intents.
 
 Then use dedicated emitters:
+
 - `VLSIR -> OpenROAD Tcl/SDC/DEF/ODB` emitters for actionable digital-PnR commands.
 - `VLSIR -> KLayout` emitter for debug/inspection/DRC-oriented views.
 - No requirement to emit native `ciccreator`/`ALIGN`/`MAGICAL` input files.
@@ -374,16 +398,20 @@ Goal: keep VLSIR canonical and tool-neutral; make tool files (`.tcl`, `.sdc`, `t
 ## DEF-to-Tetris Coverage Audit (Draft)
 
 Source scanned for DEF components:
+
 - `/home/kcaisley/libs/lefdefref/lefdef6man/DEFSyntax.html`
 - Specifically the "DEF Statement Definitions" list and statement-order section.
 
 Coverage key:
+
 - `Full`: direct first-class representation in `vlsir.tetris`.
 - `Partial`: can be approximated or represented indirectly.
 - `None`: no direct representation today.
 
 Width/NDR nuance in `tetris.proto`:
-- Track-wire width exists at `Stack.metals[].entries[].entry.width` and `Stack.metals[].entries[].repeat.entries[].width`.
+
+- Track-wire width exists at `Stack.metals[].entries[].entry.width` and
+  `Stack.metals[].entries[].repeat.entries[].width`.
 - Trace gaps are explicit with `Stack.metals[].entries[].entry.ttype = GAP` and repeated by `repeat.entries[].ttype`.
 - Track classes are explicit with `TrackEntry.ttype` (`GAP`, `SIGNAL`, `RAIL`).
 - Default cut size exists at `Stack.metals[].cutsize`.
@@ -421,8 +449,10 @@ Width/NDR nuance in `tetris.proto`:
 | `TECHNOLOGY` | `Stack`, `MetalLayer`, `ViaLayer`, `PrimitiveLayer` | Partial | Layer stack intent is represented, but DEF technology statement scope is broader. |
 
 Immediate implication:
+
 - `vlsir.tetris` is a good IR for grid-native placement/routing intent.
-- It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic patterns, and via/cut sizes.
+- It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic
+  patterns, and via/cut sizes.
 - It is not a lossless DEF schema today.
 - A DEF emitter from `tetris` should be treated as a lowering pass with defaults/assumptions for missing DEF sections.
 
@@ -437,5 +467,8 @@ Immediate implication:
 | Implant enclosure and spacing to opposite implants | `X` | `PP.S.2 { EXT PP NACT < PP_S_2 ... }`<br>`NP.S.2 { EXT NP PACT < NP_S_2 ... }`<br>`PP.EN.1 { ENC POLY IMP < PP_EN_1 ... }`<br>`PP.R.2 { PP AND NP }` | `PP.S.2 { exte PP NACT -lt PP_S_2 ... }`<br>`NP.S.2 { exte NP PACT -lt NP_S_2 ... }`<br>`PP.EN.1 { enc POLY IMP -lt PP_EN_1 ... }`<br>`PP.R.2 { and PP NP; }` |
 
 Notes:
-- LEF is strong for routing/cut stack constraints (`WIDTH`, `AREA`, `SPACING`, `SPACINGTABLE`, `ENCLOSURE`, `ADJACENTCUTS`), but not a full FEOL implant-opposition rule language.
-- PVS and Calibre decks both express FEOL/BEOL checks procedurally, including conditional PRL spacing and implant-opposition constraints.
+
+- LEF is strong for routing/cut stack constraints (`WIDTH`, `AREA`, `SPACING`, `SPACINGTABLE`, `ENCLOSURE`,
+  `ADJACENTCUTS`), but not a full FEOL implant-opposition rule language.
+- PVS and Calibre decks both express FEOL/BEOL checks procedurally, including conditional PRL spacing and
+  implant-opposition constraints.

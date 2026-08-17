@@ -81,6 +81,7 @@ Xdut inp inn outp outn clk vdd vss my_comparator
 ```
 
 Key points:
+
 - Each input port needs a `Vname node 0 0 external` declaration
 - Output nodes are read by matching Verilog port names to SPICE node names
 - Supplies are typically fixed (`Vvdd vdd 0 1.2`), not `external`, because
@@ -116,6 +117,7 @@ amsd {
 ```
 
 Key points:
+
 - `simulator lang=spectre` is required at the top
 - `amsd {}` block configures the mixed-signal boundary:
   - `config cell=comp use=spice` — tells Xcelium to replace the Verilog
@@ -149,6 +151,7 @@ Key points:
 | FST `.fst` | Icarus (cocotb `waves=True`) | Yes (native) | No | No | No | via `fst2vcd` |
 
 Notes on the spicebind + Icarus waveform output:
+
 - cocotb hard-codes **FST** format for Icarus (not VCD). Set `waves=True`
   on both `runner.build()` and `runner.test()` to enable it.
 - VCD dumping via `$dumpvars` is **suppressed** when cocotb's VPI

@@ -121,7 +121,7 @@ floorplan.makeTracks(m1, x_offset, x_pitch, y_offset, y_pitch)
 
 **MAGICAL LEF (parsed automatically):**
 
-```
+```text
 LAYER M1
     TYPE ROUTING ;
     DIRECTION VERTICAL ;
@@ -281,7 +281,7 @@ design.evalTclString(
 
 **MAGICAL `.symnet` file (drives pin symmetry):**
 
-```
+```text
 VINP VINN
 VOUTP VOUTN
 ```

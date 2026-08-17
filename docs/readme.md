@@ -6,7 +6,9 @@ Run the documentation build from this directory:
 make
 ```
 
-The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Generated image outputs are kept in `docs/images/`; complete slide/document PDFs and LaTeX build collateral are written to `docs/tex/`.
+The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept
+in `docs/`, `docs/slides/`, and `docs/images/`. Generated image outputs are kept in `docs/images/`; complete
+slide/document PDFs and LaTeX build collateral are written to `docs/tex/`.
 
 ## `netlistsvg`
 
@@ -30,8 +32,11 @@ Outputs:
 
 Notes:
 
-- `images/preamp_netlistsvg.svg` and `images/preamp_netlistsvg.pdf` are curated analog renders and are intentionally not regenerated from `images/preamp_netlistsvg.v`, because the automatic Yosys/netlistsvg path loses the MOS-symbol styling.
-- The makefile sanitizes unsupported bidirectional/inout directions in netlistsvg JSONs before rendering with the current `netlistsvg` CLI.
+- `images/preamp_netlistsvg.svg` and `images/preamp_netlistsvg.pdf` are curated analog renders and are intentionally not
+  regenerated from `images/preamp_netlistsvg.v`, because the automatic Yosys/netlistsvg path loses the MOS-symbol
+  styling.
+- The makefile sanitizes unsupported bidirectional/inout directions in netlistsvg JSONs before rendering with the
+  current `netlistsvg` CLI.
 
 ## WaveDrom
 

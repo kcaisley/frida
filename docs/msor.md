@@ -4,13 +4,18 @@
 
 The system has three cleanly separated concerns:
 
-1. **VLSIR (existing)** — Emits LEF abstracts from primitive layouts and structural Verilog netlists from hdl21 circuit descriptions. Already works via `flow/layout/serialize.py` and `vlsirtools.netlist`. Don't touch the core; extend with new emitters only.
+1. **VLSIR (existing)** — Emits LEF abstracts from primitive layouts and structural Verilog netlists from hdl21 circuit
+   descriptions. Already works via `flow/layout/serialize.py` and `vlsirtools.netlist`. Don't touch the core; extend
+   with new emitters only.
 
-2. **Constraint language (new: `flow/constraint/`)** — Python dataclasses modeled on hdl21+ALIGN syntax that capture analog placement/routing intent (symmetry pairs, net groups, ordering, routing rules). Tool-neutral; no OpenROAD semantics leak in.
+2. **Constraint language (new: `flow/constraint/`)** — Python dataclasses modeled on hdl21+ALIGN syntax that capture
+   analog placement/routing intent (symmetry pairs, net groups, ordering, routing rules). Tool-neutral; no OpenROAD
+   semantics leak in.
 
-3. **TCL generation (new: `flow/openroad/`)** — Takes VLSIR artifacts (LEF, Verilog, DEF) plus constraint objects and emits a self-contained `.tcl` script that OpenROAD can `source`. The Python side's job ends once the TCL is written.
+3. **TCL generation (new: `flow/openroad/`)** — Takes VLSIR artifacts (LEF, Verilog, DEF) plus constraint objects and
+   emits a self-contained `.tcl` script that OpenROAD can `source`. The Python side's job ends once the TCL is written.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Python generator side                                              │
 │                                                                     │
@@ -284,7 +289,7 @@ Python reimplementation.
 The `VerilogNetlister` in `vlsirtools/netlist/verilog.py` already emits
 structural Verilog from `vlsir.circuit.Package`. The frida path is:
 
-```
+```text
 hdl21 Module → h.to_proto() → vlsir.circuit.Package → vlsirtools.netlist(pkg, fmt='verilog') → .v
 ```
 
@@ -347,7 +352,17 @@ Alternatively, this can be omitted entirely if the TCL script uses
 initial placement from just LEF + Verilog + floorplan commands.
 
 - [ ] `flow/layout/def_writer.py`
-  - [ ] `emit_initial_def(module_name: str, instances: list[tuple[str, str]], die_area: tuple[int,int,int,int] | None, out: Path) -> Path`
+  - [ ] Add `emit_initial_def`:
+
+    ```python
+    def emit_initial_def(
+        module_name: str,
+        instances: list[tuple[str, str]],
+        die_area: tuple[int, int, int, int] | None,
+        out: Path,
+    ) -> Path:
+    ```
+
     - Emit `VERSION`, `DESIGN`, `UNITS`
     - Emit `DIEAREA` if provided, otherwise omit (let `initialize_floorplan` handle it)
     - Emit `COMPONENTS` section: each instance with `UNPLACED` status
@@ -564,9 +579,11 @@ Wire up all three components for the comparator as a proof-of-concept.
 ### 4b. CLI Extension
 
 - [ ] Extend `flow/cli.py` with a new `openroad` subcommand:
-  ```
+
+  ```text
   flow openroad -c comp -t ihp130 -o build/
   ```
+
   - Calls `run_openroad_prep()` to generate all input files
   - Prints summary: file paths, constraint count, stem cell count
   - Does NOT run OpenROAD (that's manual: `openroad build/flow.tcl`)
@@ -575,7 +592,7 @@ Wire up all three components for the comparator as a proof-of-concept.
 
 ## Execution Order and Dependencies
 
-```
+```text
 Phase 0: Verify existing tools work (no code changes — just testing)
   ├── Compile Layout21: cargo build --release in libs/Layout21/
   ├── Test vlsirtools verilog: python -m flow.comp.sim netlist -t ihp130 -f verilog

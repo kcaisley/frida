@@ -1,0 +1,32 @@
+[global]
+line-length = 120
+
+[MD007]
+indent = 2
+
+[MD009]
+strict = true
+
+[MD013]
+line-length = 120
+code-blocks = false
+tables = false
+reflow = true
+
+[MD024]
+allow-different-nesting = true
+
+[MD029]
+style = "ordered"
+
+[MD033]
+allowed-elements = ["br", "img", "p"]
+
+[MD046]
+style = "fenced"
+
+[per-file-ignores]
+# These archival research notes refer to figures and papers stored outside the
+# repository. Keep link checking enabled for maintained project documentation.
+"docs/background.md" = ["MD057"]
+"docs/literature.md" = ["MD057"]

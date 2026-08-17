@@ -1,5 +1,4 @@
-
-### `odb` — low-level database API
+# `odb` — low-level database API
 
 Direct access to the OpenDB C++ objects via SWIG bindings. Used for reading and
 writing the design database at the object level: instances, nets, routing guides,
@@ -161,7 +160,7 @@ d.evalTclString(f"write_def {script_dir}/{cell}_placed_routed.def")
 - [docs/or_analog.md](or_analog.md) — placement
   status options, routing guide API, symmetric routing workaround detail,
   Python vs TCL feature comparison table
-- [docs/man_openroad.md](man_openroad.md) — full
+- [docs/openroad.md](openroad.md) — full
   TCL command reference for OpenROAD
 - OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source
   tree — the most complete examples of the `odb` Python API

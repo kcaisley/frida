@@ -12,7 +12,7 @@ with symmetric routing handled via guide mirroring rather than native tool suppo
 
 ## Algorithm outline
 
-```
+```text
 Inputs
 ├── tech lef            (from pdk)
 ├── primitive lefs      (from primitive generator sweep)

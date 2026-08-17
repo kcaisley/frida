@@ -2,26 +2,26 @@
 
 ## Scan development contracts
 
-`flow/scans/runner.py` is the executable hardware-scan entry point.  Each named
+`flow/scans/runner.py` is the executable hardware-scan entry point. Each named
 target owns its complete parameter recipe and output path, builds a flat list
 of fully specified `*TbParams`, and hands those configurations to exactly one
-of `scan_adc.scan`, `scan_comp.scan`, or `scan_cdac.scan`.  The scan modules are
-acquisition libraries, not command-line programs.  A runner may define
+of `scan_adc.scan`, `scan_comp.scan`, or `scan_cdac.scan`. The scan modules are
+acquisition libraries, not command-line programs. A runner may define
 `BASE_PATH`; campaign-specific directories, selections, and constants belong
 inside the target that uses them.
 
 Each parameter configuration creates one typed HDF5 measurement in a new
-timestamped `build/scan_<kind>/<timestamp>/` directory.  The file contains one
+timestamped `build/scan_<kind>/<timestamp>/` directory. The file contains one
 logical measurement with native `/info`, `/param`, `/daq`, and `/wave` groups.
 The HDF5 files themselves are the campaign record; do not add a manifest or a
 second sweep-policy object beside them.
 
 Keep Basil instrument calls, safety limits, output enables, resource lifetime,
-and `try`/`finally` shutdown visible in the scan procedure.  Extract helpers
+and `try`/`finally` shutdown visible in the scan procedure. Extract helpers
 only for pure calculations/data transformations or for atomic FRIDA protocols
 that Basil does not expose, such as PLL handshakes, SPI packing, and FastRX
-decoding.  Do not wrap a short recognizable sequence of Basil calls merely to
-shorten a scan function.  When refactoring a sweep, preserve safety ordering,
+decoding. Do not wrap a short recognizable sequence of Basil calls merely to
+shorten a scan function. When refactoring a sweep, preserve safety ordering,
 requested trials, frame/identifier and loss validation, SPI readback, and the
 waveforms needed to validate each distinct timing sequence.
 
