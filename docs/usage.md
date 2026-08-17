@@ -56,95 +56,81 @@ uv run python -m flow.mosfet.primitive -t ihp130 -m max -v
 
 ## Circuit netlists
 
-Each circuit testbench module generates its own netlists:
+ADC, comparator, sampler, and CDAC simulations use the same named-target
+interface. Omitting the target prints the choices without generating or
+running anything:
 
 ```bash
-uv run python -m flow.<block>.sim netlist \
-  [-t <tech>] [-m <mode>] [-f <format>] \
-  [--scope <scope>] [--montecarlo] [-o <dir>]
+uv run python -m flow.adc.sim
+uv run python -m flow.comp.sim
+uv run python -m flow.samp.sim
+uv run python -m flow.cdac.sim
 ```
 
-This flag-driven interface remains for `samp` and `cdac`. Comparator generation
-uses reviewed, zero-argument named targets instead:
+Each target owns its reviewed parameter recipe and either prepares every deck
+or runs every case. Netlist-only targets exercise the complete testbench and
+parameter expansion without launching Spectre:
 
 ```bash
-# Fabricated-size comparator core only
+# ADC generated-view and extracted-view campaign decks
+uv run python -m flow.adc.sim hdl21gen_noise_vs_rate_netlists
+uv run python -m flow.adc.sim frida65a_noise_vs_rate_netlists
+
+# All 297 comparator candidate decks
+uv run python -m flow.comp.sim frida65_candidate_netlists
+
+# Standalone sampler and CDAC decks
+uv run python -m flow.samp.sim frida65_baseline_netlist
+uv run python -m flow.cdac.sim frida65_baseline_netlist
+
+# Fabricated-size comparator core netlist
 uv run python -m flow.comp.sim frida65_baseline_netlist
-
-# All 297 production decks, without simulation
-uv run python -m flow.comp.sim frida65_candidate_decks
-```
-
-The generic sampler/CDAC netlist command uses the following options; they do
-not apply to the named comparator targets.
-
-| Option | Values | Default |
-|---|---|---|
-| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-m, --mode` | `min`, `max` | `max` |
-| `-f, --fmt` | `spectre`, `ngspice`, `verilog` | `spectre` |
-| `--scope` | `dut`, `stim`, `full` | `full` |
-| `--montecarlo` | add Monte Carlo analysis | off |
-| `-o, --out` | output root | `build` |
-
-`min` writes the first ten parameter variants; `max` writes all valid
-variants. Results are written below `<output root>/<block>/`.
-
-| Scope | Contents |
-|---|---|
-| `dut` | DUT subcircuit hierarchy only |
-| `stim` | DUT plus testbench wrapper and stimulus |
-| `full` | complete simulator input, including analyses and save commands |
-
-`verilog` only supports `--scope dut`. Monte Carlo requires `--scope full`.
-
-```bash
-# CDAC stimulus wrapper without analysis commands
-uv run python -m flow.cdac.sim netlist -t tsmc65 --scope stim
 ```
 
 ## Circuit simulation
 
-The sampler and CDAC testbench modules retain the generic SPICE interface:
+Simulation targets use the same interface and always create a fresh complete
+run beneath `build/sim/<module>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
-uv run python -m flow.<block>.sim simulate \
-  [-t <tech>] [-m <mode>] [-s <simulator>] \
-  [--montecarlo] [-o <dir>]
-```
+# Short executable checks
+uv run python -m flow.adc.sim hdl21gen_noise_smoke
+uv run python -m flow.adc.sim frida65a_noise_smoke
+uv run python -m flow.comp.sim frida65_candidate_smoke
 
-| Option | Values | Default |
-|---|---|---|
-| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-m, --mode` | `min`, `max` | `min` |
-| `-s, --simulator` | `spectre`, `ngspice`, `xyce` | `spectre` |
-| `--montecarlo` | add Monte Carlo analysis | off |
-| `-o, --out` | output directory | `build` |
+# Reviewed ADC noise campaigns
+uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
+uv run python -m flow.adc.sim frida65a_noise_vs_rate
 
-Simulation requires the selected simulator executable on `PATH` and a
-configured simulation host.
-
-```bash
-# Full transient-noise FRIDA-size baseline
+# Comparator campaigns
 uv run python -m flow.comp.sim frida65_baseline_noise
+uv run python -m flow.comp.sim frida65_candidates
 
-# Two deterministic campaign shards, intended for separate simulation hosts
-uv run python -m flow.comp.sim frida65_candidates_shard0
-uv run python -m flow.comp.sim frida65_candidates_shard1
-
-# After both shards have been collected under build/comp
-uv run python -m flow.comp.sim frida65_reconvert_h5
-uv run python -m flow.analysis.runner comp_candidate_sweep
+# First standalone block-level simulations
+uv run python -m flow.samp.sim frida65_baseline_transient
+uv run python -m flow.cdac.sim frida65_baseline_transient
 ```
 
-Comparator cases are resumable beneath
-`build/comp/frida65_candidate_scurve_power/candidates/`. Each completed case
-contains `input.scs`, `result.raw`, `spectre.log`, and typed `result.h5` files.
-The analysis target requires the complete 297-case manifest and writes its
-Σ(W×L)-ordered noise, power, and settling comparison beneath
-`build/analysis/comp`. It also writes a noise-versus-power trade-off plot for
-valid, resolved candidates, with settling encoded by color and the fabricated
-FRIDA comparator highlighted.
+The ADC and comparator runners convert completed raw results to typed HDF5 in
+each case directory. Sampler and CDAC retain the Spectre raw result and log;
+their first standalone simulations do not yet have a measurement schema or an
+analysis consumer. The comparator analysis validates the 297 typed HDF5 files
+and their embedded candidate metadata directly, without a separate campaign
+manifest. Accepted analysis directories remain explicit paths in
+`flow.analysis.runner` and are updated manually after reviewing a run.
+
+Executable targets intentionally write a compact standalone Spectre input and
+invoke Spectre directly. This keeps the exact deck, log, raw data, and typed
+HDF5 conversion together in each case directory. The shared code only
+serializes a completed HDL21 `Sim`; campaign selection, parameters, and
+execution remain owned by the named module target.
+
+Each module sets `MAX_PARALLEL_SIMULATIONS` and
+`SPECTRE_THREADS_PER_SIMULATION` at the top of its runner. The first limits the
+number of concurrently executing cases; the second becomes Spectre's `+mt`
+value for each case. Set their product to the intended total CPU allocation.
+Simulation targets require `spectre` on `PATH`; source
+`design/spice/workspace.sh` first when necessary.
 
 ## Netlist conversion
 
@@ -195,17 +181,75 @@ under `design/`; see [`openroad.md`](openroad.md) for project-specific notes.
 
 ## ADC scans
 
-Hardware acquisition is a direct Basil module:
+Hardware acquisition uses explicit targets in the physical scan runner:
 
 ```bash
-uv run python -m flow.scans.scan_adc
+uv run python -m flow.scans.runner --help
 ```
 
-Define the sweep in `flow/scans/params.py::build_variants()`. Each run writes
-one typed HDF5 measurement per parameter variant below a fresh timestamped
-`build/scan_adc/` directory. Each file contains the complete parameters,
-instrument readbacks, all ADC conversions, and representative scope waveforms;
-there is no separate CSV or manifest.
+The explicit ADC00--ADC03 slow-ramp campaign uses the same acquisition path:
+
+```bash
+uv run python -m flow.scans.runner adc_ramp_code_density
+```
+
+It records one four-million-conversion sawtooth capture per ADC for transfer,
+code-density, DNL, and INL analysis. The stored DOUT is retained as the
+uncalibrated result; BOUT can also be decoded in memory with the measured P/N
+CDAC weights for the switching direction selected by each element's programmed
+A-state. The A-state determines the direction of any physical change: an
+element initially at zero can only rise, while one initially at one can only
+fall. BOUT separately selects the final states imposed by the SAR logic:
+`P_final = 1 - BOUT` and `N_final = BOUT`. Therefore BOUT does not always mean
+"move P" or "move N". For one capacitor pair, the calibrated weight is the
+distance between its two possible BOUT endpoints, equal to the sum of its
+direction-matched P and N movements. The `adc_ramp_nonlinearity` analysis runner
+performs this decoding.
+
+```bash
+uv run python -m flow.analysis.runner adc_ramp_nonlinearity
+```
+
+The maintained runner pins one reviewed ADC00--ADC03 ramp directory and the
+reviewed CDAC campaign directories. It validates transport counters and capture
+lengths, excludes eight conversions after each detected sawtooth flyback,
+requires both decodings to be monotonic within 2 LSB, and writes the plots plus
+one consolidated metrics CSV below a fresh `build/analysis/adc/` directory.
+
+The digital-calibration flow compares three ways to derive backend BOUT weights
+for ADC00. `calibration1.py` uses the direction-matched physical CDAC S-curves,
+`calibration2.py` performs a nonnegative fit against the known ramp, and
+`calibration3.py` extracts the all-zero/all-one prefix thresholds described by
+Hsu. None changes the analog ADC. The two ramp-derived methods use disjoint
+training and validation cycles, and the threshold method preserves nominal
+ratios once the measured steps become noise-limited.
+
+```bash
+uv run python -m flow.analysis.runner adc_calibration
+```
+
+All three analyses return the same typed 17-weight result. The runner writes a
+shared weight comparison, transfer, code-density, and INL/DNL plots plus metrics
+and normalized-weight CSV files below one fresh `build/analysis/adc/` directory.
+Every weight vector sums to 4095; rounding to a 12-bit integer is deferred until
+the final backend output.
+
+Run one explicitly named physical campaign through the shared scan runner:
+
+```bash
+uv run python -m flow.scans.runner adc_sine_conversion_rate
+uv run python -m flow.scans.runner adc_fixed_input_noise_50mv
+uv run python -m flow.scans.runner adc_ramp_code_density
+uv run python -m flow.scans.runner comp_common_mode
+uv run python -m flow.scans.runner cdac_cap_mismatch
+```
+
+Use `--help` to list every maintained ADC, comparator, CDAC, and repair target.
+The target function owns the complete parameter recipe and passes its flat list
+to the corresponding acquisition module. Each run writes one typed HDF5
+measurement per parameter variant below a fresh timestamped `build/scan_adc/`,
+`build/scan_comp/`, or `build/scan_cdac/` directory. The individual scan modules
+are libraries and do not provide command-line entry points.
 
 Behavioral and SPICE-backed scans use the same acquisition schema. The ADC
 Spectre flow exposes one fixed-input noise campaign for each DUT view:
@@ -216,9 +260,10 @@ uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
 uv run python -m flow.adc.sim frida65a_noise_vs_rate
 ```
 
-Add `--check` to generate every deck in one campaign and run one representative
-100 ns case without transient noise. Results are written below
-`build/adc/<target>/<YYYYMMDD_HHMM>/`; omitting the target lists all choices.
+Use the corresponding `_netlists` target to generate every deck without
+simulation, or the `_noise_smoke` target to run one short case without
+transient noise. Results are written below a fresh
+`build/sim/adc/<YYYYMMDD_HHMMSS>/`; omitting the target lists all choices.
 
 ## Environment setup
 

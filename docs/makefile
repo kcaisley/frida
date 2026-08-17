@@ -112,7 +112,7 @@ help:
 	@echo "Generated collateral sources:"
 	@printf '  - %s\n' $(FIGURE_TEX) $(NETLISTSVG_V) $(NETLISTSVG_INPUT_JSON) $(WAVEDROM_JSON)
 
-$(OUTDIR)/%.pdf: %.tex
+$(DOCUMENT_PDFS): $(OUTDIR)/%.pdf: %.tex
 	mkdir -p $(OUTDIR)
 	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
@@ -120,10 +120,10 @@ $(OUTDIR)/%.pdf: %.tex
 
 $(OUTDIR)/outline.pdf: $(THESIS_STYLE)
 
-$(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
+$(SLIDE_PDFS): $(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
 	mkdir -p $(OUTDIR)
 	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
-	$(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=$(OUTDIR) $<
+	cd $(SLIDES_DIR) && $(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=../$(OUTDIR) $(notdir $<)
 	@echo "Created $@"
 
 $(DOCUMENT_NAMES): %: $(OUTDIR)/%.pdf
