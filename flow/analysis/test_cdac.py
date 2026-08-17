@@ -106,6 +106,7 @@ def test_analyze_cdac_cap_mismatch_recovers_main_diff_and_direction_pairs() -> N
     assert result.curve_valid.tolist() == [1, 1, 1, 1]
     np.testing.assert_allclose(result.normalized_step, (-0.20, -0.10, 0.20, 0.10))
     assert result.effective_fraction[0, 15] == pytest.approx(0.10)
+    np.testing.assert_allclose(result.effective_fraction_by_direction[0, 15], (0.10, 0.10))
     assert result.main_fraction[0, 15] == pytest.approx(0.15)
     assert result.diff_fraction[0, 15] == pytest.approx(0.05)
     np.testing.assert_allclose(result.direction_bias[0, 15], 0.0, atol=1e-15)
@@ -219,6 +220,8 @@ def test_analyze_cdac_cap_mismatch_retains_side_asymmetry_and_direction_bias() -
 
     assert result.effective_fraction[0, 15] == pytest.approx(0.10)
     assert result.effective_fraction[1, 15] == pytest.approx(0.12)
+    np.testing.assert_allclose(result.effective_fraction_by_direction[0, 15], (0.11, 0.09))
+    np.testing.assert_allclose(result.effective_fraction_by_direction[1, 15], (0.115, 0.125))
     assert result.main_fraction[0, 15] == pytest.approx(0.15)
     assert result.main_fraction[1, 15] == pytest.approx(0.15)
     assert result.diff_fraction[0, 15] == pytest.approx(0.05)

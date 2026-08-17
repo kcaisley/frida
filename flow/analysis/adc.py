@@ -14,6 +14,8 @@ from scipy.signal.windows import blackmanharris
 
 from flow.analysis.measure import find_code_transitions, histogram_inl_dnl
 from flow.analysis.types import (
+    AdcDecoding,
+    AnalysisAdcCalibration,
     AnalysisAdcCodeDistribution,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
@@ -24,13 +26,45 @@ from flow.analysis.types import (
     AnalysisAdcRamp,
     AnalysisAdcRampCurve,
     AnalysisAdcTransfer,
-    AnalysisCdacCapMismatch,
     MeasAdc,
 )
 from flow.cdac import get_cdac_weights
 
 ADC_DYNAMIC_RESIDUAL_TAIL_LIMIT_DOUT = 24.0
 ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION = 0.0027
+ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
+
+
+def decode_bout(
+    bout: np.ndarray,
+    calibration: AnalysisAdcCalibration,
+    *,
+    rounded: bool = True,
+) -> np.ndarray:
+    """Apply one method-independent 17-weight digital calibration."""
+
+    decisions = np.asarray(bout)
+    if decisions.ndim != 2 or decisions.shape[1] != 17:
+        raise ValueError("calibrated ADC decoding requires BOUT shape (samples, 17)")
+    if np.any((decisions != 0) & (decisions != 1)):
+        raise ValueError("calibrated ADC decoding requires binary BOUT values")
+    fractional = np.asarray(
+        decisions.astype(np.float64) @ calibration.calibrated_weight,
+        dtype=np.float64,
+    )
+    fractional = np.clip(fractional, 0.0, float(calibration.code_max))
+    if not rounded:
+        return fractional
+    return np.rint(fractional).astype(np.int64)
+
+
+def _validate_calibration(measurement: MeasAdc, calibration: AnalysisAdcCalibration) -> None:
+    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
+    code_max = (1 << measurement.param.dut.adc_bits) - 1
+    if calibration.adc_index != adc_index:
+        raise ValueError("calibration and measurement must refer to the same ADC")
+    if calibration.code_max != code_max:
+        raise ValueError("calibration and measurement must use the same output range")
 
 
 def _pattern_repeat_rate_hz(measurement: MeasAdc) -> float:
@@ -288,13 +322,25 @@ def analyze_adc_dynamic(
     )
 
 
-def analyze_adc_transfer(measurements: Sequence[MeasAdc]) -> AnalysisAdcTransfer:
-    """Calculate mean ADC output and dispersion versus differential input."""
+def analyze_adc_transfer(
+    measurements: Sequence[MeasAdc],
+    *,
+    calibration: AnalysisAdcCalibration | None = None,
+) -> AnalysisAdcTransfer:
+    """Calculate transfer statistics with optional calibrated BOUT decoding."""
 
     if not measurements:
         raise ValueError("ADC transfer analysis requires at least one measurement")
+    if calibration is not None:
+        for measurement in measurements:
+            _validate_calibration(measurement, calibration)
     inputs = np.concatenate([measurement.daq.vin_diff_v for measurement in measurements])
-    dout = np.concatenate([measurement.daq.dout for measurement in measurements]).astype(np.float64)
+    dout = np.concatenate(
+        [
+            measurement.daq.dout if calibration is None else decode_bout(measurement.daq.bout, calibration)
+            for measurement in measurements
+        ]
+    ).astype(np.float64)
     if not len(dout):
         raise ValueError("ADC transfer analysis requires at least one conversion")
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
@@ -306,13 +352,13 @@ def analyze_adc_transfer(measurements: Sequence[MeasAdc]) -> AnalysisAdcTransfer
     )
 
 
-def _endpoint_nonlinearity(measurement: MeasAdc) -> AnalysisAdcNonlinearity:
+def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> AnalysisAdcNonlinearity:
     inputs = measurement.daq.vin_diff_v
-    dout = measurement.daq.dout.astype(np.float64)
+    decoded_dout = np.asarray(decoded_dout, dtype=np.float64)
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
     if len(unique_inputs) < 3:
         raise ValueError("endpoint nonlinearity requires at least three input points")
-    mean_dout = np.asarray([np.mean(dout[inverse == index]) for index in range(len(unique_inputs))])
+    mean_dout = np.asarray([np.mean(decoded_dout[inverse == index]) for index in range(len(unique_inputs))])
     transition_code, transition_input = find_code_transitions(unique_inputs, mean_dout)
     if len(transition_input) < 2:
         raise ValueError("endpoint nonlinearity spans fewer than two code transitions")
@@ -320,7 +366,7 @@ def _endpoint_nonlinearity(measurement: MeasAdc) -> AnalysisAdcNonlinearity:
     ideal = transition_input[0] + np.arange(len(transition_input)) * endpoint_lsb_v
     inl = (transition_input - ideal) / endpoint_lsb_v
     dnl = np.diff(transition_input) / endpoint_lsb_v - 1.0
-    observed = set(np.rint(dout).astype(np.int64))
+    observed = set(np.rint(decoded_dout).astype(np.int64))
     active = range(int(np.min(transition_code)), int(np.max(transition_code)) + 2)
     return AnalysisAdcNonlinearity(
         method="endpoint",
@@ -339,11 +385,12 @@ def _endpoint_nonlinearity(measurement: MeasAdc) -> AnalysisAdcNonlinearity:
 
 def _code_density_nonlinearity(
     measurement: MeasAdc,
+    decoded_dout: np.ndarray,
     *,
     code_range: tuple[int, int] | None,
 ) -> AnalysisAdcNonlinearity:
     number_codes = 1 << measurement.param.dut.adc_bits
-    valid = measurement.daq.dout[(measurement.daq.dout >= 0) & (measurement.daq.dout < number_codes)]
+    valid = decoded_dout[(decoded_dout >= 0) & (decoded_dout < number_codes)]
     if not len(valid):
         raise ValueError(f"ADC measurement contains no codes in 0..{number_codes - 1}")
     counts = np.bincount(valid, minlength=number_codes)
@@ -369,32 +416,38 @@ def analyze_adc_nonlinearity(
     *,
     method: Literal["endpoint", "code_density"] = "endpoint",
     code_range: tuple[int, int] | None = None,
+    calibration: AnalysisAdcCalibration | None = None,
 ) -> AnalysisAdcNonlinearity:
-    """Calculate endpoint or code-density ADC INL and DNL."""
+    """Calculate INL and DNL with optional calibrated BOUT decoding."""
 
+    if calibration is not None:
+        _validate_calibration(measurement, calibration)
+    # Nominal DOUT is stored in the measurement. Calibrated DOUT is derived
+    # transiently from the same stored BOUT decisions and the supplied weights.
+    decoded_dout = measurement.daq.dout if calibration is None else decode_bout(measurement.daq.bout, calibration)
     if method == "endpoint":
-        return _endpoint_nonlinearity(measurement)
+        return _endpoint_nonlinearity(measurement, decoded_dout)
     if method == "code_density":
-        return _code_density_nonlinearity(measurement, code_range=code_range)
+        return _code_density_nonlinearity(measurement, decoded_dout, code_range=code_range)
     raise ValueError("ADC nonlinearity method must be 'endpoint' or 'code_density'")
 
 
 def analyze_adc_ramp(
     measurement: MeasAdc,
     *,
-    cdac_analysis: AnalysisCdacCapMismatch | None = None,
+    calibrations: Sequence[AnalysisAdcCalibration] = (),
     code_range: tuple[int, int] | None = None,
 ) -> AnalysisAdcRamp:
-    """Recover nominal and measured-CDAC curves from one repeated ramp.
+    """Recover nominal and optionally calibrated curves from one repeated ramp.
 
     Each large negative output jump identifies a sawtooth reset.  A line fit to
     those repeated resets recovers the actual ramp period and acquisition phase
     without assuming the AWG and FastRX started together.  That phase maps each
     conversion back to the requested -1 V to +1 V input, while the uniform code
-    histogram supplies DNL and endpoint-corrected INL.  Clipped endpoint codes
-    are excluded from linearity by default.  When supplied, the accepted CDAC
-    analysis contributes its measured positive- and negative-side weights to a
-    second in-memory decoding of the same stored 17-bit decisions.
+    histogram supplies DNL and endpoint-corrected INL. Clipped endpoint codes
+    are excluded from linearity by default. Every supplied calibration is
+    applied to the same stored BOUT words and analyzed on the same retained
+    conversions, making all three methods directly comparable.
     """
 
     if not isinstance(measurement.param.vin_diff, h.Vpwl.Params):
@@ -407,44 +460,56 @@ def analyze_adc_ramp(
     if not vin_diff_max_v > vin_diff_min_v:
         raise ValueError("ADC ramp input must span a nonzero differential range")
 
-    nominal_weights = np.asarray(
-        [2.0 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1.0],
-        dtype=np.float64,
+    nominal_weights_int = np.asarray(
+        [2 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1],
+        dtype=np.int64,
     )
+    nominal_weights = nominal_weights_int.astype(np.float64)
     number_codes = 1 << measurement.param.dut.adc_bits
     code_max = number_codes - 1
     if measurement.daq.bout.shape[1] != len(nominal_weights):
         raise ValueError("ADC ramp decisions do not match the nominal CDAC weights")
-    decisions = np.asarray(measurement.daq.bout, dtype=np.float64)
-    nominal_raw = decisions @ nominal_weights
-    nominal_decoded = np.rint(nominal_raw * code_max / np.sum(nominal_weights)).astype(np.int64)
+    decisions_int = np.asarray(measurement.daq.bout, dtype=np.int64)
+    nominal_raw = decisions_int @ nominal_weights_int
+    if not np.array_equal(nominal_raw, measurement.daq.dout_raw):
+        raise ValueError("stored ramp DOUT_RAW does not match BOUT decoded with the configured design weights")
+    expected_nominal_dout = np.rint(nominal_raw * code_max / np.sum(nominal_weights_int)).astype(np.int64)
+    if not np.array_equal(expected_nominal_dout, measurement.daq.dout):
+        raise ValueError("stored ramp DOUT does not match normalized DOUT_RAW")
+    nominal_decoded = np.asarray(measurement.daq.dout, dtype=np.int64)
     if np.any((nominal_decoded < 0) | (nominal_decoded >= number_codes)):
         raise ValueError(f"ADC ramp contains output codes outside 0..{number_codes - 1}")
 
-    decodings = [("Nominal CDAC", nominal_weights, nominal_decoded)]
+    decodings: list[tuple[AdcDecoding, str, np.ndarray, np.ndarray]] = [
+        ("uncalibrated_dout", "Uncalibrated DOUT", nominal_weights, nominal_decoded)
+    ]
     adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
-    if cdac_analysis is not None:
-        if measurement.param.observed_adc is None or cdac_analysis.adc_index != measurement.param.observed_adc:
-            raise ValueError("CDAC and ramp analyses must refer to the same explicitly selected ADC")
-        measured_by_side = np.asarray(cdac_analysis.effective_fraction, dtype=np.float64)
-        nominal_cap_weights = nominal_weights[:-1]
-        if measured_by_side.shape != (2, len(nominal_cap_weights)):
-            raise ValueError("measured CDAC analysis does not match the ramp CDAC element count")
-        measured_cap_weights = np.sum(measured_by_side, axis=0)
-        if not np.all(np.isfinite(measured_cap_weights)) or np.any(measured_cap_weights <= 0.0):
-            raise ValueError("measured P/N CDAC weights must be finite and positive")
-        # The seventeenth SAR decision is a digital terminal half-step rather
-        # than another measured capacitor. Preserve its nominal one-unit size
-        # on the least-squares scale between nominal and measured cap weights.
-        measured_unit = float(
-            np.dot(nominal_cap_weights, measured_cap_weights) / np.dot(nominal_cap_weights, nominal_cap_weights)
+    observed_methods = set()
+    for calibration in calibrations:
+        if calibration.method in observed_methods:
+            raise ValueError(f"duplicate ADC calibration method {calibration.method!r}")
+        observed_methods.add(calibration.method)
+        _validate_calibration(measurement, calibration)
+        decodings.append(
+            (
+                calibration.method,
+                calibration.label,
+                calibration.calibrated_weight,
+                decode_bout(measurement.daq.bout, calibration),
+            )
         )
-        measured_weights = np.concatenate((measured_cap_weights, [measured_unit]))
-        measured_raw = decisions @ measured_weights
-        measured_decoded = np.rint(measured_raw * code_max / np.sum(measured_weights)).astype(np.int64)
-        decodings.append(("Measured CDAC", measured_weights, measured_decoded))
 
-    reset_conversion_index = np.flatnonzero(np.diff(nominal_decoded) < -0.5 * code_max).astype(np.int64) + 1
+    reset_candidates = np.flatnonzero(np.diff(nominal_decoded) < -0.25 * code_max).astype(np.int64) + 1
+    if len(reset_candidates):
+        cluster_starts = np.concatenate(
+            (
+                np.asarray([0], dtype=np.int64),
+                np.flatnonzero(np.diff(reset_candidates) > 64).astype(np.int64) + 1,
+            )
+        )
+        reset_conversion_index = reset_candidates[cluster_starts]
+    else:
+        reset_conversion_index = reset_candidates
     if len(reset_conversion_index) < 2:
         raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
     reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
@@ -466,25 +531,35 @@ def analyze_adc_ramp(
         (np.arange(len(nominal_decoded), dtype=np.float64) - first_reset_sample) / period_samples,
         1.0,
     )
+    retained = np.ones(len(nominal_decoded), dtype=bool)
+    for reset_index in reset_conversion_index:
+        retained[reset_index : reset_index + ADC_RAMP_RESET_EXCLUSION_CONVERSIONS] = False
+    retained_sample_count = int(np.count_nonzero(retained))
 
     first_code, last_code = code_range or (1, number_codes - 2)
     transfer_bin = np.minimum((conversion_phase * number_codes).astype(np.int64), number_codes - 1)
-    transfer_sample_count = np.bincount(transfer_bin, minlength=number_codes).astype(np.int64)
+    transfer_sample_count = np.bincount(transfer_bin[retained], minlength=number_codes).astype(np.int64)
     populated = transfer_sample_count > 0
     transfer_vin_diff_v = vin_diff_min_v + (
         (np.arange(number_codes, dtype=np.float64) + 0.5) / number_codes * (vin_diff_max_v - vin_diff_min_v)
     )
     curves = []
-    for label, weights, decoded in decodings:
-        counts = np.bincount(decoded, minlength=number_codes).astype(np.int64)
+    for decoding, label, weights, decoded in decodings:
+        counts = np.bincount(decoded[retained], minlength=number_codes).astype(np.int64)
         density = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
-        transfer_sum = np.bincount(transfer_bin, weights=decoded, minlength=number_codes)
+        transfer_sum = np.bincount(transfer_bin[retained], weights=decoded[retained], minlength=number_codes)
+        transfer_mean_dout = transfer_sum[populated] / transfer_sample_count[populated]
+        transfer_difference = np.diff(transfer_mean_dout)
+        maximum_transfer_reversal_dout = (
+            max(0.0, float(-np.min(transfer_difference))) if len(transfer_difference) else 0.0
+        )
         curves.append(
             AnalysisAdcRampCurve(
+                decoding=decoding,
                 label=label,
                 weights=weights,
                 transfer_vin_diff_v=transfer_vin_diff_v[populated],
-                transfer_mean_dout=transfer_sum[populated] / transfer_sample_count[populated],
+                transfer_mean_dout=transfer_mean_dout,
                 transfer_sample_count=transfer_sample_count[populated],
                 code=np.arange(number_codes, dtype=np.int64),
                 count=counts,
@@ -495,11 +570,14 @@ def analyze_adc_ramp(
                 maximum_abs_dnl=float(np.max(np.abs(density["dnl"]))),
                 maximum_abs_inl=float(np.max(np.abs(density["inl"]))),
                 missing_codes=density["missing_codes"],
+                maximum_transfer_reversal_dout=maximum_transfer_reversal_dout,
             )
         )
     return AnalysisAdcRamp(
         adc_index=adc_index,
         sample_count=len(nominal_decoded),
+        retained_sample_count=retained_sample_count,
+        reset_excluded_sample_count=len(nominal_decoded) - retained_sample_count,
         sample_rate_hz=sample_rate_hz,
         ramp_frequency_hz=ramp_frequency_hz,
         ramp_phase_cycles=ramp_phase_cycles,
@@ -510,16 +588,28 @@ def analyze_adc_ramp(
     )
 
 
-def analyze_adc_code_distribution(measurements: Sequence[MeasAdc]) -> AnalysisAdcCodeDistribution:
-    """Calculate code statistics and one histogram per static input point."""
+def analyze_adc_code_distribution(
+    measurements: Sequence[MeasAdc],
+    *,
+    calibration: AnalysisAdcCalibration | None = None,
+) -> AnalysisAdcCodeDistribution:
+    """Calculate code histograms with optional calibrated BOUT decoding."""
 
     if not measurements:
         raise ValueError("ADC code-distribution analysis requires at least one measurement")
     adc_bits = measurements[0].param.dut.adc_bits
     if any(measurement.param.dut.adc_bits != adc_bits for measurement in measurements):
         raise ValueError("ADC code-distribution measurements must use one output resolution")
+    if calibration is not None:
+        for measurement in measurements:
+            _validate_calibration(measurement, calibration)
     inputs = np.concatenate([measurement.daq.vin_diff_v for measurement in measurements])
-    dout = np.concatenate([measurement.daq.dout for measurement in measurements])
+    dout = np.concatenate(
+        [
+            measurement.daq.dout if calibration is None else decode_bout(measurement.daq.bout, calibration)
+            for measurement in measurements
+        ]
+    )
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
     number_codes = 1 << adc_bits
     count = np.zeros((len(unique_inputs), number_codes), dtype=np.int64)

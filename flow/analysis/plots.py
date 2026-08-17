@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Sequence
 from functools import wraps
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
@@ -22,6 +23,7 @@ from PIL import Image
 from scipy.special import ndtr
 
 from flow.analysis.types import (
+    AnalysisAdcCalibration,
     AnalysisAdcCodeDistribution,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
@@ -37,6 +39,7 @@ from flow.analysis.types import (
     AnalysisCompPower,
     AnalysisCompTiming,
     MeasAdc,
+    MeasAdcExt,
     MeasCdacExt,
     MeasCompExt,
     MeasCompInt,
@@ -404,6 +407,137 @@ def plot_measurement_waveforms(
 
 
 @with_plot_style
+def plot_adc_fastrx_scope_comparison(
+    msmt: MeasAdcExt,
+    *,
+    scope_bits: str,
+    fastrx_bits: str,
+    decision_edge_times_s: Sequence[float],
+    decision_sample_times_s: Sequence[float],
+    decision_sample_values_v: Sequence[float],
+    record_index: int = 0,
+    info_lines: Sequence[str] = (),
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot CH2--CH4 and aligned Scope/FastRX decision streams."""
+
+    if not 0 <= record_index < len(msmt.wave.conversion_index):
+        raise IndexError("waveform record_index is outside the measurement")
+    if not scope_bits or set(scope_bits) - {"0", "1"}:
+        raise ValueError("scope_bits must be a nonempty binary string")
+    if len(fastrx_bits) != len(scope_bits) or set(fastrx_bits) - {"0", "1"}:
+        raise ValueError("fastrx_bits must be a binary string aligned with scope_bits")
+
+    edge_times_s = np.asarray(decision_edge_times_s, dtype=np.float64)
+    sample_times_s = np.asarray(decision_sample_times_s, dtype=np.float64)
+    sample_values_v = np.asarray(decision_sample_values_v, dtype=np.float64)
+    expected_shape = (len(scope_bits),)
+    if edge_times_s.shape != expected_shape or sample_times_s.shape != expected_shape:
+        raise ValueError("decision edge and sample times must align with the decoded bits")
+    if sample_values_v.shape != expected_shape:
+        raise ValueError("decision sample values must align with the decoded bits")
+    if not np.all(np.isfinite(edge_times_s)) or not np.all(np.isfinite(sample_times_s)):
+        raise ValueError("decision times must be finite")
+    if not np.all(np.isfinite(sample_values_v)):
+        raise ValueError("decision sample values must be finite")
+    if np.any(np.diff(edge_times_s) <= 0.0):
+        raise ValueError("decision edge times must increase strictly")
+
+    decision_period_s = 8.0 / float(msmt.param.symbol_rate)
+    decision_end_times_s = np.concatenate((edge_times_s[1:], [edge_times_s[-1] + decision_period_s]))
+    decision_widths_s = decision_end_times_s - edge_times_s
+    if np.any(sample_times_s <= edge_times_s) or np.any(sample_times_s >= decision_end_times_s):
+        raise ValueError("every decision sample must fall inside its decision interval")
+
+    time_s = msmt.wave.time_s
+    scale, unit = _time_scale(time_s)
+    scaled_time = time_s * scale
+    scaled_edges = edge_times_s * scale
+    scaled_ends = decision_end_times_s * scale
+    scaled_widths = decision_widths_s * scale
+    scaled_samples = sample_times_s * scale
+    display_start_s = max(float(time_s[0]), float(edge_times_s[0] - 4.0 * decision_period_s))
+    display_end_s = min(float(time_s[-1]), float(decision_end_times_s[-1]))
+
+    fig, axes = plt.subplots(
+        4,
+        1,
+        sharex=True,
+        figsize=DETAILED_16_9_FIGSIZE,
+        gridspec_kw={"height_ratios": (1.0, 1.0, 1.35, 1.25)},
+    )
+    waveform_rows = (
+        ("CH2 COMP", msmt.wave.seq_comp_v[record_index], NORD_BLUE),
+        ("CH3 LOGIC", msmt.wave.seq_logic_v[record_index], NORD_ORANGE),
+        ("CH4 COMP_OUT", msmt.wave.comp_out_v[record_index], NORD_DARK),
+    )
+    for ax, (label, values, color) in zip(axes[:3], waveform_rows, strict=True):
+        ax.plot(scaled_time, values, color=color, linewidth=1.0)
+        for edge in scaled_edges:
+            ax.axvline(edge, color=SPINE_COLOR, alpha=0.18, linewidth=0.6)
+        ax.set_ylabel(f"{label} (V)")
+        style_ax(ax)
+        style_grid(ax)
+
+    axes[2].scatter(
+        scaled_samples,
+        sample_values_v,
+        marker="o",
+        s=22,
+        color=NORD_RED,
+        edgecolor=PLOT_FACE_COLOR,
+        linewidth=0.5,
+        zorder=5,
+        label="Scope decode sample",
+    )
+    style_legend(axes[2], loc="upper right")
+
+    scope_values = np.fromiter((int(bit) for bit in scope_bits), dtype=np.uint8)
+    fastrx_values = np.fromiter((int(bit) for bit in fastrx_bits), dtype=np.uint8)
+    mismatches = scope_values != fastrx_values
+    decision_ax = axes[3]
+    for decision_index, (start, end, width) in enumerate(zip(scaled_edges, scaled_ends, scaled_widths, strict=True)):
+        if mismatches[decision_index]:
+            decision_ax.axvspan(start, end, color=NORD_RED, alpha=0.16, linewidth=0.0)
+        for y, values in ((1.0, scope_values), (0.0, fastrx_values)):
+            bit = int(values[decision_index])
+            decision_ax.barh(
+                y,
+                width,
+                left=start,
+                height=0.56,
+                align="center",
+                color=NORD_GREEN if bit else NORD_BLUE,
+                edgecolor=NORD_RED if mismatches[decision_index] else PLOT_FACE_COLOR,
+                linewidth=1.5 if mismatches[decision_index] else 0.8,
+            )
+            decision_ax.text(
+                start + width / 2.0,
+                y,
+                str(bit),
+                ha="center",
+                va="center",
+                color=TEXT_COLOR,
+                fontsize=9,
+                fontweight="bold",
+            )
+    mismatch_count = int(np.count_nonzero(mismatches))
+    decision_ax.set_yticks((1.0, 0.0), labels=("Scope decode", "FastRX decode"))
+    decision_ax.set_ylim(-0.6, 1.6)
+    decision_ax.set_ylabel("Decision stream")
+    decision_ax.set_xlabel(f"Time ({unit})")
+    decision_ax.set_title(f"Decoded decisions: {mismatch_count}/{len(scope_bits)} mismatches")
+    style_ax(decision_ax)
+    style_grid(decision_ax)
+
+    axes[0].set_xlim(display_start_s * scale, display_end_s * scale)
+    _add_info_box(axes[0], (*info_lines, *_measurement_lines(msmt)))
+    fig.suptitle(f"ADC{msmt.param.observed_adc:02d} Scope and FastRX decision comparison")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
 def plot_adc_transfer(
     measurements: Sequence[MeasAdc],
     analysis: AnalysisAdcTransfer,
@@ -413,7 +547,7 @@ def plot_adc_transfer(
 ) -> tuple[Path, ...]:
     """Plot individual ADC conversions and the mean static transfer."""
 
-    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
     inputs = np.concatenate([msmt.daq.vin_diff_v for msmt in measurements])
     dout = np.concatenate([msmt.daq.dout for msmt in measurements])
     ax.scatter(inputs * 1e3, dout, s=5, alpha=0.15, label="Conversions")
@@ -434,7 +568,7 @@ def plot_adc_transfer(
     style_grid(ax)
     style_legend(ax)
     _add_info_box(ax, _measurement_group_lines(measurements), location="lower right")
-    return _save_figure(fig, output_path, formats)
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style
@@ -446,7 +580,7 @@ def plot_adc_ramp_transfer(
 ) -> tuple[Path, ...]:
     """Plot the phase-reconstructed ramp transfer for every decoded curve."""
 
-    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
     for curve in analysis.curves:
         ax.plot(
             curve.transfer_vin_diff_v * 1e3,
@@ -464,13 +598,15 @@ def plot_adc_ramp_transfer(
         ax,
         (
             f"Samples: {analysis.sample_count:,}",
+            f"Retained: {analysis.retained_sample_count:,}",
+            f"Reset flyback excluded: {analysis.reset_excluded_sample_count:,}",
             f"Sample rate: {analysis.sample_rate_hz / 1e6:.6g} MS/s",
             f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
             f"Phase: {analysis.ramp_phase_cycles:.6f} cycles",
         ),
         location="lower right",
     )
-    return _save_figure(fig, output_path, formats)
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style
@@ -482,17 +618,167 @@ def plot_adc_ramp_histogram(
 ) -> tuple[Path, ...]:
     """Plot overlaid code-density histograms from completed ramp analyses."""
 
-    fig, ax = plt.subplots(figsize=(8.5, 5.0))
-    for curve in analysis.curves:
-        ax.step(curve.code, curve.count, where="mid", linewidth=0.9, label=curve.label)
-    ax.set_yscale("log")
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
+    number_bins = 128
+    first_code = int(analysis.curves[0].code[0]) + 1
+    last_code = int(analysis.curves[0].code[-1])
+    bin_edges = np.linspace(first_code, last_code, number_bins + 1, dtype=np.int64)
+    bin_edges = np.unique(bin_edges)
+    for curve, color in zip(analysis.curves, NORD_COLORS, strict=False):
+        average_count = np.asarray([np.mean(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
+        ax.stairs(
+            average_count,
+            bin_edges,
+            baseline=0.0,
+            fill=True,
+            alpha=0.32,
+            linewidth=1.0,
+            color=color,
+            label=curve.label,
+        )
     ax.set_xlabel("Output code")
-    ax.set_ylabel("Count")
+    ax.set_ylabel("Mean samples per code in bin")
     ax.set_title(f"ADC{analysis.adc_index:02d} ramp code density")
     style_ax(ax)
     style_grid(ax)
-    style_legend(ax)
-    return _save_figure(fig, output_path, formats)
+    style_legend(ax, ncol=2, loc="upper center")
+    _add_info_box(
+        ax,
+        (
+            f"Bin width: about {(last_code - first_code) / number_bins:.0f} codes",
+            *(f"{curve.label}: {curve.missing_codes} missing codes" for curve in analysis.curves),
+        ),
+        location="lower right",
+    )
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_adc_ramp_weights(
+    analysis: AnalysisAdcRamp,
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Compare nominal and direction-matched physical decision weights."""
+
+    if len(analysis.curves) < 2:
+        raise ValueError("ADC ramp weight comparison requires nominal and measured decodings")
+    nominal, measured = analysis.curves[:2]
+    code_max = len(nominal.code) - 1
+    nominal_weights = nominal.weights * code_max / np.sum(nominal.weights)
+    measured_weights = measured.weights * code_max / np.sum(measured.weights)
+    elements = np.arange(16, 0, -1)
+    relative_error_percent = 100.0 * (measured_weights[:-1] / nominal_weights[:-1] - 1.0)
+
+    fig, axes = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        figsize=FULL_HD_FIGSIZE,
+        gridspec_kw={"height_ratios": (2.0, 1.0)},
+    )
+    axes[0].plot(elements, nominal_weights[:-1], "o-", color=NORD_DARK, label="Ideal")
+    axes[0].plot(
+        elements,
+        measured_weights[:-1],
+        "o-",
+        color=NORD_BLUE,
+        label="Direction-matched measured",
+    )
+    axes[0].set_yscale("log", base=2)
+    axes[0].set_ylabel("Decision weight (LSB)")
+    style_legend(axes[0], loc="upper right")
+    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[1].bar(elements, relative_error_percent, color=NORD_BLUE, width=0.7)
+    axes[1].set_ylabel("Error (%)")
+    axes[1].set_xlabel("Physical capacitor element")
+    axes[1].set_xticks(elements)
+    axes[1].set_xticklabels([f"C{element:02d}" for element in elements])
+    for ax in axes:
+        style_ax(ax)
+        style_grid(ax)
+    fig.suptitle(f"ADC{analysis.adc_index:02d} ideal and extracted decision weights")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
+
+
+@with_plot_style
+def plot_adc_calibration_weights(
+    calibrations: Sequence[AnalysisAdcCalibration],
+    *,
+    output_path: Path,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Compare any calibration methods against one shared ideal weight set."""
+
+    if not calibrations:
+        raise ValueError("ADC calibration weight plot requires at least one result")
+    adc_indices = {calibration.adc_index for calibration in calibrations}
+    code_maxima = {calibration.code_max for calibration in calibrations}
+    methods = {calibration.method for calibration in calibrations}
+    if len(adc_indices) != 1 or len(code_maxima) != 1:
+        raise ValueError("ADC calibration weight plot requires one ADC and output range")
+    if len(methods) != len(calibrations):
+        raise ValueError("ADC calibration weight plot requires unique methods")
+    nominal = calibrations[0].nominal_weight
+    if any(not np.allclose(calibration.nominal_weight, nominal) for calibration in calibrations[1:]):
+        raise ValueError("ADC calibration methods disagree on the ideal BOUT weights")
+
+    decision = np.arange(17)
+    labels = [f"C{element:02d}" for element in range(16, 0, -1)] + ["terminal"]
+    fig, axes = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        figsize=FULL_HD_FIGSIZE,
+        gridspec_kw={"height_ratios": (2.0, 1.0)},
+    )
+    axes[0].plot(decision, nominal, "o-", color=NORD_DARK, linewidth=1.2, label="Ideal")
+    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    for calibration, color in zip(calibrations, NORD_COLORS, strict=False):
+        axes[0].plot(
+            decision,
+            calibration.calibrated_weight,
+            "o-",
+            color=color,
+            linewidth=1.1,
+            markersize=3.5,
+            label=calibration.label,
+        )
+        error_percent = 100.0 * (calibration.calibrated_weight / nominal - 1.0)
+        axes[1].plot(
+            decision,
+            error_percent,
+            "o-",
+            color=color,
+            linewidth=1.1,
+            markersize=3.5,
+            label=calibration.label,
+        )
+        inferred = ~calibration.weight_from_measurement
+        if np.any(inferred):
+            axes[0].scatter(
+                decision[inferred],
+                calibration.calibrated_weight[inferred],
+                marker="x",
+                s=30,
+                color=color,
+                zorder=5,
+            )
+    axes[0].set_yscale("log", base=2)
+    axes[0].set_ylabel("BOUT weight (LSB)")
+    axes[0].set_title("Ideal and calibrated digital weights")
+    axes[1].set_ylabel("Difference from ideal (%)")
+    axes[1].set_xlabel("BOUT decision coefficient")
+    axes[1].set_xticks(decision)
+    axes[1].set_xticklabels(labels)
+    style_legend(axes[0], ncol=2)
+    for ax in axes:
+        style_ax(ax)
+        style_grid(ax)
+    adc_index = next(iter(adc_indices))
+    fig.suptitle(f"ADC{adc_index:02d} digital calibration weights")
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style
@@ -505,7 +791,7 @@ def plot_adc_nonlinearity(
 ) -> tuple[Path, ...]:
     """Plot static or overlaid ramp DNL and INL from completed results."""
 
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8.5, 6.2))
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=FULL_HD_FIGSIZE)
     if isinstance(msmt, AnalysisAdcRamp):
         ramp = msmt
         for curve in ramp.curves:
@@ -513,10 +799,16 @@ def plot_adc_nonlinearity(
             axes[1].plot(curve.linearity_code, curve.inl, linewidth=0.9, label=curve.label)
         info_lines = (
             f"Ramp: {ramp.ramp_frequency_hz:.6g} Hz",
-            *(f"{curve.label}: {curve.missing_codes} missing" for curve in ramp.curves),
+            *(
+                f"{curve.label}: max |DNL| {curve.maximum_abs_dnl:.3g}, "
+                f"max |INL| {curve.maximum_abs_inl:.3g}, {curve.missing_codes} missing"
+                for curve in ramp.curves
+            ),
         )
         title = f"ADC{ramp.adc_index:02d} ramp nonlinearity"
-        style_legend(axes[0])
+        # Keep the legend opposite the upper-right metrics box.  Automatic
+        # placement overlaps that box for ADC02/ADC03's DNL distribution.
+        style_legend(axes[0], loc="upper left")
     else:
         if analysis is None:
             raise TypeError("static ADC nonlinearity plotting requires an analysis result")
@@ -543,7 +835,7 @@ def plot_adc_nonlinearity(
         info_lines,
     )
     fig.suptitle(title)
-    return _save_figure(fig, output_path, formats)
+    return _save_figure(fig, output_path, formats, exact_canvas=True)
 
 
 @with_plot_style

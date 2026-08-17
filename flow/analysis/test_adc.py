@@ -23,12 +23,13 @@ from flow.analysis.adc import (
     analyze_adc_ramp,
     analyze_adc_transfer,
     combine_adc_noise_comparison,
+    decode_bout,
 )
 from flow.analysis.types import (
     AdcDaq,
     AdcExtWave,
     AdcIntWave,
-    AnalysisCdacCapMismatch,
+    AnalysisAdcCalibration,
     InfoValue,
     MeasAdc,
     MeasAdcExt,
@@ -162,8 +163,10 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
     )
     order = np.argsort(one_cycle_bout @ nominal_weights, kind="stable")
     one_cycle_bout = one_cycle_bout[order]
-    bout = np.tile(one_cycle_bout, (cycles, 1))
+    bout = np.tile(one_cycle_bout, (cycles, 1)).astype(np.uint8, copy=False)
     sample_count = len(bout)
+    dout_raw = bout @ nominal_weights
+    dout = np.rint(dout_raw * 4_095 / np.sum(nominal_weights)).astype(np.int64)
     vin_diff_v = np.tile(np.linspace(-1.0, 1.0, samples_per_cycle, endpoint=False), cycles)
     base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
     assert isinstance(base, MeasAdcExt)
@@ -184,8 +187,8 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
         daq=AdcDaq(
             conversion_index=np.arange(sample_count),
             bout=bout,
-            dout_raw=np.zeros(sample_count, dtype=np.int64),
-            dout=np.zeros(sample_count, dtype=np.int64),
+            dout_raw=dout_raw,
+            dout=dout,
             vin_diff_v=vin_diff_v,
         ),
     )
@@ -301,40 +304,56 @@ def test_ramp_analysis_infers_repeated_reset_frequency_and_phase() -> None:
     assert analysis.ramp_frequency_hz == pytest.approx(analysis.sample_rate_hz / 4_096)
     assert len(analysis.reset_conversion_index) == 3
     assert len(analysis.curves) == 1
-    assert analysis.curves[0].label == "Nominal CDAC"
-    assert analysis.curves[0].count.sum() == analysis.sample_count
+    assert analysis.curves[0].decoding == "uncalibrated_dout"
+    assert analysis.curves[0].label == "Uncalibrated DOUT"
+    assert analysis.reset_excluded_sample_count == 3 * 8
+    assert analysis.retained_sample_count == analysis.sample_count - analysis.reset_excluded_sample_count
+    assert analysis.curves[0].count.sum() == analysis.retained_sample_count
     assert len(analysis.curves[0].transfer_vin_diff_v) == 4_096
 
 
-def test_ramp_analysis_redecodes_with_matching_measured_cdac_weights() -> None:
-    """Compose accepted CDAC weights with stored decisions without new HDF5."""
+def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
+    """Apply any calibration result to stored decisions without new HDF5."""
 
     measurement = adc_ramp_measurement()
-    nominal_caps = 2.0 * np.asarray((768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1))
-    effective_fraction = np.stack((nominal_caps, nominal_caps)) * 5.0e-5
-    effective_fraction[0, 0] *= 1.1
-    cdac = AnalysisCdacCapMismatch(
+    nominal = analyze_adc_ramp(measurement).curves[0].weights.astype(np.float64)
+    nominal *= 4095.0 / np.sum(nominal)
+    calibrated = nominal.copy()
+    calibrated[:2] *= (1.02, 0.97)
+    calibrated *= 4095.0 / np.sum(calibrated)
+    calibration = AnalysisAdcCalibration(
         adc_index=0,
-        curve_element=np.asarray([], dtype=np.int64),
-        curve_side=np.asarray([], dtype=np.uint8),
-        curve_direction=np.asarray([], dtype=np.uint8),
-        curve_diffcaps=np.asarray([], dtype=np.uint8),
-        transition_v=np.asarray([], dtype=np.float64),
-        normalized_step=np.asarray([], dtype=np.float64),
-        curve_valid=np.asarray([], dtype=np.uint8),
-        main_fraction=np.zeros((2, 16)),
-        diff_fraction=np.zeros((2, 16)),
-        effective_fraction=effective_fraction,
-        direction_bias=np.zeros((2, 16, 2)),
+        method="calibration1",
+        label="Synthetic calibrated BOUT",
+        code_max=4095,
+        nominal_weight=nominal,
+        calibrated_weight=calibrated,
+        weight_from_measurement=np.ones(17, dtype=np.bool_),
+        training_sample_count=100,
+        validation_sample_count=0,
+        output_gain=1.0,
+        output_offset_lsb=0.0,
     )
 
-    analysis = analyze_adc_ramp(measurement, cdac_analysis=cdac)
+    analysis = analyze_adc_ramp(measurement, calibrations=(calibration,))
 
-    assert [curve.label for curve in analysis.curves] == ["Nominal CDAC", "Measured CDAC"]
-    assert all(curve.count.sum() == analysis.sample_count for curve in analysis.curves)
+    assert [curve.decoding for curve in analysis.curves] == ["uncalibrated_dout", "calibration1"]
+    assert [curve.label for curve in analysis.curves] == ["Uncalibrated DOUT", "Synthetic calibrated BOUT"]
+    assert all(curve.count.sum() == analysis.retained_sample_count for curve in analysis.curves)
     assert not np.array_equal(analysis.curves[0].weights, analysis.curves[1].weights)
-    with pytest.raises(ValueError, match="same explicitly selected ADC"):
-        analyze_adc_ramp(measurement, cdac_analysis=replace(cdac, adc_index=1))
+    assert analysis.curves[1].weights[0] == pytest.approx(calibrated[0])
+    decoded = decode_bout(measurement.daq.bout, calibration)
+    distribution = analyze_adc_code_distribution([measurement], calibration=calibration)
+    nonlinearity = analyze_adc_nonlinearity(
+        measurement,
+        method="code_density",
+        calibration=calibration,
+    )
+    assert distribution.count.sum() == len(decoded)
+    assert nonlinearity.count is not None
+    assert nonlinearity.count.sum() == np.count_nonzero((decoded >= 1) & (decoded <= 4094))
+    with pytest.raises(ValueError, match="same ADC"):
+        analyze_adc_ramp(measurement, calibrations=(replace(calibration, adc_index=1),))
 
 
 def test_shared_adc_analyses_accept_internal_measurements() -> None:

@@ -7,13 +7,18 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import hdl21 as h
+import numpy as np
 import pytest
 
 import flow.analysis as analysis_api
+import flow.analysis.cdac as cdac_analysis
 from flow.analysis import runner
+from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
+from flow.analysis.types import AdcCalibrationMethod, AnalysisAdcCalibration
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -27,8 +32,8 @@ def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
     assert not hasattr(analysis_api, "classify_comp_common_mode_validity")
 
 
-def test_runner_keeps_input_selection_and_validation_in_public_runners() -> None:
-    """Keep accepted-input configuration, selection, and type policy in public runners."""
+def test_runner_exposes_only_named_orchestration_entry_points() -> None:
+    """Keep the runner surface limited to explicit, user-invoked pipelines."""
 
     tree = ast.parse(Path(runner.__file__).read_text())
     private_functions = [
@@ -41,6 +46,7 @@ def test_runner_keeps_input_selection_and_validation_in_public_runners() -> None
     assert not any(target_name.startswith("adc00_adc01_") for target_name in runner.TARGETS)
     assert "adc_transfer_curve" in runner.TARGETS
     assert "adc_ramp_nonlinearity" in runner.TARGETS
+    assert "adc_calibration" in runner.TARGETS
     assert "adc00_pex_transfer" not in runner.TARGETS
     assert "adc_code_distributions" in runner.TARGETS
     assert "adc_code_diag" not in runner.TARGETS
@@ -49,56 +55,140 @@ def test_runner_keeps_input_selection_and_validation_in_public_runners() -> None
     assert all(len(name) <= 26 for name in runner.TARGETS)
 
 
-def test_cdac_runner_replaces_whole_curves(
+def test_adc_calibration_runner_combines_three_common_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    measurement = adc_ramp_measurement(cycles=8)
+    nominal_ramp = analyze_adc_ramp(measurement)
+    nominal_weight = nominal_ramp.curves[0].weights.astype(np.float64)
+    nominal_weight *= 4095.0 / np.sum(nominal_weight)
+
+    def calibration(method: AdcCalibrationMethod) -> AnalysisAdcCalibration:
+        weight = nominal_weight.copy()
+        weight[0] *= {"calibration1": 1.01, "calibration2": 0.99, "calibration3": 1.02}[method]
+        weight *= 4095.0 / np.sum(weight)
+        return AnalysisAdcCalibration(
+            adc_index=0,
+            method=method,
+            label=method,
+            code_max=4095,
+            nominal_weight=nominal_weight,
+            calibrated_weight=weight,
+            weight_from_measurement=np.ones(17, dtype=np.bool_),
+            training_sample_count=100,
+            validation_sample_count=50,
+            output_gain=1.0,
+            output_offset_lsb=0.0,
+        )
+
+    ramp_dir = tmp_path / "build/scan_adc/20260812_011910"
+    ramp_dir.mkdir(parents=True)
+    ramp_path = ramp_dir / "adc00.h5"
+    ramp_path.touch()
+    cdac_dir = tmp_path / "build/scan_cdac/20260804_171234"
+    cdac_dir.mkdir(parents=True)
+    cdac_path = cdac_dir / "adc00.h5"
+    cdac_path.touch()
+    fake_ramp = SimpleNamespace(
+        param=SimpleNamespace(campaign="adc_ramp", observed_adc=0, board_id="00"),
+        daq=SimpleNamespace(dout=range(4_000_000)),
+        info=SimpleNamespace(readbacks={}),
+    )
+    cdac_measurements = (SimpleNamespace(param=SimpleNamespace(board_id="00")),)
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", lambda path: fake_ramp if path == ramp_path else object())
+    monkeypatch.setattr(
+        runner,
+        "analyze_cdac_cap_mismatch_campaign",
+        lambda *_args, **_kwargs: ((cdac_measurements,), (object(),)),
+    )
+    monkeypatch.setattr(
+        runner,
+        "load_board_map",
+        lambda: {"boards": {"00": {"comparator_calibration": {0: {"offset_v": 0.0}}}}},
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_calibration1",
+        lambda _measurements, *, comparator_offset_v: calibration("calibration1"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_calibration2",
+        lambda _measurement, _ramp: calibration("calibration2"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_calibration3",
+        lambda _measurement, _ramp: calibration("calibration3"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "analyze_adc_ramp",
+        lambda _measurement, *, calibrations=(): analyze_adc_ramp(measurement, calibrations=calibrations),
+    )
+    for name in (
+        "plot_adc_calibration_weights",
+        "plot_adc_ramp_transfer",
+        "plot_adc_ramp_histogram",
+        "plot_adc_nonlinearity",
+    ):
+        monkeypatch.setattr(runner, name, lambda *_args, **_kwargs: ())
+
+    artifacts = runner.adc_calibration(tmp_path)
+
+    assert [path.name for path in artifacts] == [
+        "adc00_calibration_metrics.csv",
+        "adc00_calibration_weights.csv",
+    ]
+    metrics = artifacts[0].read_text()
+    weights = artifacts[1].read_text()
+    assert all(method in metrics for method in ("calibration1", "calibration2", "calibration3"))
+    assert "ideal_weight_lsb" in weights
+    assert len(weights.splitlines()) == 18
+
+
+def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never concatenate analog points from two acquisition sessions."""
 
-    original_dir = tmp_path / "build/scan_cdac/20260804_171234"
-    replacement_dir = tmp_path / "build/scan_cdac/20260804_193030"
-    unused_dir = tmp_path / "build/scan_cdac/20260804_193631"
-    original_dir.mkdir(parents=True)
-    replacement_dir.mkdir(parents=True)
-    unused_dir.mkdir(parents=True)
-    measurements_by_path = {}
-    path_index = 0
+    measurement_runs = [[], [], []]
     for adc_index in range(4):
         for side in ("p", "n"):
             for element in range(16):
                 for direction in ("1to0", "0to1"):
                     for diffcaps in (0, 1):
-                        path = original_dir / f"{path_index:04d}.h5"
-                        path.touch()
-                        path_index += 1
-                        measurements_by_path[path] = SimpleNamespace(
-                            param=SimpleNamespace(
-                                campaign="cdac_ab",
-                                board_id="test_board",
-                                observed_adc=adc_index,
-                                cdac_side=side,
-                                cdac_element=element,
-                                cdac_direction=direction,
-                                dac_diffcaps=diffcaps,
-                            ),
-                            info=SimpleNamespace(backend="spice", readbacks={}),
-                            point_index=0,
+                        measurement_runs[0].append(
+                            SimpleNamespace(
+                                param=SimpleNamespace(
+                                    campaign="cdac_ab",
+                                    board_id="test_board",
+                                    observed_adc=adc_index,
+                                    cdac_side=side,
+                                    cdac_element=element,
+                                    cdac_direction=direction,
+                                    dac_diffcaps=diffcaps,
+                                ),
+                                info=SimpleNamespace(backend="spice", readbacks={}),
+                                point_index=0,
+                            )
                         )
     for point_index in (2, 3, 4):
-        path = replacement_dir / f"{point_index}.h5"
-        path.touch()
-        measurements_by_path[path] = SimpleNamespace(
-            param=SimpleNamespace(
-                campaign="cdac_ab",
-                board_id="test_board",
-                observed_adc=0,
-                cdac_side="p",
-                cdac_element=0,
-                cdac_direction="1to0",
-                dac_diffcaps=0,
-            ),
-            info=SimpleNamespace(backend="spice", readbacks={}),
-            point_index=point_index,
+        measurement_runs[1].append(
+            SimpleNamespace(
+                param=SimpleNamespace(
+                    campaign="cdac_ab",
+                    board_id="test_board",
+                    observed_adc=0,
+                    cdac_side="p",
+                    cdac_element=0,
+                    cdac_direction="1to0",
+                    dac_diffcaps=0,
+                ),
+                info=SimpleNamespace(backend="spice", readbacks={}),
+                point_index=point_index,
+            )
         )
 
     analyzed_measurements = {}
@@ -106,28 +196,19 @@ def test_cdac_runner_replaces_whole_curves(
     def analyze(measurements, *, comparator_offset_v):
         assert comparator_offset_v == 8e-3
         analyzed_measurements[measurements[0].param.observed_adc] = measurements
-        return SimpleNamespace()
+        return SimpleNamespace(adc_index=measurements[0].param.observed_adc)
 
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", lambda path: measurements_by_path[path])
-    monkeypatch.setattr(
-        runner,
-        "load_board_map",
-        lambda: {
-            "boards": {
-                "test_board": {"comparator_calibration": {adc_index: {"offset_v": 8e-3} for adc_index in range(4)}}
-            }
-        },
+    monkeypatch.setattr(cdac_analysis, "MeasCdacExt", SimpleNamespace)
+    monkeypatch.setattr(cdac_analysis, "analyze_cdac_cap_mismatch", analyze)
+    groups, _analyses = cdac_analysis.analyze_cdac_cap_mismatch_campaign(
+        measurement_runs,
+        adc_indices=(0, 1, 2, 3),
+        board_id="test_board",
+        comparator_offset_v_by_adc={adc_index: 8e-3 for adc_index in range(4)},
     )
-    monkeypatch.setattr(runner, "analyze_cdac_cap_mismatch", analyze)
-    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch", lambda *_args, **_kwargs: ())
-    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch_comparison", lambda *_args, **_kwargs: ())
-
-    assert runner.cdac_system_cap_mismatch(tmp_path / "output") == ()
     replaced_curve = [
         measurement
-        for measurement in analyzed_measurements[0]
+        for measurement in groups[0]
         if (
             measurement.param.cdac_side,
             measurement.param.cdac_element,
@@ -136,7 +217,7 @@ def test_cdac_runner_replaces_whole_curves(
         )
         == ("p", 0, "1to0", 0)
     ]
-    assert [measurement.point_index for measurement in replaced_curve] == [2, 3, 4]
+    assert [cast(Any, measurement).point_index for measurement in replaced_curve] == [2, 3, 4]
 
 
 @pytest.mark.parametrize("internal", (False, True), ids=("external", "internal"))
@@ -163,54 +244,65 @@ def test_adc_transfer_curve_accepts_external_and_internal_measurements(
     assert runner.adc_transfer_curve(tmp_path / "output") == (tmp_path / "output/adc00_transfer_curve.png",)
 
 
-def test_adc_ramp_runner_uses_explicit_placeholders_and_completed_analysis(
+def test_adc_ramp_runner_reuses_accepted_cdac_analysis_and_completed_ramp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Keep accepted ramp selection in the runner and plotting measurement-free."""
 
     measurements = {}
+    ramp_dir = tmp_path / "build/scan_adc/20260812_011910"
+    ramp_dir.mkdir(parents=True)
+    cdac_dir = tmp_path / "build/scan_cdac/20260804_171234"
+    cdac_dir.mkdir(parents=True)
+    cdac_path = cdac_dir / "adc00.h5"
+    cdac_path.touch()
+    cdac_groups = []
+    cdac_analyses = []
     for adc_index in range(4):
-        ramp_path = tmp_path / f"build/scan_adc/PLACEHOLDER_ADC{adc_index:02d}_RAMP.h5"
-        ramp_path.parent.mkdir(parents=True, exist_ok=True)
+        ramp_path = ramp_dir / f"adc{adc_index:02d}.h5"
         ramp_path.touch()
-        measurements[ramp_path] = adc_ramp_measurement(observed_adc=adc_index)
-        cdac_path = tmp_path / f"build/scan_cdac/PLACEHOLDER_ADC{adc_index:02d}_CDAC_0000.h5"
-        cdac_path.parent.mkdir(parents=True, exist_ok=True)
-        cdac_path.touch()
-        measurements[cdac_path] = SimpleNamespace(
-            param=SimpleNamespace(
-                campaign="cdac_ab",
-                observed_adc=adc_index,
-                board_id="test_board",
+        ramp_measurement = SimpleNamespace(
+            param=SimpleNamespace(campaign="adc_ramp", observed_adc=adc_index, board_id="00"),
+            daq=SimpleNamespace(dout=range(4_000_000)),
+            info=SimpleNamespace(readbacks={}),
+        )
+        measurements[ramp_path] = ramp_measurement
+        cdac_groups.append(
+            (
+                SimpleNamespace(
+                    param=SimpleNamespace(observed_adc=adc_index, board_id="00"),
+                ),
             )
         )
+        cdac_analyses.append(
+            SimpleNamespace(
+                adc_index=adc_index,
+            )
+        )
+    measurements[cdac_path] = object()
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
     monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(
+        runner,
+        "analyze_cdac_cap_mismatch_campaign",
+        lambda *_args, **_kwargs: (tuple(cdac_groups), tuple(cdac_analyses)),
+    )
     monkeypatch.setattr(
         runner,
         "load_board_map",
         lambda: {
-            "boards": {
-                "test_board": {
-                    "comparator_calibration": {index: {"offset_v": 0.0} for index in range(4)},
-                }
-            }
+            "boards": {"00": {"comparator_calibration": {adc_index: {"offset_v": 0.0} for adc_index in range(4)}}}
         },
     )
     monkeypatch.setattr(
         runner,
-        "analyze_cdac_cap_mismatch",
+        "analyze_calibration1",
         lambda measurements, *, comparator_offset_v: SimpleNamespace(
             adc_index=measurements[0].param.observed_adc,
             comparator_offset_v=comparator_offset_v,
         ),
-    )
-    monkeypatch.setattr(
-        runner,
-        "analyze_adc_ramp",
-        lambda measurement, *, cdac_analysis: (measurement.param.observed_adc, cdac_analysis.adc_index),
     )
     monkeypatch.setattr(
         runner,
@@ -224,15 +316,61 @@ def test_adc_ramp_runner_uses_explicit_placeholders_and_completed_analysis(
     )
     monkeypatch.setattr(
         runner,
+        "plot_adc_ramp_weights",
+        lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
+    )
+    monkeypatch.setattr(
+        runner,
         "plot_adc_nonlinearity",
         lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
     )
 
+    class Curve:
+        decoding = "uncalibrated_dout"
+        maximum_abs_dnl = 0.1
+        maximum_abs_inl = 0.2
+        missing_codes = 0
+        maximum_transfer_reversal_dout = 0.5
+
+    monkeypatch.setattr(
+        runner,
+        "analyze_adc_ramp",
+        lambda measurement, *, calibrations: SimpleNamespace(
+            adc_index=measurement.param.observed_adc,
+            sample_count=4_000_000,
+            retained_sample_count=3_999_488,
+            reset_excluded_sample_count=512,
+            sample_rate_hz=6.25e6,
+            ramp_frequency_hz=1e3,
+            curves=(Curve(),),
+            calibration_adc_index=calibrations[0].adc_index,
+        ),
+    )
+
     artifacts = runner.adc_ramp_nonlinearity(tmp_path / "output")
 
-    assert len(artifacts) == 12
+    assert len(artifacts) == 17
     assert artifacts[0] == tmp_path / "output/adc00_ramp_transfer.png"
-    assert artifacts[-1] == tmp_path / "output/adc03_ramp_nonlinearity.png"
+    assert artifacts[-2] == tmp_path / "output/adc03_ramp_nonlinearity.png"
+    assert artifacts[-1] == tmp_path / "output/adc00_adc03_ramp_metrics.csv"
+
+
+def test_adc_ramp_runner_rejects_incomplete_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Require the accepted four-million-conversion capture contract."""
+
+    ramp_dir = tmp_path / "build/scan_adc/20260812_011910"
+    ramp_dir.mkdir(parents=True)
+    ramp_path = ramp_dir / "adc00.h5"
+    ramp_path.touch()
+    measurement = adc_ramp_measurement(observed_adc=0)
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "read_measurement", lambda _path: measurement)
+
+    with pytest.raises(ValueError, match="complete, valid"):
+        runner.adc_ramp_nonlinearity(tmp_path / "output")
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(

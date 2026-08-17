@@ -47,6 +47,7 @@ from flow.analysis.plots import (
     plot_adc_power_sweep,
     plot_adc_ramp_histogram,
     plot_adc_ramp_transfer,
+    plot_adc_ramp_weights,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -176,6 +177,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         main_fraction=np.full((2, 16), 0.02),
         diff_fraction=np.full((2, 16), 0.005),
         effective_fraction=np.full((2, 16), 0.015),
+        effective_fraction_by_direction=np.full((2, 16, 2), 0.015),
         direction_bias=np.zeros((2, 16, 2)),
     )
     cdac_paths = plot_cdac_cap_mismatch(
@@ -415,18 +417,35 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     nominal = analysis.curves[0]
     analysis = replace(
         analysis,
-        curves=(nominal, replace(nominal, label="Measured CDAC", transfer_mean_dout=nominal.transfer_mean_dout + 1.0)),
+        curves=(
+            nominal,
+            replace(
+                nominal,
+                decoding="calibration1",
+                label="CDAC S-curve weights",
+                transfer_mean_dout=nominal.transfer_mean_dout + 1.0,
+            ),
+        ),
     )
     outputs = (
         plot_adc_ramp_transfer(analysis, output_path=tmp_path / "ramp_transfer"),
         plot_adc_ramp_histogram(analysis, output_path=tmp_path / "ramp_histogram"),
+        plot_adc_ramp_weights(analysis, output_path=tmp_path / "ramp_weights"),
         plot_adc_nonlinearity(analysis, output_path=tmp_path / "ramp_nonlinearity"),
     )
     for paths in outputs:
         assert_plot_formats(paths)
         svg = paths[-1].read_text()
-        assert "Nominal CDAC" in svg
-        assert "Measured CDAC" in svg
+        if "weights" in paths[0].stem:
+            assert "Ideal" in svg
+            assert "Direction-matched measured" in svg
+        else:
+            assert "Uncalibrated DOUT" in svg
+            assert "CDAC S-curve weights" in svg
+        assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
+    histogram_svg = outputs[1][-1].read_text()
+    assert "Mean samples per code in bin" in histogram_svg
+    assert "missing codes" in histogram_svg
 
 
 def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
