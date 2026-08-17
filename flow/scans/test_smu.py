@@ -35,7 +35,7 @@ MAXIMUM_EXPECTED_CURRENT_A = 100.0e-6
 
 
 @pytest.mark.hw
-def test_smu_connectivity() -> None:
+def test_smu_connectivity(linux_gpib_interface: None) -> None:
     """Hardware: query all three SMUs without changing their source state."""
     from gpib_ctypes import make_default_gpib
 
@@ -68,7 +68,7 @@ def test_smu_connectivity() -> None:
 
 
 @pytest.mark.hw
-def test_smu_rails() -> None:
+def test_smu_rails(linux_gpib_interface: None) -> None:
     """Hardware: qualify the three FRIDA ASIC supply rails."""
     if not 0.0 < SUPPLY_V <= 1.2:
         raise ValueError("SMU supply voltage must remain in 0..1.2 V")

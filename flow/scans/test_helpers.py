@@ -13,13 +13,21 @@ from bitarray import bitarray
 from flow.adc import AdcParams
 from flow.cdac import CdacParams, RedunStrat
 from flow.scans import fastrx, scan_adc, seqgen
-from flow.scans.params import AdcTbParams, load_board_map
-from flow.scans.scope import plot_scope_waveforms, write_scope_csv
+from flow.scans.params import AdcTbParams, build_adc_variants, load_board_map
+from flow.scans.scope import FRIDA_SCOPE_CHANNELS, plot_scope_waveforms, write_scope_csv
+from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
+from flow.scans.test_diffamp import SCOPE_TRACKS as DIFFAMP_SCOPE_TRACKS
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
+from flow.scans.test_fastrx import OUTPUT_DIR as FASTRX_OUTPUT_DIR
 from flow.scans.test_fastrx import (
     SCOPE_DECISION_SAMPLE_FRACTION,
     extract_scope_decisions,
 )
+from flow.scans.test_fastrx import SCOPE_TRACKS as FASTRX_SCOPE_TRACKS
+from flow.scans.test_noise import OUTPUT_DIR as NOISE_OUTPUT_DIR
+from flow.scans.test_noise import SCOPE_TRACKS as NOISE_SCOPE_TRACKS
+from flow.scans.test_serdes import OUTPUT_DIR as SERDES_OUTPUT_DIR
+from flow.scans.test_serdes import SCOPE_TRACKS as SERDES_SCOPE_TRACKS
 
 
 def serializer_params(**overrides) -> AdcTbParams:
@@ -36,6 +44,43 @@ def serializer_params(**overrides) -> AdcTbParams:
     }
     config.update(overrides)
     return AdcTbParams(**config)
+
+
+def test_frida_scope_channels_match_fixed_bench_cabling() -> None:
+    assert FRIDA_SCOPE_CHANNELS == {
+        "adc_vdiff": 1,
+        "seq_comp": 2,
+        "seq_logic": 3,
+        "comp_out": 4,
+    }
+    assert DIFFAMP_SCOPE_TRACKS == {1: "vdiff_ch1"}
+    assert NOISE_SCOPE_TRACKS == {1: "vdiff_ch1"}
+    assert FASTRX_SCOPE_TRACKS == {
+        1: "adc_vdiff",
+        2: "seq_comp",
+        3: "seq_logic",
+        4: "comp_out",
+    }
+    assert SERDES_SCOPE_TRACKS == {
+        2: "seq_comp",
+        3: "seq_logic",
+    }
+
+
+def test_hardware_output_directories_match_test_modules() -> None:
+    output_directories = {
+        DIFFAMP_OUTPUT_DIR,
+        NOISE_OUTPUT_DIR,
+        FASTRX_OUTPUT_DIR,
+        SERDES_OUTPUT_DIR,
+    }
+    assert {path.name for path in output_directories} == {
+        "test_diffamp",
+        "test_noise",
+        "test_fastrx",
+        "test_serdes",
+    }
+    assert {path.parent.name for path in output_directories} == {"build"}
 
 
 def spi_params(**overrides) -> AdcTbParams:
@@ -357,10 +402,17 @@ def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
 
 
 def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_it(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    base = scan_adc.build_variants()[0]
+    base = build_adc_variants(
+        board_id="00",
+        adc_indices=(0,),
+        active_conversion_rates_hz=(1.0e6,),
+        logic_offsets_symbols=(0.0,),
+        conversions=1,
+        vin_cm_v=0.8,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )[0]
     boundary = replace(
         base,
         vin_cm=h.Vdc.Params(dc=0.8),
@@ -368,11 +420,8 @@ def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_i
     )
     beyond = replace(boundary, vin_diff=h.Vdc.Params(dc=0.900002))
     scan_outdir = tmp_path / "not-created"
-    monkeypatch.setattr(scan_adc, "build_variants", lambda: [boundary, beyond])
-    monkeypatch.setattr(scan_adc, "SCAN_OUTDIR", scan_outdir)
-
     with pytest.raises(ValueError, match="ADC inputs"):
-        scan_adc.main()
+        scan_adc.scan([boundary, beyond], run_dir=scan_outdir)
     assert not scan_outdir.exists()
 
 
@@ -385,19 +434,25 @@ def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_i
     ),
 )
 def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
-    monkeypatch,
     tmp_path,
     field: str,
     voltage_v: float,
     message: str,
 ) -> None:
-    invalid = replace(scan_adc.build_variants()[0], **{field: h.Vdc.Params(dc=voltage_v)})
+    base = build_adc_variants(
+        board_id="00",
+        adc_indices=(0,),
+        active_conversion_rates_hz=(1.0e6,),
+        logic_offsets_symbols=(0.0,),
+        conversions=1,
+        vin_cm_v=0.8,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )[0]
+    invalid = replace(base, **{field: h.Vdc.Params(dc=voltage_v)})
     scan_outdir = tmp_path / "not-created"
-    monkeypatch.setattr(scan_adc, "build_variants", lambda: [invalid])
-    monkeypatch.setattr(scan_adc, "SCAN_OUTDIR", scan_outdir)
 
     with pytest.raises(ValueError, match=message):
-        scan_adc.main()
+        scan_adc.scan([invalid], run_dir=scan_outdir)
     assert not scan_outdir.exists()
 
 
@@ -446,8 +501,8 @@ def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> No
     ) == (0, 9, 3)
 
 
-def test_extract_scope_decisions_samples_at_98_percent_of_each_cycle() -> None:
-    """Decode late-settling COMP_OUT values immediately before the next decision."""
+def test_extract_scope_decisions_samples_at_center_of_each_cycle() -> None:
+    """Decode settled COMP_OUT values away from either decision boundary."""
 
     symbol_rate_bps = 800.0e6
     decision_period_s = 8.0 / symbol_rate_bps
@@ -458,12 +513,13 @@ def test_extract_scope_decisions_samples_at_98_percent_of_each_cycle() -> None:
         0.0,
     )
 
-    # Each output changes 95% of a cycle after its COMP falling edge. Sampling
-    # at 90% would decode the old value; the validated 98% rule decodes 101.
+    # The first result settles after its COMP edge, but the next result starts
+    # changing just before the next detected edge. Sampling at the cycle center
+    # decodes the stable 101 values rather than either transition boundary.
     comp_out_v = np.zeros_like(times_s)
-    comp_out_v[times_s >= 14.5e-9] = 1.2
-    comp_out_v[times_s >= 24.5e-9] = 0.0
-    comp_out_v[times_s >= 34.5e-9] = 1.2
+    comp_out_v[times_s >= 5.5e-9] = 1.2
+    comp_out_v[times_s >= 14.5e-9] = 0.0
+    comp_out_v[times_s >= 24.5e-9] = 1.2
 
     result = extract_scope_decisions(
         times_s,

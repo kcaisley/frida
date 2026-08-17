@@ -17,6 +17,7 @@ Run from the repository root after programming the serializer firmware:
 
 The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
 Their outputs are disabled and reset to 0 V when the test exits.
+Scope captures are saved under ``build/test_serdes/<timestamp>``.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from flow.scans.plldrp import (
     set_pll_divider,
 )
 from flow.scans.scope import (
+    FRIDA_SCOPE_CHANNELS,
     plot_scope_waveforms,
     response_value,
     wait_for_scope_armed,
@@ -49,7 +51,7 @@ from flow.scans.seqgen import convert_params_to_seqgen_fmt
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
 SMU_MAP_PATH = Path(__file__).resolve().parent / "map_smu.yaml"
-SCOPE_OUT_DIR = Path("build/scope")
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_serdes"
 SCOPE_BANDWIDTH_HZ = 2.0e9
 SCOPE_VERTICAL_SCALE_V = 0.2
 # These 16 requested symbol rates cause the selector to exercise Si570 inputs
@@ -59,8 +61,6 @@ SERDES_TEST_SYMBOL_RATES_BPS = tuple(
 )
 SEQUENCE_REPEATS = 2
 EXPECTED_TRANSITIONS = {
-    "seq_init": 2,
-    "seq_samp": 2,
     "seq_comp": 34,
     "seq_logic": 34,
 }
@@ -87,14 +87,13 @@ SMU_MINIMUM_LOADED_V = 1.15
 
 # The current scope cabling has the continuous COMP pulse train on CH2 and
 # LOGIC on CH3. INIT and SAMP are intentionally not acquired.
-COMP_SCOPE_CHANNEL = 2
-LOGIC_SCOPE_CHANNEL = 3
+COMP_SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_comp"]
+LOGIC_SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_logic"]
 TRIGGER_SCOPE_CHANNEL = LOGIC_SCOPE_CHANNEL
 SCOPE_TRACKS = {
     COMP_SCOPE_CHANNEL: "seq_comp",
     LOGIC_SCOPE_CHANNEL: "seq_logic",
 }
-SCOPE_CHANNELS = (1, 2, 3, 4)
 
 # fmt: off
 SEQ_PATTERNS = {
@@ -150,7 +149,7 @@ def validate_capture(waveforms, symbol_rate_bps: float) -> tuple[float, float]:
 
 
 @pytest.mark.hw
-def test_serdes_rates() -> None:
+def test_serdes_rates(linux_gpib_interface: None) -> None:
     """Hardware: qualify sequencer serialization across all supported rates."""
     from gpib_ctypes import make_default_gpib
 
@@ -161,6 +160,10 @@ def test_serdes_rates() -> None:
         raise ValueError("SMU supply voltage must remain in 0..1.2 V")
     if not 0.0 < SMU_CURRENT_COMPLIANCE_A <= 500.0e-6:
         raise ValueError("SMU current compliance must remain in 0..500 uA")
+
+    run_timestamp = time.strftime("%Y%m%d_%H%M%S")
+    run_dir = OUTPUT_DIR / run_timestamp
+    run_dir.mkdir(parents=True, exist_ok=False)
 
     config = safe_load(MAP_PATH.read_text())
     config["transfer_layer"] = [layer for layer in config["transfer_layer"] if layer["name"] != "visa0"]
@@ -251,7 +254,7 @@ def test_serdes_rates() -> None:
             try:
                 scope.set_acquire_state("STOP")
                 scope.set_acquire_stop_after("SEQUENCE")
-                for channel in SCOPE_CHANNELS:
+                for channel in SCOPE_TRACKS:
                     scope.set_vertical_scale(
                         SCOPE_VERTICAL_SCALE_V,
                         channel=channel,
@@ -337,12 +340,11 @@ def test_serdes_rates() -> None:
                             f"{SCOPE_CAPTURE_ATTEMPTS} acquisitions"
                         )
 
-                    timestamp = time.strftime("%Y%m%d_%H%M%S")
                     stem = (
                         f"serdes_{target_symbol_rate_bps / 1e6:g}mbd_"
-                        f"fin{si570_frequency_hz / 1e6:g}mhz_n{divider_n:02d}_{timestamp}"
+                        f"fin{si570_frequency_hz / 1e6:g}mhz_n{divider_n:02d}"
                     )
-                    csv_path = SCOPE_OUT_DIR / f"{stem}.csv"
+                    csv_path = run_dir / f"{stem}.csv"
                     write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
 
                     measured_interval_s, measured_symbol_rate_bps = validate_capture(
@@ -397,7 +399,7 @@ def test_serdes_rates() -> None:
                 # Leave every analog channel in the standard high-bandwidth,
                 # zero-offset state instead of restoring stale per-channel
                 # offsets from an earlier measurement.
-                for channel in SCOPE_CHANNELS:
+                for channel in SCOPE_TRACKS:
                     scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
                     scope.set_vertical_position(0.0, channel=channel)
                     scope.set_vertical_offset(0.0, channel=channel)

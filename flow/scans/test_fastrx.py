@@ -12,7 +12,7 @@ FastRX records repeated conversions, and the scope records:
 
 The first 17 scope decisions are compared bit-for-bit with the first FastRX
 word. Every scope waveform, ADC conversion record, and noise histogram is
-saved under a new timestamped ``build/loopback_fastrx`` directory.
+saved under a new ``build/test_fastrx/<timestamp>`` directory.
 
 Run the quick physical smoke point:
 
@@ -66,13 +66,14 @@ from flow.scans.scan_adc import (
     convert_vdiff_input_to_awg_supply,
 )
 from flow.scans.scope import (
+    FRIDA_SCOPE_CHANNELS,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 MAP_DIR = Path(__file__).resolve().parent
-OUT_DIR = Path(__file__).resolve().parents[2] / "build" / "loopback_fastrx"
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_fastrx"
 
 BOARD_ID = "00"
 ADC_INDEX = 1
@@ -90,25 +91,23 @@ SMOKE_SYMBOL_RATE_BPS = 800.0e6
 SMOKE_LOGIC_OFFSET = 0
 SMOKE_CONVERSIONS = 100
 
-SCOPE_TRACKS = {
-    1: "adc_vdiff",
-    2: "seq_comp",
-    3: "seq_logic",
-    4: "comp_out",
-}
-SCOPE_TRIGGER_CHANNEL = 3
+SCOPE_TRACKS = {channel: track for track, channel in FRIDA_SCOPE_CHANNELS.items()}
+SCOPE_TRIGGER_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_logic"]
 SCOPE_RECORD_LENGTH = 10_000
 SCOPE_BANDWIDTH_HZ = 2.0e9
 SCOPE_VERTICAL_SCALE_V = 0.2
 SCOPE_CAPTURE_TIMEOUT_S = 5.0
 SCOPE_DOWNLOAD_SETTLE_S = 0.1
+# TODO: Reverse the physical CH4 COMP_OUT probe pinout, then remove this
+# software compensation and decode positive probe voltage as logical one.
 SCOPE_COMP_OUT_INVERTED = True
-# Sample immediately before the next COMP decision. At 1.6 GBd, 90% of the
-# 5 ns decision interval was too early for the slowest physical COMP_OUT
-# transitions; 98% reproduced all 140 saved scope/FastRX decision vectors.
-# This fraction is used only for offline scope decoding. FPGA capture timing is
-# selected independently by calculate_fastrx_capture_alignment().
-SCOPE_DECISION_SAMPLE_FRACTION = 0.98
+# Sample at the center of each COMP decision interval, away from both the
+# settling edge and the following transition. Across 274 saved physical
+# captures this agrees with 273 complete FastRX decision vectors; the remaining
+# capture has one genuinely disagreeing bit. This fraction is used only for
+# offline scope decoding. FPGA capture timing is selected independently by
+# calculate_fastrx_capture_alignment().
+SCOPE_DECISION_SAMPLE_FRACTION = 0.50
 
 SETUP_SETTLE_S = 0.2
 SMU_SETTLE_S = 0.5
@@ -222,6 +221,7 @@ def test_physical_fastrx_matches_scope(
     symbol_rates_bps: tuple[float, ...],
     logic_offsets: tuple[int, ...],
     conversions: int,
+    linux_gpib_interface: None,
 ) -> None:
     """Hardware: compare physical comparator decisions with FastRX capture."""
 
@@ -270,7 +270,7 @@ def test_physical_fastrx_matches_scope(
         raise ValueError("calibrated Vin_cm supply request is outside 0..1.2 V")
 
     run_timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    run_dir = OUT_DIR / run_timestamp
+    run_dir = OUTPUT_DIR / run_timestamp
     run_dir.mkdir(parents=True, exist_ok=False)
     print(f"Saving {len(symbol_rates_bps) * len(logic_offsets)} capture points to {run_dir}")
 
@@ -572,14 +572,14 @@ def test_physical_fastrx_matches_scope(
                 f"logic{logic_offset:+d}_rx{rx_sen_start_word:02d}_"
                 f"tap{comp_idelay_taps:02d}"
             )
-            scope_reference = waveforms[1]
+            scope_reference = waveforms[FRIDA_SCOPE_CHANNELS["adc_vdiff"]]
             scope_time_s = (
                 scope_reference.x_scale.offset + np.arange(len(scope_reference.data)) * scope_reference.x_scale.slope
             )
             scope_decisions = extract_scope_decisions(
                 scope_time_s,
-                np.asarray(waveforms[2].data, dtype=float),
-                np.asarray(waveforms[4].data, dtype=float),
+                np.asarray(waveforms[FRIDA_SCOPE_CHANNELS["seq_comp"]].data, dtype=float),
+                np.asarray(waveforms[FRIDA_SCOPE_CHANNELS["comp_out"]].data, dtype=float),
                 symbol_rate_bps=symbol_rate_bps,
                 decision_count=data_size,
                 output_inverted=SCOPE_COMP_OUT_INVERTED,
@@ -655,10 +655,10 @@ def test_physical_fastrx_matches_scope(
                     [waveforms],
                     [0],
                     {
-                        "vin_diff_v": 1,
-                        "seq_comp_v": 2,
-                        "seq_logic_v": 3,
-                        "comp_out_v": 4,
+                        "vin_diff_v": FRIDA_SCOPE_CHANNELS["adc_vdiff"],
+                        "seq_comp_v": FRIDA_SCOPE_CHANNELS["seq_comp"],
+                        "seq_logic_v": FRIDA_SCOPE_CHANNELS["seq_logic"],
+                        "comp_out_v": FRIDA_SCOPE_CHANNELS["comp_out"],
                     },
                 ),
             )

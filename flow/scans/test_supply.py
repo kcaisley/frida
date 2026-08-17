@@ -13,7 +13,7 @@ MAP_PATH = Path(__file__).resolve().parent / "map_supply.yaml"
 pytestmark = pytest.mark.hw
 
 
-def test_supply_connectivity() -> None:
+def test_supply_connectivity(linux_gpib_interface: None) -> None:
     """Query the supply identity and current output state without changing it."""
     from gpib_ctypes import make_default_gpib
 

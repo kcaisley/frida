@@ -13,7 +13,7 @@ MAP_PATH = Path(__file__).resolve().parent / "map_awg.yaml"
 pytestmark = pytest.mark.hw
 
 
-def test_awg_connectivity() -> None:
+def test_awg_connectivity(linux_gpib_interface: None) -> None:
     """Query the AWG identity and current output state without changing it."""
     from gpib_ctypes import make_default_gpib
 

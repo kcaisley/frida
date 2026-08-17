@@ -14,6 +14,15 @@ from basil.HL.tektronix_oscilloscope import response_value
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
 
+# Fixed physical MSO54 hookup shared by every FRIDA bench test. INIT and SAMP
+# are not connected to the scope in this configuration.
+FRIDA_SCOPE_CHANNELS = {
+    "adc_vdiff": 1,
+    "seq_comp": 2,
+    "seq_logic": 3,
+    "comp_out": 4,
+}
+
 
 def plot_scope_waveforms(
     output_path: Path,
