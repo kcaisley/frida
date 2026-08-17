@@ -29,7 +29,9 @@ jobs:
           enable-cache: true
 
       - name: Install mdl
-        run: gem install mdl --version 0.14.0 --no-document
+        run: |
+          gem install mdl --version 0.14.0 --no-document --user-install
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
 
       - name: Run rumdl
         run: uvx --from rumdl==0.2.55 rumdl check $(git ls-files '*.md')
