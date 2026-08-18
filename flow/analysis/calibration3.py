@@ -143,7 +143,11 @@ def _fit_probit_threshold(
                 (vin_diff_min_v, vin_diff_max_v),
                 (math.log(minimum_sigma_v), math.log(maximum_sigma_v)),
             ),
-            options={"xtol": 1e-12, "ftol": 1e-12},
+            # SciPy's default two-parameter Powell budget is 2,000 objective
+            # evaluations.  Near-deterministic transitions can need slightly
+            # more on some CPU/libm combinations, so keep the fallback bounded
+            # but large enough to converge reproducibly in CI.
+            options={"xtol": 1e-12, "ftol": 1e-12, "maxfev": 10_000},
         )
     if not fit.success or not np.all(np.isfinite(fit.x)):
         raise RuntimeError(f"ADC threshold probit fit failed: {fit.message}")
