@@ -295,6 +295,7 @@ def validate_params(params: AdcTbParams) -> None:
     campaigns = {
         "adc",
         "adc_ramp",
+        "adc_transfer",
         "comp_common_mode",
         "comp_sampling_noise",
         "cdac_ab",
