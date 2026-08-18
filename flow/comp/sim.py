@@ -581,6 +581,7 @@ def frida65_baseline_netlist() -> Path:
     """Write one fabricated-size comparator core netlist."""
 
     set_pdk("tsmc65")
+    # TODO: Change every target in this module to build/sim_comp/<short-datetime>.
     run_dir = BASE_PATH / "build/sim/comp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
     module = Comp(frida65_fabricated_params())

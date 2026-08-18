@@ -36,6 +36,7 @@ PARAMS = AdcTbParams(
 CAP_WEIGHTS = get_cdac_weights(PARAMS.dut.cdac)
 CODE_WEIGHTS = convert_dac_caps_to_adc_weights(CAP_WEIGHTS)
 NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
+# TODO: Change this stable overwrite path to build/scan_behavioral/<short-datetime>.
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "behavioral_scan"
 
 ADC_CLOCK_HZ = float(PARAMS.symbol_rate) / len(PARAMS.seq_init_pattern)

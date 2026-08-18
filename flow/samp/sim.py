@@ -192,6 +192,7 @@ def _run_campaign(run_dir: Path, cases: Sequence[SampTbParams], *, execute: bool
 def frida65_baseline_netlist() -> Path:
     """Generate one standalone fabricated-size sampler netlist."""
 
+    # TODO: Change every target in this module to build/sim_samp/<short-datetime>.
     run_dir = BASE_PATH / "build/sim/samp" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
     return _run_campaign(run_dir, (SampTbParams(),), execute=False)
