@@ -317,6 +317,7 @@ class _AdcSpectreCase:
     log_path: Path
     signal_names: dict[str, str]
     circuit_checks: bool
+    maximum_waveform_records: int | None
 
 
 def _prepare_spectre_case(
@@ -325,12 +326,14 @@ def _prepare_spectre_case(
     view: str,
     case_dir: Path,
     circuit_checks: bool,
+    transient_noise: bool = True,
+    maximum_waveform_records: int | None = None,
 ) -> _AdcSpectreCase:
     """Generate one complete ADC Spectre case without executing it."""
 
     validate_params(params)
-    if params.conversions > 100:
-        raise ValueError("ADC Spectre cases are limited to 100 conversions")
+    if params.conversions > 151:
+        raise ValueError("ADC Spectre cases are limited to 151 conversions")
     case_dir.mkdir(parents=True, exist_ok=True)
     deck_path = case_dir / "input.scs"
     raw_path = case_dir / "result.raw"
@@ -480,7 +483,7 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
     attrs.append(h.Literal("saveOptions options save=selected rawfmt=nutascii"))
     attrs.append(h.Literal("save \\\n    " + " \\\n    ".join(save_names)))
     tran = f"tran tran stop={tstop_s:.12g} strobeperiod={strobe_period_s:.12g} strobeoutput=strobeonly"
-    if not circuit_checks:
+    if not circuit_checks and transient_noise:
         # A finite transient cannot represent noise below 1 / tstop. Spectre
         # silently raises smaller values to this limit, so record the actual
         # simulated band explicitly in every generated production deck.
@@ -496,6 +499,7 @@ check_power dyn_subcktpwr inst=[xtop.xadc] depth=1 port=[*] power=on"""
         log_path=log_path,
         signal_names=signal_names,
         circuit_checks=circuit_checks,
+        maximum_waveform_records=maximum_waveform_records,
     )
 
 
@@ -557,6 +561,7 @@ def _execute_spectre_case(case: _AdcSpectreCase) -> Path:
         case.h5_path,
         params=case.params,
         signal_names=case.signal_names,
+        maximum_waveform_records=case.maximum_waveform_records,
     )
     print(f"{case_dir.name}: simulated and converted in {time.perf_counter() - started:.1f} s")
     return case.h5_path
@@ -586,6 +591,36 @@ def _noise_vs_rate_cases() -> tuple[tuple[str, AdcTbParams], ...]:
             )
         )
     return tuple(cases)
+
+
+def _transfer_curve_cases() -> tuple[tuple[str, AdcTbParams], ...]:
+    """Build one settled 10 mV-step transfer sweep."""
+
+    vin_diff_values_v = tuple(step / 100.0 for step in range(-75, 76))
+    template = AdcTbParams()
+    symbol_rate = convert_sample_rate_to_baud(template, 10.0e6)
+    conversion_period_s = len(template.seq_init_pattern) / symbol_rate
+    transition_s = 100.0e-12
+    points = [(0.0, vin_diff_values_v[0])]
+    for index, vin_diff_v in enumerate(vin_diff_values_v[1:], start=1):
+        boundary_s = index * conversion_period_s
+        points.extend(
+            (
+                (boundary_s - transition_s, vin_diff_values_v[index - 1]),
+                (boundary_s, vin_diff_v),
+            )
+        )
+    points.append((len(vin_diff_values_v) * conversion_period_s, vin_diff_values_v[-1]))
+    wave = " ".join(f"{time_s:.12g} {value_v:.12g}" for time_s, value_v in points)
+    params = AdcTbParams(
+        campaign="adc_transfer",
+        symbol_rate=symbol_rate,
+        conversions=len(vin_diff_values_v),
+        vin_cm=h.Vdc.Params(dc=0.7),
+        vin_diff=h.Vpwl.Params(wave=wave),
+        seq_logic_phase_delay_symbols=2.0,
+    )
+    return (("10msps_cm700mv_transfer", params),)
 
 
 def _smoke_params() -> AdcTbParams:
@@ -622,6 +657,8 @@ def _run_campaign(
     cases: Sequence[tuple[str, AdcTbParams]],
     execute: bool,
     circuit_checks: bool = False,
+    transient_noise: bool = True,
+    maximum_waveform_records: int | None = None,
 ) -> Path:
     """Prepare one complete ADC run and optionally execute its cases."""
 
@@ -631,6 +668,8 @@ def _run_campaign(
             view=view,
             case_dir=run_dir / name,
             circuit_checks=circuit_checks,
+            transient_noise=transient_noise,
+            maximum_waveform_records=maximum_waveform_records,
         )
         for name, params in cases
     )
@@ -655,6 +694,7 @@ def _run_campaign(
 def frida65a_noise_vs_rate_netlists() -> Path:
     """Generate the extracted ADC fixed-input noise decks without running them."""
 
+    # TODO: Change every target in this module to build/sim_adc/<short-datetime>.
     run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
     return _run_campaign(run_dir, view="frida65a", cases=_noise_vs_rate_cases(), execute=False)
@@ -680,6 +720,36 @@ def frida65a_noise_vs_rate() -> Path:
     run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
     return _run_campaign(run_dir, view="frida65a", cases=_noise_vs_rate_cases(), execute=True)
+
+
+def frida65a_transfer_curve_netlist() -> Path:
+    """Generate the extracted ADC transfer deck without running it."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="frida65a",
+        cases=_transfer_curve_cases(),
+        execute=False,
+        transient_noise=False,
+        maximum_waveform_records=3,
+    )
+
+
+def frida65a_transfer_curve() -> Path:
+    """Run the extracted ADC full transfer sweep."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="frida65a",
+        cases=_transfer_curve_cases(),
+        execute=True,
+        transient_noise=False,
+        maximum_waveform_records=3,
+    )
 
 
 def hdl21gen_noise_vs_rate_netlists() -> Path:
@@ -712,15 +782,49 @@ def hdl21gen_noise_vs_rate() -> Path:
     return _run_campaign(run_dir, view="hdl21gen", cases=_noise_vs_rate_cases(), execute=True)
 
 
+def hdl21gen_transfer_curve_netlist() -> Path:
+    """Generate the schematic ADC transfer deck without running it."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="hdl21gen",
+        cases=_transfer_curve_cases(),
+        execute=False,
+        transient_noise=False,
+        maximum_waveform_records=3,
+    )
+
+
+def hdl21gen_transfer_curve() -> Path:
+    """Run the schematic ADC full transfer sweep."""
+
+    run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return _run_campaign(
+        run_dir,
+        view="hdl21gen",
+        cases=_transfer_curve_cases(),
+        execute=True,
+        transient_noise=False,
+        maximum_waveform_records=3,
+    )
+
+
 TARGETS: dict[str, Callable[[], Path]] = {
     target.__name__: target
     for target in (
         frida65a_noise_vs_rate_netlists,
         frida65a_noise_smoke,
         frida65a_noise_vs_rate,
+        frida65a_transfer_curve_netlist,
+        frida65a_transfer_curve,
         hdl21gen_noise_vs_rate_netlists,
         hdl21gen_noise_smoke,
         hdl21gen_noise_vs_rate,
+        hdl21gen_transfer_curve_netlist,
+        hdl21gen_transfer_curve,
     )
 }
 

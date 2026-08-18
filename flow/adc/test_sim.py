@@ -21,9 +21,13 @@ def test_named_simulation_targets_are_explicit() -> None:
         "frida65a_noise_vs_rate_netlists",
         "frida65a_noise_smoke",
         "frida65a_noise_vs_rate",
+        "frida65a_transfer_curve_netlist",
+        "frida65a_transfer_curve",
         "hdl21gen_noise_vs_rate_netlists",
         "hdl21gen_noise_smoke",
         "hdl21gen_noise_vs_rate",
+        "hdl21gen_transfer_curve_netlist",
+        "hdl21gen_transfer_curve",
     }
     assert all(callable(target) for target in sim.TARGETS.values())
 
@@ -48,12 +52,34 @@ def test_named_campaigns_expand_to_the_expected_matrix() -> None:
         assert float(params.seq_logic_phase_delay_symbols) == pytest.approx(2.0)
 
 
-def test_spectre_cases_reject_more_than_one_hundred_conversions(tmp_path: Path) -> None:
-    """Keep every production transient bounded to at most 100 conversions."""
+def test_transfer_curve_uses_one_settled_conversion_per_10mv_step() -> None:
+    """Cover the full reviewed transfer range in one simulation case."""
 
-    with pytest.raises(ValueError, match="limited to 100 conversions"):
+    ((name, params),) = sim._transfer_curve_cases()
+    tokens = params.vin_diff.wave.split()
+    times_s = tuple(float(value) for value in tokens[0::2])
+    values_v = tuple(float(value) for value in tokens[1::2])
+
+    assert name == "10msps_cm700mv_transfer"
+    assert params.campaign == "adc_transfer"
+    assert params.conversions == 151
+    assert float(params.symbol_rate) == pytest.approx(1.6e9)
+    assert float(params.vin_cm.dc) == pytest.approx(0.7)
+    assert float(params.seq_logic_phase_delay_symbols) == pytest.approx(2.0)
+    assert len(times_s) == 302
+    assert times_s[0] == 0.0
+    assert times_s[-1] == pytest.approx(24.16e-6)
+    assert values_v[0] == pytest.approx(-0.75)
+    assert values_v[-1] == pytest.approx(0.75)
+    assert tuple(sorted(set(values_v))) == pytest.approx(tuple(step / 100.0 for step in range(-75, 76)))
+
+
+def test_spectre_cases_reject_more_than_one_hundred_fifty_one_conversions(tmp_path: Path) -> None:
+    """Bound every production transient while permitting the full transfer."""
+
+    with pytest.raises(ValueError, match="limited to 151 conversions"):
         sim._prepare_spectre_case(
-            AdcTbParams(conversions=101),
+            AdcTbParams(conversions=152),
             view="hdl21gen",
             case_dir=tmp_path / "too-long",
             circuit_checks=False,
@@ -170,6 +196,21 @@ def test_smoke_and_production_decks_have_distinct_runtime_settings(
     )
     slow_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
     assert "strobeperiod=5e-11 strobeoutput=strobeonly" in slow_text
+
+    written.clear()
+    transfer_params = sim._transfer_curve_cases()[0][1]
+    transfer_case = sim._prepare_spectre_case(
+        transfer_params,
+        view=view,
+        case_dir=tmp_path / "transfer",
+        circuit_checks=False,
+        transient_noise=False,
+        maximum_waveform_records=3,
+    )
+    transfer_text = "\n".join(attr.text for attr in written["input.scs"].attrs if isinstance(attr, h.Literal))
+    assert "tran tran stop=2.416e-05" in transfer_text
+    assert "noisefmin" not in transfer_text
+    assert transfer_case.maximum_waveform_records == 3
 
 
 def test_spectre_commands_wait_for_a_license(

@@ -84,27 +84,58 @@ BASE_PATH = Path(__file__).resolve().parents[2]
 
 
 def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
-    """Plot transfer curves for the configured ADC measurements."""
+    """Plot the accepted physical ADC00 static transfer campaign."""
 
-    INPUT_H5_BY_ADC = {
-        0: BASE_PATH / "build/adc_pex_monotonic/adc_00.h5",
-    }
+    adc_indices = (0,)
+    expected_input_v = tuple((step - 500) * 0.0015 for step in range(1_001))
+    expected_conversions = 100
+    run_dir = BASE_PATH / "build/scan_adc/20260818_135848"
+    measurement_paths = sorted(run_dir.glob("*.h5"))
+    if len(measurement_paths) != len(adc_indices) * len(expected_input_v):
+        raise ValueError(
+            f"accepted ADC transfer run requires {len(adc_indices) * len(expected_input_v)} H5 files, "
+            f"found {len(measurement_paths)}"
+        )
 
-    if not INPUT_H5_BY_ADC or any(
-        not isinstance(adc_index, int) or not 0 <= adc_index < 16 for adc_index in INPUT_H5_BY_ADC
-    ):
-        raise ValueError("INPUT_H5_BY_ADC must map ADC indices in 0..15 to measurement files")
-    artifacts = []
-    for adc_index, input_h5 in INPUT_H5_BY_ADC.items():
-        if not input_h5.is_file():
-            raise FileNotFoundError(2, "measurement input not found", input_h5)
+    measurements_by_adc: dict[int, list[MeasAdcExt]] = {adc_index: [] for adc_index in adc_indices}
+    for input_h5 in measurement_paths:
         measurement = read_measurement(input_h5)
-        if not isinstance(measurement, (MeasAdcExt, MeasAdcInt)):
-            raise TypeError(f"{input_h5} contains {type(measurement).__name__}, expected MeasAdcExt or MeasAdcInt")
-        analysis = analyze_adc_transfer([measurement])
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"{input_h5} contains {type(measurement).__name__}, expected MeasAdcExt")
+        adc_index = measurement.param.observed_adc
+        source = measurement.param.vin_diff
+        if (
+            measurement.info.backend != "physical"
+            or measurement.param.campaign != "adc_transfer"
+            or measurement.param.board_id != "00"
+            or adc_index not in adc_indices
+            or measurement.param.conversions != expected_conversions
+            or not isinstance(source, h.Vdc.Params)
+            or float(measurement.param.vin_cm.dc) != 0.700
+            or float(measurement.info.readbacks.get("actual_sample_rate_hz", 0.0)) != 10.0e6
+            or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+            or int(measurement.info.readbacks.get("spi_mismatches", 0))
+        ):
+            raise ValueError(f"{input_h5} is not an accepted pre-rework ADC transfer point")
+        if len(measurement.daq.dout) != expected_conversions or not np.allclose(
+            measurement.daq.vin_diff_v,
+            float(source.dc),
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise ValueError(f"{input_h5} contains incomplete or mislabelled transfer data")
+        measurements_by_adc[adc_index].append(measurement)
+
+    artifacts = []
+    for adc_index in adc_indices:
+        measurements = measurements_by_adc[adc_index]
+        observed_input_v = tuple(sorted(float(measurement.param.vin_diff.dc) for measurement in measurements))
+        if not np.allclose(observed_input_v, expected_input_v, rtol=0.0, atol=1.0e-12):
+            raise ValueError(f"ADC{adc_index:02d} transfer inputs are incomplete or duplicated")
+        analysis = analyze_adc_transfer(measurements)
         artifacts.extend(
             plot_adc_transfer(
-                [measurement],
+                measurements,
                 analysis,
                 output_path=output_dir / f"adc{adc_index:02d}_transfer_curve",
             )
@@ -1218,6 +1249,7 @@ AGGREGATE_TARGETS = {"adc_rate_characterization"}
 def main() -> None:
     """Run one named analysis pipeline, or every target when none is named."""
 
+    # TODO: Change analysis roots to build/analysis_<domain>/<short-datetime>.
     ANALYSIS_OUTPUT_BASE = BASE_PATH / "build/analysis"
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1233,6 +1265,7 @@ def main() -> None:
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M")
     output_dirs: dict[str, Path] = {}
     for target_name in target_names:
+        # TODO: Route cdac_* targets to analysis_cdac instead of analysis_adc.
         domain = "comp" if target_name.startswith("comp_") else "adc"
         output_dir = output_dirs.get(domain)
         if output_dir is None:

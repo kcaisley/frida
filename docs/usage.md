@@ -245,8 +245,10 @@ uv run python -m flow.scans.runner cdac_cap_mismatch
 ```
 
 Use `--help` to list every maintained ADC, comparator, CDAC, and repair target.
-The target function owns the complete parameter recipe and passes its flat list
-to the corresponding acquisition module. Each run writes one typed HDF5
+The target function owns the complete parameter recipe. ADC targets iterate
+their flat list and pass one configuration plus its lifecycle position to the
+acquisition module; comparator and CDAC targets pass their complete lists.
+Each run writes one typed HDF5
 measurement per parameter variant below a fresh timestamped `build/scan_adc/`,
 `build/scan_comp/`, or `build/scan_cdac/` directory. The individual scan modules
 are libraries and do not provide command-line entry points.

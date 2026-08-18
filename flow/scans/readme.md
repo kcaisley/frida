@@ -4,9 +4,11 @@
 
 `flow/scans/runner.py` is the executable hardware-scan entry point. Each named
 target owns its complete parameter recipe and output path, builds a flat list
-of fully specified `*TbParams`, and hands those configurations to exactly one
-of `scan_adc.scan`, `scan_comp.scan`, or `scan_cdac.scan`. The scan modules are
-acquisition libraries, not command-line programs. A runner may define
+of fully specified `*TbParams`, and hands each configuration to its acquisition
+function. ADC targets also pass `first`, `middle`, `last`, or `only` so
+`scan_adc.scan` acquires exactly one H5 while preserving the powered bench
+state between calls. The scan modules are acquisition libraries, not
+command-line programs. A runner may define
 `BASE_PATH`; campaign-specific directories, selections, and constants belong
 inside the target that uses them.
 
@@ -24,6 +26,12 @@ decoding. Do not wrap a short recognizable sequence of Basil calls merely to
 shorten a scan function. When refactoring a sweep, preserve safety ordering,
 requested trials, frame/identifier and loss validation, SPI readback, and the
 waveforms needed to validate each distinct timing sequence.
+
+Keep already-enabled supplies and stimulus outputs active while consecutive
+parameter configurations request the same settings. Program only changed
+setpoints. ADC runners issue an `abort` call if their loop is interrupted;
+retain unconditional best-effort shutdown for final, single-point, abort, and
+exception paths.
 
 The scan scripts use three distinct interfaces:
 
@@ -165,10 +173,11 @@ Saved hardware-test artifacts are grouped by test module and invocation under
 Backend-neutral result I/O, numerical post-processing, and rendering live in
 `flow/analysis`; none of these modules adds methods to the Basil hardware API.
 
-`params.py` expands the full sweep into a flat `list[AdcTbParams]`; each item
-produces exactly one `MeasAdcExt` HDF5 file. `map_board.yaml` maps its `board_id` to physical ADC
+`params.py` expands the full sweep into a flat `list[AdcTbParams]`. The runner
+iterates that list and each call to `scan_adc.scan` produces exactly one
+`MeasAdcExt` HDF5 file. `map_board.yaml` maps its `board_id` to physical ADC
 flavors, explicit CDAC weights, safe supply limits, input calibration, and
-capture alignment. Each invocation creates a new timestamped directory under
+capture alignment. The first call creates a new timestamped directory under
 `build/scan_adc/`. Each file contains native `/info`, `/param`, `/daq`, and
 `/wave` groups; there is no separate CSV or manifest sidecar.
 

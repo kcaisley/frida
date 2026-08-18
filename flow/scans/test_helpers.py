@@ -401,7 +401,7 @@ def test_convert_dout_to_normalized_dout_scales_to_twelve_bits() -> None:
     assert scan_adc.convert_dout_to_normalized_dout(1, [1, 1], adc_bits=12) == 2048
 
 
-def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_it(
+def test_adc_preflight_rejects_input_beyond_headroom_before_hardware(
     tmp_path,
 ) -> None:
     base = build_adc_variants(
@@ -421,7 +421,7 @@ def test_adc_preflight_accepts_input_headroom_boundary_before_rejecting_beyond_i
     beyond = replace(boundary, vin_diff=h.Vdc.Params(dc=0.900002))
     scan_outdir = tmp_path / "not-created"
     with pytest.raises(ValueError, match="ADC inputs"):
-        scan_adc.scan([boundary, beyond], run_dir=scan_outdir)
+        scan_adc.scan(beyond, run_dir=scan_outdir, position="first")
     assert not scan_outdir.exists()
 
 
@@ -452,7 +452,7 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
     scan_outdir = tmp_path / "not-created"
 
     with pytest.raises(ValueError, match=message):
-        scan_adc.scan([invalid], run_dir=scan_outdir)
+        scan_adc.scan(invalid, run_dir=scan_outdir, position="first")
     assert not scan_outdir.exists()
 
 

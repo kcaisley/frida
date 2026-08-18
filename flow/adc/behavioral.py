@@ -712,6 +712,7 @@ class SAR_ADC:
     ):
         # Create results directory if not specified
         if builddir is None:
+            # TODO: Change the default to build/adc_behavioral/<short-datetime>.
             builddir = os.path.join(os.getcwd(), "results")
 
         # Ensure builddir exists

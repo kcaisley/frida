@@ -23,6 +23,7 @@ def primitive_main(
         "-m", "--mode", default="min", choices=["min", "max"], help="min: default only; max: full sweep"
     )
     parser.add_argument("-v", "--visual", action="store_true", help="Render the generated GDS")
+    # TODO: Change the default to build/<layout-module>/<short-datetime>.
     parser.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
     args = parser.parse_args()
 

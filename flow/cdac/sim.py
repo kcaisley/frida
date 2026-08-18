@@ -216,6 +216,7 @@ def _run_campaign(run_dir: Path, cases: Sequence[CdacTbParams], *, execute: bool
 def frida65_baseline_netlist() -> Path:
     """Generate one standalone fabricated-size CDAC netlist."""
 
+    # TODO: Change every target in this module to build/sim_cdac/<short-datetime>.
     run_dir = BASE_PATH / "build/sim/cdac" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
     return _run_campaign(run_dir, (CdacTbParams(),), execute=False)

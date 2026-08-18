@@ -1,16 +1,16 @@
-"""Acquire one physical ADC data file for each configured parameter variant."""
+"""Acquire one physical ADC data file for one configured parameter variant."""
 
 from __future__ import annotations
 
 import itertools
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, Literal
 
 import hdl21 as h
 import numpy as np
@@ -289,8 +289,13 @@ def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
     return points
 
 
-def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
-    """Run the supplied physical variants into the explicitly selected directory."""
+def scan(
+    params: AdcTbParams,
+    *,
+    run_dir: Path,
+    position: Literal["first", "middle", "last", "only", "abort"],
+) -> Path:
+    """Acquire one physical ADC point within a runner-owned scan lifecycle."""
 
     SETUP_SETTLE_S = 0.2
     SMU_SETTLE_S = 0.5
@@ -324,18 +329,16 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
     }
     SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
-    variants = list(variants)
-    if not variants:
-        raise ValueError("ADC scan requires at least one parameter variant")
-    for params in variants:
+    if position not in {"first", "middle", "last", "only", "abort"}:
+        raise ValueError(f"unknown ADC scan lifecycle position {position!r}")
+    if position != "abort":
         validate_params(params)
-        if params.board_id is None or params.observed_adc is None or params.active_adc_mask is None:
-            raise ValueError("every physical scan variant must select a board, observed ADC, and active ADC mask")
+    if params.board_id is None or (
+        position != "abort" and (params.observed_adc is None or params.active_adc_mask is None)
+    ):
+        raise ValueError("every physical scan variant must select a board, observed ADC, and active ADC mask")
 
-    board_ids = {params.board_id for params in variants}
-    if len(board_ids) != 1:
-        raise ValueError("one physical scan invocation can operate on exactly one board_id")
-    board_id = next(iter(board_ids))
+    board_id = params.board_id
     board_map = load_board_map()
     board = board_map["boards"][board_id]
 
@@ -345,7 +348,7 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
     signal_headroom_v = float(supply_limits["signal_headroom_v"])
     fixed_vdd_io_v = float(board["fixed_vdd_io_v"])
     calibration = board["input_calibration"]
-    for params in variants:
+    if position != "abort":
         if not math.isclose(float(params.vdd_io.dc), fixed_vdd_io_v, abs_tol=1.0e-12):
             raise ValueError(
                 f"VDD_IO is fixed at {fixed_vdd_io_v:g} V on {board_id}; variant requests {float(params.vdd_io.dc):g} V"
@@ -387,12 +390,12 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                 f"requested Vin_cm={vin_cm_v:g} V is outside the calibrated "
                 f"{minimum_vin_cm_v:g}..{maximum_vin_cm_v:g} V range"
             )
-        _awg_at_min_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
+        awg_at_min_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
             vin_diff_min_v,
             vin_cm_v,
             calibration,
         )
-        _awg_at_max_v, second_supply_v = convert_vdiff_input_to_awg_supply(
+        awg_at_max_v, second_supply_v = convert_vdiff_input_to_awg_supply(
             vin_diff_max_v,
             vin_cm_v,
             calibration,
@@ -415,7 +418,10 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                     f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
-    run_dir.mkdir(parents=True, exist_ok=False)
+    if position in {"first", "only"}:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    elif position != "abort" and not run_dir.is_dir():
+        raise FileNotFoundError(2, "ADC scan run directory is not initialized", run_dir)
 
     from gpib_ctypes import make_default_gpib
 
@@ -432,6 +438,7 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
     daq = awg = vin_cm_supply = scope = None
     smus = []
     instrument_identities = {}
+    completed = False
 
     try:
         for dut in (daq_dut, awg_dut, vin_cm_dut, smu_dut, scope_dut):
@@ -454,40 +461,53 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
             **{field: str(smu.get_name()).strip() for smu, _rail, field in smus},
         }
 
-        awg.set_enable(0)
-        vin_cm_supply.set_enable(0)
-        vin_cm_supply.set_voltage(0.0)
-        for smu, _rail, _field in smus:
-            smu.off()
-            smu.set_voltage(0.0)
+        if position in {"first", "only"}:
+            awg.set_enable(0)
+            awg.set_output_load("INFinity")
+            vin_cm_supply.set_enable(0)
+            vin_cm_supply.set_voltage(0.0)
+            vin_cm_supply.set_voltage_range("P25V")
+            vin_cm_supply.set_current_limit(float(supply_limits["vin_cm_current_limit_a"]))
+            for smu, _rail, _field in smus:
+                smu.off()
+                smu.set_voltage(0.0)
+                smu.source_volt()
+                smu.four_wire_off()
+                smu.set_voltage_range(float(supply_limits["smu_voltage_range_v"]))
+                smu.set_current_limit(float(supply_limits["smu_current_compliance_a"]))
+                smu.current_sense_autorange_on()
+                smu.set_current_nplc(SMU_CURRENT_NPLC)
+                smu.autozero_on()
 
-        scope.set_acquire_state("STOP")
-        scope.set_acquire_mode("SAMPLE")
-        scope.set_acquire_stop_after("SEQUENCE")
-        scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
-        scope._intf.write("HORizontal:POSition 20")
-        for signal_name, channel in SCOPE_TRACKS.items():
-            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
-            scope.set_coupling("DC", channel=channel)
-            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V[signal_name], channel=channel)
-            scope.set_vertical_position(0.0, channel=channel)
-            scope.set_vertical_offset(0.0, channel=channel)
-            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ[signal_name], channel=channel)
-        scope.set_trigger_type("EDGE")
-        scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
-        scope.set_trigger_edge_slope("RISE")
-        scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
-        scope.set_trigger_mode("NORMAL")
+            scope.set_acquire_state("STOP")
+            scope.set_acquire_mode("SAMPLE")
+            scope.set_acquire_stop_after("SEQUENCE")
+            scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
+            scope._intf.write("HORizontal:POSition 20")
+            for signal_name, channel in SCOPE_TRACKS.items():
+                scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+                scope.set_coupling("DC", channel=channel)
+                scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V[signal_name], channel=channel)
+                scope.set_vertical_position(0.0, channel=channel)
+                scope.set_vertical_offset(0.0, channel=channel)
+                scope.set_bandwidth(SCOPE_BANDWIDTH_HZ[signal_name], channel=channel)
+            scope.set_trigger_type("EDGE")
+            scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
+            scope.set_trigger_edge_slope("RISE")
+            scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
+            scope.set_trigger_mode("NORMAL")
 
-        for variant_index, params in enumerate(variants):
+        if position != "abort":
+            variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
                 print(
-                    f"\n=== variant {variant_index + 1}/{len(variants)}: "
-                    f"ADC {params.observed_adc:02d}, {float(params.symbol_rate) / 1e6:g} MBd ==="
+                    f"\n=== {position} variant {variant_index + 1}: ADC {params.observed_adc:02d}, "
+                    f"{float(params.symbol_rate) / 1e6:g} MBd ==="
                 )
                 loaded_voltage_tolerance_v = float(supply_limits["loaded_voltage_tolerance_v"])
 
                 smu_readback = {}
+                smu_settings_changed = position in {"first", "only"}
                 for smu, rail, field in smus:
                     requested_voltage_v = float(getattr(params, field).dc)
                     if not minimum_supply_v <= requested_voltage_v <= maximum_supply_v:
@@ -495,20 +515,16 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                             f"{rail} request {requested_voltage_v:g} V is outside "
                             f"{minimum_supply_v:g}..{maximum_supply_v:g} V"
                         )
-                    smu.off()
-                    smu.set_voltage(0.0)
-                    smu.source_volt()
-                    smu.four_wire_off()
-                    smu.set_voltage_range(float(supply_limits["smu_voltage_range_v"]))
-                    smu.set_current_limit(float(supply_limits["smu_current_compliance_a"]))
-                    smu.current_sense_autorange_on()
-                    smu.set_current_nplc(SMU_CURRENT_NPLC)
-                    smu.autozero_on()
-                    smu.set_voltage(requested_voltage_v)
+                    programmed_voltage_v = float(smu.get_source_voltage())
+                    if not math.isclose(programmed_voltage_v, requested_voltage_v, abs_tol=1.0e-12):
+                        smu.set_voltage(requested_voltage_v)
+                        smu_settings_changed = True
 
-                for smu, _rail, _field in smus:
-                    smu.on()
-                sleep(SMU_SETTLE_S)
+                if position in {"first", "only"}:
+                    for smu, _rail, _field in smus:
+                        smu.on()
+                if smu_settings_changed:
+                    sleep(SMU_SETTLE_S)
 
                 for smu, rail, field in smus:
                     requested_voltage_v = float(getattr(params, field).dc)
@@ -542,13 +558,6 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
 
                 vin_cm_v = float(params.vin_cm.dc)
                 source = params.vin_diff
-                scope_vin_diff_vertical_scale_v_per_div = (
-                    0.5 if isinstance(source, h.Vpwl.Params) else SCOPE_VERTICAL_SCALE_V["vin_diff_v"]
-                )
-                scope.set_vertical_scale(
-                    scope_vin_diff_vertical_scale_v_per_div,
-                    channel=SCOPE_TRACKS["vin_diff_v"],
-                )
                 if isinstance(source, h.Vdc.Params):
                     vin_diff_min_v = vin_diff_max_v = float(source.dc)
                     awg_voltage_v, vin_cm_supply_v = convert_vdiff_input_to_awg_supply(
@@ -556,7 +565,9 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                         vin_cm_v,
                         calibration,
                     )
-                    awg.set_DC(f"DEF,DEF,{awg_voltage_v}")
+                    source_kind = "dc"
+                    source_program = f"{awg_voltage_v}"
+                    ramp_symmetry = None
                     stimulus_readback = {
                         "kind": "dc",
                         "vin_diff_v": vin_diff_min_v,
@@ -581,7 +592,9 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                         raise RuntimeError("Vin_cm calibration changed across sine endpoints")
                     awg_amplitude_vpp = abs(awg_at_max_v - awg_at_min_v)
                     awg_offset_v = (awg_at_max_v + awg_at_min_v) / 2.0
-                    awg.set_sin(f"{float(source.freq)},{awg_amplitude_vpp},{awg_offset_v}")
+                    source_kind = "sine"
+                    source_program = f"{float(source.freq)},{awg_amplitude_vpp},{awg_offset_v}"
+                    ramp_symmetry = None
                     stimulus_readback = {
                         "kind": "sine",
                         "vin_diff_min_v": vin_diff_min_v,
@@ -617,8 +630,9 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                         raise RuntimeError("Vin_cm calibration changed across PWL endpoints")
                     awg_amplitude_vpp = abs(awg_at_max_v - awg_at_min_v)
                     awg_offset_v = (awg_at_max_v + awg_at_min_v) / 2.0
-                    awg.set_ramp(f"{1.0 / period_s},{awg_amplitude_vpp},{awg_offset_v}")
-                    awg.set_function_ramp_symmetry(symmetry)
+                    source_kind = "ramp"
+                    source_program = f"{1.0 / period_s},{awg_amplitude_vpp},{awg_offset_v}"
+                    ramp_symmetry = symmetry
                     maximum_slew_v_per_s = max(
                         abs((right_value - left_value) / (right_time - left_time))
                         for (left_time, left_value), (right_time, right_value) in itertools.pairwise(points)
@@ -660,13 +674,84 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                             f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                         )
 
-                vin_cm_supply.set_enable(0)
-                vin_cm_supply.set_voltage_range("P25V")
-                vin_cm_supply.set_current_limit(float(supply_limits["vin_cm_current_limit_a"]))
-                vin_cm_supply.set_voltage(vin_cm_supply_v)
-                vin_cm_supply.set_enable(1)
-                awg.set_output_load("INFinity")
-                awg.set_enable(1)
+                scope_vin_diff_vertical_scale_v_per_div = max(
+                    SCOPE_VERTICAL_SCALE_V["vin_diff_v"],
+                    (vin_diff_max_v - vin_diff_min_v) / 6.0,
+                )
+                scope_vin_diff_vertical_offset_v = (vin_diff_min_v + vin_diff_max_v) / 2.0
+                scope.set_vertical_scale(
+                    scope_vin_diff_vertical_scale_v_per_div,
+                    channel=SCOPE_TRACKS["vin_diff_v"],
+                )
+                scope.set_vertical_offset(
+                    scope_vin_diff_vertical_offset_v,
+                    channel=SCOPE_TRACKS["vin_diff_v"],
+                )
+
+                programmed_vin_cm_supply_v = float(vin_cm_supply.get_set_voltage())
+                if not math.isclose(programmed_vin_cm_supply_v, vin_cm_supply_v, abs_tol=1.0e-12):
+                    vin_cm_supply.set_voltage(vin_cm_supply_v)
+                if position in {"first", "only"}:
+                    vin_cm_supply.set_enable(1)
+
+                if position in {"first", "only"}:
+                    if source_kind == "dc":
+                        awg.set_DC(f"DEF,DEF,{source_program}")
+                        awg.set_voltage_range_auto("OFF")
+                    elif source_kind == "sine":
+                        awg.set_voltage_range_auto("ON")
+                        awg.set_sin(source_program)
+                    else:
+                        assert ramp_symmetry is not None
+                        awg.set_voltage_range_auto("ON")
+                        awg.set_ramp(source_program)
+                        awg.set_function_ramp_symmetry(ramp_symmetry)
+                    awg.set_enable(1)
+                else:
+                    if source_kind == "dc":
+                        programmed_offset_v = float(str(awg.get_voltage_offset()).strip().split(",")[0])
+                        if not math.isclose(programmed_offset_v, float(source_program), abs_tol=1.0e-12):
+                            awg.set_voltage_offset(float(source_program))
+                    elif source_kind == "sine":
+                        programmed_frequency_hz = float(str(awg.get_frequency()).strip().split(",")[0])
+                        programmed_amplitude_vpp = float(str(awg.get_voltage_high()).strip().split(",")[0]) - float(
+                            str(awg.get_voltage_low()).strip().split(",")[0]
+                        )
+                        programmed_offset_v = float(str(awg.get_voltage_offset()).strip().split(",")[0])
+                        requested_frequency_hz, requested_amplitude_vpp, requested_offset_v = (
+                            float(value) for value in source_program.split(",")
+                        )
+                        if not np.allclose(
+                            (programmed_frequency_hz, programmed_amplitude_vpp, programmed_offset_v),
+                            (requested_frequency_hz, requested_amplitude_vpp, requested_offset_v),
+                            rtol=1.0e-9,
+                            atol=0.5e-3,
+                        ):
+                            awg.set_sin(source_program)
+                    else:
+                        assert ramp_symmetry is not None
+                        programmed_frequency_hz = float(str(awg.get_frequency()).strip().split(",")[0])
+                        programmed_amplitude_vpp = float(str(awg.get_voltage_high()).strip().split(",")[0]) - float(
+                            str(awg.get_voltage_low()).strip().split(",")[0]
+                        )
+                        programmed_offset_v = float(str(awg.get_voltage_offset()).strip().split(",")[0])
+                        programmed_symmetry = float(str(awg.get_function_ramp_symmetry()).strip().split(",")[0])
+                        requested_frequency_hz, requested_amplitude_vpp, requested_offset_v = (
+                            float(value) for value in source_program.split(",")
+                        )
+                        if not np.allclose(
+                            (
+                                programmed_frequency_hz,
+                                programmed_amplitude_vpp,
+                                programmed_offset_v,
+                                programmed_symmetry,
+                            ),
+                            (requested_frequency_hz, requested_amplitude_vpp, requested_offset_v, ramp_symmetry),
+                            rtol=1.0e-9,
+                            atol=0.5e-3,
+                        ):
+                            awg.set_ramp(source_program)
+                            awg.set_function_ramp_symmetry(ramp_symmetry)
                 sleep(SETUP_SETTLE_S)
                 stimulus_readback.update(
                     {
@@ -1059,6 +1144,7 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                     "active_power_current_nplc": SMU_CURRENT_NPLC,
                     "scope_vin_diff_bandwidth_hz": SCOPE_BANDWIDTH_HZ["vin_diff_v"],
                     "scope_vin_diff_vertical_scale_v_per_div": scope_vin_diff_vertical_scale_v_per_div,
+                    "scope_vin_diff_vertical_offset_v": scope_vin_diff_vertical_offset_v,
                     "scope_record_length_requested": SCOPE_RECORD_LENGTH,
                 }
                 for field, values in smu_readback.items():
@@ -1094,16 +1180,14 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                 )
                 write_measurement(h5_path, measurement)
                 print(f"Saved {params.conversions} conversions and one scope record to {h5_path}")
-
-                awg.set_enable(0)
-                vin_cm_supply.set_enable(0)
             except Exception:
-                print(f"Variant {variant_index + 1}/{len(variants)} failed; shutting down all hardware")
+                print(f"Variant {variant_index + 1} failed; shutting down all hardware")
                 raise
 
-        print(f"Completed {len(variants)} variants in {run_dir}")
+        completed = True
     finally:
-        if daq is not None:
+        should_shutdown = position in {"last", "only", "abort"} or not completed
+        if should_shutdown and daq is not None:
             try:
                 daq["gpio0"]["RST_B"] = 0
                 daq["gpio0"]["AMP_EN"] = 0
@@ -1119,19 +1203,22 @@ def scan(variants: Sequence[AdcTbParams], *, run_dir: Path) -> Path:
                 set_pll_divider(daq["gpio2"], 2)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not restore the default FPGA clock: {error}")
-        if awg is not None:
+        if should_shutdown and awg is not None:
             try:
-                awg.set_DC("DEF,DEF,0")
                 awg.set_enable(0)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not disable the AWG: {error}")
-        if vin_cm_supply is not None:
+            try:
+                awg.set_DC("DEF,DEF,0")
+            except Exception as error:  # noqa: BLE001 - best-effort state restoration
+                print(f"Warning: could not restore the AWG to zero volts: {error}")
+        if should_shutdown and vin_cm_supply is not None:
             try:
                 vin_cm_supply.set_enable(0)
                 vin_cm_supply.set_voltage(0.0)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not disable the Vin_cm supply: {error}")
-        for smu, _rail, _field in smus:
+        for smu, _rail, _field in smus if should_shutdown else ():
             try:
                 smu.off()
                 smu.set_voltage(0.0)
