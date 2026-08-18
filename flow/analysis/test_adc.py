@@ -50,6 +50,7 @@ def adc_measurement(
     observed_adc: int | None = None,
     readbacks: Mapping[str, InfoValue] | None = None,
     internal: bool = False,
+    waveform_sample_count: int = 8,
 ) -> MeasAdc:
     """Build one compact external or internal ADC measurement for numerical tests."""
 
@@ -72,7 +73,7 @@ def adc_measurement(
         seq_logic_phase_delay_symbols=logic_phase_delay_symbols,
         **measurement_selection,
     )
-    time_s = np.linspace(0.0, 1.0 / sample_rate_hz, 8)
+    time_s = np.linspace(0.0, 1.0 / sample_rate_hz, waveform_sample_count)
     zeros = np.zeros((1, len(time_s)))
     daq = AdcDaq(
         conversion_index=np.arange(len(dout)),
@@ -504,6 +505,71 @@ def test_power_sweep_uses_active_smu_readbacks() -> None:
     np.testing.assert_allclose(power.total_static_power_w, (37.2e-6, 18.6e-6))
     np.testing.assert_allclose(power.total_dynamic_power_w, (37.2e-6, 55.8e-6))
     np.testing.assert_allclose(power.total_power_w, (74.4e-6, 74.4e-6))
+
+
+def test_power_sweep_extracts_spice_static_from_settled_idle_tail() -> None:
+    readbacks = {
+        "vdd_a_active_average_power_w": 999.0e-6,
+        "vdd_d_active_average_power_w": 999.0e-6,
+        "vdd_dac_active_average_power_w": 999.0e-6,
+    }
+    measurement = adc_measurement(
+        [100, 101, 102],
+        readbacks=readbacks,
+        internal=True,
+        waveform_sample_count=201,
+    )
+    assert isinstance(measurement, MeasAdcInt)
+    time_s = measurement.wave.time_s
+    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
+    active_stop_s = 650.0e-9
+    rail_currents = {}
+    for rail, static_current_a, active_current_a in (
+        ("vdd_a", 2.0e-6, 10.0e-6),
+        ("vdd_d", 4.0e-6, 20.0e-6),
+        ("vdd_dac", 6.0e-6, 30.0e-6),
+    ):
+        current_a = np.full_like(measurement.wave.seq_init_v, active_current_a)
+        current_a[0, time_s < 25.0e-9] = 100.0e-6
+        current_a[0, time_s > active_stop_s] = static_current_a
+        rail_currents[f"{rail}_i"] = current_a
+    measurement = replace(
+        measurement,
+        wave=replace(measurement.wave, seq_init_v=seq_init_v, **rail_currents),
+    )
+
+    power = analyze_adc_power_sweep((measurement,))
+
+    np.testing.assert_array_equal(power.observed_adc, (-1,))
+    np.testing.assert_allclose(
+        (power.vdd_a_static_power_w[0], power.vdd_d_static_power_w[0], power.vdd_dac_static_power_w[0]),
+        (2.4e-6, 4.8e-6, 7.2e-6),
+    )
+    np.testing.assert_allclose(
+        (power.vdd_a_dynamic_power_w[0], power.vdd_d_dynamic_power_w[0], power.vdd_dac_dynamic_power_w[0]),
+        (9.6e-6, 19.2e-6, 28.8e-6),
+    )
+    assert power.total_power_w[0] == pytest.approx(72.0e-6)
+
+
+def test_power_sweep_requires_spice_settled_idle_tail() -> None:
+    readbacks = {f"{rail}_active_average_power_w": 10.0e-6 for rail in ("vdd_a", "vdd_d", "vdd_dac")}
+    measurement = adc_measurement(
+        [100, 101, 102],
+        readbacks=readbacks,
+        internal=True,
+        waveform_sample_count=201,
+    )
+    assert isinstance(measurement, MeasAdcInt)
+    time_s = measurement.wave.time_s
+    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v[0, time_s <= 5.0e-9] = 1.2
+    seq_init_v[0, (time_s >= 630.0e-9) & (time_s <= 635.0e-9)] = 1.2
+    measurement = replace(measurement, wave=replace(measurement.wave, seq_init_v=seq_init_v))
+
+    with pytest.raises(ValueError, match="at least two settled-idle samples"):
+        analyze_adc_power_sweep((measurement,))
 
 
 def test_noise_sweep_uses_active_rate_while_dynamic_uses_true_repeat_rate() -> None:

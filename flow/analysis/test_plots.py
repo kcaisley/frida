@@ -45,6 +45,7 @@ from flow.analysis.plots import (
     plot_adc_noise_violin_sweep,
     plot_adc_nonlinearity,
     plot_adc_power_sweep,
+    plot_adc_power_waveform,
     plot_adc_ramp_histogram,
     plot_adc_ramp_transfer,
     plot_adc_ramp_weights,
@@ -60,7 +61,7 @@ from flow.analysis.plots import (
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
-from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq
+from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq, MeasAdcInt
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
 
@@ -623,9 +624,97 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     for svg_path in (power_paths[2], power_paths[5]):
         power_svg = svg_path.read_text()
         assert "static and dynamic supply power" in power_svg
-        assert "VDD_A static" in power_svg
-        assert "VDD_A dynamic" in power_svg
+        component_labels = (
+            "Digital static",
+            "DAC static",
+            "Analog static",
+            "Digital dynamic",
+            "DAC dynamic",
+            "Analog dynamic",
+        )
+        assert [power_svg.index(label) for label in component_labels] == sorted(
+            power_svg.index(label) for label in component_labels
+        )
+        assert [power_svg.rindex(label) for label in reversed(component_labels)] == sorted(
+            power_svg.rindex(label) for label in reversed(component_labels)
+        )
         assert "Total:" in power_svg
+
+
+def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> None:
+    readbacks = {
+        "vdd_a_active_average_power_w": 12.0e-6,
+        "vdd_d_active_average_power_w": 24.0e-6,
+        "vdd_dac_active_average_power_w": 36.0e-6,
+    }
+    measurement = adc_measurement(
+        [100, 101, 102],
+        readbacks=readbacks,
+        internal=True,
+        waveform_sample_count=201,
+    )
+    assert isinstance(measurement, MeasAdcInt)
+    time_s = measurement.wave.time_s
+    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
+    seq_samp_v = np.zeros_like(seq_init_v)
+    seq_samp_v[0, (time_s >= 75.0e-9) & (time_s <= 100.0e-9)] = 1.2
+    seq_comp_v = np.zeros_like(seq_init_v)
+    seq_comp_v[0, (time_s >= 125.0e-9) & (time_s <= 150.0e-9)] = 1.2
+    seq_logic_v = np.zeros_like(seq_init_v)
+    seq_logic_v[0, (time_s >= 175.0e-9) & (time_s <= 200.0e-9)] = 1.2
+    active_stop_s = 650.0e-9
+    currents = {}
+    for rail, static_current_a, active_current_a in (
+        ("vdd_a", 2.0e-6, 10.0e-6),
+        ("vdd_d", 4.0e-6, 20.0e-6),
+        ("vdd_dac", 6.0e-6, 30.0e-6),
+    ):
+        current_a = np.full_like(seq_init_v, active_current_a)
+        current_a[0, time_s > active_stop_s] = static_current_a
+        currents[f"{rail}_i"] = current_a
+    measurement = replace(
+        measurement,
+        wave=replace(
+            measurement.wave,
+            seq_init_v=seq_init_v,
+            seq_samp_v=seq_samp_v,
+            seq_comp_v=seq_comp_v,
+            seq_logic_v=seq_logic_v,
+            **currents,
+        ),
+    )
+    analysis = analyze_adc_power_sweep((measurement,))
+
+    rate_paths = plot_adc_power_sweep(
+        (measurement,),
+        analysis,
+        output_path=tmp_path / "spice_ideal_power_vs_conversion_rate",
+        title="SPICE ideal static and dynamic ADC supply power",
+    )
+    waveform_paths = plot_adc_power_waveform(
+        measurement,
+        analysis,
+        output_path=tmp_path / "spice_ideal_10msps_supply_power",
+        title="SPICE ideal instantaneous ADC supply power at 10 MSPS",
+    )
+
+    assert rate_paths[0].name == "spice_ideal_power_vs_conversion_rate.png"
+    assert_plot_formats(rate_paths)
+    assert_plot_formats(waveform_paths)
+    waveform_svg = waveform_paths[-1].read_text()
+    assert "Analog power (µW)" in waveform_svg
+    assert "Digital power (µW)" in waveform_svg
+    assert "DAC power (µW)" in waveform_svg
+    assert "Static average" in waveform_svg
+    assert "Active average" in waveform_svg
+    assert "Sequencer" in waveform_svg
+    assert "INIT" in waveform_svg
+    assert "SAMP" in waveform_svg
+    assert "COMP" in waveform_svg
+    assert "LOGIC" in waveform_svg
+    for tick in ("0", "125", "250", "375", "500", "625"):
+        assert f"<!-- {tick} -->" in waveform_svg
 
 
 def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:

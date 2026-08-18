@@ -427,6 +427,77 @@ def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(
     assert len(artifacts) == 2
 
 
+def test_adc_power_runner_combines_measured_and_separate_simulated_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readbacks = {f"{rail}_active_average_power_w": 10.0e-6 for rail in ("vdd_a", "vdd_d", "vdd_dac")}
+    readbacks.update({f"{rail}_static_average_power_w": 2.0e-6 for rail in ("vdd_a", "vdd_d", "vdd_dac")})
+    physical_by_adc = {
+        adc_index: adc_measurement(
+            [100, 101, 102],
+            observed_adc=adc_index,
+            readbacks=readbacks,
+        )
+        for adc_index in (0, 1)
+    }
+    simulated = adc_measurement([100, 101, 102], readbacks=readbacks, internal=True)
+    measurements_by_path = {}
+    sine_dir = tmp_path / "build/scan_adc/20260730_215145_complete"
+    sine_dir.mkdir(parents=True)
+    for adc_index in (0, 1):
+        for rate_mbd in range(80, 1601, 40):
+            path = sine_dir / (
+                f"point_00_adc{adc_index:02d}_{rate_mbd}mbd_sin9998.77hz_p0mv_1000mvpp_"
+                "logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+            )
+            path.touch()
+            measurements_by_path[path] = physical_by_adc[adc_index]
+    for run_name in ("hdl21gen_noise_vs_rate/20260801_0821", "frida65a_noise_vs_rate/20260731_2353"):
+        run_dir = tmp_path / "build/adc" / run_name
+        for rate_msps in (2, 6, 10):
+            path = run_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            measurements_by_path[path] = simulated
+
+    plot_calls = []
+
+    def analyze_power(measurements):
+        rates_hz = np.asarray((2.0e6, 6.0e6, 10.0e6)) if len(measurements) == 3 else np.asarray((10.0e6,))
+        if len(measurements) > 3:
+            rates_hz = np.linspace(0.5e6, 10.0e6, len(measurements))
+        return SimpleNamespace(active_conversion_rate_hz=rates_hz)
+
+    def plot_power(_measurements, _analysis, *, output_path, title=None):
+        plot_calls.append(("rate", output_path.name, title))
+        return (output_path.with_suffix(".png"),)
+
+    def plot_power_waveform(_measurement, _analysis, *, output_path, title):
+        plot_calls.append(("waveform", output_path.name, title))
+        return (output_path.with_suffix(".png"),)
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(runner, "analyze_adc_power_sweep", analyze_power)
+    monkeypatch.setattr(runner, "plot_adc_power_sweep", plot_power)
+    monkeypatch.setattr(runner, "plot_adc_power_waveform", plot_power_waveform)
+    monkeypatch.setattr(runner, "plot_measurement_waveforms", lambda *_args, output_path, **_kwargs: (output_path,))
+    monkeypatch.setattr(runner, "analyze_adc_dynamic", lambda _measurement: object())
+    monkeypatch.setattr(runner, "plot_adc_dynamic", lambda *_args, output_path, **_kwargs: (output_path,))
+
+    artifacts = runner.adc_power_vs_rate(tmp_path / "output")
+
+    assert [(kind, name) for kind, name, _title in plot_calls] == [
+        ("rate", "adc_power_vs_conversion_rate"),
+        ("rate", "spice_ideal_power_vs_conversion_rate"),
+        ("waveform", "spice_ideal_10msps_supply_power"),
+        ("rate", "spice_pex_power_vs_conversion_rate"),
+        ("waveform", "spice_pex_10msps_supply_power"),
+    ]
+    assert len(artifacts) == 9
+
+
 def test_main_runs_named_target_in_one_timestamped_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

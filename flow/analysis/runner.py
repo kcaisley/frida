@@ -60,6 +60,7 @@ from flow.analysis.plots import (
     plot_adc_noise_violin_sweep,
     plot_adc_nonlinearity,
     plot_adc_power_sweep,
+    plot_adc_power_waveform,
     plot_adc_ramp_histogram,
     plot_adc_ramp_transfer,
     plot_adc_ramp_weights,
@@ -679,12 +680,16 @@ def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
 
 
 def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
-    """Plot power sweeps and detailed 80 MBd sine captures for configured ADCs."""
+    """Plot measured and simulated power sweeps plus detailed waveforms."""
 
     ADC_INDICES = (0, 1)
     SINE_RUN_DIR = BASE_PATH / "build/scan_adc/20260730_215145_complete"
+    IDEAL_RUN_DIR = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
+    PEX_RUN_DIR = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
     RATES_MBD = tuple(range(80, 1601, 40))
+    SIMULATION_RATES_MSPS = (2, 6, 10)
     DETAIL_RATE_MBD = 80
+    SIMULATION_DETAIL_RATE_MSPS = 10
 
     if (
         not ADC_INDICES
@@ -717,14 +722,60 @@ def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
     sine_measurements = [
         measurement for adc_index in ADC_INDICES for measurement in sine_measurements_by_adc[adc_index]
     ]
+    simulation_measurements = {}
+    for source, run_dir in (("ideal", IDEAL_RUN_DIR), ("pex", PEX_RUN_DIR)):
+        measurements = []
+        for rate_msps in SIMULATION_RATES_MSPS:
+            path = run_dir / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasAdcInt):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
+            measurements.append(measurement)
+        simulation_measurements[source] = measurements
+
+    measured_power = analyze_adc_power_sweep(sine_measurements)
+    simulation_power = {
+        source: analyze_adc_power_sweep(measurements) for source, measurements in simulation_measurements.items()
+    }
+    expected_simulation_rates_hz = np.asarray(SIMULATION_RATES_MSPS, dtype=np.float64) * 1e6
+    for source, analysis in simulation_power.items():
+        if not np.allclose(
+            np.sort(analysis.active_conversion_rate_hz),
+            expected_simulation_rates_hz,
+            rtol=0.0,
+            atol=1e-6,
+        ):
+            raise ValueError(f"SPICE {source} power sweep does not contain exactly 2, 6, and 10 MSPS")
+
     artifacts = []
     artifacts.extend(
         plot_adc_power_sweep(
             sine_measurements,
-            analyze_adc_power_sweep(sine_measurements),
+            measured_power,
             output_path=output_dir / "adc_power_vs_conversion_rate",
         )
     )
+    for source, label in (("ideal", "SPICE ideal"), ("pex", "SPICE PEX")):
+        measurements = simulation_measurements[source]
+        analysis = simulation_power[source]
+        artifacts.extend(
+            plot_adc_power_sweep(
+                measurements,
+                analysis,
+                output_path=output_dir / f"spice_{source}_power_vs_conversion_rate",
+                title=f"{label} single-ADC-macro static and dynamic supply power",
+            )
+        )
+        detail_measurement = measurements[SIMULATION_RATES_MSPS.index(SIMULATION_DETAIL_RATE_MSPS)]
+        detail_analysis = analyze_adc_power_sweep((detail_measurement,))
+        artifacts.extend(
+            plot_adc_power_waveform(
+                detail_measurement,
+                detail_analysis,
+                output_path=output_dir / f"spice_{source}_{SIMULATION_DETAIL_RATE_MSPS}msps_supply_power",
+                title=(f"{label} instantaneous single-ADC-macro supply power at {SIMULATION_DETAIL_RATE_MSPS} MSPS"),
+            )
+        )
     for adc_index in ADC_INDICES:
         detail_measurement = sine_measurements_by_adc[adc_index][RATES_MBD.index(DETAIL_RATE_MBD)]
         artifacts.extend(

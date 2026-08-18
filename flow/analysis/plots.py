@@ -40,6 +40,7 @@ from flow.analysis.types import (
     AnalysisCompTiming,
     MeasAdc,
     MeasAdcExt,
+    MeasAdcInt,
     MeasCdacExt,
     MeasCompExt,
     MeasCompInt,
@@ -1335,34 +1336,35 @@ def plot_adc_power_sweep(
     analysis: AnalysisAdcPowerSweep,
     *,
     output_path: Path,
+    title: str | None = None,
     formats: Sequence[str] = DEFAULT_FORMATS,
 ) -> tuple[Path, ...]:
-    """Plot one six-component stacked static/dynamic power chart per ADC."""
+    """Plot one consistently ordered static/dynamic power chart per source."""
 
     output_path = Path(output_path)
     paths = []
-    rail_colors = (NORD_BLUE, NORD_RED, NORD_GREEN)
+    rail_colors = (NORD_RED, NORD_GREEN, NORD_BLUE)
     for adc_index in np.unique(analysis.observed_adc):
         selected = analysis.observed_adc == adc_index
         order = np.argsort(analysis.active_conversion_rate_hz[selected])
         rate_msps = analysis.active_conversion_rate_hz[selected][order] / 1e6
         component_labels = (
-            "VDD_A static",
-            "VDD_D static",
-            "VDD_DAC static",
-            "VDD_A dynamic",
-            "VDD_D dynamic",
-            "VDD_DAC dynamic",
+            "Digital static",
+            "DAC static",
+            "Analog static",
+            "Digital dynamic",
+            "DAC dynamic",
+            "Analog dynamic",
         )
         component_power_uw = tuple(
             values[selected][order] * 1e6
             for values in (
-                analysis.vdd_a_static_power_w,
                 analysis.vdd_d_static_power_w,
                 analysis.vdd_dac_static_power_w,
-                analysis.vdd_a_dynamic_power_w,
+                analysis.vdd_a_static_power_w,
                 analysis.vdd_d_dynamic_power_w,
                 analysis.vdd_dac_dynamic_power_w,
+                analysis.vdd_a_dynamic_power_w,
             )
         )
         component_colors = (
@@ -1393,7 +1395,7 @@ def plot_adc_power_sweep(
         endpoint_lines.append(f"Total: {total_power_uw[low_index]:.2f} → {total_power_uw[high_index]:.2f}")
         _add_info_box(ax, endpoint_lines, location="upper left")
 
-        ax.set_ylabel("Measured supply power (µW)")
+        ax.set_ylabel("Supply power (µW)")
         ax.set_xlabel("Active conversion rate (MSPS)")
         ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
         if np.max(rate_msps) >= 1.0:
@@ -1402,13 +1404,160 @@ def plot_adc_power_sweep(
         ax.set_ylim(0.0, max(float(np.max(total_power_uw)) * 1.25, 1.0))
         style_ax(ax)
         style_grid(ax)
-        style_legend(ax, ncol=2, loc="upper right")
-        adc_label = f"ADC{adc_index:02d}" if adc_index >= 0 else "ADC unspecified"
-        ax.set_title(f"{adc_label} static and dynamic supply power")
+        legend_handles, legend_labels = ax.get_legend_handles_labels()
+        style_legend(
+            ax,
+            handles=legend_handles[::-1],
+            labels=legend_labels[::-1],
+            ncol=1,
+            loc="upper right",
+        )
+        adc_label = f"ADC{adc_index:02d}" if adc_index >= 0 else "ADC simulation"
+        default_title = (
+            f"Whole-chip static and dynamic supply power with {adc_label} enabled"
+            if adc_index >= 0
+            else f"{adc_label} static and dynamic supply power"
+        )
+        ax.set_title(title or default_title)
 
-        adc_output_path = output_path.with_name(f"{output_path.stem}_adc{adc_index:02d}{output_path.suffix}")
+        adc_output_path = (
+            output_path.with_name(f"{output_path.stem}_adc{adc_index:02d}{output_path.suffix}")
+            if adc_index >= 0
+            else output_path
+        )
         paths.extend(_save_figure(fig, adc_output_path, formats))
     return tuple(paths)
+
+
+@with_plot_style
+def plot_adc_power_waveform(
+    measurement: MeasAdcInt,
+    analysis: AnalysisAdcPowerSweep,
+    *,
+    output_path: Path,
+    title: str,
+    record_index: int = 0,
+    formats: Sequence[str] = DEFAULT_FORMATS,
+) -> tuple[Path, ...]:
+    """Plot instantaneous rail power and sequencer timing for one conversion."""
+
+    if len(analysis.total_power_w) != 1:
+        raise ValueError("ADC power waveform requires a one-measurement analysis")
+    if not 0 <= record_index < len(measurement.wave.conversion_index):
+        raise IndexError("ADC power waveform record_index is outside the measurement")
+
+    time_s = measurement.wave.time_s
+    threshold_v = 0.5 * float(measurement.param.vdd_d.dc)
+    init_high = measurement.wave.seq_init_v[record_index] > threshold_v
+    init_rising = np.flatnonzero(init_high & np.concatenate((np.asarray([True]), ~init_high[:-1])))
+    if not len(init_rising):
+        raise ValueError("ADC power waveform contains no SEQ_INIT rising edge")
+    display_start_s = float(time_s[init_rising[0]])
+    display_stop_s = display_start_s + 1.0 / float(analysis.active_conversion_rate_hz[0])
+    display_duration_s = display_stop_s - display_start_s
+    display_margin_s = 0.02 * display_duration_s
+    displayed = (time_s >= display_start_s - display_margin_s) & (time_s <= display_stop_s + display_margin_s)
+    if np.count_nonzero(displayed) < 2:
+        raise ValueError("ADC power waveform contains fewer than two samples in its active conversion interval")
+    later_init_times_s = time_s[init_rising][time_s[init_rising] > display_stop_s]
+    idle_stop_s = float(later_init_times_s[0]) if len(later_init_times_s) else float(time_s[-1])
+    idle_duration_s = idle_stop_s - display_stop_s
+    idle_guard_s = min(1.0e-9, idle_duration_s / 10.0)
+    idle = (time_s >= display_stop_s + idle_guard_s) & (time_s <= idle_stop_s - idle_guard_s)
+    if np.count_nonzero(idle) < 2:
+        raise ValueError("ADC power waveform requires at least two settled-idle samples")
+    scale, unit = _time_scale(np.asarray([0.0, display_duration_s]))
+    scaled_time = (time_s[displayed] - display_start_s) * scale
+    rail_rows = (
+        (
+            "Analog",
+            "vdd_a",
+            measurement.wave.vdd_a_i[record_index],
+            analysis.vdd_a_static_power_w[0],
+            analysis.vdd_a_dynamic_power_w[0],
+            NORD_BLUE,
+        ),
+        (
+            "Digital",
+            "vdd_d",
+            measurement.wave.vdd_d_i[record_index],
+            analysis.vdd_d_static_power_w[0],
+            analysis.vdd_d_dynamic_power_w[0],
+            NORD_RED,
+        ),
+        (
+            "DAC",
+            "vdd_dac",
+            measurement.wave.vdd_dac_i[record_index],
+            analysis.vdd_dac_static_power_w[0],
+            analysis.vdd_dac_dynamic_power_w[0],
+            NORD_GREEN,
+        ),
+    )
+    idle_sigma_uw = []
+    for _label, rail, current_a, _static_power_w, _dynamic_power_w, _color in rail_rows:
+        voltage_v = float(getattr(measurement.param, rail).dc)
+        idle_power_uw = current_a[idle] * voltage_v * 1e6
+        idle_median_uw = float(np.median(idle_power_uw))
+        idle_sigma_uw.append(1.4826 * float(np.median(np.abs(idle_power_uw - idle_median_uw))))
+    linear_threshold_uw = max(1.0, 3.0 * max(idle_sigma_uw))
+    power_limit_uw = 2.0e3
+    first_tick_decade = int(np.ceil(np.log10(linear_threshold_uw)))
+    last_tick_decade = int(np.floor(np.log10(power_limit_uw)))
+    positive_ticks = 10.0 ** np.arange(first_tick_decade, last_tick_decade + 1)
+    power_ticks = np.concatenate((-positive_ticks[::-1], np.asarray([0.0]), positive_ticks))
+    fig, axes = plt.subplots(
+        4,
+        1,
+        sharex=True,
+        figsize=(9.6, 7.2),
+        gridspec_kw={"height_ratios": (1.0, 1.0, 1.0, 0.8)},
+    )
+    for ax, (label, rail, current_a, static_power_w, dynamic_power_w, color) in zip(axes[:3], rail_rows, strict=True):
+        voltage_v = float(getattr(measurement.param, rail).dc)
+        instantaneous_power_uw = current_a[displayed] * voltage_v * 1e6
+        active_power_uw = (static_power_w + dynamic_power_w) * 1e6
+        ax.plot(scaled_time, instantaneous_power_uw, color=color, linewidth=0.9, label="Instantaneous")
+        ax.axhline(static_power_w * 1e6, color=NORD_DARK, linestyle=":", linewidth=1.0, label="Static average")
+        ax.axhline(active_power_uw, color=NORD_ORANGE, linestyle="--", linewidth=1.0, label="Active average")
+        ax.set_ylabel(f"{label} power (µW)")
+        ax.set_yscale("symlog", linthresh=linear_threshold_uw, linscale=0.6)
+        ax.set_yticks(power_ticks)
+        ax.set_ylim(-power_limit_uw, power_limit_uw)
+        style_ax(ax)
+        style_grid(ax)
+        style_legend(ax, ncol=3, loc="upper right")
+
+    timing_ax = axes[3]
+    timing_rows = (
+        ("INIT", measurement.wave.seq_init_v[record_index], NORD_BLUE),
+        ("SAMP", measurement.wave.seq_samp_v[record_index], NORD_GREEN),
+        ("COMP", measurement.wave.seq_comp_v[record_index], NORD_RED),
+        ("LOGIC", measurement.wave.seq_logic_v[record_index], NORD_ORANGE),
+    )
+    for row, (label, values, color) in enumerate(timing_rows):
+        high = (values[displayed] > threshold_v).astype(np.float64)
+        timing_ax.step(scaled_time, row + 0.72 * high, where="post", color=color, linewidth=0.9)
+    timing_ax.set_yticks(np.arange(len(timing_rows)) + 0.36, labels=tuple(row[0] for row in timing_rows))
+    timing_ax.set_ylim(-0.15, len(timing_rows) - 0.05)
+    timing_ax.set_ylabel("Sequencer")
+    timing_ax.set_xlabel(f"Time ({unit})")
+    display_duration_scaled = display_duration_s * scale
+    display_margin_scaled = display_margin_s * scale
+    timing_ax.set_xlim(-display_margin_scaled, display_duration_scaled + display_margin_scaled)
+    timing_ax.set_xticks(np.linspace(0.0, display_duration_scaled, 6))
+    style_ax(timing_ax)
+    style_grid(timing_ax)
+
+    rate_msps = float(analysis.active_conversion_rate_hz[0]) / 1e6
+    interval_ns = display_duration_s * 1e9
+    _add_info_box(
+        axes[0],
+        (f"Active rate: {rate_msps:g} MSPS", f"Average interval: {interval_ns:g} ns", f"Record: {record_index}"),
+        location="upper left",
+    )
+    fig.suptitle(title)
+    return _save_figure(fig, output_path, formats)
 
 
 @with_plot_style
