@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import re
 import sys
 from pathlib import Path
@@ -220,19 +221,40 @@ def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) ->
     assert [cast(Any, measurement).point_index for measurement in replaced_curve] == [2, 3, 4]
 
 
-@pytest.mark.parametrize("internal", (False, True), ids=("external", "internal"))
-def test_adc_transfer_curve_accepts_external_and_internal_measurements(
+def test_adc_transfer_curve_accepts_complete_physical_campaign(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    internal: bool,
 ) -> None:
-    """Let this mixed-source runner declare support for both ADC measurement views."""
+    """Require and plot every point in the accepted ADC00 transfer campaign."""
 
-    path = tmp_path / "build/adc_pex_monotonic/adc_00.h5"
-    path.parent.mkdir(parents=True)
-    path.touch()
-    expected = adc_measurement([0], internal=internal)
-    monkeypatch.setattr(runner, "read_measurement", lambda _path: expected)
+    run_dir = tmp_path / "build/scan_adc/20260818_135848"
+    run_dir.mkdir(parents=True)
+    measurements = {}
+    for point_index in range(1_001):
+        input_v = (point_index - 500) * 0.0015
+        for adc_index in range(1):
+            path = run_dir / f"{point_index:04d}_adc{adc_index:02d}.h5"
+            path.touch()
+            measurement = adc_measurement(
+                np.full(100, 2048),
+                vin_diff_v=input_v,
+                sample_rate_hz=10.0e6,
+                observed_adc=adc_index,
+                readbacks={"actual_sample_rate_hz": 10.0e6},
+            )
+            measurements[path] = dataclasses.replace(
+                measurement,
+                info=dataclasses.replace(measurement.info, backend="physical"),
+                param=dataclasses.replace(
+                    measurement.param,
+                    campaign="adc_transfer",
+                    board_id="00",
+                    conversions=100,
+                    vin_cm=h.Vdc.Params(dc=0.700),
+                    vin_diff=h.Vdc.Params(dc=input_v),
+                ),
+            )
+    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner, "analyze_adc_transfer", lambda measurements: measurements)
     monkeypatch.setattr(
