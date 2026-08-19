@@ -11,7 +11,6 @@ __pycache__
 .coverage
 .ruff_cache
 .venv*
-uv.lock
 phys/results/
 .complexipy_cache
 
