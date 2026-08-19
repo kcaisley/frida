@@ -32,6 +32,8 @@ import pytest
 from yaml import safe_load
 
 from flow.analysis.measure import find_crossings
+from flow.analysis.plots import plot_waveforms
+from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.params import AdcTbParams
 from flow.scans.plldrp import (
     calculate_pll_frequency,
@@ -40,7 +42,6 @@ from flow.scans.plldrp import (
 )
 from flow.scans.scope import (
     FRIDA_SCOPE_CHANNELS,
-    plot_scope_waveforms,
     response_value,
     wait_for_scope_armed,
     wait_for_scope_capture,
@@ -352,24 +353,9 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                         symbol_rate_bps,
                     )
 
-                    plot_paths = plot_scope_waveforms(
-                        csv_path.with_suffix(""),
-                        waveforms,
-                        SCOPE_TRACKS,
-                        title=f"Measured ADC LVDS sequencer inputs ({symbol_rate_bps / 1e6:g} MBd, N={divider_n})",
-                        info_lines={
-                            COMP_TRACK: (
-                                f"Si570 input: {si570_frequency_hz / 1e6:g} MHz",
-                                f"Sequencer rate: {seq_clk_hz / 1e6:g} MHz",
-                                f"Expected symbol rate: {symbol_rate_bps / 1e9:g} GBd",
-                                f"Measured symbol rate: {measured_symbol_rate_bps / 1e9:g} GBd",
-                                f"COMP crossing interval: {measured_interval_s * 1e9:g} ns",
-                                (
-                                    "Scope bandwidth: "
-                                    f"{float(response_value(scope.get_bandwidth(channel=COMP_SCOPE_CHANNEL))) / 1e9:.1f} GHz"
-                                ),
-                            ),
-                        },
+                    plot_paths = plot_waveforms(
+                        analyze_scope_waveforms(waveforms, SCOPE_TRACKS),
+                        output_path=csv_path.with_suffix(""),
                     )
                     for plot_path in plot_paths:
                         print(f"Saved scope waveform plot: {plot_path}")

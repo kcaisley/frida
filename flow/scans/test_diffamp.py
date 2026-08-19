@@ -37,8 +37,10 @@ import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
 from flow.analysis.measure import find_crossings
+from flow.analysis.plots import plot_waveforms
+from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import FRIDA_SCOPE_CHANNELS, plot_scope_waveforms, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import FRIDA_SCOPE_CHANNELS, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_diffamp"
@@ -533,21 +535,9 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             measured_vdiff_vpp = float(2.0 * np.hypot(fit_coefficients[1], fit_coefficients[2]))
             measured_residual_rms_v = float(np.sqrt(np.mean((samples - fitted_samples) ** 2)))
 
-            plot_paths = plot_scope_waveforms(
-                csv_path.with_suffix(""),
-                waveforms,
-                SCOPE_TRACKS,
-                title=f"THS4541 differential loopback: Vdiff=+/-{vdiff_peak_v:g} V, Vin_cm={vin_cm_v:g} V",
-                info_lines={
-                    "vdiff_ch1": (
-                        f"Target: {AWG_FREQUENCY_HZ / 1e6:.6f} MHz, +/-{vdiff_peak_v:.6f} V ({target_vdiff_vpp:.6f} Vpp)",
-                        f"Target Vin_cm: {vin_cm_v:.6f} V; implied inputs: {adc_input_min_v:.6f}..{adc_input_max_v:.6f} V",
-                        f"AWG: {awg_amplitude_vpp:.6f} Vpp, {awg_offset_v:.6f} V offset",
-                        f"VIN_CM proxy: set={vin_cm_supply_v:.6f} V, read={vin_cm_measured_v:.6f} V",
-                        f"Measured: {measured_frequency_hz / 1e6:.6f} MHz, {measured_vdiff_vpp:.6f} Vpp, {measured_vdiff_offset_v:.6f} V offset",
-                        f"Sine-fit residual: {measured_residual_rms_v * 1e3:.3f} mV RMS",
-                    ),
-                },
+            plot_paths = plot_waveforms(
+                analyze_scope_waveforms(waveforms, SCOPE_TRACKS),
+                output_path=csv_path.with_suffix(""),
             )
             for plot_path in plot_paths:
                 print(f"  saved waveform plot: {plot_path}")

@@ -11,18 +11,16 @@ import pytest
 from bitarray import bitarray
 
 from flow.adc import AdcParams
+from flow.analysis.plots import plot_waveforms
+from flow.analysis.waveform import analyze_scope_waveforms
 from flow.cdac import CdacParams, RedunStrat
 from flow.scans import fastrx, scan_adc, seqgen
 from flow.scans.params import AdcTbParams, build_adc_variants, load_board_map
-from flow.scans.scope import FRIDA_SCOPE_CHANNELS, plot_scope_waveforms, write_scope_csv
+from flow.scans.scope import FRIDA_SCOPE_CHANNELS, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
 from flow.scans.test_diffamp import SCOPE_TRACKS as DIFFAMP_SCOPE_TRACKS
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
 from flow.scans.test_fastrx import OUTPUT_DIR as FASTRX_OUTPUT_DIR
-from flow.scans.test_fastrx import (
-    SCOPE_DECISION_SAMPLE_FRACTION,
-    extract_scope_decisions,
-)
 from flow.scans.test_fastrx import SCOPE_TRACKS as FASTRX_SCOPE_TRACKS
 from flow.scans.test_noise import OUTPUT_DIR as NOISE_OUTPUT_DIR
 from flow.scans.test_noise import SCOPE_TRACKS as NOISE_SCOPE_TRACKS
@@ -138,14 +136,13 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
         "-5e-10,0.2,0.0,20,0",
         "0.0,0.3,1.0,30,100",
     ]
-    assert plot_scope_waveforms(
-        tmp_path / "scope" / "capture",
-        waveforms,
-        {1: "input", 3: "logic"},
-        title="Synthetic scope capture",
-        info_lines={"input": ("Nominal: 0.2 V",)},
-        formats=("png",),
-    ) == (tmp_path / "scope" / "capture.png",)
+    assert plot_waveforms(
+        analyze_scope_waveforms(waveforms, {1: "input", 3: "logic"}),
+        output_path=tmp_path / "scope" / "capture",
+    ) == (
+        tmp_path / "scope" / "capture.png",
+        tmp_path / "scope" / "capture.pdf",
+    )
 
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
@@ -499,50 +496,6 @@ def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> No
         alignment_1600.rx_sen_start_word,
         alignment_1600.comp_idelay_taps,
     ) == (0, 9, 3)
-
-
-def test_extract_scope_decisions_samples_at_center_of_each_cycle() -> None:
-    """Decode settled COMP_OUT values away from either decision boundary."""
-
-    symbol_rate_bps = 800.0e6
-    decision_period_s = 8.0 / symbol_rate_bps
-    times_s = np.arange(0.0, 36.0e-9, 0.01e-9)
-    comp_v = np.where(
-        np.mod(times_s, decision_period_s) < 0.5 * decision_period_s,
-        1.2,
-        0.0,
-    )
-
-    # The first result settles after its COMP edge, but the next result starts
-    # changing just before the next detected edge. Sampling at the cycle center
-    # decodes the stable 101 values rather than either transition boundary.
-    comp_out_v = np.zeros_like(times_s)
-    comp_out_v[times_s >= 5.5e-9] = 1.2
-    comp_out_v[times_s >= 14.5e-9] = 0.0
-    comp_out_v[times_s >= 24.5e-9] = 1.2
-
-    result = extract_scope_decisions(
-        times_s,
-        comp_v,
-        comp_out_v,
-        symbol_rate_bps=symbol_rate_bps,
-        decision_count=3,
-        output_inverted=False,
-    )
-
-    assert result.bits == "101"
-    assert np.asarray(result.sample_times_s) - np.asarray(result.comp_edge_times_s) == pytest.approx(
-        SCOPE_DECISION_SAMPLE_FRACTION * decision_period_s
-    )
-    inverted = extract_scope_decisions(
-        times_s,
-        comp_v,
-        comp_out_v,
-        symbol_rate_bps=symbol_rate_bps,
-        decision_count=3,
-        output_inverted=True,
-    )
-    assert inverted.bits == "010"
 
 
 def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> None:

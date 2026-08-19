@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import csv
 import time
-from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
@@ -22,91 +19,6 @@ FRIDA_SCOPE_CHANNELS = {
     "seq_logic": 3,
     "comp_out": 4,
 }
-
-
-def plot_scope_waveforms(
-    output_path: Path,
-    waveforms: Any,
-    track_names: Mapping[int, str],
-    *,
-    title: str,
-    info_lines: Mapping[str, Sequence[str]] | None = None,
-    formats: Sequence[str] = ("png", "pdf", "svg"),
-) -> tuple[Path, ...]:
-    """Plot one aligned scope acquisition without loading or analyzing it."""
-
-    channels = tuple(track_names)
-    if not channels:
-        raise ValueError("at least one scope track is required")
-    missing_channels = sorted(set(channels).difference(waveforms))
-    if missing_channels:
-        raise ValueError(f"scope did not return waveforms for channels {missing_channels}")
-    reference_scale = waveforms[channels[0]].x_scale
-    sample_counts = {channel: len(waveforms[channel].data) for channel in channels}
-    if len(set(sample_counts.values())) != 1:
-        raise ValueError(f"scope channels have different sample counts: {sample_counts}")
-    if any(waveforms[channel].x_scale != reference_scale for channel in channels):
-        raise ValueError("scope channels do not share one horizontal scale")
-
-    sample_count = next(iter(sample_counts.values()))
-    time_s = reference_scale.offset + np.arange(sample_count) * reference_scale.slope
-    maximum_time_s = float(np.max(np.abs(time_s)))
-    if maximum_time_s < 1e-9:
-        time_scale, time_unit = 1e12, "ps"
-    elif maximum_time_s < 1e-6:
-        time_scale, time_unit = 1e9, "ns"
-    elif maximum_time_s < 1e-3:
-        time_scale, time_unit = 1e6, "µs"
-    elif maximum_time_s < 1.0:
-        time_scale, time_unit = 1e3, "ms"
-    else:
-        time_scale, time_unit = 1.0, "s"
-
-    fig, axes = plt.subplots(
-        len(channels),
-        1,
-        sharex=True,
-        figsize=(9.0, max(2.8, 2.2 * len(channels))),
-    )
-    axes = np.atleast_1d(axes)
-    for ax, channel in zip(axes, channels, strict=True):
-        track = track_names[channel]
-        ax.plot(time_s * time_scale, waveforms[channel].data, linewidth=1.0)
-        ax.set_ylabel(f"{track} (V)")
-        ax.grid(True, alpha=0.25, linewidth=0.6)
-        ax.tick_params(direction="in", which="both", top=True, right=True)
-        lines = tuple((info_lines or {}).get(track, ()))
-        if lines:
-            ax.text(
-                0.98,
-                0.98,
-                "\n".join(lines),
-                transform=ax.transAxes,
-                horizontalalignment="right",
-                verticalalignment="top",
-                fontsize="small",
-                bbox={
-                    "boxstyle": "round,pad=0.35",
-                    "facecolor": "white",
-                    "alpha": 0.85,
-                    "linewidth": 0.6,
-                },
-            )
-    axes[-1].set_xlabel(f"Time ({time_unit})")
-    fig.suptitle(title)
-
-    output_path = Path(output_path)
-    if output_path.suffix:
-        formats = (output_path.suffix.lstrip("."),)
-        output_path = output_path.with_suffix("")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    saved = []
-    for output_format in formats:
-        path = output_path.with_suffix(f".{output_format}")
-        fig.savefig(path, bbox_inches="tight")
-        saved.append(path)
-    plt.close(fig)
-    return tuple(saved)
 
 
 def write_scope_csv(

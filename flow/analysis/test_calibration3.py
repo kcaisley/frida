@@ -164,9 +164,8 @@ def test_threshold_calibration_uses_common_weight_plot(
     plot_paths = plot_adc_calibration_weights(
         (result,),
         output_path=tmp_path / "direct_threshold_calibration",
-        formats=("png",),
     )
-    assert len(plot_paths) == 1
+    assert tuple(path.suffix for path in plot_paths) == (".png", ".pdf")
     assert plot_paths[0].is_file()
     assert plot_paths[0].stat().st_size > 0
 

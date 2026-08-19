@@ -10,8 +10,6 @@ import numpy as np
 import pytest
 from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
-from PIL import Image
-from PIL.GifImagePlugin import GifImageFile
 
 import flow.analysis.plots as analysis_plots
 from flow.analysis.adc import (
@@ -22,18 +20,23 @@ from flow.analysis.adc import (
     analyze_adc_noise_sweep,
     analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
+    analyze_adc_power_waveform,
     analyze_adc_ramp,
     analyze_adc_transfer,
 )
+from flow.analysis.cdac import _expected_cdac_effective_fraction
 from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.plots import (
     COMMON_MODE_COLOR_MAP,
+    CURVE_COLORS,
     GRID_MAJOR_COLOR,
     LEGEND_FACE_COLOR,
-    NORD_COLORS,
+    NORD_BLUE,
+    NORD_ORANGE,
+    NORD_YELLOW,
+    SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
-    animate_adc_decision_path_density,
     apply_plot_style,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
@@ -42,18 +45,19 @@ from flow.analysis.plots import (
     plot_adc_dynamic_sweep,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_noise_violin_sweep,
-    plot_adc_nonlinearity,
     plot_adc_power_sweep,
     plot_adc_power_waveform,
     plot_adc_ramp_histogram,
+    plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
     plot_adc_ramp_weights,
+    plot_adc_static_nonlinearity,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
-    plot_comp_campaign,
-    plot_measurement_waveforms,
+    plot_comp_common_mode_campaign,
+    plot_comp_sampling_campaign,
+    plot_waveforms,
     style_ax,
     style_grid,
     style_legend,
@@ -62,15 +66,30 @@ from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
 from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq, MeasAdcInt
+from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
 
 
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:
-    assert tuple(path.suffix for path in paths) == (".png", ".pdf", ".svg")
+    assert tuple(path.suffix for path in paths) == (".png", ".svg", ".pdf")
     for path in paths:
         assert path.is_file()
         assert path.stat().st_size > 0
+    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+
+
+def read_svg(paths: tuple[Path, ...]) -> str:
+    return next(path for path in paths if path.suffix == ".svg").read_text()
+
+
+@pytest.fixture(autouse=True)
+def enable_all_plot_formats(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise every shared output switch without changing production defaults."""
+
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    monkeypatch.setattr(analysis_plots, "PLOT_PDFS", True)
+    monkeypatch.setattr(analysis_plots, "PLOT_SVGS", True)
 
 
 def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
@@ -79,8 +98,17 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
     apply_plot_style()
     assert plt.rcParams["mathtext.fontset"] == "cm"
     assert plt.rcParams["font.family"] == ["serif"]
-    assert plt.rcParams["axes.prop_cycle"].by_key()["color"] == list(NORD_COLORS)
-    assert plt.rcParams["savefig.dpi"] == 200
+    assert plt.rcParams["axes.prop_cycle"].by_key()["color"] == list(CURVE_COLORS)
+    assert plt.rcParams["savefig.dpi"] == 500
+    assert plt.rcParams["axes.titlesize"] == 13.0
+    assert plt.rcParams["axes.labelsize"] == 11.0
+    assert plt.rcParams["xtick.labelsize"] == 11.0
+    assert plt.rcParams["ytick.labelsize"] == 11.0
+    assert plt.rcParams["legend.fontsize"] == 11.0
+    assert plt.rcParams["text.color"] == "black"
+    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.0)) == NORD_BLUE.lower()
+    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.5)) == NORD_ORANGE.lower()
+    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(1.0)) == NORD_YELLOW.lower()
 
     fig, ax = plt.subplots()
     ax.plot((0, 1), (0, 1), label="trace")
@@ -95,6 +123,7 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
     assert isinstance(ax.xaxis.get_minor_locator(), FixedLocator)
     assert np.array_equal(ax.get_xticks(minor=True), quarter_ticks[1:-1])
     assert ax.get_axisbelow() is True
+    assert ax.lines[0].get_alpha() in (None, 1.0)
     legend = ax.get_legend()
     assert legend is not None
     assert legend.get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
@@ -103,17 +132,20 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
     msmt = adc_measurement([1, 2, 3], internal=True)
-    paths = plot_measurement_waveforms(
-        msmt,
-        signal_names=("vin_diff_v", "dac_botplate_p_15_v"),
+    paths = plot_waveforms(
+        analyze_measurement_waveforms(
+            msmt,
+            signal_names=("vin_diff_v", "dac_botplate_p_15_v"),
+        ),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
-    svg = paths[-1].read_text()
+    svg = read_svg(paths)
     assert "vin_diff_v" in svg
     assert "dac_botplate_p_15_v" in svg
     assert "Time (" in svg
-    assert "Datetime: 2026-07-29 00:00" in svg
+    assert "Source: SPICE" in svg
+    assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
 
 
@@ -146,14 +178,13 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
             )
         comparator_groups.append(group)
         comparator_analyses.append(analyze_comp_offset_noise(group))
-    comparator_paths = plot_comp_campaign(
+    comparator_paths = plot_comp_common_mode_campaign(
         comparator_groups,
         comparator_analyses,
         output_path=tmp_path / "comp_campaign",
-        formats=("png",),
     )
     assert comparator_paths[0].is_file()
-    assert plt.imread(comparator_paths[0]).shape[:2] == (1800, 3200)
+    assert plt.imread(comparator_paths[0]).shape[:2] == (2700, 4800)
 
     params = _build_cdac_params(
         adc_index=0,
@@ -168,6 +199,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
     cdac_measurement = replace(all_measurements()[4], param=params)
     cdac_analysis = AnalysisCdacCapMismatch(
         adc_index=0,
+        expected_effective_fraction=np.full(16, 0.015),
         curve_element=np.asarray([0], dtype=np.int64),
         curve_side=np.asarray([0], dtype=np.uint8),
         curve_direction=np.asarray([0], dtype=np.uint8),
@@ -185,10 +217,9 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         [cdac_measurement],
         cdac_analysis,
         output_path=tmp_path / "cdac_ab",
-        formats=("png",),
     )
     assert cdac_paths[0].is_file()
-    assert plt.imread(cdac_paths[0]).shape[:2] == (1800, 3200)
+    assert plt.imread(cdac_paths[0]).shape[:2] == (2700, 4800)
 
     comparison_groups = []
     comparison_analyses = []
@@ -209,10 +240,9 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         comparison_groups,
         comparison_analyses,
         output_path=tmp_path / "cdac_ab_comparison",
-        formats=("png",),
     )
     assert comparison_paths[0].is_file()
-    assert plt.imread(comparison_paths[0]).shape[:2] == (1800, 3200)
+    assert plt.imread(comparison_paths[0]).shape[:2] == (2700, 4800)
 
 
 def test_comparator_common_mode_crop_and_sampling_noise_layout(
@@ -267,7 +297,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     common_groups = [
         group("comp_common_mode", "track", vin_cm_v, center_v=10.0e-3) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
     ]
-    plot_comp_campaign(
+    plot_comp_common_mode_campaign(
         common_groups,
         [analyze_comp_offset_noise(values) for values in common_groups],
         output_path=Path("unused_common"),
@@ -305,7 +335,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
         strict=True,
     ):
         np.testing.assert_allclose(violin.get_facecolor()[0, :3], expected_color[:3], atol=0.01)
-        assert violin.get_facecolor()[0, 3] == pytest.approx(0.55)
+        assert violin.get_facecolor()[0, 3] == pytest.approx(1.0)
 
     sampling_groups = [
         group(
@@ -318,7 +348,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
         for coupling_percent in (0.0, 25.0, 50.0, 75.0, 100.0)
         for mode in ("track", "hold")
     ]
-    plot_comp_campaign(
+    plot_comp_sampling_campaign(
         sampling_groups,
         [analyze_comp_offset_noise(values) for values in sampling_groups],
         output_path=Path("unused_sampling"),
@@ -330,10 +360,14 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     ]
     assert sampling_figure.axes[0].get_xlim() == pytest.approx((0.0, 25.0))
     curve_labels = [text.get_text() for text in sampling_figure.axes[0].get_legend().get_texts()]
-    assert len(curve_labels) == 10
-    assert any(label == "Track P/N = 0/100%" for label in curve_labels)
-    assert any(label == "Hold P/N = 100/0%" for label in curve_labels)
-    sampling_fit_lines = [line for line in sampling_figure.axes[0].get_lines() if " P/N = " in line.get_label()]
+    assert curve_labels == [
+        "P/N = 0/100%",
+        "P/N = 25/75%",
+        "P/N = 50/50%",
+        "P/N = 75/25%",
+        "P/N = 100/0%",
+    ]
+    sampling_fit_lines = [line for line in sampling_figure.axes[0].get_lines() if len(line.get_xdata()) == 1_001]
     assert len(sampling_fit_lines) == 10
     assert len(sampling_figure.axes[0].collections) == 10
     assert all(len(line.get_xdata()) == 1_001 for line in sampling_fit_lines)
@@ -346,8 +380,10 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     distribution_labels = [text.get_text() for text in distribution_ax.get_legend().get_texts()]
     assert distribution_labels == ["Track", "Hold"]
     assert len(distribution_ax.collections) == 10
-    assert len(distribution_ax.texts) == 10
-    assert "Vin_cm = 0.7 V" in sampling_figure._suptitle.get_text()
+    assert not distribution_ax.texts
+    assert sampling_figure._suptitle.get_text() == (
+        "Comparator threshold and input-referred noise versus VDAC coupling"
+    )
 
     for fig in figures:
         plt.close(fig)
@@ -372,7 +408,7 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
     weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
     expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
     np.testing.assert_allclose(
-        analysis_plots._expected_cdac_effective_fraction([measurement]),
+        _expected_cdac_effective_fraction([measurement]),
         expected,
     )
 
@@ -381,7 +417,7 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
         info=replace(measurement.info, readbacks={"cdac_topplate_parasitic_weight": 200.0}),
     )
     with pytest.raises(ValueError, match="inconsistent"):
-        analysis_plots._expected_cdac_effective_fraction([measurement, inconsistent])
+        _expected_cdac_effective_fraction([measurement, inconsistent])
 
 
 def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
@@ -401,7 +437,7 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
             analyze_adc_code_distribution([msmt]),
             output_path=tmp_path / "noise",
         ),
-        plot_adc_nonlinearity(
+        plot_adc_static_nonlinearity(
             msmt,
             analyze_adc_nonlinearity(msmt, method="code_density", code_range=(1, 14)),
             output_path=tmp_path / "nonlin",
@@ -432,21 +468,21 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
         plot_adc_ramp_transfer(analysis, output_path=tmp_path / "ramp_transfer"),
         plot_adc_ramp_histogram(analysis, output_path=tmp_path / "ramp_histogram"),
         plot_adc_ramp_weights(analysis, output_path=tmp_path / "ramp_weights"),
-        plot_adc_nonlinearity(analysis, output_path=tmp_path / "ramp_nonlinearity"),
+        plot_adc_ramp_nonlinearity(analysis, output_path=tmp_path / "ramp_nonlinearity"),
     )
     for paths in outputs:
         assert_plot_formats(paths)
-        svg = paths[-1].read_text()
+        svg = read_svg(paths)
         if "weights" in paths[0].stem:
             assert "Ideal" in svg
             assert "Direction-matched measured" in svg
         else:
             assert "Uncalibrated DOUT" in svg
             assert "CDAC S-curve weights" in svg
-        assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
-    histogram_svg = outputs[1][-1].read_text()
+        assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+    histogram_svg = read_svg(outputs[1])
     assert "Mean samples per code in bin" in histogram_svg
-    assert "missing codes" in histogram_svg
+    assert "missing codes" not in histogram_svg
 
 
 def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
@@ -487,7 +523,7 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
         output_path=tmp_path / "decisions",
     )
     assert_plot_formats(paths)
-    decision_svg = paths[-1].read_text()
+    decision_svg = read_svg(paths)
     assert "ADC decision paths" in decision_svg
     assert GRID_MAJOR_COLOR.lower() not in decision_svg.lower()
 
@@ -498,11 +534,11 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
         output_path=tmp_path / "decision_density",
     )
     assert_plot_formats(density_paths)
-    density_svg = density_paths[-1].read_text()
+    density_svg = read_svg(density_paths)
     assert "decision-path density" in density_svg
     assert "Conversions per path" in density_svg
     assert GRID_MAJOR_COLOR.lower() not in density_svg.lower()
-    assert plt.imread(density_paths[0]).shape[:2] == (1080, 1920)
+    assert plt.imread(density_paths[0]).shape[:2] == (2700, 4800)
 
 
 def test_decision_path_density_holds_each_discrete_estimate(
@@ -554,30 +590,6 @@ def test_decision_path_density_holds_each_discrete_estimate(
     assert any(np.allclose(segment, expected_segment) for segment in rendered_segments)
 
 
-def test_decision_path_density_animation(tmp_path: Path) -> None:
-    """Build a cumulative GIF through the shared density-frame renderer."""
-
-    msmt = adc_measurement([100, 101, 102])
-    analysis = analyze_adc_decision_paths(msmt, selection="all")
-    paths = animate_adc_decision_path_density(
-        msmt,
-        analysis,
-        output_path=tmp_path / "decision_density",
-        frame_count=3,
-    )
-    assert tuple(path.suffix for path in paths) == (".gif",)
-    assert paths[0].is_file()
-    assert paths[0].stat().st_size > 0
-    assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
-    with Image.open(paths[0]) as animation:
-        assert isinstance(animation, GifImageFile)
-        assert animation.n_frames == 3
-        assert animation.info["duration"] == 250
-        for frame_index in range(animation.n_frames):
-            animation.seek(frame_index)
-            assert animation.dispose_extent == (0, 0, 1920, 1080)
-
-
 def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     measurements = []
     for adc_index, sample_rate_hz in ((0, 100_000.0), (1, 200_000.0)):
@@ -601,28 +613,29 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
 
     dynamic_paths = plot_adc_noise_sweep(
         measurements,
-        analyze_adc_noise_sweep(measurements),
+        replace(analyze_adc_noise_sweep(measurements), series_labels=("ADC00", "ADC01")),
         output_path=tmp_path / "dynamic_rate",
-        series_labels=("ADC00", "ADC01"),
     )
     assert_plot_formats(dynamic_paths)
-    assert plt.imread(dynamic_paths[0]).shape[:2] == (1080, 1920)
-    dynamic_svg = dynamic_paths[-1].read_text().lower()
+    assert plt.imread(dynamic_paths[0]).shape[:2] == (2700, 4800)
+    dynamic_svg = read_svg(dynamic_paths).lower()
     assert "snr (db)" in dynamic_svg
     assert "enob (bit)" in dynamic_svg
     assert "input-referred noise (lsb rms)" in dynamic_svg
     assert "input-referred noise (mv rms)" in dynamic_svg
     assert "time per decision cycle (ns)" in dynamic_svg
-    power_paths = plot_adc_power_sweep(
-        measurements,
-        analyze_adc_power_sweep(measurements),
-        output_path=tmp_path / "power",
-    )
-    assert len(power_paths) == 6
-    assert_plot_formats(power_paths[:3])
-    assert_plot_formats(power_paths[3:])
-    for svg_path in (power_paths[2], power_paths[5]):
-        power_svg = svg_path.read_text()
+    power_outputs = [
+        plot_adc_power_sweep(
+            (measurement,),
+            analyze_adc_power_sweep((measurement,)),
+            output_path=tmp_path / f"power_adc{measurement.param.observed_adc:02d}",
+        )
+        for measurement in measurements
+    ]
+    for power_paths in power_outputs:
+        assert_plot_formats(power_paths)
+    for power_paths in power_outputs:
+        power_svg = read_svg(power_paths)
         assert "static and dynamic supply power" in power_svg
         component_labels = (
             "Digital static",
@@ -635,10 +648,10 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
         assert [power_svg.index(label) for label in component_labels] == sorted(
             power_svg.index(label) for label in component_labels
         )
-        assert [power_svg.rindex(label) for label in reversed(component_labels)] == sorted(
-            power_svg.rindex(label) for label in reversed(component_labels)
+        assert [power_svg.rindex(label) for label in component_labels] == sorted(
+            power_svg.rindex(label) for label in component_labels
         )
-        assert "Total:" in power_svg
+        assert "Total:" not in power_svg
 
 
 def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> None:
@@ -690,22 +703,19 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         (measurement,),
         analysis,
         output_path=tmp_path / "spice_ideal_power_vs_conversion_rate",
-        title="SPICE ideal static and dynamic ADC supply power",
     )
     waveform_paths = plot_adc_power_waveform(
-        measurement,
-        analysis,
+        analyze_adc_power_waveform(measurement),
         output_path=tmp_path / "spice_ideal_10msps_supply_power",
-        title="SPICE ideal instantaneous ADC supply power at 10 MSPS",
     )
 
     assert rate_paths[0].name == "spice_ideal_power_vs_conversion_rate.png"
     assert_plot_formats(rate_paths)
     assert_plot_formats(waveform_paths)
-    waveform_svg = waveform_paths[-1].read_text()
-    assert "Analog power (µW)" in waveform_svg
-    assert "Digital power (µW)" in waveform_svg
-    assert "DAC power (µW)" in waveform_svg
+    waveform_svg = read_svg(waveform_paths)
+    assert "Analog (µW)" in waveform_svg
+    assert "Digital (µW)" in waveform_svg
+    assert "DAC (µW)" in waveform_svg
     assert "Static average" in waveform_svg
     assert "Active average" in waveform_svg
     assert "Sequencer" in waveform_svg
@@ -732,8 +742,8 @@ def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:
         output_path=tmp_path / "noise_sweep",
     )
     assert_plot_formats(paths)
-    assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
-    svg = paths[-1].read_text().lower()
+    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+    svg = read_svg(paths).lower()
     assert "snr (db)" in svg
     assert "enob (bit)" in svg
     assert "input-referred noise (lsb rms)" in svg
@@ -741,7 +751,7 @@ def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:
     assert "as % of decision cycle" in svg
     assert "logic offsets:" not in svg
     assert "#eceff4" in svg
-    for color in ("#4c566a", "#5e81ac", "#a3be8c", "#bf616a", "#d08770", "#b48ead", "#88c0d0"):
+    for color in ("#d08770", "#a3be8c", "#b48ead", "#ebcb8b", "#bf616a", "#88c0d0"):
         assert color in svg
 
 
@@ -762,75 +772,9 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     )
 
     assert_plot_formats(paths)
-    assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
-    svg = paths[-1].read_text()
-    assert "ADC00 fixed-input output-code distributions" in svg
-    assert "Global histogram scale" in svg
+    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+    svg = read_svg(paths)
+    assert "ADC fixed-input output-code distributions" in svg
+    assert "ADC: 00" in svg
+    assert "Global histogram scale" not in svg
     assert "Mean ±1σ" in svg
-
-
-def test_noise_violin_sweep_overlays_exact_lsb_bins(tmp_path: Path) -> None:
-    measurements = [
-        adc_measurement(
-            [100, 100, 101, 101, 101, 102],
-            sample_rate_hz=sample_rate_hz,
-            observed_adc=0,
-            logic_phase_delay_symbols=2,
-        )
-        for sample_rate_hz in (1.0e6, 2.0e6, 3.0e6)
-    ]
-    paths = plot_adc_noise_violin_sweep(
-        measurements,
-        analyze_adc_noise_sweep(measurements),
-        output_path=tmp_path / "noise_violins",
-    )
-
-    assert_plot_formats(paths)
-    assert plt.imread(paths[0]).shape[:2] == (1080, 1920)
-    svg = paths[-1].read_text()
-    assert "ADC00 fixed-input output-code violin distributions" in svg
-    assert "KDE (bandwidth 0.5)" in svg
-    assert "Exact LSB counts" in svg
-    assert "Median" not in svg
-
-
-def test_noise_sweep_plot_labels_three_point_quadratic_as_guide(tmp_path: Path) -> None:
-    measurements = [
-        adc_measurement(
-            [100, 101, 99 + index, 100],
-            sample_rate_hz=sample_rate_hz,
-            logic_phase_delay_symbols=2,
-        )
-        for index, sample_rate_hz in enumerate((2.0e6, 6.0e6, 10.0e6))
-    ]
-    paths = plot_adc_noise_sweep(
-        measurements,
-        analyze_adc_noise_sweep(measurements),
-        output_path=tmp_path / "noise_sweep_quadratic",
-        quadratic_guide=True,
-    )
-    assert "quadratic guide (3 points)" in paths[-1].read_text().lower()
-
-
-def test_noise_sweep_plot_accepts_explicit_comparison_series(tmp_path: Path) -> None:
-    measurements = [
-        adc_measurement(
-            [100, 101, 99 + index, 100],
-            sample_rate_hz=sample_rate_hz,
-            logic_phase_delay_symbols=2,
-        )
-        for index, sample_rate_hz in enumerate((2.0e6, 6.0e6, 10.0e6))
-    ]
-    paths = plot_adc_noise_sweep(
-        measurements,
-        analyze_adc_noise_sweep(measurements),
-        output_path=tmp_path / "noise_comparison",
-        series_labels=("Measured ADC00", "Generated SPICE", "PEX SPICE"),
-        title="ADC00 measurement vs SPICE",
-    )
-    svg = paths[-1].read_text()
-    assert "ADC00 measurement vs SPICE" in svg
-    assert "Measured ADC00" in svg
-    assert "Generated SPICE" in svg
-    assert "PEX SPICE" in svg
-    assert "COMP→LOGIC interval" not in svg

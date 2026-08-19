@@ -134,7 +134,7 @@ def test_adc_calibration_runner_combines_three_common_results(
         "plot_adc_calibration_weights",
         "plot_adc_ramp_transfer",
         "plot_adc_ramp_histogram",
-        "plot_adc_nonlinearity",
+        "plot_adc_ramp_nonlinearity",
     ):
         monkeypatch.setattr(runner, name, lambda *_args, **_kwargs: ())
 
@@ -343,7 +343,7 @@ def test_adc_ramp_runner_reuses_accepted_cdac_analysis_and_completed_ramp(
     )
     monkeypatch.setattr(
         runner,
-        "plot_adc_nonlinearity",
+        "plot_adc_ramp_nonlinearity",
         lambda _analysis, *, output_path: (output_path.with_suffix(".png"),),
     )
 
@@ -491,33 +491,36 @@ def test_adc_power_runner_combines_measured_and_separate_simulated_outputs(
             rates_hz = np.linspace(0.5e6, 10.0e6, len(measurements))
         return SimpleNamespace(active_conversion_rate_hz=rates_hz)
 
-    def plot_power(_measurements, _analysis, *, output_path, title=None):
-        plot_calls.append(("rate", output_path.name, title))
+    def plot_power(_measurements, _analysis, *, output_path):
+        plot_calls.append(("rate", output_path.name))
         return (output_path.with_suffix(".png"),)
 
-    def plot_power_waveform(_measurement, _analysis, *, output_path, title):
-        plot_calls.append(("waveform", output_path.name, title))
+    def plot_power_waveform(_analysis, *, output_path):
+        plot_calls.append(("waveform", output_path.name))
         return (output_path.with_suffix(".png"),)
 
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
     monkeypatch.setattr(runner, "analyze_adc_power_sweep", analyze_power)
+    monkeypatch.setattr(runner, "analyze_adc_power_waveform", lambda _measurement: object())
     monkeypatch.setattr(runner, "plot_adc_power_sweep", plot_power)
     monkeypatch.setattr(runner, "plot_adc_power_waveform", plot_power_waveform)
-    monkeypatch.setattr(runner, "plot_measurement_waveforms", lambda *_args, output_path, **_kwargs: (output_path,))
+    monkeypatch.setattr(runner, "analyze_measurement_waveforms", lambda _measurement: object())
+    monkeypatch.setattr(runner, "plot_waveforms", lambda *_args, output_path: (output_path,))
     monkeypatch.setattr(runner, "analyze_adc_dynamic", lambda _measurement: object())
     monkeypatch.setattr(runner, "plot_adc_dynamic", lambda *_args, output_path, **_kwargs: (output_path,))
 
     artifacts = runner.adc_power_vs_rate(tmp_path / "output")
 
-    assert [(kind, name) for kind, name, _title in plot_calls] == [
-        ("rate", "adc_power_vs_conversion_rate"),
+    assert plot_calls == [
+        ("rate", "adc_power_vs_conversion_rate_adc00"),
+        ("rate", "adc_power_vs_conversion_rate_adc01"),
         ("rate", "spice_ideal_power_vs_conversion_rate"),
         ("waveform", "spice_ideal_10msps_supply_power"),
         ("rate", "spice_pex_power_vs_conversion_rate"),
         ("waveform", "spice_pex_10msps_supply_power"),
     ]
-    assert len(artifacts) == 9
+    assert len(artifacts) == 10
 
 
 def test_main_runs_named_target_in_one_timestamped_directory(

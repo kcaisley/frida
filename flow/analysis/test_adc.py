@@ -22,6 +22,7 @@ from flow.analysis.adc import (
     analyze_adc_power_sweep,
     analyze_adc_ramp,
     analyze_adc_transfer,
+    analyze_scope_wave_to_bits,
     combine_adc_noise_comparison,
     decode_bout,
 )
@@ -195,6 +196,51 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
     )
 
 
+def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> None:
+    expected_bits = np.asarray(([1, 0] * 8) + [1], dtype=np.uint8)
+    symbol_rate_hz = 800.0e6
+    decision_period_s = 8.0 / symbol_rate_hz
+    time_s = np.arange(0.0, 176.0e-9, 0.02e-9)
+    comp_v = np.where(
+        np.mod(time_s, decision_period_s) < 0.5 * decision_period_s,
+        1.2,
+        0.0,
+    )
+    comp_out_v = np.zeros_like(time_s)
+    for index, bit in enumerate(expected_bits):
+        edge_s = (index + 0.5) * decision_period_s
+        comp_out_v[(time_s >= edge_s) & (time_s < edge_s + decision_period_s)] = 1.2 * bit
+
+    base = adc_measurement([100], sample_rate_hz=symbol_rate_hz / 256.0, observed_adc=1)
+    assert isinstance(base, MeasAdcExt)
+    normal = replace(
+        base,
+        daq=replace(base.daq, bout=expected_bits[np.newaxis, :]),
+        wave=replace(
+            base.wave,
+            time_s=time_s,
+            vin_diff_v=np.zeros((1, len(time_s))),
+            seq_comp_v=comp_v[np.newaxis, :],
+            seq_logic_v=np.zeros((1, len(time_s))),
+            comp_out_v=comp_out_v[np.newaxis, :],
+        ),
+    )
+    normal_analysis = analyze_scope_wave_to_bits(normal)
+
+    assert normal_analysis.scope_bit_string == "10101010101010101"
+    assert normal_analysis.fastrx_bit_string == normal_analysis.scope_bit_string
+    assert normal_analysis.mismatch_count == 0
+
+    inverted = replace(
+        normal,
+        info=replace(normal.info, readbacks={"scope_comp_out_inverted": True}),
+        wave=replace(normal.wave, comp_out_v=(1.2 - comp_out_v)[np.newaxis, :]),
+    )
+    inverted_analysis = analyze_scope_wave_to_bits(inverted)
+    assert inverted_analysis.scope_bit_string == normal_analysis.scope_bit_string
+    assert inverted_analysis.mismatch_count == 0
+
+
 def test_dynamic_analysis_recovers_sine_and_spectral_metrics() -> None:
     rng = np.random.default_rng(12345)
     sample_rate_hz = 1.0e6
@@ -311,6 +357,39 @@ def test_ramp_analysis_infers_repeated_reset_frequency_and_phase() -> None:
     assert analysis.retained_sample_count == analysis.sample_count - analysis.reset_excluded_sample_count
     assert analysis.curves[0].count.sum() == analysis.retained_sample_count
     assert len(analysis.curves[0].transfer_vin_diff_v) == 4_096
+
+
+def test_ramp_analysis_uses_negative_one_for_unselected_simulated_adc() -> None:
+    """Keep the explicit whole-chip simulation sentinel accepted by the result type."""
+
+    measurement = adc_ramp_measurement()
+    simulated = replace(
+        measurement,
+        param=replace(
+            measurement.param,
+            board_id=None,
+            observed_adc=None,
+            active_adc_mask=None,
+        ),
+    )
+
+    analysis = analyze_adc_ramp(simulated)
+
+    assert analysis.adc_index == -1
+    with pytest.raises(ValueError, match="must be -1 or in 0..15"):
+        replace(analysis, adc_index=-2)
+
+
+def test_ramp_analysis_result_rejects_inconsistent_curve_sample_totals() -> None:
+    """Validate persisted summary fields before a ramp result reaches plotting."""
+
+    analysis = analyze_adc_ramp(adc_ramp_measurement())
+    curve = analysis.curves[0]
+    inconsistent_count = curve.count.copy()
+    inconsistent_count[0] += 1
+
+    with pytest.raises(ValueError, match="sample totals"):
+        replace(analysis, curves=(replace(curve, count=inconsistent_count),))
 
 
 def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
@@ -598,6 +677,40 @@ def test_noise_sweep_uses_active_rate_while_dynamic_uses_true_repeat_rate() -> N
     )
     assert np.all(np.isnan(sweep.pretrigger_vin_diff_mean_v))
     assert np.all(np.isnan(sweep.pretrigger_vin_diff_noise_rms_v))
+
+
+def test_noise_sweep_does_not_treat_constant_codes_as_zero_noise() -> None:
+    sweep = analyze_adc_noise_sweep(
+        [
+            adc_measurement(
+                [100, 100, 100, 100],
+                sample_rate_hz=1.0e6,
+            )
+        ]
+    )
+
+    assert sweep.std_dout[0] == 0.0
+    assert np.isnan(sweep.input_referred_noise_rms_v[0])
+    assert not sweep.noise_valid[0]
+
+
+def test_noise_sweep_invalidates_faster_points_after_timing_failure() -> None:
+    recovered = adc_measurement(
+        [100, 101, 100, 101],
+        sample_rate_hz=3.0e6,
+    )
+    settled = adc_measurement(
+        [100, 101, 100, 101],
+        sample_rate_hz=1.0e6,
+    )
+    failed = adc_measurement(
+        [80, 120, 80, 120],
+        sample_rate_hz=2.0e6,
+    )
+
+    sweep = analyze_adc_noise_sweep([recovered, settled, failed])
+
+    np.testing.assert_array_equal(sweep.noise_valid, (False, True, False))
 
 
 def test_noise_sweep_extracts_pretrigger_input_noise() -> None:

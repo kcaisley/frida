@@ -16,6 +16,7 @@ from flow.analysis.comp import (
     classify_comp_common_mode_validity,
 )
 from flow.analysis.types import (
+    AnalysisCompPower,
     CompDaq,
     CompIntWave,
     MeasCompInt,
@@ -295,6 +296,21 @@ def test_comp_timing_and_power_use_internal_waveforms() -> None:
     power = analyze_comp_power([msmt])
     assert power.average_power_w[0] == pytest.approx(12e-6)
     assert power.energy_per_decision_j[0] == pytest.approx(480e-15)
+
+
+def test_comp_power_requires_aligned_energy_results() -> None:
+    """Represent unavailable energy as aligned NaN instead of an omitted array."""
+
+    result = AnalysisCompPower(
+        source_index=np.asarray([0], dtype=np.int64),
+        supply_v=np.asarray([1.2]),
+        average_power_w=np.asarray([12e-6]),
+        energy_per_decision_j=np.asarray([np.nan]),
+    )
+
+    assert np.isnan(result.energy_per_decision_j[0])
+    with pytest.raises(ValueError, match="not aligned"):
+        replace(result, energy_per_decision_j=np.asarray([], dtype=np.float64))
 
 
 def test_comp_candidate_sweep_reuses_metrics_and_orders_by_total_active_area() -> None:

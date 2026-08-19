@@ -10,6 +10,41 @@ import numpy as np
 from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt, Measurement
 from flow.cdac import get_cdac_weights
+from flow.scans.params import load_board_map
+
+
+def _expected_cdac_effective_fraction(measurements: Sequence[MeasCdacExt]) -> np.ndarray:
+    """Return flavor-aware normalized main-minus-diff PEX expectations."""
+
+    if not measurements:
+        raise ValueError("CDAC expectation requires measurements")
+    params = measurements[0].param
+    weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
+    total_weights = 65.0 * np.ceil(weights / 64.0)
+    recorded_parasitics = {
+        float(measurement.info.readbacks["cdac_topplate_parasitic_weight"])
+        for measurement in measurements
+        if "cdac_topplate_parasitic_weight" in measurement.info.readbacks
+    }
+    if len(recorded_parasitics) > 1:
+        raise ValueError("CDAC measurements contain inconsistent top-plate parasitic expectations")
+    if recorded_parasitics:
+        topplate_parasitic_weight = next(iter(recorded_parasitics))
+    else:
+        board_id = getattr(params, "board_id", None)
+        adc_index = getattr(params, "observed_adc", None)
+        if board_id is None or adc_index is None:
+            topplate_parasitic_weight = 0.0
+        else:
+            board_map = load_board_map()
+            board = board_map["boards"][board_id]
+            flavor = board["adc_channels"][adc_index]
+            topplate_parasitic_weight = float(
+                board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0)
+            )
+    if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
+        raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
+    return weights / (np.sum(total_weights) + topplate_parasitic_weight)
 
 
 def analyze_cdac_cap_mismatch(
@@ -101,6 +136,7 @@ def analyze_cdac_cap_mismatch(
 
     return AnalysisCdacCapMismatch(
         adc_index=adc_index,
+        expected_effective_fraction=_expected_cdac_effective_fraction(measurements),
         curve_element=np.asarray([key[0] for key in curve_keys], dtype=np.int64),
         curve_side=np.asarray([key[1] for key in curve_keys], dtype=np.uint8),
         curve_direction=np.asarray([key[2] for key in curve_keys], dtype=np.uint8),

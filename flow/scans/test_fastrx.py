@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
@@ -44,16 +43,16 @@ from flow.adc import AdcParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
     analyze_adc_noise_sweep,
+    analyze_scope_wave_to_bits,
 )
 from flow.analysis.io import (
     scope_records_to_adc_wave,
     write_measurement,
 )
-from flow.analysis.measure import find_crossings
 from flow.analysis.plots import (
     plot_adc_code_distribution,
+    plot_adc_fastrx_scope_comparison,
     plot_adc_noise_sweep,
-    plot_measurement_waveforms,
 )
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
@@ -98,104 +97,11 @@ SCOPE_BANDWIDTH_HZ = 2.0e9
 SCOPE_VERTICAL_SCALE_V = 0.2
 SCOPE_CAPTURE_TIMEOUT_S = 5.0
 SCOPE_DOWNLOAD_SETTLE_S = 0.1
-# TODO: Reverse the physical CH4 COMP_OUT probe pinout, then remove this
-# software compensation and decode positive probe voltage as logical one.
-SCOPE_COMP_OUT_INVERTED = True
-# Sample at the center of each COMP decision interval, away from both the
-# settling edge and the following transition. Across 274 saved physical
-# captures this agrees with 273 complete FastRX decision vectors; the remaining
-# capture has one genuinely disagreeing bit. This fraction is used only for
-# offline scope decoding. FPGA capture timing is selected independently by
-# calculate_fastrx_capture_alignment().
-SCOPE_DECISION_SAMPLE_FRACTION = 0.50
-
 SETUP_SETTLE_S = 0.2
 SMU_SETTLE_S = 0.5
 SI570_SETTLE_S = 0.02
 FASTRX_TIMEOUT_S = 5.0
 FASTRX_TRAILING_DRAIN_S = 0.01
-
-
-@dataclass(frozen=True, slots=True)
-class ScopeDecisionVector:
-    """Seventeen comparator decisions extracted from one scope acquisition."""
-
-    bits: str
-    comp_threshold_v: float
-    comp_out_threshold_v: float
-    comp_edge_times_s: tuple[float, ...]
-    sample_times_s: tuple[float, ...]
-    sample_values_v: tuple[float, ...]
-
-
-def extract_scope_decisions(
-    times_s: np.ndarray,
-    comp_v: np.ndarray,
-    comp_out_v: np.ndarray,
-    *,
-    symbol_rate_bps: float,
-    decision_count: int,
-    output_inverted: bool,
-) -> ScopeDecisionVector:
-    """Extract one logical bit after each of the first COMP falling edges."""
-
-    if times_s.ndim != 1 or comp_v.shape != times_s.shape or comp_out_v.shape != times_s.shape:
-        raise ValueError("scope time, COMP, and COMP_OUT arrays must be one-dimensional and equal length")
-    if decision_count <= 0:
-        raise ValueError("decision_count must be positive")
-    if len(times_s) < 2 or not np.all(np.diff(times_s) > 0.0):
-        raise ValueError("scope time values must increase strictly")
-
-    comp_low_v, comp_high_v = np.percentile(comp_v, (1.0, 99.0))
-    comp_out_low_v, comp_out_high_v = np.percentile(comp_out_v, (1.0, 99.0))
-    comp_threshold_v = float((comp_low_v + comp_high_v) / 2.0)
-    comp_out_threshold_v = float((comp_out_low_v + comp_out_high_v) / 2.0)
-    if comp_high_v - comp_low_v < 0.1:
-        raise ValueError("scope COMP waveform does not have a valid logic swing")
-    if comp_out_high_v - comp_out_low_v < 0.1:
-        raise ValueError("scope COMP_OUT waveform does not have a valid logic swing")
-
-    falling_edges_s = tuple(
-        float(edge_s)
-        for edge_s in find_crossings(
-            comp_v,
-            times_s,
-            comp_threshold_v,
-            rising=False,
-        )
-        if edge_s >= 0.0
-    )
-    if len(falling_edges_s) < decision_count:
-        raise ValueError(
-            f"scope contains only {len(falling_edges_s)} COMP falling edges after the trigger; "
-            f"expected at least {decision_count}"
-        )
-    comp_edge_times_s = falling_edges_s[:decision_count]
-
-    sequencer_period_s = 8.0 / symbol_rate_bps
-    sample_times_s = tuple(edge_s + SCOPE_DECISION_SAMPLE_FRACTION * sequencer_period_s for edge_s in comp_edge_times_s)
-    if sample_times_s[-1] > times_s[-1]:
-        raise ValueError("scope record ends before the final comparator decision sample")
-
-    averaging_half_width_s = min(0.05 * sequencer_period_s, 0.25e-9)
-    sample_values_v = []
-    for sample_time_s in sample_times_s:
-        selected = np.abs(times_s - sample_time_s) <= averaging_half_width_s
-        if np.any(selected):
-            sample_values_v.append(float(np.median(comp_out_v[selected])))
-        else:
-            sample_values_v.append(float(np.interp(sample_time_s, times_s, comp_out_v)))
-
-    physical_bits = "".join("1" if sample_v > comp_out_threshold_v else "0" for sample_v in sample_values_v)
-    bits = "".join("1" if bit == "0" else "0" for bit in physical_bits) if output_inverted else physical_bits
-    return ScopeDecisionVector(
-        bits=bits,
-        comp_threshold_v=comp_threshold_v,
-        comp_out_threshold_v=comp_out_threshold_v,
-        comp_edge_times_s=comp_edge_times_s,
-        sample_times_s=sample_times_s,
-        sample_values_v=tuple(sample_values_v),
-    )
 
 
 @pytest.mark.hw
@@ -572,19 +478,6 @@ def test_physical_fastrx_matches_scope(
                 f"logic{logic_offset:+d}_rx{rx_sen_start_word:02d}_"
                 f"tap{comp_idelay_taps:02d}"
             )
-            scope_reference = waveforms[FRIDA_SCOPE_CHANNELS["adc_vdiff"]]
-            scope_time_s = (
-                scope_reference.x_scale.offset + np.arange(len(scope_reference.data)) * scope_reference.x_scale.slope
-            )
-            scope_decisions = extract_scope_decisions(
-                scope_time_s,
-                np.asarray(waveforms[FRIDA_SCOPE_CHANNELS["seq_comp"]].data, dtype=float),
-                np.asarray(waveforms[FRIDA_SCOPE_CHANNELS["comp_out"]].data, dtype=float),
-                symbol_rate_bps=symbol_rate_bps,
-                decision_count=data_size,
-                output_inverted=SCOPE_COMP_OUT_INVERTED,
-            )
-
             fastrx_words = np.asarray(raw_data, dtype=np.uint32)
             bout_values, dout_raw_values, dout_values = convert_fastrx_words_to_adc(
                 fastrx_words,
@@ -592,34 +485,8 @@ def test_physical_fastrx_matches_scope(
                 code_weights,
                 params.dut.adc_bits,
             )
-            first_fastrx_bits = "".join(str(bit) for bit in bout_values[0])
-
-            bit_mismatches = sum(
-                scope_bit != fastrx_bit
-                for scope_bit, fastrx_bit in zip(
-                    scope_decisions.bits,
-                    first_fastrx_bits,
-                    strict=True,
-                )
-            )
             mean_code = float(np.mean(dout_values))
             sigma_code = float(np.std(dout_values))
-            print(
-                f"scope={scope_decisions.bits}, FastRX={first_fastrx_bits}, "
-                f"mismatches={bit_mismatches}/17; "
-                f"mean={mean_code:.3f} LSB, sigma={sigma_code:.3f} LSB"
-            )
-
-            info_lines = (
-                f"Rate: {symbol_rate_bps / 1e6:g} MBd",
-                f"LOGIC phase: {logic_offset:+d} symbols",
-                f"Shared COMP/LOGIC advance: {phase_advance} symbols",
-                f"RX_SEN word / IDELAY: {rx_sen_start_word} / {comp_idelay_taps}",
-                f"Scope bits: {scope_decisions.bits}",
-                f"FastRX bits: {first_fastrx_bits}",
-                f"Bit mismatches: {bit_mismatches}/17",
-                f"ADC σ: {sigma_code:.3f} LSB",
-            )
             measurement = MeasAdcExt(
                 info=MeasInfo(
                     schema_version=1,
@@ -635,9 +502,7 @@ def test_physical_fastrx_matches_scope(
                         "rx_sen_start_word": rx_sen_start_word,
                         "comp_idelay_taps": comp_idelay_taps,
                         "control_phase_advance_symbols": phase_advance,
-                        "scope_fastrx_bit_mismatches": bit_mismatches,
-                        "scope_bits": scope_decisions.bits,
-                        "fastrx_bits": first_fastrx_bits,
+                        "scope_comp_out_inverted": False,
                         "predicted_setup_margin_s": alignment.setup_margin_s,
                         "predicted_hold_margin_s": alignment.hold_margin_s,
                     },
@@ -662,12 +527,27 @@ def test_physical_fastrx_matches_scope(
                     },
                 ),
             )
+            scope_analysis = analyze_scope_wave_to_bits(measurement)
+            measurement = dataclasses.replace(
+                measurement,
+                info=dataclasses.replace(
+                    measurement.info,
+                    readbacks=(
+                        measurement.info.readbacks | {"scope_fastrx_bit_mismatches": scope_analysis.mismatch_count}
+                    ),
+                ),
+            )
+            print(
+                f"scope={scope_analysis.scope_bit_string}, FastRX={scope_analysis.fastrx_bit_string}, "
+                f"mismatches={scope_analysis.mismatch_count}/17; "
+                f"mean={mean_code:.3f} LSB, sigma={sigma_code:.3f} LSB"
+            )
             h5_path = run_dir / f"{stem}.h5"
             write_measurement(h5_path, measurement)
             measurements.append(measurement)
-            plot_measurement_waveforms(
+            plot_adc_fastrx_scope_comparison(
                 measurement,
-                info_lines=info_lines,
+                scope_analysis,
                 output_path=run_dir / f"{stem}_scope",
             )
             plot_adc_code_distribution(
@@ -691,9 +571,9 @@ def test_physical_fastrx_matches_scope(
                     "predicted_capture_edge_s": alignment.capture_edge_s,
                     "predicted_setup_margin_s": alignment.setup_margin_s,
                     "predicted_hold_margin_s": alignment.hold_margin_s,
-                    "scope_bits": scope_decisions.bits,
-                    "fastrx_bits": first_fastrx_bits,
-                    "bit_mismatches": bit_mismatches,
+                    "scope_bits": scope_analysis.scope_bit_string,
+                    "fastrx_bits": scope_analysis.fastrx_bit_string,
+                    "bit_mismatches": scope_analysis.mismatch_count,
                     "mean_dout_lsb": mean_code,
                     "sigma_dout_lsb": sigma_code,
                     "minimum_dout_lsb": int(np.min(dout_values)),

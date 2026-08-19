@@ -12,7 +12,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.signal.windows import blackmanharris
 
-from flow.analysis.measure import find_code_transitions, histogram_inl_dnl
+from flow.analysis.measure import find_code_transitions, find_crossings, histogram_inl_dnl
 from flow.analysis.types import (
     AdcDecoding,
     AnalysisAdcCalibration,
@@ -23,10 +23,13 @@ from flow.analysis.types import (
     AnalysisAdcNoiseSweep,
     AnalysisAdcNonlinearity,
     AnalysisAdcPowerSweep,
+    AnalysisAdcPowerWaveform,
     AnalysisAdcRamp,
     AnalysisAdcRampCurve,
+    AnalysisAdcScopeBits,
     AnalysisAdcTransfer,
     MeasAdc,
+    MeasAdcExt,
     MeasAdcInt,
 )
 from flow.cdac import get_cdac_weights
@@ -34,6 +37,56 @@ from flow.cdac import get_cdac_weights
 ADC_DYNAMIC_RESIDUAL_TAIL_LIMIT_DOUT = 24.0
 ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION = 0.0027
 ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
+
+
+def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
+    """Decode the first 17 scope COMP_OUT decisions and compare FastRX."""
+
+    time_s = msmt.wave.time_s
+    comp_v = msmt.wave.seq_comp_v[0]
+    comp_out_v = msmt.wave.comp_out_v[0]
+    comp_low_v, comp_high_v = np.percentile(comp_v, (1.0, 99.0))
+    comp_out_low_v, comp_out_high_v = np.percentile(comp_out_v, (1.0, 99.0))
+    comp_threshold_v = float((comp_low_v + comp_high_v) / 2.0)
+    comp_out_threshold_v = float((comp_out_low_v + comp_out_high_v) / 2.0)
+    if comp_high_v - comp_low_v < 0.1:
+        raise ValueError("scope COMP waveform does not have a valid logic swing")
+    if comp_out_high_v - comp_out_low_v < 0.1:
+        raise ValueError("scope COMP_OUT waveform does not have a valid logic swing")
+
+    falling_edges_s = np.asarray(
+        [edge_s for edge_s in find_crossings(comp_v, time_s, comp_threshold_v, rising=False) if edge_s >= 0.0],
+        dtype=np.float64,
+    )
+    if len(falling_edges_s) < 17:
+        raise ValueError(f"scope contains only {len(falling_edges_s)} COMP falling edges; expected at least 17")
+    comp_edge_times_s = falling_edges_s[:17]
+    decision_period_s = 8.0 / float(msmt.param.symbol_rate)
+    sample_times_s = comp_edge_times_s + 0.5 * decision_period_s
+    if sample_times_s[-1] > time_s[-1]:
+        raise ValueError("scope record ends before the final comparator decision sample")
+
+    averaging_half_width_s = min(0.05 * decision_period_s, 0.25e-9)
+    sample_values_v = []
+    for sample_time_s in sample_times_s:
+        selected = np.abs(time_s - sample_time_s) <= averaging_half_width_s
+        sample_values_v.append(
+            float(np.median(comp_out_v[selected]))
+            if np.any(selected)
+            else float(np.interp(sample_time_s, time_s, comp_out_v))
+        )
+    scope_bits = np.asarray(sample_values_v) > comp_out_threshold_v
+    if msmt.info.readbacks.get("scope_comp_out_inverted") is True:
+        scope_bits = ~scope_bits
+    return AnalysisAdcScopeBits(
+        scope_bits=scope_bits,
+        fastrx_bits=msmt.daq.bout[0].astype(np.bool_),
+        comp_threshold_v=comp_threshold_v,
+        comp_out_threshold_v=comp_out_threshold_v,
+        comp_edge_times_s=comp_edge_times_s,
+        sample_times_s=sample_times_s,
+        sample_values_v=np.asarray(sample_values_v),
+    )
 
 
 def decode_bout(
@@ -707,13 +760,27 @@ def analyze_adc_noise_sweep(
         if len(valid_dout) != len(measurement.daq.dout):
             raise ValueError("ADC noise sweep contains output codes outside its resolution")
         counts.append(np.bincount(valid_dout, minlength=number_codes))
+    sample_rate_hz_array = np.asarray(sample_rate_hz)
+    comparator_percent_array = np.asarray(comparator_percent)
     std_dout_array = np.asarray(std_dout)
+    # A constant captured code does not establish zero analog noise.  It only
+    # places the noise below the resolution of this code-variance estimator,
+    # so leave that point out of continuous noise and ENOB comparisons.
+    input_referred_noise_rms_v = std_dout_array * input_lsb_values_v
+    input_referred_noise_rms_v[std_dout_array == 0.0] = np.nan
+    noise_valid = np.isfinite(input_referred_noise_rms_v)
+    for timing_percent in np.unique(comparator_percent_array):
+        series_indices = np.flatnonzero(comparator_percent_array == timing_percent)
+        series_indices = series_indices[np.argsort(sample_rate_hz_array[series_indices])]
+        first_failed = np.flatnonzero(std_dout_array[series_indices] > 9.0)
+        if len(first_failed):
+            noise_valid[series_indices[first_failed[0] :]] = False
     return AnalysisAdcNoiseSweep(
-        sample_rate_hz=np.asarray(sample_rate_hz),
+        sample_rate_hz=sample_rate_hz_array,
         logic_phase_delay_symbols=np.asarray(logic_phase),
-        comparator_time_percent=np.asarray(comparator_percent),
+        comparator_time_percent=comparator_percent_array,
         input_lsb_v=float(input_lsb_values_v[0]),
-        input_referred_noise_rms_v=std_dout_array * input_lsb_values_v,
+        input_referred_noise_rms_v=input_referred_noise_rms_v,
         pretrigger_vin_diff_mean_v=np.asarray(pretrigger_vin_diff_mean_v),
         pretrigger_vin_diff_noise_rms_v=np.asarray(pretrigger_vin_diff_noise_rms_v),
         mean_dout=np.asarray(mean_dout),
@@ -721,6 +788,7 @@ def analyze_adc_noise_sweep(
         minimum_dout=np.asarray(minimum_dout, dtype=np.int64),
         maximum_dout=np.asarray(maximum_dout, dtype=np.int64),
         bit_mismatches=np.asarray(bit_mismatches, dtype=np.int64),
+        noise_valid=noise_valid,
         code=np.arange(number_codes, dtype=np.int64),
         count=np.asarray(counts, dtype=np.int64),
     )
@@ -730,6 +798,8 @@ def combine_adc_noise_comparison(
     dc_noise_sweeps: Sequence[AnalysisAdcNoiseSweep],
     sine_dynamic: AnalysisAdcDynamicSweep,
     simulated_noise_sweeps: Sequence[AnalysisAdcNoiseSweep] = (),
+    *,
+    series_labels: Sequence[str] = (),
 ) -> AnalysisAdcNoiseSweep:
     """Combine stimulus, measured, dynamic, and simulated noise-rate series."""
 
@@ -780,6 +850,13 @@ def combine_adc_noise_comparison(
         np.full(len(sine_dynamic.active_conversion_rate_hz), np.nan),
         *(sweep.pretrigger_vin_diff_noise_rms_v for sweep in simulated_noise_sweeps),
     ]
+    valid_parts = [
+        np.isfinite(stimulus.pretrigger_vin_diff_noise_rms_v[stimulus_order])
+        & (stimulus.pretrigger_vin_diff_noise_rms_v[stimulus_order] > 0.0),
+        *(sweep.noise_valid for sweep in dc_noise_sweeps),
+        np.isfinite(sine_dynamic.input_referred_noise_rms_v) & (sine_dynamic.input_referred_noise_rms_v > 0.0),
+        *(sweep.noise_valid for sweep in simulated_noise_sweeps),
+    ]
     compared_noise_v = np.concatenate(noise_parts)
     return AnalysisAdcNoiseSweep(
         sample_rate_hz=np.concatenate(rate_parts),
@@ -794,6 +871,8 @@ def combine_adc_noise_comparison(
         minimum_dout=np.zeros(len(compared_noise_v), dtype=np.int64),
         maximum_dout=np.zeros(len(compared_noise_v), dtype=np.int64),
         bit_mismatches=np.zeros(len(compared_noise_v), dtype=np.int64),
+        noise_valid=np.concatenate(valid_parts),
+        series_labels=tuple(series_labels),
     )
 
 
@@ -1022,4 +1101,60 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
         total_static_power_w=total_static_power_w,
         total_dynamic_power_w=total_dynamic_power_w,
         total_power_w=total_static_power_w + total_dynamic_power_w,
+    )
+
+
+def analyze_adc_power_waveform(measurement: MeasAdcInt) -> AnalysisAdcPowerWaveform:
+    """Select and align one simulated conversion for detailed power plotting."""
+
+    power = analyze_adc_power_sweep((measurement,))
+    time_s = measurement.wave.time_s
+    threshold_v = 0.5 * float(measurement.param.vdd_d.dc)
+    init_high = measurement.wave.seq_init_v[0] > threshold_v
+    init_rising = np.flatnonzero(init_high & np.concatenate((np.asarray([True]), ~init_high[:-1])))
+    if not len(init_rising):
+        raise ValueError("ADC power waveform contains no SEQ_INIT rising edge")
+    active_start_s = float(time_s[init_rising[0]])
+    active_duration_s = 1.0 / float(power.active_conversion_rate_hz[0])
+    active_stop_s = active_start_s + active_duration_s
+    margin_s = 0.02 * active_duration_s
+    displayed = (time_s >= active_start_s - margin_s) & (time_s <= active_stop_s + margin_s)
+    if np.count_nonzero(displayed) < 2:
+        raise ValueError("ADC power waveform contains fewer than two displayed samples")
+
+    rail_names = ("vdd_a", "vdd_d", "vdd_dac")
+    rail_power_w = []
+    for rail in rail_names:
+        voltage_v = float(getattr(measurement.param, rail).dc)
+        complete_power_w = getattr(measurement.wave, f"{rail}_i")[0] * voltage_v
+        rail_power_w.append(complete_power_w[displayed])
+    return AnalysisAdcPowerWaveform(
+        backend=measurement.info.backend,
+        adc_index=-1 if measurement.param.observed_adc is None else measurement.param.observed_adc,
+        active_conversion_rate_hz=float(power.active_conversion_rate_hz[0]),
+        active_duration_s=active_duration_s,
+        time_s=time_s[displayed] - active_start_s,
+        rail_power_w=np.asarray(rail_power_w),
+        static_power_w=np.asarray(
+            (power.vdd_a_static_power_w[0], power.vdd_d_static_power_w[0], power.vdd_dac_static_power_w[0])
+        ),
+        active_power_w=np.asarray(
+            (
+                power.vdd_a_static_power_w[0] + power.vdd_a_dynamic_power_w[0],
+                power.vdd_d_static_power_w[0] + power.vdd_d_dynamic_power_w[0],
+                power.vdd_dac_static_power_w[0] + power.vdd_dac_dynamic_power_w[0],
+            )
+        ),
+        timing_high=np.asarray(
+            [
+                values[0, displayed] > threshold_v
+                for values in (
+                    measurement.wave.seq_init_v,
+                    measurement.wave.seq_samp_v,
+                    measurement.wave.seq_comp_v,
+                    measurement.wave.seq_logic_v,
+                )
+            ],
+            dtype=np.bool_,
+        ),
     )

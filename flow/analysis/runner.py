@@ -34,6 +34,7 @@ from flow.analysis.adc import (
     analyze_adc_dynamic_sweep,
     analyze_adc_noise_sweep,
     analyze_adc_power_sweep,
+    analyze_adc_power_waveform,
     analyze_adc_ramp,
     analyze_adc_transfer,
     combine_adc_noise_comparison,
@@ -49,7 +50,6 @@ from flow.analysis.comp import (
 )
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import (
-    animate_adc_decision_path_density,
     plot_adc_calibration_weights,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
@@ -57,20 +57,20 @@ from flow.analysis.plots import (
     plot_adc_dynamic,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_noise_violin_sweep,
-    plot_adc_nonlinearity,
     plot_adc_power_sweep,
     plot_adc_power_waveform,
     plot_adc_ramp_histogram,
+    plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
     plot_adc_ramp_weights,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
-    plot_comp_campaign,
     plot_comp_candidate_sweep,
+    plot_comp_common_mode_campaign,
     plot_comp_noise_power_tradeoff,
-    plot_measurement_waveforms,
+    plot_comp_sampling_campaign,
+    plot_waveforms,
 )
 from flow.analysis.types import (
     MeasAdcExt,
@@ -78,6 +78,7 @@ from flow.analysis.types import (
     MeasCompExt,
     MeasCompInt,
 )
+from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.params import load_board_map
 
 BASE_PATH = Path(__file__).resolve().parents[2]
@@ -221,7 +222,7 @@ def adc_ramp_nonlinearity(output_dir: Path) -> tuple[Path, ...]:
             )
         )
         artifacts.extend(
-            plot_adc_nonlinearity(
+            plot_adc_ramp_nonlinearity(
                 analysis,
                 output_path=output_dir / f"adc{adc_index:02d}_ramp_nonlinearity",
             )
@@ -341,7 +342,7 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
         )
     )
     artifacts.extend(
-        plot_adc_nonlinearity(
+        plot_adc_ramp_nonlinearity(
             ramp,
             output_path=output_dir / f"adc{adc_index:02d}_calibration_inl_dnl",
         )
@@ -563,14 +564,13 @@ def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
             (physical_noise, physical_noise_100mv),
             sine_dynamic,
             simulated_noise_sweeps,
+            series_labels=series_labels,
         )
         artifacts.extend(
             plot_adc_noise_sweep(
                 comparison_measurements,
                 comparison,
                 output_path=output_dir / f"adc{adc_index:02d}_noise_vs_conversion_rate",
-                series_labels=series_labels,
-                title=f"ADC{adc_index:02d} input-referred noise vs conversion rate",
             )
         )
     return tuple(artifacts)
@@ -655,19 +655,6 @@ def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
                     adc_measurements,
                     analyze_adc_noise_sweep(adc_measurements),
                     output_path=output_dir / f"adc{adc_index:02d}_{input_mv}mv_dc_output_code_distributions",
-                    title=f"ADC{adc_index:02d} {input_mv} mV fixed-input output-code distributions",
-                )
-            )
-
-    for input_mv in PHYSICAL_NOISE_RUN_DIRS:
-        for adc_index in ADC_INDICES:
-            adc_measurements = physical_measurements[input_mv][adc_index]
-            artifacts.extend(
-                plot_adc_noise_violin_sweep(
-                    adc_measurements,
-                    analyze_adc_noise_sweep(adc_measurements),
-                    output_path=output_dir / f"adc{adc_index:02d}_{input_mv}mv_dc_output_code_violins",
-                    title=f"ADC{adc_index:02d} {input_mv} mV fixed-input output-code violin distributions",
                 )
             )
 
@@ -706,7 +693,6 @@ def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
                 analysis = analyze_adc_decision_paths(matches[0], selection="all")
                 output_path = output_dir / (f"adc{adc_index:02d}_{input_mv}mv_{rate_msps}msps_decision_path_density")
                 artifacts.extend(plot_adc_decision_path_density(matches[0], analysis, output_path=output_path))
-                artifacts.extend(animate_adc_decision_path_density(matches[0], analysis, output_path=output_path))
     return tuple(artifacts)
 
 
@@ -750,9 +736,6 @@ def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
             adc_measurements.append(measurement)
         sine_measurements_by_adc[adc_index] = adc_measurements
 
-    sine_measurements = [
-        measurement for adc_index in ADC_INDICES for measurement in sine_measurements_by_adc[adc_index]
-    ]
     simulation_measurements = {}
     for source, run_dir in (("ideal", IDEAL_RUN_DIR), ("pex", PEX_RUN_DIR)):
         measurements = []
@@ -764,7 +747,6 @@ def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
             measurements.append(measurement)
         simulation_measurements[source] = measurements
 
-    measured_power = analyze_adc_power_sweep(sine_measurements)
     simulation_power = {
         source: analyze_adc_power_sweep(measurements) for source, measurements in simulation_measurements.items()
     }
@@ -779,14 +761,16 @@ def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
             raise ValueError(f"SPICE {source} power sweep does not contain exactly 2, 6, and 10 MSPS")
 
     artifacts = []
-    artifacts.extend(
-        plot_adc_power_sweep(
-            sine_measurements,
-            measured_power,
-            output_path=output_dir / "adc_power_vs_conversion_rate",
+    for adc_index in ADC_INDICES:
+        measurements = sine_measurements_by_adc[adc_index]
+        artifacts.extend(
+            plot_adc_power_sweep(
+                measurements,
+                analyze_adc_power_sweep(measurements),
+                output_path=output_dir / f"adc_power_vs_conversion_rate_adc{adc_index:02d}",
+            )
         )
-    )
-    for source, label in (("ideal", "SPICE ideal"), ("pex", "SPICE PEX")):
+    for source in ("ideal", "pex"):
         measurements = simulation_measurements[source]
         analysis = simulation_power[source]
         artifacts.extend(
@@ -794,25 +778,20 @@ def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
                 measurements,
                 analysis,
                 output_path=output_dir / f"spice_{source}_power_vs_conversion_rate",
-                title=f"{label} single-ADC-macro static and dynamic supply power",
             )
         )
         detail_measurement = measurements[SIMULATION_RATES_MSPS.index(SIMULATION_DETAIL_RATE_MSPS)]
-        detail_analysis = analyze_adc_power_sweep((detail_measurement,))
         artifacts.extend(
             plot_adc_power_waveform(
-                detail_measurement,
-                detail_analysis,
+                analyze_adc_power_waveform(detail_measurement),
                 output_path=output_dir / f"spice_{source}_{SIMULATION_DETAIL_RATE_MSPS}msps_supply_power",
-                title=(f"{label} instantaneous single-ADC-macro supply power at {SIMULATION_DETAIL_RATE_MSPS} MSPS"),
             )
         )
     for adc_index in ADC_INDICES:
         detail_measurement = sine_measurements_by_adc[adc_index][RATES_MBD.index(DETAIL_RATE_MBD)]
         artifacts.extend(
-            plot_measurement_waveforms(
-                detail_measurement,
-                record_index=0,
+            plot_waveforms(
+                analyze_measurement_waveforms(detail_measurement),
                 output_path=output_dir / f"adc{adc_index:02d}_{DETAIL_RATE_MBD}mbd_sine_waveforms",
             )
         )
@@ -959,7 +938,7 @@ def comp_system_common_mode(output_dir: Path) -> tuple[Path, ...]:
         analyses = [analyze_comp_offset_noise(group) for group in groups]
         analyses = list(classify_comp_common_mode_validity(groups, analyses))
         artifacts.extend(
-            plot_comp_campaign(
+            plot_comp_common_mode_campaign(
                 groups,
                 analyses,
                 output_path=output_dir / f"adc{adc_index:02d}_comparator_common_mode",
@@ -1034,8 +1013,10 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
             )
         groups = [grouped[key] for key in sorted(grouped)]
         analyses = [analyze_comp_offset_noise(group) for group in groups]
+        if any(analysis.validity != "valid" for analysis in analyses):
+            raise ValueError(f"ADC{adc_index:02d} sampling-noise campaign contains an invalid comparator fit")
         artifacts.extend(
-            plot_comp_campaign(
+            plot_comp_sampling_campaign(
                 groups,
                 analyses,
                 output_path=output_dir / f"adc{adc_index:02d}_comparator_sampling_noise",
@@ -1081,6 +1062,22 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
             raise ValueError(f"{path} does not use the reviewed comparator S-curve testbench")
         measurements.append(measurement)
     analysis = analyze_comp_candidate_sweep(measurements)
+    profiles = np.asarray(analysis.size_profile)
+    valid_resolved = (
+        (np.asarray(analysis.validity) == "valid")
+        & np.isfinite(analysis.noise_sigma_v)
+        & (analysis.noise_sigma_v > 0.0)
+        & np.isfinite(analysis.average_power_w)
+        & (analysis.average_power_w > 0.0)
+        & np.isfinite(analysis.maximum_settling_s)
+        & (analysis.maximum_settling_s > 0.0)
+        & (analysis.unresolved_fraction == 0.0)
+    )
+    fabricated = profiles == "fabricated"
+    if np.count_nonzero(fabricated) != 1 or not np.all(valid_resolved[fabricated]):
+        raise ValueError("comparator candidate campaign requires one valid, resolved fabricated baseline")
+    if not np.any(valid_resolved & np.isin(profiles, ("half", "double"))):
+        raise ValueError("comparator candidate campaign has no valid, resolved generated designs")
     artifacts = list(
         plot_comp_candidate_sweep(
             measurements,
