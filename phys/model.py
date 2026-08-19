@@ -7,21 +7,18 @@ import numpy.typing as npt
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 
 from flow.analysis.plots import (
     CURVE_COLORS,
-    FULL_HD_FIGSIZE,
-    PLOT_FACE_COLOR,
+    PLOT_STYLE,
     SPINE_COLOR,
     TEXT_COLOR,
-    _save_figure,
-    style_ax,
+    save_figure,
     style_grid,
-    style_legend,
-    with_plot_style,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,7 +76,8 @@ def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
     return -np.log1p(-allowed_overlap_fraction) / time_dead
 
 
-def format_time_axis(value: float, _: object) -> str:
+def style_time_axis_text(value: float, _: object) -> str:
+    # rcParams cannot format domain-specific engineering units.
     if value >= 1e-3:
         return f"{value * 1e3:g} ms"
     if value >= 1e-6:
@@ -87,14 +85,16 @@ def format_time_axis(value: float, _: object) -> str:
     return f"{value * 1e9:g} ns"
 
 
-def format_rate_axis(value: float, _: object) -> str:
+def style_rate_axis_text(value: float, _: object) -> str:
+    # rcParams cannot format domain-specific engineering units.
     for scale, prefix in ((1e15, "P"), (1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
         if value >= scale:
             return f"{value / scale:g} {prefix}cps"
     return f"{value:g} cps"
 
 
-def format_fluence_axis(value: float, _: object) -> str:
+def style_fluence_axis_text(value: float, _: object) -> str:
+    # rcParams cannot format domain-specific engineering units.
     for scale, unit in (
         (1e15, "Pcps"),
         (1e12, "Tcps"),
@@ -125,7 +125,8 @@ def current_density_pa_mm2_to_fluence(value: npt.ArrayLike) -> np.ndarray:
     return np.asarray(value) / (ELEMENTARY_CHARGE_C * 1e12)
 
 
-def format_current_density_axis(value: float, _: object) -> str:
+def style_current_density_axis_text(value: float, _: object) -> str:
+    # rcParams cannot format domain-specific engineering units.
     for scale, unit in (
         (1e12, "A"),
         (1e9, "mA"),
@@ -139,7 +140,7 @@ def format_current_density_axis(value: float, _: object) -> str:
     return f"{value * 1e3:g} fA/mm²"
 
 
-@with_plot_style
+@mpl.rc_context(PLOT_STYLE)
 def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     """Figure 1: per-pixel hit rate vs fluence."""
     fluences_mm2_s = np.logspace(6, 11, 400)
@@ -147,7 +148,7 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     pitches_m = [100e-6, 75e-6, 50e-6, 30e-6, 15e-6, 10e-6]
     colors = CURVE_COLORS[: len(pitches_m)]
 
-    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE, facecolor=PLOT_FACE_COLOR)
+    fig, ax = plt.subplots()
     for pitch_m, color in zip(pitches_m, colors, strict=True):
         rates = [hit_rate_per_pixel_per_second(f, pitch_m) for f in fluences_m2_s]
         ax.plot(
@@ -238,8 +239,8 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax.xaxis.set_minor_formatter(NullFormatter())
     ax.yaxis.set_minor_formatter(NullFormatter())
-    ax.xaxis.set_major_formatter(FuncFormatter(format_fluence_axis))
-    ax.yaxis.set_major_formatter(FuncFormatter(format_rate_axis))
+    ax.xaxis.set_major_formatter(FuncFormatter(style_fluence_axis_text))
+    ax.yaxis.set_major_formatter(FuncFormatter(style_rate_axis_text))
 
     bottom2 = ax.secondary_xaxis(
         "bottom",
@@ -249,7 +250,7 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     bottom2.xaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     bottom2.xaxis.set_minor_formatter(NullFormatter())
     bottom2.spines["bottom"].set_position(("outward", 38))
-    bottom2.xaxis.set_major_formatter(FuncFormatter(format_current_density_axis))
+    bottom2.xaxis.set_major_formatter(FuncFormatter(style_current_density_axis_text))
     bottom2.tick_params(colors=TEXT_COLOR)
     bottom2.spines["bottom"].set_color(SPINE_COLOR)
     bottom2.xaxis.label.set_color(TEXT_COLOR)
@@ -258,28 +259,23 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     ax.set_xlabel("Incident particle fluence (cps/mm²)")
     ax.set_ylabel("Resulting hit rate per pixel (cps)")
     ax.set_title("Per-pixel hit rate vs fluence")
-    style_ax(ax)
     style_grid(ax)
 
     _ph, _pl = ax.get_legend_handles_labels()
-    style_legend(
-        ax,
+    ax.legend(
         handles=_ph + _src_h,
         labels=_pl + ["Photon source", "Electron source"],
         title="Pixel pitch / Sources",
     )
-    fig.subplots_adjust(bottom=0.22)
-    return _save_figure(fig, output_path)
+    return save_figure(fig, output_path)
 
 
-@with_plot_style
+@mpl.rc_context(PLOT_STYLE)
 def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
     """Figure 2: two subplots — integrating (frame time) and discriminating (dead time)."""
     fig, (ax_int, ax_disc) = plt.subplots(
         1,
         2,
-        figsize=FULL_HD_FIGSIZE,
-        facecolor=PLOT_FACE_COLOR,
         sharey=True,
     )
 
@@ -294,20 +290,16 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
 
     ax_int.set_yscale("log")
     ax_int.set_ylim(1e4, 1e9)
-    ax_int.xaxis.set_major_formatter(FuncFormatter(format_time_axis))
-    ax_int.yaxis.set_major_formatter(FuncFormatter(format_rate_axis))
+    ax_int.xaxis.set_major_formatter(FuncFormatter(style_time_axis_text))
+    ax_int.yaxis.set_major_formatter(FuncFormatter(style_rate_axis_text))
     ax_int.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
     ax_int.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax_int.yaxis.set_minor_formatter(NullFormatter())
     ax_int.set_xlabel("Frame time")
     ax_int.set_ylabel("Max hit counting rate per pixel (cps)")
     ax_int.set_title("Integrating (frame-based)")
-    style_ax(ax_int)
     style_grid(ax_int)
-    style_legend(
-        ax_int,
-        title="ADC bit depth",
-    )
+    ax_int.legend(title="ADC bit depth")
 
     # ---- Right: discriminating dead-time curve (10 ns – 400 ns) ----
     dead_ns = np.linspace(10, 400, 200)
@@ -327,6 +319,12 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
         ("EIGER", 238, 0.47e6),
         ("MPX3", 400, 0.25e6),
     ]
+    annotation_positions = {
+        "MPX4": ((-8, 8), "right"),
+        "TPX4": ((8, -2), "left"),
+        "IBEX": ((-8, 8), "right"),
+        "PIL3": ((8, -2), "left"),
+    }
     for n, td_ns, r in _discrim:
         ax_disc.plot(
             td_ns,
@@ -338,7 +336,15 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
             markeredgewidth=0.5,
             zorder=5,
         )
-        ax_disc.annotate(n, (td_ns, r), color=TEXT_COLOR, textcoords="offset points", xytext=(5, 4))
+        text_offset, horizontal_alignment = annotation_positions.get(n, ((5, 4), "left"))
+        ax_disc.annotate(
+            n,
+            (td_ns, r),
+            color=TEXT_COLOR,
+            textcoords="offset points",
+            xytext=text_offset,
+            horizontalalignment=horizontal_alignment,
+        )
 
     ax_disc.set_yscale("log")
     ax_disc.set_ylim(1e4, 1e9)
@@ -347,12 +353,11 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
     ax_disc.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
     ax_disc.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax_disc.yaxis.set_minor_formatter(NullFormatter())
-    style_ax(ax_disc)
     style_grid(ax_disc)
-    style_legend(ax_disc)
+    ax_disc.legend()
 
     fig.suptitle("Max pixel count rate: integrating vs discriminating detectors")
-    return _save_figure(fig, output_path)
+    return save_figure(fig, output_path)
 
 
 def main() -> int:

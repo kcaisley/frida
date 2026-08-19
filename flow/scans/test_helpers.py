@@ -139,10 +139,7 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
     assert plot_waveforms(
         analyze_scope_waveforms(waveforms, {1: "input", 3: "logic"}),
         output_path=tmp_path / "scope" / "capture",
-    ) == (
-        tmp_path / "scope" / "capture.png",
-        tmp_path / "scope" / "capture.pdf",
-    )
+    ) == (tmp_path / "scope" / "capture.pdf",)
 
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:

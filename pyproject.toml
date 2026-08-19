@@ -6,7 +6,7 @@ dependencies = [
     # Core
     "numpy",
     "scipy",
-    "matplotlib",
+    "matplotlib>=3.11,<3.12",
     "openpyxl",
     "pillow",
     "h5py",

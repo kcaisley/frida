@@ -1,7 +1,7 @@
 """Measure the quiet THS4541 differential output with the CH1 probe.
 
 The Agilent 33250A applies the calibrated DC level required for zero
-differential THS4541 output, the E3634A sets the output common mode to 0.8 V,
+differential THS4541 output, the E3634A sets the output common mode to 0.7 V,
 and the TDP3500 differential probe on MSO54 CH1 measures ``Vin_p - Vin_n``.
 CH1 uses its minimum accepted 20 MHz
 bandwidth and minimum accepted 2.5 mV/div scale for the final capture. The
@@ -31,6 +31,7 @@ import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 from PIL import Image
 
+import flow.analysis.plots as analysis_plots
 from flow.analysis.diffamp import analyze_diffamp_noise
 from flow.analysis.plots import plot_diffamp_noise
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
@@ -40,7 +41,7 @@ MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_noise"
 
 TARGET_VDIFF_DC_V = 0.0
-TARGET_VIN_CM_V = 0.8
+TARGET_VIN_CM_V = 0.7
 VIN_CM_CURRENT_LIMIT_A = 10.0e-3
 ASIC_SUPPLY_V = 1.2
 SMU_VOLTAGE_RANGE_V = 2.0
@@ -427,7 +428,8 @@ def test_diffamp_noise_analysis_recovers_gaussian_rms_and_tone() -> None:
     assert analysis.integrated_fft_noise_rms_v == pytest.approx(analysis.noise_rms_v, rel=0.03)
 
 
-def test_diffamp_noise_plot_is_exact_16_by_9(tmp_path: Path) -> None:
+def test_diffamp_noise_plot_is_exact_16_by_9(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     rng = np.random.default_rng(8)
     samples_v = rng.normal(10.0e-3, 0.5e-3, 10_000)
     analysis = analyze_diffamp_noise(

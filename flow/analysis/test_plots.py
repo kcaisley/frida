@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -27,17 +28,17 @@ from flow.analysis.adc import (
 from flow.analysis.cdac import _expected_cdac_effective_fraction
 from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.plots import (
-    COMMON_MODE_COLOR_MAP,
     CURVE_COLORS,
+    DENSITY_COLOR_MAP,
     GRID_MAJOR_COLOR,
     LEGEND_FACE_COLOR,
     NORD_BLUE,
     NORD_ORANGE,
     NORD_YELLOW,
+    PLOT_STYLE,
     SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
-    apply_plot_style,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
@@ -58,9 +59,7 @@ from flow.analysis.plots import (
     plot_comp_common_mode_campaign,
     plot_comp_sampling_campaign,
     plot_waveforms,
-    style_ax,
     style_grid,
-    style_legend,
 )
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
@@ -95,39 +94,44 @@ def enable_all_plot_formats(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
     """Keep typography, palette, axes, grids, and legends consistent."""
 
-    apply_plot_style()
-    assert plt.rcParams["mathtext.fontset"] == "cm"
-    assert plt.rcParams["font.family"] == ["serif"]
-    assert plt.rcParams["axes.prop_cycle"].by_key()["color"] == list(CURVE_COLORS)
-    assert plt.rcParams["savefig.dpi"] == 500
-    assert plt.rcParams["axes.titlesize"] == 13.0
-    assert plt.rcParams["axes.labelsize"] == 11.0
-    assert plt.rcParams["xtick.labelsize"] == 11.0
-    assert plt.rcParams["ytick.labelsize"] == 11.0
-    assert plt.rcParams["legend.fontsize"] == 11.0
-    assert plt.rcParams["text.color"] == "black"
-    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.0)) == NORD_BLUE.lower()
-    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.5)) == NORD_ORANGE.lower()
-    assert mcolors.to_hex(SPECTRUM_COLOR_MAP(1.0)) == NORD_YELLOW.lower()
+    with mpl.rc_context(PLOT_STYLE):
+        assert plt.rcParams["mathtext.fontset"] == "cm"
+        assert plt.rcParams["font.family"] == ["serif"]
+        assert plt.rcParams["axes.prop_cycle"].by_key()["color"] == list(CURVE_COLORS)
+        assert plt.rcParams["figure.figsize"] == [9.6, 5.4]
+        assert plt.rcParams["figure.constrained_layout.use"] is True
+        assert plt.rcParams["savefig.dpi"] == 500
+        assert plt.rcParams["axes.titlesize"] == 13.0
+        assert plt.rcParams["axes.labelsize"] == 11.0
+        assert plt.rcParams["xtick.labelsize"] == 11.0
+        assert plt.rcParams["ytick.labelsize"] == 11.0
+        assert plt.rcParams["legend.fontsize"] == 11.0
+        assert plt.rcParams["legend.linewidth"] == 0.8
+        assert plt.rcParams["text.color"] == "black"
+        assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.0)) == NORD_BLUE.lower()
+        assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.5)) == NORD_ORANGE.lower()
+        assert mcolors.to_hex(SPECTRUM_COLOR_MAP(1.0)) == NORD_YELLOW.lower()
+        assert mcolors.to_hex(DENSITY_COLOR_MAP(0.0)) == mcolors.to_hex(SPECTRUM_COLOR_MAP(0.2))
+        assert mcolors.to_hex(DENSITY_COLOR_MAP(0.0)) != NORD_BLUE.lower()
 
-    fig, ax = plt.subplots()
-    ax.plot((0, 1), (0, 1), label="trace")
-    quarter_ticks = np.arange(0.0, 1.01, 0.25)
-    ax.set_xticks(quarter_ticks, minor=True)
-    style_ax(ax)
-    style_grid(ax)
-    style_legend(ax)
-    assert ax.spines["left"].get_edgecolor() == mcolors.to_rgba(SPINE_COLOR)
-    assert ax.xaxis.label.get_color() == TEXT_COLOR
-    assert ax.get_xgridlines()[0].get_color() == GRID_MAJOR_COLOR
-    assert isinstance(ax.xaxis.get_minor_locator(), FixedLocator)
-    assert np.array_equal(ax.get_xticks(minor=True), quarter_ticks[1:-1])
-    assert ax.get_axisbelow() is True
-    assert ax.lines[0].get_alpha() in (None, 1.0)
-    legend = ax.get_legend()
-    assert legend is not None
-    assert legend.get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
-    plt.close(fig)
+        fig, ax = plt.subplots()
+        ax.plot((0, 1), (0, 1), label="trace")
+        quarter_ticks = np.arange(0.0, 1.01, 0.25)
+        ax.set_xticks(quarter_ticks, minor=True)
+        style_grid(ax)
+        ax.legend()
+        assert ax.spines["left"].get_edgecolor() == mcolors.to_rgba(SPINE_COLOR)
+        assert ax.xaxis.label.get_color() == TEXT_COLOR
+        assert ax.get_xgridlines()[0].get_color() == GRID_MAJOR_COLOR
+        assert isinstance(ax.xaxis.get_minor_locator(), FixedLocator)
+        assert np.array_equal(ax.get_xticks(minor=True), quarter_ticks[1:-1])
+        assert ax.get_axisbelow() is True
+        assert ax.lines[0].get_alpha() in (None, 1.0)
+        legend = ax.get_legend()
+        assert legend is not None
+        assert legend.get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
+        assert legend.get_frame().get_linewidth() == 0.8
+        plt.close(fig)
 
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
@@ -145,6 +149,8 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "dac_botplate_p_15_v" in svg
     assert "Time (" in svg
     assert "Source: SPICE" in svg
+    assert "Rate: 1.6 MSPS" in svg
+    assert "CDAC init: h'5555" in svg
     assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
 
@@ -247,7 +253,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
         figures.append(fig)
         return ()
 
-    monkeypatch.setattr(analysis_plots, "_save_figure", capture_figure)
+    monkeypatch.setattr(analysis_plots, "save_figure", capture_figure)
 
     def group(
         campaign: str,
@@ -317,9 +323,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     common_fit_lines = [line for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")]
     assert len(common_figure.axes[0].collections) == 3
     assert all(len(line.get_xdata()) == 1_001 for line in common_fit_lines)
-    expected_common_mode_colors = [
-        COMMON_MODE_COLOR_MAP((vin_cm_v - 0.7) / (1.2 - 0.7)) for vin_cm_v in (0.7, 0.8, 1.0)
-    ]
+    expected_common_mode_colors = [SPECTRUM_COLOR_MAP((vin_cm_v - 0.7) / (1.2 - 0.7)) for vin_cm_v in (0.7, 0.8, 1.0)]
     for line, expected_color in zip(common_fit_lines, expected_common_mode_colors, strict=True):
         np.testing.assert_allclose(mcolors.to_rgba(line.get_color()), expected_color)
     for violin, expected_color in zip(
@@ -529,8 +533,11 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
     assert_plot_formats(density_paths)
     density_svg = read_svg(density_paths)
     assert "decision-path density" in density_svg
+    assert "Full trajectory" in density_svg
+    assert "Final output ±25 LSB" in density_svg
     assert "Conversions per path" in density_svg
     assert GRID_MAJOR_COLOR.lower() not in density_svg.lower()
+    assert analysis_plots.GRID_MINOR_COLOR.lower() in density_svg.lower()
     assert plt.imread(density_paths[0]).shape[:2] == (2700, 4800)
 
 
@@ -543,20 +550,21 @@ def test_decision_path_density_holds_each_discrete_estimate(
     msmt = adc_measurement([100, 101, 102])
     analysis = analyze_adc_decision_paths(msmt, selection="all")
     original_histogram2d = np.histogram2d
-    original_line_collection = analysis_plots.LineCollection
     sampled_estimates = []
-    rendered_segments = []
+    rendered_polygons = []
 
     def record_histogram2d(x, y, *args, **kwargs):
         sampled_estimates.append(np.asarray(y))
         return original_histogram2d(x, y, *args, **kwargs)
 
-    def record_line_collection(segments, *args, **kwargs):
-        rendered_segments.extend(np.asarray(segments, dtype=np.float64))
-        return original_line_collection(segments, *args, **kwargs)
+    original_poly_collection = analysis_plots.PolyCollection
+
+    def record_poly_collection(vertices, *args, **kwargs):
+        rendered_polygons.extend(np.asarray(vertices, dtype=np.float64))
+        return original_poly_collection(vertices, *args, **kwargs)
 
     monkeypatch.setattr(np, "histogram2d", record_histogram2d)
-    monkeypatch.setattr(analysis_plots, "LineCollection", record_line_collection)
+    monkeypatch.setattr(analysis_plots, "PolyCollection", record_poly_collection)
     plot_adc_decision_path_density(
         msmt,
         analysis,
@@ -564,13 +572,7 @@ def test_decision_path_density_holds_each_discrete_estimate(
     )
 
     sampled = sampled_estimates[0].reshape(len(analysis.estimate_dout), -1)
-    expected = np.concatenate(
-        (
-            np.repeat(analysis.estimate_dout[:, :-1], 8, axis=1),
-            analysis.estimate_dout[:, -1, None],
-        ),
-        axis=1,
-    )
+    expected = np.repeat(analysis.estimate_dout, 8, axis=1)
     np.testing.assert_array_equal(sampled, expected)
 
     # The largest jump in one representative path must be connected at the
@@ -578,9 +580,20 @@ def test_decision_path_density_holds_each_discrete_estimate(
     cycle = int(np.argmax(np.abs(np.diff(analysis.estimate_dout[0])))) + 1
     previous = analysis.estimate_dout[0, cycle - 1]
     current = analysis.estimate_dout[0, cycle]
-    expected_segment = np.asarray(((float(cycle), previous), (float(cycle), current)))
+    previous_box_code = np.floor(previous + 0.5)
+    current_box_code = np.floor(current + 0.5)
+    lower_edge = min(previous_box_code, current_box_code) - 0.5
+    upper_edge = max(previous_box_code, current_box_code) + 0.5
+    expected_segment = np.asarray(
+        (
+            (float(cycle) - 0.05, lower_edge),
+            (float(cycle) + 0.05, lower_edge),
+            (float(cycle) + 0.05, upper_edge),
+            (float(cycle) - 0.05, upper_edge),
+        )
+    )
     assert abs(current - previous) > 1
-    assert any(np.allclose(segment, expected_segment) for segment in rendered_segments)
+    assert any(np.allclose(segment, expected_segment) for segment in rendered_polygons)
 
 
 def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
@@ -776,5 +789,6 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     svg = read_svg(paths)
     assert "ADC fixed-input output-code distributions" in svg
     assert "ADC: 00" in svg
+    assert "CDAC init: h'5555" in svg
     assert "Global histogram scale" not in svg
     assert "Mean ±1σ" in svg
