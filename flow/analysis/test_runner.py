@@ -48,6 +48,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
     assert "adc_transfer_curve" in runner.TARGETS
     assert "adc_ramp_nonlinearity" in runner.TARGETS
     assert "adc_calibration" in runner.TARGETS
+    assert "adc00_fixed_input_noise" in runner.TARGETS
     assert "adc00_pex_transfer" not in runner.TARGETS
     assert "adc_code_distributions" in runner.TARGETS
     assert "adc_code_diag" not in runner.TARGETS

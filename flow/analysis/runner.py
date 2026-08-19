@@ -421,6 +421,63 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze the accepted post-filter ADC00 fixed-input noise capture."""
+
+    run_dir = BASE_PATH / "build/scan_adc/20260819_113714"
+    rates_mbd = (320, 960, 1600)
+    expected_conversions = 100_000
+    msmt_list = []
+    for rate_mbd in rates_mbd:
+        matches = sorted(
+            run_dir.glob(
+                f"*_00_adc00_{rate_mbd}mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+            )
+        )
+        if len(matches) != 1:
+            raise ValueError(f"ADC00 post-filter noise campaign requires one {rate_mbd} MBd file, found {len(matches)}")
+        measurement = read_measurement(matches[0])
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"{matches[0]} contains {type(measurement).__name__}, expected MeasAdcExt")
+        if (
+            measurement.param.observed_adc != 0
+            or measurement.param.campaign != "adc"
+            or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
+            or not np.isclose(float(measurement.param.vin_diff.dc), 0.050)
+            or not np.isclose(float(measurement.param.vin_cm.dc), 0.700)
+            or len(measurement.daq.dout) != expected_conversions
+            or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
+            or int(measurement.info.readbacks.get("spi_mismatches", 0))
+        ):
+            raise ValueError(f"{matches[0]} is not a complete ADC00 post-filter fixed-input capture")
+        msmt_list.append(measurement)
+
+    analysis = analyze_adc_noise_sweep(msmt_list)
+    artifacts = list(
+        plot_adc_noise_sweep(
+            msmt_list,
+            analysis,
+            output_path=output_dir / "adc00_50mv_noise_vs_conversion_rate",
+        )
+    )
+    artifacts.extend(
+        plot_adc_noise_distribution_sweep(
+            msmt_list,
+            analysis,
+            output_path=output_dir / "adc00_50mv_output_code_distributions",
+        )
+    )
+    for rate_msps, measurement in zip((2, 6, 10), msmt_list, strict=True):
+        artifacts.extend(
+            plot_adc_decision_path_density(
+                measurement,
+                analyze_adc_decision_paths(measurement, selection="all"),
+                output_path=output_dir / f"adc00_50mv_{rate_msps}msps_decision_path_density",
+            )
+        )
+    return tuple(artifacts)
+
+
 def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
     """Compare configured physical ADC input-referred noise across rate and backends."""
 
@@ -1229,6 +1286,7 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
         adc_transfer_curve,
         adc_ramp_nonlinearity,
         adc_calibration,
+        adc00_fixed_input_noise,
         adc_noise_vs_rate,
         adc_code_distributions,
         adc_power_vs_rate,
