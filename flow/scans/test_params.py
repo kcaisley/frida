@@ -20,6 +20,7 @@ def test_default_params_are_valid_and_immutable() -> None:
     validate_params(params)
     assert isinstance(params.vin_diff, h.Vdc.Params)
     assert float(params.vin_diff.dc) == 0.0
+    assert float(params.vin_cm.dc) == pytest.approx(0.7)
     assert params.board_id is None
     with pytest.raises(dataclasses.FrozenInstanceError):
         params.conversions = 1

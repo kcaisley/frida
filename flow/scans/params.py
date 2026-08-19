@@ -161,7 +161,7 @@ class AdcTbParams:
     vin_cm = h.Param(
         dtype=h.Vdc.Params,
         desc="Input-driver common mode",
-        default=h.Vdc.Params(dc=615 * m),
+        default=h.Vdc.Params(dc=700 * m),
     )
     vin_diff = h.Param(
         dtype=h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params,

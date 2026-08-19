@@ -36,7 +36,7 @@ def test_named_campaigns_expand_to_the_expected_matrix() -> None:
     """Expand the shared ADC campaign recipe into complete parameters."""
 
     cases = sim._noise_vs_rate_cases()
-    expected_names = tuple(f"{rate}msps_cm600mv_dc50mv" for rate in (10, 6, 2))
+    expected_names = tuple(f"{rate}msps_cm700mv_dc50mv" for rate in (10, 6, 2))
     assert tuple(name for name, _params in cases) == expected_names
 
     alternating = tuple(int(bit) for bit in "0101010101010101")
@@ -45,10 +45,10 @@ def test_named_campaigns_expand_to_the_expected_matrix() -> None:
         assert params.dac_astate_n == alternating
         assert params.dac_bstate_p == (0,) * 16
         assert params.dac_bstate_n == (0,) * 16
-        assert params.conversions == 20
+        assert params.conversions == 100
         assert isinstance(params.vin_diff, h.Vdc.Params)
         assert float(params.vin_diff.dc) == pytest.approx(0.05)
-        assert float(params.vin_cm.dc) == pytest.approx(0.6)
+        assert float(params.vin_cm.dc) == pytest.approx(0.7)
         assert float(params.seq_logic_phase_delay_symbols) == pytest.approx(2.0)
 
 

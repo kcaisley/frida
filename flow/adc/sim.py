@@ -576,11 +576,10 @@ def _noise_vs_rate_cases() -> tuple[tuple[str, AdcTbParams], ...]:
     for rate_msps in (10, 6, 2):
         cases.append(
             (
-                f"{rate_msps}msps_cm600mv_dc50mv",
+                f"{rate_msps}msps_cm700mv_dc50mv",
                 AdcTbParams(
                     symbol_rate=convert_sample_rate_to_baud(template, rate_msps * 1e6),
-                    conversions=20,
-                    vin_cm=h.Vdc.Params(dc=0.6),
+                    conversions=100,
                     vin_diff=h.Vdc.Params(dc=0.05),
                     seq_logic_phase_delay_symbols=2.0,
                     dac_astate_p=alternating,
@@ -626,7 +625,7 @@ def _transfer_curve_cases() -> tuple[tuple[str, AdcTbParams], ...]:
 def _smoke_params() -> AdcTbParams:
     """Reduce the 10 MS/s case to one immediately active conversion."""
 
-    params = next(params for name, params in _noise_vs_rate_cases() if name == "10msps_cm600mv_dc50mv")
+    params = next(params for name, params in _noise_vs_rate_cases() if name == "10msps_cm700mv_dc50mv")
     first_active = min(
         index
         for index in range(len(params.seq_init_pattern))
@@ -708,7 +707,7 @@ def frida65a_noise_smoke() -> Path:
     return _run_campaign(
         run_dir,
         view="frida65a",
-        cases=(("10msps_cm600mv_dc50mv_smoke", _smoke_params()),),
+        cases=(("10msps_cm700mv_dc50mv_smoke", _smoke_params()),),
         execute=True,
         circuit_checks=True,
     )
@@ -719,7 +718,13 @@ def frida65a_noise_vs_rate() -> Path:
 
     run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
-    return _run_campaign(run_dir, view="frida65a", cases=_noise_vs_rate_cases(), execute=True)
+    return _run_campaign(
+        run_dir,
+        view="frida65a",
+        cases=_noise_vs_rate_cases(),
+        execute=True,
+        maximum_waveform_records=3,
+    )
 
 
 def frida65a_transfer_curve_netlist() -> Path:
@@ -768,7 +773,7 @@ def hdl21gen_noise_smoke() -> Path:
     return _run_campaign(
         run_dir,
         view="hdl21gen",
-        cases=(("10msps_cm600mv_dc50mv_smoke", _smoke_params()),),
+        cases=(("10msps_cm700mv_dc50mv_smoke", _smoke_params()),),
         execute=True,
         circuit_checks=True,
     )
@@ -779,7 +784,13 @@ def hdl21gen_noise_vs_rate() -> Path:
 
     run_dir = BASE_PATH / "build/sim/adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=False)
-    return _run_campaign(run_dir, view="hdl21gen", cases=_noise_vs_rate_cases(), execute=True)
+    return _run_campaign(
+        run_dir,
+        view="hdl21gen",
+        cases=_noise_vs_rate_cases(),
+        execute=True,
+        maximum_waveform_records=3,
+    )
 
 
 def hdl21gen_transfer_curve_netlist() -> Path:
