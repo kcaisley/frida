@@ -433,8 +433,8 @@ module daq_top (
     );
 
     i2c #(
-        .BASEADDR(32'h00070000),
-        .HIGHADDR(32'h000700ff),
+        .BASEADDR (32'h00070000),
+        .HIGHADDR (32'h000700ff),
         .ABUSWIDTH(32),
         .MEM_BYTES(32)
     ) i_i2c (
@@ -462,24 +462,24 @@ module daq_top (
     wire oserdes_reset;
 
     pll_drp pll_drp_seq (
-        .CLK                 (bus_clk),
-        .RST                 (comm_rst | bus_rst),
-        .REQUEST_N           (seq_pll_request_n),
-        .APPLY_TOGGLE        (seq_pll_apply_toggle),
-        .PLL_LOCKED          (locked2),
-        .DRP_DO              (pll_drp_do),
-        .DRP_DRDY            (pll_drp_drdy),
-        .DRP_DADDR           (pll_drp_daddr),
-        .DRP_DI              (pll_drp_di),
-        .DRP_DEN             (pll_drp_den),
-        .DRP_DWE             (pll_drp_dwe),
-        .PLL_RESET           (pll_drp_reset),
-        .APPLIED_TOGGLE      (seq_pll_applied_toggle),
-        .BUSY                (seq_pll_busy),
-        .LOCKED              (seq_pll_locked),
-        .ERROR               (seq_pll_error),
-        .ACTIVE_N            (seq_pll_active_n),
-        .DATAPATH_HOLD       (pll_datapath_hold)
+        .CLK           (bus_clk),
+        .RST           (comm_rst | bus_rst),
+        .REQUEST_N     (seq_pll_request_n),
+        .APPLY_TOGGLE  (seq_pll_apply_toggle),
+        .PLL_LOCKED    (locked2),
+        .DRP_DO        (pll_drp_do),
+        .DRP_DRDY      (pll_drp_drdy),
+        .DRP_DADDR     (pll_drp_daddr),
+        .DRP_DI        (pll_drp_di),
+        .DRP_DEN       (pll_drp_den),
+        .DRP_DWE       (pll_drp_dwe),
+        .PLL_RESET     (pll_drp_reset),
+        .APPLIED_TOGGLE(seq_pll_applied_toggle),
+        .BUSY          (seq_pll_busy),
+        .LOCKED        (seq_pll_locked),
+        .ERROR         (seq_pll_error),
+        .ACTIVE_N      (seq_pll_active_n),
+        .DATAPATH_HOLD (pll_datapath_hold)
     );
 
     // OSERDESE2 internally retimes reset into both clock domains. AMD UG471
@@ -550,33 +550,33 @@ module daq_top (
                 .TBYTE_SRC     ("FALSE"),
                 .TRISTATE_WIDTH(1)
             ) oserdes (
-                .OQ(seq_ser[serdes_index]),
-                .OFB(),
-                .TQ(),
-                .TFB(),
-                .TBYTEOUT(),
+                .OQ       (seq_ser[serdes_index]),
+                .OFB      (),
+                .TQ       (),
+                .TFB      (),
+                .TBYTEOUT (),
                 .SHIFTOUT1(),
                 .SHIFTOUT2(),
-                .CLK(ser_clk),
-                .CLKDIV(seq_clk),
-                .D1(seq_ser_data_tx[serdes_index*8]),
-                .D2(seq_ser_data_tx[serdes_index*8+1]),
-                .D3(seq_ser_data_tx[serdes_index*8+2]),
-                .D4(seq_ser_data_tx[serdes_index*8+3]),
-                .D5(seq_ser_data_tx[serdes_index*8+4]),
-                .D6(seq_ser_data_tx[serdes_index*8+5]),
-                .D7(seq_ser_data_tx[serdes_index*8+6]),
-                .D8(seq_ser_data_tx[serdes_index*8+7]),
-                .OCE(1'b1),
-                .RST(oserdes_reset),
-                .SHIFTIN1(1'b0),
-                .SHIFTIN2(1'b0),
-                .T1(1'b0),
-                .T2(1'b0),
-                .T3(1'b0),
-                .T4(1'b0),
-                .TBYTEIN(1'b0),
-                .TCE(1'b0)
+                .CLK      (ser_clk),
+                .CLKDIV   (seq_clk),
+                .D1       (seq_ser_data_tx[serdes_index*8]),
+                .D2       (seq_ser_data_tx[serdes_index*8+1]),
+                .D3       (seq_ser_data_tx[serdes_index*8+2]),
+                .D4       (seq_ser_data_tx[serdes_index*8+3]),
+                .D5       (seq_ser_data_tx[serdes_index*8+4]),
+                .D6       (seq_ser_data_tx[serdes_index*8+5]),
+                .D7       (seq_ser_data_tx[serdes_index*8+6]),
+                .D8       (seq_ser_data_tx[serdes_index*8+7]),
+                .OCE      (1'b1),
+                .RST      (oserdes_reset),
+                .SHIFTIN1 (1'b0),
+                .SHIFTIN2 (1'b0),
+                .T1       (1'b0),
+                .T2       (1'b0),
+                .T3       (1'b0),
+                .T4       (1'b0),
+                .TBYTEIN  (1'b0),
+                .TCE      (1'b0)
             );
         end
     endgenerate
@@ -621,9 +621,9 @@ module daq_top (
 
     (* IODELAY_GROUP = "frida_comp_rx_delay" *)
     IDELAYCTRL idelayctrl_comp_out (
-        .RDY(comp_idelay_rdy),
+        .RDY   (comp_idelay_rdy),
         .REFCLK(idelay_ref_clk),
-        .RST(comm_rst)
+        .RST   (comm_rst)
     );
 
     IBUFDS #(
@@ -707,10 +707,10 @@ module daq_top (
         .FASTRX_FIFO_READ_NEXT(fastrx_fifo_read_next),
         .FASTRX_FIFO_EMPTY    (fastrx_fifo_empty),
 
-        .COMP_OUT(comp_out),  // Comparator signal, input to fastrx
-        .RESET   (comm_rst),
+        .COMP_OUT (comp_out),           // Comparator signal, input to fastrx
+        .RESET    (comm_rst),
         .SEQ_RESET(pll_datapath_hold),
-        .LED_OUT (LED)
+        .LED_OUT  (LED)
     );
 
 
