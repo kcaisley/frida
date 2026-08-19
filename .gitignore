@@ -32,6 +32,7 @@ xrun.history
 docs/tex/
 docs/*.pdf
 docs/slides/*.pdf
+docs/thesis/*.pdf
 docs/slides/*.aux
 docs/slides/*.fdb_latexmk
 docs/slides/*.fls

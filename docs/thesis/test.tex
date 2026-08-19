@@ -1,0 +1,32 @@
+\documentclass[Master,UKenglish]{scrbook}
+
+\makeatletter
+\def\input@path{{../../libs/ubonn-thesis/}}
+\makeatother
+\usepackage[twoside=false]{ubonn-thesis}
+
+\begin{document}
+\mainmatter
+\pagestyle{scrheadings}
+
+This page provides a print-scale comparison between ordinary thesis body text
+and the typography embedded in an analysis figure. The analogue input path
+translates a single-ended laboratory stimulus into the differential signal
+presented to the converter. Its output-noise floor therefore limits the
+smallest transition displacement that can be resolved reliably during static
+and slowly varying measurements.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{../../build/test_noise/20260818_175950/noise_gaussian_fft.pdf}
+  \caption{Differential-amplifier output-noise distribution and amplitude
+    spectral density. The upper panel compares the measured distribution with
+    a Gaussian model; the lower panel shows the corresponding one-sided
+    spectral estimate.}
+\end{figure}
+
+The time-domain and frequency-domain estimates agree at approximately
+0.59~mV RMS. This final paragraph provides another sample of the thesis's
+11~pt body text beneath the figure and its caption.
+
+\end{document}
