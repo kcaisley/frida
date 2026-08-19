@@ -279,7 +279,7 @@ module daq_core #(
     // Bit 5 is a command toggle; bit 7 acknowledges the accepted toggle.
     // Bits 8:10 report busy, locked, and error; bits 15:11 report active N.
     wire [15:0] gpio2;
-    assign SEQ_PLL_REQUEST_N     = gpio2[4:0];
+    assign SEQ_PLL_REQUEST_N    = gpio2[4:0];
     assign SEQ_PLL_APPLY_TOGGLE = gpio2[5];
     assign gpio2[7]             = SEQ_PLL_APPLIED_TOGGLE;
     assign gpio2[8]             = SEQ_PLL_BUSY;
@@ -292,7 +292,7 @@ module daq_core #(
         .HIGHADDR    (Gpio2HighAddr),
         .ABUSWIDTH   (ABUSWIDTH),
         .IO_WIDTH    (16),
-        .IO_DIRECTION(16'h007F),  // Bits 6:0 outputs; bits 15:7 inputs
+        .IO_DIRECTION(16'h007F),       // Bits 6:0 outputs; bits 15:7 inputs
         .IO_TRI      (0)
     ) inst_gpio2 (
         .BUS_CLK (BUS_CLK),

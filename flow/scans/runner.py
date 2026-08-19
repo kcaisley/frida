@@ -70,6 +70,51 @@ def adc_sine_conversion_rate() -> Path:
     return run_dir
 
 
+def adc00_fixed_input_noise() -> Path:
+    """Capture ADC00 fixed-50-mV noise at 2, 6, and 10 MSPS."""
+
+    board_id = "00"
+    adc_indices = (0,)
+    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
+    logic_offsets_symbols = (2.0,)
+    conversions = 100_000
+    vin_cm_v = 0.700
+    vin_diff = h.Vdc.Params(dc=0.050)
+    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    variants = build_adc_variants(
+        board_id=board_id,
+        adc_indices=adc_indices,
+        active_conversion_rates_hz=active_conversion_rates_hz,
+        logic_offsets_symbols=logic_offsets_symbols,
+        conversions=conversions,
+        vin_cm_v=vin_cm_v,
+        vin_diff=vin_diff,
+    )
+    active = False
+    current = variants[0]
+    try:
+        for index, params in enumerate(variants):
+            position = (
+                "only"
+                if len(variants) == 1
+                else "first"
+                if index == 0
+                else "last"
+                if index == len(variants) - 1
+                else "middle"
+            )
+            current = params
+            if position in {"first", "middle"}:
+                active = True
+            scan_adc.scan(params, run_dir=run_dir, position=position)
+            if position in {"last", "only"}:
+                active = False
+    finally:
+        if active:
+            scan_adc.scan(current, run_dir=run_dir, position="abort")
+    return run_dir
+
+
 def adc_fixed_input_noise_50mv() -> Path:
     """Capture ADC00/ADC01 fixed-50-mV noise over 0.5--10 MSPS."""
 
@@ -492,6 +537,7 @@ TARGETS: dict[str, Callable[[], Path]] = {
     target.__name__: target
     for target in (
         adc_sine_conversion_rate,
+        adc00_fixed_input_noise,
         adc_fixed_input_noise_50mv,
         adc_fixed_input_noise_100mv,
         adc00_fixed_input_timing,

@@ -25,14 +25,14 @@ module pll_drp #(
     input wire       APPLY_TOGGLE,
 
     // PLLE2_ADV status and DRP interface.
-    input wire        PLL_LOCKED,
-    input wire [15:0] DRP_DO,
-    input wire        DRP_DRDY,
-    output reg  [6:0] DRP_DADDR,
-    output reg [15:0] DRP_DI,
-    output reg        DRP_DEN,
-    output reg        DRP_DWE,
-    output reg        PLL_RESET,
+    input  wire        PLL_LOCKED,
+    input  wire [15:0] DRP_DO,
+    input  wire        DRP_DRDY,
+    output reg  [ 6:0] DRP_DADDR,
+    output reg  [15:0] DRP_DI,
+    output reg         DRP_DEN,
+    output reg         DRP_DWE,
+    output reg         PLL_RESET,
 
     // Status returned through GPIO2.
     output reg        APPLIED_TOGGLE,
@@ -46,17 +46,17 @@ module pll_drp #(
     output wire DATAPATH_HOLD
 );
 
-    localparam [3:0] StateIdle      = 4'd0;
-    localparam [3:0] StateRead      = 4'd1;
-    localparam [3:0] StateWaitRead  = 4'd2;
-    localparam [3:0] StateWrite     = 4'd3;
+    localparam [3:0] StateIdle = 4'd0;
+    localparam [3:0] StateRead = 4'd1;
+    localparam [3:0] StateWaitRead = 4'd2;
+    localparam [3:0] StateWrite = 4'd3;
     localparam [3:0] StateWaitWrite = 4'd4;
-    localparam [3:0] StateRelease   = 4'd5;
-    localparam [3:0] StateWaitLock  = 4'd6;
+    localparam [3:0] StateRelease = 4'd5;
+    localparam [3:0] StateWaitLock = 4'd6;
 
-    reg [3:0]  state;
-    reg [1:0]  register_index;
-    reg [4:0]  target_n;
+    reg [3:0] state;
+    reg [1:0] register_index;
+    reg [4:0] target_n;
     reg [31:0] lock_counter;
 
     // LOCKED is asynchronous to the bus/DRP clock.
@@ -88,10 +88,8 @@ module pll_drp #(
         input [1:0] index;
         input [4:0] n;
         begin
-            if (index < 2)
-                counter_divide = {n, 2'b00};  // 4*N, maximum 80
-            else
-                counter_divide = {2'b00, n};  // N, maximum 20
+            if (index < 2) counter_divide = {n, 2'b00};  // 4*N, maximum 80
+            else counter_divide = {2'b00, n};  // N, maximum 20
         end
     endfunction
 
@@ -99,23 +97,23 @@ module pll_drp #(
     // reserved in XAPP888. Both outputs keep phase=0 and duty cycle=0.5.
     function automatic [15:0] merge_counter_register;
         input [15:0] old_value;
-        input [ 6:0] address;
-        input [ 6:0] divide_value;
+        input [6:0] address;
+        input [6:0] divide_value;
         reg [5:0] high_time;
         reg [5:0] low_time;
-        reg       edge_select;
-        reg       no_count;
+        reg edge_select;
+        reg no_count;
         begin
             if (divide_value == 1) begin
-                high_time = 6'd1;
-                low_time  = 6'd1;
+                high_time   = 6'd1;
+                low_time    = 6'd1;
                 edge_select = 1'b0;
-                no_count  = 1'b1;
+                no_count    = 1'b1;
             end else begin
-                high_time = divide_value[6:1];
-                low_time  = divide_value[6:1] + divide_value[0];
+                high_time   = divide_value[6:1];
+                low_time    = divide_value[6:1] + divide_value[0];
                 edge_select = divide_value[0];
-                no_count  = 1'b0;
+                no_count    = 1'b0;
             end
 
             case (address)
@@ -142,19 +140,19 @@ module pll_drp #(
 
     always @(posedge CLK or posedge RST) begin
         if (RST) begin
-            state           <= StateIdle;
-            register_index  <= 2'd0;
-            target_n        <= 5'd2;
-            lock_counter    <= 32'd0;
-            DRP_DADDR       <= 7'd0;
-            DRP_DI          <= 16'd0;
-            DRP_DEN         <= 1'b0;
-            DRP_DWE         <= 1'b0;
-            PLL_RESET       <= 1'b0;
-            APPLIED_TOGGLE  <= 1'b0;
-            BUSY            <= 1'b0;
-            ERROR           <= 1'b0;
-            ACTIVE_N        <= 5'd2;
+            state          <= StateIdle;
+            register_index <= 2'd0;
+            target_n       <= 5'd2;
+            lock_counter   <= 32'd0;
+            DRP_DADDR      <= 7'd0;
+            DRP_DI         <= 16'd0;
+            DRP_DEN        <= 1'b0;
+            DRP_DWE        <= 1'b0;
+            PLL_RESET      <= 1'b0;
+            APPLIED_TOGGLE <= 1'b0;
+            BUSY           <= 1'b0;
+            ERROR          <= 1'b0;
+            ACTIVE_N       <= 5'd2;
         end else begin
             // DEN and DWE are single-DCLK transaction pulses.
             DRP_DEN <= 1'b0;
@@ -190,8 +188,11 @@ module pll_drp #(
                     if (DRP_DRDY) begin
                         DRP_DI <= merge_counter_register(
                             DRP_DO,
-                            counter_address(register_index),
-                            counter_divide(register_index, target_n)
+                            counter_address(
+                                register_index
+                            ),
+                            counter_divide(
+                                register_index, target_n)
                         );
                         state <= StateWrite;
                     end

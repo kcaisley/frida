@@ -13,21 +13,19 @@ from pathlib import Path
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from openpyxl import load_workbook
 
 from flow.analysis.plots import (
     CURVE_COLORS,
-    FULL_HD_FIGSIZE,
     LEGEND_FACE_COLOR,
     PLOT_STYLE,
     SPINE_COLOR,
     TEXT_COLOR,
-    _save_figure,
-    style_ax,
+    save_figure,
     style_grid,
-    style_legend,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -233,6 +231,7 @@ def load_filtered_points(workbook_path: Path = DEFAULT_WORKBOOK) -> tuple[AdcSur
     return tuple(points)
 
 
+@mpl.rc_context(PLOT_STYLE)
 def plot_tradeoff(
     points: Sequence[AdcSurveyPoint],
     *,
@@ -252,102 +251,98 @@ def plot_tradeoff(
 
     if not points:
         raise ValueError("ADC trade-off plot requires at least one point")
-    with plt.rc_context(PLOT_STYLE):
-        fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
-        for family, marker in ARCHITECTURE_MARKERS.items():
-            selected = [point for point in points if point.architecture_family == family]
-            if not selected:
-                continue
-            ax.scatter(
-                [x_metric(point) for point in selected],
-                [y_metric(point) for point in selected],
-                color=[TECHNOLOGY_COLORS[technology_category(point.technology_nm)] for point in selected],
-                marker=marker,
-                s=58,
-                edgecolors=SPINE_COLOR,
-                linewidths=0.45,
-                zorder=3,
-            )
-
+    fig, ax = plt.subplots()
+    for family, marker in ARCHITECTURE_MARKERS.items():
+        selected = [point for point in points if point.architecture_family == family]
+        if not selected:
+            continue
         ax.scatter(
-            target_x,
-            target_y,
-            marker=ARCHITECTURE_MARKERS["SAR"],
-            s=180,
-            color=TECHNOLOGY_COLORS[technology_category(FRIDA_TARGET_TECHNOLOGY_NM)],
-            edgecolors=TEXT_COLOR,
-            linewidths=1.2,
-            zorder=7,
-        )
-        ax.annotate(
-            "Design\ngoal",
-            (target_x, target_y),
-            xytext=(0, 10),
-            textcoords="offset points",
-            horizontalalignment="center",
-            verticalalignment="bottom",
-            color=TEXT_COLOR,
-            zorder=8,
+            [x_metric(point) for point in selected],
+            [y_metric(point) for point in selected],
+            color=[TECHNOLOGY_COLORS[technology_category(point.technology_nm)] for point in selected],
+            marker=marker,
+            s=58,
+            edgecolors=SPINE_COLOR,
+            linewidths=0.45,
+            zorder=3,
         )
 
-        architecture_handles = [
-            Line2D(
-                [0],
-                [0],
-                linestyle="none",
-                marker=marker,
-                markersize=6.5,
-                markerfacecolor=LEGEND_FACE_COLOR,
-                markeredgecolor=SPINE_COLOR,
-                markeredgewidth=0.7,
-                label=family,
-            )
-            for family, marker in ARCHITECTURE_MARKERS.items()
-            if any(point.architecture_family == family for point in points)
-        ]
-        style_legend(
-            ax,
-            handles=architecture_handles,
-            title="Architecture",
-            loc="upper left",
-        )
-        architecture_legend = ax.get_legend()
-        if architecture_legend is not None:
-            ax.add_artist(architecture_legend)
+    ax.scatter(
+        target_x,
+        target_y,
+        marker=ARCHITECTURE_MARKERS["SAR"],
+        s=180,
+        color=TECHNOLOGY_COLORS[technology_category(FRIDA_TARGET_TECHNOLOGY_NM)],
+        edgecolors=TEXT_COLOR,
+        linewidths=1.2,
+        zorder=7,
+    )
+    ax.annotate(
+        "Design\ngoal",
+        (target_x, target_y),
+        xytext=(0, 10),
+        textcoords="offset points",
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        color=TEXT_COLOR,
+        zorder=8,
+    )
 
-        present_technology_categories = {technology_category(point.technology_nm) for point in points}
-        technology_handles = [
-            Line2D(
-                [0],
-                [0],
-                linestyle="none",
-                marker="o",
-                markersize=7,
-                markerfacecolor=color,
-                markeredgecolor=SPINE_COLOR,
-                markeredgewidth=0.5,
-                label=category,
-            )
-            for category, color in TECHNOLOGY_COLORS.items()
-            if category in present_technology_categories
-        ]
-        style_legend(
-            ax,
-            handles=technology_handles,
-            title="Process Node",
-            loc="lower right",
+    architecture_handles = [
+        Line2D(
+            [0],
+            [0],
+            linestyle="none",
+            marker=marker,
+            markersize=6.5,
+            markerfacecolor=LEGEND_FACE_COLOR,
+            markeredgecolor=SPINE_COLOR,
+            markeredgewidth=0.7,
+            label=family,
         )
+        for family, marker in ARCHITECTURE_MARKERS.items()
+        if any(point.architecture_family == family for point in points)
+    ]
+    ax.legend(
+        handles=architecture_handles,
+        title="Architecture",
+        loc="upper left",
+    )
+    architecture_legend = ax.get_legend()
+    if architecture_legend is not None:
+        ax.add_artist(architecture_legend)
 
-        ax.set_xscale(xscale)
-        ax.set_yscale(yscale)
-        if xlim is not None:
-            ax.set_xlim(*xlim)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        style_ax(ax)
-        style_grid(ax)
-        fig.suptitle(title)
-        return _save_figure(fig, output_path)
+    present_technology_categories = {technology_category(point.technology_nm) for point in points}
+    technology_handles = [
+        Line2D(
+            [0],
+            [0],
+            linestyle="none",
+            marker="o",
+            markersize=7,
+            markerfacecolor=color,
+            markeredgecolor=SPINE_COLOR,
+            markeredgewidth=0.5,
+            label=category,
+        )
+        for category, color in TECHNOLOGY_COLORS.items()
+        if category in present_technology_categories
+    ]
+    ax.legend(
+        handles=technology_handles,
+        title="Process Node",
+        loc="lower right",
+    )
+
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    style_grid(ax)
+    fig.suptitle(title)
+    return save_figure(fig, output_path)
 
 
 def generate_plots(

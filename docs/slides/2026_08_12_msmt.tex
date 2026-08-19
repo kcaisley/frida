@@ -194,6 +194,59 @@
 \chapterframe{ADC at speed: when does noise begin to rise?}{%
   Fixed-input code spread is converted to input-referred noise and compared with generated and PEX SPICE where available. The rate sweep distinguishes the analog noise floor from timing-induced failures.}
 
+\begin{frame}
+  \frametitle{A 100 nF C6 sets the driver noise bandwidth}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.58\textwidth}
+      \footnotesize
+      \setlength{\abovedisplayskip}{0.35em}
+      \setlength{\belowdisplayskip}{0.35em}
+      Unity gain uses $R_F=R_G=499~\Omega$.  For
+      $R_\Sigma=R_{25}+R_{26}=998~\Omega$ and $C_6=100~\mathrm{nF}$,
+      \[
+        \begin{aligned}
+          f_p&=\frac{1}{2\pi R_\Sigma C_6}=1.59~\mathrm{kHz},\\
+          B_n&=\frac{\pi}{2}f_p=2.51~\mathrm{kHz}.
+        \end{aligned}
+      \]
+      For $NG=1+R_F/R_G=2$, THS4541 datasheet Equation~6 is
+      \[
+        \begin{aligned}
+          e_{no}^2={}&(e_{ni}NG)^2+2(i_nR_F)^2\\
+                    &+2(4kTR_FNG).
+        \end{aligned}
+      \]
+      At $T=300~\mathrm{K}$, with $e_{ni}=2.2~\mathrm{nV}/\sqrt{\mathrm{Hz}}$
+      and $i_n=1.9~\mathrm{pA}/\sqrt{\mathrm{Hz}}$,
+      \[
+        \begin{aligned}
+          e_{no}&=7.36~\mathrm{nV}/\sqrt{\mathrm{Hz}},\\
+          v_{n,\mathrm{THS}}&=e_{no}\sqrt{B_n}
+            =0.37~\mu\mathrm{V}_{\mathrm{RMS}}.
+        \end{aligned}
+      \]
+      Adding $4kTR_\Sigma$ in RSS for the output resistors raises the ideal
+      white-noise floor to $0.42~\mu\mathrm{V}_{\mathrm{RMS}}$.
+    \end{column}
+    \begin{column}{0.39\textwidth}
+      \centering
+      \includegraphics[width=\linewidth,height=0.52\textheight,keepaspectratio]{../images/ths4541_input_spot_noise.pdf}
+
+      \scriptsize
+      TI THS4541 datasheet, Figure 6-39
+
+      \vspace{0.45em}
+      \scriptsize
+      The low-frequency rise, capacitor derating, ADC noise, drift, and
+      instrument floor are excluded; $0.42~\mu\mathrm{V}_{\mathrm{RMS}}$ is a
+      white-noise lower bound, not a predicted bench result.
+
+      \vspace{0.35em}
+      \href{https://www.ti.com/lit/gpn/ths4541}{Datasheet source: Figure 6-39 and Equation 6}
+    \end{column}
+  \end{columns}
+\end{frame}
+
 \plotframe{ADC00 input-referred noise versus conversion rate}{../../build/analysis/adc/20260808_0141/adc00_noise_vs_conversion_rate.pdf}
 \plotframe{ADC01 input-referred noise versus conversion rate}{../../build/analysis/adc/20260808_0141/adc01_noise_vs_conversion_rate.pdf}
 

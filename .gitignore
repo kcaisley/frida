@@ -3,6 +3,7 @@ design/aor/*.def
 design/aor/*.gds
 /.zed
 /tmp
+/PLAN.md
 
 # Python
 .pytest_cache

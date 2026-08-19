@@ -1,10 +1,10 @@
-`timescale 1ns/1ps
+`timescale 1ns / 1ps
 
 module OPENROAD_DFFE (
-    input wire D,
-    input wire C,
-    input wire E,
-    output reg Q
+    input  wire D,
+    input  wire C,
+    input  wire E,
+    output reg  Q
 );
     always @(posedge C) begin
         if (E) begin
@@ -14,11 +14,11 @@ module OPENROAD_DFFE (
 endmodule
 
 module OPENROAD_DFFER (
-    input wire D,
-    input wire C,
-    input wire E,
-    input wire R,
-    output reg Q
+    input  wire D,
+    input  wire C,
+    input  wire E,
+    input  wire R,
+    output reg  Q
 );
     always @(posedge C or negedge R) begin
         if (!R) begin
@@ -30,30 +30,30 @@ module OPENROAD_DFFER (
 endmodule
 
 module OPENROAD_CLKXOR (
-    input wire A,
-    input wire B,
+    input  wire A,
+    input  wire B,
     output wire Y
 );
     assign Y = A ^ B;
 endmodule
 
 module OPENROAD_CLKBUF (
-    input wire A,
+    input  wire A,
     output wire Y
 );
     assign Y = A;
 endmodule
 
 module OPENROAD_CLKINV (
-    input wire A,
+    input  wire A,
     output wire Y
 );
     assign Y = ~A;
 endmodule
 
 module OPENROAD_CTRLGATE (
-    input wire CK,
-    input wire E,
+    input  wire CK,
+    input  wire E,
     output wire GCK
 );
     assign GCK = CK & E;

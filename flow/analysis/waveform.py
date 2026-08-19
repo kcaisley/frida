@@ -19,7 +19,10 @@ def _signal_unit(name: str) -> str:
     return ""
 
 
-def _measurement_setup_lines(msmt: Measurement) -> tuple[str, ...]:
+def style_measurement_text(msmt: Measurement) -> tuple[str, ...]:
+    """Format concise plot context persisted with one measurement."""
+
+    # rcParams cannot derive display text from typed measurement metadata.
     lines: tuple[str, ...] = ()
     adc_index = getattr(msmt.param, "observed_adc", None)
     if adc_index is not None:
@@ -35,8 +38,28 @@ def _measurement_setup_lines(msmt: Measurement) -> tuple[str, ...]:
         if dc_v is not None:
             lines += (f"{label}: {float(dc_v) * 1e3:g} mV",)
     active_rate_hz = msmt.info.readbacks.get("active_conversion_rate_hz")
+    if not isinstance(active_rate_hz, (int, float)):
+        patterns = (
+            msmt.param.seq_init_pattern,
+            msmt.param.seq_samp_pattern,
+            msmt.param.seq_comp_pattern,
+            msmt.param.seq_logic_pattern,
+        )
+        active_indices = tuple(
+            index
+            for index in range(len(msmt.param.seq_init_pattern))
+            if any(pattern[index] == "1" for pattern in patterns)
+        )
+        if active_indices:
+            active_rate_hz = float(msmt.param.symbol_rate) / (active_indices[-1] - active_indices[0] + 1)
     if isinstance(active_rate_hz, (int, float)):
         lines += (f"Rate: {float(active_rate_hz) / 1e6:g} MSPS",)
+    init_p = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_p), 2)
+    init_n = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_n), 2)
+    if init_p == init_n:
+        lines += (f"CDAC init: h'{init_p:04X}",)
+    else:
+        lines += (f"CDAC init: P h'{init_p:04X}, N h'{init_n:04X}",)
     return lines
 
 
@@ -78,7 +101,7 @@ def analyze_measurement_waveforms(
             [getattr(msmt.wave, name)[record_index] for name in selected_names],
             dtype=np.float64,
         ),
-        setup_lines=_measurement_setup_lines(msmt),
+        setup_lines=style_measurement_text(msmt),
     )
 
 

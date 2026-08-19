@@ -30,3 +30,4 @@ style = "fenced"
 # repository. Keep link checking enabled for maintained project documentation.
 "docs/background.md" = ["MD057"]
 "docs/literature.md" = ["MD057"]
+"flow/analysis/gallery.md" = ["MD057"]
