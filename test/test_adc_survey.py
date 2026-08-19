@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import pytest
 
+import flow.analysis.plots as analysis_plots
 from phys.adc_survey import (
     FRIDA_TARGET_AREA_UM2,
     FRIDA_TARGET_CONVERSION_ENERGY_PJ,
@@ -15,8 +18,10 @@ from phys.adc_survey import (
     FRIDA_TARGET_SNDR_DB,
     FRIDA_TARGET_WALDEN_FOM_FJ,
     load_filtered_points,
+    plot_tradeoff,
     technology_category,
 )
+from phys.model import plot_hit_rate_vs_fluence, plot_max_counting_rate_vs_window
 
 
 def test_technology_color_categories() -> None:
@@ -70,3 +75,29 @@ def test_filtered_adc_survey_points_and_metrics() -> None:
         assert point.enob == pytest.approx((point.sndr_plot_db - 1.76) / 6.02)
         assert point.conversion_energy_pj == pytest.approx(point.power_w / point.nyquist_rate_hz * 1e12)
         assert point.walden_fom_fj == pytest.approx(point.power_w / (point.nyquist_rate_hz * 2**point.enob) * 1e15)
+
+
+def test_physics_plots_use_shared_formats_and_canvas(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    monkeypatch.setattr(analysis_plots, "PLOT_SVGS", True)
+    monkeypatch.setattr(analysis_plots, "PLOT_PDFS", True)
+    points = load_filtered_points()[:12]
+    outputs = (
+        plot_tradeoff(
+            points,
+            x_metric=lambda point: point.area_mm2 * 1e6,
+            y_metric=lambda point: point.enob,
+            xlabel="Reported ADC area (µm²)",
+            ylabel="Effective number of bits (ENOB)",
+            title="ADC effective resolution vs reported area",
+            output_path=tmp_path / "adc_survey",
+            target_x=FRIDA_TARGET_AREA_UM2,
+            target_y=FRIDA_TARGET_ENOB,
+            xscale="log",
+        ),
+        plot_hit_rate_vs_fluence(output_path=tmp_path / "hit_rate"),
+        plot_max_counting_rate_vs_window(output_path=tmp_path / "count_rate"),
+    )
+    for paths in outputs:
+        assert tuple(path.suffix for path in paths) == (".png", ".svg", ".pdf")
+        assert plt.imread(paths[0]).shape[:2] == (2700, 4800)

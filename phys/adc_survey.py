@@ -8,6 +8,7 @@ import math
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -17,18 +18,13 @@ from matplotlib.lines import Line2D
 from openpyxl import load_workbook
 
 from flow.analysis.plots import (
+    CURVE_COLORS,
     FULL_HD_FIGSIZE,
     LEGEND_FACE_COLOR,
-    NORD_DARK,
-    NORD_GREEN,
-    NORD_LIGHT_BLUE,
-    NORD_ORANGE,
-    NORD_PURPLE,
-    NORD_YELLOW,
-    PLOT_FACE_COLOR,
     PLOT_STYLE,
     SPINE_COLOR,
     TEXT_COLOR,
+    _save_figure,
     style_ax,
     style_grid,
     style_legend,
@@ -36,7 +32,6 @@ from flow.analysis.plots import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORKBOOK = ROOT / "libs" / "ADC-survey" / "xls" / "ADCsurvey_latest.xlsx"
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 SURVEY_SHEETS = ("ISSCC", "VLSI")
 
 AREA_MAX_MM2 = 0.25
@@ -56,12 +51,12 @@ FRIDA_TARGET_CONVERSION_ENERGY_PJ = FRIDA_TARGET_POWER_W / FRIDA_TARGET_SAMPLING
 FRIDA_TARGET_WALDEN_FOM_FJ = FRIDA_TARGET_POWER_W / (FRIDA_TARGET_SAMPLING_RATE_HZ * 2**FRIDA_TARGET_ENOB) * 1e15
 
 TECHNOLOGY_COLORS = {
-    "≤ 16 nm": NORD_LIGHT_BLUE,
-    "20 / 22 nm": NORD_PURPLE,
-    "28 / 32 nm": NORD_GREEN,
-    "40 / 45 nm": NORD_YELLOW,
-    "55 / 65 nm": NORD_ORANGE,
-    "≥ 90 nm": NORD_DARK,
+    "≤ 16 nm": CURVE_COLORS[0],
+    "20 / 22 nm": CURVE_COLORS[1],
+    "28 / 32 nm": CURVE_COLORS[2],
+    "40 / 45 nm": CURVE_COLORS[3],
+    "55 / 65 nm": CURVE_COLORS[4],
+    "≥ 90 nm": CURVE_COLORS[5],
 }
 ARCHITECTURE_MARKERS = {
     "SAR": "o",
@@ -238,19 +233,6 @@ def load_filtered_points(workbook_path: Path = DEFAULT_WORKBOOK) -> tuple[AdcSur
     return tuple(points)
 
 
-def _save_figure(fig: plt.Figure, output_path: Path, formats: Sequence[str]) -> tuple[Path, ...]:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.patch.set_facecolor(PLOT_FACE_COLOR)
-    fig.tight_layout()
-    paths = []
-    for output_format in formats:
-        path = output_path.with_suffix(f".{output_format}")
-        fig.savefig(path, dpi=200 if output_format == "png" else None, facecolor=PLOT_FACE_COLOR, bbox_inches="tight")
-        paths.append(path)
-    plt.close(fig)
-    return tuple(paths)
-
-
 def plot_tradeoff(
     points: Sequence[AdcSurveyPoint],
     *,
@@ -262,7 +244,6 @@ def plot_tradeoff(
     output_path: Path,
     target_x: float,
     target_y: float,
-    formats: Sequence[str] = ("png", "pdf"),
     xscale: str = "linear",
     yscale: str = "linear",
     xlim: tuple[float, float] | None = None,
@@ -283,7 +264,6 @@ def plot_tradeoff(
                 color=[TECHNOLOGY_COLORS[technology_category(point.technology_nm)] for point in selected],
                 marker=marker,
                 s=58,
-                alpha=0.84,
                 edgecolors=SPINE_COLOR,
                 linewidths=0.45,
                 zorder=3,
@@ -307,7 +287,6 @@ def plot_tradeoff(
             horizontalalignment="center",
             verticalalignment="bottom",
             color=TEXT_COLOR,
-            fontsize="small",
             zorder=8,
         )
 
@@ -368,13 +347,13 @@ def plot_tradeoff(
         style_ax(ax)
         style_grid(ax)
         fig.suptitle(title)
-        return _save_figure(fig, output_path, formats)
+        return _save_figure(fig, output_path)
 
 
 def generate_plots(
     workbook_path: Path = DEFAULT_WORKBOOK,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-    formats: Sequence[str] = ("png", "pdf"),
+    *,
+    output_dir: Path,
 ) -> tuple[Path, ...]:
     """Generate the requested area and energy trade-off plots."""
 
@@ -391,7 +370,6 @@ def generate_plots(
             output_path=output_dir / "adc_survey_fomw_vs_area",
             target_x=FRIDA_TARGET_AREA_UM2,
             target_y=FRIDA_TARGET_WALDEN_FOM_FJ,
-            formats=formats,
             xscale="log",
             yscale="log",
         )
@@ -407,7 +385,6 @@ def generate_plots(
             output_path=output_dir / "adc_survey_energy_vs_area",
             target_x=FRIDA_TARGET_AREA_UM2,
             target_y=FRIDA_TARGET_CONVERSION_ENERGY_PJ,
-            formats=formats,
             xscale="log",
             yscale="log",
         )
@@ -423,7 +400,6 @@ def generate_plots(
             output_path=output_dir / "adc_survey_enob_vs_area",
             target_x=FRIDA_TARGET_AREA_UM2,
             target_y=FRIDA_TARGET_ENOB,
-            formats=formats,
             xscale="log",
         )
     )
@@ -438,7 +414,6 @@ def generate_plots(
             output_path=output_dir / "adc_survey_enob_vs_energy",
             target_x=FRIDA_TARGET_CONVERSION_ENERGY_PJ,
             target_y=FRIDA_TARGET_ENOB,
-            formats=formats,
             xscale="log",
         )
     )
@@ -453,7 +428,6 @@ def generate_plots(
             output_path=output_dir / "adc_survey_enob_vs_rate",
             target_x=FRIDA_TARGET_SAMPLING_RATE_HZ / 1e6,
             target_y=FRIDA_TARGET_ENOB,
-            formats=formats,
             xscale="log",
         )
     )
@@ -463,12 +437,12 @@ def generate_plots(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workbook", type=Path, default=DEFAULT_WORKBOOK)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--formats", nargs="+", default=("png", "pdf"))
+    parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
+    output_dir = args.output_dir or ROOT / "build" / "adc_survey" / datetime.now().astimezone().strftime("%Y%m%d_%H%M")
     points = load_filtered_points(args.workbook)
     print(f"Selected {len(points)} ADCs")
-    for path in generate_plots(args.workbook, args.output_dir, args.formats):
+    for path in generate_plots(args.workbook, output_dir=output_dir):
         print(path)
     return 0
 

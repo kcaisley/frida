@@ -1,26 +1,31 @@
-#!/usr/bin/env python3
 import os
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 os.environ.setdefault("MPLBACKEND", "Agg")
-from pathlib import Path
 
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
-ELEMENTARY_CHARGE_C = 1.602176634e-19
-PNG_FACE_COLOR = "white"
-plt.rcParams.update(
-    {
-        "text.usetex": True,
-        "text.latex.preamble": r"\usepackage{textcomp}",
-        "font.family": "serif",
-        "font.serif": ["Computer Modern Roman"],
-    }
+from flow.analysis.plots import (
+    CURVE_COLORS,
+    FULL_HD_FIGSIZE,
+    PLOT_FACE_COLOR,
+    SPINE_COLOR,
+    TEXT_COLOR,
+    _save_figure,
+    style_ax,
+    style_grid,
+    style_legend,
+    with_plot_style,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+ELEMENTARY_CHARGE_C = 1.602176634e-19
 
 
 def hit_rate_per_pixel_per_second(fluence_m2_s: float, pixel_pitch_m: float) -> float:
@@ -78,7 +83,7 @@ def format_time_axis(value: float, _: object) -> str:
     if value >= 1e-3:
         return f"{value * 1e3:g} ms"
     if value >= 1e-6:
-        return rf"{value * 1e6:g} \textmu s"
+        return f"{value * 1e6:g} µs"
     return f"{value * 1e9:g} ns"
 
 
@@ -91,15 +96,15 @@ def format_rate_axis(value: float, _: object) -> str:
 
 def format_fluence_axis(value: float, _: object) -> str:
     for scale, unit in (
-        (1e15, r"\mathrm{Pcps}"),
-        (1e12, r"\mathrm{Tcps}"),
-        (1e9, r"\mathrm{Gcps}"),
-        (1e6, r"\mathrm{Mcps}"),
-        (1e3, r"\mathrm{kcps}"),
+        (1e15, "Pcps"),
+        (1e12, "Tcps"),
+        (1e9, "Gcps"),
+        (1e6, "Mcps"),
+        (1e3, "kcps"),
     ):
         if value >= scale:
-            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{mm}}^2}}$"
-    return rf"${value:g}\,\frac{{\mathrm{{cps}}}}{{\mathrm{{mm}}^2}}$"
+            return f"{value / scale:g} {unit}/mm²"
+    return f"{value:g} cps/mm²"
 
 
 def amps_to_cps(current_a: float) -> float:
@@ -112,105 +117,116 @@ def cps_to_amps(rate_cps: float) -> float:
     return rate_cps * ELEMENTARY_CHARGE_C
 
 
-def fluence_to_current_density_pa_mm2(value: float) -> float:
-    return value * ELEMENTARY_CHARGE_C * 1e12
+def fluence_to_current_density_pa_mm2(value: npt.ArrayLike) -> np.ndarray:
+    return np.asarray(value) * ELEMENTARY_CHARGE_C * 1e12
 
 
-def current_density_pa_mm2_to_fluence(value: float) -> float:
-    return value / (ELEMENTARY_CHARGE_C * 1e12)
+def current_density_pa_mm2_to_fluence(value: npt.ArrayLike) -> np.ndarray:
+    return np.asarray(value) / (ELEMENTARY_CHARGE_C * 1e12)
 
 
 def format_current_density_axis(value: float, _: object) -> str:
     for scale, unit in (
-        (1e12, r"\mathrm{A}"),
-        (1e9, r"\mathrm{mA}"),
-        (1e6, r"\mu\mathrm{A}"),
-        (1e3, r"\mathrm{nA}"),
-        (1, r"\mathrm{pA}"),
-        (1e-3, r"\mathrm{fA}"),
+        (1e12, "A"),
+        (1e9, "mA"),
+        (1e6, "µA"),
+        (1e3, "nA"),
+        (1, "pA"),
+        (1e-3, "fA"),
     ):
         if value >= scale:
-            return rf"${value / scale:g}\,\frac{{{unit}}}{{\mathrm{{mm}}^2}}$"
-    return rf"${value * 1e3:g}\,\frac{{\mathrm{{fA}}}}{{\mathrm{{mm}}^2}}$"
+            return f"{value / scale:g} {unit}/mm²"
+    return f"{value * 1e3:g} fA/mm²"
 
 
-# ---- shared axis styling ----
-def _style_ax(ax: plt.Axes) -> None:
-    ax.tick_params(colors="#2E3440")
-    for spine in ax.spines.values():
-        spine.set_color("#4C566A")
-    ax.xaxis.label.set_color("#2E3440")
-    ax.yaxis.label.set_color("#2E3440")
-    ax.title.set_color("#2E3440")
-
-
-def plot_hit_rate_vs_fluence() -> None:
+@with_plot_style
+def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
     """Figure 1: per-pixel hit rate vs fluence."""
     fluences_mm2_s = np.logspace(6, 11, 400)
     fluences_m2_s = fluences_mm2_s * 1e6
     pitches_m = [100e-6, 75e-6, 50e-6, 30e-6, 15e-6, 10e-6]
-    colors = ["#5E81AC", "#81A1C1", "#88C0D0", "#8FBCBB", "#A3BE8C", "#EBCB8B"]
+    colors = CURVE_COLORS[: len(pitches_m)]
 
-    fig, ax = plt.subplots(figsize=(7, 5), facecolor=PNG_FACE_COLOR)
-    fig.patch.set_facecolor(PNG_FACE_COLOR)
-    ax.set_facecolor(PNG_FACE_COLOR)
+    fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE, facecolor=PLOT_FACE_COLOR)
     for pitch_m, color in zip(pitches_m, colors, strict=True):
         rates = [hit_rate_per_pixel_per_second(f, pitch_m) for f in fluences_m2_s]
         ax.plot(
             fluences_mm2_s,
             rates,
-            label=rf"{pitch_m * 1e6:g} \textmu m",
+            label=f"{pitch_m * 1e6:g} µm",
             color=color,
             linewidth=2,
         )
 
     # ---- beam-source markers along bottom axis ----
-    _PH, _EL = "#B48EAD", "#BF616A"
+    photon_color, electron_color = CURVE_COLORS[3], CURVE_COLORS[5]
     _photon = [
-        ("PETRA III", 1e10),
-        ("PETRA IV", 1.5e10),
-        ("ESRF-EBS", 1e11),
-        ("EuXFEL CW", 1.2e11),
+        ("PETRA III", 1e10, -4),
+        ("PETRA IV", 1.5e10, 4),
+        ("ESRF-EBS", 1e11, -8),
+        ("EuXFEL CW", 1.2e11, 8),
     ]
     _electron = [
-        ("ELSA", 4e6),
-        ("Talos F200", 1.4e7),
-        ("Spectra", 6.2e7),
-        ("F200X", 9.4e7),
-        ("Themis", 1.2e8),
+        ("ELSA", 4e6, 0),
+        ("Talos F200", 1.4e7, 0),
+        ("Spectra", 6.2e7, -5),
+        ("F200X", 9.4e7, 0),
+        ("Themis", 1.2e8, 5),
     ]
     _xax = ax.get_xaxis_transform()
-    for n, f in _photon:
+    for n, f, text_offset in _photon:
         ax.plot(
             f,
             0.03,
             "s",
             transform=_xax,
-            color=_PH,
+            color=photon_color,
             markersize=7,
             markeredgecolor="white",
             markeredgewidth=0.5,
             zorder=5,
             clip_on=False,
         )
-        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_PH, rotation=90, va="bottom", ha="center", clip_on=False)
-    for n, f in _electron:
+        ax.annotate(
+            n,
+            (f, 0.06),
+            xycoords=_xax,
+            xytext=(text_offset, 0),
+            textcoords="offset points",
+            color=photon_color,
+            rotation=90,
+            va="bottom",
+            ha="center",
+            clip_on=False,
+        )
+    for n, f, text_offset in _electron:
         ax.plot(
             f,
             0.03,
             "o",
             transform=_xax,
-            color=_EL,
+            color=electron_color,
             markersize=7,
             markeredgecolor="white",
             markeredgewidth=0.5,
             zorder=5,
             clip_on=False,
         )
-        ax.text(f, 0.06, n, transform=_xax, fontsize=6, color=_EL, rotation=90, va="bottom", ha="center", clip_on=False)
+        ax.annotate(
+            n,
+            (f, 0.06),
+            xycoords=_xax,
+            xytext=(text_offset, 0),
+            textcoords="offset points",
+            color=electron_color,
+            rotation=90,
+            va="bottom",
+            ha="center",
+            clip_on=False,
+        )
     _src_h = [
-        Line2D([0], [0], marker="s", color="w", markerfacecolor=_PH, markersize=7, label="Photon source"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=_EL, markersize=7, label="Electron source"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor=photon_color, markersize=7, label="Photon source"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=electron_color, markersize=7, label="Electron source"),
     ]
 
     ax.set_xscale("log")
@@ -218,8 +234,8 @@ def plot_hit_rate_vs_fluence() -> None:
     ax.set_ylim(1e4, 1e9)
     ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
     ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
-    ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2.0, 10.0)))
-    ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2.0, 10.0)))
+    ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
+    ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax.xaxis.set_minor_formatter(NullFormatter())
     ax.yaxis.set_minor_formatter(NullFormatter())
     ax.xaxis.set_major_formatter(FuncFormatter(format_fluence_axis))
@@ -230,71 +246,48 @@ def plot_hit_rate_vs_fluence() -> None:
         functions=(fluence_to_current_density_pa_mm2, current_density_pa_mm2_to_fluence),
     )
     bottom2.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
-    bottom2.xaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2.0, 10.0)))
+    bottom2.xaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     bottom2.xaxis.set_minor_formatter(NullFormatter())
     bottom2.spines["bottom"].set_position(("outward", 38))
     bottom2.xaxis.set_major_formatter(FuncFormatter(format_current_density_axis))
-    bottom2.tick_params(colors="#2E3440")
-    bottom2.spines["bottom"].set_color("#4C566A")
-    bottom2.xaxis.label.set_color("#2E3440")
-    bottom2.set_xlabel(r"Equivalent beam current density")
+    bottom2.tick_params(colors=TEXT_COLOR)
+    bottom2.spines["bottom"].set_color(SPINE_COLOR)
+    bottom2.xaxis.label.set_color(TEXT_COLOR)
+    bottom2.set_xlabel("Equivalent beam current density")
 
-    ax.set_xlabel(r"Incident particle fluence $\left[\frac{\mathrm{cps}}{\mathrm{mm}^2}\right]$")
-    ax.set_ylabel(r"Resulting hit rate per pixel $\left[\mathrm{cps}\right]$")
+    ax.set_xlabel("Incident particle fluence (cps/mm²)")
+    ax.set_ylabel("Resulting hit rate per pixel (cps)")
     ax.set_title("Per-pixel hit rate vs fluence")
-    ax.minorticks_on()
-    ax.xaxis.grid(True, which="major", color="#D8DEE9", alpha=0.95, linewidth=0.8)
-    ax.yaxis.grid(True, which="major", color="#D8DEE9", alpha=0.95, linewidth=0.8)
-    ax.xaxis.grid(True, which="minor", color="#E5E9F0", alpha=1.0, linewidth=0.5)
-    ax.yaxis.grid(True, which="minor", color="#E5E9F0", alpha=1.0, linewidth=0.5)
+    style_ax(ax)
+    style_grid(ax)
 
     _ph, _pl = ax.get_legend_handles_labels()
-    ax.legend(
+    style_legend(
+        ax,
         handles=_ph + _src_h,
         labels=_pl + ["Photon source", "Electron source"],
         title="Pixel pitch / Sources",
-        facecolor="#ECEFF4",
-        edgecolor="#4C566A",
-        labelcolor="#2E3440",
     )
-    ax.text(
-        0.98,
-        0.97,
-        r"Assuming 100\% efficiency, no charge sharing,"
-        "\n"
-        r"and a 1\,cm$^2$ beam spot for source markers",
-        transform=ax.transAxes,
-        color="#2E3440",
-        fontsize=8,
-        ha="right",
-        va="top",
-        bbox={"facecolor": "#ECEFF4", "edgecolor": "#4C566A", "alpha": 0.9},
-    )
-    _style_ax(ax)
-    fig.tight_layout()
     fig.subplots_adjust(bottom=0.22)
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.png", dpi=200, facecolor=PNG_FACE_COLOR)
-    fig.savefig(RESULTS_DIR / "hit_rate_vs_fluence.pdf", transparent=True)
+    return _save_figure(fig, output_path)
 
 
-def plot_max_counting_rate_vs_window() -> None:
+@with_plot_style
+def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
     """Figure 2: two subplots — integrating (frame time) and discriminating (dead time)."""
     fig, (ax_int, ax_disc) = plt.subplots(
         1,
         2,
-        figsize=(12, 5),
-        facecolor=PNG_FACE_COLOR,
+        figsize=FULL_HD_FIGSIZE,
+        facecolor=PLOT_FACE_COLOR,
         sharey=True,
     )
-    fig.patch.set_facecolor(PNG_FACE_COLOR)
 
     # ---- Left: integrating frame-time curves (5 µs – 100 µs) ----
     frame_windows = np.linspace(5e-6, 100e-6, 200)
     enobs = [12, 10, 8, 6, 4]
-    colors = ["#5E81AC", "#81A1C1", "#88C0D0", "#8FBCBB", "#A3BE8C"]
+    colors = CURVE_COLORS[: len(enobs)]
 
-    ax_int.set_facecolor(PNG_FACE_COLOR)
     for enob, color in zip(enobs, colors, strict=True):
         rates = [max_counting_rate_per_pixel_per_second(enob, w) for w in frame_windows]
         ax_int.plot(frame_windows, rates, label=rf"{enob}-bit", color=color, linewidth=2)
@@ -304,29 +297,24 @@ def plot_max_counting_rate_vs_window() -> None:
     ax_int.xaxis.set_major_formatter(FuncFormatter(format_time_axis))
     ax_int.yaxis.set_major_formatter(FuncFormatter(format_rate_axis))
     ax_int.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
-    ax_int.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2.0, 10.0)))
+    ax_int.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax_int.yaxis.set_minor_formatter(NullFormatter())
-    ax_int.set_xlabel(r"Frame time")
-    ax_int.set_ylabel(r"Max hit counting rate per pixel $\left[\mathrm{cps}\right]$")
+    ax_int.set_xlabel("Frame time")
+    ax_int.set_ylabel("Max hit counting rate per pixel (cps)")
     ax_int.set_title("Integrating (frame-based)")
-    ax_int.grid(True, which="major", color="#D8DEE9", alpha=0.9)
-    ax_int.grid(True, which="minor", axis="y", color="#E5E9F0", alpha=0.7)
-    ax_int.legend(
+    style_ax(ax_int)
+    style_grid(ax_int)
+    style_legend(
+        ax_int,
         title="ADC bit depth",
-        loc="upper right",
-        facecolor="#ECEFF4",
-        edgecolor="#4C566A",
-        labelcolor="#2E3440",
     )
-    _style_ax(ax_int)
 
     # ---- Right: discriminating dead-time curve (10 ns – 400 ns) ----
     dead_ns = np.linspace(10, 400, 200)
     dead_s = dead_ns * 1e-9
     loss_rates = [max_rate(w) for w in dead_s]
 
-    ax_disc.set_facecolor(PNG_FACE_COLOR)
-    ax_disc.plot(dead_ns, loss_rates, "--", color="#BF616A", linewidth=2, label=r"10\% pile-up limit")
+    ax_disc.plot(dead_ns, loss_rates, "--", color=CURVE_COLORS[0], linewidth=2, label="10% pile-up limit")
 
     # Discriminating detector markers
     _discrim = [  # (label, dead_time_ns, reported_rate_cps)
@@ -341,45 +329,36 @@ def plot_max_counting_rate_vs_window() -> None:
     ]
     for n, td_ns, r in _discrim:
         ax_disc.plot(
-            td_ns, r, "o", color="#BF616A", markersize=7, markeredgecolor="white", markeredgewidth=0.5, zorder=5
+            td_ns,
+            r,
+            "o",
+            color=CURVE_COLORS[1],
+            markersize=7,
+            markeredgecolor="white",
+            markeredgewidth=0.5,
+            zorder=5,
         )
-        ax_disc.annotate(n, (td_ns, r), fontsize=7, color="#2E3440", textcoords="offset points", xytext=(5, 4))
+        ax_disc.annotate(n, (td_ns, r), color=TEXT_COLOR, textcoords="offset points", xytext=(5, 4))
 
     ax_disc.set_yscale("log")
     ax_disc.set_ylim(1e4, 1e9)
-    ax_disc.set_xlabel(r"Front-end dead time [ns]")
-    ax_disc.set_title(r"Discriminating (counting)")
-    ax_disc.grid(True, which="major", color="#D8DEE9", alpha=0.9)
-    ax_disc.grid(True, which="minor", axis="y", color="#E5E9F0", alpha=0.7)
+    ax_disc.set_xlabel("Front-end dead time (ns)")
+    ax_disc.set_title("Discriminating (counting)")
     ax_disc.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=100))
-    ax_disc.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2.0, 10.0)))
+    ax_disc.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10))))
     ax_disc.yaxis.set_minor_formatter(NullFormatter())
-    ax_disc.legend(
-        loc="upper right",
-        facecolor="#ECEFF4",
-        edgecolor="#4C566A",
-        labelcolor="#2E3440",
-    )
-    _style_ax(ax_disc)
+    style_ax(ax_disc)
+    style_grid(ax_disc)
+    style_legend(ax_disc)
 
-    fig.suptitle(
-        "Max pixel count rate: integrating vs discriminating detectors",
-        color="#2E3440",
-        fontsize=12,
-    )
-    fig.tight_layout()
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(
-        RESULTS_DIR / "max_counting_rate_vs_window.png",
-        dpi=200,
-        facecolor=PNG_FACE_COLOR,
-    )
-    fig.savefig(RESULTS_DIR / "max_counting_rate_vs_window.pdf", transparent=True)
+    fig.suptitle("Max pixel count rate: integrating vs discriminating detectors")
+    return _save_figure(fig, output_path)
 
 
 def main() -> int:
-    plot_hit_rate_vs_fluence()
-    plot_max_counting_rate_vs_window()
+    output_dir = ROOT / "build" / "detector_model" / datetime.now().astimezone().strftime("%Y%m%d_%H%M")
+    plot_hit_rate_vs_fluence(output_path=output_dir / "hit_rate_vs_fluence")
+    plot_max_counting_rate_vs_window(output_path=output_dir / "max_counting_rate_vs_window")
     return 0
 
 
