@@ -65,7 +65,7 @@ from flow.analysis.plots import (
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
-from flow.analysis.types import AnalysisCdacCapMismatch, CompDaq, MeasAdcInt
+from flow.analysis.types import AnalysisAdcNoiseComparison, AnalysisCdacCapMismatch, CompDaq, MeasAdcInt
 from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
@@ -200,13 +200,6 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
     cdac_analysis = AnalysisCdacCapMismatch(
         adc_index=0,
         expected_effective_fraction=np.full(16, 0.015),
-        curve_element=np.asarray([0], dtype=np.int64),
-        curve_side=np.asarray([0], dtype=np.uint8),
-        curve_direction=np.asarray([0], dtype=np.uint8),
-        curve_diffcaps=np.asarray([0], dtype=np.uint8),
-        transition_v=np.asarray([0.3]),
-        normalized_step=np.asarray([-0.25]),
-        curve_valid=np.asarray([1], dtype=np.uint8),
         main_fraction=np.full((2, 16), 0.02),
         diff_fraction=np.full((2, 16), 0.005),
         effective_fraction=np.full((2, 16), 0.015),
@@ -611,9 +604,16 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
             )
         )
 
+    noise = analyze_adc_noise_sweep(measurements)
     dynamic_paths = plot_adc_noise_sweep(
         measurements,
-        replace(analyze_adc_noise_sweep(measurements), series_labels=("ADC00", "ADC01")),
+        AnalysisAdcNoiseComparison(
+            active_conversion_rate_hz=noise.active_conversion_rate_hz,
+            input_lsb_v=noise.input_lsb_v,
+            input_referred_noise_rms_v=noise.input_referred_noise_rms_v,
+            noise_valid=noise.noise_valid,
+            series_label=("ADC00", "ADC01"),
+        ),
         output_path=tmp_path / "dynamic_rate",
     )
     assert_plot_formats(dynamic_paths)

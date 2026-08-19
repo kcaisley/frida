@@ -136,9 +136,9 @@ def test_calibration2_public_analysis_returns_common_weights() -> None:
 
     assert result.method == "calibration2"
     assert result.adc_index == 0
-    assert result.calibrated_weight.shape == (17,)
-    assert np.sum(result.calibrated_weight) == pytest.approx(ADC_CODE_MAX)
-    assert np.all(result.weight_from_measurement)
+    assert result.calibrated_weights.shape == (17,)
+    assert np.sum(result.calibrated_weights) == pytest.approx(ADC_CODE_MAX)
+    assert np.all(result.measured_weight_mask)
     assert result.training_sample_count > 0
     assert result.validation_sample_count > 0
 

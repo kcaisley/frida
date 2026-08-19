@@ -31,7 +31,6 @@ def analyze_diffamp_noise(
 
     mean_v = float(np.mean(samples))
     centered_v = samples - mean_v
-    noise_rms_v = float(np.sqrt(np.mean(centered_v**2)))
     sample_rate_hz = 1.0 / sample_interval_s
     segment_length = min(262_144, len(centered_v))
     frequency_hz, power_spectral_density_v2_per_hz = welch(
@@ -45,14 +44,11 @@ def analyze_diffamp_noise(
         scaling="density",
     )
     density = np.sqrt(np.maximum(power_spectral_density_v2_per_hz, 0.0))
-    integrated_rms_v = float(np.sqrt(np.trapezoid(power_spectral_density_v2_per_hz, frequency_hz)))
     return AnalysisDiffampNoise(
         mean_v=mean_v,
         centered_v=centered_v,
-        noise_rms_v=noise_rms_v,
         sample_rate_hz=sample_rate_hz,
         measurement_bandwidth_hz=measurement_bandwidth_hz,
-        frequency_hz=frequency_hz,
-        amplitude_spectral_density_v_per_sqrt_hz=density,
-        integrated_fft_noise_rms_v=integrated_rms_v,
+        spectrum_frequency_hz=frequency_hz,
+        spectrum_amplitude_density_v_per_sqrt_hz=density,
     )

@@ -18,8 +18,12 @@ from flow.scans.params import AdcTbParams
 
 type Backend = Literal["physical", "behavioral", "spice"]
 type InfoValue = str | int | float | bool
+type AdcNonlinearityMethod = Literal["endpoint", "code_density"]
 type AdcCalibrationMethod = Literal["calibration1", "calibration2", "calibration3"]
 type AdcDecoding = Literal["uncalibrated_dout", "calibration1", "calibration2", "calibration3"]
+type AdcDecisionSelection = Literal["single", "same_dout", "all"]
+type CompFitValidity = Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"]
+type CompSizeProfile = Literal["half", "double", "fabricated"]
 type FloatArray = NDArray[np.float64]
 type IntArray = NDArray[np.int64]
 type Uint8Array = NDArray[np.uint8]
@@ -713,9 +717,11 @@ type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasCdacE
 # Typed analysis results
 # =============================================================================
 
+# Shared waveform and instrument analyses
+
 
 @dataclass(frozen=True, slots=True)
-class AnalysisWaveforms:
+class AnalysisWaveform:
     """One selected, aligned waveform record ready for rendering."""
 
     title: str
@@ -758,20 +764,18 @@ class AnalysisDiffampNoise:
 
     mean_v: float
     centered_v: FloatArray
-    noise_rms_v: float
     sample_rate_hz: float
     measurement_bandwidth_hz: float
-    frequency_hz: FloatArray
-    amplitude_spectral_density_v_per_sqrt_hz: FloatArray
-    integrated_fft_noise_rms_v: float
+    spectrum_frequency_hz: FloatArray
+    spectrum_amplitude_density_v_per_sqrt_hz: FloatArray
 
     def __post_init__(self) -> None:
         centered_v = _array_1d(self.centered_v, np.float64, "centered_v", finite=True)
-        frequency_hz = _array_1d(self.frequency_hz, np.float64, "frequency_hz", finite=True)
+        frequency_hz = _array_1d(self.spectrum_frequency_hz, np.float64, "spectrum_frequency_hz", finite=True)
         density = _array_1d(
-            self.amplitude_spectral_density_v_per_sqrt_hz,
+            self.spectrum_amplitude_density_v_per_sqrt_hz,
             np.float64,
-            "amplitude_spectral_density_v_per_sqrt_hz",
+            "spectrum_amplitude_density_v_per_sqrt_hz",
             finite=True,
         )
         if len(centered_v) < 256:
@@ -782,16 +786,13 @@ class AnalysisDiffampNoise:
             raise ValueError("diff-amp spectrum must have increasing frequencies and nonnegative density")
         scalars = (
             self.mean_v,
-            self.noise_rms_v,
             self.sample_rate_hz,
             self.measurement_bandwidth_hz,
-            self.integrated_fft_noise_rms_v,
         )
         if not all(math.isfinite(value) for value in scalars):
             raise ValueError("diff-amp noise scalar results must be finite")
         if (
-            self.noise_rms_v <= 0.0
-            or self.integrated_fft_noise_rms_v < 0.0
+            float(np.sqrt(np.mean(centered_v**2))) <= 0.0
             or self.sample_rate_hz <= 0.0
             or self.measurement_bandwidth_hz <= 0.0
             or self.measurement_bandwidth_hz > self.sample_rate_hz / 2.0
@@ -799,8 +800,30 @@ class AnalysisDiffampNoise:
         ):
             raise ValueError("diff-amp noise scale, sample rate, and bandwidth must be positive")
         object.__setattr__(self, "centered_v", centered_v)
-        object.__setattr__(self, "frequency_hz", frequency_hz)
-        object.__setattr__(self, "amplitude_spectral_density_v_per_sqrt_hz", density)
+        object.__setattr__(self, "spectrum_frequency_hz", frequency_hz)
+        object.__setattr__(self, "spectrum_amplitude_density_v_per_sqrt_hz", density)
+
+    @property
+    def noise_rms_v(self) -> float:
+        """Return the time-domain RMS of the centered samples."""
+
+        return float(np.sqrt(np.mean(self.centered_v**2)))
+
+    @property
+    def integrated_fft_noise_rms_v(self) -> float:
+        """Return the RMS obtained by integrating the spectral density."""
+
+        return float(
+            np.sqrt(
+                np.trapezoid(
+                    self.spectrum_amplitude_density_v_per_sqrt_hz**2,
+                    self.spectrum_frequency_hz,
+                )
+            )
+        )
+
+
+# ADC analyses
 
 
 @dataclass(frozen=True, slots=True)
@@ -814,7 +837,6 @@ class AnalysisAdcScopeBits:
     comp_edge_times_s: FloatArray
     sample_times_s: FloatArray
     sample_values_v: FloatArray
-    mismatch_mask: BoolArray = field(init=False)
 
     def __post_init__(self) -> None:
         scope_bits = _array_1d(self.scope_bits, np.bool_, "scope_bits")
@@ -841,7 +863,12 @@ class AnalysisAdcScopeBits:
         object.__setattr__(self, "comp_edge_times_s", edge_times)
         object.__setattr__(self, "sample_times_s", sample_times)
         object.__setattr__(self, "sample_values_v", sample_values)
-        object.__setattr__(self, "mismatch_mask", scope_bits != fastrx_bits)
+
+    @property
+    def mismatch_mask(self) -> BoolArray:
+        """Return one flag for each disagreement between both decoders."""
+
+        return self.scope_bits != self.fastrx_bits
 
     @property
     def mismatch_count(self) -> int:
@@ -892,7 +919,7 @@ class AnalysisAdcTransfer:
 class AnalysisAdcNonlinearity:
     """Endpoint or code-density ADC nonlinearity."""
 
-    method: Literal["endpoint", "code_density"]
+    method: AdcNonlinearityMethod
     code: IntArray
     dnl: FloatArray
     inl: FloatArray
@@ -900,8 +927,6 @@ class AnalysisAdcNonlinearity:
     transition_vin_diff_v: FloatArray | None
     ideal_count: float | None
     endpoint_lsb_v: float | None
-    maximum_abs_dnl: float
-    maximum_abs_inl: float
     missing_codes: int
 
     def __post_init__(self) -> None:
@@ -944,15 +969,7 @@ class AnalysisAdcNonlinearity:
             or self.ideal_count <= 0.0
         ):
             raise ValueError("code-density nonlinearity requires counts and a positive ideal count")
-        if (
-            not math.isfinite(self.maximum_abs_dnl)
-            or self.maximum_abs_dnl < 0.0
-            or not math.isfinite(self.maximum_abs_inl)
-            or self.maximum_abs_inl < 0.0
-            or not np.isclose(self.maximum_abs_dnl, np.max(np.abs(values["dnl"])))
-            or not np.isclose(self.maximum_abs_inl, np.max(np.abs(values["inl"])))
-            or self.missing_codes < 0
-        ):
+        if self.missing_codes < 0:
             raise ValueError("ADC nonlinearity metrics are outside their valid ranges")
         if self.method == "code_density" and count is not None:
             if self.missing_codes != np.count_nonzero(count == 0):
@@ -964,6 +981,18 @@ class AnalysisAdcNonlinearity:
         object.__setattr__(self, "count", count)
         object.__setattr__(self, "transition_vin_diff_v", transition)
 
+    @property
+    def maximum_abs_dnl(self) -> float:
+        """Return the largest absolute differential nonlinearity."""
+
+        return float(np.max(np.abs(self.dnl)))
+
+    @property
+    def maximum_abs_inl(self) -> float:
+        """Return the largest absolute integral nonlinearity."""
+
+        return float(np.max(np.abs(self.inl)))
+
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcCalibration:
@@ -971,7 +1000,7 @@ class AnalysisAdcCalibration:
 
     All three calibration analyses normalize their BOUT coefficients to the
     inclusive ADC output range, so a corrected fractional code is simply
-    ``BOUT @ calibrated_weight``. ``weight_from_measurement`` distinguishes
+    ``BOUT @ calibrated_weights``. ``measured_weight_mask`` distinguishes
     directly measured or fitted coefficients from nominally preserved ones.
     In calibration 1 the terminal half-step is inferred, and in calibration 3
     the unresolved noise-limited tail keeps its nominal ratios.
@@ -981,9 +1010,9 @@ class AnalysisAdcCalibration:
     method: AdcCalibrationMethod
     label: str
     code_max: int
-    nominal_weight: FloatArray
-    calibrated_weight: FloatArray
-    weight_from_measurement: NDArray[np.bool_]
+    nominal_weights: FloatArray
+    calibrated_weights: FloatArray
+    measured_weight_mask: BoolArray
     training_sample_count: int
     validation_sample_count: int
     output_gain: float
@@ -998,12 +1027,12 @@ class AnalysisAdcCalibration:
             raise ValueError("ADC calibration label must not be empty")
         if not isinstance(self.code_max, int) or self.code_max <= 0:
             raise ValueError("ADC calibration code_max must be a positive integer")
-        nominal = _array_1d(self.nominal_weight, np.float64, "nominal_weight", finite=True)
-        calibrated = _array_1d(self.calibrated_weight, np.float64, "calibrated_weight", finite=True)
+        nominal = _array_1d(self.nominal_weights, np.float64, "nominal_weights", finite=True)
+        calibrated = _array_1d(self.calibrated_weights, np.float64, "calibrated_weights", finite=True)
         measured = _array_1d(
-            self.weight_from_measurement,
+            self.measured_weight_mask,
             np.bool_,
-            "weight_from_measurement",
+            "measured_weight_mask",
         )
         expected_shape = (17,)
         if nominal.shape != expected_shape or calibrated.shape != expected_shape or measured.shape != expected_shape:
@@ -1021,9 +1050,9 @@ class AnalysisAdcCalibration:
             raise ValueError("ADC calibration output_gain must be finite and positive")
         if not math.isfinite(self.output_offset_lsb):
             raise ValueError("ADC calibration output_offset_lsb must be finite")
-        object.__setattr__(self, "nominal_weight", nominal)
-        object.__setattr__(self, "calibrated_weight", calibrated)
-        object.__setattr__(self, "weight_from_measurement", measured)
+        object.__setattr__(self, "nominal_weights", nominal)
+        object.__setattr__(self, "calibrated_weights", calibrated)
+        object.__setattr__(self, "measured_weight_mask", measured)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1047,10 +1076,6 @@ class AnalysisAdcRampCurve:
     dnl: FloatArray
     inl: FloatArray
     ideal_count: float
-    maximum_abs_dnl: float
-    maximum_abs_inl: float
-    missing_codes: int
-    maximum_transfer_reversal_dout: float
 
     def __post_init__(self) -> None:
         if self.decoding not in ("uncalibrated_dout", "calibration1", "calibration2", "calibration3"):
@@ -1102,25 +1127,39 @@ class AnalysisAdcRampCurve:
             or not np.all(np.isin(density["linearity_code"], code))
         ):
             raise ValueError("ADC ramp histogram and linearity codes must be nonnegative, increasing, and aligned")
-        if (
-            not math.isfinite(self.ideal_count)
-            or self.ideal_count <= 0.0
-            or not math.isfinite(self.maximum_abs_dnl)
-            or self.maximum_abs_dnl < 0.0
-            or not math.isfinite(self.maximum_abs_inl)
-            or self.maximum_abs_inl < 0.0
-            or not np.isclose(self.maximum_abs_dnl, np.max(np.abs(density["dnl"])))
-            or not np.isclose(self.maximum_abs_inl, np.max(np.abs(density["inl"])))
-            or not 0 <= self.missing_codes <= len(density["linearity_code"])
-            or not math.isfinite(self.maximum_transfer_reversal_dout)
-            or self.maximum_transfer_reversal_dout < 0.0
-        ):
+        if not math.isfinite(self.ideal_count) or self.ideal_count <= 0.0:
             raise ValueError("ADC ramp curve metrics are outside their valid ranges")
         object.__setattr__(self, "weights", weights)
         object.__setattr__(self, "code", code)
         object.__setattr__(self, "count", count)
         for name, value in {**transfer, **density}.items():
             object.__setattr__(self, name, value)
+
+    @property
+    def maximum_abs_dnl(self) -> float:
+        """Return the largest absolute differential nonlinearity."""
+
+        return float(np.max(np.abs(self.dnl)))
+
+    @property
+    def maximum_abs_inl(self) -> float:
+        """Return the largest absolute integral nonlinearity."""
+
+        return float(np.max(np.abs(self.inl)))
+
+    @property
+    def missing_codes(self) -> int:
+        """Return the number of unpopulated codes in the linearity interval."""
+
+        histogram_indices = np.searchsorted(self.code, self.linearity_code)
+        return int(np.count_nonzero(self.count[histogram_indices] == 0))
+
+    @property
+    def maximum_transfer_reversal_dout(self) -> float:
+        """Return the largest backwards step in the reconstructed transfer."""
+
+        differences = np.diff(self.transfer_mean_dout)
+        return max(0.0, float(-np.min(differences))) if len(differences) else 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1130,7 +1169,6 @@ class AnalysisAdcRamp:
     adc_index: int
     sample_count: int
     retained_sample_count: int
-    reset_excluded_sample_count: int
     sample_rate_hz: float
     ramp_frequency_hz: float
     ramp_phase_cycles: float
@@ -1144,12 +1182,7 @@ class AnalysisAdcRamp:
         curves = tuple(self.curves)
         if not -1 <= self.adc_index < 16:
             raise ValueError("ADC ramp index must be -1 or in 0..15")
-        if (
-            self.sample_count <= 0
-            or self.retained_sample_count <= 0
-            or self.reset_excluded_sample_count < 0
-            or self.retained_sample_count + self.reset_excluded_sample_count != self.sample_count
-        ):
+        if self.sample_count <= 0 or self.retained_sample_count <= 0 or self.retained_sample_count > self.sample_count:
             raise ValueError("ADC ramp sample counts are inconsistent")
         if (
             not math.isfinite(self.sample_rate_hz)
@@ -1181,155 +1214,223 @@ class AnalysisAdcRamp:
         object.__setattr__(self, "reset_conversion_index", reset_indices)
         object.__setattr__(self, "curves", curves)
 
+    @property
+    def reset_excluded_sample_count(self) -> int:
+        """Return the number of samples removed around ramp reset events."""
+
+        return self.sample_count - self.retained_sample_count
+
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcCodeDistribution:
     """Code statistics and histograms for one or more static input points."""
 
     vin_diff_v: FloatArray
-    sample_count: IntArray
-    mean_dout: FloatArray
-    std_dout: FloatArray
-    minimum_dout: IntArray
-    maximum_dout: IntArray
     code: IntArray
     count: IntArray
 
     def __post_init__(self) -> None:
-        points = {
-            "vin_diff_v": _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True),
-            "sample_count": _array_1d(self.sample_count, np.int64, "sample_count"),
-            "mean_dout": _array_1d(self.mean_dout, np.float64, "mean_dout", finite=True),
-            "std_dout": _array_1d(self.std_dout, np.float64, "std_dout", finite=True),
-            "minimum_dout": _array_1d(self.minimum_dout, np.int64, "minimum_dout"),
-            "maximum_dout": _array_1d(self.maximum_dout, np.int64, "maximum_dout"),
-        }
+        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True)
         code = _array_1d(self.code, np.int64, "code")
         count = _array_2d(self.count, np.int64, "count")
-        point_count = _aligned_length(points)
+        point_count = len(vin_diff_v)
         if point_count == 0 or len(code) == 0:
             raise ValueError("ADC code distribution requires input points and output codes")
         if count.shape != (point_count, len(code)):
             raise ValueError("ADC code distribution counts must align with input points and codes")
-        if np.any(np.diff(points["vin_diff_v"]) <= 0.0) or code[0] < 0 or np.any(np.diff(code) <= 0):
+        if np.any(np.diff(vin_diff_v) <= 0.0) or code[0] < 0 or np.any(np.diff(code) <= 0):
             raise ValueError("ADC code-distribution inputs and codes must increase")
-        if (
-            np.any(points["sample_count"] <= 0)
-            or np.any(points["std_dout"] < 0.0)
-            or np.any(points["minimum_dout"] > points["maximum_dout"])
-            or np.any(count < 0)
-        ):
-            raise ValueError("ADC code-distribution statistics are outside their valid ranges")
-        if not np.array_equal(np.sum(count, axis=1), points["sample_count"]):
-            raise ValueError("ADC code-distribution histogram totals must match sample counts")
-        populated = count > 0
-        expected_minimum = code[np.argmax(populated, axis=1)]
-        expected_maximum = code[len(code) - 1 - np.argmax(populated[:, ::-1], axis=1)]
-        if (
-            not np.array_equal(points["minimum_dout"], expected_minimum)
-            or not np.array_equal(points["maximum_dout"], expected_maximum)
-            or np.any(points["mean_dout"] < points["minimum_dout"])
-            or np.any(points["mean_dout"] > points["maximum_dout"])
-        ):
-            raise ValueError("ADC code-distribution summary statistics do not match its histograms")
-        for name, value in points.items():
-            object.__setattr__(self, name, value)
+        if np.any(np.sum(count, axis=1) <= 0) or np.any(count < 0):
+            raise ValueError("ADC code-distribution histogram counts must be nonnegative and populated")
+        object.__setattr__(self, "vin_diff_v", vin_diff_v)
         object.__setattr__(self, "code", code)
         object.__setattr__(self, "count", count)
+
+    @property
+    def sample_count(self) -> IntArray:
+        """Return the sample count at each input point."""
+
+        return np.sum(self.count, axis=1, dtype=np.int64)
+
+    @property
+    def mean_dout(self) -> FloatArray:
+        """Return the histogram-weighted mean output code."""
+
+        return np.sum(self.count * self.code, axis=1) / self.sample_count
+
+    @property
+    def std_dout(self) -> FloatArray:
+        """Return the histogram-weighted output-code standard deviation."""
+
+        deviation = self.code - self.mean_dout[:, None]
+        return np.sqrt(np.sum(self.count * deviation**2, axis=1) / self.sample_count)
+
+    @property
+    def minimum_dout(self) -> IntArray:
+        """Return the lowest populated output code at each input point."""
+
+        return self.code[np.argmax(self.count > 0, axis=1)]
+
+    @property
+    def maximum_dout(self) -> IntArray:
+        """Return the highest populated output code at each input point."""
+
+        reverse_index = np.argmax(self.count[:, ::-1] > 0, axis=1)
+        return self.code[len(self.code) - 1 - reverse_index]
 
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcNoiseSweep:
     """Fixed-input output variation across conversion timing settings."""
 
-    sample_rate_hz: FloatArray
+    active_conversion_rate_hz: FloatArray
     logic_phase_delay_symbols: FloatArray
     comparator_time_percent: FloatArray
     input_lsb_v: float
-    input_referred_noise_rms_v: FloatArray
     pretrigger_vin_diff_mean_v: FloatArray
     pretrigger_vin_diff_noise_rms_v: FloatArray
-    mean_dout: FloatArray
-    std_dout: FloatArray
-    minimum_dout: IntArray
-    maximum_dout: IntArray
     bit_mismatches: IntArray
     noise_valid: BoolArray
-    code: IntArray | None = None
-    count: IntArray | None = None
-    series_labels: tuple[str, ...] = ()
+    code: IntArray
+    count: IntArray
 
     def __post_init__(self) -> None:
         float_fields = {
             name: _array_1d(getattr(self, name), np.float64, name)
             for name in (
-                "sample_rate_hz",
+                "active_conversion_rate_hz",
                 "logic_phase_delay_symbols",
                 "comparator_time_percent",
-                "input_referred_noise_rms_v",
                 "pretrigger_vin_diff_mean_v",
                 "pretrigger_vin_diff_noise_rms_v",
-                "mean_dout",
-                "std_dout",
             )
         }
-        int_fields = {
-            name: _array_1d(getattr(self, name), np.int64, name)
-            for name in ("minimum_dout", "maximum_dout", "bit_mismatches")
-        }
+        bit_mismatches = _array_1d(self.bit_mismatches, np.int64, "bit_mismatches")
         noise_valid = _array_1d(self.noise_valid, np.bool_, "noise_valid")
-        sample_count = _aligned_length({**float_fields, **int_fields, "noise_valid": noise_valid})
-        if sample_count == 0:
+        point_count = _aligned_length({**float_fields, "bit_mismatches": bit_mismatches, "noise_valid": noise_valid})
+        if point_count == 0:
             raise ValueError("ADC noise sweep requires at least one point")
         if not math.isfinite(self.input_lsb_v) or self.input_lsb_v <= 0.0:
             raise ValueError("ADC noise sweep input_lsb_v must be finite and positive")
         if (
-            not np.all(np.isfinite(float_fields["sample_rate_hz"]))
-            or np.any(float_fields["sample_rate_hz"] <= 0.0)
+            not np.all(np.isfinite(float_fields["active_conversion_rate_hz"]))
+            or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
             or not np.all(np.isfinite(float_fields["logic_phase_delay_symbols"]))
             or not np.all(np.isfinite(float_fields["comparator_time_percent"]))
             or any(np.any(np.isinf(values)) for values in float_fields.values())
-            or np.any(float_fields["std_dout"][np.isfinite(float_fields["std_dout"])] < 0.0)
             or np.any(
                 float_fields["pretrigger_vin_diff_noise_rms_v"][
                     np.isfinite(float_fields["pretrigger_vin_diff_noise_rms_v"])
                 ]
                 < 0.0
             )
-            or np.any(int_fields["minimum_dout"] > int_fields["maximum_dout"])
-            or np.any(int_fields["bit_mismatches"] < 0)
+            or np.any(bit_mismatches < 0)
         ):
             raise ValueError("ADC noise sweep values are outside their valid ranges")
-        if np.any(
-            ~np.isfinite(float_fields["input_referred_noise_rms_v"][noise_valid])
-            | (float_fields["input_referred_noise_rms_v"][noise_valid] <= 0.0)
-        ):
-            raise ValueError("valid ADC noise points require finite positive input-referred noise")
-        code = None if self.code is None else _array_1d(self.code, np.int64, "code")
-        count = None if self.count is None else _array_2d(self.count, np.int64, "count")
-        if (code is None) != (count is None):
-            raise ValueError("ADC noise sweep code and count must be present together")
+        code = _array_1d(self.code, np.int64, "code")
+        count = _array_2d(self.count, np.int64, "count")
         if (
-            code is not None
-            and count is not None
-            and (
-                not len(code)
-                or code[0] < 0
-                or np.any(np.diff(code) <= 0)
-                or count.shape != (sample_count, len(code))
-                or np.any(count < 0)
-            )
+            not len(code)
+            or code[0] < 0
+            or np.any(np.diff(code) <= 0)
+            or count.shape != (point_count, len(code))
+            or np.any(count < 0)
+            or np.any(np.sum(count, axis=1) <= 0)
         ):
-            raise ValueError("ADC noise sweep histograms must be nonnegative and align with increasing codes")
-        labels = tuple(self.series_labels)
-        if labels and (len(labels) != sample_count or any(not label.strip() for label in labels)):
-            raise ValueError("ADC noise sweep series labels must align with its points")
-        for name, values in {**float_fields, **int_fields}.items():
+            raise ValueError("ADC noise sweep histograms must be populated and align with increasing codes")
+        sample_counts = np.sum(count, axis=1, dtype=np.int64)
+        mean_dout = np.sum(count * code, axis=1) / sample_counts
+        deviation = code - mean_dout[:, None]
+        std_dout = np.sqrt(np.sum(count * deviation**2, axis=1) / sample_counts)
+        noise = np.where(std_dout > 0.0, std_dout * self.input_lsb_v, np.nan)
+        if np.any(~np.isfinite(noise[noise_valid]) | (noise[noise_valid] <= 0.0)):
+            raise ValueError("valid ADC noise points require finite positive input-referred noise")
+        for name, values in float_fields.items():
             object.__setattr__(self, name, values)
+        object.__setattr__(self, "bit_mismatches", bit_mismatches)
         object.__setattr__(self, "code", code)
         object.__setattr__(self, "count", count)
         object.__setattr__(self, "noise_valid", noise_valid)
-        object.__setattr__(self, "series_labels", labels)
+
+    @property
+    def sample_count(self) -> IntArray:
+        """Return the number of captured codes at each timing point."""
+
+        return np.sum(self.count, axis=1, dtype=np.int64)
+
+    @property
+    def mean_dout(self) -> FloatArray:
+        """Return the histogram-weighted mean output code."""
+
+        return np.sum(self.count * self.code, axis=1) / self.sample_count
+
+    @property
+    def std_dout(self) -> FloatArray:
+        """Return the histogram-weighted output-code standard deviation."""
+
+        deviation = self.code - self.mean_dout[:, None]
+        return np.sqrt(np.sum(self.count * deviation**2, axis=1) / self.sample_count)
+
+    @property
+    def minimum_dout(self) -> IntArray:
+        """Return the lowest populated output code at each timing point."""
+
+        return self.code[np.argmax(self.count > 0, axis=1)]
+
+    @property
+    def maximum_dout(self) -> IntArray:
+        """Return the highest populated output code at each timing point."""
+
+        reverse_index = np.argmax(self.count[:, ::-1] > 0, axis=1)
+        return self.code[len(self.code) - 1 - reverse_index]
+
+    @property
+    def input_referred_noise_rms_v(self) -> FloatArray:
+        """Return code dispersion converted through the nominal input LSB."""
+
+        noise = self.std_dout * self.input_lsb_v
+        return np.where(self.std_dout > 0.0, noise, np.nan)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcNoiseComparison:
+    """Named input-referred-noise series collected on one rate axis."""
+
+    active_conversion_rate_hz: FloatArray
+    input_lsb_v: float
+    input_referred_noise_rms_v: FloatArray
+    noise_valid: BoolArray
+    series_label: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        rates = _array_1d(
+            self.active_conversion_rate_hz,
+            np.float64,
+            "active_conversion_rate_hz",
+            finite=True,
+        )
+        noise = _array_1d(self.input_referred_noise_rms_v, np.float64, "input_referred_noise_rms_v")
+        valid = _array_1d(self.noise_valid, np.bool_, "noise_valid")
+        labels = tuple(self.series_label)
+        point_count = _aligned_length(
+            {
+                "active_conversion_rate_hz": rates,
+                "input_referred_noise_rms_v": noise,
+                "noise_valid": valid,
+            }
+        )
+        if point_count == 0 or len(labels) != point_count or any(not label.strip() for label in labels):
+            raise ValueError("ADC noise comparison points and nonempty series labels must align")
+        if np.any(rates <= 0.0) or np.any(np.isinf(noise)):
+            raise ValueError("ADC noise comparison rates must be positive and noise must not be infinite")
+        if np.any(~np.isfinite(noise[valid]) | (noise[valid] <= 0.0)):
+            raise ValueError("valid ADC noise comparison points require finite positive noise")
+        if not math.isfinite(self.input_lsb_v) or self.input_lsb_v <= 0.0:
+            raise ValueError("ADC noise comparison input_lsb_v must be finite and positive")
+        object.__setattr__(self, "active_conversion_rate_hz", rates)
+        object.__setattr__(self, "input_referred_noise_rms_v", noise)
+        object.__setattr__(self, "noise_valid", valid)
+        object.__setattr__(self, "series_label", labels)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1339,18 +1440,12 @@ class AnalysisAdcDynamic:
     sample_rate_hz: float
     input_frequency_hz: float
     fitted_frequency_hz: float
-    sample_count: int
     adc_bits: int
     offset_dout: float
     amplitude_dout: float
     phase_rad: float
-    amplitude_dbfs: float
-    signal_rms_dout: float
-    residual_rms_dout: float
     input_referred_noise_rms_v: float
     input_referred_residual_rms_v: float
-    sinad_db: float
-    enob_bits: float
     spectral_sndr_db: float
     spectral_snr_db: float
     spectral_thd_db: float
@@ -1358,9 +1453,6 @@ class AnalysisAdcDynamic:
     spectral_enob_bits: float
     residual_tail_limit_dout: float
     expected_residual_tail_count: float
-    negative_residual_tail_count: int
-    positive_residual_tail_count: int
-    maximum_abs_residual_dout: float
     time_s: FloatArray
     measured_dout: FloatArray
     fitted_dout: FloatArray
@@ -1384,8 +1476,8 @@ class AnalysisAdcDynamic:
             ),
             "spectrum_dbfs": _array_1d(self.spectrum_dbfs, np.float64, "spectrum_dbfs"),
         }
-        if _aligned_length(waveform) != self.sample_count or self.sample_count < 2:
-            raise ValueError("ADC dynamic waveform must align with its sample count")
+        if _aligned_length(waveform) < 2:
+            raise ValueError("ADC dynamic waveform requires at least two aligned samples")
         if _aligned_length(spectrum) == 0:
             raise ValueError("ADC dynamic spectrum requires at least one bin")
         if np.any(np.diff(waveform["time_s"]) <= 0.0) or np.any(np.diff(spectrum["spectrum_frequency_hz"]) <= 0.0):
@@ -1401,26 +1493,20 @@ class AnalysisAdcDynamic:
             self.sample_rate_hz,
             self.input_frequency_hz,
             self.fitted_frequency_hz,
-            self.signal_rms_dout,
             self.residual_tail_limit_dout,
         )
         finite_scalars = (
             self.offset_dout,
             self.amplitude_dout,
             self.phase_rad,
-            self.amplitude_dbfs,
-            self.residual_rms_dout,
             self.input_referred_noise_rms_v,
             self.input_referred_residual_rms_v,
-            self.sinad_db,
-            self.enob_bits,
             self.spectral_sndr_db,
             self.spectral_snr_db,
             self.spectral_thd_db,
             self.spectral_sfdr_db,
             self.spectral_enob_bits,
             self.expected_residual_tail_count,
-            self.maximum_abs_residual_dout,
         )
         if self.adc_bits <= 0 or any(not math.isfinite(value) or value <= 0.0 for value in positive_scalars):
             raise ValueError("ADC dynamic rates, scales, and bit depth must be positive")
@@ -1428,19 +1514,80 @@ class AnalysisAdcDynamic:
             raise ValueError("ADC dynamic metrics must be finite")
         if (
             self.amplitude_dout < 0.0
-            or self.residual_rms_dout < 0.0
             or self.input_referred_noise_rms_v < 0.0
             or self.input_referred_residual_rms_v < 0.0
             or self.expected_residual_tail_count < 0.0
-            or self.negative_residual_tail_count < 0
-            or self.positive_residual_tail_count < 0
-            or self.maximum_abs_residual_dout < 0.0
-            or self.negative_residual_tail_count + self.positive_residual_tail_count > self.sample_count
-            or not np.isclose(self.maximum_abs_residual_dout, np.max(np.abs(waveform["residual_dout"])))
         ):
             raise ValueError("ADC dynamic magnitudes and counts must be nonnegative")
+        if (
+            not np.allclose(waveform["fitted_dout"] + waveform["residual_dout"], waveform["measured_dout"])
+            or not np.isclose(np.median(np.diff(waveform["time_s"])) * self.sample_rate_hz, 1.0)
+            or not -math.pi <= self.phase_rad <= math.pi
+        ):
+            raise ValueError("ADC dynamic waveform, sample rate, fit, and phase are inconsistent")
         for name, value in {**waveform, **spectrum}.items():
             object.__setattr__(self, name, value)
+
+    @property
+    def sample_count(self) -> int:
+        """Return the number of analyzed conversion samples."""
+
+        return len(self.measured_dout)
+
+    @property
+    def amplitude_dbfs(self) -> float:
+        """Return fitted sine amplitude relative to the ADC full-scale peak."""
+
+        if self.amplitude_dout == 0.0:
+            return -math.inf
+        full_scale_peak_dout = ((1 << self.adc_bits) - 1) / 2.0
+        return 20.0 * math.log10(self.amplitude_dout / full_scale_peak_dout)
+
+    @property
+    def signal_rms_dout(self) -> float:
+        """Return RMS amplitude of the fitted sine."""
+
+        return self.amplitude_dout / math.sqrt(2.0)
+
+    @property
+    def residual_rms_dout(self) -> float:
+        """Return RMS of the time-domain fit residual."""
+
+        return float(np.sqrt(np.mean(self.residual_dout**2)))
+
+    @property
+    def sinad_db(self) -> float:
+        """Return time-domain signal-to-noise-and-distortion ratio."""
+
+        if self.signal_rms_dout == 0.0:
+            return -math.inf
+        if self.residual_rms_dout == 0.0:
+            return math.inf
+        return 20.0 * math.log10(self.signal_rms_dout / self.residual_rms_dout)
+
+    @property
+    def enob_bits(self) -> float:
+        """Return time-domain effective number of bits."""
+
+        return (self.sinad_db - 1.76) / 6.02
+
+    @property
+    def negative_residual_tail_count(self) -> int:
+        """Return residuals below the configured negative tail limit."""
+
+        return int(np.count_nonzero(self.residual_dout < -self.residual_tail_limit_dout))
+
+    @property
+    def positive_residual_tail_count(self) -> int:
+        """Return residuals above the configured positive tail limit."""
+
+        return int(np.count_nonzero(self.residual_dout > self.residual_tail_limit_dout))
+
+    @property
+    def maximum_abs_residual_dout(self) -> float:
+        """Return the largest absolute fit residual."""
+
+        return float(np.max(np.abs(self.residual_dout)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1450,7 +1597,7 @@ class AnalysisAdcDynamicSweep:
     input_frequency_hz: FloatArray
     sample_rate_hz: FloatArray
     active_conversion_rate_hz: FloatArray
-    observed_adc: IntArray
+    adc_index: IntArray
     logic_phase_delay_symbols: FloatArray
     input_referred_noise_rms_v: FloatArray
     input_referred_residual_rms_v: FloatArray
@@ -1486,7 +1633,7 @@ class AnalysisAdcDynamicSweep:
         }
         int_fields = {
             name: _array_1d(getattr(self, name), np.int64, name)
-            for name in ("observed_adc", "negative_residual_tail_count", "positive_residual_tail_count")
+            for name in ("adc_index", "negative_residual_tail_count", "positive_residual_tail_count")
         }
         if _aligned_length({**float_fields, **int_fields}) == 0:
             raise ValueError("ADC dynamic sweep requires at least one point")
@@ -1498,7 +1645,7 @@ class AnalysisAdcDynamicSweep:
             or np.any(float_fields["input_referred_residual_rms_v"] < 0.0)
             or np.any(float_fields["expected_residual_tail_count"] < 0.0)
             or np.any(float_fields["maximum_abs_residual_dout"] < 0.0)
-            or np.any((int_fields["observed_adc"] < -1) | (int_fields["observed_adc"] >= 16))
+            or np.any((int_fields["adc_index"] < -1) | (int_fields["adc_index"] >= 16))
             or np.any(int_fields["negative_residual_tail_count"] < 0)
             or np.any(int_fields["positive_residual_tail_count"] < 0)
             or not math.isfinite(self.residual_tail_limit_dout)
@@ -1515,16 +1662,13 @@ class AnalysisAdcPowerSweep:
 
     sample_rate_hz: FloatArray
     active_conversion_rate_hz: FloatArray
-    observed_adc: IntArray
+    adc_index: IntArray
     vdd_a_static_power_w: FloatArray
     vdd_d_static_power_w: FloatArray
     vdd_dac_static_power_w: FloatArray
     vdd_a_dynamic_power_w: FloatArray
     vdd_d_dynamic_power_w: FloatArray
     vdd_dac_dynamic_power_w: FloatArray
-    total_static_power_w: FloatArray
-    total_dynamic_power_w: FloatArray
-    total_power_w: FloatArray
 
     def __post_init__(self) -> None:
         float_fields = {
@@ -1538,40 +1682,39 @@ class AnalysisAdcPowerSweep:
                 "vdd_a_dynamic_power_w",
                 "vdd_d_dynamic_power_w",
                 "vdd_dac_dynamic_power_w",
-                "total_static_power_w",
-                "total_dynamic_power_w",
-                "total_power_w",
             )
         }
-        observed_adc = _array_1d(self.observed_adc, np.int64, "observed_adc")
-        if _aligned_length({**float_fields, "observed_adc": observed_adc}) == 0:
+        adc_index = _array_1d(self.adc_index, np.int64, "adc_index")
+        if _aligned_length({**float_fields, "adc_index": adc_index}) == 0:
             raise ValueError("ADC power sweep requires at least one point")
         if (
             np.any(float_fields["sample_rate_hz"] <= 0.0)
             or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
             or any(np.any(values < 0.0) for name, values in float_fields.items() if not name.endswith("rate_hz"))
-            or np.any((observed_adc < -1) | (observed_adc >= 16))
+            or np.any((adc_index < -1) | (adc_index >= 16))
         ):
             raise ValueError("ADC power sweep rates, powers, and indices are outside their valid ranges")
-        static_sum = (
-            float_fields["vdd_a_static_power_w"]
-            + float_fields["vdd_d_static_power_w"]
-            + float_fields["vdd_dac_static_power_w"]
-        )
-        dynamic_sum = (
-            float_fields["vdd_a_dynamic_power_w"]
-            + float_fields["vdd_d_dynamic_power_w"]
-            + float_fields["vdd_dac_dynamic_power_w"]
-        )
-        if (
-            not np.allclose(float_fields["total_static_power_w"], static_sum)
-            or not np.allclose(float_fields["total_dynamic_power_w"], dynamic_sum)
-            or not np.allclose(float_fields["total_power_w"], static_sum + dynamic_sum)
-        ):
-            raise ValueError("ADC power sweep totals do not match their rail components")
         for name, value in float_fields.items():
             object.__setattr__(self, name, value)
-        object.__setattr__(self, "observed_adc", observed_adc)
+        object.__setattr__(self, "adc_index", adc_index)
+
+    @property
+    def total_static_power_w(self) -> FloatArray:
+        """Return total idle power across all three supply rails."""
+
+        return self.vdd_a_static_power_w + self.vdd_d_static_power_w + self.vdd_dac_static_power_w
+
+    @property
+    def total_dynamic_power_w(self) -> FloatArray:
+        """Return incremental conversion power across all three rails."""
+
+        return self.vdd_a_dynamic_power_w + self.vdd_d_dynamic_power_w + self.vdd_dac_dynamic_power_w
+
+    @property
+    def total_power_w(self) -> FloatArray:
+        """Return complete active power across all three supply rails."""
+
+        return self.total_static_power_w + self.total_dynamic_power_w
 
 
 @dataclass(frozen=True, slots=True)
@@ -1581,7 +1724,6 @@ class AnalysisAdcPowerWaveform:
     backend: Backend
     adc_index: int
     active_conversion_rate_hz: float
-    active_duration_s: float
     time_s: FloatArray
     rail_power_w: FloatArray
     static_power_w: FloatArray
@@ -1608,14 +1750,11 @@ class AnalysisAdcPowerWaveform:
             not -1 <= self.adc_index < 16
             or not math.isfinite(self.active_conversion_rate_hz)
             or self.active_conversion_rate_hz <= 0.0
-            or not math.isfinite(self.active_duration_s)
-            or self.active_duration_s <= 0.0
         ):
-            raise ValueError("ADC power waveform rate and duration must be positive")
+            raise ValueError("ADC power waveform rate must be positive")
         if (
             np.any(static_power_w < 0.0)
             or np.any(active_power_w < static_power_w)
-            or not np.isclose(self.active_duration_s * self.active_conversion_rate_hz, 1.0)
             or time_s[0] > 0.0
             or time_s[-1] < self.active_duration_s
         ):
@@ -1626,12 +1765,60 @@ class AnalysisAdcPowerWaveform:
         object.__setattr__(self, "active_power_w", active_power_w)
         object.__setattr__(self, "timing_high", timing_high)
 
+    @property
+    def active_duration_s(self) -> float:
+        """Return the duration of one active conversion."""
+
+        return 1.0 / self.active_conversion_rate_hz
+
+    @property
+    def analog_power_w(self) -> FloatArray:
+        """Return instantaneous analog-rail power."""
+
+        return self.rail_power_w[0]
+
+    @property
+    def digital_power_w(self) -> FloatArray:
+        """Return instantaneous digital-rail power."""
+
+        return self.rail_power_w[1]
+
+    @property
+    def dac_power_w(self) -> FloatArray:
+        """Return instantaneous DAC-rail power."""
+
+        return self.rail_power_w[2]
+
+    @property
+    def init_high(self) -> BoolArray:
+        """Return the aligned sequencer INIT state."""
+
+        return self.timing_high[0]
+
+    @property
+    def samp_high(self) -> BoolArray:
+        """Return the aligned sequencer SAMP state."""
+
+        return self.timing_high[1]
+
+    @property
+    def comp_high(self) -> BoolArray:
+        """Return the aligned sequencer COMP state."""
+
+        return self.timing_high[2]
+
+    @property
+    def logic_high(self) -> BoolArray:
+        """Return the aligned sequencer LOGIC state."""
+
+        return self.timing_high[3]
+
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcDecisionPaths:
     """Running SAR estimates reconstructed from selected decision records."""
 
-    selection: Literal["single", "same_dout", "all"]
+    selection: AdcDecisionSelection
     conversion_index: IntArray
     final_dout: IntArray
     bout: Uint8Array
@@ -1666,6 +1853,9 @@ class AnalysisAdcDecisionPaths:
         object.__setattr__(self, "estimate_dout", estimate_dout)
 
 
+# Comparator analyses
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisCompOffsetNoise:
     """Comparator decision probability, offset, and input-referred noise."""
@@ -1676,7 +1866,7 @@ class AnalysisCompOffsetNoise:
     offset_v: float
     noise_sigma_v: float
     decision_polarity: Literal[-1, 1] = 1
-    validity: Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"] = "valid"
+    validity: CompFitValidity = "valid"
 
     def __post_init__(self) -> None:
         vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True)
@@ -1709,86 +1899,6 @@ class AnalysisCompOffsetNoise:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisCdacCapMismatch:
-    """A-to-B transition fits and normalized main/difference capacitances."""
-
-    adc_index: int
-    expected_effective_fraction: FloatArray
-    curve_element: IntArray
-    curve_side: Uint8Array
-    curve_direction: Uint8Array
-    curve_diffcaps: Uint8Array
-    transition_v: FloatArray
-    normalized_step: FloatArray
-    curve_valid: Uint8Array
-    main_fraction: FloatArray
-    diff_fraction: FloatArray
-    effective_fraction: FloatArray
-    effective_fraction_by_direction: FloatArray
-    direction_bias: FloatArray
-
-    def __post_init__(self) -> None:
-        expected = _array_1d(
-            self.expected_effective_fraction,
-            np.float64,
-            "expected_effective_fraction",
-            finite=True,
-        )
-        curves = {
-            "curve_element": _array_1d(self.curve_element, np.int64, "curve_element"),
-            "curve_side": _array_1d(self.curve_side, np.uint8, "curve_side"),
-            "curve_direction": _array_1d(self.curve_direction, np.uint8, "curve_direction"),
-            "curve_diffcaps": _array_1d(self.curve_diffcaps, np.uint8, "curve_diffcaps"),
-            "transition_v": _array_1d(self.transition_v, np.float64, "transition_v"),
-            "normalized_step": _array_1d(self.normalized_step, np.float64, "normalized_step"),
-            "curve_valid": _array_1d(self.curve_valid, np.uint8, "curve_valid"),
-        }
-        if _aligned_length(curves) == 0:
-            raise ValueError("CDAC mismatch analysis requires at least one fitted curve")
-        matrices = {
-            name: _array_2d(getattr(self, name), np.float64, name)
-            for name in ("main_fraction", "diff_fraction", "effective_fraction")
-        }
-        element_count = len(expected)
-        if not element_count or any(values.shape != (2, element_count) for values in matrices.values()):
-            raise ValueError("CDAC mismatch matrices must contain two sides and all expected elements")
-        effective_by_direction = np.ascontiguousarray(self.effective_fraction_by_direction, dtype=np.float64)
-        direction_bias = np.ascontiguousarray(self.direction_bias, dtype=np.float64)
-        if effective_by_direction.shape != (2, element_count, 2) or direction_bias.shape != (2, element_count, 2):
-            raise ValueError("CDAC direction results must contain two directions per side and element")
-        if not 0 <= self.adc_index < 16:
-            raise ValueError("CDAC mismatch ADC index must be in 0..15")
-        if np.any(expected <= 0.0):
-            raise ValueError("expected CDAC effective fractions must be positive")
-        if np.any(curves["curve_element"] < 0) or np.any(curves["curve_element"] >= element_count):
-            raise ValueError("CDAC curve element is outside the analyzed array")
-        for name in ("curve_side", "curve_direction", "curve_diffcaps", "curve_valid"):
-            if np.any((curves[name] != 0) & (curves[name] != 1)):
-                raise ValueError(f"{name} must be binary")
-        floating_results = (
-            curves["transition_v"],
-            curves["normalized_step"],
-            *matrices.values(),
-            effective_by_direction,
-            direction_bias,
-        )
-        if any(np.any(np.isinf(values)) for values in floating_results):
-            raise ValueError("CDAC mismatch results may use NaN but not infinity")
-        valid_curves = curves["curve_valid"].astype(bool)
-        if not np.all(np.isfinite(curves["transition_v"][valid_curves])) or not np.all(
-            np.isfinite(curves["normalized_step"][valid_curves])
-        ):
-            raise ValueError("valid CDAC mismatch curves require finite fit results")
-        object.__setattr__(self, "expected_effective_fraction", expected)
-        for name, values in curves.items():
-            object.__setattr__(self, name, values)
-        for name, values in matrices.items():
-            object.__setattr__(self, name, values)
-        object.__setattr__(self, "effective_fraction_by_direction", effective_by_direction)
-        object.__setattr__(self, "direction_bias", direction_bias)
-
-
-@dataclass(frozen=True, slots=True)
 class AnalysisCompTiming:
     """Comparator timing and metastability results across measurements."""
 
@@ -1796,7 +1906,7 @@ class AnalysisCompTiming:
     trial_index: IntArray
     clock_to_decision_s: FloatArray
     settling_s: FloatArray
-    unresolved: Uint8Array
+    unresolved: BoolArray
 
     def __post_init__(self) -> None:
         values = {
@@ -1804,12 +1914,10 @@ class AnalysisCompTiming:
             "trial_index": _array_1d(self.trial_index, np.int64, "trial_index"),
             "clock_to_decision_s": _array_1d(self.clock_to_decision_s, np.float64, "clock_to_decision_s"),
             "settling_s": _array_1d(self.settling_s, np.float64, "settling_s"),
-            "unresolved": _array_1d(self.unresolved, np.uint8, "unresolved"),
+            "unresolved": _array_1d(self.unresolved, np.bool_, "unresolved"),
         }
         if _aligned_length(values) == 0:
             raise ValueError("comparator timing analysis requires at least one trial")
-        if np.any((values["unresolved"] != 0) & (values["unresolved"] != 1)):
-            raise ValueError("comparator unresolved flags must be binary")
         timing_values = (values["clock_to_decision_s"], values["settling_s"])
         if (
             np.any(values["source_index"] < 0)
@@ -1863,8 +1971,8 @@ class AnalysisCompCandidateSweep:
 
     candidate_id: tuple[str, ...]
     candidate_label: tuple[str, ...]
-    size_profile: tuple[str, ...]
-    validity: tuple[str, ...]
+    size_profile: tuple[CompSizeProfile, ...]
+    validity: tuple[CompFitValidity, ...]
     topology_index: IntArray
     total_width_units: IntArray
     total_active_area_units: IntArray
@@ -1944,6 +2052,57 @@ class AnalysisCompCandidateSweep:
             raise ValueError("comparator unresolved fractions must be finite probabilities")
         for name, values in {**integer_fields, **float_fields, **text_fields}.items():
             object.__setattr__(self, name, values)
+
+
+# CDAC analyses
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCdacCapMismatch:
+    """Normalized main, difference, and effective capacitance results."""
+
+    adc_index: int
+    expected_effective_fraction: FloatArray
+    main_fraction: FloatArray
+    diff_fraction: FloatArray
+    effective_fraction: FloatArray
+    effective_fraction_by_direction: FloatArray
+    direction_bias: FloatArray
+
+    def __post_init__(self) -> None:
+        expected = _array_1d(
+            self.expected_effective_fraction,
+            np.float64,
+            "expected_effective_fraction",
+            finite=True,
+        )
+        matrices = {
+            name: _array_2d(getattr(self, name), np.float64, name)
+            for name in ("main_fraction", "diff_fraction", "effective_fraction")
+        }
+        element_count = len(expected)
+        if not element_count or any(values.shape != (2, element_count) for values in matrices.values()):
+            raise ValueError("CDAC mismatch matrices must contain two sides and all expected elements")
+        effective_by_direction = np.ascontiguousarray(self.effective_fraction_by_direction, dtype=np.float64)
+        direction_bias = np.ascontiguousarray(self.direction_bias, dtype=np.float64)
+        if effective_by_direction.shape != (2, element_count, 2) or direction_bias.shape != (2, element_count, 2):
+            raise ValueError("CDAC direction results must contain two directions per side and element")
+        if not 0 <= self.adc_index < 16:
+            raise ValueError("CDAC mismatch ADC index must be in 0..15")
+        if np.any(expected <= 0.0):
+            raise ValueError("expected CDAC effective fractions must be positive")
+        floating_results = (
+            *matrices.values(),
+            effective_by_direction,
+            direction_bias,
+        )
+        if any(np.any(np.isinf(values)) for values in floating_results):
+            raise ValueError("CDAC mismatch results may use NaN but not infinity")
+        object.__setattr__(self, "expected_effective_fraction", expected)
+        for name, values in matrices.items():
+            object.__setattr__(self, name, values)
+        object.__setattr__(self, "effective_fraction_by_direction", effective_by_direction)
+        object.__setattr__(self, "direction_bias", direction_bias)
 
 
 MEASUREMENT_TYPES = {

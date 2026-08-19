@@ -27,6 +27,7 @@ from flow.analysis.types import (
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcDynamicSweep,
+    AnalysisAdcNoiseComparison,
     AnalysisAdcNoiseSweep,
     AnalysisAdcNonlinearity,
     AnalysisAdcPowerSweep,
@@ -40,7 +41,7 @@ from flow.analysis.types import (
     AnalysisCompPower,
     AnalysisCompTiming,
     AnalysisDiffampNoise,
-    AnalysisWaveforms,
+    AnalysisWaveform,
     MeasAdc,
     MeasAdcExt,
     MeasAdcInt,
@@ -359,7 +360,7 @@ def _time_scale(time_s: np.ndarray) -> tuple[float, str]:
 
 @with_plot_style
 def plot_waveforms(
-    analysis: AnalysisWaveforms,
+    analysis: AnalysisWaveform,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -425,10 +426,10 @@ def plot_diffamp_noise(
     histogram_ax.set_ylabel("Density (mV⁻¹)")
     style_legend(histogram_ax)
 
-    positive = analysis.frequency_hz > 0.0
+    positive = analysis.spectrum_frequency_hz > 0.0
     spectrum_ax.loglog(
-        analysis.frequency_hz[positive],
-        analysis.amplitude_spectral_density_v_per_sqrt_hz[positive] * 1e6,
+        analysis.spectrum_frequency_hz[positive],
+        analysis.spectrum_amplitude_density_v_per_sqrt_hz[positive] * 1e6,
         color=NORD_BLUE,
         linewidth=1.0,
         label=f"Measured spectrum (integrated RMS = {analysis.integrated_fft_noise_rms_v * 1e3:.3f} mV)",
@@ -720,7 +721,7 @@ def plot_adc_calibration_weights(
 ) -> tuple[Path, ...]:
     """Compare any calibration methods against one shared ideal weight set."""
 
-    nominal = analysis_list[0].nominal_weight
+    nominal = analysis_list[0].nominal_weights
 
     decision = np.arange(17)
     labels = [f"C{element:02d}" for element in range(16, 0, -1)] + ["Term."]
@@ -736,14 +737,14 @@ def plot_adc_calibration_weights(
     for calibration, color in zip(analysis_list, CURVE_COLORS, strict=False):
         axes[0].plot(
             decision,
-            calibration.calibrated_weight,
+            calibration.calibrated_weights,
             "o-",
             color=color,
             linewidth=1.1,
             markersize=3.5,
             label=calibration.label,
         )
-        error_percent = 100.0 * (calibration.calibrated_weight / nominal - 1.0)
+        error_percent = 100.0 * (calibration.calibrated_weights / nominal - 1.0)
         axes[1].plot(
             decision,
             error_percent,
@@ -753,11 +754,11 @@ def plot_adc_calibration_weights(
             markersize=3.5,
             label=calibration.label,
         )
-        inferred = ~calibration.weight_from_measurement
+        inferred = ~calibration.measured_weight_mask
         if np.any(inferred):
             axes[0].scatter(
                 decision[inferred],
-                calibration.calibrated_weight[inferred],
+                calibration.calibrated_weights[inferred],
                 marker="x",
                 s=30,
                 color=color,
@@ -868,7 +869,7 @@ def plot_adc_code_distribution(
 @with_plot_style
 def plot_adc_noise_sweep(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcNoiseSweep,
+    analysis: AnalysisAdcNoiseSweep | AnalysisAdcNoiseComparison,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -882,15 +883,15 @@ def plot_adc_noise_sweep(
     noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
 
     fig, ax = plt.subplots(figsize=FULL_HD_FIGSIZE)
-    conversion_rate_msps = analysis.sample_rate_hz / 1e6
-    if not analysis.series_labels:
+    conversion_rate_msps = analysis.active_conversion_rate_hz / 1e6
+    if isinstance(analysis, AnalysisAdcNoiseSweep):
         timing_values = np.unique(analysis.comparator_time_percent)
         labels = tuple(f"{value:g}%" for value in timing_values)
         selections = tuple(analysis.comparator_time_percent == value for value in timing_values)
         colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
     else:
-        labels = tuple(dict.fromkeys(analysis.series_labels))
-        label_values = np.asarray(analysis.series_labels)
+        labels = tuple(dict.fromkeys(analysis.series_label))
+        label_values = np.asarray(analysis.series_label)
         selections = tuple(label_values == label for label in labels)
         colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
 
@@ -936,8 +937,10 @@ def plot_adc_noise_sweep(
     if ax.get_legend_handles_labels()[0]:
         style_legend(
             ax,
-            ncol=4 if not analysis.series_labels else 1,
-            title="COMP→LOGIC interval\n(as % of decision cycle)" if not analysis.series_labels else None,
+            ncol=4 if isinstance(analysis, AnalysisAdcNoiseSweep) else 1,
+            title=(
+                "COMP→LOGIC interval\n(as % of decision cycle)" if isinstance(analysis, AnalysisAdcNoiseSweep) else None
+            ),
         )
     noise_mv_axis = ax.secondary_yaxis(
         "left",
@@ -1028,10 +1031,10 @@ def plot_adc_noise_distribution_sweep(
 ) -> tuple[Path, ...]:
     """Plot left-facing output-code histograms along the conversion-rate axis."""
 
-    code = cast(np.ndarray, analysis.code)
-    count = cast(np.ndarray, analysis.count)
-    order = np.argsort(analysis.sample_rate_hz)
-    rates_msps = analysis.sample_rate_hz[order] / 1e6
+    code = analysis.code
+    count = analysis.count
+    order = np.argsort(analysis.active_conversion_rate_hz)
+    rates_msps = analysis.active_conversion_rate_hz[order] / 1e6
     counts = count[order]
     populated = np.flatnonzero(np.any(counts > 0, axis=0))
     first_code = max(0, int(populated[0]) - 2)
@@ -1236,8 +1239,11 @@ def plot_adc_power_waveform(
     )
     rail_labels = ("Analog", "Digital", "DAC")
     rail_names = ("vdd_a", "vdd_d", "vdd_dac")
-    for index, (ax, label, rail) in enumerate(zip(axes[:3], rail_labels, rail_names, strict=True)):
-        instantaneous_power_uw = analysis.rail_power_w[index] * 1e6
+    rail_power_w = (analysis.analog_power_w, analysis.digital_power_w, analysis.dac_power_w)
+    for index, (ax, label, rail, power_w) in enumerate(
+        zip(axes[:3], rail_labels, rail_names, rail_power_w, strict=True)
+    ):
+        instantaneous_power_uw = power_w * 1e6
         static_power_uw = analysis.static_power_w[index] * 1e6
         active_power_uw = analysis.active_power_w[index] * 1e6
         color = RAIL_COLORS[rail]
@@ -1254,7 +1260,8 @@ def plot_adc_power_waveform(
 
     timing_ax = axes[3]
     timing_labels = ("INIT", "SAMP", "COMP", "LOGIC")
-    for row, (label, high, color) in enumerate(zip(timing_labels, analysis.timing_high, CURVE_COLORS, strict=False)):
+    timing_states = (analysis.init_high, analysis.samp_high, analysis.comp_high, analysis.logic_high)
+    for row, (label, high, color) in enumerate(zip(timing_labels, timing_states, CURVE_COLORS, strict=False)):
         timing_ax.step(scaled_time, row + 0.72 * high, where="post", color=color, linewidth=0.9)
     timing_ax.set_yticks(np.arange(len(timing_labels)) + 0.36, labels=timing_labels)
     timing_ax.set_ylim(-0.15, len(timing_labels) - 0.05)

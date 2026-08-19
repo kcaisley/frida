@@ -406,9 +406,9 @@ def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
         method="calibration1",
         label="Synthetic calibrated BOUT",
         code_max=4095,
-        nominal_weight=nominal,
-        calibrated_weight=calibrated,
-        weight_from_measurement=np.ones(17, dtype=np.bool_),
+        nominal_weights=nominal,
+        calibrated_weights=calibrated,
+        measured_weight_mask=np.ones(17, dtype=np.bool_),
         training_sample_count=100,
         validation_sample_count=0,
         output_gain=1.0,
@@ -552,7 +552,7 @@ def test_dynamic_sweep_retains_rate_frequency_and_logic_phase() -> None:
     np.testing.assert_allclose(sweep.input_frequency_hz, (1_000.0, 5_000.0))
     np.testing.assert_allclose(sweep.sample_rate_hz, (100_000.0, 100_000.0))
     np.testing.assert_array_equal(sweep.logic_phase_delay_symbols, (-1, 0))
-    np.testing.assert_array_equal(sweep.observed_adc, (-1, -1))
+    np.testing.assert_array_equal(sweep.adc_index, (-1, -1))
     assert np.all(sweep.input_referred_noise_rms_v > 0)
 
 
@@ -578,7 +578,7 @@ def test_power_sweep_uses_active_smu_readbacks() -> None:
 
     power = analyze_adc_power_sweep(measurements)
 
-    np.testing.assert_array_equal(power.observed_adc, (0, 1))
+    np.testing.assert_array_equal(power.adc_index, (0, 1))
     np.testing.assert_allclose(power.vdd_d_static_power_w, (24e-6, 12e-6))
     np.testing.assert_allclose(power.vdd_d_dynamic_power_w, (24e-6, 36e-6))
     np.testing.assert_allclose(power.total_static_power_w, (37.2e-6, 18.6e-6))
@@ -620,7 +620,7 @@ def test_power_sweep_extracts_spice_static_from_settled_idle_tail() -> None:
 
     power = analyze_adc_power_sweep((measurement,))
 
-    np.testing.assert_array_equal(power.observed_adc, (-1,))
+    np.testing.assert_array_equal(power.adc_index, (-1,))
     np.testing.assert_allclose(
         (power.vdd_a_static_power_w[0], power.vdd_d_static_power_w[0], power.vdd_dac_static_power_w[0]),
         (2.4e-6, 4.8e-6, 7.2e-6),
@@ -668,7 +668,7 @@ def test_noise_sweep_uses_active_rate_while_dynamic_uses_true_repeat_rate() -> N
     sweep = analyze_adc_noise_sweep([low, high])
 
     # The default pattern has 160 active symbols within a 256-symbol repeat.
-    np.testing.assert_allclose(sweep.sample_rate_hz, [1.6e6, 3.2e6])
+    np.testing.assert_allclose(sweep.active_conversion_rate_hz, [1.6e6, 3.2e6])
     np.testing.assert_allclose(sweep.comparator_time_percent, [12.5, 87.5])
     assert sweep.input_lsb_v == pytest.approx(1.2 / 4095)
     np.testing.assert_allclose(
@@ -768,9 +768,15 @@ def test_noise_comparison_combines_dc_dynamic_and_simulated_series() -> None:
         (dc_noise,),
     )
 
-    assert len(comparison.sample_rate_hz) == 9
-    np.testing.assert_array_equal(comparison.sample_rate_hz[:2], np.sort(dc_noise.sample_rate_hz))
-    np.testing.assert_array_equal(comparison.sample_rate_hz[-2:], dc_noise.sample_rate_hz)
+    assert len(comparison.active_conversion_rate_hz) == 9
+    np.testing.assert_array_equal(
+        comparison.active_conversion_rate_hz[:2],
+        np.sort(dc_noise.active_conversion_rate_hz),
+    )
+    np.testing.assert_array_equal(
+        comparison.active_conversion_rate_hz[-2:],
+        dc_noise.active_conversion_rate_hz,
+    )
     assert comparison.input_lsb_v == dc_noise.input_lsb_v
 
     mismatched_lsb = replace(dc_noise, input_lsb_v=2.0 * dc_noise.input_lsb_v)

@@ -159,12 +159,12 @@ def test_calibration1_public_analysis_returns_common_weights(monkeypatch: pytest
 
     assert result.method == "calibration1"
     assert result.adc_index == 0
-    np.testing.assert_allclose(result.calibrated_weight, result.nominal_weight)
-    np.testing.assert_array_equal(result.weight_from_measurement, [True] * 16 + [False])
+    np.testing.assert_allclose(result.calibrated_weights, result.nominal_weights)
+    np.testing.assert_array_equal(result.measured_weight_mask, [True] * 16 + [False])
     assert result.training_sample_count == 100
 
     measured[0, 5, :] = np.nan
     hybrid = analyze((measurement,), comparator_offset_v=0.0)
-    assert not hybrid.weight_from_measurement[5]
-    assert np.all(np.isfinite(hybrid.calibrated_weight))
-    assert np.sum(hybrid.calibrated_weight) == pytest.approx(4095.0)
+    assert not hybrid.measured_weight_mask[5]
+    assert np.all(np.isfinite(hybrid.calibrated_weights))
+    assert np.sum(hybrid.calibrated_weights) == pytest.approx(4095.0)

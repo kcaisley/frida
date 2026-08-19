@@ -85,9 +85,6 @@ def analyze_cdac_cap_mismatch(
         grouped.setdefault(key, []).append(measurement)
 
     curve_keys = sorted(grouped)
-    transitions = []
-    normalized_steps = []
-    curve_valid = []
     per_mode_direction = np.full((2, element_count, 2, 2), np.nan, dtype=np.float64)
     for element, side, direction, diffcaps in curve_keys:
         curve_measurements = grouped[(element, side, direction, diffcaps)]
@@ -102,9 +99,6 @@ def analyze_cdac_cap_mismatch(
         side_sign = 1.0 if params.cdac_side == "p" else -1.0
         direction_sign = 1.0 if params.cdac_direction == "0to1" else -1.0
         oriented_step = side_sign * direction_sign * signed_step
-        transitions.append(transition_v)
-        normalized_steps.append(signed_step)
-        curve_valid.append(valid)
         per_mode_direction[side, element, diffcaps, direction] = oriented_step
 
     main_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
@@ -137,13 +131,6 @@ def analyze_cdac_cap_mismatch(
     return AnalysisCdacCapMismatch(
         adc_index=adc_index,
         expected_effective_fraction=_expected_cdac_effective_fraction(measurements),
-        curve_element=np.asarray([key[0] for key in curve_keys], dtype=np.int64),
-        curve_side=np.asarray([key[1] for key in curve_keys], dtype=np.uint8),
-        curve_direction=np.asarray([key[2] for key in curve_keys], dtype=np.uint8),
-        curve_diffcaps=np.asarray([key[3] for key in curve_keys], dtype=np.uint8),
-        transition_v=np.asarray(transitions, dtype=np.float64),
-        normalized_step=np.asarray(normalized_steps, dtype=np.float64),
-        curve_valid=np.asarray(curve_valid, dtype=np.uint8),
         main_fraction=main_fraction,
         diff_fraction=diff_fraction,
         effective_fraction=effective_fraction,

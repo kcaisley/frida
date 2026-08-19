@@ -374,7 +374,7 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
                     curve.decoding,
                     0 if calibration is None else calibration.training_sample_count,
                     0 if calibration is None else calibration.validation_sample_count,
-                    0 if calibration is None else int(np.count_nonzero(calibration.weight_from_measurement)),
+                    0 if calibration is None else int(np.count_nonzero(calibration.measured_weight_mask)),
                     1.0 if calibration is None else calibration.output_gain,
                     0.0 if calibration is None else calibration.output_offset_lsb,
                     curve.maximum_abs_dnl,
@@ -406,13 +406,13 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
             writer.writerow(
                 (
                     decision_index,
-                    calibrations[0].nominal_weight[decision_index],
+                    calibrations[0].nominal_weights[decision_index],
                     *(
                         value
                         for calibration in calibrations
                         for value in (
-                            calibration.calibrated_weight[decision_index],
-                            bool(calibration.weight_from_measurement[decision_index]),
+                            calibration.calibrated_weights[decision_index],
+                            bool(calibration.measured_weight_mask[decision_index]),
                         )
                     ),
                 )
@@ -531,8 +531,8 @@ def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
         physical_noise = analyze_adc_noise_sweep(dc_measurements)
         physical_noise_100mv = analyze_adc_noise_sweep(dc100_measurements)
         sine_dynamic = analyze_adc_dynamic_sweep(sine_measurements[adc_index])
-        order = np.argsort(physical_noise.sample_rate_hz)
-        physical_rates = physical_noise.sample_rate_hz[order]
+        order = np.argsort(physical_noise.active_conversion_rate_hz)
+        physical_rates = physical_noise.active_conversion_rate_hz[order]
         if reference_rates is None:
             reference_rates = physical_rates
         elif not np.array_equal(physical_rates, reference_rates):

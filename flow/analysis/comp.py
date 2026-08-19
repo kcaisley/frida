@@ -17,6 +17,8 @@ from flow.analysis.types import (
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
+    CompFitValidity,
+    CompSizeProfile,
     MeasCdacExt,
     MeasCompExt,
     MeasCompInt,
@@ -257,7 +259,7 @@ def analyze_comp_timing(
         trial_index=np.asarray(trial_indices, dtype=np.int64),
         clock_to_decision_s=np.asarray(delays, dtype=np.float64),
         settling_s=np.asarray(settling, dtype=np.float64),
-        unresolved=np.asarray(unresolved, dtype=np.uint8),
+        unresolved=np.asarray(unresolved, dtype=np.bool_),
     )
 
 
@@ -384,8 +386,8 @@ def analyze_comp_candidate_sweep(measurements: Sequence[MeasCompInt]) -> Analysi
     return AnalysisCompCandidateSweep(
         candidate_id=tuple(str(row["candidate_id"]) for row in rows),
         candidate_label=tuple(str(row["candidate_label"]) for row in rows),
-        size_profile=tuple(str(row["size_profile"]) for row in rows),
-        validity=tuple(str(row["validity"]) for row in rows),
+        size_profile=tuple(cast(CompSizeProfile, str(row["size_profile"])) for row in rows),
+        validity=tuple(cast(CompFitValidity, str(row["validity"])) for row in rows),
         topology_index=int_array("topology_index"),
         total_width_units=int_array("total_width_units"),
         total_active_area_units=int_array("total_active_area_units"),

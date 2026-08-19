@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from flow.analysis.types import AnalysisWaveforms, MeasAdcExt, MeasAdcInt, Measurement
+from flow.analysis.types import AnalysisWaveform, MeasAdcExt, MeasAdcInt, Measurement
 
 
 def _signal_unit(name: str) -> str:
@@ -45,7 +45,7 @@ def analyze_measurement_waveforms(
     *,
     record_index: int = 0,
     signal_names: Sequence[str] | None = None,
-) -> AnalysisWaveforms:
+) -> AnalysisWaveform:
     """Select one validated waveform record from a typed measurement."""
 
     if msmt.wave is None:
@@ -69,7 +69,7 @@ def analyze_measurement_waveforms(
     if missing:
         raise ValueError(f"measurement has no waveform signals {missing}")
     measurement_kind = type(msmt).__name__.removeprefix("Meas").removesuffix("Ext").removesuffix("Int")
-    return AnalysisWaveforms(
+    return AnalysisWaveform(
         title=f"{measurement_kind.upper()} waveforms",
         time_s=msmt.wave.time_s,
         signal_names=selected_names,
@@ -85,7 +85,7 @@ def analyze_measurement_waveforms(
 def analyze_scope_waveforms(
     waveforms: Any,
     track_names: Mapping[int, str],
-) -> AnalysisWaveforms:
+) -> AnalysisWaveform:
     """Normalize one aligned Basil oscilloscope acquisition."""
 
     channels = tuple(track_names)
@@ -101,7 +101,7 @@ def analyze_scope_waveforms(
     if any(waveforms[channel].x_scale != reference_scale for channel in channels):
         raise ValueError("scope channels do not share one horizontal scale")
     sample_count = next(iter(sample_counts.values()))
-    return AnalysisWaveforms(
+    return AnalysisWaveform(
         title="Oscilloscope waveforms",
         time_s=reference_scale.offset + np.arange(sample_count) * reference_scale.slope,
         signal_names=tuple(track_names[channel] for channel in channels),

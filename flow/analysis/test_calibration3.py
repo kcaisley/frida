@@ -146,12 +146,12 @@ def test_threshold_calibration_recovers_both_directional_movements(threshold_ana
         expected_down_step_v[:10] + expected_up_step_v[:10],
         abs=120e-6,
     )
-    assert np.all(result.calibrated_weight > 0.0)
-    assert np.sum(result.nominal_weight) == pytest.approx(4095.0)
-    assert np.sum(result.calibrated_weight) == pytest.approx(4095.0)
+    assert np.all(result.calibrated_weights > 0.0)
+    assert np.sum(result.nominal_weights) == pytest.approx(4095.0)
+    assert np.sum(result.calibrated_weights) == pytest.approx(4095.0)
     resolved = extraction["step_resolved"]
     resolved_prefix_count = int(np.argmax(~resolved)) if np.any(~resolved) else 16
-    assert np.count_nonzero(result.weight_from_measurement) <= resolved_prefix_count
+    assert np.count_nonzero(result.measured_weight_mask) <= resolved_prefix_count
 
 
 def test_threshold_calibration_uses_common_weight_plot(
