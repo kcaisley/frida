@@ -53,7 +53,7 @@ def style_measurement_text(msmt: Measurement) -> tuple[str, ...]:
         if active_indices:
             active_rate_hz = float(msmt.param.symbol_rate) / (active_indices[-1] - active_indices[0] + 1)
     if isinstance(active_rate_hz, (int, float)):
-        lines += (f"Rate: {float(active_rate_hz) / 1e6:g} MSPS",)
+        lines += (f"Rate: {float(active_rate_hz) / 1e6:g} Msps",)
     init_p = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_p), 2)
     init_n = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_n), 2)
     if init_p == init_n:

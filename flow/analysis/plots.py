@@ -6,7 +6,6 @@ import os
 from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
-from typing import cast
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -19,7 +18,7 @@ from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.offsetbox import AnchoredText
 from matplotlib.patches import Patch
-from matplotlib.ticker import AutoMinorLocator, NullLocator
+from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
 from flow.analysis.types import (
@@ -112,6 +111,7 @@ PLOT_STYLE = mpl.RcParams(
         "axes.edgecolor": SPINE_COLOR,
         "axes.linewidth": 0.8,
         "axes.facecolor": PLOT_FACE_COLOR,
+        "axes.grid": False,
         "axes.prop_cycle": cycler(color=CURVE_COLORS),
         "xtick.color": TEXT_COLOR,
         "xtick.direction": "in",
@@ -140,6 +140,8 @@ PLOT_STYLE = mpl.RcParams(
         "legend.borderaxespad": 0.5,
         "legend.fontsize": 11.0,
         "legend.title_fontsize": 11.0,
+        "lines.linewidth": 1.5,
+        "lines.markersize": 6.0,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
     }
@@ -193,7 +195,7 @@ def style_info_box(ax: plt.Axes, lines: Sequence[str], *, location: str = "upper
     box = AnchoredText(
         "\n".join(lines),
         loc=location,
-        prop={"color": mpl.rcParams["text.color"], "size": mpl.rcParams["legend.fontsize"]},
+        prop={"size": mpl.rcParams["legend.fontsize"]},
         frameon=True,
         pad=mpl.rcParams["legend.borderpad"],
         borderpad=mpl.rcParams["legend.borderaxespad"],
@@ -291,7 +293,7 @@ def plot_waveforms(
         analysis.signal_values,
         strict=True,
     ):
-        ax.plot(analysis.time_s * scale, values, linewidth=1.0)
+        ax.plot(analysis.time_s * scale, values)
         suffix = f" ({signal_unit})" if signal_unit else ""
         ax.set_ylabel(f"{name}{suffix}")
         style_grid(ax)
@@ -328,7 +330,6 @@ def plot_diffamp_noise(
         gaussian_density_per_mv,
         color=CURVE_COLORS[1],
         linestyle=":",
-        linewidth=1.8,
         label=(f"Gaussian fit (raw µ = {analysis.mean_v * 1e3:.3f} mV subtracted; σ = {noise_rms_mv:.3f} mV)"),
     )
     histogram_ax.set_xlabel("Differential output noise about its mean (mV)")
@@ -340,14 +341,12 @@ def plot_diffamp_noise(
         analysis.spectrum_frequency_hz[positive],
         analysis.spectrum_amplitude_density_v_per_sqrt_hz[positive] * 1e6,
         color=NORD_BLUE,
-        linewidth=1.0,
         label=f"Measured spectrum (integrated RMS = {analysis.integrated_fft_noise_rms_v * 1e3:.3f} mV)",
     )
     spectrum_ax.axvline(
         analysis.measurement_bandwidth_hz,
         color=CURVE_COLORS[1],
         linestyle=":",
-        linewidth=1.4,
         label=f"Measurement bandwidth = {analysis.measurement_bandwidth_hz / 1e6:g} MHz",
     )
     spectrum_ax.set_xlabel("Frequency (Hz)")
@@ -396,7 +395,7 @@ def plot_adc_fastrx_scope_comparison(
         ("COMP_OUT", msmt.wave.comp_out_v[0]),
     )
     for ax, (label, values), color in zip(axes[:3], waveform_rows, CURVE_COLORS, strict=False):
-        ax.plot(scaled_time, values, color=color, linewidth=1.0)
+        ax.plot(scaled_time, values, color=color)
         for edge in scaled_edges:
             ax.axvline(edge, color=SPINE_COLOR, alpha=0.18, linewidth=0.6)
         ax.set_ylabel(f"{label} (V)")
@@ -406,7 +405,6 @@ def plot_adc_fastrx_scope_comparison(
         scaled_samples,
         analysis.sample_values_v,
         marker="o",
-        s=22,
         color=CURVE_COLORS[3],
         edgecolor=PLOT_FACE_COLOR,
         linewidth=0.5,
@@ -438,7 +436,6 @@ def plot_adc_fastrx_scope_comparison(
                 str(bit),
                 ha="center",
                 va="center",
-                color=TEXT_COLOR,
                 fontweight="bold",
             )
     decision_ax.set_yticks((1.0, 0.0), labels=("Scope decode", "FastRX decode"))
@@ -474,14 +471,12 @@ def plot_adc_transfer(
     fig, ax = plt.subplots()
     inputs = np.concatenate([msmt.daq.vin_diff_v for msmt in msmt_list])
     dout = np.concatenate([msmt.daq.dout for msmt in msmt_list])
-    ax.scatter(inputs * 1e3, dout, s=2, label="Conversions")
+    ax.scatter(inputs * 1e3, dout, label="Conversions")
     ax.errorbar(
         analysis.vin_diff_v * 1e3,
         analysis.mean_dout,
         yerr=analysis.std_dout,
         marker="o",
-        markersize=3,
-        linewidth=1.2,
         capsize=2,
         label="Mean ± 1σ",
     )
@@ -507,7 +502,6 @@ def plot_adc_ramp_transfer(
         ax.plot(
             curve.transfer_vin_diff_v * 1e3,
             curve.transfer_mean_dout,
-            linewidth=1.0,
             label=curve.label,
         )
     ax.set_xlabel("Inferred differential input (mV)")
@@ -548,7 +542,6 @@ def plot_adc_ramp_histogram(
             bin_edges,
             baseline=0.0,
             fill=False,
-            linewidth=1.0,
             color=color,
             label=curve.label,
         )
@@ -631,7 +624,7 @@ def plot_adc_calibration_weights(
         sharex=True,
         gridspec_kw={"height_ratios": (2.0, 1.0)},
     )
-    axes[0].plot(decision, nominal, "o-", color=NORD_DARK, linewidth=1.2, label="Ideal")
+    axes[0].plot(decision, nominal, "o-", color=NORD_DARK, label="Ideal")
     axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
     for calibration, color in zip(analysis_list, CURVE_COLORS, strict=False):
         axes[0].plot(
@@ -639,8 +632,6 @@ def plot_adc_calibration_weights(
             calibration.calibrated_weights,
             "o-",
             color=color,
-            linewidth=1.1,
-            markersize=3.5,
             label=calibration.label,
         )
         error_percent = 100.0 * (calibration.calibrated_weights / nominal - 1.0)
@@ -649,8 +640,6 @@ def plot_adc_calibration_weights(
             error_percent,
             "o-",
             color=color,
-            linewidth=1.1,
-            markersize=3.5,
             label=calibration.label,
         )
         inferred = ~calibration.measured_weight_mask
@@ -659,7 +648,6 @@ def plot_adc_calibration_weights(
                 decision[inferred],
                 calibration.calibrated_weights[inferred],
                 marker="x",
-                s=30,
                 color=color,
                 zorder=5,
             )
@@ -688,8 +676,8 @@ def plot_adc_static_nonlinearity(
     """Plot static ADC DNL and INL from one completed analysis."""
 
     fig, axes = plt.subplots(2, 1, sharex=True)
-    axes[0].plot(analysis.code, analysis.dnl, linewidth=0.9)
-    axes[1].plot(analysis.code, analysis.inl, linewidth=0.9)
+    axes[0].plot(analysis.code, analysis.dnl)
+    axes[1].plot(analysis.code, analysis.inl)
     axes[0].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
     axes[0].set_ylabel("DNL (LSB)")
     axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
@@ -712,8 +700,8 @@ def plot_adc_ramp_nonlinearity(
 
     fig, axes = plt.subplots(2, 1, sharex=True)
     for curve in analysis.curves:
-        axes[0].plot(curve.linearity_code, curve.dnl, linewidth=0.9, label=curve.label)
-        axes[1].plot(curve.linearity_code, curve.inl, linewidth=0.9, label=curve.label)
+        axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
+        axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
     axes[0].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
     axes[0].set_ylabel("DNL (LSB)")
     axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
@@ -804,7 +792,6 @@ def plot_adc_noise_sweep(
                 float(selected_rate[-1]),
                 color=color,
                 linestyle=":",
-                linewidth=1.4,
                 label=label,
             )
         else:
@@ -812,8 +799,6 @@ def plot_adc_noise_sweep(
                 selected_rate,
                 selected_noise_lsb,
                 marker="o",
-                markersize=3,
-                linewidth=0.8,
                 color=color,
                 label=label,
             )
@@ -843,10 +828,8 @@ def plot_adc_noise_sweep(
         ),
     )
     noise_mv_axis.spines["left"].set_position(("outward", 58))
-    noise_mv_axis.spines["left"].set_color(SPINE_COLOR)
     noise_mv_axis.set_ylabel("Input-referred noise (mV RMS)")
-    noise_mv_axis.tick_params(direction="in", which="both", left=True, right=False, colors=TEXT_COLOR)
-    noise_mv_axis.yaxis.label.set_color(TEXT_COLOR)
+    noise_mv_axis.tick_params(which="both", left=True, right=False)
 
     enob_axis = ax.secondary_yaxis(
         "right",
@@ -865,11 +848,9 @@ def plot_adc_noise_sweep(
             lambda enob_bits: full_scale_rms_lsb * np.power(10.0, -(6.02 * np.asarray(enob_bits) + 1.76) / 20.0),
         ),
     )
-    enob_axis.spines["right"].set_color(SPINE_COLOR)
     enob_axis.set_ylabel("ENOB (bit)")
     enob_axis.set_yticks(np.arange(7.0, 13.0, 1.0))
-    enob_axis.tick_params(direction="in", which="both", left=False, right=True, colors=TEXT_COLOR)
-    enob_axis.yaxis.label.set_color(TEXT_COLOR)
+    enob_axis.tick_params(which="both", left=False, right=True)
 
     snr_axis = ax.secondary_yaxis(
         "right",
@@ -885,18 +866,15 @@ def plot_adc_noise_sweep(
         ),
     )
     snr_axis.spines["right"].set_position(("outward", 58))
-    snr_axis.spines["right"].set_color(SPINE_COLOR)
     snr_axis.set_ylabel("SNR (dB)")
     snr_axis.set_yticks(np.arange(45.0, 71.0, 5.0))
-    snr_axis.tick_params(direction="in", which="both", left=False, right=True, colors=TEXT_COLOR)
-    snr_axis.yaxis.label.set_color(TEXT_COLOR)
+    snr_axis.tick_params(which="both", left=False, right=True)
 
     decision_time_axis = ax.twiny()
     decision_time_axis.set_xlim(ax.get_xlim())
     decision_time_axis.xaxis.set_ticks_position("bottom")
     decision_time_axis.xaxis.set_label_position("bottom")
     decision_time_axis.spines["bottom"].set_position(("outward", 38))
-    decision_time_axis.spines["bottom"].set_color(SPINE_COLOR)
     decision_time_axis.spines["top"].set_visible(False)
     decision_time_axis.set_xlabel("Time per decision cycle (ns)")
     labeled_rates_msps = np.arange(1.0, 11.0)
@@ -904,13 +882,10 @@ def plot_adc_noise_sweep(
     decision_time_axis.set_xticks(labeled_rates_msps)
     decision_time_axis.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
     decision_time_axis.tick_params(
-        direction="in",
         which="both",
         top=False,
         bottom=True,
-        colors=TEXT_COLOR,
     )
-    decision_time_axis.xaxis.label.set_color(TEXT_COLOR)
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower left")
     return save_figure(fig, output_path)
 
@@ -956,16 +931,15 @@ def plot_adc_noise_distribution_sweep(
         )
     mean = analysis.mean_dout[order]
     std = analysis.std_dout[order]
-    ax.plot(rates_msps, mean, color=CURVE_COLORS[1], linewidth=1.2, marker="o", markersize=2.5, label="Mean")
+    ax.plot(rates_msps, mean, color=CURVE_COLORS[1], marker="o", label="Mean")
     ax.plot(
         rates_msps,
         mean - std,
         color=CURVE_COLORS[2],
-        linewidth=0.9,
         linestyle="--",
         label="Mean ±1σ",
     )
-    ax.plot(rates_msps, mean + std, color=CURVE_COLORS[2], linewidth=0.9, linestyle="--")
+    ax.plot(rates_msps, mean + std, color=CURVE_COLORS[2], linestyle="--")
     ax.set_xlabel("Active conversion rate (Msps)")
     ax.set_ylabel("ADC output code (LSB)")
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
@@ -990,19 +964,18 @@ def plot_adc_dynamic(
 
     time_scale, time_unit = style_time_units(analysis.time_s)
     fig, axes = plt.subplots(3, 1)
-    axes[0].plot(analysis.time_s * time_scale, analysis.measured_dout, ".", markersize=2, label="Measured")
-    axes[0].plot(analysis.time_s * time_scale, analysis.fitted_dout, linewidth=1.0, label="Sine fit")
+    axes[0].plot(analysis.time_s * time_scale, analysis.measured_dout, label="Measured")
+    axes[0].plot(analysis.time_s * time_scale, analysis.fitted_dout, label="Sine fit")
     axes[0].set_xlabel(f"Time ({time_unit})")
     axes[0].set_ylabel("ADC output (LSB)")
     axes[0].legend()
-    axes[1].plot(analysis.time_s * time_scale, analysis.residual_dout, linewidth=0.7)
+    axes[1].plot(analysis.time_s * time_scale, analysis.residual_dout)
     axes[1].set_xlabel(f"Time ({time_unit})")
     axes[1].set_ylabel("Residual (LSB)")
     positive = analysis.spectrum_frequency_hz > 0
     axes[2].semilogx(
         analysis.spectrum_frequency_hz[positive],
         analysis.spectrum_dbfs[positive],
-        linewidth=0.8,
         label=f"SNDR {analysis.spectral_sndr_db:.2f} dB; ENOB {analysis.spectral_enob_bits:.2f} bit",
     )
     axes[2].set_xlabel("Frequency (Hz)")
@@ -1096,9 +1069,9 @@ def plot_adc_power_sweep(
         if index >= 3:
             collection.set_hatch("///")
     total_power_uw = analysis.total_power_w[order] * 1e6
-    ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR, linewidth=1.0)
+    ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
-    ax.set_xlabel("Active conversion rate (MSPS)")
+    ax.set_xlabel("Active conversion rate (Msps)")
     ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
     if np.max(rate_msps) >= 1.0:
         ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
@@ -1141,9 +1114,9 @@ def plot_adc_power_waveform(
         instantaneous_power_uw = power_w * 1e6
         static_power_uw = analysis.static_power_w[index] * 1e6
         active_power_uw = analysis.active_power_w[index] * 1e6
-        ax.plot(scaled_time, instantaneous_power_uw, color=color, linewidth=0.9, label="Instantaneous")
-        ax.axhline(static_power_uw, color=NORD_DARK, linestyle=":", linewidth=1.0, label="Static average")
-        ax.axhline(active_power_uw, color=NORD_ORANGE, linestyle="--", linewidth=1.0, label="Active average")
+        ax.plot(scaled_time, instantaneous_power_uw, color=color, label="Instantaneous")
+        ax.axhline(static_power_uw, color=NORD_DARK, linestyle=":", label="Static average")
+        ax.axhline(active_power_uw, color=NORD_ORANGE, linestyle="--", label="Active average")
         ax.set_ylabel(f"{label} (µW)")
         ax.set_yscale("symlog", linthresh=linear_threshold_uw, linscale=0.6)
         ax.set_yticks(power_ticks)
@@ -1155,7 +1128,7 @@ def plot_adc_power_waveform(
     timing_labels = ("INIT", "SAMP", "COMP", "LOGIC")
     timing_states = (analysis.init_high, analysis.samp_high, analysis.comp_high, analysis.logic_high)
     for row, (label, high, color) in enumerate(zip(timing_labels, timing_states, CURVE_COLORS, strict=False)):
-        timing_ax.step(scaled_time, row + 0.72 * high, where="post", color=color, linewidth=0.9)
+        timing_ax.step(scaled_time, row + 0.72 * high, where="post", color=color)
     timing_ax.set_yticks(np.arange(len(timing_labels)) + 0.36, labels=timing_labels)
     timing_ax.set_ylim(-0.15, len(timing_labels) - 0.05)
     timing_ax.set_ylabel("Sequencer")
@@ -1169,7 +1142,7 @@ def plot_adc_power_waveform(
     setup_lines = [f"Source: {analysis.backend.upper()}"]
     if analysis.adc_index >= 0:
         setup_lines.append(f"ADC: {analysis.adc_index:02d}")
-    setup_lines.append(f"Rate: {analysis.active_conversion_rate_hz / 1e6:g} MSPS")
+    setup_lines.append(f"Rate: {analysis.active_conversion_rate_hz / 1e6:g} Msps")
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC instantaneous supply power")
     return save_figure(fig, output_path)
@@ -1190,7 +1163,6 @@ def plot_adc_decision_paths(
         ax.plot(
             cycles,
             estimate,
-            linewidth=0.8,
             color=CURVE_COLORS[0],
             label="Running estimate" if row == 0 else None,
         )
@@ -1203,7 +1175,6 @@ def plot_adc_decision_paths(
     ax.set_xlabel("Decision cycle")
     ax.set_ylabel("Running estimate (LSB)")
     ax.set_title("ADC decision paths")
-    ax.grid(False, which="both")
     ax.legend()
     style_info_box(ax, style_measurement_text(msmt), location="lower right")
     return save_figure(fig, output_path)
@@ -1307,15 +1278,15 @@ def plot_adc_decision_path_density(
 
     fig, all_axes = plt.subplots(
         1,
-        3,
+        4,
         layout="constrained",
-        gridspec_kw={"width_ratios": (1.0, 1.0, 0.035), "wspace": 0.03},
+        gridspec_kw={"width_ratios": (1.0, 1.0, 0.30, 0.035), "wspace": 0.03},
     )
     axes = all_axes[:2]
     for panel_index, (ax, panel_title, y_limit) in enumerate(
         zip(
             axes,
-            ("Full trajectory", "Final output ±25 LSB"),
+            ("Full trajectory", "Final trajectory"),
             y_limits,
             strict=True,
         )
@@ -1352,35 +1323,59 @@ def plot_adc_decision_path_density(
         ax.set_xticklabels(("Init", *(f"{cycle:g}" for cycle in labeled_cycles[1:])))
         ax.set_xticks(cycles, minor=True)
         ax.set_xlabel("Decision cycle")
-        ax.set_ylabel("Running estimate (LSB)")
+        if panel_index == 0:
+            ax.set_ylabel("Successive approximation code (LSB)")
         ax.set_title(panel_title)
         ax.set_facecolor(NORD_BLUE)
         if panel_index:
-            ax.yaxis.set_minor_locator(AutoMinorLocator())
-            ax.set_axisbelow(False)
-            ax.grid(
-                True,
-                which="major",
-                color=GRID_MINOR_COLOR,
-                alpha=0.25,
-                linewidth=0.35,
-            )
-            ax.grid(
-                True,
-                which="minor",
-                color=GRID_MINOR_COLOR,
-                alpha=0.25,
-                linewidth=0.35,
-            )
-        else:
-            ax.grid(False, which="both")
+            ax.yaxis.set_minor_locator(MultipleLocator(1.0))
 
-    colorbar = fig.colorbar(ScalarMappable(norm=density_norm, cmap=DENSITY_COLOR_MAP), cax=all_axes[2])
+    histogram_ax = all_axes[2]
+    sample_count = len(paths)
+    final_count = state_count[-1]
+    populated_final_codes = np.flatnonzero(final_count)
+    populated_final_count = final_count[populated_final_codes]
+    histogram_ax.barh(
+        populated_final_codes,
+        populated_final_count / sample_count,
+        height=1.0,
+        color=DENSITY_COLOR_MAP(density_norm(populated_final_count)),
+        edgecolor="none",
+        rasterized=True,
+        zorder=2,
+    )
+    final_mean = float(np.mean(paths[:, -1]))
+    final_std = float(np.std(paths[:, -1]))
+    if final_std > 0.0:
+        fit_code = np.linspace(*y_limits[1], 501)
+        fit_fraction_per_lsb = np.exp(-0.5 * ((fit_code - final_mean) / final_std) ** 2) / (
+            final_std * np.sqrt(2.0 * np.pi)
+        )
+        histogram_ax.plot(
+            fit_fraction_per_lsb,
+            fit_code,
+            color=TEXT_COLOR,
+            zorder=3,
+        )
+    histogram_ax.set_ylim(*y_limits[1])
+    histogram_ax.set_xlim(left=0.0)
+    histogram_ax.set_title("Code density")
+    histogram_ax.set_xlabel("Count / N")
+    histogram_ax.set_yticks([])
+    histogram_ax.xaxis.set_major_locator(MaxNLocator(nbins=2, integer=True))
+    histogram_ax.xaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
+    histogram_ax.set_facecolor(NORD_BLUE)
+    style_info_box(
+        histogram_ax,
+        (
+            f"μ: {final_mean:.0f}",
+            f"σ: {final_std:.1f}",
+        ),
+    )
+
+    colorbar = fig.colorbar(ScalarMappable(norm=density_norm, cmap=DENSITY_COLOR_MAP), cax=all_axes[3])
     colorbar.set_label("Conversions per path")
-    colorbar.ax.tick_params(colors=TEXT_COLOR)
-    cast(Patch, colorbar.outline).set_edgecolor(SPINE_COLOR)
-    colorbar.ax.yaxis.label.set_color(TEXT_COLOR)
-    style_info_box(axes[0], style_measurement_text(msmt))
+    style_info_box(axes[0], (*style_measurement_text(msmt), f"N: {sample_count}"))
     fig.suptitle("ADC decision-path density")
     return save_figure(fig, output_path)
 
@@ -1459,7 +1454,6 @@ def plot_comp_sampling_campaign(
             curve_ax.scatter(
                 analysis.vin_diff_v * 1e3,
                 analysis.decision_probability,
-                s=9.0,
                 color=color,
                 marker=mode_markers[mode],
                 edgecolors="none",
@@ -1476,7 +1470,6 @@ def plot_comp_sampling_campaign(
             curve_ax.plot(
                 fit_input_v * 1e3,
                 fit_probability,
-                linewidth=2.0,
                 color=color,
                 linestyle=mode_linestyles[mode],
                 label=curve_label,
@@ -1504,7 +1497,6 @@ def plot_comp_sampling_campaign(
                 violin_center,
                 threshold_mv,
                 marker=mode_markers[mode],
-                markersize=3.5,
                 color=color,
             )
 
@@ -1574,7 +1566,6 @@ def plot_comp_common_mode_campaign(
         curve_ax.scatter(
             analysis.vin_diff_v * 1e3,
             analysis.decision_probability,
-            s=9.0,
             color=color,
             edgecolors="none",
             zorder=2,
@@ -1595,7 +1586,6 @@ def plot_comp_common_mode_campaign(
             curve_ax.plot(
                 fit_input_v * 1e3,
                 fit_probability,
-                linewidth=2.0,
                 color=color,
                 label=f"Vin_cm = {common_mode_v:.3g} V",
                 zorder=3,
@@ -1615,12 +1605,11 @@ def plot_comp_common_mode_campaign(
                 linewidth=0.8,
                 edgecolor=color,
             )
-            violin_ax.plot(common_mode_v, threshold_mv, marker="o", markersize=4.0, color=color)
+            violin_ax.plot(common_mode_v, threshold_mv, marker="o", color=color)
         else:
             curve_ax.plot(
                 analysis.vin_diff_v * 1e3,
                 analysis.decision_probability,
-                linewidth=0.8,
                 color=color,
                 label=f"Vin_cm = {common_mode_v:.3g} V (fit invalid)",
                 zorder=3,
@@ -1713,7 +1702,7 @@ def plot_cdac_cap_mismatch(
             color=color,
             label=label,
         )
-    axes[0].plot(elements, expected_effective, "k--", linewidth=0.8, label="Ideal/PEX")
+    axes[0].plot(elements, expected_effective, "k--", label="Ideal/PEX")
     axes[2].plot(
         elements,
         analysis.effective_fraction[0] - analysis.effective_fraction[1],
@@ -1875,7 +1864,6 @@ def plot_comp_candidate_sweep(
             ax.scatter(
                 position[selected],
                 values[selected],
-                s=14 if profile != "fabricated" else 52,
                 marker="o" if profile != "fabricated" else "*",
                 color=colors[profile],
                 label={"half": "0.5× FRIDA widths", "double": "2× FRIDA widths", "fabricated": "FRIDA baseline"}[
@@ -1949,7 +1937,6 @@ def plot_comp_noise_power_tradeoff(
             cmap=SPECTRUM_COLOR_MAP,
             norm=color_norm,
             marker=marker,
-            s=30,
             edgecolors=SPINE_COLOR,
             linewidths=0.35,
             label=label,
@@ -1961,7 +1948,6 @@ def plot_comp_noise_power_tradeoff(
         noise_mv[baseline_index],
         power_uw[baseline_index],
         marker="*",
-        s=180,
         color=CURVE_COLORS[2],
         edgecolors=TEXT_COLOR,
         linewidths=0.7,
@@ -1973,14 +1959,10 @@ def plot_comp_noise_power_tradeoff(
         (noise_mv[baseline_index], power_uw[baseline_index]),
         xytext=(8, 7),
         textcoords="offset points",
-        color=TEXT_COLOR,
     )
 
     colorbar = fig.colorbar(mappable, ax=ax, pad=0.02)
     colorbar.set_label("Worst settling time (ns)")
-    colorbar.ax.tick_params(colors=TEXT_COLOR)
-    cast(Patch, colorbar.outline).set_edgecolor(SPINE_COLOR)
-    colorbar.ax.yaxis.label.set_color(TEXT_COLOR)
 
     ax.set_yscale("log")
     ax.set_xlabel("Input-referred noise σ (mV)")

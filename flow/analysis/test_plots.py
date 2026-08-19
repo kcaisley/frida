@@ -107,7 +107,14 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
         assert plt.rcParams["ytick.labelsize"] == 11.0
         assert plt.rcParams["legend.fontsize"] == 11.0
         assert plt.rcParams["legend.linewidth"] == 0.8
+        assert plt.rcParams["lines.linewidth"] == 1.5
+        assert plt.rcParams["lines.markersize"] == 6.0
         assert plt.rcParams["text.color"] == "black"
+        assert plt.rcParams["axes.labelcolor"] == TEXT_COLOR
+        assert plt.rcParams["axes.edgecolor"] == SPINE_COLOR
+        assert plt.rcParams["axes.grid"] is False
+        assert plt.rcParams["xtick.color"] == TEXT_COLOR
+        assert plt.rcParams["ytick.color"] == TEXT_COLOR
         assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.0)) == NORD_BLUE.lower()
         assert mcolors.to_hex(SPECTRUM_COLOR_MAP(0.5)) == NORD_ORANGE.lower()
         assert mcolors.to_hex(SPECTRUM_COLOR_MAP(1.0)) == NORD_YELLOW.lower()
@@ -116,12 +123,21 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
 
         fig, ax = plt.subplots()
         ax.plot((0, 1), (0, 1), label="trace")
+        scatter = ax.scatter((0.5,), (0.5,))
+        assert np.array_equal(scatter.get_sizes(), np.asarray([36.0]))
         quarter_ticks = np.arange(0.0, 1.01, 0.25)
         ax.set_xticks(quarter_ticks, minor=True)
         style_grid(ax)
         ax.legend()
+        colorbar = fig.colorbar(mpl.cm.ScalarMappable(), ax=ax)
+        colorbar.set_label("Scale")
+        fig.canvas.draw()
         assert ax.spines["left"].get_edgecolor() == mcolors.to_rgba(SPINE_COLOR)
         assert ax.xaxis.label.get_color() == TEXT_COLOR
+        assert ax.get_xticklabels()[0].get_color() == TEXT_COLOR
+        assert colorbar.outline.get_edgecolor() == mcolors.to_rgba(SPINE_COLOR)
+        assert colorbar.ax.get_yticklabels()[0].get_color() == TEXT_COLOR
+        assert colorbar.ax.yaxis.label.get_color() == TEXT_COLOR
         assert ax.get_xgridlines()[0].get_color() == GRID_MAJOR_COLOR
         assert isinstance(ax.xaxis.get_minor_locator(), FixedLocator)
         assert np.array_equal(ax.get_xticks(minor=True), quarter_ticks[1:-1])
@@ -149,7 +165,7 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "dac_botplate_p_15_v" in svg
     assert "Time (" in svg
     assert "Source: SPICE" in svg
-    assert "Rate: 1.6 MSPS" in svg
+    assert "Rate: 1.6 Msps" in svg
     assert "CDAC init: h'5555" in svg
     assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
@@ -534,10 +550,17 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
     density_svg = read_svg(density_paths)
     assert "decision-path density" in density_svg
     assert "Full trajectory" in density_svg
-    assert "Final output ±25 LSB" in density_svg
+    assert "Final trajectory" in density_svg
+    assert "Code density" in density_svg
+    assert "Successive approximation code (LSB)" in density_svg
+    assert "Running estimate (LSB)" not in density_svg
+    assert "N:" in density_svg
+    assert "μ:" in density_svg
+    assert "σ:" in density_svg
+    assert "Count / N" in density_svg
     assert "Conversions per path" in density_svg
     assert GRID_MAJOR_COLOR.lower() not in density_svg.lower()
-    assert analysis_plots.GRID_MINOR_COLOR.lower() in density_svg.lower()
+    assert analysis_plots.GRID_MINOR_COLOR.lower() not in density_svg.lower()
     assert plt.imread(density_paths[0]).shape[:2] == (2700, 4800)
 
 

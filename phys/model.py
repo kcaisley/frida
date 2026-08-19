@@ -156,7 +156,6 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
             rates,
             label=f"{pitch_m * 1e6:g} µm",
             color=color,
-            linewidth=2,
         )
 
     # ---- beam-source markers along bottom axis ----
@@ -182,7 +181,6 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
             "s",
             transform=_xax,
             color=photon_color,
-            markersize=7,
             markeredgecolor="white",
             markeredgewidth=0.5,
             zorder=5,
@@ -207,7 +205,6 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
             "o",
             transform=_xax,
             color=electron_color,
-            markersize=7,
             markeredgecolor="white",
             markeredgewidth=0.5,
             zorder=5,
@@ -226,8 +223,8 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
             clip_on=False,
         )
     _src_h = [
-        Line2D([0], [0], marker="s", color="w", markerfacecolor=photon_color, markersize=7, label="Photon source"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=electron_color, markersize=7, label="Electron source"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor=photon_color, label="Photon source"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=electron_color, label="Electron source"),
     ]
 
     ax.set_xscale("log")
@@ -286,7 +283,7 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
 
     for enob, color in zip(enobs, colors, strict=True):
         rates = [max_counting_rate_per_pixel_per_second(enob, w) for w in frame_windows]
-        ax_int.plot(frame_windows, rates, label=rf"{enob}-bit", color=color, linewidth=2)
+        ax_int.plot(frame_windows, rates, label=rf"{enob}-bit", color=color)
 
     ax_int.set_yscale("log")
     ax_int.set_ylim(1e4, 1e9)
@@ -306,7 +303,7 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
     dead_s = dead_ns * 1e-9
     loss_rates = [max_rate(w) for w in dead_s]
 
-    ax_disc.plot(dead_ns, loss_rates, "--", color=CURVE_COLORS[0], linewidth=2, label="10% pile-up limit")
+    ax_disc.plot(dead_ns, loss_rates, "--", color=CURVE_COLORS[0], label="10% pile-up limit")
 
     # Discriminating detector markers
     _discrim = [  # (label, dead_time_ns, reported_rate_cps)
@@ -331,7 +328,6 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
             r,
             "o",
             color=CURVE_COLORS[1],
-            markersize=7,
             markeredgecolor="white",
             markeredgewidth=0.5,
             zorder=5,
