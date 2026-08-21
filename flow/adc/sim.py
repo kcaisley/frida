@@ -3,7 +3,6 @@
 import argparse
 import math
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -737,7 +736,6 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
                 ],
             )
         )
-    started = time.perf_counter()
     # HDL21 types cover scalar and sequence inputs, all result formats, and all analyses;
     # this call requests a SIM_DATA list containing one transient per simulation.
     results = cast(
@@ -763,10 +761,6 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
             maximum_waveform_records=3,
         )
         write_measurement(case_dir / "result.h5", measurement)
-    print(
-        f"Simulated and converted {len(parameters)} ADC simulations in {time.perf_counter() - started:.1f} s",
-        flush=True,
-    )
     return run_dir
 
 
@@ -904,7 +898,6 @@ def frida65a_transfer_curve(run_dir: Path) -> Path:
             hs.Tran(tstop=tstop_s, name="tran", options={"strobeperiod": 50e-12, "strobeoutput": "strobeonly"}),
         ],
     )
-    started = time.perf_counter()
     # HDL21 types cover every result format and analysis; this call requests
     # SIM_DATA containing one transient.
     result = cast(
@@ -927,7 +920,6 @@ def frida65a_transfer_curve(run_dir: Path) -> Path:
         maximum_waveform_records=3,
     )
     write_measurement(run_dir / "result.h5", measurement)
-    print(f"transfer: simulated and converted in {time.perf_counter() - started:.1f} s", flush=True)
     return run_dir
 
 
@@ -1010,7 +1002,6 @@ def hdl21gen_noise_vs_rate(run_dir: Path) -> Path:
                 ],
             )
         )
-    started = time.perf_counter()
     # HDL21 types cover scalar and sequence inputs, all result formats, and all analyses;
     # this call requests a SIM_DATA list containing one transient per simulation.
     results = cast(
@@ -1036,10 +1027,6 @@ def hdl21gen_noise_vs_rate(run_dir: Path) -> Path:
             maximum_waveform_records=3,
         )
         write_measurement(case_dir / "result.h5", measurement)
-    print(
-        f"Simulated and converted {len(parameters)} ADC simulations in {time.perf_counter() - started:.1f} s",
-        flush=True,
-    )
     return run_dir
 
 
@@ -1091,7 +1078,6 @@ def hdl21gen_transfer_curve(run_dir: Path) -> Path:
             hs.Tran(tstop=tstop_s, name="tran", options={"strobeperiod": 50e-12, "strobeoutput": "strobeonly"}),
         ],
     )
-    started = time.perf_counter()
     # HDL21 types cover every result format and analysis; this call requests
     # SIM_DATA containing one transient.
     result = cast(
@@ -1114,7 +1100,6 @@ def hdl21gen_transfer_curve(run_dir: Path) -> Path:
         maximum_waveform_records=3,
     )
     write_measurement(run_dir / "result.h5", measurement)
-    print(f"transfer: simulated and converted in {time.perf_counter() - started:.1f} s", flush=True)
     return run_dir
 
 
@@ -1153,7 +1138,6 @@ def main() -> None:
     )
     run_dir.mkdir(parents=True, exist_ok=False)
     targets[args.target](run_dir)
-    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":

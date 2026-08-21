@@ -1,7 +1,6 @@
 """Sampler testbench and named TSMC65 Spectre simulation targets."""
 
 import argparse
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -154,7 +153,6 @@ def frida65_baseline_transient(run_dir: Path) -> Path:
             ),
         ],
     )
-    started = time.perf_counter()
     simulation.run(
         SimOptions(
             simulator=SupportedSimulators.SPECTRE,
@@ -171,7 +169,6 @@ def frida65_baseline_transient(run_dir: Path) -> Path:
             ),
         )
     )
-    print(f"Completed sampler simulation in {time.perf_counter() - started:.1f} s", flush=True)
     return run_dir
 
 
@@ -197,7 +194,6 @@ def main() -> None:
     )
     run_dir.mkdir(parents=True, exist_ok=False)
     targets[args.target](run_dir)
-    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":

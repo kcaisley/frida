@@ -494,7 +494,6 @@ def frida65_baseline_noise(run_dir: Path) -> Path:
         spectre_runtime_s=runtime_s,
     )
     write_measurement(run_dir / "result.h5", measurement)
-    print(f"baseline: simulated and converted in {runtime_s:.1f} s", flush=True)
     return run_dir
 
 
@@ -710,7 +709,6 @@ def frida65_candidates(run_dir: Path) -> Path:
                     )
                 except Exception as error:  # noqa: BLE001 - collect every candidate failure
                     failures[candidate_id] = repr(error)
-                    print(f"{candidate_id}: FAILED during preparation: {error}", flush=True)
             if not pending:
                 continue
             completed, _remaining = wait(pending, return_when=FIRST_COMPLETED)
@@ -735,10 +733,8 @@ def frida65_candidates(run_dir: Path) -> Path:
                         spectre_runtime_s=runtime_s,
                     )
                     write_measurement(case_dir / "result.h5", measurement)
-                    print(f"{candidate_id}: simulated and converted in {runtime_s:.1f} s", flush=True)
                 except Exception as error:  # noqa: BLE001 - collect every candidate failure
                     failures[candidate_id] = repr(error)
-                    print(f"{candidate_id}: FAILED: {error}", flush=True)
                 finally:
                     CompTb.Cache.reset()
                     Comp.Cache.reset()
@@ -779,7 +775,6 @@ def main() -> None:
     )
     run_dir.mkdir(parents=True, exist_ok=False)
     targets[args.target](run_dir)
-    print(f"Simulation output: {run_dir}")
 
 
 if __name__ == "__main__":
