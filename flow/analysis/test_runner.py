@@ -399,6 +399,66 @@ def test_adc_ramp_runner_rejects_incomplete_capture(
         runner.adc_ramp_nonlinearity(tmp_path / "output")
 
 
+def test_adc00_fixed_input_noise_adds_ideal_and_pex_trajectory_density(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plot the matching 700 mV common-mode simulations beside ADC00."""
+
+    measurements = {}
+    physical_dir = tmp_path / "build/scan_adc/20260819_113714"
+    for point_index, rate_mbd in enumerate((320, 960, 1600)):
+        measurements[
+            physical_dir
+            / f"{point_index:04d}_00_adc00_{rate_mbd}mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+        ] = adc_measurement([0])
+    for run_name in ("20260820_005128", "20260820_005122"):
+        for rate_msps in (2, 6, 10):
+            path = tmp_path / "build/sim/adc" / run_name / f"{rate_msps}msps_cm700mv_dc50mv/result.h5"
+            measurements[path] = adc_measurement([0], internal=True)
+
+    density_outputs = []
+    distribution_outputs = []
+
+    def plot_density(_measurement, _analysis, *, output_path):
+        density_outputs.append(output_path.name)
+        return (output_path.with_suffix(".png"),)
+
+    def plot_distribution(_measurements, _analysis, *, output_path):
+        distribution_outputs.append(output_path.name)
+        return (output_path.with_suffix(".png"),)
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(
+        runner,
+        "analyze_adc_noise_sweep",
+        lambda _measurements: SimpleNamespace(active_conversion_rate_hz=np.asarray((2e6, 6e6, 10e6))),
+    )
+    monkeypatch.setattr(runner, "analyze_adc_decision_paths", lambda _measurement, *, selection: selection)
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_noise_sweep",
+        lambda *_args, output_path: (output_path.with_suffix(".png"),),
+    )
+    monkeypatch.setattr(runner, "plot_adc_noise_distribution_sweep", plot_distribution)
+    monkeypatch.setattr(runner, "plot_adc_decision_path_density", plot_density)
+
+    artifacts = runner.adc00_fixed_input_noise(tmp_path / "output")
+
+    assert len(artifacts) == 13
+    assert distribution_outputs == [
+        "adc00_50mv_output_code_distributions",
+        "spice_hdl21gen_50mv_output_code_distributions",
+        "spice_frida65a_pex_50mv_output_code_distributions",
+    ]
+    assert density_outputs == [
+        *(f"adc00_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
+        *(f"spice_hdl21gen_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
+        *(f"spice_frida65a_pex_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
+    ]
+
+
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
