@@ -240,7 +240,8 @@ def analyze(
         measurements,
         comparator_offset_v=comparator_offset_v,
     )
-    params = measurements[0].param
+    scan_params = measurements[0].param
+    params = scan_params.tb
     nominal_cap_weight = np.asarray(
         [2.0 * value for value in get_cdac_weights(params.dut.cdac)],
         dtype=np.float64,
@@ -279,7 +280,7 @@ def analyze(
     nominal_weight *= code_max / np.sum(nominal_weight)
     calibrated_weight = np.concatenate((hybrid_cap_weight, [terminal_weight]))
     calibrated_weight *= code_max / np.sum(calibrated_weight)
-    adc_index = -1 if params.observed_adc is None else params.observed_adc
+    adc_index = -1 if scan_params.observed_adc is None else scan_params.observed_adc
     return AnalysisAdcCalibration(
         adc_index=adc_index,
         method="calibration1",

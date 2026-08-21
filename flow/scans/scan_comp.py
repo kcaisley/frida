@@ -1,7 +1,7 @@
 """Acquire physical comparator S-curves as fixed-input typed HDF5 points.
 
 The public :func:`scan` function acquires a supplied list of complete
-``AdcTbParams`` objects. Named hardware campaigns live in
+``AdcScanParams`` objects. Named hardware campaigns live in
 ``flow.scans.runner``.
 """
 
@@ -21,15 +21,15 @@ from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
 from flow.adc import AdcParams
+from flow.adc.sim import AdcTbParams
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CompDaq, CompExtWave, MeasCompExt, MeasInfo
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from flow.circuit.params import build_uniform_sweep_values
 from flow.scans.fastrx import (
     calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
 )
-from flow.scans.params import AdcTbParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
@@ -39,7 +39,7 @@ from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 
-def _comp_curve_key(params: AdcTbParams) -> tuple[Any, ...]:
+def _comp_curve_key(params: AdcScanParams) -> tuple[Any, ...]:
     """Identify one S-curve while excluding its input and acquisition stage."""
 
     return (
@@ -47,34 +47,34 @@ def _comp_curve_key(params: AdcTbParams) -> tuple[Any, ...]:
         params.observed_adc,
         params.campaign,
         params.sampling_mode,
-        float(params.vin_cm.dc),
+        float(params.tb.vin_cm.dc),
         None if params.requested_dac_rail_percent is None else float(params.requested_dac_rail_percent),
-        params.dac_mode,
-        params.dac_diffcaps,
+        params.tb.dac_mode,
+        params.tb.dac_diffcaps,
         float(params.settling_time_s),
-        params.dac_astate_p,
-        params.dac_bstate_p,
-        params.dac_astate_n,
-        params.dac_bstate_n,
+        params.tb.dac_astate_p,
+        params.tb.dac_bstate_p,
+        params.tb.dac_astate_n,
+        params.tb.dac_bstate_n,
     )
 
 
-def _comp_point_stem(params: AdcTbParams) -> str:
+def _comp_point_stem(params: AdcScanParams) -> str:
     """Return the stable filename portion used for resuming one point."""
 
     assert params.board_id is not None
     assert params.observed_adc is not None
-    assert isinstance(params.vin_diff, h.Vdc.Params)
+    assert isinstance(params.tb.vin_diff, h.Vdc.Params)
     rail_label = ""
     if params.requested_dac_rail_percent is not None:
         rail_label = f"_pcpl{float(params.requested_dac_rail_percent):06.2f}pct"
     return (
         (
             f"{params.board_id}_adc{params.observed_adc:02d}_{params.campaign}_"
-            f"{params.sampling_mode}_mode{params.dac_mode}_diff{params.dac_diffcaps}_"
+            f"{params.sampling_mode}_mode{params.tb.dac_mode}_diff{params.tb.dac_diffcaps}_"
             f"settle{float(params.settling_time_s) * 1e9:06.2f}ns_{params.sweep_stage}{rail_label}_"
-            f"vcm{float(params.vin_cm.dc) * 1e3:07.2f}mv_"
-            f"vdiff{float(params.vin_diff.dc) * 1e3:+08.3f}mv"
+            f"vcm{float(params.tb.vin_cm.dc) * 1e3:07.2f}mv_"
+            f"vdiff{float(params.tb.vin_diff.dc) * 1e3:+08.3f}mv"
         )
         .replace("+", "p")
         .replace("-", "m")
@@ -97,7 +97,7 @@ def _build_comp_params(
     sweep_min_v: float | None = None,
     sweep_max_v: float | None = None,
     sweep_step_v: float | None = None,
-) -> AdcTbParams:
+) -> AdcScanParams:
     """Compose one complete physical comparator point without hardware I/O."""
 
     board_id = "00"
@@ -122,10 +122,20 @@ def _build_comp_params(
         dac_state_n = dac_state_p
 
     symbol_rate_bps = 1.6e9
-    params = AdcTbParams(
-        dut=dut,
-        symbol_rate=symbol_rate_bps,
-        conversions=conversions,
+    params = AdcScanParams(
+        tb=AdcTbParams(
+            view="frida65a",
+            dut=dut,
+            symbol_rate=symbol_rate_bps,
+            conversions=conversions,
+            dac_mode=0,
+            dac_astate_p=dac_state_p,
+            dac_bstate_p=dac_state_p,
+            dac_astate_n=dac_state_n,
+            dac_bstate_n=dac_state_n,
+            vin_cm=h.Vdc.Params(dc=vin_cm_v),
+            vin_diff=h.Vdc.Params(dc=vin_diff_v),
+        ),
         board_id=board_id,
         observed_adc=adc_index,
         active_adc_mask=tuple(int(index == adc_index) for index in reversed(range(16))),
@@ -137,15 +147,8 @@ def _build_comp_params(
         sweep_step_v=sweep_step_v,
         requested_dac_rail_percent=requested_dac_rail_percent,
         settling_time_s=settling_time_s,
-        dac_mode=0,
-        dac_astate_p=dac_state_p,
-        dac_bstate_p=dac_state_p,
-        dac_astate_n=dac_state_n,
-        dac_bstate_n=dac_state_n,
-        vin_cm=h.Vdc.Params(dc=vin_cm_v),
-        vin_diff=h.Vdc.Params(dc=vin_diff_v),
     )
-    sequence_words = len(params.seq_init_pattern) // 8
+    sequence_words = len(params.tb.seq_init_pattern) // 8
     word_period_s = 8.0 / symbol_rate_bps
     settle_words = math.ceil(settling_time_s / word_period_s)
     init_words = ["00000000"] * sequence_words
@@ -167,13 +170,31 @@ def _build_comp_params(
 
     params = replace(
         params,
-        seq_init_pattern="".join(init_words),
-        seq_samp_pattern="".join(samp_words),
-        seq_comp_pattern="".join(comp_words),
-        seq_logic_pattern="".join(logic_words),
+        tb=replace(
+            params.tb,
+            seq_init_pattern="".join(init_words),
+            seq_samp_pattern="".join(samp_words),
+            seq_comp_pattern="".join(comp_words),
+            seq_logic_pattern="".join(logic_words),
+        ),
     )
     validate_params(params)
     return params
+
+
+def _fixed_grid_values(minimum_v: float, maximum_v: float, step_v: float) -> tuple[float, ...]:
+    """Return one finite inclusive hardware-scan grid."""
+
+    if not all(math.isfinite(value) for value in (minimum_v, maximum_v, step_v)):
+        raise ValueError("comparator scan grid values must be finite")
+    if minimum_v > maximum_v:
+        raise ValueError("comparator scan minimum must not exceed its maximum")
+    if step_v <= 0.0:
+        raise ValueError("comparator scan step must be positive")
+    steps = (maximum_v - minimum_v) / step_v
+    if not math.isclose(steps, round(steps), rel_tol=0.0, abs_tol=1.0e-9):
+        raise ValueError("comparator scan endpoints must align to its step")
+    return tuple(minimum_v + index * step_v for index in range(round(steps) + 1))
 
 
 def build_common_mode_variants(
@@ -184,19 +205,16 @@ def build_common_mode_variants(
     maximum_v: float,
     step_v: float,
     conversions: int,
-) -> list[AdcTbParams]:
+) -> list[AdcScanParams]:
     """Build fixed-grid comparator common-mode S-curves."""
 
+    vin_diff_values_v = _fixed_grid_values(minimum_v, maximum_v, step_v)
     variants = []
     # Keep the slow GPIB common-mode supply fixed while all four ADCs are
     # measured at one Vin_cm value.
     for vin_cm_v in common_mode_values_v:
         for adc_index in adc_indices:
-            for vin_diff_v in build_uniform_sweep_values(
-                minimum_v,
-                maximum_v,
-                step_v,
-            ):
+            for vin_diff_v in vin_diff_values_v:
                 variants.append(
                     _build_comp_params(
                         adc_index=adc_index,
@@ -224,13 +242,14 @@ def build_sampling_noise_variants(
     step_v: float,
     conversions: int,
     selected_curves: Collection[tuple[int, float, str]] | None = None,
-) -> list[AdcTbParams]:
+) -> list[AdcScanParams]:
     """Build all or selected complementary-CDAC track/hold S-curves."""
 
     from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
     board_map = load_board_map()
     board = board_map["boards"]["00"]
+    vin_diff_values_v = _fixed_grid_values(minimum_v, maximum_v, step_v)
     variants = []
     for adc_index in adc_indices:
         flavor = board["adc_channels"][adc_index]
@@ -242,11 +261,7 @@ def build_sampling_noise_variants(
             else:
                 state_n = tuple(1 - bit for bit in state_p)
             for sampling_mode in ("track", "hold"):
-                for vin_diff_v in build_uniform_sweep_values(
-                    minimum_v,
-                    maximum_v,
-                    step_v,
-                ):
+                for vin_diff_v in vin_diff_values_v:
                     variants.append(
                         _build_comp_params(
                             adc_index=adc_index,
@@ -292,7 +307,7 @@ def build_sampling_noise_variants(
 
 
 def scan(
-    variants: Sequence[AdcTbParams],
+    variants: Sequence[AdcScanParams],
     *,
     run_dir: Path,
     capture_scope_per_curve: bool = True,
@@ -322,7 +337,7 @@ def scan(
             raise ValueError(f"scan_comp cannot run campaign {params.campaign!r}")
         if params.board_id is None or params.observed_adc is None or params.active_adc_mask is None:
             raise ValueError("every physical comparator point must select its board and ADC")
-        if not isinstance(params.vin_diff, h.Vdc.Params):
+        if not isinstance(params.tb.vin_diff, h.Vdc.Params):
             raise TypeError("physical comparator S-curves require fixed DC inputs")
         if params.sweep_stage == "coarse":
             raise ValueError("adaptive coarse sweeps belong to scan_cdac; comparator scans require explicit points")
@@ -330,19 +345,19 @@ def scan(
     first = queue[0]
     static_signature = (
         first.board_id,
-        float(first.symbol_rate),
-        float(first.vdd_a.dc),
-        float(first.vdd_d.dc),
-        float(first.vdd_dac.dc),
+        float(first.tb.symbol_rate),
+        float(first.tb.vdd_a.dc),
+        float(first.tb.vdd_d.dc),
+        float(first.tb.vdd_dac.dc),
         float(first.vdd_io.dc),
     )
     if any(
         (
             params.board_id,
-            float(params.symbol_rate),
-            float(params.vdd_a.dc),
-            float(params.vdd_d.dc),
-            float(params.vdd_dac.dc),
+            float(params.tb.symbol_rate),
+            float(params.tb.vdd_a.dc),
+            float(params.tb.vdd_d.dc),
+            float(params.tb.vdd_dac.dc),
             float(params.vdd_io.dc),
         )
         != static_signature
@@ -362,20 +377,20 @@ def scan(
             f"comparator run requests {float(first.vdd_io.dc):g} V"
         )
     for rail, field in (("VDD_A", "vdd_a"), ("VDD_D", "vdd_d"), ("VDD_DAC", "vdd_dac")):
-        requested_v = float(getattr(first, field).dc)
+        requested_v = float(getattr(first.tb, field).dc)
         if not minimum_supply_v <= requested_v <= maximum_supply_v:
             raise ValueError(
                 f"{rail} request {requested_v:g} V is outside {minimum_supply_v:g}..{maximum_supply_v:g} V"
             )
     calibration: Mapping[str, Any] = board["input_calibration"]
     for params in queue:
-        assert isinstance(params.vin_diff, h.Vdc.Params)
-        vin_cm_v = float(params.vin_cm.dc)
+        assert isinstance(params.tb.vin_diff, h.Vdc.Params)
+        vin_cm_v = float(params.tb.vin_cm.dc)
         minimum_input_v = -signal_headroom_v
-        maximum_input_v = float(params.vdd_a.dc) + signal_headroom_v
+        maximum_input_v = float(params.tb.vdd_a.dc) + signal_headroom_v
         if not float(calibration["minimum_vin_cm_v"]) <= vin_cm_v <= float(calibration["maximum_vin_cm_v"]):
             raise ValueError(f"Vin_cm={vin_cm_v:g} V is outside the calibrated input range")
-        planned_vdiff_values = [float(params.vin_diff.dc)]
+        planned_vdiff_values = [float(params.tb.vin_diff.dc)]
         if params.sweep_min_v is not None and params.sweep_max_v is not None:
             planned_vdiff_values.extend((float(params.sweep_min_v), float(params.sweep_max_v)))
         for vin_diff_v in planned_vdiff_values:
@@ -543,7 +558,7 @@ def scan(
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        symbol_rate_bps = float(first.symbol_rate)
+        symbol_rate_bps = float(first.tb.symbol_rate)
         si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
         sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
             pll_divider_n,
@@ -553,7 +568,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_cdac_weights(first.dut.cdac)) + 1
+        expected_data_size = len(get_cdac_weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -564,8 +579,9 @@ def scan(
             point_stem = _comp_point_stem(original_params)
             if point_stem in existing_paths:
                 continue
-            params = original_params
-            assert params.observed_adc is not None
+            scan_params = original_params
+            params = scan_params.tb
+            assert scan_params.observed_adc is not None
             assert isinstance(params.vin_diff, h.Vdc.Params)
             vin_diff_v = float(params.vin_diff.dc)
             vin_cm_v = float(params.vin_cm.dc)
@@ -622,7 +638,8 @@ def scan(
                     seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
                     seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
                 )
-                validate_params(params)
+                scan_params = replace(scan_params, tb=params)
+                validate_params(scan_params)
             rx_sen_start_word = capture_alignment.rx_sen_start_word
             comp_idelay_taps = capture_alignment.comp_idelay_taps
             daq["gpio1"].read()
@@ -636,7 +653,7 @@ def scan(
 
             spi_bytes = spi_bytes_by_curve.get(curve_key)
             if spi_bytes is None:
-                spi_bytes = convert_params_to_spi_fmt(params)
+                spi_bytes = convert_params_to_spi_fmt(scan_params)
                 spi_bytes_by_curve[curve_key] = spi_bytes
             spi_readback_checked = spi_bytes != programmed_spi_bytes
             spi_mismatches = 0
@@ -834,7 +851,7 @@ def scan(
                     instruments=instrument_identities,
                     readbacks=readbacks,
                 ),
-                param=params,
+                param=scan_params,
                 daq=CompDaq(
                     trial_index=trial_index,
                     vin_diff_v=np.full(params.conversions, vin_diff_v),
@@ -849,7 +866,7 @@ def scan(
             existing_paths[point_stem] = h5_path
             next_file_index += 1
             print(
-                f"[{variant_index + 1}/{len(queue)}] ADC{params.observed_adc:02d} "
+                f"[{variant_index + 1}/{len(queue)}] ADC{scan_params.observed_adc:02d} "
                 f"P(decision=1)={float(np.mean(decisions)):.4f} "
                 f"elapsed={monotonic() - point_started:.3f}s: {h5_path}"
             )

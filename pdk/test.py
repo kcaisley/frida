@@ -60,16 +60,6 @@ def test_install_supply_voltage_corner_mapping(tech: str) -> None:
     assert cls.supply_voltage(Corner.FAST, "VDD") == vdd["max"]
 
 
-@pytest.mark.parametrize("tech", _SUPPORTED_TECHS)
-def test_supply_voltage_resolves_via_install(tech: str) -> None:
-    """supply_voltage() resolves VDD through Install.supply_voltage()."""
-    from flow.circuit.params import supply_voltage
-
-    cls = _install_class(tech)
-    expected = cls.supply_voltage(Corner.TYP, "VDD")
-    assert float(supply_voltage(Corner.TYP, tech_name=tech)) == expected
-
-
 # ==== Walker Scaling of Unitless MOS Dimensions ====
 
 

@@ -6,15 +6,17 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
-from flow.cdac.sim import CdacTbParams
-from flow.comp.sim import CompTbParams
-from flow.samp.sim import SampTbParams
-from flow.scans.params import AdcTbParams
+if TYPE_CHECKING:
+    from flow.adc.sim import AdcTbParams
+    from flow.cdac.sim import CdacTbParams
+    from flow.comp.sim import CompTbParams
+    from flow.samp.sim import SampTbParams
+    from flow.scans.params import AdcScanParams
 
 type Backend = Literal["physical", "behavioral", "spice"]
 type InfoValue = str | int | float | bool
@@ -261,14 +263,15 @@ class MeasAdcExt:
     """ADC measurement through its external stimulus and digital readout."""
 
     info: MeasInfo
-    param: AdcTbParams
+    param: AdcScanParams
     daq: AdcDaq
     wave: AdcExtWave
 
     def __post_init__(self) -> None:
-        if self.param.conversions != len(self.daq.conversion_index):
+        if self.param.tb.conversions != len(self.daq.conversion_index):
             raise ValueError(
-                f"param.conversions={self.param.conversions} does not match {len(self.daq.conversion_index)} ADC rows"
+                f"param.tb.conversions={self.param.tb.conversions} does not match "
+                f"{len(self.daq.conversion_index)} ADC rows"
             )
         _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, self.wave.conversion_index)
 
@@ -400,13 +403,15 @@ class MeasCompExt:
     """Comparator measurement through external stimulus and decisions."""
 
     info: MeasInfo
-    param: AdcTbParams
+    param: AdcScanParams
     daq: CompDaq
     wave: CompExtWave | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.param, AdcTbParams):
-            raise TypeError("MeasCompExt requires AdcTbParams")
+        from flow.scans.params import AdcScanParams
+
+        if not isinstance(self.param, AdcScanParams):
+            raise TypeError("MeasCompExt requires AdcScanParams")
         if self.info.backend == "physical" and self.info.schema_version >= 2 and self.daq.fastrx_word is None:
             raise ValueError("schema-v2 physical MeasCompExt requires FastRX words and frames")
         wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.trial_index
@@ -423,6 +428,9 @@ class MeasCompInt:
     wave: CompIntWave
 
     def __post_init__(self) -> None:
+        from flow.adc.sim import AdcTbParams
+        from flow.comp.sim import CompTbParams
+
         if not isinstance(self.param, (CompTbParams, AdcTbParams)):
             raise TypeError("MeasCompInt requires CompTbParams or AdcTbParams")
         if self.daq.fastrx_word is not None:
@@ -678,13 +686,15 @@ class MeasCdacExt:
     """CDAC measurement inferred through the external comparator path."""
 
     info: MeasInfo
-    param: AdcTbParams
+    param: AdcScanParams
     daq: CdacExtDaq
     wave: CdacExtWave | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.param, AdcTbParams):
-            raise TypeError("MeasCdacExt requires AdcTbParams")
+        from flow.scans.params import AdcScanParams
+
+        if not isinstance(self.param, AdcScanParams):
+            raise TypeError("MeasCdacExt requires AdcScanParams")
         if (
             self.info.backend == "physical"
             and self.info.schema_version >= 2
@@ -705,6 +715,9 @@ class MeasCdacInt:
     wave: CdacIntWave
 
     def __post_init__(self) -> None:
+        from flow.adc.sim import AdcTbParams
+        from flow.cdac.sim import CdacTbParams
+
         if not isinstance(self.param, (CdacTbParams, AdcTbParams)):
             raise TypeError("MeasCdacInt requires CdacTbParams or AdcTbParams")
         _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)

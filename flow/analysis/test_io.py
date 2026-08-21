@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from flow.adc.sim import AdcTbParams
 from flow.analysis.io import (
     build_adc_interface_wave,
     scope_records_to_adc_wave,
 )
-from flow.scans.params import AdcTbParams
 
 
 def test_scope_records_build_dense_adc_external_wave() -> None:

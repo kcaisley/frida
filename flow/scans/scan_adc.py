@@ -21,7 +21,7 @@ from flow.analysis.io import scope_records_to_adc_wave, write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcTbParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
@@ -197,7 +197,7 @@ def convert_dout_to_normalized_dout(dout: int, code_weights: list[int], adc_bits
     return round(dout * ((1 << adc_bits) - 1) / sum(code_weights))
 
 
-def convert_params_to_spi_fmt(params: AdcTbParams) -> bytes:
+def convert_params_to_spi_fmt(params: AdcScanParams) -> bytes:
     """Pack one complete ADC parameter configuration into the 180-bit SPI image."""
 
     DAC_FIELDS = (
@@ -214,7 +214,9 @@ def convert_params_to_spi_fmt(params: AdcTbParams) -> bytes:
     MUX_LSB = 176
 
     validate_params(params)
-    if params.observed_adc is None or params.active_adc_mask is None:
+    scan_params = params
+    params = scan_params.tb
+    if scan_params.observed_adc is None or scan_params.active_adc_mask is None:
         raise ValueError("physical SPI formatting requires observed_adc and active_adc_mask")
 
     bits = bitarray(180)
@@ -232,10 +234,10 @@ def convert_params_to_spi_fmt(params: AdcTbParams) -> bytes:
     inactive_config = bitarray("0" * ADC_CONFIG_BITS)
     for adc_index in range(ADC_COUNT):
         base = ADC_CONFIG_BASE + ADC_CONFIG_BITS * adc_index
-        is_active = bool(params.active_adc_mask[ADC_COUNT - 1 - adc_index])
+        is_active = bool(scan_params.active_adc_mask[ADC_COUNT - 1 - adc_index])
         bits[base : base + ADC_CONFIG_BITS] = active_config if is_active else inactive_config
 
-    mux_bits = f"{params.observed_adc:04b}"
+    mux_bits = f"{scan_params.observed_adc:04b}"
     mux_value = bitarray(mux_bits[::-1])
     bits[MUX_LSB : MUX_MSB + 1] = mux_value
 
@@ -251,8 +253,19 @@ def convert_params_to_spi_fmt(params: AdcTbParams) -> bytes:
     return bits[::-1].tobytes()
 
 
-def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
-    """Parse an HDL21 PWL string into SI-valued ``(time, voltage)`` points."""
+def parse_pwl_wave(wave: str | h.Pwl) -> tuple[tuple[float, float], ...]:
+    """Convert an HDL21 PWL waveform into SI-valued ``(time, voltage)`` points."""
+
+    if isinstance(wave, h.Pwl):
+        try:
+            points = tuple((float(time), float(value)) for time, value in wave.points)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("physical PWL points must be numeric") from exc
+        if len(points) < 2:
+            raise ValueError("PWL wave must contain at least two time/value pairs")
+        if any(right[0] <= left[0] for left, right in itertools.pairwise(points)):
+            raise ValueError("PWL times must increase strictly")
+        return points
 
     SUFFIXES = {
         "": 1.0,
@@ -290,7 +303,7 @@ def parse_pwl_wave(wave: str) -> tuple[tuple[float, float], ...]:
 
 
 def scan(
-    params: AdcTbParams,
+    params: AdcScanParams,
     *,
     run_dir: Path,
     position: Literal["first", "middle", "last", "only", "abort"],
@@ -333,12 +346,14 @@ def scan(
         raise ValueError(f"unknown ADC scan lifecycle position {position!r}")
     if position != "abort":
         validate_params(params)
-    if params.board_id is None or (
-        position != "abort" and (params.observed_adc is None or params.active_adc_mask is None)
+    scan_params = params
+    params = scan_params.tb
+    if scan_params.board_id is None or (
+        position != "abort" and (scan_params.observed_adc is None or scan_params.active_adc_mask is None)
     ):
         raise ValueError("every physical scan variant must select a board, observed ADC, and active ADC mask")
 
-    board_id = params.board_id
+    board_id = scan_params.board_id
     board_map = load_board_map()
     board = board_map["boards"][board_id]
 
@@ -349,9 +364,10 @@ def scan(
     fixed_vdd_io_v = float(board["fixed_vdd_io_v"])
     calibration = board["input_calibration"]
     if position != "abort":
-        if not math.isclose(float(params.vdd_io.dc), fixed_vdd_io_v, abs_tol=1.0e-12):
+        if not math.isclose(float(scan_params.vdd_io.dc), fixed_vdd_io_v, abs_tol=1.0e-12):
             raise ValueError(
-                f"VDD_IO is fixed at {fixed_vdd_io_v:g} V on {board_id}; variant requests {float(params.vdd_io.dc):g} V"
+                f"VDD_IO is fixed at {fixed_vdd_io_v:g} V on {board_id}; "
+                f"variant requests {float(scan_params.vdd_io.dc):g} V"
             )
         for rail, field in (("VDD_A", "vdd_a"), ("VDD_D", "vdd_d"), ("VDD_DAC", "vdd_dac")):
             requested_voltage_v = float(getattr(params, field).dc)
@@ -501,7 +517,7 @@ def scan(
             variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
                 print(
-                    f"\n=== {position} variant {variant_index + 1}: ADC {params.observed_adc:02d}, "
+                    f"\n=== {position} variant {variant_index + 1}: ADC {scan_params.observed_adc:02d}, "
                     f"{float(params.symbol_rate) / 1e6:g} MBd ==="
                 )
                 loaded_voltage_tolerance_v = float(supply_limits["loaded_voltage_tolerance_v"])
@@ -804,7 +820,8 @@ def scan(
                         seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
                         seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
                     )
-                    validate_params(params)
+                    scan_params = replace(scan_params, tb=params)
+                    validate_params(scan_params)
                 rx_sen_start_word = capture_alignment.rx_sen_start_word
                 comp_idelay_taps = capture_alignment.comp_idelay_taps
 
@@ -862,7 +879,7 @@ def scan(
 
                 # Program and read back the chip's 180-bit SPI image. Its
                 # parameter-to-wire-order conversion is tested in test_helpers.py.
-                spi_bytes = convert_params_to_spi_fmt(params)
+                spi_bytes = convert_params_to_spi_fmt(scan_params)
                 for _write_index in range(2):
                     daq["spi0"].set_data(list(spi_bytes))
                     daq["spi0"].set_size(180)
@@ -1111,14 +1128,14 @@ def scan(
                 )
                 logic_phase_label = f"{logic_comp_offset:+g}".replace("+", "p").replace("-", "m")
                 stem = (
-                    f"{variant_index:04d}_{board_id}_adc{params.observed_adc:02d}_"
+                    f"{variant_index:04d}_{board_id}_adc{scan_params.observed_adc:02d}_"
                     f"{float(params.symbol_rate) / 1e6:g}mbd_{source_label}_"
                     f"logic{logic_phase_label}sym_"
                     f"vcm{float(params.vin_cm.dc) * 1e3:g}mv_"
                     f"vdda{float(params.vdd_a.dc) * 1e3:g}mv_"
                     f"vddd{float(params.vdd_d.dc) * 1e3:g}mv_"
                     f"vddac{float(params.vdd_dac.dc) * 1e3:g}mv_"
-                    f"t{float(params.temperature_c):g}c"
+                    f"t{float(scan_params.temperature_c):g}c"
                 )
                 h5_path = run_dir / f"{stem}.h5"
                 readbacks = {
@@ -1163,7 +1180,7 @@ def scan(
                         instruments=instrument_identities,
                         readbacks=readbacks,
                     ),
-                    param=params,
+                    param=scan_params,
                     daq=AdcDaq(
                         conversion_index=conversion_index_values,
                         bout=bout_values,

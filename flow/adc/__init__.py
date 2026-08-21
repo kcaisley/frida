@@ -5,8 +5,6 @@ Exports:
 - Adc: Full ADC generator (composes digital + analog)
 - AdcParams: ADC parameters
 - AdcDigital: ExternalModule for synthesized digital block
-- AdcTb: Testbench generator
-- AdcTbParams: Shared physical/ simulation test parameters
 """
 
 from .subckt import (
@@ -19,14 +17,4 @@ __all__ = [
     "Adc",
     "AdcDigital",
     "AdcParams",
-    "AdcTb",
-    "AdcTbParams",
 ]
-
-
-def __getattr__(name: str):
-    if name in {"AdcTb", "AdcTbParams"}:
-        from importlib import import_module
-
-        return getattr(import_module(f"{__name__}.sim"), name)
-    raise AttributeError(name)

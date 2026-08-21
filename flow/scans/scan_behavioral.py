@@ -18,28 +18,32 @@ import hdl21 as h
 import numpy as np
 
 from flow.adc.behavioral import SAR_ADC
+from flow.adc.sim import AdcTbParams
 from flow.analysis.io import build_adc_interface_wave, write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import get_cdac_weights
-from flow.scans.params import AdcTbParams
+from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
     convert_dout_to_normalized_dout,
 )
 
 ADC_INDEX = 0
-PARAMS = AdcTbParams(
-    conversions=1,
-    vin_cm=h.Vdc.Params(dc=0.600),
-    vin_diff=h.Vdc.Params(dc=0.015),
+PARAMS = AdcScanParams(
+    tb=AdcTbParams(
+        view="frida65a",
+        conversions=1,
+        vin_cm=h.Vdc.Params(dc=0.600),
+        vin_diff=h.Vdc.Params(dc=0.015),
+    )
 )
-CAP_WEIGHTS = get_cdac_weights(PARAMS.dut.cdac)
+CAP_WEIGHTS = get_cdac_weights(PARAMS.tb.dut.cdac)
 CODE_WEIGHTS = convert_dac_caps_to_adc_weights(CAP_WEIGHTS)
 NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 # TODO: Change this stable overwrite path to build/scan_behavioral/<short-datetime>.
 SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "behavioral_scan"
 
-ADC_CLOCK_HZ = float(PARAMS.symbol_rate) / len(PARAMS.seq_init_pattern)
+ADC_CLOCK_HZ = float(PARAMS.tb.symbol_rate) / len(PARAMS.tb.seq_init_pattern)
 UNIT_CAPACITANCE = 1e-15
 PARASITIC_RATIO = 1.0
 APPLY_INPUT_ATTENUATION = False
@@ -60,7 +64,7 @@ def build_frida_params() -> dict[str, dict[str, object]]:
         "ADC": {
             "sampling_frequency": ADC_CLOCK_HZ,
             "use_calibration": False,
-            "resolution": PARAMS.dut.adc_bits,
+            "resolution": PARAMS.tb.dut.adc_bits,
         },
         "COMP": {
             "offset_voltage": COMPARATOR_OFFSET,
@@ -115,7 +119,7 @@ def convert_behavioral_to_bout_and_dout(
     dout = convert_dout_to_normalized_dout(
         dout_raw,
         CODE_WEIGHTS,
-        PARAMS.dut.adc_bits,
+        PARAMS.tb.dut.adc_bits,
     )
     return bout, dout_raw, dout
 
@@ -124,10 +128,10 @@ def main() -> None:
     params = build_frida_params()
     adc = SAR_ADC(params)
     attenuation = input_attenuation(params) if APPLY_INPUT_ATTENUATION else 1.0
-    if not isinstance(PARAMS.vin_diff, h.Vdc.Params):
+    if not isinstance(PARAMS.tb.vin_diff, h.Vdc.Params):
         raise TypeError("the behavioral adapter currently requires a DC vin_diff")
-    vin_diff_v = float(PARAMS.vin_diff.dc)
-    vin_cm_v = float(PARAMS.vin_cm.dc)
+    vin_diff_v = float(PARAMS.tb.vin_diff.dc)
+    vin_cm_v = float(PARAMS.tb.vin_cm.dc)
     vin_p = vin_cm_v + vin_diff_v / 2.0
     vin_n = vin_cm_v - vin_diff_v / 2.0
     sampled_vin_p = vin_cm_v + attenuation * (vin_p - vin_cm_v)
@@ -141,10 +145,10 @@ def main() -> None:
     print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
 
-    bout_values = np.empty((PARAMS.conversions, NUM_CAPTURE_BITS), dtype=np.uint8)
-    dout_raw_values = np.empty(PARAMS.conversions, dtype=np.int64)
-    dout_values = np.empty(PARAMS.conversions, dtype=np.int64)
-    for conversion_index in range(PARAMS.conversions):
+    bout_values = np.empty((PARAMS.tb.conversions, NUM_CAPTURE_BITS), dtype=np.uint8)
+    dout_raw_values = np.empty(PARAMS.tb.conversions, dtype=np.int64)
+    dout_values = np.empty(PARAMS.tb.conversions, dtype=np.int64)
+    for conversion_index in range(PARAMS.tb.conversions):
         bout, dout_raw, dout = convert_behavioral_to_bout_and_dout(
             adc,
             sampled_vin_p,
@@ -170,13 +174,13 @@ def main() -> None:
         ),
         param=PARAMS,
         daq=AdcDaq(
-            conversion_index=np.arange(PARAMS.conversions),
+            conversion_index=np.arange(PARAMS.tb.conversions),
             bout=bout_values,
             dout_raw=dout_raw_values,
             dout=dout_values,
-            vin_diff_v=np.full(PARAMS.conversions, vin_diff_v),
+            vin_diff_v=np.full(PARAMS.tb.conversions, vin_diff_v),
         ),
-        wave=build_adc_interface_wave(PARAMS, bout_values[0]),
+        wave=build_adc_interface_wave(PARAMS.tb, bout_values[0]),
     )
     h5_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.h5"
     write_measurement(h5_path, measurement)

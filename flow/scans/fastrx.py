@@ -8,8 +8,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from flow.adc.sim import AdcTbParams
 from flow.cdac import get_cdac_weights
-from flow.scans.params import AdcTbParams, validate_params
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +126,6 @@ def calculate_fastrx_capture_alignment(
 ) -> FastRxCaptureAlignment:
     """Center FastRX sampling inside the measured comparator-data aperture."""
 
-    validate_params(params)
     numeric_fields = {
         "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
         "oserdes_to_output_s": oserdes_to_output_s,
@@ -273,7 +272,6 @@ def calculate_single_sample_fastrx_capture_alignment(
 ) -> FastRxCaptureAlignment:
     """Select a safe one-clock FastRX aperture after the sole COMP event."""
 
-    validate_params(params)
     numeric_fields = {
         "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
         "oserdes_to_output_s": oserdes_to_output_s,

@@ -40,6 +40,7 @@ from bitarray import bitarray
 from yaml import safe_load
 
 from flow.adc import AdcParams
+from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
     analyze_adc_noise_sweep,
@@ -57,7 +58,7 @@ from flow.analysis.plots import (
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcTbParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
@@ -147,14 +148,17 @@ def test_physical_fastrx_matches_scope(
         ),
     )
     active_adc_mask = tuple(int(index == ADC_INDEX) for index in reversed(range(16)))
-    base_params = AdcTbParams(
-        dut=dut_params,
+    base_params = AdcScanParams(
+        tb=AdcTbParams(
+            view="frida65a",
+            dut=dut_params,
+            conversions=conversions,
+            vin_cm=h.Vdc.Params(dc=VIN_CM_V),
+            vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
+        ),
         board_id=BOARD_ID,
         observed_adc=ADC_INDEX,
         active_adc_mask=active_adc_mask,
-        conversions=conversions,
-        vin_cm=h.Vdc.Params(dc=VIN_CM_V),
-        vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
     )
 
     maximum_supply_v = float(board["supply_limits"]["maximum_voltage_v"])
@@ -330,12 +334,12 @@ def test_physical_fastrx_matches_scope(
         scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
         scope.set_trigger_mode("NORMAL")
 
-        cap_weights = get_cdac_weights(base_params.dut.cdac)
+        cap_weights = get_cdac_weights(base_params.tb.dut.cdac)
         code_weights = convert_dac_caps_to_adc_weights(cap_weights)
         data_size = int(daq["fastrx0"].get_size())
         if data_size != len(code_weights):
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {len(code_weights)}")
-        sequence_words = len(base_params.seq_init_pattern) // 8
+        sequence_words = len(base_params.tb.seq_init_pattern) // 8
 
         for point_index, (symbol_rate_bps, logic_offset) in enumerate(
             ((symbol_rate_bps, logic_offset) for logic_offset in logic_offsets for symbol_rate_bps in symbol_rates_bps),
@@ -343,22 +347,28 @@ def test_physical_fastrx_matches_scope(
         ):
             params = dataclasses.replace(
                 base_params,
-                symbol_rate=symbol_rate_bps,
-                seq_logic_phase_delay_symbols=logic_offset,
+                tb=dataclasses.replace(
+                    base_params.tb,
+                    symbol_rate=symbol_rate_bps,
+                    seq_logic_phase_delay_symbols=logic_offset,
+                ),
             )
             validate_params(params)
             alignment = calculate_fastrx_capture_alignment(
-                params,
+                params.tb,
                 **timing_model,
             )
             phase_advance = alignment.control_phase_advance_symbols
             if phase_advance:
                 params = dataclasses.replace(
                     params,
-                    seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
-                    seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
-                    seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
-                    seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
+                    tb=dataclasses.replace(
+                        params.tb,
+                        seq_init_phase_delay_symbols=float(params.tb.seq_init_phase_delay_symbols) - phase_advance,
+                        seq_samp_phase_delay_symbols=float(params.tb.seq_samp_phase_delay_symbols) - phase_advance,
+                        seq_comp_phase_delay_symbols=float(params.tb.seq_comp_phase_delay_symbols) - phase_advance,
+                        seq_logic_phase_delay_symbols=float(params.tb.seq_logic_phase_delay_symbols) - phase_advance,
+                    ),
                 )
                 validate_params(params)
             rx_sen_start_word = alignment.rx_sen_start_word
@@ -368,7 +378,7 @@ def test_physical_fastrx_matches_scope(
                 "0" * rx_sen_start_word + "1" * len(code_weights) + "0" * (sequence_words - rx_sen_stop_word)
             )
             sequencer_memory = convert_params_to_seqgen_fmt(
-                params,
+                params.tb,
                 rx_sen_pattern,
             )
 
@@ -418,7 +428,7 @@ def test_physical_fastrx_matches_scope(
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
 
-            sequence_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+            sequence_period_s = len(params.tb.seq_init_pattern) / symbol_rate_bps
             scope.set_acquire_state("STOP")
             # Request about two complete patterns across the ten horizontal
             # divisions. This leaves margin for the scope's discrete timebase
@@ -483,7 +493,7 @@ def test_physical_fastrx_matches_scope(
                 fastrx_words,
                 data_size,
                 code_weights,
-                params.dut.adc_bits,
+                params.tb.dut.adc_bits,
             )
             mean_code = float(np.mean(dout_values))
             sigma_code = float(np.std(dout_values))

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import klayout.db as kdb
 
-from ..circuit.commands import primitive_main
+from ..layout.commands import primitive_main
 from ..layout.dsl import (
     L,
     load_generic_layers,

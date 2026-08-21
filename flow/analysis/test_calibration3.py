@@ -8,12 +8,13 @@ import hdl21 as h
 import numpy as np
 import pytest
 
+from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.calibration3 import _extract_prefix_thresholds, _fit_probit_threshold, _hybrid_weights, analyze
 from flow.analysis.plots import plot_adc_calibration_weights
 from flow.analysis.test_adc import adc_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt
-from flow.scans.params import AdcTbParams
+from flow.scans.params import AdcScanParams
 
 NOMINAL_WEIGHTS = np.asarray(
     [1536, 1024, 640, 384, 192, 128, 64, 48, 24, 20, 10, 8, 8, 4, 2, 2, 1],
@@ -61,16 +62,18 @@ def _threshold_ramp_measurement(
     nominal_dout = np.rint(nominal_raw * 4095 / np.sum(NOMINAL_WEIGHTS)).astype(np.int64)
     base = adc_measurement(np.zeros(len(vin_diff_v), dtype=np.int64), observed_adc=0)
     assert isinstance(base, MeasAdcExt)
-    params = AdcTbParams(
-        dut=base.param.dut,
-        conversions=len(vin_diff_v),
-        symbol_rate=base.param.symbol_rate,
+    params = AdcScanParams(
+        tb=AdcTbParams(
+            dut=base.param.tb.dut,
+            conversions=len(vin_diff_v),
+            symbol_rate=base.param.tb.symbol_rate,
+            vin_cm=h.Vdc.Params(dc=0.6),
+            vin_diff=h.Vpwl.Params(wave="0 -1 0.001 1"),
+        ),
         board_id="test_board",
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
         campaign="adc_ramp",
-        vin_cm=h.Vdc.Params(dc=0.6),
-        vin_diff=h.Vpwl.Params(wave="0 -1 0.001 1"),
     )
     return (
         replace(

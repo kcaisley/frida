@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from flow.circuit import commands
+from flow.layout import commands
 
 
 def test_primitive_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -36,10 +36,10 @@ def test_analyze_cdac_cap_mismatch_recovers_main_diff_and_direction_pairs() -> N
                 )
                 ones = round(100 * probability)
                 decisions = np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
-                before_p = np.tile(params.dac_astate_p, (100, 1))
-                before_n = np.tile(params.dac_astate_n, (100, 1))
-                after_p = np.tile(params.dac_bstate_p, (100, 1))
-                after_n = np.tile(params.dac_bstate_n, (100, 1))
+                before_p = np.tile(params.tb.dac_astate_p, (100, 1))
+                before_n = np.tile(params.tb.dac_astate_n, (100, 1))
+                after_p = np.tile(params.tb.dac_bstate_p, (100, 1))
+                after_n = np.tile(params.tb.dac_bstate_n, (100, 1))
                 measurements.append(
                     MeasCdacExt(
                         info=MeasInfo(
@@ -78,7 +78,7 @@ def test_analyze_cdac_cap_mismatch_recovers_main_diff_and_direction_pairs() -> N
             coarse_params = replace(
                 base.param,
                 sweep_stage="coarse",
-                vin_diff=h.Vdc.Params(dc=coarse_v),
+                tb=replace(base.param.tb, vin_diff=h.Vdc.Params(dc=coarse_v)),
             )
             measurements.append(
                 replace(
@@ -141,10 +141,10 @@ def test_analyze_cdac_cap_mismatch_retains_side_asymmetry_and_direction_bias() -
                     )
                     ones = round(100 * probability)
                     decisions = np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
-                    before_p = np.tile(params.dac_astate_p, (100, 1))
-                    before_n = np.tile(params.dac_astate_n, (100, 1))
-                    after_p = np.tile(params.dac_bstate_p, (100, 1))
-                    after_n = np.tile(params.dac_bstate_n, (100, 1))
+                    before_p = np.tile(params.tb.dac_astate_p, (100, 1))
+                    before_n = np.tile(params.tb.dac_astate_n, (100, 1))
+                    after_p = np.tile(params.tb.dac_bstate_p, (100, 1))
+                    after_n = np.tile(params.tb.dac_bstate_n, (100, 1))
                     measurements.append(
                         MeasCdacExt(
                             info=MeasInfo(
@@ -200,12 +200,12 @@ def test_analyze_cdac_cap_mismatch_retains_side_asymmetry_and_direction_bias() -
                 param=params,
                 daq=replace(
                     base.daq,
-                    dac_state_p=np.tile(params.dac_bstate_p, (100, 1)),
-                    dac_state_n=np.tile(params.dac_bstate_n, (100, 1)),
+                    dac_state_p=np.tile(params.tb.dac_bstate_p, (100, 1)),
+                    dac_state_n=np.tile(params.tb.dac_bstate_n, (100, 1)),
                     vin_diff_v=np.full(100, vin_diff_v),
                     decision=np.ones(100, dtype=np.uint8),
-                    dac_state_before_p=np.tile(params.dac_astate_p, (100, 1)),
-                    dac_state_before_n=np.tile(params.dac_astate_n, (100, 1)),
+                    dac_state_before_p=np.tile(params.tb.dac_astate_p, (100, 1)),
+                    dac_state_before_n=np.tile(params.tb.dac_astate_n, (100, 1)),
                 ),
                 wave=replace(
                     base.wave,

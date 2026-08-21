@@ -1,16 +1,9 @@
-"""Read Spectre NUTASCII results and write typed FRIDA measurements.
-
-Spectre is configured with ``rawfmt=nutascii`` in the current ADC PEX decks.
-The raw reader streams text tokens and only retains requested signals, so it
-does not duplicate the complete raw file in memory. The HDF5 representation is
-written by :func:`flow.analysis.io.write_measurement`.
-"""
+"""Adapt VLSIR Spectre waveforms into typed FRIDA measurements."""
 
 from __future__ import annotations
 
 import dataclasses
 import math
-import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,110 +11,100 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.analysis.io import interpolate_wave_records
 from flow.analysis.types import AdcDaq, AdcIntWave, CompDaq, CompIntWave, MeasAdcInt, MeasCompInt, MeasInfo
 from flow.cdac import get_cdac_weights
-from flow.circuit.params import supply_voltage
-from flow.scans.params import AdcTbParams
 
 if TYPE_CHECKING:
+    import hdl21 as h
+
+    from flow.adc.sim import AdcTbParams
     from flow.comp.sim import CompTbParams
 
 
-def read_spectre_nutascii(
-    path: Path,
-    selected_signals: set[str] | None = None,
-) -> dict[str, np.ndarray]:
-    """Read selected one-dimensional signals from Spectre NUTASCII output.
+def adc_signal_names(view: str) -> dict[str, str]:
+    """Return the Spectre-to-measurement signal map for one ADC view."""
 
-    Point records may span arbitrary text lines. When Spectre declares
-    ``No. Points`` in the header, arrays are allocated once at their final
-    length; this is important for multi-gigabyte transient results.
-    """
+    common = {
+        "time_s": "time",
+        "vin_p_v": "xtop.vin_p",
+        "vin_n_v": "xtop.vin_n",
+        "seq_init_v": "xtop.seq_init",
+        "seq_samp_v": "xtop.seq_samp",
+        "seq_comp_v": "xtop.seq_comp",
+        "seq_logic_v": "xtop.seq_logic",
+        "comp_out_v": "xtop.comp_out",
+        "vdd_a_i": "xtop.vvdd_a:p",
+        "vdd_d_i": "xtop.vvdd_d:p",
+        "vdd_dac_i": "xtop.vvdd_dac:p",
+    }
+    if view == "frida65a":
+        return {
+            **common,
+            "vdac_p_v": "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d",
+            "vdac_n_v": "xtop.xadc.N_VDAC_N_XXsampswitch_n/MM0_d",
+            "clk_samp_p_v": "xtop.xadc.N_CLK_SAMP_P_XXsampswitch_p/MM0_g",
+            "clk_samp_p_b_v": "xtop.xadc.N_CLK_SAMP_P_B_XXsampswitch_p/MM1_g",
+            "clk_samp_n_v": "xtop.xadc.N_CLK_SAMP_N_XXsampswitch_n/MM0_g",
+            "clk_samp_n_b_v": "xtop.xadc.N_CLK_SAMP_N_B_XXsampswitch_n/MM1_g",
+            "clk_comp_v": "xtop.xadc.N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
+            "comp_out_p_v": "xtop.xadc.N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
+            "comp_out_n_v": "xtop.xadc.N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
+            "dac_state_p_15_v": "xtop.xadc.N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
+            "dac_state_p_8_v": "xtop.xadc.N_DAC_STATE_P_MAIN<8>_XXcapdriver_p_main/XXxor8/MMM_u2-M_u3_g",
+            "dac_state_p_0_v": "xtop.xadc.N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor0/MMM_u2-M_u3_g",
+            "dac_state_n_15_v": "xtop.xadc.N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g",
+            "dac_state_n_8_v": "xtop.xadc.N_DAC_STATE_N_MAIN<8>_XXcapdriver_n_main/XXxor8/MMM_u2-M_u3_g",
+            "dac_state_n_0_v": "xtop.xadc.N_DAC_STATE_N_MAIN<0>_XXcapdriver_n_main/XXxor0/MMM_u2-M_u3_g",
+            "dac_botplate_p_15_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<15>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
+            "dac_botplate_p_8_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<8>_XXcapdriver_p_main/XXxor8/MMM_u4_1-M_u3_d",
+            "dac_botplate_p_0_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<0>_XXcapdriver_p_main/XXxor0/MMM_u4_1-M_u3_d",
+            "dac_botplate_n_15_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<15>_XXcapdriver_n_main/XXxor15_0/MMM_u4_1-M_u3_d",
+            "dac_botplate_n_8_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<8>_XXcapdriver_n_main/XXxor8/MMM_u4_1-M_u3_d",
+            "dac_botplate_n_0_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<0>_XXcapdriver_n_main/XXxor0/MMM_u4_1-M_u3_d",
+        }
+    if view == "hdl21gen":
+        return {
+            **common,
+            "vdac_p_v": "xtop.xadc.cdac_top_p",
+            "vdac_n_v": "xtop.xadc.cdac_top_n",
+            "clk_samp_p_v": "xtop.xadc.clk_samp_p",
+            "clk_samp_p_b_v": "xtop.xadc.clk_samp_p_b",
+            "clk_samp_n_v": "xtop.xadc.clk_samp_n",
+            "clk_samp_n_b_v": "xtop.xadc.clk_samp_n_b",
+            "clk_comp_v": "xtop.xadc.clk_comp",
+            "comp_out_p_v": "xtop.xadc.comp_out_p",
+            "comp_out_n_v": "xtop.xadc.comp_out_n",
+            "dac_state_p_15_v": "xtop.xadc.dac_state_p_15",
+            "dac_state_p_8_v": "xtop.xadc.dac_state_p_8",
+            "dac_state_p_0_v": "xtop.xadc.dac_state_p_0",
+            "dac_state_n_15_v": "xtop.xadc.dac_state_n_15",
+            "dac_state_n_8_v": "xtop.xadc.dac_state_n_8",
+            "dac_state_n_0_v": "xtop.xadc.dac_state_n_0",
+            "dac_botplate_p_15_v": "xtop.xadc.xcdac_p.bot_15",
+            "dac_botplate_p_8_v": "xtop.xadc.xcdac_p.bot_8",
+            "dac_botplate_p_0_v": "xtop.xadc.xcdac_p.bot_0",
+            "dac_botplate_n_15_v": "xtop.xadc.xcdac_n.bot_15",
+            "dac_botplate_n_8_v": "xtop.xadc.xcdac_n.bot_8",
+            "dac_botplate_n_0_v": "xtop.xadc.xcdac_n.bot_0",
+        }
+    raise ValueError(f"unsupported ADC view {view!r}")
 
-    path = Path(path)
-    variable_names: list[str] = []
-    declared_points: int | None = None
-    in_variables = False
-    with path.open(errors="replace") as input_file:
-        for line in input_file:
-            stripped = line.strip()
-            points_match = re.fullmatch(r"No\. Points:\s*(\d+)", stripped)
-            if points_match is not None:
-                declared_points = int(points_match.group(1))
-            if stripped.startswith("Variables:"):
-                in_variables = True
-                stripped = stripped.removeprefix("Variables:").strip()
-            elif stripped == "Values:":
-                break
-            elif in_variables and stripped and not stripped[0].isdigit():
-                in_variables = False
-            if in_variables and stripped:
-                parts = stripped.split()
-                if len(parts) >= 3 and parts[0].isdigit():
-                    variable_names.append(parts[1])
-        else:
-            raise ValueError(f"{path} is missing the Spectre NUTASCII 'Values:' section")
 
-        if not variable_names:
-            raise ValueError(f"{path} has no Spectre NUTASCII variable list")
-        selected = set(variable_names) if selected_signals is None else set(selected_signals)
-        missing = sorted(selected.difference(variable_names))
-        if missing:
-            raise KeyError(f"{path} does not contain requested signals {missing}")
-        selected_indices = {index: name for index, name in enumerate(variable_names) if name in selected}
-        if declared_points is None:
-            dynamic_values: dict[str, list[float]] | None = {name: [] for name in selected_indices.values()}
-            arrays: dict[str, np.ndarray] | None = None
-        else:
-            dynamic_values = None
-            arrays = {name: np.empty(declared_points, dtype=np.float64) for name in selected_indices.values()}
+def comp_signal_names() -> dict[str, str]:
+    """Return the Spectre-to-measurement signal map for comparator runs."""
 
-        tokens = (token for line in input_file for token in line.split())
-        point_count = 0
-        while True:
-            try:
-                point_token = next(tokens)
-            except StopIteration:
-                break
-            try:
-                point_index = int(point_token)
-            except ValueError as exc:
-                raise ValueError(f"{path} has invalid NUTASCII point index {point_token!r}") from exc
-            if point_index != point_count:
-                raise ValueError(f"{path} has NUTASCII point index {point_index}, expected {point_count}")
-            if declared_points is not None and point_count >= declared_points:
-                raise ValueError(f"{path} contains more points than its declared {declared_points}")
-            for variable_index in range(len(variable_names)):
-                try:
-                    value_token = next(tokens)
-                except StopIteration as exc:
-                    raise ValueError(f"{path} ends partway through NUTASCII point {point_index}") from exc
-                if variable_index not in selected_indices:
-                    continue
-                name = selected_indices[variable_index]
-                try:
-                    value = float(value_token)
-                except ValueError as exc:
-                    raise ValueError(
-                        f"{path} has invalid value {value_token!r} for signal {name!r} at point {point_index}"
-                    ) from exc
-                if arrays is not None:
-                    arrays[name][point_count] = value
-                else:
-                    assert dynamic_values is not None
-                    dynamic_values[name].append(value)
-            point_count += 1
-
-    if point_count == 0:
-        raise ValueError(f"{path} contains no NUTASCII data points")
-    if declared_points is not None:
-        if point_count != declared_points:
-            raise ValueError(f"{path} contains {point_count} points, expected {declared_points}")
-        assert arrays is not None
-        return arrays
-    assert dynamic_values is not None
-    return {name: np.asarray(values, dtype=np.float64) for name, values in dynamic_values.items()}
+    return {
+        "time_s": "time",
+        "vin_p_v": "xtop.in_p",
+        "vin_n_v": "xtop.in_n",
+        "clock_v": "xtop.clk",
+        "vout_p_v": "xtop.out_p",
+        "vout_n_v": "xtop.out_n",
+        "comp_p_v": "xtop.dut.innerp",
+        "comp_n_v": "xtop.dut.innern",
+        "vdd_i": "xtop.vvdd:p",
+    }
 
 
 def convert_spectre_adc_to_measurement(
@@ -289,7 +272,7 @@ def convert_spectre_adc_to_measurement(
 
     readbacks: dict[str, str | int | float | bool] = {
         "raw_file": Path(raw_path).name,
-        "raw_format": "spectre_nutascii",
+        "raw_format": "spectre_nutbin",
         "raw_points": len(times_s),
         "raw_max_timestep_s": float(np.max(np.diff(times_s))),
         "waveform_sample_interval_s": waveform_sample_interval_s,
@@ -340,30 +323,6 @@ def convert_spectre_adc_to_measurement(
     )
 
 
-def convert_spectre_adc_raw_to_h5(
-    raw_path: Path,
-    h5_path: Path,
-    *,
-    params: AdcTbParams,
-    signal_names: Mapping[str, str],
-    waveform_sample_interval_s: float = 25e-12,
-    maximum_waveform_records: int | None = None,
-) -> Path:
-    """Read one Spectre ADC raw file and write the shared typed HDF5 format."""
-
-    selected_signals = set(signal_names.values())
-    data = read_spectre_nutascii(raw_path, selected_signals)
-    measurement = convert_spectre_adc_to_measurement(
-        data,
-        params=params,
-        raw_path=raw_path,
-        signal_names=signal_names,
-        waveform_sample_interval_s=waveform_sample_interval_s,
-        maximum_waveform_records=maximum_waveform_records,
-    )
-    return write_measurement(h5_path, measurement)
-
-
 def convert_spectre_comp_to_measurement(
     data: Mapping[str, Sequence[float] | np.ndarray],
     *,
@@ -374,25 +333,16 @@ def convert_spectre_comp_to_measurement(
     candidate_label: str,
     topology_index: int,
     size_profile: str,
-    total_width_units: int,
-    device_width_signature: Sequence[tuple[str, int]],
-    total_active_area_units: int,
-    total_active_area_um2: float,
-    device_geometry_signature: Sequence[tuple[str, int, int]],
+    compiled_tb: h.Module,
     waveform_sample_interval_s: float = 500e-12,
     spectre_runtime_s: float | None = None,
 ) -> MeasCompInt:
     """Decode one Spectre comparator campaign result into ``MeasCompInt``.
 
-    This follows the ADC converter's selected-signal path: the same streamed
-    NUTASCII reader feeds nominal DAQ rows, uniformly interpolated waveform
-    records, full-trace supply-power readbacks, and the shared typed HDF5
-    writer. All 100 decisions at every input point are retained in ``daq``;
-    dense waveforms retain every trial at the three points nearest 50%
-    probability plus one representative trial everywhere else.
+    All decisions at every input point are retained in ``daq``. Dense
+    waveforms retain every trial at the three points nearest 50% probability
+    plus one representative trial everywhere else.
     """
-
-    from flow.comp.sim import cycle_time_s, differential_values_v, simulation_stop_s, trial_count
 
     raw_wave_names = tuple(
         field.name for field in dataclasses.fields(CompIntWave) if field.name not in {"trial_index", "time_s"}
@@ -417,6 +367,28 @@ def convert_spectre_comp_to_measurement(
         raise ValueError("waveform_sample_interval_s must be finite and positive")
     if not candidate_id or not candidate_label or not size_profile:
         raise ValueError("comparator candidate metadata must be non-empty")
+    device_geometry_signature = []
+    for name, value in compiled_tb.dut.of.namespace.items():
+        call = getattr(value, "of", None)
+        call_params = getattr(call, "params", None)
+        width = getattr(call_params, "w", None)
+        length = getattr(call_params, "l", None)
+        if width is None or length is None:
+            continue
+        device_geometry_signature.append(
+            (
+                name,
+                round(float(width) / 120e-9),
+                round(float(length) / 60e-9),
+            )
+        )
+    if not device_geometry_signature:
+        raise ValueError("compiled comparator testbench contains no sized MOS devices")
+    device_geometry_signature = tuple(device_geometry_signature)
+    device_width_signature = tuple((name, width) for name, width, _length in device_geometry_signature)
+    total_width_units = sum(width for _name, width in device_width_signature)
+    total_active_area_units = sum(width * length for _name, width, length in device_geometry_signature)
+    total_active_area_um2 = total_active_area_units * 0.12 * 0.06
     if topology_index < 0 or total_width_units <= 0 or total_active_area_units <= 0:
         raise ValueError("comparator topology index, total width, and total area must be nonnegative/positive")
     if not math.isfinite(total_active_area_um2) or total_active_area_um2 <= 0.0:
@@ -438,9 +410,9 @@ def convert_spectre_comp_to_measurement(
     if not np.all(np.isfinite(times_s)) or any(not np.all(np.isfinite(values)) for values in signals.values()):
         raise ValueError("Spectre time and mapped signals must contain only finite values")
 
-    expected_trial_count = trial_count(params)
-    cycle_s = cycle_time_s(params)
-    expected_stop_s = simulation_stop_s(params)
+    expected_trial_count = len(params.vin_cm_values_v) * len(params.vin_diff_values_v) * params.conversions
+    cycle_s = float(params.reset_time_s) + float(params.evaluation_time_s)
+    expected_stop_s = expected_trial_count * cycle_s
     actual_duration_s = float(times_s[-1] - times_s[0])
     if not np.isclose(actual_duration_s, expected_stop_s, rtol=1e-6, atol=waveform_sample_interval_s):
         raise ValueError(
@@ -452,10 +424,10 @@ def convert_spectre_comp_to_measurement(
     point_first_trial = []
     point_index = 0
     for vcm in params.vin_cm_values_v:
-        for vdiff in differential_values_v(params):
+        for vdiff in params.vin_diff_values_v:
             first_trial = point_index * params.conversions
             point_first_trial.append(first_trial)
-            nominal_vdiff.extend([vdiff] * params.conversions)
+            nominal_vdiff.extend([float(vdiff)] * params.conversions)
             nominal_vcm.extend([float(vcm)] * params.conversions)
             point_index += 1
     if len(nominal_vdiff) != expected_trial_count:
@@ -500,14 +472,14 @@ def convert_spectre_comp_to_measurement(
         waveform_sample_interval_s,
     )
 
-    supply_v = float(supply_voltage(params.pvt.v, tech_name="tsmc65"))
+    supply_v = float(params.vdd)
     average_current_a = float(np.trapezoid(signals["vdd_i"], times_s) / actual_duration_s)
     average_power_w = supply_v * average_current_a
     signature_text = ",".join(f"{name}:{width}" for name, width in device_width_signature)
     geometry_text = ",".join(f"{name}:{width}:{length}" for name, width, length in device_geometry_signature)
     readbacks: dict[str, str | int | float | bool] = {
         "raw_file": Path(raw_path).name,
-        "raw_format": "spectre_nutascii",
+        "raw_format": "spectre_nutbin",
         "raw_points": len(times_s),
         "raw_max_timestep_s": float(np.max(np.diff(times_s))),
         "waveform_sample_interval_s": waveform_sample_interval_s,
@@ -561,45 +533,3 @@ def convert_spectre_comp_to_measurement(
             **waveform_records,
         ),
     )
-
-
-def convert_spectre_comp_raw_to_h5(
-    raw_path: Path,
-    h5_path: Path,
-    *,
-    params: CompTbParams,
-    signal_names: Mapping[str, str],
-    candidate_id: str,
-    candidate_label: str,
-    topology_index: int,
-    size_profile: str,
-    total_width_units: int,
-    device_width_signature: Sequence[tuple[str, int]],
-    total_active_area_units: int,
-    total_active_area_um2: float,
-    device_geometry_signature: Sequence[tuple[str, int, int]],
-    waveform_sample_interval_s: float = 500e-12,
-    spectre_runtime_s: float | None = None,
-) -> Path:
-    """Read one comparator raw file and write the shared typed HDF5 format."""
-
-    selected_signals = set(signal_names.values())
-    data = read_spectre_nutascii(raw_path, selected_signals)
-    measurement = convert_spectre_comp_to_measurement(
-        data,
-        params=params,
-        raw_path=raw_path,
-        signal_names=signal_names,
-        candidate_id=candidate_id,
-        candidate_label=candidate_label,
-        topology_index=topology_index,
-        size_profile=size_profile,
-        total_width_units=total_width_units,
-        device_width_signature=device_width_signature,
-        total_active_area_units=total_active_area_units,
-        total_active_area_um2=total_active_area_um2,
-        device_geometry_signature=device_geometry_signature,
-        waveform_sample_interval_s=waveform_sample_interval_s,
-        spectre_runtime_s=spectre_runtime_s,
-    )
-    return write_measurement(h5_path, measurement)

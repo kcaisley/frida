@@ -11,11 +11,12 @@ import pytest
 from bitarray import bitarray
 
 from flow.adc import AdcParams
+from flow.adc.sim import AdcTbParams
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.cdac import CdacParams, RedunStrat
 from flow.scans import fastrx, scan_adc, seqgen
-from flow.scans.params import AdcTbParams, build_adc_variants, load_board_map
+from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
 from flow.scans.scope import FRIDA_SCOPE_CHANNELS, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
 from flow.scans.test_diffamp import SCOPE_TRACKS as DIFFAMP_SCOPE_TRACKS
@@ -81,12 +82,15 @@ def test_hardware_output_directories_match_test_modules() -> None:
     assert {path.parent.name for path in output_directories} == {"build"}
 
 
-def spi_params(**overrides) -> AdcTbParams:
+def spi_params(**overrides) -> AdcScanParams:
     """Return physical parameters with independently recognizable SPI fields."""
-    config = {
+    scan_config = {
         "board_id": "00",
         "observed_adc": 3,
         "active_adc_mask": tuple(int(index in (3, 9)) for index in reversed(range(16))),
+    }
+    tb_config = {
+        "view": "frida65a",
         "dac_astate_p": tuple(int(bit) for bit in "1010101010101010"),
         "dac_bstate_p": tuple(int(bit) for bit in "0101010101010101"),
         "dac_astate_n": tuple(int(bit) for bit in "1111000011110000"),
@@ -99,8 +103,12 @@ def spi_params(**overrides) -> AdcTbParams:
         "dac_mode": 0,
         "dac_diffcaps": 1,
     }
-    config.update(overrides)
-    return AdcTbParams(**config)
+    for name, value in overrides.items():
+        if name in scan_config:
+            scan_config[name] = value
+        else:
+            tb_config[name] = value
+    return AdcScanParams(tb=AdcTbParams(**tb_config), **scan_config)
 
 
 def unpack_spi_payload(payload: bytes) -> bitarray:
@@ -315,10 +323,10 @@ def test_convert_params_to_spi_fmt_places_fields_and_reverses_for_transmission(c
     logical = unpack_spi_payload(payload)
 
     assert len(payload) == 23
-    assert logical[48:64][::-1].to01() == "".join(str(bit) for bit in params.dac_astate_p)
-    assert logical[32:48][::-1].to01() == "".join(str(bit) for bit in params.dac_bstate_p)
-    assert logical[16:32][::-1].to01() == "".join(str(bit) for bit in params.dac_astate_n)
-    assert logical[0:16][::-1].to01() == "".join(str(bit) for bit in params.dac_bstate_n)
+    assert logical[48:64][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_astate_p)
+    assert logical[32:48][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_bstate_p)
+    assert logical[16:32][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_astate_n)
+    assert logical[0:16][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_bstate_n)
 
     for adc in range(16):
         base = 64 + 7 * adc
@@ -332,7 +340,7 @@ def test_convert_params_to_spi_fmt_places_fields_and_reverses_for_transmission(c
 @pytest.mark.parametrize(
     ("override", "message"),
     [
-        ({"dac_astate_p": (0,) * 15}, "exactly 16 bits"),
+        ({"dac_astate_p": (0,) * 15}, "exactly sixteen"),
         ({"observed_adc": 16}, "observed_adc must be in 0..15"),
         ({"active_adc_mask": (0,) * 16}, "must include observed_adc"),
     ],
@@ -409,10 +417,9 @@ def test_adc_preflight_rejects_input_beyond_headroom_before_hardware(
     )[0]
     boundary = replace(
         base,
-        vin_cm=h.Vdc.Params(dc=0.8),
-        vin_diff=h.Vdc.Params(dc=0.9),
+        tb=replace(base.tb, vin_cm=h.Vdc.Params(dc=0.8), vin_diff=h.Vdc.Params(dc=0.9)),
     )
-    beyond = replace(boundary, vin_diff=h.Vdc.Params(dc=0.900002))
+    beyond = replace(boundary, tb=replace(boundary.tb, vin_diff=h.Vdc.Params(dc=0.900002)))
     scan_outdir = tmp_path / "not-created"
     with pytest.raises(ValueError, match="ADC inputs"):
         scan_adc.scan(beyond, run_dir=scan_outdir, position="first")
@@ -442,7 +449,11 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
     )[0]
-    invalid = replace(base, **{field: h.Vdc.Params(dc=voltage_v)})
+    invalid = (
+        replace(base, vdd_io=h.Vdc.Params(dc=voltage_v))
+        if field == "vdd_io"
+        else replace(base, tb=replace(base.tb, **{field: h.Vdc.Params(dc=voltage_v)}))
+    )
     scan_outdir = tmp_path / "not-created"
 
     with pytest.raises(ValueError, match=message):
@@ -499,5 +510,8 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
     points = scan_adc.parse_pwl_wave("0 -100m 500n 100m 1u -100m")
     assert [time_s for time_s, _ in points] == pytest.approx([0.0, 500e-9, 1e-6])
     assert [voltage_v for _, voltage_v in points] == pytest.approx([-0.1, 0.1, -0.1])
+    typed = scan_adc.parse_pwl_wave(h.Pwl.ramp(start=-0.1, stop=0.1, duration=500e-9))
+    assert [time_s for time_s, _ in typed] == pytest.approx([0.0, 500e-9])
+    assert [voltage_v for _, voltage_v in typed] == pytest.approx([-0.1, 0.1])
     with pytest.raises(ValueError, match="increase strictly"):
         scan_adc.parse_pwl_wave("1u 0 0 1")

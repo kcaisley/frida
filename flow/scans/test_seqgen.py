@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
-from flow.scans.params import AdcTbParams
+from flow.adc.sim import AdcTbParams
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"

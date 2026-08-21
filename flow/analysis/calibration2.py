@@ -27,7 +27,7 @@ from numpy.typing import NDArray
 from scipy.optimize import lsq_linear
 
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
-from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc
+from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 
 type FloatArray = NDArray[np.float64]
 type IntArray = NDArray[np.int64]
@@ -73,7 +73,12 @@ def analyze(
     word no longer identifies where the input lies beyond the ADC range.
     """
 
-    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    adc_index = (
+        -1
+        if not isinstance(measurement, MeasAdcExt) or measurement.param.observed_adc is None
+        else measurement.param.observed_adc
+    )
     if ramp.adc_index != adc_index or ramp.sample_count != len(measurement.daq.bout):
         raise ValueError("calibration 2 requires the matching ADC ramp analysis")
     sample = np.arange(ramp.sample_count, dtype=np.float64)
@@ -84,7 +89,7 @@ def analyze(
         rcond=None,
     )[0]
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
-    code_max = (1 << measurement.param.dut.adc_bits) - 1
+    code_max = (1 << params.dut.adc_bits) - 1
     ideal_dout = phase * code_max
     cycle_index = np.floor((sample - first_reset_sample) / period_samples).astype(np.int64)
     retained = (cycle_index >= 0) & (cycle_index < len(ramp.reset_conversion_index) - 1)

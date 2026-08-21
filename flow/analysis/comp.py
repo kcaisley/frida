@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import SupportsFloat, cast
+from typing import cast
 
 import numpy as np
 from scipy.stats import norm
@@ -23,7 +23,6 @@ from flow.analysis.types import (
     MeasCompExt,
     MeasCompInt,
 )
-from flow.circuit.params import supply_voltage
 
 
 def analyze_comp_offset_noise(
@@ -267,7 +266,9 @@ def _supply_voltage_v(measurement: MeasCompInt) -> float:
     for name in ("vdd_v", "supply_v"):
         if name in measurement.info.readbacks:
             return float(measurement.info.readbacks[name])
-    return float(cast(SupportsFloat, supply_voltage(measurement.param.pvt.v)))
+    if hasattr(measurement.param, "vdd"):
+        return float(measurement.param.vdd)
+    return float(measurement.param.vdd_a.dc)
 
 
 def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower:

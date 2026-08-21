@@ -1,23 +1,26 @@
-"""Software-only checks for the named sampler simulation targets."""
+"""Software-only checks for the native HDL21 sampler interface."""
+
+import inspect
 
 import hdl21 as h
+import pytest
 
 from . import sim
 
 
-def test_sampler_targets_are_named_and_explicit() -> None:
-    assert set(sim.TARGETS) == {
-        "frida65_baseline_netlist",
-        "frida65_baseline_transient",
-    }
-    assert sim.MAX_PARALLEL_SIMULATIONS > 0
+def test_sampler_testbench_uses_typed_clock_parameters() -> None:
+    params = sim.SampTbParams(clock_period_s=80e-9, clock_high_time_s=30e-9, input_voltage=0.7)
+    tb = sim.SampTb(params)
+
+    assert isinstance(tb, h.Module)
+    assert float(tb.vclk.of.params.period) == pytest.approx(80e-9)
+    assert float(tb.vclk.of.params.width) == pytest.approx(30e-9)
+    assert float(tb.vdin.of.params.dc) == pytest.approx(0.7)
+    assert not hasattr(params, "temperature_c")
 
 
-def test_sampler_sim_input_writes_selected_nutascii() -> None:
-    simulation = sim.sim_input(sim.SampTbParams())
-    literal_text = "\n".join(attr.text for attr in simulation.attrs if isinstance(attr, h.Literal))
-
-    assert "rawfmt=nutascii" in literal_text
-    assert "xtop.din" in literal_text
-    assert "xtop.dout" in literal_text
-    assert "tran tran stop=500n" in literal_text
+def test_sampler_main_owns_check_and_transient_targets() -> None:
+    source = inspect.getsource(sim.main)
+    assert "frida65_baseline_check" in source
+    assert "frida65_baseline_transient" in source
+    assert "TARGETS" not in vars(sim)

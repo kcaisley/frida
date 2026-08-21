@@ -319,7 +319,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pydantic", specifier = ">=1.9.0,<3" },
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "vlsir", specifier = ">=7.0.0.dev1" },
     { name = "vlsirdev", marker = "extra == 'dev'", specifier = ">=7.0.0.dev1" },
     { name = "vlsirtools", specifier = ">=7.0.0.dev1" },

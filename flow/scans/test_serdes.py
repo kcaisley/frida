@@ -31,10 +31,10 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
+from flow.adc.sim import AdcTbParams
 from flow.analysis.measure import find_crossings
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
-from flow.scans.params import AdcTbParams
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,

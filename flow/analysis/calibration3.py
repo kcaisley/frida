@@ -29,7 +29,7 @@ from scipy.special import log_ndtr, ndtr
 
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
 from flow.analysis.measure import histogram_inl_dnl
-from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc
+from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 from flow.cdac import get_cdac_weights
 
 THRESHOLD_BIN_COUNT = 16_384
@@ -334,9 +334,14 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
     comparator noise are comparable to the physical step size.
     """
 
-    if not isinstance(measurement.param.vin_diff, h.Vpwl.Params):
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    if not isinstance(params.vin_diff, h.Vpwl.Params):
         raise TypeError("ADC threshold calibration requires a PWL differential-input source")
-    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
+    adc_index = (
+        -1
+        if not isinstance(measurement, MeasAdcExt) or measurement.param.observed_adc is None
+        else measurement.param.observed_adc
+    )
     if ramp.adc_index != adc_index or ramp.sample_count != len(measurement.daq.bout):
         raise ValueError("calibration 3 requires the matching ADC ramp analysis")
     decisions = np.asarray(measurement.daq.bout, dtype=np.uint8)
@@ -365,10 +370,10 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
         raise ValueError("threshold calibration requires multiple complete ramp cycles for train/validation splitting")
 
     nominal_weight = np.asarray(
-        [2 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1],
+        [2 * value for value in get_cdac_weights(params.dut.cdac)] + [1],
         dtype=np.float64,
     )
-    code_max = (1 << measurement.param.dut.adc_bits) - 1
+    code_max = (1 << params.dut.adc_bits) - 1
     nominal_weight *= code_max / np.sum(nominal_weight)
 
     # Select the usable resolution only inside the even-cycle training set.

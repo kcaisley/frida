@@ -170,7 +170,7 @@ def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) ->
                                     cdac_side=side,
                                     cdac_element=element,
                                     cdac_direction=direction,
-                                    dac_diffcaps=diffcaps,
+                                    tb=SimpleNamespace(dac_diffcaps=diffcaps),
                                 ),
                                 info=SimpleNamespace(backend="spice", readbacks={}),
                                 point_index=0,
@@ -186,7 +186,7 @@ def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) ->
                     cdac_side="p",
                     cdac_element=0,
                     cdac_direction="1to0",
-                    dac_diffcaps=0,
+                    tb=SimpleNamespace(dac_diffcaps=0),
                 ),
                 info=SimpleNamespace(backend="spice", readbacks={}),
                 point_index=point_index,
@@ -215,7 +215,7 @@ def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) ->
             measurement.param.cdac_side,
             measurement.param.cdac_element,
             measurement.param.cdac_direction,
-            measurement.param.dac_diffcaps,
+            measurement.param.tb.dac_diffcaps,
         )
         == ("p", 0, "1to0", 0)
     ]
@@ -250,9 +250,12 @@ def test_adc_transfer_curve_accepts_complete_physical_campaign(
                     measurement.param,
                     campaign="adc_transfer",
                     board_id="00",
-                    conversions=100,
-                    vin_cm=h.Vdc.Params(dc=0.700),
-                    vin_diff=h.Vdc.Params(dc=input_v),
+                    tb=dataclasses.replace(
+                        measurement.param.tb,
+                        conversions=100,
+                        vin_cm=h.Vdc.Params(dc=0.700),
+                        vin_diff=h.Vdc.Params(dc=input_v),
+                    ),
                 ),
             )
     monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
@@ -422,11 +425,13 @@ def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(
                 measurements_by_path[path] = SimpleNamespace(
                     param=SimpleNamespace(
                         observed_adc=adc_index,
-                        symbol_rate=rate_mbd * 1e6,
-                        seq_logic_phase_delay_symbols=logic_offset,
-                        seq_comp_phase_delay_symbols=0,
-                        vin_diff=h.Vdc.Params(dc=0.05),
-                        vin_cm=h.Vdc.Params(dc=0.8),
+                        tb=SimpleNamespace(
+                            symbol_rate=rate_mbd * 1e6,
+                            seq_logic_phase_delay_symbols=logic_offset,
+                            seq_comp_phase_delay_symbols=0,
+                            vin_diff=h.Vdc.Params(dc=0.05),
+                            vin_cm=h.Vdc.Params(dc=0.8),
+                        ),
                     )
                 )
 

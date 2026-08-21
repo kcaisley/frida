@@ -1,7 +1,7 @@
 """Acquire physical A-to-B CDAC transition S-curves as typed HDF5 points.
 
 The public :func:`scan` function acquires a supplied list of complete
-``AdcTbParams`` objects. Named hardware campaigns live in
+``AdcScanParams`` objects. Named hardware campaigns live in
 ``flow.scans.runner``.
 """
 
@@ -22,6 +22,7 @@ from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
 from flow.adc import AdcParams
+from flow.adc.sim import AdcTbParams
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CdacExtDaq, CdacExtWave, MeasCdacExt, MeasInfo
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
@@ -29,7 +30,7 @@ from flow.scans.fastrx import (
     calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
 )
-from flow.scans.params import AdcTbParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
@@ -87,9 +88,9 @@ def find_probability_bracket(
 
 
 def build_fine_sweep_variants(
-    template: AdcTbParams,
+    template: AdcScanParams,
     observations: Mapping[float, tuple[int, int]],
-) -> list[AdcTbParams]:
+) -> list[AdcScanParams]:
     """Compose the 100 µV/1,000-trial CDAC interval enclosed by a coarse bracket."""
 
     step_v = 100.0e-6
@@ -104,29 +105,32 @@ def build_fine_sweep_variants(
     return [
         replace(
             template,
-            conversions=conversions,
             sweep_stage="fine",
             sweep_min_v=safety_minimum_v,
             sweep_max_v=safety_maximum_v,
             sweep_step_v=step_v,
-            vin_diff=h.Vdc.Params(dc=minimum_v + index * step_v),
+            tb=replace(
+                template.tb,
+                conversions=conversions,
+                vin_diff=h.Vdc.Params(dc=minimum_v + index * step_v),
+            ),
         )
         for index in range(point_count)
     ]
 
 
 def build_next_coarse_sweep_variant(
-    template: AdcTbParams,
+    template: AdcScanParams,
     observations: Mapping[float, tuple[int, int]],
-) -> AdcTbParams | None:
+) -> AdcScanParams | None:
     """Compose the next monotonic coarse point needed to bracket one CDAC curve."""
 
     low_probability_limit = 0.10
     high_probability_limit = 0.90
     if template.sweep_min_v is None or template.sweep_max_v is None or template.sweep_step_v is None:
-        raise ValueError("adaptive coarse sweep requires min, max, and step controls in AdcTbParams")
+        raise ValueError("adaptive coarse sweep requires min, max, and step controls in AdcScanParams")
     sweep_values = build_alternating_sweep_values(
-        float(template.vin_diff.dc),
+        float(template.tb.vin_diff.dc),
         float(template.sweep_min_v),
         float(template.sweep_max_v),
         float(template.sweep_step_v),
@@ -143,15 +147,15 @@ def build_next_coarse_sweep_variant(
 
     for voltage in sweep_values:
         if voltage not in observations:
-            return replace(template, vin_diff=h.Vdc.Params(dc=voltage))
+            return replace(template, tb=replace(template.tb, vin_diff=h.Vdc.Params(dc=voltage)))
     return None
 
 
 def build_next_fine_sweep_variant(
-    template: AdcTbParams,
+    template: AdcScanParams,
     fine_observations: Mapping[float, tuple[int, int]],
     coarse_observations: Mapping[float, tuple[int, int]],
-) -> AdcTbParams | None:
+) -> AdcScanParams | None:
     """Extend a completed fine CDAC interval until its own bracket exists."""
 
     step_v = 100.0e-6
@@ -207,10 +211,9 @@ def build_next_fine_sweep_variant(
         if safety_minimum_v - 1.0e-12 <= candidate_v <= safety_maximum_v + 1.0e-12:
             return replace(
                 template,
-                conversions=conversions,
                 sweep_stage="fine",
                 sweep_step_v=step_v,
-                vin_diff=h.Vdc.Params(dc=candidate_v),
+                tb=replace(template.tb, conversions=conversions, vin_diff=h.Vdc.Params(dc=candidate_v)),
             )
     return None
 
@@ -252,7 +255,7 @@ def _convert_dac_rail_percent_to_codes(
     return _convert_dac_rail_percent_to_codes_cached(rail_percent, tuple(weights))
 
 
-def _predict_cdac_step_v(params: AdcTbParams) -> float:
+def _predict_cdac_step_v(params: AdcScanParams) -> float:
     """Predict the selected element's unsigned physical top-plate step for planning.
 
     The fabricated active-high XOR makes ``dac_diffcaps=0`` switch the main
@@ -262,27 +265,27 @@ def _predict_cdac_step_v(params: AdcTbParams) -> float:
 
     if params.campaign != "cdac_ab" or params.cdac_element is None:
         raise ValueError("CDAC step prediction requires a selected cdac_ab element")
-    weights = get_cdac_weights(params.dut.cdac)
+    weights = get_cdac_weights(params.tb.dut.cdac)
     total_weights = [65 * math.ceil(weight / 64) for weight in weights]
-    switched_weight = weights[params.cdac_element] if params.dac_diffcaps else total_weights[params.cdac_element]
+    switched_weight = weights[params.cdac_element] if params.tb.dac_diffcaps else total_weights[params.cdac_element]
     topplate_parasitic_weight = 0.0
     if params.board_id is not None and params.observed_adc is not None:
         board_map = load_board_map()
         board = board_map["boards"][params.board_id]
         flavor = board["adc_channels"][params.observed_adc]
         topplate_parasitic_weight = float(board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0))
-    return float(params.vdd_dac.dc) * switched_weight / (sum(total_weights) + topplate_parasitic_weight)
+    return float(params.tb.vdd_dac.dc) * switched_weight / (sum(total_weights) + topplate_parasitic_weight)
 
 
-def _calculate_cdac_plate_voltages(params: AdcTbParams) -> tuple[float, float, float, float]:
+def _calculate_cdac_plate_voltages(params: AdcScanParams) -> tuple[float, float, float, float]:
     """Return P/N top-plate voltages before and after the selected switch."""
 
-    if not isinstance(params.vin_diff, h.Vdc.Params):
+    if not isinstance(params.tb.vin_diff, h.Vdc.Params):
         raise TypeError("CDAC plate planning requires a DC differential input")
     if params.cdac_side is None or params.cdac_direction is None:
         raise ValueError("CDAC plate planning requires side and direction")
-    vin_cm_v = float(params.vin_cm.dc)
-    vin_diff_v = float(params.vin_diff.dc)
+    vin_cm_v = float(params.tb.vin_cm.dc)
+    vin_diff_v = float(params.tb.vin_diff.dc)
     before_p_v = vin_cm_v + vin_diff_v / 2.0
     before_n_v = vin_cm_v - vin_diff_v / 2.0
     signed_step_v = _predict_cdac_step_v(params) * (1.0 if params.cdac_direction == "0to1" else -1.0)
@@ -291,16 +294,16 @@ def _calculate_cdac_plate_voltages(params: AdcTbParams) -> tuple[float, float, f
     return before_p_v, before_n_v, after_p_v, after_n_v
 
 
-def _calculate_cdac_input_bounds(params: AdcTbParams) -> tuple[float, float]:
+def _calculate_cdac_input_bounds(params: AdcScanParams) -> tuple[float, float]:
     """Calculate the complete safe external-Vdiff interval for one transition."""
 
     if params.cdac_side is None or params.cdac_direction is None:
         raise ValueError("CDAC input bounds require side and direction")
     if params.board_id is None:
         raise ValueError("physical CDAC input bounds require board_id")
-    vin_cm_v = float(params.vin_cm.dc)
+    vin_cm_v = float(params.tb.vin_cm.dc)
     lower_plate_v = 0.4
-    upper_plate_v = float(params.vdd_a.dc)
+    upper_plate_v = float(params.tb.vdd_a.dc)
     step_sign = 1.0 if params.cdac_direction == "0to1" else -1.0
     signed_step_v = step_sign * _predict_cdac_step_v(params)
     minimum_v = max(
@@ -326,7 +329,7 @@ def _calculate_cdac_input_bounds(params: AdcTbParams) -> tuple[float, float]:
     return minimum_v, maximum_v
 
 
-def _cdac_curve_key(params: AdcTbParams) -> tuple[Any, ...]:
+def _cdac_curve_key(params: AdcScanParams) -> tuple[Any, ...]:
     """Identify one A-to-B transition curve while excluding its input point."""
 
     return (
@@ -335,18 +338,18 @@ def _cdac_curve_key(params: AdcTbParams) -> tuple[Any, ...]:
         params.cdac_side,
         params.cdac_element,
         params.cdac_direction,
-        params.dac_mode,
-        params.dac_diffcaps,
+        params.tb.dac_mode,
+        params.tb.dac_diffcaps,
         float(params.settling_time_s),
-        float(params.vin_cm.dc),
-        params.dac_astate_p,
-        params.dac_bstate_p,
-        params.dac_astate_n,
-        params.dac_bstate_n,
+        float(params.tb.vin_cm.dc),
+        params.tb.dac_astate_p,
+        params.tb.dac_bstate_p,
+        params.tb.dac_astate_n,
+        params.tb.dac_bstate_n,
     )
 
 
-def _cdac_point_stem(params: AdcTbParams) -> str:
+def _cdac_point_stem(params: AdcScanParams) -> str:
     """Return the stable filename portion used for resuming one CDAC point."""
 
     assert params.board_id is not None
@@ -354,15 +357,15 @@ def _cdac_point_stem(params: AdcTbParams) -> str:
     assert params.cdac_side is not None
     assert params.cdac_element is not None
     assert params.cdac_direction is not None
-    assert isinstance(params.vin_diff, h.Vdc.Params)
+    assert isinstance(params.tb.vin_diff, h.Vdc.Params)
     return (
         (
             f"{params.board_id}_adc{params.observed_adc:02d}_cdac_ab_"
             f"{params.cdac_side}_c{16 - params.cdac_element:02d}_{params.cdac_direction}_"
-            f"mode{params.dac_mode}_diff{params.dac_diffcaps}_"
+            f"mode{params.tb.dac_mode}_diff{params.tb.dac_diffcaps}_"
             f"settle{float(params.settling_time_s) * 1e9:06.2f}ns_{params.sweep_stage}_"
-            f"vcm{float(params.vin_cm.dc) * 1e3:07.2f}mv_"
-            f"vdiff{float(params.vin_diff.dc) * 1e3:+09.3f}mv"
+            f"vcm{float(params.tb.vin_cm.dc) * 1e3:07.2f}mv_"
+            f"vdiff{float(params.tb.vin_diff.dc) * 1e3:+09.3f}mv"
         )
         .replace("+", "p")
         .replace("-", "m")
@@ -394,7 +397,7 @@ def _validate_cdac_resume_curves(
             raise ValueError(
                 "CDAC run directory contains an interrupted or mixed-session curve for "
                 f"ADC{params.observed_adc:02d} {params.cdac_side} C{16 - params.cdac_element:02d} "
-                f"{params.cdac_direction} diff{params.dac_diffcaps}; start a new run directory"
+                f"{params.cdac_direction} diff{params.tb.dac_diffcaps}; start a new run directory"
             )
 
 
@@ -412,7 +415,7 @@ def _build_cdac_params(
     sweep_min_v: float | None = None,
     sweep_max_v: float | None = None,
     sweep_step_v: float | None = None,
-) -> AdcTbParams:
+) -> AdcScanParams:
     """Compose one complete physical A-to-B CDAC point."""
 
     board_id = "00"
@@ -445,10 +448,21 @@ def _build_cdac_params(
         raise ValueError("direction must be '1to0' or '0to1'")
 
     symbol_rate_bps = 1.6e9
-    params = AdcTbParams(
-        dut=dut,
-        symbol_rate=symbol_rate_bps,
-        conversions=conversions,
+    params = AdcScanParams(
+        tb=AdcTbParams(
+            view="frida65a",
+            dut=dut,
+            symbol_rate=symbol_rate_bps,
+            conversions=conversions,
+            dac_mode=0,
+            dac_diffcaps=dac_diffcaps,
+            dac_astate_p=tuple(a_p),
+            dac_bstate_p=tuple(b_p),
+            dac_astate_n=tuple(a_n),
+            dac_bstate_n=tuple(b_n),
+            vin_cm=h.Vdc.Params(dc=0.8),
+            vin_diff=h.Vdc.Params(dc=vin_diff_v),
+        ),
         board_id=board_id,
         observed_adc=adc_index,
         active_adc_mask=tuple(int(index == adc_index) for index in reversed(range(16))),
@@ -462,16 +476,8 @@ def _build_cdac_params(
         cdac_element=element,
         cdac_direction=direction,
         settling_time_s=settling_time_s,
-        dac_mode=0,
-        dac_diffcaps=dac_diffcaps,
-        dac_astate_p=tuple(a_p),
-        dac_bstate_p=tuple(b_p),
-        dac_astate_n=tuple(a_n),
-        dac_bstate_n=tuple(b_n),
-        vin_cm=h.Vdc.Params(dc=0.8),
-        vin_diff=h.Vdc.Params(dc=vin_diff_v),
     )
-    sequence_words = len(params.seq_init_pattern) // 8
+    sequence_words = len(params.tb.seq_init_pattern) // 8
     word_period_s = 8.0 / symbol_rate_bps
     update_word = 21
     comp_word = update_word + 1 + math.ceil(settling_time_s / word_period_s)
@@ -486,14 +492,17 @@ def _build_cdac_params(
     comp_words[comp_word] = "00001111"
     params = replace(
         params,
-        seq_init_pattern=init_pattern,
-        seq_samp_pattern=samp_pattern,
-        seq_comp_pattern="".join(comp_words),
-        seq_logic_pattern=logic_pattern,
+        tb=replace(
+            params.tb,
+            seq_init_pattern=init_pattern,
+            seq_samp_pattern=samp_pattern,
+            seq_comp_pattern="".join(comp_words),
+            seq_logic_pattern=logic_pattern,
+        ),
     )
     validate_params(params)
     plate_voltages = _calculate_cdac_plate_voltages(params)
-    if any(voltage < 0.4 or voltage > float(params.vdd_a.dc) for voltage in plate_voltages):
+    if any(voltage < 0.4 or voltage > float(params.tb.vdd_a.dc) for voltage in plate_voltages):
         raise ValueError(f"CDAC point drives a predicted top plate outside 0.4..VDD_A: {plate_voltages}")
     return params
 
@@ -545,7 +554,7 @@ def build_capacitor_variants(
     coarse_step_v: float,
     coarse_trials: int,
     selected_curves: Collection[tuple[int, str, int, str, int]] | None = None,
-) -> list[AdcTbParams]:
+) -> list[AdcScanParams]:
     """Build adaptive seeds for all or selected ADC00–ADC03 A-to-B curves."""
 
     selected_curves = None if selected_curves is None else set(selected_curves)
@@ -598,7 +607,7 @@ def build_capacitor_variants(
                 params.cdac_side,
                 params.cdac_element,
                 params.cdac_direction,
-                params.dac_diffcaps,
+                params.tb.dac_diffcaps,
             )
             for params in variants
         }
@@ -608,7 +617,7 @@ def build_capacitor_variants(
 
 
 def scan(
-    variants: Sequence[AdcTbParams],
+    variants: Sequence[AdcScanParams],
     *,
     run_dir: Path,
     capture_scope_per_curve: bool = True,
@@ -639,26 +648,26 @@ def scan(
             raise ValueError(f"scan_cdac cannot run campaign {params.campaign!r}")
         if params.board_id is None or params.observed_adc is None or params.active_adc_mask is None:
             raise ValueError("every physical CDAC point must select its board and ADC")
-        if not isinstance(params.vin_diff, h.Vdc.Params):
+        if not isinstance(params.tb.vin_diff, h.Vdc.Params):
             raise TypeError("physical CDAC S-curves require fixed DC inputs")
         _calculate_cdac_plate_voltages(params)
 
     first = queue[0]
     static_signature = (
         first.board_id,
-        float(first.symbol_rate),
-        float(first.vdd_a.dc),
-        float(first.vdd_d.dc),
-        float(first.vdd_dac.dc),
+        float(first.tb.symbol_rate),
+        float(first.tb.vdd_a.dc),
+        float(first.tb.vdd_d.dc),
+        float(first.tb.vdd_dac.dc),
         float(first.vdd_io.dc),
     )
     if any(
         (
             params.board_id,
-            float(params.symbol_rate),
-            float(params.vdd_a.dc),
-            float(params.vdd_d.dc),
-            float(params.vdd_dac.dc),
+            float(params.tb.symbol_rate),
+            float(params.tb.vdd_a.dc),
+            float(params.tb.vdd_d.dc),
+            float(params.tb.vdd_dac.dc),
             float(params.vdd_io.dc),
         )
         != static_signature
@@ -679,20 +688,20 @@ def scan(
             f"CDAC run requests {float(first.vdd_io.dc):g} V"
         )
     for rail, field in (("VDD_A", "vdd_a"), ("VDD_D", "vdd_d"), ("VDD_DAC", "vdd_dac")):
-        requested_v = float(getattr(first, field).dc)
+        requested_v = float(getattr(first.tb, field).dc)
         if not minimum_supply_v <= requested_v <= maximum_supply_v:
             raise ValueError(
                 f"{rail} request {requested_v:g} V is outside {minimum_supply_v:g}..{maximum_supply_v:g} V"
             )
     calibration: Mapping[str, Any] = board["input_calibration"]
     for params in queue:
-        assert isinstance(params.vin_diff, h.Vdc.Params)
-        vin_cm_v = float(params.vin_cm.dc)
+        assert isinstance(params.tb.vin_diff, h.Vdc.Params)
+        vin_cm_v = float(params.tb.vin_cm.dc)
         minimum_input_v = -signal_headroom_v
-        maximum_input_v = float(params.vdd_a.dc) + signal_headroom_v
+        maximum_input_v = float(params.tb.vdd_a.dc) + signal_headroom_v
         if not float(calibration["minimum_vin_cm_v"]) <= vin_cm_v <= float(calibration["maximum_vin_cm_v"]):
             raise ValueError(f"Vin_cm={vin_cm_v:g} V is outside the calibrated input range")
-        planned_vdiff_values = [float(params.vin_diff.dc)]
+        planned_vdiff_values = [float(params.tb.vin_diff.dc)]
         if params.sweep_min_v is not None and params.sweep_max_v is not None:
             planned_vdiff_values.extend((float(params.sweep_min_v), float(params.sweep_max_v)))
         for vin_diff_v in planned_vdiff_values:
@@ -714,9 +723,11 @@ def scan(
                 raise ValueError(
                     f"CDAC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
-            planned = replace(params, vin_diff=h.Vdc.Params(dc=vin_diff_v))
+            planned = replace(params, tb=replace(params.tb, vin_diff=h.Vdc.Params(dc=vin_diff_v)))
             plate_voltages = _calculate_cdac_plate_voltages(planned)
-            if any(voltage < 0.4 - 1.0e-12 or voltage > float(params.vdd_a.dc) + 1.0e-12 for voltage in plate_voltages):
+            if any(
+                voltage < 0.4 - 1.0e-12 or voltage > float(params.tb.vdd_a.dc) + 1.0e-12 for voltage in plate_voltages
+            ):
                 raise ValueError(f"predicted CDAC plate voltage is unsafe: {plate_voltages}")
 
     run_dir = Path(run_dir)
@@ -743,7 +754,7 @@ def scan(
             if float(measurement.info.readbacks.get("capture_batch_interval_s", 0.0)) > 0.0:
                 drift_checkpoint_curves.add(key)
             existing_curves.setdefault(key, []).append(measurement)
-            voltage = float(measurement.param.vin_diff.dc)
+            voltage = float(measurement.param.tb.vin_diff.dc)
             observations_by_stage = (
                 coarse_observations if measurement.param.sweep_stage == "coarse" else fine_observations
             )
@@ -883,7 +894,7 @@ def scan(
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        symbol_rate_bps = float(first.symbol_rate)
+        symbol_rate_bps = float(first.tb.symbol_rate)
         si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
         sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
             pll_divider_n,
@@ -893,7 +904,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_cdac_weights(first.dut.cdac)) + 1
+        expected_data_size = len(get_cdac_weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -934,12 +945,13 @@ def scan(
                         if next_variant is not None:
                             queue.insert(variant_index + 1, next_variant)
                 continue
-            params = original_params
-            assert params.observed_adc is not None
+            scan_params = original_params
+            params = scan_params.tb
+            assert scan_params.observed_adc is not None
             assert isinstance(params.vin_diff, h.Vdc.Params)
             vin_diff_v = float(params.vin_diff.dc)
             vin_cm_v = float(params.vin_cm.dc)
-            plate_voltages = _calculate_cdac_plate_voltages(params)
+            plate_voltages = _calculate_cdac_plate_voltages(scan_params)
             if any(voltage < 0.4 or voltage > float(params.vdd_a.dc) for voltage in plate_voltages):
                 raise ValueError(f"predicted CDAC plate voltage is unsafe: {plate_voltages}")
             if abs(vin_diff_v) > float(calibration["maximum_abs_vdiff_v"]):
@@ -999,7 +1011,8 @@ def scan(
                     seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
                     seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
                 )
-                validate_params(params)
+                scan_params = replace(scan_params, tb=params)
+                validate_params(scan_params)
             rx_sen_start_word = capture_alignment.rx_sen_start_word
             comp_idelay_taps = capture_alignment.comp_idelay_taps
             daq["gpio1"].read()
@@ -1013,7 +1026,7 @@ def scan(
 
             spi_bytes = spi_bytes_by_curve.get(curve_key)
             if spi_bytes is None:
-                spi_bytes = convert_params_to_spi_fmt(params)
+                spi_bytes = convert_params_to_spi_fmt(scan_params)
                 spi_bytes_by_curve[curve_key] = spi_bytes
             spi_readback_checked = spi_bytes != programmed_spi_bytes
             spi_mismatches = 0
@@ -1090,7 +1103,7 @@ def scan(
                 scope.set_acquire_state("RUN")
                 acquisition_count_before = wait_for_scope_armed(scope, timeout_s=scope_timeout_s)
             capture_started = monotonic()
-            if params.sweep_stage == "fine":
+            if scan_params.sweep_stage == "fine":
                 complete_batches, remainder = divmod(params.conversions, fine_batch_trials)
                 trial_batches = (
                     *((fine_batch_trials,) * complete_batches),
@@ -1117,7 +1130,7 @@ def scan(
                 if len(raw_batch) != batch_trials:
                     raise RuntimeError(f"expected {batch_trials} FastRX words, received {len(raw_batch)}")
                 raw_batches.extend(raw_batch)
-                if params.sweep_stage == "fine" and batch_index == 0:
+                if scan_params.sweep_stage == "fine" and batch_index == 0:
                     first_decisions, _first_frames = convert_fastrx_words_to_comp(raw_batch, data_size=data_size)
                     first_batch_probability = float(np.mean(first_decisions))
                     time_distribute_batches = (
@@ -1241,7 +1254,7 @@ def scan(
                 "awg_readback_checked": awg_readback_checked,
                 "predicted_cdac_step_v": _predict_cdac_step_v(params),
                 "cdac_topplate_parasitic_weight": float(
-                    board_map["adc_flavors"][board["adc_channels"][params.observed_adc]].get(
+                    board_map["adc_flavors"][board["adc_channels"][scan_params.observed_adc]].get(
                         "cdac_topplate_parasitic_weight",
                         0.0,
                     )
@@ -1274,7 +1287,7 @@ def scan(
                     instruments=instrument_identities,
                     readbacks=readbacks,
                 ),
-                param=params,
+                param=scan_params,
                 daq=CdacExtDaq(
                     trial_index=trial_index,
                     dac_state_p=after_p,
@@ -1293,8 +1306,9 @@ def scan(
             existing_paths[point_stem] = h5_path
             next_file_index += 1
             print(
-                f"[{variant_index + 1}/{len(queue)}] ADC{params.observed_adc:02d} "
-                f"{params.cdac_side.upper()} C{16 - params.cdac_element:02d} {params.cdac_direction} "
+                f"[{variant_index + 1}/{len(queue)}] ADC{scan_params.observed_adc:02d} "
+                f"{scan_params.cdac_side.upper()} C{16 - scan_params.cdac_element:02d} "
+                f"{scan_params.cdac_direction} "
                 f"P(decision=1)={float(np.mean(decisions)):.4f} "
                 f"elapsed={monotonic() - point_started:.3f}s: {h5_path}"
             )

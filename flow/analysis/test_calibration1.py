@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from flow.adc.sim import AdcTbParams
 from flow.analysis import calibration1
 from flow.analysis.calibration1 import (
     analyze,
@@ -18,7 +19,7 @@ from flow.analysis.calibration1 import (
 )
 from flow.analysis.types import MeasCdacExt
 from flow.cdac import get_cdac_weights
-from flow.scans.params import AdcTbParams
+from flow.scans.params import AdcScanParams
 
 
 @pytest.mark.parametrize(
@@ -131,12 +132,13 @@ def test_audit_measured_weights_normalizes_total_and_bounds_binary_paths() -> No
 
 
 def test_calibration1_public_analysis_returns_common_weights(monkeypatch: pytest.MonkeyPatch) -> None:
-    params = AdcTbParams(
+    params = AdcScanParams(
+        tb=AdcTbParams(),
         board_id="test_board",
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = 2.0 * np.asarray(get_cdac_weights(params.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = 2.0 * np.asarray(get_cdac_weights(params.tb.dut.cdac), dtype=np.float64)
     measured = np.repeat((nominal_cap_weight / 2.0)[None, :, None], 2, axis=0)
     measured = np.repeat(measured, 2, axis=2)
     monkeypatch.setattr(

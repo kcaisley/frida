@@ -8,10 +8,13 @@ from enum import Enum
 from pathlib import Path
 
 import h5py
+import hdl21 as h
+import hdl21.sim as hs
 import numpy as np
 import pytest
 
 import flow.analysis.io as analysis_io
+from flow.adc.sim import AdcTbParams
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
     AdcDaq,
@@ -40,7 +43,7 @@ from flow.analysis.types import (
 from flow.cdac.sim import CdacTbParams
 from flow.comp.sim import CompTbParams
 from flow.samp.sim import SampTbParams
-from flow.scans.params import AdcTbParams
+from flow.scans.params import AdcScanParams
 
 
 class PersistenceMode(Enum):
@@ -62,11 +65,11 @@ def adc_measurement() -> MeasAdcExt:
             instruments={"scope": "MSO54", "fpga": "BDAQ53"},
             readbacks={"vdd_a_v": 1.199, "locked": True},
         ),
-        param=AdcTbParams(
+        param=AdcScanParams(
+            tb=AdcTbParams(conversions=2),
             board_id="00",
             observed_adc=0,
             active_adc_mask=(0,) * 15 + (1,),
-            conversions=2,
         ),
         daq=AdcDaq(
             conversion_index=np.array([0, 1]),
@@ -172,7 +175,7 @@ def all_measurements():
         ),
         MeasCompExt(
             info=info("MeasCompExt", "physical"),
-            param=AdcTbParams(conversions=1),
+            param=AdcScanParams(tb=AdcTbParams(conversions=1)),
             daq=comp_ext_daq,
             wave=CompExtWave(
                 trial_index=np.asarray([0], dtype=np.int64),
@@ -213,7 +216,7 @@ def all_measurements():
         ),
         MeasCdacExt(
             info=info("MeasCdacExt", "physical"),
-            param=AdcTbParams(conversions=1),
+            param=AdcScanParams(tb=AdcTbParams(conversions=1)),
             daq=CdacExtDaq(
                 trial_index=np.asarray([0], dtype=np.int64),
                 dac_state_p=dac_states,
@@ -326,6 +329,48 @@ def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> N
         np.testing.assert_array_equal(actual, expected)
 
 
+def test_typed_pwl_parameter_round_trip(tmp_path: Path) -> None:
+    """Persist typed PWL points as part of the shared ADC parameters."""
+
+    original = adc_measurement()
+    original = replace(
+        original,
+        param=replace(
+            original.param,
+            tb=replace(
+                original.param.tb,
+                vin_diff=h.Vpwl.Params(wave=h.Pwl.ramp(start=-0.1, stop=0.1, duration=1e-6)),
+            ),
+        ),
+    )
+
+    loaded = read_measurement(write_measurement(tmp_path / "pwl.h5", original))
+
+    assert loaded.param == original.param
+    assert isinstance(loaded.param.tb.vin_diff.wave, h.Pwl)
+
+
+def test_linear_sweep_parameter_round_trip(tmp_path: Path) -> None:
+    """Persist a conversion-synchronous ADC input sweep without materializing its PWL."""
+
+    original = adc_measurement()
+    original = replace(
+        original,
+        param=replace(
+            original.param,
+            tb=replace(
+                original.param.tb,
+                vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
+            ),
+        ),
+    )
+
+    loaded = read_measurement(write_measurement(tmp_path / "linear_sweep.h5", original))
+
+    assert loaded.param == original.param
+    assert isinstance(loaded.param.tb.vin_diff, hs.LinearSweep)
+
+
 def test_native_enum_round_trip(tmp_path: Path) -> None:
     """Persist and restore enum identity from its qualified type metadata."""
 
@@ -353,16 +398,16 @@ def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -
 
     path = write_measurement(tmp_path / "legacy.h5", adc_measurement())
     with h5py.File(path, "a") as stored:
-        cdac = stored["param/dut/cdac"]
+        cdac = stored["param/tb/dut/cdac"]
         del cdac["driver_p_w"]
         del cdac["driver_n_w"]
         del cdac["driver_strengths"]
 
     loaded = read_measurement(path)
     assert isinstance(loaded, MeasAdcExt)
-    assert loaded.param.dut.cdac.driver_p_w == 9
-    assert loaded.param.dut.cdac.driver_n_w == 7
-    assert loaded.param.dut.cdac.driver_strengths is None
+    assert loaded.param.tb.dut.cdac.driver_p_w == 9
+    assert loaded.param.tb.dut.cdac.driver_n_w == 7
+    assert loaded.param.tb.dut.cdac.driver_strengths is None
 
 
 @pytest.mark.parametrize("measurement", all_measurements(), ids=lambda value: type(value).__name__)

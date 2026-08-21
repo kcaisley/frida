@@ -1,4 +1,4 @@
-"""Software-only tests for Spectre NUTASCII and typed ADC HDF5 conversion."""
+"""Software-only tests for VLSIR-to-FRIDA result conversion."""
 
 import dataclasses
 from pathlib import Path
@@ -6,51 +6,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.analysis.io import read_measurement
+from flow.adc.sim import AdcTbParams
+from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import AdcIntWave, CompIntWave, MeasAdcInt, MeasCompInt
-from flow.comp.sim import CompTbParams
-from flow.scans.params import AdcTbParams
-from flow.spice.io import (
-    convert_spectre_adc_raw_to_h5,
-    convert_spectre_adc_to_measurement,
-    convert_spectre_comp_raw_to_h5,
-    read_spectre_nutascii,
-)
+from flow.circuit.results import convert_spectre_adc_to_measurement, convert_spectre_comp_to_measurement
+from flow.comp import CompParams
+from flow.comp.sim import CompTb, CompTbParams
+from flow.pdks import set_pdk
 
 
-def test_nutascii_reader_streams_selected_wrapped_signals(tmp_path: Path) -> None:
-    raw_path = tmp_path / "spectre.raw"
-    raw_path.write_text(
-        "Title: test\n"
-        "No. Variables: 3\n"
-        "No. Points: 3\n"
-        "Variables:\t0\ttime\ts\n"
-        "\t\t1\tout\tV\n"
-        "\t\t2\tunused\tV\n"
-        "Values:\n"
-        "0 0.0 0.1\n"
-        "7.0\n"
-        "1 1e-9\n"
-        "0.4 8.0\n"
-        "2 2e-9 0.9 9.0\n"
-    )
-
-    values = read_spectre_nutascii(raw_path, {"time", "out"})
-
-    assert set(values) == {"time", "out"}
-    np.testing.assert_allclose(values["time"], [0.0, 1.0e-9, 2.0e-9])
-    np.testing.assert_allclose(values["out"], [0.1, 0.4, 0.9])
-
-
-def test_nutascii_reader_rejects_incomplete_output(tmp_path: Path) -> None:
-    raw_path = tmp_path / "incomplete.raw"
-    raw_path.write_text("Title: incomplete\nVariables:\n0 time time\n")
-
-    with pytest.raises(ValueError, match="Values"):
-        read_spectre_nutascii(raw_path)
-
-
-def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
+def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     expected_bout = "10110100101100101"
     time_step_s = 0.05e-9
     conversion_offsets_s = np.asarray([0.0, 170.0e-9])
@@ -115,22 +80,8 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         **values,
     }
     signal_names = {"time_s": "time", **{name: name for name in raw_wave_names}}
-    raw_path = tmp_path / "adc.raw"
-    names = tuple(values)
-    lines = [
-        "Title: synthetic ADC",
-        f"No. Variables: {len(names)}",
-        f"No. Points: {len(times_s)}",
-        "Variables:",
-    ]
-    lines.extend(
-        f"{index} {name} {'s' if name == 'time' else 'A' if name.endswith('_i') else 'V'}"
-        for index, name in enumerate(names)
-    )
-    lines.append("Values:")
-    for point_index in range(len(times_s)):
-        lines.append(" ".join([str(point_index)] + [f"{values[name][point_index]:.16g}" for name in names]))
-    raw_path.write_text("\n".join(lines) + "\n")
+    raw_path = tmp_path / "netlist.raw"
+    raw_path.touch()
 
     params = AdcTbParams(conversions=2)
     early_measurement = convert_spectre_adc_to_measurement(
@@ -144,17 +95,18 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     assert "".join(str(bit) for bit in early_measurement.daq.bout[0]) != expected_bout
 
     h5_path = tmp_path / "adc.h5"
-    convert_spectre_adc_raw_to_h5(
-        raw_path,
-        h5_path,
+    expected = convert_spectre_adc_to_measurement(
+        values,
         params=params,
+        raw_path=raw_path,
         signal_names=signal_names,
     )
+    write_measurement(h5_path, expected)
     measurement = read_measurement(h5_path)
 
     assert isinstance(measurement, MeasAdcInt)
     assert measurement.info.backend == "spice"
-    assert measurement.info.readbacks["raw_format"] == "spectre_nutascii"
+    assert measurement.info.readbacks["raw_format"] == "spectre_nutbin"
     assert measurement.info.readbacks["raw_max_timestep_s"] == pytest.approx(time_step_s)
     assert measurement.info.readbacks["waveform_sample_interval_s"] == pytest.approx(25e-12)
     assert measurement.info.readbacks["waveform_interpolated_from_coarser_raw"] is True
@@ -177,11 +129,10 @@ def test_adc_raw_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     np.testing.assert_allclose(measurement.wave.vdd_dac_i, 20.0e-6)
 
 
-def test_comp_raw_conversion_reuses_shared_typed_hdf5_path(tmp_path: Path) -> None:
+def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     params = CompTbParams(
-        sweep_min_v=-100e-6,
-        sweep_max_v=100e-6,
-        sweep_step_v=100e-6,
+        comp=CompParams(diffpair_w=31),
+        vin_diff_values_v=(-100e-6, 0.0, 100e-6),
         conversions=2,
     )
     time_step_s = 0.5e-9
@@ -228,48 +179,38 @@ def test_comp_raw_conversion_reuses_shared_typed_hdf5_path(tmp_path: Path) -> No
         "comp_n_v": "comp_n",
         "vdd_i": "vdd_i",
     }
-    raw_path = tmp_path / "comp.raw"
-    names = tuple(values)
-    lines = [
-        "Title: synthetic comparator",
-        f"No. Variables: {len(names)}",
-        f"No. Points: {len(times_s)}",
-        "Variables:",
-    ]
-    lines.extend(
-        f"{index} {name} {'s' if name == 'time' else 'A' if name == 'vdd_i' else 'V'}"
-        for index, name in enumerate(names)
-    )
-    lines.append("Values:")
-    for point_index in range(len(times_s)):
-        lines.append(" ".join([str(point_index)] + [f"{values[name][point_index]:.16g}" for name in names]))
-    raw_path.write_text("\n".join(lines) + "\n")
+    raw_path = tmp_path / "netlist.raw"
+    raw_path.touch()
+    set_pdk("tsmc65")
+    compiled_tb = CompTb(params)
+    import hdl21 as h
+
+    h.pdk.compile(compiled_tb)
 
     h5_path = tmp_path / "comp.h5"
-    convert_spectre_comp_raw_to_h5(
-        raw_path,
-        h5_path,
+    expected = convert_spectre_comp_to_measurement(
+        values,
         params=params,
+        raw_path=raw_path,
         signal_names=signal_names,
         candidate_id="synthetic",
         candidate_label="Synthetic comparator",
         topology_index=0,
         size_profile="fabricated",
-        total_width_units=100,
-        device_width_signature=(("M0", 40), ("M1", 60)),
-        total_active_area_units=160,
-        total_active_area_um2=1.152,
-        device_geometry_signature=(("M0", 40, 1), ("M1", 60, 2)),
+        compiled_tb=compiled_tb,
     )
+    write_measurement(h5_path, expected)
     measurement = read_measurement(h5_path)
 
     assert isinstance(measurement, MeasCompInt)
     assert isinstance(measurement.wave, CompIntWave)
     assert measurement.param == params
     assert measurement.info.readbacks["candidate_id"] == "synthetic"
-    assert measurement.info.readbacks["total_active_area_units"] == 160
-    assert measurement.info.readbacks["total_active_area_um2"] == pytest.approx(1.152)
-    assert measurement.info.readbacks["raw_format"] == "spectre_nutascii"
+    total_active_area_units = measurement.info.readbacks["total_active_area_units"]
+    total_active_area_um2 = measurement.info.readbacks["total_active_area_um2"]
+    assert isinstance(total_active_area_units, (int, float)) and total_active_area_units > 0
+    assert isinstance(total_active_area_um2, (int, float)) and total_active_area_um2 > 0
+    assert measurement.info.readbacks["raw_format"] == "spectre_nutbin"
     assert measurement.info.readbacks["vdd_active_average_power_w"] == pytest.approx(12e-6)
     assert measurement.info.readbacks["energy_per_decision_j"] == pytest.approx(480e-15)
     np.testing.assert_allclose(measurement.daq.vin_diff_v, [-100e-6, -100e-6, 0.0, 0.0, 100e-6, 100e-6])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from array import array
 
-from flow.scans.params import AdcTbParams, validate_params
+from flow.adc.sim import AdcTbParams
 
 
 def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> array[int]:
@@ -27,7 +27,6 @@ def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> ar
     rx_sen_bit = 0
     rx_test_bit = 1
 
-    validate_params(params)
     sequence_symbols = len(params.seq_init_pattern)
     sequence_words = sequence_symbols // serdes_ratio
     if not isinstance(rx_sen_pattern, str):

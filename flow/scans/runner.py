@@ -317,7 +317,7 @@ def adc_transfer_curve() -> Path:
         campaign="adc_transfer",
     )
     variants = [
-        dataclasses.replace(template, vin_diff=h.Vdc.Params(dc=vin_diff_v))
+        dataclasses.replace(template, tb=dataclasses.replace(template.tb, vin_diff=h.Vdc.Params(dc=vin_diff_v)))
         for vin_diff_v in vin_diff_values_v
         for template in templates
     ]

@@ -104,15 +104,15 @@ def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdcExt):
             raise TypeError(f"{input_h5} contains {type(measurement).__name__}, expected MeasAdcExt")
         adc_index = measurement.param.observed_adc
-        source = measurement.param.vin_diff
+        source = measurement.param.tb.vin_diff
         if (
             measurement.info.backend != "physical"
             or measurement.param.campaign != "adc_transfer"
             or measurement.param.board_id != "00"
             or adc_index not in adc_indices
-            or measurement.param.conversions != expected_conversions
+            or measurement.param.tb.conversions != expected_conversions
             or not isinstance(source, h.Vdc.Params)
-            or float(measurement.param.vin_cm.dc) != 0.700
+            or float(measurement.param.tb.vin_cm.dc) != 0.700
             or float(measurement.info.readbacks.get("actual_sample_rate_hz", 0.0)) != 10.0e6
             or int(measurement.info.readbacks.get("fastrx_lost_count", 0))
             or int(measurement.info.readbacks.get("spi_mismatches", 0))
@@ -130,7 +130,7 @@ def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
     artifacts = []
     for adc_index in adc_indices:
         measurements = measurements_by_adc[adc_index]
-        observed_input_v = tuple(sorted(float(measurement.param.vin_diff.dc) for measurement in measurements))
+        observed_input_v = tuple(sorted(float(measurement.param.tb.vin_diff.dc) for measurement in measurements))
         if not np.allclose(observed_input_v, expected_input_v, rtol=0.0, atol=1.0e-12):
             raise ValueError(f"ADC{adc_index:02d} transfer inputs are incomplete or duplicated")
         analysis = analyze_adc_transfer(measurements)
@@ -523,8 +523,8 @@ def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
             expected_input_v = input_mv * 1.0e-3
             if any(
                 measurement.param.observed_adc != adc_index
-                or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
-                or not np.isclose(float(measurement.param.vin_diff.dc), expected_input_v)
+                or not isinstance(measurement.param.tb.vin_diff, h.Vdc.Params)
+                or not np.isclose(float(measurement.param.tb.vin_diff.dc), expected_input_v)
                 for measurement in adc_measurements
             ):
                 raise ValueError(
@@ -677,8 +677,8 @@ def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
             expected_input_v = input_mv * 1.0e-3
             if any(
                 measurement.param.observed_adc != adc_index
-                or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
-                or not np.isclose(float(measurement.param.vin_diff.dc), expected_input_v)
+                or not isinstance(measurement.param.tb.vin_diff, h.Vdc.Params)
+                or not np.isclose(float(measurement.param.tb.vin_diff.dc), expected_input_v)
                 for measurement in adc_measurements
             ):
                 raise ValueError(
@@ -921,9 +921,9 @@ def adc_noise_vs_comp_time(output_dir: Path) -> tuple[Path, ...]:
             measurements.append(measurement)
         observed_points = {
             (
-                float(measurement.param.symbol_rate) / 1e6,
-                float(measurement.param.seq_logic_phase_delay_symbols)
-                - float(measurement.param.seq_comp_phase_delay_symbols),
+                float(measurement.param.tb.symbol_rate) / 1e6,
+                float(measurement.param.tb.seq_logic_phase_delay_symbols)
+                - float(measurement.param.tb.seq_comp_phase_delay_symbols),
             )
             for measurement in measurements
         }
@@ -931,9 +931,9 @@ def adc_noise_vs_comp_time(output_dir: Path) -> tuple[Path, ...]:
             raise ValueError(f"{adc_name} seven-offset pipeline has missing or unexpected rate/offset points")
         if any(
             measurement.param.observed_adc != adc_index
-            or not isinstance(measurement.param.vin_diff, h.Vdc.Params)
-            or float(measurement.param.vin_diff.dc) != EXPECTED_VIN_DIFF_V
-            or float(measurement.param.vin_cm.dc) != EXPECTED_VIN_CM_V
+            or not isinstance(measurement.param.tb.vin_diff, h.Vdc.Params)
+            or float(measurement.param.tb.vin_diff.dc) != EXPECTED_VIN_DIFF_V
+            or float(measurement.param.tb.vin_cm.dc) != EXPECTED_VIN_CM_V
             for measurement in measurements
         ):
             raise ValueError(
@@ -984,9 +984,9 @@ def comp_system_common_mode(output_dir: Path) -> tuple[Path, ...]:
         adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
         grouped: dict[float, list[MeasCompExt]] = {}
         for measurement in adc_measurements:
-            grouped.setdefault(float(measurement.param.vin_cm.dc), []).append(measurement)
+            grouped.setdefault(float(measurement.param.tb.vin_cm.dc), []).append(measurement)
         board_ids = {measurement.param.board_id for measurement in adc_measurements}
-        configured_vdd_a = {float(measurement.param.vdd_a.dc) for measurement in adc_measurements}
+        configured_vdd_a = {float(measurement.param.tb.vdd_a.dc) for measurement in adc_measurements}
         if len(board_ids) != 1 or None in board_ids or len(configured_vdd_a) != 1:
             raise ValueError(f"ADC{adc_index:02d} common-mode campaign requires one board and VDD_A")
         if set(grouped) != EXPECTED_COMMON_MODES:
@@ -1041,8 +1041,8 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
                 int(measurement.param.observed_adc),
                 float(coupling_percent),
                 measurement.param.sampling_mode,
-                float(measurement.param.vin_cm.dc),
-                float(measurement.param.vin_diff.dc),
+                float(measurement.param.tb.vin_cm.dc),
+                float(measurement.param.tb.vin_diff.dc),
             )
             if point_key in measurements_in_run:
                 raise ValueError(f"{path} duplicates a sampling-noise point within one accepted run")
@@ -1055,7 +1055,7 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
     artifacts = []
     for adc_index in ADC_INDICES:
         adc_measurements = [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
-        if {float(measurement.param.vin_cm.dc) for measurement in adc_measurements} != {EXPECTED_VIN_CM_V}:
+        if {float(measurement.param.tb.vin_cm.dc) for measurement in adc_measurements} != {EXPECTED_VIN_CM_V}:
             raise ValueError(f"ADC{adc_index:02d} sampling-noise campaign requires Vin_cm = {EXPECTED_VIN_CM_V} V")
         grouped: dict[tuple[float, str], list[MeasCompExt]] = {}
         for measurement in adc_measurements:
@@ -1109,9 +1109,10 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
         params = measurement.param
         if (
             tuple(float(value) for value in params.vin_cm_values_v) != (0.8,)
-            or not np.isclose(float(params.sweep_min_v), -3e-3)
-            or not np.isclose(float(params.sweep_max_v), 3e-3)
-            or not np.isclose(float(params.sweep_step_v), 100e-6)
+            or not np.allclose(
+                tuple(float(value) for value in params.vin_diff_values_v),
+                tuple(step * 100e-6 for step in range(-30, 31)),
+            )
             or params.conversions != 100
             or not np.isclose(float(params.reset_time_s), 10e-9)
             or not np.isclose(float(params.evaluation_time_s), 30e-9)

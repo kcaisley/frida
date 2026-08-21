@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import math
+import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -66,7 +67,12 @@ SECTION_TYPES = {
 
 
 def _qualified_type(value_type: type) -> str:
-    return f"{value_type.__module__}:{value_type.__qualname__}"
+    module_name = value_type.__module__
+    if module_name == "__main__":
+        module_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+        if module_spec is not None and module_spec.name:
+            module_name = module_spec.name
+    return f"{module_name}:{value_type.__qualname__}"
 
 
 def _resolve_type(name: str) -> type:

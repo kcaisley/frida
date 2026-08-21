@@ -107,11 +107,6 @@ def get_cdac_weights(p: CdacParams) -> list[int]:
     return weights
 
 
-def get_cdac_n_bits(p: CdacParams) -> int:
-    """Get the number of physical bits (capacitors) for a CDAC configuration."""
-    return len(get_cdac_weights(p))
-
-
 @h.generator
 def Cdac(param: CdacParams) -> h.Module:
     """

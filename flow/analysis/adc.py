@@ -44,6 +44,7 @@ ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
 def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     """Decode the first 17 scope COMP_OUT decisions and compare FastRX."""
 
+    params = msmt.param.tb
     time_s = msmt.wave.time_s
     comp_v = msmt.wave.seq_comp_v[0]
     comp_out_v = msmt.wave.comp_out_v[0]
@@ -63,7 +64,7 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     if len(falling_edges_s) < 17:
         raise ValueError(f"scope contains only {len(falling_edges_s)} COMP falling edges; expected at least 17")
     comp_edge_times_s = falling_edges_s[:17]
-    decision_period_s = 8.0 / float(msmt.param.symbol_rate)
+    decision_period_s = 8.0 / float(params.symbol_rate)
     sample_times_s = comp_edge_times_s + 0.5 * decision_period_s
     if sample_times_s[-1] > time_s[-1]:
         raise ValueError("scope record ends before the final comparator decision sample")
@@ -115,8 +116,13 @@ def decode_bout(
 
 
 def _validate_calibration(measurement: MeasAdc, calibration: AnalysisAdcCalibration) -> None:
-    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
-    code_max = (1 << measurement.param.dut.adc_bits) - 1
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    adc_index = (
+        -1
+        if not isinstance(measurement, MeasAdcExt) or measurement.param.observed_adc is None
+        else measurement.param.observed_adc
+    )
+    code_max = (1 << params.dut.adc_bits) - 1
     if calibration.adc_index != adc_index:
         raise ValueError("calibration and measurement must refer to the same ADC")
     if calibration.code_max != code_max:
@@ -126,28 +132,31 @@ def _validate_calibration(measurement: MeasAdc, calibration: AnalysisAdcCalibrat
 def _pattern_repeat_rate_hz(measurement: MeasAdc) -> float:
     """Return the true sampling rate including sequencer idle padding."""
 
-    return float(measurement.param.symbol_rate) / len(measurement.param.seq_init_pattern)
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    return float(params.symbol_rate) / len(params.seq_init_pattern)
 
 
 def _active_conversion_rate_hz(measurement: MeasAdc) -> float:
     """Return the nominal conversion rate excluding idle padding."""
 
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
     patterns = (
-        measurement.param.seq_init_pattern,
-        measurement.param.seq_samp_pattern,
-        measurement.param.seq_comp_pattern,
-        measurement.param.seq_logic_pattern,
+        params.seq_init_pattern,
+        params.seq_samp_pattern,
+        params.seq_comp_pattern,
+        params.seq_logic_pattern,
     )
     active = [index for index in range(len(patterns[0])) if any(pattern[index] == "1" for pattern in patterns)]
     if not active:
         raise ValueError("ADC timing patterns contain no active symbols")
-    return float(measurement.param.symbol_rate) / (active[-1] - active[0] + 1)
+    return float(params.symbol_rate) / (active[-1] - active[0] + 1)
 
 
 def _input_frequency_hz(measurement: MeasAdc) -> float:
     """Return the programmed sine frequency from the measurement parameters."""
 
-    source = measurement.param.vin_diff
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    source = params.vin_diff
     if not isinstance(source, h.Vsin.Params) or source.freq is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with freq set")
     return float(source.freq)
@@ -246,10 +255,11 @@ def analyze_adc_dynamic(
 ) -> AnalysisAdcDynamic:
     """Fit one sine acquisition and calculate time- and frequency-domain metrics."""
 
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
     measured_dout = np.asarray(measurement.daq.dout, dtype=np.float64)
     sample_rate_hz = _pattern_repeat_rate_hz(measurement)
     input_frequency_hz = _input_frequency_hz(measurement)
-    adc_bits = measurement.param.dut.adc_bits
+    adc_bits = params.dut.adc_bits
     if measured_dout.ndim != 1 or measured_dout.size < 8:
         raise ValueError("ADC sine fit requires at least eight one-dimensional samples")
     if not np.all(np.isfinite(measured_dout)):
@@ -317,7 +327,7 @@ def analyze_adc_dynamic(
         full_scale_peak_dout=full_scale_peak_dout,
         maximum_harmonic_order=maximum_harmonic_order,
     )
-    source = measurement.param.vin_diff
+    source = params.vin_diff
     if not isinstance(source, h.Vsin.Params) or source.vamp is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with vamp set")
     input_amplitude_v = abs(float(source.vamp))
@@ -424,7 +434,8 @@ def _code_density_nonlinearity(
     *,
     code_range: tuple[int, int] | None,
 ) -> AnalysisAdcNonlinearity:
-    number_codes = 1 << measurement.param.dut.adc_bits
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    number_codes = 1 << params.dut.adc_bits
     valid = decoded_dout[(decoded_dout >= 0) & (decoded_dout < number_codes)]
     if not len(valid):
         raise ValueError(f"ADC measurement contains no codes in 0..{number_codes - 1}")
@@ -483,7 +494,8 @@ def analyze_adc_ramp(
     conversions, making all three methods directly comparable.
     """
 
-    if not isinstance(measurement.param.vin_diff, h.Vpwl.Params):
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    if not isinstance(params.vin_diff, h.Vpwl.Params):
         raise TypeError("ADC ramp analysis requires a PWL differential-input source")
     intended_input = np.asarray(measurement.daq.vin_diff_v, dtype=np.float64)
     if intended_input.ndim != 1 or len(intended_input) < 2:
@@ -494,11 +506,11 @@ def analyze_adc_ramp(
         raise ValueError("ADC ramp input must span a nonzero differential range")
 
     nominal_weights_int = np.asarray(
-        [2 * value for value in get_cdac_weights(measurement.param.dut.cdac)] + [1],
+        [2 * value for value in get_cdac_weights(params.dut.cdac)] + [1],
         dtype=np.int64,
     )
     nominal_weights = nominal_weights_int.astype(np.float64)
-    number_codes = 1 << measurement.param.dut.adc_bits
+    number_codes = 1 << params.dut.adc_bits
     code_max = number_codes - 1
     if measurement.daq.bout.shape[1] != len(nominal_weights):
         raise ValueError("ADC ramp decisions do not match the nominal CDAC weights")
@@ -516,7 +528,11 @@ def analyze_adc_ramp(
     decodings: list[tuple[AdcDecoding, str, np.ndarray, np.ndarray]] = [
         ("uncalibrated_dout", "Uncalibrated DOUT", nominal_weights, nominal_decoded)
     ]
-    adc_index = -1 if measurement.param.observed_adc is None else measurement.param.observed_adc
+    adc_index = (
+        -1
+        if not isinstance(measurement, MeasAdcExt) or measurement.param.observed_adc is None
+        else measurement.param.observed_adc
+    )
     observed_methods = set()
     for calibration in calibrations:
         if calibration.method in observed_methods:
@@ -621,8 +637,12 @@ def analyze_adc_code_distribution(
 
     if not measurements:
         raise ValueError("ADC code-distribution analysis requires at least one measurement")
-    adc_bits = measurements[0].param.dut.adc_bits
-    if any(measurement.param.dut.adc_bits != adc_bits for measurement in measurements):
+    first_params = measurements[0].param.tb if isinstance(measurements[0], MeasAdcExt) else measurements[0].param
+    adc_bits = first_params.dut.adc_bits
+    if any(
+        (measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param).dut.adc_bits != adc_bits
+        for measurement in measurements
+    ):
         raise ValueError("ADC code-distribution measurements must use one output resolution")
     if calibration is not None:
         for measurement in measurements:
@@ -657,13 +677,21 @@ def analyze_adc_noise_sweep(
 
     if not measurements:
         raise ValueError("ADC noise sweep requires at least one measurement")
-    adc_bits = measurements[0].param.dut.adc_bits
-    if any(measurement.param.dut.adc_bits != adc_bits for measurement in measurements):
+    first_params = measurements[0].param.tb if isinstance(measurements[0], MeasAdcExt) else measurements[0].param
+    adc_bits = first_params.dut.adc_bits
+    if any(
+        (measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param).dut.adc_bits != adc_bits
+        for measurement in measurements
+    ):
         raise ValueError("ADC noise sweep measurements must use one output resolution")
     number_codes = 1 << adc_bits
     input_lsb_values_v = np.asarray(
         [
-            float(measurement.param.vdd_dac.dc) / ((1 << measurement.param.dut.adc_bits) - 1)
+            float((measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param).vdd_dac.dc)
+            / (
+                (1 << (measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param).dut.adc_bits)
+                - 1
+            )
             for measurement in measurements
         ],
         dtype=np.float64,
@@ -687,9 +715,8 @@ def analyze_adc_noise_sweep(
     bit_mismatches = []
     counts = []
     for measurement in measurements:
-        phase = float(measurement.param.seq_logic_phase_delay_symbols) - float(
-            measurement.param.seq_comp_phase_delay_symbols
-        )
+        params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+        phase = float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols)
         sample_rate_hz.append(_active_conversion_rate_hz(measurement))
         logic_phase.append(phase)
         comparator_percent.append(50.0 + 12.5 * phase)
@@ -811,7 +838,8 @@ def analyze_adc_decision_paths(
 ) -> AnalysisAdcDecisionPaths:
     """Reconstruct running SAR estimates from captured comparator decisions."""
 
-    cap_weights = get_cdac_weights(measurement.param.dut.cdac)
+    params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+    cap_weights = get_cdac_weights(params.dut.cdac)
     weights = np.asarray([2 * weight for weight in cap_weights] + [1], dtype=np.float64)
     if measurement.daq.bout.shape[1] != len(weights):
         raise ValueError(
@@ -832,7 +860,7 @@ def analyze_adc_decision_paths(
     else:
         raise ValueError("decision-path selection must be 'single', 'same_dout', or 'all'")
 
-    normalized_code_max = (1 << measurement.param.dut.adc_bits) - 1
+    normalized_code_max = (1 << params.dut.adc_bits) - 1
     raw_code_max = float(np.sum(weights))
     paths = np.empty((len(selected), len(weights) + 1), dtype=np.float64)
     paths[:, 0] = normalized_code_max / 2.0
@@ -878,15 +906,25 @@ def analyze_adc_dynamic_sweep(
         active_conversion_rate_hz=np.asarray([_active_conversion_rate_hz(measurement) for measurement in measurements]),
         adc_index=np.asarray(
             [
-                measurement.param.observed_adc if measurement.param.observed_adc is not None else -1
+                measurement.param.observed_adc
+                if isinstance(measurement, MeasAdcExt) and measurement.param.observed_adc is not None
+                else -1
                 for measurement in measurements
             ],
             dtype=np.int64,
         ),
         logic_phase_delay_symbols=np.asarray(
             [
-                float(measurement.param.seq_logic_phase_delay_symbols)
-                - float(measurement.param.seq_comp_phase_delay_symbols)
+                float(
+                    (
+                        measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+                    ).seq_logic_phase_delay_symbols
+                )
+                - float(
+                    (
+                        measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+                    ).seq_comp_phase_delay_symbols
+                )
                 for measurement in measurements
             ]
         ),
@@ -930,13 +968,18 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
     active_power_by_rail: dict[str, list[float]] = {rail: [] for rail in rail_names}
     adc_index = []
     for measurement in measurements:
-        adc_index.append(-1 if measurement.param.observed_adc is None else measurement.param.observed_adc)
+        params = measurement.param.tb if isinstance(measurement, MeasAdcExt) else measurement.param
+        adc_index.append(
+            measurement.param.observed_adc
+            if isinstance(measurement, MeasAdcExt) and measurement.param.observed_adc is not None
+            else -1
+        )
         spice_static_indices = None
         spice_active_start_s = None
         spice_active_stop_s = None
         if isinstance(measurement, MeasAdcInt):
             waveform_time_s = measurement.wave.time_s
-            init_high = measurement.wave.seq_init_v[0] > 0.5 * float(measurement.param.vdd_d.dc)
+            init_high = measurement.wave.seq_init_v[0] > 0.5 * float(params.vdd_d.dc)
             init_rising = np.flatnonzero(init_high & np.concatenate((np.asarray([True]), ~init_high[:-1])))
             if not len(init_rising):
                 raise ValueError("SPICE ADC power measurement contains no SEQ_INIT rising edge")
@@ -973,7 +1016,7 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
                 active_average_current_a = float(
                     np.trapezoid(active_current_a, active_time_s) / (spice_active_stop_s - spice_active_start_s)
                 )
-                active_power_w = float(getattr(measurement.param, rail).dc) * active_average_current_a
+                active_power_w = float(getattr(params, rail).dc) * active_average_current_a
             else:
                 if active_power_key not in measurement.info.readbacks:
                     raise ValueError(f"ADC measurement is missing active-power readbacks for {rail}")
@@ -989,7 +1032,7 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
                 baseline_current_a = getattr(measurement.wave, f"{rail}_i")[0, spice_static_indices]
                 duration_s = float(baseline_time_s[-1] - baseline_time_s[0])
                 static_average_current_a = float(np.trapezoid(baseline_current_a, baseline_time_s) / duration_s)
-                static_power_w = float(getattr(measurement.param, rail).dc) * static_average_current_a
+                static_power_w = float(getattr(params, rail).dc) * static_average_current_a
             else:
                 voltage_key = f"{rail}_measured_voltage_v"
                 current_key = f"{rail}_measured_current_a"
@@ -1051,7 +1094,7 @@ def analyze_adc_power_waveform(measurement: MeasAdcInt) -> AnalysisAdcPowerWavef
         rail_power_w.append(complete_power_w[displayed])
     return AnalysisAdcPowerWaveform(
         backend=measurement.info.backend,
-        adc_index=-1 if measurement.param.observed_adc is None else measurement.param.observed_adc,
+        adc_index=-1,
         active_conversion_rate_hz=float(power.active_conversion_rate_hz[0]),
         time_s=time_s[displayed] - active_start_s,
         rail_power_w=np.asarray(rail_power_w),

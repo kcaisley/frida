@@ -18,7 +18,8 @@ def _expected_cdac_effective_fraction(measurements: Sequence[MeasCdacExt]) -> np
 
     if not measurements:
         raise ValueError("CDAC expectation requires measurements")
-    params = measurements[0].param
+    scan_params = measurements[0].param
+    params = scan_params.tb
     weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
     total_weights = 65.0 * np.ceil(weights / 64.0)
     recorded_parasitics = {
@@ -31,8 +32,8 @@ def _expected_cdac_effective_fraction(measurements: Sequence[MeasCdacExt]) -> np
     if recorded_parasitics:
         topplate_parasitic_weight = next(iter(recorded_parasitics))
     else:
-        board_id = getattr(params, "board_id", None)
-        adc_index = getattr(params, "observed_adc", None)
+        board_id = scan_params.board_id
+        adc_index = scan_params.observed_adc
         if board_id is None or adc_index is None:
             topplate_parasitic_weight = 0.0
         else:
@@ -64,7 +65,7 @@ def analyze_cdac_cap_mismatch(
     adc_index = next(index for index in adc_indices if index is not None)
     if not math.isfinite(comparator_offset_v):
         raise ValueError("comparator_offset_v must be finite")
-    element_counts = {len(get_cdac_weights(measurement.param.dut.cdac)) for measurement in measurements}
+    element_counts = {len(get_cdac_weights(measurement.param.tb.dut.cdac)) for measurement in measurements}
     if len(element_counts) != 1:
         raise ValueError("A-to-B CDAC analysis requires one CDAC configuration")
     element_count = next(iter(element_counts))
@@ -80,7 +81,7 @@ def analyze_cdac_cap_mismatch(
             params.cdac_element,
             0 if params.cdac_side == "p" else 1,
             0 if params.cdac_direction == "1to0" else 1,
-            params.dac_diffcaps,
+            params.tb.dac_diffcaps,
         )
         grouped.setdefault(key, []).append(measurement)
 
@@ -95,7 +96,7 @@ def analyze_cdac_cap_mismatch(
         transition_v = fit.offset_v
         valid = fit.validity != "non_monotonic" and math.isfinite(transition_v)
         params = curve_measurements[0].param
-        signed_step = (comparator_offset_v - transition_v) / float(params.vdd_dac.dc) if valid else math.nan
+        signed_step = (comparator_offset_v - transition_v) / float(params.tb.vdd_dac.dc) if valid else math.nan
         side_sign = 1.0 if params.cdac_side == "p" else -1.0
         direction_sign = 1.0 if params.cdac_direction == "0to1" else -1.0
         oriented_step = side_sign * direction_sign * signed_step
@@ -189,7 +190,7 @@ def analyze_cdac_cap_mismatch_campaign(
                 params.cdac_side,
                 params.cdac_element,
                 params.cdac_direction,
-                params.dac_diffcaps,
+                params.tb.dac_diffcaps,
             )
             grouped_in_run.setdefault(curve_key, []).append(measurement)
 
@@ -244,7 +245,7 @@ def analyze_cdac_cap_mismatch_campaign(
                 measurement.param.cdac_side,
                 measurement.param.cdac_element,
                 measurement.param.cdac_direction,
-                measurement.param.dac_diffcaps,
+                measurement.param.tb.dac_diffcaps,
             )
             for measurement in adc_measurements
         }

@@ -1,4 +1,4 @@
-"""Shared argument parsing for module-level FRIDA commands."""
+"""Shared argument parsing for primitive-layout commands."""
 
 from __future__ import annotations
 

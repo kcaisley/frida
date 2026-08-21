@@ -71,54 +71,54 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
     assert positions[-1] == ("only" if expected_count == 1 else "last")
     assert positions[1:-1] == ["middle"] * max(0, expected_count - 2)
     assert {params.observed_adc for params in variants} == expected_adcs
-    assert {params.conversions for params in variants} == {expected_conversions}
-    assert all(isinstance(params.vin_diff, source_type) for params in variants)
+    assert {params.tb.conversions for params in variants} == {expected_conversions}
+    assert all(isinstance(params.tb.vin_diff, source_type) for params in variants)
     if target_name == "adc_ramp_code_density":
-        assert {float(params.symbol_rate) for params in variants} == {160.0e6}
+        assert {float(params.tb.symbol_rate) for params in variants} == {160.0e6}
     elif target_name == "adc00_fixed_input_noise":
-        assert {float(params.symbol_rate) for params in variants} == {320.0e6, 960.0e6, 1.6e9}
+        assert {float(params.tb.symbol_rate) for params in variants} == {320.0e6, 960.0e6, 1.6e9}
     elif target_name == "adc_transfer_curve":
-        assert {float(params.symbol_rate) for params in variants} == {1.6e9}
+        assert {float(params.tb.symbol_rate) for params in variants} == {1.6e9}
     else:
-        assert {float(params.symbol_rate) for params in variants} == {rate * 40.0e6 for rate in range(2, 41)}
+        assert {float(params.tb.symbol_rate) for params in variants} == {rate * 40.0e6 for rate in range(2, 41)}
     if target_name == "adc00_fixed_input_noise":
-        assert {float(params.vin_cm.dc) for params in variants} == {0.7}
-        assert {float(params.vin_diff.dc) for params in variants} == {0.05}
+        assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
+        assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
-            float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols)
+            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
             for params in variants
         } == {2.0}
     elif target_name.startswith("adc0"):
-        assert {float(params.vin_cm.dc) for params in variants} == {0.7}
-        assert {float(params.vin_diff.dc) for params in variants} == {0.05}
+        assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
+        assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
-            float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols)
+            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
             for params in variants
         } == set(range(-3, 4))
     elif target_name == "adc_ramp_code_density":
-        assert {float(params.vin_cm.dc) for params in variants} == {0.7}
+        assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {params.campaign for params in variants} == {"adc_ramp"}
-        assert {params.vin_diff.wave for params in variants} == {"0 -1 0.1 1"}
+        assert {params.tb.vin_diff.wave for params in variants} == {"0 -1 0.1 1"}
     elif target_name == "adc_transfer_curve":
-        assert {float(params.vin_cm.dc) for params in variants} == {0.7}
+        assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {params.campaign for params in variants} == {"adc_transfer"}
-        assert {float(params.vin_diff.dc) for params in variants} == {(step - 500) * 0.0015 for step in range(1_001)}
-        assert {float(params.symbol_rate) for params in variants} == {1.6e9}
+        assert {float(params.tb.vin_diff.dc) for params in variants} == {(step - 500) * 0.0015 for step in range(1_001)}
+        assert {float(params.tb.symbol_rate) for params in variants} == {1.6e9}
         assert [params.observed_adc for params in variants] == [0] * 1_001
     else:
-        assert {float(params.vin_cm.dc) for params in variants} == {0.7}
+        assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {
-            float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols)
+            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
             for params in variants
         } == {2.0}
         if target_name == "adc_sine_conversion_rate":
-            assert {float(params.vin_diff.voff) for params in variants} == {0.0}
-            assert {float(params.vin_diff.vamp) for params in variants} == {0.5}
-            assert {float(params.vin_diff.freq) for params in variants} == {9_998.770151}
+            assert {float(params.tb.vin_diff.voff) for params in variants} == {0.0}
+            assert {float(params.tb.vin_diff.vamp) for params in variants} == {0.5}
+            assert {float(params.tb.vin_diff.freq) for params in variants} == {9_998.770151}
         elif target_name == "adc_fixed_input_noise_50mv":
-            assert {float(params.vin_diff.dc) for params in variants} == {0.05}
+            assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         else:
-            assert {float(params.vin_diff.dc) for params in variants} == {0.1}
+            assert {float(params.tb.vin_diff.dc) for params in variants} == {0.1}
 
 
 def test_adc_target_aborts_powered_hardware_after_interrupted_middle_point(monkeypatch) -> None:

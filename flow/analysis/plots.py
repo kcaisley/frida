@@ -367,7 +367,8 @@ def plot_adc_fastrx_scope_comparison(
 ) -> tuple[Path, ...]:
     """Plot CH2--CH4 and aligned Scope/FastRX decision streams."""
 
-    decision_period_s = 8.0 / float(msmt.param.symbol_rate)
+    params = msmt.param.tb
+    decision_period_s = 8.0 / float(params.symbol_rate)
     edge_times_s = analysis.comp_edge_times_s
     sample_times_s = analysis.sample_times_s
     decision_end_times_s = np.concatenate((edge_times_s[1:], [edge_times_s[-1] + decision_period_s]))
@@ -448,10 +449,10 @@ def plot_adc_fastrx_scope_comparison(
     axes[0].set_xlim(display_start_s * scale, display_end_s * scale)
     setup_lines = (
         *(line for line in style_measurement_text(msmt) if line.startswith("ADC:")),
-        f"Symbol rate: {float(msmt.param.symbol_rate) / 1e6:g} MBd",
+        f"Symbol rate: {float(params.symbol_rate) / 1e6:g} MBd",
         (
             "COMP→LOGIC: "
-            f"{float(msmt.param.seq_logic_phase_delay_symbols) - float(msmt.param.seq_comp_phase_delay_symbols):+g} symbols"
+            f"{float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols):+g} symbols"
         ),
     )
     style_info_box(axes[0], setup_lines)
@@ -760,7 +761,9 @@ def plot_adc_noise_sweep(
 
     # The SNR and ENOB axes use a full-scale sine whose peak-to-peak
     # range is the ADC input range represented by all output codes.
-    adc_bits = msmt_list[0].param.dut.adc_bits
+    first = msmt_list[0]
+    params = first.param.tb if isinstance(first, MeasAdcExt) else first.param
+    adc_bits = params.dut.adc_bits
     full_scale_rms_lsb = ((1 << adc_bits) - 1) / (2.0 * np.sqrt(2.0))
     noise_rms_v = np.asarray(analysis.input_referred_noise_rms_v)
     noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
@@ -1189,6 +1192,7 @@ def plot_adc_decision_path_density(
 ) -> tuple[Path, ...]:
     """Plot how frequently conversions follow each running SAR trajectory."""
 
+    params = msmt.param.tb if isinstance(msmt, MeasAdcExt) else msmt.param
     paths = analysis.estimate_dout
     cycles = np.arange(analysis.estimate_dout.shape[1], dtype=np.float64)
     substeps_per_decision = 8
@@ -1196,7 +1200,7 @@ def plot_adc_decision_path_density(
     horizontal_bins = len(cycles) * substeps_per_decision
     cycle_edges = np.arange(horizontal_bins + 1, dtype=np.float64) * cycle_step
     fine_cycles = cycle_edges[:-1] + cycle_step / 2.0
-    normalized_code_max = (1 << msmt.param.dut.adc_bits) - 1
+    normalized_code_max = (1 << params.dut.adc_bits) - 1
     code_edges = np.arange(-0.5, normalized_code_max + 1.5, 1.0)
     count = np.zeros((len(cycle_edges) - 1, len(code_edges) - 1), dtype=np.float64)
     for first_row in range(0, len(paths), 10_000):
@@ -1550,13 +1554,13 @@ def plot_comp_common_mode_campaign(
     selected_results = [
         (group, analysis)
         for group, analysis in zip(msmt_list2d, analysis_list, strict=True)
-        if common_mode_minimum_v <= float(group[0].param.vin_cm.dc) <= common_mode_maximum_v
+        if common_mode_minimum_v <= float(group[0].param.tb.vin_cm.dc) <= common_mode_maximum_v
     ]
-    selected_results.sort(key=lambda result: float(result[0][0].param.vin_cm.dc))
+    selected_results.sort(key=lambda result: float(result[0][0].param.tb.vin_cm.dc))
     fig, (curve_ax, violin_ax) = plt.subplots(1, 2)
     common_modes_v = []
     for group, analysis in selected_results:
-        common_mode_v = float(group[0].param.vin_cm.dc)
+        common_mode_v = float(group[0].param.tb.vin_cm.dc)
         threshold_mv = analysis.offset_v * 1e3
         noise_mv = analysis.noise_sigma_v * 1e3
         gradient_position = (common_mode_v - common_mode_minimum_v) / (common_mode_maximum_v - common_mode_minimum_v)

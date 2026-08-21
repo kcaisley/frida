@@ -9,9 +9,10 @@ import hdl21 as h
 import numpy as np
 import pytest
 
+from flow.adc.sim import AdcTbParams
 from flow.analysis.types import CdacExtDaq, CdacExtWave, InfoValue, MeasCdacExt, MeasInfo
 from flow.scans.fastrx import calculate_single_sample_fastrx_capture_alignment
-from flow.scans.params import AdcTbParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.scan_cdac import (
     _build_cdac_params,
     _calculate_cdac_input_bounds,
@@ -35,7 +36,7 @@ RADIX17 = (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)
 RADIX20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
 
 
-def build_cdac_test_variants() -> list[AdcTbParams]:
+def build_cdac_test_variants() -> list[AdcScanParams]:
     """Build one calibrated C16 transition point per characterized ADC."""
 
     calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
@@ -97,19 +98,19 @@ def test_adaptive_sweep_alternates_and_fine_builder_uses_measured_bracket() -> N
     )
 
     assert len(fine) == 21
-    assert all(params.conversions == 1_000 and params.sweep_stage == "fine" for params in fine)
-    assert float(fine[0].vin_diff.dc) == pytest.approx(-2e-3)
-    assert float(fine[-1].vin_diff.dc) == pytest.approx(0.0)
+    assert all(params.tb.conversions == 1_000 and params.sweep_stage == "fine" for params in fine)
+    assert float(fine[0].tb.vin_diff.dc) == pytest.approx(-2e-3)
+    assert float(fine[-1].tb.vin_diff.dc) == pytest.approx(0.0)
 
     resumed = build_next_coarse_sweep_variant(seed, {0.0: (50, 128), -1e-3: (0, 128)})
     assert resumed is not None
-    assert float(resumed.vin_diff.dc) == pytest.approx(1e-3)
+    assert float(resumed.tb.vin_diff.dc) == pytest.approx(1e-3)
     search_lower = build_next_coarse_sweep_variant(seed, {0.0: (128, 128), -1e-3: (128, 128)})
     assert search_lower is not None
-    assert float(search_lower.vin_diff.dc) == pytest.approx(-2e-3)
+    assert float(search_lower.tb.vin_diff.dc) == pytest.approx(-2e-3)
     search_upper = build_next_coarse_sweep_variant(seed, {0.0: (0, 128), 1e-3: (0, 128)})
     assert search_upper is not None
-    assert float(search_upper.vin_diff.dc) == pytest.approx(2e-3)
+    assert float(search_upper.tb.vin_diff.dc) == pytest.approx(2e-3)
     bounded_fine = build_fine_sweep_variants(seed, {-2e-3: (128, 128), 0.0: (10, 128)})
     assert float(bounded_fine[0].sweep_min_v) == pytest.approx(-2e-3)
     assert float(bounded_fine[0].sweep_max_v) == pytest.approx(3e-3)
@@ -120,8 +121,8 @@ def test_adaptive_sweep_alternates_and_fine_builder_uses_measured_bracket() -> N
     )
     assert extension is not None
     assert extension.sweep_stage == "fine"
-    assert extension.conversions == 1_000
-    assert float(extension.vin_diff.dc) == pytest.approx(-1.1e-3)
+    assert extension.tb.conversions == 1_000
+    assert float(extension.tb.vin_diff.dc) == pytest.approx(-1.1e-3)
     assert (
         build_next_fine_sweep_variant(
             seed,
@@ -141,15 +142,16 @@ def test_adaptive_sweep_alternates_and_fine_builder_uses_measured_bracket() -> N
 
 
 def _resume_measurement(
-    params: AdcTbParams,
+    params: AdcScanParams,
     timestamp: datetime,
     *,
     session_id: str | None,
     curve_complete: bool,
 ) -> MeasCdacExt:
-    trials = params.conversions
-    after_p = np.tile(params.dac_bstate_p, (trials, 1))
-    after_n = np.tile(params.dac_bstate_n, (trials, 1))
+    tb = params.tb
+    trials = tb.conversions
+    after_p = np.tile(tb.dac_bstate_p, (trials, 1))
+    after_n = np.tile(tb.dac_bstate_n, (trials, 1))
     readbacks: dict[str, InfoValue] = {"curve_complete": curve_complete}
     if session_id is not None:
         readbacks["acquisition_session_id"] = session_id
@@ -166,7 +168,7 @@ def _resume_measurement(
             trial_index=np.arange(trials),
             dac_state_p=after_p,
             dac_state_n=after_n,
-            vin_diff_v=np.full(trials, float(params.vin_diff.dc)),
+            vin_diff_v=np.full(trials, float(tb.vin_diff.dc)),
             decision=np.zeros(trials, dtype=np.uint8),
         ),
         wave=CdacExtWave(
@@ -192,8 +194,7 @@ def test_cdac_resume_requires_one_completed_uninterrupted_curve() -> None:
     )
     fine = replace(
         coarse,
-        vin_diff=h.Vdc.Params(dc=0.199),
-        conversions=1_000,
+        tb=replace(coarse.tb, vin_diff=h.Vdc.Params(dc=0.199), conversions=1_000),
         sweep_stage="fine",
     )
     started = datetime(2026, 8, 4, 8, 0, tzinfo=UTC)
@@ -271,8 +272,8 @@ def test_single_sample_alignment_covers_late_cdac_sequence() -> None:
     timing = load_board_map()["boards"]["00"]["capture_timing_model"]
     template = build_cdac_test_variants()[0]
     for rate_mbd in range(80, 1601):
-        params = replace(template, symbol_rate=rate_mbd * 1.0e6)
-        alignment = calculate_single_sample_fastrx_capture_alignment(params, **timing)
+        params = replace(template, tb=replace(template.tb, symbol_rate=rate_mbd * 1.0e6))
+        alignment = calculate_single_sample_fastrx_capture_alignment(params.tb, **timing)
         assert 0 <= alignment.rx_sen_start_word < 31
         assert 0 <= alignment.comp_idelay_taps < 32
         assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
@@ -298,10 +299,11 @@ def test_cdac_params_encode_only_selected_a_to_b_transition(
         sweep_stage="fixed",
     )
 
-    before_p = np.asarray(params.dac_astate_p)
-    before_n = np.asarray(params.dac_astate_n)
-    after_p = np.asarray(params.dac_bstate_p)
-    after_n = np.asarray(params.dac_bstate_n)
+    tb = params.tb
+    before_p = np.asarray(tb.dac_astate_p)
+    before_n = np.asarray(tb.dac_astate_n)
+    after_p = np.asarray(tb.dac_bstate_p)
+    after_n = np.asarray(tb.dac_bstate_n)
     changed_p = np.flatnonzero(before_p != after_p).tolist()
     changed_n = np.flatnonzero(before_n != after_n).tolist()
     assert changed_p == ([7] if side == "p" else [])
@@ -310,14 +312,14 @@ def test_cdac_params_encode_only_selected_a_to_b_transition(
     expected_after = 1 - expected_before
     assert (before_p if side == "p" else before_n)[7] == expected_before
     assert (after_p if side == "p" else after_n)[7] == expected_after
-    assert params.dac_diffcaps == dac_diffcaps
-    assert params.seq_logic_pattern.count("1") == 8
-    assert params.seq_init_pattern.count("1") == 8
-    assert params.seq_samp_pattern.count("1") == 136
-    assert params.seq_comp_pattern.count("1") == 4
-    samp_words = [params.seq_samp_pattern[index : index + 8] for index in range(0, 256, 8)]
-    logic_words = [params.seq_logic_pattern[index : index + 8] for index in range(0, 256, 8)]
-    comp_words = [params.seq_comp_pattern[index : index + 8] for index in range(0, 256, 8)]
+    assert tb.dac_diffcaps == dac_diffcaps
+    assert tb.seq_logic_pattern.count("1") == 8
+    assert tb.seq_init_pattern.count("1") == 8
+    assert tb.seq_samp_pattern.count("1") == 136
+    assert tb.seq_comp_pattern.count("1") == 4
+    samp_words = [tb.seq_samp_pattern[index : index + 8] for index in range(0, 256, 8)]
+    logic_words = [tb.seq_logic_pattern[index : index + 8] for index in range(0, 256, 8)]
+    comp_words = [tb.seq_comp_pattern[index : index + 8] for index in range(0, 256, 8)]
     assert samp_words[3:20] == ["11111111"] * 17
     assert all(word == "00000000" for index, word in enumerate(samp_words) if not 3 <= index < 20)
     update_word = 21
@@ -325,17 +327,16 @@ def test_cdac_params_encode_only_selected_a_to_b_transition(
     assert [index for index, word in enumerate(comp_words) if "1" in word] == [update_word + 5]
     minimum_v, maximum_v = _calculate_cdac_input_bounds(params)
     for boundary_v in (minimum_v, maximum_v):
-        boundary = replace(params, vin_diff=h.Vdc.Params(dc=boundary_v))
+        boundary = replace(params, tb=replace(tb, vin_diff=h.Vdc.Params(dc=boundary_v)))
         assert all(
-            0.4 - 1e-12 <= voltage <= float(params.vdd_a.dc) + 1e-12
-            for voltage in _calculate_cdac_plate_voltages(boundary)
+            0.4 - 1e-12 <= voltage <= float(tb.vdd_a.dc) + 1e-12 for voltage in _calculate_cdac_plate_voltages(boundary)
         )
     outside = (
-        replace(params, vin_diff=h.Vdc.Params(dc=minimum_v - 1e-6)),
-        replace(params, vin_diff=h.Vdc.Params(dc=maximum_v + 1e-6)),
+        replace(params, tb=replace(tb, vin_diff=h.Vdc.Params(dc=minimum_v - 1e-6))),
+        replace(params, tb=replace(tb, vin_diff=h.Vdc.Params(dc=maximum_v + 1e-6))),
     )
     assert all(
-        any(voltage < 0.4 or voltage > float(params.vdd_a.dc) for voltage in _calculate_cdac_plate_voltages(candidate))
+        any(voltage < 0.4 or voltage > float(tb.vdd_a.dc) for voltage in _calculate_cdac_plate_voltages(candidate))
         for candidate in outside
     )
 
@@ -414,7 +415,7 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
     total_weights = [65 * np.ceil(weight / 64) for weight in weights]
     switched_weight = weights[15] if dac_diffcaps else total_weights[15]
     expected = (
-        float(params.vdd_dac.dc)
+        float(params.tb.vdd_dac.dc)
         * switched_weight
         / (sum(total_weights) + flavor_config["cdac_topplate_parasitic_weight"])
     )
@@ -437,9 +438,9 @@ def test_cdac_test_plate_predictions_are_safe_and_adc00_through_adc03() -> None:
             0,
             float(calibration["offset_v"]),
         )
-        assert float(params.vin_diff.dc) == pytest.approx(expected_center_v)
+        assert float(params.tb.vin_diff.dc) == pytest.approx(expected_center_v)
         assert "_c16_" in _cdac_point_stem(params)
-        assert all(0.4 <= voltage <= float(params.vdd_a.dc) for voltage in _calculate_cdac_plate_voltages(params))
+        assert all(0.4 <= voltage <= float(params.tb.vdd_a.dc) for voltage in _calculate_cdac_plate_voltages(params))
 
 
 def test_default_cdac_campaign_cardinality_selection_and_point_uniqueness() -> None:
@@ -452,7 +453,7 @@ def test_default_cdac_campaign_cardinality_selection_and_point_uniqueness() -> N
     )
     assert len(capacitor_variants) == 512
     assert {
-        (params.observed_adc, params.cdac_side, params.cdac_element, params.cdac_direction, params.dac_diffcaps)
+        (params.observed_adc, params.cdac_side, params.cdac_element, params.cdac_direction, params.tb.dac_diffcaps)
         for params in capacitor_variants
     } == {
         (adc_index, side, element, direction, diffcaps)
@@ -487,11 +488,14 @@ def test_cdac_preflight_accepts_programmable_supply_boundaries(
 ) -> None:
     boundary = replace(
         build_cdac_test_variants()[0],
-        vdd_a=h.Vdc.Params(dc=supply_v),
-        vdd_d=h.Vdc.Params(dc=supply_v),
-        vdd_dac=h.Vdc.Params(dc=supply_v),
+        tb=replace(
+            build_cdac_test_variants()[0].tb,
+            vdd_a=h.Vdc.Params(dc=supply_v),
+            vdd_d=h.Vdc.Params(dc=supply_v),
+            vdd_dac=h.Vdc.Params(dc=supply_v),
+        ),
     )
-    uncalibrated = replace(boundary, vin_diff=h.Vdc.Params(dc=1.01))
+    uncalibrated = replace(boundary, tb=replace(boundary.tb, vin_diff=h.Vdc.Params(dc=1.01)))
     run_dir = tmp_path / "not-created"
 
     with pytest.raises(ValueError, match="calibrated range"):
@@ -502,8 +506,8 @@ def test_cdac_preflight_accepts_programmable_supply_boundaries(
 def test_cdac_preflight_rejects_supply_and_fixed_io_before_hardware(tmp_path) -> None:
     params = build_cdac_test_variants()[0]
     for invalid, message in (
-        (replace(params, vdd_a=h.Vdc.Params(dc=1.099)), "VDD_A request"),
-        (replace(params, vdd_dac=h.Vdc.Params(dc=1.301)), "VDD_DAC request"),
+        (replace(params, tb=replace(params.tb, vdd_a=h.Vdc.Params(dc=1.099))), "VDD_A request"),
+        (replace(params, tb=replace(params.tb, vdd_dac=h.Vdc.Params(dc=1.301))), "VDD_DAC request"),
         (replace(params, vdd_io=h.Vdc.Params(dc=1.3)), "VDD_IO is fixed"),
     ):
         run_dir = tmp_path / message.replace(" ", "_")
@@ -513,6 +517,6 @@ def test_cdac_preflight_rejects_supply_and_fixed_io_before_hardware(tmp_path) ->
 
 
 def test_cdac_scan_axis_validation_rejects_incomplete_params() -> None:
-    params = AdcTbParams(campaign="cdac_ab", sampling_mode="hold")
-    with pytest.raises(ValueError, match="requires cdac_side"):
+    params = AdcScanParams(tb=AdcTbParams(view="frida65a"), campaign="cdac_ab", sampling_mode="hold")
+    with pytest.raises(ValueError, match="requires side, element, and direction"):
         validate_params(params)

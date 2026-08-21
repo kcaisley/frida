@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from flow.adc import AdcParams
+from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
@@ -38,7 +39,7 @@ from flow.analysis.types import (
     MeasInfo,
 )
 from flow.cdac import CdacParams
-from flow.scans.params import AdcTbParams
+from flow.scans.params import AdcScanParams
 
 
 def adc_measurement(
@@ -67,12 +68,11 @@ def adc_measurement(
             "observed_adc": observed_adc,
             "active_adc_mask": tuple(int(index == observed_adc) for index in reversed(range(16))),
         }
-    param = AdcTbParams(
+    tb_params = AdcTbParams(
         conversions=len(dout),
         symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
         vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
         seq_logic_phase_delay_symbols=logic_phase_delay_symbols,
-        **measurement_selection,
     )
     time_s = np.linspace(0.0, 1.0 / sample_rate_hz, waveform_sample_count)
     zeros = np.zeros((1, len(time_s)))
@@ -92,7 +92,7 @@ def adc_measurement(
                 timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC),
                 readbacks=dict(readbacks or {}),
             ),
-            param=param,
+            param=tb_params,
             daq=daq,
             wave=AdcIntWave(
                 conversion_index=np.asarray([0], dtype=np.int64),
@@ -139,7 +139,7 @@ def adc_measurement(
             timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC),
             readbacks=dict(readbacks or {}),
         ),
-        param=param,
+        param=AdcScanParams(tb=tb_params, **measurement_selection),
         daq=daq,
         wave=AdcExtWave(
             conversion_index=np.asarray([0], dtype=np.int64),
@@ -172,16 +172,18 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
     vin_diff_v = np.tile(np.linspace(-1.0, 1.0, samples_per_cycle, endpoint=False), cycles)
     base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
     assert isinstance(base, MeasAdcExt)
-    params = AdcTbParams(
-        dut=base.param.dut,
-        conversions=sample_count,
-        symbol_rate=base.param.symbol_rate,
+    params = AdcScanParams(
+        tb=AdcTbParams(
+            dut=base.param.tb.dut,
+            conversions=sample_count,
+            symbol_rate=base.param.tb.symbol_rate,
+            vin_cm=h.Vdc.Params(dc=0.6),
+            vin_diff=h.Vpwl.Params(wave="0 -1 0.001 1"),
+        ),
         board_id="test_board",
         observed_adc=observed_adc,
         active_adc_mask=tuple(int(index == observed_adc) for index in reversed(range(16))),
         campaign="adc_ramp",
-        vin_cm=h.Vdc.Params(dc=0.6),
-        vin_diff=h.Vpwl.Params(wave="0 -1 0.001 1"),
     )
     return replace(
         base,
@@ -513,17 +515,16 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
     object.__setattr__(
         msmt,
         "param",
-        AdcTbParams(
-            **(
-                vars(msmt.param)
-                | {
-                    "dut": AdcParams(
-                        adc_bits=12,
-                        n_cycles=16,
-                        cdac=CdacParams(n_dac=11, n_extra=5, weights=weights),
-                    )
-                }
-            )
+        replace(
+            msmt.param,
+            tb=replace(
+                msmt.param.tb,
+                dut=AdcParams(
+                    adc_bits=12,
+                    n_cycles=16,
+                    cdac=CdacParams(n_dac=11, n_extra=5, weights=weights),
+                ),
+            ),
         ),
     )
     object.__setattr__(msmt.daq, "bout", np.ones((1, 17), dtype=np.uint8))
@@ -801,14 +802,13 @@ def test_dynamic_analysis_rejects_invalid_records(
     msmt = adc_measurement(samples)
     msmt = replace(
         msmt,
-        param=AdcTbParams(
-            **(
-                vars(msmt.param)
-                | {
-                    "symbol_rate": sample_rate_hz * len(msmt.param.seq_init_pattern),
-                    "vin_diff": h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
-                }
-            )
+        param=replace(
+            msmt.param,
+            tb=replace(
+                msmt.param.tb,
+                symbol_rate=sample_rate_hz * len(msmt.param.tb.seq_init_pattern),
+                vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
+            ),
         ),
     )
     with pytest.raises(ValueError, match=message):

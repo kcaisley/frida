@@ -14,6 +14,7 @@ def test_comp():
 def test_default_comp_is_single_tail_nmos_strongarm() -> None:
     """Pin the default topology and its power-of-two size multipliers."""
 
+    Comp.Cache.reset()
     params = CompParams()
     assert params.comp_stages == Stages.SINGLE
     assert params.preamp_diff_xtors == MosType.NMOS

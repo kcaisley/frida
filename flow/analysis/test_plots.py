@@ -64,7 +64,7 @@ from flow.analysis.plots import (
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
-from flow.analysis.types import AnalysisAdcNoiseComparison, AnalysisCdacCapMismatch, CompDaq, MeasAdcInt
+from flow.analysis.types import AnalysisAdcNoiseComparison, AnalysisCdacCapMismatch, CompDaq, MeasAdcInt, MeasCompExt
 from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
@@ -179,8 +179,8 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         for vin_diff_v, ones in ((-1e-3, 100), (0.0, 50), (1e-3, 0)):
             base = comparator_measurement()
             group.append(
-                replace(
-                    base,
+                MeasCompExt(
+                    info=replace(base.info, measurement_type="MeasCompExt", backend="physical"),
                     param=_build_comp_params(
                         adc_index=0,
                         campaign="comp_common_mode",
@@ -196,6 +196,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
                         vin_cm_v=np.full(100, vin_cm_v),
                         decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
                     ),
+                    wave=None,
                 )
             )
         comparator_groups.append(group)
@@ -287,8 +288,8 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
         ):
             base = comparator_measurement()
             measurements.append(
-                replace(
-                    base,
+                MeasCompExt(
+                    info=replace(base.info, measurement_type="MeasCompExt", backend="physical"),
                     param=_build_comp_params(
                         adc_index=0,
                         campaign=campaign,
@@ -305,6 +306,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
                         vin_cm_v=np.full(100, vin_cm_v),
                         decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
                     ),
+                    wave=None,
                 )
             )
         return measurements
@@ -418,7 +420,7 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
         base,
         info=replace(base.info, readbacks={"cdac_topplate_parasitic_weight": 100.0}),
     )
-    weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
+    weights = np.asarray(params.tb.dut.cdac.weights, dtype=np.float64)
     expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
     np.testing.assert_allclose(
         _expected_cdac_effective_fraction([measurement]),

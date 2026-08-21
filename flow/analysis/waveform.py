@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from flow.analysis.types import AnalysisWaveform, MeasAdcExt, MeasAdcInt, Measurement
+from flow.scans.params import AdcScanParams
 
 
 def _signal_unit(name: str) -> str:
@@ -24,6 +25,7 @@ def style_measurement_text(msmt: Measurement) -> tuple[str, ...]:
 
     # rcParams cannot derive display text from typed measurement metadata.
     lines: tuple[str, ...] = ()
+    params = msmt.param.tb if isinstance(msmt.param, AdcScanParams) else msmt.param
     adc_index = getattr(msmt.param, "observed_adc", None)
     if adc_index is not None:
         lines += (f"ADC: {adc_index:02d}",)
@@ -33,29 +35,27 @@ def style_measurement_text(msmt: Measurement) -> tuple[str, ...]:
     if board_id is not None:
         lines += (f"Board: {board_id}",)
     for field_name, label in (("vin_cm", "Vcm"), ("vin_diff", "Vdiff")):
-        source = getattr(msmt.param, field_name, None)
+        source = getattr(params, field_name, None)
         dc_v = getattr(source, "dc", None)
         if dc_v is not None:
             lines += (f"{label}: {float(dc_v) * 1e3:g} mV",)
     active_rate_hz = msmt.info.readbacks.get("active_conversion_rate_hz")
     if not isinstance(active_rate_hz, (int, float)):
         patterns = (
-            msmt.param.seq_init_pattern,
-            msmt.param.seq_samp_pattern,
-            msmt.param.seq_comp_pattern,
-            msmt.param.seq_logic_pattern,
+            params.seq_init_pattern,
+            params.seq_samp_pattern,
+            params.seq_comp_pattern,
+            params.seq_logic_pattern,
         )
         active_indices = tuple(
-            index
-            for index in range(len(msmt.param.seq_init_pattern))
-            if any(pattern[index] == "1" for pattern in patterns)
+            index for index in range(len(params.seq_init_pattern)) if any(pattern[index] == "1" for pattern in patterns)
         )
         if active_indices:
-            active_rate_hz = float(msmt.param.symbol_rate) / (active_indices[-1] - active_indices[0] + 1)
+            active_rate_hz = float(params.symbol_rate) / (active_indices[-1] - active_indices[0] + 1)
     if isinstance(active_rate_hz, (int, float)):
         lines += (f"Rate: {float(active_rate_hz) / 1e6:g} Msps",)
-    init_p = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_p), 2)
-    init_n = int("".join(str(int(bit)) for bit in msmt.param.dac_astate_n), 2)
+    init_p = int("".join(str(int(bit)) for bit in params.dac_astate_p), 2)
+    init_n = int("".join(str(int(bit)) for bit in params.dac_astate_n), 2)
     if init_p == init_n:
         lines += (f"CDAC init: h'{init_p:04X}",)
     else:
