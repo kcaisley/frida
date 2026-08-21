@@ -54,7 +54,7 @@ geometry and must eventually instantiate the maintained MOM generator.
 uv run python -m flow.mosfet.primitive -t ihp130 -m max -v
 ```
 
-## Circuit netlists
+## Circuit simulation targets
 
 ADC, comparator, sampler, and CDAC simulations use the same named-target
 interface. Omitting the target prints the choices without generating or
@@ -67,40 +67,36 @@ uv run python -m flow.samp.sim
 uv run python -m flow.cdac.sim
 ```
 
-Each target owns its reviewed parameter recipe and either prepares every deck
-or runs every case. Netlist-only targets exercise the complete testbench and
-parameter expansion without launching Spectre:
+Each target owns its reviewed parameter recipe. The short `_check` targets run
+noise-free transients with Spectre circuit checks and AHDL linting:
 
 ```bash
-# ADC generated-view and extracted-view campaign decks
-uv run python -m flow.adc.sim hdl21gen_noise_vs_rate_netlists
-uv run python -m flow.adc.sim frida65a_noise_vs_rate_netlists
+# ADC generated-view and extracted-view checks
+uv run python -m flow.adc.sim hdl21gen_noise_vs_rate_check
+uv run python -m flow.adc.sim hdl21gen_transfer_curve_check
+uv run python -m flow.adc.sim frida65a_noise_vs_rate_check
+uv run python -m flow.adc.sim frida65a_transfer_curve_check
 
-# All 297 comparator candidate decks
-uv run python -m flow.comp.sim frida65_candidate_netlists
+# Comparator checks
+uv run python -m flow.comp.sim frida65_baseline_check
+uv run python -m flow.comp.sim frida65_candidate_check
 
-# Standalone sampler and CDAC decks
-uv run python -m flow.samp.sim frida65_baseline_netlist
-uv run python -m flow.cdac.sim frida65_baseline_netlist
-
-# Fabricated-size comparator core netlist
-uv run python -m flow.comp.sim frida65_baseline_netlist
+# Sampler and CDAC checks
+uv run python -m flow.samp.sim frida65_baseline_check
+uv run python -m flow.cdac.sim frida65_baseline_check
 ```
 
 ## Circuit simulation
 
 Simulation targets use the same interface and always create a fresh complete
-run beneath `build/sim/<module>/<YYYYMMDD_HHMMSS>/`:
+run beneath `build/sim/<module>/<target>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
-# Short executable checks
-uv run python -m flow.adc.sim hdl21gen_noise_smoke
-uv run python -m flow.adc.sim frida65a_noise_smoke
-uv run python -m flow.comp.sim frida65_candidate_smoke
-
-# Reviewed ADC noise campaigns
+# Reviewed ADC campaigns
 uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
 uv run python -m flow.adc.sim frida65a_noise_vs_rate
+uv run python -m flow.adc.sim hdl21gen_transfer_curve
+uv run python -m flow.adc.sim frida65a_transfer_curve
 
 # Comparator campaigns
 uv run python -m flow.comp.sim frida65_baseline_noise
@@ -113,23 +109,24 @@ uv run python -m flow.cdac.sim frida65_baseline_transient
 
 The ADC and comparator runners convert completed raw results to typed HDF5 in
 each case directory. Sampler and CDAC retain the Spectre raw result and log;
-their first standalone simulations do not yet have a measurement schema or an
-analysis consumer. The comparator analysis validates the 297 typed HDF5 files
+their standalone runners do not yet invoke the existing typed measurement and
+analysis path. The comparator analysis validates the 297 typed HDF5 files
 and their embedded candidate metadata directly, without a separate campaign
 manifest. Accepted analysis directories remain explicit paths in
 `flow.analysis.runner` and are updated manually after reviewing a run.
 
-Executable targets intentionally write a compact standalone Spectre input and
-invoke Spectre directly. This keeps the exact deck, log, raw data, and typed
-HDF5 conversion together in each case directory. The shared code only
-serializes a completed HDL21 `Sim`; campaign selection, parameters, and
-execution remain owned by the named module target.
+Every executable target builds one native HDL21 `Sim` per parameter variant
+and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR
+run directory. ADC batches use HDL21's sequence execution, while the larger
+comparator candidate campaign bounds its standard-library executor; the
+single-case sampler and CDAC targets run directly. ADC and comparator convert
+the returned transient to typed HDF5 before releasing it; the standalone
+sampler and CDAC targets retain the native raw result without converting it.
+VLSIR retains the generated `netlist.scs` in every run directory, so a separate
+netlist-writing layer or target is unnecessary.
 
-Each module sets `MAX_PARALLEL_SIMULATIONS` and
-`SPECTRE_THREADS_PER_SIMULATION` at the top of its runner. The first limits the
-number of concurrently executing cases; the second becomes Spectre's `+mt`
-value for each case. Set their product to the intended total CPU allocation.
-Simulation targets require `spectre` on `PATH`; source
+Concurrency and each case's Spectre `+mt` setting are visible in the target
+which owns the campaign. Simulation targets require `spectre` on `PATH`; source
 `design/spice/workspace.sh` first when necessary.
 
 ## Netlist conversion
@@ -262,10 +259,10 @@ uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
 uv run python -m flow.adc.sim frida65a_noise_vs_rate
 ```
 
-Use the corresponding `_netlists` target to generate every deck without
-simulation, or the `_noise_smoke` target to run one short case without
-transient noise. Results are written below a fresh
-`build/sim/adc/<YYYYMMDD_HHMMSS>/`; omitting the target lists all choices.
+Use the corresponding `_check` target for a short, noise-free Spectre run with
+circuit checks and AHDL linting. Results are written below a fresh
+`build/sim/adc/<target>/<YYYYMMDD_HHMMSS>/`; omitting the target lists all
+choices.
 
 ## Environment setup
 

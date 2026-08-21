@@ -12,19 +12,22 @@ uv run python -m flow.<module>.sim <target>
 
 Running without a target lists the available targets. Each target constructs
 complete typed testbench parameters and writes a new, timestamped run beneath
-`build/sim/<module>/<timestamp>/`; a target never overwrites a previous run.
-Netlist-only targets generate the same parameterized Spectre decks without
-starting a large campaign. Simulation targets retain the deck, simulator log,
-and raw output together. ADC and comparator campaigns additionally convert
-the raw results to the shared typed HDF5 measurement format; isolated sampler
-and CDAC campaigns currently retain their raw simulator results.
+`build/sim/<module>/<target>/<timestamp>/`; a target never overwrites a
+previous run. Every target uses the native HDL21 `Sim.run()` or `hs.run()` API
+with its timestamped output as the VLSIR run directory; VLSIR creates numbered
+subdirectories for batch inputs. ADC and
+comparator runners immediately convert the returned transient arrays to the
+shared typed HDF5 measurement format. The standalone sampler and CDAC targets
+do not yet perform that conversion; they execute the native transient and
+retain its raw output. Each generated deck, simulator log, and raw result
+therefore stays together.
 
-Each module sets `MAX_PARALLEL_SIMULATIONS` and
-`SPECTRE_THREADS_PER_SIMULATION` near the top of its simulation runner. Their
-product is the campaign CPU budget. Spectre jobs use `+lqtimeout 3600` so a
-temporarily exhausted license queue does not immediately fail a run. Analysis
-runners deliberately name accepted simulation run directories; creating new
-simulation data does not silently change analysis inputs.
+Multi-case ADC and comparator targets state their concurrency and per-case
+Spectre `+mt` settings at the call sites which own that resource policy.
+Spectre jobs use `+lqtimeout 3600` so a temporarily exhausted license queue does
+not immediately fail a run. Analysis runners deliberately name accepted
+simulation run directories; creating new simulation data does not silently
+change analysis inputs.
 
 ## Transient noise
 

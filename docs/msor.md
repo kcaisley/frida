@@ -187,10 +187,8 @@ have working implementations in our `libs/` dependencies:
 
 - **Structural Verilog**: `vlsirtools` (`libs/Vlsir/VlsirTools`) already has a
   `VerilogNetlister` in `vlsirtools/netlist/verilog.py` that emits structural
-  Verilog from `vlsir.circuit.Package`. Frida already uses this — the CLI
-  supports `python -m flow.comp.sim netlist -f verilog` and
-  `run_netlist_variants()` in
-  `flow/circuit/netlist.py` handles the `fmt="verilog"` path.
+  Verilog from `vlsir.circuit.Package`. FRIDA can call this public API directly
+  with `vlsirtools.netlist(pkg, fmt="verilog")`; no project wrapper is needed.
 
 So the work here is NOT reimplementing LEF/Verilog emitters from scratch.
 Instead it is: (a) ensuring the primitive generators populate `vlsir.raw.Abstract`
@@ -293,8 +291,8 @@ structural Verilog from `vlsir.circuit.Package`. The frida path is:
 hdl21 Module → h.to_proto() → vlsir.circuit.Package → vlsirtools.netlist(pkg, fmt='verilog') → .v
 ```
 
-This already works and is already wired into `flow/circuit/netlist.py`'s
-`run_netlist_variants(netlist_fmt="verilog")` path.
+This already works through VLSIRTools' public `netlist(..., fmt="verilog")`
+API.
 
 **However**, the existing Verilog output assumes all instances resolve to
 modules defined within the same package. For the OpenROAD flow, compiled

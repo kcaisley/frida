@@ -8,7 +8,7 @@ hardware or simulator -> typed HDF5 -> Meas* -> analyze_* -> Analysis* -> plot_*
 
 Each HDF5 file represents one logical measurement and stores native `/info`,
 `/param`, `/daq`, and `/wave` groups. Producers construct a concrete typed
-measurement and call `write_measurement()`; `flow/spice/io.py` owns conversion
+measurement and call `write_measurement()`; `flow/circuit/results.py` owns conversion
 from simulator raw data. The analysis layer does not control hardware, start
 simulators, or depend on sidecar manifests.
 
