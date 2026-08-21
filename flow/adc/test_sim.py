@@ -1,6 +1,7 @@
 """Software-only checks for the native HDL21 ADC simulation interface."""
 
 import inspect
+from io import StringIO
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -69,11 +70,38 @@ def test_extracted_adc_keeps_calibre_port_order() -> None:
     assert names[:5] == ("vdd_a", "vin_p", "vss_a", "dac_mode", "dac_diffcaps")
 
 
-def test_adc_main_owns_the_eight_named_targets() -> None:
+def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
+    params = sim.AdcTbParams(
+        view="frida65a",
+        conversions=1,
+        supply_series_resistance_ohm=1.0,
+        supply_series_inductance_h=1e-9,
+        supply_decoupling_capacitance_f=1e-12,
+        supply_noise_rms_v=(1e-3, 0.0, 0.0),
+        supply_noise_bandwidth_hz=25e9,
+    )
+    tb = sim.AdcTb(params)
+    netlist = StringIO()
+
+    h.netlist(tb, netlist, fmt="spectre")
+    text = netlist.getvalue()
+
+    for rail in ("vdd_a", "vdd_d", "vdd_dac"):
+        assert float(getattr(tb, f"r{rail}").of.params.r) == pytest.approx(1.0)
+        assert float(getattr(tb, f"l{rail}").of.params.l) == pytest.approx(1e-9)
+        assert float(getattr(tb, f"c{rail}").of.params.c) == pytest.approx(1e-12)
+    assert "vvdd_a (vdd_a_source vss) vsource dc=1.2 noisevec=[0 4e-17 25000000000 4e-17]" in text
+    assert tb.vvdd_d.conns["p"] is tb.vdd_d_source
+    assert tb.vvdd_dac.conns["p"] is tb.vdd_dac_source
+    assert text.count("noisevec=") == 1
+
+
+def test_adc_main_owns_the_nine_named_targets() -> None:
     source = inspect.getsource(sim.main)
     for name in (
         "frida65a_noise_vs_rate_check",
         "frida65a_noise_vs_rate",
+        "frida65a_supply_noise_vs_rate",
         "frida65a_transfer_curve_check",
         "frida65a_transfer_curve",
         "hdl21gen_noise_vs_rate_check",

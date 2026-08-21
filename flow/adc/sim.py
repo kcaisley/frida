@@ -49,6 +49,31 @@ class AdcTbParams:
     vdd_a = h.Param(dtype=h.Vdc.Params, desc="Analog supply", default=h.Vdc.Params(dc=1200 * m))
     vdd_d = h.Param(dtype=h.Vdc.Params, desc="Digital supply", default=h.Vdc.Params(dc=1200 * m))
     vdd_dac = h.Param(dtype=h.Vdc.Params, desc="DAC supply", default=h.Vdc.Params(dc=1200 * m))
+    supply_series_resistance_ohm = h.Param(
+        dtype=float,
+        desc="Lumped bond-wire and chip-level PDN series resistance per supply rail",
+        default=0.0,
+    )
+    supply_series_inductance_h = h.Param(
+        dtype=float,
+        desc="Lumped bond-wire and chip-level PDN series inductance per supply rail",
+        default=0.0,
+    )
+    supply_decoupling_capacitance_f = h.Param(
+        dtype=float,
+        desc="Local chip-level decoupling capacitance per supply rail",
+        default=0.0,
+    )
+    supply_noise_rms_v = h.Param(
+        dtype=tuple[float, ...],
+        desc="Added RMS noise on VDD_A, VDD_D, and VDD_DAC",
+        default=(0.0, 0.0, 0.0),
+    )
+    supply_noise_bandwidth_hz = h.Param(
+        dtype=float,
+        desc="Flat bandwidth over which each added supply-noise RMS value is defined",
+        default=25.0e9,
+    )
     vin_cm = h.Param(dtype=h.Vdc.Params, desc="Input common mode", default=h.Vdc.Params(dc=700 * m))
     vin_diff = h.Param(
         dtype=h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params | hs.LinearSweep,
@@ -90,6 +115,21 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         source = getattr(params, name)
         if source.dc is None or not math.isfinite(float(source.dc)):
             raise ValueError(f"{name}.dc must be finite")
+    supply_parasitics = (
+        params.supply_series_resistance_ohm,
+        params.supply_series_inductance_h,
+        params.supply_decoupling_capacitance_f,
+    )
+    if any(not math.isfinite(value) or value < 0.0 for value in supply_parasitics):
+        raise ValueError("supply RLC values must be finite and nonnegative")
+    if any(supply_parasitics) and not all(value > 0.0 for value in supply_parasitics):
+        raise ValueError("the supply RLC model requires positive resistance, inductance, and capacitance")
+    if len(params.supply_noise_rms_v) != 3 or any(
+        not math.isfinite(value) or value < 0.0 for value in params.supply_noise_rms_v
+    ):
+        raise ValueError("supply_noise_rms_v must contain three finite nonnegative values")
+    if not math.isfinite(params.supply_noise_bandwidth_hz) or params.supply_noise_bandwidth_hz <= 0.0:
+        raise ValueError("supply noise bandwidth must be finite and positive")
     for name in ("en_init", "en_samp_p", "en_samp_n", "en_comp", "en_update", "dac_mode", "dac_diffcaps"):
         if getattr(params, name) not in (0, 1):
             raise ValueError(f"{name} must be zero or one")
@@ -118,9 +158,45 @@ def AdcTb(params: AdcTbParams) -> h.Module:
     symbol_period_s = 1.0 / float(params.symbol_rate)
     pattern_period_s = len(patterns[0]) * symbol_period_s
     transition_s = min(float(100 * p), symbol_period_s / 20.0)
-    tb.vvdd_a = h.Vdc(params.vdd_a)(p=tb.vdd_a, n=tb.vss)
-    tb.vvdd_d = h.Vdc(params.vdd_d)(p=tb.vdd_d, n=tb.vss)
-    tb.vvdd_dac = h.Vdc(params.vdd_dac)(p=tb.vdd_dac, n=tb.vss)
+    supply_rails = (
+        ("vdd_a", params.vdd_a, params.supply_noise_rms_v[0]),
+        ("vdd_d", params.vdd_d, params.supply_noise_rms_v[1]),
+        ("vdd_dac", params.vdd_dac, params.supply_noise_rms_v[2]),
+    )
+    rlc_enabled = all(value > 0.0 for value in supply_parasitics)
+    for rail_name, source_params, noise_rms_v in supply_rails:
+        rail = getattr(tb, rail_name)
+        source_node = h.Signal(name=f"{rail_name}_source") if rlc_enabled else rail
+        if rlc_enabled:
+            series_node = h.Signal(name=f"{rail_name}_series")
+            setattr(tb, f"{rail_name}_source", source_node)
+            setattr(tb, f"{rail_name}_series", series_node)
+            setattr(
+                tb,
+                f"r{rail_name}",
+                h.Resistor(r=params.supply_series_resistance_ohm)(p=source_node, n=series_node),
+            )
+            setattr(
+                tb,
+                f"l{rail_name}",
+                h.Inductor(l=params.supply_series_inductance_h)(p=series_node, n=rail),
+            )
+            setattr(
+                tb,
+                f"c{rail_name}",
+                h.Capacitor(c=params.supply_decoupling_capacitance_f)(p=rail, n=tb.vss),
+            )
+        if noise_rms_v > 0.0:
+            noise_density_v2_per_hz = noise_rms_v**2 / params.supply_noise_bandwidth_hz
+            tb.literals.append(
+                h.Literal(
+                    f"v{rail_name} ({source_node.name} vss) vsource dc={float(source_params.dc):.12g} "
+                    f"noisevec=[0 {noise_density_v2_per_hz:.12g} "
+                    f"{params.supply_noise_bandwidth_hz:.12g} {noise_density_v2_per_hz:.12g}]"
+                )
+            )
+        else:
+            setattr(tb, f"v{rail_name}", h.Vdc(source_params)(p=source_node, n=tb.vss))
     tb.vvin_cm = h.Vdc(params.vin_cm)(p=tb.vin_cm, n=tb.vss)
     if isinstance(params.vin_diff, h.Vdc.Params):
         tb.vvin_diff = h.Vdc(params.vin_diff)(p=tb.vin_diff, n=tb.vss)
@@ -694,6 +770,105 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
     return run_dir
 
 
+def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
+    """Run the 15 extracted-ADC rate and supply-noise combinations."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+
+    rates = ((2, 320e6), (6, 960e6), (10, 1.6e9))
+    noise_rms_v = 1e-3
+    noise_cases = (
+        ("none", (0.0, 0.0, 0.0)),
+        ("vdda", (noise_rms_v, 0.0, 0.0)),
+        ("vddd", (0.0, noise_rms_v, 0.0)),
+        ("vddac", (0.0, 0.0, noise_rms_v)),
+        ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
+    )
+    cases = tuple(
+        (
+            f"{rate_msps}msps_{noise_name}",
+            AdcTbParams(
+                view="frida65a",
+                symbol_rate=symbol_rate,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+                supply_series_resistance_ohm=1.0,
+                supply_series_inductance_h=1e-9,
+                supply_decoupling_capacitance_f=1e-12,
+                supply_noise_rms_v=rail_noise_rms_v,
+                supply_noise_bandwidth_hz=25e9,
+            ),
+        )
+        for rate_msps, symbol_rate in rates
+        for noise_name, rail_noise_rms_v in noise_cases
+    )
+    set_pdk("tsmc65")
+    assert site.tsmc65.install is not None
+    simulations = []
+    for case_name, params in cases:
+        tb = AdcTb(params)
+        h.pdk.compile(tb)
+        save_targets = [
+            re.sub(r"([/<>-])", r"\\\1", raw_name)
+            for canonical_name, raw_name in adc_signal_names(params.view).items()
+            if canonical_name != "time_s"
+        ]
+        save_targets.extend(("xtop.vdd_a", "xtop.vdd_d", "xtop.vdd_dac"))
+        tstop_s = params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)
+        simulations.append(
+            hs.Sim(
+                name=case_name,
+                tb=tb,
+                attrs=[
+                    site.tsmc65.install.include(h.pdk.Corner.TYP),
+                    site.tsmc65.install.include_pre_simulation(),
+                    hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+                    hs.Options(name="temp", value=25.0),
+                    hs.Options(name="save", value="selected"),
+                    hs.Save(save_targets),
+                    hs.Tran(
+                        tstop=tstop_s,
+                        name="tran",
+                        options={
+                            "strobeperiod": min(1.0 / float(params.symbol_rate) / 16.0, 50e-12),
+                            "strobeoutput": "strobeonly",
+                            "noisefmin": 1.0 / tstop_s,
+                            "noisefmax": "25G",
+                            "noiseseed": 1,
+                        },
+                    ),
+                ],
+            )
+        )
+    results = cast(
+        list[SimResult],
+        hs.run(
+            simulations,
+            SimOptions(
+                simulator=SupportedSimulators.SPECTRE,
+                fmt=ResultFormat.SIM_DATA,
+                rundir=run_dir,
+                simulator_args=("+preset=mx", "+mt=4", "+lqtimeout", "3600", "+escchars", "+log", "spectre.log"),
+            ),
+        ),
+    )
+    for index, ((case_name, params), result) in enumerate(zip(cases, results, strict=True)):
+        transient = cast(TranResult, result[AnalysisType.TRAN])
+        case_dir = run_dir / case_name
+        (run_dir / str(index)).rename(case_dir)
+        measurement = convert_spectre_adc_to_measurement(
+            transient.data,
+            params=params,
+            raw_path=case_dir / "netlist.raw",
+            signal_names=adc_signal_names(params.view),
+            maximum_waveform_records=3,
+        )
+        write_measurement(case_dir / "result.h5", measurement)
+    return run_dir
+
+
 def frida65a_transfer_curve(run_dir: Path) -> Path:
     """Run the extracted ADC from -750 mV to +750 mV in 10 mV steps."""
 
@@ -951,6 +1126,7 @@ def main() -> None:
         for target in (
             frida65a_noise_vs_rate_check,
             frida65a_noise_vs_rate,
+            frida65a_supply_noise_vs_rate,
             frida65a_transfer_curve_check,
             frida65a_transfer_curve,
             hdl21gen_noise_vs_rate_check,
