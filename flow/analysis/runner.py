@@ -423,9 +423,10 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
 
 
 def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
-    """Analyze the accepted post-filter ADC00 fixed-input noise capture."""
+    """Analyze the controlled and externally applied ADC00 fixed-input captures."""
 
     physical_run_dir = BASE_PATH / "build/scan_adc/20260819_113714"
+    external_run_dir = BASE_PATH / "build/scan_adc/20260821_173944"
     ideal_run_dir = BASE_PATH / "build/sim/adc/20260820_005128"
     pex_run_dir = BASE_PATH / "build/sim/adc/20260820_005122"
     runs = (
@@ -437,6 +438,17 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
                 physical_run_dir
                 / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
                 physical_run_dir
+                / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+            ),
+        ),
+        (
+            "adc00_external",
+            (
+                external_run_dir
+                / "0000_00_adc00_320mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+                external_run_dir
+                / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+                external_run_dir
                 / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
             ),
         ),
@@ -467,14 +479,15 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
             measurements.append(measurement)
         analyzed_runs.append((output_prefix, measurements, analyze_adc_noise_sweep(measurements)))
 
-    _, physical_measurements, physical_analysis = analyzed_runs[0]
-    artifacts = list(
-        plot_adc_noise_sweep(
-            physical_measurements,
-            physical_analysis,
-            output_path=output_dir / "adc00_50mv_noise_vs_conversion_rate",
+    artifacts = []
+    for output_prefix, measurements, noise_analysis in analyzed_runs[:2]:
+        artifacts.extend(
+            plot_adc_noise_sweep(
+                measurements,
+                noise_analysis,
+                output_path=output_dir / f"{output_prefix}_50mv_noise_vs_conversion_rate",
+            )
         )
-    )
     for output_prefix, measurements, noise_analysis in analyzed_runs:
         artifacts.extend(
             plot_adc_noise_distribution_sweep(
