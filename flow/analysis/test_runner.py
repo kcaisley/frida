@@ -399,7 +399,7 @@ def test_adc_ramp_runner_rejects_incomplete_capture(
         runner.adc_ramp_nonlinearity(tmp_path / "output")
 
 
-def test_adc00_fixed_input_noise_adds_external_ideal_and_pex_trajectory_density(
+def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajectories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -416,6 +416,12 @@ def test_adc00_fixed_input_noise_adds_external_ideal_and_pex_trajectory_density(
     for point_index, rate_mbd in enumerate((320, 960, 1600)):
         measurements[
             external_dir
+            / f"{point_index:04d}_00_adc00_{rate_mbd}mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+        ] = adc_measurement([0])
+    all_active_dir = tmp_path / "build/scan_adc/20260822_144348"
+    for point_index, rate_mbd in enumerate((320, 960, 1600)):
+        measurements[
+            all_active_dir
             / f"{point_index:04d}_00_adc00_{rate_mbd}mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
         ] = adc_measurement([0])
     for run_name in ("20260820_005128", "20260820_005122"):
@@ -453,20 +459,23 @@ def test_adc00_fixed_input_noise_adds_external_ideal_and_pex_trajectory_density(
 
     artifacts = runner.adc00_fixed_input_noise(tmp_path / "output")
 
-    assert len(artifacts) == 18
+    assert len(artifacts) == 23
     assert noise_outputs == [
         "adc00_50mv_noise_vs_conversion_rate",
         "adc00_external_50mv_noise_vs_conversion_rate",
+        "adc00_all_active_50mv_noise_vs_conversion_rate",
     ]
     assert distribution_outputs == [
         "adc00_50mv_output_code_distributions",
         "adc00_external_50mv_output_code_distributions",
+        "adc00_all_active_50mv_output_code_distributions",
         "spice_hdl21gen_50mv_output_code_distributions",
         "spice_frida65a_pex_50mv_output_code_distributions",
     ]
     assert density_outputs == [
         *(f"adc00_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
         *(f"adc00_external_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
+        *(f"adc00_all_active_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
         *(f"spice_hdl21gen_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
         *(f"spice_frida65a_pex_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
     ]

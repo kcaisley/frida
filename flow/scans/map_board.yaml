@@ -46,7 +46,7 @@ boards:
       signal_headroom_v: 0.05
       loaded_voltage_tolerance_v: 0.05
       smu_voltage_range_v: 2.0
-      smu_current_compliance_a: 0.0005
+      smu_current_compliance_a: 0.01
       vin_cm_current_limit_a: 0.01
 
     # Empirical instrument-to-ADC calibration measured at the connected ADC

@@ -427,6 +427,7 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
 
     physical_run_dir = BASE_PATH / "build/scan_adc/20260819_113714"
     external_run_dir = BASE_PATH / "build/scan_adc/20260821_173944"
+    all_active_run_dir = BASE_PATH / "build/scan_adc/20260822_144348"
     ideal_run_dir = BASE_PATH / "build/sim/adc/20260820_005128"
     pex_run_dir = BASE_PATH / "build/sim/adc/20260820_005122"
     runs = (
@@ -449,6 +450,17 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
                 external_run_dir
                 / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
                 external_run_dir
+                / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+            ),
+        ),
+        (
+            "adc00_all_active",
+            (
+                all_active_run_dir
+                / "0000_00_adc00_320mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+                all_active_run_dir
+                / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
+                all_active_run_dir
                 / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
             ),
         ),
@@ -480,7 +492,7 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
         analyzed_runs.append((output_prefix, measurements, analyze_adc_noise_sweep(measurements)))
 
     artifacts = []
-    for output_prefix, measurements, noise_analysis in analyzed_runs[:2]:
+    for output_prefix, measurements, noise_analysis in analyzed_runs[:3]:
         artifacts.extend(
             plot_adc_noise_sweep(
                 measurements,

@@ -15,6 +15,7 @@ def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
     assert set(runner.TARGETS) == {
         "adc_sine_conversion_rate",
         "adc00_fixed_input_noise",
+        "adc00_all_adc_activity_noise",
         "adc_fixed_input_noise_50mv",
         "adc_fixed_input_noise_100mv",
         "adc00_fixed_input_timing",
@@ -35,6 +36,7 @@ def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
     (
         ("adc_sine_conversion_rate", 78, {0, 1}, 1_000_000, h.Vsin.Params),
         ("adc00_fixed_input_noise", 3, {0}, 100_000, h.Vdc.Params),
+        ("adc00_all_adc_activity_noise", 3, {0}, 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_50mv", 78, {0, 1}, 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_100mv", 78, {0, 1}, 100_000, h.Vdc.Params),
         ("adc00_fixed_input_timing", 273, {0}, 1_000, h.Vdc.Params),
@@ -75,19 +77,21 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
     assert all(isinstance(params.tb.vin_diff, source_type) for params in variants)
     if target_name == "adc_ramp_code_density":
         assert {float(params.tb.symbol_rate) for params in variants} == {160.0e6}
-    elif target_name == "adc00_fixed_input_noise":
+    elif target_name in {"adc00_fixed_input_noise", "adc00_all_adc_activity_noise"}:
         assert {float(params.tb.symbol_rate) for params in variants} == {320.0e6, 960.0e6, 1.6e9}
     elif target_name == "adc_transfer_curve":
         assert {float(params.tb.symbol_rate) for params in variants} == {1.6e9}
     else:
         assert {float(params.tb.symbol_rate) for params in variants} == {rate * 40.0e6 for rate in range(2, 41)}
-    if target_name == "adc00_fixed_input_noise":
+    if target_name in {"adc00_fixed_input_noise", "adc00_all_adc_activity_noise"}:
         assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
             float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
             for params in variants
         } == {2.0}
+        if target_name == "adc00_all_adc_activity_noise":
+            assert [params.active_adc_mask for params in variants] == [(1,) * 16] * 3
     elif target_name.startswith("adc0"):
         assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
