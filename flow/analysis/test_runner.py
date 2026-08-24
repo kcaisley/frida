@@ -49,6 +49,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
     assert "adc_ramp_nonlinearity" in runner.TARGETS
     assert "adc_calibration" in runner.TARGETS
     assert "adc00_fixed_input_noise" in runner.TARGETS
+    assert "adc_noise_density_grid" in runner.TARGETS
     assert "adc00_pex_transfer" not in runner.TARGETS
     assert "adc_code_distributions" in runner.TARGETS
     assert "adc_code_diag" not in runner.TARGETS
@@ -86,7 +87,9 @@ def test_adc_calibration_runner_combines_three_common_results(
 
     ramp_dir = tmp_path / "build/scan_adc/20260812_011910"
     ramp_dir.mkdir(parents=True)
-    ramp_path = ramp_dir / "adc00.h5"
+    ramp_path = ramp_dir / (
+        "0000_00_adc00_160mbd_pwl10hz_m1000top1000mv_logicp0sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+    )
     ramp_path.touch()
     cdac_dir = tmp_path / "build/scan_cdac/20260804_171234"
     cdac_dir.mkdir(parents=True)
@@ -97,10 +100,12 @@ def test_adc_calibration_runner_combines_three_common_results(
         daq=SimpleNamespace(dout=range(4_000_000)),
         info=SimpleNamespace(readbacks={}),
     )
-    cdac_measurements = (SimpleNamespace(param=SimpleNamespace(board_id="00")),)
+    fake_cdac = SimpleNamespace(param=SimpleNamespace(board_id="00", observed_adc=0))
+    cdac_measurements = (fake_cdac,)
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", lambda path: fake_ramp if path == ramp_path else object())
+    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", lambda path: fake_ramp if path == ramp_path else fake_cdac)
     monkeypatch.setattr(
         runner,
         "analyze_cdac_cap_mismatch_campaign",
@@ -222,42 +227,39 @@ def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) ->
     assert [cast(Any, measurement).point_index for measurement in replaced_curve] == [2, 3, 4]
 
 
-def test_adc_transfer_curve_accepts_complete_physical_campaign(
+def test_adc_transfer_curve_loads_pinned_directory_without_reconstructing_grid(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Require and plot every point in the accepted ADC00 transfer campaign."""
+    """Delegate transfer-coordinate validation to the typed analysis."""
 
-    run_dir = tmp_path / "build/scan_adc/20260818_135848"
-    run_dir.mkdir(parents=True)
+    meas_read_dir = tmp_path / "build/scan_adc/20260818_135848"
+    meas_read_dir.mkdir(parents=True)
     measurements = {}
-    for point_index in range(1_001):
-        input_v = (point_index - 500) * 0.0015
-        for adc_index in range(1):
-            path = run_dir / f"{point_index:04d}_adc{adc_index:02d}.h5"
-            path.touch()
-            measurement = adc_measurement(
-                np.full(100, 2048),
-                vin_diff_v=input_v,
-                sample_rate_hz=10.0e6,
-                observed_adc=adc_index,
-                readbacks={"actual_sample_rate_hz": 10.0e6},
-            )
-            measurements[path] = dataclasses.replace(
-                measurement,
-                info=dataclasses.replace(measurement.info, backend="physical"),
-                param=dataclasses.replace(
-                    measurement.param,
-                    campaign="adc_transfer",
-                    board_id="00",
-                    tb=dataclasses.replace(
-                        measurement.param.tb,
-                        conversions=100,
-                        vin_cm=h.Vdc.Params(dc=0.700),
-                        vin_diff=h.Vdc.Params(dc=input_v),
-                    ),
+    for point_index, input_v in enumerate((-0.75, 0.0, 0.75)):
+        path = meas_read_dir / f"{point_index:04d}_adc00.h5"
+        path.touch()
+        measurement = adc_measurement(
+            np.full(7, 2048),
+            vin_diff_v=input_v,
+            sample_rate_hz=3.0e6,
+            observed_adc=0,
+        )
+        measurements[path] = dataclasses.replace(
+            measurement,
+            info=dataclasses.replace(measurement.info, backend="physical"),
+            param=dataclasses.replace(
+                measurement.param,
+                campaign="adc_transfer",
+                board_id="fixture_board",
+                tb=dataclasses.replace(
+                    measurement.param.tb,
+                    conversions=7,
+                    vin_cm=h.Vdc.Params(dc=0.615),
+                    vin_diff=h.Vdc.Params(dc=input_v),
                 ),
-            )
+            ),
+        )
     monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner, "analyze_adc_transfer", lambda measurements: measurements)
@@ -286,7 +288,10 @@ def test_adc_ramp_runner_reuses_accepted_cdac_analysis_and_completed_ramp(
     cdac_groups = []
     cdac_analyses = []
     for adc_index in range(4):
-        ramp_path = ramp_dir / f"adc{adc_index:02d}.h5"
+        ramp_path = ramp_dir / (
+            f"{adc_index:04d}_00_adc{adc_index:02d}_160mbd_pwl10hz_m1000top1000mv_logicp0sym_"
+            "vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
+        )
         ramp_path.touch()
         ramp_measurement = SimpleNamespace(
             param=SimpleNamespace(campaign="adc_ramp", observed_adc=adc_index, board_id="00"),
@@ -306,9 +311,10 @@ def test_adc_ramp_runner_reuses_accepted_cdac_analysis_and_completed_ramp(
                 adc_index=adc_index,
             )
         )
-    measurements[cdac_path] = object()
+    measurements[cdac_path] = SimpleNamespace(param=SimpleNamespace(observed_adc=0, board_id="00"))
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
     monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
     monkeypatch.setattr(
         runner,
@@ -381,25 +387,20 @@ def test_adc_ramp_runner_reuses_accepted_cdac_analysis_and_completed_ramp(
     assert artifacts[-1] == tmp_path / "output/adc00_adc03_ramp_metrics.csv"
 
 
-def test_adc_ramp_runner_rejects_incomplete_capture(
+def test_adc_ramp_runner_rejects_wrong_measurement_type(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Require the accepted four-million-conversion capture contract."""
+    """Keep the runner boundary at the typed measurement object."""
 
-    ramp_dir = tmp_path / "build/scan_adc/20260812_011910"
-    ramp_dir.mkdir(parents=True)
-    ramp_path = ramp_dir / "adc00.h5"
-    ramp_path.touch()
-    measurement = adc_ramp_measurement(observed_adc=0)
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "read_measurement", lambda _path: measurement)
+    monkeypatch.setattr(runner, "read_measurement", lambda _path: object())
 
-    with pytest.raises(ValueError, match="complete, valid"):
+    with pytest.raises(TypeError, match="expected MeasAdcExt"):
         runner.adc_ramp_nonlinearity(tmp_path / "output")
 
 
-def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajectories(
+def test_adc00_fixed_input_noise_adds_external_activity_and_supply_noise_trajectories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,6 +429,28 @@ def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajecto
         for rate_msps in (2, 6, 10):
             path = tmp_path / "build/sim/adc" / run_name / f"{rate_msps}msps_cm700mv_dc50mv/result.h5"
             measurements[path] = adc_measurement([0], internal=True)
+    supply_noise_dir = tmp_path / "build/sim/adc/frida65a_supply_noise_vs_rate/20260821_182756"
+    noise_by_name = {
+        "none": (0.0, 0.0, 0.0),
+        "vdda": (1e-3, 0.0, 0.0),
+        "vddd": (0.0, 1e-3, 0.0),
+        "vddac": (0.0, 0.0, 1e-3),
+        "all": (1e-3, 1e-3, 1e-3),
+    }
+    for noise_name in ("none", "vdda", "vddd", "vddac", "all"):
+        for rate_msps in (2, 6, 10):
+            path = supply_noise_dir / f"{rate_msps}msps_{noise_name}/result.h5"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            measurement = adc_measurement([0], internal=True)
+            measurements[path] = dataclasses.replace(
+                measurement,
+                param=dataclasses.replace(
+                    measurement.param,
+                    symbol_rate=rate_msps * 160e6,
+                    supply_noise_rms_v=noise_by_name[noise_name],
+                ),
+            )
 
     density_outputs = []
     distribution_outputs = []
@@ -459,7 +482,7 @@ def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajecto
 
     artifacts = runner.adc00_fixed_input_noise(tmp_path / "output")
 
-    assert len(artifacts) == 23
+    assert len(artifacts) == 43
     assert noise_outputs == [
         "adc00_50mv_noise_vs_conversion_rate",
         "adc00_external_50mv_noise_vs_conversion_rate",
@@ -471,6 +494,10 @@ def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajecto
         "adc00_all_active_50mv_output_code_distributions",
         "spice_hdl21gen_50mv_output_code_distributions",
         "spice_frida65a_pex_50mv_output_code_distributions",
+        *(
+            f"spice_frida65a_pex_supply_{noise_name}_50mv_output_code_distributions"
+            for noise_name in ("none", "vdda", "vddd", "vddac", "all")
+        ),
     ]
     assert density_outputs == [
         *(f"adc00_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
@@ -478,7 +505,64 @@ def test_adc00_fixed_input_noise_adds_external_all_active_and_simulated_trajecto
         *(f"adc00_all_active_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
         *(f"spice_hdl21gen_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
         *(f"spice_frida65a_pex_50mv_{rate}msps_decision_path_density" for rate in (2, 6, 10)),
+        *(
+            f"spice_frida65a_pex_supply_{noise_name}_50mv_{rate}msps_decision_path_density"
+            for noise_name in ("none", "vdda", "vddd", "vddac", "all")
+            for rate in (2, 6, 10)
+        ),
     ]
+
+
+def test_adc_noise_density_grid_uses_final_manual_supply_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Glob the pinned campaign and group its typed measurements by ADC metadata."""
+
+    read_paths = []
+    analyzed_groups = []
+    plotted = {}
+    measurements_by_path = {}
+    meas_read_dir = tmp_path / "build/scan_adc/20260824_165039"
+    meas_read_dir.mkdir(parents=True)
+    for adc_index in range(16):
+        for rate_index in range(3):
+            path = meas_read_dir / f"{3 * adc_index + rate_index:04d}_fixture.h5"
+            path.touch()
+            measurements_by_path[path] = SimpleNamespace(param=SimpleNamespace(observed_adc=adc_index))
+
+    def read(path: Path) -> SimpleNamespace:
+        read_paths.append(path)
+        return measurements_by_path[path]
+
+    def analyze(measurements):
+        analyzed_groups.append(measurements)
+        return f"analysis-{len(analyzed_groups) - 1}"
+
+    def plot(measurements, analyses, *, output_path):
+        plotted["measurements"] = measurements
+        plotted["analyses"] = analyses
+        plotted["output_path"] = output_path
+        return (output_path.with_suffix(".pdf"),)
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", read)
+    monkeypatch.setattr(runner, "analyze_adc_noise_sweep", analyze)
+    monkeypatch.setattr(runner, "plot_adc_noise_distribution_grid", plot)
+
+    output_dir = tmp_path / "output"
+    artifacts = runner.adc_noise_density_grid(output_dir)
+
+    assert len(read_paths) == 48
+    assert read_paths[0] == meas_read_dir / "0000_fixture.h5"
+    assert read_paths[-1] == meas_read_dir / "0047_fixture.h5"
+    assert tuple(len(group) for group in analyzed_groups) == (3,) * 16
+    assert tuple(group[0].param.observed_adc for group in analyzed_groups) == tuple(range(16))
+    assert plotted["measurements"] == tuple(analyzed_groups)
+    assert plotted["analyses"] == tuple(f"analysis-{index}" for index in range(16))
+    assert plotted["output_path"] == output_dir / "adc00_adc15_0mv_600mv_output_code_density_grid"
+    assert artifacts == (plotted["output_path"].with_suffix(".pdf"),)
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(
@@ -562,7 +646,14 @@ def test_adc_power_runner_combines_measured_and_separate_simulated_outputs(
                 "logicp2sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5"
             )
             path.touch()
-            measurements_by_path[path] = physical_by_adc[adc_index]
+            measurement = physical_by_adc[adc_index]
+            measurements_by_path[path] = dataclasses.replace(
+                measurement,
+                param=dataclasses.replace(
+                    measurement.param,
+                    tb=dataclasses.replace(measurement.param.tb, symbol_rate=rate_mbd * 1e6),
+                ),
+            )
     for run_name in ("hdl21gen_noise_vs_rate/20260801_0821", "frida65a_noise_vs_rate/20260731_2353"):
         run_dir = tmp_path / "build/adc" / run_name
         for rate_msps in (2, 6, 10):
@@ -576,7 +667,7 @@ def test_adc_power_runner_combines_measured_and_separate_simulated_outputs(
     def analyze_power(measurements):
         rates_hz = np.asarray((2.0e6, 6.0e6, 10.0e6)) if len(measurements) == 3 else np.asarray((10.0e6,))
         if len(measurements) > 3:
-            rates_hz = np.linspace(0.5e6, 10.0e6, len(measurements))
+            rates_hz = np.asarray([measurement.param.tb.symbol_rate / 160 for measurement in measurements])
         return SimpleNamespace(active_conversion_rate_hz=rates_hz)
 
     def plot_power(_measurements, _analysis, *, output_path):
@@ -609,6 +700,380 @@ def test_adc_power_runner_combines_measured_and_separate_simulated_outputs(
         ("waveform", "spice_pex_10msps_supply_power"),
     ]
     assert len(artifacts) == 10
+    assert [path.name for path in artifacts[-4:]] == [
+        "adc00_80mbd_sine_waveforms",
+        "adc00_80mbd_sine_fit_and_spectrum",
+        "adc01_80mbd_sine_waveforms",
+        "adc01_80mbd_sine_fit_and_spectrum",
+    ]
+
+
+def test_adc_noise_vs_rate_groups_measurements_by_h5_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    measurements_by_path = {}
+    for run_name, input_v in (("20260801_194930", 0.050), ("20260802_021624", 0.025)):
+        meas_read_dir = tmp_path / "build/scan_adc" / run_name
+        meas_read_dir.mkdir(parents=True)
+        for adc_index in (0, 1):
+            path = meas_read_dir / f"adc{adc_index:02d}.h5"
+            path.touch()
+            measurements_by_path[path] = SimpleNamespace(
+                param=SimpleNamespace(
+                    observed_adc=adc_index,
+                    tb=SimpleNamespace(vin_diff=h.Vdc.Params(dc=input_v)),
+                )
+            )
+    sine_meas_read_dir = tmp_path / "build/scan_adc/20260730_215145_complete"
+    sine_meas_read_dir.mkdir(parents=True)
+    for adc_index in (0, 1):
+        path = sine_meas_read_dir / f"adc{adc_index:02d}.h5"
+        path.touch()
+        measurements_by_path[path] = SimpleNamespace(param=SimpleNamespace(observed_adc=adc_index))
+    for run_name in ("hdl21gen_noise_vs_rate/20260801_0821", "frida65a_noise_vs_rate/20260731_2353"):
+        for rate_msps in (2, 6, 10):
+            path = tmp_path / "build/adc" / run_name / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+            measurements_by_path[path] = SimpleNamespace(param=SimpleNamespace(observed_adc=0))
+
+    comparisons = []
+    output_paths = []
+
+    def combine(dc_sweeps, sine_dynamic, simulated_sweeps, *, series_labels):
+        comparisons.append((dc_sweeps, sine_dynamic, simulated_sweeps, series_labels))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "MeasAdcInt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(runner, "analyze_adc_noise_sweep", lambda measurements: tuple(measurements))
+    monkeypatch.setattr(runner, "analyze_adc_dynamic_sweep", lambda measurements: tuple(measurements))
+    monkeypatch.setattr(runner, "combine_adc_noise_comparison", combine)
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_noise_sweep",
+        lambda _measurements, _analysis, *, output_path: output_paths.append(output_path) or (output_path,),
+    )
+
+    artifacts = runner.adc_noise_vs_rate(tmp_path / "output")
+
+    assert [path.name for path in output_paths] == [
+        "adc00_noise_vs_conversion_rate",
+        "adc01_noise_vs_conversion_rate",
+    ]
+    assert len(comparisons[0][2]) == 2
+    assert comparisons[1][2] == []
+    assert comparisons[0][3][1:3] == ["Measured (25 mV DC)", "Measured (50 mV DC)"]
+    assert tuple(output_paths) == artifacts
+
+
+def test_adc_code_distributions_derives_groups_and_selected_rate_names_from_h5(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    measurements_by_path = {}
+    for run_name, input_v in (("20260801_194930", 0.050), ("20260802_021624", 0.025)):
+        meas_read_dir = tmp_path / "build/scan_adc" / run_name
+        meas_read_dir.mkdir(parents=True)
+        for point_index, rate_hz in enumerate((2e6, 6e6, 10e6)):
+            path = meas_read_dir / f"{point_index:04d}_adc07.h5"
+            path.touch()
+            measurements_by_path[path] = SimpleNamespace(
+                active_rate_hz=rate_hz,
+                param=SimpleNamespace(
+                    observed_adc=7,
+                    tb=SimpleNamespace(vin_diff=h.Vdc.Params(dc=input_v)),
+                ),
+            )
+    for rate_msps in (2, 6, 10):
+        path = tmp_path / "build/adc/hdl21gen_noise_vs_rate/20260801_0821" / f"{rate_msps}msps_cm600mv_dc50mv/result.h5"
+        measurements_by_path[path] = SimpleNamespace(
+            active_rate_hz=rate_msps * 1e6,
+            param=SimpleNamespace(observed_adc=0),
+        )
+
+    outputs: dict[str, list[str]] = {"distribution": [], "code": [], "paths": [], "density": []}
+
+    def noise(measurements):
+        return SimpleNamespace(active_conversion_rate_hz=np.asarray([item.active_rate_hz for item in measurements]))
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasAdcExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "MeasAdcInt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(runner, "analyze_adc_noise_sweep", noise)
+    monkeypatch.setattr(runner, "analyze_adc_code_distribution", lambda measurements: tuple(measurements))
+    monkeypatch.setattr(runner, "analyze_adc_decision_paths", lambda measurement, *, selection: measurement)
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_noise_distribution_sweep",
+        lambda *_args, output_path: outputs["distribution"].append(output_path.name) or (output_path,),
+    )
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_code_distribution",
+        lambda *_args, output_path: outputs["code"].append(output_path.name) or (output_path,),
+    )
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_decision_paths",
+        lambda *_args, output_path: outputs["paths"].append(output_path.name) or (output_path,),
+    )
+    monkeypatch.setattr(
+        runner,
+        "plot_adc_decision_path_density",
+        lambda *_args, output_path: outputs["density"].append(output_path.name) or (output_path,),
+    )
+
+    runner.adc_code_distributions(tmp_path / "output")
+
+    assert outputs["distribution"] == [
+        "adc07_25mv_dc_output_code_distributions",
+        "adc07_50mv_dc_output_code_distributions",
+    ]
+    assert outputs["code"] == [
+        "spice_hdl21gen_2msps_output_code_histogram",
+        "spice_hdl21gen_6msps_output_code_histogram",
+        "spice_hdl21gen_10msps_output_code_histogram",
+    ]
+    assert outputs["density"] == [
+        "adc07_25mv_2msps_decision_path_density",
+        "adc07_25mv_10msps_decision_path_density",
+        "adc07_50mv_2msps_decision_path_density",
+        "adc07_50mv_10msps_decision_path_density",
+    ]
+
+
+def test_comp_common_mode_groups_adc_and_common_mode_from_h5(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    meas_read_dir = tmp_path / "build/scan_comp/20260805_171216"
+    meas_read_dir.mkdir(parents=True)
+    measurements_by_path = {}
+    for adc_index in (2, 5):
+        for point_index, common_mode_v in enumerate((0.9, 0.7)):
+            path = meas_read_dir / f"adc{adc_index:02d}_{point_index}.h5"
+            path.touch()
+            measurements_by_path[path] = SimpleNamespace(
+                param=SimpleNamespace(
+                    observed_adc=adc_index,
+                    tb=SimpleNamespace(vin_cm=h.Vdc.Params(dc=common_mode_v)),
+                )
+            )
+
+    plotted = []
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasCompExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(runner, "analyze_comp_offset_noise", lambda group: tuple(group))
+    monkeypatch.setattr(runner, "classify_comp_common_mode_validity", lambda _groups, analyses: analyses)
+    monkeypatch.setattr(
+        runner,
+        "plot_comp_common_mode_campaign",
+        lambda groups, _analyses, *, output_path: plotted.append((groups, output_path)) or (output_path,),
+    )
+
+    runner.comp_system_common_mode(tmp_path / "output")
+
+    assert [path.name for _groups, path in plotted] == [
+        "adc02_comparator_common_mode",
+        "adc05_comparator_common_mode",
+    ]
+    assert [float(group[0].param.tb.vin_cm.dc) for group in plotted[0][0]] == [0.7, 0.9]
+
+
+def test_comp_sampling_noise_replaces_exact_correction_curves(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_meas_read_dir = tmp_path / "build/scan_comp/20260805_183915"
+    correction_meas_read_dir = tmp_path / "build/scan_comp/20260805_192902"
+    base_meas_read_dir.mkdir(parents=True)
+    correction_meas_read_dir.mkdir(parents=True)
+    measurements_by_path = {}
+
+    def add(directory: Path, name: str, adc_index: int, coupling: float, mode: str, marker: str) -> None:
+        path = directory / f"{name}.h5"
+        path.touch()
+        measurements_by_path[path] = SimpleNamespace(
+            marker=marker,
+            param=SimpleNamespace(
+                observed_adc=adc_index,
+                requested_dac_rail_percent=coupling,
+                sampling_mode=mode,
+            ),
+        )
+
+    add(base_meas_read_dir, "adc01_target_a", 1, 100.0, "track", "base-adc01-target-a")
+    add(base_meas_read_dir, "adc01_target_b", 1, 100.0, "track", "base-adc01-target-b")
+    add(base_meas_read_dir, "adc01_keep", 1, 50.0, "hold", "base-adc01-keep")
+    add(base_meas_read_dir, "adc02_target_a", 2, 75.0, "track", "base-adc02-target-a")
+    add(base_meas_read_dir, "adc02_target_b", 2, 75.0, "track", "base-adc02-target-b")
+    add(base_meas_read_dir, "adc02_keep", 2, 25.0, "hold", "base-adc02-keep")
+    add(correction_meas_read_dir, "adc01_a", 1, 100.0, "track", "correction-adc01-a")
+    add(correction_meas_read_dir, "adc01_b", 1, 100.0, "track", "correction-adc01-b")
+    add(correction_meas_read_dir, "adc02_a", 2, 75.0, "track", "correction-adc02-a")
+    add(correction_meas_read_dir, "adc02_b", 2, 75.0, "track", "correction-adc02-b")
+
+    analyzed_groups = {}
+
+    def analyze(group):
+        first = group[0]
+        key = (
+            first.param.observed_adc,
+            first.param.requested_dac_rail_percent,
+            first.param.sampling_mode,
+        )
+        analyzed_groups[key] = tuple(measurement.marker for measurement in group)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasCompExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(runner, "analyze_comp_offset_noise", analyze)
+    monkeypatch.setattr(
+        runner,
+        "plot_comp_sampling_campaign",
+        lambda *_args, output_path: (output_path,),
+    )
+
+    runner.comp_system_sampling_noise(tmp_path / "output")
+
+    assert analyzed_groups[(1, 100.0, "track")] == ("correction-adc01-a", "correction-adc01-b")
+    assert analyzed_groups[(2, 75.0, "track")] == ("correction-adc02-a", "correction-adc02-b")
+    assert analyzed_groups[(1, 50.0, "hold")] == ("base-adc01-keep",)
+    assert analyzed_groups[(2, 25.0, "hold")] == ("base-adc02-keep",)
+
+
+def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "build/comp/frida65_candidate_scurve_power/candidates/fixture/result.h5"
+    path.parent.mkdir(parents=True)
+    path.touch()
+    enum_value = SimpleNamespace(name="fixture")
+    comp = SimpleNamespace(
+        comp_stages=enum_value,
+        preamp_diff_xtors=enum_value,
+        preamp_bias=enum_value,
+        latch_inner_on_xtors=enum_value,
+        latch_outer_on_xtors=enum_value,
+        latch_inner_init_xtors=enum_value,
+        latch_outer_init_xtors=enum_value,
+        diffpair_w=1,
+        diffpair_l=1,
+        tail_w=1,
+        tail_l=1,
+        rst_w=1,
+        rst_l=1,
+        latch_on_w=1,
+        latch_on_l=1,
+        latch_init_w=1,
+        latch_init_l=1,
+        srlatch_n_w=1,
+        srlatch_p_w=1,
+    )
+    measurement = SimpleNamespace(
+        info=SimpleNamespace(readbacks={"candidate_id": "fixture"}),
+        param=SimpleNamespace(comp=comp),
+    )
+    analysis = SimpleNamespace(
+        candidate_id=("fixture",),
+        candidate_label=("Fixture",),
+        size_profile=("half",),
+        topology_index=np.asarray([0]),
+        total_width_units=np.asarray([1.0]),
+        total_active_area_units=np.asarray([1.0]),
+        total_active_area_um2=np.asarray([1.0]),
+        device_count=np.asarray([1]),
+        validity=("valid",),
+        offset_v=np.asarray([0.0]),
+        noise_sigma_v=np.asarray([1e-3]),
+        average_power_w=np.asarray([1e-6]),
+        energy_per_decision_j=np.asarray([1e-15]),
+        maximum_clock_to_decision_s=np.asarray([1e-9]),
+        maximum_settling_s=np.asarray([2e-9]),
+        unresolved_fraction=np.asarray([0.0]),
+    )
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasCompInt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", lambda _path: measurement)
+    monkeypatch.setattr(runner, "analyze_comp_candidate_sweep", lambda measurements: analysis)
+    monkeypatch.setattr(runner, "plot_comp_candidate_sweep", lambda *_args, output_path: (output_path,))
+    monkeypatch.setattr(runner, "plot_comp_noise_power_tradeoff", lambda *_args, output_path: (output_path,))
+
+    artifacts = runner.comp_candidate_sweep(tmp_path / "output")
+
+    assert [artifact.name for artifact in artifacts] == [
+        "comp_candidate_noise_power_settling",
+        "comp_candidate_noise_power_tradeoff",
+        "comp_candidate_noise_power_settling.csv",
+    ]
+    assert "fixture" in artifacts[-1].read_text()
+
+
+def test_cdac_runner_derives_board_and_adc_indices_from_h5(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    measurement_runs = []
+    measurements_by_path = {}
+    for run_name in ("20260804_171234", "20260804_193030", "20260804_193631"):
+        meas_read_dir = tmp_path / "build/scan_cdac" / run_name
+        meas_read_dir.mkdir(parents=True)
+        run_measurements = []
+        for adc_index in (2, 7):
+            path = meas_read_dir / f"adc{adc_index:02d}.h5"
+            path.touch()
+            measurement = SimpleNamespace(param=SimpleNamespace(observed_adc=adc_index, board_id="fixture"))
+            measurements_by_path[path] = measurement
+            run_measurements.append(measurement)
+        measurement_runs.append(tuple(run_measurements))
+
+    received = {}
+
+    def analyze(runs, *, adc_indices, board_id, comparator_offset_v_by_adc):
+        received.update(
+            runs=tuple(runs),
+            adc_indices=adc_indices,
+            board_id=board_id,
+            offsets=comparator_offset_v_by_adc,
+        )
+        groups = tuple(
+            (measurements_by_path[next(path for path in measurements_by_path if f"adc{adc:02d}" in path.name)],)
+            for adc in adc_indices
+        )
+        analyses = tuple(SimpleNamespace(adc_index=adc_index) for adc_index in adc_indices)
+        return groups, analyses
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "MeasCdacExt", SimpleNamespace)
+    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(
+        runner,
+        "load_board_map",
+        lambda: {"boards": {"fixture": {"comparator_calibration": {2: {"offset_v": 2e-3}, 7: {"offset_v": 7e-3}}}}},
+    )
+    monkeypatch.setattr(runner, "analyze_cdac_cap_mismatch_campaign", analyze)
+    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch", lambda *_args, output_path: (output_path,))
+    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch_comparison", lambda *_args, output_path: (output_path,))
+
+    artifacts = runner.cdac_system_cap_mismatch(tmp_path / "output")
+
+    assert received == {
+        "runs": tuple(measurement_runs),
+        "adc_indices": (2, 7),
+        "board_id": "fixture",
+        "offsets": {2: 2e-3, 7: 7e-3},
+    }
+    assert [path.name for path in artifacts] == [
+        "adc02_cdac_cap_mismatch",
+        "adc07_cdac_cap_mismatch",
+        "adc00_adc03_cdac_cap_mismatch_comparison",
+    ]
 
 
 def test_main_runs_named_target_in_one_timestamped_directory(
