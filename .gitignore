@@ -1,106 +1,78 @@
-# General
-design/aor/*.def
-design/aor/*.gds
-/.zed
-/tmp
-/PLAN.md
+# Local workspace
+/.zed/
 
-# Python
-.pytest_cache
-__pycache__
+# Python and tool caches
 .coverage
-.ruff_cache
-.venv*
-phys/results/
-.complexipy_cache
+.complexipy_cache/
+.pytest_cache/
+.ruff_cache/
+.rumdl_cache/
+.venv*/
+__pycache__/
 
-# Cadence / EDA
-.cadence
-*.cdslck
-*.lvs*
-*.report
-*.ext
-*.calibre.db
-*.vcd
-*.lck
-si.env
-.swb
-xcelium.d
-xrun.history
-
-# Documentation build collateral
-docs/tex/
-docs/*.pdf
-docs/slides/*.pdf
-docs/thesis/*.pdf
-docs/slides/*.aux
-docs/slides/*.fdb_latexmk
-docs/slides/*.fls
-docs/slides/*.log
-docs/slides/*.out
-docs/slides/*.synctex.gz
-docs/slides/*.xdv
-docs/slides/*.nav
-docs/slides/*.snm
-docs/slides/*.toc
-docs/slides/*.vrb
-
-
-# Mermaid
-docs/gantt.png
-
-*.log
+# Analysis and documentation output
+/phys/results/
+/docs/tex/
+/docs/*.pdf
+/docs/slides/*.pdf
+/docs/slides/*.xdv
+/docs/thesis/*.pdf
 *.aux
-*.synctex.gz
-*.fls
-*.out
-*.toc
 *.bbl
+*.bcf
 *.blg
 *.fdb_latexmk
-*.run.xml
-*.bcf
-*.snm
+*.fls
+/docs/**/*.log
 *.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
 *.vrb
+
+# Cadence and ASIC simulation
+.cadence/
+.swb
+si.env
+xcelium.d/
+xrun.history
+xrun.key
+*.ahdlSimDB/
+*.calibre.db
+*.cdslck
+*.ext
+*.lck
+*.lvs*
+*.report
+*.vcd
+
+# Cocotb and general build output
+build/
+sim_build/
+
+# Vivado and FPGA output
+/design/fpga/SiTCP/
+/design/fpga/xapp888/
+/design/fpga/bit/
+/design/fpga/reports/
+/design/fpga/.ngc2edfcache/
+/design/fpga/.ngc2vercache/
+/design/fpga/clockInfo.txt
+/design/fpga/tight_setup_hold_pins.txt
+.Xil/
+*.str
 
 # KiCad
 *.bak
+*.kicad_pcb-bak
 *.kicad_prl
 *.kicad_sch-bak
-*.kicad_pcb-bak
 *-backups/
 *-cache*
-fp-info-cache
-/\#auto_saved_files\#
-daq/dut/\#auto_saved_files\#
+\#auto_saved_files\#/
 _autosave-*
 
-# Vivado / FPGA
-design/fpga/SiTCP
-design/fpga/xapp888
-design/fpga/bit/
-design/fpga/build/
-design/fpga/reports/
-design/fpga/.Xil/
-design/fpga/.ngc2edfcache/
-design/fpga/.ngc2vercache/
-design/fpga/tight_setup_hold_pins.txt
-design/fpga/clockInfo.txt
-*.jou
-*.str
-.Xil/
-
-# LibreOffice / generic lock files
+# LibreOffice
 .~lock.*
-
-# Xcelium / Spectre
-xcelium.d/
-xrun.key
-xrun.log
-*.raw
-*.ahdlSimDB/
-
-# Cocotb / simulation
-sim_build/
-build/

@@ -39,7 +39,7 @@ timing analysis, or use the hardware manager:
 ```bash
 source /eda/local/scripts/vivado_2025.2.sh
 cd design/fpga
-vivado build/bdaq53_kx1.xpr
+vivado build/bdaq53_kx1.xpr -log build/vivado_gui.log -journal build/vivado_gui.jou
 ```
 
 This opens the full project with synthesis and implementation results intact.

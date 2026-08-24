@@ -23,6 +23,7 @@ SITCP_REPO = "https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7"
 # Paths relative to this file's location (lives in design/fpga/)
 _FPGA_DIR = Path(__file__).resolve().parent
 _SITCP_DIR = _FPGA_DIR / "SiTCP"
+_BUILD_DIR = _FPGA_DIR / "build"
 _DEFAULT_FLASH_FILE = _FPGA_DIR / "bit" / "frida_bdaq53_kx1.mcs"
 
 # Build targets: platform -> (fpga_part, xdc_file, flash_size_mb)
@@ -119,11 +120,16 @@ def compile(platform):
         raise ValueError(f"Unknown platform '{platform}'. Supported: {', '.join(TARGETS)}")
 
     _clean_build_artifacts()
+    _BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
     fpga_part, xdc_file, flash_size = TARGETS[platform]
     log.info("Compiling for %s (%s)", platform, fpga_part)
 
-    command = f"vivado -mode batch -source run.tcl -tclargs {fpga_part} {xdc_file} {flash_size}"
+    command = (
+        "vivado -mode batch -source run.tcl "
+        "-log build/vivado.log -journal build/vivado.jou "
+        f"-tclargs {fpga_part} {xdc_file} {flash_size}"
+    )
     log.info("This takes several minutes...")
 
     try:
@@ -150,12 +156,13 @@ def compile(platform):
                     vivado.close()
                     status = vivado.exitstatus if vivado.exitstatus is not None else f"signal {vivado.signalstatus}"
                     raise RuntimeError(
-                        f"Vivado exited before completing bitstream generation ({status}) — check vivado.log"
+                        f"Vivado exited before completing bitstream generation ({status}) — "
+                        "check design/fpga/build/vivado.log"
                     )
                 time.sleep(5)
                 silent_count += 1
         else:
-            raise RuntimeError("Timeout during compilation — check vivado.log")
+            raise RuntimeError("Timeout during compilation — check design/fpga/build/vivado.log")
     finally:
         if vivado.isalive():
             vivado.close()
@@ -174,11 +181,14 @@ def flash(filepath):
         raise FileNotFoundError(f"FPGA image not found: {path}")
     filepath = str(path)
     _require_vivado()
+    _BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
     # Try vivado_lab first (free), fall back to full vivado
-    # Run from fpga dir so Vivado writes logs/journals there, not cwd
     vivado = None
-    for cmd in ("vivado_lab -mode tcl", "vivado -mode tcl"):
+    for cmd in (
+        "vivado_lab -mode tcl -log build/vivado_lab.log -journal build/vivado_lab.jou",
+        "vivado -mode tcl -log build/vivado.log -journal build/vivado.jou",
+    ):
         try:
             vivado = pexpect.spawn(cmd, cwd=str(_FPGA_DIR), timeout=10)
             vivado.expect("Vivado", timeout=10)
@@ -389,6 +399,7 @@ close_hw_target
 quit
 """
     log.info("Launching Vivado to scan JTAG chain...")
+    _BUILD_DIR.mkdir(parents=True, exist_ok=True)
     vivado_cmd = (
         "vivado_lab" if subprocess.run(["which", "vivado_lab"], capture_output=True).returncode == 0 else "vivado"
     )
@@ -399,7 +410,17 @@ quit
 
     try:
         result = subprocess.run(
-            [vivado_cmd, "-mode", "batch", "-source", tcl_path],
+            [
+                vivado_cmd,
+                "-mode",
+                "batch",
+                "-source",
+                tcl_path,
+                "-log",
+                "build/vivado_scan.log",
+                "-journal",
+                "build/vivado_scan.jou",
+            ],
             capture_output=True,
             text=True,
             timeout=60,

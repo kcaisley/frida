@@ -3,10 +3,12 @@
 # -----------------------------------------------------------
 #
 #   Start vivado in batch mode (run from design/fpga/):
-#       vivado -mode batch -source run.tcl -notrace
+#       vivado -mode batch -source run.tcl -notrace \
+#           -log build/vivado.log -journal build/vivado.jou
 #
 #   Or in tcl mode for interactive use:
-#       vivado -mode tcl -source run.tcl
+#       vivado -mode tcl -source run.tcl \
+#           -log build/vivado.log -journal build/vivado.jou
 #
 #   Based on: tj-monopix2-daq/firmware/vivado/run.tcl
 
