@@ -16,6 +16,7 @@ from cycler import cycler
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
+from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnchoredText
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
@@ -953,6 +954,182 @@ def plot_adc_noise_distribution_sweep(
     style_grid(ax)
     ax.legend()
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower left")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_noise_distribution_grid(
+    msmt_groups: Sequence[Sequence[MeasAdcExt]],
+    analyses: Sequence[AnalysisAdcNoiseSweep],
+    *,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Plot three rate-indexed code densities for each ADC in a 4-by-4 grid."""
+
+    if len(msmt_groups) != 16 or len(analyses) != 16:
+        raise ValueError("ADC noise-distribution grid requires 16 measurement groups and analyses")
+    groups_by_adc = {}
+    for measurements, analysis in zip(msmt_groups, analyses, strict=True):
+        adc_indices = {measurement.param.observed_adc for measurement in measurements}
+        if len(adc_indices) != 1:
+            raise ValueError("each ADC noise-distribution group must contain one observed ADC")
+        adc_index = adc_indices.pop()
+        if adc_index is None or adc_index in groups_by_adc:
+            raise ValueError("ADC noise-distribution groups require unique observed ADC indices")
+        if len(analysis.active_conversion_rate_hz) != 3:
+            raise ValueError("each ADC noise-distribution grid analysis requires three conversion rates")
+        groups_by_adc[adc_index] = analysis
+    if set(groups_by_adc) != set(range(16)):
+        raise ValueError("ADC noise-distribution grid requires ADC00 through ADC15")
+
+    y_limits = (2030.0, 2070.0)
+    maximum_sample_count = max(int(np.max(analysis.sample_count)) for analysis in analyses)
+    density_norm = LogNorm(vmin=1, vmax=max(2, maximum_sample_count))
+    maximum_width_msps = 2.0
+
+    fig, axes = plt.subplots(
+        4,
+        4,
+        sharex=True,
+        sharey=True,
+        figsize=(19.2, 10.8),
+        layout="constrained",
+    )
+    for adc_index, ax in enumerate(axes.flat):
+        analysis = groups_by_adc[adc_index]
+        order = np.argsort(analysis.active_conversion_rate_hz)
+        rates_msps = analysis.active_conversion_rate_hz[order] / 1e6
+        counts = analysis.count[order]
+        means = analysis.mean_dout[order]
+        standard_deviations = analysis.std_dout[order]
+        sample_counts = analysis.sample_count[order]
+        mean_curve_x = []
+        standard_deviation_curve_x = []
+        for rate_msps, histogram, sample_count, mean, standard_deviation in zip(
+            rates_msps,
+            counts,
+            sample_counts,
+            means,
+            standard_deviations,
+            strict=True,
+        ):
+            populated = histogram > 0
+            fractions = histogram[populated] / sample_count
+            peak_fraction_per_lsb = float(np.max(fractions))
+            widths = maximum_width_msps * fractions / peak_fraction_per_lsb
+            ax.barh(
+                analysis.code[populated],
+                widths,
+                left=rate_msps - widths,
+                height=1.0,
+                color=DENSITY_COLOR_MAP(density_norm(histogram[populated])),
+                edgecolor="none",
+                rasterized=True,
+                zorder=2,
+            )
+            if standard_deviation > 0.0:
+                fit_code = np.linspace(*y_limits, 501)
+                fit_fraction_per_lsb = np.exp(-0.5 * ((fit_code - mean) / standard_deviation) ** 2) / (
+                    standard_deviation * np.sqrt(2.0 * np.pi)
+                )
+                fit_fraction_per_lsb = np.minimum(fit_fraction_per_lsb, peak_fraction_per_lsb)
+                fit_x = rate_msps - maximum_width_msps * fit_fraction_per_lsb / peak_fraction_per_lsb
+                ax.plot(fit_x, fit_code, color=TEXT_COLOR, linestyle=":", linewidth=1.1, zorder=3)
+                gaussian_peak = 1.0 / (standard_deviation * np.sqrt(2.0 * np.pi))
+                mean_curve_x.append(
+                    rate_msps - maximum_width_msps * min(gaussian_peak, peak_fraction_per_lsb) / peak_fraction_per_lsb
+                )
+                standard_deviation_curve_x.append(
+                    rate_msps
+                    - maximum_width_msps
+                    * min(gaussian_peak * np.exp(-0.5), peak_fraction_per_lsb)
+                    / peak_fraction_per_lsb
+                )
+            else:
+                ax.plot(
+                    (rate_msps - maximum_width_msps, rate_msps),
+                    (mean, mean),
+                    color=TEXT_COLOR,
+                    linestyle=":",
+                    linewidth=1.1,
+                    zorder=3,
+                )
+                ax.plot(
+                    rate_msps - maximum_width_msps,
+                    mean,
+                    color=TEXT_COLOR,
+                    marker="|",
+                    markeredgewidth=1.1,
+                    markersize=6.0,
+                    zorder=3,
+                )
+                mean_curve_x.append(rate_msps - maximum_width_msps)
+                standard_deviation_curve_x.append(rate_msps - maximum_width_msps)
+
+        ax.plot(
+            standard_deviation_curve_x,
+            means - standard_deviations,
+            color=NORD_GREEN,
+            linestyle="--",
+            marker="o",
+            markersize=2.5,
+            linewidth=0.8,
+            zorder=4,
+        )
+        ax.plot(
+            standard_deviation_curve_x,
+            means + standard_deviations,
+            color=NORD_GREEN,
+            linestyle="--",
+            marker="o",
+            markersize=2.5,
+            linewidth=0.8,
+            zorder=4,
+        )
+        ax.plot(mean_curve_x, means, color=NORD_ORANGE, marker="o", markersize=2.5, linewidth=0.8, zorder=5)
+        ax.set_title(f"ADC{adc_index:02d}")
+        ax.set_facecolor(NORD_BLUE)
+        ax.set_xlim(-0.25, 10.5)
+        ax.set_ylim(*y_limits)
+        ax.set_xticks((2.0, 6.0, 10.0))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
+        with mpl.rc_context({"legend.fontsize": 6.0}):
+            style_info_box(
+                ax,
+                tuple(
+                    f"{rate_msps:g}: μ={mean:.1f}, σ={standard_deviation:.1f}"
+                    for rate_msps, mean, standard_deviation in zip(
+                        rates_msps,
+                        means,
+                        standard_deviations,
+                        strict=True,
+                    )
+                ),
+                location="lower left" if float(np.mean(means)) > float(np.mean(y_limits)) else "upper left",
+            )
+
+    colorbar = fig.colorbar(
+        ScalarMappable(norm=density_norm, cmap=DENSITY_COLOR_MAP),
+        ax=axes,
+        location="right",
+        fraction=0.018,
+        pad=0.012,
+    )
+    colorbar.set_label("Conversions per code")
+    fig.legend(
+        handles=(
+            Line2D((), (), color=TEXT_COLOR, linestyle=":", label="Gaussian fit"),
+            Line2D((), (), color=NORD_ORANGE, marker="o", markersize=3.0, label="Mean"),
+            Line2D((), (), color=NORD_GREEN, linestyle="--", label="Mean ±1σ"),
+        ),
+        loc="upper right",
+        bbox_to_anchor=(0.995, 0.995),
+        fontsize=8.0,
+        ncols=3,
+    )
+    fig.supxlabel("Active conversion rate (MS/s)")
+    fig.supylabel("ADC output code (LSB)")
+    fig.suptitle("ADC00-ADC15 fixed-input output-code densities")
     return save_figure(fig, output_path)
 
 

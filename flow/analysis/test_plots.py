@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -44,6 +45,7 @@ from flow.analysis.plots import (
     plot_adc_decision_paths,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
+    plot_adc_noise_distribution_grid,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_power_sweep,
@@ -64,7 +66,14 @@ from flow.analysis.plots import (
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
-from flow.analysis.types import AnalysisAdcNoiseComparison, AnalysisCdacCapMismatch, CompDaq, MeasAdcInt, MeasCompExt
+from flow.analysis.types import (
+    AnalysisAdcNoiseComparison,
+    AnalysisCdacCapMismatch,
+    CompDaq,
+    MeasAdcExt,
+    MeasAdcInt,
+    MeasCompExt,
+)
 from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
@@ -817,3 +826,77 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     assert "CDAC init: h'5555" in svg
     assert "Global histogram scale" not in svg
     assert "Mean ±1σ" in svg
+
+
+def test_noise_distribution_grid_shares_axes_across_all_adcs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    measurement_groups = tuple(
+        tuple(
+            cast(
+                MeasAdcExt,
+                adc_measurement(
+                    (
+                        [2048 + adc_index] * 5
+                        if adc_index == 0 and rate_hz == 10.0e6
+                        else [
+                            2046 + adc_index,
+                            2047 + adc_index,
+                            2048 + adc_index,
+                            2048 + adc_index,
+                            2049 + adc_index,
+                        ]
+                    ),
+                    sample_rate_hz=rate_hz / 1.6,
+                    observed_adc=adc_index,
+                    logic_phase_delay_symbols=2,
+                ),
+            )
+            for rate_hz in (2.0e6, 6.0e6, 10.0e6)
+        )
+        for adc_index in range(16)
+    )
+    analyses = tuple(analyze_adc_noise_sweep(measurements) for measurements in measurement_groups)
+    captured = {}
+
+    def save(fig, output_path):
+        captured["figure"] = fig
+        captured["output_path"] = output_path
+        return ()
+
+    monkeypatch.setattr(analysis_plots, "save_figure", save)
+    paths = plot_adc_noise_distribution_grid(
+        measurement_groups,
+        analyses,
+        output_path=tmp_path / "noise_distribution_grid",
+    )
+
+    assert paths == ()
+    assert captured["output_path"] == tmp_path / "noise_distribution_grid"
+    figure = captured["figure"]
+    axes = figure.axes[:16]
+    assert len(figure.axes) == 17
+    assert tuple(ax.get_title() for ax in axes) == tuple(f"ADC{index:02d}" for index in range(16))
+    assert len({ax.get_xlim() for ax in axes}) == 1
+    assert len({ax.get_ylim() for ax in axes}) == 1
+    assert axes[0].get_ylim() == (2030.0, 2070.0)
+    assert all(tuple(ax.get_xticks()) == (2.0, 6.0, 10.0) for ax in axes)
+    assert len({tuple(ax.get_yticks()) for ax in axes}) == 1
+    assert all(not ax.get_xlabel() and not ax.get_ylabel() for ax in axes)
+    assert all(len(ax.patches) > 0 and len(ax.lines) >= 6 for ax in axes)
+    assert all(any(line.get_linestyle() == ":" for line in ax.lines) for ax in axes)
+    mean_line = axes[1].lines[-1]
+    lower_deviation_line = axes[1].lines[-3]
+    upper_deviation_line = axes[1].lines[-2]
+    analysis = analyses[1]
+    np.testing.assert_allclose(mean_line.get_ydata(), analysis.mean_dout)
+    np.testing.assert_allclose(lower_deviation_line.get_ydata(), analysis.mean_dout - analysis.std_dout)
+    np.testing.assert_allclose(upper_deviation_line.get_ydata(), analysis.mean_dout + analysis.std_dout)
+    assert np.all(mean_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
+    assert np.all(lower_deviation_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
+    assert mean_line.get_marker() == lower_deviation_line.get_marker() == upper_deviation_line.get_marker() == "o"
+    assert figure._supxlabel.get_text() == "Active conversion rate (MS/s)"
+    assert figure._supylabel.get_text() == "ADC output code (LSB)"
+    assert len(figure.legends) == 1
+    plt.close(figure)
