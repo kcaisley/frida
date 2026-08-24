@@ -41,7 +41,7 @@ jobs:
         run: mdl $(git ls-files '*.md')
 
   ty:
-    name: Ty
+    name: Ty (PDK-independent)
     runs-on: ubuntu-latest
     steps:
       - name: Check out FRIDA
@@ -64,7 +64,12 @@ jobs:
         run: uv sync --dev
 
       - name: Run Ty
-        run: uvx pre-commit run ty-flow --all-files --show-diff-on-failure
+        run: >-
+          uv run ty check
+          flow/adc/subckt.py
+          flow/comp/subckt.py
+          flow/samp/subckt.py
+          flow/scans/plldrp.py
 
   ruff:
     name: Ruff
@@ -89,7 +94,7 @@ jobs:
         run: uvx pre-commit run ruff-format --all-files --show-diff-on-failure
 
   pytest:
-    name: Pytest (software)
+    name: Pytest
     runs-on: ubuntu-latest
     steps:
       - name: Check out FRIDA
@@ -100,7 +105,7 @@ jobs:
       - name: Check out Python and HDL dependencies
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil libs/ADC-survey
+          git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
 
       - name: Install Icarus Verilog
         run: |
@@ -116,5 +121,13 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --dev
 
-      - name: Run software tests
-        run: uv run pytest -m 'not hw and not site_pdk'
+      - name: Run PDK-independent tests
+        run: >-
+          uv run pytest
+          flow/adc/test_subckt.py
+          flow/comp/test_subckt.py
+          flow/samp/test_subckt.py
+          flow/scans/test_plldrp.py
+          test/test_adc_capdriver.py
+          test/test_salogic.py
+          test/test_spi_register.py

@@ -10,8 +10,8 @@ from hdl21.prefix import f, p
 from hdl21.primitives import C, Vdc, Vpwl
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
-from flow.pdks import set_pdk
-from pdk import site
+from pdk import tsmc65
+from pdk.tsmc65 import site
 
 from .subckt import Cdac, CdacParams
 
@@ -67,15 +67,14 @@ def frida65_baseline_check(run_dir: Path) -> Path:
     """Run one short, noise-free CDAC transient with Spectre circuit checks."""
 
     params = CdacTbParams()
-    set_pdk("tsmc65")
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = CdacTb(params)
     h.pdk.compile(tb)
-    assert site.tsmc65.install is not None
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([tb.top, tb.dac_bits, "xtop.vvdd:p"]),
@@ -121,16 +120,15 @@ def frida65_baseline_transient(run_dir: Path) -> Path:
     """Run the complete fabricated-size CDAC code ramp."""
 
     params = CdacTbParams()
-    set_pdk("tsmc65")
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = CdacTb(params)
     h.pdk.compile(tb)
-    assert site.tsmc65.install is not None
     n_codes = 2**params.cdac.n_dac
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([tb.top, tb.dac_bits, "xtop.vvdd:p"]),

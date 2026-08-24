@@ -10,8 +10,8 @@ from hdl21.prefix import f, p
 from hdl21.primitives import C, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
-from flow.pdks import set_pdk
-from pdk import site
+from pdk import tsmc65
+from pdk.tsmc65 import site
 
 from .subckt import Samp, SampParams
 
@@ -80,15 +80,14 @@ def frida65_baseline_check(run_dir: Path) -> Path:
     """Run one sampler period with Spectre circuit checks and no transient noise."""
 
     params = SampTbParams()
-    set_pdk("tsmc65")
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = SampTb(params)
     h.pdk.compile(tb)
-    assert site.tsmc65.install is not None
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([tb.din, tb.dout, tb.clk, tb.clk_b, "xtop.vvdd:p"]),
@@ -134,15 +133,14 @@ def frida65_baseline_transient(run_dir: Path) -> Path:
     """Run five periods of the fabricated-size sampler transient."""
 
     params = SampTbParams()
-    set_pdk("tsmc65")
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = SampTb(params)
     h.pdk.compile(tb)
-    assert site.tsmc65.install is not None
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([tb.din, tb.dout, tb.clk, tb.clk_b, "xtop.vvdd:p"]),

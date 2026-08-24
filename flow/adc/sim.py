@@ -15,8 +15,8 @@ from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
 from flow.adc.subckt import Adc, AdcParams, Frida65aPexAdc
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from flow.pdks import set_pdk
-from pdk import site
+from pdk import tsmc65
+from pdk.tsmc65 import site
 
 
 @h.paramclass
@@ -340,8 +340,7 @@ def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
             seq_logic_phase_delay_symbols=2.0,
         ),
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     simulations = []
     for params in parameters:
         tb = AdcTb(params)
@@ -355,9 +354,9 @@ def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
             hs.Sim(
                 tb=tb,
                 attrs=[
-                    site.tsmc65.install.include(h.pdk.Corner.TYP),
-                    site.tsmc65.install.include_pre_simulation(),
-                    hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+                    site.install.include(h.pdk.Corner.TYP),
+                    site.install.include_pre_simulation(),
+                    hs.Include(path=site.ADC_PEX_NETLIST),
                     hs.Options(name="temp", value=25.0),
                     hs.Options(name="save", value="selected"),
                     hs.Save(save_targets),
@@ -421,8 +420,7 @@ def frida65a_transfer_curve_check(run_dir: Path) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         seq_logic_phase_delay_symbols=2.0,
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = AdcTb(params)
     h.pdk.compile(tb)
     save_targets = [
@@ -433,9 +431,9 @@ def frida65a_transfer_curve_check(run_dir: Path) -> Path:
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
-            hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
+            hs.Include(path=site.ADC_PEX_NETLIST),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save(save_targets),
@@ -506,11 +504,9 @@ def hdl21gen_noise_vs_rate_check(run_dir: Path) -> Path:
             seq_logic_phase_delay_symbols=2.0,
         ),
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     standard_cells = (
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi",
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi",
+        *site.STANDARD_CELL_SPICE_NETLISTS,
         Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
     )
     simulations = []
@@ -526,8 +522,8 @@ def hdl21gen_noise_vs_rate_check(run_dir: Path) -> Path:
             hs.Sim(
                 tb=tb,
                 attrs=[
-                    site.tsmc65.install.include(h.pdk.Corner.TYP),
-                    site.tsmc65.install.include_pre_simulation(),
+                    site.install.include(h.pdk.Corner.TYP),
+                    site.install.include_pre_simulation(),
                     h.Literal(
                         "\n".join(
                             (
@@ -600,11 +596,9 @@ def hdl21gen_transfer_curve_check(run_dir: Path) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         seq_logic_phase_delay_symbols=2.0,
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     standard_cells = (
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi",
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi",
+        *site.STANDARD_CELL_SPICE_NETLISTS,
         Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
     )
     tb = AdcTb(params)
@@ -617,8 +611,8 @@ def hdl21gen_transfer_curve_check(run_dir: Path) -> Path:
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             h.Literal(
                 "\n".join(
                     (
@@ -699,8 +693,7 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
             seq_logic_phase_delay_symbols=2.0,
         ),
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     simulations = []
     for params in parameters:
         tb = AdcTb(params)
@@ -715,9 +708,9 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
             hs.Sim(
                 tb=tb,
                 attrs=[
-                    site.tsmc65.install.include(h.pdk.Corner.TYP),
-                    site.tsmc65.install.include_pre_simulation(),
-                    hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+                    site.install.include(h.pdk.Corner.TYP),
+                    site.install.include_pre_simulation(),
+                    hs.Include(path=site.ADC_PEX_NETLIST),
                     hs.Options(name="temp", value=25.0),
                     hs.Options(name="save", value="selected"),
                     hs.Save(save_targets),
@@ -798,8 +791,7 @@ def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
         for rate_msps, symbol_rate in rates
         for noise_name, rail_noise_rms_v in noise_cases
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     simulations = []
     for case_name, params in cases:
         tb = AdcTb(params)
@@ -816,9 +808,9 @@ def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
                 name=case_name,
                 tb=tb,
                 attrs=[
-                    site.tsmc65.install.include(h.pdk.Corner.TYP),
-                    site.tsmc65.install.include_pre_simulation(),
-                    hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+                    site.install.include(h.pdk.Corner.TYP),
+                    site.install.include_pre_simulation(),
+                    hs.Include(path=site.ADC_PEX_NETLIST),
                     hs.Options(name="temp", value=25.0),
                     hs.Options(name="save", value="selected"),
                     hs.Save(save_targets),
@@ -876,8 +868,7 @@ def frida65a_transfer_curve(run_dir: Path) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         seq_logic_phase_delay_symbols=2.0,
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = AdcTb(params)
     h.pdk.compile(tb)
     save_targets = [
@@ -889,9 +880,9 @@ def frida65a_transfer_curve(run_dir: Path) -> Path:
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
-            hs.Include(path=Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist")),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
+            hs.Include(path=site.ADC_PEX_NETLIST),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save(save_targets),
@@ -952,11 +943,9 @@ def hdl21gen_noise_vs_rate(run_dir: Path) -> Path:
             seq_logic_phase_delay_symbols=2.0,
         ),
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     standard_cells = (
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi",
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi",
+        *site.STANDARD_CELL_SPICE_NETLISTS,
         Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
     )
     simulations = []
@@ -973,8 +962,8 @@ def hdl21gen_noise_vs_rate(run_dir: Path) -> Path:
             hs.Sim(
                 tb=tb,
                 attrs=[
-                    site.tsmc65.install.include(h.pdk.Corner.TYP),
-                    site.tsmc65.install.include_pre_simulation(),
+                    site.install.include(h.pdk.Corner.TYP),
+                    site.install.include_pre_simulation(),
                     h.Literal(
                         "\n".join(
                             (
@@ -1043,11 +1032,9 @@ def hdl21gen_transfer_curve(run_dir: Path) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         seq_logic_phase_delay_symbols=2.0,
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     standard_cells = (
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lp_200a/tcbn65lp_200a.spi",
-        site.tsmc65.install.pdk_path / "digital/Back_End/spice/tcbn65lplvt_200a/tcbn65lplvt_200a.spi",
+        *site.STANDARD_CELL_SPICE_NETLISTS,
         Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
     )
     tb = AdcTb(params)
@@ -1061,8 +1048,8 @@ def hdl21gen_transfer_curve(run_dir: Path) -> Path:
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             h.Literal(
                 "\n".join(
                     (

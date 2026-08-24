@@ -18,8 +18,8 @@ from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
 from flow.analysis.io import write_measurement
 from flow.circuit.results import comp_signal_names, convert_spectre_comp_to_measurement
-from flow.pdks import set_pdk
-from pdk import site
+from pdk import tsmc65
+from pdk.tsmc65 import site
 
 from .subckt import Bias, Comp, CompParams, Stages, State, is_valid_comp_params
 
@@ -166,15 +166,14 @@ def frida65_baseline_check(run_dir: Path) -> Path:
         vin_diff_values_v=(0.0,),
         conversions=1,
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = CompTb(params)
     h.pdk.compile(tb)
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([raw for name, raw in comp_signal_names().items() if name != "time_s"]),
@@ -358,8 +357,7 @@ def frida65_candidate_check(run_dir: Path) -> Path:
             ),
         ),
     )
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     for name, comp in cases:
         if not is_valid_comp_params(comp):
             raise ValueError(f"representative comparator case {name} is invalid")
@@ -371,8 +369,8 @@ def frida65_candidate_check(run_dir: Path) -> Path:
         simulation = hs.Sim(
             tb=tb,
             attrs=[
-                site.tsmc65.install.include(h.pdk.Corner.TYP),
-                site.tsmc65.install.include_pre_simulation(),
+                site.install.include(h.pdk.Corner.TYP),
+                site.install.include_pre_simulation(),
                 hs.Options(name="temp", value=25.0),
                 hs.Options(name="save", value="selected"),
                 hs.Save([raw for canonical, raw in comp_signal_names().items() if canonical != "time_s"]),
@@ -433,8 +431,7 @@ def frida65_baseline_noise(run_dir: Path) -> Path:
         )
     )
     baseline_topology_index = 37
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     tb = CompTb(params)
     h.pdk.compile(tb)
     tstop_s = (
@@ -446,8 +443,8 @@ def frida65_baseline_noise(run_dir: Path) -> Path:
     simulation = hs.Sim(
         tb=tb,
         attrs=[
-            site.tsmc65.install.include(h.pdk.Corner.TYP),
-            site.tsmc65.install.include_pre_simulation(),
+            site.install.include(h.pdk.Corner.TYP),
+            site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([raw for canonical, raw in comp_signal_names().items() if canonical != "time_s"]),
@@ -631,8 +628,7 @@ def frida65_candidates(run_dir: Path) -> Path:
     if len(cases) != 297 or len({case[0] for case in cases}) != 297:
         raise RuntimeError("comparator campaign must contain 297 unique cases")
 
-    set_pdk("tsmc65")
-    assert site.tsmc65.install is not None
+    h.pdk.set_default(tsmc65.pdk_logic)
     failures: dict[str, str] = {}
     next_case = iter(cases)
     exhausted = False
@@ -660,8 +656,8 @@ def frida65_candidates(run_dir: Path) -> Path:
                     simulation = hs.Sim(
                         tb=tb,
                         attrs=[
-                            site.tsmc65.install.include(h.pdk.Corner.TYP),
-                            site.tsmc65.install.include_pre_simulation(),
+                            site.install.include(h.pdk.Corner.TYP),
+                            site.install.include_pre_simulation(),
                             hs.Options(name="temp", value=25.0),
                             hs.Options(name="save", value="selected"),
                             hs.Save([raw for canonical, raw in comp_signal_names().items() if canonical != "time_s"]),

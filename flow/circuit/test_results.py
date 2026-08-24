@@ -3,6 +3,7 @@
 import dataclasses
 from pathlib import Path
 
+import hdl21 as h
 import numpy as np
 import pytest
 
@@ -12,7 +13,7 @@ from flow.analysis.types import AdcIntWave, CompIntWave, MeasAdcInt, MeasCompInt
 from flow.circuit.results import convert_spectre_adc_to_measurement, convert_spectre_comp_to_measurement
 from flow.comp import CompParams
 from flow.comp.sim import CompTb, CompTbParams
-from flow.pdks import set_pdk
+from pdk import tsmc65
 
 
 def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
@@ -181,10 +182,8 @@ def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     }
     raw_path = tmp_path / "netlist.raw"
     raw_path.touch()
-    set_pdk("tsmc65")
+    h.pdk.set_default(tsmc65.pdk_logic)
     compiled_tb = CompTb(params)
-    import hdl21 as h
-
     h.pdk.compile(compiled_tb)
 
     h5_path = tmp_path / "comp.h5"

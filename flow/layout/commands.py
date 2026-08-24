@@ -6,8 +6,6 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
-from flow.pdks import list_pdks, set_pdk
-
 
 def primitive_main(
     module_name: str,
@@ -18,7 +16,7 @@ def primitive_main(
         prog=f"python -m {module_name}",
         description=f"Generate {module_name.split('.')[-2]} layout primitives",
     )
-    parser.add_argument("-t", "--tech", default="ihp130", choices=list_pdks(), help="Target PDK technology")
+    parser.add_argument("-t", "--tech", default="ihp130", help="Target PDK technology")
     parser.add_argument(
         "-m", "--mode", default="min", choices=["min", "max"], help="min: default only; max: full sweep"
     )
@@ -27,6 +25,5 @@ def primitive_main(
     parser.add_argument("-o", "--out", default="build", type=Path, help="Output directory")
     args = parser.parse_args()
 
-    set_pdk(args.tech)
     args.out.mkdir(parents=True, exist_ok=True)
     run_layout(args.tech, args.mode, args.visual, args.out)
