@@ -163,8 +163,8 @@ def adc00_all_adc_activity_noise() -> Path:
     return run_dir
 
 
-def adc_fixed_input_noise_50mv() -> Path:
-    """Capture ADC00--ADC15 fixed-50-mV noise at 2, 6, and 10 MSPS."""
+def adc_fixed_input_noise_50mv_700mvcm() -> Path:
+    """Capture ADC00--ADC15 50 mV differential noise at 700 mV common mode."""
 
     board_id = "00"
     adc_indices = tuple(range(16))
@@ -632,7 +632,7 @@ TARGETS: dict[str, Callable[[], Path]] = {
         adc_sine_conversion_rate,
         adc00_fixed_input_noise,
         adc00_all_adc_activity_noise,
-        adc_fixed_input_noise_50mv,
+        adc_fixed_input_noise_50mv_700mvcm,
         adc_fixed_input_noise_0mv_600mvcm,
         adc_fixed_input_noise_100mv,
         adc00_fixed_input_timing,

@@ -235,7 +235,7 @@ Run one explicitly named physical campaign through the shared scan runner:
 
 ```bash
 uv run python -m flow.scans.runner adc_sine_conversion_rate
-uv run python -m flow.scans.runner adc_fixed_input_noise_50mv
+uv run python -m flow.scans.runner adc_fixed_input_noise_50mv_700mvcm
 uv run python -m flow.scans.runner adc_ramp_code_density
 uv run python -m flow.scans.runner comp_common_mode
 uv run python -m flow.scans.runner cdac_cap_mismatch
