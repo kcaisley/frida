@@ -32,8 +32,11 @@ from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
     GRID_MAJOR_COLOR,
+    INFO_BOX_FONT_SIZE,
     LEGEND_FACE_COLOR,
     NORD_BLUE,
+    NORD_GREEN,
+    NORD_LIGHT_BLUE,
     NORD_ORANGE,
     NORD_YELLOW,
     PLOT_STYLE,
@@ -106,18 +109,23 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
     with mpl.rc_context(PLOT_STYLE):
         assert plt.rcParams["mathtext.fontset"] == "cm"
         assert plt.rcParams["font.family"] == ["serif"]
+        assert plt.rcParams["font.size"] == 10.0
         assert plt.rcParams["axes.prop_cycle"].by_key()["color"] == list(CURVE_COLORS)
         assert plt.rcParams["figure.figsize"] == [9.6, 5.4]
         assert plt.rcParams["figure.constrained_layout.use"] is True
         assert plt.rcParams["savefig.dpi"] == 500
-        assert plt.rcParams["axes.titlesize"] == 13.0
-        assert plt.rcParams["axes.labelsize"] == 11.0
-        assert plt.rcParams["xtick.labelsize"] == 11.0
-        assert plt.rcParams["ytick.labelsize"] == 11.0
-        assert plt.rcParams["legend.fontsize"] == 11.0
+        assert plt.rcParams["axes.titlesize"] == 12.0
+        assert plt.rcParams["figure.titlesize"] == 12.0
+        assert plt.rcParams["axes.labelsize"] == 10.0
+        assert plt.rcParams["xtick.labelsize"] == 10.0
+        assert plt.rcParams["ytick.labelsize"] == 10.0
+        assert plt.rcParams["xtick.major.size"] == plt.rcParams["ytick.major.size"] == 2.5
+        assert plt.rcParams["xtick.minor.size"] == plt.rcParams["ytick.minor.size"] == 1.5
+        assert plt.rcParams["legend.fontsize"] == 10.0
+        assert plt.rcParams["legend.title_fontsize"] == 10.0
         assert plt.rcParams["legend.linewidth"] == 0.8
-        assert plt.rcParams["lines.linewidth"] == 1.5
-        assert plt.rcParams["lines.markersize"] == 6.0
+        assert plt.rcParams["lines.linewidth"] == 1.0
+        assert plt.rcParams["lines.markersize"] == 4.0
         assert plt.rcParams["text.color"] == "black"
         assert plt.rcParams["axes.labelcolor"] == TEXT_COLOR
         assert plt.rcParams["axes.edgecolor"] == SPINE_COLOR
@@ -133,7 +141,7 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
         fig, ax = plt.subplots()
         ax.plot((0, 1), (0, 1), label="trace")
         scatter = ax.scatter((0.5,), (0.5,))
-        assert np.array_equal(scatter.get_sizes(), np.asarray([36.0]))
+        assert np.array_equal(scatter.get_sizes(), np.asarray([16.0]))
         quarter_ticks = np.arange(0.0, 1.01, 0.25)
         ax.set_xticks(quarter_ticks, minor=True)
         style_grid(ax)
@@ -599,11 +607,26 @@ def test_decision_path_density_holds_each_discrete_estimate(
 
     monkeypatch.setattr(np, "histogram2d", record_histogram2d)
     monkeypatch.setattr(analysis_plots, "PolyCollection", record_poly_collection)
+    captured = {}
+
+    def save(fig, output_path):
+        captured["figure"] = fig
+        captured["output_path"] = output_path
+        return ()
+
+    monkeypatch.setattr(analysis_plots, "save_figure", save)
     plot_adc_decision_path_density(
         msmt,
         analysis,
         output_path=tmp_path / "held_decision_density",
     )
+
+    figure = captured["figure"]
+    assert captured["output_path"] == tmp_path / "held_decision_density"
+    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(PLOT_STYLE["axes.facecolor"]) for ax in figure.axes[:3])
+    info_boxes = (figure.axes[0].artists[0], figure.axes[2].artists[0])
+    assert all(box.get_child().get_children()[0].get_fontsize() == INFO_BOX_FONT_SIZE for box in info_boxes)
+    assert all(type(box.patch.get_boxstyle()).__name__ == "Round" for box in info_boxes)
 
     sampled = sampled_estimates[0].reshape(len(analysis.estimate_dout), -1)
     expected = np.repeat(analysis.estimate_dout, 8, axis=1)
@@ -828,9 +851,15 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     assert "Mean ±1σ" in svg
 
 
+@pytest.mark.parametrize(
+    ("code_center", "expected_y_limits"),
+    ((2048, (2010.0, 2100.0)), (2200, (2160.0, 2250.0))),
+)
 def test_noise_distribution_grid_shares_axes_across_all_adcs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    code_center: int,
+    expected_y_limits: tuple[float, float],
 ) -> None:
     measurement_groups = tuple(
         tuple(
@@ -838,14 +867,14 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
                 MeasAdcExt,
                 adc_measurement(
                     (
-                        [2048 + adc_index] * 5
+                        [code_center + adc_index] * 5
                         if adc_index == 0 and rate_hz == 10.0e6
                         else [
-                            2046 + adc_index,
-                            2047 + adc_index,
-                            2048 + adc_index,
-                            2048 + adc_index,
-                            2049 + adc_index,
+                            code_center - 2 + adc_index,
+                            code_center - 1 + adc_index,
+                            code_center + adc_index,
+                            code_center + adc_index,
+                            code_center + 1 + adc_index,
                         ]
                     ),
                     sample_rate_hz=rate_hz / 1.6,
@@ -876,16 +905,68 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     assert captured["output_path"] == tmp_path / "noise_distribution_grid"
     figure = captured["figure"]
     axes = figure.axes[:16]
+    np.testing.assert_allclose(figure.get_size_inches(), (9.6, 5.4))
     assert len(figure.axes) == 17
-    assert tuple(ax.get_title() for ax in axes) == tuple(f"ADC{index:02d}" for index in range(16))
+    assert figure._suptitle.get_text() == "Code density vs sampling rate for fixed input"
+    assert figure._suptitle.get_position()[0] == 0.5
+    assert figure._suptitle.get_horizontalalignment() == "center"
+    assert all(not ax.get_title() for ax in axes)
+    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(NORD_LIGHT_BLUE) for ax in axes)
     assert len({ax.get_xlim() for ax in axes}) == 1
     assert len({ax.get_ylim() for ax in axes}) == 1
-    assert axes[0].get_ylim() == (2030.0, 2070.0)
+    assert axes[0].get_ylim() == expected_y_limits
     assert all(tuple(ax.get_xticks()) == (2.0, 6.0, 10.0) for ax in axes)
     assert len({tuple(ax.get_yticks()) for ax in axes}) == 1
+    assert all(np.allclose(np.diff(ax.get_yticks()), 25.0) for ax in axes)
     assert all(not ax.get_xlabel() and not ax.get_ylabel() for ax in axes)
     assert all(len(ax.patches) > 0 and len(ax.lines) >= 6 for ax in axes)
     assert all(any(line.get_linestyle() == ":" for line in ax.lines) for ax in axes)
+    assert all(not ax.texts for ax in axes)
+    assert all(len(ax.artists) == 1 for ax in axes)
+    for adc_index, (ax, analysis) in enumerate(zip(axes, analyses, strict=True)):
+        order = np.argsort(analysis.active_conversion_rate_hz)
+        means = analysis.mean_dout[order]
+        standard_deviations = analysis.std_dout[order]
+        summary_box = ax.artists[0]
+        summary_texts = tuple(text_area.get_children()[0] for text_area in summary_box.get_child().get_children())
+        assert tuple(text.get_text() for text in summary_texts) == (
+            f"ADC:{adc_index:02d}",
+            f"μ:{means[0]:.0f}→{means[-1]:.0f}",
+            f"σ:{standard_deviations[0]:.1f}→{standard_deviations[-1]:.1f}",
+        )
+        assert tuple(text.get_color() for text in summary_texts) == (
+            TEXT_COLOR,
+            NORD_ORANGE,
+            NORD_GREEN,
+        )
+        assert all(text.get_fontsize() == INFO_BOX_FONT_SIZE for text in summary_texts)
+        expected_location = 3 if float(np.mean(means)) > float(np.mean(expected_y_limits)) else 2
+        assert summary_box.loc == expected_location
+        assert summary_box.pad == mpl.rcParamsDefault["legend.borderpad"]
+        assert type(summary_box.patch.get_boxstyle()).__name__ == "Round"
+        assert summary_box.patch.get_boxstyle().pad == mpl.rcParamsDefault["legend.borderpad"]
+    assert not figure.legends
+    assert len(figure.artists) == 1
+    np.testing.assert_allclose(figure.axes[-1].get_position().bounds, (0.84, 0.10, 0.02, 0.45))
+    legend_box = figure.artists[0]
+    legend_children = legend_box.get_child().get_children()
+    legend_rows = legend_children[0].get_children()
+    legend_texts = tuple(row.get_children()[0].get_children()[0] for row in legend_rows)
+    legend_handles = tuple(row.get_children()[1].get_children()[0] for row in legend_rows)
+    assert tuple(text.get_text() for text in legend_texts) == (
+        "Gaussian fit",
+        "Average (μ)",
+        "Dispersion (σ)",
+    )
+    system_info = legend_children[1].get_children()[0]
+    system_info_text = system_info.get_text()
+    assert "ADCs: 00-15" in system_info_text
+    assert "Board: test_board" in system_info_text
+    assert "CDAC init: h'5555" in system_info_text
+    assert "N: 5" in system_info_text
+    assert legend_box.pad == mpl.rcParamsDefault["legend.borderpad"]
+    assert type(legend_box.patch.get_boxstyle()).__name__ == "Round"
+    assert legend_box.patch.get_boxstyle().pad == mpl.rcParamsDefault["legend.borderpad"]
     mean_line = axes[1].lines[-1]
     lower_deviation_line = axes[1].lines[-3]
     upper_deviation_line = axes[1].lines[-2]
@@ -895,8 +976,30 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     np.testing.assert_allclose(upper_deviation_line.get_ydata(), analysis.mean_dout + analysis.std_dout)
     assert np.all(mean_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
     assert np.all(lower_deviation_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
-    assert mean_line.get_marker() == lower_deviation_line.get_marker() == upper_deviation_line.get_marker() == "o"
+    assert mean_line.get_marker() == lower_deviation_line.get_marker() == upper_deviation_line.get_marker() == "None"
+    assert (
+        mean_line.get_linestyle() == lower_deviation_line.get_linestyle() == upper_deviation_line.get_linestyle() == ":"
+    )
+    assert (
+        mean_line.get_linewidth() == lower_deviation_line.get_linewidth() == upper_deviation_line.get_linewidth() == 1.0
+    )
+    zero_sigma_baseline = axes[0].lines[2]
+    zero_sigma_impulse = axes[0].lines[3]
+    np.testing.assert_allclose(zero_sigma_baseline.get_xdata(), (10.0, 10.0))
+    np.testing.assert_allclose(zero_sigma_baseline.get_ydata(), expected_y_limits)
+    np.testing.assert_allclose(zero_sigma_impulse.get_xdata(), (10.0, 8.0))
+    np.testing.assert_allclose(zero_sigma_impulse.get_ydata(), (code_center, code_center))
+    assert zero_sigma_baseline.get_linestyle() == zero_sigma_impulse.get_linestyle() == ":"
     assert figure._supxlabel.get_text() == "Active conversion rate (MS/s)"
-    assert figure._supylabel.get_text() == "ADC output code (LSB)"
-    assert len(figure.legends) == 1
+    assert figure._supylabel.get_text() == "Output code (LSB)"
+    assert all(text.get_fontsize() == 10.0 for text in (*legend_texts, system_info))
+    assert legend_handles[1].get_marker() == legend_handles[2].get_marker() == "None"
+    assert all(handle.get_linestyle() == ":" for handle in legend_handles)
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    assert len({round(text.get_window_extent(renderer).x0, 6) for text in legend_texts}) == 1
+    assert all(
+        text.get_window_extent(renderer).x1 < handle.get_window_extent(renderer).x0
+        for text, handle in zip(legend_texts, legend_handles, strict=True)
+    )
     plt.close(figure)

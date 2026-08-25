@@ -524,23 +524,34 @@ def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
 
 
 def adc_noise_density_grid(output_dir: Path) -> tuple[Path, ...]:
-    """Plot the final manual-supply fixed-input capture for all 16 ADCs."""
+    """Compare the final manual-supply fixed-input captures for all 16 ADCs."""
 
-    meas_read_dir = BASE_PATH / "build/scan_adc/20260824_165039"
-    measurements_by_adc: dict[int, list[MeasAdcExt]] = {}
-    for path in sorted(meas_read_dir.glob("*.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-        measurements_by_adc.setdefault(int(measurement.param.observed_adc), []).append(measurement)
-
-    measurement_groups = tuple(tuple(measurements_by_adc[adc_index]) for adc_index in sorted(measurements_by_adc))
-    analyses = tuple(analyze_adc_noise_sweep(measurements) for measurements in measurement_groups)
-    return plot_adc_noise_distribution_grid(
-        measurement_groups,
-        analyses,
-        output_path=output_dir / "adc00_adc15_0mv_600mv_output_code_density_grid",
+    meas_read_dirs = (
+        BASE_PATH / "build/scan_adc/20260824_165039",
+        BASE_PATH / "build/scan_adc/20260824_234702",
     )
+    artifacts = []
+    for meas_read_dir in meas_read_dirs:
+        measurements_by_adc: dict[int, list[MeasAdcExt]] = {}
+        for path in sorted(meas_read_dir.glob("*.h5")):
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasAdcExt):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
+            measurements_by_adc.setdefault(int(measurement.param.observed_adc), []).append(measurement)
+
+        measurement_groups = tuple(tuple(measurements_by_adc[adc_index]) for adc_index in sorted(measurements_by_adc))
+        analyses = tuple(analyze_adc_noise_sweep(measurements) for measurements in measurement_groups)
+        first_measurement = measurement_groups[0][0]
+        input_mv = float(first_measurement.param.tb.vin_diff.dc) * 1e3
+        common_mode_mv = float(first_measurement.param.tb.vin_cm.dc) * 1e3
+        artifacts.extend(
+            plot_adc_noise_distribution_grid(
+                measurement_groups,
+                analyses,
+                output_path=output_dir / f"adc00_adc15_{input_mv:g}mv_{common_mode_mv:g}mv_output_code_density_grid",
+            )
+        )
+    return tuple(artifacts)
 
 
 def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:

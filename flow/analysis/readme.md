@@ -29,9 +29,11 @@ updating that selection is a deliberate review step. Runner functions may be
 long when their orchestration remains linear and self-contained.
 
 All active plots use the shared presentation and saver in `plots.py`: a fixed
-9.6 × 5.4 inch canvas, black 13 pt titles, black 11 pt labels/ticks/legends,
-white axes, off-white legend and information boxes, and the shared major/minor
-grid colors. PNG output is 500 DPI (4800×2700); PDF and SVG remain vector.
+9.6 × 5.4 inch canvas, black 12 pt titles, black 10 pt labels/ticks/legends,
+7 pt information boxes, white axes, off-white legend and information boxes,
+and the shared major/minor grid colors. Data lines are 1 pt wide and markers
+are 4 pt. PNG output is 500 DPI (4800×2700); major and minor ticks are 2.5 pt
+and 1.5 pt long; PDF and SVG remain vector.
 `PLOT_PNGS`, `PLOT_PDFS`, and `PLOT_SVGS` are the only format switches. Plot
 callers pass one suffixless `output_path`, and the saver must not crop or resize
 the canvas.

@@ -517,19 +517,32 @@ def test_adc_noise_density_grid_uses_final_manual_supply_capture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Glob the pinned campaign and group its typed measurements by ADC metadata."""
+    """Analyze both pinned campaigns through the same metadata-driven pipeline."""
 
     read_paths = []
     analyzed_groups = []
-    plotted = {}
+    plotted = []
     measurements_by_path = {}
-    meas_read_dir = tmp_path / "build/scan_adc/20260824_165039"
-    meas_read_dir.mkdir(parents=True)
-    for adc_index in range(16):
-        for rate_index in range(3):
-            path = meas_read_dir / f"{3 * adc_index + rate_index:04d}_fixture.h5"
-            path.touch()
-            measurements_by_path[path] = SimpleNamespace(param=SimpleNamespace(observed_adc=adc_index))
+    campaigns = (
+        ("20260824_165039", 0.0, 0.6),
+        ("20260824_234702", 0.05, 0.7),
+    )
+    for run_name, input_v, common_mode_v in campaigns:
+        meas_read_dir = tmp_path / "build/scan_adc" / run_name
+        meas_read_dir.mkdir(parents=True)
+        for adc_index in range(16):
+            for rate_index in range(3):
+                path = meas_read_dir / f"{3 * adc_index + rate_index:04d}_fixture.h5"
+                path.touch()
+                measurements_by_path[path] = SimpleNamespace(
+                    param=SimpleNamespace(
+                        observed_adc=adc_index,
+                        tb=SimpleNamespace(
+                            vin_diff=h.Vdc.Params(dc=input_v),
+                            vin_cm=h.Vdc.Params(dc=common_mode_v),
+                        ),
+                    )
+                )
 
     def read(path: Path) -> SimpleNamespace:
         read_paths.append(path)
@@ -540,9 +553,7 @@ def test_adc_noise_density_grid_uses_final_manual_supply_capture(
         return f"analysis-{len(analyzed_groups) - 1}"
 
     def plot(measurements, analyses, *, output_path):
-        plotted["measurements"] = measurements
-        plotted["analyses"] = analyses
-        plotted["output_path"] = output_path
+        plotted.append((measurements, analyses, output_path))
         return (output_path.with_suffix(".pdf"),)
 
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
@@ -554,15 +565,14 @@ def test_adc_noise_density_grid_uses_final_manual_supply_capture(
     output_dir = tmp_path / "output"
     artifacts = runner.adc_noise_density_grid(output_dir)
 
-    assert len(read_paths) == 48
-    assert read_paths[0] == meas_read_dir / "0000_fixture.h5"
-    assert read_paths[-1] == meas_read_dir / "0047_fixture.h5"
-    assert tuple(len(group) for group in analyzed_groups) == (3,) * 16
-    assert tuple(group[0].param.observed_adc for group in analyzed_groups) == tuple(range(16))
-    assert plotted["measurements"] == tuple(analyzed_groups)
-    assert plotted["analyses"] == tuple(f"analysis-{index}" for index in range(16))
-    assert plotted["output_path"] == output_dir / "adc00_adc15_0mv_600mv_output_code_density_grid"
-    assert artifacts == (plotted["output_path"].with_suffix(".pdf"),)
+    assert len(read_paths) == 96
+    assert tuple(len(group) for group in analyzed_groups) == (3,) * 32
+    assert tuple(group[0].param.observed_adc for group in analyzed_groups) == 2 * tuple(range(16))
+    assert [output_path.name for _measurements, _analyses, output_path in plotted] == [
+        "adc00_adc15_0mv_600mv_output_code_density_grid",
+        "adc00_adc15_50mv_700mv_output_code_density_grid",
+    ]
+    assert artifacts == tuple(output_path.with_suffix(".pdf") for _measurements, _analyses, output_path in plotted)
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(

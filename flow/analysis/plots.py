@@ -13,11 +13,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from cycler import cycler
+from matplotlib.artist import Artist
 from matplotlib.cm import ScalarMappable
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
-from matplotlib.offsetbox import AnchoredText
+from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
@@ -56,6 +57,7 @@ PLOT_PNGS = False
 PLOT_SVGS = False
 PLOT_PDFS = True
 PNG_DPI = 500
+INFO_BOX_FONT_SIZE = 7.0
 
 # Nord presentation colors. The ordering gives all plots a stable semantic
 # sequence instead of inheriting Matplotlib's version-dependent default cycle.
@@ -101,13 +103,13 @@ PLOT_STYLE = mpl.RcParams(
         "mathtext.fontset": "cm",
         "font.family": "serif",
         "font.serif": ["Computer Modern Roman", "DejaVu Serif"],
-        "font.size": 11.0,
+        "font.size": 10.0,
         "figure.figsize": (9.6, 5.4),
         "figure.constrained_layout.use": True,
-        "axes.titlesize": 13.0,
+        "axes.titlesize": 12.0,
         "axes.titlecolor": TEXT_COLOR,
         "axes.titleweight": "normal",
-        "axes.labelsize": 11.0,
+        "axes.labelsize": 10.0,
         "axes.labelcolor": TEXT_COLOR,
         "axes.edgecolor": SPINE_COLOR,
         "axes.linewidth": 0.8,
@@ -116,15 +118,19 @@ PLOT_STYLE = mpl.RcParams(
         "axes.prop_cycle": cycler(color=CURVE_COLORS),
         "xtick.color": TEXT_COLOR,
         "xtick.direction": "in",
-        "xtick.labelsize": 11.0,
+        "xtick.labelsize": 10.0,
+        "xtick.major.size": 2.5,
+        "xtick.minor.size": 1.5,
         "xtick.top": True,
         "ytick.color": TEXT_COLOR,
         "ytick.direction": "in",
-        "ytick.labelsize": 11.0,
+        "ytick.labelsize": 10.0,
+        "ytick.major.size": 2.5,
+        "ytick.minor.size": 1.5,
         "ytick.right": True,
         "text.color": TEXT_COLOR,
         "figure.facecolor": PLOT_FACE_COLOR,
-        "figure.titlesize": 13.0,
+        "figure.titlesize": 12.0,
         "figure.titleweight": "normal",
         "savefig.facecolor": PLOT_FACE_COLOR,
         "savefig.dpi": PNG_DPI,
@@ -139,10 +145,10 @@ PLOT_STYLE = mpl.RcParams(
         "legend.linewidth": 0.8,
         "legend.borderpad": 0.4,
         "legend.borderaxespad": 0.5,
-        "legend.fontsize": 11.0,
-        "legend.title_fontsize": 11.0,
-        "lines.linewidth": 1.5,
-        "lines.markersize": 6.0,
+        "legend.fontsize": 10.0,
+        "legend.title_fontsize": 10.0,
+        "lines.linewidth": 1.0,
+        "lines.markersize": 4.0,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
     }
@@ -187,16 +193,35 @@ def style_frequency_text(value: float) -> str:
     return f"{value:g} Hz"
 
 
-def style_info_box(ax: plt.Axes, lines: Sequence[str], *, location: str = "upper right") -> None:
+def style_info_box(
+    ax: plt.Axes,
+    lines: Sequence[str],
+    *,
+    location: str = "upper right",
+    line_colors: Sequence[str] | None = None,
+) -> None:
     """Add measurement setup using the same spacing and frame as a legend."""
 
-    # Legend rcParams do not apply automatically to AnchoredText artists.
+    # Legend rcParams do not apply automatically to anchored offset boxes.
     if not lines:
         return
-    box = AnchoredText(
-        "\n".join(lines),
+    if line_colors is not None and len(line_colors) != len(lines):
+        raise ValueError("information-box line colors must match its lines")
+    if line_colors is None:
+        child = TextArea("\n".join(lines), textprops={"size": INFO_BOX_FONT_SIZE})
+    else:
+        child = VPacker(
+            children=[
+                TextArea(line, textprops={"color": color, "size": INFO_BOX_FONT_SIZE})
+                for line, color in zip(lines, line_colors, strict=True)
+            ],
+            align="left",
+            pad=0.0,
+            sep=1.0,
+        )
+    box = AnchoredOffsetbox(
         loc=location,
-        prop={"size": mpl.rcParams["legend.fontsize"]},
+        child=child,
         frameon=True,
         pad=mpl.rcParams["legend.borderpad"],
         borderpad=mpl.rcParams["legend.borderaxespad"],
@@ -399,7 +424,7 @@ def plot_adc_fastrx_scope_comparison(
     for ax, (label, values), color in zip(axes[:3], waveform_rows, CURVE_COLORS, strict=False):
         ax.plot(scaled_time, values, color=color)
         for edge in scaled_edges:
-            ax.axvline(edge, color=SPINE_COLOR, alpha=0.18, linewidth=0.6)
+            ax.axvline(edge, color=SPINE_COLOR, alpha=0.18)
         ax.set_ylabel(f"{label} (V)")
         style_grid(ax)
 
@@ -595,7 +620,7 @@ def plot_adc_ramp_weights(
     axes[0].set_yscale("log", base=2)
     axes[0].set_ylabel("Decision weight (LSB)")
     axes[0].legend()
-    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[1].axhline(0.0, color=SPINE_COLOR)
     axes[1].bar(elements, relative_error_percent, color=NORD_BLUE, width=0.7)
     axes[1].set_ylabel("Error (%)")
     axes[1].set_xlabel("Physical capacitor element")
@@ -627,7 +652,7 @@ def plot_adc_calibration_weights(
         gridspec_kw={"height_ratios": (2.0, 1.0)},
     )
     axes[0].plot(decision, nominal, "o-", color=NORD_DARK, label="Ideal")
-    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[1].axhline(0.0, color=SPINE_COLOR)
     for calibration, color in zip(analysis_list, CURVE_COLORS, strict=False):
         axes[0].plot(
             decision,
@@ -680,9 +705,9 @@ def plot_adc_static_nonlinearity(
     fig, axes = plt.subplots(2, 1, sharex=True)
     axes[0].plot(analysis.code, analysis.dnl)
     axes[1].plot(analysis.code, analysis.inl)
-    axes[0].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[0].axhline(0.0, color=SPINE_COLOR)
     axes[0].set_ylabel("DNL (LSB)")
-    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[1].axhline(0.0, color=SPINE_COLOR)
     axes[1].set_ylabel("INL (LSB)")
     axes[1].set_xlabel("Output code")
     for ax in axes:
@@ -704,9 +729,9 @@ def plot_adc_ramp_nonlinearity(
     for curve in analysis.curves:
         axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
         axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
-    axes[0].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[0].axhline(0.0, color=SPINE_COLOR)
     axes[0].set_ylabel("DNL (LSB)")
-    axes[1].axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
+    axes[1].axhline(0.0, color=SPINE_COLOR)
     axes[1].set_ylabel("INL (LSB)")
     axes[1].set_xlabel("Output code")
     for ax in axes:
@@ -982,7 +1007,28 @@ def plot_adc_noise_distribution_grid(
     if set(groups_by_adc) != set(range(16)):
         raise ValueError("ADC noise-distribution grid requires ADC00 through ADC15")
 
-    y_limits = (2030.0, 2070.0)
+    means = np.concatenate(tuple(analysis.mean_dout for analysis in analyses))
+    y_span_lsb = 90.0
+    y_center_lsb = 5.0 * np.round((float(np.min(means)) + float(np.max(means))) / 10.0)
+    y_limits = (y_center_lsb - y_span_lsb / 2.0, y_center_lsb + y_span_lsb / 2.0)
+    all_measurements = tuple(measurement for group in msmt_groups for measurement in group)
+    shared_setup_lines = style_measurement_group_text(all_measurements)
+    cdac_setup_lines = tuple(line for line in shared_setup_lines if line.startswith("CDAC init: "))
+    shared_setup_lines = tuple(
+        line for line in shared_setup_lines if not line.startswith(("ADC: ", "ADCs: ", "CDAC init: "))
+    )
+    campaign_sample_counts = np.unique(np.concatenate(tuple(analysis.sample_count for analysis in analyses)))
+    if len(campaign_sample_counts) == 1:
+        sample_count_text = f"{int(campaign_sample_counts[0]):.3g}"
+    else:
+        sample_count_text = f"{int(np.min(campaign_sample_counts)):.3g}-{int(np.max(campaign_sample_counts)):.3g}"
+    system_info_lines = (
+        f"ADCs: {min(groups_by_adc):02d}-{max(groups_by_adc):02d}",
+        *shared_setup_lines,
+        *cdac_setup_lines,
+        f"N: {sample_count_text}",
+    )
+    system_info_text = "\n".join(system_info_lines)
     maximum_sample_count = max(int(np.max(analysis.sample_count)) for analysis in analyses)
     density_norm = LogNorm(vmin=1, vmax=max(2, maximum_sample_count))
     maximum_width_msps = 2.0
@@ -992,9 +1038,10 @@ def plot_adc_noise_distribution_grid(
         4,
         sharex=True,
         sharey=True,
-        figsize=(19.2, 10.8),
-        layout="constrained",
+        layout="none",
     )
+    fig.subplots_adjust(left=0.075, right=0.79, bottom=0.105, top=0.94, wspace=0.05, hspace=0.05)
+    fig.suptitle("Code density vs sampling rate for fixed input", y=0.985)
     for adc_index, ax in enumerate(axes.flat):
         analysis = groups_by_adc[adc_index]
         order = np.argsort(analysis.active_conversion_rate_hz)
@@ -1034,7 +1081,7 @@ def plot_adc_noise_distribution_grid(
                 )
                 fit_fraction_per_lsb = np.minimum(fit_fraction_per_lsb, peak_fraction_per_lsb)
                 fit_x = rate_msps - maximum_width_msps * fit_fraction_per_lsb / peak_fraction_per_lsb
-                ax.plot(fit_x, fit_code, color=TEXT_COLOR, linestyle=":", linewidth=1.1, zorder=3)
+                ax.plot(fit_x, fit_code, color=TEXT_COLOR, linestyle=":", zorder=3)
                 gaussian_peak = 1.0 / (standard_deviation * np.sqrt(2.0 * np.pi))
                 mean_curve_x.append(
                     rate_msps - maximum_width_msps * min(gaussian_peak, peak_fraction_per_lsb) / peak_fraction_per_lsb
@@ -1047,20 +1094,17 @@ def plot_adc_noise_distribution_grid(
                 )
             else:
                 ax.plot(
-                    (rate_msps - maximum_width_msps, rate_msps),
-                    (mean, mean),
+                    (rate_msps, rate_msps),
+                    y_limits,
                     color=TEXT_COLOR,
                     linestyle=":",
-                    linewidth=1.1,
                     zorder=3,
                 )
                 ax.plot(
-                    rate_msps - maximum_width_msps,
-                    mean,
+                    (rate_msps, rate_msps - maximum_width_msps),
+                    (mean, mean),
                     color=TEXT_COLOR,
-                    marker="|",
-                    markeredgewidth=1.1,
-                    markersize=6.0,
+                    linestyle=":",
                     zorder=3,
                 )
                 mean_curve_x.append(rate_msps - maximum_width_msps)
@@ -1070,66 +1114,84 @@ def plot_adc_noise_distribution_grid(
             standard_deviation_curve_x,
             means - standard_deviations,
             color=NORD_GREEN,
-            linestyle="--",
-            marker="o",
-            markersize=2.5,
-            linewidth=0.8,
+            linestyle=":",
             zorder=4,
         )
         ax.plot(
             standard_deviation_curve_x,
             means + standard_deviations,
             color=NORD_GREEN,
-            linestyle="--",
-            marker="o",
-            markersize=2.5,
-            linewidth=0.8,
+            linestyle=":",
             zorder=4,
         )
-        ax.plot(mean_curve_x, means, color=NORD_ORANGE, marker="o", markersize=2.5, linewidth=0.8, zorder=5)
-        ax.set_title(f"ADC{adc_index:02d}")
-        ax.set_facecolor(NORD_BLUE)
+        ax.plot(mean_curve_x, means, color=NORD_ORANGE, linestyle=":", zorder=5)
+        summary_location = "lower left" if float(np.mean(means)) > float(np.mean(y_limits)) else "upper left"
+        style_info_box(
+            ax,
+            (
+                f"ADC:{adc_index:02d}",
+                f"μ:{means[0]:.0f}→{means[-1]:.0f}",
+                f"σ:{standard_deviations[0]:.1f}→{standard_deviations[-1]:.1f}",
+            ),
+            location=summary_location,
+            line_colors=(TEXT_COLOR, NORD_ORANGE, NORD_GREEN),
+        )
+        ax.set_facecolor(NORD_LIGHT_BLUE)
         ax.set_xlim(-0.25, 10.5)
         ax.set_ylim(*y_limits)
         ax.set_xticks((2.0, 6.0, 10.0))
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
-        with mpl.rc_context({"legend.fontsize": 6.0}):
-            style_info_box(
-                ax,
-                tuple(
-                    f"{rate_msps:g}: μ={mean:.1f}, σ={standard_deviation:.1f}"
-                    for rate_msps, mean, standard_deviation in zip(
-                        rates_msps,
-                        means,
-                        standard_deviations,
-                        strict=True,
-                    )
-                ),
-                location="lower left" if float(np.mean(means)) > float(np.mean(y_limits)) else "upper left",
-            )
+        ax.yaxis.set_major_locator(MultipleLocator(25.0))
 
+    colorbar_ax = fig.add_axes((0.84, 0.10, 0.02, 0.45))
     colorbar = fig.colorbar(
         ScalarMappable(norm=density_norm, cmap=DENSITY_COLOR_MAP),
-        ax=axes,
-        location="right",
-        fraction=0.018,
-        pad=0.012,
+        cax=colorbar_ax,
     )
     colorbar.set_label("Conversions per code")
-    fig.legend(
-        handles=(
-            Line2D((), (), color=TEXT_COLOR, linestyle=":", label="Gaussian fit"),
-            Line2D((), (), color=NORD_ORANGE, marker="o", markersize=3.0, label="Mean"),
-            Line2D((), (), color=NORD_GREEN, linestyle="--", label="Mean ±1σ"),
+    legend_rows: list[Artist] = []
+    for label, color in (
+        ("Gaussian fit", TEXT_COLOR),
+        ("Average (μ)", NORD_ORANGE),
+        ("Dispersion (σ)", NORD_GREEN),
+    ):
+        handle = DrawingArea(22.0, 10.0)
+        handle.add_artist(Line2D((0.0, 22.0), (5.0, 5.0), color=color, linestyle=":"))
+        legend_rows.append(
+            HPacker(
+                children=[TextArea(label, textprops={"size": mpl.rcParams["legend.fontsize"]}), handle],
+                align="center",
+                pad=0.0,
+                sep=5.0,
+            )
+        )
+    legend_box = AnchoredOffsetbox(
+        loc="upper left",
+        bbox_to_anchor=(0.80, 0.92),
+        bbox_transform=fig.transFigure,
+        child=VPacker(
+            children=[
+                VPacker(children=legend_rows, align="left", pad=0.0, sep=2.0),
+                TextArea(
+                    system_info_text,
+                    textprops={"multialignment": "left", "size": mpl.rcParams["legend.fontsize"]},
+                ),
+            ],
+            align="left",
+            pad=0.0,
+            sep=6.0,
         ),
-        loc="upper right",
-        bbox_to_anchor=(0.995, 0.995),
-        fontsize=8.0,
-        ncols=3,
+        frameon=True,
+        pad=mpl.rcParams["legend.borderpad"],
+        borderpad=mpl.rcParams["legend.borderaxespad"],
     )
+    legend_box.patch.set_boxstyle(f"round,pad={mpl.rcParams['legend.borderpad']}")
+    legend_box.patch.set_facecolor(mpl.rcParams["legend.facecolor"])
+    legend_box.patch.set_edgecolor(mpl.rcParams["legend.edgecolor"])
+    legend_box.patch.set_alpha(mpl.rcParams["legend.framealpha"])
+    legend_box.patch.set_linewidth(mpl.rcParams["legend.linewidth"])
+    fig.add_artist(legend_box)
     fig.supxlabel("Active conversion rate (MS/s)")
-    fig.supylabel("ADC output code (LSB)")
-    fig.suptitle("ADC00-ADC15 fixed-input output-code densities")
+    fig.supylabel("Output code (LSB)", x=0.01)
     return save_figure(fig, output_path)
 
 
@@ -1348,7 +1410,6 @@ def plot_adc_decision_paths(
         )
         ax.axhline(
             analysis.final_dout[row],
-            linewidth=0.5,
             color=CURVE_COLORS[1],
             label="Final output" if row == 0 else None,
         )
@@ -1507,7 +1568,6 @@ def plot_adc_decision_path_density(
         if panel_index == 0:
             ax.set_ylabel("Successive approximation code (LSB)")
         ax.set_title(panel_title)
-        ax.set_facecolor(NORD_BLUE)
         if panel_index:
             ax.yaxis.set_minor_locator(MultipleLocator(1.0))
 
@@ -1545,7 +1605,6 @@ def plot_adc_decision_path_density(
     histogram_ax.set_yticks([])
     histogram_ax.xaxis.set_major_locator(MaxNLocator(nbins=2, integer=True))
     histogram_ax.xaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
-    histogram_ax.set_facecolor(NORD_BLUE)
     style_info_box(
         histogram_ax,
         (
@@ -1578,13 +1637,12 @@ def plot_comp_offset_noise(
         color=CURVE_COLORS[0],
         label="Measured decisions",
     )
-    ax.axhline(0.5, color=SPINE_COLOR, linewidth=0.6)
+    ax.axhline(0.5, color=SPINE_COLOR)
     if np.isfinite(analysis.offset_v):
         ax.axvline(
             analysis.offset_v * 1e3,
             color=CURVE_COLORS[1],
             linestyle="--",
-            linewidth=0.8,
             label="50% threshold",
         )
     ax.set_xlabel("Differential input (mV)")
@@ -1681,7 +1739,7 @@ def plot_comp_sampling_campaign(
                 color=color,
             )
 
-    curve_ax.axhline(0.5, color=SPINE_COLOR, linewidth=0.6)
+    curve_ax.axhline(0.5, color=SPINE_COLOR)
     curve_ax.set_xlim(input_error_minimum_mv, input_error_maximum_mv)
     curve_ax.set_xlabel("Differential input (mV)")
     curve_ax.set_ylabel("Decision probability")
@@ -1796,7 +1854,7 @@ def plot_comp_common_mode_campaign(
                 zorder=3,
             )
 
-    curve_ax.axhline(0.5, color=SPINE_COLOR, linewidth=0.6)
+    curve_ax.axhline(0.5, color=SPINE_COLOR)
     curve_ax.set_xlim(input_error_minimum_mv, input_error_maximum_mv)
     curve_ax.set_ylim(-0.02, 1.02)
     curve_ax.set_xlabel("Differential input (mV)")
@@ -1903,7 +1961,7 @@ def plot_cdac_cap_mismatch(
     tick_positions = (1, 4, 7, 10, 13, 16)
     tick_labels = ("C16", "C13", "C10", "C07", "C04", "C01")
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
-        ax.set_title(title, fontsize=11.0)
+        ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.set_xticks(tick_positions, tick_labels)
         style_grid(ax)
@@ -1954,8 +2012,8 @@ def plot_cdac_cap_mismatch_comparison(
     tick_positions = (1, 4, 7, 10, 13, 16)
     tick_labels = ("C16", "C13", "C10", "C07", "C04", "C01")
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
-        ax.axhline(0.0, color=SPINE_COLOR, linewidth=0.6)
-        ax.set_title(title, fontsize=11.0)
+        ax.axhline(0.0, color=SPINE_COLOR)
+        ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.set_xticks(tick_positions, tick_labels)
         style_grid(ax)
@@ -2058,7 +2116,7 @@ def plot_comp_candidate_sweep(
 
     baseline = np.flatnonzero(np.asarray(analysis.size_profile) == "fabricated")
     for ax in axes:
-        ax.axvline(baseline[0], color=CURVE_COLORS[2], linestyle="--", linewidth=0.8)
+        ax.axvline(baseline[0], color=CURVE_COLORS[2], linestyle="--")
     axes[0].legend(ncols=3)
 
     tick_count = min(12, candidate_count)
