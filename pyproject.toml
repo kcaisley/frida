@@ -63,7 +63,7 @@ basil-daq = { path = "libs/basil", editable = true }
 typeCheckingMode = "off"
 # ROOT (PyROOT) is built from source at ~/libs/root/ (C++17, no pip package).
 # Add its Python bindings path so the type checker can resolve `import ROOT`.
-extraPaths = ["libs/Hdl21", "libs/Vlsir/VlsirTools", "libs/Vlsir/bindings/python", "../libs/root/lib"]
+extraPaths = ["libs/Hdl21", "libs/Vlsir/VlsirTools", "libs/Vlsir/bindings/python", "libs/basil", "../libs/root/lib"]
 exclude = [
     "**/node_modules",
     "**/__pycache__",

@@ -439,6 +439,8 @@ def scan(
     elif position != "abort" and not run_dir.is_dir():
         raise FileNotFoundError(2, "ADC scan run directory is not initialized", run_dir)
 
+    # Keep this local: importing gpib_ctypes probes libgpib, and its module
+    # override must be installed before Basil loads a VISA transfer layer.
     from gpib_ctypes import make_default_gpib
 
     make_default_gpib()
