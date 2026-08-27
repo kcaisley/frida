@@ -44,6 +44,8 @@ ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
 def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     """Decode the first 17 scope COMP_OUT decisions and compare FastRX."""
 
+    if msmt.wave is None:
+        raise ValueError("scope/FastRX comparison requires a captured scope waveform")
     params = msmt.param.tb
     time_s = msmt.wave.time_s
     comp_v = msmt.wave.seq_comp_v[0]
@@ -721,9 +723,10 @@ def analyze_adc_noise_sweep(
         logic_phase.append(phase)
         comparator_percent.append(50.0 + 12.5 * phase)
         std_dout.append(float(np.std(measurement.daq.dout)))
-        pretrigger = measurement.wave.time_s < 0.0
-        if np.any(pretrigger):
-            quiet_input = measurement.wave.vin_diff_v[:, pretrigger]
+        wave = measurement.wave
+        pretrigger = None if wave is None else wave.time_s < 0.0
+        if wave is not None and pretrigger is not None and np.any(pretrigger):
+            quiet_input = wave.vin_diff_v[:, pretrigger]
             pretrigger_vin_diff_mean_v.append(float(np.mean(quiet_input)))
             pretrigger_vin_diff_noise_rms_v.append(
                 float(np.sqrt(np.mean((quiet_input - np.mean(quiet_input, axis=1, keepdims=True)) ** 2)))

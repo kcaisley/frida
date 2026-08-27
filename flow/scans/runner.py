@@ -19,7 +19,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.scans import scan_adc, scan_cdac, scan_comp
+from flow.scans import scan_adc, scan_adc_noctl, scan_cdac, scan_comp
 from flow.scans.params import build_adc_variants
 
 BASE_PATH = Path(__file__).resolve().parents[2]
@@ -205,6 +205,51 @@ def adc_fixed_input_noise_50mv_700mvcm() -> Path:
     finally:
         if active:
             scan_adc.scan(current, run_dir=run_dir, position="abort")
+    return run_dir
+
+
+def adc_fixed_input_noise_50mv_700mvcm_noctl() -> Path:
+    """Capture manually supplied ADC00--ADC15 noise without controlling bench peripherals."""
+
+    board_id = "00"
+    adc_indices = tuple(range(16))
+    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
+    logic_offsets_symbols = (2.0,)
+    conversions = 100_000
+    vin_cm_v = 0.700
+    vin_diff = h.Vdc.Params(dc=0.050)
+    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    variants = build_adc_variants(
+        board_id=board_id,
+        adc_indices=adc_indices,
+        active_conversion_rates_hz=active_conversion_rates_hz,
+        logic_offsets_symbols=logic_offsets_symbols,
+        conversions=conversions,
+        vin_cm_v=vin_cm_v,
+        vin_diff=vin_diff,
+    )
+    active = False
+    current = variants[0]
+    try:
+        for index, params in enumerate(variants):
+            position = (
+                "only"
+                if len(variants) == 1
+                else "first"
+                if index == 0
+                else "last"
+                if index == len(variants) - 1
+                else "middle"
+            )
+            current = params
+            if position in {"first", "middle"}:
+                active = True
+            scan_adc_noctl.scan(params, run_dir=run_dir, position=position)
+            if position in {"last", "only"}:
+                active = False
+    finally:
+        if active:
+            scan_adc_noctl.scan(current, run_dir=run_dir, position="abort")
     return run_dir
 
 
@@ -633,6 +678,7 @@ TARGETS: dict[str, Callable[[], Path]] = {
         adc00_fixed_input_noise,
         adc00_all_adc_activity_noise,
         adc_fixed_input_noise_50mv_700mvcm,
+        adc_fixed_input_noise_50mv_700mvcm_noctl,
         adc_fixed_input_noise_0mv_600mvcm,
         adc_fixed_input_noise_100mv,
         adc00_fixed_input_timing,

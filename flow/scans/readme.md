@@ -33,6 +33,16 @@ setpoints. ADC runners issue an `abort` call if their loop is interrupted;
 retain unconditional best-effort shutdown for final, single-point, abort, and
 exception paths.
 
+`scan_adc_noctl.scan()` is the separate acquisition path for measurements made
+from a host without laboratory peripherals. Its runner target declares the
+fixed DC input and rail values that the user has manually configured; the user
+is responsible for ensuring those nominal values match the physical setup. The
+scan opens only the FPGA map and preserves the SPI, PLL, sequencer, FastRX, and
+H5 checks. It does not import GPIB support, configure or read an AWG, scope, or
+power supply, or attempt to shut manually controlled supplies down. These
+measurements keep the normal `/info`, `/param`, `/daq`, and `/wave` H5 groups;
+`/wave` is encoded as empty because no scope record was acquired.
+
 The scan scripts use three distinct interfaces:
 
 1. Generic, low-level Basil support shared by many hardware blocks.

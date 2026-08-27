@@ -193,6 +193,15 @@ def style_frequency_text(value: float) -> str:
     return f"{value:g} Hz"
 
 
+def style_adc_code_dispersion_lsb(value: float, *, single_code: bool) -> str:
+    """Format unresolved single-code dispersion as a one-LSB upper bound."""
+
+    if single_code:
+        return "<1.0"
+    rounded = f"{value:.1f}"
+    return f"{value:.2g}" if rounded == "0.0" else rounded
+
+
 def style_info_box(
     ax: plt.Axes,
     lines: Sequence[str],
@@ -393,6 +402,9 @@ def plot_adc_fastrx_scope_comparison(
 ) -> tuple[Path, ...]:
     """Plot CH2--CH4 and aligned Scope/FastRX decision streams."""
 
+    wave = msmt.wave
+    if wave is None:
+        raise ValueError("scope/FastRX comparison plot requires a captured scope waveform")
     params = msmt.param.tb
     decision_period_s = 8.0 / float(params.symbol_rate)
     edge_times_s = analysis.comp_edge_times_s
@@ -400,7 +412,7 @@ def plot_adc_fastrx_scope_comparison(
     decision_end_times_s = np.concatenate((edge_times_s[1:], [edge_times_s[-1] + decision_period_s]))
     decision_widths_s = decision_end_times_s - edge_times_s
 
-    time_s = msmt.wave.time_s
+    time_s = wave.time_s
     scale, unit = style_time_units(time_s)
     scaled_time = time_s * scale
     scaled_edges = edge_times_s * scale
@@ -417,9 +429,9 @@ def plot_adc_fastrx_scope_comparison(
         gridspec_kw={"height_ratios": (1.0, 1.0, 1.35, 1.25)},
     )
     waveform_rows = (
-        ("COMP", msmt.wave.seq_comp_v[0]),
-        ("LOGIC", msmt.wave.seq_logic_v[0]),
-        ("COMP_OUT", msmt.wave.comp_out_v[0]),
+        ("COMP", wave.seq_comp_v[0]),
+        ("LOGIC", wave.seq_logic_v[0]),
+        ("COMP_OUT", wave.comp_out_v[0]),
     )
     for ax, (label, values), color in zip(axes[:3], waveform_rows, CURVE_COLORS, strict=False):
         ax.plot(scaled_time, values, color=color)
@@ -1126,12 +1138,17 @@ def plot_adc_noise_distribution_grid(
         )
         ax.plot(mean_curve_x, means, color=NORD_ORANGE, linestyle=":", zorder=5)
         summary_location = "lower left" if float(np.mean(means)) > float(np.mean(y_limits)) else "upper left"
+        dispersion_range_text = (
+            "σ:"
+            f"{style_adc_code_dispersion_lsb(float(standard_deviations[0]), single_code=np.count_nonzero(counts[0]) == 1)}→"
+            f"{style_adc_code_dispersion_lsb(float(standard_deviations[-1]), single_code=np.count_nonzero(counts[-1]) == 1)} LSB"
+        )
         style_info_box(
             ax,
             (
                 f"ADC:{adc_index:02d}",
                 f"μ:{means[0]:.0f}→{means[-1]:.0f}",
-                f"σ:{standard_deviations[0]:.1f}→{standard_deviations[-1]:.1f}",
+                dispersion_range_text,
             ),
             location=summary_location,
             line_colors=(TEXT_COLOR, NORD_ORANGE, NORD_GREEN),
@@ -1568,6 +1585,7 @@ def plot_adc_decision_path_density(
         if panel_index == 0:
             ax.set_ylabel("Successive approximation code (LSB)")
         ax.set_title(panel_title)
+        ax.set_facecolor(NORD_LIGHT_BLUE)
         if panel_index:
             ax.yaxis.set_minor_locator(MultipleLocator(1.0))
 
@@ -1605,11 +1623,12 @@ def plot_adc_decision_path_density(
     histogram_ax.set_yticks([])
     histogram_ax.xaxis.set_major_locator(MaxNLocator(nbins=2, integer=True))
     histogram_ax.xaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
+    histogram_ax.set_facecolor(NORD_LIGHT_BLUE)
     style_info_box(
         histogram_ax,
         (
             f"μ: {final_mean:.0f}",
-            f"σ: {final_std:.1f}",
+            f"σ: {style_adc_code_dispersion_lsb(final_std, single_code=len(populated_final_codes) == 1)} LSB",
         ),
     )
 

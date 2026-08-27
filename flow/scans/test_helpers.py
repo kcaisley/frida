@@ -15,7 +15,7 @@ from flow.adc.sim import AdcTbParams
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.cdac import CdacParams, RedunStrat
-from flow.scans import fastrx, scan_adc, seqgen
+from flow.scans import fastrx, scan_adc, scan_adc_noctl, seqgen
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
 from flow.scans.scope import FRIDA_SCOPE_CHANNELS, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
@@ -459,6 +459,40 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
     with pytest.raises(ValueError, match=message):
         scan_adc.scan(invalid, run_dir=scan_outdir, position="first")
     assert not scan_outdir.exists()
+
+
+def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
+    import basil.dut
+
+    constructed_paths = []
+
+    class DummyDut:
+        def __init__(self, map_path: str) -> None:
+            constructed_paths.append(map_path)
+
+        def init(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def __getitem__(self, _name: str):
+            raise KeyError("dummy FPGA has no hardware layers")
+
+    monkeypatch.setattr(basil.dut, "Dut", DummyDut)
+    params = build_adc_variants(
+        board_id="00",
+        adc_indices=(0,),
+        active_conversion_rates_hz=(2.0e6,),
+        logic_offsets_symbols=(2.0,),
+        conversions=1,
+        vin_cm_v=0.7,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )[0]
+
+    scan_adc_noctl.scan(params, run_dir=tmp_path / "unused", position="abort")
+
+    assert [path.rsplit("/", 1)[-1] for path in constructed_paths] == ["map_fpga.yaml"]
 
 
 def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> None:

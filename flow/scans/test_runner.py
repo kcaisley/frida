@@ -17,6 +17,7 @@ def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
         "adc00_fixed_input_noise",
         "adc00_all_adc_activity_noise",
         "adc_fixed_input_noise_50mv_700mvcm",
+        "adc_fixed_input_noise_50mv_700mvcm_noctl",
         "adc_fixed_input_noise_0mv_600mvcm",
         "adc_fixed_input_noise_100mv",
         "adc00_fixed_input_timing",
@@ -39,6 +40,7 @@ def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
         ("adc00_fixed_input_noise", 3, {0}, 100_000, h.Vdc.Params),
         ("adc00_all_adc_activity_noise", 3, {0}, 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_50mv_700mvcm", 48, set(range(16)), 100_000, h.Vdc.Params),
+        ("adc_fixed_input_noise_50mv_700mvcm_noctl", 48, set(range(16)), 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_0mv_600mvcm", 48, set(range(16)), 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_100mv", 78, {0, 1}, 100_000, h.Vdc.Params),
         ("adc00_fixed_input_timing", 273, {0}, 1_000, h.Vdc.Params),
@@ -57,13 +59,22 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
 ) -> None:
     captured_calls = []
     captured_run_dirs = []
+    captured_control_modes = []
 
     def scan(params, *, run_dir: Path, position: str) -> Path:
         captured_calls.append((params, position))
         captured_run_dirs.append(run_dir)
+        captured_control_modes.append("controlled")
+        return run_dir
+
+    def scan_noctl(params, *, run_dir: Path, position: str) -> Path:
+        captured_calls.append((params, position))
+        captured_run_dirs.append(run_dir)
+        captured_control_modes.append("manual")
         return run_dir
 
     monkeypatch.setattr(runner.scan_adc, "scan", scan)
+    monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
     result = runner.TARGETS[target_name]()
     variants = [params for params, position in captured_calls if position != "abort"]
     positions = [position for _params, position in captured_calls]
@@ -74,6 +85,8 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
     assert positions[0] == ("only" if expected_count == 1 else "first")
     assert positions[-1] == ("only" if expected_count == 1 else "last")
     assert positions[1:-1] == ["middle"] * max(0, expected_count - 2)
+    expected_control_mode = "manual" if target_name.endswith("_noctl") else "controlled"
+    assert set(captured_control_modes) == {expected_control_mode}
     assert {params.observed_adc for params in variants} == expected_adcs
     assert {params.tb.conversions for params in variants} == {expected_conversions}
     assert all(isinstance(params.tb.vin_diff, source_type) for params in variants)
@@ -83,6 +96,7 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
         "adc00_fixed_input_noise",
         "adc00_all_adc_activity_noise",
         "adc_fixed_input_noise_50mv_700mvcm",
+        "adc_fixed_input_noise_50mv_700mvcm_noctl",
         "adc_fixed_input_noise_0mv_600mvcm",
     }:
         assert {float(params.tb.symbol_rate) for params in variants} == {320.0e6, 960.0e6, 1.6e9}
@@ -127,7 +141,10 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
             assert {float(params.tb.vin_diff.voff) for params in variants} == {0.0}
             assert {float(params.tb.vin_diff.vamp) for params in variants} == {0.5}
             assert {float(params.tb.vin_diff.freq) for params in variants} == {9_998.770151}
-        elif target_name == "adc_fixed_input_noise_50mv_700mvcm":
+        elif target_name in {
+            "adc_fixed_input_noise_50mv_700mvcm",
+            "adc_fixed_input_noise_50mv_700mvcm_noctl",
+        }:
             assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
             assert {(params.observed_adc, params.active_adc_mask) for params in variants} == {
                 (
@@ -163,6 +180,24 @@ def test_adc_target_aborts_powered_hardware_after_interrupted_middle_point(monke
 
     with pytest.raises(RuntimeError, match="interrupted"):
         runner.adc_ramp_code_density()
+
+    assert [position for _params, position in calls] == ["first", "middle", "abort"]
+    assert calls[-1][0] is calls[-2][0]
+
+
+def test_adc_noctl_target_aborts_fpga_after_interrupted_middle_point(monkeypatch) -> None:
+    calls = []
+
+    def scan_noctl(params, *, run_dir: Path, position: str) -> Path:
+        calls.append((params, position))
+        if position == "middle" and sum(call_position == "middle" for _params, call_position in calls) == 1:
+            raise RuntimeError("interrupted")
+        return run_dir
+
+    monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        runner.adc_fixed_input_noise_50mv_700mvcm_noctl()
 
     assert [position for _params, position in calls] == ["first", "middle", "abort"]
     assert calls[-1][0] is calls[-2][0]

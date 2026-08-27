@@ -441,6 +441,20 @@ def test_external_decision_measurement_without_scope_waveform_round_trips(
     assert_sections_equal(original.daq, loaded.daq)
 
 
+def test_external_adc_measurement_without_scope_waveform_round_trips(tmp_path: Path) -> None:
+    original = replace(adc_measurement(), wave=None)
+    path = write_measurement(tmp_path / "no_wave_adc.h5", original)
+
+    with h5py.File(path, "r") as stored:
+        assert set(stored) == {"info", "param", "daq", "wave"}
+        assert stored["wave"].attrs["_kind"] == "none"
+    loaded = read_measurement(path)
+
+    assert isinstance(loaded, MeasAdcExt)
+    assert loaded.wave is None
+    assert_sections_equal(original.daq, loaded.daq)
+
+
 @pytest.mark.parametrize("measurement_index", (2, 5), ids=("MeasCompInt-AdcTbParams", "MeasCdacInt-AdcTbParams"))
 def test_whole_adc_internal_measurement_parameter_pairings_round_trip(
     tmp_path: Path,
@@ -543,6 +557,8 @@ def test_adc_sections_reject_invalid_bits_shapes_and_wave_mapping() -> None:
     """Reject malformed ADC decisions and wave records before persistence."""
 
     measurement = adc_measurement()
+    assert isinstance(measurement, MeasAdcExt)
+    assert measurement.wave is not None
     with pytest.raises(ValueError, match=r"shape \(N, 17\)"):
         AdcDaq(
             conversion_index=np.asarray([0], dtype=np.int64),

@@ -265,7 +265,7 @@ class MeasAdcExt:
     info: MeasInfo
     param: AdcScanParams
     daq: AdcDaq
-    wave: AdcExtWave
+    wave: AdcExtWave | None
 
     def __post_init__(self) -> None:
         if self.param.tb.conversions != len(self.daq.conversion_index):
@@ -273,7 +273,8 @@ class MeasAdcExt:
                 f"param.tb.conversions={self.param.tb.conversions} does not match "
                 f"{len(self.daq.conversion_index)} ADC rows"
             )
-        _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, self.wave.conversion_index)
+        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.conversion_index
+        _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, wave_indices)
 
 
 @dataclass(frozen=True, slots=True)

@@ -215,6 +215,7 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> No
 
     base = adc_measurement([100], sample_rate_hz=symbol_rate_hz / 256.0, observed_adc=1)
     assert isinstance(base, MeasAdcExt)
+    assert base.wave is not None
     normal = replace(
         base,
         daq=replace(base.daq, bout=expected_bits[np.newaxis, :]),
@@ -233,6 +234,7 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> No
     assert normal_analysis.fastrx_bit_string == normal_analysis.scope_bit_string
     assert normal_analysis.mismatch_count == 0
 
+    assert normal.wave is not None
     inverted = replace(
         normal,
         info=replace(normal.info, readbacks={"scope_comp_out_inverted": True}),
@@ -716,6 +718,7 @@ def test_noise_sweep_invalidates_faster_points_after_timing_failure() -> None:
 
 def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
     msmt = adc_measurement([100, 101, 100])
+    assert msmt.wave is not None
     time_s = np.asarray((-2.0, -1.0, 0.0, 1.0)) * 1e-9
     vin_diff_v = np.asarray(((-0.051, -0.049, -0.040, -0.060),))
     msmt = replace(
@@ -734,6 +737,16 @@ def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
 
     np.testing.assert_allclose(sweep.pretrigger_vin_diff_mean_v, [-0.05])
     np.testing.assert_allclose(sweep.pretrigger_vin_diff_noise_rms_v, [0.001])
+
+
+def test_noise_sweep_accepts_measurement_without_scope_waveform() -> None:
+    msmt = replace(adc_measurement([100, 101, 100]), wave=None)
+
+    sweep = analyze_adc_noise_sweep([msmt])
+
+    np.testing.assert_array_equal(sweep.std_dout, [np.std([100, 101, 100])])
+    np.testing.assert_array_equal(sweep.pretrigger_vin_diff_mean_v, [np.nan])
+    np.testing.assert_array_equal(sweep.pretrigger_vin_diff_noise_rms_v, [np.nan])
 
 
 def test_noise_comparison_combines_dc_dynamic_and_simulated_series() -> None:

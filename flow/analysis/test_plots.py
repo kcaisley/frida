@@ -64,6 +64,7 @@ from flow.analysis.plots import (
     plot_comp_common_mode_campaign,
     plot_comp_sampling_campaign,
     plot_waveforms,
+    style_adc_code_dispersion_lsb,
     style_grid,
 )
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
@@ -165,6 +166,12 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
         assert legend.get_frame().get_facecolor()[:3] == mcolors.to_rgb(LEGEND_FACE_COLOR)
         assert legend.get_frame().get_linewidth() == 0.8
         plt.close(fig)
+
+
+def test_code_dispersion_text_distinguishes_single_bin_and_small_spread() -> None:
+    assert style_adc_code_dispersion_lsb(0.0, single_code=True) == "<1.0"
+    assert style_adc_code_dispersion_lsb(0.0063245, single_code=False) == "0.0063"
+    assert style_adc_code_dispersion_lsb(0.68, single_code=False) == "0.7"
 
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
@@ -623,7 +630,7 @@ def test_decision_path_density_holds_each_discrete_estimate(
 
     figure = captured["figure"]
     assert captured["output_path"] == tmp_path / "held_decision_density"
-    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(PLOT_STYLE["axes.facecolor"]) for ax in figure.axes[:3])
+    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(NORD_LIGHT_BLUE) for ax in figure.axes[:3])
     info_boxes = (figure.axes[0].artists[0], figure.axes[2].artists[0])
     assert all(box.get_child().get_children()[0].get_fontsize() == INFO_BOX_FONT_SIZE for box in info_boxes)
     assert all(type(box.patch.get_boxstyle()).__name__ == "Round" for box in info_boxes)
@@ -651,6 +658,36 @@ def test_decision_path_density_holds_each_discrete_estimate(
     )
     assert abs(current - previous) > 1
     assert any(np.allclose(segment, expected_segment) for segment in rendered_polygons)
+
+
+def test_decision_path_density_marks_unresolved_code_dispersion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report an all-one-code capture as unresolved rather than noiseless."""
+
+    measurement = adc_measurement([2_048] * 10)
+    analysis = analyze_adc_decision_paths(measurement, selection="all")
+    captured = {}
+
+    def save(fig, output_path):
+        captured["figure"] = fig
+        captured["output_path"] = output_path
+        return ()
+
+    monkeypatch.setattr(analysis_plots, "save_figure", save)
+    plot_adc_decision_path_density(
+        measurement,
+        analysis,
+        output_path=tmp_path / "unresolved_decision_density",
+    )
+
+    figure = captured["figure"]
+    statistics_box = figure.axes[2].artists[0]
+    statistics_text = statistics_box.get_child().get_children()[0].get_text()
+    assert captured["output_path"] == tmp_path / "unresolved_decision_density"
+    assert statistics_text == "μ: 0\nσ: <1.0 LSB"
+    plt.close(figure)
 
 
 def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
@@ -929,10 +966,15 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
         standard_deviations = analysis.std_dout[order]
         summary_box = ax.artists[0]
         summary_texts = tuple(text_area.get_children()[0] for text_area in summary_box.get_child().get_children())
+        dispersion_range_text = (
+            "σ:"
+            f"{'<1.0' if np.count_nonzero(analysis.count[order][0]) == 1 else f'{standard_deviations[0]:.1f}'}→"
+            f"{'<1.0' if np.count_nonzero(analysis.count[order][-1]) == 1 else f'{standard_deviations[-1]:.1f}'} LSB"
+        )
         assert tuple(text.get_text() for text in summary_texts) == (
             f"ADC:{adc_index:02d}",
             f"μ:{means[0]:.0f}→{means[-1]:.0f}",
-            f"σ:{standard_deviations[0]:.1f}→{standard_deviations[-1]:.1f}",
+            dispersion_range_text,
         )
         assert tuple(text.get_color() for text in summary_texts) == (
             TEXT_COLOR,
