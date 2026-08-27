@@ -1,5 +1,6 @@
 # Local workspace
 /.zed/
+/tmp
 
 # Python and tool caches
 .coverage

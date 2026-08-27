@@ -168,6 +168,19 @@ def test_shared_plot_style_uses_computer_modern_and_nord() -> None:
         plt.close(fig)
 
 
+def test_save_figure_preserves_explicit_layout_across_formats(tmp_path: Path) -> None:
+    """Do not let later output backends replace a manually positioned layout."""
+
+    with mpl.rc_context(PLOT_STYLE):
+        figure, axis = plt.subplots(layout="none")
+        figure.subplots_adjust(left=0.2, right=0.7, bottom=0.25, top=0.8)
+        expected_position = axis.get_position().bounds
+        paths = analysis_plots.save_figure(figure, tmp_path / "explicit_layout")
+
+    assert_plot_formats(paths)
+    np.testing.assert_allclose(axis.get_position().bounds, expected_position)
+
+
 def test_code_dispersion_text_distinguishes_single_bin_and_small_spread() -> None:
     assert style_adc_code_dispersion_lsb(0.0, single_code=True) == "<1.0"
     assert style_adc_code_dispersion_lsb(0.0063245, single_code=False) == "0.0063"

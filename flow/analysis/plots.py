@@ -298,10 +298,15 @@ def save_figure(
     )
     if not formats:
         raise RuntimeError("at least one plot output format must be enabled")
-    for output_format in formats:
-        path = output_path.with_suffix(f".{output_format}")
-        fig.savefig(path)
-        paths.append(path)
+    # Preserve figures that explicitly disable automatic layout. Matplotlib can
+    # otherwise install the rcParam-selected constrained-layout engine after the
+    # first backend renders, causing later formats to move manually positioned
+    # axes underneath legends and colorbars.
+    with mpl.rc_context({"figure.constrained_layout.use": False}):
+        for output_format in formats:
+            path = output_path.with_suffix(f".{output_format}")
+            fig.savefig(path)
+            paths.append(path)
     plt.close(fig)
     return tuple(paths)
 
