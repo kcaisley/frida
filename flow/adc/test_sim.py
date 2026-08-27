@@ -7,7 +7,12 @@ import hdl21 as h
 import hdl21.sim as hs
 import pytest
 
-from flow.adc.subckt import Frida65aPexAdc
+from flow.adc.subckt import (
+    Frida65a1LayerRadix20PexAdc,
+    Frida65a2LayerRadix17PexAdc,
+    Frida65a2LayerRadix20PexAdc,
+    Frida65aPexAdc,
+)
 
 from . import sim
 
@@ -16,6 +21,7 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
     params = sim.AdcTbParams()
 
     assert params.view == "hdl21gen"
+    assert params.pex_cell == ""
     assert float(params.vin_cm.dc) == pytest.approx(0.7)
     assert not hasattr(params, "temperature_c")
     assert not hasattr(params, "board_id")
@@ -63,11 +69,39 @@ def test_adc_transfer_sweep_must_match_conversion_count() -> None:
 
 
 def test_extracted_adc_keeps_calibre_port_order() -> None:
-    names = tuple(port.name for port in Frida65aPexAdc.port_list)
+    modules = (
+        Frida65aPexAdc,
+        Frida65a1LayerRadix20PexAdc,
+        Frida65a2LayerRadix17PexAdc,
+        Frida65a2LayerRadix20PexAdc,
+    )
+    for module in modules:
+        names = tuple(port.name for port in module.port_list)
+        assert len(names) == 84
+        assert len(set(names)) == 84
+        assert names[:5] == ("vdd_a", "vin_p", "vss_a", "dac_mode", "dac_diffcaps")
 
-    assert len(names) == 84
-    assert len(set(names)) == 84
-    assert names[:5] == ("vdd_a", "vin_p", "vss_a", "dac_mode", "dac_diffcaps")
+
+@pytest.mark.parametrize(
+    "pex_cell",
+    (
+        "adc_1layer_radix17",
+        "adc_1layer_radix20",
+        "adc_2layer_radix17",
+        "adc_2layer_radix20",
+    ),
+)
+def test_extracted_adc_selects_requested_pex_cell(pex_cell: str) -> None:
+    tb = sim.AdcTb(sim.AdcTbParams(view="frida65a", pex_cell=pex_cell, conversions=1))
+
+    assert tb.xadc.of.module.name == pex_cell
+
+
+def test_pex_cell_rejects_unknown_and_generated_views() -> None:
+    with pytest.raises(ValueError, match="unsupported FRIDA65A PEX cell"):
+        sim.AdcTb(sim.AdcTbParams(view="frida65a", pex_cell="adc_unknown", conversions=1))
+    with pytest.raises(ValueError, match="applies only to the frida65a view"):
+        sim.AdcTb(sim.AdcTbParams(view="hdl21gen", pex_cell="adc_1layer_radix17", conversions=1))
 
 
 def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
@@ -96,11 +130,14 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
     assert text.count("noisevec=") == 1
 
 
-def test_adc_main_owns_the_nine_named_targets() -> None:
+def test_adc_main_owns_the_twelve_named_targets() -> None:
     source = inspect.getsource(sim.main)
     for name in (
         "frida65a_noise_vs_rate_check",
         "frida65a_noise_vs_rate",
+        "frida65a_1layer_radix20_noise_vs_rate",
+        "frida65a_2layer_radix17_noise_vs_rate",
+        "frida65a_2layer_radix20_noise_vs_rate",
         "frida65a_supply_noise_vs_rate",
         "frida65a_transfer_curve_check",
         "frida65a_transfer_curve",

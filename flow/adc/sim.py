@@ -13,7 +13,14 @@ from hdl21.prefix import G, m, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
-from flow.adc.subckt import Adc, AdcParams, Frida65aPexAdc
+from flow.adc.subckt import (
+    Adc,
+    AdcParams,
+    Frida65a1LayerRadix20PexAdc,
+    Frida65a2LayerRadix17PexAdc,
+    Frida65a2LayerRadix20PexAdc,
+    Frida65aPexAdc,
+)
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
 
 
@@ -22,6 +29,11 @@ class AdcTbParams:
     """Parameters which determine one generated ADC testbench."""
 
     view = h.Param(dtype=str, desc="ADC implementation: frida65a or hdl21gen", default="hdl21gen")
+    pex_cell = h.Param(
+        dtype=str,
+        desc="Calibre-extracted FRIDA65A cell; empty selects adc_1layer_radix17",
+        default="",
+    )
     dut = h.Param(
         dtype=AdcParams,
         desc="ADC DUT parameters",
@@ -103,6 +115,17 @@ def AdcTb(params: AdcTbParams) -> h.Module:
 
     if params.view not in {"frida65a", "hdl21gen"}:
         raise ValueError(f"unsupported ADC view {params.view!r}")
+    pex_adcs = {
+        "": Frida65aPexAdc,
+        "adc_1layer_radix17": Frida65aPexAdc,
+        "adc_1layer_radix20": Frida65a1LayerRadix20PexAdc,
+        "adc_2layer_radix17": Frida65a2LayerRadix17PexAdc,
+        "adc_2layer_radix20": Frida65a2LayerRadix20PexAdc,
+    }
+    if params.view == "frida65a" and params.pex_cell not in pex_adcs:
+        raise ValueError(f"unsupported FRIDA65A PEX cell {params.pex_cell!r}")
+    if params.view == "hdl21gen" and params.pex_cell:
+        raise ValueError("pex_cell applies only to the frida65a view")
     if not math.isfinite(float(params.symbol_rate)) or float(params.symbol_rate) <= 0.0:
         raise ValueError("ADC symbol rate must be finite and positive")
     if params.conversions <= 0:
@@ -306,7 +329,7 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
             for bit in range(16):
                 pex_connections[f"{bus_name}_{bit}"] = getattr(tb, bus_name)[bit]
-        tb.xadc = Frida65aPexAdc()(**pex_connections)
+        tb.xadc = pex_adcs[params.pex_cell]()(**pex_connections)
     return tb
 
 
@@ -670,40 +693,21 @@ def hdl21gen_transfer_curve_check(run_dir: Path) -> Path:
     return run_dir
 
 
-def frida65a_noise_vs_rate(run_dir: Path) -> Path:
-    """Run 100 extracted-ADC conversions at 2, 6, and 10 Msps."""
+def _run_frida65a_noise_vs_rate(
+    run_dir: Path,
+    cases: tuple[tuple[str, AdcTbParams], ...],
+    pex_netlist: Path,
+) -> Path:
+    """Run one configured three-rate FRIDA65A PEX campaign."""
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
     from pdk import tsmc65
     from pdk.tsmc65 import site
 
-    parameters = (
-        AdcTbParams(
-            view="frida65a",
-            symbol_rate=320e6,
-            conversions=100,
-            vin_diff=h.Vdc.Params(dc=0.05),
-            seq_logic_phase_delay_symbols=2.0,
-        ),
-        AdcTbParams(
-            view="frida65a",
-            symbol_rate=960e6,
-            conversions=100,
-            vin_diff=h.Vdc.Params(dc=0.05),
-            seq_logic_phase_delay_symbols=2.0,
-        ),
-        AdcTbParams(
-            view="frida65a",
-            symbol_rate=1.6e9,
-            conversions=100,
-            vin_diff=h.Vdc.Params(dc=0.05),
-            seq_logic_phase_delay_symbols=2.0,
-        ),
-    )
     h.pdk.set_default(tsmc65.pdk_logic)
     simulations = []
-    for params in parameters:
+    for case_name, params in cases:
         tb = AdcTb(params)
         h.pdk.compile(tb)
         save_targets = [
@@ -714,11 +718,12 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
         tstop_s = params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)
         simulations.append(
             hs.Sim(
+                name=case_name,
                 tb=tb,
                 attrs=[
                     site.install.include(h.pdk.Corner.TYP),
                     site.install.include_pre_simulation(),
-                    hs.Include(path=site.ADC_PEX_NETLIST),
+                    hs.Include(path=pex_netlist),
                     hs.Options(name="temp", value=25.0),
                     hs.Options(name="save", value="selected"),
                     hs.Save(save_targets),
@@ -751,9 +756,10 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
             ),
         ),
     )
-    for index, (params, result) in enumerate(zip(parameters, results, strict=True)):
+    for index, ((case_name, params), result) in enumerate(zip(cases, results, strict=True)):
         transient = cast(TranResult, result[AnalysisType.TRAN])
-        case_dir = run_dir / str(index)
+        case_dir = run_dir / case_name
+        (run_dir / str(index)).rename(case_dir)
         measurement = convert_spectre_adc_to_measurement(
             transient.data,
             params=params,
@@ -763,6 +769,233 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
         )
         write_measurement(case_dir / "result.h5", measurement)
     return run_dir
+
+
+def frida65a_noise_vs_rate(run_dir: Path) -> Path:
+    """Run the one-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
+
+    from pdk.tsmc65 import site
+
+    dut = AdcParams(
+        adc_bits=12,
+        n_cycles=16,
+        cdac=CdacParams(
+            n_dac=11,
+            n_extra=5,
+            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            weights=(768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1),
+        ),
+    )
+    cases = (
+        (
+            "2msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix17",
+                dut=dut,
+                symbol_rate=320e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "6msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix17",
+                dut=dut,
+                symbol_rate=960e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "10msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix17",
+                dut=dut,
+                symbol_rate=1.6e9,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+    )
+    return _run_frida65a_noise_vs_rate(run_dir, cases, site.ADC_PEX_NETLIST)
+
+
+def frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+    """Run the one-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
+
+    from pdk.tsmc65 import site
+
+    dut = AdcParams(
+        adc_bits=12,
+        n_cycles=16,
+        cdac=CdacParams(
+            n_dac=11,
+            n_extra=5,
+            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
+        ),
+    )
+    cases = (
+        (
+            "2msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix20",
+                dut=dut,
+                symbol_rate=320e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "6msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix20",
+                dut=dut,
+                symbol_rate=960e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "10msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_1layer_radix20",
+                dut=dut,
+                symbol_rate=1.6e9,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+    )
+    pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_1layer_radix20/adc_1layer_radix20.pex.netlist"
+    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+
+
+def frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
+    """Run the two-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
+
+    from pdk.tsmc65 import site
+
+    dut = AdcParams(
+        adc_bits=12,
+        n_cycles=16,
+        cdac=CdacParams(
+            n_dac=11,
+            n_extra=5,
+            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            weights=(768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1),
+        ),
+    )
+    cases = (
+        (
+            "2msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix17",
+                dut=dut,
+                symbol_rate=320e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "6msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix17",
+                dut=dut,
+                symbol_rate=960e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "10msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix17",
+                dut=dut,
+                symbol_rate=1.6e9,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+    )
+    pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_2layer_radix17/adc_2layer_radix17.pex.netlist"
+    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+
+
+def frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+    """Run the two-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
+
+    from pdk.tsmc65 import site
+
+    dut = AdcParams(
+        adc_bits=12,
+        n_cycles=16,
+        cdac=CdacParams(
+            n_dac=11,
+            n_extra=5,
+            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
+        ),
+    )
+    cases = (
+        (
+            "2msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix20",
+                dut=dut,
+                symbol_rate=320e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "6msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix20",
+                dut=dut,
+                symbol_rate=960e6,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+        (
+            "10msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_2layer_radix20",
+                dut=dut,
+                symbol_rate=1.6e9,
+                conversions=100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+    )
+    pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_2layer_radix20/adc_2layer_radix20.pex.netlist"
+    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
 
 
 def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
@@ -1114,6 +1347,9 @@ def main() -> None:
         for target in (
             frida65a_noise_vs_rate_check,
             frida65a_noise_vs_rate,
+            frida65a_1layer_radix20_noise_vs_rate,
+            frida65a_2layer_radix17_noise_vs_rate,
+            frida65a_2layer_radix20_noise_vs_rate,
             frida65a_supply_noise_vs_rate,
             frida65a_transfer_curve_check,
             frida65a_transfer_curve,
