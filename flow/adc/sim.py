@@ -771,7 +771,7 @@ def _run_frida65a_noise_vs_rate(
     return run_dir
 
 
-def frida65a_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida65a_1layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
     """Run the one-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -827,7 +827,7 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
     return _run_frida65a_noise_vs_rate(run_dir, cases, site.ADC_PEX_NETLIST)
 
 
-def frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     """Run the one-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -884,7 +884,7 @@ def frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
 
 
-def frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
     """Run the two-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -941,7 +941,7 @@ def frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
     return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
 
 
-def frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     """Run the two-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -996,6 +996,22 @@ def frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     )
     pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_2layer_radix20/adc_2layer_radix20.pex.netlist"
     return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+
+
+def frida65a_noise_vs_rate(run_dir: Path) -> Path:
+    """Run all four extracted ADC flavors at 2, 6, and 10 Msps."""
+
+    flavor_campaigns = (
+        ("adc_1layer_radix17", _run_frida65a_1layer_radix17_noise_vs_rate),
+        ("adc_1layer_radix20", _run_frida65a_1layer_radix20_noise_vs_rate),
+        ("adc_2layer_radix17", _run_frida65a_2layer_radix17_noise_vs_rate),
+        ("adc_2layer_radix20", _run_frida65a_2layer_radix20_noise_vs_rate),
+    )
+    for flavor_name, run_flavor_campaign in flavor_campaigns:
+        flavor_run_dir = run_dir / flavor_name
+        flavor_run_dir.mkdir()
+        run_flavor_campaign(flavor_run_dir)
+    return run_dir
 
 
 def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
@@ -1347,9 +1363,6 @@ def main() -> None:
         for target in (
             frida65a_noise_vs_rate_check,
             frida65a_noise_vs_rate,
-            frida65a_1layer_radix20_noise_vs_rate,
-            frida65a_2layer_radix17_noise_vs_rate,
-            frida65a_2layer_radix20_noise_vs_rate,
             frida65a_supply_noise_vs_rate,
             frida65a_transfer_curve_check,
             frida65a_transfer_curve,

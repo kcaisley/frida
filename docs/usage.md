@@ -107,6 +107,12 @@ uv run python -m flow.samp.sim frida65_baseline_transient
 uv run python -m flow.cdac.sim frida65_baseline_transient
 ```
 
+The extracted fixed-input target groups the one-layer and two-layer radix-17
+and radix-20 ADCs beneath one timestamped run. Each flavor has its own named
+subdirectory containing the 2, 6, and 10 MS/s results. The four flavor groups
+run sequentially so that the complete comparison remains one coherent
+campaign.
+
 The ADC and comparator runners convert completed raw results to typed HDF5 in
 each case directory. Sampler and CDAC retain the Spectre raw result and log;
 their standalone runners do not yet invoke the existing typed measurement and

@@ -2,6 +2,7 @@
 
 import inspect
 from io import StringIO
+from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -130,14 +131,34 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
     assert text.count("noisevec=") == 1
 
 
-def test_adc_main_owns_the_twelve_named_targets() -> None:
+def test_extracted_flavors_share_one_campaign_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    flavor_names = (
+        "adc_1layer_radix17",
+        "adc_1layer_radix20",
+        "adc_2layer_radix17",
+        "adc_2layer_radix20",
+    )
+    calls = []
+
+    def record_flavor_campaign(run_dir: Path) -> Path:
+        calls.append(run_dir)
+        return run_dir
+
+    for flavor_name in flavor_names:
+        monkeypatch.setattr(
+            sim, f"_run_frida65a_{flavor_name.removeprefix('adc_')}_noise_vs_rate", record_flavor_campaign
+        )
+
+    assert sim.frida65a_noise_vs_rate(tmp_path) == tmp_path
+    assert calls == [tmp_path / flavor_name for flavor_name in flavor_names]
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(flavor_names)
+
+
+def test_adc_main_owns_the_nine_named_targets() -> None:
     source = inspect.getsource(sim.main)
     for name in (
         "frida65a_noise_vs_rate_check",
         "frida65a_noise_vs_rate",
-        "frida65a_1layer_radix20_noise_vs_rate",
-        "frida65a_2layer_radix17_noise_vs_rate",
-        "frida65a_2layer_radix20_noise_vs_rate",
         "frida65a_supply_noise_vs_rate",
         "frida65a_transfer_curve_check",
         "frida65a_transfer_curve",
