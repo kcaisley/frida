@@ -15,8 +15,6 @@ from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
 from flow.adc.subckt import Adc, AdcParams, Frida65aPexAdc
 from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from pdk import tsmc65
-from pdk.tsmc65 import site
 
 
 @h.paramclass
@@ -316,6 +314,8 @@ def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
     """Run the extracted ADC briefly at three rates with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     parameters = (
         AdcTbParams(
@@ -412,6 +412,8 @@ def frida65a_transfer_curve_check(run_dir: Path) -> Path:
     """Run the extracted-ADC transfer testbench briefly with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     params = AdcTbParams(
         view="frida65a",
@@ -480,6 +482,8 @@ def hdl21gen_noise_vs_rate_check(run_dir: Path) -> Path:
     """Run the generated ADC briefly at three rates with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     parameters = (
         AdcTbParams(
@@ -588,6 +592,8 @@ def hdl21gen_transfer_curve_check(run_dir: Path) -> Path:
     """Run the generated-ADC transfer testbench briefly with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     params = AdcTbParams(
         view="hdl21gen",
@@ -669,6 +675,8 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     parameters = (
         AdcTbParams(
@@ -762,6 +770,8 @@ def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     rates = ((2, 320e6), (6, 960e6), (10, 1.6e9))
     noise_rms_v = 1e-3
@@ -860,6 +870,8 @@ def frida65a_transfer_curve(run_dir: Path) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     params = AdcTbParams(
         view="frida65a",
@@ -919,6 +931,8 @@ def hdl21gen_noise_vs_rate(run_dir: Path) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     parameters = (
         AdcTbParams(
@@ -1024,6 +1038,8 @@ def hdl21gen_transfer_curve(run_dir: Path) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    from pdk import tsmc65
+    from pdk.tsmc65 import site
 
     params = AdcTbParams(
         view="hdl21gen",
