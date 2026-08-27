@@ -130,9 +130,9 @@
     \textbf{Track} & \textbf{ADC pin} & \textbf{Required action} \\
     \midrule
     INIT & \pin{seq_init} & Pulse INIT and LOGIC together for one 2.5 ns window. \\
-    SAMP & \pin{seq_samp} & Hold high for 20 ns to acquire both differential inputs. \\
-    COMP & \pin{seq_comp} & Apply sixteen 2.5 ns high windows on a 5 ns period. \\
-    LOGIC & \pin{seq_update} & Pulse once with INIT, then apply fifteen delayed 2.5 ns update windows. \\
+    SAMP & \pin{seq_samp} & Hold high for 15 ns to acquire both differential inputs. \\
+    COMP & \pin{seq_comp} & Apply seventeen 2.5 ns high windows on a 5 ns period. \\
+    LOGIC & \pin{seq_update} & Pulse once with INIT, then apply sixteen delayed 2.5 ns update windows. \\
     \bottomrule
   \end{tabular}
 \end{frame}
