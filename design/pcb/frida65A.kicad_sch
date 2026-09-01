@@ -8294,6 +8294,12 @@
 		(uuid "42db8651-04bf-44ca-a482-609309a8d44b")
 	)
 	(junction
+		(at 340.36 93.98)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "44da979a-902b-4147-a0a7-02597b4f1a63")
+	)
+	(junction
 		(at 111.76 87.63)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -8334,12 +8340,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "58df80d1-cc4b-4327-87a6-e0dfc4e34f75")
-	)
-	(junction
-		(at 341.63 83.82)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "59fbec43-1018-489a-ab1e-f503ba1c6fcd")
 	)
 	(junction
 		(at 119.38 95.25)
@@ -8478,12 +8478,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "99ce82b3-f587-4f4f-9670-bb51d0b18bc7")
-	)
-	(junction
-		(at 341.63 93.98)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "9b1105e9-3f56-4d43-ac7c-2cb3c5447478")
 	)
 	(junction
 		(at 66.04 217.17)
@@ -8720,6 +8714,12 @@
 		(uuid "ea38974d-dbad-4bd6-9ddf-286a2ae06f35")
 	)
 	(junction
+		(at 340.36 83.82)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "eee72562-5db3-4036-b9a7-01caa7a8a09c")
+	)
+	(junction
 		(at 116.84 267.97)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -8953,7 +8953,7 @@
 	)
 	(wire
 		(pts
-			(xy 337.82 93.98) (xy 341.63 93.98)
+			(xy 337.82 93.98) (xy 340.36 93.98)
 		)
 		(stroke
 			(width 0)
@@ -9093,7 +9093,7 @@
 	)
 	(wire
 		(pts
-			(xy 341.63 83.82) (xy 341.63 85.09)
+			(xy 340.36 83.82) (xy 340.36 85.09)
 		)
 		(stroke
 			(width 0)
@@ -9623,7 +9623,7 @@
 	)
 	(wire
 		(pts
-			(xy 337.82 83.82) (xy 341.63 83.82)
+			(xy 337.82 83.82) (xy 340.36 83.82)
 		)
 		(stroke
 			(width 0)
@@ -10240,16 +10240,6 @@
 			(type default)
 		)
 		(uuid "483ab297-fb1b-4184-91d5-21cb583b3860")
-	)
-	(wire
-		(pts
-			(xy 341.63 83.82) (xy 351.79 83.82)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "48684acf-9db3-4565-913f-8c02bb56f89b")
 	)
 	(wire
 		(pts
@@ -11063,6 +11053,16 @@
 	)
 	(wire
 		(pts
+			(xy 340.36 93.98) (xy 351.79 93.98)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6c26e64e-17da-4e88-8f87-ce33e1fc45f8")
+	)
+	(wire
+		(pts
 			(xy 205.74 60.96) (xy 212.09 60.96)
 		)
 		(stroke
@@ -11190,16 +11190,6 @@
 			(type default)
 		)
 		(uuid "7210fad6-bd19-42da-8399-04a3288469df")
-	)
-	(wire
-		(pts
-			(xy 341.63 93.98) (xy 351.79 93.98)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "72a7ed0a-ad63-4dff-bebb-3180cea71d49")
 	)
 	(polyline
 		(pts
@@ -13163,7 +13153,7 @@
 	)
 	(wire
 		(pts
-			(xy 341.63 92.71) (xy 341.63 93.98)
+			(xy 340.36 92.71) (xy 340.36 93.98)
 		)
 		(stroke
 			(width 0)
@@ -14060,6 +14050,16 @@
 			(type default)
 		)
 		(uuid "f3ee1c6e-1db4-4dc3-a3ac-e2a5b17e4f39")
+	)
+	(wire
+		(pts
+			(xy 340.36 83.82) (xy 351.79 83.82)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f56b89f6-f716-4a52-9a81-4b3f7f86d655")
 	)
 	(wire
 		(pts
@@ -21411,7 +21411,7 @@
 	)
 	(symbol
 		(lib_id "Device:C")
-		(at 341.63 88.9 0)
+		(at 340.36 88.9 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -21422,7 +21422,7 @@
 		(fields_autoplaced yes)
 		(uuid "6b0cbcc4-aee1-45bd-9814-170307c44f49")
 		(property "Reference" "C6"
-			(at 345.44 87.6299 0)
+			(at 344.17 87.6299 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -21432,8 +21432,8 @@
 				(justify left)
 			)
 		)
-		(property "Value" "51pF"
-			(at 345.44 90.1699 0)
+		(property "Value" "100nF"
+			(at 344.17 90.1699 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -21444,7 +21444,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
-			(at 342.5952 92.71 0)
+			(at 341.3252 92.71 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21455,7 +21455,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 341.63 88.9 0)
+			(at 340.36 88.9 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21466,7 +21466,7 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
-			(at 341.63 88.9 0)
+			(at 340.36 88.9 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21477,7 +21477,7 @@
 			)
 		)
 		(property "Sim.Device" ""
-			(at 341.63 88.9 0)
+			(at 340.36 88.9 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21488,7 +21488,7 @@
 			)
 		)
 		(property "Sim.Pins" ""
-			(at 341.63 88.9 0)
+			(at 340.36 88.9 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21499,7 +21499,7 @@
 			)
 		)
 		(property "Sim.Type" ""
-			(at 341.63 88.9 0)
+			(at 340.36 88.9 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
