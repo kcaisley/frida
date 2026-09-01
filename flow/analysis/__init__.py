@@ -1,6 +1,7 @@
 """Typed FRIDA measurement I/O, numerical analyses, and plots."""
 
 from .adc import (
+    analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
@@ -20,6 +21,7 @@ from .comp import (
 from .io import read_measurement, write_measurement
 
 __all__ = [
+    "analyze_adc_cdac_settling",
     "analyze_adc_code_distribution",
     "analyze_adc_decision_paths",
     "analyze_adc_dynamic",

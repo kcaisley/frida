@@ -50,6 +50,8 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
     assert "adc_calibration" in runner.TARGETS
     assert "adc00_fixed_input_noise" in runner.TARGETS
     assert "adc_noise_density_grid" in runner.TARGETS
+    assert "adc_pex_flavor_paths" in runner.TARGETS
+    assert "adc_pex_cdac_settling" in runner.TARGETS
     assert "adc00_pex_transfer" not in runner.TARGETS
     assert "adc_code_distributions" in runner.TARGETS
     assert "adc_code_diag" not in runner.TARGETS
@@ -573,6 +575,91 @@ def test_adc_noise_density_grid_uses_final_manual_supply_capture(
         "adc00_adc15_50mv_700mv_output_code_density_grid",
     ]
     assert artifacts == tuple(output_path.with_suffix(".pdf") for _measurements, _analyses, output_path in plotted)
+
+
+def test_adc_pex_flavor_runners_use_h5_flavors_and_rates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plot every extracted flavor and rate using persisted simulation metadata."""
+
+    meas_read_dir = tmp_path / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
+    measurements = {}
+    flavors = (
+        "adc_1layer_radix17",
+        "adc_1layer_radix20",
+        "adc_2layer_radix17",
+        "adc_2layer_radix20",
+    )
+    for flavor in flavors:
+        for rate_msps in (2, 6, 10):
+            path = meas_read_dir / flavor / f"{rate_msps}msps_cm700mv_dc50mv/result.h5"
+            path.parent.mkdir(parents=True)
+            path.touch()
+            measurement = adc_measurement([0], internal=True)
+            measurements[path] = dataclasses.replace(
+                measurement,
+                param=dataclasses.replace(
+                    measurement.param,
+                    pex_cell=flavor,
+                    symbol_rate=rate_msps * 160e6,
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                ),
+            )
+
+    outputs = []
+    selections = []
+
+    def analyze_noise(measurement_group):
+        return SimpleNamespace(
+            active_conversion_rate_hz=np.asarray(
+                [float(measurement.param.symbol_rate) / 160.0 for measurement in measurement_group]
+            )
+        )
+
+    def analyze_paths(_measurement, *, selection):
+        selections.append(selection)
+        return object()
+
+    def plot_paths(_measurement, _analysis, *, output_path):
+        outputs.append(output_path.name)
+        return (output_path.with_suffix(".pdf"),)
+
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(runner, "analyze_adc_noise_sweep", analyze_noise)
+    monkeypatch.setattr(runner, "analyze_adc_decision_paths", analyze_paths)
+    monkeypatch.setattr(runner, "plot_adc_decision_path_density", plot_paths)
+
+    artifacts = runner.adc_pex_flavor_paths(tmp_path / "output")
+
+    assert len(artifacts) == 12
+    assert selections == ["all"] * 12
+    assert outputs == [
+        f"spice_{flavor}_50mv_{rate_msps}msps_decision_path_density" for flavor in flavors for rate_msps in (10, 2, 6)
+    ]
+
+    settling_outputs = []
+
+    def analyze_settling(measurement):
+        return SimpleNamespace(active_conversion_rate_hz=float(measurement.param.symbol_rate) / 160.0)
+
+    def plot_settling(measurement, analysis, *, output_path):
+        settling_outputs.append((measurement, analysis, output_path.name))
+        return (output_path.with_suffix(".pdf"),)
+
+    monkeypatch.setattr(runner, "analyze_adc_cdac_settling", analyze_settling)
+    monkeypatch.setattr(runner, "plot_adc_cdac_settling", plot_settling)
+
+    settling_artifacts = runner.adc_pex_cdac_settling(tmp_path / "output")
+
+    assert len(settling_artifacts) == 12
+    assert [name for _measurement, _analysis, name in settling_outputs] == [
+        f"spice_{flavor}_50mv_{rate_msps}msps_cdac_settling" for flavor in flavors for rate_msps in (10, 2, 6)
+    ]
+    assert [float(measurement.param.symbol_rate) for measurement, _analysis, _name in settling_outputs] == [
+        rate_msps * 160e6 for _flavor in flavors for rate_msps in (10, 2, 6)
+    ]
 
 
 def test_adc_noise_vs_comp_time_runner_uses_configured_adc_subset(

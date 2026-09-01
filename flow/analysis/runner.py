@@ -27,6 +27,7 @@ from time import perf_counter
 import numpy as np
 
 from flow.analysis.adc import (
+    analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
@@ -50,6 +51,7 @@ from flow.analysis.comp import (
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import (
     plot_adc_calibration_weights,
+    plot_adc_cdac_settling,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
@@ -549,6 +551,52 @@ def adc_noise_density_grid(output_dir: Path) -> tuple[Path, ...]:
                 measurement_groups,
                 analyses,
                 output_path=output_dir / f"adc00_adc15_{input_mv:g}mv_{common_mode_mv:g}mv_output_code_density_grid",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_pex_flavor_paths(output_dir: Path) -> tuple[Path, ...]:
+    """Plot decision-path densities for the four extracted ADC flavors."""
+
+    meas_read_dir = BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
+    artifacts = []
+    for path in sorted(meas_read_dir.glob("*/*/result.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcInt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
+        noise = analyze_adc_noise_sweep((measurement,))
+        input_mv = float(measurement.param.vin_diff.dc) * 1e3
+        active_rate_msps = float(noise.active_conversion_rate_hz[0]) / 1e6
+        artifacts.extend(
+            plot_adc_decision_path_density(
+                measurement,
+                analyze_adc_decision_paths(measurement, selection="all"),
+                output_path=output_dir
+                / f"spice_{measurement.param.pex_cell}_{input_mv:g}mv_{active_rate_msps:g}msps_decision_path_density",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_pex_cdac_settling(output_dir: Path) -> tuple[Path, ...]:
+    """Plot representative internal CDAC settling for each extracted ADC flavor."""
+
+    meas_read_dir = BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
+    artifacts = []
+    for path in sorted(meas_read_dir.glob("*/*/result.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcInt):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
+        analysis = analyze_adc_cdac_settling(measurement)
+        input_mv = float(measurement.param.vin_diff.dc) * 1e3
+        active_rate_msps = analysis.active_conversion_rate_hz / 1e6
+        artifacts.extend(
+            plot_adc_cdac_settling(
+                measurement,
+                analysis,
+                output_path=output_dir
+                / f"spice_{measurement.param.pex_cell}_{input_mv:g}mv_{active_rate_msps:g}msps_cdac_settling",
             )
         )
     return tuple(artifacts)
@@ -1169,6 +1217,8 @@ TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
         adc_calibration,
         adc00_fixed_input_noise,
         adc_noise_density_grid,
+        adc_pex_flavor_paths,
+        adc_pex_cdac_settling,
         adc_noise_vs_rate,
         adc_code_distributions,
         adc_power_vs_rate,

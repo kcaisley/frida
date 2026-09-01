@@ -25,6 +25,7 @@ from scipy.special import ndtr
 
 from flow.analysis.types import (
     AnalysisAdcCalibration,
+    AnalysisAdcCdacSettling,
     AnalysisAdcCodeDistribution,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
@@ -46,6 +47,7 @@ from flow.analysis.types import (
     AnalysisWaveform,
     MeasAdc,
     MeasAdcExt,
+    MeasAdcInt,
     MeasCdacExt,
     MeasCompExt,
     MeasCompInt,
@@ -1345,6 +1347,108 @@ def plot_adc_power_sweep(
     ax.legend()
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower right")
     ax.set_title("ADC static and dynamic supply power")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_cdac_settling(
+    msmt: MeasAdcInt,
+    analysis: AnalysisAdcCdacSettling,
+    *,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Plot early, middle, and late representative CDAC-update intervals."""
+
+    time_scale, time_unit = style_time_units(analysis.time_s)
+    fig, axes = plt.subplots(
+        3,
+        3,
+        sharex="col",
+        sharey="row",
+        gridspec_kw={"height_ratios": (1.0, 1.0, 1.25)},
+    )
+    scaled_time = analysis.time_s * time_scale
+    bit_cycles = tuple(dict.fromkeys(zip(analysis.bit_index, analysis.cycle_index, strict=True)))
+    for column, (bit_index, cycle_index) in enumerate(bit_cycles):
+        selected = analysis.bit_index == bit_index
+        if not np.any(selected):
+            raise ValueError(f"ADC CDAC settling plot is missing saved bit {bit_index}")
+        comparator_ax, drive_ax, settling_ax = axes[:, column]
+        comparator_ax.plot(scaled_time, analysis.clk_comp_v[selected][0], color=NORD_DARK)
+        for values in analysis.comp_out_p_v[selected]:
+            comparator_ax.plot(scaled_time, values, color=NORD_BLUE, alpha=0.35)
+        for values in analysis.comp_out_n_v[selected]:
+            comparator_ax.plot(scaled_time, values, color=NORD_ORANGE, alpha=0.35)
+
+        drive_ax.plot(scaled_time, analysis.seq_logic_v[selected][0], color=NORD_DARK)
+        for values in analysis.dac_state_p_v[selected]:
+            drive_ax.plot(scaled_time, values, color=NORD_BLUE, linestyle="--", alpha=0.35)
+        for values in analysis.dac_state_n_v[selected]:
+            drive_ax.plot(scaled_time, values, color=NORD_ORANGE, linestyle="--", alpha=0.35)
+        for values in analysis.dac_botplate_p_v[selected]:
+            drive_ax.plot(scaled_time, values, color=NORD_BLUE, alpha=0.35)
+        for values in analysis.dac_botplate_n_v[selected]:
+            drive_ax.plot(scaled_time, values, color=NORD_ORANGE, alpha=0.35)
+
+        for values in analysis.vdac_p_settling_error_v[selected]:
+            settling_ax.plot(scaled_time, values * 1e3, color=NORD_BLUE, alpha=0.35)
+        for values in analysis.vdac_n_settling_error_v[selected]:
+            settling_ax.plot(scaled_time, values * 1e3, color=NORD_ORANGE, alpha=0.35)
+        settling_ax.axhline(0.0, color=NORD_DARK, linestyle="--")
+        settling_ax.set_ylim(-25.0, 25.0)
+        settling_ax.set_xlabel(f"Time ({time_unit})")
+        comparator_ax.set_title(f"Bit {int(bit_index)} (cycle {int(cycle_index)})")
+        for ax in (comparator_ax, drive_ax, settling_ax):
+            ax.set_xlim(float(scaled_time[0]), float(scaled_time[-1]))
+            style_grid(ax)
+
+    digital_limit_v = float(msmt.param.vdd_d.dc)
+    axes[0, 0].set_ylim(-0.08 * digital_limit_v, 1.08 * digital_limit_v)
+    axes[1, 0].set_ylim(-0.08 * digital_limit_v, 1.08 * digital_limit_v)
+    axes[0, 0].set_ylabel("Comparator (V)")
+    axes[1, 0].set_ylabel("CDAC drive (V)")
+    axes[2, 0].set_ylabel("VDAC residual (mV)")
+    axes[0, 0].legend(
+        handles=(
+            Line2D((), (), color=NORD_DARK, label="clk_comp"),
+            Line2D((), (), color=NORD_BLUE, label="out_p"),
+            Line2D((), (), color=NORD_ORANGE, label="out_n"),
+        ),
+        loc="lower left",
+        ncols=1,
+        fontsize=INFO_BOX_FONT_SIZE,
+    )
+    axes[1, 0].legend(
+        handles=(
+            Line2D((), (), color=NORD_DARK, label="clk_logic"),
+            Line2D((), (), color=NORD_BLUE, linestyle="--", label="state_p"),
+            Line2D((), (), color=NORD_ORANGE, linestyle="--", label="state_n"),
+            Line2D((), (), color=NORD_BLUE, label="bot_p"),
+            Line2D((), (), color=NORD_ORANGE, label="bot_n"),
+        ),
+        loc="lower left",
+        ncols=1,
+        fontsize=INFO_BOX_FONT_SIZE,
+    )
+    axes[2, 0].legend(
+        handles=(
+            Line2D((), (), color=NORD_BLUE, label="top_p"),
+            Line2D((), (), color=NORD_ORANGE, label="top_n"),
+        ),
+        loc="lower left",
+        ncols=1,
+        fontsize=INFO_BOX_FONT_SIZE,
+    )
+    flavor = (
+        msmt.param.pex_cell.removeprefix("adc_").replace("_", " ").replace("layer", "-layer").replace("radix", "radix-")
+    )
+    setup_lines = [
+        f"PEX: {flavor}",
+        *style_measurement_text(msmt),
+        f"Conversions: {len(np.unique(analysis.conversion_index))}",
+    ]
+    style_info_box(axes[0, -1], setup_lines, location="upper right")
+    fig.suptitle("CDAC settling through representative SAR decisions")
     return save_figure(fig, output_path)
 
 

@@ -15,6 +15,7 @@ from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
 from flow.analysis.adc import (
+    analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
@@ -43,6 +44,7 @@ from flow.analysis.plots import (
     SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
+    plot_adc_cdac_settling,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
@@ -67,7 +69,7 @@ from flow.analysis.plots import (
     style_adc_code_dispersion_lsb,
     style_grid,
 )
-from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
+from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import all_measurements
 from flow.analysis.types import (
@@ -206,6 +208,45 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "CDAC init: h'5555" in svg
     assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
+
+
+def test_cdac_settling_plot_separates_saved_bit_cycles_and_uses_millivolts(tmp_path: Path) -> None:
+    measurement = adc_cdac_settling_measurement()
+    measurement = replace(
+        measurement,
+        param=replace(
+            measurement.param,
+            pex_cell="adc_1layer_radix17",
+            symbol_rate=1.6e9,
+        ),
+    )
+    analysis = replace(analyze_adc_cdac_settling(measurement), active_conversion_rate_hz=10e6)
+
+    paths = plot_adc_cdac_settling(
+        measurement,
+        analysis,
+        output_path=tmp_path / "cdac_settling",
+    )
+
+    assert_plot_formats(paths)
+    svg = read_svg(paths)
+    assert "Bit 15 (cycle 0)" in svg
+    assert "Bit 8 (cycle 7)" in svg
+    assert "Bit 0 (cycle 15)" in svg
+    assert "VDAC residual (mV)" in svg
+    for label in (
+        "clk_comp",
+        "out_p",
+        "out_n",
+        "clk_logic",
+        "state_p",
+        "state_n",
+        "bot_p",
+        "bot_n",
+        "top_p",
+        "top_n",
+    ):
+        assert label in svg
 
 
 def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:

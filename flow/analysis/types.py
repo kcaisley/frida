@@ -1829,6 +1829,84 @@ class AnalysisAdcPowerWaveform:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAdcCdacSettling:
+    """Aligned representative SAR cycles and CDAC top-plate settling."""
+
+    active_conversion_rate_hz: float
+    bit_index: IntArray
+    cycle_index: IntArray
+    conversion_index: IntArray
+    time_s: FloatArray
+    clk_comp_v: FloatArray
+    comp_out_p_v: FloatArray
+    comp_out_n_v: FloatArray
+    seq_logic_v: FloatArray
+    dac_state_p_v: FloatArray
+    dac_state_n_v: FloatArray
+    dac_botplate_p_v: FloatArray
+    dac_botplate_n_v: FloatArray
+    vdac_p_settling_error_v: FloatArray
+    vdac_n_settling_error_v: FloatArray
+    static_vdac_p_v: FloatArray
+    static_vdac_n_v: FloatArray
+
+    def __post_init__(self) -> None:
+        bit_index = _array_1d(self.bit_index, np.int64, "bit_index")
+        cycle_index = _array_1d(self.cycle_index, np.int64, "cycle_index")
+        conversion_index = _array_1d(self.conversion_index, np.int64, "conversion_index")
+        time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
+        waveforms = {
+            name: _array_2d(getattr(self, name), np.float64, name, finite=True)
+            for name in (
+                "clk_comp_v",
+                "comp_out_p_v",
+                "comp_out_n_v",
+                "seq_logic_v",
+                "dac_state_p_v",
+                "dac_state_n_v",
+                "dac_botplate_p_v",
+                "dac_botplate_n_v",
+                "vdac_p_settling_error_v",
+                "vdac_n_settling_error_v",
+            )
+        }
+        static_vdac_p_v = _array_1d(self.static_vdac_p_v, np.float64, "static_vdac_p_v", finite=True)
+        static_vdac_n_v = _array_1d(self.static_vdac_n_v, np.float64, "static_vdac_n_v", finite=True)
+        trace_count = _aligned_length(
+            {
+                "bit_index": bit_index,
+                "cycle_index": cycle_index,
+                "conversion_index": conversion_index,
+                "static_vdac_p_v": static_vdac_p_v,
+                "static_vdac_n_v": static_vdac_n_v,
+                **waveforms,
+            }
+        )
+        expected_shape = (trace_count, len(time_s))
+        if trace_count == 0 or len(time_s) < 2 or any(values.shape != expected_shape for values in waveforms.values()):
+            raise ValueError("ADC CDAC settling waveforms must be populated and aligned")
+        if (
+            not math.isfinite(self.active_conversion_rate_hz)
+            or self.active_conversion_rate_hz <= 0.0
+            or np.any(np.diff(time_s) <= 0.0)
+            or time_s[0] >= 0.0
+            or time_s[-1] <= 0.0
+            or not np.any(time_s == 0.0)
+            or set(zip(bit_index, cycle_index, strict=True)) != {(15, 0), (8, 7), (0, 15)}
+            or np.any(conversion_index < 0)
+        ):
+            raise ValueError("ADC CDAC settling metadata is outside its valid range")
+        object.__setattr__(self, "bit_index", bit_index)
+        object.__setattr__(self, "cycle_index", cycle_index)
+        object.__setattr__(self, "conversion_index", conversion_index)
+        object.__setattr__(self, "time_s", time_s)
+        for name, values in waveforms.items():
+            object.__setattr__(self, name, values)
+        object.__setattr__(self, "static_vdac_p_v", static_vdac_p_v)
+        object.__setattr__(self, "static_vdac_n_v", static_vdac_n_v)
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisAdcDecisionPaths:
     """Running SAR estimates reconstructed from selected decision records."""
 

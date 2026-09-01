@@ -765,7 +765,6 @@ def _run_frida65a_noise_vs_rate(
             params=params,
             raw_path=case_dir / "netlist.raw",
             signal_names=adc_signal_names(params.view),
-            maximum_waveform_records=3,
         )
         write_measurement(case_dir / "result.h5", measurement)
     return run_dir

@@ -14,6 +14,7 @@ import pytest
 from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
+    analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
@@ -150,6 +151,67 @@ def adc_measurement(
             comp_out_v=zeros,
         ),
     )
+
+
+def adc_cdac_settling_measurement() -> MeasAdcInt:
+    """Build one compact internal waveform with three representative CDAC updates."""
+
+    base = adc_measurement([2_048], internal=True)
+    assert isinstance(base, MeasAdcInt)
+    time_s = np.arange(0.0, 18.51e-9, 10e-12)
+    zeros = np.zeros((1, len(time_s)))
+    comp_edges_s = 0.5e-9 + np.arange(17) * 1e-9
+    logic_edges_s = 0.9e-9 + np.arange(16) * 1e-9
+
+    def pulse_train(edges_s: np.ndarray, width_s: float) -> np.ndarray:
+        values = np.zeros_like(time_s)
+        for edge_s in edges_s:
+            values[(time_s >= edge_s) & (time_s < edge_s + width_s)] = 1.2
+        return values
+
+    seq_comp_v = pulse_train(comp_edges_s, 0.3e-9)
+    seq_logic_v = pulse_train(logic_edges_s, 0.2e-9)
+    comp_out_p_v = np.zeros_like(time_s)
+    for cycle, edge_s in enumerate(comp_edges_s):
+        comp_out_p_v[time_s >= edge_s + 0.08e-9] = 1.2 * (cycle % 2)
+    comp_out_n_v = 1.2 - comp_out_p_v
+
+    wave_values = {name: zeros for name in base.wave.__dataclass_fields__ if name not in {"conversion_index", "time_s"}}
+    vdac_p_v = np.full_like(time_s, 0.7)
+    vdac_n_v = np.full_like(time_s, 0.7)
+    for bit_index, cycle_index, step_v in ((15, 0, 0.12), (8, 7, -0.04), (0, 15, 0.01)):
+        logic_edge_s = logic_edges_s[cycle_index]
+        switched = time_s >= logic_edge_s
+        settling = np.zeros_like(time_s)
+        settling[switched] = step_v * (1.0 - np.exp(-(time_s[switched] - logic_edge_s) / 0.05e-9))
+        vdac_p_v += settling
+        vdac_n_v -= settling
+        state_p_v = np.where(switched, 1.2, 0.0)
+        state_n_v = 1.2 - state_p_v
+        bottom_switched = time_s >= logic_edge_s + 0.05e-9
+        wave_values[f"dac_state_p_{bit_index}_v"] = state_p_v[None, :]
+        wave_values[f"dac_state_n_{bit_index}_v"] = state_n_v[None, :]
+        wave_values[f"dac_botplate_p_{bit_index}_v"] = np.where(bottom_switched, 1.2, 0.0)[None, :]
+        wave_values[f"dac_botplate_n_{bit_index}_v"] = np.where(bottom_switched, 0.0, 1.2)[None, :]
+
+    wave_values.update(
+        {
+            "seq_comp_v": seq_comp_v[None, :],
+            "clk_comp_v": seq_comp_v[None, :],
+            "seq_logic_v": seq_logic_v[None, :],
+            "comp_out_v": comp_out_p_v[None, :],
+            "comp_out_p_v": comp_out_p_v[None, :],
+            "comp_out_n_v": comp_out_n_v[None, :],
+            "vdac_p_v": vdac_p_v[None, :],
+            "vdac_n_v": vdac_n_v[None, :],
+        }
+    )
+    wave = AdcIntWave(
+        conversion_index=np.asarray([0]),
+        time_s=time_s,
+        **wave_values,
+    )
+    return replace(base, wave=wave)
 
 
 def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcExt:
@@ -507,6 +569,22 @@ def test_decision_paths_select_matching_output_codes() -> None:
 
     assert paths.estimate_dout.shape == (2, 18)
     np.testing.assert_array_equal(paths.final_dout, (5, 5))
+
+
+def test_cdac_settling_aligns_saved_bit_cycles_and_removes_static_levels() -> None:
+    measurement = adc_cdac_settling_measurement()
+    result = analyze_adc_cdac_settling(measurement)
+
+    assert result.bit_index.tolist() == [15, 8, 0]
+    assert result.cycle_index.tolist() == [0, 7, 15]
+    assert result.conversion_index.tolist() == [0, 0, 0]
+    assert result.time_s[0] == pytest.approx(-0.05e-9, abs=15e-12)
+    assert result.time_s[-1] == pytest.approx(1.35e-9, abs=15e-12)
+    assert 0.0 in result.time_s
+    assert result.clk_comp_v.shape == (3, len(result.time_s))
+    settled = (result.time_s >= 0.85e-9) & (result.time_s <= 0.97e-9)
+    np.testing.assert_allclose(np.median(result.vdac_p_settling_error_v[:, settled], axis=1), 0.0, atol=1e-6)
+    np.testing.assert_allclose(np.median(result.vdac_n_settling_error_v[:, settled], axis=1), 0.0, atol=1e-6)
 
 
 def test_decision_paths_normalize_redundant_raw_weights() -> None:
