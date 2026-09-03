@@ -10,13 +10,15 @@ from pathlib import Path
 def primitive_main(
     module_name: str,
     run_layout: Callable[[str, str, bool, Path], None],
+    *,
+    default_tech: str = "ihp130",
 ) -> None:
     """Parse module-level primitive options and run its layout sweep."""
     parser = argparse.ArgumentParser(
         prog=f"python -m {module_name}",
         description=f"Generate {module_name.split('.')[-2]} layout primitives",
     )
-    parser.add_argument("-t", "--tech", default="ihp130", help="Target PDK technology")
+    parser.add_argument("-t", "--tech", default=default_tech, help="Target PDK technology")
     parser.add_argument(
         "-m", "--mode", default="min", choices=["min", "max"], help="min: default only; max: full sweep"
     )

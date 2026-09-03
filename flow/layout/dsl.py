@@ -103,6 +103,11 @@ class GenericLayers:
     # Special layers
     TEXT = kdb.LayerInfo(60, 0, "TEXT")
     PR_BOUNDARY = kdb.LayerInfo(61, 0, "PR_BOUNDARY")
+    MOM_RECOG = kdb.LayerInfo(62, 0, "MOM_RECOG")
+    MOM_RECOG_SHIELD = kdb.LayerInfo(62, 4, "MOM_RECOG_SHIELD")
+    MOM_RECOG_M5 = kdb.LayerInfo(62, 5, "MOM_RECOG_M5")
+    MOM_RECOG_M6 = kdb.LayerInfo(62, 6, "MOM_RECOG_M6")
+    MOM_RECOG_M7 = kdb.LayerInfo(62, 7, "MOM_RECOG_M7")
 
 
 def load_generic_layers(layout: kdb.Layout) -> GenericLayers:
@@ -179,11 +184,10 @@ def paramclass(
             declared = spec.dtype
 
         # 9) If both dtype and annotation are explicit, require exact agreement.
-        if spec.dtype is not Any and declared is not Any:
-            if spec.dtype != declared:
-                raise TypeError(
-                    f"Parameter '{name}' dtype/ annotation mismatch: dtype={spec.dtype}, annotation={declared}."
-                )
+        if spec.dtype is not Any and declared is not Any and spec.dtype != declared:
+            raise TypeError(
+                f"Parameter '{name}' dtype/ annotation mismatch: dtype={spec.dtype}, annotation={declared}."
+            )
 
         # 10) Compute effective expected type for default-value checks.
         expected = spec.dtype if spec.dtype is not Any else declared
@@ -192,11 +196,10 @@ def paramclass(
             # 12) Assume valid until a concrete check disproves it.
             matches_type = True
             # 13) Skip runtime type checking for Any/object expectations.
-            if expected not in (Any, object):
+            if expected not in (Any, object) and isinstance(expected, type):
                 # 14) For concrete classes, require isinstance(default, expected).
-                if isinstance(expected, type):
-                    expected_type = cast(type[object], expected)
-                    matches_type = isinstance(spec.default, expected_type)
+                expected_type = cast(type[object], expected)
+                matches_type = isinstance(spec.default, expected_type)
             # 15) Raise if literal default type is incompatible.
             if not matches_type:
                 raise TypeError(
@@ -281,15 +284,14 @@ class _LayoutNamespace:
 L = _LayoutNamespace()
 
 __all__ = [
+    "GenericLayers",
     "L",
+    "MetalDraw",
     "MosType",
     "MosVth",
-    "SourceTie",
-    "MetalDraw",
     "Param",
-    "paramclass",
+    "SourceTie",
     "generator",
-    # New API
-    "GenericLayers",
     "load_generic_layers",
+    "paramclass",
 ]
