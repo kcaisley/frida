@@ -1,6 +1,7 @@
 """Software-only checks for the native HDL21 ADC simulation interface."""
 
 import inspect
+import json
 from io import StringIO
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import hdl21.sim as hs
 import pytest
 
 from flow.adc.subckt import (
+    Frida2PexAdc,
     Frida65a1LayerRadix20PexAdc,
     Frida65a2LayerRadix17PexAdc,
     Frida65a2LayerRadix20PexAdc,
@@ -75,6 +77,7 @@ def test_extracted_adc_keeps_calibre_port_order() -> None:
         Frida65a1LayerRadix20PexAdc,
         Frida65a2LayerRadix17PexAdc,
         Frida65a2LayerRadix20PexAdc,
+        Frida2PexAdc,
     )
     for module in modules:
         names = tuple(port.name for port in module.port_list)
@@ -90,6 +93,7 @@ def test_extracted_adc_keeps_calibre_port_order() -> None:
         "adc_1layer_radix20",
         "adc_2layer_radix17",
         "adc_2layer_radix20",
+        "adc_12b_17step",
     ),
 )
 def test_extracted_adc_selects_requested_pex_cell(pex_cell: str) -> None:
@@ -146,22 +150,66 @@ def test_extracted_flavors_share_one_campaign_root(tmp_path: Path, monkeypatch: 
 
     for flavor_name in flavor_names:
         monkeypatch.setattr(
-            sim, f"_run_frida65a_{flavor_name.removeprefix('adc_')}_noise_vs_rate", record_flavor_campaign
+            sim, f"_run_frida_1_{flavor_name.removeprefix('adc_')}_noise_vs_rate", record_flavor_campaign
         )
 
-    assert sim.frida65a_noise_vs_rate(tmp_path) == tmp_path
+    assert sim.frida_1_noise_vs_rate(tmp_path) == tmp_path
     assert calls == [tmp_path / flavor_name for flavor_name in flavor_names]
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted(flavor_names)
 
 
-def test_adc_main_owns_the_nine_named_targets() -> None:
+def test_frida2_noise_recipe_uses_ten_conversions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+    pex_netlist = tmp_path / "adc.pex.netlist"
+
+    def record_campaign(
+        run_dir: Path,
+        cases: tuple[tuple[str, sim.AdcTbParams], ...],
+        netlist: Path,
+    ) -> Path:
+        captured.update(cases=cases, pex_netlist=netlist)
+        return run_dir
+
+    monkeypatch.setattr(sim, "_run_extracted_adc_noise", record_campaign)
+
+    assert sim._run_frida2_noise_10msps(tmp_path, pex_netlist) == tmp_path
+    case_name, params = captured["cases"][0]
+    assert case_name == "10msps_cm700mv_dc50mv"
+    assert params.pex_cell == "adc_12b_17step"
+    assert params.conversions == 10
+    assert float(params.symbol_rate) == pytest.approx(1.6e9)
+    assert captured["pex_netlist"] == pex_netlist
+
+
+def test_find_latest_signed_off_pex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repository = tmp_path / "repository"
+    module = repository / "flow/adc/sim.py"
+    run = repository / "build/layout/adc/frida2_2layer_radix17/20260903_170000"
+    run.mkdir(parents=True)
+    pex = run / "frida2_2layer_radix17.pex.netlist"
+    pex.write_text("pex\n", encoding="utf-8")
+    (run / "signoff_summary.json").write_text(
+        json.dumps({"lvs_correct": True, "pex_netlist": str(pex)}), encoding="utf-8"
+    )
+    monkeypatch.setattr(sim, "__file__", str(module))
+
+    assert sim._find_latest_signed_off_pex("frida2_2layer_radix17") == pex
+
+
+def test_extracted_noise_runner_enables_transient_noise() -> None:
+    assert "noise=True" in inspect.getsource(sim._run_extracted_adc_noise)
+
+
+def test_adc_main_owns_the_eleven_named_targets() -> None:
     source = inspect.getsource(sim.main)
     for name in (
-        "frida65a_noise_vs_rate_check",
-        "frida65a_noise_vs_rate",
-        "frida65a_supply_noise_vs_rate",
-        "frida65a_transfer_curve_check",
-        "frida65a_transfer_curve",
+        "frida_1_noise_vs_rate_check",
+        "frida_1_noise_vs_rate",
+        "frida_1_supply_noise_vs_rate",
+        "frida_1_transfer_curve_check",
+        "frida_1_transfer_curve",
+        "frida2_2layer_radix17_10msps",
+        "frida2_3layer_radix17_10msps",
         "hdl21gen_noise_vs_rate_check",
         "hdl21gen_noise_vs_rate",
         "hdl21gen_transfer_curve_check",

@@ -1,6 +1,7 @@
 """ADC testbench and named Spectre simulation targets."""
 
 import argparse
+import json
 import math
 import re
 from datetime import datetime
@@ -16,6 +17,7 @@ from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 from flow.adc.subckt import (
     Adc,
     AdcParams,
+    Frida2PexAdc,
     Frida65a1LayerRadix20PexAdc,
     Frida65a2LayerRadix17PexAdc,
     Frida65a2LayerRadix20PexAdc,
@@ -121,6 +123,7 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         "adc_1layer_radix20": Frida65a1LayerRadix20PexAdc,
         "adc_2layer_radix17": Frida65a2LayerRadix17PexAdc,
         "adc_2layer_radix20": Frida65a2LayerRadix20PexAdc,
+        "adc_12b_17step": Frida2PexAdc,
     }
     if params.view == "frida65a" and params.pex_cell not in pex_adcs:
         raise ValueError(f"unsupported FRIDA65A PEX cell {params.pex_cell!r}")
@@ -333,7 +336,7 @@ def AdcTb(params: AdcTbParams) -> h.Module:
     return tb
 
 
-def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
+def frida_1_noise_vs_rate_check(run_dir: Path) -> Path:
     """Run the extracted ADC briefly at three rates with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
@@ -368,9 +371,10 @@ def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
     for params in parameters:
         tb = AdcTb(params)
         h.pdk.compile(tb)
+        signal_names = adc_signal_names(params.view, pex_cell=params.pex_cell)
         save_targets = [
             re.sub(r"([/<>-])", r"\\\1", raw_name)
-            for canonical_name, raw_name in adc_signal_names(params.view).items()
+            for canonical_name, raw_name in signal_names.items()
             if canonical_name != "time_s"
         ]
         simulations.append(
@@ -431,7 +435,7 @@ def frida65a_noise_vs_rate_check(run_dir: Path) -> Path:
     return run_dir
 
 
-def frida65a_transfer_curve_check(run_dir: Path) -> Path:
+def frida_1_transfer_curve_check(run_dir: Path) -> Path:
     """Run the extracted-ADC transfer testbench briefly with circuit checks."""
 
     from flow.circuit.results import adc_signal_names
@@ -693,13 +697,15 @@ def hdl21gen_transfer_curve_check(run_dir: Path) -> Path:
     return run_dir
 
 
-def _run_frida65a_noise_vs_rate(
+def _run_extracted_adc_noise(
     run_dir: Path,
     cases: tuple[tuple[str, AdcTbParams], ...],
     pex_netlist: Path,
 ) -> Path:
-    """Run one configured three-rate FRIDA65A PEX campaign."""
+    """Run one configured extracted-ADC noise campaign."""
 
+    if not pex_netlist.is_file():
+        raise FileNotFoundError(pex_netlist)
     from flow.analysis.io import write_measurement
     from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
     from pdk import tsmc65
@@ -710,9 +716,10 @@ def _run_frida65a_noise_vs_rate(
     for case_name, params in cases:
         tb = AdcTb(params)
         h.pdk.compile(tb)
+        signal_names = adc_signal_names(params.view, pex_cell=params.pex_cell)
         save_targets = [
             re.sub(r"([/<>-])", r"\\\1", raw_name)
-            for canonical_name, raw_name in adc_signal_names(params.view).items()
+            for canonical_name, raw_name in signal_names.items()
             if canonical_name != "time_s"
         ]
         tstop_s = params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)
@@ -758,19 +765,22 @@ def _run_frida65a_noise_vs_rate(
     )
     for index, ((case_name, params), result) in enumerate(zip(cases, results, strict=True)):
         transient = cast(TranResult, result[AnalysisType.TRAN])
-        case_dir = run_dir / case_name
-        (run_dir / str(index)).rename(case_dir)
+        if len(cases) == 1:
+            case_dir = run_dir
+        else:
+            case_dir = run_dir / case_name
+            (run_dir / str(index)).rename(case_dir)
         measurement = convert_spectre_adc_to_measurement(
             transient.data,
             params=params,
             raw_path=case_dir / "netlist.raw",
-            signal_names=adc_signal_names(params.view),
+            signal_names=adc_signal_names(params.view, pex_cell=params.pex_cell),
         )
         write_measurement(case_dir / "result.h5", measurement)
     return run_dir
 
 
-def _run_frida65a_1layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida_1_1layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
     """Run the one-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -823,10 +833,10 @@ def _run_frida65a_1layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
             ),
         ),
     )
-    return _run_frida65a_noise_vs_rate(run_dir, cases, site.ADC_PEX_NETLIST)
+    return _run_extracted_adc_noise(run_dir, cases, site.ADC_PEX_NETLIST)
 
 
-def _run_frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida_1_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     """Run the one-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -880,10 +890,10 @@ def _run_frida65a_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
         ),
     )
     pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_1layer_radix20/adc_1layer_radix20.pex.netlist"
-    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+    return _run_extracted_adc_noise(run_dir, cases, pex_netlist)
 
 
-def _run_frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida_1_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
     """Run the two-layer radix-17 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -937,10 +947,10 @@ def _run_frida65a_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
         ),
     )
     pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_2layer_radix17/adc_2layer_radix17.pex.netlist"
-    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+    return _run_extracted_adc_noise(run_dir, cases, pex_netlist)
 
 
-def _run_frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida_1_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
     """Run the two-layer radix-20 extracted ADC at 2, 6, and 10 Msps."""
 
     from pdk.tsmc65 import site
@@ -994,17 +1004,17 @@ def _run_frida65a_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
         ),
     )
     pex_netlist = site.ADC_PEX_NETLIST.parent / "adc_2layer_radix20/adc_2layer_radix20.pex.netlist"
-    return _run_frida65a_noise_vs_rate(run_dir, cases, pex_netlist)
+    return _run_extracted_adc_noise(run_dir, cases, pex_netlist)
 
 
-def frida65a_noise_vs_rate(run_dir: Path) -> Path:
+def frida_1_noise_vs_rate(run_dir: Path) -> Path:
     """Run all four extracted ADC flavors at 2, 6, and 10 Msps."""
 
     flavor_campaigns = (
-        ("adc_1layer_radix17", _run_frida65a_1layer_radix17_noise_vs_rate),
-        ("adc_1layer_radix20", _run_frida65a_1layer_radix20_noise_vs_rate),
-        ("adc_2layer_radix17", _run_frida65a_2layer_radix17_noise_vs_rate),
-        ("adc_2layer_radix20", _run_frida65a_2layer_radix20_noise_vs_rate),
+        ("adc_1layer_radix17", _run_frida_1_1layer_radix17_noise_vs_rate),
+        ("adc_1layer_radix20", _run_frida_1_1layer_radix20_noise_vs_rate),
+        ("adc_2layer_radix17", _run_frida_1_2layer_radix17_noise_vs_rate),
+        ("adc_2layer_radix20", _run_frida_1_2layer_radix20_noise_vs_rate),
     )
     for flavor_name, run_flavor_campaign in flavor_campaigns:
         flavor_run_dir = run_dir / flavor_name
@@ -1013,7 +1023,47 @@ def frida65a_noise_vs_rate(run_dir: Path) -> Path:
     return run_dir
 
 
-def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
+def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path) -> Path:
+    cases = (
+        (
+            "10msps_cm700mv_dc50mv",
+            AdcTbParams(
+                view="frida65a",
+                pex_cell="adc_12b_17step",
+                dut=AdcParams(adc_bits=12, n_cycles=16, cdac=CdacParams()),
+                symbol_rate=1.6e9,
+                conversions=10,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                seq_logic_phase_delay_symbols=2.0,
+            ),
+        ),
+    )
+    return _run_extracted_adc_noise(run_dir, cases, pex_netlist)
+
+
+def _find_latest_signed_off_pex(target: str) -> Path:
+    root = Path(__file__).resolve().parents[2] / "build" / "layout" / "adc" / target
+    for candidate in sorted(root.glob("*/signoff_summary.json"), reverse=True):
+        summary = json.loads(candidate.read_text(encoding="utf-8"))
+        pex_netlist = Path(summary["pex_netlist"])
+        if summary["lvs_correct"] and pex_netlist.is_file() and pex_netlist.stat().st_size:
+            return pex_netlist
+    raise FileNotFoundError(f"no accepted PEX run exists beneath {root}")
+
+
+def frida2_2layer_radix17_10msps(run_dir: Path) -> Path:
+    """Run ten connected two-layer FRIDA-2 conversions at 10 MS/s."""
+
+    return _run_frida2_noise_10msps(run_dir, _find_latest_signed_off_pex("frida2_2layer_radix17"))
+
+
+def frida2_3layer_radix17_10msps(run_dir: Path) -> Path:
+    """Run ten connected three-layer FRIDA-2 conversions at 10 MS/s."""
+
+    return _run_frida2_noise_10msps(run_dir, _find_latest_signed_off_pex("frida2_3layer_radix17"))
+
+
+def frida_1_supply_noise_vs_rate(run_dir: Path) -> Path:
     """Run the 15 extracted-ADC rate and supply-noise combinations."""
 
     from flow.analysis.io import write_measurement
@@ -1113,7 +1163,7 @@ def frida65a_supply_noise_vs_rate(run_dir: Path) -> Path:
     return run_dir
 
 
-def frida65a_transfer_curve(run_dir: Path) -> Path:
+def frida_1_transfer_curve(run_dir: Path) -> Path:
     """Run the extracted ADC from -750 mV to +750 mV in 10 mV steps."""
 
     from flow.analysis.io import write_measurement
@@ -1360,11 +1410,13 @@ def main() -> None:
     targets = {
         target.__name__: target
         for target in (
-            frida65a_noise_vs_rate_check,
-            frida65a_noise_vs_rate,
-            frida65a_supply_noise_vs_rate,
-            frida65a_transfer_curve_check,
-            frida65a_transfer_curve,
+            frida_1_noise_vs_rate_check,
+            frida_1_noise_vs_rate,
+            frida_1_supply_noise_vs_rate,
+            frida_1_transfer_curve_check,
+            frida_1_transfer_curve,
+            frida2_2layer_radix17_10msps,
+            frida2_3layer_radix17_10msps,
             hdl21gen_noise_vs_rate_check,
             hdl21gen_noise_vs_rate,
             hdl21gen_transfer_curve_check,

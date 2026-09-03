@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from flow.comp.sim import CompTbParams
 
 
-def adc_signal_names(view: str) -> dict[str, str]:
+def adc_signal_names(view: str, *, pex_cell: str | None = None) -> dict[str, str]:
     """Return the Spectre-to-measurement signal map for one ADC view."""
 
     common = {
@@ -39,6 +39,31 @@ def adc_signal_names(view: str) -> dict[str, str]:
         "vdd_dac_i": "xtop.vvdd_dac:p",
     }
     if view == "frida65a":
+        if pex_cell == "adc_12b_17step":
+            return {
+                **common,
+                "vdac_p_v": "xtop.xadc.VDAC_P",
+                "vdac_n_v": "xtop.xadc.VDAC_N",
+                "clk_samp_p_v": "xtop.xadc.CLK_SAMP_P",
+                "clk_samp_p_b_v": "xtop.xadc.CLK_SAMP_P_B",
+                "clk_samp_n_v": "xtop.xadc.CLK_SAMP_N",
+                "clk_samp_n_b_v": "xtop.xadc.CLK_SAMP_N_B",
+                "clk_comp_v": "xtop.xadc.CLK_COMP",
+                "comp_out_p_v": "xtop.xadc.COMP_OUT_P",
+                "comp_out_n_v": "xtop.xadc.COMP_OUT_N",
+                "dac_state_p_15_v": "xtop.xadc.DAC_STATE_P_MAIN<15>",
+                "dac_state_p_8_v": "xtop.xadc.DAC_STATE_P_MAIN<8>",
+                "dac_state_p_0_v": "xtop.xadc.DAC_STATE_P_MAIN<0>",
+                "dac_state_n_15_v": "xtop.xadc.DAC_STATE_N_MAIN<15>",
+                "dac_state_n_8_v": "xtop.xadc.DAC_STATE_N_MAIN<8>",
+                "dac_state_n_0_v": "xtop.xadc.DAC_STATE_N_MAIN<0>",
+                "dac_botplate_p_15_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_P<15>",
+                "dac_botplate_p_8_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_P<8>",
+                "dac_botplate_p_0_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_P<0>",
+                "dac_botplate_n_15_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_N<15>",
+                "dac_botplate_n_8_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_N<8>",
+                "dac_botplate_n_0_v": "xtop.xadc.DAC_DRIVE_BOTPLATE_MAIN_N<0>",
+            }
         return {
             **common,
             "vdac_p_v": "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d",
