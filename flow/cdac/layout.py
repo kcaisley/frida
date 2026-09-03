@@ -1,683 +1,173 @@
-"""TSMC65-specific physical layout generator for the FRIDA capacitor array.
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-WARNING: TRANSITIONAL ARRAY-LAYOUT CODE
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-The single MOM-capacitor layout used here has been reimplemented as the
-technology-aware generator in :mod:`flow.momcap.primitive`. That implementation
-is the source of truth for an individual MOM capacitor.
-
-This module is retained because it still contains unique FRIDA array placement,
-shielding, via, routing, and pin-generation logic. Its locally constructed unit
-cell duplicates the older single-MOM implementation and must eventually be
-replaced by instances generated through ``flow.momcap.primitive``.
-
-Do not copy new single-capacitor geometry or design rules into this file.
-"""
+"""Generate and sign off named FRIDA CDAC layout targets."""
 
 from __future__ import annotations
 
 import argparse
-from importlib import import_module
+import json
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
+import hdl21 as h
+from hdl21.prefix import f
 from klayout import db
 
-from flow.layout.dsl import load_generic_layers
-from flow.layout.tech import remap_layers
+from flow.layout.signoff import SignoffParams, run_signoff
+from pdk.tsmc65.signoff import SignoffOptions
 
-from .subckt import CdacParams, get_cdac_weights
-
-# TODO: This implementation works for my technology of choice, but has many 'magic numbers' which won't work on another technology.
-# In the future, I should factor these out use something like 'lambda rules', to be technology agnostic.
-
-FRIDA_CAP_WEIGHTS = (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)
-UNARY_WEIGHT = 64
-
-
-def partition_weights(weights: list[int], coarse_weight: int) -> list[list[int]]:
-    """Split each electrical weight into physical coarse units and a remainder."""
-    partitioned = []
-    for weight in weights:
-        chunks = [coarse_weight] * (weight // coarse_weight)
-        remainder = weight % coarse_weight
-        if remainder:
-            chunks.append(remainder)
-        partitioned.append(chunks)
-    return partitioned
+from .laygen import (
+    CdacLayout,
+    CdacLayoutParams,
+    UnitLengthCapFamilyParams,
+    _layout_manifest,
+    is_valid_cdac_layout_params,
+)
+from .pex import parse_cdac_pex, write_capacitance_table
+from .subckt import CdacArray, CdacArrayParams, CdacParams, _calc_weight_partitions, get_cdac_weights
 
 
-def ring(width, height, thickness):
-    """
-    Creates a ring-shaped polygon with specified inner dimensions and thickness.
-
-    Parameters:
-    - width: Inner width of the ring (in database units)
-    - height: Inner height of the ring (in database units)
-    - thickness: Uniform thickness of the ring (in database units)
-
-    Returns:
-    - A db.DPolygon object representing the ring
-    """
-    # Create outer rectangle dimensions
-    outer_width = width + 2 * thickness
-    outer_height = height + 2 * thickness
-
-    # Create outer rectangle points (clockwise)
-    outer_points = [
-        db.DPoint(0, 0),
-        db.DPoint(0, outer_height),
-        db.DPoint(outer_width, outer_height),
-        db.DPoint(outer_width, 0),
-    ]
-
-    # Create inner rectangle points (counter-clockwise)
-    inner_points = [
-        db.DPoint(thickness, thickness),
-        db.DPoint(thickness, thickness + height),
-        db.DPoint(thickness + width, thickness + height),
-        db.DPoint(thickness + width, thickness),
-    ]
-
-    # Create and return the polygon, inner points create a hole
-    return db.DPolygon(outer_points).insert_hole(inner_points)
+def _calc_lvs_source(params: CdacLayoutParams) -> str:
+    weights = get_cdac_weights(params.cdac)
+    partitions = _calc_weight_partitions(weights, params.family.coarse_weight)
+    ports = ["cap_topplate", "cap_shieldplate"]
+    ports.extend(f"cap_botplate_main<{bit}>" for bit in reversed(range(len(weights))))
+    ports.extend(f"cap_botplate_diff<{bit}>" for bit in reversed(range(len(weights))))
+    lines: list[str] = []
+    for layer in params.active_layers:
+        model = f"frida_mom_m{layer}_s{params.shield_layer}"
+        lines.extend((f".subckt {model} PLUS MINUS BULK", f".ends {model}", ""))
+    lines.append(f".subckt {params.top_cell} {' '.join(ports)}")
+    for index, chunks in enumerate(partitions):
+        bit = len(weights) - 1 - index
+        for chunk_index, _chunk in enumerate(chunks):
+            for layer in params.active_layers:
+                model = f"frida_mom_m{layer}_s{params.shield_layer}"
+                for kind in ("main", "diff"):
+                    lines.append(
+                        f"X{kind}_{bit}_{chunk_index}_m{layer} cap_topplate "
+                        f"cap_botplate_{kind}<{bit}> cap_shieldplate {model}"
+                    )
+    lines.extend((f".ends {params.top_cell}", ""))
+    return "\n".join(lines)
 
 
-def strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strip_ydim_diff):
-    """
-    Create a pair of capacitor strips with differential sizing.
-
-    Returns:
-    - List of two DBox objects representing the strips
-    """
-    # Calculate the y positions for the second strips
-    y1 = strips_ydim_base + strips_yspace
-    ydiff = strips_ydim_step * strip_ydim_diff
-
-    # Create two boxes (strips)
-    strip1 = db.DBox(0, 0, strips_xdim, strips_ydim_base + ydiff)  # bottom stays fixed, top lengthens upward
-    strip2 = db.DBox(0, y1 + ydiff, strips_xdim, y1 + strips_ydim_base)  # top stay fixed, bottom shortens upward
-
-    # Return as a list of DBox objects
-    return [strip1, strip2]
-
-
-def create_m5_shielding_with_cutouts(
-    interior_x,
-    interior_y,
-    ring_thickness,
-    strips_xspace,
-    strips_yspace,
-    strips_ydim_base,
-):
-    """
-    Create M5 shielding plane with cutouts for density requirements.
-
-    Parameters:
-    - interior_x: Interior width of the shielding plane
-    - interior_y: Interior height of the shielding plane
-    - ring_thickness: Thickness to match the M6 ring dimensions
-    - strips_xspace, strips_yspace: Strip spacing parameters for via positioning
-    - strips_ydim_base: Base strip dimension for calculating total structure height
-
-    Returns:
-    - DPolygon representing the M5 shielding with cutouts
-    """
-    # Create base shielding plane (same dimensions as M6 ring exterior)
-    outer_width = interior_x + 2 * ring_thickness
-    outer_height = interior_y + 2 * ring_thickness
-
-    # Create main shielding polygon
-    main_points = [
-        db.DPoint(0, 0),
-        db.DPoint(0, outer_height),
-        db.DPoint(outer_width, outer_height),
-        db.DPoint(outer_width, 0),
-    ]
-
-    shielding = db.DPolygon(main_points)
-
-    # Add density cutouts - 0.12x0.12 um squares, avoiding via areas
-    cutout_size = 0.12
-    cutout_interval = 1.0
-    inset = 0.12  # Distance from edge
-
-    # Calculate actual via positions (matching the via creation logic)
-    y_offset = strips_yspace + ring_thickness
-    via_inset = 0.12
-    via_cutout_size = 0.32
-    total_structure_height = 2 * strips_ydim_base + 2 * strips_yspace
-
-    # Bottom via Y position
-    bottom_via_y = y_offset + via_inset
-    # Top via Y position
-    top_via_y = y_offset + total_structure_height - via_inset - via_cutout_size
-
-    # Define exclusion zones around actual via positions
-    via_margin = 0.2  # Margin around via cutouts
-    bottom_exclusion_end = bottom_via_y + via_cutout_size + via_margin
-    top_exclusion_start = top_via_y - via_margin
-
-    # Calculate usable Y space (between via exclusion zones)
-    usable_y_start = bottom_exclusion_end
-    usable_y_end = top_exclusion_start
-    usable_y_length = usable_y_end - usable_y_start
-
-    # Create cutouts on both sides using holes
-    hole_points = []
-
-    if usable_y_length > 2.0:  # Only if there's enough space
-        # Target: (length - 2um) / 1um cutouts, evenly distributed
-        target_cutouts = max(1, int((usable_y_length - 2.0) / cutout_interval))
-
-        # Calculate actual spacing to evenly distribute cutouts
-        if target_cutouts > 1:
-            actual_interval = usable_y_length / (target_cutouts + 1)  # +1 for equal spacing from ends
-        else:
-            actual_interval = usable_y_length / 2
-
-        for i in range(target_cutouts):
-            y_pos = usable_y_start + (i + 1) * actual_interval - cutout_size / 2
-
-            # Ensure cutout fits within bounds
-            if y_pos >= usable_y_start and y_pos + cutout_size <= usable_y_end:
-                # Left side cutout hole (counter-clockwise)
-                left_hole = [
-                    db.DPoint(inset, y_pos),
-                    db.DPoint(inset + cutout_size, y_pos),
-                    db.DPoint(inset + cutout_size, y_pos + cutout_size),
-                    db.DPoint(inset, y_pos + cutout_size),
-                ]
-                hole_points.append(left_hole)
-
-                # Right side cutout hole (counter-clockwise)
-                right_hole = [
-                    db.DPoint(outer_width - inset - cutout_size, y_pos),
-                    db.DPoint(outer_width - inset, y_pos),
-                    db.DPoint(outer_width - inset, y_pos + cutout_size),
-                    db.DPoint(outer_width - inset - cutout_size, y_pos + cutout_size),
-                ]
-                hole_points.append(right_hole)
-
-    # Insert holes into the main shielding polygon
-    for hole in hole_points:
-        shielding.insert_hole(hole)
-
-    return shielding
-
-
-def create_strip_end_cutouts_and_vias(
-    strips_xdim,
-    strips_ydim_base,
-    strips_yspace,
-    strips_xspace,
-    ring_thickness,
-    layers,
-):
-    """
-    Create the 0.32x0.32 cutouts on strip ends and vias from M6 to M4.
-    Only creates 2 vias: one at bottom of bottom strip, one at top of top strip.
-
-    Returns:
-    - List of cutout polygons for M5
-    - List of via shapes for VIA4 and VIA5 layers
-    - List of M5 metal squares (0.12x0.12) centered on each via stack
-    """
-    cutouts = []
-    vias = []
-    m5_squares = []
-
-    # Parameters for cutouts and vias
-    cutout_size = 0.32
-    via_inset = 0.12  # 0.12um inset from strip ends
-    m5_square_size = 0.12  # 0.12x0.12 um M5 metal squares
-
-    # Account for positioning offset due to centering inside ring
-    x_offset = strips_xspace + ring_thickness
-    y_offset = strips_yspace + ring_thickness
-
-    # Only create cutouts and vias at:
-    # 1. Bottom end of strip 1 (bottom strip)
-    # 2. Top end of strip 2 (top strip)
-
-    # Calculate the total structure height for fixed positioning
-    total_structure_height = 2 * strips_ydim_base + 2 * strips_yspace
-
-    # Bottom end of strip 1 - fixed position (move 0.1um left)
-    cutout1_bottom = db.DPolygon(
-        [
-            db.DPoint(x_offset - 0.1, y_offset + via_inset),
-            db.DPoint(x_offset - 0.1, y_offset + via_inset + cutout_size),
-            db.DPoint(x_offset - 0.1 + cutout_size, y_offset + via_inset + cutout_size),
-            db.DPoint(x_offset - 0.1 + cutout_size, y_offset + via_inset),
-        ]
-    )
-    cutouts.append(cutout1_bottom)
-
-    # Top end - fixed absolute position (move 0.1um left, fixed height)
-    top_via_y = y_offset + total_structure_height - via_inset - cutout_size
-    cutout2_top = db.DPolygon(
-        [
-            db.DPoint(x_offset - 0.1, top_via_y),
-            db.DPoint(x_offset - 0.1, top_via_y + cutout_size),
-            db.DPoint(x_offset - 0.1 + cutout_size, top_via_y + cutout_size),
-            db.DPoint(x_offset - 0.1 + cutout_size, top_via_y),
-        ]
-    )
-    cutouts.append(cutout2_top)
-
-    # Create vias at the center of each cutout
-    via_size = 0.1  # LEF specifies 0.1x0.1 (RECT -0.050 -0.050 0.050 0.050 = 0.1x0.1)
-
-    for cutout in cutouts:
-        bbox = cutout.bbox()
-        via_center_x = (bbox.left + bbox.right) / 2
-        via_center_y = (bbox.bottom + bbox.top) / 2
-
-        # Create via box centered in cutout
-        via_box = db.DBox(
-            via_center_x - via_size / 2,
-            via_center_y - via_size / 2,
-            via_center_x + via_size / 2,
-            via_center_y + via_size / 2,
-        )
-
-        vias.append(via_box)
-
-        # Create 0.12x0.12 M5 metal square centered on this via stack
-        m5_square = db.DBox(
-            via_center_x - m5_square_size / 2,
-            via_center_y - m5_square_size / 2,
-            via_center_x + m5_square_size / 2,
-            via_center_y + m5_square_size / 2,
-        )
-        m5_squares.append(m5_square)
-
-    return cutouts, vias, m5_squares
-
-
-def unit_length_cap(
-    ly,
-    layers,
-    strips_xdim,
-    strips_ydim_base,
-    strips_yspace,
-    strips_ydim_step,
-    strips_ydim_diff,
-    strips_xspace,
-    ring_xdim,
-    ring_ydim,
-    interior_x,
-    interior_y,
-):
-    """
-    Create a unit length capacitor cell with M6 ring and strips, M5 shielding, and vias.
-
-    Returns the created cell.
-    """
-    # Create the M6 structures (ring and strips)
-    ring_m6 = ring(interior_x, interior_y, ring_xdim)
-    strip1, strip2 = strip_pair(strips_xdim, strips_ydim_base, strips_yspace, strips_ydim_step, strips_ydim_diff)
-
-    # Center the strips inside the ring
-    strip1 = strip1.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
-    strip2 = strip2.moved(strips_xspace + ring_xdim, strips_yspace + ring_ydim)
-
-    # Create M5 shielding plane with density cutouts
-    m5_shielding = create_m5_shielding_with_cutouts(
-        interior_x,
-        interior_y,
-        ring_xdim,
-        strips_xspace,
-        strips_yspace,
-        strips_ydim_base,
+def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
+    if not is_valid_cdac_layout_params(params):
+        raise ValueError(f"invalid CDAC layout parameters: {params}")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    layout = CdacLayout(params)
+    gds_path = run_dir / f"{params.top_cell}.gds"
+    save = db.SaveLayoutOptions()
+    save.set_format_from_filename(str(gds_path))
+    save.add_cell(layout.cell(params.top_cell).cell_index())
+    layout.write(str(gds_path), save)
+    (run_dir / "geometry_manifest.json").write_text(
+        json.dumps(_layout_manifest(params), indent=2) + "\n", encoding="utf-8"
     )
 
-    # Create strip end cutouts and vias
-    strip_cutouts, via_shapes, m5_via_squares = create_strip_end_cutouts_and_vias(
-        strips_xdim,
-        strips_ydim_base,
-        strips_yspace,
-        strips_xspace,
-        ring_xdim,
-        layers,
+    ideal = CdacArray(CdacArrayParams(cdac=params.cdac, coarse_weight=params.family.coarse_weight))
+    ideal.name = params.top_cell
+    with (run_dir / f"{params.top_cell}.ideal.cdl").open("w", encoding="utf-8") as stream:
+        h.netlist(ideal, stream, fmt="spice")
+    lvs_source = run_dir / f"{params.top_cell}.lvs.cdl"
+    lvs_source.write_text(_calc_lvs_source(params), encoding="utf-8")
+    result = run_signoff(
+        SignoffParams(
+            technology=params.technology,
+            gds_path=gds_path,
+            layout_top=params.top_cell,
+            lvs_source_path=lvs_source,
+            source_top=params.top_cell,
+            output_stem=params.top_cell,
+            pdk_options=SignoffOptions(
+                drc_unselect_checks=("PO.DN.2", "DRM.R.1", "MOM.R.1"),
+                mom_shield_layer=params.shield_layer,
+                mom_active_layers=params.active_layers,
+                recognize_mom_during_pex=True,
+            ),
+        ),
+        run_dir,
+    )
+    write_capacitance_table(
+        run_dir,
+        parse_cdac_pex(result.pex_netlist, bit_count=len(get_cdac_weights(params.cdac))),
+    )
+    return run_dir
+
+
+def caparray_1layer_radix17(run_dir: Path) -> Path:
+    return _run_caparray(
+        run_dir,
+        CdacLayoutParams(
+            cdac=CdacParams(unit_cap=0.8 * f),
+            family=UnitLengthCapFamilyParams(),
+            technology="tsmc65",
+            route_layer=4,
+            shield_layer=5,
+            active_layers=(6,),
+            top_cell="caparray_1layer_radix17",
+        ),
     )
 
-    # Apply strip cutouts to M5 shielding by inserting holes
-    for cutout in strip_cutouts:
-        bbox = cutout.bbox()
-        # Create hole points (counter-clockwise)
-        hole_points = [
-            db.DPoint(bbox.left, bbox.bottom),
-            db.DPoint(bbox.right, bbox.bottom),
-            db.DPoint(bbox.right, bbox.top),
-            db.DPoint(bbox.left, bbox.top),
-        ]
-        m5_shielding.insert_hole(hole_points)
 
-    # Create the cell and add all shapes
-    temp_cell = ly.create_cell("unit_cap_with_shielding")
-
-    # Add M6 structures
-    temp_cell.shapes(layers["M6"]).insert(ring_m6)
-    temp_cell.shapes(layers["M6"]).insert(strip1)
-    temp_cell.shapes(layers["M6"]).insert(strip2)
-
-    # Add M5 shielding
-    temp_cell.shapes(layers["M5"]).insert(m5_shielding)
-
-    # Add M5 via squares (0.12x0.12 metal squares on each via stack)
-    for m5_square in m5_via_squares:
-        temp_cell.shapes(layers["M5"]).insert(m5_square)
-
-    # Add vias (VIA4 connects M4-M5, VIA5 connects M5-M6)
-    for via_shape in via_shapes:
-        temp_cell.shapes(layers["VIA4"]).insert(via_shape)
-        temp_cell.shapes(layers["VIA5"]).insert(via_shape)
-
-    return temp_cell
-
-
-def create_m4_routing_strips(
-    ly,
-    layers,
-    partitioned_weights,
-    strips_xspace,
-    strips_yspace,
-    strips_ydim_base,
-    ring_thickness,
-    x_shift,
-    y_shift,
-):
-    """
-    Create M4 horizontal routing strips that connect capacitors according to partitioned_weights.
-
-    Parameters:
-    - ly: Layout object
-    - layers: Layer mapping dictionary
-    - partitioned_weights: Grouping of capacitors to connect
-    - strips_xspace, strips_yspace: Strip positioning parameters
-    - strips_ydim_base: Base strip dimension
-    - ring_thickness: Ring thickness for positioning
-    - x_shift, y_shift: Positioning offsets
-
-    Returns:
-    - Tuple of (M4 routing shapes, M4 pin labels)
-    """
-    m4_shapes = []
-    m4_pin_labels = []
-
-    # Calculate via positions (same logic as via creation)
-    x_offset = strips_xspace + ring_thickness - 0.1  # Match via X position
-    y_offset = strips_yspace + ring_thickness
-    via_inset = 0.12
-    total_structure_height = 2 * strips_ydim_base + 2 * strips_yspace
-
-    # Bottom via Y position (main capacitor connection point)
-    bottom_via_y = y_offset + via_inset + 0.32 / 2  # Center of via cutout
-    # Top via Y position (diff capacitor connection point)
-    top_via_y = y_offset + total_structure_height - via_inset - 0.32 / 2  # Center of via cutout
-
-    # M4 parameters - based on LEF via dimensions and enclosure rules
-    via_m4_width = 0.1  # Via M4 width from LEF
-    via_m4_height = 0.18  # Via M4 height from LEF: RECT -0.050 -0.090 0.050 0.090
-    m4_enclosure = 0.04  # LEF ENCLOSURE rule: 0.04 μm minimum
-
-    # M4 strip dimensions (larger than via + enclosure)
-    strip_width = via_m4_width + 2 * m4_enclosure  # 0.18 μm
-    strip_height = via_m4_height + 2 * m4_enclosure  # 0.26 μm
-
-    # Track capacitor position and bit index (from MSB to LSB, left to right)
-    cap_position = 0
-    bit_index = 15  # Start from MSB (bit 15)
-
-    # Process each group in partitioned_weights (in reverse order as capacitors are placed)
-    for group in reversed(partitioned_weights):
-        group_size = len(group)
-
-        if group_size == 1:
-            # Single capacitor - create M4 patches around vias (shifted 0.11 μm right)
-            shift_right = 0.11
-            cap_x = cap_position * x_shift + x_offset + 0.05 + shift_right  # Center of via + shift
-
-            # Create main capacitor M4 patch (bottom via)
-            main_patch = db.DBox(
-                cap_x - strip_width / 2,
-                bottom_via_y + y_shift - strip_height / 2,
-                cap_x + strip_width / 2,
-                bottom_via_y + y_shift + strip_height / 2,
-            )
-            m4_shapes.append(main_patch)
-
-            # Create diff capacitor M4 patch (top via)
-            diff_patch = db.DBox(
-                cap_x - strip_width / 2,
-                top_via_y + y_shift - strip_height / 2,
-                cap_x + strip_width / 2,
-                top_via_y + y_shift + strip_height / 2,
-            )
-            m4_shapes.append(diff_patch)
-
-            # Add pin labels for single capacitor patches
-            main_label = db.DText(f"cap_botplate_m[{bit_index}]", db.DTrans(cap_x, bottom_via_y + y_shift))
-            diff_label = db.DText(f"cap_botplate_d[{bit_index}]", db.DTrans(cap_x, top_via_y + y_shift))
-            m4_pin_labels.extend([main_label, diff_label])
-
-            cap_position += 1
-            bit_index -= 1
-            continue
-
-        # Multi-capacitor group - create routing strips with extensions and shift
-        shift_right = 0.11
-        extension = 0.04  # Extra length on each end for spacing around vias
-
-        start_x = cap_position * x_shift + x_offset + shift_right - extension
-        end_x = (cap_position + group_size - 1) * x_shift + x_offset + 0.1 + shift_right + extension
-
-        # Create main capacitor routing strip (bottom vias)
-        main_strip = db.DBox(
-            start_x,
-            bottom_via_y + y_shift - strip_height / 2,
-            end_x,
-            bottom_via_y + y_shift + strip_height / 2,
-        )
-        m4_shapes.append(main_strip)
-
-        # Create diff capacitor routing strip (top vias)
-        diff_strip = db.DBox(
-            start_x,
-            top_via_y + y_shift - strip_height / 2,
-            end_x,
-            top_via_y + y_shift + strip_height / 2,
-        )
-        m4_shapes.append(diff_strip)
-
-        # Add pin labels for multi-capacitor strips (centered on the strip)
-        center_x = (start_x + end_x) / 2
-        main_label = db.DText(f"cap_botplate_m[{bit_index}]", db.DTrans(center_x, bottom_via_y + y_shift))
-        diff_label = db.DText(f"cap_botplate_d[{bit_index}]", db.DTrans(center_x, top_via_y + y_shift))
-        m4_pin_labels.extend([main_label, diff_label])
-
-        # Move to next group position
-        cap_position += group_size
-        bit_index -= 1
-
-    return m4_shapes, m4_pin_labels
-
-
-def build_layout(cell_name: str, pdk_layout: Any) -> db.Layout:
-    """Build the transitional FRIDA capacitor-array layout.
-
-    ``pdk_layout`` supplies ``DBU`` and ``layer_map()``. Keeping it injectable
-    lets the geometry be regression-tested without a site-specific PDK install.
-    """
-    # Preserve the physical array implemented by the original generator while
-    # validating its electrical weights through the maintained CDAC API.
-    weights = get_cdac_weights(
-        CdacParams(
-            n_dac=11,
-            n_extra=5,
-            weights=FRIDA_CAP_WEIGHTS,
-        )
-    )
-    partitioned_weights = partition_weights(weights, UNARY_WEIGHT)
-    print(f"CDAC weights: {weights}")
-    print(f"Partitioned weights: {partitioned_weights}")
-
-    # Physical dimensions
-    strips_xdim = 0.120
-    strips_ydim_min = 1
-    strips_ydim_step = 0.4
-    strips_ydim_base = strips_ydim_min + (strips_ydim_step * UNARY_WEIGHT)
-
-    strips_xspace = 0.1
-    strips_yspace = 0.1
-    strips_ydim = strips_yspace + 2 * strips_ydim_base
-
-    ring_xdim = 0.12
-    ring_ydim = 0.12
-
-    interior_x = strips_xdim + 2 * strips_xspace
-    interior_y = strips_ydim + 2 * strips_yspace
-
-    # Build on generic layers, then remap to the maintained PDK layer map.
-    ly = db.Layout()
-    ly.dbu = pdk_layout.DBU
-    generic = load_generic_layers(ly)
-    layers = {
-        "M4": generic.M4,
-        "M5": generic.M5,
-        "M6": generic.M6,
-        "VIA4": generic.VIA4,
-        "VIA5": generic.VIA5,
-        "PIN4": generic.PIN4,
-        "PIN6": generic.PIN6,
-    }
-
-    # Create the top-level cell
-    top_cell = ly.create_cell(cell_name)
-
-    # Layout parameters
-    y_shift = 0
-    x_shift = interior_x + ring_xdim
-    position_counter = 0
-
-    # Generate capacitor array
-    for main_idx in range(len(partitioned_weights) - 1, -1, -1):
-        sublist = partitioned_weights[main_idx]
-        for sub_idx in range(len(sublist) - 1, -1, -1):
-            strips_ydim_diff = sublist[sub_idx]
-            temp_cell = unit_length_cap(
-                ly,
-                layers,
-                strips_xdim,
-                strips_ydim_base,
-                strips_yspace,
-                strips_ydim_step,
-                strips_ydim_diff,
-                strips_xspace,
-                ring_xdim,
-                ring_ydim,
-                interior_x,
-                interior_y,
-            )
-
-            # Calculate the transformation for placement
-            trans = db.DTrans(position_counter * x_shift, y_shift)
-            position_counter += 1
-
-            # Insert the temp_cell into the top_cell with the transformation
-            top_cell.insert(db.DCellInstArray(temp_cell.cell_index(), trans))
-
-    # Create M4 routing strips to connect capacitors according to partitioned_weights
-    m4_routing_shapes, m4_pin_labels = create_m4_routing_strips(
-        ly,
-        layers,
-        partitioned_weights,
-        strips_xspace,
-        strips_yspace,
-        strips_ydim_base,
-        ring_xdim,
-        x_shift,
-        y_shift,
+def caparray_2layer_radix17(run_dir: Path) -> Path:
+    return _run_caparray(
+        run_dir,
+        CdacLayoutParams(
+            cdac=CdacParams(unit_cap=0.8 * f),
+            family=UnitLengthCapFamilyParams(),
+            technology="tsmc65",
+            route_layer=4,
+            shield_layer=5,
+            active_layers=(6, 7),
+            top_cell="caparray_2layer_radix17",
+        ),
     )
 
-    # Add M4 routing shapes to the top cell
-    for shape in m4_routing_shapes:
-        top_cell.shapes(layers["M4"]).insert(shape)
 
-    # Add M4 pin labels and rectangles to the top cell on M4.PIN layer
-    if "PIN4" in layers:
-        m4_pin_layer = layers["PIN4"]
+def caparray_3layer_radix17(run_dir: Path) -> Path:
+    return _run_caparray(
+        run_dir,
+        CdacLayoutParams(
+            cdac=CdacParams(unit_cap=0.8 * f),
+            family=UnitLengthCapFamilyParams(),
+            technology="tsmc65",
+            route_layer=4,
+            shield_layer=4,
+            active_layers=(5, 6, 7),
+            top_cell="caparray_3layer_radix17",
+        ),
+    )
 
-        # Pin rectangle size (0.01 x 0.01 μm)
-        pin_rect_size = 0.01
 
-        for label in m4_pin_labels:
-            # Add text label
-            top_cell.shapes(m4_pin_layer).insert(label)
-
-            # Add rectangle at the same position as the label
-            label_pos = label.trans.disp
-            pin_rect = db.DBox(
-                label_pos.x - pin_rect_size / 2,
-                label_pos.y - pin_rect_size / 2,
-                label_pos.x + pin_rect_size / 2,
-                label_pos.y + pin_rect_size / 2,
-            )
-            top_cell.shapes(m4_pin_layer).insert(pin_rect)
-
-    # Add cap_topplate pin label and rectangle at top left corner of the first capacitor's outer ring
-    if "PIN6" in layers:
-        m6_pin_layer = layers["PIN6"]
-
-        # Position centered in the top ring of the first (leftmost) capacitor
-        topplate_x = 0 + 0.06  # Right 0.06 from left edge
-        topplate_y = interior_y + ring_ydim + y_shift + 0.06  # Up 0.06 from previous position
-
-        # Add text label
-        topplate_label = db.DText("cap_topplate", db.DTrans(topplate_x, topplate_y))
-        top_cell.shapes(m6_pin_layer).insert(topplate_label)
-
-        # Add pin rectangle (0.01 x 0.01 μm)
-        pin_rect_size = 0.01
-        topplate_rect = db.DBox(
-            topplate_x - pin_rect_size / 2,
-            topplate_y - pin_rect_size / 2,
-            topplate_x + pin_rect_size / 2,
-            topplate_y + pin_rect_size / 2,
-        )
-        top_cell.shapes(m6_pin_layer).insert(topplate_rect)
-
-    # Convert generic layer identifiers to the selected PDK before writing.
-    remap_layers(ly, pdk_layout.layer_map())
-    return ly
+def all_caparrays(run_dir: Path) -> Path:
+    for target in (caparray_1layer_radix17, caparray_2layer_radix17, caparray_3layer_radix17):
+        target(run_dir / target.__name__)
+    return run_dir
 
 
 def main() -> None:
-    """Generate the transitional TSMC65 FRIDA capacitor-array layout."""
-    parser = argparse.ArgumentParser(
-        prog="python -m flow.cdac.layout",
-        description="Generate the legacy FRIDA capacitor-array GDS",
-    )
-    parser.add_argument("output", type=Path, help="Output GDS path")
-    parser.add_argument(
-        "-t",
-        "--tech",
-        default="tsmc65",
-        choices=("tsmc65",),
-        help="Target technology; this transitional generator is currently TSMC65-specific",
-    )
+    targets = {
+        target.__name__: target
+        for target in (caparray_1layer_radix17, caparray_2layer_radix17, caparray_3layer_radix17)
+    }
+    targets["main"] = all_caparrays
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target", nargs="?", choices=sorted(targets))
     args = parser.parse_args()
-    output_path: Path = args.output
-    pdk_layout = import_module(f"pdk.{args.tech}.layout")
-    ly = build_layout(output_path.stem, pdk_layout)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    ly.write(str(output_path))
-    print(f"Layout written to: {output_path}")
+    if args.target is None:
+        print("Available CDAC layout targets:")
+        for name in sorted(targets):
+            print(f"  {name}")
+        return
+    run_dir = (
+        Path(__file__).resolve().parents[2]
+        / "build"
+        / "layout"
+        / "cdac"
+        / args.target
+        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    )
+    targets[args.target](run_dir)
 
 
 if __name__ == "__main__":

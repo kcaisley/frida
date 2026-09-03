@@ -68,6 +68,14 @@ class CdacParams:
     )
 
 
+@h.paramclass
+class CdacArrayParams:
+    """Electrical parameters for the passive unit-length capacitor array."""
+
+    cdac = h.Param(dtype=CdacParams, desc="CDAC electrical sizing", default=CdacParams())
+    coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
+
+
 def is_valid_cdac_params(p: CdacParams) -> bool:
     """Check if this CDAC configuration is valid."""
     if p.driver_p_w <= 0 or p.driver_n_w <= 0:
@@ -105,6 +113,80 @@ def get_cdac_weights(p: CdacParams) -> list[int]:
     if weights is None:
         raise ValueError(f"Invalid CDAC params: {p}")
     return weights
+
+
+def _calc_weight_partitions(weights: list[int], coarse_weight: int) -> list[list[int]]:
+    """Split arbitrary electrical weights into coarse units and one fine remainder."""
+
+    if isinstance(coarse_weight, bool) or not isinstance(coarse_weight, int) or coarse_weight <= 0:
+        raise ValueError("coarse_weight must be a positive integer")
+    if any(isinstance(weight, bool) or not isinstance(weight, int) or weight <= 0 for weight in weights):
+        raise ValueError("weights must contain positive integers")
+    partitions: list[list[int]] = []
+    for weight in weights:
+        chunks = [coarse_weight] * (weight // coarse_weight)
+        if remainder := weight % coarse_weight:
+            chunks.append(remainder)
+        partitions.append(chunks)
+    return partitions
+
+
+def is_valid_cdac_array_params(p: CdacArrayParams) -> bool:
+    """Check passive-array sizing and its coarse unit family."""
+
+    if isinstance(p.coarse_weight, bool) or not isinstance(p.coarse_weight, int) or p.coarse_weight <= 0:
+        return False
+    return is_valid_cdac_params(p.cdac)
+
+
+@h.generator
+def CdacArray(p: CdacArrayParams) -> h.Module:
+    """Generate an arbitrary-width passive main/diff unit-length array."""
+
+    if not is_valid_cdac_array_params(p):
+        raise ValueError(f"Invalid CDAC array params: {p}")
+    weights = get_cdac_weights(p.cdac)
+    partitions = _calc_weight_partitions(weights, p.coarse_weight)
+    n_caps = len(weights)
+
+    @h.module
+    class CdacArray:
+        cap_topplate = h.Inout(desc="Common capacitor top plate")
+        cap_shieldplate = h.Inout(desc="Grounded lower shield")
+
+    for bit in range(n_caps):
+        setattr(
+            CdacArray,
+            f"cap_botplate_main<{bit}>",
+            h.Inout(name=f"cap_botplate_main<{bit}>", desc="Main bottom plate"),
+        )
+        setattr(
+            CdacArray,
+            f"cap_botplate_diff<{bit}>",
+            h.Inout(name=f"cap_botplate_diff<{bit}>", desc="Difference bottom plate"),
+        )
+
+    for bit, chunks in zip(reversed(range(n_caps)), partitions, strict=True):
+        for chunk_index, chunk in enumerate(chunks):
+            main_value = p.cdac.unit_cap * ((p.coarse_weight + 1 + chunk) / 2)
+            diff_value = p.cdac.unit_cap * ((p.coarse_weight + 1 - chunk) / 2)
+            setattr(
+                CdacArray,
+                f"Cmain_{bit}_{chunk_index}",
+                C(c=main_value)(
+                    p=CdacArray.cap_topplate,
+                    n=getattr(CdacArray, f"cap_botplate_main<{bit}>"),
+                ),
+            )
+            setattr(
+                CdacArray,
+                f"Cdiff_{bit}_{chunk_index}",
+                C(c=diff_value)(
+                    p=CdacArray.cap_topplate,
+                    n=getattr(CdacArray, f"cap_botplate_diff<{bit}>"),
+                ),
+            )
+    return CdacArray
 
 
 @h.generator

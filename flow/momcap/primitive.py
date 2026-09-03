@@ -1,248 +1,94 @@
-"""Monolithic MOMCAP layout generator and layout runner."""
+"""Rule-derived weighted MOM-capacitor family and layout runner.
+
+This module is the standalone entry point for the same unit cells instantiated
+by :mod:`flow.cdac.layout`.  It intentionally contains no physical distance;
+all geometry comes from the selected PDK rule deck.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 
-import klayout.db as kdb
+from klayout import db
 
-from ..layout.commands import primitive_main
-from ..layout.dsl import (
-    L,
-    load_generic_layers,
+from flow.cdac.laygen import (
+    CdacLayoutParams,
+    UnitLengthCapFamilyParams,
+    _build_unit_library,
+    _calc_unit_geometry,
 )
-from ..layout.image import gds_to_png_with_pdk_style
-from ..layout.serialize import export_layout
-from ..layout.tech import (
-    load_dbu,
-    load_rules_deck,
-    remap_layers,
-)
+from flow.cdac.subckt import CdacParams, RedunStrat
+from flow.layout.commands import primitive_main
+from flow.layout.dsl import load_generic_layers
+from flow.layout.image import gds_to_png_with_pdk_style
+from flow.layout.serialize import export_layout
+from flow.layout.tech import load_layer_map, remap_layers
 
 
-@L.paramclass
+@dataclass(frozen=True)
 class MomcapParams:
-    bottom_layer = L.Param(dtype=int, default=4)  # metal number: 4, 5, or 6
-    top_layer = L.Param(dtype=int, default=6)  # metal number: 5, 6, or 7
-    inner_width_mult = L.Param(dtype=int, default=1)
-    inner_width_height = L.Param(dtype=int, default=1)
-    spacing_multi = L.Param(dtype=int, default=1)
-    outer_width_mult = L.Param(dtype=int, default=1)
+    """Dimensionless family and stack selection for weighted MOM units."""
+
+    max_weight: int
+    tail_tracks: int = 5
+    route_layer: int = 4
+    shield_layer: int = 5
+    active_layers: tuple[int, ...] = (6,)
+
+    def layout_params(self, technology: str) -> CdacLayoutParams:
+        """Convert to the shared unit generator's validated configuration."""
+
+        return CdacLayoutParams(
+            cdac=CdacParams(n_dac=1, n_extra=0, redun_strat=RedunStrat.RDX2),
+            family=UnitLengthCapFamilyParams(coarse_weight=self.max_weight, tail_tracks=self.tail_tracks),
+            technology=technology,
+            route_layer=self.route_layer,
+            shield_layer=self.shield_layer,
+            active_layers=self.active_layers,
+            top_cell="MOMCAP_FAMILY",
+        )
 
 
-@L.generator
-def momcap(params: MomcapParams, tech_name: str) -> kdb.Layout:
-    if params.inner_width_mult < 1:
-        raise ValueError("inner_width_mult must be >= 1")
-    if params.inner_width_height < 1:
-        raise ValueError("inner_width_height must be >= 1")
-    if params.spacing_multi < 1:
-        raise ValueError("spacing_multi must be >= 1")
-    if params.outer_width_mult < 1:
-        raise ValueError("outer_width_mult must be >= 1")
+def momcap(params: MomcapParams, tech_name: str) -> db.Layout:
+    """Generate the complete ``1..max_weight`` unit library for a PDK."""
 
-    # ==== Valid Layer Combinations ====
-    #
-    #   bottom │ top │ metals used        │ vias used
-    #   ───────┼─────┼────────────────────┼───────────
-    #   M4     │ M5  │ M4, M5             │ VIA4
-    #   M4     │ M6  │ M4, M5, M6         │ VIA4, VIA5
-    #   M5     │ M7  │ M5, M6, M7         │ VIA5, VIA6
-    #   M6     │ M7  │ M6, M7             │ VIA6
-    #
-    valid_stacks = {(4, 5), (4, 6), (5, 7), (6, 7)}
-    bot = params.bottom_layer
-    top = params.top_layer
-    if (bot, top) not in valid_stacks:
-        raise ValueError(f"Invalid (bottom_layer={bot}, top_layer={top}). Valid combinations: {sorted(valid_stacks)}")
-
-    # ==== Load PDK Data ====
-    R = load_rules_deck(tech_name)
-
-    layout = kdb.Layout()
-    layout.dbu = load_dbu(tech_name)
-    G = load_generic_layers(layout)
-
-    # ==== Sizing Rules from the Top Metal ====
-    # The top metal is the most constrained (coarsest pitch), so we
-    # use its rules for all dimensions.  The structure is vertically
-    # symmetric across every layer in the stack.
-    top_name = f"M{top}"
-    top_R = getattr(R, top_name)
-
-    if top_R.width is None:
-        raise ValueError(f"Missing width rule on {top_name}")
-
-    metal_w = top_R.width
-    metal_sp = getattr(top_R.spacing, top_name, None)
-    if metal_sp is None:
-        metal_sp = metal_w
-    metal_area = top_R.area if top_R.area is not None else metal_w * metal_w
-
-    # ==== Via Rules ====
-    top_via_name = f"VIA{top - 1}"
-    top_via_R = getattr(R, top_via_name)
-    if top_via_R.width is None:
-        raise ValueError(f"Missing width rule on {top_via_name}")
-    via_w = top_via_R.width
-    via_sp = getattr(top_via_R.spacing, top_via_name, None)
-    if via_sp is None:
-        via_sp = via_w
-
-    # ==== Derived Geometry ====
-    base_inner_h = max(1, (metal_area + metal_w - 1) // metal_w)
-    inner_w = params.inner_width_mult * metal_w
-    inner_h = params.inner_width_height * base_inner_h
-    gap = params.spacing_multi * metal_sp
-    ring_w = params.outer_width_mult * metal_w
-
-    # Inner plate coordinates
-    ix0, iy0 = 0, 0
-    ix1, iy1 = inner_w, inner_h
-
-    # Outer ring coordinates (outside edge / inside edge)
-    rx0, ry0 = ix0 - gap - ring_w, iy0 - gap - ring_w
-    rx1, ry1 = ix1 + gap + ring_w, iy1 + gap + ring_w
-    rix0, riy0 = ix0 - gap, iy0 - gap
-    rix1, riy1 = ix1 + gap, iy1 + gap
-
-    # Pre-compute the boxes so they can be inserted on each layer
-    inner_plate = kdb.Box(ix0, iy0, ix1, iy1)
-    ring_bot = kdb.Box(rx0, ry0, rx1, riy0)
-    ring_top = kdb.Box(rx0, riy1, rx1, ry1)
-    ring_left = kdb.Box(rx0, riy0, rix0, riy1)
-    ring_right = kdb.Box(rix1, riy0, rx1, riy1)
-
-    cell = layout.create_cell("MOMCAP")
-
-    # ==== Paint Plate and Ring ====
-    def paint_plate_and_ring(layer: kdb.LayerInfo) -> None:
-        cell.shapes(layer).insert(inner_plate)
-        cell.shapes(layer).insert(ring_bot)
-        cell.shapes(layer).insert(ring_top)
-        cell.shapes(layer).insert(ring_left)
-        cell.shapes(layer).insert(ring_right)
-
-    # ==== Fill Inner Vias ====
-    def fill_inner_vias(via_layer: kdb.LayerInfo, vw: int, vs: int) -> None:
-        step = vw + vs
-        for x in range(ix0, ix1 - vw + 1, step):
-            cell.shapes(via_layer).insert(kdb.Box(x, iy0, x + vw, iy0 + vw))
-            cell.shapes(via_layer).insert(kdb.Box(x, iy1 - vw, x + vw, iy1))
-        for y in range(iy0, iy1 - vw + 1, step):
-            cell.shapes(via_layer).insert(kdb.Box(ix0, y, ix0 + vw, y + vw))
-            cell.shapes(via_layer).insert(kdb.Box(ix1 - vw, y, ix1, y + vw))
-
-    # ==== Fill Ring Vias ====
-    def fill_ring_vias(via_layer: kdb.LayerInfo, vw: int, vs: int) -> None:
-        step = vw + vs
-        for x in range(rx0, rx1 - vw + 1, step):
-            cell.shapes(via_layer).insert(kdb.Box(x, ry0, x + vw, ry0 + vw))
-            cell.shapes(via_layer).insert(kdb.Box(x, ry1 - vw, x + vw, ry1))
-        for y in range(ry0, ry1 - vw + 1, step):
-            cell.shapes(via_layer).insert(kdb.Box(rx0, y, rx0 + vw, y + vw))
-            cell.shapes(via_layer).insert(kdb.Box(rx1 - vw, y, rx1, y + vw))
-
-    # ==== Paint Metal Layers ====
-    # Every metal in the stack gets the identical plate + ring pattern.
-    if (bot, top) == (4, 5):
-        paint_plate_and_ring(G.M4)
-        paint_plate_and_ring(G.M5)
-        fill_inner_vias(G.VIA4, via_w, via_sp)
-        fill_ring_vias(G.VIA4, via_w, via_sp)
-
-    elif (bot, top) == (4, 6):
-        paint_plate_and_ring(G.M4)
-        paint_plate_and_ring(G.M5)
-        paint_plate_and_ring(G.M6)
-        # VIA4: connects M4 ↔ M5
-        v4_R = R.VIA4
-        v4_w = v4_R.width
-        v4_sp = getattr(v4_R.spacing, "VIA4", v4_w)
-        fill_inner_vias(G.VIA4, v4_w, v4_sp)
-        fill_ring_vias(G.VIA4, v4_w, v4_sp)
-        # VIA5: connects M5 ↔ M6
-        fill_inner_vias(G.VIA5, via_w, via_sp)
-        fill_ring_vias(G.VIA5, via_w, via_sp)
-
-    elif (bot, top) == (5, 7):
-        paint_plate_and_ring(G.M5)
-        paint_plate_and_ring(G.M6)
-        paint_plate_and_ring(G.M7)
-        # VIA5: connects M5 ↔ M6
-        v5_R = R.VIA5
-        v5_w = v5_R.width
-        v5_sp = getattr(v5_R.spacing, "VIA5", v5_w)
-        fill_inner_vias(G.VIA5, v5_w, v5_sp)
-        fill_ring_vias(G.VIA5, v5_w, v5_sp)
-        # VIA6: connects M6 ↔ M7
-        fill_inner_vias(G.VIA6, via_w, via_sp)
-        fill_ring_vias(G.VIA6, via_w, via_sp)
-
-    elif (bot, top) == (6, 7):
-        paint_plate_and_ring(G.M6)
-        paint_plate_and_ring(G.M7)
-        fill_inner_vias(G.VIA6, via_w, via_sp)
-        fill_ring_vias(G.VIA6, via_w, via_sp)
-
-    # ==== Pin Labels ====
-    # Pin on the bottom metal's pin layer: inner plate = bottom terminal.
-    # Pin on the top metal's pin layer: outer ring = top terminal.
-    pin_w = metal_w
-    bot_pin_layer = {4: G.PIN4, 5: G.PIN5, 6: G.PIN6}[bot]
-    top_pin_layer = {5: G.PIN5, 6: G.PIN6, 7: G.PIN7}[top]
-
-    # Inner plate pin (bottom terminal) on the bottom metal's pin layer
-    cell.shapes(bot_pin_layer).insert(kdb.Box(ix0, iy0, min(ix1, ix0 + pin_w), iy0 + pin_w))
-    # Outer ring pin (top terminal) on the top metal's pin layer
-    cell.shapes(top_pin_layer).insert(kdb.Box(rx0, ry0, min(rx1, rx0 + pin_w), ry0 + pin_w))
-
+    pdk_layout = import_module(f"pdk.{tech_name}.layout")
+    layout_params = params.layout_params(tech_name)
+    geometry = _calc_unit_geometry(layout_params, pdk_layout.rule_deck())
+    layout = db.Layout()
+    layout.dbu = pdk_layout.DBU
+    generic = load_generic_layers(layout)
+    units = _build_unit_library(layout, generic, layout_params, geometry)
+    top = layout.create_cell("MOMCAP_FAMILY")
+    pitch_um = geometry.unit_pitch / 1000.0
+    for index, weight in enumerate(range(1, params.max_weight + 1)):
+        top.insert(db.DCellInstArray(units[weight].cell_index(), db.DTrans(index * pitch_um, 0)))
+    width_um = ((params.max_weight - 1) * geometry.unit_pitch + geometry.outer_width) / 1000.0
+    height_um = geometry.outer_height / 1000.0
+    top.shapes(generic.PR_BOUNDARY).insert(db.DBox(0, 0, width_um, height_um))
     return layout
 
 
 def run_layout(tech: str, mode: str, visual: bool, outdir: Path) -> None:
-    """Run momcap layout sweep."""
-    pdk_module = import_module(f"pdk.{tech}.layout")
-    tech_map = pdk_module.layer_map()
+    """Emit either the minimum unit or the complete FRIDA-sized unit family."""
 
-    if mode == "min":
-        variants = [MomcapParams()]
-    else:
-        variants = [
-            MomcapParams(
-                bottom_layer=bl,
-                top_layer=tl,
-                inner_width_mult=iw,
-                inner_width_height=ih,
-                spacing_multi=sp,
-                outer_width_mult=ow,
-            )
-            for (bl, tl) in [(4, 5), (4, 6), (5, 7), (6, 7)]
-            for iw in (1, 2, 3)
-            for ih in (1, 2, 4)
-            for sp in (1, 2, 3)
-            for ow in (1, 2)
-        ]
-
-    for params in variants:
-        layout = momcap(params, tech)
-        remap_layers(layout, tech_map)
-        stem = (
-            f"momcap_m{params.bottom_layer}_m{params.top_layer}_"
-            f"iw{params.inner_width_mult}_ih{params.inner_width_height}_"
-            f"sp{params.spacing_multi}_ow{params.outer_width_mult}"
-        )
-        artifacts = export_layout(
-            layout=layout,
-            out_dir=outdir,
-            stem=stem,
-            domain=f"frida.layout.{tech}",
-            write_debug_gds=visual,
-        )
-        if visual and artifacts.gds is not None:
-            gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
+    max_weight = 1 if mode == "min" else UnitLengthCapFamilyParams().coarse_weight
+    params = MomcapParams(max_weight=max_weight)
+    layout = momcap(params, tech)
+    remap_layers(layout, load_layer_map(tech))
+    stem = f"momcap_family_w1_to_w{max_weight}"
+    artifacts = export_layout(
+        layout=layout,
+        out_dir=outdir,
+        stem=stem,
+        domain=f"frida.layout.{tech}",
+        write_debug_gds=visual,
+    )
+    if visual and artifacts.gds is not None:
+        gds_to_png_with_pdk_style(artifacts.gds, tech=tech, out_dir=outdir)
 
 
 if __name__ == "__main__":
-    primitive_main("flow.momcap.primitive", run_layout)
+    primitive_main("flow.momcap.primitive", run_layout, default_tech="tsmc65")
