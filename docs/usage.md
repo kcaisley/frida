@@ -32,16 +32,59 @@ uv run python -m flow.momcap.primitive \
   [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 ```
 
-The transitional TSMC65 FRIDA capacitor-array generator is also preserved as:
+The process-independent FRIDA capacitor-array runners are:
 
 ```bash
-uv run python -m flow.cdac.layout [-t tsmc65] <output.gds>
+uv run python -m flow.cdac.layout
+uv run python -m flow.cdac.layout caparray_1layer_radix17
+uv run python -m flow.cdac.layout caparray_2layer_radix17
+uv run python -m flow.cdac.layout caparray_3layer_radix17
 ```
 
-`flow.momcap.primitive` is the maintained source of truth for an individual
-MOM capacitor. The CDAC layout module retains unique array placement, shielding,
-via, routing, and pin logic, but still duplicates the older single-capacitor
-geometry and must eventually instantiate the maintained MOM generator.
+Each target visibly constructs its electrical `CdacParams`, unit family, and
+metal stack. The generator derives every physical distance from the selected
+PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary
+positive electrical weights through the shared netlist decomposition, and
+adds routing, shield taps, connection stacks, and pins. A named target always
+runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to
+`build/layout/cdac/<target>/<timestamp>/`.
+
+ADC layout validation and extraction use the same named-target convention as
+simulation. Omitting the target lists the four archived FRIDA-1 ADCs and two
+generated FRIDA-2 stacks:
+
+```bash
+uv run python -m flow.adc.layout
+uv run python -m flow.adc.layout frida1_1layer_radix17
+uv run python -m flow.adc.layout frida1_2layer_radix20
+uv run python -m flow.adc.layout frida2_2layer_radix17
+uv run python -m flow.adc.layout frida2_3layer_radix17
+```
+
+A target always generates and runs the complete signoff sequence. The DRC
+stage includes the PDK-local `gdscheck` ADC suite before foundry Calibre DRC.
+Results are isolated beneath `build/layout/adc/<target>/<timestamp>/`. Each
+result contains the exact GDS and source CDL used, a recognition-only GDS diff
+where applicable, generated decks and logs, DRC/LVS reports, coupling and
+net-summary reports, and the final RC-plus-coupling `*.pex.netlist`. xACT stops
+unless its own conductive-source LVS comparison is correct.
+
+For FRIDA-1, the run-local layout copy adds only PDK-local non-mask MOM
+recognition shapes; the archived source and GDS are never modified. The normal
+LVS source contains the intended per-layer capacitor network. Thus the old
+one-layer layout must report `CORRECT`, while the known disconnected upper
+layer in an old two-layer layout must report the expected connectivity warning.
+The separate conductive PEX source omits the electrically empty CDAC wrappers
+so xACT extracts the fabricated connectivity.
+
+The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source
+network from the target's `CdacParams` and PDK rules, then perform strict block
+substitution in `build/frida-2-template.gds`. The assembler requires identical
+database units, boundaries, pin names, pin positions, and pin shapes. It never
+edits, moves, or reroutes layout; any required template adjustment is made
+manually in KLayout. The M5-M7 caparray itself contains no M3 and uses M4 as a
+partitioned shared layer: 100 nm plate routes occupy the two edge corridors
+while the shield remains beneath the central capacitor body.
 
 | Option | Values | Default |
 |---|---|---|
@@ -74,8 +117,8 @@ noise-free transients with Spectre circuit checks and AHDL linting:
 # ADC generated-view and extracted-view checks
 uv run python -m flow.adc.sim hdl21gen_noise_vs_rate_check
 uv run python -m flow.adc.sim hdl21gen_transfer_curve_check
-uv run python -m flow.adc.sim frida65a_noise_vs_rate_check
-uv run python -m flow.adc.sim frida65a_transfer_curve_check
+uv run python -m flow.adc.sim frida_1_noise_vs_rate_check
+uv run python -m flow.adc.sim frida_1_transfer_curve_check
 
 # Comparator checks
 uv run python -m flow.comp.sim frida65_baseline_check
@@ -94,9 +137,11 @@ run beneath `build/sim/<module>/<target>/<YYYYMMDD_HHMMSS>/`:
 ```bash
 # Reviewed ADC campaigns
 uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
-uv run python -m flow.adc.sim frida65a_noise_vs_rate
+uv run python -m flow.adc.sim frida_1_noise_vs_rate
+uv run python -m flow.adc.sim frida2_2layer_radix17_10msps
+uv run python -m flow.adc.sim frida2_3layer_radix17_10msps
 uv run python -m flow.adc.sim hdl21gen_transfer_curve
-uv run python -m flow.adc.sim frida65a_transfer_curve
+uv run python -m flow.adc.sim frida_1_transfer_curve
 
 # Comparator campaigns
 uv run python -m flow.comp.sim frida65_baseline_noise
@@ -262,7 +307,7 @@ Spectre flow exposes one fixed-input noise campaign for each DUT view:
 ```bash
 uv run python -m flow.scans.scan_behavioral
 uv run python -m flow.adc.sim hdl21gen_noise_vs_rate
-uv run python -m flow.adc.sim frida65a_noise_vs_rate
+uv run python -m flow.adc.sim frida_1_noise_vs_rate
 ```
 
 Use the corresponding `_check` target for a short, noise-free Spectre run with
