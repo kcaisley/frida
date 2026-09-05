@@ -11,6 +11,120 @@ import re
 import subprocess
 from pathlib import Path
 
+
+def _subcircuit_span(text: str, name: str) -> tuple[int, int]:
+    start = re.search(rf"(?im)^[ \t]*\.subckt[ \t]+{re.escape(name)}(?:[ \t]|$)", text)
+    if start is None:
+        raise ValueError(f"source netlist has no .subckt {name}")
+    end = re.search(r"(?im)^[ \t]*\.ends(?:[ \t]+[^\n]*)?$", text[start.end() :])
+    if end is None:
+        raise ValueError(f"source netlist has no .ends for {name}")
+    return start.start(), start.end() + end.end()
+
+
+def _spice_statements(text: str) -> list[str]:
+    statements: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("+") and statements:
+            statements[-1] = statements[-1].rstrip("\r\n") + " " + line.lstrip()[1:]
+        else:
+            statements.append(line)
+    return statements
+
+
+def subcircuit_ports(text: str, name: str) -> tuple[str, ...]:
+    """Read a SPICE/CDL header, including continuation lines, in positional order."""
+    start, end = _subcircuit_span(text, name)
+    tokens = _spice_statements(text[start:end])[0].split()[2:]
+    ports: list[str] = []
+    for token in tokens:
+        if token.lower() == "params:" or "=" in token:
+            break
+        ports.append(token)
+    if len({port.casefold() for port in ports}) != len(ports):
+        raise ValueError(f"duplicate ports in {name}")
+    return tuple(ports)
+
+
+def replace_subcircuit(
+    source: str,
+    *,
+    old_top: str,
+    new_top: str,
+    old_block: str,
+    new_block: str,
+    pin_map: dict[str, str] | None = None,
+) -> str:
+    """Replace a netlisted block and reconnect every call by pin name.
+
+    ``pin_map`` maps replacement formal names to old formal names at an explicit
+    legacy boundary. Never reuse the old positional argument list blindly.
+    """
+    start, end = _subcircuit_span(source, old_block)
+    names = re.findall(r"(?im)^[ \t]*\.subckt[ \t]+(\S+)", new_block)
+    if not names:
+        raise ValueError("replacement source has no .subckt")
+    new_name = names[-1]  # HDL21 emits dependencies before the top module.
+    old_ports = subcircuit_ports(source, old_block)
+    new_ports = subcircuit_ports(new_block, new_name)
+    if pin_map is None:
+        pin_map = dict(zip(new_ports, new_ports))
+    mapping = {key.casefold(): value.casefold() for key, value in pin_map.items()}
+    if (
+        len(mapping) != len(pin_map)
+        or set(mapping) != {name.casefold() for name in new_ports}
+        or set(mapping.values()) != {name.casefold() for name in old_ports}
+        or len(mapping) != len(old_ports)
+    ):
+        raise ValueError("replacement pin mapping must be a complete one-to-one interface match")
+    result: list[str] = []
+    for statement in _spice_statements(source[:start] + source[end:]):
+        tokens = statement.split()
+        if tokens and tokens[0].lower().startswith("x"):
+            positions = [index for index, token in enumerate(tokens[1:], 1) if token.casefold() == old_block.casefold()]
+            if positions:
+                index = positions[-1]
+                arguments = tokens[1:index]
+                if arguments and arguments[-1] == "/":
+                    arguments.pop()
+                if len(arguments) != len(old_ports):
+                    raise ValueError(f"{tokens[0]} has {len(arguments)} connections, expected {len(old_ports)}")
+                actual = dict(zip((port.casefold() for port in old_ports), arguments, strict=True))
+                statement = (
+                    " ".join(
+                        (
+                            tokens[0],
+                            *(actual[mapping[port.casefold()]] for port in new_ports),
+                            new_name,
+                            *tokens[index + 1 :],
+                        )
+                    )
+                    + "\n"
+                )
+        result.append(statement)
+    text = new_block.rstrip() + "\n" + "".join(result)
+    return (
+        re.sub(
+            rf"(?im)(^[ \t]*\.(?:subckt|ends)[ \t]+){re.escape(old_top)}(?=[ \t\r\n]|$)",
+            rf"\g<1>{new_top}",
+            text,
+        ).rstrip()
+        + "\n"
+    )
+
+
+def omit_subcircuit(source: str, name: str) -> str:
+    """Remove a subcircuit and its calls, including continued CDL calls."""
+    start, end = _subcircuit_span(source, name)
+    kept: list[str] = []
+    for statement in _spice_statements(source[:start] + source[end:]):
+        tokens = statement.split()
+        if tokens and tokens[0].lower().startswith("x") and tokens[-1].casefold() == name.casefold():
+            continue
+        kept.append(statement)
+    return "".join(kept).rstrip() + "\n"
+
+
 # OA → CDL  (Cadence si netlister)
 
 _SI_ENV_TEMPLATE = """\
