@@ -1,5 +1,102 @@
 # Caparray capacitance comparison
 
+## Shared HDL21 source (2026-09-05)
+
+`flow.cdac.subckt.CdacArray` now generates both the ideal and LVS capacitor
+arrays. Both views have the same physical chunk/layer instances and the same
+ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15.
+The handwritten CDAC and ADC LVS circuit builders have been removed.
+Only the leaf view changes: `flow.momcap.subckt.MomCap` contains an ideal
+capacitor with an unused shield terminal; `pdk.tsmc65.signoff.mom_lvs_device`
+supplies the three-terminal recognition model for Calibre.
+
+`CdacParams.unit_cap` retains its meaning as the complete stack's logical
+unit capacitance. Its ideal value is divided equally over the selected
+layers, preserving the requested main/diff/effective totals. This is an ideal
+model convention, not a claim of equal physical layer contributions. LVS
+checks connectivity; the current recognition deck does not compare numerical
+capacitance. PEX remains the source of actual capacitance and shunt loading.
+
+The generic netlist replacement utility reconnects callers by formal pin
+name, rather than copying positional arguments. Both ADC runners explicitly
+map fabricated driver pin 15 to new C0 while that old digital macro remains
+in use. Calibre's raw PEX header may still have its own ordering; identical
+ideal/LVS source ordering does not imply normalized PEX ordering.
+
+Fresh standalone signoff results are in
+`build/layout/cdac/main/20260905_133303/`, with one subdirectory per profile.
+All three pass the existing DRC selections, raw LVS and xACT PEX. Their
+geometric XOR against the reviewed GDS below is empty on every layer, and
+capacitances are unchanged. `shared_source_verification.json` records the
+matching source headers, unchanged reference/template hashes, and three
+negative LVS cases that still fail (inner plate, topplate, and shield).
+Full-ADC radix-17 checks also preserve FRIDA-1's results: the one-layer run
+`build/layout/adc/frida1_1layer_radix17/20260905_133416/` is raw LVS `CORRECT`;
+the two-layer run `build/layout/adc/frida1_2layer_radix17/20260905_133418/`
+still reports only the known `vdac_p`/`vdac_n` disconnects with matching device
+and port counts. Both complete conductive-source PEX. These checks do not
+resolve the outstanding strict FRIDA-2 template interface mismatch.
+
+## Reviewed interface revision (2026-09-05)
+
+The current generator incorporates the geometry confirmed in the KLayout
+review. All coordinates below are local to the caparray. The footprint is
+18.400 x 53.080 um, with 41 functional chunks and two complete edge dummies.
+The dummy inner plates float intentionally; their active-layer outer rings
+join the signal topplate and their shield-layer metal joins the lower shield.
+
+M4 landings are 0.100 x 0.520 um on 0.400 um unit pitch. Multiunit groups use
+full-height horizontal connection bars. Lower landings span Y=0.22..0.74 and
+upper landings Y=52.06..52.58. The M4-M7 plate contacts use two 0.100 um cuts
+on 0.200 um pitch; the right-side topplate uses a 2x2 array. These dimensions
+are derived from the selected PDK rules, including minimum metal area, rather
+than embedded distances in the generic generator. The shortest finger now
+accommodates one complete minimum-area landing, replacing the earlier
+five-track tail assumption.
+
+The three-layer profile uses M4 for both routing and the lower shield, with
+M5-M7 active. Its shield spans Y=3.22..49.70. Sixteen 0.100 um horizontal
+bridges extend to X=18.40 as VSS abutment tabs. Their pitch is 3.00 um within
+each half and 4.38 um between the central pair. The existing 0.380 um bent
+M6 topplate output is preserved. There is no M3, M8 or M9 geometry.
+
+All three standalone profiles pass `gdscheck`, Calibre DRC with the existing
+block-level exclusions (`PO.DN.2`, `DRM.R.1`, `MOM.R.1`), raw LVS `CORRECT`,
+and the XRC-aware LVS used for xACT extraction. Fresh capacitances per array
+side are:
+
+| Active stack | Main (fF) | Diff (fF) | Main + diff (fF) | Effective (fF) | Top-shield (fF) |
+|---|---:|---:|---:|---:|---:|
+| M6, M5 shield | 327.457 | 43.892 | 371.349 | 283.565 | 97.518 |
+| M6-M7, M5 shield | 616.439 | 82.898 | 699.337 | 533.542 | 95.202 |
+| M5-M7, M4 shield | 891.398 | 119.898 | 1011.296 | 771.500 | 89.662 |
+
+Results, including GDS, source CDL, reports, manifests and per-stage tables,
+are under `build/layout/cdac/`:
+
+- `caparray_1layer_radix17/20260905_123045/`
+- `caparray_2layer_radix17/20260905_123044/`
+- `caparray_3layer_radix17/20260905_122920/`
+
+The three-layer directory's `five_design_capacitance.csv` and `.json` contain
+the 34-row, five-design comparison in C0-first order, reusing the September 3
+historical full-ADC extractions for the two FRIDA-1 columns.
+
+The three-layer result also contains `diff_reference.gds` and
+`diff_reference.json`, comparing against `caparray_2layer_radix17` inside
+`build/frida-1.gds`. The bounding box, all 32 bottom-plate pin boxes and their
+M4 connection bars match. On M6 the only differences are the removal of eight
+obsolete shield-tap landing islands. This does not imply strict ADC interface
+compatibility: pin labels and the topplate/shield pin layers still differ.
+Neither the historical GDS nor the user-edited ADC template was modified.
+Fault-injection copies in `negative_lvs/` independently remove the two-cut
+inner-plate connection, the four-cut upper topplate connection, or all sixteen
+shield tabs. Each produces raw LVS `INCORRECT`; `review_verification.json`
+records these checks. Removing just one redundant cut is not a disconnect.
+
+The September 3 results below describe the earlier geometry and are retained
+as historical measurements; they are not the capacitances of this revision.
+
 ## Five-design radix-17 comparison (2026-09-03)
 
 The refactored generator was extracted with the same TSMC65
@@ -11,7 +108,8 @@ side; the two sides should not be blindly added when referring input-referred
 sampling noise.
 
 `Main` and `diff` are the sums of every topplate-to-corresponding-bottom-plate
-coupling over the 16 bits. `Main + diff` is the physical bottom-plate loading;
+coupling over the 16 conversion stages. `Main + diff` is the physical
+bottom-plate loading;
 `effective` is `main - diff`, the signal-producing switched term. `Non-CDAC`
 is `topplate total - main - diff`. In the standalone arrays it is exactly the
 identified topplate-to-shield capacitance. In a complete historical ADC it
@@ -48,7 +146,7 @@ The complete five-design result bundle is in
 `five_design_capacitance.csv`/`.json` files provide the requested 34 rows: 16
 main values, 16 diff values, their summed total, and non-CDAC shunt loading.
 `capacitance_summary.json` also records the effective values. Each new profile
-directory contains its GDS, CDL, geometry manifest, per-bit capacitance table,
+directory contains its GDS, CDL, geometry manifest, per-stage capacitance table,
 DRC/LVS reports, xACT PEX netlist, and logs. The two FRIDA-1 directories contain
 fresh full-ADC extractions made by the same named workflow.
 
@@ -87,24 +185,24 @@ Definitions:
 
 The fresh PEX files used were generated in `/users/kcaisley/asiclab/tech/tsmc65/cds/PEX` on 2026-06-08 around 22:48.
 
-| Bit | Weight | Intended main (fF) | Intended diff (fF) | Intended eff (fF) | Layout P main (fF) | Layout P diff (fF) | Layout P eff (fF) | Extracted avg main (fF) | Extracted avg diff (fF) | Extracted avg eff (fF) | Eff ratio ext/int |
+| Stage | Weight | Intended main (fF) | Intended diff (fF) | Intended eff (fF) | Layout P main (fF) | Layout P diff (fF) | Layout P eff (fF) | Extracted avg main (fF) | Extracted avg diff (fF) | Extracted avg eff (fF) | Eff ratio ext/int |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 15 | 768 | 619.200 | 4.800 | 614.400 | 100.419 | 1.147 | 99.272 | 100.419 | 1.147 | 99.272 | 0.162 |
-| 14 | 512 | 412.800 | 3.200 | 409.600 | 66.946 | 0.769 | 66.177 | 66.946 | 0.769 | 66.177 | 0.162 |
-| 13 | 320 | 258.000 | 2.000 | 256.000 | 41.839 | 0.483 | 41.356 | 41.840 | 0.483 | 41.356 | 0.162 |
-| 12 | 192 | 154.800 | 1.200 | 153.600 | 25.102 | 0.292 | 24.810 | 25.103 | 0.292 | 24.810 | 0.162 |
-| 11 | 96 | 90.400 | 13.600 | 76.800 | 14.660 | 2.269 | 12.390 | 14.654 | 2.269 | 12.385 | 0.161 |
-| 10 | 64 | 51.600 | 0.400 | 51.200 | 8.366 | 0.097 | 8.268 | 8.362 | 0.097 | 8.264 | 0.161 |
-| 9 | 32 | 38.800 | 13.200 | 25.600 | 6.291 | 2.174 | 4.117 | 6.288 | 2.174 | 4.114 | 0.161 |
-| 8 | 24 | 35.600 | 16.400 | 19.200 | 5.775 | 2.726 | 3.049 | 5.772 | 2.725 | 3.047 | 0.159 |
-| 7 | 12 | 30.800 | 21.200 | 9.600 | 5.000 | 3.472 | 1.528 | 4.997 | 3.471 | 1.526 | 0.159 |
-| 6 | 10 | 30.000 | 22.000 | 8.000 | 4.873 | 3.591 | 1.282 | 4.870 | 3.590 | 1.280 | 0.160 |
-| 5 | 5 | 28.000 | 24.000 | 4.000 | 4.549 | 3.916 | 0.632 | 4.546 | 3.914 | 0.632 | 0.158 |
-| 4 | 4 | 27.600 | 24.400 | 3.200 | 4.484 | 3.979 | 0.506 | 4.482 | 3.977 | 0.505 | 0.158 |
-| 3 | 4 | 27.600 | 24.400 | 3.200 | 4.484 | 3.980 | 0.504 | 4.482 | 3.978 | 0.504 | 0.157 |
-| 2 | 2 | 26.800 | 25.200 | 1.600 | 4.354 | 4.106 | 0.248 | 4.352 | 4.105 | 0.247 | 0.154 |
-| 1 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
-| 0 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
+| C0 | 768 | 619.200 | 4.800 | 614.400 | 100.419 | 1.147 | 99.272 | 100.419 | 1.147 | 99.272 | 0.162 |
+| C1 | 512 | 412.800 | 3.200 | 409.600 | 66.946 | 0.769 | 66.177 | 66.946 | 0.769 | 66.177 | 0.162 |
+| C2 | 320 | 258.000 | 2.000 | 256.000 | 41.839 | 0.483 | 41.356 | 41.840 | 0.483 | 41.356 | 0.162 |
+| C3 | 192 | 154.800 | 1.200 | 153.600 | 25.102 | 0.292 | 24.810 | 25.103 | 0.292 | 24.810 | 0.162 |
+| C4 | 96 | 90.400 | 13.600 | 76.800 | 14.660 | 2.269 | 12.390 | 14.654 | 2.269 | 12.385 | 0.161 |
+| C5 | 64 | 51.600 | 0.400 | 51.200 | 8.366 | 0.097 | 8.268 | 8.362 | 0.097 | 8.264 | 0.161 |
+| C6 | 32 | 38.800 | 13.200 | 25.600 | 6.291 | 2.174 | 4.117 | 6.288 | 2.174 | 4.114 | 0.161 |
+| C7 | 24 | 35.600 | 16.400 | 19.200 | 5.775 | 2.726 | 3.049 | 5.772 | 2.725 | 3.047 | 0.159 |
+| C8 | 12 | 30.800 | 21.200 | 9.600 | 5.000 | 3.472 | 1.528 | 4.997 | 3.471 | 1.526 | 0.159 |
+| C9 | 10 | 30.000 | 22.000 | 8.000 | 4.873 | 3.591 | 1.282 | 4.870 | 3.590 | 1.280 | 0.160 |
+| C10 | 5 | 28.000 | 24.000 | 4.000 | 4.549 | 3.916 | 0.632 | 4.546 | 3.914 | 0.632 | 0.158 |
+| C11 | 4 | 27.600 | 24.400 | 3.200 | 4.484 | 3.979 | 0.506 | 4.482 | 3.977 | 0.505 | 0.158 |
+| C12 | 4 | 27.600 | 24.400 | 3.200 | 4.484 | 3.980 | 0.504 | 4.482 | 3.978 | 0.504 | 0.157 |
+| C13 | 2 | 26.800 | 25.200 | 1.600 | 4.354 | 4.106 | 0.248 | 4.352 | 4.105 | 0.247 | 0.154 |
+| C14 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
+| C15 | 1 | 26.400 | 25.600 | 0.800 | 4.289 | 4.168 | 0.121 | 4.287 | 4.167 | 0.121 | 0.151 |
 | Sum | 2047 | 1884.800 | 247.200 | 1637.600 | 305.720 | 41.340 | 264.380 | 305.686 | 41.324 | 264.361 | 0.161 |
 
 ## Notes
@@ -144,22 +242,24 @@ XXcaparray_p/cap_topplate -> VDAC_P
 XXcaparray_n/cap_topplate -> VDAC_N
 ```
 
-The botplate pins are the top-level drive nets:
+The historical botplate pins are the top-level drive nets:
 
 ```text
-DAC_DRIVE_BOTPLATE_MAIN_P<bit>
-DAC_DRIVE_BOTPLATE_DIFF_P<bit>
-DAC_DRIVE_BOTPLATE_MAIN_N<bit>
-DAC_DRIVE_BOTPLATE_DIFF_N<bit>
+DAC_DRIVE_BOTPLATE_MAIN_P<physical-pin>
+DAC_DRIVE_BOTPLATE_DIFF_P<physical-pin>
+DAC_DRIVE_BOTPLATE_MAIN_N<physical-pin>
+DAC_DRIVE_BOTPLATE_DIFF_N<physical-pin>
 ```
 
-The value for each table entry is the sum of all capacitors between the topplate net and the corresponding botplate net,
-including all colon-suffixed subnodes. For example:
+FRIDA-1 uses the legacy boundary mapping `stage = 15 - physical-pin`, so pin
+15 is C0 and pin 0 is C15. The value for each table entry is the sum of all
+capacitors between the topplate and corresponding botplate, including
+colon-suffixed subnodes. For example:
 
 ```text
-main_P[15] = sum Cx where one terminal matches VDAC_P or VDAC_P:<subnode>
-                    and the other matches DAC_DRIVE_BOTPLATE_MAIN_P<15>
-                    or DAC_DRIVE_BOTPLATE_MAIN_P<15>:<subnode>
+C0 main P = sum Cx where one terminal matches VDAC_P or VDAC_P:<subnode>
+                     and the other matches DAC_DRIVE_BOTPLATE_MAIN_P<15>
+                     or DAC_DRIVE_BOTPLATE_MAIN_P<15>:<subnode>
 ```
 
 The same rule is used for `diff`, and for the `N` branch with `VDAC_N`.
@@ -173,65 +273,7 @@ DAC_DRIVE_BOTPLATE_MAIN_P<15>  VDAC_P
 but it is not sufficient for the complete table, because the report can omit smaller logical pair couplings. The full
 PEX netlist should be parsed and summed.
 
-The calculation is now automated by `flow.cdac.pex`; its historical parser is
-equivalent to:
-
-```python
-import re
-from collections import defaultdict
-
-path = "/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_1layer_radix17.pex.netlist"
-
-val_re = re.compile(r"^([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)([a-zA-Z]*)$")
-bot_re = re.compile(r"^DAC_DRIVE_BOTPLATE_(MAIN|DIFF)_([PN])<([0-9]+)>(?::.*)?$", re.I)
-
-def val_ff(s: str) -> float:
-    m = val_re.match(s)
-    if not m:
-        raise ValueError(s)
-    x = float(m.group(1))
-    suffix = m.group(2).lower()
-    return x * {"": 1e15, "f": 1.0, "p": 1e3, "n": 1e6, "u": 1e9, "m": 1e12}.get(suffix, 1)
-
-def classify(node: str):
-    u = node.upper()
-    m = bot_re.match(u)
-    if m:
-        return ("BOT", m.group(1).upper(), m.group(2).upper(), int(m.group(3)))
-    if u == "VDAC_P" or u.startswith("VDAC_P:"):
-        return ("TOP", "P")
-    if u == "VDAC_N" or u.startswith("VDAC_N:"):
-        return ("TOP", "N")
-    return ("OTHER",)
-
-caps = defaultdict(float)
-
-with open(path) as f:
-    for line in f:
-        line = line.strip()
-        if not line or line.startswith("*"):
-            continue
-        fields = line.split()
-        if len(fields) != 4 or not fields[0].upper().startswith("C"):
-            continue
-
-        try:
-            c_ff = val_ff(fields[3])
-        except ValueError:
-            continue
-
-        a = classify(fields[1])
-        b = classify(fields[2])
-
-        if a[0] == "TOP" and b[0] == "BOT" and a[1] == b[2]:
-            caps[(a[1], b[1], b[3])] += c_ff
-        elif b[0] == "TOP" and a[0] == "BOT" and b[1] == a[2]:
-            caps[(b[1], a[1], a[3])] += c_ff
-
-for side in ["P", "N"]:
-    print(f"side {side}")
-    for bit in range(15, -1, -1):
-        main = caps[(side, "MAIN", bit)]
-        diff = caps[(side, "DIFF", bit)]
-        print(bit, main, diff, main - diff)
-```
+The calculation is automated by `flow.cdac.pex`. Historical ADC extraction
+must call `parse_adc_cdac_pex(..., stage_count=16,
+pin_order="frida1_legacy")`; newly generated arrays use the default direct
+stage order. Both return arrays indexed C0 through C15.

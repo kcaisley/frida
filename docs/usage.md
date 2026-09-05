@@ -1,5 +1,10 @@
 # Usage
 
+ADC capacitor stages, comparator decisions, and output codes follow the
+[project-wide ADC convention](adc_conventions.md): C0 is the largest and first
+capacitor, B0..B16 are chronological decisions, and DOUT is the 12-bit result
+formed from all 17 decisions.
+
 FRIDA commands run through the Python module that owns the operation:
 
 ```text
@@ -314,6 +319,34 @@ Use the corresponding `_check` target for a short, noise-free Spectre run with
 circuit checks and AHDL linting. Results are written below a fresh
 `build/sim/adc/<target>/<YYYYMMDD_HHMMSS>/`; omitting the target lists all
 choices.
+
+For the extracted-layout comparison, `frida1_10msps` selects all four historical
+flavors and `frida2_10msps` selects the connected one-, two-, and three-layer
+radix-17 variants. Each case uses 100 conversions, 50 mV differential input,
+700 mV common mode, 1.2 V supplies, and transient device noise. These reuse
+the same testbench and result conversion as the rate-sweep targets.
+
+```bash
+uv run python -m flow.adc.sim frida1_10msps --netlist-only
+uv run python -m flow.adc.sim frida2_10msps --netlist-only
+uv run python -m flow.adc.sim frida1_10msps
+uv run python -m flow.adc.sim frida2_10msps
+uv run python -m flow.analysis.runner adc_pex_flavor_paths --inputs /path/to/completed/campaign
+```
+
+Netlist-only preflight checks the actual extracted port order and internal
+waveform nodes, and writes the complete Spectre input without launching it.
+Each case records its PEX SHA-256. A worker snapshot must include the selected
+`build/layout/adc/<target>/<timestamp>/` signoff summary and PEX netlist.
+Only the two historical two-layer targets may accept the explicitly recorded
+disconnect warning; FRIDA-2 requires raw LVS `CORRECT`.
+
+The standard sequence has a 100 ns active conversion window at a 1.6 GHz
+symbol rate, followed by padding to a 160 ns record. Thus “10 MS/s” describes
+the active timing, not a continuous 100 ns sampling interval. The analysis
+uses all 100 decision records and writes both B0-first 17-bit decisions and
+decoded 12-bit outputs. Run long campaigns in detached worker sessions and
+copy results back before selecting them for analysis.
 
 ## Environment setup
 
