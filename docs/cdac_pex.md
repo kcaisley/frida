@@ -1,5 +1,42 @@
 # Caparray capacitance comparison
 
+## C0-first full-ADC restart (2026-09-05)
+
+The FRIDA-2 runners now read the paired `build/frida-2-template-c0.gds` and
+`build/frida-2-template-c0.cdl`. The annotation-only migration and before/after
+conductive LVS checks are recorded beneath
+`build/layout/adc/template_annotations/20260905_190843/`. Original files were
+preserved. Geometry and instance placements did not change during renaming.
+
+Assembly checks the terminal-name set, database unit, and footprint, leaving
+electrical connectivity to full-chip LVS. Marker coordinates/layers and all
+generated caparray polygons are instead pinned by the ordinary regression
+test in `pdk/tsmc65/tests/test_cdac_layout.py`. Its baseline comes from the
+human-reviewed, signed-off September 5 arrays, not the historical template.
+
+All three assembled FRIDA-2 variants pass raw MOM-aware LVS, the configured
+DRC checks with zero errors, and xACT PEX:
+
+- `build/layout/adc/frida2_1layer_radix17/20260905_193440/`
+- `build/layout/adc/frida2_2layer_radix17/20260905_193629/`
+- `build/layout/adc/frida2_3layer_radix17/20260905_193816/`
+
+The simulation view `frida2` uses the renamed C0-first PEX ports and source
+nets. `frida65a` retains the fabricated FRIDA-1 namespace and its explicit
+15-first mapping. Both are checked against actual PEX headers and device
+terminal names before simulation. The four historical inputs remain the
+September 5 17:12 extractions; their two-layer raw LVS warnings represent the
+known disconnected upper plates, not a repaired model of fabricated silicon.
+
+The restart retains 100 conversions per flavor, 50 mV differential input,
+700 mV common mode, 1.2 V supplies, and transient noise. The active conversion
+is 100 ns within the intentionally retained 160 ns padded record. All sixteen
+main/diff state and driver nodes on both branches are saved, together with the
+comparator cross-coupled nodes and both input-pair drains. Additional traces
+are stored in HDF5 `wave/internal_v/`; the existing plotter-facing traces stay
+in `wave/`. `info/readbacks/signal_map_json` records their exact PEX node names.
+No initial-state voltages or physical connections are changed by renaming.
+
 ## Shared HDL21 source (2026-09-05)
 
 `flow.cdac.subckt.CdacArray` now generates both the ideal and LVS capacitor
@@ -18,9 +55,9 @@ checks connectivity; the current recognition deck does not compare numerical
 capacitance. PEX remains the source of actual capacitance and shunt loading.
 
 The generic netlist replacement utility reconnects callers by formal pin
-name, rather than copying positional arguments. Both ADC runners explicitly
-map fabricated driver pin 15 to new C0 while that old digital macro remains
-in use. Calibre's raw PEX header may still have its own ordering; identical
+name, rather than copying positional arguments. The FRIDA-1 runner explicitly
+maps fabricated driver pin 15 to C0; the renamed FRIDA-2 source uses C0 directly.
+Calibre's raw PEX header may still have its own ordering; identical
 ideal/LVS source ordering does not imply normalized PEX ordering.
 
 Fresh standalone signoff results are in
