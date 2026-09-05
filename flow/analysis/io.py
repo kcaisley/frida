@@ -233,7 +233,12 @@ def _write_section(parent: h5py.File, name: str, section) -> None:
         value = getattr(section, data_field.name)
         if value is None:
             continue
-        _create_dataset(group, data_field.name, value, wave=name == "wave")
+        if isinstance(value, Mapping):
+            traces = group.create_group(data_field.name)
+            for key, trace in value.items():
+                _create_dataset(traces, key, trace, wave=name == "wave")
+        else:
+            _create_dataset(group, data_field.name, value, wave=name == "wave")
 
 
 def _read_section(group: h5py.Group, section_type: type):
@@ -243,7 +248,12 @@ def _read_section(group: h5py.Group, section_type: type):
     missing = []
     for data_field in _dataclass_fields(section_type):
         if data_field.name in group:
-            values[data_field.name] = np.asarray(group[data_field.name][()])
+            node = group[data_field.name]
+            values[data_field.name] = (
+                {key: np.asarray(node[key][()]) for key in node}
+                if isinstance(node, h5py.Group)
+                else np.asarray(node[()])
+            )
         elif data_field.default is dataclasses.MISSING and data_field.default_factory is dataclasses.MISSING:
             missing.append(data_field.name)
     if missing:

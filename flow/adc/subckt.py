@@ -218,10 +218,22 @@ Frida65a2LayerRadix20PexAdc = h.ExternalModule(
     port_list=[h.Inout(name=name) for name in _FRIDA65A_PEX_ADC_PORT_NAMES],
     desc="Calibre xRC extracted FRIDA65A two-layer radix-20 ADC",
 )
-Frida2PexAdc = h.ExternalModule(
+Frida1PexAdc = h.ExternalModule(
     name="adc_12b_17step",
     port_list=[h.Inout(name=name) for name in _FRIDA65A_PEX_ADC_PORT_NAMES],
-    desc="Calibre xRC extracted FRIDA-2 ADC",
+    desc="Calibre xRC extracted FRIDA-1 ADC with standardized top-cell name",
+)
+Frida2PexAdc = h.ExternalModule(
+    name="adc_12b_17step",
+    port_list=[
+        h.Inout(
+            name=f"{name.rsplit('_', 1)[0]}_{15 - int(name.rsplit('_', 1)[1])}"
+            if name.startswith("dac_") and "state_" in name
+            else name
+        )
+        for name in _FRIDA65A_PEX_ADC_PORT_NAMES
+    ],
+    desc="Calibre xRC extracted C0-first FRIDA-2 ADC; exact renamed positional signature",
 )
 
 

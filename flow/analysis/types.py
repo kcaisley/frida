@@ -248,10 +248,15 @@ class AdcIntWave:
     vdd_a_i: FloatArray
     vdd_d_i: FloatArray
     vdd_dac_i: FloatArray
+    # Additional per-stage and comparator voltages, aligned to time_s and
+    # conversion_index. Existing plotter-facing traces remain explicit above.
+    internal_v: dict[str, FloatArray] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         signal_names = tuple(
-            field_name for field_name in self.__dataclass_fields__ if field_name not in {"conversion_index", "time_s"}
+            field_name
+            for field_name in self.__dataclass_fields__
+            if field_name not in {"conversion_index", "time_s", "internal_v"}
         )
         indices, times, signals = _normalize_wave(
             self.conversion_index,
@@ -262,6 +267,10 @@ class AdcIntWave:
         object.__setattr__(self, "time_s", times)
         for name, values in signals.items():
             object.__setattr__(self, name, values)
+        if any(not name.isidentifier() or not name.endswith("_v") or name in signal_names for name in self.internal_v):
+            raise ValueError("wave.internal_v must contain distinct voltage identifiers ending in _v")
+        _, _, internal = _normalize_wave(indices, times, self.internal_v)
+        object.__setattr__(self, "internal_v", internal)
 
 
 @dataclass(frozen=True, slots=True)

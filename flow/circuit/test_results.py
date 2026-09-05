@@ -54,7 +54,7 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     raw_wave_names = tuple(
         field.name
         for field in dataclasses.fields(AdcIntWave)
-        if field.name not in {"conversion_index", "time_s", "vin_diff_v"}
+        if field.name not in {"conversion_index", "time_s", "vin_diff_v", "internal_v"}
     )
     values = {name: np.zeros_like(times_s) for name in raw_wave_names}
     values.update(
@@ -81,6 +81,8 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         **values,
     }
     signal_names = {"time_s": "time", **{name: name for name in raw_wave_names}}
+    signal_names["comp_latch_p_v"] = "latch_internal"
+    values["latch_internal"] = np.full_like(times_s, 0.875)
     raw_path = tmp_path / "netlist.raw"
     raw_path.touch()
 
@@ -128,6 +130,8 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     np.testing.assert_allclose(measurement.wave.vdd_a_i, 2.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_d_i, 40.0e-6)
     np.testing.assert_allclose(measurement.wave.vdd_dac_i, 20.0e-6)
+    np.testing.assert_allclose(measurement.wave.internal_v["comp_latch_p_v"], 0.875)
+    assert measurement.wave.internal_v["comp_latch_p_v"].shape == measurement.wave.comp_out_v.shape
 
 
 def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
@@ -222,7 +226,27 @@ def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
 def test_frida2_rc_waveforms_use_device_terminal_nodes() -> None:
     from flow.circuit.results import adc_signal_names
 
-    names = adc_signal_names("frida65a", pex_cell="adc_12b_17step")
-    assert names == adc_signal_names("frida65a", pex_cell="adc_1layer_radix17")
+    names = adc_signal_names("frida2", pex_cell="adc_12b_17step")
+    legacy = adc_signal_names("frida65a", pex_cell="adc_1layer_radix17")
     assert names["vdac_p_v"] == "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d"
-    assert names["dac_state_p_c0_v"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")
+    assert names["dac_state_p_c0_v"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<0>_")
+    assert legacy["dac_state_p_c0_v"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")
+    assert names["dac_state_p_c0_v"].split("/", 1)[1] == legacy["dac_state_p_c0_v"].split("/", 1)[1]
+
+
+@pytest.mark.parametrize("view", ("frida65a", "frida2"))
+def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes(view):
+    from flow.circuit.results import adc_signal_names
+
+    names = adc_signal_names(view, pex_cell="adc_12b_17step")
+    assert len(names) == len(set(names.values()))
+    for side in ("p", "n"):
+        for kind in ("", "diff_"):
+            for stage in range(16):
+                for family in ("state", "botplate"):
+                    node = names[f"dac_{family}_{side}_{kind}c{stage}_v"]
+                    assert f"<{stage if view == 'frida2' else 15 - stage}>_" in node
+    assert names["comp_latch_p_v"].endswith("XXLATCH/MMM4_d")
+    assert names["comp_latch_n_v"].endswith("XXLATCH/MMM3_d")
+    assert names["comp_input_p_drain_v"].endswith("XXLATCH/MMM1_d")
+    assert names["comp_input_n_drain_v"].endswith("XXLATCH/MMM2_d")

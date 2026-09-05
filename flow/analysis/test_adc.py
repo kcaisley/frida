@@ -176,7 +176,11 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
         comp_out_p_v[time_s >= edge_s + 0.08e-9] = 1.2 * (cycle % 2)
     comp_out_n_v = 1.2 - comp_out_p_v
 
-    wave_values = {name: zeros for name in base.wave.__dataclass_fields__ if name not in {"conversion_index", "time_s"}}
+    wave_values = {
+        name: zeros
+        for name in base.wave.__dataclass_fields__
+        if name not in {"conversion_index", "time_s", "internal_v"}
+    }
     vdac_p_v = np.full_like(time_s, 0.7)
     vdac_n_v = np.full_like(time_s, 0.7)
     for stage_index, cycle_index, step_v in ((0, 0, 0.12), (7, 7, -0.04), (15, 15, 0.01)):
@@ -207,6 +211,7 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
         }
     )
     wave = AdcIntWave(
+        internal_v={},
         conversion_index=np.asarray([0]),
         time_s=time_s,
         **wave_values,

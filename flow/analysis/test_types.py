@@ -168,6 +168,7 @@ def all_measurements():
             param=AdcTbParams(conversions=1),
             daq=adc_daq,
             wave=AdcIntWave(
+                internal_v={},
                 conversion_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
                 **dense_signals(adc_int_names),
@@ -258,6 +259,10 @@ def assert_sections_equal(expected, actual) -> None:
         actual_value = getattr(actual, data_field)
         if expected_value is None:
             assert actual_value is None
+        elif isinstance(expected_value, dict):
+            assert actual_value.keys() == expected_value.keys()
+            for name, values in expected_value.items():
+                np.testing.assert_array_equal(actual_value[name], values)
         else:
             assert actual_value.dtype == expected_value.dtype
             np.testing.assert_array_equal(actual_value, expected_value)

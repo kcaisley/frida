@@ -18,6 +18,7 @@ from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 from flow.adc.subckt import (
     Adc,
     AdcParams,
+    Frida1PexAdc,
     Frida2PexAdc,
     Frida65a1LayerRadix20PexAdc,
     Frida65a2LayerRadix17PexAdc,
@@ -31,10 +32,10 @@ from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
 class AdcTbParams:
     """Parameters which determine one generated ADC testbench."""
 
-    view = h.Param(dtype=str, desc="ADC implementation: frida65a or hdl21gen", default="hdl21gen")
+    view = h.Param(dtype=str, desc="ADC implementation: frida65a, frida2, or hdl21gen", default="hdl21gen")
     pex_cell = h.Param(
         dtype=str,
-        desc="Calibre-extracted FRIDA65A cell; empty selects adc_1layer_radix17",
+        desc="Calibre-extracted cell; empty selects adc_1layer_radix17 for frida65a",
         default="",
     )
     dut = h.Param(
@@ -115,7 +116,7 @@ class AdcTbParams:
 def AdcTb(params: AdcTbParams) -> h.Module:
     """Generate a complete ADC testbench for the selected DUT view."""
 
-    if params.view not in {"frida65a", "hdl21gen"}:
+    if params.view not in {"frida65a", "frida2", "hdl21gen"}:
         raise ValueError(f"unsupported ADC view {params.view!r}")
     pex_adcs = {
         "": Frida65aPexAdc,
@@ -123,12 +124,16 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         "adc_1layer_radix20": Frida65a1LayerRadix20PexAdc,
         "adc_2layer_radix17": Frida65a2LayerRadix17PexAdc,
         "adc_2layer_radix20": Frida65a2LayerRadix20PexAdc,
-        "adc_12b_17step": Frida2PexAdc,
+        "adc_12b_17step": Frida1PexAdc,
     }
+    if params.view == "frida2":
+        pex_adcs = {"adc_12b_17step": Frida2PexAdc}
+        if params.pex_cell not in pex_adcs:
+            raise ValueError("frida2 requires pex_cell='adc_12b_17step'")
     if params.view == "frida65a" and params.pex_cell not in pex_adcs:
         raise ValueError(f"unsupported FRIDA65A PEX cell {params.pex_cell!r}")
     if params.view == "hdl21gen" and params.pex_cell:
-        raise ValueError("pex_cell applies only to the frida65a view")
+        raise ValueError("pex_cell applies only to extracted views")
     if not math.isfinite(float(params.symbol_rate)) or float(params.symbol_rate) <= 0.0:
         raise ValueError("ADC symbol rate must be finite and positive")
     if params.conversions <= 0:
@@ -284,10 +289,8 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         setattr(tb, f"v{name}", h.Vdc(dc=float(params.vdd_d.dc) * getattr(params, name))(p=signal, n=tb.vss))
     for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
         for stage, state in enumerate(getattr(params, bus_name)):
-            # Generated ADCs expose C0-first stage buses. Extracted FRIDA-1
-            # and FRIDA-2 layouts contain the fabricated digital block, whose
-            # physical bit 15 is logical stage 0.
-            bus_index = stage if params.view == "hdl21gen" else 15 - stage
+            # Only the immutable FRIDA-1 namespace needs the old 15-first map.
+            bus_index = 15 - stage if params.view == "frida65a" else stage
             setattr(
                 tb,
                 f"v{bus_name}_{bus_index}",
@@ -1051,7 +1054,7 @@ def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path, *, netlist_only: 
         (
             "10msps_cm700mv_dc50mv",
             AdcTbParams(
-                view="frida65a",
+                view="frida2",
                 pex_cell="adc_12b_17step",
                 dut=AdcParams(adc_bits=12, cdac=CdacParams()),
                 symbol_rate=1.6 * G,
@@ -1137,7 +1140,7 @@ def frida2_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
     """Run 100 conversions for each connected radix-17 FRIDA-2 stack."""
 
     params = AdcTbParams(
-        view="frida65a",
+        view="frida2",
         pex_cell="adc_12b_17step",
         dut=AdcParams(adc_bits=12, cdac=CdacParams()),
         symbol_rate=1.6 * G,

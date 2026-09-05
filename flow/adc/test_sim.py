@@ -10,6 +10,7 @@ import hdl21.sim as hs
 import pytest
 
 from flow.adc.subckt import (
+    Frida1PexAdc,
     Frida2PexAdc,
     Frida65a1LayerRadix20PexAdc,
     Frida65a2LayerRadix17PexAdc,
@@ -78,6 +79,7 @@ def test_extracted_adc_keeps_calibre_port_order() -> None:
         Frida65a2LayerRadix17PexAdc,
         Frida65a2LayerRadix20PexAdc,
         Frida2PexAdc,
+        Frida1PexAdc,
     )
     for module in modules:
         names = tuple(port.name for port in module.port_list)
@@ -105,8 +107,20 @@ def test_extracted_adc_selects_requested_pex_cell(pex_cell: str) -> None:
 def test_pex_cell_rejects_unknown_and_generated_views() -> None:
     with pytest.raises(ValueError, match="unsupported FRIDA65A PEX cell"):
         sim.AdcTb(sim.AdcTbParams(view="frida65a", pex_cell="adc_unknown", conversions=1))
-    with pytest.raises(ValueError, match="applies only to the frida65a view"):
+    with pytest.raises(ValueError, match="applies only to extracted views"):
         sim.AdcTb(sim.AdcTbParams(view="hdl21gen", pex_cell="adc_1layer_radix17", conversions=1))
+
+
+def test_c0_rename_preserves_the_physical_initialization_voltages() -> None:
+    for bus in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
+        pattern = tuple(int(stage in (0, 3, 8, 14)) for stage in range(16))
+        old = sim.AdcTb(sim.AdcTbParams(view="frida65a", pex_cell="adc_12b_17step", **{bus: pattern}))
+        new = sim.AdcTb(sim.AdcTbParams(view="frida2", pex_cell="adc_12b_17step", **{bus: pattern}))
+        assert old.xadc.of.module is Frida1PexAdc
+        assert new.xadc.of.module is Frida2PexAdc
+        for stage, state in enumerate(pattern):
+            assert float(getattr(old, f"v{bus}_{15 - stage}").of.params.dc) == pytest.approx(1.2 * state)
+            assert float(getattr(new, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
 
 
 def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
@@ -178,6 +192,7 @@ def test_frida2_noise_recipe_uses_hundred_conversions(tmp_path: Path, monkeypatc
     case_name, params = captured["cases"][0]
     assert case_name == "10msps_cm700mv_dc50mv"
     assert params.pex_cell == "adc_12b_17step"
+    assert params.view == "frida2"
     assert params.conversions == 100
     assert float(params.symbol_rate) == pytest.approx(1.6e9)
     assert captured["pex_netlist"] == pex_netlist
@@ -221,6 +236,7 @@ def test_hundred_conversion_campaigns(family, count, tmp_path, monkeypatch):
         assert directory.name == name
         assert params.conversions == 100
         assert params.pex_cell == "adc_12b_17step"
+        assert params.view == ("frida2" if family == "frida2" else "frida65a")
         assert float(params.symbol_rate) == 1.6e9
         assert float(params.vin_diff.dc) == 0.05
         assert float(params.vin_cm.dc) == pytest.approx(0.7)

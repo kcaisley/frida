@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -38,10 +39,10 @@ def adc_signal_names(view: str, *, pex_cell: str | None = None) -> dict[str, str
         "vdd_d_i": "xtop.vvdd_d:p",
         "vdd_dac_i": "xtop.vvdd_dac:p",
     }
-    if view == "frida65a":
+    if view in ("frida65a", "frida2"):
         # FRIDA-1 and FRIDA-2 both use distributed xACT RC extraction. Save
         # the device-terminal nodes; lumped logical net names do not exist.
-        return {
+        names = {
             **common,
             "vdac_p_v": "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d",
             "vdac_n_v": "xtop.xadc.N_VDAC_N_XXsampswitch_n/MM0_d",
@@ -52,19 +53,31 @@ def adc_signal_names(view: str, *, pex_cell: str | None = None) -> dict[str, str
             "clk_comp_v": "xtop.xadc.N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
             "comp_out_p_v": "xtop.xadc.N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
             "comp_out_n_v": "xtop.xadc.N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
-            "dac_state_p_c0_v": "xtop.xadc.N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
-            "dac_state_p_c7_v": "xtop.xadc.N_DAC_STATE_P_MAIN<8>_XXcapdriver_p_main/XXxor8/MMM_u2-M_u3_g",
-            "dac_state_p_c15_v": "xtop.xadc.N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor0/MMM_u2-M_u3_g",
-            "dac_state_n_c0_v": "xtop.xadc.N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g",
-            "dac_state_n_c7_v": "xtop.xadc.N_DAC_STATE_N_MAIN<8>_XXcapdriver_n_main/XXxor8/MMM_u2-M_u3_g",
-            "dac_state_n_c15_v": "xtop.xadc.N_DAC_STATE_N_MAIN<0>_XXcapdriver_n_main/XXxor0/MMM_u2-M_u3_g",
-            "dac_botplate_p_c0_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<15>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
-            "dac_botplate_p_c7_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<8>_XXcapdriver_p_main/XXxor8/MMM_u4_1-M_u3_d",
-            "dac_botplate_p_c15_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_P<0>_XXcapdriver_p_main/XXxor0/MMM_u4_1-M_u3_d",
-            "dac_botplate_n_c0_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<15>_XXcapdriver_n_main/XXxor15_0/MMM_u4_1-M_u3_d",
-            "dac_botplate_n_c7_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<8>_XXcapdriver_n_main/XXxor8/MMM_u4_1-M_u3_d",
-            "dac_botplate_n_c15_v": "xtop.xadc.N_DAC_DRIVE_BOTPLATE_MAIN_N<0>_XXcapdriver_n_main/XXxor0/MMM_u4_1-M_u3_d",
+            "comp_latch_p_v": "xtop.xadc.N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
+            "comp_latch_n_v": "xtop.xadc.N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
+            "comp_input_p_drain_v": "xtop.xadc.N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
+            "comp_input_n_drain_v": "xtop.xadc.N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
         }
+        for stage in range(16):
+            # The renamed source nets are C0-first; the synthesized gate
+            # identifiers still identify the same physical driver devices.
+            physical = 15 - stage
+            net_index = stage if view == "frida2" else physical
+            gate = f"XXxor{physical}" + ("_0" if physical >= 14 else "")
+            state_device = "MMM_u2_1" if physical >= 12 else "MMM_u2"
+            for side in ("p", "n"):
+                for kind in ("main", "diff"):
+                    suffix = f"{side}_" + ("diff_" if kind == "diff" else "") + f"c{stage}_v"
+                    driver = f"XXcapdriver_{side}_{kind}/{gate}"
+                    names[f"dac_state_{suffix}"] = (
+                        f"xtop.xadc.N_DAC_STATE_{side.upper()}_{kind.upper()}<{net_index}>_"
+                        f"{driver}/{state_device}-M_u3_g"
+                    )
+                    names[f"dac_botplate_{suffix}"] = (
+                        f"xtop.xadc.N_DAC_DRIVE_BOTPLATE_{kind.upper()}_{side.upper()}<{net_index}>_"
+                        f"{driver}/MMM_u4_1-M_u3_d"
+                    )
+        return names
     if view == "hdl21gen":
         return {
             **common,
@@ -122,8 +135,9 @@ def convert_spectre_adc_to_measurement(
 ) -> MeasAdcInt:
     """Decode one Spectre ADC result into the typed internal contract.
 
-    ``signal_names`` maps canonical :class:`AdcIntWave` fields to Spectre
-    variable names. Spectre reports voltage-source current into the source's
+    ``signal_names`` maps canonical signals to Spectre variable names. Extra
+    voltage traces are retained in ``wave.internal_v`` on the same time grid.
+    Spectre reports voltage-source current into the source's
     positive terminal; the stored supply currents reverse that sign so that
     positive values mean current drawn by the ADC.
     """
@@ -131,16 +145,15 @@ def convert_spectre_adc_to_measurement(
     raw_wave_names = tuple(
         field.name
         for field in dataclasses.fields(AdcIntWave)
-        if field.name not in {"conversion_index", "time_s", "vin_diff_v"}
+        if field.name not in {"conversion_index", "time_s", "vin_diff_v", "internal_v"}
     )
     expected_names = {"time_s", *raw_wave_names}
     missing_names = sorted(expected_names.difference(signal_names))
-    unexpected_names = sorted(set(signal_names).difference(expected_names))
-    if missing_names or unexpected_names:
-        raise ValueError(
-            "signal_names must map exactly the raw AdcIntWave signals; "
-            f"missing={missing_names}, unexpected={unexpected_names}"
-        )
+    extra_names = set(signal_names).difference(expected_names)
+    if missing_names:
+        raise ValueError(f"signal_names is missing raw AdcIntWave signals: {missing_names}")
+    if any(not name.isidentifier() or not name.endswith("_v") or name in {"vin_diff_v"} for name in extra_names):
+        raise ValueError("additional waveform names must be voltage identifiers ending in _v")
     raw_names = tuple(signal_names.values())
     if any(not isinstance(name, str) or not name for name in raw_names):
         raise ValueError("signal_names values must be non-empty raw variable names")
@@ -157,7 +170,7 @@ def convert_spectre_adc_to_measurement(
         raise ValueError("maximum_waveform_records must be positive")
 
     times_s = np.asarray(data[signal_names["time_s"]], dtype=np.float64)
-    signals = {name: np.asarray(data[signal_names[name]], dtype=np.float64) for name in raw_wave_names}
+    signals = {name: np.asarray(data[raw], dtype=np.float64) for name, raw in signal_names.items() if name != "time_s"}
     for name in ("vdd_a_i", "vdd_d_i", "vdd_dac_i"):
         signals[name] = -signals[name]
     signals["vin_diff_v"] = signals["vin_p_v"] - signals["vin_n_v"]
@@ -284,6 +297,7 @@ def convert_spectre_adc_to_measurement(
         "decision_sample_fraction": decision_sample_fraction,
         "supply_power_available": True,
         "supply_current_convention": "positive_current_draw",
+        "signal_map_json": json.dumps(dict(signal_names), sort_keys=True),
     }
     rail_voltages = {
         "vdd_a": float(params.vdd_a.dc),
@@ -320,7 +334,8 @@ def convert_spectre_adc_to_measurement(
         wave=AdcIntWave(
             conversion_index=waveform_conversion_indices,
             time_s=relative_time_s,
-            **waveform_records,
+            **{name: values for name, values in waveform_records.items() if name not in extra_names},
+            internal_v={name: waveform_records[name] for name in sorted(extra_names)},
         ),
     )
 
