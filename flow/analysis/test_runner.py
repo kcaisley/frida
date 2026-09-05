@@ -633,10 +633,12 @@ def test_adc_pex_flavor_runners_use_h5_flavors_and_rates(
 
     artifacts = runner.adc_pex_flavor_paths(tmp_path / "output")
 
-    assert len(artifacts) == 12
+    assert len(artifacts) == 24
     assert selections == ["all"] * 12
     assert outputs == [
-        f"spice_{flavor}_50mv_{rate_msps}msps_decision_path_density" for flavor in flavors for rate_msps in (10, 2, 6)
+        f"spice_{flavor}_{rate_msps}msps_cm700mv_dc50mv_50mv_{rate_msps}msps_decision_path_density"
+        for flavor in flavors
+        for rate_msps in (10, 2, 6)
     ]
 
     settling_outputs = []

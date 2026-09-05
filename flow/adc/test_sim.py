@@ -200,6 +200,54 @@ def test_extracted_noise_runner_enables_transient_noise() -> None:
     assert "noise=True" in inspect.getsource(sim._run_extracted_adc_noise)
 
 
+@pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
+def test_hundred_conversion_campaigns(family, count, tmp_path, monkeypatch):
+    calls = []
+    pex = tmp_path / "input.pex.netlist"
+    pex.write_text("test input")
+    monkeypatch.setattr(sim, "_find_latest_signed_off_pex", lambda target: pex)
+
+    def capture(run_dir, cases, netlist, *, netlist_only=False):
+        calls.append((run_dir, cases[0], netlist, netlist_only))
+        return run_dir
+
+    monkeypatch.setattr(sim, "_run_extracted_adc_noise", capture)
+    getattr(sim, f"{family}_10msps")(tmp_path / "preflight", netlist_only=True)
+    assert len(calls) == count
+    assert len({name for _, (name, _), _, _ in calls}) == count
+    for directory, (name, params), netlist, preflight in calls:
+        assert directory.name == name
+        assert params.conversions == 100
+        assert params.pex_cell == "adc_12b_17step"
+        assert float(params.symbol_rate) == 1.6e9
+        assert float(params.vin_diff.dc) == 0.05
+        assert float(params.vin_cm.dc) == pytest.approx(0.7)
+        assert netlist == pex and preflight
+        assert sum(sim.get_cdac_weights(params.dut.cdac)) == (2303 if "radix20" in name else 2047)
+
+
+@pytest.mark.parametrize("target,accepted", (("frida1_2layer_radix17", True), ("frida2_2layer_radix17", False)))
+def test_only_historical_two_layer_campaign_accepts_known_disconnect(target, accepted, tmp_path, monkeypatch):
+    monkeypatch.setattr(sim, "__file__", str(tmp_path / "flow/adc/sim.py"))
+    run = tmp_path / "build/layout/adc" / target / "20260905_171235"
+    run.mkdir(parents=True)
+    (run / "adc.pex.netlist").write_text("pex")
+    (run / "signoff_summary.json").write_text(
+        json.dumps(
+            {
+                "lvs_correct": False,
+                "pex_netlist": "/different/worker/adc.pex.netlist",
+                "warnings": ["expected LVS mismatch: disconnected historical MOM layer"],
+            }
+        )
+    )
+    if accepted:
+        assert sim._find_latest_signed_off_pex(target) == run / "adc.pex.netlist"
+    else:
+        with pytest.raises(FileNotFoundError):
+            sim._find_latest_signed_off_pex(target)
+
+
 def test_adc_main_owns_the_eleven_named_targets() -> None:
     source = inspect.getsource(sim.main)
     for name in (

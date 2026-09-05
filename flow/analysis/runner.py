@@ -556,24 +556,38 @@ def adc_noise_density_grid(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-def adc_pex_flavor_paths(output_dir: Path) -> tuple[Path, ...]:
-    """Plot decision-path densities for the four extracted ADC flavors."""
+def adc_pex_flavor_paths(output_dir: Path, *, inputs: Path | None = None) -> tuple[Path, ...]:
+    """Plot extracted-ADC trajectories from an explicitly selected completed campaign."""
 
-    meas_read_dir = BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
+    meas_read_dir = inputs or BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
+    paths = sorted(meas_read_dir.rglob("result.h5"))
+    if not paths:
+        raise FileNotFoundError(f"no completed HDF5 results beneath {meas_read_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
     artifacts = []
-    for path in sorted(meas_read_dir.glob("*/*/result.h5")):
+    for path in paths:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdcInt):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
         noise = analyze_adc_noise_sweep((measurement,))
         input_mv = float(measurement.param.vin_diff.dc) * 1e3
         active_rate_msps = float(noise.active_conversion_rate_hz[0]) / 1e6
+        flavor = "_".join(path.relative_to(meas_read_dir).parts[:-1]) or measurement.param.pex_cell
+        codes = output_dir / f"{flavor}_codes.txt"
+        codes.write_text(
+            "sample B0_to_B16 DOUT_decimal DOUT_12bit\n"
+            + "".join(
+                f"{index} {''.join(str(int(bit)) for bit in bits)} {int(code)} {int(code):012b}\n"
+                for index, (bits, code) in enumerate(zip(measurement.daq.bout, measurement.daq.dout, strict=True))
+            )
+        )
+        artifacts.append(codes)
         artifacts.extend(
             plot_adc_decision_path_density(
                 measurement,
                 analyze_adc_decision_paths(measurement, selection="all"),
                 output_path=output_dir
-                / f"spice_{measurement.param.pex_cell}_{input_mv:g}mv_{active_rate_msps:g}msps_decision_path_density",
+                / f"spice_{flavor}_{input_mv:g}mv_{active_rate_msps:g}msps_decision_path_density",
             )
         )
     return tuple(artifacts)
@@ -1240,6 +1254,7 @@ def main() -> None:
     ANALYSIS_OUTPUT_BASE = BASE_PATH / "build/analysis"
 
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inputs", type=Path, help="Completed campaign directory for adc_pex_flavor_paths")
     parser.add_argument(
         "target",
         nargs="?",
@@ -1247,6 +1262,8 @@ def main() -> None:
         help="analysis-pipeline function to run; omit to run all targets",
     )
     args = parser.parse_args()
+    if args.inputs is not None and args.target != "adc_pex_flavor_paths":
+        parser.error("--inputs requires adc_pex_flavor_paths")
     run_all = args.target is None
     target_names = tuple(name for name in TARGETS if name not in AGGREGATE_TARGETS) if run_all else (args.target,)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M")
@@ -1262,7 +1279,10 @@ def main() -> None:
             print(f"Analysis output: {output_dir}")
         start_time = perf_counter()
         try:
-            artifacts = TARGETS[target_name](output_dir)
+            if args.inputs is not None:
+                artifacts = adc_pex_flavor_paths(output_dir, inputs=args.inputs)
+            else:
+                artifacts = TARGETS[target_name](output_dir)
         except FileNotFoundError as error:
             if not run_all:
                 raise

@@ -1,6 +1,7 @@
 """ADC testbench and named Spectre simulation targets."""
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -703,6 +704,8 @@ def _run_extracted_adc_noise(
     run_dir: Path,
     cases: tuple[tuple[str, AdcTbParams], ...],
     pex_netlist: Path,
+    *,
+    netlist_only: bool = False,
 ) -> Path:
     """Run one configured extracted-ADC noise campaign."""
 
@@ -719,6 +722,19 @@ def _run_extracted_adc_noise(
         tb = AdcTb(params)
         h.pdk.compile(tb)
         signal_names = adc_signal_names(params.view, pex_cell=params.pex_cell)
+        # Calibre's interface is positional; validate the actual extracted header.
+        text = pex_netlist.read_text().replace("\\\n", " ")
+        cell = tb.xadc.of.module
+        header = re.search(rf"^subckt {re.escape(cell.name)}\s*\(([^)]*)\)", text, re.MULTILINE | re.IGNORECASE)
+        if header is None:
+            raise ValueError(f"missing PEX subcircuit {cell.name}")
+        ports = [re.sub(r"<(\d+)>", r"_\1", port.replace("\\", "").lower()) for port in header[1].split()]
+        if ports != [port.name for port in cell.port_list]:
+            raise ValueError(f"PEX port order differs from {cell.name}")
+        nodes = set(text.replace("\\", "").split())
+        missing = [name for name in signal_names.values() if name.startswith("xtop.xadc.") and name[10:] not in nodes]
+        if missing:
+            raise ValueError(f"PEX waveform nodes missing: {missing}")
         save_targets = [
             re.sub(r"([/<>-])", r"\\\1", raw_name)
             for canonical_name, raw_name in signal_names.items()
@@ -751,6 +767,15 @@ def _run_extracted_adc_noise(
                 ],
             )
         )
+    if netlist_only:
+        from vlsirtools.spice.spectre import SpectreSim
+
+        for (case_name, _), simulation in zip(cases, simulations, strict=True):
+            destination = run_dir if len(cases) == 1 else run_dir / case_name
+            backend = SpectreSim(hs.to_proto(simulation), SimOptions(rundir=destination))
+            backend.setup()
+            backend.write_netlist()
+        return run_dir
     # HDL21 types cover scalar and sequence inputs, all result formats, and all analyses;
     # this call requests a SIM_DATA list containing one transient per simulation.
     results = cast(
@@ -1043,8 +1068,14 @@ def _find_latest_signed_off_pex(target: str) -> Path:
     root = Path(__file__).resolve().parents[2] / "build" / "layout" / "adc" / target
     for candidate in sorted(root.glob("*/signoff_summary.json"), reverse=True):
         summary = json.loads(candidate.read_text(encoding="utf-8"))
-        pex_netlist = Path(summary["pex_netlist"])
-        if summary["lvs_correct"] and pex_netlist.is_file() and pex_netlist.stat().st_size:
+        # Resolve bundled artifacts relative to their summary on remote workers.
+        pex_netlist = candidate.parent / Path(summary["pex_netlist"]).name
+        expected_disconnect = target in ("frida1_2layer_radix17", "frida1_2layer_radix20")
+        accepted = summary["lvs_correct"] or (
+            expected_disconnect
+            and summary.get("warnings") == ["expected LVS mismatch: disconnected historical MOM layer"]
+        )
+        if accepted and pex_netlist.is_file() and pex_netlist.stat().st_size:
             return pex_netlist
     raise FileNotFoundError(f"no accepted PEX run exists beneath {root}")
 
@@ -1059,6 +1090,75 @@ def frida2_3layer_radix17_10msps(run_dir: Path) -> Path:
     """Run ten connected three-layer FRIDA-2 conversions at 10 MS/s."""
 
     return _run_frida2_noise_10msps(run_dir, _find_latest_signed_off_pex("frida2_3layer_radix17"))
+
+
+def frida1_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
+    """Run 100 conversions for each freshly extracted FRIDA-1 flavor."""
+
+    for target, weights in (
+        ("frida1_1layer_radix17", (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)),
+        ("frida1_1layer_radix20", (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)),
+        ("frida1_2layer_radix17", (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)),
+        ("frida1_2layer_radix20", (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)),
+    ):
+        params = AdcTbParams(
+            view="frida65a",
+            pex_cell="adc_12b_17step",
+            dut=AdcParams(adc_bits=12, cdac=CdacParams(weights=weights)),
+            symbol_rate=1.6 * G,
+            conversions=100,
+            vin_diff=h.Vdc.Params(dc=0.05),
+            seq_logic_phase_delay_symbols=2.0,
+        )
+        pex = _find_latest_signed_off_pex(target)
+        case_dir = run_dir / target
+        case_dir.mkdir(parents=True)
+        (case_dir / "input.json").write_text(
+            json.dumps(
+                {
+                    "target": target,
+                    "pex_netlist": str(pex),
+                    "pex_sha256": hashlib.sha256(pex.read_bytes()).hexdigest(),
+                    "expected_historical_disconnect": "2layer" in target,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        _run_extracted_adc_noise(case_dir, ((target, params),), pex, netlist_only=netlist_only)
+    return run_dir
+
+
+def frida2_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
+    """Run 100 conversions for each connected radix-17 FRIDA-2 stack."""
+
+    params = AdcTbParams(
+        view="frida65a",
+        pex_cell="adc_12b_17step",
+        dut=AdcParams(adc_bits=12, cdac=CdacParams()),
+        symbol_rate=1.6 * G,
+        conversions=100,
+        vin_diff=h.Vdc.Params(dc=0.05),
+        seq_logic_phase_delay_symbols=2.0,
+    )
+    for target in ("frida2_1layer_radix17", "frida2_2layer_radix17", "frida2_3layer_radix17"):
+        pex = _find_latest_signed_off_pex(target)
+        case_dir = run_dir / target
+        case_dir.mkdir(parents=True)
+        (case_dir / "input.json").write_text(
+            json.dumps(
+                {
+                    "target": target,
+                    "pex_netlist": str(pex),
+                    "pex_sha256": hashlib.sha256(pex.read_bytes()).hexdigest(),
+                    "expected_historical_disconnect": False,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        _run_extracted_adc_noise(case_dir, ((target, params),), pex, netlist_only=netlist_only)
+    return run_dir
 
 
 def frida_1_supply_noise_vs_rate(run_dir: Path) -> Path:
@@ -1415,6 +1515,8 @@ def main() -> None:
             frida_1_transfer_curve,
             frida2_2layer_radix17_10msps,
             frida2_3layer_radix17_10msps,
+            frida1_10msps,
+            frida2_10msps,
             hdl21gen_noise_vs_rate_check,
             hdl21gen_noise_vs_rate,
             hdl21gen_transfer_curve_check,
@@ -1423,6 +1525,9 @@ def main() -> None:
     }
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", nargs="?", choices=sorted(targets))
+    parser.add_argument(
+        "--netlist-only", action="store_true", help="Preflight a 100-conversion campaign without Spectre"
+    )
     args = parser.parse_args()
     if args.target is None:
         print("Available ADC simulation targets:")
@@ -1438,7 +1543,15 @@ def main() -> None:
         / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     )
     run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
+    if args.netlist_only:
+        if args.target not in ("frida1_10msps", "frida2_10msps"):
+            parser.error("--netlist-only applies to frida1_10msps and frida2_10msps")
+        if args.target == "frida1_10msps":
+            frida1_10msps(run_dir, netlist_only=True)
+        else:
+            frida2_10msps(run_dir, netlist_only=True)
+    else:
+        targets[args.target](run_dir)
 
 
 if __name__ == "__main__":
