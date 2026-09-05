@@ -226,12 +226,11 @@ def analyze(
 ) -> AnalysisAdcCalibration:
     """Extract 17 normalized BOUT weights from physical CDAC S-curves.
 
-    The first sixteen coefficients come from the direction selected by each
-    capacitor pair's programmed P/N A-state. The seventeenth BOUT coefficient
-    is a terminal digital half-step, not a separately switched capacitor. Its
-    scale is therefore inferred by projecting the sixteen measured movements
-    onto their nominal design weights. This is the one coefficient marked as
-    not directly measured in the common result.
+    B0..B15 come from the direction selected by C0..C15's programmed P/N
+    A-state. B16 is a terminal digital half-step, not a separately switched
+    capacitor; its scale is inferred by projecting the sixteen measured
+    movements onto their nominal design weights. This is the one coefficient
+    marked as not directly measured in the common result.
     """
 
     if not measurements:

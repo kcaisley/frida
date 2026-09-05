@@ -39,7 +39,7 @@ class AdcScanParams:
         dtype=h.Scalar | None, desc="Requested P-side DAC rail percentage", default=None
     )
     cdac_side = h.Param(dtype=str | None, desc="Selected CDAC side", default=None)
-    cdac_element = h.Param(dtype=int | None, desc="Selected CDAC element", default=None)
+    cdac_element = h.Param(dtype=int | None, desc="Selected C0-first CDAC stage", default=None)
     cdac_direction = h.Param(dtype=str | None, desc="Selected CDAC transition direction", default=None)
     settling_time_s = h.Param(dtype=h.Scalar, desc="Post-update settling delay", default=0.0)
     vdd_io = h.Param(dtype=h.Vdc.Params, desc="Physical I/O supply", default=h.Vdc.Params(dc=1.2))
@@ -192,7 +192,6 @@ def build_adc_variants(
         flavor = board["adc_channels"][adc_index]
         dut = AdcParams(
             adc_bits=12,
-            n_cycles=16,
             cdac=CdacParams(
                 n_dac=11,
                 n_extra=5,

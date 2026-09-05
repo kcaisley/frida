@@ -13,6 +13,8 @@ import hdl21 as h
 from hdl21.prefix import f
 from hdl21.primitives import C, MosType, MosVth
 
+from flow.momcap.subckt import MomCap, MomCapParams
+
 
 class RedunStrat(Enum):
     RDX2 = auto()
@@ -58,12 +60,12 @@ class CdacParams:
     )
     driver_strengths = h.Param(
         dtype=tuple[int, ...] | None,
-        desc="Optional MSB-first output-driver strength multipliers",
+        desc="Optional C0-first output-driver strengths in conversion-stage order",
         default=None,
     )
     weights = h.Param(
         dtype=tuple[int, ...] | None,
-        desc="Explicit unit-capacitor weights; overrides redun_strat when set",
+        desc="Explicit C0-first unit-capacitor weights in conversion-stage order",
         default=None,
     )
 
@@ -74,6 +76,12 @@ class CdacArrayParams:
 
     cdac = h.Param(dtype=CdacParams, desc="CDAC electrical sizing", default=CdacParams())
     coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
+    active_layers = h.Param(dtype=tuple[int, ...], desc="Consecutive active metals, lowest first", default=(6,))
+    unit_models = h.Param(
+        dtype=tuple[h.Module, ...],
+        desc="Optional PLUS/MINUS/BULK device model per active layer; empty selects ideal MOMs",
+        default=(),
+    )
 
 
 def is_valid_cdac_params(p: CdacParams) -> bool:
@@ -102,7 +110,12 @@ def is_valid_cdac_params(p: CdacParams) -> bool:
 
 
 def get_cdac_weights(p: CdacParams) -> list[int]:
-    """Get the capacitor weights for a CDAC configuration."""
+    """Return C0-first capacitor weights in chronological conversion order.
+
+    Stage zero is the first-switched and largest capacitor. The last element
+    is the final switched capacitor; the terminal BOUT decision has no CDAC
+    element and is therefore not included here.
+    """
     if p.weights is not None:
         if not is_valid_cdac_params(p):
             raise ValueError(
@@ -136,6 +149,18 @@ def is_valid_cdac_array_params(p: CdacArrayParams) -> bool:
 
     if isinstance(p.coarse_weight, bool) or not isinstance(p.coarse_weight, int) or p.coarse_weight <= 0:
         return False
+    if not p.active_layers or any(isinstance(layer, bool) or layer < 1 for layer in p.active_layers):
+        return False
+    if p.active_layers != tuple(range(p.active_layers[0], p.active_layers[-1] + 1)):
+        return False
+    if p.unit_models and (
+        len(p.unit_models) != len(p.active_layers)
+        or any(
+            tuple(model.ports) != ("PLUS", "MINUS", "BULK") or any(port.width != 1 for port in model.ports.values())
+            for model in p.unit_models
+        )
+    ):
+        return False
     return is_valid_cdac_params(p.cdac)
 
 
@@ -154,38 +179,30 @@ def CdacArray(p: CdacArrayParams) -> h.Module:
         cap_topplate = h.Inout(desc="Common capacitor top plate")
         cap_shieldplate = h.Inout(desc="Grounded lower shield")
 
-    for bit in range(n_caps):
-        setattr(
-            CdacArray,
-            f"cap_botplate_main<{bit}>",
-            h.Inout(name=f"cap_botplate_main<{bit}>", desc="Main bottom plate"),
-        )
-        setattr(
-            CdacArray,
-            f"cap_botplate_diff<{bit}>",
-            h.Inout(name=f"cap_botplate_diff<{bit}>", desc="Difference bottom plate"),
-        )
+    for kind in ("main", "diff"):
+        for stage in range(n_caps):
+            name = f"cap_botplate_{kind}<{stage}>"
+            setattr(CdacArray, name, h.Inout(name=name, desc=f"C{stage} {kind} bottom plate"))
 
-    for bit, chunks in zip(reversed(range(n_caps)), partitions, strict=True):
+    for stage, chunks in enumerate(partitions):
         for chunk_index, chunk in enumerate(chunks):
-            main_value = p.cdac.unit_cap * ((p.coarse_weight + 1 + chunk) / 2)
-            diff_value = p.cdac.unit_cap * ((p.coarse_weight + 1 - chunk) / 2)
-            setattr(
-                CdacArray,
-                f"Cmain_{bit}_{chunk_index}",
-                C(c=main_value)(
-                    p=CdacArray.cap_topplate,
-                    n=getattr(CdacArray, f"cap_botplate_main<{bit}>"),
-                ),
-            )
-            setattr(
-                CdacArray,
-                f"Cdiff_{bit}_{chunk_index}",
-                C(c=diff_value)(
-                    p=CdacArray.cap_topplate,
-                    n=getattr(CdacArray, f"cap_botplate_diff<{bit}>"),
-                ),
-            )
+            for layer_index, layer in enumerate(p.active_layers):
+                for kind, sign in (("main", 1), ("diff", -1)):
+                    # unit_cap specifies the total logical unit across the
+                    # stack. Equal ideal shares preserve that electrical sizing;
+                    # actual per-layer capacitances are measured by PEX.
+                    value = p.cdac.unit_cap * ((p.coarse_weight + 1 + sign * chunk) / (2 * len(p.active_layers)))
+                    # HDL21 adds parameter constructors dynamically via @paramclass.
+                    unit = p.unit_models[layer_index] if p.unit_models else MomCap(MomCapParams(c=value))  # ty: ignore[unknown-argument]
+                    setattr(
+                        CdacArray,
+                        f"{kind}_{stage}_{chunk_index}_m{layer}",
+                        h.Instance(of=unit)(
+                            PLUS=CdacArray.cap_topplate,
+                            MINUS=getattr(CdacArray, f"cap_botplate_{kind}<{stage}>"),
+                            BULK=CdacArray.cap_shieldplate,
+                        ),
+                    )
     return CdacArray
 
 
@@ -202,11 +219,11 @@ def Cdac(param: CdacParams) -> h.Module:
         raise ValueError(f"Invalid CDAC params: {param}")
 
     weights = get_cdac_weights(param)
-    n_bits = len(weights)
+    n_stages = len(weights)
     if param.driver_strengths is None:
         # Match the fabricated FRIDA driver bands: the two largest capacitors
         # use 4× output stages, the next two use 2×, and all others use 1×.
-        driver_strengths = (4, 4, 2, 2)[:n_bits] + (1,) * max(0, n_bits - 4)
+        driver_strengths = (4, 4, 2, 2)[:n_stages] + (1,) * max(0, n_stages - 4)
     else:
         driver_strengths = param.driver_strengths
 
@@ -219,21 +236,21 @@ def Cdac(param: CdacParams) -> h.Module:
         vdd = h.Inout(desc="Supply")
         vss = h.Inout(desc="Ground")
         # Variable-width DAC control bus
-        dac = h.Input(width=n_bits, desc="DAC control bits")
+        dac = h.Input(width=n_stages, desc="C0-first DAC stage controls")
 
     # Build each DAC bit
     threshold = 64  # Split threshold for vdiv/diffcap
 
-    # ``weights`` is ordered MSB-first, matching the ADC decision sequence.
-    # HDL buses use bit ``n_bits - 1`` as their MSB, so associate the first
-    # (largest) weight with that bit and work downward to bit zero.
-    for bit, weight, driver_strength in zip(
-        reversed(range(n_bits)),
+    # Every generated bus uses conversion-stage indices: stage zero is the
+    # first register and the largest capacitor. Numeric bus significance is
+    # deliberately not used to describe these non-binary redundant weights.
+    for stage, weight, driver_strength in zip(
+        range(n_stages),
         weights,
         driver_strengths,
         strict=True,
     ):
-        _build_dac_bit(Cdac, param, bit, weight, driver_strength, threshold)
+        _build_dac_bit(Cdac, param, stage, weight, driver_strength, threshold)
 
     return Cdac
 
@@ -241,37 +258,37 @@ def Cdac(param: CdacParams) -> h.Module:
 def _build_dac_bit(
     mod,
     param: CdacParams,
-    idx: int,
+    stage: int,
     weight: int,
     driver_strength: int,
     threshold: int,
 ):
-    """Build one DAC bit: buffer + driver + capacitor(s)."""
+    """Build one chronological DAC stage."""
 
     # Create intermediate signal for this bit
-    inter = h.Signal(name=f"inter_{idx}")
-    bot = h.Signal(name=f"bot_{idx}")
-    setattr(mod, f"inter_{idx}", inter)
-    setattr(mod, f"bot_{idx}", bot)
+    inter = h.Signal(name=f"inter_{stage}")
+    bot = h.Signal(name=f"bot_{stage}")
+    setattr(mod, f"inter_{stage}", inter)
+    setattr(mod, f"bot_{stage}", bot)
 
     # First inverter (predriver - use minimum sized devices: w=10, l=1)
-    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[idx], s=mod.vdd, b=mod.vdd)
-    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[idx], s=mod.vss, b=mod.vss)
-    setattr(mod, f"MP_buf_{idx}", MP_buf)
-    setattr(mod, f"MN_buf_{idx}", MN_buf)
+    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[stage], s=mod.vdd, b=mod.vdd)
+    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[stage], s=mod.vss, b=mod.vss)
+    setattr(mod, f"MP_buf_{stage}", MP_buf)
+    setattr(mod, f"MN_buf_{stage}", MN_buf)
 
     if param.split_strat == SplitStrat.NO_SPLIT:
-        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)
+        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)
     elif param.split_strat == SplitStrat.VDIV_SPLIT:
-        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)  # Simplified
+        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)  # Simplified
     else:  # DIFFCAP_SPLIT
-        _build_nosplit_bit(mod, param, idx, weight, driver_strength, inter, bot)  # Simplified
+        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)  # Simplified
 
 
 def _build_nosplit_bit(
     mod,
     param: CdacParams,
-    idx: int,
+    stage: int,
     weight: int,
     driver_strength: int,
     inter,
@@ -294,13 +311,13 @@ def _build_nosplit_bit(
         w=param.driver_n_w * driver_strength,
         l=1,
     )(d=bot, g=inter, s=mod.vss, b=mod.vss)
-    setattr(mod, f"MP_drv_{idx}", MP_drv)
-    setattr(mod, f"MN_drv_{idx}", MN_drv)
+    setattr(mod, f"MP_drv_{stage}", MP_drv)
+    setattr(mod, f"MN_drv_{stage}", MN_drv)
 
     # Main capacitor (weight implemented via capacitance value)
     cap_val = weight * param.unit_cap
     Cap = C(c=cap_val)(p=mod.top, n=bot)
-    setattr(mod, f"C_{idx}", Cap)
+    setattr(mod, f"C_{stage}", Cap)
 
 
 # Weight Calculation
@@ -343,18 +360,18 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
         return weights
 
     elif strategy == RedunStrat.SUBRDX2_RDST:
-        # Binary with MSB redistribution for redundancy
-        # Split 2^n_redist from MSB and redistribute as pairs
+        # Binary with largest-stage redistribution for redundancy
+        # Split 2^n_redist from C0 and redistribute as pairs
         n_redist = n_extra + 2  # Extra caps determine redistribution
 
         # Base binary weights
         weights = [2**i for i in range(n_dac - 1, -1, -1)]
 
-        # Check if MSB would become negative - return None for invalid combinations
+        # Check if C0 would become negative.
         if weights[0] < 2**n_redist:
             return None
 
-        weights[0] -= 2**n_redist  # Subtract from MSB
+        weights[0] -= 2**n_redist
 
         # Redundant weights as paired powers of 2
         w_redun = [2**i for i in range(n_redist - 2, -1, -1) for _ in range(2)]
@@ -393,7 +410,7 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
             idx = n_dac - 1 - pos_from_end
             duplicate_indices.append(idx)
 
-        # Sort in ascending order to process from MSB to LSB
+        # Process duplicate locations from early to late conversion stage.
         duplicate_indices.sort()
 
         # Build result by inserting duplicates after their positions
@@ -420,7 +437,7 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
         # 3. For odd overlay_len: merge only (1+1)->2
         #    Tail becomes: [4, 4, 2, 2, 2, 1, 1]
         # 4. Take last overlay_len elements
-        # 5. Subtract sum from MSB, add overlay starting at position 2
+        # 5. Subtract the sum from C0, then add the overlay at stage 2
 
         if n_extra == 0:
             # No redundancy, pure radix-2

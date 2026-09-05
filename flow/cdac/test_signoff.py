@@ -25,5 +25,7 @@ def test_removed_workflow_globals_and_pin_adapters_do_not_return() -> None:
         "_NEW_DIFF_PIN",
         "LAYOUT_TARGETS",
         "PROFILES",
+        "_calc_lvs_source",
+        "_calc_mom_lvs_source",
     ):
         assert removed not in sources

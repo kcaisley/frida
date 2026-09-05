@@ -106,7 +106,6 @@ def _build_comp_params(
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,

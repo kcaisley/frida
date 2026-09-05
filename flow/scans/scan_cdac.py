@@ -223,7 +223,7 @@ def _convert_dac_rail_percent_to_codes_cached(
     rail_percent: float,
     weights: tuple[int, ...],
 ) -> tuple[str, ...]:
-    """Return every closest weighted C16-to-C1 state deterministically."""
+    """Return every closest weighted C0-to-C15 state deterministically."""
 
     if not math.isfinite(rail_percent) or not 0.0 <= rail_percent <= 100.0:
         raise ValueError("rail_percent must be finite and in 0..100")
@@ -250,7 +250,7 @@ def _convert_dac_rail_percent_to_codes(
     rail_percent: float,
     weights: Sequence[int],
 ) -> tuple[str, ...]:
-    """Return cached closest weighted C16-to-C1 states."""
+    """Return cached closest weighted C0-to-C15 states."""
 
     return _convert_dac_rail_percent_to_codes_cached(rail_percent, tuple(weights))
 
@@ -361,7 +361,7 @@ def _cdac_point_stem(params: AdcScanParams) -> str:
     return (
         (
             f"{params.board_id}_adc{params.observed_adc:02d}_cdac_ab_"
-            f"{params.cdac_side}_c{16 - params.cdac_element:02d}_{params.cdac_direction}_"
+            f"{params.cdac_side}_c{params.cdac_element}_{params.cdac_direction}_"
             f"mode{params.tb.dac_mode}_diff{params.tb.dac_diffcaps}_"
             f"settle{float(params.settling_time_s) * 1e9:06.2f}ns_{params.sweep_stage}_"
             f"vcm{float(params.tb.vin_cm.dc) * 1e3:07.2f}mv_"
@@ -396,7 +396,7 @@ def _validate_cdac_resume_curves(
             assert params.cdac_direction is not None
             raise ValueError(
                 "CDAC run directory contains an interrupted or mixed-session curve for "
-                f"ADC{params.observed_adc:02d} {params.cdac_side} C{16 - params.cdac_element:02d} "
+                f"ADC{params.observed_adc:02d} {params.cdac_side} C{params.cdac_element} "
                 f"{params.cdac_direction} diff{params.tb.dac_diffcaps}; start a new run directory"
             )
 
@@ -424,7 +424,6 @@ def _build_cdac_params(
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,
@@ -517,7 +516,7 @@ def _expected_transition_v(
 ) -> float:
     """Calculate the external Vdiff which cancels the planned CDAC step.
 
-    A manually accepted C16 measurement may scale the PEX step solely to
+    A manually accepted C0 measurement may scale the PEX step solely to
     center later adaptive sweeps.  The measured P50 remains the only input to
     capacitance extraction.
     """
@@ -1307,7 +1306,7 @@ def scan(
             next_file_index += 1
             print(
                 f"[{variant_index + 1}/{len(queue)}] ADC{scan_params.observed_adc:02d} "
-                f"{scan_params.cdac_side.upper()} C{16 - scan_params.cdac_element:02d} "
+                f"{scan_params.cdac_side.upper()} C{scan_params.cdac_element} "
                 f"{scan_params.cdac_direction} "
                 f"P(decision=1)={float(np.mean(decisions)):.4f} "
                 f"elapsed={monotonic() - point_started:.3f}s: {h5_path}"

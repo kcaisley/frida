@@ -217,3 +217,12 @@ def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     np.testing.assert_array_equal(measurement.wave.trial_index, np.arange(6))
     assert measurement.wave.clock_v.shape == (6, 80)
     np.testing.assert_allclose(measurement.wave.vdd_i, 10e-6)
+
+
+def test_frida2_rc_waveforms_use_device_terminal_nodes() -> None:
+    from flow.circuit.results import adc_signal_names
+
+    names = adc_signal_names("frida65a", pex_cell="adc_12b_17step")
+    assert names == adc_signal_names("frida65a", pex_cell="adc_1layer_radix17")
+    assert names["vdac_p_v"] == "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d"
+    assert names["dac_state_p_c0_v"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")

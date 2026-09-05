@@ -32,7 +32,7 @@ class MomcapParams:
     """Dimensionless family and stack selection for weighted MOM units."""
 
     max_weight: int
-    tail_tracks: int = 5
+    tail_landings: int = 1
     route_layer: int = 4
     shield_layer: int = 5
     active_layers: tuple[int, ...] = (6,)
@@ -42,7 +42,7 @@ class MomcapParams:
 
         return CdacLayoutParams(
             cdac=CdacParams(n_dac=1, n_extra=0, redun_strat=RedunStrat.RDX2),
-            family=UnitLengthCapFamilyParams(coarse_weight=self.max_weight, tail_tracks=self.tail_tracks),
+            family=UnitLengthCapFamilyParams(coarse_weight=self.max_weight, tail_landings=self.tail_landings),
             technology=technology,
             route_layer=self.route_layer,
             shield_layer=self.shield_layer,

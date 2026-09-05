@@ -1,5 +1,5 @@
 * Sampling switch — CMOS transmission gate
-* Derived from frida_complete.cdl, nch_lvt_dnw replaced with nch_lvt
+* Standalone simulation view; nch_lvt_dnw is replaced with nch_lvt.
 * (deep-nwell only affects substrate isolation, not electrical behavior)
 
 .SUBCKT sampswitch vin vout clk clk_b vdd_a vss_a

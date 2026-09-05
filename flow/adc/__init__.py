@@ -4,17 +4,17 @@ ADC generator module for FRIDA.
 Exports:
 - Adc: Full ADC generator (composes digital + analog)
 - AdcParams: ADC parameters
-- AdcDigital: ExternalModule for synthesized digital block
+- Frida1AdcDigital: fabricated digital block with its explicit legacy boundary
 """
 
 from .subckt import (
     Adc,
-    AdcDigital,
     AdcParams,
+    Frida1AdcDigital,
 )
 
 __all__ = [
     "Adc",
-    "AdcDigital",
     "AdcParams",
+    "Frida1AdcDigital",
 ]

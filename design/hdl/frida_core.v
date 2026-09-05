@@ -19,18 +19,18 @@ module frida_core (
     input  wire reset_b,
 
     // Comparator output (to LVDS TX pad)
-    output wire comp_out
-
 `ifdef USE_POWER_PINS
-    ,
-    input wire vin_p,    // Positive input
-    input wire vin_n,    // Negative input
-    inout wire vdd_a,    // Analog supply positive
-    inout wire vss_a,    // Analog supply ground
-    inout wire vdd_d,    // Digital supply positive
-    inout wire vss_d,    // Digital supply ground
-    inout wire vdd_dac,  // DAC supply positive
-    inout wire vss_dac   // DAC supply ground
+    output wire comp_out,
+    input  wire vin_p,     // Positive input
+    input  wire vin_n,     // Negative input
+    inout  wire vdd_a,     // Analog supply positive
+    inout  wire vss_a,     // Analog supply ground
+    inout  wire vdd_d,     // Digital supply positive
+    inout  wire vss_d,     // Digital supply ground
+    inout  wire vdd_dac,   // DAC supply positive
+    inout  wire vss_dac    // DAC supply ground
+`else
+    output wire comp_out
 `endif
 );
 
@@ -62,27 +62,28 @@ module frida_core (
     // Layout: [179:176] mux_sel, [175:64] per-ADC controls, [63:0] shared DAC states
 
     // Mux selection (4 bits)
-    assign mux_sel             = spi_bits[179:176];
+    assign mux_sel = spi_bits[179:176];
 
-    // Shared DAC states for all ADCs (64 bits)
-    assign shared_dac_astate_p = spi_bits[63:48];  // 16 bits
-    assign shared_dac_bstate_p = spi_bits[47:32];  // 16 bits
-    assign shared_dac_astate_n = spi_bits[31:16];  // 16 bits
-    assign shared_dac_bstate_n = spi_bits[15:0];  // 16 bits
-
-    // Per-ADC control signals (7 bits per ADC = 112 bits total)
+    // The serialized fields retain the fabricated wire order, with C0 at the
+    // high end. Reverse once here so every internal ADC bus is C0-first at
+    // index 0. Per-ADC controls remain direct.
     genvar i;
     generate
         for (i = 0; i < 16; i = i + 1) begin : g_spi_mapping
             localparam integer BASE = 64 + i * 7;  // Start after shared DAC states
 
-            assign adc_en_init[i]      = spi_bits[BASE+0];
-            assign adc_en_samp_p[i]    = spi_bits[BASE+1];
-            assign adc_en_samp_n[i]    = spi_bits[BASE+2];
-            assign adc_en_comp[i]      = spi_bits[BASE+3];
-            assign adc_en_update[i]    = spi_bits[BASE+4];
-            assign adc_dac_mode[i]     = spi_bits[BASE+5];
-            assign adc_dac_diffcaps[i] = spi_bits[BASE+6];
+            assign shared_dac_astate_p[i] = spi_bits[63-i];
+            assign shared_dac_bstate_p[i] = spi_bits[47-i];
+            assign shared_dac_astate_n[i] = spi_bits[31-i];
+            assign shared_dac_bstate_n[i] = spi_bits[15-i];
+
+            assign adc_en_init[i]         = spi_bits[BASE+0];
+            assign adc_en_samp_p[i]       = spi_bits[BASE+1];
+            assign adc_en_samp_n[i]       = spi_bits[BASE+2];
+            assign adc_en_comp[i]         = spi_bits[BASE+3];
+            assign adc_en_update[i]       = spi_bits[BASE+4];
+            assign adc_dac_mode[i]        = spi_bits[BASE+5];
+            assign adc_dac_diffcaps[i]    = spi_bits[BASE+6];
         end
     endgenerate
 

@@ -33,7 +33,12 @@ def convert_fastrx_words_to_adc(
     code_weights: list[int],
     adc_bits: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Decode and validate one complete FastRX acquisition in host memory."""
+    """Decode FastRX into chronological B0..B16 and 12-bit DOUT.
+
+    The payload is transported high bit first, but the returned column index is
+    the decision index: column zero is B0 and column 16 is terminal B16. Every
+    decision contributes to ``dout_raw`` and the normalized D0..D11 code.
+    """
 
     fastrx_words = np.asarray(words, dtype=np.uint32)
     if fastrx_words.ndim != 1:

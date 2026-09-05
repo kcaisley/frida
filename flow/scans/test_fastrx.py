@@ -139,7 +139,6 @@ def test_physical_fastrx_matches_scope(
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
     dut_params = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,

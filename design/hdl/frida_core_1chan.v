@@ -92,20 +92,26 @@ module frida_core_1chan (
     // [175:64]  per-ADC controls (7 bits × 16 ADCs), only index 0 wired
     // [63:0]    shared DAC states
 
-    // Shared DAC states
-    assign shared_dac_astate_p = spi_bits[63:48];
-    assign shared_dac_bstate_p = spi_bits[47:32];
-    assign shared_dac_astate_n = spi_bits[31:16];
-    assign shared_dac_bstate_n = spi_bits[15:0];
+    // The serialized fields keep C0 at the high end for wire compatibility.
+    // Reverse once here so every internal ADC bus uses stage index 0 for C0.
+    genvar stage;
+    generate
+        for (stage = 0; stage < 16; stage = stage + 1) begin : g_dac_state_mapping
+            assign shared_dac_astate_p[stage] = spi_bits[63-stage];
+            assign shared_dac_bstate_p[stage] = spi_bits[47-stage];
+            assign shared_dac_astate_n[stage] = spi_bits[31-stage];
+            assign shared_dac_bstate_n[stage] = spi_bits[15-stage];
+        end
+    endgenerate
 
     // Per-ADC control — ADC 0 at BASE = 64
-    assign adc_en_init         = spi_bits[64];
-    assign adc_en_samp_p       = spi_bits[65];
-    assign adc_en_samp_n       = spi_bits[66];
-    assign adc_en_comp         = spi_bits[67];
-    assign adc_en_update       = spi_bits[68];
-    assign adc_dac_mode        = spi_bits[69];
-    assign adc_dac_diffcaps    = spi_bits[70];
+    assign adc_en_init      = spi_bits[64];
+    assign adc_en_samp_p    = spi_bits[65];
+    assign adc_en_samp_n    = spi_bits[66];
+    assign adc_en_comp      = spi_bits[67];
+    assign adc_en_update    = spi_bits[68];
+    assign adc_dac_mode     = spi_bits[69];
+    assign adc_dac_diffcaps = spi_bits[70];
 
     // Single ADC Instance
 

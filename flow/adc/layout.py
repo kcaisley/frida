@@ -3,107 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+import hdl21 as h
 from hdl21.prefix import f
 from klayout import db
 
 from flow.cdac.laygen import CdacLayout, CdacLayoutParams, UnitLengthCapFamilyParams
-from flow.cdac.subckt import CdacParams, _calc_weight_partitions, get_cdac_weights
+from flow.cdac.subckt import CdacArray, CdacArrayParams, CdacParams, get_cdac_weights
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
-from pdk.tsmc65.signoff import SignoffOptions, add_mom_recognition
+from flow.util.netlist import omit_subcircuit, replace_subcircuit
+from pdk.tsmc65.signoff import SignoffOptions, add_mom_recognition, mom_lvs_device
 
 from .laygen import AdcLayout, AdcLayoutParams, is_valid_adc_layout_params
-
-
-def _calc_subcircuit_span(text: str, name: str) -> tuple[int, int]:
-    start = re.search(rf"(?im)^\s*\.subckt\s+{re.escape(name)}(?:\s|$)", text)
-    if start is None:
-        raise ValueError(f"source netlist has no .subckt {name}")
-    end = re.search(r"(?im)^\s*\.ends(?:\s+\S+)?\s*$", text[start.end() :])
-    if end is None:
-        raise ValueError(f"source netlist has no .ends for {name}")
-    return start.start(), start.end() + end.end()
-
-
-def _calc_mom_lvs_source(params: CdacLayoutParams) -> str:
-    """Create the PDK-device source view passed by a target to generic LVS."""
-
-    weights = get_cdac_weights(params.cdac)
-    partitions = _calc_weight_partitions(weights, params.family.coarse_weight)
-    ports = [*(f"cap_botplate_diff<{bit}>" for bit in reversed(range(len(weights))))]
-    ports.extend(f"cap_botplate_main<{bit}>" for bit in reversed(range(len(weights))))
-    ports.extend(("cap_shieldplate", "cap_topplate"))
-    lines: list[str] = []
-    for layer in params.active_layers:
-        model = f"frida_mom_m{layer}_s{params.shield_layer}"
-        lines.extend((f".subckt {model} PLUS MINUS BULK", f".ends {model}", ""))
-    lines.append(f".subckt {params.top_cell} {' '.join(ports)}")
-    for index, chunks in enumerate(partitions):
-        bit = len(weights) - 1 - index
-        for chunk_index, _chunk in enumerate(chunks):
-            for layer in params.active_layers:
-                model = f"frida_mom_m{layer}_s{params.shield_layer}"
-                for kind in ("main", "diff"):
-                    lines.append(
-                        f"X{kind}_{bit}_{chunk_index}_m{layer} cap_topplate "
-                        f"cap_botplate_{kind}<{bit}> cap_shieldplate {model}"
-                    )
-    lines.extend((f".ends {params.top_cell}", ""))
-    return "\n".join(lines)
-
-
-def _calc_replace_subcircuit(
-    source: str,
-    *,
-    old_top: str,
-    new_top: str,
-    old_block: str,
-    new_block: str,
-) -> str:
-    """Replace one source block and rename its parent top circuit."""
-
-    start, end = _calc_subcircuit_span(source, old_block)
-    replacement_names = re.findall(r"(?im)^\s*\.subckt\s+(\S+)", new_block)
-    if not replacement_names:
-        raise ValueError("replacement source has no .subckt")
-    result = source[:start] + new_block.rstrip() + "\n" + source[end:]
-    result = re.sub(
-        rf"(?im)(^\s*\.subckt\s+){re.escape(old_top)}(?=\s|$)",
-        rf"\g<1>{new_top}",
-        result,
-        count=1,
-    )
-    result = re.sub(
-        rf"(?i)(?<![A-Za-z0-9_]){re.escape(old_block)}(?![A-Za-z0-9_])",
-        replacement_names[-1],
-        result,
-    )
-    return result.rstrip() + "\n"
-
-
-def _calc_omit_subcircuit(source: str, name: str) -> str:
-    """Remove an empty hierarchy definition and all continued-line calls."""
-
-    start, end = _calc_subcircuit_span(source, name)
-    statements: list[list[str]] = []
-    for line in (source[:start] + source[end:]).splitlines(keepends=True):
-        if line.lstrip().startswith("+") and statements:
-            statements[-1].append(line)
-        else:
-            statements.append([line])
-    kept: list[str] = []
-    for statement in statements:
-        tokens = " ".join(line.strip().lstrip("+").strip() for line in statement).split()
-        if tokens and tokens[0].lower().startswith("x") and tokens[-1].lower() == name.lower():
-            continue
-        kept.extend(statement)
-    return "".join(kept).rstrip() + "\n"
 
 
 def _write_top(layout: db.Layout, top_cell: str, path: Path) -> None:
@@ -162,24 +80,36 @@ def _run_frida1(
         raise RuntimeError(f"historical annotation changed mask geometry on {sorted(changed)}")
     (run_dir / "recognition_only_diff.json").write_text(json.dumps(diff_summary, indent=2) + "\n", encoding="utf-8")
 
-    params = CdacLayoutParams(
-        cdac=cdac,
-        family=UnitLengthCapFamilyParams(),
-        technology="tsmc65",
-        route_layer=4,
-        shield_layer=5,
-        active_layers=active_layers,
-        top_cell=cap_cell,
+    array = CdacArray(
+        CdacArrayParams(
+            cdac=cdac,
+            active_layers=active_layers,
+            unit_models=tuple(mom_lvs_device(layer, 5) for layer in active_layers),
+        )
+    )
+    array.name = cap_cell
+    block_source = io.StringIO()
+    h.netlist(array, block_source, fmt="spice")
+    # The immutable fabricated-macro boundary maps stage C0 to physical pin 15.
+    legacy_pins = {name: name for name in array.ports}
+    count = len(get_cdac_weights(cdac))
+    legacy_pins.update(
+        {
+            f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{count - 1 - stage}>"
+            for kind in ("main", "diff")
+            for stage in range(count)
+        }
     )
     reference = source_netlist.read_text(encoding="utf-8")
     lvs_source = run_dir / "source.lvs.cdl"
     lvs_source.write_text(
-        _calc_replace_subcircuit(
+        replace_subcircuit(
             reference,
             old_top=source_netlist_top,
             new_top="adc_12b_17step",
             old_block=cap_cell,
-            new_block=_calc_mom_lvs_source(params),
+            new_block=block_source.getvalue(),
+            pin_map=legacy_pins,
         ),
         encoding="utf-8",
     )
@@ -188,7 +118,7 @@ def _run_frida1(
         re.sub(
             rf"(?im)(^\s*\.subckt\s+){re.escape(source_netlist_top)}(?=\s|$)",
             r"\g<1>adc_12b_17step",
-            _calc_omit_subcircuit(reference, cap_cell),
+            omit_subcircuit(reference, cap_cell),
             count=1,
         ),
         encoding="utf-8",
@@ -243,14 +173,37 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
 
     reference_path = Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_2layer_radix17/adc_2layer_radix17.src.net")
     reference = reference_path.read_text(encoding="utf-8")
+    array = CdacArray(
+        CdacArrayParams(
+            cdac=params.cdac,
+            coarse_weight=params.family.coarse_weight,
+            active_layers=params.active_layers,
+            unit_models=tuple(mom_lvs_device(layer, params.shield_layer) for layer in params.active_layers),
+        )
+    )
+    array.name = params.top_cell
+    block_source = io.StringIO()
+    h.netlist(array, block_source, fmt="spice")
+    # This source and the template still contain the fabricated digital macro:
+    # its driver pin 15 must reach the new array's chronological stage C0.
+    count = len(get_cdac_weights(params.cdac))
+    legacy_pins = {name: name for name in array.ports}
+    legacy_pins.update(
+        {
+            f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{count - 1 - stage}>"
+            for kind in ("main", "diff")
+            for stage in range(count)
+        }
+    )
     lvs_source = run_dir / "source.lvs.cdl"
     lvs_source.write_text(
-        _calc_replace_subcircuit(
+        replace_subcircuit(
             reference,
             old_top="adc_2layer_radix17",
             new_top=adc_params.top_cell,
             old_block="caparray_2layer_radix17",
-            new_block=_calc_mom_lvs_source(params),
+            new_block=block_source.getvalue(),
+            pin_map=legacy_pins,
         ),
         encoding="utf-8",
     )
@@ -259,7 +212,7 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
         re.sub(
             r"(?im)(^\s*\.subckt\s+)adc_2layer_radix17(?=\s|$)",
             r"\g<1>adc_12b_17step",
-            _calc_omit_subcircuit(reference, "caparray_2layer_radix17"),
+            omit_subcircuit(reference, "caparray_2layer_radix17"),
             count=1,
         ),
         encoding="utf-8",
@@ -361,6 +314,22 @@ def frida1_2layer_radix20(run_dir: Path) -> Path:
     )
 
 
+def frida2_1layer_radix17(run_dir: Path) -> Path:
+    return _run_frida2(
+        run_dir,
+        target_name="frida2_1layer_radix17",
+        params=CdacLayoutParams(
+            cdac=CdacParams(unit_cap=0.8 * f),
+            family=UnitLengthCapFamilyParams(),
+            technology="tsmc65",
+            route_layer=4,
+            shield_layer=5,
+            active_layers=(6,),
+            top_cell="caparray_1layer_radix17",
+        ),
+    )
+
+
 def frida2_2layer_radix17(run_dir: Path) -> Path:
     return _run_frida2(
         run_dir,
@@ -399,6 +368,7 @@ def all_adcs(run_dir: Path) -> Path:
         frida1_1layer_radix20,
         frida1_2layer_radix17,
         frida1_2layer_radix20,
+        frida2_1layer_radix17,
         frida2_2layer_radix17,
         frida2_3layer_radix17,
     ):
@@ -414,6 +384,7 @@ def main() -> None:
             frida1_1layer_radix20,
             frida1_2layer_radix17,
             frida1_2layer_radix20,
+            frida2_1layer_radix17,
             frida2_2layer_radix17,
             frida2_3layer_radix17,
         )

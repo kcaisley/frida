@@ -136,7 +136,13 @@ class MeasInfo:
 
 @dataclass(frozen=True, slots=True)
 class AdcDaq:
-    """ADC conversion readback shared by external and internal measurements."""
+    """ADC conversion readback shared by external and internal measurements.
+
+    ``bout[:, 0:17]`` is B0..B16 in chronological order. B0..B15 decide
+    C0..C15; B16 is the extra terminal comparison and switches no capacitor.
+    ``dout`` is the normalized 12-bit D0..D11 code, calculated from all 17
+    decisions rather than from a BOUT slice.
+    """
 
     conversion_index: IntArray
     bout: Uint8Array
@@ -227,18 +233,18 @@ class AdcIntWave:
     clk_comp_v: FloatArray
     comp_out_p_v: FloatArray
     comp_out_n_v: FloatArray
-    dac_state_p_15_v: FloatArray
-    dac_state_p_8_v: FloatArray
-    dac_state_p_0_v: FloatArray
-    dac_state_n_15_v: FloatArray
-    dac_state_n_8_v: FloatArray
-    dac_state_n_0_v: FloatArray
-    dac_botplate_p_15_v: FloatArray
-    dac_botplate_p_8_v: FloatArray
-    dac_botplate_p_0_v: FloatArray
-    dac_botplate_n_15_v: FloatArray
-    dac_botplate_n_8_v: FloatArray
-    dac_botplate_n_0_v: FloatArray
+    dac_state_p_c0_v: FloatArray
+    dac_state_p_c7_v: FloatArray
+    dac_state_p_c15_v: FloatArray
+    dac_state_n_c0_v: FloatArray
+    dac_state_n_c7_v: FloatArray
+    dac_state_n_c15_v: FloatArray
+    dac_botplate_p_c0_v: FloatArray
+    dac_botplate_p_c7_v: FloatArray
+    dac_botplate_p_c15_v: FloatArray
+    dac_botplate_n_c0_v: FloatArray
+    dac_botplate_n_c7_v: FloatArray
+    dac_botplate_n_c15_v: FloatArray
     vdd_a_i: FloatArray
     vdd_d_i: FloatArray
     vdd_dac_i: FloatArray
@@ -494,7 +500,10 @@ class MeasSampInt:
 
 @dataclass(frozen=True, slots=True)
 class CdacExtDaq:
-    """External CDAC trial conditions and comparator decisions."""
+    """External CDAC trial conditions and comparator decisions.
+
+    Every 16-column DAC-state array is ordered C0 through C15.
+    """
 
     trial_index: IntArray
     dac_state_p: Uint8Array
@@ -567,7 +576,7 @@ class CdacExtDaq:
 
 @dataclass(frozen=True, slots=True)
 class CdacIntDaq:
-    """Internal CDAC trial identifiers and input states."""
+    """Internal CDAC trial identifiers and C0-first input states."""
 
     trial_index: IntArray
     dac_state_p: Uint8Array
@@ -1012,7 +1021,8 @@ class AnalysisAdcNonlinearity:
 class AnalysisAdcCalibration:
     """Common output of each 17-decision digital calibration method.
 
-    All three calibration analyses normalize their BOUT coefficients to the
+    Coefficients are chronological B0..B16: B0..B15 correspond to C0..C15
+    and B16 is terminal. All three analyses normalize these coefficients to the
     inclusive ADC output range, so a corrected fractional code is simply
     ``BOUT @ calibrated_weights``. ``measured_weight_mask`` distinguishes
     directly measured or fitted coefficients from nominally preserved ones.
@@ -1830,10 +1840,10 @@ class AnalysisAdcPowerWaveform:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcCdacSettling:
-    """Aligned representative SAR cycles and CDAC top-plate settling."""
+    """Aligned representative C0-first SAR stages and CDAC settling."""
 
     active_conversion_rate_hz: float
-    bit_index: IntArray
+    stage_index: IntArray
     cycle_index: IntArray
     conversion_index: IntArray
     time_s: FloatArray
@@ -1851,7 +1861,7 @@ class AnalysisAdcCdacSettling:
     static_vdac_n_v: FloatArray
 
     def __post_init__(self) -> None:
-        bit_index = _array_1d(self.bit_index, np.int64, "bit_index")
+        stage_index = _array_1d(self.stage_index, np.int64, "stage_index")
         cycle_index = _array_1d(self.cycle_index, np.int64, "cycle_index")
         conversion_index = _array_1d(self.conversion_index, np.int64, "conversion_index")
         time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
@@ -1874,7 +1884,7 @@ class AnalysisAdcCdacSettling:
         static_vdac_n_v = _array_1d(self.static_vdac_n_v, np.float64, "static_vdac_n_v", finite=True)
         trace_count = _aligned_length(
             {
-                "bit_index": bit_index,
+                "stage_index": stage_index,
                 "cycle_index": cycle_index,
                 "conversion_index": conversion_index,
                 "static_vdac_p_v": static_vdac_p_v,
@@ -1892,11 +1902,11 @@ class AnalysisAdcCdacSettling:
             or time_s[0] >= 0.0
             or time_s[-1] <= 0.0
             or not np.any(time_s == 0.0)
-            or set(zip(bit_index, cycle_index, strict=True)) != {(15, 0), (8, 7), (0, 15)}
+            or set(zip(stage_index, cycle_index, strict=True)) != {(0, 0), (7, 7), (15, 15)}
             or np.any(conversion_index < 0)
         ):
             raise ValueError("ADC CDAC settling metadata is outside its valid range")
-        object.__setattr__(self, "bit_index", bit_index)
+        object.__setattr__(self, "stage_index", stage_index)
         object.__setattr__(self, "cycle_index", cycle_index)
         object.__setattr__(self, "conversion_index", conversion_index)
         object.__setattr__(self, "time_s", time_s)

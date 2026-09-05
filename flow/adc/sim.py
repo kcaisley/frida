@@ -40,7 +40,6 @@ class AdcTbParams:
         dtype=AdcParams,
         desc="ADC DUT parameters",
         default=AdcParams(
-            n_cycles=16,
             cdac=CdacParams(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY),
         ),
     )
@@ -53,10 +52,10 @@ class AdcTbParams:
     en_update = h.Param(dtype=int, desc="Enable DAC-update clock", default=1)
     dac_mode = h.Param(dtype=int, desc="Select comparator-driven DAC mode", default=1)
     dac_diffcaps = h.Param(dtype=int, desc="Enable differential capacitor controls", default=1)
-    dac_astate_p = h.Param(dtype=tuple[int, ...], desc="Positive DAC A initial state", default=(0, 1) * 8)
-    dac_bstate_p = h.Param(dtype=tuple[int, ...], desc="Positive DAC B initial state", default=(0,) * 16)
-    dac_astate_n = h.Param(dtype=tuple[int, ...], desc="Negative DAC A initial state", default=(0, 1) * 8)
-    dac_bstate_n = h.Param(dtype=tuple[int, ...], desc="Negative DAC B initial state", default=(0,) * 16)
+    dac_astate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC A state", default=(0, 1) * 8)
+    dac_bstate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC B state", default=(0,) * 16)
+    dac_astate_n = h.Param(dtype=tuple[int, ...], desc="C0-first negative DAC A state", default=(0, 1) * 8)
+    dac_bstate_n = h.Param(dtype=tuple[int, ...], desc="C0-first negative DAC B state", default=(0,) * 16)
     vdd_a = h.Param(dtype=h.Vdc.Params, desc="Analog supply", default=h.Vdc.Params(dc=1200 * m))
     vdd_d = h.Param(dtype=h.Vdc.Params, desc="Digital supply", default=h.Vdc.Params(dc=1200 * m))
     vdd_dac = h.Param(dtype=h.Vdc.Params, desc="DAC supply", default=h.Vdc.Params(dc=1200 * m))
@@ -283,12 +282,15 @@ def AdcTb(params: AdcTbParams) -> h.Module:
         setattr(tb, name, signal)
         setattr(tb, f"v{name}", h.Vdc(dc=float(params.vdd_d.dc) * getattr(params, name))(p=signal, n=tb.vss))
     for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
-        for tuple_index, bit in enumerate(getattr(params, bus_name)):
-            bus_index = 15 - tuple_index
+        for stage, state in enumerate(getattr(params, bus_name)):
+            # Generated ADCs expose C0-first stage buses. Extracted FRIDA-1
+            # and FRIDA-2 layouts contain the fabricated digital block, whose
+            # physical bit 15 is logical stage 0.
+            bus_index = stage if params.view == "hdl21gen" else 15 - stage
             setattr(
                 tb,
                 f"v{bus_name}_{bus_index}",
-                h.Vdc(dc=float(params.vdd_d.dc) * bit)(p=getattr(tb, bus_name)[bus_index], n=tb.vss),
+                h.Vdc(dc=float(params.vdd_d.dc) * state)(p=getattr(tb, bus_name)[bus_index], n=tb.vss),
             )
 
     connections = {
@@ -787,7 +789,6 @@ def _run_frida_1_1layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
 
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,
@@ -843,7 +844,6 @@ def _run_frida_1_1layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
 
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,
@@ -900,7 +900,6 @@ def _run_frida_1_2layer_radix17_noise_vs_rate(run_dir: Path) -> Path:
 
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,
@@ -957,7 +956,6 @@ def _run_frida_1_2layer_radix20_noise_vs_rate(run_dir: Path) -> Path:
 
     dut = AdcParams(
         adc_bits=12,
-        n_cycles=16,
         cdac=CdacParams(
             n_dac=11,
             n_extra=5,
@@ -1030,7 +1028,7 @@ def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path) -> Path:
             AdcTbParams(
                 view="frida65a",
                 pex_cell="adc_12b_17step",
-                dut=AdcParams(adc_bits=12, n_cycles=16, cdac=CdacParams()),
+                dut=AdcParams(adc_bits=12, cdac=CdacParams()),
                 symbol_rate=1.6e9,
                 conversions=10,
                 vin_diff=h.Vdc.Params(dc=0.05),

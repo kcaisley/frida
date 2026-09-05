@@ -619,7 +619,7 @@ def plot_adc_ramp_weights(
     code_max = len(nominal.code) - 1
     nominal_weights = nominal.weights * code_max / np.sum(nominal.weights)
     measured_weights = measured.weights * code_max / np.sum(measured.weights)
-    elements = np.arange(16, 0, -1)
+    stages = np.arange(16)
     relative_error_percent = 100.0 * (measured_weights[:-1] / nominal_weights[:-1] - 1.0)
 
     fig, axes = plt.subplots(
@@ -628,9 +628,9 @@ def plot_adc_ramp_weights(
         sharex=True,
         gridspec_kw={"height_ratios": (2.0, 1.0)},
     )
-    axes[0].plot(elements, nominal_weights[:-1], "o-", color=NORD_DARK, label="Ideal")
+    axes[0].plot(stages, nominal_weights[:-1], "o-", color=NORD_DARK, label="Ideal")
     axes[0].plot(
-        elements,
+        stages,
         measured_weights[:-1],
         "o-",
         color=NORD_BLUE,
@@ -640,11 +640,11 @@ def plot_adc_ramp_weights(
     axes[0].set_ylabel("Decision weight (LSB)")
     axes[0].legend()
     axes[1].axhline(0.0, color=SPINE_COLOR)
-    axes[1].bar(elements, relative_error_percent, color=NORD_BLUE, width=0.7)
+    axes[1].bar(stages, relative_error_percent, color=NORD_BLUE, width=0.7)
     axes[1].set_ylabel("Error (%)")
-    axes[1].set_xlabel("Physical capacitor element")
-    axes[1].set_xticks(elements)
-    axes[1].set_xticklabels([f"C{element:02d}" for element in elements])
+    axes[1].set_xlabel("Conversion stage")
+    axes[1].set_xticks(stages)
+    axes[1].set_xticklabels([f"C{stage}" for stage in stages])
     for ax in axes:
         style_grid(ax)
     style_info_box(axes[1], (f"ADC: {analysis.adc_index:02d}",), location="lower right")
@@ -663,7 +663,7 @@ def plot_adc_calibration_weights(
     nominal = analysis_list[0].nominal_weights
 
     decision = np.arange(17)
-    labels = [f"C{element:02d}" for element in range(16, 0, -1)] + ["Term."]
+    labels = [f"B{stage}\nC{stage}" for stage in range(16)] + ["B16\nterminal"]
     fig, axes = plt.subplots(
         2,
         1,
@@ -1368,11 +1368,11 @@ def plot_adc_cdac_settling(
         gridspec_kw={"height_ratios": (1.0, 1.0, 1.25)},
     )
     scaled_time = analysis.time_s * time_scale
-    bit_cycles = tuple(dict.fromkeys(zip(analysis.bit_index, analysis.cycle_index, strict=True)))
-    for column, (bit_index, cycle_index) in enumerate(bit_cycles):
-        selected = analysis.bit_index == bit_index
+    stage_cycles = tuple(dict.fromkeys(zip(analysis.stage_index, analysis.cycle_index, strict=True)))
+    for column, (stage_index, cycle_index) in enumerate(stage_cycles):
+        selected = analysis.stage_index == stage_index
         if not np.any(selected):
-            raise ValueError(f"ADC CDAC settling plot is missing saved bit {bit_index}")
+            raise ValueError(f"ADC CDAC settling plot is missing saved stage C{stage_index}")
         comparator_ax, drive_ax, settling_ax = axes[:, column]
         comparator_ax.plot(scaled_time, analysis.clk_comp_v[selected][0], color=NORD_DARK)
         for values in analysis.comp_out_p_v[selected]:
@@ -1397,7 +1397,7 @@ def plot_adc_cdac_settling(
         settling_ax.axhline(0.0, color=NORD_DARK, linestyle="--")
         settling_ax.set_ylim(-25.0, 25.0)
         settling_ax.set_xlabel(f"Time ({time_unit})")
-        comparator_ax.set_title(f"Bit {int(bit_index)} (cycle {int(cycle_index)})")
+        comparator_ax.set_title(f"C{int(stage_index)} (cycle {int(cycle_index)})")
         for ax in (comparator_ax, drive_ax, settling_ax):
             ax.set_xlim(float(scaled_time[0]), float(scaled_time[-1]))
             style_grid(ax)
@@ -1540,6 +1540,8 @@ def plot_adc_decision_paths(
             label="Final output" if row == 0 else None,
         )
     ax.set_xlabel("Decision cycle")
+    ax.set_xticks(cycles)
+    ax.set_xticklabels(("Init", *(f"B{decision}" for decision in range(len(cycles) - 1))))
     ax.set_ylabel("Running estimate (LSB)")
     ax.set_title("ADC decision paths")
     ax.legend()
@@ -1688,7 +1690,7 @@ def plot_adc_decision_path_density(
         if labeled_cycles[-1] != cycles[-1]:
             labeled_cycles[-1] = cycles[-1]
         ax.set_xticks(labeled_cycles)
-        ax.set_xticklabels(("Init", *(f"{cycle:g}" for cycle in labeled_cycles[1:])))
+        ax.set_xticklabels(("Init", *(f"B{int(cycle - 1)}" for cycle in labeled_cycles[1:])))
         ax.set_xticks(cycles, minor=True)
         ax.set_xlabel("Decision cycle")
         if panel_index == 0:
@@ -2019,35 +2021,35 @@ def plot_cdac_cap_mismatch(
 ) -> tuple[Path, ...]:
     """Plot one ADC's normalized A-to-B main/diff weights and diagnostics."""
 
-    elements = np.arange(1, analysis.effective_fraction.shape[1] + 1)
+    stages = np.arange(analysis.effective_fraction.shape[1])
     expected_effective = analysis.expected_effective_fraction
     fig, axes_grid = plt.subplots(2, 3, sharex=True)
     axes = axes_grid.ravel()
     for side, label, color in ((0, "P", CURVE_COLORS[0]), (1, "N", CURVE_COLORS[1])):
         axes[0].plot(
-            elements,
+            stages,
             analysis.effective_fraction[side],
             "o-",
             color=color,
             label=label,
         )
         axes[1].plot(
-            elements,
+            stages,
             analysis.effective_fraction[side] - expected_effective,
             "o-",
             color=color,
             label=label,
         )
-        axes[3].plot(elements, analysis.main_fraction[side], "o-", color=color, label=f"{label} main")
+        axes[3].plot(stages, analysis.main_fraction[side], "o-", color=color, label=f"{label} main")
         axes[3].plot(
-            elements,
+            stages,
             analysis.diff_fraction[side],
             "s--",
             color=color,
             label=f"{label} diff",
         )
         axes[4].plot(
-            elements,
+            stages,
             analysis.direction_bias[side, :, 0],
             marker="o",
             linestyle="-" if side == 0 else "--",
@@ -2055,7 +2057,7 @@ def plot_cdac_cap_mismatch(
             label=f"{label}, main+diff",
         )
         axes[4].plot(
-            elements,
+            stages,
             analysis.direction_bias[side, :, 1],
             marker="s",
             linestyle="-" if side == 0 else "--",
@@ -2063,15 +2065,15 @@ def plot_cdac_cap_mismatch(
             label=f"{label}, main−diff",
         )
         axes[5].plot(
-            elements,
+            stages,
             2.0 * analysis.diff_fraction[side],
             "o-",
             color=color,
             label=label,
         )
-    axes[0].plot(elements, expected_effective, "k--", label="Ideal/PEX")
+    axes[0].plot(stages, expected_effective, "k--", label="Ideal/PEX")
     axes[2].plot(
-        elements,
+        stages,
         analysis.effective_fraction[0] - analysis.effective_fraction[1],
         "o-",
         color=NORD_PURPLE,
@@ -2086,8 +2088,8 @@ def plot_cdac_cap_mismatch(
         "Differential-capacitor separation",
     )
     ylabels = ("C/Ctotal", "Residual", "P−N", "C/Ctotal", "Half-difference", "Separation")
-    tick_positions = (1, 4, 7, 10, 13, 16)
-    tick_labels = ("C16", "C13", "C10", "C07", "C04", "C01")
+    tick_positions = (0, 3, 6, 9, 12, 15)
+    tick_labels = ("C0", "C3", "C6", "C9", "C12", "C15")
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
         ax.set_title(title)
         ax.set_ylabel(ylabel)
@@ -2095,7 +2097,7 @@ def plot_cdac_cap_mismatch(
         style_grid(ax)
         ax.legend()
     style_info_box(axes[2], style_measurement_group_text(msmt_list), location="lower right")
-    fig.supxlabel("Physical capacitor element")
+    fig.supxlabel("Conversion stage")
     fig.suptitle("A-to-B CDAC capacitance")
     return save_figure(fig, output_path)
 
@@ -2112,23 +2114,23 @@ def plot_cdac_cap_mismatch_comparison(
     fig, axes_grid = plt.subplots(2, 2, sharex=True)
     axes = axes_grid.ravel()
     aligned = sorted(zip(msmt_list2d, analysis_list, strict=True), key=lambda item: item[1].adc_index)
-    elements = np.arange(1, analysis_list[0].effective_fraction.shape[1] + 1)
+    stages = np.arange(analysis_list[0].effective_fraction.shape[1])
     for group, analysis in aligned:
         expected = analysis.expected_effective_fraction
         effective_mean = (analysis.effective_fraction[0] + analysis.effective_fraction[1]) / 2.0
         diffcap_separation_mean = analysis.diff_fraction[0] + analysis.diff_fraction[1]
         label = f"ADC{analysis.adc_index:02d}"
         color = CURVE_COLORS[analysis.adc_index]
-        axes[0].plot(elements, effective_mean, "o-", color=color, label=label)
-        axes[1].plot(elements, effective_mean - expected, "o-", color=color, label=label)
+        axes[0].plot(stages, effective_mean, "o-", color=color, label=label)
+        axes[1].plot(stages, effective_mean - expected, "o-", color=color, label=label)
         axes[2].plot(
-            elements,
+            stages,
             analysis.effective_fraction[0] - analysis.effective_fraction[1],
             "o-",
             color=color,
             label=label,
         )
-        axes[3].plot(elements, diffcap_separation_mean, "o-", color=color, label=label)
+        axes[3].plot(stages, diffcap_separation_mean, "o-", color=color, label=label)
 
     panel_titles = (
         "Mean P/N effective fraction",
@@ -2137,8 +2139,8 @@ def plot_cdac_cap_mismatch_comparison(
         "Mean P/N diffcap separation",
     )
     ylabels = ("Fraction", "Residual", "Asymmetry", "Separation")
-    tick_positions = (1, 4, 7, 10, 13, 16)
-    tick_labels = ("C16", "C13", "C10", "C07", "C04", "C01")
+    tick_positions = (0, 3, 6, 9, 12, 15)
+    tick_labels = ("C0", "C3", "C6", "C9", "C12", "C15")
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
         ax.axhline(0.0, color=SPINE_COLOR)
         ax.set_title(title)
@@ -2151,7 +2153,7 @@ def plot_cdac_cap_mismatch_comparison(
         style_measurement_group_text(tuple(msmt for group in msmt_list2d for msmt in group)),
         location="lower right",
     )
-    fig.supxlabel("Physical capacitor element")
+    fig.supxlabel("Conversion stage")
     fig.suptitle("A-to-B CDAC comparison")
     return save_figure(fig, output_path)
 

@@ -19,12 +19,12 @@ module adc_digital (
     input wire        dac_mode,      // DAC mode control (shared for both sides)
     // DAC diff caps (for unit length caps!)
     input wire        dac_diffcaps,  // Enable differential capacitor mode.
-    input wire [15:0] dac_astate_p,  // DAC A state positive side
-    input wire [15:0] dac_bstate_p,  // DAC B state positive side
+    input wire [15:0] dac_astate_p,  // C0-first DAC A state, positive side
+    input wire [15:0] dac_bstate_p,  // C0-first DAC B state, positive side
 
     // DAC config - negative side
-    input wire [15:0] dac_astate_n,  // DAC A state negative side
-    input wire [15:0] dac_bstate_n,  // DAC B state negative side
+    input wire [15:0] dac_astate_n,  // C0-first DAC A state, negative side
+    input wire [15:0] dac_bstate_n,  // C0-first DAC B state, negative side
 
     input wire comp_out_p,
     comp_out_n,  // Comparator differential outputs - from comparator
@@ -39,10 +39,10 @@ module adc_digital (
     output wire clk_comp,  // Comparator clock
 
     // DAC state outputs - buffered to four separate signals (64 bits total)
-    output wire [15:0] dac_state_p_main,  // Positive DAC state main (16 bits)
-    output wire [15:0] dac_state_p_diff,  // Positive DAC state diff (16 bits)
-    output wire [15:0] dac_state_n_main,  // Negative DAC state main (16 bits)
-    output wire [15:0] dac_state_n_diff,  // Negative DAC state diff (16 bits)
+    output wire [15:0] dac_state_p_main,  // C0-first positive main states
+    output wire [15:0] dac_state_p_diff,  // C0-first positive diff states
+    output wire [15:0] dac_state_n_main,  // C0-first negative main states
+    output wire [15:0] dac_state_n_diff,  // C0-first negative diff states
 
     // DAC invert outputs - control signals for capacitor drivers (4 bits total)
     output wire dac_invert_p_main,  // Positive DAC invert main (tied low)
@@ -50,14 +50,13 @@ module adc_digital (
     output wire dac_invert_n_main,  // Negative DAC invert main (tied low)
     output wire dac_invert_n_diff,  // Negative DAC invert diff (driven by dac_diffcaps)
 
-    // Output
-    output wire comp_out  // Comparator output
-
-    // Power supply signals
+    // Keep complete port declarations in each preprocessing branch.
 `ifdef USE_POWER_PINS
-    ,
-    inout wire vdd_d,
+    output wire comp_out,  // Comparator output
+    inout  wire vdd_d,
     vss_d  // Digital supply
+`else
+    output wire comp_out   // Comparator output
 `endif
 );
 
@@ -67,8 +66,8 @@ module adc_digital (
     wire clk_update;  // Logic clock signal
 
     // Internal DAC state signals from SAR logic
-    wire [15:0] dac_state_p;  // Positive DAC state
-    wire [15:0] dac_state_n;  // Negative DAC state
+    wire [15:0] dac_state_p;  // Stage 0 is C0, largest and first
+    wire [15:0] dac_state_n;  // Stage 0 is C0, largest and first
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate (

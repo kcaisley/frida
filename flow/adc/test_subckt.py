@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .subckt import Adc, AdcDigital, AdcParams
+from .subckt import Adc, AdcParams, Frida1AdcDigital
 
 
 def test_adc():
@@ -18,7 +18,7 @@ def test_adc_digital_port_order_matches_spice_subckt():
     spice_ports = declaration.split()[2:]
 
     hdl21_ports = []
-    for port in AdcDigital.port_list:
+    for port in Frida1AdcDigital.port_list:
         if port.width == 1:
             hdl21_ports.append(port.name)
         else:
@@ -39,3 +39,21 @@ def test_adc_uses_comparator_clock_complement_and_separate_dac_supply():
     assert module.xcdac_p.conns["vss"] is module.vss_dac
     assert module.xcdac_n.conns["vdd"] is module.vdd_dac
     assert module.xcdac_n.conns["vss"] is module.vss_dac
+
+
+def test_adc_translates_the_legacy_digital_bus_only_at_its_boundary():
+    """Connect legacy physical bit 15 to canonical stage C0."""
+
+    module = Adc(AdcParams())
+
+    for port, signal in (
+        ("dac_astate_p", module.dac_astate_p),
+        ("dac_bstate_p", module.dac_bstate_p),
+        ("dac_astate_n", module.dac_astate_n),
+        ("dac_bstate_n", module.dac_bstate_n),
+        ("dac_state_p_main", module.dac_state_p),
+        ("dac_state_n_main", module.dac_state_n),
+    ):
+        parts = module.xdigital.conns[port].parts
+        assert [part.index for part in parts] == list(range(16))
+        assert all(part.parent is signal for part in parts)

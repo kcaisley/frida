@@ -33,7 +33,6 @@ def serializer_params(**overrides) -> AdcTbParams:
     """Return a compact four-word parameter set for sequencer packing."""
     config = {
         "dut": AdcParams(
-            n_cycles=1,
             cdac=CdacParams(n_dac=1, n_extra=0, redun_strat=RedunStrat.RDX2, weights=(1,)),
         ),
         "seq_init_pattern": "10000001" + "01010101" + "00000000" * 2,

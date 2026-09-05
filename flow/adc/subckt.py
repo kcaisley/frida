@@ -31,8 +31,6 @@ class AdcParams:
 
     # Top-level ADC parameter
     adc_bits = h.Param(dtype=int, desc="Nominal normalized ADC resolution", default=12)
-    n_cycles = h.Param(dtype=int, desc="Number of SAR comparison cycles", default=16)
-
     # Component parameters
     cdac = h.Param(
         dtype=CdacParams,
@@ -45,9 +43,10 @@ class AdcParams:
 
 # ==== Digital Block ExternalModule ====
 
-# The adc_digital block is a static ExternalModule from the synthesized netlist.
-# Currently fixed at 16 stages. When we implement a parametric generator,
-# this will be replaced.
+# The checked-in adc_digital netlist is the fabricated FRIDA-1 block. Its
+# physical bus counts from bit 15 down to bit 0. The Adc generator below is the
+# sole adapter between that immutable implementation and the project-wide
+# C0-first conversion-stage convention.
 #
 # Port list from spice/adc_digital.cdl (simplified - main signals only):
 # - Sequencer inputs: seq_init, seq_samp, seq_comp, seq_update
@@ -60,7 +59,7 @@ class AdcParams:
 # - DAC state outputs: dac_state_p_main[15:0], dac_state_n_main[15:0]
 # - Supplies: vdd_d, vss_d
 
-AdcDigital = h.ExternalModule(
+Frida1AdcDigital = h.ExternalModule(
     name="adc_digital",
     port_list=[
         # Sequencer clock inputs
@@ -107,7 +106,7 @@ AdcDigital = h.ExternalModule(
         h.Inout(name="vdd_d"),
         h.Inout(name="vss_d"),
     ],
-    desc="Synthesized ADC digital control block (salogic + clkgate + sampdriver)",
+    desc="Fabricated FRIDA-1 digital block with legacy reversed stage bus",
 )
 
 
@@ -233,21 +232,14 @@ def Adc(p: AdcParams) -> h.Module:
 
     Composes digital control with analog blocks (CDAC, sampler, comparator).
 
-    Note: Currently requires n_cycles=16 to match the static digital block.
-    Future versions will support parametric digital generation.
+    The fabricated digital block fixes this implementation at 16 capacitor
+    stages and 17 comparator decisions.
     """
-    # Validate n_cycles matches static digital block
-    if p.n_cycles != 16:
+    n_stages = len(get_cdac_weights(p.cdac))
+    if n_stages != 16:
         raise ValueError(
-            f"ADC currently requires n_cycles=16 (got {p.n_cycles}). Parametric digital block not yet implemented."
+            f"ADC currently requires 16 CDAC stages (got {n_stages}). CDAC params must give 16 physical stages."
         )
-
-    # Get CDAC bit width
-    # NOTE: Future work could make n_bits parametric by updating the digital
-    # SAR controller to handle variable bit widths (see SarDigital in digital.py)
-    n_bits = len(get_cdac_weights(p.cdac))
-    if n_bits != 16:
-        raise ValueError(f"ADC currently requires 16-bit CDAC (got {n_bits}). CDAC params must give 16 physical bits.")
 
     @h.module
     class Adc:
@@ -274,15 +266,15 @@ def Adc(p: AdcParams) -> h.Module:
         dac_mode = h.Input(desc="DAC mode control")
         dac_diffcaps = h.Input(desc="Differential caps control")
 
-        # DAC initial state (for calibration/testing)
-        dac_astate_p = h.Input(width=16, desc="DAC A-state positive")
-        dac_bstate_p = h.Input(width=16, desc="DAC B-state positive")
-        dac_astate_n = h.Input(width=16, desc="DAC A-state negative")
-        dac_bstate_n = h.Input(width=16, desc="DAC B-state negative")
+        # DAC initial states use C0-first conversion-stage indices.
+        dac_astate_p = h.Input(width=16, desc="C0-first DAC A-state positive")
+        dac_bstate_p = h.Input(width=16, desc="C0-first DAC B-state positive")
+        dac_astate_n = h.Input(width=16, desc="C0-first DAC A-state negative")
+        dac_bstate_n = h.Input(width=16, desc="C0-first DAC B-state negative")
 
         # Digital outputs (for readout)
-        dac_state_p = h.Output(width=16, desc="DAC state positive (bits)")
-        dac_state_n = h.Output(width=16, desc="DAC state negative (bits)")
+        dac_state_p = h.Output(width=16, desc="C0-first DAC state positive")
+        dac_state_n = h.Output(width=16, desc="C0-first DAC state negative")
         comp_out = h.Output(desc="Single-ended comparator readout")
 
         # Supplies
@@ -311,8 +303,10 @@ def Adc(p: AdcParams) -> h.Module:
         dac_invert_n_main = h.Signal()
         dac_invert_n_diff = h.Signal()
 
-    # Instantiate digital control block
-    Adc.xdigital = AdcDigital()(
+    # Adapt the immutable FRIDA-1 digital netlist at this one boundary. HDL21
+    # flattens the first concatenation part onto physical bit 15, so listing
+    # logical stages C0 through C15 reverses the legacy physical bus exactly.
+    Adc.xdigital = Frida1AdcDigital()(
         seq_init=Adc.seq_init,
         seq_samp=Adc.seq_samp,
         seq_comp=Adc.seq_comp,
@@ -324,10 +318,10 @@ def Adc(p: AdcParams) -> h.Module:
         en_update=Adc.en_update,
         dac_mode=Adc.dac_mode,
         dac_diffcaps=Adc.dac_diffcaps,
-        dac_astate_p=Adc.dac_astate_p,
-        dac_bstate_p=Adc.dac_bstate_p,
-        dac_astate_n=Adc.dac_astate_n,
-        dac_bstate_n=Adc.dac_bstate_n,
+        dac_astate_p=h.Concat(*(Adc.dac_astate_p[stage] for stage in range(16))),
+        dac_bstate_p=h.Concat(*(Adc.dac_bstate_p[stage] for stage in range(16))),
+        dac_astate_n=h.Concat(*(Adc.dac_astate_n[stage] for stage in range(16))),
+        dac_bstate_n=h.Concat(*(Adc.dac_bstate_n[stage] for stage in range(16))),
         comp_out_p=Adc.comp_out_p,
         comp_out_n=Adc.comp_out_n,
         clk_samp_p=Adc.clk_samp_p,
@@ -335,9 +329,9 @@ def Adc(p: AdcParams) -> h.Module:
         clk_samp_n=Adc.clk_samp_n,
         clk_samp_n_b=Adc.clk_samp_n_b,
         clk_comp=Adc.clk_comp,
-        dac_state_p_main=Adc.dac_state_p,
+        dac_state_p_main=h.Concat(*(Adc.dac_state_p[stage] for stage in range(16))),
         dac_state_p_diff=Adc.dac_state_p_diff,
-        dac_state_n_main=Adc.dac_state_n,
+        dac_state_n_main=h.Concat(*(Adc.dac_state_n[stage] for stage in range(16))),
         dac_state_n_diff=Adc.dac_state_n_diff,
         dac_invert_p_main=Adc.dac_invert_p_main,
         dac_invert_p_diff=Adc.dac_invert_p_diff,

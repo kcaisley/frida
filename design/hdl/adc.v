@@ -17,12 +17,12 @@ module adc (
 
     // DAC config - positive side
     input wire        dac_mode,      // DAC mode control (shared for both sides)
-    input wire [15:0] dac_astate_p,  // DAC A state positive side
-    input wire [15:0] dac_bstate_p,  // DAC B state positive side
+    input wire [15:0] dac_astate_p,  // C0-first DAC A state, positive side
+    input wire [15:0] dac_bstate_p,  // C0-first DAC B state, positive side
 
     // DAC config - negative side
-    input wire [15:0] dac_astate_n,  // DAC A state negative side
-    input wire [15:0] dac_bstate_n,  // DAC B state negative side
+    input wire [15:0] dac_astate_n,  // C0-first DAC A state, negative side
+    input wire [15:0] dac_bstate_n,  // C0-first DAC B state, negative side
 
     // DAC diff caps (for unit length caps!)
     input wire dac_diffcaps,  // Enable differential capacitor mode.
@@ -53,7 +53,7 @@ module adc (
     wire clk_samp_p_b, clk_samp_n_b;  // Complementary sampling clock signals
     wire clk_comp;  // Comparator clock
     wire clk_update;  // Logic clock signal
-    wire [15:0] dac_state_p, dac_state_n;  // SAR logic output buses
+    wire [15:0] dac_state_p, dac_state_n;  // C0-first SAR stage buses
 
     // Four 16-bit capacitor driver outputs (keeping same signal names at top level)
     wire [15:0] dac_drive_botplate_main_p;  // Positive capacitor driver outputs

@@ -136,7 +136,7 @@ hardware-driver calls.
 | Function | File | Role |
 | --- | --- | --- |
 | `convert_sample_rate_to_baud()` | `params.py` | Derive symbol rate from a requested active-conversion rate and the timing-pattern active span. |
-| `convert_dac_caps_to_adc_weights()` | `scan_adc.py` | Convert physical CDAC weights C16..C1 into decision weights W16..W0. |
+| `convert_dac_caps_to_adc_weights()` | `scan_adc.py` | Convert C0-first physical CDAC weights into chronological B0..B16 decision weights. |
 | `convert_params_to_seqgen_fmt()` | `seqgen.py` | Pack four parameterized timing strings and a caller-supplied one-bit-per-word RX_SEN string into raw 64-bit sequencer words. |
 | `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
 | `convert_fastrx_words_to_adc()` / `convert_fastrx_words_to_comp()` | `fastrx.py` | Decode and validate ADC or one-bit comparator FastRX captures in a vectorized pass. |

@@ -37,7 +37,7 @@ RADIX20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
 
 
 def build_cdac_test_variants() -> list[AdcScanParams]:
-    """Build one calibrated C16 transition point per characterized ADC."""
+    """Build one calibrated C0 transition point per characterized ADC."""
 
     calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
     return [
@@ -353,7 +353,7 @@ def test_cdac_expected_transition_applies_comparator_offset_with_physical_sign()
 
 @pytest.mark.parametrize("adc_index", (0, 2))
 @pytest.mark.parametrize("dac_diffcaps", (0, 1))
-def test_cdac_expected_transition_uses_accepted_c16_scale(
+def test_cdac_expected_transition_uses_accepted_c0_scale(
     adc_index: int,
     dac_diffcaps: int,
 ) -> None:
@@ -399,7 +399,7 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
     params = _build_cdac_params(
         adc_index=adc_index,
         side="p",
-        # C1 makes the fabricated mode distinction unambiguous: its physical
+        # C15 makes the fabricated mode distinction unambiguous: its physical
         # main+diff weight is 65, while normal main-diff operation is weight 1.
         element=15,
         direction="1to0",
@@ -439,7 +439,7 @@ def test_cdac_test_plate_predictions_are_safe_and_adc00_through_adc03() -> None:
             float(calibration["offset_v"]),
         )
         assert float(params.tb.vin_diff.dc) == pytest.approx(expected_center_v)
-        assert "_c16_" in _cdac_point_stem(params)
+        assert "_c0_" in _cdac_point_stem(params)
         assert all(0.4 <= voltage <= float(params.tb.vdd_a.dc) for voltage in _calculate_cdac_plate_voltages(params))
 
 

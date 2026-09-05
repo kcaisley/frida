@@ -7,6 +7,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 
 _CAPACITOR = re.compile(
     r"^\s*\S+\s+\(\s*(\S+)\s+(\S+)\s*\)\s+capacitor\s+c="
@@ -18,14 +19,15 @@ _BOTTOM = re.compile(
     re.IGNORECASE,
 )
 _FF_SCALE = {"": 1e15, "f": 1.0, "p": 1e3, "n": 1e6, "u": 1e9, "m": 1e12}
+type PinOrder = Literal["stage", "frida1_legacy"]
 
 
 @dataclass(frozen=True)
 class CdacPexCapacitance:
-    """Capacitance components in femtofarads for one physical CDAC array."""
+    """C0-first capacitance components for one physical CDAC array."""
 
-    main_by_bit_ff: tuple[float, ...]
-    diff_by_bit_ff: tuple[float, ...]
+    main_by_stage_ff: tuple[float, ...]
+    diff_by_stage_ff: tuple[float, ...]
     main_ff: float
     diff_ff: float
     effective_ff: float
@@ -60,15 +62,30 @@ def _value_ff(number: str, suffix: str) -> float:
     return float(number) * scale
 
 
-def parse_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
-    """Sum logical top/bottom couplings from a lumped Spectre PEX netlist."""
+def _stage_for_pin(pin: int, stage_count: int, pin_order: PinOrder) -> int:
+    if not 0 <= pin < stage_count:
+        raise ValueError(f"PEX contains out-of-range bottom-plate pin {pin}")
+    if pin_order == "stage":
+        return pin
+    if pin_order == "frida1_legacy":
+        return stage_count - 1 - pin
+    raise ValueError(f"unsupported CDAC pin order {pin_order!r}")
 
-    if bit_count < 1:
-        raise ValueError("bit_count must be positive")
+
+def parse_cdac_pex(
+    path: Path,
+    *,
+    stage_count: int,
+    pin_order: PinOrder = "stage",
+) -> CdacPexCapacitance:
+    """Sum logical top/bottom couplings and return C0-first stage order."""
+
+    if stage_count < 1:
+        raise ValueError("stage_count must be positive")
     # Calibre uses a trailing backslash for wrapped Spectre statements.
     text = path.read_text(encoding="utf-8").replace("\\\n", " ")
-    main = [0.0] * bit_count
-    diff = [0.0] * bit_count
+    main = [0.0] * stage_count
+    diff = [0.0] * stage_count
     topplate_shield = 0.0
     topplate_ground = 0.0
     shield_ground = 0.0
@@ -84,11 +101,10 @@ def parse_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
             topplate_total += value_ff
             other = logical_b if logical_a == "topplate" else logical_a
             if isinstance(other, tuple):
-                kind, bit = other
-                if bit >= bit_count:
-                    raise ValueError(f"PEX contains out-of-range bottom-plate bit {bit}")
+                kind, pin = other
+                stage = _stage_for_pin(pin, stage_count, pin_order)
                 target = main if kind == "main" else diff
-                target[bit] += value_ff
+                target[stage] += value_ff
             elif other == "shield":
                 topplate_shield += value_ff
             elif other == "ground":
@@ -104,8 +120,8 @@ def parse_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
     if main_total == 0.0 or diff_total == 0.0:
         raise ValueError(f"{path} contains no complete FRIDA top/bottom capacitance set")
     return CdacPexCapacitance(
-        main_by_bit_ff=tuple(main),
-        diff_by_bit_ff=tuple(diff),
+        main_by_stage_ff=tuple(main),
+        diff_by_stage_ff=tuple(diff),
         main_ff=main_total,
         diff_ff=diff_total,
         effective_ff=main_total - diff_total,
@@ -117,14 +133,19 @@ def parse_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
     )
 
 
-def parse_adc_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
-    """Extract and average the P/N CDACs from a complete FRIDA ADC PEX."""
+def parse_adc_cdac_pex(
+    path: Path,
+    *,
+    stage_count: int,
+    pin_order: PinOrder = "stage",
+) -> CdacPexCapacitance:
+    """Extract and average P/N CDACs, returning C0-first stage order."""
 
-    if bit_count < 1:
-        raise ValueError("bit_count must be positive")
+    if stage_count < 1:
+        raise ValueError("stage_count must be positive")
     text = path.read_text(encoding="utf-8").replace("\\\n", " ")
-    main = {side: [0.0] * bit_count for side in ("p", "n")}
-    diff = {side: [0.0] * bit_count for side in ("p", "n")}
+    main = {side: [0.0] * stage_count for side in ("p", "n")}
+    diff = {side: [0.0] * stage_count for side in ("p", "n")}
     top_total = {side: 0.0 for side in ("p", "n")}
     top_shield = {side: 0.0 for side in ("p", "n")}
     top_ground = {side: 0.0 for side in ("p", "n")}
@@ -156,10 +177,9 @@ def parse_adc_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
             top_total[side] += value_ff
             other = logical_b if logical_a == top else logical_a
             if isinstance(other, tuple) and len(other) == 3 and other[1] == side:
-                kind, _side, bit = other
-                if bit >= bit_count:
-                    raise ValueError(f"PEX contains out-of-range bottom-plate bit {bit}")
-                (main if kind == "main" else diff)[side][bit] += value_ff
+                kind, _side, pin = other
+                stage = _stage_for_pin(pin, stage_count, pin_order)
+                (main if kind == "main" else diff)[side][stage] += value_ff
             elif other == "shield":
                 top_shield[side] += value_ff
             elif other == "ground":
@@ -170,8 +190,8 @@ def parse_adc_cdac_pex(path: Path, *, bit_count: int) -> CdacPexCapacitance:
     if not sum(main_average) or not sum(diff_average):
         raise ValueError(f"{path} contains no complete differential FRIDA CDAC")
     return CdacPexCapacitance(
-        main_by_bit_ff=main_average,
-        diff_by_bit_ff=diff_average,
+        main_by_stage_ff=main_average,
+        diff_by_stage_ff=diff_average,
         main_ff=sum(main_average),
         diff_ff=sum(diff_average),
         effective_ff=sum(main_average) - sum(diff_average),
@@ -191,20 +211,20 @@ def write_comparison_table(
 
     if not designs:
         raise ValueError("comparison requires at least one design")
-    bit_count = len(next(iter(designs.values())).main_by_bit_ff)
+    stage_count = len(next(iter(designs.values())).main_by_stage_ff)
     if any(
-        len(result.main_by_bit_ff) != bit_count or len(result.diff_by_bit_ff) != bit_count
+        len(result.main_by_stage_ff) != stage_count or len(result.diff_by_stage_ff) != stage_count
         for result in designs.values()
     ):
-        raise ValueError("comparison designs must have equal bit counts")
+        raise ValueError("comparison designs must have equal stage counts")
     rows: list[tuple[str, dict[str, float]]] = []
     for kind in ("main", "diff"):
-        for bit in reversed(range(bit_count)):
+        for stage in range(stage_count):
             rows.append(
                 (
-                    f"{kind}[{bit}]_ff",
+                    f"{kind}[{stage}]_ff",
                     {
-                        name: (result.main_by_bit_ff if kind == "main" else result.diff_by_bit_ff)[bit]
+                        name: (result.main_by_stage_ff if kind == "main" else result.diff_by_stage_ff)[stage]
                         for name, result in designs.items()
                     },
                 )
@@ -237,14 +257,14 @@ def write_comparison_table(
 
 
 def write_capacitance_table(output_dir: Path, result: CdacPexCapacitance) -> tuple[Path, Path]:
-    """Write machine-readable per-bit and aggregate extraction results."""
+    """Write machine-readable per-stage and aggregate extraction results."""
 
     json_path = output_dir / "capacitance_table.json"
     csv_path = output_dir / "capacitance_table.csv"
     json_path.write_text(json.dumps(asdict(result), indent=2) + "\n", encoding="utf-8")
     with csv_path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("bit", "main_ff", "diff_ff", "effective_ff"))
-        for bit, (main, diff) in enumerate(zip(result.main_by_bit_ff, result.diff_by_bit_ff, strict=True)):
-            writer.writerow((bit, main, diff, main - diff))
+        writer.writerow(("stage", "main_ff", "diff_ff", "effective_ff"))
+        for stage, (main, diff) in enumerate(zip(result.main_by_stage_ff, result.diff_by_stage_ff, strict=True)):
+            writer.writerow((stage, main, diff, main - diff))
     return json_path, csv_path

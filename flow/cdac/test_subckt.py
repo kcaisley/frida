@@ -3,6 +3,7 @@
 from dataclasses import replace
 from pathlib import Path
 
+import hdl21 as h
 import pytest
 from hdl21.prefix import f
 from klayout import db
@@ -16,6 +17,7 @@ from .laygen import (
     UnitLengthCapFamilyParams,
     _calc_unit_geometry,
     _layout_manifest,
+    _ordered_groups,
     is_valid_cdac_layout_params,
 )
 from .subckt import (
@@ -142,6 +144,17 @@ def test_radix17_and_radix20_are_data_not_generator_assumptions() -> None:
     assert (len(radix20), sum(radix20), sum(map(len, _calc_weight_partitions(list(radix20), 64)))) == (16, 2303, 41)
 
 
+def test_physical_order_is_small_left_large_right_without_renumbering() -> None:
+    weights = [768, 512, 2, 1, 1]
+    partitions = _calc_weight_partitions(weights, 64)
+
+    ordered = _ordered_groups(weights, partitions)
+
+    assert [stage for stage, _weight, _chunks in ordered] == [4, 3, 2, 1, 0]
+    assert ordered[0][1] == 1
+    assert ordered[-1][1] == 768
+
+
 def test_cdac_array_has_dynamic_ports_and_ideal_values() -> None:
     cdac = CdacParams(n_dac=4, n_extra=0, weights=(129, 64, 2, 1), unit_cap=0.8 * f)
     params = CdacArrayParams(cdac=cdac)
@@ -151,19 +164,79 @@ def test_cdac_array_has_dynamic_ports_and_ideal_values() -> None:
     assert set(module.ports) == {
         "cap_topplate",
         "cap_shieldplate",
-        *(f"cap_botplate_{side}<{bit}>" for side in ("main", "diff") for bit in range(4)),
+        *(f"cap_botplate_{side}<{stage}>" for side in ("main", "diff") for stage in range(4)),
     }
-    assert float(module.Cmain_3_0.of.params.c) == pytest.approx(51.6e-15)
-    assert float(module.Cdiff_3_0.of.params.c) == pytest.approx(0.4e-15)
+    assert float(module.main_0_0_m6.of.cap.of.params.c) == pytest.approx(51.6e-15, abs=1e-18)
+    assert float(module.diff_0_0_m6.of.cap.of.params.c) == pytest.approx(0.4e-15, abs=1e-18)
+    assert float(module.main_3_0_m6.of.cap.of.params.c) == pytest.approx(26.4e-15, abs=1e-18)
+    assert float(module.diff_3_0_m6.of.cap.of.params.c) == pytest.approx(25.6e-15, abs=1e-18)
+
+
+@pytest.mark.parametrize("active_layers", [(6,), (6, 7), (5, 6, 7)])
+def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int, ...]) -> None:
+    import io
+
+    from flow.util.netlist import subcircuit_ports
+    from pdk.tsmc65.signoff import mom_lvs_device
+
+    params = CdacArrayParams(cdac=CdacParams(unit_cap=0.8 * f), active_layers=active_layers)
+    ideal = CdacArray(params)
+    lvs = CdacArray(
+        replace(params, unit_models=tuple(mom_lvs_device(layer, active_layers[0] - 1) for layer in active_layers))
+    )
+    expected_ports = (
+        "cap_topplate",
+        "cap_shieldplate",
+        *(f"cap_botplate_{kind}<{stage}>" for kind in ("main", "diff") for stage in range(16)),
+    )
+    assert tuple(ideal.ports) == tuple(lvs.ports) == expected_ports
+    assert len(ideal.instances) == len(lvs.instances) == 2 * 41 * len(active_layers)
+    for name, instance in ideal.instances.items():
+        assert {pin: net.name for pin, net in instance.conns.items()} == {
+            pin: net.name for pin, net in lvs.instances[name].conns.items()
+        }
+        assert tuple(instance.of.ports) == ("PLUS", "MINUS", "BULK")
+        assert not lvs.instances[name].of.instances
+    # Layer decomposition must not silently multiply the configured ideal C.
+    totals = {
+        kind: sum(
+            float(instance.of.cap.of.params.c) for name, instance in ideal.instances.items() if name.startswith(kind)
+        )
+        for kind in ("main", "diff")
+    }
+    assert totals["main"] == pytest.approx(1884.8e-15, rel=1e-12, abs=1e-27)
+    assert totals["diff"] == pytest.approx(247.2e-15, rel=1e-12, abs=1e-27)
+    assert totals["main"] - totals["diff"] == pytest.approx(2047 * 0.8e-15, rel=1e-12, abs=1e-27)
+    for module in (ideal, lvs):
+        module.name = "array_interface_test"
+        source = io.StringIO()
+        h.netlist(module, source, fmt="spice")
+        assert subcircuit_ports(source.getvalue(), module.name) == expected_ports
+
+
+def test_cdac_array_rejects_incompatible_device_views() -> None:
+    from pdk.tsmc65.signoff import mom_lvs_device
+
+    params = CdacArrayParams(active_layers=(6, 7))
+    assert not is_valid_cdac_array_params(replace(params, active_layers=(7, 6)))
+    assert not is_valid_cdac_array_params(replace(params, active_layers=()))
+    assert not is_valid_cdac_array_params(replace(params, unit_models=(mom_lvs_device(6, 5),)))
+    bad = h.Module(name="missing_bulk")
+    bad.PLUS, bad.MINUS = h.Inouts(2)
+    assert not is_valid_cdac_array_params(replace(params, unit_models=(bad, bad)))
 
 
 def test_geometry_is_derived_from_rules() -> None:
     params = _params()
     geometry = _calc_unit_geometry(params, _rules())
     assert (geometry.finger_width, geometry.gap, geometry.end_gap) == (100, 100, 120)
-    assert (geometry.weight_step, geometry.tail_length, geometry.unit_pitch) == (400, 1_000, 400)
+    assert (geometry.weight_step, geometry.tail_length, geometry.unit_pitch) == (400, 520, 400)
+    assert (geometry.via_cut, geometry.via_pitch, geometry.via_landing) == (100, 200, 380)
     scaled = _calc_unit_geometry(params, _rules(pitch=240, eol_threshold=90))
-    assert (scaled.end_gap, scaled.weight_step, scaled.tail_length) == (100, 480, 1_200)
+    assert (scaled.end_gap, scaled.weight_step, scaled.tail_length) == (100, 480, 520)
+    larger_area = _rules()
+    larger_area.M4.area = 64_000
+    assert _calc_unit_geometry(params, larger_area).tail_length == 640
     conditional = _rules()
     conditional.M6.parallel_spacing[0] = ParallelSpacingRule(spacing=140, min_width=90, min_parallel_run_length=380)
     assert _calc_unit_geometry(params, conditional).gap == 140
@@ -188,9 +261,9 @@ def test_rule_derived_radix17_layout(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     loaded.read(str(output))
     top = loaded.cell(params.top_cell)
     assert top is not None
-    assert len(list(top.each_inst())) == 41
-    assert top.dbbox().width() == pytest.approx(16.74)
-    assert top.dbbox().height() == pytest.approx(53.76)
+    assert len(list(top.each_inst())) == 43
+    assert top.dbbox().width() == pytest.approx(18.40)
+    assert top.dbbox().height() == pytest.approx(53.08)
     texts = {shape.text.string for shape in top.shapes(_layer_index(loaded, 13, 1)).each() if shape.is_text()}
     assert len(texts) == 34
     assert {"cap_topplate", "cap_shieldplate", "cap_botplate_main<15>", "cap_botplate_diff<0>"} <= texts
@@ -200,8 +273,8 @@ def test_layout_width_grows_one_pitch_per_chunk(monkeypatch: pytest.MonkeyPatch)
     one = _generate(monkeypatch, _params((64,), top_cell="one"))
     three = _generate(monkeypatch, _params((129,), top_cell="three"))
     assert three.cell("three").dbbox().width() - one.cell("one").dbbox().width() == pytest.approx(0.8)
-    assert len(list(one.cell("one").each_inst())) == 1
-    assert len(list(three.cell("three").each_inst())) == 3
+    assert len(list(one.cell("one").each_inst())) == 3
+    assert len(list(three.cell("three").each_inst())) == 5
 
 
 def test_shared_m4_keeps_m3_empty_and_owns_shield_tabs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,14 +283,92 @@ def test_shared_m4_keeps_m3_empty_and_owns_shield_tabs(monkeypatch: pytest.Monke
     top = layout.cell(params.top_cell)
     assert db.Region(top.begin_shapes_rec(layout.layer(11, 0))).is_empty()
     assert db.Region(top.begin_shapes_rec(layout.layer(12, 0))).is_empty()
-    assert len(list(db.Region(top.begin_shapes_rec(layout.layer(13, 0))).merged().each())) == 34
+    # Four additional floating M4 landings belong to the two edge dummies.
+    assert len(list(db.Region(top.begin_shapes_rec(layout.layer(13, 0))).merged().each())) == 38
     right_edge = top.bbox().right
-    assert len([shape for shape in top.shapes(layout.layer(13, 0)).each() if shape.bbox().right == right_edge]) == 9
+    tabs = [
+        shape.bbox().to_dtype(layout.dbu)
+        for shape in top.shapes(layout.layer(13, 0)).each()
+        if shape.bbox().right == right_edge
+    ]
+    assert len(tabs) == 16
+    assert all(tab.height() == pytest.approx(0.10) and tab.width() == pytest.approx(1.10) for tab in tabs)
+    assert sorted(tab.bottom for tab in tabs) == pytest.approx(
+        [3.22, 6.22, 9.22, 12.22, 15.22, 18.22, 21.22, 24.22, 28.60, 31.60, 34.60, 37.60, 40.60, 43.60, 46.60, 49.60]
+    )
+
+
+@pytest.mark.parametrize("shield_layer,active_layers", [(5, (6, 7)), (4, (5, 6, 7))])
+def test_every_shield_tab_reaches_the_shield(
+    monkeypatch: pytest.MonkeyPatch, shield_layer: int, active_layers: tuple[int, ...]
+) -> None:
+    params = _params(shield_layer=shield_layer, active_layers=active_layers)
+    layout = _generate(monkeypatch, params)
+    top = layout.cell(params.top_cell)
+    route_index = layout.layer(13, 0)
+    route = db.Region(top.begin_shapes_rec(route_index)).merged()
+    shield = db.Region(top.begin_shapes_rec(layout.layer(5 + 2 * shield_layer, 0))).merged()
+    shield_body = db.Region(max(shield.each(), key=lambda polygon: polygon.area()))
+    shield_tag = db.Region(top.begin_shapes_rec(layout.layer(155, 104)))
+    assert not shield_tag.is_empty()
+    assert ((shield_tag & shield) - shield_body).is_empty(), "LVS shield tag touches a signal landing"
+    topplate_point = next(
+        db.Point(shape.text.x, shape.text.y)
+        for shape in top.shapes(layout.layer(13, 1)).each()
+        if shape.is_text() and shape.text.string == "cap_topplate"
+    )
+    tabs = [
+        shape.bbox()
+        for shape in top.shapes(route_index).each()
+        if shape.is_box() and shape.bbox().right == top.bbox().right and not shape.bbox().contains(topplate_point)
+    ]
+    # A missing last tab must fail as well as a strap ending before its vias.
+    assert len(tabs) == 16
+    via4 = db.Region(top.begin_shapes_rec(layout.layer(14, 0)))
+    for tab in tabs:
+        connection = route.interacting(db.Region(tab))
+        assert connection.count() == 1
+        assert all(not polygon.inside(topplate_point) for polygon in connection.each())
+        if shield_layer == params.route_layer:
+            assert (db.Region(tab) - shield_body).is_empty()
+        else:
+            cuts = via4.interacting(connection)
+            assert not cuts.is_empty()
+            assert (cuts - connection).is_empty(), "M4 strap does not cover its shield vias"
+            assert (cuts - shield_body).is_empty(), "shield vias do not reach the shield body"
 
 
 def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("flow.cdac.laygen.import_module", lambda _name: _SyntheticPdkLayout)
     manifest = _layout_manifest(_params((129, 64, 1)))
     assert manifest["physical_chunk_count"] == 5
+    assert manifest["edge_dummy_count"] == 2
+    assert manifest["placed_unit_count"] == 7
     assert manifest["port_count"] == 8
-    assert manifest["partitioned_weights_msb_first"] == [[64, 64, 1], [64], [1]]
+    assert manifest["partitioned_weights_by_stage"] == [[64, 64, 1], [64], [1]]
+
+
+def test_reviewed_landings_and_bent_topplate(monkeypatch: pytest.MonkeyPatch) -> None:
+    layout = _generate(monkeypatch, _params(shield_layer=4, active_layers=(5, 6, 7)))
+    top = layout.cell("frida_caparray")
+    route = db.Region(top.begin_shapes_rec(layout.layer(13, 0))).merged()
+    labels = {s.text.string: db.Point(s.text.x, s.text.y) for s in top.each_shape(layout.layer(13, 1)) if s.is_text()}
+    for name, expected in (
+        ("cap_botplate_main<15>", (0.60, 0.22, 0.70, 0.74)),
+        ("cap_botplate_main<0>", (12.20, 0.22, 16.70, 0.74)),
+        ("cap_botplate_diff<0>", (12.20, 52.06, 16.70, 52.58)),
+        ("cap_topplate", (17.60, 51.64, 17.98, 52.02)),
+    ):
+        polygon = next(poly for poly in route.each() if poly.inside(labels[name]))
+        bbox = polygon.bbox().to_dtype(layout.dbu)
+        assert (bbox.left, bbox.bottom, bbox.right, bbox.top) == pytest.approx(expected)
+    m6 = db.Region(top.begin_shapes_rec(layout.layer(17, 0)))
+    for box in (db.DBox(0, 52.70, 17.60, 53.08), db.DBox(17.60, 51.64, 17.98, 53.08)):
+        assert (db.Region(box.to_itype(layout.dbu)) - m6).is_empty()
+    unit = layout.cell("frida_mom_w64_m5_m6_m7")
+    for via_number in (4, 5, 6):
+        cuts = db.Region(unit.begin_shapes_rec(layout.layer(6 + 2 * via_number, 0)))
+        assert len(list(cuts.each())) == 4  # Two cuts for each main/diff finger in this unit cell.
+        assert sorted(poly.bbox().center().y * layout.dbu for poly in cuts.each()) == pytest.approx(
+            [0.31, 0.51, 52.29, 52.49]
+        )

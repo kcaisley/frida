@@ -140,8 +140,8 @@ def main() -> None:
     cdac_capacitance = sum(CAP_WEIGHTS) * UNIT_CAPACITANCE
     cpar = cast(float, params["CDAC"]["parasitic_capacitance"])
     print("Behavioral FRIDA ADC configuration")
-    print(f"Cap weights C16..C1: {CAP_WEIGHTS}")
-    print(f"Bit weights W16..W0: {CODE_WEIGHTS}")
+    print(f"Cap weights C0..C15: {CAP_WEIGHTS}")
+    print(f"Decision weights B0..B16: {CODE_WEIGHTS}")
     print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
 

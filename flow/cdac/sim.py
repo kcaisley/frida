@@ -32,25 +32,29 @@ def CdacTb(params: CdacTbParams) -> h.Module:
 
     if float(params.code_dwell_s) <= 0.0 or float(params.transition_time_s) <= 0.0:
         raise ValueError("CDAC dwell and transition times must be positive")
-    n_bits = params.cdac.n_dac + params.cdac.n_extra
+    n_stages = params.cdac.n_dac + params.cdac.n_extra
 
     @h.module
     class CdacTb:
         vss = h.Port(desc="Simulator ground")
         vdd, top = h.Signals(2)
-        dac_bits = h.Signal(width=n_bits)
+        dac_bits = h.Signal(width=n_stages)
 
     CdacTb.vvdd = Vdc(dc=params.vdd)(p=CdacTb.vdd, n=CdacTb.vss)
     CdacTb.cload = C(c=100 * f)(p=CdacTb.top, n=CdacTb.vss)
     CdacTb.dut = Cdac(params.cdac)(top=CdacTb.top, dac=CdacTb.dac_bits, vdd=CdacTb.vdd, vss=CdacTb.vss)
-    bit_values: list[list[h.Scalar]] = [[] for _ in range(n_bits)]
+    stage_values: list[list[h.Scalar]] = [[] for _ in range(n_stages)]
     for code in range(2**params.cdac.n_dac):
-        for bit in range(n_bits):
-            bit_values[bit].append(params.vdd if (code >> bit) & 1 else 0.0)
-    for bit, values in enumerate(bit_values):
+        # Treat the integer only as a packed display stimulus: its highest
+        # position is C0 and its lowest position is C15. With redundant stages,
+        # this short baseline ramp therefore exercises the low-weight tail.
+        for stage in range(n_stages):
+            packed_bit = n_stages - stage - 1
+            stage_values[stage].append(params.vdd if (code >> packed_bit) & 1 else 0.0)
+    for stage, values in enumerate(stage_values):
         setattr(
             CdacTb,
-            f"vdac_{bit}",
+            f"vdac_{stage}",
             Vpwl(
                 wave=h.Pwl.steps(
                     values=values,
@@ -58,7 +62,7 @@ def CdacTb(params: CdacTbParams) -> h.Module:
                     transition=params.transition_time_s,
                     transition_at="end",
                 )
-            )(p=CdacTb.dac_bits[bit], n=CdacTb.vss),
+            )(p=CdacTb.dac_bits[stage], n=CdacTb.vss),
         )
     return CdacTb
 

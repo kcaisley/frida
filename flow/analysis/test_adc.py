@@ -115,18 +115,18 @@ def adc_measurement(
                 clk_comp_v=zeros,
                 comp_out_p_v=zeros,
                 comp_out_n_v=zeros,
-                dac_state_p_15_v=zeros,
-                dac_state_p_8_v=zeros,
-                dac_state_p_0_v=zeros,
-                dac_state_n_15_v=zeros,
-                dac_state_n_8_v=zeros,
-                dac_state_n_0_v=zeros,
-                dac_botplate_p_15_v=zeros,
-                dac_botplate_p_8_v=zeros,
-                dac_botplate_p_0_v=zeros,
-                dac_botplate_n_15_v=zeros,
-                dac_botplate_n_8_v=zeros,
-                dac_botplate_n_0_v=zeros,
+                dac_state_p_c0_v=zeros,
+                dac_state_p_c7_v=zeros,
+                dac_state_p_c15_v=zeros,
+                dac_state_n_c0_v=zeros,
+                dac_state_n_c7_v=zeros,
+                dac_state_n_c15_v=zeros,
+                dac_botplate_p_c0_v=zeros,
+                dac_botplate_p_c7_v=zeros,
+                dac_botplate_p_c15_v=zeros,
+                dac_botplate_n_c0_v=zeros,
+                dac_botplate_n_c7_v=zeros,
+                dac_botplate_n_c15_v=zeros,
                 vdd_a_i=zeros,
                 vdd_d_i=zeros,
                 vdd_dac_i=zeros,
@@ -179,7 +179,7 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
     wave_values = {name: zeros for name in base.wave.__dataclass_fields__ if name not in {"conversion_index", "time_s"}}
     vdac_p_v = np.full_like(time_s, 0.7)
     vdac_n_v = np.full_like(time_s, 0.7)
-    for bit_index, cycle_index, step_v in ((15, 0, 0.12), (8, 7, -0.04), (0, 15, 0.01)):
+    for stage_index, cycle_index, step_v in ((0, 0, 0.12), (7, 7, -0.04), (15, 15, 0.01)):
         logic_edge_s = logic_edges_s[cycle_index]
         switched = time_s >= logic_edge_s
         settling = np.zeros_like(time_s)
@@ -189,10 +189,10 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
         state_p_v = np.where(switched, 1.2, 0.0)
         state_n_v = 1.2 - state_p_v
         bottom_switched = time_s >= logic_edge_s + 0.05e-9
-        wave_values[f"dac_state_p_{bit_index}_v"] = state_p_v[None, :]
-        wave_values[f"dac_state_n_{bit_index}_v"] = state_n_v[None, :]
-        wave_values[f"dac_botplate_p_{bit_index}_v"] = np.where(bottom_switched, 1.2, 0.0)[None, :]
-        wave_values[f"dac_botplate_n_{bit_index}_v"] = np.where(bottom_switched, 0.0, 1.2)[None, :]
+        wave_values[f"dac_state_p_c{stage_index}_v"] = state_p_v[None, :]
+        wave_values[f"dac_state_n_c{stage_index}_v"] = state_n_v[None, :]
+        wave_values[f"dac_botplate_p_c{stage_index}_v"] = np.where(bottom_switched, 1.2, 0.0)[None, :]
+        wave_values[f"dac_botplate_n_c{stage_index}_v"] = np.where(bottom_switched, 0.0, 1.2)[None, :]
 
     wave_values.update(
         {
@@ -571,11 +571,11 @@ def test_decision_paths_select_matching_output_codes() -> None:
     np.testing.assert_array_equal(paths.final_dout, (5, 5))
 
 
-def test_cdac_settling_aligns_saved_bit_cycles_and_removes_static_levels() -> None:
+def test_cdac_settling_aligns_saved_stages_and_removes_static_levels() -> None:
     measurement = adc_cdac_settling_measurement()
     result = analyze_adc_cdac_settling(measurement)
 
-    assert result.bit_index.tolist() == [15, 8, 0]
+    assert result.stage_index.tolist() == [0, 7, 15]
     assert result.cycle_index.tolist() == [0, 7, 15]
     assert result.conversion_index.tolist() == [0, 0, 0]
     assert result.time_s[0] == pytest.approx(-0.05e-9, abs=15e-12)
@@ -601,7 +601,6 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
                 msmt.param.tb,
                 dut=AdcParams(
                     adc_bits=12,
-                    n_cycles=16,
                     cdac=CdacParams(n_dac=11, n_extra=5, weights=weights),
                 ),
             ),

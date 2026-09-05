@@ -180,7 +180,7 @@ def convert_vdiff_input_to_awg_supply(
 
 
 def convert_dac_caps_to_adc_weights(cap_weights: list[int] | tuple[int, ...]) -> list[int]:
-    """Convert CDAC unit-cap weights C16..C1 to decision weights W16..W0."""
+    """Convert C0-first CDAC weights into chronological B0..B16 weights."""
 
     if not cap_weights or any(
         isinstance(weight, bool) or not isinstance(weight, int) or weight <= 0 for weight in cap_weights
@@ -190,7 +190,7 @@ def convert_dac_caps_to_adc_weights(cap_weights: list[int] | tuple[int, ...]) ->
 
 
 def convert_dout_to_normalized_dout(dout: int, code_weights: list[int], adc_bits: int) -> int:
-    """Scale ideal-weight raw Dout onto the configured nominal ADC range."""
+    """Scale the weighted B0..B16 sum into the D0..D11 output-code range."""
 
     if adc_bits <= 0:
         raise ValueError("adc_bits must be positive")
@@ -223,6 +223,9 @@ def convert_params_to_spi_fmt(params: AdcScanParams) -> bytes:
     bits.setall(0)
 
     for field, msb, lsb in DAC_FIELDS:
+        # Tuple element zero is canonical stage C0. Keep it at the high end of
+        # each serialized field: FRIDA-1 consumes that as physical bit 15,
+        # while newly synthesized cores reverse the field to internal stage 0.
         value = "".join(str(bit) for bit in getattr(params, field))
         value_bits = bitarray(value[::-1])
         width = msb - lsb + 1
@@ -242,7 +245,7 @@ def convert_params_to_spi_fmt(params: AdcScanParams) -> bytes:
     bits[MUX_LSB : MUX_MSB + 1] = mux_value
 
     column_width = 32
-    print("DAC state strings are ordered C16..C1, i.e. biggest capacitor to smallest capacitor.")
+    print("DAC state strings are ordered C0..C15, largest/first to smallest/last.")
     print("".join(f"{field} spi_bits[{msb}:{lsb}]".ljust(column_width) for field, msb, lsb in DAC_FIELDS))
     print(
         "".join("".join(str(bit) for bit in getattr(params, field)).ljust(column_width) for field, _, _ in DAC_FIELDS)

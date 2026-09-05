@@ -144,13 +144,10 @@ class CDAC_BSS(CDAC):
             self.weights_array = np.zeros(self.params["array_size"])
 
             # build capacitor array from given radix
-            for i in range(self.params["array_size"]):
-                self.capacitor_array_p[self.params["array_size"] - i - 1] = (
-                    self.params["radix"] ** i * self.params["unit_capacitance"]
-                )
-                self.capacitor_array_n[self.params["array_size"] - i - 1] = (
-                    self.params["radix"] ** i * self.params["unit_capacitance"]
-                )
+            for stage in range(self.params["array_size"]):
+                exponent = self.params["array_size"] - stage - 1
+                self.capacitor_array_p[stage] = self.params["radix"] ** exponent * self.params["unit_capacitance"]
+                self.capacitor_array_n[stage] = self.params["radix"] ** exponent * self.params["unit_capacitance"]
             self.weights_array = self.capacitor_array_p / self.params["unit_capacitance"]
 
         self.weights_sum = np.sum(self.weights_array)
@@ -202,21 +199,23 @@ class CDAC_BSS(CDAC):
 
         # calculate the contributions of the toggled capacitors to the output voltage change
         # Note that in real hardware, this would all happen simultaneously
-        for i in range(self.params["array_size"]):
-            current_capacitor_p = self.capacitor_array_p[i]
-            current_capacitor_n = self.capacitor_array_n[i]
-            reg_index = self.params["array_size"] - i - 1
+        for stage in range(self.params["array_size"]):
+            current_capacitor_p = self.capacitor_array_p[stage]
+            current_capacitor_n = self.capacitor_array_n[stage]
+            # The integer is only a packed storage format. Its high-to-low
+            # bit positions encode canonical registers C0 through C15.
+            packed_bit = self.params["array_size"] - stage - 1
 
-            # If the incoming register value (at index i) is higher than the stored value, increase output
-            if (register_p & (1 << reg_index)) > (self.register_p & (1 << reg_index)):
+            # A rising state for this stage increases its bottom-plate voltage.
+            if (register_p & (1 << packed_bit)) > (self.register_p & (1 << packed_bit)):
                 delta_output_voltage_p += current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage
             # vice-versa, decrease the output, Note how there is no case for the same value as this would maintain voltage.
-            elif (register_p & (1 << reg_index)) < (self.register_p & (1 << reg_index)):
+            elif (register_p & (1 << packed_bit)) < (self.register_p & (1 << packed_bit)):
                 delta_output_voltage_p -= current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage
 
-            if (register_n & (1 << reg_index)) > (self.register_n & (1 << reg_index)):
+            if (register_n & (1 << packed_bit)) > (self.register_n & (1 << packed_bit)):
                 delta_output_voltage_n += current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage
-            elif (register_n & (1 << reg_index)) < (self.register_n & (1 << reg_index)):
+            elif (register_n & (1 << packed_bit)) < (self.register_n & (1 << packed_bit)):
                 delta_output_voltage_n -= current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage
 
         if do_calculate_energy:
@@ -226,22 +225,22 @@ class CDAC_BSS(CDAC):
 
             # TODO: This can/should be simplified into just two cases, not two if-else
             # NOTE: Even though only one register bit has been updated, is it correct that we need to examine all caps?
-            for i in range(self.params["array_size"]):
-                current_capacitor_p = self.capacitor_array_p[i]
-                current_capacitor_n = self.capacitor_array_n[i]
-                reg_index = self.params["array_size"] - i - 1
+            for stage in range(self.params["array_size"]):
+                current_capacitor_p = self.capacitor_array_p[stage]
+                current_capacitor_n = self.capacitor_array_n[stage]
+                packed_bit = self.params["array_size"] - stage - 1
                 if delta_output_voltage_p > 0:
-                    if (register_p & (1 << reg_index)) == 0:
+                    if (register_p & (1 << packed_bit)) == 0:
                         self.consumed_charge += current_capacitor_p * delta_output_voltage_p
                 else:
-                    if (register_p & (1 << reg_index)) != 0:
+                    if (register_p & (1 << packed_bit)) != 0:
                         self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
 
                 if delta_output_voltage_n > 0:
-                    if (register_n & (1 << reg_index)) == 0:
+                    if (register_n & (1 << packed_bit)) == 0:
                         self.consumed_charge += current_capacitor_n * delta_output_voltage_n
                 else:
-                    if (register_n & (1 << reg_index)) != 0:
+                    if (register_n & (1 << packed_bit)) != 0:
                         self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
 
         # ideal CDAC output voltage for reference
@@ -256,12 +255,12 @@ class CDAC_BSS(CDAC):
         # calculate total capacitance connected to VREF for each side
         capacitance_at_vref_p = 0
         capacitance_at_vref_n = 0
-        for i in range(self.params["array_size"]):
-            reg_index = self.params["array_size"] - i - 1
-            if (self.register_p & (1 << reg_index)) != 0:
-                capacitance_at_vref_p += self.capacitor_array_p[i]
-            if (self.register_n & (1 << reg_index)) != 0:
-                capacitance_at_vref_n += self.capacitor_array_n[i]
+        for stage in range(self.params["array_size"]):
+            packed_bit = self.params["array_size"] - stage - 1
+            if (self.register_p & (1 << packed_bit)) != 0:
+                capacitance_at_vref_p += self.capacitor_array_p[stage]
+            if (self.register_n & (1 << packed_bit)) != 0:
+                capacitance_at_vref_n += self.capacitor_array_n[stage]
 
         voltage_noise_sample = np.random.normal(0, self.params["reference_voltage_noise"])
         noise_p = voltage_noise_sample * capacitance_at_vref_p / self.capacitance_sum_p
@@ -376,6 +375,9 @@ class SAR_ADC:
         """
         Like the other functions starting with calculate_*, this function is non-physical
         in the sense that it just analyzes the data produced by the physical ADC hardware modeled by the other code.
+
+        ``comp_result`` is B0..B16. B0..B15 carry the C0..C15
+        capacitor weights and B16 is the terminal unit-weight decision.
         """
 
         # initialize result
@@ -1006,26 +1008,25 @@ class SAR_ADC:
         dac_out_p[0] = self.dac.output_voltage_p
         dac_out_n[0] = self.dac.output_voltage_n
 
-        # do first comparison to set MSB (sign) bit
+        # B0 is the initial comparison used to update the largest stage C0.
         self.comp_result.append(
             1 if self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n) else 0
         )
 
-        for i in range(self.dac.params["array_size"]):  # SAR loop, bidirectional single side switching (BSS)
+        for stage in range(self.dac.params["array_size"]):  # C0-first SAR loop
+            packed_bit = self.dac.params["array_size"] - stage - 1
             # update DAC register depending on the previous conversion
-            if (
-                reset_value & 1 << (self.dac.params["array_size"] - i - 1) == 0
-            ):  # switch direction depends on the reset value of the DAC register
-                if self.comp_result[i] == 1:
-                    temp_register_n += 1 << (self.dac.params["array_size"] - i - 1)  # increment n-side
+            if reset_value & 1 << packed_bit == 0:  # switch direction follows this stage's reset state
+                if self.comp_result[stage] == 1:
+                    temp_register_n += 1 << packed_bit
                 else:
-                    temp_register_p += 1 << (self.dac.params["array_size"] - i - 1)  # increment p-side
+                    temp_register_p += 1 << packed_bit
 
             else:  # all other bits
-                if self.comp_result[i] == 1:
-                    temp_register_p -= 1 << (self.dac.params["array_size"] - i - 1)  # decrement p-side
+                if self.comp_result[stage] == 1:
+                    temp_register_p -= 1 << packed_bit
                 else:
-                    temp_register_n -= 1 << (self.dac.params["array_size"] - i - 1)  # decrement n-side
+                    temp_register_n -= 1 << packed_bit
 
             # update DAC output voltage by one bit and append to array, return values include noise and settling error
             temp_dac_output_p, temp_dac_output_n = self.dac.update(
@@ -1035,8 +1036,8 @@ class SAR_ADC:
             )
             # consumed charge is added up here. Note that only one cap position is examined per iteration of this loop (non-physical)
             total_consumed_charge += self.dac.consumed_charge
-            dac_out_p[i + 1] = temp_dac_output_p
-            dac_out_n[i + 1] = temp_dac_output_n
+            dac_out_p[stage + 1] = temp_dac_output_p
+            dac_out_n[stage + 1] = temp_dac_output_n
             # print('  conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.dac.register_p, '#014b'), format(self.dac.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
 
             # compare

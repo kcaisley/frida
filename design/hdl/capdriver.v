@@ -1,8 +1,7 @@
 // Capacitor Driver Module - Drives capacitor array control signals
 // Takes DAC state and generates drive signals with independent driver sizing
-// NOTE: Each bit requires different driver strength based on capacitive load
-//       - MSB drivers need higher strength (larger caps)
-//       - LSB drivers need lower strength (smaller caps)
+// NOTE: Each stage can require different strength based on capacitive load.
+//       Stage 0 drives C0, the largest capacitor; stage 15 drives C15.
 //       - Driver sizing determined at analog implementation level
 
 module capdriver (
@@ -11,9 +10,9 @@ module capdriver (
     inout  wire        vdd_dac,
     inout  wire        vss_dac,           // DAC supply
 `endif
-    input  wire [15:0] dac_state,         // DAC state input bus (16-bit subset)
+    input  wire [15:0] dac_state,         // C0-first conversion-stage state
     input  wire        dac_drive_invert,  // Control signal for inverting output (active high)
-    output wire [15:0] dac_drive          // DAC drive output bus (16-bit)
+    output wire [15:0] dac_drive          // C0-first capacitor drive bus
 );
 
     // Generic OPENROAD XOR gates - will be mapped to technology-specific cells

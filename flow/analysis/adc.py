@@ -871,11 +871,11 @@ def analyze_adc_decision_paths(
     for row, conversion in enumerate(selected):
         decided = 0.0
         remaining = float(np.sum(weights))
-        for cycle, (bit, weight) in enumerate(
+        for cycle, (decision, weight) in enumerate(
             zip(measurement.daq.bout[conversion], weights, strict=True),
             start=1,
         ):
-            decided += bit * weight
+            decided += decision * weight
             remaining -= weight
             paths[row, cycle] = (decided + 0.5 * remaining) * normalized_code_max / raw_code_max
     return AnalysisAdcDecisionPaths(
@@ -889,12 +889,12 @@ def analyze_adc_decision_paths(
 
 
 def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettling:
-    """Align the saved bit-15, bit-8, and bit-0 CDAC update intervals."""
+    """Align representative early, middle, and late C0-first CDAC stages."""
 
     wave = measurement.wave
     time_s = wave.time_s
     threshold_v = 0.5 * float(measurement.param.vdd_d.dc)
-    bit_cycles = ((15, 0), (8, 7), (0, 15))
+    stage_cycles = ((0, 0), (7, 7), (15, 15))
     cycle_windows = []
     for record_index, conversion_index in enumerate(wave.conversion_index):
         comp_rising_s = np.asarray(find_crossings(wave.clk_comp_v[record_index], time_s, threshold_v, rising=True))
@@ -902,18 +902,18 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         logic_rising_s = np.asarray(find_crossings(wave.seq_logic_v[record_index], time_s, threshold_v, rising=True))
         if len(comp_rising_s) != 17 or len(comp_falling_s) != 17 or len(logic_rising_s) < 16:
             raise ValueError("ADC CDAC settling requires 17 internal COMP pulses and 16 following LOGIC edges")
-        for bit_index, cycle_index in bit_cycles:
+        for stage_index, cycle_index in stage_cycles:
             start_s = float(comp_rising_s[cycle_index])
             next_comp_s = float(comp_rising_s[cycle_index + 1])
             following_logic_s = logic_rising_s[(logic_rising_s > start_s) & (logic_rising_s < next_comp_s)]
             following_comp_falling_s = comp_falling_s[comp_falling_s > next_comp_s]
             if len(following_logic_s) != 1 or not len(following_comp_falling_s):
-                raise ValueError(f"ADC CDAC bit {bit_index} does not have one complete update interval")
+                raise ValueError(f"ADC CDAC stage C{stage_index} does not have one complete update interval")
             cycle_windows.append(
                 (
                     record_index,
                     int(conversion_index),
-                    bit_index,
+                    stage_index,
                     cycle_index,
                     start_s,
                     float(following_logic_s[0]),
@@ -935,7 +935,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
     stop_samples = int(np.floor(displayed_stop_s / waveform_sample_interval_s)) + margin_samples
     relative_time_s = np.arange(-margin_samples, stop_samples + 1, dtype=np.float64) * waveform_sample_interval_s
 
-    bit_indices = []
+    stage_indices = []
     cycle_indices = []
     conversion_indices = []
     aligned: dict[str, list[np.ndarray]] = {
@@ -955,7 +955,16 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
     }
     static_vdac_p_v = []
     static_vdac_n_v = []
-    for record_index, conversion_index, bit_index, cycle_index, start_s, logic_s, next_comp_s, _stop_s in cycle_windows:
+    for (
+        record_index,
+        conversion_index,
+        stage_index,
+        cycle_index,
+        start_s,
+        logic_s,
+        next_comp_s,
+        _stop_s,
+    ) in cycle_windows:
         sample_time_s = start_s + relative_time_s
         # Use the quiet tail after the CDAC update, while excluding the next
         # comparator edge, as the per-trace static settling reference.
@@ -963,10 +972,10 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
             time_s <= logic_s + 0.95 * (next_comp_s - logic_s)
         )
         if np.count_nonzero(settling_reference) < 2:
-            raise ValueError(f"ADC CDAC bit {bit_index} has fewer than two settled-reference samples")
+            raise ValueError(f"ADC CDAC stage C{stage_index} has fewer than two settled-reference samples")
         p_static_v = float(np.median(wave.vdac_p_v[record_index, settling_reference]))
         n_static_v = float(np.median(wave.vdac_n_v[record_index, settling_reference]))
-        bit_indices.append(bit_index)
+        stage_indices.append(stage_index)
         cycle_indices.append(cycle_index)
         conversion_indices.append(conversion_index)
         static_vdac_p_v.append(p_static_v)
@@ -976,7 +985,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         for side in ("p", "n"):
             for signal in ("dac_state", "dac_botplate"):
                 aligned[f"{signal}_{side}_v"].append(
-                    np.interp(sample_time_s, time_s, getattr(wave, f"{signal}_{side}_{bit_index}_v")[record_index])
+                    np.interp(sample_time_s, time_s, getattr(wave, f"{signal}_{side}_c{stage_index}_v")[record_index])
                 )
         aligned["vdac_p_settling_error_v"].append(
             np.interp(sample_time_s, time_s, wave.vdac_p_v[record_index]) - p_static_v
@@ -987,7 +996,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
 
     return AnalysisAdcCdacSettling(
         active_conversion_rate_hz=_active_conversion_rate_hz(measurement),
-        bit_index=np.asarray(bit_indices),
+        stage_index=np.asarray(stage_indices),
         cycle_index=np.asarray(cycle_indices),
         conversion_index=np.asarray(conversion_indices),
         time_s=relative_time_s,

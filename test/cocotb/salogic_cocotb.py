@@ -19,7 +19,7 @@ async def pulse_update(dut) -> None:
 
 
 async def initialize(dut, astate_p: int, astate_n: int) -> None:
-    """Load known A states and initialize the MSB-first SAR cycle."""
+    """Load known A states and initialize the C0-first SAR cycle."""
 
     dut.clk_update.value = 0
     dut.clk_init.value = 1
@@ -56,7 +56,7 @@ async def test_static_mode_loads_b_states(dut) -> None:
 
 
 @cocotb.test()
-async def test_sar_mode_updates_each_side_msb_first(dut) -> None:
+async def test_sar_mode_updates_each_side_c0_first(dut) -> None:
     await initialize(dut, 0x0000, DAC_MASK)
     dut.dac_mode.value = 1
 
@@ -66,14 +66,14 @@ async def test_sar_mode_updates_each_side_msb_first(dut) -> None:
     expected_n = DAC_MASK
 
     for cycle, (comp_p, comp_n) in enumerate(zip(comp_p_bits, comp_n_bits, strict=True)):
-        bit = DAC_WIDTH - 1 - cycle
+        stage = cycle
         dut.comp_p.value = comp_p
         dut.comp_n.value = comp_n
 
         await pulse_update(dut)
 
-        expected_p = (expected_p & ~(1 << bit)) | (comp_p << bit)
-        expected_n = (expected_n & ~(1 << bit)) | (comp_n << bit)
+        expected_p = (expected_p & ~(1 << stage)) | (comp_p << stage)
+        expected_n = (expected_n & ~(1 << stage)) | (comp_n << stage)
         assert int(dut.dac_state_p.value) == expected_p
         assert int(dut.dac_state_n.value) == expected_n
 

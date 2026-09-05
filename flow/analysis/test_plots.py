@@ -194,14 +194,14 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     paths = plot_waveforms(
         analyze_measurement_waveforms(
             msmt,
-            signal_names=("vin_diff_v", "dac_botplate_p_15_v"),
+            signal_names=("vin_diff_v", "dac_botplate_p_c0_v"),
         ),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
     svg = read_svg(paths)
     assert "vin_diff_v" in svg
-    assert "dac_botplate_p_15_v" in svg
+    assert "dac_botplate_p_c0_v" in svg
     assert "Time (" in svg
     assert "Source: SPICE" in svg
     assert "Rate: 1.6 Msps" in svg
@@ -230,9 +230,9 @@ def test_cdac_settling_plot_separates_saved_bit_cycles_and_uses_millivolts(tmp_p
 
     assert_plot_formats(paths)
     svg = read_svg(paths)
-    assert "Bit 15 (cycle 0)" in svg
-    assert "Bit 8 (cycle 7)" in svg
-    assert "Bit 0 (cycle 15)" in svg
+    assert "C0 (cycle 0)" in svg
+    assert "C7 (cycle 7)" in svg
+    assert "C15 (cycle 15)" in svg
     assert "VDAC residual (mV)" in svg
     for label in (
         "clk_comp",

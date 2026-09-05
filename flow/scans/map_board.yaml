@@ -201,7 +201,7 @@ boards:
           - build/scan_comp/20260804_054953/*adc03*.h5
 
     # Manually accepted, acquisition-planning-only scale between the PEX CDAC
-    # step and the direction-averaged measured C16 step. These values center
+    # step and the direction-averaged measured C0 step. These values center
     # later adaptive sweeps; measured per-curve P50 values, never these scales,
     # drive capacitance extraction. List order is dac_diffcaps = 0, 1, i.e.
     # fabricated main+diff followed by normal main-diff operation.

@@ -15,14 +15,14 @@ module salogic (
     input wire clk_update, // Update signal positive
 
     // Control and data inputs - positive side
-    input wire [15:0] dac_astate_p,  // 16 bits input A positive from SPI
-    input wire [15:0] dac_bstate_p,  // 16 bits input B positive from SPI
+    input wire [15:0] dac_astate_p,  // C0-first A state, positive side
+    input wire [15:0] dac_bstate_p,  // C0-first B state, positive side
     input wire        dac_mode,      // Mode selection (shared for both sides)
     input wire        comp_p,        // Comparator output positive used for state update
 
     // Control and data inputs - negative side
-    input wire [15:0] dac_astate_n,  // 16 bits input A negative from SPI
-    input wire [15:0] dac_bstate_n,  // 16 bits input B negative from SPI
+    input wire [15:0] dac_astate_n,  // C0-first A state, negative side
+    input wire [15:0] dac_bstate_n,  // C0-first B state, negative side
     input wire        comp_n,        // Comparator output negative used for state update
 
     // Outputs
@@ -36,8 +36,8 @@ module salogic (
 `endif
 );
 
-    // Position counter for tracking which bit to update in dac_state
-    // Counter width calculated to accommodate 16 bits
+    // One-hot conversion-stage selector. Stage 0 is the first register and
+    // controls C0, the largest capacitor; stage 15 is switched last.
     reg [15:0] dac_cycle;
 
     // D input generation for each flip-flop based on control logic
@@ -85,16 +85,14 @@ module salogic (
         end
     endgenerate
 
-    // dac_cycle counter management
+    // Conversion-stage selector management
     // Runs for exactly 16 cycles after each clk_init, regardless of DAC mode
-    // Initialized to 16'b1000000000000000 (MSB set)
-    // Then after each subsequent posedge clk_update, right-shifts until 16'b0000000000000001 (LSB set)
+    // Initialized with stage 0 selected, then advances toward stage 15.
     always @(posedge clk_update) begin
         if (clk_init) begin
-            dac_cycle <= {1'b1, {(15) {1'b0}}};  // First bit is 1, others are 0 (MSB first)
+            dac_cycle <= 16'h0001;
         end else begin
-            // Right shift the 1 in dac_cycle for next bit position
-            dac_cycle <= dac_cycle >> 1;
+            dac_cycle <= dac_cycle << 1;
         end
     end
 
