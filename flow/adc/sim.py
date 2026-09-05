@@ -1046,7 +1046,7 @@ def frida_1_noise_vs_rate(run_dir: Path) -> Path:
     return run_dir
 
 
-def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path) -> Path:
+def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path, *, netlist_only: bool = False) -> Path:
     cases = (
         (
             "10msps_cm700mv_dc50mv",
@@ -1054,14 +1054,14 @@ def _run_frida2_noise_10msps(run_dir: Path, pex_netlist: Path) -> Path:
                 view="frida65a",
                 pex_cell="adc_12b_17step",
                 dut=AdcParams(adc_bits=12, cdac=CdacParams()),
-                symbol_rate=1.6e9,
-                conversions=10,
+                symbol_rate=1.6 * G,
+                conversions=100,
                 vin_diff=h.Vdc.Params(dc=0.05),
                 seq_logic_phase_delay_symbols=2.0,
             ),
         ),
     )
-    return _run_extracted_adc_noise(run_dir, cases, pex_netlist)
+    return _run_extracted_adc_noise(run_dir, cases, pex_netlist, netlist_only=netlist_only)
 
 
 def _find_latest_signed_off_pex(target: str) -> Path:
@@ -1080,16 +1080,20 @@ def _find_latest_signed_off_pex(target: str) -> Path:
     raise FileNotFoundError(f"no accepted PEX run exists beneath {root}")
 
 
-def frida2_2layer_radix17_10msps(run_dir: Path) -> Path:
-    """Run ten connected two-layer FRIDA-2 conversions at 10 MS/s."""
+def frida2_2layer_radix17_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
+    """Run 100 connected two-layer FRIDA-2 conversions at 10 MS/s."""
 
-    return _run_frida2_noise_10msps(run_dir, _find_latest_signed_off_pex("frida2_2layer_radix17"))
+    return _run_frida2_noise_10msps(
+        run_dir, _find_latest_signed_off_pex("frida2_2layer_radix17"), netlist_only=netlist_only
+    )
 
 
-def frida2_3layer_radix17_10msps(run_dir: Path) -> Path:
-    """Run ten connected three-layer FRIDA-2 conversions at 10 MS/s."""
+def frida2_3layer_radix17_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
+    """Run 100 connected three-layer FRIDA-2 conversions at 10 MS/s."""
 
-    return _run_frida2_noise_10msps(run_dir, _find_latest_signed_off_pex("frida2_3layer_radix17"))
+    return _run_frida2_noise_10msps(
+        run_dir, _find_latest_signed_off_pex("frida2_3layer_radix17"), netlist_only=netlist_only
+    )
 
 
 def frida1_10msps(run_dir: Path, *, netlist_only: bool = False) -> Path:
@@ -1544,12 +1548,21 @@ def main() -> None:
     )
     run_dir.mkdir(parents=True, exist_ok=False)
     if args.netlist_only:
-        if args.target not in ("frida1_10msps", "frida2_10msps"):
-            parser.error("--netlist-only applies to frida1_10msps and frida2_10msps")
+        if args.target not in (
+            "frida1_10msps",
+            "frida2_10msps",
+            "frida2_2layer_radix17_10msps",
+            "frida2_3layer_radix17_10msps",
+        ):
+            parser.error("--netlist-only applies to the 100-conversion extracted campaigns")
         if args.target == "frida1_10msps":
             frida1_10msps(run_dir, netlist_only=True)
-        else:
+        elif args.target == "frida2_10msps":
             frida2_10msps(run_dir, netlist_only=True)
+        elif args.target == "frida2_2layer_radix17_10msps":
+            frida2_2layer_radix17_10msps(run_dir, netlist_only=True)
+        else:
+            frida2_3layer_radix17_10msps(run_dir, netlist_only=True)
     else:
         targets[args.target](run_dir)
 

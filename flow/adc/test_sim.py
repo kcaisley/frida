@@ -158,7 +158,7 @@ def test_extracted_flavors_share_one_campaign_root(tmp_path: Path, monkeypatch: 
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted(flavor_names)
 
 
-def test_frida2_noise_recipe_uses_ten_conversions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_frida2_noise_recipe_uses_hundred_conversions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {}
     pex_netlist = tmp_path / "adc.pex.netlist"
 
@@ -166,6 +166,8 @@ def test_frida2_noise_recipe_uses_ten_conversions(tmp_path: Path, monkeypatch: p
         run_dir: Path,
         cases: tuple[tuple[str, sim.AdcTbParams], ...],
         netlist: Path,
+        *,
+        netlist_only: bool = False,
     ) -> Path:
         captured.update(cases=cases, pex_netlist=netlist)
         return run_dir
@@ -176,7 +178,7 @@ def test_frida2_noise_recipe_uses_ten_conversions(tmp_path: Path, monkeypatch: p
     case_name, params = captured["cases"][0]
     assert case_name == "10msps_cm700mv_dc50mv"
     assert params.pex_cell == "adc_12b_17step"
-    assert params.conversions == 10
+    assert params.conversions == 100
     assert float(params.symbol_rate) == pytest.approx(1.6e9)
     assert captured["pex_netlist"] == pex_netlist
 
