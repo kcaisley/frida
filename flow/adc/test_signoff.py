@@ -72,21 +72,21 @@ def test_historical_mom_source_translates_pin15_to_stage_c0() -> None:
     assert module.main_0_0_m6.conns["MINUS"].name == "cap_botplate_main<0>"
 
 
-def test_frida2_runner_keeps_the_fabricated_driver_boundary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_frida2_runner_uses_c0_first_paired_template_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from flow.adc import layout
 
     reference = (
         ".subckt caparray_2layer_radix17 cap_botplate_diff<1> cap_botplate_diff<0>\n"
         "+ cap_botplate_main<1> cap_botplate_main<0> cap_shieldplate cap_topplate\n"
-        ".ends caparray_2layer_radix17\n.subckt adc_2layer_radix17 top vss\n"
+        ".ends caparray_2layer_radix17\n.subckt adc_12b_17step top vss\n"
         "Xcap diff_first diff_last main_first main_last vss top caparray_2layer_radix17\n"
-        ".ends adc_2layer_radix17\n"
+        ".ends adc_12b_17step\n"
     )
     read_text = Path.read_text
     monkeypatch.setattr(
         Path,
         "read_text",
-        lambda path, **kwargs: reference if path.name.endswith(".src.net") else read_text(path, **kwargs),
+        lambda path, **kwargs: reference if path.name == "frida-2-template-c0.cdl" else read_text(path, **kwargs),
     )
     # Exercise netlist orchestration without reading or modifying a real template.
     monkeypatch.setattr(layout.db, "Layout", lambda: SimpleNamespace(read=lambda _path: None))
@@ -108,4 +108,4 @@ def test_frida2_runner_keeps_the_fabricated_driver_boundary(monkeypatch: pytest.
         ),
     )
     source = (result / "source.lvs.cdl").read_text()
-    assert "Xcap top vss main_first main_last diff_first diff_last new_caparray" in source
+    assert "Xcap top vss main_last main_first diff_last diff_first new_caparray" in source

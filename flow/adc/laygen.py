@@ -1,4 +1,4 @@
-"""Strict, technology-neutral ADC layout assembly."""
+"""Technology-neutral ADC block assembly; connectivity is verified by LVS."""
 
 from __future__ import annotations
 
@@ -21,28 +21,19 @@ def is_valid_adc_layout_params(params: AdcLayoutParams) -> bool:
 
 
 def _calc_interface_signature(layout: db.Layout, cell: db.Cell) -> tuple[object, ...]:
-    """Describe the exact pin and boundary geometry of one replaceable block."""
+    """Describe named terminals and footprint, not their annotation locations.
 
-    pins: list[tuple[tuple[int, int], tuple[tuple[str, int, int], ...], str]] = []
-    for layer_index in layout.layer_indices():
-        info = layout.get_info(layer_index)
-        labels = tuple(
-            sorted(
-                (shape.text.string, shape.text.x, shape.text.y)
-                for shape in cell.shapes(layer_index).each()
-                if shape.is_text()
-            )
-        )
-        if labels:
-            conductor = db.Region()
-            for shape in cell.shapes(layer_index).each():
-                if shape.is_polygon():
-                    conductor.insert(shape.polygon)
-                elif shape.is_box():
-                    conductor.insert(shape.box)
-                elif shape.is_path():
-                    conductor.insert(shape.path.polygon())
-            pins.append(((info.layer, info.datatype), labels, conductor.merged().to_s()))
+    One conductor may have several labels, or a label on another layer of its
+    via stack. Neither determines whether parent routing actually connects.
+    Complete assembled-layout DRC/LVS is mandatory before accepting PEX.
+    """
+
+    pins = {
+        shape.text.string
+        for layer_index in layout.layer_indices()
+        for shape in cell.shapes(layer_index).each()
+        if shape.is_text()
+    }
     boundary = cell.bbox()
     boundary_signature = () if boundary.empty() else (boundary.left, boundary.bottom, boundary.right, boundary.top)
     return tuple(sorted(pins)), boundary_signature
@@ -58,9 +49,10 @@ def AdcLayout(
 
     Each replacement layout must contain exactly one top cell with pins and a
     boundary; unreferenced unit-library cells are ignored. The block's database
-    unit, pin labels, pin positions, pin shapes, and boundary must be identical
-    to the corresponding template cell. Instance transforms are preserved
-    verbatim.
+    unit, terminal-name set, and boundary must match the template cell. Marker
+    positions, layers, shapes, and duplicate labels may differ. This is not an
+    electrical compatibility verdict: the runner must sign off the complete
+    assembled layout. Instance transforms are preserved verbatim.
     """
 
     if not is_valid_adc_layout_params(params):

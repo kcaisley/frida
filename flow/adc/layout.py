@@ -158,7 +158,7 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
     run_dir.mkdir(parents=True, exist_ok=False)
     repository = Path(__file__).resolve().parents[2]
     template = db.Layout()
-    template.read(str(repository / "build" / "frida-2-template.gds"))
+    template.read(str(repository / "build" / "frida-2-template-c0.gds"))
     replacement = CdacLayout(params)
     adc_params = AdcLayoutParams(top_cell="adc_12b_17step")
     if not is_valid_adc_layout_params(adc_params):
@@ -171,7 +171,7 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
     gds_path = run_dir / f"{target_name}.gds"
     _write_top(layout, adc_params.top_cell, gds_path)
 
-    reference_path = Path("/users/kcaisley/asiclab/tech/tsmc65/cds/PEX/adc_2layer_radix17/adc_2layer_radix17.src.net")
+    reference_path = repository / "build" / "frida-2-template-c0.cdl"
     reference = reference_path.read_text(encoding="utf-8")
     array = CdacArray(
         CdacArrayParams(
@@ -184,37 +184,23 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
     array.name = params.top_cell
     block_source = io.StringIO()
     h.netlist(array, block_source, fmt="spice")
-    # This source and the template still contain the fabricated digital macro:
-    # its driver pin 15 must reach the new array's chronological stage C0.
-    count = len(get_cdac_weights(params.cdac))
-    legacy_pins = {name: name for name in array.ports}
-    legacy_pins.update(
-        {
-            f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{count - 1 - stage}>"
-            for kind in ("main", "diff")
-            for stage in range(count)
-        }
-    )
+    # The paired template/source labels already use chronological C0-first
+    # indexing throughout the digital, driver, and capacitor hierarchy.
     lvs_source = run_dir / "source.lvs.cdl"
     lvs_source.write_text(
         replace_subcircuit(
             reference,
-            old_top="adc_2layer_radix17",
+            old_top=adc_params.top_cell,
             new_top=adc_params.top_cell,
             old_block="caparray_2layer_radix17",
             new_block=block_source.getvalue(),
-            pin_map=legacy_pins,
+            pin_map={name: name for name in array.ports},
         ),
         encoding="utf-8",
     )
     pex_source = run_dir / "source.pex.cdl"
     pex_source.write_text(
-        re.sub(
-            r"(?im)(^\s*\.subckt\s+)adc_2layer_radix17(?=\s|$)",
-            r"\g<1>adc_12b_17step",
-            omit_subcircuit(reference, "caparray_2layer_radix17"),
-            count=1,
-        ),
+        omit_subcircuit(reference, "caparray_2layer_radix17"),
         encoding="utf-8",
     )
     run_signoff(

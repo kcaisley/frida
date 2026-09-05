@@ -61,13 +61,40 @@ def test_adc_layout_replaces_compatible_blocks_and_preserves_transforms() -> Non
     assert result.cell("placeholder") is None
 
 
-@pytest.mark.parametrize(("pin_x", "boundary_right"), ((55, 100), (50, 105)))
-def test_adc_layout_rejects_interface_changes(pin_x: int, boundary_right: int) -> None:
+def test_adc_layout_rejects_boundary_changes() -> None:
     with pytest.raises(ValueError, match="pin-and-boundary compatible"):
         AdcLayout(
             AdcLayoutParams("adc"),
             template=_layout(top="adc", block="placeholder"),
-            replacements={"placeholder": _replacement(pin_x=pin_x, boundary_right=boundary_right)},
+            replacements={"placeholder": _replacement(boundary_right=105)},
+        )
+
+
+def test_adc_layout_allows_annotation_locations_layers_and_duplicates() -> None:
+    replacement = _replacement(pin_x=55)
+    cell = replacement.top_cell()
+    old_pin = replacement.layer(134, 0)
+    new_pin = replacement.layer(136, 0)
+    cell.shapes(new_pin).insert(cell.shapes(old_pin))
+    cell.shapes(old_pin).clear()
+    cell.shapes(new_pin).insert(db.Text("cap_topplate", db.Trans(60, 5)))
+    result = AdcLayout(
+        AdcLayoutParams("adc"),
+        template=_layout(top="adc", block="placeholder"),
+        replacements={"placeholder": replacement},
+    )
+    assert result.cell("replacement") is not None
+
+
+def test_adc_layout_rejects_changed_terminal_names() -> None:
+    replacement = _replacement()
+    cell = replacement.top_cell()
+    cell.shapes(replacement.layer(134, 0)).insert(db.Text("wrong_net", db.Trans(50, 5)))
+    with pytest.raises(ValueError, match="pin-and-boundary compatible"):
+        AdcLayout(
+            AdcLayoutParams("adc"),
+            template=_layout(top="adc", block="placeholder"),
+            replacements={"placeholder": replacement},
         )
 
 
