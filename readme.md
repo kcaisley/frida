@@ -13,6 +13,10 @@ meet those array-level goals, the converter fabric must deliver aggregate throug
 within a 1 W/cm² chip-bottom power-density budget and exceeding 5 ksps/µm² sampling-rate density.
 Successive-approximation ADCs are the primary architecture under study.
 
+<p align="center">
+  <img src="docs/images/adc_layouts/frida1_adc_channel.png" alt="FRIDA-1 ADC channel layout" width="60%">
+</p>
+
 ![ADC architecture used in the example system](docs/images/arch.png)
 
 > [!NOTE]
