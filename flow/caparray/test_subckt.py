@@ -175,6 +175,7 @@ def test_cdac_array_has_dynamic_ports_and_ideal_values() -> None:
 @pytest.mark.parametrize("active_layers", [(6,), (6, 7), (5, 6, 7)])
 def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int, ...]) -> None:
     import io
+    import re
 
     from flow.util.netlist import subcircuit_ports
     from pdk.tsmc65.signoff import mom_lvs_device
@@ -207,11 +208,34 @@ def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int,
     assert totals["main"] == pytest.approx(1884.8e-15, rel=1e-12, abs=1e-27)
     assert totals["diff"] == pytest.approx(247.2e-15, rel=1e-12, abs=1e-27)
     assert totals["main"] - totals["diff"] == pytest.approx(2047 * 0.8e-15, rel=1e-12, abs=1e-27)
+    escaped_ports = tuple(name.replace("<", r"\<").replace(">", r"\>") for name in expected_ports)
     for module in (ideal, lvs):
         module.name = "array_interface_test"
+        assert tuple((port.name, port.width) for port in module.ports.values()) == tuple(
+            (name, 1) for name in expected_ports
+        )
+        source = io.StringIO()
+        h.netlist(module, source, fmt="spectre")
+        spectre = source.getvalue()
+        # Normalize comments/continuations, but retain identifier escaping verbatim.
+        statements = " ".join(re.sub(r"\n\s*\+", " ", re.sub(r"//[^\n]*", "", spectre)).split())
+        assert f"subckt {module.name} {' '.join(escaped_ports)} " in statements
+        assert re.search(r"(?<!\\)[<>]|\\\\[<>]", spectre) is None
+        for name, instance in module.instances.items():
+            bottom = instance.conns["MINUS"].name.replace("<", r"\<").replace(">", r"\>")
+            assert f"{name} ( cap_topplate {bottom} cap_shieldplate )" in statements
+
+        assert tuple(module.ports) == expected_ports
+        assert tuple((port.name, port.width) for port in module.ports.values()) == tuple(
+            (name, 1) for name in expected_ports
+        )
         source = io.StringIO()
         h.netlist(module, source, fmt="spice")
-        assert subcircuit_ports(source.getvalue(), module.name) == expected_ports
+        spice = source.getvalue()
+        assert subcircuit_ports(spice, module.name) == expected_ports
+        assert r"\<" not in spice and r"\>" not in spice
+        for instance in module.instances.values():
+            assert f"cap_topplate {instance.conns['MINUS'].name} cap_shieldplate" in spice
 
 
 def test_cdac_array_rejects_incompatible_device_views() -> None:
