@@ -46,7 +46,7 @@ And the single-chip carrier test card, with wirebonded FRIDA ASIC:
 </p>
 
 <p align="center">
-  <img src="docs/images/frida_cob_square.png" alt="Wirebonded FRIDA ASIC on the chip-on-board carrier" width="80%">
+  <img src="docs/images/frida_cob_square.png" alt="FRIDA SCC board close-up" width="60%">
 </p>
 
 Detailed command-line usage, build notes, and tool installation instructions are recorded in
