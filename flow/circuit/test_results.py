@@ -410,12 +410,55 @@ def test_conversion_bodies_contain_no_inline_raises():
 
 
 def test_raw_step_validation_accepts_spectre_strobe_jitter_but_rejects_coarser_data():
-    from flow.circuit.results import _is_valid_conversion
+    from flow.circuit.results import _is_valid_transient
 
     # Observed adjacent timestamps from a 10 ps Spectre strobe-only run.
     times = np.array([3.164999925451418e-8, 3.166000000000151e-8])
     names = {"time": "time", "raw": "vin_p"}
     result = TranResult("tran", {"time": times, "raw": np.zeros(2)}, {})
-    assert _is_valid_conversion(result, names, 10e-12)
+    assert _is_valid_transient(result, names, 10e-12)
     result = TranResult("tran", {"time": np.array([0.0, 10.1e-12]), "raw": np.zeros(2)}, {})
-    assert not _is_valid_conversion(result, names, 10e-12)
+    assert not _is_valid_transient(result, names, 10e-12)
+
+
+def test_current_polarity_only_changes_for_selected_supply_sources():
+    from flow.circuit.results import _conversion_inputs
+
+    result = TranResult(
+        "tran",
+        {
+            "time": np.array([0.0, 1e-12]),
+            "supply:p": np.array([-2e-6, -3e-6]),
+            "device:d": np.array([4e-6, -5e-6]),
+        },
+        {},
+    )
+    names = {"time": "time", "supply:p": "i(vdd)", "device:d": "i(device)"}
+    _, _, currents = _conversion_inputs(result, names, 1e-12, supply_rails=("vdd",))
+    np.testing.assert_allclose(currents["vdd"], [2e-6, 3e-6])
+    np.testing.assert_allclose(currents["device"], [4e-6, -5e-6])
+
+
+def test_adc_conversion_requires_one_complete_record():
+    from flow.circuit.results import _validate_adc_conversion
+
+    times = np.tile(np.arange(17, dtype=float), (2, 1))
+    times[1, -1] = np.nan
+    np.testing.assert_array_equal(_validate_adc_conversion(times), [True, False])
+    times[0, -1] = np.nan
+    with pytest.raises(ValueError, match="No complete ADC conversions"):
+        _validate_adc_conversion(times)
+
+
+@pytest.mark.parametrize("duration_error", (0.0, 0.5e-12, -2e-9, 2e-9))
+def test_comp_conversion_checks_trial_schedule(duration_error):
+    from flow.circuit.results import _validate_comp_conversion
+
+    params = CompTbParams(conversions=2, vin_cm_values_v=(0.6, 0.7), vin_diff_values_v=(-0.001, 0.001))
+    cycle = float(params.reset_time_s) + float(params.evaluation_time_s)
+    times = np.array([10e-9, 10e-9 + 8 * cycle + duration_error])
+    if abs(duration_error) > params.waveform_sample_interval_s:
+        with pytest.raises(ValueError, match="duration differs"):
+            _validate_comp_conversion(times, params)
+    else:
+        assert _validate_comp_conversion(times, params) == (8, cycle)

@@ -50,7 +50,7 @@ def read_raw_transient(path: Path) -> TranResult:
     return TranResult(plot.analysis_name, plot.data, {})
 
 
-def _is_valid_conversion(result: TranResult, names: Mapping[str, str], interval: float) -> bool:
+def _is_valid_transient(result: TranResult, names: Mapping[str, str], interval: float) -> bool:
     """Check transient shape, complete bindings, and a requested sampling interval."""
     if not isinstance(result, TranResult) or not np.isfinite(interval) or interval <= 0:
         return False
@@ -69,8 +69,12 @@ def _is_valid_conversion(result: TranResult, names: Mapping[str, str], interval:
     )
 
 
-def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: float):
-    if not _is_valid_conversion(result, names, interval):
+def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: float, *, supply_rails: tuple[str, ...]):
+    """Alias traces; express selected supply-source currents as positive draw.
+
+    Other current traces retain the simulator's reference direction.
+    """
+    if not _is_valid_transient(result, names, interval):
         raise ValueError(
             "Invalid transient: require complete unique bindings, aligned finite traces, and raw timestep no larger than waveform_sample_interval_s"
         )
@@ -79,18 +83,33 @@ def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: f
         result.analysis_name, {names[key]: np.asarray(value) for key, value in result.data.items()}, result.measurements
     )
     voltage = {key: value for key, value in canonical.data.items() if key != "time" and not key.startswith("i(")}
-    current = {key[2:-1]: -value for key, value in canonical.data.items() if key.startswith("i(")}
+    current = {
+        key[2:-1]: -value if key[2:-1] in supply_rails else value
+        for key, value in canonical.data.items()
+        if key.startswith("i(")
+    }
     return canonical.data["time"], voltage, current
 
 
-def _require_complete_conversions(valid: np.ndarray) -> None:
+def _validate_adc_conversion(logic_times: np.ndarray) -> np.ndarray:
+    """Require at least one complete ADC record, including the next-cycle B16 observation.
+
+    Return the mask of usable records; incomplete records are still discarded.
+    """
+    valid = np.all(np.isfinite(logic_times), axis=1)
     if not np.any(valid):
         raise ValueError("No complete ADC conversions; save the next-cycle B16 observation")
+    return valid
 
 
-def _validate_comp_duration(actual: float, expected: float, interval: float) -> None:
-    if not np.isclose(actual, expected, rtol=1e-6, atol=interval):
+def _validate_comp_conversion(times_s: np.ndarray, params: CompTbParams) -> tuple[int, float]:
+    """Require the recorded duration to match every scheduled comparator trial."""
+    trial_count = len(params.vin_cm_values_v) * len(params.vin_diff_values_v) * params.conversions
+    cycle_s = float(params.reset_time_s) + float(params.evaluation_time_s)
+    actual_duration_s = float(times_s[-1] - times_s[0])
+    if not np.isclose(actual_duration_s, trial_count * cycle_s, rtol=1e-6, atol=params.waveform_sample_interval_s):
         raise ValueError("Comparator transient duration differs from its trial schedule")
+    return trial_count, cycle_s
 
 
 def convert_raw_adc_to_measurement(
@@ -102,7 +121,10 @@ def convert_raw_adc_to_measurement(
 ) -> MeasAdcInt:
     """Map a VLSIR transient to canonical ADC records and decode LOGIC observations once."""
 
-    times_s, signals, currents = _conversion_inputs(result, signal_names, params.waveform_sample_interval_s)
+    supply_rails = tuple(net.name for net in AdcNets.signals.values() if net.usage == h.Usage.POWER)
+    times_s, signals, currents = _conversion_inputs(
+        result, signal_names, params.waveform_sample_interval_s, supply_rails=supply_rails
+    )
     code_weights = np.asarray([2 * weight for weight in get_caparray_weights(params.dut.cdac)] + [1], dtype=np.int64)
     threshold_v = float(params.vdd_d.dc) / 2
     starts, comp_times, logic_times, _ = _adc_decision_times(
@@ -113,9 +135,8 @@ def convert_raw_adc_to_measurement(
         params.conversions,
         threshold_v,
     )
-    valid = np.all(np.isfinite(logic_times), axis=1)
+    valid = _validate_adc_conversion(logic_times)
     unavailable_conversions = np.flatnonzero(~valid).tolist()
-    _require_complete_conversions(valid)
     retained_conversions = np.flatnonzero(valid).tolist()
     decode_starts = starts
     comp_edge_times_s = comp_times[valid]
@@ -184,9 +205,7 @@ def convert_raw_adc_to_measurement(
         "supply_current_convention": "positive_current_draw",
         "signal_map_json": json.dumps(dict(signal_names), sort_keys=True),
     }
-    rail_voltages = {
-        net.name: float(getattr(params, net.name).dc) for net in AdcNets.signals.values() if net.usage == h.Usage.POWER
-    }
+    rail_voltages = {name: float(getattr(params, name).dc) for name in supply_rails}
     for rail, voltage_v in rail_voltages.items():
         current_draw_a = currents[rail]
         duration_s = float(times_s[-1] - times_s[0])
@@ -237,11 +256,10 @@ def convert_raw_comp_to_measurement(
     plus one representative trial everywhere else.
     """
 
-    times_s, signals, currents = _conversion_inputs(result, signal_names, params.waveform_sample_interval_s)
-    expected_trial_count = len(params.vin_cm_values_v) * len(params.vin_diff_values_v) * params.conversions
-    cycle_s = float(params.reset_time_s) + float(params.evaluation_time_s)
-    actual_duration_s = float(times_s[-1] - times_s[0])
-    _validate_comp_duration(actual_duration_s, expected_trial_count * cycle_s, params.waveform_sample_interval_s)
+    times_s, signals, currents = _conversion_inputs(
+        result, signal_names, params.waveform_sample_interval_s, supply_rails=(CompNets.vdd.name,)
+    )
+    expected_trial_count, cycle_s = _validate_comp_conversion(times_s, params)
 
     nominal_vdiff = []
     nominal_vcm = []
@@ -304,7 +322,7 @@ def convert_raw_comp_to_measurement(
         params.waveform_sample_interval_s,
     )
     supply_v = float(params.vdd)
-    average_current_a = float(np.trapezoid(currents[CompNets.vdd.name], times_s) / actual_duration_s)
+    average_current_a = float(np.trapezoid(currents[CompNets.vdd.name], times_s) / (times_s[-1] - times_s[0]))
     average_power_w = supply_v * average_current_a
     readbacks: dict[str, str | int | float | bool] = {
         "signal_map_json": json.dumps(dict(signal_names), sort_keys=True),
