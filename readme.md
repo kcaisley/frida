@@ -13,6 +13,10 @@ meet those array-level goals, the converter fabric must deliver aggregate throug
 within a 1 W/cm² chip-bottom power-density budget and exceeding 5 ksps/µm² sampling-rate density.
 Successive-approximation ADCs are the primary architecture under study.
 
+<p align="center">
+  <img src="docs/images/adc_layouts/frida1_adc_channel.png" alt="FRIDA-1 ADC channel layout" width="60%">
+</p>
+
 ![ADC architecture used in the example system](docs/images/arch.png)
 
 > [!NOTE]
@@ -39,6 +43,10 @@ And the single-chip carrier test card, with wirebonded FRIDA ASIC:
 
 <p align="center">
   <img src="docs/images/fridascc.jpg" alt="FRIDA SCC test board" width="60%">
+</p>
+
+<p align="center">
+  <img src="docs/images/frida_cob_square.png" alt="Wirebonded FRIDA ASIC on the chip-on-board carrier" width="80%">
 </p>
 
 Detailed command-line usage, build notes, and tool installation instructions are recorded in
