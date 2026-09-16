@@ -316,6 +316,14 @@ and normalized-weight CSV files below one fresh `build/analysis/adc/` directory.
 Every weight vector sums to 4095; rounding to a 12-bit integer is deferred until
 the final backend output.
 
+The `connections` table in `flow/scans/map_scope.yaml` records the actual
+oscilloscope hookup. Update it whenever probes move and omit unconnected
+signals. Scans derive acquisition and trigger channels from this table;
+hardware tests declare required signals with `@pytest.mark.scope_signals(...)`
+and skip before hardware initialization when a required probe is absent.
+The four-clock test requires INIT, SAMP, COMP, and LOGIC. ADC scope captures
+can omit `vin_diff`; its measurement waveform then remains absent.
+
 Run one explicitly named physical campaign through the shared scan runner:
 
 ```bash

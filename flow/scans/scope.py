@@ -10,19 +10,32 @@ from typing import Any
 
 import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
+from yaml import safe_load
 
 from flow.analysis.types import AdcExtWave
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
 
-# Fixed physical MSO54 hookup shared by every FRIDA bench test. INIT and SAMP
-# are not connected to the scope in this configuration.
-FRIDA_SCOPE_CHANNELS = {
-    "adc_vdiff": 1,
-    "seq_comp": 2,
-    "seq_logic": 3,
-    "comp_out": 4,
-}
+SCOPE_MAP_PATH = Path(__file__).with_name("map_scope.yaml")
+
+
+def scope_channels(*required: str, optional: tuple[str, ...] = ()) -> dict[str, int]:
+    """Read the actual probe hookup, requiring signals before any hardware I/O."""
+    connections = safe_load(SCOPE_MAP_PATH.read_text())["connections"]
+    known = {"seq_init", "seq_samp", "seq_comp", "seq_logic", "comp_out", "vin_diff"}
+    if not isinstance(connections, dict) or set(connections) - known:
+        raise ValueError(f"invalid scope signal names in {SCOPE_MAP_PATH}")
+    if any(type(channel) is not int or channel not in range(1, 5) for channel in connections.values()):
+        raise ValueError(f"scope channels must be integers 1..4 in {SCOPE_MAP_PATH}")
+    if len(set(connections.values())) != len(connections):
+        raise ValueError(f"scope channels must be unique in {SCOPE_MAP_PATH}")
+    if set(required + optional) - known:
+        raise ValueError("unknown requested scope signal")
+    missing = set(required) - connections.keys()
+    if missing:
+        raise ValueError(f"scope signals not connected in {SCOPE_MAP_PATH}: {', '.join(sorted(missing))}")
+    selected = set(required + optional) if required or optional else set(connections)
+    return {name: channel for name, channel in connections.items() if name in selected}
 
 
 def write_scope_csv(
@@ -171,14 +184,16 @@ def scope_records_to_adc_wave(
 ) -> AdcExtWave:
     """Convert aligned triggered scope records into an external ADC wave section."""
 
-    required = {"vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"}
-    if set(channels) != required:
-        raise ValueError(f"scope channels must map exactly {sorted(required)}")
+    required = {"seq_comp_v", "seq_logic_v", "comp_out_v"}
+    if not required <= set(channels) or set(channels) - required - {"vin_diff_v"}:
+        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff_v")
+    if len(set(channels.values())) != len(channels):
+        raise ValueError("scope channels must be unique")
     if len(records) != len(conversion_index):
         raise ValueError("scope record count must match waveform conversion indices")
 
     time_s = None
-    signals = {name: [] for name in required}
+    signals = {name: [] for name in channels}
     for record_number, record in enumerate(records):
         missing_channels = sorted(set(channels.values()).difference(record))
         if missing_channels:

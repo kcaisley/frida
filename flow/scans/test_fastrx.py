@@ -5,10 +5,8 @@ default run tests 80--1600 MBd in 40 MBd steps and LOGIC phase offsets -3..+3.
 For each point the analytical capture equation selects RX_SEN and IDELAY,
 FastRX records repeated conversions, and the scope records:
 
-    CH1 ADC differential input
-    CH2 COMP
-    CH3 LOGIC
-    CH4 COMP_OUT
+COMP, LOGIC, and COMP_OUT on their configured map_scope.yaml channels, plus
+the differential ADC input when connected.
 
 The first 17 scope decisions are compared bit-for-bit with the first FastRX
 word. Every scope waveform, ADC conversion record, and noise histogram is
@@ -78,7 +76,7 @@ from flow.scans.scan_adc import (
     convert_vdiff_input_to_awg_supply,
 )
 from flow.scans.scope import (
-    FRIDA_SCOPE_CHANNELS,
+    scope_channels,
     scope_records_to_adc_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
@@ -104,8 +102,6 @@ SMOKE_SYMBOL_RATE_BPS = 800.0e6
 SMOKE_LOGIC_OFFSET = 0
 SMOKE_CONVERSIONS = 100
 
-SCOPE_TRACKS = {channel: track for track, channel in FRIDA_SCOPE_CHANNELS.items()}
-SCOPE_TRIGGER_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_logic"]
 SCOPE_RECORD_LENGTH = 10_000
 SCOPE_BANDWIDTH_HZ = 2.0e9
 SCOPE_VERTICAL_SCALE_V = 0.2
@@ -137,6 +133,7 @@ FASTRX_TRAILING_DRAIN_S = 0.01
         ),
     ),
 )
+@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_physical_fastrx_matches_scope(
     symbol_rates_bps: tuple[float, ...],
     logic_offsets: tuple[int, ...],
@@ -145,6 +142,9 @@ def test_physical_fastrx_matches_scope(
 ) -> None:
     """Hardware: compare physical comparator decisions with FastRX capture."""
 
+    channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
+    SCOPE_TRACKS = {channel: name for name, channel in channels.items()}
+    SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
     board_map = load_board_map()
     board = board_map["boards"][BOARD_ID]
     timing_model = board["capture_timing_model"]
@@ -545,12 +545,7 @@ def test_physical_fastrx_matches_scope(
                 wave=scope_records_to_adc_wave(
                     [waveforms],
                     [0],
-                    {
-                        "vin_diff_v": FRIDA_SCOPE_CHANNELS["adc_vdiff"],
-                        "seq_comp_v": FRIDA_SCOPE_CHANNELS["seq_comp"],
-                        "seq_logic_v": FRIDA_SCOPE_CHANNELS["seq_logic"],
-                        "comp_out_v": FRIDA_SCOPE_CHANNELS["comp_out"],
-                    },
+                    {f"{name}_v": channel for name, channel in channels.items()},
                 ),
             )
             scope_analysis = analyze_scope_wave_to_bits(measurement)
@@ -692,6 +687,7 @@ INTERNAL_CAPTURE_TIMEOUT_S = 2.0
 @pytest.mark.hw
 @pytest.mark.parametrize("symbol_rate", (960e6, 1600e6))
 @pytest.mark.parametrize("sequence", (ORIGINAL, DUTY_CYCLE_SEQUENCES[0][1]), ids=("ordinary", "wrapped"))
+@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, linux_gpib_interface: None) -> None:
     """Exercise both production scans and compare instrumented ADC data with scope."""
     params = build_adc_variants(

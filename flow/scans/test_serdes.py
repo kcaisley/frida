@@ -19,8 +19,8 @@ The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
 Their outputs are disabled and reset to 0 V when the test exits.
 Scope captures are saved under ``build/test_serdes/<timestamp>``.
 
-For manually supplied hardware with differential INIT/SAMP/COMP/LOGIC on
-CH1/2/3/4, capture the four named ADC recipes instead:
+For manually supplied hardware with all four sequencer clocks connected as
+declared in map_scope.yaml, capture the named ADC recipes instead:
 
     uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_adc_sequence_waveforms
 
@@ -52,8 +52,8 @@ from flow.scans.plldrp import (
     set_pll_divider,
 )
 from flow.scans.scope import (
-    FRIDA_SCOPE_CHANNELS,
     response_value,
+    scope_channels,
     wait_for_scope_armed,
     wait_for_scope_capture,
     write_scope_csv,
@@ -97,16 +97,6 @@ SMU_CURRENT_COMPLIANCE_A = 500.0e-6
 SMU_SETTLE_TIME_S = 0.5
 SMU_MINIMUM_LOADED_V = 1.15
 
-# The current scope cabling has the continuous COMP pulse train on CH2 and
-# LOGIC on CH3. INIT and SAMP are intentionally not acquired.
-COMP_SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_comp"]
-LOGIC_SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_logic"]
-TRIGGER_SCOPE_CHANNEL = LOGIC_SCOPE_CHANNEL
-SCOPE_TRACKS = {
-    COMP_SCOPE_CHANNEL: "seq_comp",
-    LOGIC_SCOPE_CHANNEL: "seq_logic",
-}
-
 # fmt: off
 SEQ_PATTERNS = {
     "INIT":    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000",
@@ -117,10 +107,10 @@ SEQ_PATTERNS = {
 # fmt: on
 
 
-def validate_capture(waveforms, symbol_rate_bps: float) -> tuple[float, float]:
+def validate_capture(waveforms, symbol_rate_bps: float, tracks: dict[int, str]) -> tuple[float, float]:
     """Check crossing counts and return measured COMP interval and symbol rate."""
     crossing_times: dict[str, tuple[float, ...]] = {}
-    for channel, track in SCOPE_TRACKS.items():
+    for channel, track in tracks.items():
         waveform = waveforms[channel]
         signal = np.asarray(waveform.data, dtype=np.float64)
         time_s = waveform.x_scale.offset + np.arange(len(signal)) * waveform.x_scale.slope
@@ -161,8 +151,13 @@ def validate_capture(waveforms, symbol_rate_bps: float) -> tuple[float, float]:
 
 
 @pytest.mark.hw
+@pytest.mark.scope_signals("seq_comp", "seq_logic")
 def test_serdes_rates(linux_gpib_interface: None) -> None:
     """Hardware: qualify sequencer serialization across all supported rates."""
+    channels = scope_channels("seq_comp", "seq_logic")
+    SCOPE_TRACKS = {channel: name for name, channel in channels.items()}
+    TRIGGER_SCOPE_CHANNEL = channels["seq_logic"]
+
     from gpib_ctypes import make_default_gpib
 
     make_default_gpib()
@@ -362,6 +357,7 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                     measured_interval_s, measured_symbol_rate_bps = validate_capture(
                         waveforms,
                         symbol_rate_bps,
+                        SCOPE_TRACKS,
                     )
 
                     plot_paths = plot_waveforms(
@@ -426,6 +422,7 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
 
 
 @pytest.mark.hw
+@pytest.mark.scope_signals("seq_init", "seq_samp", "seq_comp", "seq_logic")
 @pytest.mark.parametrize(
     "name,sequence",
     FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES,
@@ -434,12 +431,14 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
 def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
     """Capture PCB differential INIT/SAMP/COMP/LOGIC; supplies stay manual.
 
-    Run only this test with the four-clock hookup (CH1/2/3/4 respectively).
-    The older serializer-rate test uses a different hookup and powers SMUs.
+    Requires all four clocks in map_scope.yaml; otherwise pytest skips it.
+    The serializer-rate test requires COMP/LOGIC and powers SMUs.
     """
     from basil.dut import Dut
 
-    tracks = {1: "INIT", 2: "SAMP", 3: "COMP", 4: "LOGIC"}
+    channels = scope_channels("seq_init", "seq_samp", "seq_comp", "seq_logic")
+    tracks = {channel: name.removeprefix("seq_").upper() for name, channel in channels.items()}
+    init_channel = channels["seq_init"]
     symbol_rate_bps = 1.6e9
     edge_tolerance_s = 0.25e-9
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / name
@@ -495,19 +494,19 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
             scope.set_coupling("DC", channel=channel)
             scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
         scope.set_trigger_type("EDGE")
-        scope.set_trigger_source(channel=1)
+        scope.set_trigger_source(channel=init_channel)
         scope.set_trigger_edge_slope("RISE")
-        scope.set_trigger_level(0.0, channel=1)
+        scope.set_trigger_level(0.0, channel=init_channel)
         scope.set_trigger_mode("NORMAL")
 
-        # A arms on the first INIT; B captures the next CH1 rising edge.
+        # A arms on the first INIT; B captures the next INIT rising edge.
         scope._intf.write("TRIGger:B:STATE OFF")
         scope._intf.write("TRIGger:B:BY EVENTS")
         scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
-        scope._intf.write("TRIGger:B:EDGE:SOUrce CH1")
+        scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{init_channel}")
         scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
         scope._intf.write("TRIGger:B:EDGE:COUPling DC")
-        scope._intf.write("TRIGger:B:LEVel:CH1 0")
+        scope._intf.write(f"TRIGger:B:LEVel:CH{init_channel} 0")
         scope._intf.write("TRIGger:B:STATE ON")
         trigger_b = {
             key: response_value(scope._intf.query(f"TRIGger:B:{key}?"))
@@ -517,7 +516,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
             "STATE": "1",
             "BY": "EVENTS",
             "EVENTS:COUNt": "1",
-            "EDGE:SOUrce": "CH1",
+            "EDGE:SOUrce": f"CH{init_channel}",
             "EDGE:SLOpe": "RISE",
         }, f"scope did not accept second-INIT triggering: {trigger_b}"
 
@@ -540,11 +539,11 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         for artifact in plot_waveforms(analysis, output_path=run_dir / "waveforms"):
             print(f"Saved {name}: {artifact}")
 
-        # Audit the second conversion selected by the A-then-B CH1 trigger.
+        # Audit the second conversion selected by the A-then-B INIT trigger.
         # The end of the long recipe's idle pause lies outside the pretrigger window.
         # Zero volts is the differential crossing; no per-channel deskew is fitted.
         time_s = analysis.time_s
-        init_edges = find_crossings(analysis.signal_values[0], time_s, 0.0, rising=True)
+        init_edges = find_crossings(analysis.signal_values[list(tracks).index(init_channel)], time_s, 0.0, rising=True)
         assert len(init_edges), "capture must include the triggering INIT rising edge"
         origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
         period_s = len(sequence.init) / symbol_rate_bps
@@ -559,9 +558,9 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         init_index = sequence.init.index("1")
         errors = []
         observations: dict[str, dict[str, object]] = {}
-        for channel, track in tracks.items():
+        for index, (channel, track) in enumerate(tracks.items()):
             row = np.array([int(bit) for bit in getattr(sequence, track.lower())])
-            signal = analysis.signal_values[channel - 1]
+            signal = analysis.signal_values[index]
             observations[track] = {"min_v": float(signal.min()), "max_v": float(signal.max())}
             for rising in (True, False):
                 edge = "rising" if rising else "falling"

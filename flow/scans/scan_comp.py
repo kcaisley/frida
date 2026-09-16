@@ -36,7 +36,7 @@ from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
 )
-from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
+from flow.scans.scope import scope_channels, wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 
@@ -324,7 +324,6 @@ def scan(
     drift_checkpoint_high_probability = 0.85
     capture_timeout_s = 5.0
     scope_timeout_s = 5.0
-    scope_tracks = {"vin_diff_v": 1, "seq_comp_v": 2, "comp_out_v": 4}
 
     queue = list(variants)
     if not isinstance(capture_scope_per_curve, bool):
@@ -443,6 +442,12 @@ def scan(
     from basil.dut import Dut
 
     map_dir = Path(__file__).resolve().parent
+    scope_tracks = {
+        f"{name}_v": channel
+        for name, channel in (
+            scope_channels("vin_diff", "seq_comp", "comp_out") if capture_scope_per_curve else {}
+        ).items()
+    }
     daq_dut = Dut(str(map_dir / "map_fpga.yaml"))
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
@@ -539,11 +544,11 @@ def scan(
                 scope.set_vertical_offset(0.0, channel=channel)
                 scope.set_bandwidth(200.0e6 if signal_name == "vin_diff_v" else 2.0e9, channel=channel)
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=2)
+            scope.set_trigger_source(channel=scope_tracks["seq_comp_v"])
             scope.set_trigger_edge_slope("RISE")
             # The differential sequencer probe is centered around zero and swings
             # to roughly +/-0.6 V; trigger at its zero crossing.
-            scope.set_trigger_level(0.0, channel=2)
+            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp_v"])
             scope.set_trigger_mode("NORMAL")
 
         daq["gpio0"]["RST_B"] = 0

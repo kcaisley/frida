@@ -6,6 +6,14 @@
 name: frida-scope
 version: 0.1.0
 
+# Actual probe hookup. Update this table whenever cables move. Omit unconnected
+# signals; use vin_diff for the differential ADC input and seq_samp for SAMP.
+connections:
+  seq_init: 1
+  comp_out: 2
+  seq_comp: 3
+  seq_logic: 4
+
 transfer_layer:
   - name: scope_intf
     type: Visa

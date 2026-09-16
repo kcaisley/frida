@@ -79,7 +79,8 @@ def test_writer_rejects_unimportable_entry_point_types(monkeypatch, module_name)
         _qualified_type(transient_type)
 
 
-def test_scope_records_build_dense_adc_external_wave() -> None:
+@pytest.mark.parametrize("with_input", (True, False))
+def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
     scale = SimpleNamespace(offset=-1.0e-9, slope=1.0e-9)
 
     def waveform(values):
@@ -103,7 +104,7 @@ def test_scope_records_build_dense_adc_external_wave() -> None:
         records,
         [3, 9],
         {
-            "vin_diff_v": 1,
+            **({"vin_diff_v": 1} if with_input else {}),
             "seq_comp_v": 2,
             "seq_logic_v": 3,
             "comp_out_v": 4,
@@ -112,8 +113,11 @@ def test_scope_records_build_dense_adc_external_wave() -> None:
 
     np.testing.assert_array_equal(wave.conversion_index, [3, 9])
     np.testing.assert_allclose(wave.time_s, [-1.0e-9, 0.0, 1.0e-9])
-    assert wave.vin_diff_v is not None
-    assert wave.vin_diff_v.shape == (2, 3)
+    if with_input:
+        assert wave.vin_diff_v is not None
+        assert wave.vin_diff_v.shape == (2, 3)
+    else:
+        assert wave.vin_diff_v is None
     np.testing.assert_allclose(wave.comp_out_v[1], [1.2, 1.2, 0.0])
 
 

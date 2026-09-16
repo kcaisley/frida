@@ -26,6 +26,7 @@ from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import (
     crop_adc_scope_conversion,
+    scope_channels,
     scope_records_to_adc_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
@@ -327,13 +328,9 @@ def scan(
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
     FASTRX_TRAILING_DRAIN_S = 0.01
     MAX_RAW_FASTRX_WORDS = 20
-    SCOPE_TRACKS = {
-        "vin_diff_v": 1,
-        "seq_comp_v": 2,
-        "seq_logic_v": 3,
-        "comp_out_v": 4,
-    }
-    SCOPE_TRIGGER_CHANNEL = 3
+    channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
+    SCOPE_TRACKS = {f"{name}_v": channel for name, channel in channels.items()}
+    SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
     SCOPE_RECORD_LENGTH = 10_000
     SCOPE_BANDWIDTH_HZ = {
         "vin_diff_v": 200.0e6,
@@ -343,7 +340,7 @@ def scan(
     }
     SCOPE_VERTICAL_SCALE_V = {
         # Use 50 mV/div so the 50 and 100 mV DC campaigns remain comfortably
-        # inside CH1's zero-offset acquisition range.
+        # inside the differential input's zero-offset acquisition range.
         "vin_diff_v": 0.05,
         "seq_comp_v": 0.2,
         "seq_logic_v": 0.2,
@@ -705,14 +702,15 @@ def scan(
                     (vin_diff_max_v - vin_diff_min_v) / 6.0,
                 )
                 scope_vin_diff_vertical_offset_v = (vin_diff_min_v + vin_diff_max_v) / 2.0
-                scope.set_vertical_scale(
-                    scope_vin_diff_vertical_scale_v_per_div,
-                    channel=SCOPE_TRACKS["vin_diff_v"],
-                )
-                scope.set_vertical_offset(
-                    scope_vin_diff_vertical_offset_v,
-                    channel=SCOPE_TRACKS["vin_diff_v"],
-                )
+                if "vin_diff_v" in SCOPE_TRACKS:
+                    scope.set_vertical_scale(
+                        scope_vin_diff_vertical_scale_v_per_div,
+                        channel=SCOPE_TRACKS["vin_diff_v"],
+                    )
+                    scope.set_vertical_offset(
+                        scope_vin_diff_vertical_offset_v,
+                        channel=SCOPE_TRACKS["vin_diff_v"],
+                    )
 
                 programmed_vin_cm_supply_v = float(vin_cm_supply.get_set_voltage())
                 if not math.isclose(programmed_vin_cm_supply_v, vin_cm_supply_v, abs_tol=1.0e-12):
@@ -814,7 +812,7 @@ def scan(
                 # Derive the FastRX capture word and comparator IDELAY from
                 # the routed FPGA and measured external-path timing. The
                 # equation is software-tested in test_helpers.py and its exact
-                # 17-bit result is checked against simultaneous CH4 scope
+                # 17-bit result is checked against simultaneous COMP_OUT scope
                 # captures by test_fastrx.py, including alignment-boundary
                 # and maximum-rate points.
                 capture_alignment = calculate_fastrx_capture_alignment(

@@ -92,6 +92,7 @@ testpaths = ["flow", "pdk", "test"]
 python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
 addopts = "-m 'not hw and not site_pdk and not spectre'"
 markers = [
+    "scope_signals(*names): required probe connections in map_scope.yaml",
     "spectre: opt-in short Spectre diagnostics using actual simulation targets",
     "hw: requires physical FPGA or laboratory hardware (deselected by default)",
     "slow: long-running characterization or regression campaign",

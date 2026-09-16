@@ -17,18 +17,14 @@ from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import AdcExtWave
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.caparray import CapArrayConfig, RedunStrat
-from flow.scans import fastrx, scan_adc, scan_adc_noctl, seqgen
+from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
-from flow.scans.scope import FRIDA_SCOPE_CHANNELS, crop_adc_scope_conversion, write_scope_csv
+from flow.scans.scope import crop_adc_scope_conversion, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
-from flow.scans.test_diffamp import SCOPE_TRACKS as DIFFAMP_SCOPE_TRACKS
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
 from flow.scans.test_fastrx import OUTPUT_DIR as FASTRX_OUTPUT_DIR
-from flow.scans.test_fastrx import SCOPE_TRACKS as FASTRX_SCOPE_TRACKS
 from flow.scans.test_noise import OUTPUT_DIR as NOISE_OUTPUT_DIR
-from flow.scans.test_noise import SCOPE_TRACKS as NOISE_SCOPE_TRACKS
 from flow.scans.test_serdes import OUTPUT_DIR as SERDES_OUTPUT_DIR
-from flow.scans.test_serdes import SCOPE_TRACKS as SERDES_SCOPE_TRACKS
 
 
 def serializer_params(**overrides) -> AdcTbParams:
@@ -44,27 +40,6 @@ def serializer_params(**overrides) -> AdcTbParams:
     }
     config.update(overrides)
     return AdcTbParams(**config)
-
-
-def test_frida_scope_channels_match_fixed_bench_cabling() -> None:
-    assert FRIDA_SCOPE_CHANNELS == {
-        "adc_vdiff": 1,
-        "seq_comp": 2,
-        "seq_logic": 3,
-        "comp_out": 4,
-    }
-    assert DIFFAMP_SCOPE_TRACKS == {1: "vdiff_ch1"}
-    assert NOISE_SCOPE_TRACKS == {1: "vdiff_ch1"}
-    assert FASTRX_SCOPE_TRACKS == {
-        1: "adc_vdiff",
-        2: "seq_comp",
-        3: "seq_logic",
-        4: "comp_out",
-    }
-    assert SERDES_SCOPE_TRACKS == {
-        2: "seq_comp",
-        3: "seq_logic",
-    }
 
 
 def test_hardware_output_directories_match_test_modules() -> None:
@@ -647,3 +622,48 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
     assert [voltage_v for _, voltage_v in typed] == pytest.approx([-0.1, 0.1])
     with pytest.raises(ValueError, match="increase strictly"):
         scan_adc.parse_pwl_wave("1u 0 0 1")
+
+
+@pytest.mark.parametrize("connections", ({"seq_logic": 1, "seq_comp": 4}, {"seq_comp": 2, "seq_logic": 3}))
+def test_scope_connections_follow_yaml(tmp_path, monkeypatch, connections):
+    from yaml import safe_dump
+
+    path = tmp_path / "scope.yaml"
+    path.write_text(safe_dump({"connections": connections}))
+    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
+    assert scope.scope_channels("seq_comp", optional=("vin_diff",)) == {"seq_comp": connections["seq_comp"]}
+    assert scope.scope_channels() == connections
+    with pytest.raises(ValueError, match="not connected.*vin_diff"):
+        scope.scope_channels("vin_diff")
+
+
+@pytest.mark.parametrize(
+    "connections",
+    (
+        {"seq_comp": 1, "seq_logic": 1},
+        {"seq_comp": 0},
+        {"seq_comp": True},
+        {"seq_typo": 1},
+    ),
+)
+def test_invalid_scope_connections_fail(tmp_path, monkeypatch, connections):
+    from yaml import safe_dump
+
+    path = tmp_path / "scope.yaml"
+    path.write_text(safe_dump({"connections": connections}))
+    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
+    with pytest.raises(ValueError):
+        scope.scope_channels()
+
+
+def test_scope_requirements_skip_missing_signals(tmp_path, monkeypatch):
+    from flow.scans.conftest import pytest_runtest_setup
+
+    path = tmp_path / "scope.yaml"
+    path.write_text("connections: {seq_comp: 4}\n")
+    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
+    item = SimpleNamespace(iter_markers=lambda _: [SimpleNamespace(args=("seq_comp", "seq_samp"))])
+    with pytest.raises(pytest.skip.Exception, match="seq_samp"):
+        pytest_runtest_setup(item)
+    item = SimpleNamespace(iter_markers=lambda _: [SimpleNamespace(args=("seq_comp",))])
+    pytest_runtest_setup(item)
