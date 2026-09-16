@@ -15,6 +15,15 @@ Successive-approximation ADCs are the primary architecture under study.
 
 ![ADC architecture used in the example system](docs/images/arch.png)
 
+> [!NOTE]
+> FRIDA is still under active development. The repository is useful as a record of the design and flow, but it is not
+> yet advertised as reproducible on other people's machines.
+
+## Progress
+
+The initial prototype is designed in 65 nm and measures 1 × 1 mm. It contains 16 ADCs.
+The tapeout was submitted in October 2025, received March 2026, and is currently being characterized.
+
 The fabricated FRIDA-1 ADC channel measures approximately 60.5 × 63.5 µm (about 3845 µm²):
 
 <p align="center">
@@ -25,20 +34,6 @@ The full FRIDA-1 chip, containing 16 ADC channels on a 1 × 1 mm die:
 
 <p align="center">
   <img src="docs/images/frida-1_web.webp" alt="Full FRIDA-1 chip layout" width="60%">
-</p>
-
-> [!NOTE]
-> FRIDA is still under active development. The repository is useful as a record of the design and flow, but it is not
-> yet advertised as reproducible on other people's machines.
-
-## Progress
-
-The initial prototype is designed in 65 nm and measures 1×1 mm. It contains 16 ADCs, each measuring approximately 60.5 ×
-63.5 µm. The tapeout was submitted in October 2025, received March 2026, and is currently being characterized. Here is a
-GDS render of the chip:
-
-<p align="center">
-  <img src="docs/images/frida_65A.png" alt="Top-level FRIDA prototype layout" width="60%">
 </p>
 
 A micrograph of the fabricated prototype:
