@@ -10,7 +10,7 @@ here. CSV artifacts are intentionally omitted.
 
 ## ADC transfer curve
 
-Target: `adc_transfer_curve`
+Current study: `adc_transfer_curve_study` (figures below are archived outputs)
 
 Output: `build/analysis/adc/20260808_0049`
 
@@ -18,7 +18,7 @@ Output: `build/analysis/adc/20260808_0049`
 
 ## ADC ramp nonlinearity
 
-Target: `adc_ramp_nonlinearity`
+Current study: `adc_ramp_nonlinearity_study` (figures below are archived outputs)
 
 Output: `build/analysis/adc/20260812_1238`
 
@@ -64,7 +64,7 @@ Output: `build/analysis/adc/20260812_1238`
 
 ## ADC calibration
 
-Target: `adc_calibration`
+Current study: `adc_calibration_study` (figures below are archived outputs)
 
 Output: `build/analysis/adc/20260817_1317`
 
@@ -78,7 +78,7 @@ Output: `build/analysis/adc/20260817_1317`
 
 ## Post-filter ADC00 fixed-input noise
 
-Target: `adc00_fixed_input_noise`
+Historical target: `adc00_fixed_input_noise` (the current sequence study selects ADC03 instead)
 
 Output: `build/analysis/adc/20260819_1728`
 
@@ -94,7 +94,7 @@ Output: `build/analysis/adc/20260819_1728`
 
 ## ADC noise versus conversion rate
 
-Target: `adc_noise_vs_rate`
+Historical target: `adc_noise_vs_rate` (now covered by `adc_sample_rate_study`)
 
 Output: `build/analysis/adc/20260819_0138`
 
@@ -104,7 +104,7 @@ Output: `build/analysis/adc/20260819_0138`
 
 ## ADC code distributions and decision paths
 
-Target: `adc_code_distributions`
+Historical target: `adc_code_distributions` (now split between `adc_sequence_study` and `adc_sample_rate_study`)
 
 Output: `build/analysis/adc/20260819_0141`
 
@@ -152,7 +152,7 @@ Output: `build/analysis/adc/20260819_0141`
 
 ## ADC power versus conversion rate
 
-Target: `adc_power_vs_rate`
+Historical target: `adc_power_vs_rate` (physical DC power now in `adc_power_study`)
 
 Output: `build/analysis/adc/20260819_1734`
 
@@ -184,7 +184,7 @@ Output: `build/analysis/adc/20260819_1734`
 
 ## ADC comparator-to-logic timing
 
-Target: `adc_noise_vs_comp_time`
+Historical target: `adc_noise_vs_comp_time` (historical alignments now in `adc_sample_rate_study`)
 
 Output: `build/analysis/adc/20260819_0036`
 
@@ -194,7 +194,7 @@ Output: `build/analysis/adc/20260819_0036`
 
 ## Comparator common mode
 
-Target: `comp_system_common_mode`
+Current study: `comp_system_common_mode_study` (figures below are archived outputs)
 
 Output: `build/analysis/comp/20260819_0100`
 
@@ -208,7 +208,7 @@ Output: `build/analysis/comp/20260819_0100`
 
 ## Comparator sampling noise
 
-Target: `comp_system_sampling_noise`
+Current study: `comp_system_sampling_noise_study` (figures below are archived outputs)
 
 Output: `build/analysis/comp/20260819_1729`
 
@@ -222,7 +222,7 @@ Output: `build/analysis/comp/20260819_1729`
 
 ## Comparator candidate sweep
 
-Target: `comp_candidate_sweep`
+Current study: `comp_candidate_sweep_study` (figures below are archived outputs)
 
 Output: `build/analysis/comp/20260819_0206`
 
@@ -232,7 +232,7 @@ Output: `build/analysis/comp/20260819_0206`
 
 ## CDAC capacitor mismatch
 
-Target: `cdac_system_cap_mismatch`
+Current study: `cdac_system_cap_mismatch_study` (figures below are archived outputs)
 
 No accepted runner-generated plot directory is currently present under
 `build/analysis`. Run the target and add its ADC00--ADC03 mismatch plots and
@@ -240,6 +240,6 @@ shared comparison plot here.
 
 ## Aggregate target
 
-`adc_rate_characterization` reruns `adc_noise_vs_rate`,
+The removed historical wrapper `adc_rate_characterization` ran `adc_noise_vs_rate`,
 `adc_code_distributions`, and `adc_power_vs_rate`; its outputs are represented
 in the corresponding sections above.

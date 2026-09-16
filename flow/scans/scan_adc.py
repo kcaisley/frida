@@ -17,14 +17,20 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
-from flow.analysis.io import scope_records_to_adc_wave, write_measurement
+from flow.adc.sequences import AdcSequence
+from flow.analysis.io import write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
-from flow.scans.seqgen import convert_params_to_seqgen_fmt
+from flow.scans.scope import (
+    crop_adc_scope_conversion,
+    scope_records_to_adc_wave,
+    wait_for_scope_armed,
+    wait_for_scope_capture,
+)
+from flow.scans.seqgen import build_fastrx_capture_pattern
 
 
 def convert_vdiff_input_to_awg_supply(
@@ -504,7 +510,6 @@ def scan(
             scope.set_acquire_mode("SAMPLE")
             scope.set_acquire_stop_after("SEQUENCE")
             scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
-            scope._intf.write("HORizontal:POSition 20")
             for signal_name, channel in SCOPE_TRACKS.items():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
@@ -820,10 +825,7 @@ def scan(
                 if phase_advance:
                     params = replace(
                         params,
-                        seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
-                        seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
-                        seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
-                        seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
+                        **AdcSequence.from_tb_params(params).advance(phase_advance).as_tb_fields(),
                     )
                     scan_params = replace(scan_params, tb=params)
                     validate_params(scan_params)
@@ -859,14 +861,19 @@ def scan(
                 # Program raw 64-bit sequencer memory through Basil's public
                 # seq_gen API. test_seqgen.py exercises the hardware readback;
                 # test_helpers.py checks the software-only memory packing.
-                cap_weights = get_cdac_weights(params.dut.cdac)
+                cap_weights = get_caparray_weights(params.dut.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
                 sequence_words = len(params.seq_init_pattern) // 8
-                rx_sen_stop_word = rx_sen_start_word + len(code_weights)
-                rx_sen_pattern = (
-                    "0" * rx_sen_start_word + "1" * len(code_weights) + "0" * (sequence_words - rx_sen_stop_word)
+                sequencer_memory = build_fastrx_capture_pattern(
+                    params,
+                    rx_sen_start_word,
+                    len(code_weights),
                 )
-                sequencer_memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
+                # A wrapped mask can emit a leading partial frame. If INIT
+                # straddles the origin, also skip the first uninitialized conversion.
+                startup_conversions = int(params.seq_init_pattern[-1] == "1")
+                startup_frames = int(rx_sen_start_word + len(code_weights) > sequence_words) + startup_conversions
+                expected_frames = params.conversions + startup_frames
                 daq["seq0"].set_data(sequencer_memory)
                 daq["seq0"].set_size(sequence_words)
                 daq["seq0"].set_clk_divide(1)
@@ -875,7 +882,7 @@ def scan(
                 # Configure FastRX for exactly one CDAC decision vector per
                 # sequencer repeat. DATA_SIZE is read from the implemented FPGA.
                 daq["fastrx0"].reset()
-                daq["fastrx0"].set_en(True)
+                daq["fastrx0"].set_en(False)
                 data_size = int(daq["fastrx0"].get_size())
                 if data_size != len(code_weights):
                     raise RuntimeError(
@@ -943,6 +950,9 @@ def scan(
 
                 daq["seq0"].set_size(sequence_words)
                 daq["seq0"].set_clk_divide(1)
+                daq["seq0"].set_wait(0)
+                daq["seq0"].set_repeat_start(0)
+                daq["seq0"].set_nested_repeat(0)
                 daq["seq0"].set_repeat(0)
                 daq["seq0"].set_en_ext_start(False)
                 daq["fifo0"]["RESET"]
@@ -986,32 +996,38 @@ def scan(
                 # host memory. test_fastrx.py exercises the same unchunked
                 # framing path. FIFO_SIZE is the number of bytes already
                 # buffered by the host-side transfer layer.
-                expected_capture_s = params.conversions * len(params.seq_init_pattern) / symbol_rate_bps
+                expected_capture_s = (params.conversions + startup_frames + 1) * sequence_words * 8 / symbol_rate_bps
                 capture_timeout_s = max(
                     FASTRX_CAPTURE_TIMEOUT_S,
                     2.0 * expected_capture_s + 2.0,
                 )
 
-                # seq_gen soft reset preserves its waveform RAM. Reset and
-                # re-arm the producer and receiver once, before the continuous
-                # acquisition, and clear any previously buffered TCP data.
+                # Reset displays the last physical RAM word. Clear unused RAM
+                # so it cannot enable RX before START on a short sequence.
+                daq["fastrx0"].set_en(False)
                 daq["seq0"].reset()
-                daq["fastrx0"].reset()
                 sleep(0.001)
+                daq["seq0"].set_data(bytes(daq["seq0"].get_mem_size()))
+                daq["seq0"].set_data(sequencer_memory)
                 daq["seq0"].set_size(sequence_words)
                 daq["seq0"].set_clk_divide(1)
-                daq["seq0"].set_repeat(params.conversions)
+                daq["seq0"].set_wait(0)
+                daq["seq0"].set_repeat_start(0)
+                daq["seq0"].set_repeat(0)
+                daq["seq0"].set_nested_repeat(0)
                 daq["seq0"].set_en_ext_start(False)
-                daq["fastrx0"].set_en(True)
+                daq["fastrx0"].reset()
+                sleep(FASTRX_TRAILING_DRAIN_S)
                 daq["fifo0"]["RESET"]
                 daq["fifo0"].get_data()
 
                 # Arm one representative four-channel scope acquisition before
-                # starting the shared sequencer/FastRX run. The HDF5 writer
-                # associates this record with conversion zero; the remaining
-                # conversions retain only their DAQ values.
+                # starting the shared sequencer/FastRX run. The scope record
+                # covers startup plus the retained first conversion when needed.
+                # Crop to that conversion before associating the record with DAQ zero.
                 conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
-                scope.set_horizontal_scale(conversion_period_s / 8.0)
+                scope.set_horizontal_scale(conversion_period_s * (3 if startup_conversions else 1) / 8.0)
+                scope._intf.write(f"HORizontal:POSition {10 if startup_conversions else 20}")
                 scope.set_acquire_state("RUN")
                 acquisition_count_before = wait_for_scope_armed(
                     scope,
@@ -1019,30 +1035,27 @@ def scan(
                 )
 
                 deadline = monotonic() + capture_timeout_s
+                daq["fastrx0"].set_en(True)
                 daq["seq0"].start()
-                while not daq["seq0"].is_done():
-                    if monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"sequencer did not finish {params.conversions} conversions within {capture_timeout_s:g} s"
-                        )
-                    sleep(0.001)
-
-                expected_fifo_bytes = 4 * params.conversions
-                while int(daq["fifo0"]["FIFO_SIZE"]) < expected_fifo_bytes:
-                    if monotonic() >= deadline:
-                        available_bytes = int(daq["fifo0"]["FIFO_SIZE"])
-                        raise TimeoutError(
-                            f"FastRX delivered {available_bytes // 4}/{params.conversions} words "
-                            f"within {capture_timeout_s:g} s"
-                        )
-                    sleep(0.001)
-
-                # Allow the final word to cross the FastRX CDC, FPGA output
-                # FIFO, TCP socket, and background host readout thread.
+                try:
+                    expected_fifo_bytes = 4 * expected_frames
+                    while int(daq["fifo0"]["FIFO_SIZE"]) < expected_fifo_bytes:
+                        if monotonic() >= deadline:
+                            available_bytes = int(daq["fifo0"]["FIFO_SIZE"])
+                            raise TimeoutError(
+                                f"FastRX delivered {available_bytes // 4}/{expected_frames} words "
+                                f"within {capture_timeout_s:g} s"
+                            )
+                        sleep(0.001)
+                finally:
+                    # Stop RX first: a high final RAM word must not generate
+                    # bogus frames while the sequencer is stopped.
+                    daq["fastrx0"].set_en(False)
+                    daq["seq0"].reset()
                 sleep(FASTRX_TRAILING_DRAIN_S)
                 raw_data = daq["fifo0"].get_data()
-                if len(raw_data) != params.conversions:
-                    raise RuntimeError(f"expected {params.conversions} FastRX words, received {len(raw_data)}")
+                if len(raw_data) < expected_frames:
+                    raise RuntimeError(f"expected at least {expected_frames} FastRX words, received {len(raw_data)}")
                 wait_for_scope_capture(
                     scope,
                     acquisition_count_before,
@@ -1060,7 +1073,7 @@ def scan(
                     raise RuntimeError(f"FastRX lost {fastrx_lost_count} words during the continuous acquisition")
 
                 conversion_index_values = np.arange(params.conversions, dtype=np.int64)
-                conversion_times_s = conversion_index_values * conversion_period_s
+                conversion_times_s = (conversion_index_values + int(startup_conversions)) * conversion_period_s
                 if isinstance(source, h.Vdc.Params):
                     vin_diff_values_v = np.full(params.conversions, float(source.dc))
                 elif isinstance(source, h.Vsin.Params):
@@ -1088,6 +1101,17 @@ def scan(
                     code_weights,
                     params.dut.adc_bits,
                 )
+                # Keep exactly N complete conversions after validating every
+                # received frame, including host-stop latency and startup frames.
+                startup_words = {
+                    f"startup_fastrx_word_{index}": int(word)
+                    for index, word in enumerate(fastrx_words[:startup_frames])
+                }
+                received_frames = len(fastrx_words)
+                fastrx_words = fastrx_words[startup_frames:expected_frames]
+                bout_values = bout_values[startup_frames:expected_frames]
+                dout_raw_values = dout_raw_values[startup_frames:expected_frames]
+                dout_values = dout_values[startup_frames:expected_frames]
                 frame_counter_modulus = 1 << (28 - data_size)
                 for conversion_index in range(min(params.conversions, MAX_RAW_FASTRX_WORDS)):
                     word = int(fastrx_words[conversion_index])
@@ -1098,54 +1122,14 @@ def scan(
                         f"[{conversion_index}] ID={identifier:04b} frame={frame} "
                         f"data={spi_data:0{data_size}b} Dout={int(dout_values[conversion_index])}"
                     )
-                all_patterns = (
-                    params.seq_init_pattern,
-                    params.seq_samp_pattern,
-                    params.seq_comp_pattern,
-                    params.seq_logic_pattern,
-                )
-                active_indices = [
-                    index
-                    for index in range(len(params.seq_init_pattern))
-                    if any(pattern[index] == "1" for pattern in all_patterns)
-                ]
-                active_span_symbols = active_indices[-1] - active_indices[0] + 1
-
-                if isinstance(source, h.Vdc.Params):
-                    source_label = f"dc{float(source.dc) * 1e3:+.0f}mv"
-                elif isinstance(source, h.Vsin.Params):
-                    source_label = (
-                        f"sin{float(source.freq):g}hz_"
-                        f"{float(source.voff) * 1e3:+g}mv_"
-                        f"{2 * float(source.vamp) * 1e3:g}mvpp"
-                    )
-                else:
-                    source_points = parse_pwl_wave(source.wave)
-                    source_period_s = source_points[-1][0] - source_points[0][0]
-                    source_label = (
-                        f"pwl{1.0 / source_period_s:g}hz_"
-                        f"{min(value for _time, value in source_points) * 1e3:+g}to"
-                        f"{max(value for _time, value in source_points) * 1e3:+g}mv"
-                    )
-                source_label = source_label.replace("+", "p").replace("-", "m")
-                logic_comp_offset = float(params.seq_logic_phase_delay_symbols) - float(
-                    params.seq_comp_phase_delay_symbols
-                )
-                logic_phase_label = f"{logic_comp_offset:+g}".replace("+", "p").replace("-", "m")
-                stem = (
-                    f"{variant_index:04d}_{board_id}_adc{scan_params.observed_adc:02d}_"
-                    f"{float(params.symbol_rate) / 1e6:g}mbd_{source_label}_"
-                    f"logic{logic_phase_label}sym_"
-                    f"vcm{float(params.vin_cm.dc) * 1e3:g}mv_"
-                    f"vdda{float(params.vdd_a.dc) * 1e3:g}mv_"
-                    f"vddd{float(params.vdd_d.dc) * 1e3:g}mv_"
-                    f"vddac{float(params.vdd_dac.dc) * 1e3:g}mv_"
-                    f"t{float(scan_params.temperature_c):g}c"
-                )
+                stem = f"{variant_index:04d}_capture"
                 h5_path = run_dir / f"{stem}.h5"
                 readbacks = {
                     "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
-                    "active_conversion_rate_hz": symbol_rate_bps / active_span_symbols,
+                    "repetition_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
+                    "repetition_interval_s": len(params.seq_init_pattern) / symbol_rate_bps,
+                    "active_conversion_rate_hz": symbol_rate_bps
+                    / AdcSequence.from_tb_params(params).conversion_symbols,
                     "si570_frequency_hz": si570_frequency_hz,
                     "pll_divider_n": pll_divider_n,
                     "sequencer_frequency_hz": sequencer_frequency_hz,
@@ -1153,6 +1137,11 @@ def scan(
                     "rx_sen_start_word": rx_sen_start_word,
                     "comp_idelay_taps": comp_idelay_taps,
                     "capture_control_phase_advance_symbols": phase_advance,
+                    "capture_expected_frames": expected_frames,
+                    "capture_startup_conversions": startup_conversions,
+                    "capture_received_frames": received_frames,
+                    "capture_startup_frames": startup_frames,
+                    **startup_words,
                     "capture_earliest_data_arrival_s": capture_alignment.earliest_data_arrival_s,
                     "capture_latest_data_arrival_s": capture_alignment.latest_data_arrival_s,
                     "capture_edge_s": capture_alignment.capture_edge_s,
@@ -1176,6 +1165,16 @@ def scan(
                     if isinstance(value, (str, int, float, bool)):
                         readbacks[f"stimulus_{name}"] = value
 
+                scope_wave = scope_records_to_adc_wave([scope_waveforms], [0], SCOPE_TRACKS)
+                if startup_conversions:
+                    scope_wave = crop_adc_scope_conversion(
+                        scope_wave,
+                        skip_conversions=startup_conversions,
+                        conversion_period_s=conversion_period_s,
+                        symbol_period_s=1 / symbol_rate_bps,
+                    )
+                readbacks["scope_startup_conversions_skipped"] = int(startup_conversions)
+
                 measurement = MeasAdcExt(
                     info=MeasInfo(
                         schema_version=1,
@@ -1194,11 +1193,7 @@ def scan(
                         vin_diff_v=vin_diff_values_v,
                         fastrx_word=fastrx_words,
                     ),
-                    wave=scope_records_to_adc_wave(
-                        [scope_waveforms],
-                        [0],
-                        SCOPE_TRACKS,
-                    ),
+                    wave=scope_wave,
                 )
                 write_measurement(h5_path, measurement)
                 print(f"Saved {params.conversions} conversions and one scope record to {h5_path}")
@@ -1211,6 +1206,8 @@ def scan(
         should_shutdown = position in {"last", "only", "abort"} or not completed
         if should_shutdown and daq is not None:
             try:
+                daq["fastrx0"].set_en(False)
+                daq["seq0"].reset()
                 daq["gpio0"]["RST_B"] = 0
                 daq["gpio0"]["AMP_EN"] = 0
                 daq["gpio0"]["RX_LOOPBACK"] = 0

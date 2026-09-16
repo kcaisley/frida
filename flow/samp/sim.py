@@ -1,6 +1,7 @@
 """Sampler testbench and named TSMC65 Spectre simulation targets."""
 
 import argparse
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -10,7 +11,22 @@ from hdl21.prefix import f, p
 from hdl21.primitives import C, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
-from .subckt import Samp, SampParams
+from flow.circuit.ports import testbench_from_ports
+
+from .subckt import Samp, SampNets, SampParams
+
+
+def samp_signal_names() -> dict[str, str]:
+    """Derive simulator saves and waveform names from the block's net bundle."""
+    names = {"time": "time"}
+    for net in SampNets.signals.values():
+        if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND):
+            names[f"xtop.{net.name}"] = net.name
+        elif net.props.get("save"):
+            names[f"xtop.dut.{net.name}"] = net.name
+        if net.usage == h.Usage.POWER:
+            names[f"xtop.v{net.name}:p"] = f"i({net.name})"
+    return names
 
 
 @h.paramclass
@@ -27,49 +43,58 @@ class SampTbParams:
     clock_delay_s = h.Param(dtype=h.Scalar, desc="Clock delay", default=0.0)
 
 
-@h.generator
-def SampTb(params: SampTbParams) -> h.Module:
-    """Generate a complementary-clock sampler testbench."""
-
+def _validate_samp_tb_params(params: SampTbParams) -> None:
     if not 0.0 < float(params.clock_high_time_s) < float(params.clock_period_s):
         raise ValueError("sampler clock high time must lie inside one period")
     if float(params.clock_transition_time_s) <= 0.0 or float(params.clock_delay_s) < 0.0:
         raise ValueError("sampler clock transition must be positive and delay non-negative")
 
-    @h.module
-    class SampTb:
-        vss = h.Port(desc="Simulator ground")
-        vdd, clk, clk_b, din, dout = h.Signals(5)
+    values = (
+        params.vdd,
+        params.input_voltage,
+        params.cload,
+        params.clock_period_s,
+        params.clock_high_time_s,
+        params.clock_transition_time_s,
+        params.clock_delay_s,
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError("sampler testbench values must be finite")
+    if float(params.vdd) <= 0 or float(params.cload) <= 0:
+        raise ValueError("sampler supply and load must be positive")
+
+
+@h.generator
+def SampTb(params: SampTbParams) -> h.Module:
+    """Generate a complementary-clock sampler testbench."""
+
+    _validate_samp_tb_params(params)
+
+    SampTb, connections = testbench_from_ports(
+        "SampTb", {net.name: net for net in SampNets.signals.values() if net.vis == h.Visibility.PORT}
+    )
 
     SampTb.vvdd = Vdc(dc=params.vdd)(p=SampTb.vdd, n=SampTb.vss)
-    SampTb.vclk = Vpulse(
-        v1=0.0,
-        v2=params.vdd,
-        period=params.clock_period_s,
-        width=params.clock_high_time_s,
-        rise=params.clock_transition_time_s,
-        fall=params.clock_transition_time_s,
-        delay=params.clock_delay_s,
-    )(p=SampTb.clk, n=SampTb.vss)
-    SampTb.vclk_b = Vpulse(
-        v1=params.vdd,
-        v2=0.0,
-        period=params.clock_period_s,
-        width=params.clock_high_time_s,
-        rise=params.clock_transition_time_s,
-        fall=params.clock_transition_time_s,
-        delay=params.clock_delay_s,
-    )(p=SampTb.clk_b, n=SampTb.vss)
+    for port in SampNets.signals.values():
+        if port.usage != h.Usage.CLOCK:
+            continue
+        complement = port is SampNets.clk_b
+        net = connections[port.name]
+        SampTb.add(
+            Vpulse(
+                v1=params.vdd if complement else 0.0,
+                v2=0.0 if complement else params.vdd,
+                period=params.clock_period_s,
+                width=params.clock_high_time_s,
+                rise=params.clock_transition_time_s,
+                fall=params.clock_transition_time_s,
+                delay=params.clock_delay_s,
+            )(p=net, n=SampTb.vss),
+            name=f"v{net.name}",
+        )
     SampTb.vdin = Vdc(dc=params.input_voltage)(p=SampTb.din, n=SampTb.vss)
     SampTb.cload = C(c=params.cload)(p=SampTb.dout, n=SampTb.vss)
-    SampTb.dut = Samp(params.samp)(
-        din=SampTb.din,
-        dout=SampTb.dout,
-        clk=SampTb.clk,
-        clk_b=SampTb.clk_b,
-        vdd=SampTb.vdd,
-        vss=SampTb.vss,
-    )
+    SampTb.dut = Samp(params.samp)(**connections)
     return SampTb
 
 
@@ -91,7 +116,7 @@ def frida1_transient(run_dir: Path, *, check: bool = False) -> Path:
             site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
-            hs.Save([tb.din, tb.dout, tb.clk, tb.clk_b, "xtop.vvdd:p"]),
+            hs.Save([raw for raw in samp_signal_names() if raw != "time"]),
             *(
                 [
                     h.Literal(

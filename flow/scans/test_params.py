@@ -6,11 +6,12 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import m
 
+from flow.adc.sequences import BASELINE, TIMING_SWEEP
 from flow.adc.sim import AdcTbParams
 from flow.scans.params import (
     AdcScanParams,
     build_adc_variants,
-    convert_sample_rate_to_baud,
+    convert_conversion_rate_to_baud,
     validate_params,
 )
 
@@ -44,7 +45,7 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=tuple(rate * 0.25e6 for rate in range(2, 41)),
-        logic_offsets_symbols=tuple(range(-3, 4)),
+        sequences=TIMING_SWEEP,
         conversions=1_000,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -64,7 +65,7 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     assert {float(item.tb.symbol_rate) / 160 for item in variants} == {rate * 0.25e6 for rate in range(2, 41)}
     assert {float(item.tb.vin_diff.dc) for item in variants} == {0.05}
     assert {float(item.tb.vin_cm.dc) for item in variants} == {0.8}
-    assert {float(item.tb.seq_logic_phase_delay_symbols) for item in variants} == set(range(-3, 4))
+    assert {item.tb.seq_logic_pattern for item in variants} == {row.logic for row in TIMING_SWEEP}
 
 
 def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
@@ -74,7 +75,7 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
         board_id="00",
         adc_indices=(0, 1, 2, 3),
         active_conversion_rates_hz=(1.0e6,),
-        logic_offsets_symbols=(0.0,),
+        sequences=(BASELINE,),
         conversions=4_000_000,
         vin_cm_v=0.6,
         vin_diff=h.Vpwl.Params(wave="0 -1 0.1 1"),
@@ -95,13 +96,13 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
     }
 
 
-def test_convert_sample_rate_to_baud_uses_active_pattern_span() -> None:
+def test_convert_conversion_rate_to_baud_uses_conversion_duration() -> None:
     params = AdcTbParams()
-    assert convert_sample_rate_to_baud(params, 1e6) == 160e6
+    assert convert_conversion_rate_to_baud(params, 1e6) == 160e6
 
     inactive = "0" * len(params.seq_init_pattern)
-    with pytest.raises(ValueError, match="no active symbols"):
-        convert_sample_rate_to_baud(
+    with pytest.raises(ValueError, match="one INIT rising edge"):
+        convert_conversion_rate_to_baud(
             AdcTbParams(
                 seq_init_pattern=inactive,
                 seq_samp_pattern=inactive,
@@ -111,7 +112,7 @@ def test_convert_sample_rate_to_baud_uses_active_pattern_span() -> None:
             1e6,
         )
     with pytest.raises(ValueError, match="finite and positive"):
-        convert_sample_rate_to_baud(params, 0.0)
+        convert_conversion_rate_to_baud(params, 0.0)
 
 
 def test_validation_rejects_invalid_configuration_relationships() -> None:
@@ -125,3 +126,18 @@ def test_validation_rejects_invalid_configuration_relationships() -> None:
         validate_params(invalid_bus)
     with pytest.raises(ValueError, match="equal whole-word"):
         validate_params(unequal_patterns)
+
+
+def test_variants_use_selected_sequence_to_set_conversion_rate():
+    from flow.adc.sequences import EXTENDED_COMP, ORIGINAL
+
+    variants = build_adc_variants(
+        board_id="00",
+        adc_indices=(0,),
+        active_conversion_rates_hz=(10e6,),
+        sequences=(ORIGINAL, EXTENDED_COMP),
+        conversions=4,
+        vin_cm_v=0.6,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )
+    assert [float(item.tb.symbol_rate) for item in variants] == [1.6e9, 1.68e9]

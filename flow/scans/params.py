@@ -10,8 +10,9 @@ import hdl21 as h
 from yaml import safe_load
 
 from flow.adc import AdcParams
+from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams as _AdcTbParams
-from flow.cdac import CdacParams, RedunStrat
+from flow.caparray import CapArrayConfig, RedunStrat
 
 
 @h.paramclass
@@ -155,16 +156,12 @@ def load_board_map() -> dict[str, Any]:
     return safe_load((Path(__file__).resolve().parent / "map_board.yaml").read_text())
 
 
-def convert_sample_rate_to_baud(params: _AdcTbParams, sample_rate_hz: float) -> float:
-    """Convert an active ADC conversion rate into its serializer rate."""
+def convert_conversion_rate_to_baud(params: _AdcTbParams, conversion_rate_hz: float) -> float:
+    """Convert the byte-rounded INIT-to-final-COMP rate into its serializer rate."""
 
-    if not math.isfinite(sample_rate_hz) or sample_rate_hz <= 0.0:
-        raise ValueError("sample_rate_hz must be finite and positive")
-    patterns = (params.seq_init_pattern, params.seq_samp_pattern, params.seq_comp_pattern, params.seq_logic_pattern)
-    active = [index for index in range(len(patterns[0])) if any(pattern[index] == "1" for pattern in patterns)]
-    if not active:
-        raise ValueError("sequencer patterns contain no active symbols")
-    return sample_rate_hz * (active[-1] - active[0] + 1)
+    if not math.isfinite(conversion_rate_hz) or conversion_rate_hz <= 0.0:
+        raise ValueError("conversion_rate_hz must be finite and positive")
+    return conversion_rate_hz * AdcSequence.from_tb_params(params).conversion_symbols
 
 
 def build_adc_variants(
@@ -172,7 +169,7 @@ def build_adc_variants(
     board_id: str,
     adc_indices: Sequence[int],
     active_conversion_rates_hz: Sequence[float],
-    logic_offsets_symbols: Sequence[float],
+    sequences: Sequence[AdcSequence],
     conversions: int,
     vin_cm_v: float,
     vin_diff: h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params,
@@ -183,8 +180,8 @@ def build_adc_variants(
     adc_indices = tuple(adc_indices)
     if not adc_indices or len(set(adc_indices)) != len(adc_indices):
         raise ValueError("adc_indices must contain unique selections")
-    if not active_conversion_rates_hz or not logic_offsets_symbols:
-        raise ValueError("conversion rates and logic offsets must not be empty")
+    if not active_conversion_rates_hz or not sequences:
+        raise ValueError("conversion rates and sequences must not be empty")
     board_map = load_board_map()
     board = board_map["boards"][board_id]
     variants = []
@@ -192,7 +189,7 @@ def build_adc_variants(
         flavor = board["adc_channels"][adc_index]
         dut = AdcParams(
             adc_bits=12,
-            cdac=CdacParams(
+            cdac=CapArrayConfig(
                 n_dac=11,
                 n_extra=5,
                 redun_strat=RedunStrat.SUBRDX2_OVLY,
@@ -200,19 +197,17 @@ def build_adc_variants(
             ),
         )
         active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
-        template = _AdcTbParams(view="frida1", dut=dut)
-        for logic_offset in logic_offsets_symbols:
+        for sequence in sequences:
             for conversion_rate in active_conversion_rates_hz:
                 params = AdcScanParams(
                     tb=_AdcTbParams(
                         view="frida1",
                         dut=dut,
-                        symbol_rate=convert_sample_rate_to_baud(template, float(conversion_rate)),
+                        symbol_rate=float(conversion_rate) * sequence.conversion_symbols,
                         conversions=conversions,
                         vin_cm=h.Vdc.Params(dc=vin_cm_v),
                         vin_diff=vin_diff,
-                        seq_logic_phase_delay_symbols=float(template.seq_comp_phase_delay_symbols)
-                        + float(logic_offset),
+                        **sequence.as_tb_fields(),
                     ),
                     board_id=board_id,
                     observed_adc=adc_index,

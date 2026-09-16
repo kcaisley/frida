@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from flow.adc.sim import AdcTbParams
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
@@ -103,7 +103,7 @@ def test_comparator_balanced_track_params_encode_expected_point() -> None:
         assert set(tb.seq_samp_pattern) == {"1"}
         assert "1" not in tb.seq_init_pattern
         assert "1" not in tb.seq_logic_pattern
-        weights = tuple(get_cdac_weights(tb.dut.cdac))
+        weights = tuple(get_caparray_weights(tb.dut.cdac))
         expected = _convert_dac_rail_percent_to_codes(50.0, weights)[0]
         assert tb.dac_astate_p == tuple(int(bit) for bit in expected)
         assert tb.dac_astate_p == tb.dac_bstate_p == tb.dac_astate_n == tb.dac_bstate_n
@@ -126,10 +126,6 @@ def test_comparator_setup_latches_sampling_enable_before_continuous_track() -> N
             seq_samp_pattern="".join(samp_words),
             seq_comp_pattern="".join(comp_words),
             seq_logic_pattern="".join(logic_words),
-            seq_init_phase_delay_symbols=0.0,
-            seq_samp_phase_delay_symbols=0.0,
-            seq_comp_phase_delay_symbols=0.0,
-            seq_logic_phase_delay_symbols=0.0,
         ),
     )
 

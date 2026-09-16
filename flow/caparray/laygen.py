@@ -1,8 +1,12 @@
 """Process-independent physical generator for the FRIDA unit-length CDAC.
 
-Electrical weights come from :mod:`flow.cdac.subckt`. Physical dimensions
+Electrical weights come from :mod:`flow.caparray.subckt`. Physical dimensions
 come from the selected PDK rule deck; this module contains only dimensionless
 topology choices.
+
+TODO: The laygen file is currently a mess. I'm happy with the API where we
+pass a CapArrayConfig object to a CapArrayLayout generator, but the internal organization
+is whack. Needs massive cleanup.
 """
 
 from __future__ import annotations
@@ -16,7 +20,14 @@ from klayout import db
 from flow.layout.dsl import GenericLayers, load_generic_layers
 from flow.layout.tech import NewRuleDeck, remap_layers
 
-from .subckt import CdacParams, _calc_weight_partitions, get_cdac_weights, is_valid_cdac_params
+from .subckt import (
+    ArrayPlates,
+    CapArrayConfig,
+    _calc_weight_partitions,
+    array_ports,
+    get_caparray_weights,
+    is_valid_caparray_config,
+)
 
 
 @dataclass(frozen=True)
@@ -31,7 +42,7 @@ class UnitLengthCapFamilyParams:
 
 
 @dataclass(frozen=True)
-class CdacLayoutParams:
+class CapArrayLayoutParams:
     """Electrical and physical configuration for a MOM CDAC.
 
     ``route_layer == shield_layer`` selects a partitioned shared metal layer:
@@ -39,7 +50,7 @@ class CdacLayoutParams:
     corridors at both ends remain available for the plate buses and vias.
     """
 
-    cdac: CdacParams
+    cdac: CapArrayConfig
     family: UnitLengthCapFamilyParams
     technology: str
     route_layer: int
@@ -77,11 +88,11 @@ class _UnitGeometry:
     side_extension: int
 
 
-def is_valid_cdac_layout_params(params: CdacLayoutParams) -> bool:
+def is_valid_caparray_layout_params(params: CapArrayLayoutParams) -> bool:
     """Validate one complete process-independent CDAC layout configuration."""
 
     family = params.family
-    if not is_valid_cdac_params(params.cdac):
+    if not is_valid_caparray_config(params.cdac):
         return False
     if not params.technology or not params.top_cell:
         return False
@@ -122,7 +133,7 @@ def _required_rule(value: int | None, description: str) -> int:
     return value
 
 
-def _calc_unit_geometry(params: CdacLayoutParams, rules: NewRuleDeck) -> _UnitGeometry:
+def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _UnitGeometry:
     """Derive the complete unit geometry from PDK rules and track counts."""
 
     grid = _required_rule(rules.manufacturing_grid, "manufacturing grid")
@@ -363,44 +374,50 @@ def _insert_shield(
 def _insert_recognition_marker(
     cell: db.Cell,
     generic: GenericLayers,
-    tag_layer: db.LayerInfo,
     geometry: _UnitGeometry,
     y0: float,
     y1: float,
     *,
     side: str,
 ) -> None:
-    """Mark one inner/top-plate pair and reach the shield without another plate."""
+    """One U on the outer ring plus a full inner-finger measurement window.
+
+    Adjacent units own opposite halves of each shared ring wall. The two Us
+    end either side of the midpoint; inner windows follow the actual split.
+    No conducting layer is changed by these annotations.
+    """
 
     inset = _um(geometry.grid)
     ring = _um(geometry.ring_width)
-    band = db.DBox(inset, y0, _um(geometry.unit_pitch) - inset, y1)
+    pitch = _um(geometry.unit_pitch)
+    height = _um(geometry.outer_height)
+    left0, left1 = ring / 2 + inset, ring - inset
+    right0, right1 = pitch + inset, pitch + ring / 2 - inset
+    band_height = ring / 2 - 2 * inset
     if side == "main":
-        tail_x0, tail_x1 = inset, ring / 2 - inset
+        band0 = ring / 2 + inset
+        leg0, leg1 = band0, height / 2 - inset
     elif side == "diff":
-        tail_x0, tail_x1 = ring / 2 + inset, ring - inset
+        band0 = height - ring + inset
+        leg0, leg1 = height / 2 + inset, band0 + band_height
     else:
         raise ValueError(f"unknown recognition side {side!r}")
-    center_y = _um(geometry.outer_height) / 2
-    tail = db.DBox(tail_x0, min(y0, center_y), tail_x1, max(y1, center_y))
-    for layer in (generic.MOM_RECOG, tag_layer):
-        cell.shapes(layer).insert(band)
-        cell.shapes(layer).insert(tail)
-    # The device body must span both capacitor terminals, whereas the bulk
-    # selector touches only the shield.  Keeping these purposes separate
-    # prevents route-metal crossings inside the body from becoming spurious
-    # bulk terminals after the CDAC is integrated into its ADC.
-    shield_bottom = _um(geometry.shield_bridge_ys[0]) + inset
-    shield_top = _um(geometry.shield_bridge_ys[-1] + geometry.ring_width) - inset
-    cell.shapes(generic.MOM_RECOG_SHIELD).insert(
-        db.DBox(tail_x0, max(tail.bottom, shield_bottom), tail_x1, min(tail.top, shield_top))
+    for box in (
+        db.DBox(left0, band0, right1, band0 + band_height),
+        db.DBox(left0, leg0, left1, leg1),
+        db.DBox(right0, leg0, right1, leg1),
+    ):
+        cell.shapes(generic.MOM_RECOG).insert(box)
+    inner_x = ring + _um(geometry.gap)
+    cell.shapes(generic.MOM_RECOG_INNER).insert(
+        db.DBox(inner_x - inset, y0 - inset, inner_x + _um(geometry.finger_width) + inset, y1 + inset)
     )
 
 
 def _build_unit_cell(
     layout: db.Layout,
     generic: GenericLayers,
-    params: CdacLayoutParams,
+    params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     weight: int,
 ) -> db.Cell:
@@ -429,36 +446,19 @@ def _build_unit_cell(
         _insert_box(cell, layer, x0, inner_y0, x0 + finger, bottom_y1)
         _insert_box(cell, layer, x0, top_y0, x0 + finger, top_y1)
 
-    # Each stacked capacitor gets a spatially disjoint recognition body. The
-    # common generic purpose identifies FRIDA MOMs; PDK-local tag purposes
-    # pick the active metal without allowing Calibre to combine stacked terminals.
-    band_height = finger
-    band_step = band_height + _um(geometry.grid)
-    main_marker_y = inner_y0 + _um(geometry.tail_length)
-    diff_marker_y = top_y0 if weight == params.family.coarse_weight else top_y1 - _um(geometry.tail_length)
     # Edge dummies have intentionally floating inner plates and no source
-    # devices, following the historical LVS recognition convention.
-    for index, metal_number in enumerate(params.active_layers if weight else ()):
-        main_y0 = main_marker_y + index * band_step
-        diff_y0 = diff_marker_y + index * band_step
-        tag_layer = getattr(generic, f"MOM_RECOG_M{metal_number}")
-        _insert_recognition_marker(
-            cell,
-            generic,
-            tag_layer,
-            geometry,
-            main_y0,
-            main_y0 + band_height,
-            side="main",
-        )
-        _insert_recognition_marker(
-            cell,
-            generic,
-            tag_layer,
-            geometry,
-            diff_y0,
-            diff_y0 + band_height,
-            side="diff",
+    # devices. Active-layer selection comes from real metal, not per-layer tags.
+    if weight:
+        _insert_recognition_marker(cell, generic, geometry, inner_y0, bottom_y1, side="main")
+        _insert_recognition_marker(cell, generic, geometry, top_y0, top_y1, side="diff")
+        inset = _um(geometry.grid)
+        cell.shapes(generic.MOM_RECOG_SHIELD).insert(
+            db.DBox(
+                inset,
+                _um(geometry.shield_bridge_ys[0]) + inset,
+                width - inset,
+                _um(geometry.shield_bridge_ys[-1] + geometry.ring_width) - inset,
+            )
         )
 
     _insert_shield(
@@ -481,7 +481,7 @@ def _build_unit_cell(
 def _build_unit_library(
     layout: db.Layout,
     generic: GenericLayers,
-    params: CdacLayoutParams,
+    params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
 ) -> dict[int, db.Cell]:
     """Build every legal positive unit weight through ``coarse_weight``."""
@@ -508,10 +508,11 @@ def _ordered_groups(weights: list[int], chunks: list[list[int]]) -> list[tuple[i
 def _add_route_pins(
     top: db.Cell,
     generic: GenericLayers,
-    params: CdacLayoutParams,
+    params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     placed_groups: list[tuple[int, int, int, int]],
 ) -> None:
+    ports = array_ports(params.cdac.n_dac + params.cdac.n_extra)
     route = _metal(generic, params.route_layer)
     pin = _pin(generic, params.route_layer)
     x_local, bottom_y, top_y = _access_centers(geometry)
@@ -528,7 +529,7 @@ def _add_route_pins(
             landing_y = y + extension if kind == "main" else y - extension
             _insert_box(top, route, x0, landing_y - height / 2, x1, landing_y + height / 2)
             center_x = first_position * pitch + x_local
-            label = f"cap_botplate_{kind}<{stage}>"
+            label = ports[f"cap_botplate_{kind}<{stage}>"].name
             top.shapes(pin).insert(db.DText(label, db.DTrans(center_x, y)))
             _insert_box(
                 top,
@@ -543,7 +544,7 @@ def _add_route_pins(
 def _add_topplate_access(
     top: db.Cell,
     generic: GenericLayers,
-    params: CdacLayoutParams,
+    params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     array_right: float,
 ) -> None:
@@ -567,14 +568,14 @@ def _add_topplate_access(
         _via_box(top, _via(generic, lower_metal), stack_x, y, geometry, columns=2)
 
     pin = _pin(generic, params.route_layer)
-    top.shapes(pin).insert(db.DText("cap_topplate", db.DTrans(stack_x, y)))
+    top.shapes(pin).insert(db.DText(ArrayPlates.cap_topplate.name, db.DTrans(stack_x, y)))
     _insert_box(top, pin, stack_x - ring / 2, y - ring / 2, stack_x + ring / 2, y + ring / 2)
 
 
 def _add_shield_taps(
     top: db.Cell,
     generic: GenericLayers,
-    params: CdacLayoutParams,
+    params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     array_right: float,
     output_right: float,
@@ -594,19 +595,19 @@ def _add_shield_taps(
         start_x = array_right if params.route_layer == params.shield_layer else tap_x
         _insert_box(top, route, start_x, y - ring / 2, output_right, y + ring / 2)
         if index == len(ys) // 2:
-            top.shapes(pin).insert(db.DText("cap_shieldplate", db.DTrans(output_right - ring / 2, y)))
+            top.shapes(pin).insert(db.DText(ArrayPlates.cap_shieldplate.name, db.DTrans(output_right - ring / 2, y)))
             _insert_box(top, pin, output_right - ring, y - ring / 2, output_right, y + ring / 2)
 
 
-def CdacLayout(params: CdacLayoutParams) -> db.Layout:
+def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
     """Build one arbitrary-width, rule-derived unit-length capacitor array."""
 
-    if not is_valid_cdac_layout_params(params):
+    if not is_valid_caparray_layout_params(params):
         raise ValueError(f"Invalid CDAC layout params: {params}")
     pdk_layout = import_module(f"pdk.{params.technology}.layout")
     rules = pdk_layout.rule_deck()
     geometry = _calc_unit_geometry(params, rules)
-    weights = get_cdac_weights(params.cdac)
+    weights = get_caparray_weights(params.cdac)
     partitioned = _calc_weight_partitions(weights, params.family.coarse_weight)
     ordered = _ordered_groups(weights, partitioned)
 
@@ -657,13 +658,13 @@ def CdacLayout(params: CdacLayoutParams) -> db.Layout:
     return layout
 
 
-def _layout_manifest(params: CdacLayoutParams) -> dict[str, Any]:
+def _layout_manifest(params: CapArrayLayoutParams) -> dict[str, Any]:
     """Return a serializable electrical, decomposition, stack, and rule manifest."""
 
-    if not is_valid_cdac_layout_params(params):
+    if not is_valid_caparray_layout_params(params):
         raise ValueError(f"Invalid CDAC layout params: {params}")
     pdk_layout = import_module(f"pdk.{params.technology}.layout")
-    weights = get_cdac_weights(params.cdac)
+    weights = get_caparray_weights(params.cdac)
     chunks = _calc_weight_partitions(weights, params.family.coarse_weight)
     geometry = _calc_unit_geometry(params, pdk_layout.rule_deck())
     return {

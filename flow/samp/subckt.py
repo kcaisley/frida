@@ -13,6 +13,8 @@ from enum import Enum, auto
 import hdl21 as h
 from hdl21.primitives import MosType, MosVth
 
+from flow.circuit.ports import module_from_ports
+
 
 class SwitchType(Enum):
     """Sampling switch topology."""
@@ -39,6 +41,15 @@ class SampParams:
     mos_vth = h.Param(dtype=MosVth, desc="Threshold voltage flavor", default=MosVth.LOW)
 
 
+@h.bundle
+class SampNets:
+    din = h.Input(desc="Data input")
+    dout = h.Output(desc="Data output")
+    clk, clk_b = h.Clock(), h.Clock()
+    vdd = h.Power(direction=h.PortDir.INOUT)
+    vss = h.Ground(direction=h.PortDir.INOUT)
+
+
 @h.generator
 def Samp(param: SampParams) -> h.Module:
     """
@@ -50,17 +61,7 @@ def Samp(param: SampParams) -> h.Module:
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
 
-    @h.module
-    class Samp:
-        """Sampling switch module."""
-
-        # IO ports
-        din = h.Input(desc="Data input")
-        dout = h.Output(desc="Data output")
-        clk = h.Input(desc="Clock (active high)")
-        clk_b = h.Input(desc="Clock complement (active low)")
-        vdd = h.Inout(desc="Supply")
-        vss = h.Inout(desc="Ground")
+    Samp = module_from_ports("Samp", SampNets.signals)
 
     # Instantiate devices based on switch type
     if param.switch_type == SwitchType.NMOS:

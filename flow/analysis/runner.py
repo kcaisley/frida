@@ -7,38 +7,43 @@ directory or of analysis pipelines.
 
 Run one named pipeline from the repository root with:
 
-    uv run python -m flow.analysis.runner adc_noise_vs_rate
+    uv run python -m flow.analysis.runner adc_sample_rate_study
 
-Omit the target name to run every registered pipeline. Comparator targets write
-beneath ``build/analysis/comp``; the remaining targets write beneath
-``build/analysis/adc``. Each analysis domain uses one timestamped directory per
-invocation.
+A target name is required. Outputs go to a timestamped directory beneath
+``build/analysis/<domain>``. Each runner selects its input directories in source.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
+import hashlib
+import json
+import subprocess
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from time import perf_counter
+from typing import cast
 
+import hdl21 as h
+import matplotlib as mpl
 import numpy as np
 
+from flow.adc.sequences import ORIGINAL, TIMING_SWEEP, AdcSequence
 from flow.analysis.adc import (
+    ADC_RAMP_RESET_EXCLUSION_CONVERSIONS,
     analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
     analyze_adc_noise_sweep,
+    analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
-    analyze_adc_power_waveform,
     analyze_adc_ramp,
-    analyze_adc_sampling_noise,
+    analyze_adc_timing_closure,
     analyze_adc_transfer,
-    combine_adc_noise_comparison,
 )
 from flow.analysis.calibration1 import analyze as analyze_calibration1
 from flow.analysis.calibration2 import analyze as analyze_calibration2
@@ -55,18 +60,15 @@ from flow.analysis.plots import (
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
     plot_adc_decision_path_density,
-    plot_adc_decision_paths,
     plot_adc_dynamic,
-    plot_adc_noise_distribution_grid,
+    plot_adc_dynamic_sweep,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_power_sweep,
-    plot_adc_power_waveform,
     plot_adc_ramp_histogram,
     plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
-    plot_adc_ramp_weights,
-    plot_adc_sampling_noise,
+    plot_adc_static_nonlinearity,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -89,150 +91,83 @@ from flow.scans.params import load_board_map
 BASE_PATH = Path(__file__).resolve().parents[2]
 
 
-def adc_transfer_curve(output_dir: Path) -> tuple[Path, ...]:
-    """Plot the accepted physical ADC00 static transfer campaign."""
+def adc_transfer_curve_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot known-voltage static transfer curves from MeasAdcExt DC steps.
 
+    Coverage: the archived ADC00 campaign only; its selected directory is
+    currently absent locally. Each settled DC step supplies a known voltage,
+    including inputs beyond either rail. No voltage reconstruction or fit,
+    calibration acquisition, or internal SPICE waveforms are used.
+    """
     meas_read_dir = BASE_PATH / "build/scan_adc/20260818_135848"
-    measurements = []
-    for path in sorted(meas_read_dir.glob("*.h5")):
+    paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+    if not paths:
+        raise FileNotFoundError(meas_read_dir)
+    groups = {}
+    for path in paths:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-        measurements.append(measurement)
-
-    analysis = analyze_adc_transfer(measurements)
-    return plot_adc_transfer(
-        measurements,
-        analysis,
-        output_path=output_dir / "adc00_transfer_curve",
-    )
-
-
-def adc_ramp_nonlinearity(output_dir: Path) -> tuple[Path, ...]:
-    """Compare uncalibrated DOUT with BOUT decoded by accepted CDAC weights."""
-
-    ramp_meas_read_dir = BASE_PATH / "build/scan_adc/20260812_011910"
-    ramp_measurement_paths = (
-        ramp_meas_read_dir
-        / "0000_00_adc00_160mbd_pwl10hz_m1000top1000mv_logicp0sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-        ramp_meas_read_dir
-        / "0001_00_adc01_160mbd_pwl10hz_m1000top1000mv_logicp0sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-        ramp_meas_read_dir
-        / "0002_00_adc02_160mbd_pwl10hz_m1000top1000mv_logicp0sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-        ramp_meas_read_dir
-        / "0003_00_adc03_160mbd_pwl10hz_m1000top1000mv_logicp0sym_vcm600mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-    )
-    cdac_meas_read_dirs = tuple(
-        BASE_PATH / "build/scan_cdac" / name for name in ("20260804_171234", "20260804_193030", "20260804_193631")
-    )
-    ramp_measurements = []
-    for path in ramp_measurement_paths:
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-        ramp_measurements.append(measurement)
-    ramp_by_adc = {int(measurement.param.observed_adc): measurement for measurement in ramp_measurements}
-    adc_indices = tuple(sorted(ramp_by_adc))
-    board_id = ramp_measurements[0].param.board_id
-
-    cdac_measurement_runs = []
-    for meas_read_dir in cdac_meas_read_dirs:
-        measurements = []
-        for path in sorted(meas_read_dir.glob("*.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasCdacExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCdacExt")
-            measurements.append(measurement)
-        cdac_measurement_runs.append(tuple(measurements))
-
-    comparator_calibrations = load_board_map()["boards"][board_id].get("comparator_calibration", {})
-    comparator_offset_v_by_adc = {
-        adc_index: float(comparator_calibrations[adc_index]["offset_v"]) for adc_index in adc_indices
-    }
-    cdac_groups, _cdac_analyses = analyze_cdac_cap_mismatch_campaign(
-        cdac_measurement_runs,
-        adc_indices=adc_indices,
-        board_id=board_id,
-        comparator_offset_v_by_adc=comparator_offset_v_by_adc,
-    )
-    cdac_group_by_adc = {group[0].param.observed_adc: group for group in cdac_groups}
+            raise TypeError(f"expected MeasAdcExt: {path}")
+        groups.setdefault(measurement.param.observed_adc, []).append(measurement)
     artifacts = []
-    analyses = []
-    for adc_index in adc_indices:
-        ramp_measurement = ramp_by_adc[adc_index]
-        calibration = analyze_calibration1(
-            cdac_group_by_adc[adc_index],
-            comparator_offset_v=comparator_offset_v_by_adc[adc_index],
-        )
-        analysis = analyze_adc_ramp(ramp_measurement, calibrations=(calibration,))
-        analyses.append(analysis)
+    for adc_index, measurements in sorted(groups.items()):
         artifacts.extend(
-            plot_adc_ramp_transfer(
-                analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_ramp_transfer",
+            plot_adc_transfer(
+                measurements,
+                analyze_adc_transfer(measurements),
+                output_path=output_dir / f"adc{adc_index:02d}_transfer_curve",
             )
         )
-        artifacts.extend(
-            plot_adc_ramp_histogram(
-                analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_ramp_histogram",
-            )
-        )
-        artifacts.extend(
-            plot_adc_ramp_weights(
-                analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_ramp_weights",
-            )
-        )
-        artifacts.extend(
-            plot_adc_ramp_nonlinearity(
-                analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_ramp_nonlinearity",
-            )
-        )
-
-    csv_path = output_dir / "adc00_adc03_ramp_metrics.csv"
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", newline="") as output:
-        writer = csv.writer(output)
-        writer.writerow(
-            (
-                "adc_index",
-                "decoding",
-                "sample_count",
-                "retained_sample_count",
-                "reset_excluded_sample_count",
-                "sample_rate_hz",
-                "ramp_frequency_hz",
-                "maximum_abs_dnl_lsb",
-                "maximum_abs_inl_lsb",
-                "missing_codes",
-                "maximum_transfer_reversal_dout",
-            )
-        )
-        for analysis in analyses:
-            for curve in analysis.curves:
-                writer.writerow(
-                    (
-                        analysis.adc_index,
-                        curve.decoding,
-                        analysis.sample_count,
-                        analysis.retained_sample_count,
-                        analysis.reset_excluded_sample_count,
-                        analysis.sample_rate_hz,
-                        analysis.ramp_frequency_hz,
-                        curve.maximum_abs_dnl,
-                        curve.maximum_abs_inl,
-                        curve.missing_codes,
-                        curve.maximum_transfer_reversal_dout,
-                    )
-                )
-    artifacts.append(csv_path)
     return tuple(artifacts)
 
 
-def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
-    """Run all three ADC00 digital calibrations and compare them uniformly."""
+def adc_ramp_nonlinearity_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot code density and INL/DNL for the ADC00--ADC03 10-Hz sawtooth.
+
+    Inputs are MeasAdcExt acquisitions, with uniform ramp occupancy assumed.
+    Absolute input voltage is unused. Flyback-adjacent conversions and saturated
+    endpoint bins are excluded from linearity; the full histogram stays visible.
+    No CDAC calibration data or internal SPICE waveforms are required.
+    """
+    meas_read_dir = BASE_PATH / "build/scan_adc/20260812_011910"
+    paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+    if not paths:
+        raise FileNotFoundError(meas_read_dir)
+    artifacts = []
+    for path in paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"expected MeasAdcExt: {path}")
+        stem = f"adc{measurement.param.observed_adc:02d}_{path.name.split('_', 1)[0]}"
+        artifacts.extend(
+            plot_adc_code_distribution(
+                (measurement,),
+                analyze_adc_code_distribution((measurement,)),
+                output_path=output_dir / f"{stem}_code_density",
+            )
+        )
+        artifacts.extend(
+            plot_adc_static_nonlinearity(
+                measurement,
+                analyze_adc_nonlinearity(
+                    measurement,
+                    method="code_density",
+                    ramp_reset_exclusion_conversions=ADC_RAMP_RESET_EXCLUSION_CONVERSIONS,
+                ),
+                output_path=output_dir / f"{stem}_inl_dnl",
+            )
+        )
+    return tuple(artifacts)
+
+
+def adc_calibration_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare three calibration methods on the selected ADC00 measurements.
+
+    Coverage: ADC00's known 10-Hz ramp (MeasAdcExt) and three reviewed CDAC
+    threshold campaigns (MeasCdacExt). Calibration 1 extracts A-state threshold
+    movements; calibrations 2/3 use ramp BOUT fits/prefix thresholds. The ramp
+    validates the resulting decoders. No internal SPICE waveforms are needed.
+    """
 
     ramp_meas_read_path = BASE_PATH / (
         "build/scan_adc/20260812_011910/"
@@ -378,208 +313,205 @@ def adc_calibration(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-def adc00_fixed_input_noise(output_dir: Path) -> tuple[Path, ...]:
-    """Analyze the controlled and externally applied ADC00 fixed-input captures."""
+def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare fixed-input sequence captures from measurement and PEX.
 
-    physical_meas_read_dir = BASE_PATH / "build/scan_adc/20260819_113714"
-    external_meas_read_dir = BASE_PATH / "build/scan_adc/20260821_173944"
-    all_active_meas_read_dir = BASE_PATH / "build/scan_adc/20260822_144348"
-    ideal_meas_read_dir = BASE_PATH / "build/sim/adc/20260820_005128"
-    pex_meas_read_dir = BASE_PATH / "build/sim/adc/20260820_005122"
-    supply_noise_meas_read_dir = BASE_PATH / "build/sim/adc/frida65a_supply_noise_vs_rate/20260821_182756"
-    measured_paths = (
+    Measurement coverage: ADC03's 56-pattern/control sweep at 10/6 MSPS active
+    timing only. The 2-MSPS captures and other ADCs are not yet available for
+    this sweep. Older ADC00/01 campaigns belong to the other studies.
+    PEX coverage: seven FRIDA-1/2 flavors x four sequences, 50 mV input,
+    160/100-ns periods. No slow 2-MSPS SPICE cases are selected.
+    Trajectories/histograms use MeasAdcExt or MeasAdcInt DAQ data. Comparator,
+    SAR/CDAC timing and clock plots use MeasAdcInt waveform records. Timing
+    tables require 200 ps of setup before LOGIC and before the next COMP.
+    """
+    meas_read_dirs = (BASE_PATH / "build/scan_adc/20260915_111149",)
+    sources = {}
+    provenance = []
+    for session, target, stamp, flavors in (
         (
-            "adc00",
-            (
-                physical_meas_read_dir
-                / "0000_00_adc00_320mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                physical_meas_read_dir
-                / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                physical_meas_read_dir
-                / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-            ),
+            "frida-20260906_124441_733878",
+            "frida1_fixed_input_noise",
+            "20260906_125026",
+            tuple(f"frida1_{layers}layer_radix{radix}" for layers in (1, 2) for radix in (17, 20)),
         ),
         (
-            "adc00_external",
-            (
-                external_meas_read_dir
-                / "0000_00_adc00_320mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                external_meas_read_dir
-                / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                external_meas_read_dir
-                / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-            ),
+            "frida-20260906_124442_994752",
+            "frida2_fixed_input_noise",
+            "20260906_124953",
+            tuple(f"frida2_{layers}layer_radix17" for layers in (1, 2, 3)),
         ),
         (
-            "adc00_all_active",
-            (
-                all_active_meas_read_dir
-                / "0000_00_adc00_320mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                all_active_meas_read_dir
-                / "0001_00_adc00_960mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-                all_active_meas_read_dir
-                / "0002_00_adc00_1600mbd_dcp50mv_logicp2sym_vcm700mv_vdda1200mv_vddd1200mv_vddac1200mv_t25c.h5",
-            ),
-        ),
-    )
-    simulated_paths = (
-        (
-            "spice_hdl21gen",
-            (
-                ideal_meas_read_dir / "2msps_cm700mv_dc50mv/result.h5",
-                ideal_meas_read_dir / "6msps_cm700mv_dc50mv/result.h5",
-                ideal_meas_read_dir / "10msps_cm700mv_dc50mv/result.h5",
-            ),
+            "frida-20260910_185707_055364",
+            "frida1_fixed_input_noise_comp7of8",
+            "20260910_185921",
+            tuple(f"frida1_{layers}layer_radix{radix}" for layers in (1, 2) for radix in (17, 20)),
         ),
         (
-            "spice_frida65a_pex",
-            (
-                pex_meas_read_dir / "2msps_cm700mv_dc50mv/result.h5",
-                pex_meas_read_dir / "6msps_cm700mv_dc50mv/result.h5",
-                pex_meas_read_dir / "10msps_cm700mv_dc50mv/result.h5",
-            ),
+            "frida-20260910_185757_562573",
+            "frida2_fixed_input_noise_comp7of8",
+            "20260910_190007",
+            tuple(f"frida2_{layers}layer_radix17" for layers in (1, 2, 3)),
         ),
-    )
-    measured_sets = []
-    for output_prefix, paths in measured_paths:
-        measurements = []
+    ):
+        timings = (
+            ("continuous_100ns_comp7of8",)
+            if target.endswith("comp7of8")
+            else ("original", "extended_comp", "continuous_100ns")
+        )
+        campaign = BASE_PATH / "build/remote" / session
+        for flavor in flavors:
+            for timing in timings:
+                name = f"{flavor}/{timing}/result.h5"
+                path = campaign / "results/sim/adc" / target / stamp / name
+                sources[name] = path
+    if not sources:
+        raise FileNotFoundError("no SPICE measurements in the selected sequence campaign")
+    # Prefer the established three-layer reference; a collected single-family
+    # campaign uses its first selected flavor for each sequence instead.
+    sequence_cases = {}
+    for name in sources:
+        flavor, timing, _ = name.split("/")
+        if timing not in sequence_cases or flavor == "frida2_3layer_radix17":
+            sequence_cases[timing] = name
+    for name, path in sources.items():
+        with path.open("rb") as stream:
+            checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+        provenance.append(
+            {"case": name, "source": str(path), "sha256": checksum, "sequence_plot": name in sequence_cases.values()}
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    record = output_dir / "sources.json"
+    record.write_text(json.dumps(provenance, indent=2) + "\n")
+    artifacts = []
+
+    # Physical campaigns retain their own ADC/input/sequence identities.
+    for meas_read_dir in meas_read_dirs:
+        paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+        if not paths:
+            raise FileNotFoundError(meas_read_dir)
+        groups = {}
         for path in paths:
             measurement = read_measurement(path)
             if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-            measurements.append(measurement)
-        measured_sets.append((output_prefix, measurements, analyze_adc_noise_sweep(measurements)))
-
-    simulated_sets = []
-    for output_prefix, paths in simulated_paths:
-        measurements = []
-        for path in paths:
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcInt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-            measurements.append(measurement)
-        simulated_sets.append((output_prefix, measurements, analyze_adc_noise_sweep(measurements)))
-
-    supply_measurements_by_noise: dict[tuple[float, ...], list[MeasAdcInt]] = {}
-    for path in sorted(supply_noise_meas_read_dir.glob("*/result.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        rail_noise_rms_v = tuple(float(value) for value in measurement.param.supply_noise_rms_v)
-        supply_measurements_by_noise.setdefault(rail_noise_rms_v, []).append(measurement)
-    supply_noise_sets = []
-    for rail_noise_rms_v, measurements in supply_measurements_by_noise.items():
-        noisy_rails = tuple(
-            rail
-            for rail, noise_rms_v in zip(("vdda", "vddd", "vddac"), rail_noise_rms_v, strict=True)
-            if noise_rms_v > 0.0
-        )
-        if not noisy_rails:
-            noise_name = "none"
-        elif len(noisy_rails) == 3:
-            noise_name = "all"
-        else:
-            noise_name = "_".join(noisy_rails)
-        measurements.sort(key=lambda measurement: float(measurement.param.symbol_rate))
-        supply_noise_sets.append(
-            (
-                f"spice_frida65a_pex_supply_{noise_name}",
-                measurements,
-                analyze_adc_noise_sweep(measurements),
-            )
-        )
-    supply_noise_order = {name: index for index, name in enumerate(("none", "vdda", "vddd", "vddac", "all"))}
-    supply_noise_sets.sort(
-        key=lambda item: supply_noise_order.get(item[0].removeprefix("spice_frida65a_pex_supply_"), 5)
-    )
-    simulated_sets.extend(supply_noise_sets)
-
-    artifacts = []
-    for output_prefix, measurements, noise_analysis in measured_sets:
-        artifacts.extend(
-            plot_adc_noise_sweep(
-                measurements,
-                noise_analysis,
-                output_path=output_dir / f"{output_prefix}_50mv_noise_vs_conversion_rate",
-            )
-        )
-    for output_prefix, measurements, noise_analysis in (*measured_sets, *simulated_sets):
-        artifacts.extend(
-            plot_adc_noise_distribution_sweep(
-                measurements,
-                noise_analysis,
-                output_path=output_dir / f"{output_prefix}_50mv_output_code_distributions",
-            )
-        )
-        for measurement, active_rate_hz in zip(
-            measurements,
-            noise_analysis.active_conversion_rate_hz,
-            strict=True,
-        ):
+                raise TypeError(f"expected MeasAdcExt: {path}")
+            params = measurement.param.tb
+            key = (measurement.param.observed_adc, float(params.vin_diff.dc), float(params.vin_cm.dc))
+            groups.setdefault(key, []).append(measurement)
+            stem = f"{meas_read_dir.name}_{path.name.split('_', 1)[0]}_adc{measurement.param.observed_adc:02d}"
             artifacts.extend(
                 plot_adc_decision_path_density(
                     measurement,
                     analyze_adc_decision_paths(measurement, selection="all"),
-                    output_path=output_dir
-                    / f"{output_prefix}_50mv_{float(active_rate_hz) / 1e6:g}msps_decision_path_density",
+                    output_path=output_dir / f"{stem}_trajectory",
                 )
             )
-    return tuple(artifacts)
-
-
-def adc_noise_density_grid(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the final manual-supply fixed-input captures for all 16 ADCs."""
-
-    meas_read_dirs = (
-        BASE_PATH / "build/scan_adc/20260824_165039",
-        BASE_PATH / "build/scan_adc/20260824_234702",
-    )
-    artifacts = []
-    for meas_read_dir in meas_read_dirs:
-        measurements_by_adc: dict[int, list[MeasAdcExt]] = {}
-        for path in sorted(meas_read_dir.glob("*.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-            measurements_by_adc.setdefault(int(measurement.param.observed_adc), []).append(measurement)
-
-        measurement_groups = tuple(tuple(measurements_by_adc[adc_index]) for adc_index in sorted(measurements_by_adc))
-        analyses = tuple(analyze_adc_noise_sweep(measurements) for measurements in measurement_groups)
-        first_measurement = measurement_groups[0][0]
-        input_mv = float(first_measurement.param.tb.vin_diff.dc) * 1e3
-        common_mode_mv = float(first_measurement.param.tb.vin_cm.dc) * 1e3
-        artifacts.extend(
-            plot_adc_noise_distribution_grid(
-                measurement_groups,
-                analyses,
-                output_path=output_dir / f"adc00_adc15_{input_mv:g}mv_{common_mode_mv:g}mv_output_code_density_grid",
+            artifacts.extend(
+                plot_adc_code_distribution(
+                    (measurement,),
+                    analyze_adc_code_distribution((measurement,)),
+                    output_path=output_dir / f"{stem}_codes",
+                )
             )
-        )
-    return tuple(artifacts)
+        for (adc_index, input_v, common_v), measurements in groups.items():
+            labels = []
+            sequences = []
+            for measurement in measurements:
+                params = measurement.param.tb
+                sequence = AdcSequence.from_tb_params(params)
 
+                # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
+                sequence = sequence.relative_to_init()
 
-def adc_pex_flavor_paths(output_dir: Path, *, inputs: Path | None = None) -> tuple[Path, ...]:
-    """Plot trajectories, settling, and held sampling noise for completed PEX flavors."""
+                if sequence not in sequences:
+                    sequences.append(sequence)
+                labels.append(f"Sequence {sequences.index(sequence) + 1}")
+            # Limit each overview to seven complete sequences, with all points visible.
+            for page in range(0, len(sequences), 7):
+                selected = [i for i, label in enumerate(labels) if page < int(label.split()[-1]) <= page + 7]
+                group = [measurements[i] for i in selected]
+                artifacts.extend(
+                    plot_adc_noise_sweep(
+                        group,
+                        analyze_adc_noise_sweep(group),
+                        series_labels=[labels[i] for i in selected],
+                        rate_axis="sampling",
+                        output_path=output_dir
+                        / f"{meas_read_dir.name}_adc{adc_index:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm_sequences{page // 7 + 1}",
+                    )
+                )
+        del groups, measurements, measurement
 
-    meas_read_dir = inputs or BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
-    paths = sorted(meas_read_dir.rglob("result.h5"))
-    if not paths:
-        raise FileNotFoundError(f"no completed HDF5 results beneath {meas_read_dir}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    artifacts = []
-    sampling_analyses = []
-    sampling_labels = []
-    sampling_rows = []
-    sampling_summary = []
-    for path in paths:
+    # Load, analyze and plot each case before releasing its waveform records.
+    pex_groups = {}
+    for index, source in enumerate(provenance, start=1):
+        path = Path(cast(str, source["source"]))
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != source["sha256"]:
+                raise ValueError(f"HDF5 checksum changed: {path}")
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        noise = analyze_adc_noise_sweep((measurement,))
-        input_mv = float(measurement.param.vin_diff.dc) * 1e3
-        active_rate_msps = float(noise.active_conversion_rate_hz[0]) / 1e6
-        flavor = "_".join(path.relative_to(meas_read_dir).parts[:-1]) or measurement.param.pex_cell
-        codes = output_dir / f"{flavor}_codes.txt"
+            raise TypeError(f"expected MeasAdcInt: {path}")
+        measurement = dataclasses.replace(
+            measurement,
+            info=dataclasses.replace(
+                measurement.info, readbacks={**measurement.info.readbacks, "source_h5_sha256": source["sha256"]}
+            ),
+        )
+        case = "_".join(Path(cast(str, source["case"])).parts[:-1])
+
+        artifacts.extend(
+            plot_adc_decision_path_density(
+                measurement,
+                analyze_adc_decision_paths(measurement, selection="all"),
+                output_path=output_dir / f"spice_{case}_trajectory",
+            )
+        )
+        artifacts.extend(
+            plot_adc_cdac_settling(
+                measurement,
+                analyze_adc_cdac_settling(measurement),
+                output_path=output_dir / f"spice_{case}_cdac_settling",
+            )
+        )
+        artifacts.extend(
+            plot_adc_code_distribution(
+                (measurement,),
+                analyze_adc_code_distribution((measurement,)),
+                output_path=output_dir / f"spice_{case}_codes",
+            )
+        )
+        timing = analyze_adc_timing_closure(
+            measurement,
+            required_logic_setup_s=200e-12,
+            required_cdac_setup_s=200e-12,
+        )
+        timing_columns = {field.name: getattr(timing, field.name) for field in dataclasses.fields(timing)}
+        timing_columns.update(
+            {
+                name: getattr(timing, name)
+                for name in (
+                    "internal_resolution_s",
+                    "sr_response_s",
+                    "logic_to_cdac_s",
+                    "logic_setup_s",
+                    "cdac_setup_s",
+                    "logic_ready",
+                    "cdac_applicable",
+                    "cdac_ready",
+                    "passed",
+                )
+            }
+        )
+        timing_path = output_dir / f"{case}_timing_closure.csv"
+        with timing_path.open("w", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(timing_columns)
+            for row in range(len(timing.conversion_index)):
+                writer.writerow([value if np.isscalar(value) else value[row] for value in timing_columns.values()])
+        artifacts.append(timing_path)
+
+        codes = output_dir / f"{case}_codes.txt"
         codes.write_text(
             "sample B0_to_B16 DOUT_decimal DOUT_12bit\n"
             + "".join(
@@ -588,469 +520,286 @@ def adc_pex_flavor_paths(output_dir: Path, *, inputs: Path | None = None) -> tup
             )
         )
         artifacts.append(codes)
-        artifacts.extend(
-            plot_adc_decision_path_density(
+
+        # One representative flavor supplies the four sequence clock diagrams.
+        if source["sequence_plot"]:
+            timing = Path(cast(str, source["case"])).parts[1]
+            waveform = analyze_measurement_waveforms(
                 measurement,
-                analyze_adc_decision_paths(measurement, selection="all"),
-                output_path=output_dir
-                / f"spice_{flavor}_{input_mv:g}mv_{active_rate_msps:g}msps_decision_path_density",
+                record_index=1,
+                reference_signal="seq_init",
+                threshold_v=0.6,
+                signal_names=("seq_init", "seq_samp", "seq_comp", "seq_logic"),
             )
-        )
-        artifacts.extend(
-            plot_adc_cdac_settling(
-                measurement,
-                analyze_adc_cdac_settling(measurement),
-                output_path=output_dir / f"spice_{flavor}_{input_mv:g}mv_{active_rate_msps:g}msps_cdac_settling",
-            )
-        )
-        sampling = analyze_adc_sampling_noise(measurement)
-        sampling_analyses.append(sampling)
-        label = path.parent.name
-        if label in ("original", "extended_comp", "continuous_100ns"):
-            label = f"{path.parent.parent.name}_{label}"
-        label = label.replace("frida", "FRIDA-").replace("layer", "L").replace("radix", "R")
-        sampling_labels.append(f"{label.replace('_', ' ')}\n{input_mv:g} mV, {active_rate_msps:g} MS/s active")
-        sampling_rows.extend(
-            (str(path.relative_to(meas_read_dir)), int(index), start, stop, vp, vn, vp - vn, vin)
-            for index, start, stop, vp, vn, vin in zip(
-                sampling.conversion_index,
-                sampling.window_start_s,
-                sampling.window_stop_s,
-                sampling.held_p_v,
-                sampling.held_n_v,
-                sampling.input_diff_v,
-                strict=True,
-            )
-        )
-        sampling_summary.append(
-            (
-                str(path.relative_to(meas_read_dir)),
-                len(sampling.conversion_index),
-                float(np.mean(sampling.held_diff_v)) * 1e3,
-                sampling.sigma_v * 1e6,
-                float(np.mean(sampling.held_diff_v - sampling.input_diff_v)) * 1e6,
-                float(np.min(sampling.window_start_s)) * 1e9,
-                float(np.max(sampling.window_stop_s)) * 1e9,
-            )
-        )
-    sampling_order = sorted(range(len(sampling_labels)), key=sampling_labels.__getitem__)
-    artifacts.extend(
-        plot_adc_sampling_noise(
-            [sampling_analyses[index] for index in sampling_order],
-            labels=[sampling_labels[index] for index in sampling_order],
-            output_path=output_dir / "adc_sampling_noise",
-        )
-    )
-    for filename, header, rows in (
-        (
-            "adc_sampling_levels.csv",
-            (
-                "source_h5",
-                "conversion",
-                "window_start_s",
-                "window_stop_s",
-                "held_p_v",
-                "held_n_v",
-                "held_diff_v",
-                "input_diff_v",
-            ),
-            sampling_rows,
-        ),
-        (
-            "adc_sampling_noise.csv",
-            (
-                "source_h5",
-                "conversions",
-                "held_mean_mv",
-                "held_sd_uv",
-                "mean_offset_uv",
-                "earliest_window_start_ns",
-                "latest_window_stop_ns",
-            ),
-            sampling_summary,
-        ),
-    ):
-        destination = output_dir / filename
-        with destination.open("w", newline="") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(header)
-            writer.writerows(rows)
-        artifacts.append(destination)
-    return tuple(artifacts)
-
-
-def adc_pex_cdac_settling(output_dir: Path) -> tuple[Path, ...]:
-    """Plot representative internal CDAC settling for each extracted ADC flavor."""
-
-    meas_read_dir = BASE_PATH / "build/sim/adc/frida65a_noise_vs_rate/20260827_165917"
-    artifacts = []
-    for path in sorted(meas_read_dir.glob("*/*/result.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        analysis = analyze_adc_cdac_settling(measurement)
-        input_mv = float(measurement.param.vin_diff.dc) * 1e3
-        active_rate_msps = analysis.active_conversion_rate_hz / 1e6
-        artifacts.extend(
-            plot_adc_cdac_settling(
-                measurement,
-                analysis,
-                output_path=output_dir
-                / f"spice_{measurement.param.pex_cell}_{input_mv:g}mv_{active_rate_msps:g}msps_cdac_settling",
-            )
-        )
-    return tuple(artifacts)
-
-
-def adc_noise_vs_rate(output_dir: Path) -> tuple[Path, ...]:
-    """Compare configured physical ADC input-referred noise across rate and backends."""
-
-    physical_meas_read_dirs = (
-        BASE_PATH / "build/scan_adc/20260801_194930",
-        BASE_PATH / "build/scan_adc/20260802_021624",
-    )
-    sine_meas_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
-    ideal_meas_read_dir = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
-    pex_meas_read_dir = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
-    ideal_measurement_paths = (
-        ideal_meas_read_dir / "2msps_cm600mv_dc50mv/result.h5",
-        ideal_meas_read_dir / "6msps_cm600mv_dc50mv/result.h5",
-        ideal_meas_read_dir / "10msps_cm600mv_dc50mv/result.h5",
-    )
-    pex_measurement_paths = (
-        pex_meas_read_dir / "2msps_cm600mv_dc50mv/result.h5",
-        pex_meas_read_dir / "6msps_cm600mv_dc50mv/result.h5",
-        pex_meas_read_dir / "10msps_cm600mv_dc50mv/result.h5",
-    )
-
-    physical_measurement_sets = []
-    for meas_read_dir in physical_meas_read_dirs:
-        measurements = []
-        for path in sorted(meas_read_dir.glob("*.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-            measurements.append(measurement)
-        physical_measurement_sets.append(tuple(measurements))
-    physical_measurement_sets.sort(key=lambda measurements: float(measurements[0].param.tb.vin_diff.dc))
-
-    sine_measurements = []
-    for path in sorted(sine_meas_read_dir.glob("*.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-        sine_measurements.append(measurement)
-
-    ideal_measurements = []
-    for path in ideal_measurement_paths:
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        ideal_measurements.append(measurement)
-    pex_measurements = []
-    for path in pex_measurement_paths:
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        pex_measurements.append(measurement)
-
-    adc_indices = tuple(
-        sorted(
-            {
-                int(measurement.param.observed_adc)
-                for measurements in physical_measurement_sets
-                for measurement in measurements
-            }
-        )
-    )
-    ideal_noise = analyze_adc_noise_sweep(ideal_measurements)
-    pex_noise = analyze_adc_noise_sweep(pex_measurements)
-    artifacts = []
-    for adc_index in adc_indices:
-        adc_physical_measurement_sets = [
-            [measurement for measurement in measurements if measurement.param.observed_adc == adc_index]
-            for measurements in physical_measurement_sets
-        ]
-        adc_sine_measurements = [
-            measurement for measurement in sine_measurements if measurement.param.observed_adc == adc_index
-        ]
-        physical_noise_sweeps = [
-            analyze_adc_noise_sweep(measurements) for measurements in adc_physical_measurement_sets
-        ]
-        sine_dynamic = analyze_adc_dynamic_sweep(adc_sine_measurements)
-        comparison_measurements = [
-            *adc_physical_measurement_sets[0],
-            *(measurement for measurements in adc_physical_measurement_sets for measurement in measurements),
-            *adc_sine_measurements,
-        ]
-        series_labels = [
-            *("Input stimulus noise" for _ in adc_physical_measurement_sets[0]),
-            *(
-                f"Measured ({float(measurements[0].param.tb.vin_diff.dc) * 1e3:g} mV DC)"
-                for measurements in adc_physical_measurement_sets
-                for _ in measurements
-            ),
-            *("Measured (1 V sine)" for _ in adc_sine_measurements),
-        ]
-        simulated_noise_sweeps = []
-        if adc_index == adc_indices[0]:
-            simulated_noise_sweeps.extend((ideal_noise, pex_noise))
-            comparison_measurements.extend((*ideal_measurements, *pex_measurements))
-            series_labels.extend(
-                (
-                    *("SPICE Ideal (50 mV DC)" for _ in ideal_measurements),
-                    *("SPICE PEX (50 mV DC)" for _ in pex_measurements),
+            with mpl.rc_context({"axes.xmargin": 0.0}):
+                artifacts.extend(
+                    plot_waveforms(
+                        dataclasses.replace(
+                            waveform, title=timing.replace("_", " "), signal_names=("INIT", "SAMP", "COMP", "LOGIC")
+                        ),
+                        output_path=output_dir / f"sequence_{timing}",
+                    )
                 )
+            sequence_record = output_dir / f"sequence_{timing}.json"
+            sequence_record.write_text(
+                json.dumps(
+                    {
+                        **source,
+                        "source_raw": measurement.info.readbacks.get("raw_file"),
+                        "time_reference": "second conversion SEQ_INIT rising at 0.6 V",
+                        "conversion_index": 1,
+                        "time_origin_s": waveform.time_origin_s,
+                        "window_s": tuple(float(value) for value in waveform.time_s[[0, -1]]),
+                    },
+                    indent=2,
+                )
+                + "\n"
             )
+            artifacts.append(sequence_record)
+        print(f"Rendered {index}/{len(sources)} cases: {source['case']}", flush=True)
+        flavor = Path(cast(str, source["case"])).parts[0]
+        pex_groups.setdefault(flavor, []).append((Path(cast(str, source["case"])).parts[1], measurement))
+        del measurement
 
-        comparison = combine_adc_noise_comparison(
-            physical_noise_sweeps,
-            sine_dynamic,
-            simulated_noise_sweeps,
-            series_labels=series_labels,
-        )
+    for flavor, cases in pex_groups.items():
+        labels, measurements = zip(*cases, strict=True)
         artifacts.extend(
             plot_adc_noise_sweep(
-                comparison_measurements,
-                comparison,
-                output_path=output_dir / f"adc{adc_index:02d}_noise_vs_conversion_rate",
+                measurements,
+                analyze_adc_noise_sweep(measurements),
+                series_labels=labels,
+                rate_axis="sampling",
+                output_path=output_dir / f"spice_{flavor}_sequence_noise",
             )
         )
-    return tuple(artifacts)
+    del pex_groups
 
+    for source in provenance:
+        with Path(cast(str, source["source"])).open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != source["sha256"]:
+                raise RuntimeError(f"source changed during analysis: {source['source']}")
 
-def adc_code_distributions(output_dir: Path) -> tuple[Path, ...]:
-    """Plot configured ADC fixed-input distributions and selected decision paths."""
-
-    physical_meas_read_dirs = (
-        BASE_PATH / "build/scan_adc/20260801_194930",
-        BASE_PATH / "build/scan_adc/20260802_021624",
+    # Keep every figure as a vector PDF and place exactly one on each slide.
+    # Paths are relative so the output directory is a portable TeX source bundle.
+    frames = []
+    for artifact in artifacts:
+        if artifact.suffix != ".pdf" or not artifact.stem.startswith(("spice_", "sequence_")):
+            continue
+        title = artifact.stem.replace("_", " ")
+        for name in sorted(sources, key=len, reverse=True):
+            case = "_".join(Path(name).parts[:-1])
+            if artifact.stem.startswith(f"spice_{case}_"):
+                title = case.replace("frida", "FRIDA-").replace("layer", "L").replace("radix", "R").replace("_", " ")
+                break
+        frames.append(
+            "\\begin{frame}{" + title + "}\n\\centering\n"
+            "\\includegraphics[width=\\linewidth,height=0.88\\textheight,keepaspectratio]{"
+            + artifact.relative_to(output_dir).as_posix()
+            + "}\n\\end{frame}\n"
+        )
+    tex = output_dir / "frida_2_vs_1.tex"
+    tex.write_text(
+        "\\documentclass[aspectratio=1610]{beamer}\n"
+        "\\usepackage[T1]{fontenc}\n\\usepackage{lmodern}\n\\usepackage{graphicx}\n"
+        "\\definecolor{NordBlue}{HTML}{5E81AC}\n"
+        "\\setbeamercolor{frametitle}{fg=NordBlue}\n"
+        "\\setbeamerfont{frametitle}{size=\\large}\n"
+        "\\setbeamertemplate{navigation symbols}{}\n\\setbeamertemplate{footline}{}\n"
+        "\\begin{document}\n" + "".join(frames) + "\\end{document}\n"
     )
-    ideal_meas_read_dir = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
-    ideal_measurement_paths = (
-        ideal_meas_read_dir / "2msps_cm600mv_dc50mv/result.h5",
-        ideal_meas_read_dir / "6msps_cm600mv_dc50mv/result.h5",
-        ideal_meas_read_dir / "10msps_cm600mv_dc50mv/result.h5",
-    )
-    decision_path_rates_hz = (2.0e6, 10.0e6)
+    with (output_dir / "latexmk.log").open("w") as log:
+        subprocess.run(
+            ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error", tex.name],
+            cwd=output_dir,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=True,
+        )
+    return (*artifacts, record, tex, tex.with_suffix(".pdf"))
 
-    physical_measurement_sets = []
-    for meas_read_dir in physical_meas_read_dirs:
-        measurements = []
-        for path in sorted(meas_read_dir.glob("*.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-            measurements.append(measurement)
-        physical_measurement_sets.append(tuple(measurements))
-    physical_measurement_sets.sort(key=lambda measurements: float(measurements[0].param.tb.vin_diff.dc))
-    adc_indices = tuple(
-        sorted(
-            {
-                int(measurement.param.observed_adc)
-                for measurements in physical_measurement_sets
-                for measurement in measurements
-            }
+
+def adc_sample_rate_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot measured rate dependence for selected historical sequence patterns.
+
+    Coverage: ADC00/01 50/100-mV DC and 10-kHz sine captures at 600-mV common
+    mode, plus the control alignment in ADC00's 800-mV timing campaign.
+    Only the historical ORIGINAL sequence is currently accepted; extend the
+    explicit selection after validating additional patterns in the sequence study.
+    Actual rates are 0.3125--6.25 MSPS (formerly labelled 0.5--10 active MSPS);
+    an actual 10-MSPS sweep of accepted new patterns still needs acquisition.
+    DC panels show noise-equivalent resolution; sine panels show spectral
+    ENOB/SNDR. Inputs are MeasAdcExt; no PEX or internal waveforms are required.
+    """
+    dc_read_dirs = tuple(
+        BASE_PATH / "build/scan_adc" / stamp
+        for stamp in (
+            "20260801_194930",
+            "20260802_021624",
+            "20260802_081407",
         )
     )
+    sine_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
+    selected_sequences = (ORIGINAL,)
 
-    ideal_measurements = []
-    for path in ideal_measurement_paths:
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcInt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-        ideal_measurements.append(measurement)
-    ideal_noise = analyze_adc_noise_sweep(ideal_measurements)
+    # Give selected library recipes the same INIT reference as acquired rows.
+    sequence_labels = {}
+    for sequence in selected_sequences:
+        relative_sequence = sequence.relative_to_init()
+        sequence_labels[relative_sequence] = f"LOGIC {TIMING_SWEEP.index(sequence) + 1}/8"
 
+    # Select and compare DC sweeps without changing their saved acquisition phase.
     artifacts = []
-    for measurements in physical_measurement_sets:
-        input_mv = float(measurements[0].param.tb.vin_diff.dc) * 1e3
-        for adc_index in adc_indices:
-            adc_measurements = [
-                measurement for measurement in measurements if measurement.param.observed_adc == adc_index
-            ]
-            artifacts.extend(
-                plot_adc_noise_distribution_sweep(
-                    adc_measurements,
-                    analyze_adc_noise_sweep(adc_measurements),
-                    output_path=output_dir / f"adc{adc_index:02d}_{input_mv:g}mv_dc_output_code_distributions",
-                )
-            )
-
-    for measurement, active_rate_hz in zip(
-        ideal_measurements,
-        ideal_noise.active_conversion_rate_hz,
-        strict=True,
-    ):
-        rate_msps = float(active_rate_hz) / 1e6
-        artifacts.extend(
-            plot_adc_code_distribution(
-                [measurement],
-                analyze_adc_code_distribution([measurement]),
-                output_path=output_dir / f"spice_hdl21gen_{rate_msps:g}msps_output_code_histogram",
-            )
-        )
-        artifacts.extend(
-            plot_adc_decision_paths(
-                measurement,
-                analyze_adc_decision_paths(measurement, selection="all"),
-                output_path=output_dir / f"spice_hdl21gen_{rate_msps:g}msps_decision_paths",
-            )
-        )
-
-    for measurements in physical_measurement_sets:
-        input_mv = float(measurements[0].param.tb.vin_diff.dc) * 1e3
-        for adc_index in adc_indices:
-            adc_measurements = [
-                measurement for measurement in measurements if measurement.param.observed_adc == adc_index
-            ]
-            noise = analyze_adc_noise_sweep(adc_measurements)
-            for requested_rate_hz in decision_path_rates_hz:
-                measurement_index = int(
-                    np.flatnonzero(np.isclose(noise.active_conversion_rate_hz, requested_rate_hz))[0]
-                )
-                measurement = adc_measurements[measurement_index]
-                rate_msps = float(noise.active_conversion_rate_hz[measurement_index]) / 1e6
-                analysis = analyze_adc_decision_paths(measurement, selection="all")
-                output_path = output_dir / (
-                    f"adc{adc_index:02d}_{input_mv:g}mv_{rate_msps:g}msps_decision_path_density"
-                )
-                artifacts.extend(plot_adc_decision_path_density(measurement, analysis, output_path=output_path))
-    return tuple(artifacts)
-
-
-def adc_power_vs_rate(output_dir: Path) -> tuple[Path, ...]:
-    """Plot measured and simulated power sweeps plus detailed waveforms."""
-
-    sine_meas_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
-    ideal_meas_read_dir = BASE_PATH / "build/adc/hdl21gen_noise_vs_rate/20260801_0821"
-    pex_meas_read_dir = BASE_PATH / "build/adc/frida65a_noise_vs_rate/20260731_2353"
-    simulation_measurement_paths = {
-        "ideal": (
-            ideal_meas_read_dir / "2msps_cm600mv_dc50mv/result.h5",
-            ideal_meas_read_dir / "6msps_cm600mv_dc50mv/result.h5",
-            ideal_meas_read_dir / "10msps_cm600mv_dc50mv/result.h5",
-        ),
-        "pex": (
-            pex_meas_read_dir / "2msps_cm600mv_dc50mv/result.h5",
-            pex_meas_read_dir / "6msps_cm600mv_dc50mv/result.h5",
-            pex_meas_read_dir / "10msps_cm600mv_dc50mv/result.h5",
-        ),
-    }
-
-    sine_measurements = []
-    for path in sorted(sine_meas_read_dir.glob("*.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasAdcExt):
-            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-        sine_measurements.append(measurement)
-    adc_indices = tuple(sorted({int(measurement.param.observed_adc) for measurement in sine_measurements}))
-
-    simulation_measurements = {}
-    for source, paths in simulation_measurement_paths.items():
-        measurements = []
+    for meas_read_dir in dc_read_dirs:
+        paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+        if not paths:
+            raise FileNotFoundError(meas_read_dir)
+        groups = {}
         for path in paths:
             measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcInt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcInt")
-            measurements.append(measurement)
-        simulation_measurements[source] = measurements
+            if not isinstance(measurement, MeasAdcExt):
+                raise TypeError(f"expected MeasAdcExt: {path}")
+            params = measurement.param.tb
+            if not isinstance(params.vin_diff, h.Vdc.Params):
+                continue
+            sequence = AdcSequence.from_tb_params(params)
 
-    simulation_power = {
-        source: analyze_adc_power_sweep(measurements) for source, measurements in simulation_measurements.items()
-    }
+            # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
+            sequence = sequence.relative_to_init()
 
-    artifacts = []
-    physical_power = {}
-    for adc_index in adc_indices:
-        measurements = [measurement for measurement in sine_measurements if measurement.param.observed_adc == adc_index]
-        analysis = analyze_adc_power_sweep(measurements)
-        physical_power[adc_index] = (measurements, analysis)
+            if sequence not in sequence_labels:
+                continue
+            key = (measurement.param.observed_adc, float(params.vin_diff.dc), float(params.vin_cm.dc))
+            groups.setdefault(key, []).append(measurement)
+        if not groups:
+            raise ValueError(f"no selected sequences in {meas_read_dir}")
+        for (adc_index, input_v, common_v), measurements in sorted(groups.items()):
+            labels = []
+            for measurement in measurements:
+                params = measurement.param.tb
+                sequence = AdcSequence.from_tb_params(params)
+
+                # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
+                sequence = sequence.relative_to_init()
+
+                labels.append(sequence_labels[sequence])
+            stem = f"{meas_read_dir.name}_adc{adc_index:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm"
+            artifacts.extend(
+                plot_adc_noise_sweep(
+                    measurements,
+                    analyze_adc_noise_sweep(measurements),
+                    series_labels=labels,
+                    rate_axis="sampling",
+                    output_path=output_dir / f"{stem}_noise_vs_rate",
+                )
+            )
+            for label in dict.fromkeys(labels):
+                group = [m for m, name in zip(measurements, labels, strict=True) if name == label]
+                artifacts.extend(
+                    plot_adc_noise_distribution_sweep(
+                        group,
+                        analyze_adc_noise_sweep(group),
+                        rate_axis="sampling",
+                        output_path=output_dir / f"{stem}_logic{label.split()[-1].replace('/', 'of')}_distributions",
+                    )
+                )
+
+    # Spectral results use the acquired sine, separately from DC noise estimates.
+    paths = sorted(sine_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+    if not paths:
+        raise FileNotFoundError(sine_read_dir)
+    groups = {}
+    for path in paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcExt):
+            raise TypeError(f"expected MeasAdcExt: {path}")
+        params = measurement.param.tb
+        if not isinstance(params.vin_diff, h.Vsin.Params):
+            continue
+        sequence = AdcSequence.from_tb_params(params)
+
+        # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
+        sequence = sequence.relative_to_init()
+
+        if sequence not in sequence_labels:
+            continue
+        key = (measurement.param.observed_adc, sequence)
+        groups.setdefault(key, []).append(measurement)
+    for (adc_index, sequence), measurements in groups.items():
+        sequence_name = sequence_labels[sequence].split()[-1].replace("/", "of")
+        dynamic = analyze_adc_dynamic_sweep(measurements)
         artifacts.extend(
-            plot_adc_power_sweep(
+            plot_adc_dynamic_sweep(
                 measurements,
-                analysis,
-                output_path=output_dir / f"adc_power_vs_conversion_rate_adc{adc_index:02d}",
+                dynamic,
+                x_axis="sample_rate",
+                output_path=output_dir / f"adc{adc_index:02d}_logic{sequence_name}_spectral_vs_rate",
             )
         )
-    for source in ("ideal", "pex"):
-        measurements = simulation_measurements[source]
-        analysis = simulation_power[source]
-        artifacts.extend(
-            plot_adc_power_sweep(
-                measurements,
-                analysis,
-                output_path=output_dir / f"spice_{source}_power_vs_conversion_rate",
+        # Retain individual spectral checks at the ends of the selected sweep.
+        for index in dict.fromkeys((int(np.argmin(dynamic.sample_rate_hz)), int(np.argmax(dynamic.sample_rate_hz)))):
+            measurement = measurements[index]
+            artifacts.extend(
+                plot_adc_dynamic(
+                    measurement,
+                    analyze_adc_dynamic(measurement),
+                    output_path=output_dir
+                    / f"adc{adc_index:02d}_logic{sequence_name}_{dynamic.sample_rate_hz[index] / 1e6:g}msps_spectrum",
+                )
             )
-        )
-        detail_index = int(np.argmax(analysis.active_conversion_rate_hz))
-        detail_measurement = measurements[detail_index]
-        detail_rate_msps = float(analysis.active_conversion_rate_hz[detail_index]) / 1e6
-        artifacts.extend(
-            plot_adc_power_waveform(
-                analyze_adc_power_waveform(detail_measurement),
-                output_path=output_dir / f"spice_{source}_{detail_rate_msps:g}msps_supply_power",
-            )
-        )
-    for adc_index, (measurements, analysis) in physical_power.items():
-        detail_index = int(np.argmin(analysis.active_conversion_rate_hz))
-        detail_measurement = measurements[detail_index]
-        detail_rate_mbd = float(detail_measurement.param.tb.symbol_rate) / 1e6
-        artifacts.extend(
-            plot_waveforms(
-                analyze_measurement_waveforms(detail_measurement),
-                output_path=output_dir / f"adc{adc_index:02d}_{detail_rate_mbd:g}mbd_sine_waveforms",
-            )
-        )
-        artifacts.extend(
-            plot_adc_dynamic(
-                detail_measurement,
-                analyze_adc_dynamic(detail_measurement),
-                output_path=output_dir / f"adc{adc_index:02d}_{detail_rate_mbd:g}mbd_sine_fit_and_spectrum",
-            )
-        )
     return tuple(artifacts)
 
 
-def adc_rate_characterization(output_dir: Path) -> tuple[Path, ...]:
-    """Run the configured ADC rate-sweep noise, code-distribution, and power analyses."""
+def adc_power_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot three-rail power from instrumented fixed-input MeasAdcExt captures.
 
-    return (
-        *adc_noise_vs_rate(output_dir),
-        *adc_code_distributions(output_dir),
-        *adc_power_vs_rate(output_dir),
-    )
-
-
-def adc_noise_vs_comp_time(output_dir: Path) -> tuple[Path, ...]:
-    """Plot ADC input-referred noise versus conversion rate and comparator timing."""
-
-    meas_read_dirs = (
-        BASE_PATH / "build/scan_adc/20260802_081407",
-        BASE_PATH / "build/loopback_fastrx/20260729_181030",
+    Coverage: ADC00/01 50/100-mV DC at 600-mV common mode over actual
+    0.3125--6.25 MSPS, plus ADC00 50-mV/700-mV-common reference points.
+    Requires active and baseline voltage/current or power readbacks from the
+    three Keithley supplies. Manual-supply runs and PEX are not selected;
+    internal SPICE waveforms are unnecessary.
+    """
+    meas_read_dirs = tuple(
+        BASE_PATH / "build/scan_adc" / stamp
+        for stamp in (
+            "20260801_194930",
+            "20260802_021624",
+            "20260819_113714",
+        )
     )
     artifacts = []
     for meas_read_dir in meas_read_dirs:
-        measurements = []
-        for path in sorted(meas_read_dir.glob("*.h5")):
+        paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
+        if not paths:
+            raise FileNotFoundError(meas_read_dir)
+        groups = {}
+        for path in paths:
             measurement = read_measurement(path)
             if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdcExt")
-            measurements.append(measurement)
+                raise TypeError(f"expected MeasAdcExt: {path}")
+            params = measurement.param.tb
+            if not isinstance(params.vin_diff, h.Vdc.Params):
+                continue
+            sequence = AdcSequence.from_tb_params(params)
 
-        adc_index = int(measurements[0].param.observed_adc)
-        noise = analyze_adc_noise_sweep(measurements)
-        artifacts.extend(
-            plot_adc_noise_sweep(
-                measurements,
-                noise,
-                output_path=output_dir / f"adc{adc_index:02d}_noise_vs_conversion_rate_and_logic_offset",
+            # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
+            sequence = sequence.relative_to_init()
+
+            key = (measurement.param.observed_adc, float(params.vin_diff.dc), float(params.vin_cm.dc), sequence)
+            groups.setdefault(key, []).append(measurement)
+        for index, ((adc_index, input_v, common_v, _sequence), measurements) in enumerate(groups.items()):
+            artifacts.extend(
+                plot_adc_power_sweep(
+                    measurements,
+                    analyze_adc_power_sweep(measurements),
+                    rate_axis="sampling",
+                    output_path=output_dir
+                    / f"{meas_read_dir.name}_adc{adc_index:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm_{index}_power",
+                )
             )
-        )
     return tuple(artifacts)
 
 
-def comp_system_common_mode(output_dir: Path) -> tuple[Path, ...]:
+def comp_system_common_mode_study(output_dir: Path) -> tuple[Path, ...]:
     """Analyze and plot separate ADC00–ADC03 comparator common-mode campaigns."""
 
     meas_read_dir = BASE_PATH / "build/scan_comp/20260805_171216"
@@ -1081,7 +830,7 @@ def comp_system_common_mode(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
+def comp_system_sampling_noise_study(output_dir: Path) -> tuple[Path, ...]:
     """Analyze and plot separate ADC00–ADC03 track/hold comparator campaigns."""
 
     base_meas_read_dir = BASE_PATH / "build/scan_comp/20260805_183915"
@@ -1099,7 +848,7 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCompExt")
         correction_measurements.append(measurement)
 
-    corrected_curve_keys = {
+    measurement_curve_keys = {
         (
             int(measurement.param.observed_adc),
             float(measurement.param.requested_dac_rail_percent),
@@ -1115,7 +864,7 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
             float(measurement.param.requested_dac_rail_percent),
             measurement.param.sampling_mode,
         )
-        not in corrected_curve_keys
+        not in measurement_curve_keys
     ]
     measurements.extend(correction_measurements)
 
@@ -1142,7 +891,7 @@ def comp_system_sampling_noise(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
+def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
     """Analyze the complete generated-comparator noise/power/timing campaign."""
 
     meas_read_dir = BASE_PATH / "build/comp/frida65_candidate_scurve_power/candidates"
@@ -1259,7 +1008,7 @@ def comp_candidate_sweep(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-def cdac_system_cap_mismatch(output_dir: Path) -> tuple[Path, ...]:
+def cdac_system_cap_mismatch_study(output_dir: Path) -> tuple[Path, ...]:
     """Extract and plot ADC00–ADC03 capacitor mismatch from A-to-B transitions."""
 
     meas_read_dirs = tuple(
@@ -1309,74 +1058,35 @@ def cdac_system_cap_mismatch(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
-TARGETS: dict[str, Callable[[Path], tuple[Path, ...]]] = {
-    target.__name__: target
-    for target in (
-        adc_transfer_curve,
-        adc_ramp_nonlinearity,
-        adc_calibration,
-        adc00_fixed_input_noise,
-        adc_noise_density_grid,
-        adc_pex_flavor_paths,
-        adc_pex_cdac_settling,
-        adc_noise_vs_rate,
-        adc_code_distributions,
-        adc_power_vs_rate,
-        adc_rate_characterization,
-        adc_noise_vs_comp_time,
-        comp_system_common_mode,
-        comp_system_sampling_noise,
-        comp_candidate_sweep,
-        cdac_system_cap_mismatch,
-    )
-}
-AGGREGATE_TARGETS = {"adc_rate_characterization"}
-
-
 def main() -> None:
-    """Run one named analysis pipeline, or every target when none is named."""
-
-    # TODO: Change analysis roots to build/analysis_<domain>/<short-datetime>.
-    ANALYSIS_OUTPUT_BASE = BASE_PATH / "build/analysis"
+    """Run one explicitly selected analysis pipeline."""
+    targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
+        target.__name__: target
+        for target in (
+            adc_transfer_curve_study,
+            adc_ramp_nonlinearity_study,
+            adc_calibration_study,
+            adc_sequence_study,
+            adc_sample_rate_study,
+            adc_power_study,
+            comp_system_common_mode_study,
+            comp_system_sampling_noise_study,
+            comp_candidate_sweep_study,
+            cdac_system_cap_mismatch_study,
+        )
+    }
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inputs", type=Path, help="Completed campaign directory for adc_pex_flavor_paths")
-    parser.add_argument(
-        "target",
-        nargs="?",
-        choices=sorted(TARGETS),
-        help="analysis-pipeline function to run; omit to run all targets",
-    )
+    parser.add_argument("target", choices=sorted(targets), help="analysis pipeline to run")
     args = parser.parse_args()
-    if args.inputs is not None and args.target != "adc_pex_flavor_paths":
-        parser.error("--inputs requires adc_pex_flavor_paths")
-    run_all = args.target is None
-    target_names = tuple(name for name in TARGETS if name not in AGGREGATE_TARGETS) if run_all else (args.target,)
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M")
-    output_dirs: dict[str, Path] = {}
-    for target_name in target_names:
-        # TODO: Route cdac_* targets to analysis_cdac instead of analysis_adc.
-        domain = "comp" if target_name.startswith("comp_") else "adc"
-        output_dir = output_dirs.get(domain)
-        if output_dir is None:
-            output_dir = ANALYSIS_OUTPUT_BASE / domain / timestamp
-            output_dir.mkdir(parents=True, exist_ok=False)
-            output_dirs[domain] = output_dir
-            print(f"Analysis output: {output_dir}")
-        start_time = perf_counter()
-        try:
-            if args.inputs is not None:
-                artifacts = adc_pex_flavor_paths(output_dir, inputs=args.inputs)
-            else:
-                artifacts = TARGETS[target_name](output_dir)
-        except FileNotFoundError as error:
-            if not run_all:
-                raise
-            runtime_s = perf_counter() - start_time
-            print(f"Skipped {target_name}: missing {error.filename} after {runtime_s:.2f} s")
-            continue
-        runtime_s = perf_counter() - start_time
-        print(f"Completed {target_name}: {len(artifacts)} artifacts in {runtime_s:.2f} s")
+
+    domain = args.target.split("_", 1)[0] if args.target.startswith(("comp_", "cdac_")) else "adc"
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    output_dir = BASE_PATH / "build/analysis" / domain / timestamp
+    output_dir.mkdir(parents=True, exist_ok=False)
+    print(f"Analysis output: {output_dir}")
+    artifacts = targets[args.target](output_dir)
+    print(f"Completed {args.target}: {len(artifacts)} artifacts")
 
 
 if __name__ == "__main__":

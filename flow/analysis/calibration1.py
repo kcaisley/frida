@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 
 from flow.analysis.cdac import analyze_cdac_cap_mismatch
 from flow.analysis.types import AnalysisAdcCalibration, MeasCdacExt
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 
 type LogicBit = Literal[0, 1]
 type CdacDirection = Literal["1to0", "0to1"]
@@ -242,7 +242,7 @@ def analyze(
     scan_params = measurements[0].param
     params = scan_params.tb
     nominal_cap_weight = np.asarray(
-        [2.0 * value for value in get_cdac_weights(params.dut.cdac)],
+        [2.0 * value for value in get_caparray_weights(params.dut.cdac)],
         dtype=np.float64,
     )
     if nominal_cap_weight.shape != (16,):

@@ -7,39 +7,40 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import f, p
-from hdl21.primitives import C, Vdc, Vpwl
+from hdl21.primitives import C, Vpwl
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
-from .subckt import Cdac, CdacParams
+from flow.circuit.ports import testbench_from_ports
+
+from .subckt import CapArray, CapArrayConfig, CapArrayParams
 
 
 @h.paramclass
-class CdacTbParams:
+class CapArrayTbParams:
     """Parameters which determine the generated CDAC testbench."""
 
     vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
-    cdac = h.Param(dtype=CdacParams, desc="CDAC parameters", default=CdacParams())
+    cdac = h.Param(dtype=CapArrayConfig, desc="CDAC parameters", default=CapArrayConfig())
     code_dwell_s = h.Param(dtype=h.Scalar, desc="Time held at each input code", default=200e-9)
     transition_time_s = h.Param(dtype=h.Scalar, desc="Input-code transition time", default=100e-12)
 
 
-@h.generator
-def CdacTb(params: CdacTbParams) -> h.Module:
-    """Generate a complete code-ramp CDAC testbench."""
+@h.generator(enable_cache=False)
+def CapArrayTb(params: CapArrayTbParams) -> h.Module:
+    """Drive a passive main/differential array with complementary ideal waveforms."""
 
     if float(params.code_dwell_s) <= 0.0 or float(params.transition_time_s) <= 0.0:
         raise ValueError("CDAC dwell and transition times must be positive")
     n_stages = params.cdac.n_dac + params.cdac.n_extra
 
-    @h.module
-    class CdacTb:
-        vss = h.Port(desc="Simulator ground")
-        vdd, top = h.Signals(2)
-        dac_bits = h.Signal(width=n_stages)
-
-    CdacTb.vvdd = Vdc(dc=params.vdd)(p=CdacTb.vdd, n=CdacTb.vss)
-    CdacTb.cload = C(c=100 * f)(p=CdacTb.top, n=CdacTb.vss)
-    CdacTb.dut = Cdac(params.cdac)(top=CdacTb.top, dac=CdacTb.dac_bits, vdd=CdacTb.vdd, vss=CdacTb.vss)
+    array = CapArray(CapArrayParams(cdac=params.cdac))
+    CapArrayTb, connections = testbench_from_ports(
+        "CapArrayTb",
+        {name: net for name, net in array.ports.items() if net is not array.cap_shieldplate},
+    )
+    connections[array.cap_shieldplate.name] = CapArrayTb.vss
+    CapArrayTb.cload = C(c=100 * f)(p=CapArrayTb.cap_topplate, n=CapArrayTb.vss)
+    CapArrayTb.dut = array(**connections)
     stage_values: list[list[h.Scalar]] = [[] for _ in range(n_stages)]
     for code in range(2**params.cdac.n_dac):
         # Treat the integer only as a packed display stimulus: its highest
@@ -49,19 +50,20 @@ def CdacTb(params: CdacTbParams) -> h.Module:
             packed_bit = n_stages - stage - 1
             stage_values[stage].append(params.vdd if (code >> packed_bit) & 1 else 0.0)
     for stage, values in enumerate(stage_values):
-        setattr(
-            CdacTb,
-            f"vdac_{stage}",
-            Vpwl(
-                wave=h.Pwl.steps(
-                    values=values,
-                    dwell=params.code_dwell_s + params.transition_time_s,
-                    transition=params.transition_time_s,
-                    transition_at="end",
-                )
-            )(p=CdacTb.dac_bits[stage], n=CdacTb.vss),
-        )
-    return CdacTb
+        for kind, levels in (("main", values), ("diff", [params.vdd - value for value in values])):
+            net = connections[f"cap_botplate_{kind}<{stage}>"]
+            CapArrayTb.add(
+                Vpwl(
+                    wave=h.Pwl.steps(
+                        values=levels,
+                        dwell=params.code_dwell_s + params.transition_time_s,
+                        transition=params.transition_time_s,
+                        transition_at="end",
+                    )
+                )(p=net, n=CapArrayTb.vss),
+                name=f"v{kind}_{stage}",
+            )
+    return CapArrayTb
 
 
 def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
@@ -71,9 +73,9 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     from pdk.tsmc65 import site
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    params = CdacTbParams()
+    params = CapArrayTbParams()
     h.pdk.set_default(tsmc65.pdk_logic)
-    tb = CdacTb(params)
+    tb = CapArrayTb(params)
     h.pdk.compile(tb)
     n_codes = 2**params.cdac.n_dac
     simulation = hs.Sim(
@@ -83,7 +85,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
             site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
-            hs.Save([tb.top, tb.dac_bits, "xtop.vvdd:p"]),
+            hs.Save(hs.SaveMode.ALL),
             *(
                 [
                     h.Literal(
@@ -91,9 +93,9 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
                         "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
                         "gate2power=on gate2ground=on\n"
                         "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
-                        "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
+                        "check_dcpath static_dcpath net=[0]\n"
                         "check_topology static_topology node=[*] pin2gnd=on\n"
-                        "check_nodecap dyn_nodecap node=[xtop.top] time=[100n 200n]"
+                        "check_nodecap dyn_nodecap node=[xtop.cap_topplate] time=[100n 200n]"
                     ),
                 ]
                 if check
@@ -138,7 +140,7 @@ def main() -> None:
     parser.add_argument("target", nargs="?", choices=sorted(targets))
     args = parser.parse_args()
     if args.target is None:
-        print("Available CDAC simulation targets:")
+        print("Available capacitor-array simulation targets:")
         for name in sorted(targets):
             print(f"  {name}")
         return
@@ -146,7 +148,7 @@ def main() -> None:
         Path(__file__).resolve().parents[2]
         / "build"
         / "sim"
-        / "cdac"
+        / "caparray"
         / args.target
         / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     )

@@ -4,33 +4,32 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 import hdl21 as h
-from hdl21.prefix import f
 from klayout import db
 
 from flow.layout.signoff import SignoffParams, run_signoff
-from pdk.tsmc65.signoff import SignoffOptions, mom_lvs_device
+from pdk.tsmc65.ringfmom import LIBRARY, ringfmom_array_params
+from pdk.tsmc65.signoff import SignoffOptions
 
 from .laygen import (
-    CdacLayout,
-    CdacLayoutParams,
+    CapArrayLayout,
+    CapArrayLayoutParams,
     UnitLengthCapFamilyParams,
     _layout_manifest,
-    is_valid_cdac_layout_params,
+    is_valid_caparray_layout_params,
 )
-from .pex import parse_cdac_pex, write_capacitance_table
-from .subckt import CdacArray, CdacArrayParams, CdacParams, get_cdac_weights
+from .pex import parse_caparray_pex, write_capacitance_table
+from .subckt import CapArray, CapArrayConfig, get_caparray_weights
 
 
-def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
-    if not is_valid_cdac_layout_params(params):
+def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
+    if not is_valid_caparray_layout_params(params):
         raise ValueError(f"invalid CDAC layout parameters: {params}")
     run_dir.mkdir(parents=True, exist_ok=False)
-    layout = CdacLayout(params)
+    layout = CapArrayLayout(params)
     gds_path = run_dir / f"{params.top_cell}.gds"
     save = db.SaveLayoutOptions()
     save.set_format_from_filename(str(gds_path))
@@ -40,25 +39,16 @@ def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
         json.dumps(_layout_manifest(params), indent=2) + "\n", encoding="utf-8"
     )
 
-    circuit_params = CdacArrayParams(
-        cdac=params.cdac,
-        coarse_weight=params.family.coarse_weight,
-        active_layers=params.active_layers,
-    )
-    ideal = CdacArray(circuit_params)
+    circuit_params = ringfmom_array_params(params)
+    ideal = CapArray(circuit_params)
     ideal.name = params.top_cell
+    (run_dir / "ringfmom.cdl").write_text(LIBRARY.read_text(), encoding="utf-8")
     with (run_dir / f"{params.top_cell}.ideal.cdl").open("w", encoding="utf-8") as stream:
+        stream.write('.INCLUDE "ringfmom.cdl"\n')
         h.netlist(ideal, stream, fmt="spice")
     lvs_source = run_dir / f"{params.top_cell}.lvs.cdl"
-    lvs = CdacArray(
-        replace(
-            circuit_params,
-            unit_models=tuple(mom_lvs_device(layer, params.shield_layer) for layer in params.active_layers),
-        )
-    )
-    lvs.name = params.top_cell
-    with lvs_source.open("w", encoding="utf-8") as stream:
-        h.netlist(lvs, stream, fmt="spice")
+    # Identical electrical source for simulation and LVS; no alternate C values.
+    lvs_source.write_text((run_dir / f"{params.top_cell}.ideal.cdl").read_text(), encoding="utf-8")
     result = run_signoff(
         SignoffParams(
             technology=params.technology,
@@ -69,8 +59,8 @@ def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
             output_stem=params.top_cell,
             pdk_options=SignoffOptions(
                 drc_unselect_checks=("PO.DN.2", "DRM.R.1", "MOM.R.1"),
-                mom_shield_layer=params.shield_layer,
-                mom_active_layers=params.active_layers,
+                ringfmom=True,
+                pex_engine="xact3d",
                 recognize_mom_during_pex=True,
             ),
         ),
@@ -78,7 +68,7 @@ def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
     )
     write_capacitance_table(
         run_dir,
-        parse_cdac_pex(result.pex_netlist, stage_count=len(get_cdac_weights(params.cdac))),
+        parse_caparray_pex(result.pex_netlist, stage_count=len(get_caparray_weights(params.cdac))),
     )
     return run_dir
 
@@ -86,8 +76,8 @@ def _run_caparray(run_dir: Path, params: CdacLayoutParams) -> Path:
 def caparray_1layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
-        CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -101,8 +91,8 @@ def caparray_1layer_radix17(run_dir: Path) -> Path:
 def caparray_2layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
-        CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -116,8 +106,8 @@ def caparray_2layer_radix17(run_dir: Path) -> Path:
 def caparray_3layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
-        CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -152,7 +142,7 @@ def main() -> None:
         Path(__file__).resolve().parents[2]
         / "build"
         / "layout"
-        / "cdac"
+        / "caparray"
         / args.target
         / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     )

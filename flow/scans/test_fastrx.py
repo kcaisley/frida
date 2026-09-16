@@ -18,6 +18,16 @@ Run the quick physical smoke point:
 
     uv run pytest -q -s -m "hw and not slow" flow/scans/test_fastrx.py -k physical
 
+Run boundary regressions through both production scans (ADC01, 960/1600 MBd):
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py -k adc_scan_boundary
+
+Run FPGA loopback without instruments (ordinary and boundary windows):
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py -k exact_internal
+
+Boundary cases run on the existing 256-byte sequencer RAM.
+
 Run the complete 273-point physical campaign:
 
     uv run pytest -q -s -m "hw and slow" flow/scans/test_fastrx.py -k physical
@@ -40,6 +50,7 @@ from bitarray import bitarray
 from yaml import safe_load
 
 from flow.adc import AdcParams
+from flow.adc.sequences import DUTY_CYCLE_SEQUENCES, FIXED_INPUT_SEQUENCES, ORIGINAL, TIMING_SWEEP, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
@@ -47,7 +58,7 @@ from flow.analysis.adc import (
     analyze_scope_wave_to_bits,
 )
 from flow.analysis.io import (
-    scope_records_to_adc_wave,
+    read_measurement,
     write_measurement,
 )
 from flow.analysis.plots import (
@@ -56,9 +67,10 @@ from flow.analysis.plots import (
     plot_adc_noise_sweep,
 )
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
+from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.scans import scan_adc, scan_adc_noctl
 from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
@@ -67,10 +79,11 @@ from flow.scans.scan_adc import (
 )
 from flow.scans.scope import (
     FRIDA_SCOPE_CHANNELS,
+    scope_records_to_adc_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
-from flow.scans.seqgen import convert_params_to_seqgen_fmt
+from flow.scans.seqgen import build_fastrx_capture_pattern, convert_params_to_seqgen_fmt
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_fastrx"
@@ -139,7 +152,7 @@ def test_physical_fastrx_matches_scope(
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
     dut_params = AdcParams(
         adc_bits=12,
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
             redun_strat=RedunStrat.SUBRDX2_OVLY,
@@ -333,7 +346,7 @@ def test_physical_fastrx_matches_scope(
         scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
         scope.set_trigger_mode("NORMAL")
 
-        cap_weights = get_cdac_weights(base_params.tb.dut.cdac)
+        cap_weights = get_caparray_weights(base_params.tb.dut.cdac)
         code_weights = convert_dac_caps_to_adc_weights(cap_weights)
         data_size = int(daq["fastrx0"].get_size())
         if data_size != len(code_weights):
@@ -349,7 +362,7 @@ def test_physical_fastrx_matches_scope(
                 tb=dataclasses.replace(
                     base_params.tb,
                     symbol_rate=symbol_rate_bps,
-                    seq_logic_phase_delay_symbols=logic_offset,
+                    seq_logic_pattern=TIMING_SWEEP[int(logic_offset) + 3].logic,
                 ),
             )
             validate_params(params)
@@ -363,10 +376,14 @@ def test_physical_fastrx_matches_scope(
                     params,
                     tb=dataclasses.replace(
                         params.tb,
-                        seq_init_phase_delay_symbols=float(params.tb.seq_init_phase_delay_symbols) - phase_advance,
-                        seq_samp_phase_delay_symbols=float(params.tb.seq_samp_phase_delay_symbols) - phase_advance,
-                        seq_comp_phase_delay_symbols=float(params.tb.seq_comp_phase_delay_symbols) - phase_advance,
-                        seq_logic_phase_delay_symbols=float(params.tb.seq_logic_phase_delay_symbols) - phase_advance,
+                        seq_init_pattern=params.tb.seq_init_pattern[phase_advance:]
+                        + params.tb.seq_init_pattern[:phase_advance],
+                        seq_samp_pattern=params.tb.seq_samp_pattern[phase_advance:]
+                        + params.tb.seq_samp_pattern[:phase_advance],
+                        seq_comp_pattern=params.tb.seq_comp_pattern[phase_advance:]
+                        + params.tb.seq_comp_pattern[:phase_advance],
+                        seq_logic_pattern=params.tb.seq_logic_pattern[phase_advance:]
+                        + params.tb.seq_logic_pattern[:phase_advance],
                     ),
                 )
                 validate_params(params)
@@ -669,16 +686,68 @@ def test_physical_fastrx_matches_scope(
 
 
 INTERNAL_EXPECTED_BITS = "10110100101100101"
-INTERNAL_TEST_REPEATS = 64
 INTERNAL_CAPTURE_TIMEOUT_S = 2.0
 
 
 @pytest.mark.hw
-def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
+@pytest.mark.parametrize("symbol_rate", (960e6, 1600e6))
+@pytest.mark.parametrize("sequence", (ORIGINAL, DUTY_CYCLE_SEQUENCES[0][1]), ids=("ordinary", "wrapped"))
+def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, linux_gpib_interface: None) -> None:
+    """Exercise both production scans and compare instrumented ADC data with scope."""
+    params = build_adc_variants(
+        board_id=BOARD_ID,
+        adc_indices=(ADC_INDEX,),
+        active_conversion_rates_hz=(10e6,),
+        sequences=(sequence,),
+        conversions=2050,
+        vin_cm_v=0.700,
+        vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
+    )[0]
+    params = dataclasses.replace(params, tb=dataclasses.replace(params.tb, symbol_rate=symbol_rate))
+    run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_adc_wrap")
+    try:
+        scan_adc.scan(params, run_dir=run_dir, position="first")
+        # Use the same powered bench to exercise the FPGA-only scan path.
+        scan_adc_noctl.scan(params, run_dir=run_dir, position="middle")
+    finally:
+        scan_adc.scan(params, run_dir=run_dir, position="abort")
+
+    paths = sorted(run_dir.glob("*.h5"))
+    assert len(paths) == 2
+    measurements = [read_measurement(path) for path in paths]
+    for measurement in measurements:
+        assert isinstance(measurement, MeasAdcExt)
+        assert len(measurement.daq.conversion_index) == 2050
+        assert measurement.info.readbacks["fastrx_lost_count"] == 0
+    instrumented = measurements[0]
+    assert isinstance(instrumented, MeasAdcExt)
+    comparison = analyze_scope_wave_to_bits(instrumented)
+    plot_adc_fastrx_scope_comparison(instrumented, comparison, output_path=run_dir / "scope_comparison")
+    print(f"scope={comparison.scope_bit_string}, FastRX={comparison.fastrx_bit_string}; {run_dir}")
+    assert comparison.mismatch_count == 0
+
+
+@pytest.mark.hw
+@pytest.mark.parametrize(
+    "sequence,boundary_case",
+    [
+        pytest.param(row, boundary, id=f"{name}-{'boundary' if boundary else 'ordinary'}")
+        for name, row in FIXED_INPUT_SEQUENCES
+        for boundary in (False, True)
+        if not boundary or len(row.init) < 256
+    ],
+)
+def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, boundary_case: bool) -> None:
     """Hardware: capture every test bit in order with contiguous frame IDs."""
 
-    params = AdcTbParams()
+    params = AdcTbParams(
+        seq_init_pattern=sequence.init,
+        seq_samp_pattern=sequence.samp,
+        seq_comp_pattern=sequence.comp,
+        seq_logic_pattern=sequence.logic,
+    )
     timing_model = load_board_map()["boards"]["00"]["capture_timing_model"]
+    sequence_words = len(params.seq_init_pattern) // 8
     capture_start_words = sorted(
         {
             calculate_fastrx_capture_alignment(
@@ -687,15 +756,10 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
             ).rx_sen_start_word
             for rate_mbd in range(80, 1601, 80)
         }
+        | {0, sequence_words - 18, sequence_words - 17, sequence_words - 1}
     )
-    sequence_words = len(params.seq_init_pattern) // 8
-    first_capture_stop_word = capture_start_words[0] + len(INTERNAL_EXPECTED_BITS)
-    first_rx_sen_pattern = (
-        "0" * capture_start_words[0]
-        + "1" * len(INTERNAL_EXPECTED_BITS)
-        + "0" * (sequence_words - first_capture_stop_word)
-    )
-    memory = convert_params_to_seqgen_fmt(params, first_rx_sen_pattern)
+    run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_internal_wrap")
+    run_dir.mkdir(parents=True)
 
     # Initialize only the hardware blocks participating in this loopback.
     config = safe_load((MAP_DIR / "map_fpga.yaml").read_text())
@@ -726,10 +790,15 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
         gpio.read()
         original_gpio = {field: gpio[field].tovalue() for field in gpio_fields}
         original_seq = {
-            "memory": bytes(seq.get_data(size=len(memory))),
+            "memory": bytes(seq.get_data()),
             "size": int(seq.get_size()),
             "clk_divide": int(seq.get_clk_divide()),
             "repeat": int(seq.get_repeat()),
+            "wait": int(seq.get_wait()),
+            "repeat_start": int(seq.get_repeat_start()),
+            "nested_start": int(seq.get_nested_start()),
+            "nested_stop": int(seq.get_nested_stop()),
+            "nested_repeat": int(seq.get_nested_repeat()),
             "en_ext_start": int(seq.get_en_ext_start()),
         }
 
@@ -740,66 +809,87 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
         gpio["RX_EN_MUX"] = 1
         gpio.write()
 
-        for capture_start_word in capture_start_words:
-            capture_stop_word = capture_start_word + len(INTERNAL_EXPECTED_BITS)
-            rx_sen_pattern = (
-                "0" * capture_start_word
-                + "1" * len(INTERNAL_EXPECTED_BITS)
-                + "0" * (sequence_words - capture_stop_word)
-            )
-            memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
+        print(f"FPGA sequencer RAM: {seq.get_mem_size()} bytes")
+        for capture_start_word, repeats in (
+            (start, count)
+            for start in capture_start_words
+            for count in ((1, 2050, 100000) if start == (7 if sequence_words == 20 else 9) else (1, 2050))
+        ):
+            memory = build_fastrx_capture_pattern(params, capture_start_word, len(INTERNAL_EXPECTED_BITS))
+            boundary = capture_start_word + len(INTERNAL_EXPECTED_BITS) >= sequence_words
+            if boundary != boundary_case:
+                continue
+            startup = int(capture_start_word + len(INTERNAL_EXPECTED_BITS) > sequence_words)
             # Byte lane four carries RX_SEN in bit zero and RX_TEST in bit one.
-            for bit_index, bit in enumerate(INTERNAL_EXPECTED_BITS):
-                if bit == "1":
-                    memory[(capture_start_word + bit_index) * 8 + 4] |= 1 << 1
+            for word_index in range(len(memory) // 8):
+                bit_index = (word_index % sequence_words - capture_start_word) % sequence_words
+                if bit_index < len(INTERNAL_EXPECTED_BITS) and INTERNAL_EXPECTED_BITS[bit_index] == "1":
+                    memory[word_index * 8 + 4] |= 1 << 1
 
+            daq["fastrx0"].set_en(False)
             seq.reset()
-            daq["fastrx0"].reset()
             sleep(0.001)
+            seq.set_data(bytes(seq.get_mem_size()))
             seq.set_data(memory)
-            seq.set_size(sequence_words)
+            seq.set_size(len(memory) // 8)
+            assert seq.get_size() == sequence_words
+            assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
             seq.set_clk_divide(1)
-            seq.set_repeat(INTERNAL_TEST_REPEATS)
+            seq.set_wait(0)
+            seq.set_repeat_start(0)
+            seq.set_repeat(0)
+            seq.set_nested_repeat(0)
             seq.set_en_ext_start(False)
-            daq["fastrx0"].set_en(True)
+            daq["fastrx0"].reset()
+            sleep(FASTRX_TRAILING_DRAIN_S)
             assert int(daq["fastrx0"].get_size()) == len(INTERNAL_EXPECTED_BITS)
 
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
+            daq["fastrx0"].set_en(True)
             seq.start()
             deadline = monotonic() + INTERNAL_CAPTURE_TIMEOUT_S
-            while not seq.is_done():
-                if monotonic() >= deadline:
-                    raise TimeoutError("sequencer did not finish the FastRX loopback")
-                sleep(0.001)
 
-            expected_fifo_bytes = 4 * INTERNAL_TEST_REPEATS
+            expected_fifo_bytes = 4 * (repeats + startup)
             while int(daq["fifo0"]["FIFO_SIZE"]) < expected_fifo_bytes:
                 if monotonic() >= deadline:
                     raise TimeoutError("FastRX did not deliver every loopback frame")
                 sleep(0.001)
-            sleep(0.01)
+            daq["fastrx0"].set_en(False)
+            seq.reset()
+            sleep(FASTRX_TRAILING_DRAIN_S)
 
             words = list(daq["fifo0"].get_data())
-            assert len(words) == INTERNAL_TEST_REPEATS
-            expected_data = int(INTERNAL_EXPECTED_BITS, 2)
-            for frame_index, word in enumerate(words):
-                identifier, frame, data = daq["fastrx0"].parse_word(int(word))
-                assert identifier == 1
-                assert frame == frame_index
-                assert data == expected_data, (
-                    f"start word {capture_start_word}, frame {frame_index}: "
-                    f"captured {data:017b}, expected {INTERNAL_EXPECTED_BITS}"
-                )
+            np.save(
+                run_dir / f"{sequence_words}words_start{capture_start_word}_n{repeats}.npy",
+                np.asarray(words, dtype=np.uint32),
+            )
+            assert len(words) >= repeats + startup
+            sleep(FASTRX_TRAILING_DRAIN_S)
+            assert len(daq["fifo0"].get_data()) == 0, "FastRX kept producing after receiver stop"
+            bout, _, _ = convert_fastrx_words_to_adc(words, 17, [1] * 17, 12)
+            expected_bits = np.array([int(bit) for bit in INTERNAL_EXPECTED_BITS])
+            assert np.all(bout[startup:] == expected_bits), "corrupt complete loopback frame"
+            assert bout[startup : startup + repeats].shape == (repeats, 17)
             assert int(daq["fastrx0"].get_lost_count()) == 0
+            print(
+                f"PASS: period={sequence_words} start={capture_start_word} repeats={repeats} "
+                f"startup={startup} received={len(words)}; exact data, frame counters and receiver stop; {run_dir}"
+            )
     finally:
         try:
             if seq is not None and original_seq is not None:
+                daq["fastrx0"].set_en(False)
                 seq.reset()
                 seq.set_data(original_seq["memory"])
                 seq.set_size(original_seq["size"])
                 seq.set_clk_divide(original_seq["clk_divide"])
                 seq.set_repeat(original_seq["repeat"])
+                seq.set_wait(original_seq["wait"])
+                seq.set_repeat_start(original_seq["repeat_start"])
+                seq.set_nested_start(original_seq["nested_start"])
+                seq.set_nested_stop(original_seq["nested_stop"])
+                seq.set_nested_repeat(original_seq["nested_repeat"])
                 seq.set_en_ext_start(original_seq["en_ext_start"])
             if gpio is not None and original_gpio is not None:
                 for field, value in original_gpio.items():

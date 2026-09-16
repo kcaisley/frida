@@ -13,17 +13,27 @@ continuous COMP pulse train.
 
 Run from the repository root after programming the serializer firmware:
 
-    uv run pytest -q -s -m hw flow/scans/test_serdes.py
+    uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_serdes_rates
 
 The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
 Their outputs are disabled and reset to 0 V when the test exits.
 Scope captures are saved under ``build/test_serdes/<timestamp>``.
+
+For manually supplied hardware with differential INIT/SAMP/COMP/LOGIC on
+CH1/2/3/4, capture the four named ADC recipes instead:
+
+    uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_adc_sequence_waveforms
+
+This separate test uses only the FPGA and scope. It saves raw CSV, waveform
+PDFs and an edge-timing report; it does not control supplies or ADC inputs.
 """
 
 from __future__ import annotations
 
 import itertools
+import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from statistics import fmean
 
@@ -31,6 +41,7 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
+from flow.adc.sequences import DUTY_CYCLE_SEQUENCES, FIXED_INPUT_SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.measure import find_crossings
 from flow.analysis.plots import plot_waveforms
@@ -412,3 +423,211 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                     except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                         print(f"WARNING: could not disable and zero {rail}: {error}")
                 smu_dut.close()
+
+
+@pytest.mark.hw
+@pytest.mark.parametrize(
+    "name,sequence",
+    FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES,
+    ids=[name for name, _ in FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES],
+)
+def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
+    """Capture PCB differential INIT/SAMP/COMP/LOGIC; supplies stay manual.
+
+    Run only this test with the four-clock hookup (CH1/2/3/4 respectively).
+    The older serializer-rate test uses a different hookup and powers SMUs.
+    """
+    from basil.dut import Dut
+
+    tracks = {1: "INIT", 2: "SAMP", 3: "COMP", 4: "LOGIC"}
+    symbol_rate_bps = 1.6e9
+    edge_tolerance_s = 0.25e-9
+    run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / name
+    run_dir.mkdir(parents=True, exist_ok=False)
+    params = AdcTbParams(
+        seq_init_pattern=sequence.init,
+        seq_samp_pattern=sequence.samp,
+        seq_comp_pattern=sequence.comp,
+        seq_logic_pattern=sequence.logic,
+    )
+    sequence_words = len(sequence.init) // 8
+    memory = convert_params_to_seqgen_fmt(params, "0" * sequence_words)
+    config = safe_load(MAP_PATH.read_text())
+    config["hw_drivers"] = [
+        driver for driver in config["hw_drivers"] if driver["name"] in {"seq0", "gpio2", "i2c0", "si570"}
+    ]
+    config["registers"] = [register for register in config["registers"] if register["name"] in {"seq0", "gpio2"}]
+    daq = Dut(config)
+    scope_dut = Dut(str(SCOPE_MAP_PATH))
+    scope = seq = None
+    try:
+        daq.init()
+        seq = daq["seq0"]
+        assert seq.is_ready, "sequencer must be idle before changing clocks"
+        set_pll_divider(daq["gpio2"], 2)
+        scope_dut.init()
+        scope = scope_dut["scope"]
+        # Four differential clock inputs; preserve probe calibration and termination.
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        # Automatic timebase rounds 16 ns/div to 20 ns/div. Manual sampling
+        # gives exactly 160 ns: 1000 samples at the full 6.25 GS/s rate.
+        scope._intf.write("HORizontal:MODe MANual")
+        scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
+        scope.set_horizontal_record_length(1000)
+        scope._intf.write("HORizontal:POSition 2.125")  # 3.4 ns before INIT.
+        record_length = int(response_value(scope.get_horizontal_record_length()))
+        sample_rate_hz = float(response_value(scope._intf.query("HORizontal:SAMPLERate?")))
+        assert record_length / sample_rate_hz == pytest.approx(160e-9), "scope must capture a 160 ns record"
+        # The instrument clamps shorter records to 1000 samples. Show only the
+        # first 120 ns, retaining the 3.4 ns pretrigger margin and full raw data.
+        scope._intf.write("DISplay:WAVEView1:ZOOM:ZOOM1:HORizontal:SCAle 1.333333333333")
+        scope._intf.write("DISplay:WAVEView1:ZOOM:ZOOM1:HORizontal:POSition 37.5")
+        scope._intf.write("DISplay:WAVEView1:ZOOM:ZOOM1:STATe ON")
+        zoom_scale_s = float(response_value(scope._intf.query("DISplay:WAVEView1:ZOOM:ZOOM1:HORizontal:WINSCale?")))
+        assert zoom_scale_s == pytest.approx(12e-9), "scope must display a 120 ns window"
+        for channel in tracks:
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+            scope.set_vertical_scale(0.2, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_coupling("DC", channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=1)
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=1)
+        scope.set_trigger_mode("NORMAL")
+
+        # A arms on the first INIT; B captures the next CH1 rising edge.
+        scope._intf.write("TRIGger:B:STATE OFF")
+        scope._intf.write("TRIGger:B:BY EVENTS")
+        scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
+        scope._intf.write("TRIGger:B:EDGE:SOUrce CH1")
+        scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
+        scope._intf.write("TRIGger:B:EDGE:COUPling DC")
+        scope._intf.write("TRIGger:B:LEVel:CH1 0")
+        scope._intf.write("TRIGger:B:STATE ON")
+        trigger_b = {
+            key: response_value(scope._intf.query(f"TRIGger:B:{key}?"))
+            for key in ("STATE", "BY", "EVENTS:COUNt", "EDGE:SOUrce", "EDGE:SLOpe")
+        }
+        assert trigger_b == {
+            "STATE": "1",
+            "BY": "EVENTS",
+            "EVENTS:COUNt": "1",
+            "EDGE:SOUrce": "CH1",
+            "EDGE:SLOpe": "RISE",
+        }, f"scope did not accept second-INIT triggering: {trigger_b}"
+
+        # Use the same lane packing as the scan, with receive capture disabled.
+        seq.set_data(memory)
+        seq.set_size(sequence_words)
+        seq.set_clk_divide(1)
+        seq.set_repeat(4)
+        seq.set_en_ext_start(False)
+        assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
+        scope._intf.write("ACQuire:NUMACq:RESET")
+        scope.set_acquire_state("RUN")
+        before = wait_for_scope_armed(scope)
+        seq.start()
+        wait_for_scope_capture(scope, before)
+        assert seq.is_ready, "finite sequencer run did not finish"
+        waveforms = scope.get_waveforms(tracks)
+        write_scope_csv(run_dir / "waveforms.csv", waveforms, tracks)
+        analysis = replace(analyze_scope_waveforms(waveforms, tracks), title=name)
+        for artifact in plot_waveforms(analysis, output_path=run_dir / "waveforms"):
+            print(f"Saved {name}: {artifact}")
+
+        # Audit the second conversion selected by the A-then-B CH1 trigger.
+        # The end of the long recipe's idle pause lies outside the pretrigger window.
+        # Zero volts is the differential crossing; no per-channel deskew is fitted.
+        time_s = analysis.time_s
+        init_edges = find_crossings(analysis.signal_values[0], time_s, 0.0, rising=True)
+        assert len(init_edges), "capture must include the triggering INIT rising edge"
+        origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
+        period_s = len(sequence.init) / symbol_rate_bps
+        # Reuse the waveform plotter for an INIT-aligned overview and pulse detail.
+        relative_time_s = time_s - origin_s
+        for view, start_s, stop_s in (("sequence", -3.4e-9, 116.6e-9), ("pulse_detail", 40e-9, 55e-9)):
+            selected = (relative_time_s >= start_s) & (relative_time_s <= stop_s)
+            plot_waveforms(
+                replace(analysis, time_s=relative_time_s[selected], signal_values=analysis.signal_values[:, selected]),
+                output_path=run_dir / view,
+            )
+        init_index = sequence.init.index("1")
+        errors = []
+        observations: dict[str, dict[str, object]] = {}
+        for channel, track in tracks.items():
+            row = np.array([int(bit) for bit in getattr(sequence, track.lower())])
+            signal = analysis.signal_values[channel - 1]
+            observations[track] = {"min_v": float(signal.min()), "max_v": float(signal.max())}
+            for rising in (True, False):
+                edge = "rising" if rising else "falling"
+                expected_indices = np.flatnonzero((row != np.roll(row, 1)) & (row == int(rising)))
+                expected = np.sort(((expected_indices - init_index) % len(row)) / symbol_rate_bps)
+                if len(expected):
+                    assert time_s[-1] >= origin_s + expected[-1] + edge_tolerance_s, (
+                        f"scope record misses the final {track} {edge} edge"
+                    )
+                measured = find_crossings(signal, time_s, 0.0, rising=rising) - origin_s
+                measured = measured[(measured >= -edge_tolerance_s) & (measured < period_s - edge_tolerance_s)]
+                edge_observations: dict[str, object] = {
+                    "expected_s": expected.tolist(),
+                    "measured_s": measured.tolist(),
+                }
+                observations[track][edge] = edge_observations
+                if len(expected) != len(measured):
+                    errors.append(f"{track} {edge}: expected {len(expected)} edges, measured {len(measured)}")
+                elif len(expected):
+                    error_s = float(np.max(np.abs(measured - expected)))
+                    edge_observations["maximum_error_s"] = error_s
+                    if error_s > edge_tolerance_s:
+                        errors.append(f"{track} {edge}: maximum timing error {error_s * 1e9:.3f} ns")
+        (run_dir / "capture.json").write_text(
+            json.dumps(
+                {
+                    "case": name,
+                    "scope": str(scope.get_name()).strip(),
+                    "symbol_rate_bps": symbol_rate_bps,
+                    "channels": tracks,
+                    "patterns": {track: getattr(sequence, track.lower()) for track in tracks.values()},
+                    "sample_interval_s": float(time_s[1] - time_s[0]),
+                    "record_length": record_length,
+                    "record_span_s": record_length / sample_rate_hz,
+                    "display_window_s": [-3.4e-9, 116.6e-9],
+                    "reference_init_s": origin_s,
+                    "conversion_index": 1,
+                    "trigger_b": trigger_b,
+                    "edge_tolerance_s": edge_tolerance_s,
+                    "observations": observations,
+                    "errors": errors,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        print(
+            f"{name}: sample interval {(time_s[1] - time_s[0]) * 1e12:.1f} ps; {errors or 'all edges within tolerance'}"
+        )
+        assert not errors, "; ".join(errors)
+    finally:
+        try:
+            if seq is not None:
+                # End with all four clock outputs low; do not alter ASIC configuration.
+                seq.reset()
+                seq.set_data(bytes(8))
+                seq.set_size(1)
+                seq.set_repeat(1)
+                seq.set_clk_divide(1)
+                seq.set_en_ext_start(False)
+                seq.start()
+        finally:
+            try:
+                # Keep the capture settings and last waveform visible for inspection.
+                if scope is not None:
+                    scope.set_acquire_state("STOP")
+            finally:
+                scope_dut.close()
+                daq.close()

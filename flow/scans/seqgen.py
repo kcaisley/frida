@@ -12,17 +12,17 @@ def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> ar
 
     The four ``seq_*_pattern`` fields contain one bit per serialized symbol.
     ``rx_sen_pattern`` contains one bit per eight-symbol sequencer word. The
-    final RX_SEN word must remain low so FastRX can flush a partial frame before
-    the sequence repeats.
+    RX_SEN may remain high across a repeat. Stop the receiver before stopping
+    a sequence whose last RX_SEN word is high.
     """
 
     serdes_ratio = 8
     seqgen_byte_lanes = 8
     serdes_fields = (
-        ("INIT", "seq_init_pattern", "seq_init_phase_delay_symbols"),
-        ("SAMP", "seq_samp_pattern", "seq_samp_phase_delay_symbols"),
-        ("COMP", "seq_comp_pattern", "seq_comp_phase_delay_symbols"),
-        ("LOGIC", "seq_logic_pattern", "seq_logic_phase_delay_symbols"),
+        ("INIT", "seq_init_pattern"),
+        ("SAMP", "seq_samp_pattern"),
+        ("COMP", "seq_comp_pattern"),
+        ("LOGIC", "seq_logic_pattern"),
     )
     rx_sen_bit = 0
     rx_test_bit = 1
@@ -35,23 +35,15 @@ def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> ar
         raise ValueError(f"rx_sen_pattern must contain {sequence_words} sequencer-word bits, got {len(rx_sen_pattern)}")
     if set(rx_sen_pattern) - {"0", "1"}:
         raise ValueError("rx_sen_pattern must contain only zero and one")
-    if rx_sen_pattern[-1] != "0":
-        raise ValueError("RX_SEN must leave a low word before the sequence repeats")
 
     parsed: dict[str, list[str]] = {}
-    for name, pattern_field, phase_field in serdes_fields:
+    for name, pattern_field in serdes_fields:
         pattern = getattr(params, pattern_field)
-        phase_symbols = float(getattr(params, phase_field))
-        if not phase_symbols.is_integer():
-            raise ValueError(f"physical {phase_field} must be a whole number of serialized symbols")
-        shift = int(phase_symbols) % sequence_symbols
-        if shift:
-            pattern = pattern[-shift:] + pattern[:-shift]
         parsed[name] = [pattern[index : index + serdes_ratio] for index in range(0, sequence_symbols, serdes_ratio)]
 
     memory = array("B")
     for word_index in range(sequence_words):
-        for name, _pattern_field, _phase_field in serdes_fields:
+        for name, _pattern_field in serdes_fields:
             value = 0
             for lane, bit in enumerate(parsed[name][word_index]):
                 value |= int(bit) << lane
@@ -63,3 +55,18 @@ def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> ar
         memory.extend(0 for _ in range(seqgen_byte_lanes - 5))
 
     return memory
+
+
+def build_fastrx_capture_pattern(params: AdcTbParams, rx_sen_start_word: int, data_size: int) -> array[int]:
+    """Pack one unchanged control period with RX_SEN at the calibrated start.
+
+    The receive window wraps modulo the period; FastRX follows RX_SEN across
+    repetitions. Acquisition stops the receiver before stopping the sequencer.
+    """
+    words = len(params.seq_init_pattern) // 8
+    if not 0 <= rx_sen_start_word < words or not 0 < data_size < words:
+        raise ValueError("FastRX needs an in-range start and at least one low word per period")
+    rx_sen = ["0"] * words
+    for bit in range(data_size):
+        rx_sen[(rx_sen_start_word + bit) % words] = "1"
+    return convert_params_to_seqgen_fmt(params, "".join(rx_sen))

@@ -4,6 +4,7 @@ import importlib
 import inspect
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Barrier
 from types import SimpleNamespace
 
@@ -18,7 +19,7 @@ from flow.comp import sim as comp
 from . import test_spectre
 
 
-@pytest.mark.parametrize("block", ("adc", "comp", "samp", "cdac"))
+@pytest.mark.parametrize("block", ("adc", "comp", "samp", "caparray"))
 def test_runner_cli_and_python_contract(block, monkeypatch, capsys):
     module = importlib.import_module(f"flow.{block}.sim")
     monkeypatch.setattr(sys, "argv", ["sim"])
@@ -49,6 +50,7 @@ def capture_sim(monkeypatch):
         install=SimpleNamespace(
             include=lambda *_: h.Literal("models"),
             include_pre_simulation=lambda: h.Literal("pre"),
+            include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
         )
     )
     monkeypatch.setitem(sys.modules, "pdk.tsmc65", SimpleNamespace(site=site, pdk_logic=object()))
@@ -69,8 +71,16 @@ def capture_sim(monkeypatch):
         return SimpleNamespace(run=run)
 
     monkeypatch.setattr(hs, "Sim", build)
-    monkeypatch.setattr(comp, "convert_spectre_comp_to_measurement", lambda *a, **kw: captured.update(measurement=kw))
-    monkeypatch.setattr(comp, "write_measurement", lambda path, _: captured.update(hdf5=path))
+    from flow.analysis.test_comp import comparator_measurement
+    from flow.circuit import results
+
+    def convert(*args, **kwargs):
+        captured["measurement"] = kwargs
+        return comparator_measurement()
+
+    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
+    monkeypatch.setattr(results, "convert_raw_comp_to_measurement", convert)
+    monkeypatch.setattr(comp, "write_measurement", lambda path, value: captured.update(hdf5=path, saved=value))
     return captured
 
 
@@ -79,7 +89,7 @@ def capture_sim(monkeypatch):
     (
         ("comp", "frida1_fixed_input_noise", 40e-9, 61 * 100 * 40e-9, 1),
         ("samp", "frida1_transient", 100e-9, 500e-9, 4),
-        ("cdac", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),
+        ("caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),
     ),
 )
 @pytest.mark.parametrize("check", (False, True))
@@ -89,7 +99,7 @@ def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, 
     tran = next(attr for attr in capture_sim["attrs"] if isinstance(attr, hs.Tran))
     assert float(tran.tstop) == pytest.approx(short_stop if check else full_stop)
     assert bool(tran.noise) == (block == "comp" and not check)
-    assert float(tran.options["strobeperiod"]) == pytest.approx(500e-12 if block == "comp" else 100e-12)
+    assert float(tran.options["strobeperiod"]) == pytest.approx(10e-12 if block == "comp" else 100e-12)
     assert tran.options["strobeoutput"].text == "strobeonly"
     options = capture_sim["options"]
     assert options.fmt == (ResultFormat.NONE if check else ResultFormat.SIM_DATA)
@@ -105,7 +115,7 @@ def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, 
             assert float(tran.options["noisefmin"]) == pytest.approx(1 / full_stop)
             assert tran.options["noisefmax"].text == "25G"
             assert float(tran.options["noiseseed"]) == 1
-            assert capture_sim["measurement"]["candidate_id"] == "frida1_fabricated_baseline"
+            assert capture_sim["saved"].info.readbacks["candidate_id"] == "frida1_fabricated_baseline"
     capture_sim["fail"] = True
     with pytest.raises(RuntimeError, match="simulator/license failure"):
         runner(tmp_path / "failure", check=check)
@@ -125,9 +135,15 @@ def test_comparator_coverage_and_concurrency(check, count, monkeypatch, tmp_path
         calls.append((directory, params, options))
         if len(calls) <= min(count, 24):
             barrier.wait(timeout=10)
-        return directory
+        return directory / "netlist.raw", params, {}
 
     monkeypatch.setattr(comp, "ProcessPoolExecutor", pool)
+    from flow.analysis.test_comp import comparator_measurement
+    from flow.circuit import results
+
+    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
+    monkeypatch.setattr(results, "convert_raw_comp_to_measurement", lambda *args, **kwargs: comparator_measurement())
+    monkeypatch.setattr(comp, "write_measurement", lambda *args: None)
     monkeypatch.setattr(comp, "_run_comp_sim", capture)
     comp.hdl21_comp_perf_vs_size(tmp_path, check=check)
     assert len(calls) == count

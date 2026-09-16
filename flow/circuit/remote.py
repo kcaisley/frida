@@ -19,7 +19,7 @@ and a local build/remote/<session>/ record. --input adds explicit build inputs
 The detached worker runs focused tests, the target's Spectre diagnostic (skips
 are failures), then the unchanged runner CLI. A detached *local* tmux collector
 checks every 30 minutes and copies raw/HDF5 results and logs when the whole
-target exits, including failures. Optional analysis uses the existing CLI.
+target exits, including failures. Analysis runners select reviewed collected directories explicitly.
 Neither host may power off; SSH outages are retried by the collector. Resume
 collection with `collect <campaign> --watch` if the local session was lost.
 No simulation is automatically restarted and no remote files are deleted.
@@ -161,7 +161,6 @@ def launch(args: argparse.Namespace, root: Path) -> Path:
         "block": args.block,
         "target": args.target,
         "setup": args.setup,
-        "analysis": args.analysis,
         "inputs": args.input,
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "submodules": subprocess.check_output(["git", "submodule", "status", "--recursive"], cwd=root, text=True),
@@ -256,21 +255,6 @@ def collect(campaign: Path, *, watch: bool = False) -> int:
                         ],
                         check=True,
                     )
-                    if code == 0 and record["analysis"]:
-                        with (campaign / "analysis.log").open("w") as log:
-                            code = subprocess.run(
-                                [
-                                    sys.executable,
-                                    "-m",
-                                    "flow.analysis.runner",
-                                    record["analysis"],
-                                    "--inputs",
-                                    str(results),
-                                ],
-                                stdout=log,
-                                stderr=subprocess.STDOUT,
-                                check=False,
-                            ).returncode
                     finished.write_text(json.dumps({"worker_exit_code": int(state), "exit_code": code}) + "\n")
                     return code
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
@@ -287,15 +271,12 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     start = commands.add_parser("launch", help="Snapshot, diagnose, run detached, and collect automatically")
     start.add_argument("target", help="Existing named simulation target")
-    start.add_argument("--block", choices=("adc", "comp", "samp", "cdac"), default="adc")
+    start.add_argument("--block", choices=("adc", "comp", "samp", "caparray"), default="adc")
     start.add_argument("--host", required=True, help="Trusted SSH host/alias (FTD: juno or jupiter)")
     start.add_argument("--work-root", required=True, help="Existing absolute worker parent directory")
     start.add_argument("--setup", help="Absolute shell environment script on the worker")
     start.add_argument("--pdk", default="tsmc65", help="PDK submodule to include, not a foundry model installation")
     start.add_argument("--input", action="append", default=[], help="Repository-relative build input; repeat as needed")
-    start.add_argument(
-        "--analysis", choices=("adc_pex_flavor_paths",), help="Run existing analysis after successful collection"
-    )
     status = commands.add_parser("status", help="Check worker CPU/memory use and available Spectre licenses")
     status.add_argument("--host", required=True)
     status.add_argument("--setup", help="Absolute shell environment script on the worker")

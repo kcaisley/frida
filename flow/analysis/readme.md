@@ -18,7 +18,10 @@ dataclass. Keep small shared numerical primitives in `measure.py`; do not add
 a generic measurement superclass, request/dispatcher framework, table/dict
 result contract, or wrappers that merely rename existing quantities. Arrays
 are NumPy arrays with shape, dtype, and finite-value invariants checked at the
-typed boundary.
+typed boundary. Decode simulated ADC observations once during conversion.
+Trust the measurement's validated sample arrays rather than repeating their
+shape and finite-value checks. Edge pairing and observation selection belong
+to analysis. Derived analysis caches are not additional measurement types.
 
 Plot functions load no files and calculate no analysis metrics. They consume
 typed measurements and/or completed analysis results, then return the paths of
@@ -63,3 +66,117 @@ Any such change must preserve deterministic ordering and numerical equivalence.
 Use the existing 6,024-file comparator campaign and 10,040-point CDAC campaign
 as benchmarks; their many small HDF5/dataclass decodes dominate more than BLAS
 work, so increasing NumPy threads alone is unlikely to help.
+
+## Study entrypoints
+
+All analysis runners end in `_study` and have exactly
+`(output_dir: Path) -> tuple[Path, ...]`. Their input directories and selection
+limits are explicit in their bodies/docstrings. The argument is output-only;
+no newest-run discovery, input overrides, or analysis immediately after collection.
+`main()` selects one study and creates its timestamped output directory.
+Keep orchestration in each study; ask before extracting shared runner helpers.
+Existing numerical analyzers and plotters remain reusable.
+
+| Study | Selected coverage |
+| --- | --- |
+| `adc_transfer_curve_study` | Known-voltage ADC00 DC steps; archived directory currently missing locally. |
+| `adc_ramp_nonlinearity_study` | ADC00--03 uniform sawtooth, code-density INL/DNL without absolute voltage reconstruction. |
+| `adc_calibration_study` | ADC00 ramp and CDAC A-state threshold acquisitions; all three calibration methods. |
+| `adc_sequence_study` | ADC03 56 patterns plus control at 10/6 active MSPS, and seven PEX flavors x four sequences; no 2-MSPS measurement sweep yet. |
+| `adc_sample_rate_study` | ADC00/01 DC and sine sweeps plus ADC00's 800-mV control; only the historical ORIGINAL pattern is selected, at 0.3125--6.25 actual MSPS. |
+| `adc_power_study` | Instrumented ADC00/01 fixed-input rate sweeps and ADC00 reference points, with three supply readbacks. |
+
+Consolidated acquisition directories can contain both DC and sine measurements.
+The sample-rate study selects DC and sine by their typed stimulus for the
+respective panels; the power study selects instrumented DC. A reviewed mixed
+rate directory can therefore be pinned in both rate-study input selections.
+No saved campaign is renamed or automatically selected.
+
+Internal comparator/SAR/CDAC plots and four clock plots require `MeasAdcInt`
+and its saved waveform records; DAQ trajectory and distribution plots also accept
+`MeasAdcExt`. Outputs are flat. The sequence study preserves the SPICE deck.
+Patterns are grouped using complete INIT/SAMP/COMP/LOGIC rows, rather than only
+COMP-to-LOGIC delay. Each study compares temporary copies of all four rows
+rotated together to INIT rising; common FastRX alignment rotations share a
+series, while pulse widths, relative edges and period length remain distinct.
+Saved patterns, acquisition phase and decoded samples remain unchanged. This
+grouping does not establish that different launch phases behave identically.
+New rate panels use actual sequence repetition rate,
+including idle padding. Fixed-input ENOB is explicitly noise-equivalent;
+spectral ENOB is shown separately. Finite large spreads and later recovered
+points stay visible, as do rare histogram bins. Low spread alone does not
+establish correct conversion or a working sequence.
+
+Reusable plotting functions need not all appear in these selected studies.
+`plot_adc_dynamic` is retained for individual spectral checks in the rate study.
+`plot_adc_noise_distribution_grid` requires an all-ADC comparison dataset;
+`plot_adc_sampling_noise` is a separate internal held-voltage noise study;
+`plot_adc_power_waveform` requires simulated rail-current traces.
+`plot_adc_decision_paths` is the line alternative to the retained trajectory
+density, and `plot_adc_ramp_weights` is the older alternative to the common
+calibration-weight comparison. `combine_adc_noise_comparison` remains available
+for its older stimulus/DC/sine/PEX overlay. Their functions and tests remain;
+removing unused imports is not a reason to delete them.
+
+`MeasAdcInt` and `MeasCompInt` keep one waveform representation in `/wave`.
+`voltage` and `current` map authoritative bundle names to record-by-time arrays.
+Examples are `vin_p`, `dac_state_p[0]`, `dac_botplate_n_diff[15]`, and
+`comp.latch_p`; ADC comparator internals use the `comp.` scope. Current entries
+use the canonical supply name and are positive for current drawn from its source.
+Derived input differences are calculated from the saved P/N voltages.
+
+Each target in `adc/sim.py` and `comp/sim.py` invokes conversion and HDF5 writing.
+Simulation workers return raw-file locations and bindings or run metadata.
+`circuit.results.read_raw_transient` loads a VLSIR `TranResult`; converters map
+its raw variable names to the canonical names selected by the save bindings.
+The converter rejects missing/unmapped traces and raw time gaps larger than the
+requested waveform spacing. It neither adds fictitious timing detail nor reads
+old waveform formats as a fallback. Rebuild old simulation HDF5 files from raw
+results with an explicitly appropriate sample interval, or rerun simulations
+when their saved samples are too coarse for the intended timing measurement.
+
+Both simulator `maxstep` and `strobeperiod` default to 10 ps through
+`waveform_sample_interval_s` on the testbench parameters. The HDF5 record spacing
+uses the same setting. This is a configurable numerical resolution, not a
+validated claim of transistor-level timing accuracy. ADC records retain every
+complete decoded conversion, all mapped traces, and a next-cycle tail for B16.
+Comparator records retain every trial at the three transition-region points
+and a representative trial at other points, with the complete evaluation window.
+The record indices identify the retained population.
+
+Ordinary analyses and plots consume the saved measurement without redecoding or
+replacing its DAQ codes. `analyze_adc_timing_closure(MeasAdcInt, ...)` returns
+`AnalysisAdcTimingClosure`: one row per saved conversion and decision, including
+internal resolution time, SR agreement at LOGIC, and LOGIC-to-CDAC settling time.
+The setup requirements default to 200 ps before LOGIC and before the next observed
+COMP. A repeated SR value is valid; a late polarity reversal, weak resolution,
+wrong SR/state value, or insufficient margin fails the corresponding check.
+Missing observations produce NaN times and cannot pass. B16 retains its final
+SR observation but has no SAR/CDAC update, so that check is inapplicable.
+
+Internal resolution uses a 0.3 V differential threshold; SR and digital states
+use 30%/70% rail limits. CDAC settling uses a configurable 1 mV tolerance:
+bottom plates must reach the programmed rail, while top plates must remain
+within tolerance of their last saved value before COMP. This measures settling
+in the observed interval, not accuracy against a separately solved DC target.
+Reported times are limited by the saved sample spacing. The sequence study writes
+`*_timing_closure.csv` with the measured margins, pass flags, and threshold settings.
+
+ADC edge pairing and nominal sequence timing are private calculations in
+`analysis/adc.py`, shared where needed with conversion. `measure.py` retains the
+generic numerical primitives; `adc/sequences.py` retains the sequence definitions.
+The former capture/apply pipeline and capture-cache format have been removed.
+`analyze_measurement_waveforms` can align a stored record to a selected reference
+edge, with an optional reference-relative window.
+
+Sampler transient conversion and caparray extraction conversion remain explicit
+`NotImplementedError` prototypes. The latter will describe nominal/extracted
+capacitances and Monte Carlo variation, rather than transient waveforms.
+
+Saved ADC parameter records containing the old whole-symbol `seq_*_phase_delay_symbols`
+fields are migrated at the HDF5 reader boundary by folding each delay into its
+binary row. New records store only final rows and the separate symbol rate.
+Fractional legacy delays cannot be represented by this interface and raise an
+explicit error. The existing sweep result field `logic_phase_delay_symbols`
+remains a derived display metric relative to half a decision interval; it is
+calculated from row edges, not supplied to acquisition or simulation.

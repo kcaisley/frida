@@ -113,6 +113,8 @@ def test_sampling_noise_histogram_has_common_voltage_bins_and_axes(tmp_path, mon
     assert [patch.get_height() for patch in axes[0].patches] == [patch.get_height() for patch in axes[1].patches]
     assert "µV" in fig._supxlabel.get_text()
     assert "LSB" not in fig._supxlabel.get_text()
+    assert "1 ns after SAMP falls" in fig._suptitle.get_text()
+    assert "before the first comparator" not in fig._suptitle.get_text()
     plt.close(fig)
 
 
@@ -225,17 +227,18 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     paths = plot_waveforms(
         analyze_measurement_waveforms(
             msmt,
-            signal_names=("vin_diff_v", "dac_botplate_p_c0_v"),
+            signal_names=("vin_p", "dac_botplate_p[0]"),
         ),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
     svg = read_svg(paths)
-    assert "vin_diff_v" in svg
-    assert "dac_botplate_p_c0_v" in svg
+    assert "vin_p" in svg
+    assert "dac_botplate_p[0]" in svg
     assert "Time (" in svg
     assert "Source: SPICE" in svg
-    assert "Rate: 1.6 Msps" in svg
+    assert "Conversion: 1.6 MSPS" in svg
+    assert "Repetition: 1000 ns" in svg
     assert "CDAC init: h'5555" in svg
     assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
@@ -758,6 +761,18 @@ def test_decision_path_density_holds_each_discrete_estimate(
     assert abs(current - previous) > 1
     assert any(np.allclose(segment, expected_segment) for segment in rendered_polygons)
 
+    # A sparse 64-LSB branch must remain visible in the final-path panel and
+    # histogram, even when almost every capture lands on the other code.
+    outlier_paths = analysis.estimate_dout.copy()
+    outlier_paths[:, -1] = (2240, 2240, 2304)
+    outlier_analysis = replace(
+        analysis, estimate_dout=outlier_paths, final_dout=np.asarray([2240, 2240, 2304], dtype=np.int64)
+    )
+    plot_adc_decision_path_density(msmt, outlier_analysis, output_path=tmp_path / "outlier_density")
+    for ax in captured["figure"].axes[1:3]:
+        lower, upper = ax.get_ylim()
+        assert lower < 2240 and upper > 2304
+
 
 def test_decision_path_density_marks_unresolved_code_dispersion(
     tmp_path: Path,
@@ -829,7 +844,7 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     assert "enob (bit)" in dynamic_svg
     assert "input-referred noise (lsb rms)" in dynamic_svg
     assert "input-referred noise (mv rms)" in dynamic_svg
-    assert "time per decision cycle (ns)" in dynamic_svg
+    assert "conversion interval (ns)" in dynamic_svg
     power_outputs = [
         plot_adc_power_sweep(
             (measurement,),
@@ -874,7 +889,7 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
     )
     assert isinstance(measurement, MeasAdcInt)
     time_s = measurement.wave.time_s
-    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v = np.zeros_like(measurement.wave.voltage["seq_init"])
     seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
     seq_samp_v = np.zeros_like(seq_init_v)
     seq_samp_v[0, (time_s >= 75.0e-9) & (time_s <= 100.0e-9)] = 1.2
@@ -891,16 +906,19 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
     ):
         current_a = np.full_like(seq_init_v, active_current_a)
         current_a[0, time_s > active_stop_s] = static_current_a
-        currents[f"{rail}_i"] = current_a
+        currents[rail] = current_a
     measurement = replace(
         measurement,
         wave=replace(
             measurement.wave,
-            seq_init_v=seq_init_v,
-            seq_samp_v=seq_samp_v,
-            seq_comp_v=seq_comp_v,
-            seq_logic_v=seq_logic_v,
-            **currents,
+            current=currents,
+            voltage={
+                **measurement.wave.voltage,
+                "seq_init": seq_init_v,
+                "seq_samp": seq_samp_v,
+                "seq_comp": seq_comp_v,
+                "seq_logic": seq_logic_v,
+            },
         ),
     )
     analysis = analyze_adc_power_sweep((measurement,))
@@ -1131,7 +1149,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     np.testing.assert_allclose(zero_sigma_impulse.get_xdata(), (10.0, 8.0))
     np.testing.assert_allclose(zero_sigma_impulse.get_ydata(), (code_center, code_center))
     assert zero_sigma_baseline.get_linestyle() == zero_sigma_impulse.get_linestyle() == ":"
-    assert figure._supxlabel.get_text() == "Active conversion rate (MS/s)"
+    assert figure._supxlabel.get_text() == "Conversion rate (MSPS)"
     assert figure._supylabel.get_text() == "Output code (LSB)"
     assert all(text.get_fontsize() == 10.0 for text in (*legend_texts, system_info))
     assert legend_handles[1].get_marker() == legend_handles[2].get_marker() == "None"
@@ -1144,3 +1162,38 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
         for text, handle in zip(legend_texts, legend_handles, strict=True)
     )
     plt.close(figure)
+
+
+def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, monkeypatch):
+    measurements = [adc_measurement([100] * 1000 + [1000], sample_rate_hz=1e6)]
+    analysis = analyze_adc_noise_sweep(measurements)
+    figures = []
+    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
+    plot_adc_noise_distribution_sweep(measurements, analysis, rate_axis="sampling", output_path=tmp_path / "codes")
+    ax = figures[0].axes[0]
+    assert ax.get_ylim()[0] <= 100
+    assert ax.get_ylim()[1] >= 1000
+    assert ax.get_xlabel() == "Repetition rate (MHz)"
+    np.testing.assert_allclose(ax.lines[0].get_xdata(), [1.0])
+    plt.close(figures[0])
+
+
+def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_path, monkeypatch):
+    measurements = [adc_measurement([0, 100], sample_rate_hz=1e6), adc_measurement([100, 101], sample_rate_hz=2e6)]
+    analysis = analyze_adc_noise_sweep(measurements)
+    figures = []
+    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
+    plot_adc_noise_sweep(
+        measurements,
+        analysis,
+        rate_axis="sampling",
+        series_labels=("short SAMP", "long SAMP"),
+        output_path=tmp_path / "noise",
+    )
+    ax = figures[0].axes[0]
+    assert [line.get_label() for line in ax.lines] == ["short SAMP", "long SAMP"]
+    assert max(ax.get_ylim()) > 50
+    assert ax.get_xlabel() == "Repetition rate (MHz)"
+    period_axis = next(axis for axis in figures[0].axes if axis.get_xlabel() == "Repetition interval (ns)")
+    assert period_axis.get_xticklabels()[0].get_text() == "1e+03"
+    plt.close(figures[0])

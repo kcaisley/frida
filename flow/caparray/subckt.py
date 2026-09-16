@@ -11,9 +11,12 @@ from enum import Enum, auto
 
 import hdl21 as h
 from hdl21.prefix import f
-from hdl21.primitives import C, MosType, MosVth
+from hdl21.primitives import MosVth
 
-from flow.momcap.subckt import MomCap, MomCapParams
+from flow.circuit.ports import module_from_ports
+
+from .unit import PORTS as MOM_PORTS
+from .unit import MomCap, MomCapParams
 
 
 class RedunStrat(Enum):
@@ -38,7 +41,7 @@ class CapType(Enum):
 
 
 @h.paramclass
-class CdacParams:
+class CapArrayConfig:
     """CDAC parameters."""
 
     n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=11)
@@ -46,21 +49,25 @@ class CdacParams:
     redun_strat = h.Param(dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.SUBRDX2_OVLY)
     split_strat = h.Param(dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT)
     cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
-    mos_vth = h.Param(dtype=MosVth, desc="Transistor Vth", default=MosVth.LOW)
+    mos_vth = h.Param(
+        dtype=MosVth,
+        desc="Legacy transistor Vth metadata; standard-cell Vth is selected by the PDK",
+        default=MosVth.LOW,
+    )
     unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
     driver_p_w = h.Param(
         dtype=int,
-        desc="Unit PMOS output-driver width multiplier",
+        desc="Historical PMOS width metadata; unused by the passive array",
         default=9,
     )
     driver_n_w = h.Param(
         dtype=int,
-        desc="Unit NMOS output-driver width multiplier",
+        desc="Historical NMOS width metadata; unused by the passive array",
         default=7,
     )
     driver_strengths = h.Param(
         dtype=tuple[int, ...] | None,
-        desc="Optional C0-first output-driver strengths in conversion-stage order",
+        desc="Optional C0-first standard-cell drive bands (1, 2, or 4)",
         default=None,
     )
     weights = h.Param(
@@ -71,10 +78,10 @@ class CdacParams:
 
 
 @h.paramclass
-class CdacArrayParams:
+class CapArrayParams:
     """Electrical parameters for the passive unit-length capacitor array."""
 
-    cdac = h.Param(dtype=CdacParams, desc="CDAC electrical sizing", default=CdacParams())
+    cdac = h.Param(dtype=CapArrayConfig, desc="CDAC electrical sizing", default=CapArrayConfig())
     coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
     active_layers = h.Param(dtype=tuple[int, ...], desc="Consecutive active metals, lowest first", default=(6,))
     unit_models = h.Param(
@@ -82,9 +89,19 @@ class CdacArrayParams:
         desc="Optional PLUS/MINUS/BULK device model per active layer; empty selects ideal MOMs",
         default=(),
     )
+    stack_model = h.Param(
+        dtype=h.ExternalModule | None,
+        desc="Optional parameterized PLUS/MINUS/BULK model for the complete stack",
+        default=None,
+    )
+    tail_cap = h.Param(
+        dtype=h.Scalar | None,
+        desc="Capacitance of each minimum-length finger; None preserves the historical half-unit tail",
+        default=None,
+    )
 
 
-def is_valid_cdac_params(p: CdacParams) -> bool:
+def is_valid_caparray_config(p: CapArrayConfig) -> bool:
     """Check if this CDAC configuration is valid."""
     if p.driver_p_w <= 0 or p.driver_n_w <= 0:
         return False
@@ -109,7 +126,7 @@ def is_valid_cdac_params(p: CdacParams) -> bool:
     return _calc_weights(p.n_dac, p.n_extra, p.redun_strat) is not None
 
 
-def get_cdac_weights(p: CdacParams) -> list[int]:
+def get_caparray_weights(p: CapArrayConfig) -> list[int]:
     """Return C0-first capacitor weights in chronological conversion order.
 
     Stage zero is the first-switched and largest capacitor. The last element
@@ -117,7 +134,7 @@ def get_cdac_weights(p: CdacParams) -> list[int]:
     element and is therefore not included here.
     """
     if p.weights is not None:
-        if not is_valid_cdac_params(p):
+        if not is_valid_caparray_config(p):
             raise ValueError(
                 f"Explicit CDAC weights must contain exactly n_dac + n_extra = {p.n_dac + p.n_extra} positive integers"
             )
@@ -144,180 +161,100 @@ def _calc_weight_partitions(weights: list[int], coarse_weight: int) -> list[list
     return partitions
 
 
-def is_valid_cdac_array_params(p: CdacArrayParams) -> bool:
+def is_valid_caparray_params(p: CapArrayParams) -> bool:
     """Check passive-array sizing and its coarse unit family."""
 
+    if p.tail_cap is not None and float(p.tail_cap) < 0:
+        return False
     if isinstance(p.coarse_weight, bool) or not isinstance(p.coarse_weight, int) or p.coarse_weight <= 0:
         return False
     if not p.active_layers or any(isinstance(layer, bool) or layer < 1 for layer in p.active_layers):
         return False
     if p.active_layers != tuple(range(p.active_layers[0], p.active_layers[-1] + 1)):
         return False
+    if p.stack_model is not None and (
+        p.unit_models
+        or tuple(p.stack_model.ports) != tuple(MOM_PORTS)
+        or any(port.width != 1 for port in p.stack_model.ports.values())
+        or p.stack_model.paramtype is not MomCapParams
+    ):
+        return False
     if p.unit_models and (
         len(p.unit_models) != len(p.active_layers)
         or any(
-            tuple(model.ports) != ("PLUS", "MINUS", "BULK") or any(port.width != 1 for port in model.ports.values())
+            tuple(model.ports) != tuple(MOM_PORTS) or any(port.width != 1 for port in model.ports.values())
             for model in p.unit_models
         )
     ):
         return False
-    return is_valid_cdac_params(p.cdac)
+    return is_valid_caparray_config(p.cdac)
+
+
+@h.bundle
+class ArrayPlates:
+    cap_topplate = h.Inout()
+    cap_shieldplate = h.Inout()
+
+
+def array_ports(n_stages: int) -> dict[str, h.Signal]:
+    """Physical main/diff plate names, in the layout and extraction pin order."""
+    ports = dict(ArrayPlates.signals)
+    for kind in ("main", "diff"):
+        for stage in range(n_stages):
+            name = f"cap_botplate_{kind}<{stage}>"
+            ports[name] = h.Inout(name=name)
+    return ports
 
 
 @h.generator
-def CdacArray(p: CdacArrayParams) -> h.Module:
+def CapArray(p: CapArrayParams) -> h.Module:
     """Generate an arbitrary-width passive main/diff unit-length array."""
 
-    if not is_valid_cdac_array_params(p):
+    if not is_valid_caparray_params(p):
         raise ValueError(f"Invalid CDAC array params: {p}")
-    weights = get_cdac_weights(p.cdac)
+    weights = get_caparray_weights(p.cdac)
     partitions = _calc_weight_partitions(weights, p.coarse_weight)
     n_caps = len(weights)
+    tail_cap = p.cdac.unit_cap / 2 if p.tail_cap is None else p.tail_cap
 
-    @h.module
-    class CdacArray:
-        cap_topplate = h.Inout(desc="Common capacitor top plate")
-        cap_shieldplate = h.Inout(desc="Grounded lower shield")
-
-    for kind in ("main", "diff"):
-        for stage in range(n_caps):
-            name = f"cap_botplate_{kind}<{stage}>"
-            setattr(CdacArray, name, h.Inout(name=name, desc=f"C{stage} {kind} bottom plate"))
+    CapArray = module_from_ports("CapArray", array_ports(n_caps))
+    bottom_plates = {
+        kind: tuple(net for name, net in CapArray.ports.items() if name.startswith(f"cap_botplate_{kind}<"))
+        for kind in ("main", "diff")
+    }
 
     for stage, chunks in enumerate(partitions):
         for chunk_index, chunk in enumerate(chunks):
+            if p.stack_model is not None:
+                for kind, sign in (("main", 1), ("diff", -1)):
+                    value = p.cdac.unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap
+                    setattr(
+                        CapArray,
+                        f"{kind}_{stage}_{chunk_index}",
+                        p.stack_model(MomCapParams(c=value))(
+                            PLUS=CapArray.cap_topplate,
+                            MINUS=bottom_plates[kind][stage],
+                            BULK=CapArray.cap_shieldplate,
+                        ),
+                    )
+                continue
             for layer_index, layer in enumerate(p.active_layers):
                 for kind, sign in (("main", 1), ("diff", -1)):
                     # unit_cap specifies the total logical unit across the
                     # stack. Equal ideal shares preserve that electrical sizing;
                     # actual per-layer capacitances are measured by PEX.
-                    value = p.cdac.unit_cap * ((p.coarse_weight + 1 + sign * chunk) / (2 * len(p.active_layers)))
-                    # HDL21 adds parameter constructors dynamically via @paramclass.
-                    unit = p.unit_models[layer_index] if p.unit_models else MomCap(MomCapParams(c=value))  # ty: ignore[unknown-argument]
+                    value = (p.cdac.unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap) / len(p.active_layers)
+                    unit = p.unit_models[layer_index] if p.unit_models else MomCap(MomCapParams(c=value))
                     setattr(
-                        CdacArray,
+                        CapArray,
                         f"{kind}_{stage}_{chunk_index}_m{layer}",
                         h.Instance(of=unit)(
-                            PLUS=CdacArray.cap_topplate,
-                            MINUS=getattr(CdacArray, f"cap_botplate_{kind}<{stage}>"),
-                            BULK=CdacArray.cap_shieldplate,
+                            PLUS=CapArray.cap_topplate,
+                            MINUS=bottom_plates[kind][stage],
+                            BULK=CapArray.cap_shieldplate,
                         ),
                     )
-    return CdacArray
-
-
-@h.generator
-def Cdac(param: CdacParams) -> h.Module:
-    """
-    Capacitor DAC generator.
-
-    Generates a CDAC with variable bit width based on parameters.
-
-    Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
-    """
-    if not is_valid_cdac_params(param):
-        raise ValueError(f"Invalid CDAC params: {param}")
-
-    weights = get_cdac_weights(param)
-    n_stages = len(weights)
-    if param.driver_strengths is None:
-        # Match the fabricated FRIDA driver bands: the two largest capacitors
-        # use 4× output stages, the next two use 2×, and all others use 1×.
-        driver_strengths = (4, 4, 2, 2)[:n_stages] + (1,) * max(0, n_stages - 4)
-    else:
-        driver_strengths = param.driver_strengths
-
-    @h.module
-    class Cdac:
-        """Capacitor DAC module."""
-
-        # IO ports
-        top = h.Inout(desc="DAC output (top plate)")
-        vdd = h.Inout(desc="Supply")
-        vss = h.Inout(desc="Ground")
-        # Variable-width DAC control bus
-        dac = h.Input(width=n_stages, desc="C0-first DAC stage controls")
-
-    # Build each DAC bit
-    threshold = 64  # Split threshold for vdiv/diffcap
-
-    # Every generated bus uses conversion-stage indices: stage zero is the
-    # first register and the largest capacitor. Numeric bus significance is
-    # deliberately not used to describe these non-binary redundant weights.
-    for stage, weight, driver_strength in zip(
-        range(n_stages),
-        weights,
-        driver_strengths,
-        strict=True,
-    ):
-        _build_dac_bit(Cdac, param, stage, weight, driver_strength, threshold)
-
-    return Cdac
-
-
-def _build_dac_bit(
-    mod,
-    param: CdacParams,
-    stage: int,
-    weight: int,
-    driver_strength: int,
-    threshold: int,
-):
-    """Build one chronological DAC stage."""
-
-    # Create intermediate signal for this bit
-    inter = h.Signal(name=f"inter_{stage}")
-    bot = h.Signal(name=f"bot_{stage}")
-    setattr(mod, f"inter_{stage}", inter)
-    setattr(mod, f"bot_{stage}", bot)
-
-    # First inverter (predriver - use minimum sized devices: w=10, l=1)
-    MP_buf = h.Mos(tp=MosType.PMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[stage], s=mod.vdd, b=mod.vdd)
-    MN_buf = h.Mos(tp=MosType.NMOS, vth=param.mos_vth, w=10, l=1)(d=inter, g=mod.dac[stage], s=mod.vss, b=mod.vss)
-    setattr(mod, f"MP_buf_{stage}", MP_buf)
-    setattr(mod, f"MN_buf_{stage}", MN_buf)
-
-    if param.split_strat == SplitStrat.NO_SPLIT:
-        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)
-    elif param.split_strat == SplitStrat.VDIV_SPLIT:
-        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)  # Simplified
-    else:  # DIFFCAP_SPLIT
-        _build_nosplit_bit(mod, param, stage, weight, driver_strength, inter, bot)  # Simplified
-
-
-def _build_nosplit_bit(
-    mod,
-    param: CdacParams,
-    stage: int,
-    weight: int,
-    driver_strength: int,
-    inter,
-    bot,
-):
-    """No split: c=1, m=weight (simplified using multiplier)."""
-
-    # Approximate the fabricated XOR output stage with portable transistors.
-    # Strength changes in three discrete bands instead of scaling continuously
-    # with capacitor weight.
-    MP_drv = h.Mos(
-        tp=MosType.PMOS,
-        vth=param.mos_vth,
-        w=param.driver_p_w * driver_strength,
-        l=1,
-    )(d=bot, g=inter, s=mod.vdd, b=mod.vdd)
-    MN_drv = h.Mos(
-        tp=MosType.NMOS,
-        vth=param.mos_vth,
-        w=param.driver_n_w * driver_strength,
-        l=1,
-    )(d=bot, g=inter, s=mod.vss, b=mod.vss)
-    setattr(mod, f"MP_drv_{stage}", MP_drv)
-    setattr(mod, f"MN_drv_{stage}", MN_drv)
-
-    # Main capacitor (weight implemented via capacitance value)
-    cap_val = weight * param.unit_cap
-    Cap = C(c=cap_val)(p=mod.top, n=bot)
-    setattr(mod, f"C_{stage}", Cap)
+    return CapArray
 
 
 # Weight Calculation

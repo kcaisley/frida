@@ -13,7 +13,10 @@ command-line programs. A runner may define
 inside the target that uses them.
 
 Each parameter configuration creates one typed HDF5 measurement in a new
-timestamped `build/scan_<kind>/<timestamp>/` directory. The file contains one
+timestamped directory. ADC campaigns use
+`build/scan_adc/<timestamp>_<target>/0000_capture.h5`, incrementing the capture
+index for each measurement. ADC identity and all acquisition settings remain
+in the HDF5. Comparator/CDAC paths retain `build/scan_<kind>/<timestamp>/`. The file contains one
 logical measurement with native `/info`, `/param`, `/daq`, and `/wave` groups.
 The HDF5 files themselves are the campaign record; do not add a manifest or a
 second sweep-policy object beside them.
@@ -43,6 +46,39 @@ power supply, or attempt to shut manually controlled supplies down. These
 measurements keep the normal `/info`, `/param`, `/daq`, and `/wave` H5 groups;
 `/wave` is encoded as empty because no scope record was acquired.
 
+The no-instrument fixed-input target runs ADC03 with the historical `ORIGINAL`
+control followed by all 56 named `DUTY_CYCLE_SEQUENCES`, each at 1600 and
+960 MBd. It captures 100,000 conversions per point: 114 files and 11.4 million
+conversions. Rates are paired for each recipe; the two control captures run first.
+Acquisition stops after writing its HDF5 files and shutting down the FPGA.
+Select the completed directory explicitly in `adc_sequence_study` before
+running analysis; the scan does not silently change a study’s accepted inputs.
+The matrix crosses four COMP widths, seven LOGIC patterns and 160/256-symbol
+lengths. Actual repeat rates are 10/6.25 MSPS at 1600 MBd and 6/3.75 MSPS at
+960 MBd, respectively. Matrix rows have a four-symbol INIT and
+twenty-symbol SAMP; each 256-symbol row appends 96 zeros to its 160-symbol pair.
+The separately defined historical control retains its different INIT/SAMP
+timing and COMP start; its two captures are additional to the 112 matrix points.
+Names encode the length and interior
+COMP/LOGIC words, including wraparound for four-symbol LOGIC pulses. The INIT
+LOGIC marker remains one symbol; only the sixteen SAR update pulses are swept.
+For these short programs, the returned B0--B16 data crosses the sequencer
+memory boundary. Both scans wrap RX_SEN from the calibrated start word,
+retaining the existing fine serializer phase adjustment without adding a
+whole-word rotation. One control period is repeated in the existing 256-byte
+RAM. Once enough frames arrive, FastRX is disabled before the sequencer is
+reset, so a held-high final RAM word cannot create spurious frames.
+Unused physical RAM is cleared before START to keep RX disabled while idle.
+
+All transported frames are checked before retaining exactly the requested
+number of conversions. A leading partial frame is discarded; when INIT wraps
+across the origin, the first uninitialized conversion is also discarded.
+Readbacks record `capture_startup_frames`, `capture_startup_conversions`,
+`capture_received_frames`, and each discarded `startup_fastrx_word_0`, `_1`,
+etc. These prefix words plus `/daq/fastrx_word` retain the original frame
+numbers. Additional complete frames collected during host stop latency are
+validated and then omitted from the measurement.
+
 The scan scripts use three distinct interfaces:
 
 1. Generic, low-level Basil support shared by many hardware blocks.
@@ -50,6 +86,25 @@ The scan scripts use three distinct interfaces:
 3. FRIDA-local operations for protocols that are specific to this design.
 
 Methods marked `†` are FRIDA Basil extensions, as defined in the footnote.
+
+## ADC acquisition families
+
+All ADC selections are explicit inside their runner. Long campaigns retain the
+reviewed subset beside a commented `adc_indices = tuple(range(16))` alternative.
+Changing that selection requires no new function or command-line flag.
+
+| Runner | Current acquisition |
+| --- | --- |
+| `adc_sequence` | 96 all-ADC 0/50-mV controls plus 546 ADC00/01 LOGIC/rate points. |
+| `adc_sequence_noctl` | ADC03, 57 sequences at two symbol rates: 114 manual-supply captures. |
+| `adc_sample_rate` | ADC00/01, 78 sine and 78 DC captures; instrumented DC data also supports power analysis. |
+| `adc_activity_noise` | ADC00 at three rates, with only itself or all 16 ADCs active: six captures. |
+| `adc_transfer_curve` | ADC00, 1,001 known-voltage steps. |
+| `adc_ramp_code_density` | ADC00--03, four long sawtooth captures. |
+
+The consolidated families preserve all 1,923 former ADC configurations.
+The target registry is local to `main`. Each runner retains its own visible
+acquisition/abort loop. No shared lifecycle wrapper is introduced.
 
 ## Low-level Basil support
 
@@ -127,6 +182,17 @@ serializer clock = 8*FIN/N
 DDR symbol rate  = 16*FIN/N
 ```
 
+Conversion rate uses the INIT rising edge through the final COMP falling edge,
+rounded up to the end of its eight-symbol word relative to INIT. A common phase
+advance does not change this duration. At 1.6 Gbaud, the original recipe converts
+in 100 ns (10 MSPS), then repeats every 160 ns (6.25 MHz). The 160-symbol duty
+recipes convert and repeat every 100 ns. Baud is calculated from each selected
+recipe, so the extended-COMP recipe uses 1.68 Gbaud when requested at 10 MSPS.
+
+Existing typed analysis fields retain their names: `active_conversion_rate_hz`
+is the conversion rate; `sample_rate_hz` is the full repetition rate, which is
+also the rate used for spectral analysis.
+
 ## FRIDA-local scan support
 
 These functions are not Basil APIs. They implement design-specific packing,
@@ -135,7 +201,7 @@ hardware-driver calls.
 
 | Function | File | Role |
 | --- | --- | --- |
-| `convert_sample_rate_to_baud()` | `params.py` | Derive symbol rate from a requested active-conversion rate and the timing-pattern active span. |
+| `convert_conversion_rate_to_baud()` | `params.py` | Derive symbol rate from the conversion rate: INIT rise to final COMP fall, rounded to the end of its eight-symbol word. The full pattern determines the repetition interval. |
 | `convert_dac_caps_to_adc_weights()` | `scan_adc.py` | Convert C0-first physical CDAC weights into chronological B0..B16 decision weights. |
 | `convert_params_to_seqgen_fmt()` | `seqgen.py` | Pack four parameterized timing strings and a caller-supplied one-bit-per-word RX_SEN string into raw 64-bit sequencer words. |
 | `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
@@ -144,7 +210,7 @@ hardware-driver calls.
 | `convert_dout_to_normalized_dout()` | `scan_adc.py` | Normalize one decoded weighted ADC result to the configured output-code range. |
 | `write_scope_csv()` | `scope.py` | Persist aligned voltage and instrument-code columns from one raw scope acquisition. |
 | `write_measurement()` / `read_measurement()` | `flow/analysis/io.py` | Persist and load one typed physical, behavioral, or SPICE measurement using the shared HDF5 schema. |
-| `scope_records_to_adc_wave()` | `flow/analysis/io.py` | Convert aligned triggered scope records into the dense external ADC waveform section. |
+| `scope_records_to_adc_wave()` | `scope.py` | Convert aligned triggered scope records into the dense external ADC waveform section. |
 | `analyze_adc_dynamic()` | `flow/analysis/adc.py` | Perform a four-parameter sine fit plus FFT analysis and report residual RMS, SNR, SNDR, THD, SFDR, and ENOB. |
 | `analyze_adc_transfer()` / `analyze_adc_nonlinearity()` / `analyze_adc_code_distribution()` | `flow/analysis/adc.py` | Calculate typed static transfer, INL/DNL, and fixed-input code-distribution results. |
 | `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics. |
@@ -172,11 +238,36 @@ uv run pytest -q -s -m hw flow/scans/test_fastrx.py
 ```
 
 `scope.py` contains capture synchronization around the Basil scope driver.
-Every physical scope test uses one fixed MSO54 hookup: CH1 is the TDP3500
+ADC/comparator scope tests use the standard MSO54 hookup: CH1 is the TDP3500
 differential probe on the diffamp/ADC input, CH2 is the comparator clock, CH3
 is the LOGIC sequencer clock, and CH4 is the comparator output. INIT and SAMP
 remain part of the generated ASIC sequence but are not scope inputs. Tests
 configure and download only the subset of these four channels that they use.
+The dedicated four-sequence clock test uses a different, explicit hookup:
+differential probes on PCB INIT/SAMP/COMP/LOGIC at CH1/2/3/4. With manually
+set supplies and input, run only:
+
+```bash
+uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_adc_sequence_waveforms
+```
+
+It programs `FIXED_INPUT_SEQUENCES` and `DUTY_CYCLE_SEQUENCES` at 1.6 GBd and saves raw CSV captures,
+four-axis PDFs (160 ns raw record, 120 ns overview and pulse detail), and JSON edge
+observations beneath `build/test_serdes/<timestamp>/<case>/`. Its edge check
+uses A-then-B edge triggering on CH1: A detects the first INIT and B captures
+the next rising edge (event count one). It compares all active edges of that
+second conversion against the named rows
+at differential zero crossings, within 0.25 ns relative to measured INIT.
+Manual horizontal mode uses the instrument's minimum 1000 samples at 6.25 GS/s
+for a 160 ns raw record. The scope zoom and overview plot show 120 ns, including
+3.4 ns before INIT. The end of the 256-symbol recipe's idle pause is
+outside that window. The scope keeps the capture settings and stopped waveform
+after each case; prior settings are not restored. This is a PCB clock
+check, not validation of the ASIC's internal clock receivers or SAR operation.
+The existing `test_serdes_rates` test retains its original hookup and SMU
+control; select the appropriate test explicitly rather than running the module
+with either hookup.
+
 Saved hardware-test artifacts are grouped by test module and invocation under
 `build/test_diffamp/<timestamp>`, `build/test_noise/<timestamp>`,
 `build/test_fastrx/<timestamp>`, and `build/test_serdes/<timestamp>`.

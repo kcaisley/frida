@@ -12,23 +12,22 @@ from flow.layout.dsl import GenericLayers
 from flow.layout.tech import EndOfLineRule, NewRuleDeck, ParallelSpacingRule, ViaEnclosureRule
 
 from .laygen import (
-    CdacLayout,
-    CdacLayoutParams,
+    CapArrayLayout,
+    CapArrayLayoutParams,
     UnitLengthCapFamilyParams,
     _calc_unit_geometry,
     _layout_manifest,
     _ordered_groups,
-    is_valid_cdac_layout_params,
+    is_valid_caparray_layout_params,
 )
 from .subckt import (
-    Cdac,
-    CdacArray,
-    CdacArrayParams,
-    CdacParams,
+    CapArray,
+    CapArrayConfig,
+    CapArrayParams,
     RedunStrat,
     _calc_weight_partitions,
-    get_cdac_weights,
-    is_valid_cdac_array_params,
+    get_caparray_weights,
+    is_valid_caparray_params,
 )
 
 
@@ -71,6 +70,7 @@ class _SyntheticPdkLayout:
             generic.MOM_RECOG_M5: db.LayerInfo(155, 105, "MOM_RECOG_M5"),
             generic.MOM_RECOG_M6: db.LayerInfo(155, 106, "MOM_RECOG_M6"),
             generic.MOM_RECOG_M7: db.LayerInfo(155, 107, "MOM_RECOG_M7"),
+            generic.MOM_RECOG_INNER: db.LayerInfo(155, 120, "MOM_RECOG_INNER"),
             generic.PR_BOUNDARY: db.LayerInfo(189, 0, "PR_BOUNDARY"),
         }
         for metal_number in range(3, 8):
@@ -88,9 +88,9 @@ def _params(
     shield_layer: int = 5,
     active_layers: tuple[int, ...] = (6,),
     top_cell: str = "frida_caparray",
-) -> CdacLayoutParams:
-    return CdacLayoutParams(
-        cdac=CdacParams(n_dac=len(weights), n_extra=0, weights=weights, unit_cap=0.8 * f),
+) -> CapArrayLayoutParams:
+    return CapArrayLayoutParams(
+        cdac=CapArrayConfig(n_dac=len(weights), n_extra=0, weights=weights, unit_cap=0.8 * f),
         family=UnitLengthCapFamilyParams(),
         technology="synthetic",
         route_layer=4,
@@ -100,9 +100,9 @@ def _params(
     )
 
 
-def _generate(monkeypatch: pytest.MonkeyPatch, params: CdacLayoutParams) -> db.Layout:
-    monkeypatch.setattr("flow.cdac.laygen.import_module", lambda _name: _SyntheticPdkLayout)
-    return CdacLayout(params)
+def _generate(monkeypatch: pytest.MonkeyPatch, params: CapArrayLayoutParams) -> db.Layout:
+    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _SyntheticPdkLayout)
+    return CapArrayLayout(params)
 
 
 def _layer_index(layout: db.Layout, layer: int, datatype: int) -> int:
@@ -114,9 +114,9 @@ def _layer_index(layout: db.Layout, layer: int, datatype: int) -> int:
 
 
 def test_cdac_and_weight_strategies() -> None:
-    assert Cdac(CdacParams()) is not None
-    assert len(get_cdac_weights(CdacParams(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2))) == 8
-    assert len(get_cdac_weights(CdacParams(n_dac=8, n_extra=2, redun_strat=RedunStrat.SUBRDX2_LIM))) == 10
+    assert CapArray(CapArrayParams()) is not None
+    assert len(get_caparray_weights(CapArrayConfig(n_dac=8, n_extra=0, redun_strat=RedunStrat.RDX2))) == 8
+    assert len(get_caparray_weights(CapArrayConfig(n_dac=8, n_extra=2, redun_strat=RedunStrat.SUBRDX2_LIM))) == 10
 
 
 def test_weight_partitions_accept_arbitrary_lengths_and_large_weights() -> None:
@@ -138,7 +138,7 @@ def test_weight_partitions_accept_arbitrary_lengths_and_large_weights() -> None:
 
 
 def test_radix17_and_radix20_are_data_not_generator_assumptions() -> None:
-    radix17 = tuple(get_cdac_weights(CdacParams()))
+    radix17 = tuple(get_caparray_weights(CapArrayConfig()))
     radix20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
     assert (len(radix17), sum(radix17), sum(map(len, _calc_weight_partitions(list(radix17), 64)))) == (16, 2047, 41)
     assert (len(radix20), sum(radix20), sum(map(len, _calc_weight_partitions(list(radix20), 64)))) == (16, 2303, 41)
@@ -156,10 +156,10 @@ def test_physical_order_is_small_left_large_right_without_renumbering() -> None:
 
 
 def test_cdac_array_has_dynamic_ports_and_ideal_values() -> None:
-    cdac = CdacParams(n_dac=4, n_extra=0, weights=(129, 64, 2, 1), unit_cap=0.8 * f)
-    params = CdacArrayParams(cdac=cdac)
-    assert is_valid_cdac_array_params(params)
-    module = CdacArray(params)
+    cdac = CapArrayConfig(n_dac=4, n_extra=0, weights=(129, 64, 2, 1), unit_cap=0.8 * f)
+    params = CapArrayParams(cdac=cdac)
+    assert is_valid_caparray_params(params)
+    module = CapArray(params)
     assert len(module.ports) == 10
     assert set(module.ports) == {
         "cap_topplate",
@@ -179,9 +179,9 @@ def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int,
     from flow.util.netlist import subcircuit_ports
     from pdk.tsmc65.signoff import mom_lvs_device
 
-    params = CdacArrayParams(cdac=CdacParams(unit_cap=0.8 * f), active_layers=active_layers)
-    ideal = CdacArray(params)
-    lvs = CdacArray(
+    params = CapArrayParams(cdac=CapArrayConfig(unit_cap=0.8 * f), active_layers=active_layers)
+    ideal = CapArray(params)
+    lvs = CapArray(
         replace(params, unit_models=tuple(mom_lvs_device(layer, active_layers[0] - 1) for layer in active_layers))
     )
     expected_ports = (
@@ -217,13 +217,13 @@ def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int,
 def test_cdac_array_rejects_incompatible_device_views() -> None:
     from pdk.tsmc65.signoff import mom_lvs_device
 
-    params = CdacArrayParams(active_layers=(6, 7))
-    assert not is_valid_cdac_array_params(replace(params, active_layers=(7, 6)))
-    assert not is_valid_cdac_array_params(replace(params, active_layers=()))
-    assert not is_valid_cdac_array_params(replace(params, unit_models=(mom_lvs_device(6, 5),)))
+    params = CapArrayParams(active_layers=(6, 7))
+    assert not is_valid_caparray_params(replace(params, active_layers=(7, 6)))
+    assert not is_valid_caparray_params(replace(params, active_layers=()))
+    assert not is_valid_caparray_params(replace(params, unit_models=(mom_lvs_device(6, 5),)))
     bad = h.Module(name="missing_bulk")
     bad.PLUS, bad.MINUS = h.Inouts(2)
-    assert not is_valid_cdac_array_params(replace(params, unit_models=(bad, bad)))
+    assert not is_valid_caparray_params(replace(params, unit_models=(bad, bad)))
 
 
 def test_geometry_is_derived_from_rules() -> None:
@@ -243,10 +243,10 @@ def test_geometry_is_derived_from_rules() -> None:
 
 
 def test_layout_validation_rejects_reserved_or_nonconsecutive_layers() -> None:
-    assert is_valid_cdac_layout_params(_params())
-    assert is_valid_cdac_layout_params(_params(shield_layer=4, active_layers=(5, 6, 7)))
-    assert not is_valid_cdac_layout_params(replace(_params(), route_layer=3))
-    assert not is_valid_cdac_layout_params(_params(active_layers=(6, 8)))
+    assert is_valid_caparray_layout_params(_params())
+    assert is_valid_caparray_layout_params(_params(shield_layer=4, active_layers=(5, 6, 7)))
+    assert not is_valid_caparray_layout_params(replace(_params(), route_layer=3))
+    assert not is_valid_caparray_layout_params(_params(active_layers=(6, 8)))
 
 
 def test_rule_derived_radix17_layout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -339,7 +339,7 @@ def test_every_shield_tab_reaches_the_shield(
 
 
 def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("flow.cdac.laygen.import_module", lambda _name: _SyntheticPdkLayout)
+    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _SyntheticPdkLayout)
     manifest = _layout_manifest(_params((129, 64, 1)))
     assert manifest["physical_chunk_count"] == 5
     assert manifest["edge_dummy_count"] == 2

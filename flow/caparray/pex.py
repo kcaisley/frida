@@ -23,7 +23,7 @@ type PinOrder = Literal["stage", "frida1_legacy"]
 
 
 @dataclass(frozen=True)
-class CdacPexCapacitance:
+class CapArrayPexCapacitance:
     """C0-first capacitance components for one physical CDAC array."""
 
     main_by_stage_ff: tuple[float, ...]
@@ -72,12 +72,12 @@ def _stage_for_pin(pin: int, stage_count: int, pin_order: PinOrder) -> int:
     raise ValueError(f"unsupported CDAC pin order {pin_order!r}")
 
 
-def parse_cdac_pex(
+def parse_caparray_pex(
     path: Path,
     *,
     stage_count: int,
     pin_order: PinOrder = "stage",
-) -> CdacPexCapacitance:
+) -> CapArrayPexCapacitance:
     """Sum logical top/bottom couplings and return C0-first stage order."""
 
     if stage_count < 1:
@@ -119,7 +119,7 @@ def parse_cdac_pex(
     diff_total = sum(diff)
     if main_total == 0.0 or diff_total == 0.0:
         raise ValueError(f"{path} contains no complete FRIDA top/bottom capacitance set")
-    return CdacPexCapacitance(
+    return CapArrayPexCapacitance(
         main_by_stage_ff=tuple(main),
         diff_by_stage_ff=tuple(diff),
         main_ff=main_total,
@@ -133,12 +133,12 @@ def parse_cdac_pex(
     )
 
 
-def parse_adc_cdac_pex(
+def parse_adc_caparray_pex(
     path: Path,
     *,
     stage_count: int,
     pin_order: PinOrder = "stage",
-) -> CdacPexCapacitance:
+) -> CapArrayPexCapacitance:
     """Extract and average P/N CDACs, returning C0-first stage order."""
 
     if stage_count < 1:
@@ -189,7 +189,7 @@ def parse_adc_cdac_pex(
     diff_average = tuple((a + b) / 2 for a, b in zip(diff["p"], diff["n"], strict=True))
     if not sum(main_average) or not sum(diff_average):
         raise ValueError(f"{path} contains no complete differential FRIDA CDAC")
-    return CdacPexCapacitance(
+    return CapArrayPexCapacitance(
         main_by_stage_ff=main_average,
         diff_by_stage_ff=diff_average,
         main_ff=sum(main_average),
@@ -205,7 +205,7 @@ def parse_adc_cdac_pex(
 
 def write_comparison_table(
     output_dir: Path,
-    designs: dict[str, CdacPexCapacitance],
+    designs: dict[str, CapArrayPexCapacitance],
 ) -> tuple[Path, Path]:
     """Write the requested 34-row main/diff/sampling/shunt comparison."""
 
@@ -256,7 +256,7 @@ def write_comparison_table(
     return csv_path, json_path
 
 
-def write_capacitance_table(output_dir: Path, result: CdacPexCapacitance) -> tuple[Path, Path]:
+def write_capacitance_table(output_dir: Path, result: CapArrayPexCapacitance) -> tuple[Path, Path]:
     """Write machine-readable per-stage and aggregate extraction results."""
 
     json_path = output_dir / "capacitance_table.json"

@@ -10,6 +10,7 @@ from .adc import (
     analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
     analyze_adc_ramp,
+    analyze_adc_timing_closure,
     analyze_adc_transfer,
 )
 from .cdac import analyze_cdac_cap_mismatch
@@ -30,6 +31,7 @@ __all__ = [
     "analyze_adc_nonlinearity",
     "analyze_adc_power_sweep",
     "analyze_adc_ramp",
+    "analyze_adc_timing_closure",
     "analyze_adc_transfer",
     "analyze_cdac_cap_mismatch",
     "analyze_comp_offset_noise",

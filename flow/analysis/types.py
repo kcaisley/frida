@@ -13,7 +13,8 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from flow.adc.sim import AdcTbParams
-    from flow.cdac.sim import CdacTbParams
+    from flow.caparray.sim import CapArrayTbParams
+    from flow.caparray.subckt import CapArrayParams
     from flow.comp.sim import CompTbParams
     from flow.samp.sim import SampTbParams
     from flow.scans.params import AdcScanParams
@@ -184,21 +185,21 @@ class AdcDaq:
 
 @dataclass(frozen=True, slots=True)
 class AdcExtWave:
-    """Externally observable ADC waveforms."""
+    """Externally observable ADC waveforms; input voltage may be unprobed."""
 
     conversion_index: IntArray
     time_s: FloatArray
-    vin_diff_v: FloatArray
     seq_comp_v: FloatArray
     seq_logic_v: FloatArray
     comp_out_v: FloatArray
+    vin_diff_v: FloatArray | None = None
 
     def __post_init__(self) -> None:
         indices, times, signals = _normalize_wave(
             self.conversion_index,
             self.time_s,
             {
-                "vin_diff_v": self.vin_diff_v,
+                **({"vin_diff_v": self.vin_diff_v} if self.vin_diff_v is not None else {}),
                 "seq_comp_v": self.seq_comp_v,
                 "seq_logic_v": self.seq_logic_v,
                 "comp_out_v": self.comp_out_v,
@@ -212,65 +213,34 @@ class AdcExtWave:
 
 @dataclass(frozen=True, slots=True)
 class AdcIntWave:
-    """External and internal ADC waveforms from simulation."""
+    """Dense records keyed by canonical net names; voltage in V, current draw in A."""
 
     conversion_index: IntArray
     time_s: FloatArray
-    vin_diff_v: FloatArray
-    seq_comp_v: FloatArray
-    seq_logic_v: FloatArray
-    comp_out_v: FloatArray
-    vin_p_v: FloatArray
-    vin_n_v: FloatArray
-    seq_init_v: FloatArray
-    seq_samp_v: FloatArray
-    vdac_p_v: FloatArray
-    vdac_n_v: FloatArray
-    clk_samp_p_v: FloatArray
-    clk_samp_p_b_v: FloatArray
-    clk_samp_n_v: FloatArray
-    clk_samp_n_b_v: FloatArray
-    clk_comp_v: FloatArray
-    comp_out_p_v: FloatArray
-    comp_out_n_v: FloatArray
-    dac_state_p_c0_v: FloatArray
-    dac_state_p_c7_v: FloatArray
-    dac_state_p_c15_v: FloatArray
-    dac_state_n_c0_v: FloatArray
-    dac_state_n_c7_v: FloatArray
-    dac_state_n_c15_v: FloatArray
-    dac_botplate_p_c0_v: FloatArray
-    dac_botplate_p_c7_v: FloatArray
-    dac_botplate_p_c15_v: FloatArray
-    dac_botplate_n_c0_v: FloatArray
-    dac_botplate_n_c7_v: FloatArray
-    dac_botplate_n_c15_v: FloatArray
-    vdd_a_i: FloatArray
-    vdd_d_i: FloatArray
-    vdd_dac_i: FloatArray
-    # Additional per-stage and comparator voltages, aligned to time_s and
-    # conversion_index. Existing plotter-facing traces remain explicit above.
-    internal_v: dict[str, FloatArray] = field(default_factory=dict)
+    voltage: dict[str, FloatArray]
+    current: dict[str, FloatArray] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        signal_names = tuple(
-            field_name
-            for field_name in self.__dataclass_fields__
-            if field_name not in {"conversion_index", "time_s", "internal_v"}
-        )
-        indices, times, signals = _normalize_wave(
-            self.conversion_index,
-            self.time_s,
-            {name: getattr(self, name) for name in signal_names},
-        )
+        from flow.adc.subckt import AdcNets
+        from flow.circuit.ports import waveform_net_names
+        from flow.comp.subckt import CompNets
+
+        allowed = waveform_net_names(AdcNets)
+        allowed.update({f"comp.{name}" for name in waveform_net_names(CompNets)})
+        if unknown := (self.voltage.keys() | self.current.keys()) - allowed:
+            raise ValueError(f"Unknown canonical waveform nets: {sorted(unknown)}")
+        indices, time, voltage = _normalize_wave(self.conversion_index, self.time_s, self.voltage)
+        _, _, current = _normalize_wave(indices, time, self.current)
         object.__setattr__(self, "conversion_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
-        if any(not name.isidentifier() or not name.endswith("_v") or name in signal_names for name in self.internal_v):
-            raise ValueError("wave.internal_v must contain distinct voltage identifiers ending in _v")
-        _, _, internal = _normalize_wave(indices, times, self.internal_v)
-        object.__setattr__(self, "internal_v", internal)
+        object.__setattr__(self, "time_s", time)
+        object.__setattr__(self, "voltage", voltage)
+        object.__setattr__(self, "current", current)
+
+    @property
+    def vin_diff_v(self) -> FloatArray:
+        from flow.adc.subckt import AdcNets
+
+        return self.voltage[AdcNets.vin_p.name] - self.voltage[AdcNets.vin_n.name]
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,32 +356,26 @@ class CompExtWave:
 
 @dataclass(frozen=True, slots=True)
 class CompIntWave:
-    """Internally observable comparator waveforms."""
+    """Dense records keyed by canonical net names; voltage in V, current draw in A."""
 
     trial_index: IntArray
     time_s: FloatArray
-    vin_p_v: FloatArray
-    vin_n_v: FloatArray
-    clock_v: FloatArray
-    vout_p_v: FloatArray
-    vout_n_v: FloatArray
-    comp_p_v: FloatArray
-    comp_n_v: FloatArray
-    vdd_i: FloatArray
+    voltage: dict[str, FloatArray]
+    current: dict[str, FloatArray] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        signal_names = tuple(
-            field_name for field_name in self.__dataclass_fields__ if field_name not in {"trial_index", "time_s"}
-        )
-        indices, times, signals = _normalize_wave(
-            self.trial_index,
-            self.time_s,
-            {name: getattr(self, name) for name in signal_names},
-        )
+        from flow.circuit.ports import waveform_net_names
+        from flow.comp.subckt import CompNets
+
+        allowed = waveform_net_names(CompNets)
+        if unknown := (self.voltage.keys() | self.current.keys()) - allowed:
+            raise ValueError(f"Unknown canonical waveform nets: {sorted(unknown)}")
+        indices, time, voltage = _normalize_wave(self.trial_index, self.time_s, self.voltage)
+        _, _, current = _normalize_wave(indices, time, self.current)
         object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
+        object.__setattr__(self, "time_s", time)
+        object.__setattr__(self, "voltage", voltage)
+        object.__setattr__(self, "current", current)
 
 
 @dataclass(frozen=True, slots=True)
@@ -729,17 +693,30 @@ class MeasCdacInt:
     """CDAC measurement with internal simulation waveforms."""
 
     info: MeasInfo
-    param: CdacTbParams | AdcTbParams
+    param: CapArrayTbParams | AdcTbParams
     daq: CdacIntDaq
     wave: CdacIntWave
 
     def __post_init__(self) -> None:
         from flow.adc.sim import AdcTbParams
-        from flow.cdac.sim import CdacTbParams
+        from flow.caparray.sim import CapArrayTbParams
 
-        if not isinstance(self.param, (CdacTbParams, AdcTbParams)):
-            raise TypeError("MeasCdacInt requires CdacTbParams or AdcTbParams")
+        if not isinstance(self.param, (CapArrayTbParams, AdcTbParams)):
+            raise TypeError("MeasCdacInt requires CapArrayTbParams or AdcTbParams")
         _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
+
+
+@dataclass(frozen=True, slots=True)
+class MeasCapArray:
+    """Reserved capacitance-extraction result; its data payload is not defined yet.
+
+    This prototype is not registered for measurement HDF5 I/O. The converter
+    remains unimplemented until nominal/extracted and Monte Carlo capacitance
+    fields are specified.
+    """
+
+    info: MeasInfo
+    param: CapArrayParams
 
 
 type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasCdacExt | MeasCdacInt
@@ -763,7 +740,11 @@ class AnalysisWaveform:
     signal_values: FloatArray
     setup_lines: tuple[str, ...] = ()
 
+    time_origin_s: float = 0.0
+
     def __post_init__(self) -> None:
+        if not np.isfinite(self.time_origin_s):
+            raise ValueError("waveform time origin must be finite")
         time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
         signal_values = _array_2d(self.signal_values, np.float64, "signal_values", finite=True)
         if not self.title.strip():
@@ -860,7 +841,7 @@ class AnalysisDiffampNoise:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcScopeBits:
-    """One 17-decision scope decode aligned with the first FastRX word."""
+    """One 17-decision scope decode aligned with its corresponding FastRX word."""
 
     scope_bits: BoolArray
     fastrx_bits: BoolArray
@@ -1316,6 +1297,7 @@ class AnalysisAdcCodeDistribution:
 class AnalysisAdcNoiseSweep:
     """Fixed-input output variation across conversion timing settings."""
 
+    sample_rate_hz: FloatArray
     active_conversion_rate_hz: FloatArray
     logic_phase_delay_symbols: FloatArray
     comparator_time_percent: FloatArray
@@ -1331,6 +1313,7 @@ class AnalysisAdcNoiseSweep:
         float_fields = {
             name: _array_1d(getattr(self, name), np.float64, name)
             for name in (
+                "sample_rate_hz",
                 "active_conversion_rate_hz",
                 "logic_phase_delay_symbols",
                 "comparator_time_percent",
@@ -1346,7 +1329,9 @@ class AnalysisAdcNoiseSweep:
         if not math.isfinite(self.input_lsb_v) or self.input_lsb_v <= 0.0:
             raise ValueError("ADC noise sweep input_lsb_v must be finite and positive")
         if (
-            not np.all(np.isfinite(float_fields["active_conversion_rate_hz"]))
+            not np.all(np.isfinite(float_fields["sample_rate_hz"]))
+            or np.any(float_fields["sample_rate_hz"] <= 0.0)
+            or not np.all(np.isfinite(float_fields["active_conversion_rate_hz"]))
             or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
             or not np.all(np.isfinite(float_fields["logic_phase_delay_symbols"]))
             or not np.all(np.isfinite(float_fields["comparator_time_percent"]))
@@ -1849,10 +1834,11 @@ class AnalysisAdcPowerWaveform:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisAdcSamplingNoise:
-    """One held P/N voltage estimate per conversion, before the first decision.
+    """One P/N voltage observation per conversion at a recorded time or window.
 
-    Window averaging suppresses fast ongoing noise: this is a held-level
-    repeatability measurement, not source-isolated kT/C or final code noise.
+    Equal window bounds denote an interpolated instantaneous observation.
+    The current ADC analysis samples 1 ns after SAMP falls, including possible
+    comparator activity; this is not source-isolated kT/C or final code noise.
     """
 
     conversion_index: IntArray
@@ -1871,8 +1857,8 @@ class AnalysisAdcSamplingNoise:
         count = _aligned_length({"conversion_index": indices, **arrays})
         if count < 2 or len(np.unique(indices)) != count or np.any(indices < 0):
             raise ValueError("sampling noise requires at least two distinct conversions")
-        if np.any(arrays["window_start_s"] >= arrays["window_stop_s"]):
-            raise ValueError("sampling noise windows must have positive duration")
+        if np.any(arrays["window_start_s"] > arrays["window_stop_s"]):
+            raise ValueError("sampling noise windows must have nonnegative duration")
         for name, array in arrays.items():
             object.__setattr__(self, name, array)
         object.__setattr__(self, "conversion_index", indices)
@@ -2267,3 +2253,105 @@ MEASUREMENT_TYPES = {
     cls.__name__: cls
     for cls in (MeasAdcExt, MeasAdcInt, MeasCompExt, MeasCompInt, MeasSampInt, MeasCdacExt, MeasCdacInt)
 }
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcTimingClosure:
+    """One row per saved decision, with times relative to its waveform record.
+
+    NaN means a required observation was missing or never became stable.
+    B16 has no CDAC update: its CDAC times are NaN and that check is inapplicable.
+    CDAC settling is relative to the observed end of the update window, not a
+    separately measured DC solution. Setup requirements and tolerances are explicit.
+    """
+
+    conversion_index: IntArray
+    decision_index: IntArray
+    comp_rise_s: FloatArray
+    comp_reset_s: FloatArray
+    logic_rise_s: FloatArray
+    next_comp_s: FloatArray
+    internal_final_diff_v: FloatArray
+    internal_stable_s: FloatArray
+    sr_stable_s: FloatArray
+    sr_matches_at_logic: BoolArray
+    cdac_stable_s: FloatArray
+    required_logic_setup_s: float
+    required_cdac_setup_s: float
+    internal_differential_v: float
+    cdac_tolerance_v: float
+    sample_interval_s: float
+
+    def __post_init__(self) -> None:
+        arrays = {}
+        for name in (
+            "conversion_index",
+            "decision_index",
+            "comp_rise_s",
+            "comp_reset_s",
+            "logic_rise_s",
+            "next_comp_s",
+            "internal_final_diff_v",
+            "internal_stable_s",
+            "sr_stable_s",
+            "sr_matches_at_logic",
+            "cdac_stable_s",
+        ):
+            dtype = (
+                np.int64
+                if name in {"conversion_index", "decision_index"}
+                else (np.bool_ if name == "sr_matches_at_logic" else np.float64)
+            )
+            arrays[name] = _array_1d(getattr(self, name), dtype, name)
+            object.__setattr__(self, name, arrays[name])
+        if (
+            not _aligned_length(arrays)
+            or np.any(self.conversion_index < 0)
+            or np.any((self.decision_index < 0) | (self.decision_index > 16))
+        ):
+            raise ValueError("ADC timing rows require valid conversion and decision indices")
+        for name in (
+            "required_logic_setup_s",
+            "required_cdac_setup_s",
+            "internal_differential_v",
+            "cdac_tolerance_v",
+            "sample_interval_s",
+        ):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+
+    @property
+    def internal_resolution_s(self) -> FloatArray:
+        return self.internal_stable_s - self.comp_rise_s
+
+    @property
+    def sr_response_s(self) -> FloatArray:
+        return self.sr_stable_s - self.comp_rise_s
+
+    @property
+    def logic_to_cdac_s(self) -> FloatArray:
+        return self.cdac_stable_s - self.logic_rise_s
+
+    @property
+    def logic_setup_s(self) -> FloatArray:
+        return self.logic_rise_s - np.maximum(self.internal_stable_s, self.sr_stable_s)
+
+    @property
+    def cdac_setup_s(self) -> FloatArray:
+        return self.next_comp_s - self.cdac_stable_s
+
+    @property
+    def logic_ready(self) -> BoolArray:
+        return self.sr_matches_at_logic & (self.logic_setup_s >= self.required_logic_setup_s)
+
+    @property
+    def cdac_applicable(self) -> BoolArray:
+        return self.decision_index < 16
+
+    @property
+    def cdac_ready(self) -> BoolArray:
+        return self.cdac_applicable & (self.cdac_setup_s >= self.required_cdac_setup_s)
+
+    @property
+    def passed(self) -> BoolArray:
+        return self.logic_ready & (~self.cdac_applicable | self.cdac_ready)

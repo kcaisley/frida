@@ -108,6 +108,7 @@ class GenericLayers:
     MOM_RECOG_M5 = kdb.LayerInfo(62, 5, "MOM_RECOG_M5")
     MOM_RECOG_M6 = kdb.LayerInfo(62, 6, "MOM_RECOG_M6")
     MOM_RECOG_M7 = kdb.LayerInfo(62, 7, "MOM_RECOG_M7")
+    MOM_RECOG_INNER = kdb.LayerInfo(62, 20, "MOM_RECOG_INNER")
 
 
 def load_generic_layers(layout: kdb.Layout) -> GenericLayers:

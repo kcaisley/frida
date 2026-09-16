@@ -6,35 +6,32 @@ import json
 import math
 import re
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 from itertools import product
 from multiprocessing import get_context
 from pathlib import Path
-from typing import cast
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.prefix import G, m, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
-from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
-from flow.adc.subckt import (
-    Adc,
-    AdcParams,
-    Frida1_1LayerRadix17PexAdc,
-    Frida1_1LayerRadix20PexAdc,
-    Frida1_2LayerRadix17PexAdc,
-    Frida1_2LayerRadix20PexAdc,
-    Frida1PexAdc,
-    Frida2PexAdc,
-)
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
+from flow.adc.ip import adc_pex, adc_port_aliases, frida1_net_aliases, frida2_net_aliases
+from flow.adc.sequences import BASELINE, FIXED_INPUT_SEQUENCES, ORIGINAL
+from flow.adc.subckt import Adc, AdcNets, AdcParams, is_valid_adc_params
+from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.circuit.ports import testbench_from_ports
+from flow.comp.subckt import CompNets
 
 
 @h.paramclass
 class AdcTbParams:
     """Parameters which determine one generated ADC testbench."""
 
+    waveform_sample_interval_s = h.Param(
+        dtype=float, desc="Maximum raw step and stored waveform spacing", default=10e-12
+    )
     view = h.Param(dtype=str, desc="ADC implementation: frida1, frida2, or hdl21gen", default="hdl21gen")
     pex_cell = h.Param(
         dtype=str,
@@ -45,7 +42,7 @@ class AdcTbParams:
         dtype=AdcParams,
         desc="ADC DUT parameters",
         default=AdcParams(
-            cdac=CdacParams(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY),
+            cdac=CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY),
         ),
     )
     symbol_rate = h.Param(dtype=h.Scalar, desc="DDR symbol rate", default=1.6 * G)
@@ -95,108 +92,120 @@ class AdcTbParams:
         desc="Differential input stimulus",
         default=h.Vdc.Params(dc=0.0),
     )
-    seq_init_pattern = h.Param(
-        dtype=str, desc="Initialization sequence", default="00000000" + "11111111" + "00000000" * 30
-    )
-    seq_init_phase_delay_symbols = h.Param(dtype=h.Scalar, desc="INIT phase delay", default=0.0)
-    seq_samp_pattern = h.Param(
-        dtype=str, desc="Sampling sequence", default="00000000" * 2 + "11111111" * 2 + "00000000" * 28
-    )
-    seq_samp_phase_delay_symbols = h.Param(dtype=h.Scalar, desc="SAMP phase delay", default=0.0)
-    seq_comp_pattern = h.Param(
-        dtype=str, desc="Comparator sequence", default="00000000" * 4 + "00001111" * 17 + "00000000" * 11
-    )
-    seq_comp_phase_delay_symbols = h.Param(dtype=h.Scalar, desc="COMP phase delay", default=0.0)
-    seq_logic_pattern = h.Param(
-        dtype=str,
-        desc="SAR-logic sequence",
-        default="00000000" + "00001111" + "00000000" * 3 + "11110000" * 16 + "00000000" * 11,
-    )
-    seq_logic_phase_delay_symbols = h.Param(dtype=h.Scalar, desc="LOGIC phase delay", default=0.0)
+    seq_init_pattern = h.Param(dtype=str, desc="INIT sequence", default=BASELINE.init)
+    seq_samp_pattern = h.Param(dtype=str, desc="SAMP sequence", default=BASELINE.samp)
+    seq_comp_pattern = h.Param(dtype=str, desc="COMP sequence", default=BASELINE.comp)
+    seq_logic_pattern = h.Param(dtype=str, desc="LOGIC sequence", default=BASELINE.logic)
 
 
-@h.generator
-def AdcTb(params: AdcTbParams) -> h.Module:
-    """Generate a complete ADC testbench for the selected DUT view."""
+def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
+    """Check DUT, view, supplies, sequencer rows, and sweep length before generation.
 
+    PEX file existence, cell contents, and signoff require the selected file and
+    are checked by the caller. This predicate only examines parameter values.
+    """
+    if not is_valid_adc_params(params.dut):
+        return False
+    if not math.isfinite(params.waveform_sample_interval_s) or params.waveform_sample_interval_s <= 0:
+        return False
     if params.view not in {"frida1", "frida2", "hdl21gen"}:
-        raise ValueError(f"unsupported ADC view {params.view!r}")
-    pex_adcs = {
-        "": Frida1_1LayerRadix17PexAdc,
-        "adc_1layer_radix17": Frida1_1LayerRadix17PexAdc,
-        "adc_1layer_radix20": Frida1_1LayerRadix20PexAdc,
-        "adc_2layer_radix17": Frida1_2LayerRadix17PexAdc,
-        "adc_2layer_radix20": Frida1_2LayerRadix20PexAdc,
-        "adc_12b_17step": Frida1PexAdc,
-    }
-    if params.view == "frida2":
-        pex_adcs = {"adc_12b_17step": Frida2PexAdc}
-        if params.pex_cell not in pex_adcs:
-            raise ValueError("frida2 requires pex_cell='adc_12b_17step'")
-    if params.view == "frida1" and params.pex_cell not in pex_adcs:
-        raise ValueError(f"unsupported FRIDA-1 PEX cell {params.pex_cell!r}")
+        return False
+    if params.view == "frida2" and params.pex_cell != "adc_12b_17step":
+        return False
     if params.view == "hdl21gen" and params.pex_cell:
-        raise ValueError("pex_cell applies only to extracted views")
-    if not math.isfinite(float(params.symbol_rate)) or float(params.symbol_rate) <= 0.0:
-        raise ValueError("ADC symbol rate must be finite and positive")
+        return False
     if params.conversions <= 0:
-        raise ValueError("ADC conversions must be positive")
-    get_cdac_weights(params.dut.cdac)
-    for name in ("vdd_a", "vdd_d", "vdd_dac", "vin_cm"):
-        source = getattr(params, name)
-        if source.dc is None or not math.isfinite(float(source.dc)):
-            raise ValueError(f"{name}.dc must be finite")
+        return False
+    try:
+        symbol_rate = float(params.symbol_rate)
+        if not math.isfinite(symbol_rate) or symbol_rate <= 0.0:
+            return False
+        supplies = [net.name for net in AdcNets.signals.values() if net.usage == h.Usage.POWER]
+        for name in (*supplies, "vin_cm"):
+            source = getattr(params, name)
+            if source.dc is None or not math.isfinite(float(source.dc)):
+                return False
+    except (TypeError, ValueError, OverflowError):
+        # These sources must be numeric; unresolved HDL21 literals cannot set timing or levels.
+        return False
     supply_parasitics = (
         params.supply_series_resistance_ohm,
         params.supply_series_inductance_h,
         params.supply_decoupling_capacitance_f,
     )
     if any(not math.isfinite(value) or value < 0.0 for value in supply_parasitics):
-        raise ValueError("supply RLC values must be finite and nonnegative")
+        return False
     if any(supply_parasitics) and not all(value > 0.0 for value in supply_parasitics):
-        raise ValueError("the supply RLC model requires positive resistance, inductance, and capacitance")
+        return False
     if len(params.supply_noise_rms_v) != 3 or any(
         not math.isfinite(value) or value < 0.0 for value in params.supply_noise_rms_v
     ):
-        raise ValueError("supply_noise_rms_v must contain three finite nonnegative values")
+        return False
     if not math.isfinite(params.supply_noise_bandwidth_hz) or params.supply_noise_bandwidth_hz <= 0.0:
-        raise ValueError("supply noise bandwidth must be finite and positive")
-    for name in ("en_init", "en_samp_p", "en_samp_n", "en_comp", "en_update", "dac_mode", "dac_diffcaps"):
-        if getattr(params, name) not in (0, 1):
-            raise ValueError(f"{name} must be zero or one")
-    for name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
-        value = getattr(params, name)
-        if len(value) != 16 or any(bit not in (0, 1) for bit in value):
-            raise ValueError(f"{name} must contain exactly sixteen binary values")
-    patterns = (
-        params.seq_init_pattern,
-        params.seq_samp_pattern,
-        params.seq_comp_pattern,
-        params.seq_logic_pattern,
+        return False
+    for net in AdcNets.signals.values():
+        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (AdcNets.vin_p, AdcNets.vin_n):
+            continue
+        value = getattr(params, net.name)
+        if net.width == 1:
+            if value not in (0, 1):
+                return False
+        elif len(value) != net.width or any(bit not in (0, 1) for bit in value):
+            return False
+    patterns = tuple(
+        getattr(params, f"{net.name}_pattern")
+        for net in AdcNets.signals.values()
+        if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
     )
     if any(not pattern or set(pattern) - {"0", "1"} for pattern in patterns):
-        raise ValueError("ADC sequencer patterns must be non-empty binary strings")
+        return False
     if len({len(pattern) for pattern in patterns}) != 1 or len(patterns[0]) % 8:
-        raise ValueError("ADC sequencer patterns must have equal whole-word lengths")
+        return False
+    if isinstance(params.vin_diff, hs.LinearSweep):
+        try:
+            start, stop, step = (
+                float(value) for value in (params.vin_diff.start, params.vin_diff.stop, params.vin_diff.step)
+            )
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not all(math.isfinite(value) for value in (start, stop, step)) or step == 0.0:
+            return False
+        if start != stop and (stop > start) != (step > 0):
+            return False
+        # Inclusive staircase endpoints must contain exactly one level per conversion.
+        if not math.isclose((stop - start) / step, params.conversions - 1, rel_tol=0.0, abs_tol=1e-9):
+            return False
+        if len(patterns[0]) / symbol_rate <= float(100 * p):
+            return False
+    return True
 
-    tb = h.Module(name=f"AdcTb_{params.view}")
-    tb.vss = h.Port(desc="Simulator ground")
-    tb.vdd_a, tb.vdd_d, tb.vdd_dac, tb.vin_cm, tb.vin_diff = h.Signals(5)
-    tb.vin = h.Diff()
-    tb.seq_init, tb.seq_samp, tb.seq_comp, tb.seq_logic, tb.comp_out = h.Signals(5)
-    tb.dac_astate_p, tb.dac_bstate_p, tb.dac_astate_n, tb.dac_bstate_n = (h.Signal(width=16) for _ in range(4))
-    tb.dac_state_p, tb.dac_state_n = h.Signal(width=16), h.Signal(width=16)
+
+# Generated DUTs are compiled in place and must not survive in a cached testbench.
+def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
+    """Generate a complete ADC testbench for the selected DUT view."""
+
+    if not is_valid_adc_tb_params(params):
+        raise ValueError(f"Invalid ADC testbench params: {params}")
+    if (params.view != "hdl21gen") != (pex_netlist is not None):
+        raise ValueError("extracted views require a PEX input; HDL21 must not have one")
+
+    if pex_netlist is None:
+        ports = {name: net for name, net in AdcNets.signals.items() if net.vis == h.Visibility.PORT}
+    else:
+        aliases = adc_port_aliases(params.view)
+        selected = {net.parent if isinstance(net, h.Slice) else net for net in aliases}
+        ports = {name: net for name, net in AdcNets.signals.items() if net in selected}
+    tb, connections = testbench_from_ports(f"AdcTb_{params.view}", ports)
+    tb.vin_cm, tb.vin_diff = h.Signals(2)
     symbol_period_s = 1.0 / float(params.symbol_rate)
-    pattern_period_s = len(patterns[0]) * symbol_period_s
+    pattern_period_s = len(params.seq_init_pattern) * symbol_period_s
     transition_s = min(float(100 * p), symbol_period_s / 20.0)
-    supply_rails = (
-        ("vdd_a", params.vdd_a, params.supply_noise_rms_v[0]),
-        ("vdd_d", params.vdd_d, params.supply_noise_rms_v[1]),
-        ("vdd_dac", params.vdd_dac, params.supply_noise_rms_v[2]),
-    )
-    rlc_enabled = all(value > 0.0 for value in supply_parasitics)
-    for rail_name, source_params, noise_rms_v in supply_rails:
-        rail = getattr(tb, rail_name)
+    rlc_enabled = params.supply_series_resistance_ohm > 0.0
+    supplies = (net for net in AdcNets.signals.values() if net.usage == h.Usage.POWER)
+    for rail, noise_rms_v in zip(supplies, params.supply_noise_rms_v, strict=True):
+        rail_name = rail.name
+        source_params = getattr(params, rail_name)
+        rail = connections[rail_name]
         source_node = h.Signal(name=f"{rail_name}_source") if rlc_enabled else rail
         if rlc_enabled:
             series_node = h.Signal(name=f"{rail_name}_series")
@@ -221,7 +230,7 @@ def AdcTb(params: AdcTbParams) -> h.Module:
             noise_density_v2_per_hz = noise_rms_v**2 / params.supply_noise_bandwidth_hz
             tb.literals.append(
                 h.Literal(
-                    f"v{rail_name} ({source_node.name} vss) vsource dc={float(source_params.dc):.12g} "
+                    f"v{rail_name} ({source_node.name} {tb.vss.name}) vsource dc={float(source_params.dc):.12g} "
                     f"noisevec=[0 {noise_density_v2_per_hz:.12g} "
                     f"{params.supply_noise_bandwidth_hz:.12g} {noise_density_v2_per_hz:.12g}]"
                 )
@@ -248,101 +257,100 @@ def AdcTb(params: AdcTbParams) -> h.Module:
             transition=100 * p,
             transition_at="end",
         )
-        level_count = len(wave.points) // 2
-        if level_count != params.conversions:
-            raise ValueError(
-                f"ADC linear input sweep contains {level_count} values, but conversions={params.conversions}"
-            )
         tb.vvin_diff = h.Vpwl(wave=wave)(p=tb.vin_diff, n=tb.vss)
     elif isinstance(params.vin_diff, h.Vpwl.Params):
         tb.vvin_diff = h.Vpwl(params.vin_diff)(p=tb.vin_diff, n=tb.vss)
     else:
         raise TypeError(f"unsupported ADC differential source {type(params.vin_diff).__name__}")
-    tb.evin_p = h.Vcvs(gain=0.5)(p=tb.vin.p, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
-    tb.evin_n = h.Vcvs(gain=-0.5)(p=tb.vin.n, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
+    tb.evin_p = h.Vcvs(gain=0.5)(p=tb.vin_p, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
+    tb.evin_n = h.Vcvs(gain=-0.5)(p=tb.vin_n, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
 
-    for name, pattern, phase_symbols in (
-        ("init", params.seq_init_pattern, float(params.seq_init_phase_delay_symbols)),
-        ("samp", params.seq_samp_pattern, float(params.seq_samp_phase_delay_symbols)),
-        ("comp", params.seq_comp_pattern, float(params.seq_comp_phase_delay_symbols)),
-        ("logic", params.seq_logic_pattern, float(params.seq_logic_phase_delay_symbols)),
-    ):
-        whole_symbols = math.floor(phase_symbols)
-        rotation = whole_symbols % len(pattern)
-        if rotation:
-            pattern = pattern[-rotation:] + pattern[:-rotation]
+    for canonical in AdcNets.signals.values():
+        if canonical.vis != h.Visibility.PORT or canonical.usage != h.Usage.CLOCK:
+            continue
+        net = connections[canonical.name]
+        pattern = getattr(params, f"{canonical.name}_pattern")
         setattr(
             tb,
-            f"vseq_{name}",
+            f"v{net.name}",
             h.Vbit(
                 data=pattern,
                 period=symbol_period_s,
                 val0=0.0,
                 val1=float(params.vdd_d.dc),
-                delay=(phase_symbols - whole_symbols) * symbol_period_s,
+                delay=0.0,
                 rise=transition_s,
                 fall=transition_s,
                 rptstart=1,
                 rpttimes=-1,
-            )(p=getattr(tb, f"seq_{name}"), n=tb.vss),
+            )(p=net, n=tb.vss),
         )
-    for name in ("en_init", "en_samp_p", "en_samp_n", "en_comp", "en_update", "dac_mode", "dac_diffcaps"):
-        signal = h.Signal(name=name)
-        setattr(tb, name, signal)
-        setattr(tb, f"v{name}", h.Vdc(dc=float(params.vdd_d.dc) * getattr(params, name))(p=signal, n=tb.vss))
-    for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
-        for stage, state in enumerate(getattr(params, bus_name)):
-            # Only the immutable FRIDA-1 namespace needs the old 15-first map.
-            bus_index = 15 - stage if params.view == "frida1" else stage
-            setattr(
-                tb,
-                f"v{bus_name}_{bus_index}",
-                h.Vdc(dc=float(params.vdd_d.dc) * state)(p=getattr(tb, bus_name)[bus_index], n=tb.vss),
-            )
+    for net in AdcNets.signals.values():
+        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (AdcNets.vin_p, AdcNets.vin_n):
+            continue
+        value = getattr(params, net.name)
+        if net.width == 1:
+            tb.add(h.Vdc(dc=float(params.vdd_d.dc) * value)(p=connections[net.name], n=tb.vss), name=f"v{net.name}")
+        else:
+            for stage, state in enumerate(value):
+                tb.add(
+                    h.Vdc(dc=float(params.vdd_d.dc) * state)(p=connections[net.name][stage], n=tb.vss),
+                    name=f"v{net.name}_{stage}",
+                )
 
-    connections = {
-        "vin_p": tb.vin.p,
-        "vin_n": tb.vin.n,
-        "seq_init": tb.seq_init,
-        "seq_samp": tb.seq_samp,
-        "seq_comp": tb.seq_comp,
-        "seq_update": tb.seq_logic,
-        "en_init": tb.en_init,
-        "en_samp_p": tb.en_samp_p,
-        "en_samp_n": tb.en_samp_n,
-        "en_comp": tb.en_comp,
-        "en_update": tb.en_update,
-        "dac_mode": tb.dac_mode,
-        "dac_diffcaps": tb.dac_diffcaps,
-        "dac_astate_p": tb.dac_astate_p,
-        "dac_bstate_p": tb.dac_bstate_p,
-        "dac_astate_n": tb.dac_astate_n,
-        "dac_bstate_n": tb.dac_bstate_n,
-        "comp_out": tb.comp_out,
-        "vdd_a": tb.vdd_a,
-        "vss_a": tb.vss,
-        "vdd_d": tb.vdd_d,
-        "vss_d": tb.vss,
-        "vdd_dac": tb.vdd_dac,
-        "vss_dac": tb.vss,
-    }
-    if params.view == "hdl21gen":
-        tb.xadc = Adc(params.dut)(
-            **connections,
-            dac_state_p=tb.dac_state_p,
-            dac_state_n=tb.dac_state_n,
-        )
+    if pex_netlist is None:
+        tb.xadc = Adc(params.dut)(**connections)
     else:
+        module = adc_pex(pex_netlist, params.pex_cell or "adc_1layer_radix17")
         pex_connections = {
-            name: value
-            for name, value in connections.items()
-            if name not in {"dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"}
+            physical: connections[net.parent.name][net.index] if isinstance(net, h.Slice) else connections[net.name]
+            for net, physical in aliases.items()
         }
-        for bus_name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
-            for bit in range(16):
-                pex_connections[f"{bus_name}_{bit}"] = getattr(tb, bus_name)[bit]
-        tb.xadc = pex_adcs[params.pex_cell]()(**pex_connections)
+        if set(pex_connections) != set(module.ports):
+            raise ValueError(
+                f"External interface {module.name}: missing {set(pex_connections) - set(module.ports)}, "
+                f"unknown {set(module.ports) - set(pex_connections)}"
+            )
+        tb.xadc = module()(**pex_connections)
     return tb
+
+
+def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False) -> dict[str, str]:
+    """Resolve canonical observations once for both Save and raw conversion."""
+    if view not in {"hdl21gen", "frida1", "frida2"}:
+        raise ValueError(f"Unsupported ADC view {view!r}")
+    aliases = frida1_net_aliases() if view == "frida1" else frida2_net_aliases() if view == "frida2" else {}
+    names = {"time": "time"}
+    for schema, prefix in ((AdcNets, ""), (CompNets, "comp.")):
+        for net in schema.signals.values():
+            if not net.props.get("save"):
+                continue
+            testbench_net = schema is AdcNets and net.vis == h.Visibility.PORT and net.width == 1
+            path = "xtop" if testbench_net else f"xtop.{tb.xadc.name}"
+            if view == "hdl21gen" or testbench_net:
+                scope = tb if testbench_net else tb.xadc.of
+                if schema is CompNets:
+                    path += f".{scope.xcomp.name}"
+                    scope = scope.xcomp.of
+                actual = scope.namespace[net.name]
+                if actual.width != net.width:
+                    raise ValueError(f"Generated width differs from canonical net {net.name}")
+            for stage in range(net.width):
+                canonical = net if net.width == 1 else net[stage]
+                if view != "hdl21gen" and not testbench_net:
+                    raw = f"{path}.{aliases[canonical]}"
+                else:
+                    raw = f"{path}.{actual.name}" + (f"_{stage}" if net.width > 1 else "")
+                label = f"{prefix}{net.name}" + (f"[{stage}]" if net.width > 1 else "")
+                if raw in names or label in names.values():
+                    raise ValueError(f"Duplicate probe binding: {raw} -> {label}")
+                names[raw] = label
+    for net in AdcNets.signals.values():
+        if net.usage == h.Usage.POWER:
+            names[f"xtop.v{net.name}:p"] = f"i({net.name})"
+            if save_supply_voltages:
+                names[f"xtop.{tb.namespace[net.name].name}"] = net.name
+    return names
 
 
 def _run_adc_sim(
@@ -353,21 +361,21 @@ def _run_adc_sim(
     noise: bool = False,
     check: bool = False,
     expected_disconnect: bool = False,
-    maximum_waveform_records: int | None = None,
-) -> Path:
+) -> tuple[Path, dict[str, str]]:
     """Execute one configured ADC experiment, not an entire campaign.
 
     Targets define the experiment: they construct complete testbench parameters,
     select explicit PEX inputs and noise settings, and submit independent cases
     concurrently. This executor owns the shared mechanics: generate/compile the
     testbench, validate extracted interfaces, build the Spectre simulation, run
-    short diagnostics or the full simulation, and save the repository-native measurement.
+    short diagnostics or the full simulation, and return the raw path and probe bindings.
     Flavor/rate sweeps and campaign selection belong in the named targets below,
     not in additional flavor-specific wrappers.
     """
 
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import adc_signal_names, convert_spectre_adc_to_measurement
+    if not is_valid_adc_tb_params(params):
+        raise ValueError(f"Invalid ADC testbench params: {params}")
+
     from pdk import tsmc65
     from pdk.tsmc65 import site
 
@@ -380,22 +388,23 @@ def _run_adc_sim(
         "view": params.view,
         "conversions": params.conversions,
         "symbol_rate_hz": float(params.symbol_rate),
-        "weights": get_cdac_weights(params.dut.cdac),
+        "weights": get_caparray_weights(params.dut.cdac),
         "spectre_threads": spectre_threads,
         "check": check,
         "transient_noise": noise and not check,
         "expected_historical_disconnect": expected_disconnect,
         "sequencer": {
-            name: {
-                "pattern": getattr(params, f"seq_{name}_pattern"),
-                "phase_delay_symbols": float(getattr(params, f"seq_{name}_phase_delay_symbols")),
-            }
-            for name in ("init", "samp", "comp", "logic")
+            net.name.removeprefix("seq_"): {"pattern": getattr(params, f"{net.name}_pattern")}
+            for net in AdcNets.signals.values()
+            if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
         },
     }
     if pex_netlist is not None:
         if not pex_netlist.is_file() or not pex_netlist.stat().st_size:
             raise FileNotFoundError(pex_netlist)
+        from pdk.tsmc65.ringfmom import validate_extracted_netlist
+
+        validate_extracted_netlist(pex_netlist.read_text())
         if params.pex_cell == "adc_12b_17step":
             summary_path = pex_netlist.parent / "signoff_summary.json"
             summary = json.loads(summary_path.read_text())
@@ -409,36 +418,28 @@ def _run_adc_sim(
                 raise ValueError(f"unaccepted LVS result in {summary_path}")
             if Path(summary["pex_netlist"]).name != pex_netlist.name:
                 raise ValueError(f"PEX input differs from {summary_path}")
+            if (
+                "pex_sha256" in summary
+                and summary["pex_sha256"] != hashlib.sha256(pex_netlist.read_bytes()).hexdigest()
+            ):
+                raise ValueError(f"PEX content differs from signed-off input in {summary_path}")
         metadata.update(
             pex_netlist=str(pex_netlist),
             pex_sha256=hashlib.sha256(pex_netlist.read_bytes()).hexdigest(),
         )
 
     h.pdk.set_default(tsmc65.pdk_logic)
-    tb = AdcTb(params)
+    tb = AdcTb(params, pex_netlist=pex_netlist)
     h.pdk.compile(tb)
-    signal_names = adc_signal_names(params.view, pex_cell=params.pex_cell)
+    signal_names = adc_signal_names(tb, params.view, save_supply_voltages=bool(params.supply_series_resistance_ohm))
     if pex_netlist is not None:
         text = pex_netlist.read_text().replace("\\\n", " ")
-        cell = tb.xadc.of.module
-        header = re.search(rf"^subckt {re.escape(cell.name)}\s*\(([^)]*)\)", text, re.MULTILINE | re.IGNORECASE)
-        if header is None:
-            raise ValueError(f"missing PEX subcircuit {cell.name}")
-        ports = [re.sub(r"<(\d+)>", r"_\1", port.replace("\\", "").lower()) for port in header[1].split()]
-        if ports != [port.name for port in cell.port_list]:
-            raise ValueError(f"PEX port order differs from {cell.name}")
         nodes = set(text.replace("\\", "").split())
-        missing = [name for name in signal_names.values() if name.startswith("xtop.xadc.") and name[10:] not in nodes]
+        missing = [name for name in signal_names if name.startswith("xtop.xadc.") and name[10:] not in nodes]
         if missing:
             raise ValueError(f"PEX waveform nodes missing: {missing}")
 
-    save_targets = [
-        re.sub(r"([/<>-])", r"\\\1", raw_name)
-        for canonical_name, raw_name in signal_names.items()
-        if canonical_name != "time_s"
-    ]
-    if params.supply_series_resistance_ohm or params.supply_series_inductance_h:
-        save_targets.extend(("xtop.vdd_a", "xtop.vdd_d", "xtop.vdd_dac"))
+    save_targets = [re.sub(r"([/<>-])", r"\\\1", raw_name) for raw_name in signal_names if raw_name != "time"]
     attrs = [
         site.install.include(h.pdk.Corner.TYP),
         site.install.include_pre_simulation(),
@@ -446,8 +447,12 @@ def _run_adc_sim(
     if pex_netlist is not None:
         attrs.append(hs.Include(path=pex_netlist))
     else:
+        driver_cells = site.install.include_stdcell()
+        attrs.append(driver_cells)
+        # The digital netlist also needs the regular-Vth library; do not
+        # include the driver library twice when it is shared with digital.
         standard_cells = (
-            *site.STANDARD_CELL_SPICE_NETLISTS,
+            *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != driver_cells.path),
             Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
         )
         attrs.append(
@@ -465,18 +470,25 @@ def _run_adc_sim(
         (hs.Options(name="temp", value=25.0), hs.Options(name="save", value="selected"), hs.Save(save_targets))
     )
     tstop_s = 100e-9 if check else params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)
+    if not check:
+        first_comp_symbol = params.seq_comp_pattern.index("01") + 1
+        # Save the next B0 edge plus a symbol of margin, without completing
+        # or decoding an extra conversion. The original noise bandwidth stays fixed.
+        tstop_s += (first_comp_symbol + 1) / float(params.symbol_rate)
+    metadata["final_decision_time_reference"] = "next_init_seq_logic_rising_threshold"
     tran_options = {
-        "strobeperiod": (
-            50e-12
-            if isinstance(params.vin_diff, hs.LinearSweep)
-            else min(1.0 / float(params.symbol_rate) / 16.0, 50e-12)
-        ),
+        "strobeperiod": params.waveform_sample_interval_s,
+        "maxstep": params.waveform_sample_interval_s,
         "strobeoutput": "strobeonly",
     }
     # Preserve the supply experiment's frequency settings without silently
     # enabling device transient noise, which its previous runner did not enable.
     if not check and (noise or any(params.supply_noise_rms_v) or params.supply_series_resistance_ohm):
-        tran_options.update(noisefmin=1.0 / tstop_s, noisefmax="25G", noiseseed=1)
+        tran_options.update(
+            noisefmin=1.0 / (params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)),
+            noisefmax="25G",
+            noiseseed=1,
+        )
     if check:
         attrs.append(
             h.Literal(
@@ -513,22 +525,15 @@ def _run_adc_sim(
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "input.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    result = simulation.run(options)
-    if not check:
-        transient = cast(TranResult, cast(SimResult, result)[AnalysisType.TRAN])
-        measurement = convert_spectre_adc_to_measurement(
-            transient.data,
-            params=params,
-            raw_path=run_dir / "netlist.raw",
-            signal_names=signal_names,
-            maximum_waveform_records=maximum_waveform_records,
-        )
-        write_measurement(run_dir / "result.h5", measurement)
-    return run_dir
+    simulation.run(options)
+    return run_dir / "netlist.raw", signal_names
 
 
-def hdl21_fixed_input_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Path:
+def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     """Run the generated ADC at 2, 6, and 10 MS/s with 50 mV input."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
 
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
@@ -538,113 +543,143 @@ def hdl21_fixed_input_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Pa
                 symbol_rate=symbol_rate,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
-                seq_logic_phase_delay_symbols=2.0,
+                **ORIGINAL.as_tb_fields(),
             )
             futures.append(
-                executor.submit(
-                    _run_adc_sim,
-                    run_dir / f"{rate}msps_cm700mv_dc50mv",
+                (
+                    executor.submit(
+                        _run_adc_sim,
+                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
+                        params,
+                        noise=True,
+                        check=check,
+                    ),
                     params,
-                    noise=True,
-                    check=check,
-                    maximum_waveform_records=3,
                 )
             )
-        for future in futures:
-            future.result()
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
 
 
 def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the generated ADC from -750 mV to +750 mV in 10 mV steps."""
 
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+
     params = AdcTbParams(
         view="hdl21gen",
         symbol_rate=1.6 * G,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        seq_logic_phase_delay_symbols=2.0,
+        **ORIGINAL.as_tb_fields(),
     )
-    return _run_adc_sim(
+    raw_path, signal_names = _run_adc_sim(
         run_dir,
         params,
         check=check,
-        maximum_waveform_records=3,
+    )
+    if not check:
+        measurement = convert_raw_adc_to_measurement(
+            read_raw_transient(raw_path),
+            params=params,
+            raw_path=raw_path,
+            signal_names=signal_names,
+        )
+        write_measurement(run_dir / "result.h5", measurement)
+    return run_dir
+
+
+def fixed_input_timing_params() -> tuple[tuple[str, AdcTbParams], ...]:
+    """Expand the four reviewed timing recipes into complete ADC parameters."""
+    return tuple(
+        (
+            name,
+            AdcTbParams(
+                symbol_rate=1.6 * G,
+                **sequence.as_tb_fields(),
+            ),
+        )
+        for name, sequence in FIXED_INPUT_SEQUENCES
     )
 
 
-def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare three timing recipes on four historical flavors, 100 conversions per case."""
+def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
+    """Compare four timing recipes on four historical flavors, 100 conversions per case."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
 
     root = Path(__file__).resolve().parents[2] / "build/layout/adc"
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
         for layers in (1, 2):
-            for (radix, cdac), (timing, comp, logic) in product(
+            for (radix, cdac), (timing, timing_params) in product(
                 (
-                    (17, CdacParams()),
-                    (20, CdacParams(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+                    (17, CapArrayConfig()),
+                    (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
                 ),
-                (
-                    ("original", AdcTbParams().seq_comp_pattern, AdcTbParams().seq_logic_pattern),
-                    (
-                        "extended_comp",
-                        "0" * 36 + "11111100" * 17 + "0" * 84,
-                        "00000000" + "00001111" + "00000000" * 3 + "10000000" * 16 + "00000000" * 11,
-                    ),
-                    (
-                        "continuous_100ns",
-                        "0" * 28 + "11111100" * 16 + "1111",
-                        "0001" + "0" * 24 + "00000010" * 16 + "0000",
-                    ),
-                ),
+                fixed_input_timing_params(),
             ):
                 target = f"frida1_{layers}layer_radix{radix}"
                 pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
-                params = AdcTbParams(
+                params = replace(
+                    timing_params,
                     view="frida1",
                     pex_cell="adc_12b_17step",
                     dut=AdcParams(adc_bits=12, cdac=cdac),
-                    symbol_rate=1.6 * G,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
-                    seq_comp_pattern=comp,
-                    seq_logic_pattern=logic,
-                    seq_logic_phase_delay_symbols=0.0 if timing == "continuous_100ns" else 2.0,
-                    seq_init_pattern="1111" + "0" * 156
-                    if timing == "continuous_100ns"
-                    else AdcTbParams().seq_init_pattern,
-                    seq_samp_pattern="0000" + "1" * 24 + "0" * 132
-                    if timing == "continuous_100ns"
-                    else AdcTbParams().seq_samp_pattern,
                 )
                 futures.append(
-                    executor.submit(
-                        _run_adc_sim,
-                        run_dir / target / timing,
+                    (
+                        executor.submit(
+                            _run_adc_sim,
+                            run_dir / target / timing,
+                            params,
+                            pex_netlist=pex,
+                            noise=True,
+                            check=check,
+                            expected_disconnect=layers == 2,
+                        ),
                         params,
-                        pex_netlist=pex,
-                        noise=True,
-                        check=check,
-                        expected_disconnect=layers == 2,
                     )
                 )
-        for future in futures:
-            future.result()
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
 
 
-def frida1_fixed_input_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Path:
+def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     """Run the four original PEX flavors at 2, 6, and 10 MS/s."""
 
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
     from pdk.tsmc65 import site
 
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
         for layers in (1, 2):
             for radix, cdac in (
-                (17, CdacParams()),
-                (20, CdacParams(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+                (17, CapArrayConfig()),
+                (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
             ):
                 cell = f"adc_{layers}layer_radix{radix}"
                 pex = (
@@ -660,26 +695,39 @@ def frida1_fixed_input_noise_vs_rate(run_dir: Path, *, check: bool = False) -> P
                         symbol_rate=symbol_rate,
                         conversions=1 if check else 100,
                         vin_diff=h.Vdc.Params(dc=0.05),
-                        seq_logic_phase_delay_symbols=2.0,
+                        **ORIGINAL.as_tb_fields(),
                     )
                     futures.append(
-                        executor.submit(
-                            _run_adc_sim,
-                            run_dir / cell / f"{rate}msps_cm700mv_dc50mv",
+                        (
+                            executor.submit(
+                                _run_adc_sim,
+                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
+                                params,
+                                pex_netlist=pex,
+                                noise=True,
+                                check=check,
+                            ),
                             params,
-                            pex_netlist=pex,
-                            noise=True,
-                            check=check,
                         )
                     )
-        for future in futures:
-            future.result()
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
 
 
 def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the original extracted ADC from -750 mV to +750 mV in 10 mV steps."""
 
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
     from pdk.tsmc65 import site
 
     params = AdcTbParams(
@@ -687,20 +735,30 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         symbol_rate=1.6 * G,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        seq_logic_phase_delay_symbols=2.0,
+        **ORIGINAL.as_tb_fields(),
     )
-    return _run_adc_sim(
+    raw_path, signal_names = _run_adc_sim(
         run_dir,
         params,
         pex_netlist=site.ADC_PEX_NETLIST,
         check=check,
-        maximum_waveform_records=3,
     )
+    if not check:
+        measurement = convert_raw_adc_to_measurement(
+            read_raw_transient(raw_path),
+            params=params,
+            raw_path=raw_path,
+            signal_names=signal_names,
+        )
+        write_measurement(run_dir / "result.h5", measurement)
+    return run_dir
 
 
-def frida1_supply_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Path:
+def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
     """Run the 15 original extracted-ADC rate/supply-noise combinations."""
 
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
     from pdk.tsmc65 import site
 
     noise_rms_v = 1e-3
@@ -719,7 +777,7 @@ def frida1_supply_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Path:
                     symbol_rate=symbol_rate,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
-                    seq_logic_phase_delay_symbols=2.0,
+                    **ORIGINAL.as_tb_fields(),
                     supply_series_resistance_ohm=1.0,
                     supply_series_inductance_h=1e-9,
                     supply_decoupling_capacitance_f=1e-12,
@@ -727,22 +785,32 @@ def frida1_supply_noise_vs_rate(run_dir: Path, *, check: bool = False) -> Path:
                     supply_noise_bandwidth_hz=25e9,
                 )
                 futures.append(
-                    executor.submit(
-                        _run_adc_sim,
-                        run_dir / f"{rate}msps_{name}",
+                    (
+                        executor.submit(
+                            _run_adc_sim,
+                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
+                            params,
+                            pex_netlist=site.ADC_PEX_NETLIST,
+                            check=check,
+                        ),
                         params,
-                        pex_netlist=site.ADC_PEX_NETLIST,
-                        check=check,
-                        maximum_waveform_records=3,
                     )
                 )
-        for future in futures:
-            future.result()
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
 
 
-def frida2_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare three timing recipes on three radix-17 stacks, 100 conversions per case.
+def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
+    """Compare four timing recipes on three radix-17 stacks, 100 conversions per case.
 
     Keep sampling, COMP rising edges, and LOGIC rising edges unchanged from
     the September 5 campaign. In extended_comp, six of eight slots evaluate; LOGIC is high
@@ -750,55 +818,53 @@ def frida2_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
     Edges coincide at the sequencer, not necessarily at the internal clocks.
     continuous_100ns instead uses 15 ns sampling and a shorter final COMP pulse
     to fit back-to-back conversions, as in adc_sequencer_timing_100ns.tex.
+    continuous_100ns_comp7of8 shortens SAMP by four symbols and advances
+    the decision train by 2.5 ns. All 17 COMP pulses last seven symbols;
+    each of the 16 LOGIC updates occupies the final symbol of its slot.
     """
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
 
     root = Path(__file__).resolve().parents[2] / "build/layout/adc"
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
-        for (layers, stamp), (timing, comp, logic) in product(
+        for (layers, stamp), (timing, timing_params) in product(
             ((1, "20260905_193440"), (2, "20260905_193629"), (3, "20260905_193816")),
-            (
-                ("original", AdcTbParams().seq_comp_pattern, AdcTbParams().seq_logic_pattern),
-                (
-                    "extended_comp",
-                    "0" * 36 + "11111100" * 17 + "0" * 84,
-                    "00000000" + "00001111" + "00000000" * 3 + "10000000" * 16 + "00000000" * 11,
-                ),
-                (
-                    "continuous_100ns",
-                    "0" * 28 + "11111100" * 16 + "1111",
-                    "0001" + "0" * 24 + "00000010" * 16 + "0000",
-                ),
-            ),
+            fixed_input_timing_params(),
         ):
             target = f"frida2_{layers}layer_radix17"
-            params = AdcTbParams(
+            params = replace(
+                timing_params,
                 view="frida2",
                 pex_cell="adc_12b_17step",
-                dut=AdcParams(adc_bits=12, cdac=CdacParams()),
-                symbol_rate=1.6 * G,
+                dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
-                seq_comp_pattern=comp,
-                seq_logic_pattern=logic,
-                seq_logic_phase_delay_symbols=0.0 if timing == "continuous_100ns" else 2.0,
-                seq_init_pattern="1111" + "0" * 156 if timing == "continuous_100ns" else AdcTbParams().seq_init_pattern,
-                seq_samp_pattern="0000" + "1" * 24 + "0" * 132
-                if timing == "continuous_100ns"
-                else AdcTbParams().seq_samp_pattern,
             )
             futures.append(
-                executor.submit(
-                    _run_adc_sim,
-                    run_dir / target / timing,
+                (
+                    executor.submit(
+                        _run_adc_sim,
+                        run_dir / target / timing,
+                        params,
+                        pex_netlist=root / target / stamp / f"{target}.pex.netlist",
+                        noise=True,
+                        check=check,
+                    ),
                     params,
-                    pex_netlist=root / target / stamp / f"{target}.pex.netlist",
-                    noise=True,
-                    check=check,
                 )
             )
-        for future in futures:
-            future.result()
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
 
 
@@ -808,13 +874,13 @@ def main() -> None:
     targets = {
         target.__name__: target
         for target in (
-            hdl21_fixed_input_noise_vs_rate,
+            hdl21_sample_rate,
             hdl21_transfer_curve,
-            frida1_fixed_input_noise,
-            frida1_fixed_input_noise_vs_rate,
+            frida1_sequence,
+            frida1_sample_rate,
             frida1_transfer_curve,
-            frida1_supply_noise_vs_rate,
-            frida2_fixed_input_noise,
+            frida1_supply_noise,
+            frida2_sequence,
         )
     }
     parser = argparse.ArgumentParser(description=__doc__)
@@ -828,8 +894,7 @@ def main() -> None:
     run_dir = (
         Path(__file__).resolve().parents[2]
         / "build/sim/adc"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+        / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_" + args.target)
     )
     run_dir.mkdir(parents=True, exist_ok=False)
     targets[args.target](run_dir)

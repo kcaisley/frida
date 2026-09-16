@@ -68,15 +68,26 @@ SECTION_TYPES = {
 
 def _qualified_type(value_type: type) -> str:
     module_name = value_type.__module__
-    if module_name == "__main__":
-        module_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
-        if module_spec is not None and module_spec.name:
-            module_name = module_spec.name
+    if module_name in {"__main__", "__mp_main__"}:
+        module_spec = getattr(sys.modules.get(module_name), "__spec__", None)
+        if module_spec is None or not module_spec.name:
+            raise ValueError("persisted parameter types must be defined in an importable module")
+        module_name = module_spec.name
     return f"{module_name}:{value_type.__qualname__}"
 
 
 def _resolve_type(name: str) -> type:
     module_name, qualname = name.split(":", 1)
+    # Stored captures predate the cdac -> caparray module/API rename. Keep
+    # migration at the persistence boundary, not via legacy Python imports.
+    if module_name in {"flow.cdac.subckt", "flow.cdac.sim", "flow.cdac.laygen"}:
+        module_name = module_name.replace("flow.cdac", "flow.caparray", 1)
+        qualname = {
+            "CdacParams": "CapArrayConfig",
+            "CdacArrayParams": "CapArrayParams",
+            "CdacLayoutParams": "CapArrayLayoutParams",
+            "CdacTbParams": "CapArrayTbParams",
+        }.get(qualname, qualname)
     value = importlib.import_module(module_name)
     for part in qualname.split("."):
         value = getattr(value, part)
@@ -219,6 +230,18 @@ def _read_native(node: h5py.Group | h5py.Dataset):
                 missing.append(data_field.name)
         if missing:
             raise ValueError(f"{node.name} is missing required parameter fields {missing}")
+        if value_type.__module__ == "flow.adc.sim" and value_type.__name__ == "AdcTbParams":
+            for signal in ("init", "samp", "comp", "logic"):
+                old_field = f"seq_{signal}_phase_delay_symbols"
+                if old_field not in node:
+                    continue
+                phase = float(_read_native(node[old_field]))
+                if not math.isfinite(phase) or not phase.is_integer():
+                    raise ValueError("saved fractional sequencer delays cannot be represented by binary rows")
+                field = f"seq_{signal}_pattern"
+                row = values[field]
+                shift = int(phase) % len(row)
+                values[field] = row[-shift:] + row[:-shift] if shift else row
         return value_type(**values)
     raise ValueError(f"unsupported HDF5 value kind {kind!r} at {node.name}")
 
@@ -328,47 +351,11 @@ def read_measurement(path: Path) -> Measurement:
         )
         param = _read_native(input_file["param"])
         daq = _read_section(input_file["daq"], daq_type)
+        waveform_source = info.readbacks.get("waveform_source_h5")
+        if isinstance(waveform_source, str) and not Path(waveform_source).is_file():
+            raise FileNotFoundError(f"linked waveform source is unavailable: {waveform_source}")
         wave = _read_section(input_file["wave"], wave_type)
     return measurement_class(info=info, param=param, daq=daq, wave=wave)
-
-
-def scope_records_to_adc_wave(
-    records: Sequence[Mapping[int, Any]],
-    conversion_index: Sequence[int],
-    channels: Mapping[str, int],
-) -> AdcExtWave:
-    """Convert aligned triggered scope records into an external ADC wave section."""
-
-    required = {"vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"}
-    if set(channels) != required:
-        raise ValueError(f"scope channels must map exactly {sorted(required)}")
-    if len(records) != len(conversion_index):
-        raise ValueError("scope record count must match waveform conversion indices")
-
-    time_s = None
-    signals = {name: [] for name in required}
-    for record_number, record in enumerate(records):
-        missing_channels = sorted(set(channels.values()).difference(record))
-        if missing_channels:
-            raise ValueError(f"scope record {record_number} is missing channels {missing_channels}")
-        reference = record[next(iter(channels.values()))]
-        record_time = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
-        if time_s is None:
-            time_s = record_time
-        elif not np.array_equal(record_time, time_s):
-            raise ValueError(f"scope record {record_number} has a different time axis")
-        for name, channel in channels.items():
-            values = np.asarray(record[channel].data, dtype=np.float64)
-            if len(values) != len(record_time):
-                raise ValueError(f"scope record {record_number} channel {channel} is not aligned")
-            signals[name].append(values)
-    if time_s is None:
-        raise ValueError("at least one scope record is required")
-    return AdcExtWave(
-        conversion_index=np.asarray(conversion_index),
-        time_s=time_s,
-        **{name: np.stack(values) for name, values in signals.items()},
-    )
 
 
 def interpolate_wave_records(
@@ -404,74 +391,3 @@ def interpolate_wave_records(
         for name, values in normalized_signals.items():
             records[name].append(np.interp(sample_times, source_time, values))
     return relative_time, {name: np.stack(values) for name, values in records.items()}
-
-
-def build_adc_interface_wave(
-    params,
-    bout: Sequence[int],
-    *,
-    conversion_index: int = 0,
-    samples_per_symbol: int = 4,
-) -> AdcExtWave:
-    """Build one dense behavioral ADC-interface waveform from test parameters."""
-
-    if samples_per_symbol <= 0:
-        raise ValueError("samples_per_symbol must be positive")
-    bout_array = np.asarray(bout, dtype=np.uint8)
-    if bout_array.ndim != 1 or np.any((bout_array != 0) & (bout_array != 1)):
-        raise ValueError("Bout must be one binary decision vector")
-
-    sequence_length = len(params.seq_init_pattern)
-
-    def shifted_pattern(name: str) -> np.ndarray:
-        pattern = getattr(params, f"seq_{name}_pattern")
-        phase = float(getattr(params, f"seq_{name}_phase_delay_symbols"))
-        if not phase.is_integer():
-            raise ValueError("behavioral interface wave requires whole-symbol phase offsets")
-        shift = int(phase) % sequence_length
-        if shift:
-            pattern = pattern[-shift:] + pattern[:-shift]
-        return np.repeat(
-            np.fromiter((int(bit) for bit in pattern), dtype=np.uint8),
-            samples_per_symbol,
-        )
-
-    seq_comp = shifted_pattern("comp")
-    seq_logic = shifted_pattern("logic")
-    comp_symbols = seq_comp.reshape(sequence_length, samples_per_symbol)[:, 0]
-    falling_symbols = np.flatnonzero((comp_symbols[:-1] == 1) & (comp_symbols[1:] == 0)) + 1
-    if len(falling_symbols) < len(bout_array):
-        raise ValueError(
-            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout_array)} bits"
-        )
-    comp_out_symbols = np.zeros(sequence_length, dtype=np.uint8)
-    state = 0
-    decision_index = 0
-    for symbol in range(sequence_length):
-        if decision_index < len(bout_array) and symbol == falling_symbols[decision_index]:
-            state = int(bout_array[decision_index])
-            decision_index += 1
-        comp_out_symbols[symbol] = state
-
-    symbol_period_s = 1.0 / float(params.symbol_rate)
-    time_s = np.arange(sequence_length * samples_per_symbol, dtype=np.float64)
-    time_s *= symbol_period_s / samples_per_symbol
-    source = params.vin_diff
-    if hasattr(source, "dc") and source.dc is not None:
-        vin_diff_v = np.full_like(time_s, float(source.dc))
-    elif hasattr(source, "voff") and source.voff is not None:
-        vin_diff_v = np.full_like(time_s, float(source.voff))
-        vin_diff_v += float(source.vamp) * np.sin(
-            2.0 * np.pi * float(source.freq) * time_s + np.deg2rad(float(source.phase or 0.0))
-        )
-    else:
-        vin_diff_v = np.zeros_like(time_s)
-    logic_high_v = float(params.vdd_d.dc)
-    return AdcExtWave(
-        conversion_index=np.asarray([conversion_index], dtype=np.int64),
-        time_s=time_s,
-        vin_diff_v=vin_diff_v[None, :],
-        seq_comp_v=(logic_high_v * seq_comp)[None, :],
-        seq_logic_v=(logic_high_v * seq_logic)[None, :],
-        comp_out_v=(logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
-    )

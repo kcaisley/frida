@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from flow.adc.sim import AdcTbParams
-from flow.cdac import get_cdac_weights
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +128,11 @@ def calculate_fastrx_capture_alignment(
     maximum_control_phase_advance_symbols: int,
     minimum_capture_margin_s: float,
 ) -> FastRxCaptureAlignment:
-    """Center FastRX sampling inside the measured comparator-data aperture."""
+    """Center FastRX sampling inside the measured comparator-data aperture.
+
+    The returned window may cross the program boundary. Acquisition must then
+    wrap RX_SEN and stop the receiver before stopping the repeated sequence.
+    """
 
     numeric_fields = {
         "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
@@ -163,13 +166,10 @@ def calculate_fastrx_capture_alignment(
     symbol_rate_bps = float(params.symbol_rate)
     sequencer_period_s = 8.0 / symbol_rate_bps
     sequence_words = len(params.seq_comp_pattern) // 8
-    capture_bits = len(get_cdac_weights(params.dut.cdac)) + 1
-    if not float(params.seq_comp_phase_delay_symbols).is_integer():
-        raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
 
     candidates = []
     for phase_advance in range(maximum_control_phase_advance_symbols + 1):
-        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
+        phase_symbols = -phase_advance
         shift = phase_symbols % len(params.seq_comp_pattern)
         comp_pattern = (
             params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern
@@ -191,7 +191,7 @@ def calculate_fastrx_capture_alignment(
             tap_delay_s = taps * idelay_tap_s
             earliest_arrival_s = common_delay_s + external_comp_delay_min_s + tap_delay_s
             latest_arrival_s = common_delay_s + external_comp_delay_max_s + tap_delay_s
-            for capture_word in range(sequence_words - capture_bits):
+            for capture_word in range(sequence_words):
                 capture_edge_s = capture_word * sequencer_period_s
                 setup_margin_s = capture_edge_s - latest_arrival_s
                 hold_margin_s = earliest_arrival_s + sequencer_period_s - capture_edge_s
@@ -306,15 +306,13 @@ def calculate_single_sample_fastrx_capture_alignment(
         raise ValueError("maximum_control_phase_advance_symbols must be an integer in 0..7")
     if external_comp_delay_min_s > external_comp_delay_max_s:
         raise ValueError("external comparator minimum delay must not exceed its maximum delay")
-    if not float(params.seq_comp_phase_delay_symbols).is_integer():
-        raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
 
     symbol_rate_bps = float(params.symbol_rate)
     sequencer_period_s = 8.0 / symbol_rate_bps
     sequence_words = len(params.seq_comp_pattern) // 8
     candidates = []
     for phase_advance in range(maximum_control_phase_advance_symbols + 1):
-        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
+        phase_symbols = -phase_advance
         shift = phase_symbols % len(params.seq_comp_pattern)
         comp_pattern = (
             params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern

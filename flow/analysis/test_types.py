@@ -40,7 +40,7 @@ from flow.analysis.types import (
     SampDaq,
     SampIntWave,
 )
-from flow.cdac.sim import CdacTbParams
+from flow.caparray.sim import CapArrayTbParams
 from flow.comp.sim import CompTbParams
 from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcScanParams
@@ -113,40 +113,6 @@ def all_measurements():
         dout=np.asarray([0], dtype=np.int64),
         vin_diff_v=np.asarray([0.0], dtype=np.float64),
     )
-    adc_int_names = (
-        "vin_diff_v",
-        "seq_comp_v",
-        "seq_logic_v",
-        "comp_out_v",
-        "vin_p_v",
-        "vin_n_v",
-        "seq_init_v",
-        "seq_samp_v",
-        "vdac_p_v",
-        "vdac_n_v",
-        "clk_samp_p_v",
-        "clk_samp_p_b_v",
-        "clk_samp_n_v",
-        "clk_samp_n_b_v",
-        "clk_comp_v",
-        "comp_out_p_v",
-        "comp_out_n_v",
-        "dac_state_p_c0_v",
-        "dac_state_p_c7_v",
-        "dac_state_p_c15_v",
-        "dac_state_n_c0_v",
-        "dac_state_n_c7_v",
-        "dac_state_n_c15_v",
-        "dac_botplate_p_c0_v",
-        "dac_botplate_p_c7_v",
-        "dac_botplate_p_c15_v",
-        "dac_botplate_n_c0_v",
-        "dac_botplate_n_c7_v",
-        "dac_botplate_n_c15_v",
-        "vdd_a_i",
-        "vdd_d_i",
-        "vdd_dac_i",
-    )
     comp_daq = CompDaq(
         trial_index=np.asarray([0], dtype=np.int64),
         vin_diff_v=np.asarray([0.0], dtype=np.float64),
@@ -168,10 +134,14 @@ def all_measurements():
             param=AdcTbParams(conversions=1),
             daq=adc_daq,
             wave=AdcIntWave(
-                internal_v={},
                 conversion_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
-                **dense_signals(adc_int_names),
+                voltage={
+                    name.removesuffix("_v"): value
+                    for name, value in dense_signals(
+                        ("vin_p_v", "vin_n_v", "seq_init_v", "seq_comp_v", "seq_logic_v", "comp_out_v")
+                    ).items()
+                },
             ),
         ),
         MeasCompExt(
@@ -191,18 +161,8 @@ def all_measurements():
             wave=CompIntWave(
                 trial_index=np.asarray([0], dtype=np.int64),
                 time_s=np.arange(8, dtype=float),
-                **dense_signals(
-                    (
-                        "vin_p_v",
-                        "vin_n_v",
-                        "clock_v",
-                        "vout_p_v",
-                        "vout_n_v",
-                        "comp_p_v",
-                        "comp_n_v",
-                        "vdd_i",
-                    )
-                ),
+                voltage=dense_signals(("inp", "inn", "clk", "outp", "outn", "latch_p", "latch_n")),
+                current=dense_signals(("vdd",)),
             ),
         ),
         MeasSampInt(
@@ -238,7 +198,7 @@ def all_measurements():
         ),
         MeasCdacInt(
             info=info("MeasCdacInt"),
-            param=CdacTbParams(),
+            param=CapArrayTbParams(),
             daq=CdacIntDaq(
                 trial_index=np.asarray([0], dtype=np.int64),
                 dac_state_p=dac_states,
@@ -268,45 +228,20 @@ def assert_sections_equal(expected, actual) -> None:
             np.testing.assert_array_equal(actual_value, expected_value)
 
 
-def test_adc_internal_wave_is_explicit_external_superset() -> None:
-    """Keep shared analyses valid while retaining the important internal nodes."""
-
-    external_fields = set(AdcExtWave.__dataclass_fields__)
-    internal_fields = set(AdcIntWave.__dataclass_fields__)
-    signal_fields = internal_fields.difference({"conversion_index", "time_s"})
-
-    assert external_fields <= internal_fields
-    assert len(signal_fields) >= 30
-    assert {
-        "clk_samp_p_v",
-        "clk_samp_p_b_v",
-        "clk_samp_n_v",
-        "clk_samp_n_b_v",
-        "clk_comp_v",
-        "comp_out_p_v",
-        "comp_out_n_v",
-        "dac_state_p_c0_v",
-        "dac_state_p_c7_v",
-        "dac_state_p_c15_v",
-        "dac_state_n_c0_v",
-        "dac_state_n_c7_v",
-        "dac_state_n_c15_v",
-        "dac_botplate_p_c0_v",
-        "dac_botplate_p_c7_v",
-        "dac_botplate_p_c15_v",
-        "dac_botplate_n_c0_v",
-        "dac_botplate_n_c7_v",
-        "dac_botplate_n_c15_v",
-        "vdd_a_i",
-        "vdd_d_i",
-        "vdd_dac_i",
-    } <= signal_fields
+def test_adc_internal_wave_uses_canonical_signal_collections() -> None:
+    wave = all_measurements()[0].wave
+    assert set(AdcIntWave.__dataclass_fields__) == {"conversion_index", "time_s", "voltage", "current"}
+    assert {"vin_p", "vin_n", "seq_comp", "seq_logic", "comp_out"} <= wave.voltage.keys()
 
 
-def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> None:
+@pytest.mark.parametrize("input_probed", (True, False))
+def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path, input_probed: bool) -> None:
     """Round-trip exact array dtypes, values, parameters, and run information."""
 
     original = adc_measurement()
+    if not input_probed:
+        assert original.wave is not None
+        original = replace(original, wave=replace(original.wave, vin_diff_v=None))
     path = write_measurement(tmp_path / "adc.h5", original)
     with h5py.File(path, "r") as stored:
         assert set(stored) == {"info", "param", "daq", "wave"}
@@ -330,6 +265,9 @@ def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path) -> N
     for field in ("conversion_index", "time_s", "vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"):
         expected = getattr(original.wave, field)
         actual = getattr(loaded.wave, field)
+        if expected is None:
+            assert actual is None
+            continue
         assert actual.dtype == expected.dtype
         np.testing.assert_array_equal(actual, expected)
 
@@ -404,6 +342,10 @@ def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -
     path = write_measurement(tmp_path / "legacy.h5", adc_measurement())
     with h5py.File(path, "a") as stored:
         cdac = stored["param/tb/dut/cdac"]
+        cdac.attrs["_type"] = "flow.cdac.subckt:CdacParams"
+        for field in ("redun_strat", "split_strat", "cap_type"):
+            dataset = cdac[field]
+            dataset.attrs["_type"] = dataset.attrs["_type"].replace("flow.caparray", "flow.cdac")
         del cdac["driver_p_w"]
         del cdac["driver_n_w"]
         del cdac["driver_strengths"]
@@ -611,3 +553,17 @@ def test_adaptive_simulation_waveforms_interpolate_to_dense_records() -> None:
 
     np.testing.assert_allclose(relative_time, [0.0, 0.5])
     np.testing.assert_allclose(records["signal_v"], [[0.0, 1.0], [2.0, 3.0]])
+
+
+@pytest.mark.parametrize(
+    ("old_name", "new_name"),
+    [
+        ("subckt:CdacParams", "subckt:CapArrayConfig"),
+        ("subckt:CdacArrayParams", "subckt:CapArrayParams"),
+        ("laygen:CdacLayoutParams", "laygen:CapArrayLayoutParams"),
+        ("sim:CdacTbParams", "sim:CapArrayTbParams"),
+        ("subckt:RedunStrat", "subckt:RedunStrat"),
+    ],
+)
+def test_legacy_caparray_parameter_types_resolve(old_name: str, new_name: str) -> None:
+    assert analysis_io._resolve_type(f"flow.cdac.{old_name}") is analysis_io._resolve_type(f"flow.caparray.{new_name}")

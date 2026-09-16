@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from flow.adc import AdcParams
+from flow.adc.sequences import TIMING_SWEEP
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
@@ -40,76 +41,110 @@ from flow.analysis.types import (
     MeasAdcInt,
     MeasInfo,
 )
-from flow.cdac import CdacParams
+from flow.caparray import CapArrayConfig
 from flow.scans.params import AdcScanParams
 
 
 def adc_sampling_measurement() -> MeasAdcInt:
     """Three held samples with known differential spread and common fast ripple."""
-    from dataclasses import fields
 
     template = adc_measurement([0, 0, 0], internal=True, sample_rate_hz=1e8, waveform_sample_count=101)
     assert isinstance(template, MeasAdcInt)
     wave = template.wave
-    repeated = {
-        field.name: np.repeat(values, 3, axis=0)
-        for field in fields(wave)
-        if isinstance(values := getattr(wave, field.name), np.ndarray) and values.ndim == 2
-    }
+    repeated = {name: np.repeat(value, 3, axis=0) for name, value in wave.voltage.items()}
     sample = np.tile(np.where(wave.time_s < 2e-9, 1.2, 0.0), (3, 1))
     comp = np.tile(np.where(wave.time_s < 5e-9, 0.0, 1.2), (3, 1))
     ripple = 1e-3 * np.sin(wave.time_s * 2e9 * np.pi)
     repeated.update(
-        seq_samp_v=sample,
-        seq_comp_v=comp,
-        clk_comp_v=comp,
-        clk_samp_p_v=sample,
-        clk_samp_n_v=sample,
-        clk_samp_p_b_v=1.2 - sample,
-        clk_samp_n_b_v=1.2 - sample,
-        vin_p_v=np.full_like(sample, 0.725),
-        vin_n_v=np.full_like(sample, 0.675),
-        vdac_p_v=0.725 + np.array([-1e-4, 0, 1e-4])[:, None] + ripple,
-        vdac_n_v=np.full_like(sample, 0.675),
+        seq_samp=sample,
+        seq_comp=comp,
+        clk_comp=comp,
+        clk_samp_p=sample,
+        clk_samp_n=sample,
+        clk_samp_p_b=1.2 - sample,
+        clk_samp_n_b=1.2 - sample,
+        vin_p=np.full_like(sample, 0.725),
+        vin_n=np.full_like(sample, 0.675),
+        vdac_p=0.725 + np.array([-1e-4, 0, 1e-4])[:, None] + ripple,
+        vdac_n=np.full_like(sample, 0.675),
     )
-    return replace(template, wave=replace(wave, conversion_index=np.arange(3), **repeated))
+    return replace(
+        template,
+        wave=replace(
+            wave,
+            conversion_index=np.arange(3),
+            voltage=repeated,
+            current={name: np.repeat(value, 3, axis=0) for name, value in wave.current.items()},
+        ),
+    )
 
 
-def test_sampling_noise_uses_one_held_level_per_conversion() -> None:
+def test_sampling_noise_interpolates_exactly_one_ns_after_each_sample_edge() -> None:
     measurement = adc_sampling_measurement()
-    analysis = analyze_adc_sampling_noise(measurement)
-    assert analysis.sigma_v == pytest.approx(100e-6)
+    wave = measurement.wave
+    edges_s = np.asarray([1.93e-9, 2.17e-9, 2.41e-9])
+    sample = np.clip(0.6 + (edges_s[:, None] - wave.time_s) * 1e9, 0.0, 1.2)
+    offsets = np.asarray([-1e-4, 0.0, 1e-4])
+    vp = 0.725 + offsets[:, None] + wave.time_s * 1e6
+    analysis = analyze_adc_sampling_noise(
+        replace(measurement, wave=replace(wave, voltage={**wave.voltage, "seq_samp": sample, "vdac_p": vp}))
+    )
+    expected_times = edges_s + 1e-9
+    np.testing.assert_allclose(analysis.window_start_s, expected_times, rtol=0, atol=1e-23)
+    np.testing.assert_array_equal(analysis.window_start_s, analysis.window_stop_s)
+    np.testing.assert_allclose(analysis.held_diff_v, 0.05 + offsets + expected_times * 1e6)
+    assert analysis.sigma_v == pytest.approx(np.std(offsets + expected_times * 1e6, ddof=1))
+
+
+@pytest.mark.parametrize("comp_level", (0.0, 1.2))
+def test_sampling_noise_accepts_comparator_already_fired_or_inactive(comp_level) -> None:
+    measurement = adc_sampling_measurement()
+    clocks = np.full_like(measurement.wave.voltage["seq_comp"], comp_level)
+    analysis = analyze_adc_sampling_noise(
+        replace(
+            measurement,
+            wave=replace(
+                measurement.wave, voltage={**measurement.wave.voltage, "seq_comp": clocks, "clk_comp": clocks}
+            ),
+        )
+    )
     assert len(analysis.held_diff_v) == 3
-    assert np.all(analysis.window_start_s > 2e-9)
-    assert np.all(analysis.window_stop_s < 5e-9)
-    explicit = analyze_adc_sampling_noise(measurement, window_s=(3e-9, 4e-9))
-    assert explicit.sigma_v == pytest.approx(100e-6)
-    assert np.all(explicit.window_start_s == 3e-9)
+    assert analysis.sigma_v == pytest.approx(100e-6)
 
 
-@pytest.mark.parametrize("window", [(0.0, 1e-9), (4e-9, 6e-9), (4e-9, 3e-9), (float("nan"), 4e-9)])
-def test_sampling_noise_rejects_invalid_windows(window) -> None:
-    with pytest.raises(ValueError, match="window"):
-        analyze_adc_sampling_noise(adc_sampling_measurement(), window_s=window)
-
-
-@pytest.mark.parametrize("signal", ["clk_samp_p_v", "clk_samp_n_v", "clk_samp_p_b_v", "clk_samp_n_b_v"])
-def test_sampling_noise_requires_both_switches_off(signal) -> None:
+def test_sampling_noise_does_not_extrapolate_past_saved_record() -> None:
     measurement = adc_sampling_measurement()
-    enabled = np.full_like(measurement.wave.vdac_p_v, 0.0 if "_b_" in signal else 1.2)
-    with pytest.raises(ValueError, match="enabled sampling switch"):
-        analyze_adc_sampling_noise(replace(measurement, wave=replace(measurement.wave, **{signal: enabled})))
+    wave = measurement.wave
+    sample = np.tile(np.where(wave.time_s < wave.time_s[-1] - 0.5e-9, 1.2, 0.0), (3, 1))
+    with pytest.raises(ValueError, match="outside the saved waveform"):
+        analyze_adc_sampling_noise(
+            replace(measurement, wave=replace(wave, voltage={**wave.voltage, "seq_samp": sample}))
+        )
 
 
-def test_sampling_noise_rejects_changing_input_and_missing_clocks() -> None:
+def test_sampling_noise_rejects_changing_input_and_missing_sample_edge() -> None:
     measurement = adc_sampling_measurement()
     with pytest.raises(ValueError, match="fixed differential input"):
         analyze_adc_sampling_noise(
-            replace(measurement, wave=replace(measurement.wave, vin_p_v=measurement.wave.vdac_p_v))
+            replace(
+                measurement,
+                wave=replace(
+                    measurement.wave, voltage={**measurement.wave.voltage, "vin_p": measurement.wave.voltage["vdac_p"]}
+                ),
+            )
         )
-    with pytest.raises(ValueError, match="clock edges"):
+    with pytest.raises(ValueError, match="SAMP falling edge"):
         analyze_adc_sampling_noise(
-            replace(measurement, wave=replace(measurement.wave, clk_comp_v=np.zeros_like(measurement.wave.clk_comp_v)))
+            replace(
+                measurement,
+                wave=replace(
+                    measurement.wave,
+                    voltage={
+                        **measurement.wave.voltage,
+                        "seq_samp": np.zeros_like(measurement.wave.voltage["seq_samp"]),
+                    },
+                ),
+            )
         )
 
 
@@ -143,7 +178,7 @@ def adc_measurement(
         conversions=len(dout),
         symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
         vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
-        seq_logic_phase_delay_symbols=logic_phase_delay_symbols,
+        seq_logic_pattern=TIMING_SWEEP[int(logic_phase_delay_symbols) + 3].logic,
     )
     time_s = np.linspace(0.0, 1.0 / sample_rate_hz, waveform_sample_count)
     zeros = np.zeros((1, len(time_s)))
@@ -168,38 +203,37 @@ def adc_measurement(
             wave=AdcIntWave(
                 conversion_index=np.asarray([0], dtype=np.int64),
                 time_s=time_s,
-                vin_diff_v=zeros,
-                seq_comp_v=zeros,
-                seq_logic_v=zeros,
-                comp_out_v=zeros,
-                vin_p_v=zeros,
-                vin_n_v=zeros,
-                seq_init_v=zeros,
-                seq_samp_v=zeros,
-                vdac_p_v=zeros,
-                vdac_n_v=zeros,
-                clk_samp_p_v=zeros,
-                clk_samp_p_b_v=zeros,
-                clk_samp_n_v=zeros,
-                clk_samp_n_b_v=zeros,
-                clk_comp_v=zeros,
-                comp_out_p_v=zeros,
-                comp_out_n_v=zeros,
-                dac_state_p_c0_v=zeros,
-                dac_state_p_c7_v=zeros,
-                dac_state_p_c15_v=zeros,
-                dac_state_n_c0_v=zeros,
-                dac_state_n_c7_v=zeros,
-                dac_state_n_c15_v=zeros,
-                dac_botplate_p_c0_v=zeros,
-                dac_botplate_p_c7_v=zeros,
-                dac_botplate_p_c15_v=zeros,
-                dac_botplate_n_c0_v=zeros,
-                dac_botplate_n_c7_v=zeros,
-                dac_botplate_n_c15_v=zeros,
-                vdd_a_i=zeros,
-                vdd_d_i=zeros,
-                vdd_dac_i=zeros,
+                voltage={
+                    "seq_comp": zeros,
+                    "seq_logic": zeros,
+                    "comp_out": zeros,
+                    "vin_p": zeros,
+                    "vin_n": zeros,
+                    "seq_init": zeros,
+                    "seq_samp": zeros,
+                    "vdac_p": zeros,
+                    "vdac_n": zeros,
+                    "clk_samp_p": zeros,
+                    "clk_samp_p_b": zeros,
+                    "clk_samp_n": zeros,
+                    "clk_samp_n_b": zeros,
+                    "clk_comp": zeros,
+                    "comp_out_p": zeros,
+                    "comp_out_n": zeros,
+                    "dac_state_p[0]": zeros,
+                    "dac_state_p[7]": zeros,
+                    "dac_state_p[15]": zeros,
+                    "dac_state_n[0]": zeros,
+                    "dac_state_n[7]": zeros,
+                    "dac_state_n[15]": zeros,
+                    "dac_botplate_p[0]": zeros,
+                    "dac_botplate_p[7]": zeros,
+                    "dac_botplate_p[15]": zeros,
+                    "dac_botplate_n[0]": zeros,
+                    "dac_botplate_n[7]": zeros,
+                    "dac_botplate_n[15]": zeros,
+                },
+                current={"vdd_a": zeros, "vdd_d": zeros, "vdd_dac": zeros},
             ),
         )
     return MeasAdcExt(
@@ -246,11 +280,7 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
         comp_out_p_v[time_s >= edge_s + 0.08e-9] = 1.2 * (cycle % 2)
     comp_out_n_v = 1.2 - comp_out_p_v
 
-    wave_values = {
-        name: zeros
-        for name in base.wave.__dataclass_fields__
-        if name not in {"conversion_index", "time_s", "internal_v"}
-    }
+    wave_values = {name: zeros for name in base.wave.voltage}
     vdac_p_v = np.full_like(time_s, 0.7)
     vdac_n_v = np.full_like(time_s, 0.7)
     for stage_index, cycle_index, step_v in ((0, 0, 0.12), (7, 7, -0.04), (15, 15, 0.01)):
@@ -263,31 +293,32 @@ def adc_cdac_settling_measurement() -> MeasAdcInt:
         state_p_v = np.where(switched, 1.2, 0.0)
         state_n_v = 1.2 - state_p_v
         bottom_switched = time_s >= logic_edge_s + 0.05e-9
-        wave_values[f"dac_state_p_c{stage_index}_v"] = state_p_v[None, :]
-        wave_values[f"dac_state_n_c{stage_index}_v"] = state_n_v[None, :]
-        wave_values[f"dac_botplate_p_c{stage_index}_v"] = np.where(bottom_switched, 1.2, 0.0)[None, :]
-        wave_values[f"dac_botplate_n_c{stage_index}_v"] = np.where(bottom_switched, 0.0, 1.2)[None, :]
+        wave_values[f"dac_state_p[{stage_index}]"] = state_p_v[None, :]
+        wave_values[f"dac_state_n[{stage_index}]"] = state_n_v[None, :]
+        wave_values[f"dac_botplate_p[{stage_index}]"] = np.where(bottom_switched, 1.2, 0.0)[None, :]
+        wave_values[f"dac_botplate_n[{stage_index}]"] = np.where(bottom_switched, 0.0, 1.2)[None, :]
 
     wave_values.update(
         {
-            "seq_comp_v": seq_comp_v[None, :],
-            "clk_comp_v": seq_comp_v[None, :],
-            "seq_logic_v": seq_logic_v[None, :],
-            "comp_out_v": comp_out_p_v[None, :],
-            "comp_out_p_v": comp_out_p_v[None, :],
-            "comp_out_n_v": comp_out_n_v[None, :],
-            "vdac_p_v": vdac_p_v[None, :],
-            "vdac_n_v": vdac_n_v[None, :],
+            "seq_comp": seq_comp_v[None, :],
+            "clk_comp": seq_comp_v[None, :],
+            "seq_logic": seq_logic_v[None, :],
+            "comp_out": comp_out_p_v[None, :],
+            "comp_out_p": comp_out_p_v[None, :],
+            "comp_out_n": comp_out_n_v[None, :],
+            "vdac_p": vdac_p_v[None, :],
+            "vdac_n": vdac_n_v[None, :],
         }
     )
     wave = AdcIntWave(
-        internal_v={
-            "comp_latch_p_v": (1.2 - 0.5 * seq_comp_v)[None, :],
-            "comp_latch_n_v": (1.2 - 0.8 * seq_comp_v)[None, :],
-        },
         conversion_index=np.asarray([0]),
         time_s=time_s,
-        **wave_values,
+        voltage={
+            **wave_values,
+            "comp.latch_p": (1.2 - 0.5 * seq_comp_v)[None, :],
+            "comp.latch_n": (1.2 - 0.8 * seq_comp_v)[None, :],
+        },
+        current={key: zeros for key in base.wave.current},
     )
     return replace(base, wave=wave)
 
@@ -338,19 +369,25 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
     )
 
 
-def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> None:
+@pytest.mark.parametrize("symbol_rate_hz", (800.0e6, 1600.0e6))
+@pytest.mark.parametrize("comp_high_symbols", (4, 5, 6, 7))
+def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
+    symbol_rate_hz: float, comp_high_symbols: int
+) -> None:
     expected_bits = np.asarray(([1, 0] * 8) + [1], dtype=np.uint8)
-    symbol_rate_hz = 800.0e6
     decision_period_s = 8.0 / symbol_rate_hz
-    time_s = np.arange(0.0, 176.0e-9, 0.02e-9)
+    first_rise_s = 0.2 * decision_period_s
+    time_s = np.arange(-0.2, 17.8, 0.002) * decision_period_s
     comp_v = np.where(
-        np.mod(time_s, decision_period_s) < 0.5 * decision_period_s,
+        (time_s >= first_rise_s)
+        & (np.mod(time_s - first_rise_s, decision_period_s) < comp_high_symbols / 8.0 * decision_period_s),
         1.2,
         0.0,
     )
     comp_out_v = np.zeros_like(time_s)
     for index, bit in enumerate(expected_bits):
-        edge_s = (index + 0.5) * decision_period_s
+        # Late decisions still resolve before 7/8, independently of COMP width.
+        edge_s = first_rise_s + (index + 0.85) * decision_period_s
         comp_out_v[(time_s >= edge_s) & (time_s < edge_s + decision_period_s)] = 1.2 * bit
 
     base = adc_measurement([100], sample_rate_hz=symbol_rate_hz / 256.0, observed_adc=1)
@@ -373,6 +410,12 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> No
     assert normal_analysis.scope_bit_string == "10101010101010101"
     assert normal_analysis.fastrx_bit_string == normal_analysis.scope_bit_string
     assert normal_analysis.mismatch_count == 0
+    np.testing.assert_allclose(
+        normal_analysis.sample_times_s,
+        first_rise_s + (np.arange(17) + 7.0 / 8.0) * decision_period_s,
+        rtol=0,
+        atol=0.002 * decision_period_s,
+    )
 
     assert normal.wave is not None
     inverted = replace(
@@ -383,6 +426,21 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe() -> No
     inverted_analysis = analyze_scope_wave_to_bits(inverted)
     assert inverted_analysis.scope_bit_string == normal_analysis.scope_bit_string
     assert inverted_analysis.mismatch_count == 0
+
+    # A triggered scope record can refer to a later FastRX conversion.
+    later = replace(
+        normal,
+        param=replace(normal.param, tb=replace(normal.param.tb, conversions=2)),
+        daq=AdcDaq(
+            conversion_index=np.array([0, 1]),
+            bout=np.stack((1 - expected_bits, expected_bits)),
+            dout_raw=np.repeat(normal.daq.dout_raw, 2),
+            dout=np.repeat(normal.daq.dout, 2),
+            vin_diff_v=np.repeat(normal.daq.vin_diff_v, 2),
+        ),
+        wave=replace(normal.wave, conversion_index=np.array([1])),
+    )
+    assert analyze_scope_wave_to_bits(later).mismatch_count == 0
 
 
 def test_dynamic_analysis_recovers_sine_and_spectral_metrics() -> None:
@@ -669,6 +727,31 @@ def test_cdac_settling_aligns_saved_stages_and_removes_static_levels() -> None:
     np.testing.assert_allclose(np.median(result.vdac_n_settling_error_v[:, settled], axis=1), 0.0, atol=1e-6)
 
 
+def test_cdac_settling_keeps_final_pulse_cut_by_record_boundary() -> None:
+    measurement = adc_cdac_settling_measurement()
+    wave = measurement.wave
+    selected = wave.time_s < 16.7e-9
+    shortened = replace(
+        wave,
+        time_s=wave.time_s[selected],
+        voltage={name: values[:, selected] for name, values in wave.voltage.items()},
+        current={name: values[:, selected] for name, values in wave.current.items()},
+    )
+    result = analyze_adc_cdac_settling(replace(measurement, wave=shortened))
+    assert result.stage_index.tolist() == [0, 7, 15]
+    assert 1.1e-9 < result.time_s[-1] < 1.21e-9
+    assert np.all(result.clk_comp_v[:, -1] > 0.6)
+
+
+def test_cdac_settling_rejects_missing_reset_inside_record() -> None:
+    measurement = adc_cdac_settling_measurement()
+    wave = measurement.wave
+    comp = wave.voltage["clk_comp"].copy()
+    comp[:, wave.time_s >= 16.5e-9] = 1.2
+    with pytest.raises(ValueError, match="cycle 16.*reset edge"):
+        analyze_adc_cdac_settling(replace(measurement, wave=replace(wave, voltage={**wave.voltage, "clk_comp": comp})))
+
+
 def test_decision_paths_normalize_redundant_raw_weights() -> None:
     """Keep the running estimate in nominal ADC LSB for non-4095 raw sums."""
 
@@ -683,7 +766,7 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
                 msmt.param.tb,
                 dut=AdcParams(
                     adc_bits=12,
-                    cdac=CdacParams(n_dac=11, n_extra=5, weights=weights),
+                    cdac=CapArrayConfig(n_dac=11, n_extra=5, weights=weights),
                 ),
             ),
         ),
@@ -762,7 +845,7 @@ def test_power_sweep_extracts_spice_static_from_settled_idle_tail() -> None:
     )
     assert isinstance(measurement, MeasAdcInt)
     time_s = measurement.wave.time_s
-    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v = np.zeros_like(measurement.wave.voltage["seq_init"])
     seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
     active_stop_s = 650.0e-9
     rail_currents = {}
@@ -771,13 +854,15 @@ def test_power_sweep_extracts_spice_static_from_settled_idle_tail() -> None:
         ("vdd_d", 4.0e-6, 20.0e-6),
         ("vdd_dac", 6.0e-6, 30.0e-6),
     ):
-        current_a = np.full_like(measurement.wave.seq_init_v, active_current_a)
+        current_a = np.full_like(measurement.wave.voltage["seq_init"], active_current_a)
         current_a[0, time_s < 25.0e-9] = 100.0e-6
         current_a[0, time_s > active_stop_s] = static_current_a
-        rail_currents[f"{rail}_i"] = current_a
+        rail_currents[rail] = current_a
     measurement = replace(
         measurement,
-        wave=replace(measurement.wave, seq_init_v=seq_init_v, **rail_currents),
+        wave=replace(
+            measurement.wave, current=rail_currents, voltage={**measurement.wave.voltage, "seq_init": seq_init_v}
+        ),
     )
 
     power = analyze_adc_power_sweep((measurement,))
@@ -804,10 +889,12 @@ def test_power_sweep_requires_spice_settled_idle_tail() -> None:
     )
     assert isinstance(measurement, MeasAdcInt)
     time_s = measurement.wave.time_s
-    seq_init_v = np.zeros_like(measurement.wave.seq_init_v)
+    seq_init_v = np.zeros_like(measurement.wave.voltage["seq_init"])
     seq_init_v[0, time_s <= 5.0e-9] = 1.2
     seq_init_v[0, (time_s >= 630.0e-9) & (time_s <= 635.0e-9)] = 1.2
-    measurement = replace(measurement, wave=replace(measurement.wave, seq_init_v=seq_init_v))
+    measurement = replace(
+        measurement, wave=replace(measurement.wave, voltage={**measurement.wave.voltage, "seq_init": seq_init_v})
+    )
 
     with pytest.raises(ValueError, match="at least two settled-idle samples"):
         analyze_adc_power_sweep((measurement,))
@@ -856,7 +943,7 @@ def test_noise_sweep_does_not_treat_constant_codes_as_zero_noise() -> None:
     assert not sweep.noise_valid[0]
 
 
-def test_noise_sweep_invalidates_faster_points_after_timing_failure() -> None:
+def test_noise_sweep_preserves_failed_and_recovered_points() -> None:
     recovered = adc_measurement(
         [100, 101, 100, 101],
         sample_rate_hz=3.0e6,
@@ -872,7 +959,8 @@ def test_noise_sweep_invalidates_faster_points_after_timing_failure() -> None:
 
     sweep = analyze_adc_noise_sweep([recovered, settled, failed])
 
-    np.testing.assert_array_equal(sweep.noise_valid, (False, True, False))
+    np.testing.assert_array_equal(sweep.noise_valid, (True, True, True))
+    np.testing.assert_allclose(sweep.sample_rate_hz, [3e6, 1e6, 2e6])
 
 
 def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
@@ -985,3 +1073,190 @@ def test_dynamic_analysis_rejects_invalid_records(
     )
     with pytest.raises(ValueError, match=message):
         analyze_adc_dynamic(msmt)
+
+
+def adc_timing_measurement() -> MeasAdcInt:
+    """Seventeen known decisions and a next-cycle tail at 10 ps resolution."""
+    base = adc_measurement([2048], internal=True)
+    assert isinstance(base, MeasAdcInt)
+    time = np.arange(3631, dtype=np.float64) * 10e-12
+    t = time / 1e-9
+    signals = {name: np.zeros_like(t) for name in base.wave.voltage}
+
+    def pulse(edges, width):
+        return np.asarray([any(edge <= value < edge + width for edge in edges) for value in t], dtype=float) * 1.2
+
+    starts = 1 + 2 * np.arange(17)
+    signals.update(
+        seq_init=pulse([0.2, 35], 0.5),
+        seq_logic=pulse([0.4, *list(starts[:16] + 1), 35.2], 0.1),
+        clk_comp=pulse([*starts, 36], 0.8),
+        seq_comp=pulse([*starts, 36], 0.8),
+    )
+    bits = np.array([1, 1, *[index % 2 for index in range(15)]])
+    signals["comp.latch_p"] = np.full_like(t, 1.2)
+    signals["comp.latch_n"] = np.full_like(t, 1.2)
+    sr = np.zeros_like(t)
+    for decision, start in enumerate(starts):
+        active = (t >= start + 0.25) & (t < start + 0.8)
+        signals["comp.latch_p"][active] = bits[decision] * 1.2
+        signals["comp.latch_n"][active] = (1 - bits[decision]) * 1.2
+        sr[t >= start + 0.4] = bits[decision] * 1.2
+        if decision == 16:
+            continue
+        for side, state in (("p", 1 - bits[decision]), ("n", bits[decision])):
+            for diff in (False, True):
+                suffix = "_diff" if diff else ""
+                signals[f"dac_state_{side}{suffix}[{decision}]"] = np.where(t >= start + 1.1, state * 1.2, 0)
+                target = bool(state) ^ (diff and bool(base.param.dac_diffcaps))
+                signals[f"dac_botplate_{side}{suffix}[{decision}]"] = np.where(t >= start + 1.2, target * 1.2, 0)
+    signals.update(
+        comp_out_p=sr, comp_out_n=1.2 - sr, comp_out=sr, vdac_p=np.full_like(t, 0.7), vdac_n=np.full_like(t, 0.7)
+    )
+    return replace(
+        base,
+        wave=AdcIntWave(
+            conversion_index=np.array([0]),
+            time_s=time,
+            voltage={name: values[None, :] for name, values in signals.items()},
+        ),
+    )
+
+
+def test_adc_timing_closure_uses_typed_wave_records_and_preserves_codes(tmp_path) -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+    from flow.analysis.io import read_measurement, write_measurement
+    from flow.analysis.types import AnalysisAdcTimingClosure
+
+    measurement = adc_timing_measurement()
+    path = tmp_path / "measurement.h5"
+    write_measurement(path, measurement)
+    loaded = read_measurement(path)
+    assert isinstance(loaded, MeasAdcInt)
+    before = loaded.daq.bout.copy()
+    result = analyze_adc_timing_closure(loaded)
+    assert isinstance(result, AnalysisAdcTimingClosure)
+    assert np.all(result.passed)
+    np.testing.assert_array_equal(result.decision_index, np.arange(17))
+    assert result.required_logic_setup_s == result.required_cdac_setup_s == 200e-12
+    assert result.sample_interval_s == pytest.approx(10e-12)
+    np.testing.assert_allclose(result.logic_setup_s[np.r_[0, 2:16]], 0.595e-9, atol=11e-12)
+    assert result.logic_setup_s[1] > 0.7e-9
+    assert np.all(result.cdac_setup_s[:16] > 0.7e-9)
+    # Consecutive equal decisions do not require a new SR transition.
+    assert result.sr_stable_s[1] == pytest.approx(3e-9)
+    assert result.logic_ready[-1] and not result.cdac_applicable[-1]
+    assert np.isnan(result.cdac_setup_s[-1])
+    np.testing.assert_array_equal(loaded.daq.bout, before)
+
+
+@pytest.mark.parametrize(
+    "failure", ("wrong_sr", "late_sr", "unresolved", "late_internal", "ringing_cdac", "wrong_state", "missing_reset")
+)
+def test_adc_timing_closure_flags_failed_handoffs(failure) -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    time = measurement.wave.time_s
+    signals = {name: value.copy() for name, value in measurement.wave.voltage.items()}
+    if failure in ("wrong_sr", "late_sr"):
+        stop = 2.01e-9 if failure == "wrong_sr" else 1.9e-9
+        signals["comp_out_p"][0, time < stop] = 0
+        signals["comp_out_n"][0, time < stop] = 1.2
+    elif failure == "unresolved":
+        active = (time >= 1e-9) & (time < 1.81e-9)
+        signals["comp.latch_p"][0, active] = 0.61
+        signals["comp.latch_n"][0, active] = 0.60
+    elif failure == "late_internal":
+        # The final tendency reverses after LOGIC; a first crossing would miss this.
+        active = (time >= 1.25e-9) & (time < 2.15e-9)
+        signals["clk_comp"][0, active] = 1.2
+        signals["comp.latch_p"][0, active] = 0
+        signals["comp.latch_n"][0, active] = 1.2
+        final = (time >= 2.05e-9) & (time < 2.15e-9)
+        signals["comp.latch_p"][0, final] = 1.2
+        signals["comp.latch_n"][0, final] = 0
+    elif failure == "ringing_cdac":
+        signals["vdac_p"][0, (time >= 2.8e-9) & (time < 2.9e-9)] += 0.01
+    elif failure == "wrong_state":
+        signals["dac_state_n[0]"][:] = 0
+    else:
+        signals["clk_comp"][0, (time >= 1.8e-9) & (time < 3e-9)] = 1.2
+        # Preserve the next rise while hiding only the internal reset with an initial-high record:
+        # the absent pulse boundary is a malformed decision sequence, and is rejected explicitly.
+        with pytest.raises(ValueError, match="COMP rising edges"):
+            analyze_adc_timing_closure(replace(measurement, wave=replace(measurement.wave, voltage=signals)))
+        return
+    result = analyze_adc_timing_closure(replace(measurement, wave=replace(measurement.wave, voltage=signals)))
+    assert not result.passed[0]
+    assert np.all(result.passed[1:])
+    if failure == "wrong_sr":
+        assert not result.sr_matches_at_logic[0]
+    elif failure in ("late_sr", "late_internal"):
+        assert result.logic_setup_s[0] < 200e-12
+    elif failure == "unresolved":
+        assert result.internal_final_diff_v[0] == pytest.approx(0.01)
+        assert np.isnan(result.internal_stable_s[0])
+    else:
+        assert not result.cdac_ready[0]
+
+
+def test_adc_timing_closure_reports_unknown_when_final_tail_is_missing() -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    wave = measurement.wave
+    selected = wave.time_s <= 34e-9
+    result = analyze_adc_timing_closure(
+        replace(
+            measurement,
+            wave=replace(
+                wave,
+                time_s=wave.time_s[selected],
+                voltage={name: values[:, selected] for name, values in wave.voltage.items()},
+            ),
+        )
+    )
+    assert np.all(result.passed[:16])
+    assert np.isnan(result.logic_setup_s[-1])
+    assert not result.passed[-1]
+
+
+def test_adc_timing_closure_requires_saved_internals_and_valid_margins() -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    signals = dict(measurement.wave.voltage)
+    del signals["comp.latch_n"]
+    with pytest.raises(ValueError, match="comp.latch_n"):
+        analyze_adc_timing_closure(replace(measurement, wave=replace(measurement.wave, voltage=signals)))
+    for margin in (0, -1, float("nan")):
+        with pytest.raises(ValueError, match="finite and positive"):
+            analyze_adc_timing_closure(measurement, required_logic_setup_s=margin)
+
+
+def test_adc_timing_closure_preserves_saved_conversion_indices() -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    result = analyze_adc_timing_closure(
+        replace(
+            measurement,
+            daq=replace(measurement.daq, conversion_index=np.array([37])),
+            wave=replace(measurement.wave, conversion_index=np.array([37])),
+        )
+    )
+    np.testing.assert_array_equal(result.conversion_index, np.full(17, 37))
+    assert np.all(result.passed)
+
+
+def test_adc_timing_closure_marks_missing_logic_unknown_instead_of_guessing() -> None:
+    from flow.analysis.adc import analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    signals = {name: values.copy() for name, values in measurement.wave.voltage.items()}
+    signals["seq_logic"][0, (measurement.wave.time_s >= 1.9e-9) & (measurement.wave.time_s <= 2.2e-9)] = 0
+    result = analyze_adc_timing_closure(replace(measurement, wave=replace(measurement.wave, voltage=signals)))
+    assert np.isnan(result.logic_rise_s[0])
+    assert not result.passed[0]
+    assert np.all(result.passed[1:])

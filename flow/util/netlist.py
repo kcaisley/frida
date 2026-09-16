@@ -33,9 +33,13 @@ def _spice_statements(text: str) -> list[str]:
 
 
 def subcircuit_ports(text: str, name: str) -> tuple[str, ...]:
-    """Read a SPICE/CDL header, including continuation lines, in positional order."""
-    start, end = _subcircuit_span(text, name)
-    tokens = _spice_statements(text[start:end])[0].split()[2:]
+    """Read SPICE/CDL or Spectre pins in exact positional order, without renaming."""
+    spectre = re.search(rf"(?im)^[ \t]*subckt[ \t]+{re.escape(name)}\s*\(([^)]*)\)", text.replace("\\\n", " "))
+    if spectre is not None:
+        tokens = spectre[1].replace("\\", "").split()
+    else:
+        start, end = _subcircuit_span(text, name)
+        tokens = _spice_statements(text[start:end])[0].split()[2:]
     ports: list[str] = []
     for token in tokens:
         if token.lower() == "params:" or "=" in token:
@@ -44,6 +48,11 @@ def subcircuit_ports(text: str, name: str) -> tuple[str, ...]:
     if len({port.casefold() for port in ports}) != len(ports):
         raise ValueError(f"duplicate ports in {name}")
     return tuple(ports)
+
+
+def normalize_bus_pin(name: str) -> str:
+    """HDL21's scalar name for a case-insensitive external bus pin."""
+    return re.sub(r"[<\[](\d+)[>\]]", r"_\1", name.replace("\\", "").lower())
 
 
 def replace_subcircuit(

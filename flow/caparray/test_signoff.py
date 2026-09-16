@@ -10,8 +10,8 @@ def test_removed_workflow_globals_and_pin_adapters_do_not_return() -> None:
         for path in (
             "flow/adc/layout.py",
             "flow/adc/laygen.py",
-            "flow/cdac/layout.py",
-            "flow/cdac/laygen.py",
+            "flow/caparray/layout.py",
+            "flow/caparray/laygen.py",
         )
     )
     for removed in (

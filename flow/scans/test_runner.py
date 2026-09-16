@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 
 import hdl21 as h
 import pytest
 
+from flow.adc.sequences import TIMING_SWEEP
 from flow.scans import runner
 
 
 def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
-    assert set(runner.TARGETS) == {
-        "adc_sine_conversion_rate",
-        "adc00_fixed_input_noise",
-        "adc00_all_adc_activity_noise",
-        "adc_fixed_input_noise_50mv_700mvcm",
-        "adc_fixed_input_noise_50mv_700mvcm_noctl",
-        "adc_fixed_input_noise_0mv_600mvcm",
-        "adc_fixed_input_noise_100mv",
-        "adc00_fixed_input_timing",
-        "adc01_fixed_input_timing",
+    tree = ast.parse(Path(runner.__file__).read_text())
+    functions = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    assert not hasattr(runner, "TARGETS")
+    assert functions == {
+        "main",
+        "adc_sequence",
+        "adc_sequence_noctl",
+        "adc_sample_rate",
+        "adc_activity_noise",
         "adc_transfer_curve",
         "adc_ramp_code_density",
         "comp_common_mode",
@@ -40,7 +41,7 @@ def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
         ("adc00_fixed_input_noise", 3, {0}, 100_000, h.Vdc.Params),
         ("adc00_all_adc_activity_noise", 3, {0}, 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_50mv_700mvcm", 48, set(range(16)), 100_000, h.Vdc.Params),
-        ("adc_fixed_input_noise_50mv_700mvcm_noctl", 48, set(range(16)), 100_000, h.Vdc.Params),
+        ("adc_fixed_input_noise_50mv_700mvcm_noctl", 114, {3}, 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_0mv_600mvcm", 48, set(range(16)), 100_000, h.Vdc.Params),
         ("adc_fixed_input_noise_100mv", 78, {0, 1}, 100_000, h.Vdc.Params),
         ("adc00_fixed_input_timing", 273, {0}, 1_000, h.Vdc.Params),
@@ -75,16 +76,41 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
 
     monkeypatch.setattr(runner.scan_adc, "scan", scan)
     monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
-    result = runner.TARGETS[target_name]()
+    # Keep the historical recipes as independent acceptance cases after consolidation.
+    family = {
+        "adc_sine_conversion_rate": "adc_sample_rate",
+        "adc_fixed_input_noise_100mv": "adc_sample_rate",
+        "adc00_fixed_input_noise": "adc_activity_noise",
+        "adc00_all_adc_activity_noise": "adc_activity_noise",
+        "adc_fixed_input_noise_50mv_700mvcm": "adc_sequence",
+        "adc_fixed_input_noise_0mv_600mvcm": "adc_sequence",
+        "adc00_fixed_input_timing": "adc_sequence",
+        "adc01_fixed_input_timing": "adc_sequence",
+        "adc_fixed_input_noise_50mv_700mvcm_noctl": "adc_sequence_noctl",
+    }.get(target_name, target_name)
+    result = getattr(runner, family)()
     variants = [params for params, position in captured_calls if position != "abort"]
     positions = [position for _params, position in captured_calls]
 
     assert result == captured_run_dirs[-1]
     assert result.parent == runner.BASE_PATH / "build/scan_adc"
+    total = {"adc_sequence": 642, "adc_sample_rate": 156, "adc_activity_noise": 6}.get(family, expected_count)
+    assert len(variants) == total
+    assert result.name.endswith("_" + family)
+    assert positions[0] == "first"
+    assert positions[-1] == "last"
+    assert positions[1:-1] == ["middle"] * (total - 2)
+    if family == "adc_sample_rate":
+        variants = [p for p in variants if isinstance(p.tb.vin_diff, source_type)]
+    elif family == "adc_activity_noise":
+        all_active = target_name == "adc00_all_adc_activity_noise"
+        variants = [p for p in variants if (p.active_adc_mask == (1,) * 16) == all_active]
+    elif family == "adc_sequence":
+        variants = [p for p in variants if p.tb.conversions == expected_conversions and p.observed_adc in expected_adcs]
+        if expected_conversions == 100_000:
+            input_v = 0.0 if target_name == "adc_fixed_input_noise_0mv_600mvcm" else 0.05
+            variants = [p for p in variants if float(p.tb.vin_diff.dc) == input_v]
     assert len(variants) == expected_count
-    assert positions[0] == ("only" if expected_count == 1 else "first")
-    assert positions[-1] == ("only" if expected_count == 1 else "last")
-    assert positions[1:-1] == ["middle"] * max(0, expected_count - 2)
     expected_control_mode = "manual" if target_name.endswith("_noctl") else "controlled"
     assert set(captured_control_modes) == {expected_control_mode}
     assert {params.observed_adc for params in variants} == expected_adcs
@@ -92,11 +118,23 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
     assert all(isinstance(params.tb.vin_diff, source_type) for params in variants)
     if target_name == "adc_ramp_code_density":
         assert {float(params.tb.symbol_rate) for params in variants} == {160.0e6}
+    elif target_name == "adc_fixed_input_noise_50mv_700mvcm_noctl":
+        assert {float(params.tb.symbol_rate) for params in variants} == {1.6e9, 960e6}
+        expected_sequences = (runner.ORIGINAL,) + tuple(row for _name, row in runner.DUTY_CYCLE_SEQUENCES)
+        assert [
+            (
+                float(params.tb.symbol_rate),
+                params.tb.seq_init_pattern,
+                params.tb.seq_samp_pattern,
+                params.tb.seq_comp_pattern,
+                params.tb.seq_logic_pattern,
+            )
+            for params in variants
+        ] == [(rate, row.init, row.samp, row.comp, row.logic) for row in expected_sequences for rate in (1.6e9, 960e6)]
     elif target_name in {
         "adc00_fixed_input_noise",
         "adc00_all_adc_activity_noise",
         "adc_fixed_input_noise_50mv_700mvcm",
-        "adc_fixed_input_noise_50mv_700mvcm_noctl",
         "adc_fixed_input_noise_0mv_600mvcm",
     }:
         assert {float(params.tb.symbol_rate) for params in variants} == {320.0e6, 960.0e6, 1.6e9}
@@ -108,7 +146,7 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
         assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
-            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
+            TIMING_SWEEP.index(next(row for row in TIMING_SWEEP if row.logic == params.tb.seq_logic_pattern)) - 3
             for params in variants
         } == {2.0}
         if target_name == "adc00_all_adc_activity_noise":
@@ -117,7 +155,7 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
         assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
-            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
+            TIMING_SWEEP.index(next(row for row in TIMING_SWEEP if row.logic == params.tb.seq_logic_pattern)) - 3
             for params in variants
         } == set(range(-3, 4))
     elif target_name == "adc_ramp_code_density":
@@ -133,10 +171,21 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
     else:
         expected_vin_cm_v = 0.6 if target_name == "adc_fixed_input_noise_0mv_600mvcm" else 0.7
         assert {float(params.tb.vin_cm.dc) for params in variants} == {expected_vin_cm_v}
-        assert {
-            float(params.tb.seq_logic_phase_delay_symbols) - float(params.tb.seq_comp_phase_delay_symbols)
-            for params in variants
-        } == {2.0}
+        if target_name.endswith("_noctl"):
+            assert {
+                (
+                    params.tb.seq_init_pattern,
+                    params.tb.seq_samp_pattern,
+                    params.tb.seq_comp_pattern,
+                    params.tb.seq_logic_pattern,
+                )
+                for params in variants
+            } == {(row.init, row.samp, row.comp, row.logic) for row in expected_sequences}
+        else:
+            assert {
+                TIMING_SWEEP.index(next(row for row in TIMING_SWEEP if row.logic == params.tb.seq_logic_pattern)) - 3
+                for params in variants
+            } == {2.0}
         if target_name == "adc_sine_conversion_rate":
             assert {float(params.tb.vin_diff.voff) for params in variants} == {0.0}
             assert {float(params.tb.vin_diff.vamp) for params in variants} == {0.5}
@@ -151,7 +200,7 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
                     adc_index,
                     (0,) * (15 - adc_index) + (1,) + (0,) * adc_index,
                 )
-                for adc_index in range(16)
+                for adc_index in expected_adcs
             }
         elif target_name == "adc_fixed_input_noise_0mv_600mvcm":
             assert {float(params.tb.vin_cm.dc) for params in variants} == {0.6}
@@ -197,7 +246,7 @@ def test_adc_noctl_target_aborts_fpga_after_interrupted_middle_point(monkeypatch
     monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
 
     with pytest.raises(RuntimeError, match="interrupted"):
-        runner.adc_fixed_input_noise_50mv_700mvcm_noctl()
+        runner.adc_sequence_noctl()
 
     assert [position for _params, position in calls] == ["first", "middle", "abort"]
     assert calls[-1][0] is calls[-2][0]
@@ -291,7 +340,7 @@ def test_cdac_repair_targets_own_the_accepted_curve_selections(
 
     monkeypatch.setattr(runner.scan_cdac, "build_capacitor_variants", build)
     monkeypatch.setattr(runner.scan_cdac, "scan", scan)
-    result = runner.TARGETS[target_name]()
+    result = getattr(runner, target_name)()
 
     assert captured["builder"]["selected_curves"] == expected_curves
     assert captured["capture_scope_per_curve"] is False
@@ -300,11 +349,16 @@ def test_cdac_repair_targets_own_the_accepted_curve_selections(
 
 def test_main_requires_and_dispatches_one_named_target(monkeypatch, tmp_path) -> None:
     observed = []
-    monkeypatch.setattr(runner, "TARGETS", {"known_target": lambda: observed.append("run") or tmp_path})
+
+    def adc_sequence():
+        observed.append("run")
+        return tmp_path
+
+    monkeypatch.setattr(runner, "adc_sequence", adc_sequence)
     monkeypatch.setattr(sys, "argv", ["runner"])
     with pytest.raises(SystemExit):
         runner.main()
 
-    monkeypatch.setattr(sys, "argv", ["runner", "known_target"])
+    monkeypatch.setattr(sys, "argv", ["runner", "adc_sequence"])
     runner.main()
     assert observed == ["run"]

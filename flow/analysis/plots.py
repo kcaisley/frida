@@ -6,6 +6,7 @@ import os
 from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
+from typing import Literal
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -496,10 +497,7 @@ def plot_adc_fastrx_scope_comparison(
     setup_lines = (
         *(line for line in style_measurement_text(msmt) if line.startswith("ADC:")),
         f"Symbol rate: {float(params.symbol_rate) / 1e6:g} MBd",
-        (
-            "COMP→LOGIC: "
-            f"{float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols):+g} symbols"
-        ),
+        f"Sequence: {len(params.seq_comp_pattern)} symbols",
     )
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC scope and FastRX decision comparison")
@@ -804,9 +802,9 @@ def plot_adc_sampling_noise(
         style_info_box(ax, (f"SD = {analysis.sigma_v * 1e6:.1f} µV", f"N = {len(error_uv)}"))
     for ax in axes.flat[len(analyses) :]:
         ax.set_visible(False)
-    fig.supxlabel("Held VDAC_P − VDAC_N, relative to each design's mean (µV)")
+    fig.supxlabel("VDAC_P − VDAC_N, relative to each design's mean (µV)")
     fig.supylabel("Fraction of conversions per 25 µV bin")
-    fig.suptitle("Held sampling-level noise · before the first comparator decision")
+    fig.suptitle("Sampling-level variation · 1 ns after SAMP falls")
     return save_figure(fig, output_path)
 
 
@@ -847,6 +845,8 @@ def plot_adc_noise_sweep(
     analysis: AnalysisAdcNoiseSweep | AnalysisAdcNoiseComparison,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
+    series_labels: Sequence[str] = (),
 ) -> tuple[Path, ...]:
     """Plot noise, equivalent full-scale SNR, and ENOB on one rate panel."""
 
@@ -860,8 +860,20 @@ def plot_adc_noise_sweep(
     noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
 
     fig, ax = plt.subplots()
-    conversion_rate_msps = analysis.active_conversion_rate_hz / 1e6
-    if isinstance(analysis, AnalysisAdcNoiseSweep):
+    if rate_axis == "sampling":
+        if not isinstance(analysis, AnalysisAdcNoiseSweep):
+            raise ValueError("repetition-rate axis requires AnalysisAdcNoiseSweep")
+        rates = analysis.sample_rate_hz
+    else:
+        rates = analysis.active_conversion_rate_hz
+    conversion_rate_msps = rates / 1e6
+    if series_labels:
+        if len(series_labels) != len(rates):
+            raise ValueError("sequence labels must align with noise points")
+        labels = tuple(dict.fromkeys(series_labels))
+        selections = tuple(np.asarray(series_labels) == label for label in labels)
+        colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
+    elif isinstance(analysis, AnalysisAdcNoiseSweep):
         timing_values = np.unique(analysis.comparator_time_percent)
         labels = tuple(f"{value:g}%" for value in timing_values)
         selections = tuple(analysis.comparator_time_percent == value for value in timing_values)
@@ -896,11 +908,11 @@ def plot_adc_noise_sweep(
                 color=color,
                 label=label,
             )
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("Input-referred noise (LSB RMS)")
     ax.invert_yaxis()
-    ax.set_ylim(9.0, 0.0)
-    ax.set_yticks(np.arange(0.0, 10.0, 1.0))
+    visible_noise = noise_rms_lsb[analysis.noise_valid]
+    ax.set_ylim(max(9.0, float(np.max(visible_noise)) * 1.05) if len(visible_noise) else 9.0, 0.0)
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xlim(0.0, 10.25)
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
@@ -911,7 +923,11 @@ def plot_adc_noise_sweep(
         ax.legend(
             ncols=4 if isinstance(analysis, AnalysisAdcNoiseSweep) else 1,
             title=(
-                "COMP→LOGIC interval\n(as % of decision cycle)" if isinstance(analysis, AnalysisAdcNoiseSweep) else None
+                "Sequence"
+                if series_labels
+                else "COMP→LOGIC interval\n(as % of decision cycle)"
+                if isinstance(analysis, AnalysisAdcNoiseSweep)
+                else None
             ),
         )
     noise_mv_axis = ax.secondary_yaxis(
@@ -942,7 +958,7 @@ def plot_adc_noise_sweep(
             lambda enob_bits: full_scale_rms_lsb * np.power(10.0, -(6.02 * np.asarray(enob_bits) + 1.76) / 20.0),
         ),
     )
-    enob_axis.set_ylabel("ENOB (bit)")
+    enob_axis.set_ylabel("Noise-equivalent ENOB (bit)")
     enob_axis.set_yticks(np.arange(7.0, 13.0, 1.0))
     enob_axis.tick_params(which="both", left=False, right=True)
 
@@ -970,9 +986,9 @@ def plot_adc_noise_sweep(
     decision_time_axis.xaxis.set_label_position("bottom")
     decision_time_axis.spines["bottom"].set_position(("outward", 38))
     decision_time_axis.spines["top"].set_visible(False)
-    decision_time_axis.set_xlabel("Time per decision cycle (ns)")
+    decision_time_axis.set_xlabel("Repetition interval (ns)" if rate_axis == "sampling" else "Conversion interval (ns)")
     labeled_rates_msps = np.arange(1.0, 11.0)
-    decision_cycle_ns = 50.0 / labeled_rates_msps
+    decision_cycle_ns = 1000.0 / labeled_rates_msps
     decision_time_axis.set_xticks(labeled_rates_msps)
     decision_time_axis.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
     decision_time_axis.tick_params(
@@ -990,13 +1006,15 @@ def plot_adc_noise_distribution_sweep(
     analysis: AnalysisAdcNoiseSweep,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot left-facing output-code histograms along the conversion-rate axis."""
 
     code = analysis.code
     count = analysis.count
-    order = np.argsort(analysis.active_conversion_rate_hz)
-    rates_msps = analysis.active_conversion_rate_hz[order] / 1e6
+    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    order = np.argsort(rates)
+    rates_msps = rates[order] / 1e6
     counts = count[order]
     populated = np.flatnonzero(np.any(counts > 0, axis=0))
     first_code = max(0, int(populated[0]) - 2)
@@ -1007,10 +1025,10 @@ def plot_adc_noise_distribution_sweep(
     fig, ax = plt.subplots()
     maximum_count = int(np.max(visible_counts))
     histogram_scale = int(np.ceil(maximum_count / 10_000.0) * 10_000)
-    if len(rates_msps) == 1:
+    if len(np.unique(rates_msps)) == 1:
         maximum_width_msps = 0.2
     else:
-        maximum_width_msps = min(0.2, 0.8 * float(np.min(np.diff(rates_msps))))
+        maximum_width_msps = min(0.2, 0.8 * float(np.min(np.diff(np.unique(rates_msps)))))
     for rate_msps, histogram in zip(rates_msps, visible_counts, strict=True):
         populated_codes = histogram > 0
         widths = maximum_width_msps * histogram[populated_codes] / histogram_scale
@@ -1034,12 +1052,12 @@ def plot_adc_noise_distribution_sweep(
         label="Mean ±1σ",
     )
     ax.plot(rates_msps, mean + std, color=CURVE_COLORS[2], linestyle="--")
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("ADC output code (LSB)")
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
     ax.set_xlim(0.0, 10.25)
-    ax.set_ylim(mean[0] - 3.0 * std[0], mean[0] + 3.0 * std[0])
+    ax.set_ylim(float(codes[0]) - 0.5, float(codes[-1]) + 0.5)
     ax.set_title("ADC fixed-input output-code distributions")
     style_grid(ax)
     ax.legend()
@@ -1260,7 +1278,7 @@ def plot_adc_noise_distribution_grid(
     legend_box.patch.set_alpha(mpl.rcParams["legend.framealpha"])
     legend_box.patch.set_linewidth(mpl.rcParams["legend.linewidth"])
     fig.add_artist(legend_box)
-    fig.supxlabel("Active conversion rate (MS/s)")
+    fig.supxlabel("Conversion rate (MSPS)")
     fig.supylabel("Output code (LSB)", x=0.01)
     return save_figure(fig, output_path)
 
@@ -1306,24 +1324,33 @@ def plot_adc_dynamic_sweep(
     analysis: AnalysisAdcDynamicSweep,
     *,
     output_path: Path,
+    x_axis: Literal["input_frequency", "sample_rate"] = "input_frequency",
 ) -> tuple[Path, ...]:
     """Plot ENOB and SNDR versus input frequency for each conversion rate."""
 
     fig, axes = plt.subplots(2, 1, sharex=True)
-    groups = np.unique(analysis.sample_rate_hz)
-    for sample_rate_hz in groups:
-        selected = analysis.sample_rate_hz == sample_rate_hz
-        order = np.argsort(analysis.input_frequency_hz[selected])
-        frequency = analysis.input_frequency_hz[selected][order]
-        label = style_frequency_text(sample_rate_hz)
-        axes[0].semilogx(frequency, analysis.spectral_enob_bits[selected][order], marker="o", label=label)
-        axes[1].semilogx(frequency, analysis.spectral_sndr_db[selected][order], marker="o", label=label)
+    if x_axis == "sample_rate":
+        order = np.argsort(analysis.sample_rate_hz)
+        axes[0].plot(
+            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_enob_bits[order], marker="o", label="Spectral"
+        )
+        axes[1].plot(
+            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_sndr_db[order], marker="o", label="Spectral"
+        )
+    else:
+        for sample_rate_hz in np.unique(analysis.sample_rate_hz):
+            selected = analysis.sample_rate_hz == sample_rate_hz
+            order = np.argsort(analysis.input_frequency_hz[selected])
+            frequency = analysis.input_frequency_hz[selected][order]
+            label = style_frequency_text(sample_rate_hz)
+            axes[0].semilogx(frequency, analysis.spectral_enob_bits[selected][order], marker="o", label=label)
+            axes[1].semilogx(frequency, analysis.spectral_sndr_db[selected][order], marker="o", label=label)
     axes[0].set_ylabel("ENOB (bit)")
     axes[1].set_ylabel("SNDR (dB)")
-    axes[1].set_xlabel("Input frequency (Hz)")
+    axes[1].set_xlabel("Repetition rate (MHz)" if x_axis == "sample_rate" else "Input frequency (Hz)")
     for ax in axes:
         style_grid(ax)
-    axes[0].legend(title="Conversion rate")
+    axes[0].legend(title=None if x_axis == "sample_rate" else "Conversion rate")
     style_info_box(axes[1], style_measurement_group_text(msmt_list), location="lower right")
     fig.suptitle("ADC dynamic performance sweep")
     return save_figure(fig, output_path)
@@ -1335,11 +1362,13 @@ def plot_adc_power_sweep(
     analysis: AnalysisAdcPowerSweep,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot one source's static and dynamic rail power versus rate."""
 
-    order = np.argsort(analysis.active_conversion_rate_hz)
-    rate_msps = analysis.active_conversion_rate_hz[order] / 1e6
+    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    order = np.argsort(rates)
+    rate_msps = rates[order] / 1e6
     component_labels = (
         "Digital static",
         "DAC static",
@@ -1383,7 +1412,7 @@ def plot_adc_power_sweep(
     total_power_uw = analysis.total_power_w[order] * 1e6
     ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
     if np.max(rate_msps) >= 1.0:
         ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
@@ -1568,7 +1597,7 @@ def plot_adc_power_waveform(
     setup_lines = [f"Source: {analysis.backend.upper()}"]
     if analysis.adc_index >= 0:
         setup_lines.append(f"ADC: {analysis.adc_index:02d}")
-    setup_lines.append(f"Rate: {analysis.active_conversion_rate_hz / 1e6:g} Msps")
+    setup_lines.append(f"Conversion: {analysis.active_conversion_rate_hz / 1e6:g} MSPS")
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC instantaneous supply power")
     return save_figure(fig, output_path)
@@ -1693,14 +1722,15 @@ def plot_adc_decision_path_density(
     final_mean_code = int(np.rint(np.mean(analysis.final_dout)))
     populated_min = int(np.floor(np.min(analysis.estimate_dout) + 0.5))
     populated_max = int(np.floor(np.max(analysis.estimate_dout) + 0.5))
+    # Keep rare final-code branches visible outside the usual 51-LSB zoom.
     y_limits = (
         (
             max(-0.5, populated_min - 8.5),
             min(normalized_code_max + 0.5, populated_max + 8.5),
         ),
         (
-            max(-0.5, final_mean_code - 25.5),
-            min(normalized_code_max + 0.5, final_mean_code + 25.5),
+            max(-0.5, min(final_mean_code - 25.5, float(np.min(paths[:, -1])) - 2.5)),
+            min(normalized_code_max + 0.5, max(final_mean_code + 25.5, float(np.max(paths[:, -1])) + 2.5)),
         ),
     )
 

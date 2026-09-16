@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from .pex import (
-    parse_adc_cdac_pex,
-    parse_cdac_pex,
+    parse_adc_caparray_pex,
+    parse_caparray_pex,
     write_capacitance_table,
     write_comparison_table,
 )
@@ -31,7 +31,7 @@ ends cap
         encoding="utf-8",
     )
 
-    result = parse_cdac_pex(netlist, stage_count=1)
+    result = parse_caparray_pex(netlist, stage_count=1)
 
     assert result.main_ff == pytest.approx(5.0)
     assert result.diff_ff == pytest.approx(1.25)
@@ -58,7 +58,7 @@ c7 ( VDAC_N N_VSS_DAC_c_1_n ) capacitor c=0.4f
         encoding="utf-8",
     )
 
-    result = parse_adc_cdac_pex(netlist, stage_count=1)
+    result = parse_adc_caparray_pex(netlist, stage_count=1)
 
     assert result.main_by_stage_ff == pytest.approx((6.25,))
     assert result.diff_by_stage_ff == pytest.approx((2.0,))
@@ -79,7 +79,7 @@ def test_write_comparison_table_has_34_rows_for_16_bits(tmp_path: Path) -> None:
         )
     lines.append("cshield ( CAP_TOPPLATE CAP_SHIELDPLATE ) capacitor c=4f")
     source.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    result = parse_cdac_pex(source, stage_count=16)
+    result = parse_caparray_pex(source, stage_count=16)
 
     csv_path, json_path = write_comparison_table(tmp_path, {"one": result, "two": result})
 
@@ -103,7 +103,7 @@ c1d ( CAP_TOPPLATE CAP_BOTPLATE_DIFF<1> ) capacitor c=3f
         encoding="utf-8",
     )
 
-    result = parse_cdac_pex(source, stage_count=2, pin_order="frida1_legacy")
+    result = parse_caparray_pex(source, stage_count=2, pin_order="frida1_legacy")
 
     assert result.main_by_stage_ff == pytest.approx((8.0, 2.0))
     assert result.diff_by_stage_ff == pytest.approx((3.0, 1.0))

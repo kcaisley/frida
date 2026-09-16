@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import csv
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
+
+from flow.analysis.types import AdcExtWave
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
 
@@ -118,3 +122,82 @@ def wait_for_scope_armed(scope: Any, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_
                 f"acquisition_count={acquisition_count})"
             )
         time.sleep(0.01)
+
+
+def crop_adc_scope_conversion(
+    wave: AdcExtWave, *, skip_conversions: int, conversion_period_s: float, symbol_period_s: float
+) -> AdcExtWave:
+    """Select a complete ADC conversion after sequencer startup, with COMP as reference.
+
+    A long startup-triggered scope record contains the startup conversion and the
+    first retained conversion. Keep one symbol before its first COMP edge, so
+    the normal scope decoder sees exactly that conversion's B0--B16. The caller
+    has already associated the record with the retained DAQ conversion index.
+    """
+    from dataclasses import replace
+
+    import numpy as np
+
+    from flow.analysis.measure import find_crossings
+
+    if len(wave.conversion_index) != 1 or skip_conversions < 0:
+        raise ValueError("scope cropping requires one record and a nonnegative skip count")
+    comp = wave.seq_comp_v[0]
+    low, high = np.percentile(comp, (1, 99))
+    if high - low < 0.1:
+        raise ValueError("scope COMP waveform has no valid logic swing")
+    edges = find_crossings(comp, wave.time_s, (low + high) / 2, rising=True)
+    if len(edges) < 17 * (skip_conversions + 1):
+        raise ValueError("scope record lacks the complete retained ADC conversion after startup")
+    origin = edges[17 * skip_conversions] - symbol_period_s
+    stop = origin + conversion_period_s
+    if origin < wave.time_s[0] or stop > wave.time_s[-1]:
+        raise ValueError("scope record does not cover the retained ADC conversion window")
+    selected = (wave.time_s >= origin) & (wave.time_s < stop)
+    return replace(
+        wave,
+        time_s=wave.time_s[selected] - origin,
+        vin_diff_v=wave.vin_diff_v[:, selected] if wave.vin_diff_v is not None else None,
+        seq_comp_v=wave.seq_comp_v[:, selected],
+        seq_logic_v=wave.seq_logic_v[:, selected],
+        comp_out_v=wave.comp_out_v[:, selected],
+    )
+
+
+def scope_records_to_adc_wave(
+    records: Sequence[Mapping[int, Any]],
+    conversion_index: Sequence[int],
+    channels: Mapping[str, int],
+) -> AdcExtWave:
+    """Convert aligned triggered scope records into an external ADC wave section."""
+
+    required = {"vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"}
+    if set(channels) != required:
+        raise ValueError(f"scope channels must map exactly {sorted(required)}")
+    if len(records) != len(conversion_index):
+        raise ValueError("scope record count must match waveform conversion indices")
+
+    time_s = None
+    signals = {name: [] for name in required}
+    for record_number, record in enumerate(records):
+        missing_channels = sorted(set(channels.values()).difference(record))
+        if missing_channels:
+            raise ValueError(f"scope record {record_number} is missing channels {missing_channels}")
+        reference = record[next(iter(channels.values()))]
+        record_time = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
+        if time_s is None:
+            time_s = record_time
+        elif not np.array_equal(record_time, time_s):
+            raise ValueError(f"scope record {record_number} has a different time axis")
+        for name, channel in channels.items():
+            values = np.asarray(record[channel].data, dtype=np.float64)
+            if len(values) != len(record_time):
+                raise ValueError(f"scope record {record_number} channel {channel} is not aligned")
+            signals[name].append(values)
+    if time_s is None:
+        raise ValueError("at least one scope record is required")
+    return AdcExtWave(
+        conversion_index=np.asarray(conversion_index),
+        time_s=time_s,
+        **{name: np.stack(values) for name, values in signals.items()},
+    )

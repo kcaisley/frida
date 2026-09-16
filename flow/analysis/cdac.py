@@ -9,7 +9,7 @@ import numpy as np
 
 from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt, Measurement
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 from flow.scans.params import load_board_map
 
 
@@ -65,7 +65,7 @@ def analyze_cdac_cap_mismatch(
     adc_index = next(index for index in adc_indices if index is not None)
     if not math.isfinite(comparator_offset_v):
         raise ValueError("comparator_offset_v must be finite")
-    element_counts = {len(get_cdac_weights(measurement.param.tb.dut.cdac)) for measurement in measurements}
+    element_counts = {len(get_caparray_weights(measurement.param.tb.dut.cdac)) for measurement in measurements}
     if len(element_counts) != 1:
         raise ValueError("A-to-B CDAC analysis requires one CDAC configuration")
     element_count = next(iter(element_counts))

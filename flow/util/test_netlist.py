@@ -77,3 +77,12 @@ def test_replacement_rejects_wrong_argument_count() -> None:
 def test_subcircuit_ports_rejects_duplicate_names() -> None:
     with pytest.raises(ValueError, match="duplicate ports"):
         netlist.subcircuit_ports(".subckt bad A a\n.ends bad\n", "bad")
+
+
+def test_spectre_header_preserves_escaped_pins_and_continuations():
+    text = "subckt adc (VDD \\\n bus\\<3\\> VIN bus\\<0\\>)\nends adc\n"
+    pins = netlist.subcircuit_ports(text, "adc")
+    assert pins == ("VDD", "bus<3>", "VIN", "bus<0>")
+    assert tuple(map(netlist.normalize_bus_pin, pins)) == ("vdd", "bus_3", "vin", "bus_0")
+    with pytest.raises(ValueError, match="duplicate"):
+        netlist.subcircuit_ports("subckt adc (A a)\nends adc\n", "adc")

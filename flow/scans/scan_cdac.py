@@ -22,10 +22,11 @@ from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
 from flow.adc import AdcParams
+from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CdacExtDaq, CdacExtWave, MeasCdacExt, MeasInfo
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
+from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
@@ -265,7 +266,7 @@ def _predict_cdac_step_v(params: AdcScanParams) -> float:
 
     if params.campaign != "cdac_ab" or params.cdac_element is None:
         raise ValueError("CDAC step prediction requires a selected cdac_ab element")
-    weights = get_cdac_weights(params.tb.dut.cdac)
+    weights = get_caparray_weights(params.tb.dut.cdac)
     total_weights = [65 * math.ceil(weight / 64) for weight in weights]
     switched_weight = weights[params.cdac_element] if params.tb.dac_diffcaps else total_weights[params.cdac_element]
     topplate_parasitic_weight = 0.0
@@ -424,7 +425,7 @@ def _build_cdac_params(
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
             redun_strat=RedunStrat.SUBRDX2_OVLY,
@@ -903,7 +904,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_cdac_weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(get_caparray_weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -1005,10 +1006,7 @@ def scan(
             if phase_advance:
                 params = replace(
                     params,
-                    seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
-                    seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
-                    seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
-                    seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
+                    **AdcSequence.from_tb_params(params).advance(phase_advance).as_tb_fields(),
                 )
                 scan_params = replace(scan_params, tb=params)
                 validate_params(scan_params)
@@ -1058,10 +1056,6 @@ def scan(
                 seq_samp_pattern="".join(setup_samp_words),
                 seq_comp_pattern="".join(setup_comp_words),
                 seq_logic_pattern="".join(setup_logic_words),
-                seq_init_phase_delay_symbols=0.0,
-                seq_samp_phase_delay_symbols=0.0,
-                seq_comp_phase_delay_symbols=0.0,
-                seq_logic_phase_delay_symbols=0.0,
             )
             setup_rx_sen_pattern = "0" * sequence_words
             daq["seq0"].reset()
