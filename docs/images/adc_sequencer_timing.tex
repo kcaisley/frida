@@ -2,85 +2,47 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{xcolor}
-\usetikzlibrary{arrows.meta}
-
 \definecolor{NordBody}{HTML}{4C566A}
 \definecolor{NordBlue}{HTML}{5E81AC}
 \definecolor{NordPanel}{HTML}{ECEFF4}
-
 \begin{document}
 \begin{tikzpicture}[
-  x=0.105cm,
-  y=0.72cm,
-  font=\sffamily\scriptsize,
-  waveform/.style={draw=NordBody, line width=0.9pt, line join=miter, line cap=rect},
-  guide/.style={draw=NordPanel, line width=0.35pt},
-  major guide/.style={draw=NordBody!22, line width=0.45pt},
-]
-  % Each sequencer window is 2.5 ns. LOGIC is shifted by the propagation
-  % delay t_pd while retaining a 2.5 ns high time and a 5 ns period.
-  \def\logicdelay{1.25}
-  \draw[guide] (-2.5,-0.30) -- (-2.5,3.68);
-  \foreach \t in {0,2.5,...,102.5} {
-    \draw[guide] (\t,-0.30) -- (\t,3.68);
-  }
-  \foreach \t in {0,10,...,100} {
-    \draw[major guide] (\t,-0.30) -- (\t,3.68);
-    \draw[NordBody, line width=0.45pt] (\t,-0.38) -- (\t,-0.28);
-    \node[anchor=north, text=NordBody] at (\t,-0.41) {\t};
-  }
-  \draw[NordBody, line width=0.45pt] (102.5,-0.38) -- (102.5,-0.28);
-  \node[anchor=north east, text=NordBody] at (102.5,-0.92) {Time (ns)};
-
+  x=0.082cm,y=0.72cm,font=\sffamily\scriptsize,
+  waveform/.style={draw=NordBody,line width=0.9pt,line join=miter,line cap=rect},
+  guide/.style={draw=NordPanel,line width=0.35pt}]
+  % Original fixed_input_timing_params recipe at 1.6 Gsymbol/s, relative to INIT.
+  % Patterns repeat every 160 ns; LOGIC phase is delayed by two symbols.
+  \foreach \t in {0,2.5,...,170} {\draw[guide] (\t,-0.15) -- (\t,3.65);}
   \foreach \y/\name in {3/INIT,2/SAMP,1/COMP,0/LOGIC} {
-    \draw[guide] (-2.5,\y) -- (102.5,\y);
-    \draw[guide] (-2.5,{\y+0.55}) -- (102.5,{\y+0.55});
-    \node[anchor=east, font=\ttfamily\bfseries\scriptsize, text=NordBlue]
-      at (-5,{\y+0.27}) {\name};
+    \draw[guide] (-2.5,\y) -- (170,\y);
+    \node[anchor=east,text=NordBlue,font=\ttfamily\bfseries\scriptsize]
+      at (-4,\y+0.275) {\name};
   }
-
-  % INIT is high for one 2.5 ns window at the start of each sequence.
-  \draw[waveform]
-    (-2.5,3) -- (0,3) -- (0,3.55) -- (2.5,3.55) -- (2.5,3) --
-    (100,3) -- (100,3.55) -- (102.5,3.55);
-
-  % SAMP remains high for six windows, providing a 15 ns acquisition time.
-  \draw[waveform]
-    (-2.5,2) -- (2.5,2) -- (2.5,2.55) -- (17.5,2.55) -- (17.5,2) -- (102.5,2);
-  \draw[{Stealth[length=1.2mm]}-{Stealth[length=1.2mm]}, draw=NordBlue, line width=0.55pt]
-    (3.25,2.30) -- node[below, text=NordBlue, font=\sffamily\tiny]{15 ns} (16.75,2.30);
-
-  % Seventeen COMP windows alternate with sixteen conversion LOGIC windows.
-  % The initialization LOGIC pulse at 0--2.5 ns is separate.
+  \draw[waveform] (-2.5,3) -- (0,3) -- (0,3.55) -- (5,3.55) -- (5,3)
+    -- (160,3) -- (160,3.55) -- (165,3.55) -- (165,3) -- (170,3);
+  \draw[waveform] (-2.5,2) -- (5,2) -- (5,2.55) -- (15,2.55) -- (15,2)
+    -- (165,2) -- (165,2.55) -- (170,2.55);
   \draw[waveform] (-2.5,1) -- (17.5,1);
   \foreach \k in {0,...,16} {
-    \pgfmathsetmacro{\compstart}{17.5 + 5*\k}
-    \pgfmathsetmacro{\compstop}{20 + 5*\k}
-    \pgfmathsetmacro{\pairstop}{22.5 + 5*\k}
-    \draw[waveform]
-      (\compstart,1) -- (\compstart,1.55) -- (\compstop,1.55) -- (\compstop,1) -- (\pairstop,1);
+    \pgfmathsetmacro{\start}{17.5+5*\k}
+    \pgfmathsetmacro{\stop}{\start+2.5}
+    \pgfmathsetmacro{\next}{\start+5}
+    \draw[waveform] (\start,1) -- (\start,1.55) -- (\stop,1.55)
+      -- (\stop,1) -- (\next,1);
   }
-  \draw[waveform]
-    (-2.5,0) -- (0,0) -- (0,0.55) -- (2.5,0.55) -- (2.5,0) -- ({20+\logicdelay},0);
-  \fill[NordBlue!14]
-    (20,0.03) rectangle ({20+\logicdelay},0.52);
+  \draw[waveform] (102.5,1) -- (170,1);
+  \draw[waveform] (-2.5,0) -- (3.75,0) -- (3.75,0.55) -- (6.25,0.55)
+    -- (6.25,0) -- (21.25,0);
   \foreach \k in {0,...,15} {
-    \pgfmathsetmacro{\logicstart}{20 + \logicdelay + 5*\k}
-    \pgfmathsetmacro{\logicstop}{22.5 + \logicdelay + 5*\k}
-    \ifnum\k<15
-      \pgfmathsetmacro{\nextlogicstart}{25 + \logicdelay + 5*\k}
-      \draw[waveform]
-        (\logicstart,0) -- (\logicstart,0.55) -- (\logicstop,0.55) -- (\logicstop,0) -- (\nextlogicstart,0);
-    \else
-      \draw[waveform]
-        (\logicstart,0) -- (\logicstart,0.55) -- (\logicstop,0.55) -- (\logicstop,0) -- (100,0);
-    \fi
+    \pgfmathsetmacro{\start}{21.25+5*\k}
+    \pgfmathsetmacro{\stop}{\start+2.5}
+    \pgfmathsetmacro{\next}{\start+5}
+    \draw[waveform] (\start,0) -- (\start,0.55) -- (\stop,0.55)
+      -- (\stop,0) -- (\next,0);
   }
-  \draw[waveform] (100,0) -- (100,0.55) -- (102.5,0.55);
-
-  \draw[-{Stealth[length=1.2mm]}, draw=NordBlue, line width=0.45pt]
-    (30,0.76) node[anchor=west, text=NordBlue, font=\sffamily\tiny]{LOGIC edges offset by 1.25 ns}
-    -- ({20+0.5*\logicdelay},0.28);
-  \node[anchor=south, text=NordBody, font=\sffamily\tiny] at (101.25,3.70) {next sequence};
+  \draw[waveform] (101.25,0) -- (163.75,0) -- (163.75,0.55)
+    -- (166.25,0.55) -- (166.25,0) -- (170,0);
+  \foreach \t in {0,10,...,170} {\node[anchor=north] at (\t,-0.25) {\t};}
+  \node[anchor=north east] at (170,-0.7) {Time from INIT rise (ns)};
 \end{tikzpicture}
 \end{document}

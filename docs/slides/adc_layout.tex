@@ -1,0 +1,75 @@
+\documentclass[aspectratio=169,compress]{beamer}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{textcomp}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+
+% Match the established FRIDA slide style.
+\definecolor{NordBody}{HTML}{4C566A}
+\definecolor{NordBlue}{HTML}{5E81AC}
+
+\setbeamertemplate{footline}{%
+  \hspace{1em}%
+  \usebeamercolor[fg]{page number in head/foot}%
+  \usebeamerfont{page number in head/foot}%
+  \insertframenumber\,/\,\inserttotalframenumber%
+  \vskip2pt%
+}
+\beamertemplatenavigationsymbolsempty
+\setbeamerfont{frametitle}{size=\large}
+\setbeamercolor{normal text}{fg=NordBody}
+\setbeamercolor{frametitle}{fg=NordBlue}
+\setbeamercolor{structure}{fg=NordBlue}
+
+\newcommand{\layoutframe}[5]{%
+  \begin{frame}
+    \frametitle{#1}
+    \centering
+    \begin{tikzpicture}
+      \node[inner sep=0pt] (layout) {\includegraphics[height=#5\textheight,keepaspectratio]{#2}};
+      \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]},line width=0.7pt,draw=NordBlue]
+        ([yshift=-0.22cm]layout.south west) --
+        node[below,font=\small,text=NordBody]{#3}
+        ([yshift=-0.22cm]layout.south east);
+      \draw[{Stealth[length=2mm]}-{Stealth[length=2mm]},line width=0.7pt,draw=NordBlue]
+        ([xshift=-0.22cm]layout.south west) --
+        node[left,font=\small,text=NordBody]{#4}
+        ([xshift=-0.22cm]layout.north west);
+    \end{tikzpicture}
+  \end{frame}%
+}
+
+\begin{document}
+
+\layoutframe
+  {DCD2 ADC Channel}
+  {../images/adc_layouts/dcd2_adc_channel.png}
+  {183.5 \textmu m}
+  {113.4 \textmu m}
+  {0.70}
+
+\layoutframe
+  {DHPT 0.2 SAR ADC Channel}
+  {../images/adc_layouts/dhpt02_adc_channel.png}
+  {37.3 \textmu m}
+  {74.1 \textmu m}
+  {0.72}
+
+\layoutframe
+  {CoRDIA-1 ADC Channel}
+  {../images/adc_layouts/cordia1_adc_channel.png}
+  {80 \textmu m}
+  {400 \textmu m}
+  {0.72}
+
+\layoutframe
+  {FRIDA-1 ADC Channel}
+  {../images/adc_layouts/frida1_adc_channel.png}
+  {60.5 \textmu m}
+  {63.5 \textmu m}
+  {0.72}
+
+\end{document}
