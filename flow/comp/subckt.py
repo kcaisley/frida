@@ -180,7 +180,7 @@ def _build_preamp(module, param: CompParams):
     #           └─┐╷  clk  ╷┌─┘
     #             │├○──┴──○┤│
     #           ┌─┘╵       ╵└─┐
-    # input_p_drain ─┤             ├─ input_n_drain
+    #  input_p ─┤             ├─ input_n
     #        ╷┌─┘             └─┐╷
     #  inp ──┤│                 │├── inn
     #        ╵└─┐             ┌─┘╵
