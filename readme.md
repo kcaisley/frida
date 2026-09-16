@@ -13,11 +13,19 @@ meet those array-level goals, the converter fabric must deliver aggregate throug
 within a 1 W/cm² chip-bottom power-density budget and exceeding 5 ksps/µm² sampling-rate density.
 Successive-approximation ADCs are the primary architecture under study.
 
+![ADC architecture used in the example system](docs/images/arch.png)
+
+The fabricated FRIDA-1 ADC channel measures approximately 60.5 × 63.5 µm (about 3845 µm²):
+
 <p align="center">
   <img src="docs/images/adc_layouts/frida1_adc_channel.png" alt="FRIDA-1 ADC channel layout" width="60%">
 </p>
 
-![ADC architecture used in the example system](docs/images/arch.png)
+The full FRIDA-1 chip, containing 16 ADC channels on a 1 × 1 mm die:
+
+<p align="center">
+  <img src="docs/images/frida-1_web.webp" alt="Full FRIDA-1 chip layout" width="60%">
+</p>
 
 > [!NOTE]
 > FRIDA is still under active development. The repository is useful as a record of the design and flow, but it is not
@@ -25,9 +33,9 @@ Successive-approximation ADCs are the primary architecture under study.
 
 ## Progress
 
-The initial prototype is designed in 65 nm and measures 1×1 mm. It contains 16 ADCs, each measuring roughly 60×60 µm.
-The tapeout was submitted in October 2025, received March 2026, and is currently being characterized. Here is a GDS
-render of the chip:
+The initial prototype is designed in 65 nm and measures 1×1 mm. It contains 16 ADCs, each measuring approximately 60.5 ×
+63.5 µm. The tapeout was submitted in October 2025, received March 2026, and is currently being characterized. Here is a
+GDS render of the chip:
 
 <p align="center">
   <img src="docs/images/frida_65A.png" alt="Top-level FRIDA prototype layout" width="60%">
@@ -56,7 +64,8 @@ Detailed command-line usage, build notes, and tool installation instructions are
 
 The table below compares previous ADC designs with the current FRIDA target, highlighting improvements in resolution,
 speed, area, and energy efficiency. Notable advancements include higher conversion rates and lower power consumption per
-ADC, supporting the project's goal of scalable, high-performance digitizer arrays. tbhi
+ADC, supporting the project's goal of scalable, high-performance digitizer arrays. The FRIDA column lists design
+targets; its 50 × 50 µm footprint is smaller than the fabricated FRIDA-1 channel shown above.
 
 | Design  | [DCD-E](https://doi.org/10.1016/j.nima.2019.162544) | [CoRDIA](https://doi.org/10.1088/1742-6596/3010/1/012141) | M  | H  | FRIDA (this repo) |
 |-------------------------|-------------|------------|------------|-------------|-------------|
