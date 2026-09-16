@@ -27,35 +27,60 @@ directly.
 
 ## Layout primitives
 
-The MOSFET and MOM-capacitor generators are directly executable modules:
+The MOSFET primitive generator is a directly executable module:
 
 ```bash
 uv run python -m flow.mosfet.primitive \
   [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 
-uv run python -m flow.momcap.primitive \
-  [-t <tech>] [-m <mode>] [-v] [-o <dir>]
 ```
+
+Capacitor layouts are generated only as arrays; the standalone unit-capacitor
+layout exporter has been removed. The process-independent capacitor-array block
+is `flow.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing;
+`CapArray(CapArrayParams(...))` generates the passive main/diff network, and
+`CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate
+`flow.capdriver.CapDriver` generates generic standard-cell XOR drivers and
+requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the
+simplified integrated simulation wrapper, with inversion tied low. Existing
+`cdac` parameter fields and CDAC measurement names remain unchanged; the HDF5
+reader migrates saved parameter type names from the old module.
 
 The process-independent FRIDA capacitor-array runners are:
 
 ```bash
-uv run python -m flow.cdac.layout
-uv run python -m flow.cdac.layout caparray_1layer_radix17
-uv run python -m flow.cdac.layout caparray_2layer_radix17
-uv run python -m flow.cdac.layout caparray_3layer_radix17
+uv run python -m flow.caparray.layout
+uv run python -m flow.caparray.layout caparray_1layer_radix17
+uv run python -m flow.caparray.layout caparray_2layer_radix17
+uv run python -m flow.caparray.layout caparray_3layer_radix17
 ```
 
-Each target visibly constructs its electrical `CdacParams`, unit family, and
+Each target visibly constructs its electrical `CapArrayConfig`, unit family, and
 metal stack. The generator derives every physical distance from the selected
 PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary
 positive electrical weights through the shared netlist decomposition, and
 adds routing, shield taps, connection stacks, and pins. A named target always
 runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to
-`build/layout/cdac/<target>/<timestamp>/`.
+`build/layout/caparray/<target>/<timestamp>/`.
+
+FRIDA-2/CDAC targets now use the shared `ringfmom.cdl` ideal/LVS model and
+three recognition purposes, with a read-only foundry LVS include and explicit
+3D xACT extraction. See [ringfmom integration](../pdk/tsmc65/calibre/ringfmom.md)
+for model limits, diagnostics, and PEX double-counting protection. Nominal C
+uses the same affine fit as LVS: 0.17L + 0.03, 0.34L + 0.06, and 0.51L + 0.12
+for one, two, and three active layers (C in fF, full inner-finger L in um).
+Each physical main/diff finger receives one intercept, including every coarse
+chunk and minimum-length tail; it is not a single offset per electrical net.
+This replaces generic `unit_cap` sizing only for these generated ringfmom
+arrays; historical FRIDA-1 and generic HDL21 sizing are unchanged.
+LVS measures geometry independently and its 5% tolerance is unchanged.
+All ten recorded xACT 3D samples per stack, including 0.52/51.72 um endpoints,
+agree within 2%; this is in-sample agreement, not independent qualification.
+New PEX remains gated on LVS; simulation targets still pin the previously
+reviewed extraction timestamps.
 
 ADC layout validation and extraction use the same named-target convention as
-simulation. Omitting the target lists the four archived FRIDA-1 ADCs and two
+simulation. Omitting the target lists the four archived FRIDA-1 ADCs and three
 generated FRIDA-2 stacks:
 
 ```bash
@@ -83,7 +108,7 @@ The separate conductive PEX source omits the electrically empty CDAC wrappers
 so xACT extracts the fabricated connectivity.
 
 The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source
-network from the target's `CdacParams` and PDK rules, then perform strict block
+network from the target's `CapArrayConfig` and PDK rules, then perform strict block
 substitution in `build/frida-2-template.gds`. The assembler requires identical
 database units, boundaries, pin names, pin positions, and pin shapes. It never
 edits, moves, or reroutes layout; any required template adjustment is made
@@ -112,7 +137,7 @@ running anything:
 uv run python -m flow.adc.sim
 uv run python -m flow.comp.sim
 uv run python -m flow.samp.sim
-uv run python -m flow.cdac.sim
+uv run python -m flow.caparray.sim
 ```
 
 Each target owns its reviewed parameter recipe. Short, noise-free Spectre
@@ -122,7 +147,7 @@ diagnostics use the same Python target with `check=True`, through pytest only:
 source /eda/local/scripts/cadence_2024-25.sh
 uv run pytest -m spectre
 # Select just one worker campaign's preflight, if needed:
-uv run pytest -m spectre -k 'adc-frida2_fixed_input_noise'
+uv run pytest -m spectre -k 'adc-frida2_sequence'
 ```
 
 Allow roughly one hour for the full Spectre suite on asiclab003; runtime depends
@@ -132,8 +157,8 @@ broad simulation-flow changes, not after every edit. For routine changes, use
 describes the simulated time, not the wall-clock runtime of extracted circuits.
 
 The `spectre` group is excluded by default and requires no custom pytest flag.
-It covers all eleven experiment targets, including six representative comparator
-cases. Artifacts and diagnostic reports remain beneath timestamped
+It covers the maintained ADC, comparator, sampler and capacitor-array targets,
+including six representative comparator cases. Artifacts and diagnostic reports remain beneath timestamped
 `build/diagnostics/` directories. Missing Spectre or an unavailable PDK installation
 skips with a reason; missing configured inputs, invalid decks, license failures,
 and simulator errors fail. Circuit-check findings remain available in reports;
@@ -143,14 +168,15 @@ diagnostic flags, netlist-only modes, or separate check targets.
 ## Circuit simulation
 
 Simulation targets use the same interface and always create a fresh complete
-run beneath `build/sim/<module>/<target>/<YYYYMMDD_HHMMSS>/`:
+run beneath `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/` for ADCs.
+Other blocks retain `build/sim/<module>/<target>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
 # Reviewed ADC campaigns
-uv run python -m flow.adc.sim hdl21_fixed_input_noise_vs_rate
-uv run python -m flow.adc.sim frida1_fixed_input_noise_vs_rate
-uv run python -m flow.adc.sim frida1_fixed_input_noise
-uv run python -m flow.adc.sim frida2_fixed_input_noise
+uv run python -m flow.adc.sim hdl21_sample_rate
+uv run python -m flow.adc.sim frida1_sample_rate
+uv run python -m flow.adc.sim frida1_sequence
+uv run python -m flow.adc.sim frida2_sequence
 uv run python -m flow.adc.sim hdl21_transfer_curve
 uv run python -m flow.adc.sim frida1_transfer_curve
 
@@ -160,7 +186,7 @@ uv run python -m flow.comp.sim frida1_fixed_input_noise
 
 # First standalone block-level simulations
 uv run python -m flow.samp.sim frida1_transient
-uv run python -m flow.cdac.sim frida1_transfer_curve
+uv run python -m flow.caparray.sim frida1_transfer_curve
 ```
 
 The extracted fixed-input rate sweep groups the one-layer and two-layer radix-17
@@ -249,6 +275,8 @@ uv run python -m flow.scans.runner --help
 The explicit ADC00--ADC03 slow-ramp campaign uses the same acquisition path:
 
 ```bash
+uv run python -m flow.scans.runner adc_activity_noise
+uv run python -m flow.scans.runner adc_transfer_curve
 uv run python -m flow.scans.runner adc_ramp_code_density
 ```
 
@@ -262,18 +290,13 @@ fall. BOUT separately selects the final states imposed by the SAR logic:
 `P_final = 1 - BOUT` and `N_final = BOUT`. Therefore BOUT does not always mean
 "move P" or "move N". For one capacitor pair, the calibrated weight is the
 distance between its two possible BOUT endpoints, equal to the sum of its
-direction-matched P and N movements. The `adc_ramp_nonlinearity` analysis runner
-performs this decoding.
+direction-matched P and N movements. `adc_calibration_study` compares this
+CDAC-based decoder with the ramp-derived calibration methods.
 
-```bash
-uv run python -m flow.analysis.runner adc_ramp_nonlinearity
-```
-
-The maintained runner pins one reviewed ADC00--ADC03 ramp directory and the
-reviewed CDAC campaign directories. It validates transport counters and capture
-lengths, excludes eight conversions after each detected sawtooth flyback,
-requires both decodings to be monotonic within 2 LSB, and writes the plots plus
-one consolidated metrics CSV below a fresh `build/analysis/adc/` directory.
+`adc_ramp_nonlinearity_study` independently plots the ADC00--ADC03 uncalibrated
+code density and INL/DNL. It assumes uniform ramp occupancy, excludes eight
+conversions after each detected flyback and excludes saturated endpoints from
+linearity. It does not reconstruct absolute voltage or require CDAC files.
 
 The digital-calibration flow compares three ways to derive backend BOUT weights
 for ADC00. `calibration1.py` uses the direction-matched physical CDAC S-curves,
@@ -284,7 +307,7 @@ training and validation cycles, and the threshold method preserves nominal
 ratios once the measured steps become noise-limited.
 
 ```bash
-uv run python -m flow.analysis.runner adc_calibration
+uv run python -m flow.analysis.runner adc_calibration_study
 ```
 
 All three analyses return the same typed 17-weight result. The runner writes a
@@ -296,14 +319,67 @@ the final backend output.
 Run one explicitly named physical campaign through the shared scan runner:
 
 ```bash
-uv run python -m flow.scans.runner adc_sine_conversion_rate
-uv run python -m flow.scans.runner adc_fixed_input_noise_50mv_700mvcm
+uv run python -m flow.scans.runner adc_sample_rate
+uv run python -m flow.scans.runner adc_sequence
+uv run python -m flow.scans.runner adc_sequence_noctl
 uv run python -m flow.scans.runner adc_ramp_code_density
 uv run python -m flow.scans.runner comp_common_mode
 uv run python -m flow.scans.runner cdac_cap_mismatch
 ```
 
 Use `--help` to list every maintained ADC, comparator, CDAC, and repair target.
+ADC campaigns write `build/scan_adc/<timestamp>_<target>/0000_capture.h5`,
+`0001_capture.h5`, etc. The file index identifies a capture within the run;
+ADC selection, full sequence rows, stimulus, rails and rates are in the HDF5.
+Every runner keeps its selected ADCs visible beside a commented all-16 option
+for the longer scans. Acquisition creates no plots and does not modify the
+analysis studies' pinned input directories.
+
+`adc_sequence` combines instrumented 0/50-mV controls and the historical
+seven-LOGIC timing sweeps. `adc_sample_rate` combines DC noise and sine sweeps;
+its instrumented DC data also supplies the power study. `adc_activity_noise`
+compares one active ADC with all 16 active. Transfer and ramp-code-density
+acquisitions remain separate because their input-voltage requirements differ.
+
+The `adc_sequence_noctl` target uses manually supplied
+50 mV differential input and 700 mV common mode. It selects ADC03 and all
+56 recipes from `flow.adc.sequences.DUTY_CYCLE_SEQUENCES`, plus the exact
+historical `ORIGINAL` control, at 1600 and 960 MBd. It saves 100,000 conversions
+per point (114 files; 11.4 million conversions), starting with the control at
+both speeds. The matrix crosses four COMP widths (4/8 through 7/8),
+seven LOGIC words, and two sequence lengths (160 and 256 symbols). The longer
+rows append only 96 low symbols. Matrix rows retain INIT4 and SAMP20; the
+historical control retains INIT8, SAMP16 and its original sampling-to-COMP gap.
+At 1600 MBd the 160/256-symbol rows repeat at 10/6.25 MSPS; at 960 MBd they
+repeat at 6/3.75 MSPS. The runner's 10/6 MSPS settings describe active timing,
+excluding the long recipes' idle padding.
+Some combinations deliberately raise LOGIC before COMP falls; the full cross
+product is retained to investigate both pulse width and relative edge timing.
+The names encode the complete configuration, for example
+`symbol160_init4_samp20_comp11111100_logic11000011`. Independent channel rows
+live in the same sequence library; the four historical comparison recipes
+remain in `FIXED_INPUT_SEQUENCES`.
+It controls only the FPGA, with no instrument connections or scope capture.
+
+For this investigation, compare full code histograms and B0--B16 trajectories
+against the historical control at the same symbol rate. Check RMS noise, the
+entire populated code span, rare distant bins, and repeated late-bit tails;
+low RMS alone is not evidence of a healthy conversion. The screening target is
+RMS at most 2 LSB and full populated span at most 4 LSB, with a non-stuck
+trajectory. Keep every acquired code when computing these metrics.
+Acquisition and analysis are separate. Explicitly select the completed directory
+in `adc_sequence_study`, then invoke that study to write its trajectory and
+full code-distribution PDFs into one flat analysis output directory. Review
+candidate recipes with repeated captures before accepting recovered performance.
+
+Scope/FastRX verification at 1600 MBd does not validate 960 MBd automatically.
+Before accepting the slower results, compare simultaneous scope and FastRX
+records using the rate-specific receiver model and verify COMP/LOGIC pulse
+levels. A 960 MBd active conversion lasts about 166.7 ns, so a 120 ns scope
+window cannot include all seventeen decisions. Retain the 7/8 scope reference
+as a separate timing diagnostic, rather than treating its differences as
+FastRX decode failures.
+
 The target function owns the complete parameter recipe. ADC targets iterate
 their flat list and pass one configuration plus its lifecycle position to the
 acquisition module; comparator and CDAC targets pass their complete lists.
@@ -317,32 +393,64 @@ Spectre flow exposes one fixed-input noise campaign for each DUT view:
 
 ```bash
 uv run python -m flow.scans.scan_behavioral
-uv run python -m flow.adc.sim hdl21_fixed_input_noise_vs_rate
-uv run python -m flow.adc.sim frida1_fixed_input_noise_vs_rate
+uv run python -m flow.adc.sim hdl21_sample_rate
+uv run python -m flow.adc.sim frida1_sample_rate
 ```
 
 Use the `spectre` pytest group for short diagnostics with circuit checks and
 AHDL linting. Normal CLI runs write below a fresh
-`build/sim/adc/<target>/<YYYYMMDD_HHMMSS>/`; omitting the target lists all choices.
+`build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/`; omitting the target lists all choices.
 
-For the extracted-layout comparison, `frida1_fixed_input_noise` selects all four
-historical flavors and `frida2_fixed_input_noise` selects the connected one-,
+For the extracted-layout comparison, `frida1_sequence` selects all four
+historical flavors and `frida2_sequence` selects the connected one-,
 two-, and three-layer radix-17 variants. Each case uses 100 conversions, 50 mV
 differential input, 700 mV common mode, 1.2 V supplies, and transient device noise. These reuse
 the same testbench and result conversion as the rate-sweep targets.
 
 ```bash
-uv run pytest -m spectre -k 'adc and fixed_input_noise and not vs_rate'
-uv run python -m flow.adc.sim frida1_fixed_input_noise
-uv run python -m flow.adc.sim frida2_fixed_input_noise
-uv run python -m flow.analysis.runner adc_pex_flavor_paths --inputs /path/to/completed/campaign
+uv run pytest -m spectre -k 'adc and sequence'
+uv run python -m flow.adc.sim frida1_sequence
+uv run python -m flow.adc.sim frida2_sequence
+uv run python -m flow.analysis.runner adc_sequence_study
 ```
 
-Both fixed-input targets sweep three timing recipes, writing each result beneath
-`<flavor>/original/`, `<flavor>/extended_comp/`, or `<flavor>/continuous_100ns/`.
-That is twelve FRIDA-1 cases and nine FRIDA-2 cases, each with 100 conversions. The worker limits remain
-four and three respectively; extra cases queue within the same 24-thread
-budget. Diagnostics (`check=True`) cover all three recipes too.
+The analysis entrypoints select their input directories in source:
+
+```bash
+uv run python -m flow.analysis.runner adc_transfer_curve_study
+uv run python -m flow.analysis.runner adc_ramp_nonlinearity_study
+uv run python -m flow.analysis.runner adc_calibration_study
+uv run python -m flow.analysis.runner adc_sequence_study
+uv run python -m flow.analysis.runner adc_sample_rate_study
+uv run python -m flow.analysis.runner adc_power_study
+```
+
+Each takes only `output_dir: Path` in Python. The CLI accepts a study name;
+there is no input-directory override. Docstrings identify the selected ADCs,
+rate/sequence limits and requirements for `MeasAdcInt` waveform records.
+The sequence study includes ADC03's two-speed measurements and the 28 reviewed
+PEX cases, with internal-node plots, four clock plots and the
+`frida_2_vs_1.tex`/PDF deck. Scope/setup HDF5 files are excluded. Other studies
+use the independently pinned historical inputs documented in their docstrings.
+
+`flow.adc.sequences` defines `AdcSequence` and named, rate-independent binary
+rows. Whitespace in definitions is removed when the dataclass is constructed.
+Each combination contains four equally sized INIT, SAMP, COMP and LOGIC rows:
+160 symbols for the continuous recipes, 256 for the padded recipes. The
+simulation and scan runners pass those strings into the existing
+`seq_*_pattern` parameters and supply `symbol_rate` separately. Testbenches
+and FPGA packing consume the final rows without per-signal phase parameters.
+`TIMING_SWEEP` contains seven explicit LOGIC alignments on the original
+patterns. Hardware receiver alignment may rotate all four rows together;
+that acquisition alignment preserves their relative timing.
+
+Both fixed-input targets use `fixed_input_timing_params()` to select the same
+four complete timing recipes: `original`, `extended_comp`, `continuous_100ns`,
+and `continuous_100ns_comp7of8`. Results are written beneath `<flavor>/<timing>/`.
+That is sixteen FRIDA-1 cases and twelve FRIDA-2 cases, each with 100 conversions.
+The worker limits remain four and three respectively; cases queue within each
+host's 24-thread budget. Diagnostics (`check=True`) cover all four recipes.
+The additions-only targets select the seven 7/8 cases from that same builder.
 
 `original` retains the September 5 timing. `extended_comp` tests extended
 comparator evaluation: relative to each COMP rising edge, its eight 0.625 ns slots are:
@@ -359,7 +467,7 @@ unchanged from the September 5 baseline. This is an experimental timing
 setting, not timing signoff: internal clock skew, decision capture, minimum
 pulse widths, comparator reset recovery and DAC settling still need checking.
 Other targets retain their existing timing. `input.json` records
-all four sequence patterns and phase offsets for each new run.
+all four final sequence patterns for each new run.
 
 `continuous_100ns` follows `docs/images/adc_sequencer_timing_100ns.tex`, with
 time measured from INIT rising: INIT is high at 0--2.5 ns; its initialization
@@ -369,15 +477,33 @@ LOGIC pulse is at 1.875--2.5 ns; SAMP is high at 2.5--17.5 ns. COMP rises at
 coincident with the next INIT rising edge. There is no B16 DAC-update pulse.
 All four sequences repeat after 160 symbols / 100 ns, so this is true 10 MS/s
 throughput (10 us for 100 conversions), rather than the other recipes' padded
-160 ns records. The decoder bounds B16's inferred capture deadline at the next
-INIT or end of the recording and samples at 98% of that final interval.
+160 ns records. The decoder reads B0--B15 at the SEQ_LOGIC rising threshold
+crossing, linearly located in the saved transient, rather than ahead of that
+edge. This external-clock reference does not model the SAR registers' local
+clock delay or setup/hold behavior. B16 has no DAC update: it is observed at
+the following INIT's LOGIC rising threshold. Missing final observations are
+excluded and recorded, never replaced with an earlier read. New runs save a
+partial next cycle for this observation and the next-COMP diagnostic.
+`adc_sequence_study` plots the codes and canonical waveform records already
+stored in each measurement. It does not re-decode or replace those codes and
+does not write capture-analysis caches. Rebuild older simulation HDF5 files
+before using the new `/wave/voltage` and `/wave/current` format. New conversions
+consume VLSIR `TranResult` values and retain the required next-cycle tail in
+the same waveform records. Simulator maximum steps and output spacing are both
+controlled by `waveform_sample_interval_s` (10 ps by default). The study also
+exports per-decision `*_timing_closure.csv` tables from `analyze_adc_timing_closure`:
+internal resolution, SR agreement, LOGIC setup and CDAC settling margins. Both
+setup requirements are 200 ps; the table records its voltage tolerances and
+sampling interval. Missing observations cannot pass. B16 has no CDAC update.
+Run the named target without experiment flags.
 It does not model a separate physical output-capture register. Verify capture,
 clock skew, and first-record startup in simulation before accepting this timing.
 
 For every completed flavor, this analysis writes the 17-bit/12-bit code list,
 the all-conversion decision-path density, and C0/C7/C15 settling
 plots showing comparator outputs, DAC states/drivers, and top-plate residuals
-over all conversions. It reads existing HDF5 results; no simulation is rerun.
+over conversions with complete LOGIC captures. It reads existing HDF5
+results; no simulation is rerun.
 In the comparator row, solid blue/orange traces are the buffered P/N outputs;
 dotted blue/orange traces are the internal cross-coupled regenerative nodes
 when those signals were saved.
@@ -385,15 +511,15 @@ when those signals were saved.
 The same target also writes `adc_sampling_noise.pdf`, comparing held
 differential voltages with common 25 µV bins and shared axes, plus
 `adc_sampling_noise.csv` (sample SD, mean and offset) and
-`adc_sampling_levels.csv` (one held level and averaging window per conversion).
-It averages the middle 60% of the interval between the sequencer's sample-off
-and first comparator edges, verifying both sampling switches are off and the
-actual comparator has not fired. This requires fixed-input waveforms and at
-least two saved conversions. Each histogram is centered on its own mean;
-the offset is retained in the CSV. Window averaging suppresses fast ongoing
-noise, so this measures held-level repeatability, not source-isolated kT/C,
-instantaneous comparator-input noise, or final output-code noise. Values stay
-in volts/µV: converting to LSB requires a separately measured input-code gain.
+`adc_sampling_levels.csv` (one observed level and timestamp per conversion).
+It interpolates the P/N CDAC voltages exactly 1 ns after SAMP falls, including
+cases where COMP has already fired. Equal window-start and window-stop values
+record this instantaneous observation. This requires the same fixed input
+across the saved conversions. Each histogram is centered on its own mean;
+the offset is retained in the CSV. The spread may include comparator activity,
+so it is not isolated kT/C or final output-code noise. Values stay in volts/µV:
+converting to LSB requires a separately measured input-code gain. These sampling
+exports use the saved waveform records.
 
 Worker preflight uses these diagnostic tests: it checks the actual extracted
 port order and internal waveform nodes, generates the complete input, and runs
@@ -440,20 +566,19 @@ multicore license needs before launching; the tool does not allocate resources.
 After committing the source and submodule changes, launch an existing target:
 
 ```bash
-uv run python -m flow.circuit.remote launch frida2_fixed_input_noise \
+uv run python -m flow.circuit.remote launch frida2_sequence \
   --host juno --work-root /local/kcaisley \
   --setup /eda/local/scripts/cadence_2024-25.sh \
   --input build/layout/adc/frida2_1layer_radix17/20260905_193440 \
   --input build/layout/adc/frida2_2layer_radix17/20260905_193629 \
-  --input build/layout/adc/frida2_3layer_radix17/20260905_193816 \
-  --analysis adc_pex_flavor_paths
+  --input build/layout/adc/frida2_3layer_radix17/20260905_193816
 ```
 
-Use `frida1_fixed_input_noise` with `--host jupiter` and its four reviewed input
+Use `frida1_sequence` with `--host jupiter` and its four reviewed input
 directories for the historical campaign. Input paths must match those selected
 inside the target; the CLI never substitutes newer PEX files. `--block` defaults
-to `adc`; use `comp`, `samp`, or `cdac` for other runners. Omit `--analysis` when
-automatic ADC analysis is not wanted. The selected PDK submodule defaults to
+to `adc`; use `comp`, `samp`, or `caparray` for other runners. Analysis is a
+separate explicitly selected study, not a collection hook. The selected PDK submodule defaults to
 `tsmc65`; foundry installations and absolute site inputs are not copied and
 must already be accessible on the trusted worker. No PDK data goes to public CI.
 
@@ -470,10 +595,9 @@ The printed local `build/remote/<session>/` directory contains the revision and
 input-path manifest, file list, and one shell bootstrap, not campaign-specific
 Python scripts. Its detached local tmux collector checks every 30 minutes. Once
 the entire target exits, it copies raw results, HDF5, diagnostics, and logs into
-`results/`, including failed-run artifacts. Successful runs optionally invoke
-the existing analysis CLI; `analysis.log` records its output directory.
-`collected.json` records worker and final exit codes. A failed analysis can be
-rerun directly with the analysis CLI against `results/`.
+`results/`, including failed-run artifacts. `collected.json` records worker and
+final exit codes. Select reviewed result directories in the study source before
+invoking the analysis CLI; collection never automatically changes study inputs.
 
 Collection can also be resumed explicitly if the local collector was lost:
 
