@@ -1,0 +1,14 @@
+vdd
+15.29kohm
+v+
+1.61kohm
+V-
+21.57okhm
+vss
+
+47nf || 47nf || 10uF across vdd to vss
+
+1uF differential across v+ to v-.
+
+Vdd = 1.2
+
