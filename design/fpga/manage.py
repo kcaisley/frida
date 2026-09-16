@@ -1,10 +1,10 @@
-"""FRIDA1 FPGA management: download SiTCP, compile, and flash bitstreams.
+"""BDAQ FPGA management: download SiTCP, compile, check JTAG, and flash bitstreams.
 
-Usage (from ~/frida/):
+Usage (from the project root):
     python design/fpga/manage.py --get_sitcp
-    python design/fpga/manage.py --compile -v
-    python design/fpga/manage.py --flash
-    python design/fpga/manage.py --flash design/fpga/bit/frida_bdaq53_kx1.bit
+    python design/fpga/manage.py --help
+    python design/fpga/manage.py --check
+    python design/fpga/manage.py --flash /path/to/image.bit
 """
 
 import argparse
@@ -16,7 +16,7 @@ from pathlib import Path
 import git
 import pexpect
 
-log = logging.getLogger("frida.design.fpga.manage")
+log = logging.getLogger("bdaq.fpga.manage")
 
 SITCP_REPO = "https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7"
 
@@ -24,12 +24,11 @@ SITCP_REPO = "https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex7"
 _FPGA_DIR = Path(__file__).resolve().parent
 _SITCP_DIR = _FPGA_DIR / "SiTCP"
 _BUILD_DIR = _FPGA_DIR / "build"
-_DEFAULT_FLASH_FILE = _FPGA_DIR / "bit" / "frida_bdaq53_kx1.mcs"
 
-# Build targets: platform -> (fpga_part, xdc_file, flash_size_mb)
+# Build targets: platform -> (fpga_part, flash_size_mb)
 TARGETS = {
-    "BDAQ53_KX1": ("xc7k160tfbg676-1", "bdaq53_kx1.xdc", 64),
-    "BDAQ53_KX2": ("xc7k160tffg676-2", "bdaq53_kx2.xdc", 64),
+    "BDAQ53_KX1": ("xc7k160tfbg676-1", 64),
+    "BDAQ53_KX2": ("xc7k160tffg676-2", 64),
 }
 
 
@@ -90,51 +89,48 @@ def get_sitcp():
     log.info("SiTCP downloaded and patched")
 
 
-def _clean_build_artifacts():
-    """Remove Vivado build artifacts from previous runs."""
-    import glob
-
-    patterns = [
-        "*.backup.*",
-        "vivado*.log",
-        "vivado*.jou",
-        "clockInfo.txt",
-        "tight_setup_hold_pins.txt",
-        "planAhead.ngc2edif.log",
-    ]
-    for pattern in patterns:
-        for f in glob.glob(str(_FPGA_DIR / pattern)):
-            Path(f).unlink(missing_ok=True)
-    for d in [".Xil", ".ngc2edfcache", "build", "bit", "reports"]:
-        path = _FPGA_DIR / d
-        if path.is_dir():
-            import shutil
-
-            shutil.rmtree(path)
-
-
-def compile(platform):
+def compile(platform, *, verilog, xdc, top, name, out_dir, edif=None, include_dir=None):
     """Compile FPGA bitstream for the given platform using Vivado."""
+    for option, value in (("verilog", verilog), ("xdc", xdc), ("top", top), ("name", name), ("out-dir", out_dir)):
+        if not value:
+            raise ValueError(f"Compilation requires --{option}")
     _require_vivado()
     if platform not in TARGETS:
         raise ValueError(f"Unknown platform '{platform}'. Supported: {', '.join(TARGETS)}")
 
-    _clean_build_artifacts()
-    _BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(out_dir).expanduser().resolve()
+    build_dir = output_dir / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
 
-    fpga_part, xdc_file, flash_size = TARGETS[platform]
+    fpga_part, flash_size = TARGETS[platform]
     log.info("Compiling for %s (%s)", platform, fpga_part)
 
-    command = (
-        "vivado -mode batch -source run.tcl "
-        "-log build/vivado.log -journal build/vivado.jou "
-        f"-tclargs {fpga_part} {xdc_file} {flash_size}"
-    )
+    arguments = [
+        "-mode",
+        "batch",
+        "-source",
+        str(_FPGA_DIR / "run.tcl"),
+        "-log",
+        str(build_dir / "vivado.log"),
+        "-journal",
+        str(build_dir / "vivado.jou"),
+        "-tclargs",
+        fpga_part,
+        str(flash_size),
+        "--out-dir",
+        str(output_dir),
+    ]
+    for option, paths in (("--verilog", verilog), ("--xdc", xdc), ("--edif", edif), ("--include-dir", include_dir)):
+        for path in paths or []:
+            arguments.extend([option, str(Path(path).expanduser().resolve())])
+    for option, value in (("--top", top), ("--name", name)):
+        if value is not None:
+            arguments.extend([option, value])
     log.info("This takes several minutes...")
 
     try:
-        vivado = pexpect.spawn(command, cwd=str(_FPGA_DIR), timeout=10)
-        vivado.expect("Vivado", timeout=10)
+        vivado = pexpect.spawn("vivado", arguments, cwd=str(output_dir), timeout=180)
+        vivado.expect("Vivado", timeout=180)
     except pexpect.exceptions.ExceptionPexpect:
         raise RuntimeError(
             "Cannot start Vivado. Is it on your PATH?\n  Try: source /eda/local/scripts/vivado_2025.2.sh"
@@ -157,17 +153,17 @@ def compile(platform):
                     status = vivado.exitstatus if vivado.exitstatus is not None else f"signal {vivado.signalstatus}"
                     raise RuntimeError(
                         f"Vivado exited before completing bitstream generation ({status}) — "
-                        "check design/fpga/build/vivado.log"
+                        f"check {build_dir / 'vivado.log'}"
                     )
                 time.sleep(5)
                 silent_count += 1
         else:
-            raise RuntimeError("Timeout during compilation — check design/fpga/build/vivado.log")
+            raise RuntimeError(f"Timeout during compilation — check {build_dir / 'vivado.log'}")
     finally:
         if vivado.isalive():
             vivado.close()
 
-    log.info("SUCCESS — bitstream in %s/bit/", _FPGA_DIR)
+    log.info("SUCCESS — bitstream in %s/bit/", output_dir)
 
 
 def flash(filepath):
@@ -350,7 +346,7 @@ def check():
 
     Runs a self-contained TCL script in batch mode to avoid pexpect
     buffer-parsing issues. The script writes structured output lines
-    prefixed with FRIDA: for easy extraction.
+    prefixed with BDAQ: for easy extraction.
     """
     import subprocess
     import tempfile
@@ -376,24 +372,24 @@ open_hw_manager
 connect_hw_server
 set targets [get_hw_targets]
 if {[llength $targets] == 0} {
-    puts "FRIDA:NO_TARGETS"
+    puts "BDAQ:NO_TARGETS"
     quit
 }
-puts "FRIDA:TARGET:[lindex $targets 0]"
+puts "BDAQ:TARGET:[lindex $targets 0]"
 if {[catch {open_hw_target [lindex $targets 0]} err]} {
-    puts "FRIDA:OPEN_FAILED:$err"
+    puts "BDAQ:OPEN_FAILED:$err"
     quit
 }
 set devices [get_hw_devices]
 if {[llength $devices] == 0} {
-    puts "FRIDA:NO_DEVICES"
+    puts "BDAQ:NO_DEVICES"
     close_hw_target
     quit
 }
 foreach d $devices {
     set part [get_property PART $d]
     set status [get_property STATUS $d]
-    puts "FRIDA:DEVICE:$d:$part:$status"
+    puts "BDAQ:DEVICE:$d:$part:$status"
 }
 close_hw_target
 quit
@@ -434,17 +430,17 @@ quit
         Path(tcl_path).unlink(missing_ok=True)
 
     # Parse structured output
-    frida_lines = [l for l in output.splitlines() if l.startswith("FRIDA:")]
+    bdaq_lines = [l for l in output.splitlines() if l.startswith("BDAQ:")]
 
-    if any("NO_TARGETS" in l for l in frida_lines):
+    if any("NO_TARGETS" in l for l in bdaq_lines):
         log.error("FAIL: No JTAG targets found. Check cable and drivers.")
         return
 
-    for l in frida_lines:
-        if l.startswith("FRIDA:TARGET:"):
+    for l in bdaq_lines:
+        if l.startswith("BDAQ:TARGET:"):
             log.info("  JTAG target: %s", l.split(":", 2)[2])
 
-    if any("OPEN_FAILED" in l for l in frida_lines):
+    if any("OPEN_FAILED" in l for l in bdaq_lines):
         log.error(
             "FAIL: JTAG target found but no FPGA detected on the chain.\n"
             "  Check that:\n"
@@ -454,11 +450,11 @@ quit
         )
         return
 
-    if any("NO_DEVICES" in l for l in frida_lines):
+    if any("NO_DEVICES" in l for l in bdaq_lines):
         log.error("FAIL: JTAG target opened but no FPGA devices found.")
         return
 
-    devices = [l for l in frida_lines if l.startswith("FRIDA:DEVICE:")]
+    devices = [l for l in bdaq_lines if l.startswith("BDAQ:DEVICE:")]
     if not devices:
         log.error(
             "FAIL: JTAG target opened but no FPGA devices found.\n"
@@ -479,22 +475,19 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     parser = argparse.ArgumentParser(
-        description="FRIDA1 FPGA management: compile, flash, and download SiTCP.",
+        description="BDAQ FPGA management: compile, flash, and download SiTCP.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "--compile",
-        nargs="?",
-        const="BDAQ53_KX1",
+        choices=TARGETS,
         metavar="PLATFORM",
-        help=f"Compile bitstream for platform (default: BDAQ53_KX1).\nSupported: {', '.join(TARGETS)}",
+        help=f"Compile bitstream for the specified platform.\nSupported: {', '.join(TARGETS)}",
     )
     parser.add_argument(
         "--flash",
-        nargs="?",
-        const=str(_DEFAULT_FLASH_FILE),
         metavar="FILE",
-        help="Flash .bit (SRAM) or .mcs (SPI flash) to FPGA via JTAG (default: frida_bdaq53_kx1.mcs).",
+        help="Flash the specified .bit/.bin (SRAM) or .mcs (SPI flash) image via JTAG.",
     )
     parser.add_argument(
         "--check",
@@ -507,6 +500,23 @@ def main():
         help="Download and patch SiTCP netlist.",
     )
 
+    parser.add_argument(
+        "--verilog", action="append", metavar="FILE", help="Required for compilation; repeat for multiple HDL units."
+    )
+    parser.add_argument(
+        "--xdc", action="append", metavar="FILE", help="Required for compilation; repeat for multiple constraint files."
+    )
+    parser.add_argument("--edif", action="append", metavar="FILE", help="EDIF netlist; repeat for multiple files.")
+    parser.add_argument(
+        "--include-dir",
+        action="append",
+        metavar="DIR",
+        help="Verilog include directory; repeatable. No implicit include paths.",
+    )
+    parser.add_argument("--top", metavar="MODULE", help="Top module; required for compilation.")
+    parser.add_argument("--name", metavar="NAME", help="Project and image basename; required for compilation.")
+    parser.add_argument("--out-dir", metavar="DIR", help="Parent of build/, bit/, reports/; required for compilation.")
+
     args = parser.parse_args()
 
     if not any([args.compile, args.flash, args.check, args.get_sitcp]):
@@ -516,13 +526,27 @@ def main():
     if args.compile and args.flash:
         parser.error("Cannot compile and flash at the same time.")
 
-    if args.get_sitcp or args.compile:
+    if args.compile:
+        missing = [option for option in ("verilog", "xdc", "top", "name", "out_dir") if not getattr(args, option)]
+        if missing:
+            parser.error("Compilation requires " + ", ".join("--" + option.replace("_", "-") for option in missing))
+
+    if args.get_sitcp:
         get_sitcp()
 
     if args.check:
         check()
     elif args.compile:
-        compile(args.compile)
+        compile(
+            args.compile,
+            verilog=args.verilog,
+            xdc=args.xdc,
+            edif=args.edif,
+            include_dir=args.include_dir,
+            top=args.top,
+            name=args.name,
+            out_dir=args.out_dir,
+        )
     elif args.flash:
         flash(args.flash)
 
