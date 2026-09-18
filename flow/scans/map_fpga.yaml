@@ -79,12 +79,12 @@ hw_drivers:
       base_addr: 0x40000
 
     # GPIO1 controls the comparator input IDELAY and reports IDELAYCTRL status.
-    # Bits 4:0: tap value; bit 5: load strobe; bit 6: ready input; bit 7: spare input.
+    # Six-bit combined request plus load, readiness, ABI marker and actual sum.
     - name: gpio1
       type: gpio
       interface: tcp
       base_addr: 0x50000
-      size: 8
+      size: 16
 
     # GPIO2 commands the top-level PLLE2_ADV output-divider controller.
     # D=1 and M=8 are fixed; the Si570 supplies a 100--200 MHz input.
@@ -188,22 +188,28 @@ registers:
             size: 1
             offset: 7
 
-    # GPIO1 register for runtime COMP_OUT input-delay control.
-    # Call read() before inspecting COMP_IDELAY_RDY.
+    # Two-stage comparator delay. Read ABI/ready before writing; actual taps
+    # come from both IDELAYE2 counters, not the GPIO request register.
     - name: gpio1
       type: StdRegister
       hw_driver: gpio1
-      size: 8
+      size: 16
       fields:
           - name: COMP_IDELAY_TAPS
-            size: 5
-            offset: 4
+            size: 6
+            offset: 5
           - name: COMP_IDELAY_LOAD
             size: 1
-            offset: 5
+            offset: 6
           - name: COMP_IDELAY_RDY
             size: 1
-            offset: 6
+            offset: 7
+          - name: COMP_IDELAY_TWO_STAGE
+            size: 1
+            offset: 15
+          - name: COMP_IDELAY_ACTUAL
+            size: 6
+            offset: 14
 
     # GPIO2 register for the sequencer/serializer PLL DRP controller.
     # With Si570 frequency FIN, REQUEST_N selects word_clk=2*FIN/N and

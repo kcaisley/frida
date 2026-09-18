@@ -25,9 +25,8 @@
 `include "TIMER.v"
 
 module daq_top (
-    input wire FCLK_IN,       // 100 MHz system clock
-    input wire RESET_BUTTON,  // Active-low reset button
-    input wire USER_BUTTON,   // Active-low user button (SW_USER_B)
+    input wire FCLK_IN,      // 100 MHz system clock
+    input wire RESET_BUTTON, // Active-low reset button
 
     // BDAQ53 programmable Si570 clock and control
     input  wire MGT_REFCLK0_P,
@@ -134,7 +133,10 @@ module daq_top (
         .CLKOUT2 (clk125_pll_tx90),
         .CLKOUT3 (spi_clk_pll),
         .CLKOUT4 (idelay_ref_pll),
+        // This PLL clock output is not used.
+        // slang lint_off empty-output-connection
         .CLKOUT5 (),
+        // slang lint_on empty-output-connection
         .CLKFBOUT(pll_feedback),
         .LOCKED  (locked),
         .CLKIN1  (FCLK_IN),
@@ -160,7 +162,10 @@ module daq_top (
 
     IBUFDS_GTE2 i_si570_refclk (
         .O    (si570_clk_ibufds),
+        // The divided reference clock is not used.
+        // slang lint_off empty-output-connection
         .ODIV2(),
+        // slang lint_on empty-output-connection
         .CEB  (1'b0),
         .I    (MGT_REFCLK0_P),
         .IB   (MGT_REFCLK0_N)
@@ -194,10 +199,13 @@ module daq_top (
     ) PLLE2_ADV_seq (
         .CLKOUT0 (seq_clk_pll),
         .CLKOUT1 (ser_clk_pll),
+        // These PLL clock outputs are not used.
+        // slang lint_off empty-output-connection
         .CLKOUT2 (),
         .CLKOUT3 (),
         .CLKOUT4 (),
         .CLKOUT5 (),
+        // slang lint_on empty-output-connection
         .CLKFBOUT(pll2_feedback),
         .LOCKED  (locked2),
         .CLKIN1  (si570_clk),
@@ -346,10 +354,13 @@ module daq_top (
         .EEPROM_DI     (eeprom_di),
         .EEPROM_DO     (eeprom_do),
         // User registers
+        // These SiTCP status registers are not used.
+        // slang lint_off empty-output-connection
         .USR_REG_X3C   (),
         .USR_REG_X3D   (),
         .USR_REG_X3E   (),
         .USR_REG_X3F   (),
+        // slang lint_on empty-output-connection
         // MII interface
         .GMII_RSTn     (phy_rst_n),
         .GMII_1000M    (1'b1),
@@ -375,7 +386,10 @@ module daq_top (
         // TCP connection control
         .TCP_OPEN_REQ  (1'b0),
         .TCP_OPEN_ACK  (tcp_open_ack),
+        // SiTCP error status is not read here.
+        // slang lint_off empty-output-connection
         .TCP_ERROR     (),
+        // slang lint_on empty-output-connection
         .TCP_CLOSE_REQ (tcp_close_req),
         .TCP_CLOSE_ACK (tcp_close_req),
         // FIFO I/F
@@ -428,7 +442,10 @@ module daq_top (
     ) i_clock_divisor_i2c (
         .CLK  (bus_clk),
         .RESET(bus_rst),
+        // Only the divided clock is used.
+        // slang lint_off empty-output-connection
         .CE   (),
+        // slang lint_on empty-output-connection
         .CLOCK(i2c_clk)
     );
 
@@ -551,12 +568,15 @@ module daq_top (
                 .TRISTATE_WIDTH(1)
             ) oserdes (
                 .OQ       (seq_ser[serdes_index]),
+                // Feedback, tristate and cascade outputs are not used.
+                // slang lint_off empty-output-connection
                 .OFB      (),
                 .TQ       (),
                 .TFB      (),
                 .TBYTEOUT (),
                 .SHIFTOUT1(),
                 .SHIFTOUT2(),
+                // slang lint_on empty-output-connection
                 .CLK      (ser_clk),
                 .CLKDIV   (seq_clk),
                 .D1       (seq_ser_data_tx[serdes_index*8]),
@@ -615,7 +635,21 @@ module daq_top (
     // power-up and reset value is zero taps.
     wire comp_out_ibuf;
     wire comp_out;
-    wire [4:0] comp_idelay_taps;
+    wire [5:0] comp_idelay_taps;
+    wire [5:0] comp_idelay_actual;
+    wire [5:0] comp_idelay_limited;
+    wire [4:0] comp_idelay_stage0;
+    wire [4:0] comp_idelay_stage1;
+    wire [4:0] comp_idelay_actual0;
+    wire [4:0] comp_idelay_actual1;
+    wire comp_out_delayed;
+
+    // Balanced, monotonic split: total 0..62 maps to floor/ceil(total/2).
+    // Clamp the reserved code 63 so neither five-bit counter wraps.
+    assign comp_idelay_limited = comp_idelay_taps > 6'd62 ? 6'd62 : comp_idelay_taps;
+    assign comp_idelay_stage0  = comp_idelay_limited[5:1];
+    assign comp_idelay_stage1  = comp_idelay_stage0 + {4'b0, comp_idelay_limited[0]};
+    assign comp_idelay_actual  = {1'b0, comp_idelay_actual0} + {1'b0, comp_idelay_actual1};
     wire comp_idelay_load;
     wire comp_idelay_rdy;
 
@@ -647,14 +681,40 @@ module daq_top (
         .REFCLK_FREQUENCY     (200.0),
         .SIGNAL_PATTERN       ("DATA")
     ) idelaye2_comp_out (
-        .CNTVALUEOUT(),
+        .CNTVALUEOUT(comp_idelay_actual0),
+        .DATAOUT    (comp_out_delayed),
+        .C          (bus_clk),
+        .CE         (1'b0),
+        .CINVCTRL   (1'b0),
+        .CNTVALUEIN (comp_idelay_stage0),
+        .DATAIN     (1'b0),
+        .IDATAIN    (comp_out_ibuf),
+        .INC        (1'b0),
+        .LD         (comp_idelay_load),
+        .LDPIPEEN   (1'b0),
+        .REGRST     (comm_rst)
+    );
+
+    // A second calibrated delay uses the fabric input; no extra pad is driven.
+    (* IODELAY_GROUP = "frida_comp_rx_delay" *)
+    IDELAYE2 #(
+        .CINVCTRL_SEL         ("FALSE"),
+        .DELAY_SRC            ("DATAIN"),
+        .HIGH_PERFORMANCE_MODE("FALSE"),
+        .IDELAY_TYPE          ("VAR_LOAD"),
+        .IDELAY_VALUE         (0),
+        .PIPE_SEL             ("FALSE"),
+        .REFCLK_FREQUENCY     (200.0),
+        .SIGNAL_PATTERN       ("DATA")
+    ) idelaye2_comp_extra (
+        .CNTVALUEOUT(comp_idelay_actual1),
         .DATAOUT    (comp_out),
         .C          (bus_clk),
         .CE         (1'b0),
         .CINVCTRL   (1'b0),
-        .CNTVALUEIN (comp_idelay_taps),
-        .DATAIN     (1'b0),
-        .IDATAIN    (comp_out_ibuf),
+        .CNTVALUEIN (comp_idelay_stage1),
+        .DATAIN     (comp_out_delayed),
+        .IDATAIN    (1'b0),
         .INC        (1'b0),
         .LD         (comp_idelay_load),
         .LDPIPEEN   (1'b0),
@@ -699,9 +759,10 @@ module daq_top (
         .RST_B  (rst_b),
         .AMPEN_B(ampen_b),
 
-        .COMP_IDELAY_TAPS(comp_idelay_taps),
-        .COMP_IDELAY_LOAD(comp_idelay_load),
-        .COMP_IDELAY_RDY (comp_idelay_rdy),
+        .COMP_IDELAY_TAPS  (comp_idelay_taps),
+        .COMP_IDELAY_ACTUAL(comp_idelay_actual),
+        .COMP_IDELAY_LOAD  (comp_idelay_load),
+        .COMP_IDELAY_RDY   (comp_idelay_rdy),
 
         .FASTRX_FIFO_DATA_OUT (fastrx_fifo_data_out),
         .FASTRX_FIFO_READ_NEXT(fastrx_fifo_read_next),

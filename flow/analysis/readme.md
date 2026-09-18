@@ -83,7 +83,7 @@ Existing numerical analyzers and plotters remain reusable.
 | `adc_ramp_nonlinearity_study` | ADC00--03 uniform sawtooth, code-density INL/DNL without absolute voltage reconstruction. |
 | `adc_calibration_study` | ADC00 ramp and CDAC A-state threshold acquisitions; all three calibration methods. |
 | `adc_sequence_study` | ADC03 56 patterns plus control at 10/6 active MSPS, and seven PEX flavors x four sequences; no 2-MSPS measurement sweep yet. |
-| `adc_sample_rate_study` | ADC00/01 DC and sine sweeps plus ADC00's 800-mV control; only the historical ORIGINAL pattern is selected, at 0.3125--6.25 actual MSPS. |
+| `adc_sample_rate_study` | ADC00/01 DC and sine sweeps plus ADC00's 800-mV control; only the historical INIT8/SAMP16 control pattern is selected, at 0.3125--6.25 actual MSPS. |
 | `adc_power_study` | Instrumented ADC00/01 fixed-input rate sweeps and ADC00 reference points, with three supply readbacks. |
 
 Consolidated acquisition directories can contain both DC and sine measurements.

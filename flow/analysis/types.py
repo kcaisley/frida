@@ -193,6 +193,7 @@ class AdcExtWave:
     seq_logic_v: FloatArray
     comp_out_v: FloatArray
     vin_diff_v: FloatArray | None = None
+    seq_init_v: FloatArray | None = None
 
     def __post_init__(self) -> None:
         indices, times, signals = _normalize_wave(
@@ -200,6 +201,7 @@ class AdcExtWave:
             self.time_s,
             {
                 **({"vin_diff_v": self.vin_diff_v} if self.vin_diff_v is not None else {}),
+                **({"seq_init_v": self.seq_init_v} if self.seq_init_v is not None else {}),
                 "seq_comp_v": self.seq_comp_v,
                 "seq_logic_v": self.seq_logic_v,
                 "comp_out_v": self.comp_out_v,

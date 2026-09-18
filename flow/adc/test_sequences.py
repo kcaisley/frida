@@ -5,11 +5,21 @@ from dataclasses import fields
 import h5py
 import pytest
 
-from flow.adc.sequences import BASELINE, DUTY_CYCLE_SEQUENCES, FIXED_INPUT_SEQUENCES, TIMING_SWEEP, AdcSequence
+from flow.adc.sequences import SEQUENCES, AdcSequence, symbol256_init8_samp16_comp11110000_logic00001111
 from flow.adc.sim import AdcTb, AdcTbParams
 from flow.analysis.adc import _sequence_logic_timing
 from flow.analysis.io import _read_native, _write_native
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
+
+timing_sequences = tuple(
+    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+)
+
+duty_sequences = tuple(
+    (name, sequence)
+    for name, sequence in SEQUENCES
+    if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
+)
 
 
 def test_rows_accept_whitespace_and_validate_lengths():
@@ -22,7 +32,7 @@ def test_rows_accept_whitespace_and_validate_lengths():
             AdcSequence("00000000", bad, "00000000", "00000000")
 
 
-@pytest.mark.parametrize("name,sequence", FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES)
+@pytest.mark.parametrize("name,sequence", SEQUENCES)
 @pytest.mark.parametrize("symbol_rate", (0.32e9, 0.96e9, 1.6e9))
 def test_voltage_sources_and_serializer_consume_identical_rows(name, sequence, symbol_rate):
     params = AdcTbParams(
@@ -37,9 +47,7 @@ def test_voltage_sources_and_serializer_consume_identical_rows(name, sequence, s
     word_count = len(sequence.init) // 8
     memory = convert_params_to_seqgen_fmt(params, "0" * word_count)
     assert len(memory) == word_count * 8
-    assert len(sequence.init) == (
-        256 if name in {"original", "extended_comp"} or name.startswith("symbol256_") else 160
-    )
+    assert len(sequence.init) == (256 if name.startswith("symbol256_") else 160)
     for lane, signal in enumerate(("init", "samp", "comp", "logic")):
         row = getattr(sequence, signal)
         source = getattr(tb, f"vseq_{signal}").of.params
@@ -52,11 +60,11 @@ def test_voltage_sources_and_serializer_consume_identical_rows(name, sequence, s
     assert not any("phase" in field.name for field in fields(params))
 
 
-@pytest.mark.parametrize("symbols,sequence", enumerate(TIMING_SWEEP, start=1))
+@pytest.mark.parametrize("symbols,sequence", enumerate(timing_sequences, start=1))
 def test_library_logic_rows_have_explicit_edge_separations(symbols, sequence):
-    assert sequence.init == BASELINE.init
-    assert sequence.samp == BASELINE.samp
-    assert sequence.comp == BASELINE.comp
+    assert sequence.init == symbol256_init8_samp16_comp11110000_logic00001111.init
+    assert sequence.samp == symbol256_init8_samp16_comp11110000_logic00001111.samp
+    assert sequence.comp == symbol256_init8_samp16_comp11110000_logic00001111.comp
     assert _sequence_logic_timing(sequence.comp, sequence.logic) == (8, symbols)
 
 
@@ -91,7 +99,7 @@ def test_saved_fractional_delay_is_not_silently_rounded(tmp_path):
             _read_native(output["param"])
 
 
-@pytest.mark.parametrize("name,sequence", DUTY_CYCLE_SEQUENCES)
+@pytest.mark.parametrize("name,sequence", duty_sequences)
 def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(name, sequence):
     import numpy as np
 
@@ -111,23 +119,23 @@ def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(name, sequence
 
 
 def test_duty_matrix_covers_every_pair_and_preserves_pause_only_changes():
-    recipes = dict(DUTY_CYCLE_SEQUENCES)
-    assert len(recipes) == len(DUTY_CYCLE_SEQUENCES) == 56
+    recipes = dict(duty_sequences)
+    assert len(recipes) == len(duty_sequences) == 56
     assert set(recipes) == {
         f"symbol{symbols}_init4_samp20_comp{comp}_logic{logic}"
         for symbols in (160, 256)
         for comp in ("11110000", "11111000", "11111100", "11111110")
         for logic in ("00001111", "00000111", "00000011", "00000001", "10000111", "11000011", "11100001")
     }
-    for name, short in DUTY_CYCLE_SEQUENCES[:28]:
+    for name, short in duty_sequences[:28]:
         long = recipes[name.replace("symbol160_", "symbol256_")]
         for signal in ("init", "samp", "comp", "logic"):
             assert getattr(long, signal) == getattr(short, signal) + "0" * 96
 
 
-@pytest.mark.parametrize("name,sequence", FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES)
+@pytest.mark.parametrize("name,sequence", SEQUENCES)
 def test_conversion_duration_uses_comp_word_and_survives_phase_advance(name, sequence):
-    expected = 168 if name == "extended_comp" else 160
+    expected = 168 if name == "symbol256_init8_samp16_comp11111100_logic00000010" else 160
     assert sequence.conversion_symbols == expected
     for shift in range(len(sequence.init)):
         advanced = sequence.advance(shift)
@@ -139,7 +147,29 @@ def test_conversion_duration_uses_comp_word_and_survives_phase_advance(name, seq
 
 
 def test_conversion_rate_ignores_logic_and_idle_padding():
-    assert {sequence.conversion_symbols for sequence in TIMING_SWEEP} == {160}
-    for _, sequence in DUTY_CYCLE_SEQUENCES:
+    assert {sequence.conversion_symbols for sequence in timing_sequences} == {160}
+    for _, sequence in duty_sequences:
         assert 1.6e9 / sequence.conversion_symbols == 10e6
         assert len(sequence.init) / 1.6e9 == pytest.approx(100e-9 if len(sequence.init) == 160 else 160e-9)
+
+
+def test_flat_catalogue_preserves_all_reviewed_channel_rows():
+    import hashlib
+
+    from flow.adc import sequences
+
+    assert len(SEQUENCES) == len(dict(SEQUENCES)) == 65
+    assert len({sequence for _, sequence in SEQUENCES}) == 65
+    for name, sequence in SEQUENCES:
+        assert getattr(sequences, name) is sequence
+        assert sequence.init[0] == "1" and sequence.init[-1] == "0"
+    # Fingerprint of all reviewed relative timings, normalized to INIT rising.
+    rows = "\n".join(
+        name
+        + ":"
+        + ":".join(getattr(sequence.relative_to_init(), channel) for channel in ("init", "samp", "comp", "logic"))
+        for name, sequence in sorted(SEQUENCES)
+    )
+    assert (
+        hashlib.sha256(rows.encode()).hexdigest() == "fc3d839a3d95cbac50ab54a8419583a4836c2eff957782af7953253deb6c1e39"
+    )

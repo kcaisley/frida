@@ -45,9 +45,11 @@ proc run_bit {part size} {
     place_design
     phys_opt_design
     route_design
+    phys_opt_design -directive AggressiveExplore
     write_checkpoint -force $output_dir/build/${identifier}_route.dcp
     report_utilization -file "reports/report_utilization_$identifier.log"
     report_timing -file "reports/report_timing_$identifier.log"
+    report_timing_summary -report_unconstrained -file "reports/report_timing_summary_$identifier.log"
 
     set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
     write_bitstream -force -bin_file -file $output_dir/bit/$bit_name

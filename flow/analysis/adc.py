@@ -53,10 +53,11 @@ ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
 
 
 def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
-    """Sample B0--B16 at COMP rise + 7/8 of a decision interval.
+    """Decode the scope in the middle of the delayed comparator decision.
 
-    This fixed scope reference includes B16 without requiring a LOGIC pulse;
-    it does not model the physical FastRX capture instant.
+    New captures record the characterized COMP-to-COMP_OUT link delay. Older
+    files without that field retain their historical 7/8-period reference.
+    This independent scope reference is not the physical FastRX sample instant.
     """
 
     if msmt.wave is None:
@@ -82,7 +83,14 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
         raise ValueError(f"scope contains only {len(rising_edges_s)} COMP rising edges; expected at least 17")
     comp_edge_times_s = rising_edges_s[:17]
     decision_period_s = 8.0 / float(params.symbol_rate)
-    sample_times_s = comp_edge_times_s + (7.0 / 8.0) * decision_period_s
+    link_delay_s = msmt.info.readbacks.get("scope_comp_out_delay_s")
+    sample_offset_s = (7.0 / 8.0) * decision_period_s
+    if link_delay_s is not None:
+        link_delay_s = float(link_delay_s)
+        if not math.isfinite(link_delay_s) or link_delay_s < 0:
+            raise ValueError("scope comparator link delay must be finite and non-negative")
+        sample_offset_s = link_delay_s + 0.5 * decision_period_s
+    sample_times_s = comp_edge_times_s + sample_offset_s
     if sample_times_s[-1] > time_s[-1]:
         raise ValueError("scope record ends before the final comparator decision sample")
 

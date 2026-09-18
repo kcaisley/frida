@@ -11,7 +11,7 @@ import pytest
 
 from flow.adc.sim import AdcTbParams
 from flow.analysis.types import CdacExtDaq, CdacExtWave, InfoValue, MeasCdacExt, MeasInfo
-from flow.scans.fastrx import calculate_single_sample_fastrx_capture_alignment
+from flow.scans.fastrx import FastRxCapture, select_fastrx_capture_settings
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.scan_cdac import (
     _build_cdac_params,
@@ -268,16 +268,13 @@ def test_dac_rail_codes_preserve_exact_ties() -> None:
     assert codes[-1] == "1" + "0" * 15
 
 
-def test_single_sample_alignment_covers_late_cdac_sequence() -> None:
-    timing = load_board_map()["boards"]["00"]["capture_timing_model"]
-    template = build_cdac_test_variants()[0]
-    for rate_mbd in range(80, 1601):
-        params = replace(template, tb=replace(template.tb, symbol_rate=rate_mbd * 1.0e6))
-        alignment = calculate_single_sample_fastrx_capture_alignment(params.tb, **timing)
-        assert 0 <= alignment.rx_sen_start_word < 31
-        assert 0 <= alignment.comp_idelay_taps < 32
-        assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
-        assert alignment.hold_margin_s >= timing["minimum_capture_margin_s"]
+def test_single_sample_capture_settings_keep_late_cdac_sequence() -> None:
+    params = build_cdac_test_variants()[0]
+    configured = replace(params, fastrx_capture=FastRxCapture(47, 12))
+    settings = select_fastrx_capture_settings(configured)
+    assert settings.comp_delay_taps == 47
+    assert settings.rx_sen_start_word == 12
+    assert configured.tb == params.tb
 
 
 @pytest.mark.parametrize("side", ("p", "n"))

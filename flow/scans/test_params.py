@@ -6,13 +6,17 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import m
 
-from flow.adc.sequences import BASELINE, TIMING_SWEEP
+from flow.adc.sequences import SEQUENCES, symbol256_init8_samp16_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
 from flow.scans.params import (
     AdcScanParams,
     build_adc_variants,
     convert_conversion_rate_to_baud,
     validate_params,
+)
+
+timing_sequences = tuple(
+    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
 )
 
 
@@ -45,7 +49,7 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=tuple(rate * 0.25e6 for rate in range(2, 41)),
-        sequences=TIMING_SWEEP,
+        sequences=timing_sequences,
         conversions=1_000,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -65,7 +69,7 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     assert {float(item.tb.symbol_rate) / 160 for item in variants} == {rate * 0.25e6 for rate in range(2, 41)}
     assert {float(item.tb.vin_diff.dc) for item in variants} == {0.05}
     assert {float(item.tb.vin_cm.dc) for item in variants} == {0.8}
-    assert {item.tb.seq_logic_pattern for item in variants} == {row.logic for row in TIMING_SWEEP}
+    assert {item.tb.seq_logic_pattern for item in variants} == {row.logic for row in timing_sequences}
 
 
 def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
@@ -75,7 +79,7 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
         board_id="00",
         adc_indices=(0, 1, 2, 3),
         active_conversion_rates_hz=(1.0e6,),
-        sequences=(BASELINE,),
+        sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
         conversions=4_000_000,
         vin_cm_v=0.6,
         vin_diff=h.Vpwl.Params(wave="0 -1 0.1 1"),
@@ -129,13 +133,19 @@ def test_validation_rejects_invalid_configuration_relationships() -> None:
 
 
 def test_variants_use_selected_sequence_to_set_conversion_rate():
-    from flow.adc.sequences import EXTENDED_COMP, ORIGINAL
+    from flow.adc.sequences import (
+        symbol256_init8_samp16_comp11110000_logic11000011,
+        symbol256_init8_samp16_comp11111100_logic00000010,
+    )
 
     variants = build_adc_variants(
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=(10e6,),
-        sequences=(ORIGINAL, EXTENDED_COMP),
+        sequences=(
+            symbol256_init8_samp16_comp11110000_logic11000011,
+            symbol256_init8_samp16_comp11111100_logic00000010,
+        ),
         conversions=4,
         vin_cm_v=0.6,
         vin_diff=h.Vdc.Params(dc=0.05),

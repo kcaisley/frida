@@ -10,36 +10,26 @@ import numpy as np
 import pytest
 from bitarray import bitarray
 
-from flow.adc import AdcParams
-from flow.adc.sequences import BASELINE, DUTY_CYCLE_SEQUENCES, FIXED_INPUT_SEQUENCES, ORIGINAL, AdcSequence
+from flow.adc.sequences import (
+    SEQUENCES,
+    AdcSequence,
+    symbol160_init4_samp20_comp11110000_logic00001111,
+    symbol160_init4_samp20_comp11111100_logic11000011,
+    symbol256_init8_samp16_comp11110000_logic00001111,
+    symbol256_init8_samp16_comp11110000_logic11000011,
+)
 from flow.adc.sim import AdcTbParams
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import AdcExtWave
 from flow.analysis.waveform import analyze_scope_waveforms
-from flow.caparray import CapArrayConfig, RedunStrat
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
-from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
+from flow.scans.params import AdcScanParams, build_adc_variants
 from flow.scans.scope import crop_adc_scope_conversion, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
 from flow.scans.test_fastrx import OUTPUT_DIR as FASTRX_OUTPUT_DIR
 from flow.scans.test_noise import OUTPUT_DIR as NOISE_OUTPUT_DIR
 from flow.scans.test_serdes import OUTPUT_DIR as SERDES_OUTPUT_DIR
-
-
-def serializer_params(**overrides) -> AdcTbParams:
-    """Return a compact four-word parameter set for sequencer packing."""
-    config = {
-        "dut": AdcParams(
-            cdac=CapArrayConfig(n_dac=1, n_extra=0, redun_strat=RedunStrat.RDX2, weights=(1,)),
-        ),
-        "seq_init_pattern": "10000001" + "01010101" + "00000000" * 2,
-        "seq_samp_pattern": "11110000" + "00000000" * 3,
-        "seq_comp_pattern": "00001111" + "11111111" + "00000000" * 2,
-        "seq_logic_pattern": "10101010" + "01010101" + "00000000" * 2,
-    }
-    config.update(overrides)
-    return AdcTbParams(**config)
 
 
 def test_hardware_output_directories_match_test_modules() -> None:
@@ -128,57 +118,40 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
-    memory = seqgen.convert_params_to_seqgen_fmt(serializer_params(), "0110")
-
-    assert list(memory) == [
-        0x81,
-        0x0F,
-        0xF0,
-        0x55,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0xAA,
-        0x00,
-        0xFF,
-        0xAA,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ]
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    params = AdcTbParams(**sequence.as_tb_fields())
+    capture = "0110" + "0" * 16
+    memory = seqgen.convert_params_to_seqgen_fmt(params, capture)
+    assert len(memory) == 160
+    assert list(memory[:8]) == [0x0F, 0xF0, 0, 0x08, 0, 0, 0, 0]
+    assert list(memory[24:32]) == [0, 0, 0x3F, 0xC0, 0, 0, 0, 0]
+    for lane, row in enumerate((sequence.init, sequence.samp, sequence.comp, sequence.logic)):
+        decoded = "".join(str((word >> bit) & 1) for word in memory[lane::8] for bit in range(8))
+        assert decoded == row
+    assert list(memory[4::8]) == [int(bit) for bit in capture]
+    assert all(not any(memory[lane::8]) for lane in (5, 6, 7))
 
 
 def test_convert_params_to_seqgen_fmt_rejects_invalid_capture() -> None:
+    params = AdcTbParams(**symbol160_init4_samp20_comp11111100_logic11000011.as_tb_fields())
     with pytest.raises(TypeError, match="binary string"):
-        seqgen.convert_params_to_seqgen_fmt(serializer_params(), [0, 1, 1, 0])  # ty: ignore[invalid-argument-type]
-    with pytest.raises(ValueError, match="must contain 4"):
-        seqgen.convert_params_to_seqgen_fmt(serializer_params(), "010")
+        seqgen.convert_params_to_seqgen_fmt(params, [0] * 20)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="must contain 20"):
+        seqgen.convert_params_to_seqgen_fmt(params, "010")
     with pytest.raises(ValueError, match="only zero and one"):
-        seqgen.convert_params_to_seqgen_fmt(serializer_params(), "01x0")
-    assert list(seqgen.convert_params_to_seqgen_fmt(serializer_params(), "0011")[4::8]) == [0, 0, 1, 1]
+        seqgen.convert_params_to_seqgen_fmt(params, "01x0" + "0" * 16)
 
 
 @pytest.mark.parametrize(
     "row,start",
-    [(row, start) for row in (BASELINE, DUTY_CYCLE_SEQUENCES[0][1]) for start in range(len(row.init) // 8)],
+    [
+        (row, start)
+        for row in (
+            symbol256_init8_samp16_comp11110000_logic00001111,
+            symbol160_init4_samp20_comp11110000_logic00001111,
+        )
+        for start in range(len(row.init) // 8)
+    ],
 )
 def test_fastrx_pattern_preserves_controls_and_wraps_receive(row: AdcSequence, start: int) -> None:
     params = AdcTbParams(
@@ -212,6 +185,7 @@ def test_scope_crop_associates_first_retained_conversion() -> None:
         seq_comp_v=comp[None, :],
         seq_logic_v=comp[None, :],
         comp_out_v=(time >= 160e-9)[None, :].astype(float),
+        seq_init_v=(time >= 160e-9)[None, :].astype(float),
     )
     cropped = crop_adc_scope_conversion(
         wave,
@@ -222,6 +196,9 @@ def test_scope_crop_associates_first_retained_conversion() -> None:
     assert cropped.conversion_index.tolist() == [0]
     assert cropped.vin_diff_v is None
     assert np.all(cropped.comp_out_v == 1)
+    assert cropped.seq_init_v is not None
+    assert cropped.seq_init_v.shape == cropped.seq_comp_v.shape
+    assert np.all(cropped.seq_init_v == 1)
     assert 0 <= cropped.time_s[0] < 0.25e-9
     assert cropped.time_s[-1] < 160e-9
     assert np.count_nonzero(np.diff((cropped.seq_comp_v[0] > 0.6).astype(int)) == 1) == 17
@@ -432,7 +409,7 @@ def test_adc_preflight_rejects_input_beyond_headroom_before_hardware(
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
-        sequences=(BASELINE,),
+        sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
         conversions=1,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -466,7 +443,7 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
-        sequences=(BASELINE,),
+        sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
         conversions=1,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -506,7 +483,7 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
         board_id="00",
         adc_indices=(0,),
         active_conversion_rates_hz=(2.0e6,),
-        sequences=(ORIGINAL,),
+        sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
         conversions=1,
         vin_cm_v=0.7,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -517,100 +494,20 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
     assert [path.rsplit("/", 1)[-1] for path in constructed_paths] == ["map_fpga.yaml"]
 
 
-def test_calculate_fastrx_capture_alignment_uses_pattern_and_path_delays() -> None:
-    """Software-only: keep arbitrary rates inside the bounded data aperture."""
-
-    timing = load_board_map()["boards"]["00"]["capture_timing_model"]
-    rates_mbd = (*range(80, 1601), 80.125, 681.37, 1163.25, 1599.875)
-    for rate_mbd in rates_mbd:
-        symbol_rate_bps = rate_mbd * 1.0e6
-        alignment = fastrx.calculate_fastrx_capture_alignment(
-            AdcTbParams(symbol_rate=symbol_rate_bps),
-            **timing,
-        )
-        sequencer_period_s = 8.0 / symbol_rate_bps
-        assert alignment.first_comp_transition_symbol == 36 - alignment.control_phase_advance_symbols
-        assert 0 <= alignment.control_phase_advance_symbols <= timing["maximum_control_phase_advance_symbols"]
-        assert 0 <= alignment.comp_idelay_taps < timing["idelay_tap_count"]
-        assert alignment.latest_data_arrival_s <= alignment.capture_edge_s
-        assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
-        assert alignment.hold_margin_s >= timing["minimum_capture_margin_s"]
-        assert alignment.setup_margin_s + alignment.hold_margin_s == pytest.approx(
-            sequencer_period_s - timing["external_comp_delay_max_s"] + timing["external_comp_delay_min_s"]
-        )
-
-    # Hardware regression: repeated 1.52 GBd sine acquisitions were clean at
-    # taps 18/20 but contained rare gross errors at taps 22/24. Preserve the
-    # hold-bounded setup-side guard at 1.4 and 1.6 GBd.
-    alignment_1400 = fastrx.calculate_fastrx_capture_alignment(
-        AdcTbParams(symbol_rate=1.4e9),
-        **timing,
+@pytest.mark.parametrize("name,sequence", SEQUENCES)
+@pytest.mark.parametrize("symbol_rate", (320e6, 960e6, 1600e6))
+def test_adc_receive_alignment_keeps_control_rows_fixed(name, sequence, symbol_rate):
+    params = AdcScanParams(
+        tb=AdcTbParams(symbol_rate=symbol_rate, **sequence.as_tb_fields()),
+        fastrx_capture=fastrx.FastRxCapture(62, 7),
     )
-    alignment_1600 = fastrx.calculate_fastrx_capture_alignment(
-        AdcTbParams(symbol_rate=1.6e9),
-        **timing,
-    )
-    assert (
-        alignment_1400.control_phase_advance_symbols,
-        alignment_1400.rx_sen_start_word,
-        alignment_1400.comp_idelay_taps,
-    ) == (7, 8, 20)
-    assert (
-        alignment_1600.control_phase_advance_symbols,
-        alignment_1600.rx_sen_start_word,
-        alignment_1600.comp_idelay_taps,
-    ) == (0, 9, 3)
-
-    # Both short programs need receive data from the preceding memory repeat.
-    # Check all recipe/rate combinations and every decision, including B16.
-    for _name, row in (*FIXED_INPUT_SEQUENCES, *DUTY_CYCLE_SEQUENCES):
-        for symbol_rate in (320e6, 960e6, 1600e6):
-            params = AdcTbParams(
-                symbol_rate=symbol_rate,
-                seq_init_pattern=row.init,
-                seq_samp_pattern=row.samp,
-                seq_comp_pattern=row.comp,
-                seq_logic_pattern=row.logic,
-            )
-            alignment = fastrx.calculate_fastrx_capture_alignment(params, **timing)
-            words = len(row.init) // 8
-            advance = alignment.control_phase_advance_symbols
-            capture_start = alignment.rx_sen_start_word
-            assert 0 <= capture_start < words
-            assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
-            assert alignment.hold_margin_s >= timing["minimum_capture_margin_s"]
-            rotated = replace(
-                params,
-                **{
-                    field: getattr(params, field)[advance:] + getattr(params, field)[:advance]
-                    for field in ("seq_init_pattern", "seq_samp_pattern", "seq_comp_pattern", "seq_logic_pattern")
-                },
-            )
-            memory = seqgen.build_fastrx_capture_pattern(rotated, capture_start, 17)
-            assert len(memory) == words * 8
-            startup = int(rotated.seq_init_pattern[-1] == "1")
-            first_comp = row.comp.index("1") - advance + startup * len(row.comp)
-            repeated_comp = "0" + rotated.seq_comp_pattern * 3
-            edges = np.array([i for i in range(len(repeated_comp) - 1) if repeated_comp[i : i + 2] == "01"])
-            np.testing.assert_array_equal(
-                edges[(edges >= first_comp) & (edges <= first_comp + 16 * 8)],
-                first_comp + np.arange(17) * 8,
-            )
-            arrivals = (first_comp + np.arange(17) * 8) / symbol_rate + (
-                timing["seqgen_pipeline_cycles"] * 8 / symbol_rate
-                + timing["oserdes_to_output_s"]
-                + timing["comp_input_to_fastrx_d_s"]
-                + timing["launch_to_capture_clock_skew_s"]
-                + alignment.comp_idelay_taps * timing["idelay_tap_s"]
-            )
-            captures = (startup * words + capture_start + np.arange(17)) * 8 / symbol_rate
-            assert np.all(
-                captures >= arrivals + timing["external_comp_delay_max_s"] + timing["minimum_capture_margin_s"]
-            )
-            assert np.all(
-                captures
-                <= arrivals + timing["external_comp_delay_min_s"] + 8 / symbol_rate - timing["minimum_capture_margin_s"]
-            )
+    settings = fastrx.select_fastrx_capture_settings(params)
+    assert settings.comp_delay_taps == 62
+    assert settings.rx_sen_start_word == 7
+    memory = seqgen.build_fastrx_capture_pattern(params.tb, settings.rx_sen_start_word, 17)
+    for lane, row in enumerate((sequence.init, sequence.samp, sequence.comp, sequence.logic)):
+        assert "".join(str((word >> bit) & 1) for word in memory[lane::8] for bit in range(8)) == row
+    assert sum(memory[4::8]) == 17
 
 
 def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> None:
@@ -667,3 +564,21 @@ def test_scope_requirements_skip_missing_signals(tmp_path, monkeypatch):
         pytest_runtest_setup(item)
     item = SimpleNamespace(iter_markers=lambda _: [SimpleNamespace(args=("seq_comp",))])
     pytest_runtest_setup(item)
+
+
+def test_fastrx_settings_require_exact_characterization():
+    name, sequence = SEQUENCES[0]
+    params = AdcScanParams(tb=AdcTbParams(symbol_rate=320e6, **sequence.as_tb_fields()))
+    profile = {"sequence": name, "symbol_rate_bps": 320e6, "comp_delay_taps": 33, "rx_sen_start_word": 6}
+    with pytest.raises(ValueError, match="characterized"):
+        fastrx.select_fastrx_capture_settings(params)
+    assert fastrx.select_fastrx_capture_settings(params, [profile]) == fastrx.FastRxCapture(33, 6)
+    with pytest.raises(ValueError, match="characterized"):
+        fastrx.select_fastrx_capture_settings(replace(params, tb=replace(params.tb, symbol_rate=321e6)), [profile])
+    with pytest.raises(ValueError, match="characterized"):
+        fastrx.select_fastrx_capture_settings(params, [profile, profile])
+    for taps, word in [(-1, 0), (63, 0), (True, 0), (1, -1), (1, 32)]:
+        with pytest.raises(ValueError):
+            fastrx.select_fastrx_capture_settings(replace(params, fastrx_capture=fastrx.FastRxCapture(taps, word)))
+    explicit = replace(params, fastrx_capture=fastrx.FastRxCapture(0, 0))
+    assert fastrx.select_fastrx_capture_settings(explicit, [profile]) == fastrx.FastRxCapture(0, 0)

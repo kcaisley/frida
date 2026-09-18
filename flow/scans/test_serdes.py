@@ -41,7 +41,7 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
-from flow.adc.sequences import DUTY_CYCLE_SEQUENCES, FIXED_INPUT_SEQUENCES, AdcSequence
+from flow.adc.sequences import SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.measure import find_crossings
 from flow.analysis.plots import plot_waveforms
@@ -59,6 +59,22 @@ from flow.scans.scope import (
     write_scope_csv,
 )
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
+
+duty_sequences = tuple(
+    (name, sequence)
+    for name, sequence in SEQUENCES
+    if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
+)
+
+comparison_sequences = tuple(
+    (name, dict(SEQUENCES)[name])
+    for name in (
+        "symbol256_init8_samp16_comp11110000_logic11000011",
+        "symbol256_init8_samp16_comp11111100_logic00000010",
+        "symbol160_init4_samp24_comp11111100_logic00000010",
+        "symbol160_init4_samp20_comp11111110_logic00000001",
+    )
+)
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 SCOPE_MAP_PATH = Path(__file__).resolve().parent / "map_scope.yaml"
@@ -425,8 +441,8 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
 @pytest.mark.scope_signals("seq_init", "seq_samp", "seq_comp", "seq_logic")
 @pytest.mark.parametrize(
     "name,sequence",
-    FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES,
-    ids=[name for name, _ in FIXED_INPUT_SEQUENCES + DUTY_CYCLE_SEQUENCES],
+    comparison_sequences + duty_sequences,
+    ids=[name for name, _ in comparison_sequences + duty_sequences],
 )
 def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
     """Capture PCB differential INIT/SAMP/COMP/LOGIC; supplies stay manual.

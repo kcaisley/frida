@@ -36,43 +36,42 @@ setpoints. ADC runners issue an `abort` call if their loop is interrupted;
 retain unconditional best-effort shutdown for final, single-point, abort, and
 exception paths.
 
-`scan_adc_noctl.scan()` is the separate acquisition path for measurements made
-from a host without laboratory peripherals. Its runner target declares the
-fixed DC input and rail values that the user has manually configured; the user
-is responsible for ensuring those nominal values match the physical setup. The
-scan opens only the FPGA map and preserves the SPI, PLL, sequencer, FastRX, and
-H5 checks. It does not import GPIB support, configure or read an AWG, scope, or
-power supply, or attempt to shut manually controlled supplies down. These
-measurements keep the normal `/info`, `/param`, `/daq`, and `/wave` H5 groups;
-`/wave` is encoded as empty because no scope record was acquired.
+`scan_adc_noctl.scan()` uses manually supplied DC input and rails, while
+controlling the FPGA and scope. It never controls the AWG or power supplies.
+Each point arms the scope before FPGA start and saves INIT, COMP_OUT, COMP,
+and LOGIC for the first retained conversion, after skipping startup conversions.
+The existing scope-to-bit decoder compares its 17 decisions against FastRX;
+HDF5 readbacks record the mismatch count, or an explicit invalid-comparison
+status and error when the waveform cannot be decoded. A mismatch remains a
+saved diagnostic result. Scope acquisition failures stop the scan.
+The reference samples COMP_OUT at COMP rise plus 7/8 of a decision interval;
+it is not a measurement of internal comparator or CDAC timing closure.
 
-The no-instrument fixed-input target runs ADC03 with the historical `ORIGINAL`
-control followed by all 56 named `DUTY_CYCLE_SEQUENCES`, each at 1600 and
-960 MBd. It captures 100,000 conversions per point: 114 files and 11.4 million
-conversions. Rates are paired for each recipe; the two control captures run first.
-Acquisition stops after writing its HDF5 files and shutting down the FPGA.
-Select the completed directory explicitly in `adc_sequence_study` before
-running analysis; the scan does not silently change a study’s accepted inputs.
-The matrix crosses four COMP widths, seven LOGIC patterns and 160/256-symbol
-lengths. Actual repeat rates are 10/6.25 MSPS at 1600 MBd and 6/3.75 MSPS at
-960 MBd, respectively. Matrix rows have a four-symbol INIT and
-twenty-symbol SAMP; each 256-symbol row appends 96 zeros to its 160-symbol pair.
-The separately defined historical control retains its different INIT/SAMP
-timing and COMP start; its two captures are additional to the 112 matrix points.
+`adc_sequence_static` covers all 16 ADCs and all 65 named sequences at nominal
+conversion rates 2/6/10 MSPS, with 100,000 conversions per point (3,120 captures).
+`adc_sample_rate_static` covers ADC00–03 at 39 rates from 0.5 through 10 nominal MSPS in
+0.25-MSPS steps, with 1,000 conversions per point. Its 4–5 sequence choices
+remain a TODO; an empty selection fails before hardware is opened.
+Both use 50 mV differential input and 700 mV common mode supplied manually.
+Select completed directories explicitly for analysis; acquisition does not
+change a study's pinned inputs or generate plots.
+
 Names encode the length and interior
 COMP/LOGIC words, including wraparound for four-symbol LOGIC pulses. The INIT
 LOGIC marker remains one symbol; only the sixteen SAR update pulses are swept.
 For these short programs, the returned B0--B16 data crosses the sequencer
 memory boundary. Both scans wrap RX_SEN from the calibrated start word,
-retaining the existing fine serializer phase adjustment without adding a
-whole-word rotation. One control period is repeated in the existing 256-byte
+leaving all four ADC control lanes unchanged. One control period is repeated in the existing 256-byte
 RAM. Once enough frames arrive, FastRX is disabled before the sequencer is
 reset, so a held-high final RAM word cannot create spurious frames.
 Unused physical RAM is cleared before START to keep RX disabled while idle.
 
 All transported frames are checked before retaining exactly the requested
-number of conversions. A leading partial frame is discarded; when INIT wraps
-across the origin, the first uninitialized conversion is also discarded.
+number of conversions. A leading partial receive frame is discarded if RX_SEN
+wraps. INIT starts at symbol zero; no control-lane rotation or corresponding
+startup-conversion discard is applied. Receiver alignment only selects RX_SEN
+word placement and combined comparator IDELAY. A point requires explicit
+settings or an exact characterized sequence/baud profile.
 Readbacks record `capture_startup_frames`, `capture_startup_conversions`,
 `capture_received_frames`, and each discarded `startup_fastrx_word_0`, `_1`,
 etc. These prefix words plus `/daq/fastrx_word` retain the original frame
@@ -95,14 +94,24 @@ Changing that selection requires no new function or command-line flag.
 
 | Runner | Current acquisition |
 | --- | --- |
-| `adc_sequence` | 96 all-ADC 0/50-mV controls plus 546 ADC00/01 LOGIC/rate points. |
-| `adc_sequence_noctl` | ADC03, 57 sequences at two symbol rates: 114 manual-supply captures. |
-| `adc_sample_rate` | ADC00/01, 78 sine and 78 DC captures; instrumented DC data also supports power analysis. |
+| `adc_sequence_static` | All ADCs, all 65 sequences, 2/6/10 nominal MSPS: 3,120 captures with scope. |
+| `adc_sample_rate_static` | ADC00–03, 39 rates, 4–5 sequences pending selection; scope at each point. |
 | `adc_activity_noise` | ADC00 at three rates, with only itself or all 16 ADCs active: six captures. |
 | `adc_transfer_curve` | ADC00, 1,001 known-voltage steps. |
 | `adc_ramp_code_density` | ADC00--03, four long sawtooth captures. |
 
-The consolidated families preserve all 1,923 former ADC configurations.
+Nominal MSPS uses a fixed 160-symbol reference for every recipe: 2/6/10 MSPS
+means 320/960/1600 MBd. Actual active conversion and repetition rates remain
+separate saved quantities; no recipe-specific baud-rate adjustment is applied.
+
+`adc_sequence_static()` accepts `adc_indices`, `nominal_conversion_rates_hz`,
+`sequences`, and `conversions` keyword arguments for smaller comparisons.
+`adc_sample_rate_static()` has no arguments. Its local sequence shortlist is
+deliberately empty until the TODO is resolved.
+Both require manually supplied input and 1.2 V rails. Actual repetition rates
+are saved separately from active conversion rates because some sequences
+include idle padding.
+
 The target registry is local to `main`. Each runner retains its own visible
 acquisition/abort loop. No shared lifecycle wrapper is introduced.
 
@@ -161,7 +170,8 @@ its incompatible legacy bit/byte reversal.
 
 The names `RST_B`, `AMP_EN`, `RX_LOOPBACK`, `SPI_LOOPBACK`, `DBG_FIFO`,
 `RX_TIEHIGH`, `SEQ_START`, and `RX_EN_MUX` are aliases for bits in `gpio0`.
-Similarly, `COMP_IDELAY_TAPS`, `COMP_IDELAY_LOAD`, and `COMP_IDELAY_RDY` name
+Similarly, `COMP_IDELAY_TAPS`, `COMP_IDELAY_LOAD`, `COMP_IDELAY_RDY`,
+`COMP_IDELAY_TWO_STAGE`, and `COMP_IDELAY_ACTUAL` name
 the fields in `gpio1`; `REQUEST_N`, `APPLY_TOGGLE`, `APPLIED_TOGGLE`, `BUSY`,
 `LOCKED`, `ERROR`, and `ACTIVE_N` name the fields in `gpio2`. These aliases are
 declared in `map_fpga.yaml` with Basil's generic `StdRegister` layer. They do
@@ -206,7 +216,8 @@ hardware-driver calls.
 | `convert_params_to_seqgen_fmt()` | `seqgen.py` | Pack four parameterized timing strings and a caller-supplied one-bit-per-word RX_SEN string into raw 64-bit sequencer words. |
 | `convert_params_to_spi_fmt()` | `scan_adc.py` | Pack one `AdcTbParams` configuration into the FRIDA chip's 180-bit slow-control image. |
 | `convert_fastrx_words_to_adc()` / `convert_fastrx_words_to_comp()` | `fastrx.py` | Decode and validate ADC or one-bit comparator FastRX captures in a vectorized pass. |
-| `calculate_fastrx_capture_alignment()` / `calculate_single_sample_fastrx_capture_alignment()` | `fastrx.py` | Calculate legal RX_SEN placement, serializer phase advance, and comparator IDELAY settings from stored timing strings and board delays. |
+| `select_fastrx_capture_settings()` | `fastrx.py` | Select explicit combined delay and SEN word, or an exact characterized sequence/baud profile. Never rotate ADC controls. |
+| `program_comp_delay()` | `fastrx.py` | Verify the two-stage firmware ABI and readiness, load the combined tap request, and verify the actual delay counters. |
 | `convert_dout_to_normalized_dout()` | `scan_adc.py` | Normalize one decoded weighted ADC result to the configured output-code range. |
 | `write_scope_csv()` | `scope.py` | Persist aligned voltage and instrument-code columns from one raw scope acquisition. |
 | `write_measurement()` / `read_measurement()` | `flow/analysis/io.py` | Persist and load one typed physical, behavioral, or SPICE measurement using the shared HDF5 schema. |
@@ -218,10 +229,9 @@ hardware-driver calls.
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
 | `find_crossings()` | `flow/analysis/measure.py` | Interpolate waveform threshold crossings directly from signal and time arrays; this is generic analysis, not scope control. |
 
-The comparator-input IDELAY transaction is intentionally inline in
-`scan_adc.py`: it reads the GPIO1 ready flag, sets the tap value, and pulses
-the load bit. The adjacent block comment separates these visible Basil GPIO
-operations from PLL and sequencer programming.
+The shared `program_comp_delay()` transaction verifies the two-stage ABI and
+ready flag, loads both counters, clears the load strobe, and checks the actual
+counter sum. Acquisition stop/start ordering remains visible in each scan.
 
 The three mapped GPIO blocks have state-restoring hardware tests:
 
@@ -251,7 +261,7 @@ set supplies and input, run only:
 uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_adc_sequence_waveforms
 ```
 
-It programs `FIXED_INPUT_SEQUENCES` and `DUTY_CYCLE_SEQUENCES` at 1.6 GBd and saves raw CSV captures,
+It programs the four comparison recipes and 56 duty-cycle recipes at 1.6 GBd and saves raw CSV captures,
 four-axis PDFs (160 ns raw record, 120 ns overview and pulse detail), and JSON edge
 observations beneath `build/test_serdes/<timestamp>/<case>/`. Its edge check
 uses A-then-B edge triggering on CH1: A detects the first INIT and B captures
@@ -290,3 +300,42 @@ cover a representative conversion while `/daq` retains every FastRX result.
 † Added to the Basil API by the FRIDA project. These implementations now live
 in `libs/basil` and are called like normal Basil methods; they are not helpers
 defined in `flow/scans`.
+
+### Two-stage comparator capture settings
+
+FastRX and the sequencer still share SEQ_CLK (200 MHz at 1.6 GBd).
+The comparator data passes through two IDELAYE2 blocks; the second uses
+DATAIN from fabric. No control pattern is rotated or retimed.
+
+Set `AdcScanParams.fastrx_capture` to the two-field dataclass for calibration:
+
+```python
+from dataclasses import replace
+from flow.scans.fastrx import FastRxCapture
+
+params = replace(params, fastrx_capture=FastRxCapture(comp_delay_taps=36, rx_sen_start_word=9))
+```
+
+Taps are 0..62 and the SEN word is zero-based. Otherwise scans require one exact entry in the board's
+`fastrx_capture_settings`: full catalogue `sequence` name, `symbol_rate_bps`,
+`comp_delay_taps`, and `rx_sen_start_word`. Missing or ambiguous profiles fail
+before instruments are opened. Only scope-validated profiles for the installed bitstream belong in this table;
+old one-stage values are invalid.
+Custom comparator/CDAC sequences can use the same explicit parameters.
+
+Firmware splits total taps N into floor(N/2) and ceil(N/2), with nominal
+78.125 ps increments at the fixed 200 MHz IDELAYCTRL reference. Program while
+capture is stopped. `program_comp_delay()` checks the two-stage ABI before
+writing and verifies the actual counter sum after loading. Metadata stores
+`comp_delay_taps`, `comp_delay_stages=2`, and `rx_sen_start_word`; it no longer
+claims analytical setup/hold margins. Characterize the complete routed path
+and first/last conversion framing with scope comparison before accepting a
+profile. Recharacterize after bitstream changes affecting this path.
+
+New scope comparisons sample at COMP rise + characterized link delay + half
+one decision interval. A fixed 7/8-period reference can precede comparator
+arrival at 1.6 GBd. The link-delay value is saved in HDF5 as
+`scope_comp_out_delay_s`; old files without it keep the legacy analysis phase.
+This scope reference is independent of the FPGA tap setting, so it can still
+identify incorrect receive alignment. It is not a model of the FastRX sample
+instant. The input path's fabric routing remains part of hardware calibration.

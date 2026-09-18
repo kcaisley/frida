@@ -1,4 +1,4 @@
-"""Acquire ADC data through the FPGA without controlling laboratory peripherals."""
+"""Acquire ADC data through the FPGA with scope validation and manually supplied input and rails."""
 
 from __future__ import annotations
 
@@ -15,13 +15,25 @@ import numpy as np
 from bitarray import bitarray
 
 from flow.adc.sequences import AdcSequence
+from flow.analysis.adc import analyze_scope_wave_to_bits
 from flow.analysis.io import write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.caparray import get_caparray_weights
-from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
+from flow.scans.fastrx import (
+    convert_fastrx_words_to_adc,
+    program_comp_delay,
+    select_fastrx_capture_settings,
+)
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights, convert_params_to_spi_fmt
+from flow.scans.scope import (
+    crop_adc_scope_conversion,
+    scope_channels,
+    scope_records_to_adc_wave,
+    wait_for_scope_armed,
+    wait_for_scope_capture,
+)
 from flow.scans.seqgen import build_fastrx_capture_pattern
 
 
@@ -31,7 +43,7 @@ def scan(
     run_dir: Path,
     position: Literal["first", "middle", "last", "only", "abort"],
 ) -> Path:
-    """Acquire one fixed-input ADC point using only the FPGA/BDAQ interface."""
+    """Acquire one fixed-input point and compare its first retained conversion to scope."""
 
     SI570_SETTLE_S = 0.02
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
@@ -42,6 +54,8 @@ def scan(
         raise ValueError(f"unknown ADC scan lifecycle position {position!r}")
     if position != "abort":
         validate_params(params)
+        if params.tb.seq_init_pattern[0] != "1" or params.tb.seq_init_pattern[-1] != "0":
+            raise ValueError("ADC control sequence must start at the INIT rising edge")
     scan_params = params
     params = scan_params.tb
     if scan_params.board_id is None or (
@@ -85,6 +99,9 @@ def scan(
                 f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
             )
 
+    if position != "abort":
+        select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+
     if position in {"first", "only"}:
         run_dir.mkdir(parents=True, exist_ok=False)
     elif position != "abort" and not run_dir.is_dir():
@@ -95,6 +112,8 @@ def scan(
     map_path = Path(__file__).resolve().parent / "map_fpga.yaml"
     daq_dut = Dut(str(map_path))
     daq = None
+    scope_dut = None
+    scope = None
     initialized = False
     completed = False
 
@@ -104,6 +123,30 @@ def scan(
         daq = daq_dut
 
         if position != "abort":
+            channels = scope_channels("seq_init", "seq_comp", "seq_logic", "comp_out")
+            tracks = {f"{name}_v": channel for name, channel in channels.items()}
+            scope_dut = Dut(str(map_path.with_name("map_scope.yaml")))
+            scope_dut.init()
+            scope = scope_dut["scope"]
+            scope.set_acquire_state("STOP")
+            scope.set_acquire_mode("SAMPLE")
+            scope.set_acquire_stop_after("SEQUENCE")
+            scope.set_horizontal_record_length(10_000)
+            for channel in channels.values():
+                scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+                scope.set_coupling("DC", channel=channel)
+                scope.set_vertical_scale(0.2, channel=channel)
+                scope.set_vertical_position(0.0, channel=channel)
+                scope.set_vertical_offset(0.0, channel=channel)
+                scope.set_bandwidth(2.0e9, channel=channel)
+            # COMP is quiet in the idle RAM word. A wrapped INIT word can
+            # toggle repeatedly in the serializer while the sequencer is idle.
+            scope._intf.write("TRIGger:B:STATE OFF")
+            scope.set_trigger_type("EDGE")
+            scope.set_trigger_source(channel=channels["seq_comp"])
+            scope.set_trigger_edge_slope("RISE")
+            scope.set_trigger_level(0.0, channel=channels["seq_comp"])
+            scope.set_trigger_mode("NORMAL")
             variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
                 print(
@@ -125,24 +168,13 @@ def scan(
                 daq["gpio0"]["RST_B"] = 1
                 daq["gpio0"].write()
 
-                symbol_rate_bps = float(params.symbol_rate)
-                capture_alignment = calculate_fastrx_capture_alignment(
-                    params,
-                    **board["capture_timing_model"],
-                )
                 cap_weights = get_caparray_weights(params.dut.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
                 sequence_words = len(params.seq_init_pattern) // 8
-                phase_advance = capture_alignment.control_phase_advance_symbols
-                if phase_advance:
-                    params = replace(
-                        params,
-                        **AdcSequence.from_tb_params(params).advance(phase_advance).as_tb_fields(),
-                    )
-                    scan_params = replace(scan_params, tb=params)
-                    validate_params(scan_params)
-                rx_sen_start_word = capture_alignment.rx_sen_start_word
-                comp_idelay_taps = capture_alignment.comp_idelay_taps
+                symbol_rate_bps = float(params.symbol_rate)
+                capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+                rx_sen_start_word = capture_settings.rx_sen_start_word
+                comp_idelay_taps = capture_settings.comp_delay_taps
 
                 si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
                 sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
@@ -153,25 +185,16 @@ def scan(
                 sleep(SI570_SETTLE_S)
                 set_pll_divider(daq["gpio2"], pll_divider_n)
 
-                if not 0 <= comp_idelay_taps <= 31:
-                    raise ValueError(f"COMP IDELAY taps must be in 0..31, got {comp_idelay_taps}")
-                daq["gpio1"].read()
-                if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-                    raise RuntimeError("comparator IDELAYCTRL is not ready")
-                daq["gpio1"]["COMP_IDELAY_TAPS"] = comp_idelay_taps
-                daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-                daq["gpio1"].write()
-                daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-                daq["gpio1"].write()
+                program_comp_delay(daq["gpio1"], comp_idelay_taps)
 
                 sequencer_memory = build_fastrx_capture_pattern(
                     params,
                     rx_sen_start_word,
                     len(code_weights),
                 )
-                # A wrapped mask can emit a leading partial frame. If INIT
-                # straddles the origin, also skip the first uninitialized conversion.
-                startup_conversions = int(params.seq_init_pattern[-1] == "1")
+                # Control rows start at INIT and are never rotated. Only a
+                # wrapped RX_SEN mask can emit a leading partial receive frame.
+                startup_conversions = 0
                 startup_frames = int(rx_sen_start_word + len(code_weights) > sequence_words) + startup_conversions
                 expected_frames = params.conversions + startup_frames
                 daq["seq0"].set_en_ext_start(False)
@@ -221,6 +244,13 @@ def scan(
                 daq["fifo0"]["RESET"]
                 daq["fifo0"].get_data()
 
+                # Arm before FPGA start; include startup and crop to DAQ conversion zero.
+                conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+                scope.set_horizontal_scale(3 * conversion_period_s / 8.0)
+                scope._intf.write("HORizontal:POSition 10")
+                scope.set_acquire_state("RUN")
+                acquisition_count_before = wait_for_scope_armed(scope, timeout_s=5.0)
+
                 deadline = monotonic() + capture_timeout_s
                 daq["fastrx0"].set_en(True)
                 daq["seq0"].start()
@@ -243,6 +273,14 @@ def scan(
                 raw_data = daq["fifo0"].get_data()
                 if len(raw_data) < expected_frames:
                     raise RuntimeError(f"expected at least {expected_frames} FastRX words, received {len(raw_data)}")
+                wait_for_scope_capture(scope, acquisition_count_before, timeout_s=5.0)
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in channels.items()})
+                scope_wave = crop_adc_scope_conversion(
+                    scope_records_to_adc_wave([scope_waveforms], [0], tracks),
+                    skip_conversions=startup_conversions,
+                    conversion_period_s=conversion_period_s,
+                    symbol_period_s=1 / symbol_rate_bps,
+                )
                 fastrx_lost_count = int(daq["fastrx0"].get_lost_count())
                 if fastrx_lost_count:
                     raise RuntimeError(f"FastRX lost {fastrx_lost_count} words during the continuous acquisition")
@@ -287,11 +325,12 @@ def scan(
                         measurement_type="MeasAdcExt",
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
-                        instruments={"controller": hostname},
+                        instruments={"controller": hostname, "scope": str(scope.get_name()).strip()},
                         readbacks={
                             "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
                             "repetition_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
                             "repetition_interval_s": len(params.seq_init_pattern) / symbol_rate_bps,
+                            "nominal_conversion_rate_hz": symbol_rate_bps / 160,
                             "active_conversion_rate_hz": symbol_rate_bps
                             / AdcSequence.from_tb_params(params).conversion_symbols,
                             "si570_frequency_hz": si570_frequency_hz,
@@ -299,23 +338,24 @@ def scan(
                             "sequencer_frequency_hz": sequencer_frequency_hz,
                             "serializer_frequency_hz": serializer_frequency_hz,
                             "rx_sen_start_word": rx_sen_start_word,
-                            "comp_idelay_taps": comp_idelay_taps,
-                            "capture_control_phase_advance_symbols": phase_advance,
+                            "comp_delay_taps": comp_idelay_taps,
+                            "comp_delay_stages": 2,
+                            "capture_control_phase_advance_symbols": 0,
                             "capture_expected_frames": expected_frames,
                             "capture_startup_conversions": startup_conversions,
                             "capture_received_frames": received_frames,
                             "capture_startup_frames": startup_frames,
                             **startup_words,
-                            "capture_earliest_data_arrival_s": capture_alignment.earliest_data_arrival_s,
-                            "capture_latest_data_arrival_s": capture_alignment.latest_data_arrival_s,
-                            "capture_edge_s": capture_alignment.capture_edge_s,
-                            "capture_setup_margin_s": capture_alignment.setup_margin_s,
-                            "capture_hold_margin_s": capture_alignment.hold_margin_s,
                             "spi_mismatches": spi_mismatches,
                             "fastrx_lost_count": fastrx_lost_count,
                             "controller_hostname": hostname,
                             "peripheral_control": "manual",
-                            "scope_waveform_captured": False,
+                            "scope_waveform_captured": True,
+                            "scope_startup_conversions_skipped": startup_conversions,
+                            "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
+                            "scope_trigger_signal": "seq_comp",
+                            "scope_trigger_edge": "rise",
+                            "scope_record_length_requested": 10_000,
                             "stimulus_kind": "dc",
                             "stimulus_vin_diff_v": float(params.vin_diff.dc),
                             "stimulus_control": "manual",
@@ -330,10 +370,27 @@ def scan(
                         vin_diff_v=vin_diff_values_v,
                         fastrx_word=fastrx_words,
                     ),
-                    wave=None,
+                    wave=scope_wave,
+                )
+                try:
+                    comparison = analyze_scope_wave_to_bits(measurement)
+                    scope_readbacks = {
+                        "scope_fastrx_comparison_valid": True,
+                        "scope_fastrx_bit_mismatches": comparison.mismatch_count,
+                    }
+                except ValueError as error:
+                    # Preserve failed/stuck timing cases rather than silently treating
+                    # an undecodable scope record as a zero-mismatch comparison.
+                    scope_readbacks = {
+                        "scope_fastrx_comparison_valid": False,
+                        "scope_fastrx_comparison_error": str(error),
+                    }
+                measurement = replace(
+                    measurement,
+                    info=replace(measurement.info, readbacks=measurement.info.readbacks | scope_readbacks),
                 )
                 write_measurement(h5_path, measurement)
-                print(f"Saved {params.conversions} conversions and no scope record to {h5_path}")
+                print(f"Saved {params.conversions} conversions and one scope record to {h5_path}")
             except Exception:
                 print(f"Variant {variant_index + 1} failed; shutting down the FPGA")
                 raise
@@ -359,6 +416,14 @@ def scan(
                 set_pll_divider(daq["gpio2"], 2)
             except Exception as error:  # noqa: BLE001 - best-effort safety shutdown
                 print(f"Warning: could not restore the default FPGA clock: {error}")
-        if initialized:
-            daq_dut.close()
+        try:
+            if scope is not None:
+                scope.set_acquire_state("STOP")
+        finally:
+            try:
+                if scope_dut is not None:
+                    scope_dut.close()
+            finally:
+                if initialized:
+                    daq_dut.close()
     return run_dir

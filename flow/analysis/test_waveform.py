@@ -49,13 +49,15 @@ def test_waveform_rejects_misspelled_canonical_net():
 
 
 def test_plot_context_uses_current_conversion_definition_and_reports_repetition():
-    from flow.adc.sequences import ORIGINAL
+    from flow.adc.sequences import symbol256_init8_samp16_comp11110000_logic11000011
     from flow.analysis.waveform import style_measurement_text
 
     measurement = adc_cdac_settling_measurement()
     measurement = replace(
         measurement,
-        param=replace(measurement.param, symbol_rate=1.6e9, **ORIGINAL.as_tb_fields()),
+        param=replace(
+            measurement.param, symbol_rate=1.6e9, **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields()
+        ),
         info=replace(measurement.info, readbacks={"active_conversion_rate_hz": 123}),
     )
     lines = style_measurement_text(measurement)

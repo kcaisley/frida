@@ -327,9 +327,8 @@ can omit `vin_diff`; its measurement waveform then remains absent.
 Run one explicitly named physical campaign through the shared scan runner:
 
 ```bash
-uv run python -m flow.scans.runner adc_sample_rate
-uv run python -m flow.scans.runner adc_sequence
-uv run python -m flow.scans.runner adc_sequence_noctl
+uv run python -m flow.scans.runner adc_sequence_static
+uv run python -m flow.scans.runner adc_sample_rate_static
 uv run python -m flow.scans.runner adc_ramp_code_density
 uv run python -m flow.scans.runner comp_common_mode
 uv run python -m flow.scans.runner cdac_cap_mismatch
@@ -343,30 +342,31 @@ Every runner keeps its selected ADCs visible beside a commented all-16 option
 for the longer scans. Acquisition creates no plots and does not modify the
 analysis studies' pinned input directories.
 
-`adc_sequence` combines instrumented 0/50-mV controls and the historical
-seven-LOGIC timing sweeps. `adc_sample_rate` combines DC noise and sine sweeps;
-its instrumented DC data also supplies the power study. `adc_activity_noise`
-compares one active ADC with all 16 active. Transfer and ramp-code-density
-acquisitions remain separate because their input-voltage requirements differ.
+`adc_sequence_static` uses manual 50 mV differential input, 700 mV common mode,
+and 1.2 V rails. It scans all 16 ADCs and all 65 catalogue sequences at
+2/6/10 nominal MSPS, with 100,000 conversions per point (3,120 captures).
+Nominal MSPS uses a fixed 160-symbol reference for every recipe: 2/6/10 MSPS
+means 320/960/1600 MBd. Actual active conversion and repetition rates remain
+separate saved quantities; no recipe-specific baud-rate adjustment is applied.
 
-The `adc_sequence_noctl` target uses manually supplied
-50 mV differential input and 700 mV common mode. It selects ADC03 and all
-56 recipes from `flow.adc.sequences.DUTY_CYCLE_SEQUENCES`, plus the exact
-historical `ORIGINAL` control, at 1600 and 960 MBd. It saves 100,000 conversions
-per point (114 files; 11.4 million conversions), starting with the control at
-both speeds. The matrix crosses four COMP widths (4/8 through 7/8),
-seven LOGIC words, and two sequence lengths (160 and 256 symbols). The longer
-rows append only 96 low symbols. Matrix rows retain INIT4 and SAMP20; the
-historical control retains INIT8, SAMP16 and its original sampling-to-COMP gap.
-At 1600 MBd the 160/256-symbol rows repeat at 10/6.25 MSPS; at 960 MBd they
-repeat at 6/3.75 MSPS. The runner's 10/6 MSPS settings describe active timing,
-excluding the long recipes' idle padding.
+`adc_sample_rate_static` uses the same manual setup for ADC00–03 and 39 rates from
+0.5 to 10 nominal MSPS in 0.25-MSPS steps, with 1,000 conversions per point.
+Its 4–5 sequence choices remain TODO: the CLI stops before hardware access
+until its local shortlist contains the selected complete named sequences.
+Both use `scan_adc_noctl`, including one four-channel scope record per point
+and the existing scope/FastRX bit comparison after startup-frame alignment.
+Scope records and comparison status/mismatch counts are saved in HDF5.
+
+`adc_activity_noise` compares one active ADC with all 16 active. Transfer and ramp-code-density acquisitions remain
+separate.
+
 Some combinations deliberately raise LOGIC before COMP falls; the full cross
 product is retained to investigate both pulse width and relative edge timing.
 The names encode the complete configuration, for example
 `symbol160_init4_samp20_comp11111100_logic11000011`. Independent channel rows
-live in the same sequence library; the four historical comparison recipes
-remain in `FIXED_INPUT_SEQUENCES`.
+are private to the sequence library; callers import complete named sequences
+or select them from the flat `SEQUENCES` catalogue. The simulation runner
+selects its four comparison recipes by their full names.
 It controls only the FPGA, with no instrument connections or scope capture.
 
 For this investigation, compare full code histograms and B0--B16 trajectories
@@ -441,27 +441,38 @@ PEX cases, with internal-node plots, four clock plots and the
 `frida_2_vs_1.tex`/PDF deck. Scope/setup HDF5 files are excluded. Other studies
 use the independently pinned historical inputs documented in their docstrings.
 
-`flow.adc.sequences` defines `AdcSequence` and named, rate-independent binary
-rows. Whitespace in definitions is removed when the dataclass is constructed.
+`flow.adc.sequences` defines the `AdcSequence` value type and
+contains explicit named channel rows and 65 named, rate-independent four-channel
+sequences. Whitespace in definitions is removed when the dataclass is constructed.
 Each combination contains four equally sized INIT, SAMP, COMP and LOGIC rows:
 160 symbols for the continuous recipes, 256 for the padded recipes. The
 simulation and scan runners pass those strings into the existing
 `seq_*_pattern` parameters and supply `symbol_rate` separately. Testbenches
 and FPGA packing consume the final rows without per-signal phase parameters.
-`TIMING_SWEEP` contains seven explicit LOGIC alignments on the original
-patterns. Hardware receiver alignment may rotate all four rows together;
-that acquisition alignment preserves their relative timing.
+All catalogue rows start at INIT rising. The historical INIT8 recipes are
+rotated eight symbols earlier on all four channels, preserving relative timing
+and period length. Historical saved data remains unchanged and readable.
+Hardware ADC acquisition preserves all four rows exactly. FastRX alignment
+adjusts only RX_SEN placement and comparator IDELAY. A wrapped receive window
+can require dropping a partial receive frame, but no ADC control rotation or
+startup-conversion discard is applied. Set `fastrx_capture=FastRxCapture(comp_delay_taps, rx_sen_start_word)`
+in the physical parameters (combined taps 0..62), or provide an exact
+characterized sequence/baud profile in `map_board.yaml`. Missing profiles fail
+before instrument setup; single-stage calibration cannot be reused.
+Historical result directories keep their old names; new simulation directories
+use the full sequence names.
 
-Both fixed-input targets use `fixed_input_timing_params()` to select the same
-four complete timing recipes: `original`, `extended_comp`, `continuous_100ns`,
-and `continuous_100ns_comp7of8`. Results are written beneath `<flavor>/<timing>/`.
-That is sixteen FRIDA-1 cases and twelve FRIDA-2 cases, each with 100 conversions.
-The worker limits remain four and three respectively; cases queue within each
-host's 24-thread budget. Diagnostics (`check=True`) cover all four recipes.
-The additions-only targets select the seven 7/8 cases from that same builder.
+Both fixed-input targets use `fixed_input_timing_params()` to select the same four complete timing recipes:
+`symbol256_init8_samp16_comp11110000_logic11000011`, `symbol256_init8_samp16_comp11111100_logic00000010`,
+`symbol160_init4_samp24_comp11111100_logic00000010`, and `symbol160_init4_samp20_comp11111110_logic00000001`. Results
+are written beneath `<flavor>/<timing>/`. That is sixteen FRIDA-1 cases and twelve FRIDA-2 cases, each with 100
+conversions. The worker limits remain four and three respectively; cases queue within each host's 24-thread budget.
+Diagnostics (`check=True`) cover all four recipes. The additions-only targets select the seven 7/8 cases from that same
+builder.
 
-`original` retains the September 5 timing. `extended_comp` tests extended
-comparator evaluation: relative to each COMP rising edge, its eight 0.625 ns slots are:
+`symbol256_init8_samp16_comp11110000_logic11000011` retains the September 5 timing.
+`symbol256_init8_samp16_comp11111100_logic00000010` tests extended comparator evaluation: relative to each COMP rising
+edge, its eight 0.625 ns slots are:
 
 ```text
 COMP   11111100
@@ -477,7 +488,7 @@ pulse widths, comparator reset recovery and DAC settling still need checking.
 Other targets retain their existing timing. `input.json` records
 all four final sequence patterns for each new run.
 
-`continuous_100ns` follows `docs/images/adc_sequencer_timing_100ns.tex`, with
+`symbol160_init4_samp24_comp11111100_logic00000010` follows `docs/images/adc_sequencer_timing_100ns.tex`, with
 time measured from INIT rising: INIT is high at 0--2.5 ns; its initialization
 LOGIC pulse is at 1.875--2.5 ns; SAMP is high at 2.5--17.5 ns. COMP rises at
 17.5 + 5k ns for k = 0..16. B0--B15 evaluate for 3.75 ns, followed by a

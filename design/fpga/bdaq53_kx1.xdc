@@ -203,3 +203,7 @@ set_property IOSTANDARD LVCMOS25 [get_ports PMOD*]
 set_property CONFIG_MODE SPIx4 [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]
+
+# Keep the fabric-fed second IDELAY beside COMP_OUT's native IDELAY_X0Y172.
+# This uses the otherwise unused delay site of the differential input pair.
+set_property LOC IDELAY_X0Y173 [get_cells idelaye2_comp_extra]

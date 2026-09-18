@@ -13,6 +13,7 @@ from flow.adc import AdcParams
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams as _AdcTbParams
 from flow.caparray import CapArrayConfig, RedunStrat
+from flow.scans.fastrx import FastRxCapture
 
 
 @h.paramclass
@@ -23,6 +24,9 @@ class AdcScanParams:
         dtype=_AdcTbParams,
         desc="ADC stimulus and digital configuration",
         default=_AdcTbParams(view="frida1"),
+    )
+    fastrx_capture = h.Param(
+        dtype=FastRxCapture | None, desc="Combined comparator delay and FastRX SEN start word", default=None
     )
     temperature_c = h.Param(dtype=h.Scalar, desc="Test temperature in degrees Celsius", default=25.0)
     board_id = h.Param(dtype=str | None, desc="Physical board identifier", default=None)

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from flow.adc import AdcParams
-from flow.adc.sequences import TIMING_SWEEP
+from flow.adc.sequences import SEQUENCES
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
@@ -43,6 +43,10 @@ from flow.analysis.types import (
 )
 from flow.caparray import CapArrayConfig
 from flow.scans.params import AdcScanParams
+
+timing_sequences = tuple(
+    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+)
 
 
 def adc_sampling_measurement() -> MeasAdcInt:
@@ -178,7 +182,7 @@ def adc_measurement(
         conversions=len(dout),
         symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
         vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
-        seq_logic_pattern=TIMING_SWEEP[int(logic_phase_delay_symbols) + 3].logic,
+        seq_logic_pattern=timing_sequences[int(logic_phase_delay_symbols) + 3].logic,
     )
     time_s = np.linspace(0.0, 1.0 / sample_rate_hz, waveform_sample_count)
     zeros = np.zeros((1, len(time_s)))
@@ -371,13 +375,14 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0) -> MeasAdcEx
 
 @pytest.mark.parametrize("symbol_rate_hz", (800.0e6, 1600.0e6))
 @pytest.mark.parametrize("comp_high_symbols", (4, 5, 6, 7))
+@pytest.mark.parametrize("link_delay_periods", (None, 1.2))
 def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
-    symbol_rate_hz: float, comp_high_symbols: int
+    symbol_rate_hz: float, comp_high_symbols: int, link_delay_periods: float | None
 ) -> None:
     expected_bits = np.asarray(([1, 0] * 8) + [1], dtype=np.uint8)
     decision_period_s = 8.0 / symbol_rate_hz
     first_rise_s = 0.2 * decision_period_s
-    time_s = np.arange(-0.2, 17.8, 0.002) * decision_period_s
+    time_s = np.arange(-0.2, 19.8, 0.002) * decision_period_s
     comp_v = np.where(
         (time_s >= first_rise_s)
         & (np.mod(time_s - first_rise_s, decision_period_s) < comp_high_symbols / 8.0 * decision_period_s),
@@ -387,7 +392,9 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
     comp_out_v = np.zeros_like(time_s)
     for index, bit in enumerate(expected_bits):
         # Late decisions still resolve before 7/8, independently of COMP width.
-        edge_s = first_rise_s + (index + 0.85) * decision_period_s
+        edge_s = (
+            first_rise_s + (index + (0.85 if link_delay_periods is None else link_delay_periods)) * decision_period_s
+        )
         comp_out_v[(time_s >= edge_s) & (time_s < edge_s + decision_period_s)] = 1.2 * bit
 
     base = adc_measurement([100], sample_rate_hz=symbol_rate_hz / 256.0, observed_adc=1)
@@ -405,6 +412,21 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
             comp_out_v=comp_out_v[np.newaxis, :],
         ),
     )
+    offset_periods = 7.0 / 8.0
+    if link_delay_periods is not None:
+        # A real propagation delay can exceed one decision period at high baud.
+        # The legacy reference samples the wrong bit; explicit latency fixes it.
+        assert analyze_scope_wave_to_bits(normal).mismatch_count > 0
+        normal = replace(
+            normal,
+            info=replace(
+                normal.info,
+                readbacks={
+                    "scope_comp_out_delay_s": link_delay_periods * decision_period_s,
+                },
+            ),
+        )
+        offset_periods = link_delay_periods + 0.5
     normal_analysis = analyze_scope_wave_to_bits(normal)
 
     assert normal_analysis.scope_bit_string == "10101010101010101"
@@ -412,7 +434,7 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
     assert normal_analysis.mismatch_count == 0
     np.testing.assert_allclose(
         normal_analysis.sample_times_s,
-        first_rise_s + (np.arange(17) + 7.0 / 8.0) * decision_period_s,
+        first_rise_s + (np.arange(17) + offset_periods) * decision_period_s,
         rtol=0,
         atol=0.002 * decision_period_s,
     )
@@ -420,7 +442,7 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
     assert normal.wave is not None
     inverted = replace(
         normal,
-        info=replace(normal.info, readbacks={"scope_comp_out_inverted": True}),
+        info=replace(normal.info, readbacks=normal.info.readbacks | {"scope_comp_out_inverted": True}),
         wave=replace(normal.wave, comp_out_v=(1.2 - comp_out_v)[np.newaxis, :]),
     )
     inverted_analysis = analyze_scope_wave_to_bits(inverted)

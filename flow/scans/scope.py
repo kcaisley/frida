@@ -138,7 +138,11 @@ def wait_for_scope_armed(scope: Any, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_
 
 
 def crop_adc_scope_conversion(
-    wave: AdcExtWave, *, skip_conversions: int, conversion_period_s: float, symbol_period_s: float
+    wave: AdcExtWave,
+    *,
+    skip_conversions: int,
+    conversion_period_s: float,
+    symbol_period_s: float,
 ) -> AdcExtWave:
     """Select a complete ADC conversion after sequencer startup, with COMP as reference.
 
@@ -171,6 +175,7 @@ def crop_adc_scope_conversion(
         wave,
         time_s=wave.time_s[selected] - origin,
         vin_diff_v=wave.vin_diff_v[:, selected] if wave.vin_diff_v is not None else None,
+        seq_init_v=wave.seq_init_v[:, selected] if wave.seq_init_v is not None else None,
         seq_comp_v=wave.seq_comp_v[:, selected],
         seq_logic_v=wave.seq_logic_v[:, selected],
         comp_out_v=wave.comp_out_v[:, selected],
@@ -185,8 +190,8 @@ def scope_records_to_adc_wave(
     """Convert aligned triggered scope records into an external ADC wave section."""
 
     required = {"seq_comp_v", "seq_logic_v", "comp_out_v"}
-    if not required <= set(channels) or set(channels) - required - {"vin_diff_v"}:
-        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff_v")
+    if not required <= set(channels) or set(channels) - required - {"vin_diff_v", "seq_init_v"}:
+        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff_v and seq_init_v")
     if len(set(channels.values())) != len(channels):
         raise ValueError("scope channels must be unique")
     if len(records) != len(conversion_index):

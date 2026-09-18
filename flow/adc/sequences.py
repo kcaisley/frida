@@ -1,4 +1,11 @@
-"""ADC sequencer rows, left to right in time; symbol rate is supplied separately."""
+"""Literal ADC channel patterns and the complete named four-channel catalogue.
+
+Names describe period length, INIT/SAMP widths, and recurring SAR words
+relative to COMP rising. Every catalogue sequence starts at INIT rising;
+all four rows share that origin, without extending the sequence period.
+Historical captures may retain a different cyclic RAM phase.
+Channel rows are private; callers select complete sequences below.
+"""
 
 from dataclasses import dataclass, fields
 from typing import Protocol
@@ -62,253 +69,811 @@ class AdcSequence:
             raise ValueError("sequence rows must have equal lengths divisible by eight")
 
 
-INIT_256 = (
-    "00000000 11111111 00000000 00000000 00000000 00000000 00000000 00000000 "
+# INIT channel patterns.
+_init256_start0_width8 = (
+    "11111111 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-SAMP_256 = (
-    "00000000 00000000 11111111 11111111 00000000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-COMP_256 = (
-    "00000000 00000000 00000000 00000000 00001111 00001111 00001111 00001111 "
-    "00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 "
-    "00001111 00001111 00001111 00001111 00001111 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_1OF8 = (
-    "00000000 01111000 00000000 00000000 00000111 10000111 10000111 10000111 "
-    "10000111 10000111 10000111 10000111 10000111 10000111 10000111 10000111 "
-    "10000111 10000111 10000111 10000111 10000000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_2OF8 = (
-    "00000000 00111100 00000000 00000000 00000011 11000011 11000011 11000011 "
-    "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
-    "11000011 11000011 11000011 11000011 11000000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_3OF8 = (
-    "00000000 00011110 00000000 00000000 00000001 11100001 11100001 11100001 "
-    "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
-    "11100001 11100001 11100001 11100001 11100000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_4OF8 = (
-    "00000000 00001111 00000000 00000000 00000000 11110000 11110000 11110000 "
-    "11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 "
-    "11110000 11110000 11110000 11110000 11110000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_5OF8 = (
-    "00000000 00000111 10000000 00000000 00000000 01111000 01111000 01111000 "
-    "01111000 01111000 01111000 01111000 01111000 01111000 01111000 01111000 "
-    "01111000 01111000 01111000 01111000 01111000 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_6OF8 = (
-    "00000000 00000011 11000000 00000000 00000000 00111100 00111100 00111100 "
-    "00111100 00111100 00111100 00111100 00111100 00111100 00111100 00111100 "
-    "00111100 00111100 00111100 00111100 00111100 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-LOGIC_7OF8 = (
-    "00000000 00000001 11100000 00000000 00000000 00011110 00011110 00011110 "
-    "00011110 00011110 00011110 00011110 00011110 00011110 00011110 00011110 "
-    "00011110 00011110 00011110 00011110 00011110 00000000 00000000 00000000 "
-    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-).replace(" ", "")
-
-BASELINE = AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_4OF8)
-ORIGINAL = AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_6OF8)
-
-# Original-width pulses, with seven explicit LOGIC alignments.
-TIMING_SWEEP = (
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_1OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_2OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_3OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_4OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_5OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_6OF8),
-    AdcSequence(INIT_256, SAMP_256, COMP_256, LOGIC_7OF8),
-)
-
-EXTENDED_COMP = AdcSequence(
-    init=(INIT_256),
-    samp=(SAMP_256),
-    comp=(
-        "00000000 00000000 00000000 00000000 00001111 11001111 11001111 11001111 "
-        "11001111 11001111 11001111 11001111 11001111 11001111 11001111 11001111 "
-        "11001111 11001111 11001111 11001111 11001111 11000000 00000000 00000000 "
-        "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-    ),
-    logic=(
-        "00000000 00000011 11000000 00000000 00000000 00100000 00100000 00100000 "
-        "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
-        "00100000 00100000 00100000 00100000 00100000 00000000 00000000 00000000 "
-        "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-    ),
-)
-
-init4 = (
+_init160_start0_width4 = (
     "11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-samp20 = (
+_init256_start0_width4 = (
+    "11110000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+
+# SAMP channel patterns.
+_samp256_start8_width16 = (
+    "00000000 11111111 11111111 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_samp160_start4_width20 = (
     "00001111 11111111 11111111 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
     "00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-comp11111110 = (
-    "00000000 00000000 00000000 11111110 11111110 11111110 11111110 11111110 "
-    "11111110 11111110 11111110 11111110 11111110 11111110 11111110 11111110 "
-    "11111110 11111110 11111110 11111110 "
+_samp256_start4_width20 = (
+    "00001111 11111111 11111111 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-logic00000001 = (
-    "00010000 00000000 00000000 00000001 00000001 00000001 00000001 00000001 "
-    "00000001 00000001 00000001 00000001 00000001 00000001 00000001 00000001 "
-    "00000001 00000001 00000001 00000000 "
+_samp160_start4_width24 = (
+    "00001111 11111111 11111111 11110000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-CONTINUOUS_100NS = AdcSequence(
-    init=(init4),
-    samp=(
-        "00001111 11111111 11111111 11110000 00000000 00000000 00000000 00000000 "
-        "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
-        "00000000 00000000 00000000 00000000 "
-    ),
-    comp=(
-        "00000000 00000000 00000000 00001111 11001111 11001111 11001111 11001111 "
-        "11001111 11001111 11001111 11001111 11001111 11001111 11001111 11001111 "
-        "11001111 11001111 11001111 11001111 "
-    ),
-    logic=(
-        "00010000 00000000 00000000 00000000 00100000 00100000 00100000 00100000 "
-        "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
-        "00100000 00100000 00100000 00100000 "
-    ),
-)
 
-CONTINUOUS_COMP7OF8 = AdcSequence(
-    init=(init4),
-    samp=(samp20),
-    comp=(comp11111110),
-    logic=(logic00000001),
-)
+# COMP channel patterns.
+_comp256_start28_width4_train36_width4_pulses16 = (
+    "00000000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 "
+    "00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 "
+    "00001111 00001111 00001111 00001111 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
 
-FIXED_INPUT_SEQUENCES = (
-    ("original", ORIGINAL),
-    ("extended_comp", EXTENDED_COMP),
-    ("continuous_100ns", CONTINUOUS_100NS),
-    ("continuous_100ns_comp7of8", CONTINUOUS_COMP7OF8),
-)
-
-
-# Independent 160-symbol rows for the continuous duty-cycle experiment.
-# Decision B0 starts at symbol 24; seventeen comparisons fit before the next INIT.
-# All LOGIC rows preserve the one-symbol INIT marker at symbol 3. Only B0--B15
-# update the SAR; the final word carries any tail of B15, but no B16 update.
-# LOGIC names describe the repeating interior word, including pulse wraparound.
-comp11110000 = (
+_comp160_start24_width4_train32_width4_pulses16 = (
     "00000000 00000000 00000000 11110000 11110000 11110000 11110000 11110000 "
     "11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 "
     "11110000 11110000 11110000 11110000 "
 ).replace(" ", "")
 
-comp11111100 = (
-    "00000000 00000000 00000000 11111100 11111100 11111100 11111100 11111100 "
-    "11111100 11111100 11111100 11111100 11111100 11111100 11111100 11111100 "
-    "11111100 11111100 11111100 11111100 "
-).replace(" ", "")
-
-comp11111000 = (
+_comp160_start24_width5_train32_width5_pulses16 = (
     "00000000 00000000 00000000 11111000 11111000 11111000 11111000 11111000 "
     "11111000 11111000 11111000 11111000 11111000 11111000 11111000 11111000 "
     "11111000 11111000 11111000 11111000 "
 ).replace(" ", "")
 
-logic00001111 = (
+_comp160_start24_width6_train32_width6_pulses16 = (
+    "00000000 00000000 00000000 11111100 11111100 11111100 11111100 11111100 "
+    "11111100 11111100 11111100 11111100 11111100 11111100 11111100 11111100 "
+    "11111100 11111100 11111100 11111100 "
+).replace(" ", "")
+
+_comp160_start24_width7_train32_width7_pulses16 = (
+    "00000000 00000000 00000000 11111110 11111110 11111110 11111110 11111110 "
+    "11111110 11111110 11111110 11111110 11111110 11111110 11111110 11111110 "
+    "11111110 11111110 11111110 11111110 "
+).replace(" ", "")
+
+_comp256_start24_width4_train32_width4_pulses16 = (
+    "00000000 00000000 00000000 11110000 11110000 11110000 11110000 11110000 "
+    "11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 "
+    "11110000 11110000 11110000 11110000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_comp256_start24_width5_train32_width5_pulses16 = (
+    "00000000 00000000 00000000 11111000 11111000 11111000 11111000 11111000 "
+    "11111000 11111000 11111000 11111000 11111000 11111000 11111000 11111000 "
+    "11111000 11111000 11111000 11111000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_comp256_start24_width6_train32_width6_pulses16 = (
+    "00000000 00000000 00000000 11111100 11111100 11111100 11111100 11111100 "
+    "11111100 11111100 11111100 11111100 11111100 11111100 11111100 11111100 "
+    "11111100 11111100 11111100 11111100 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_comp256_start24_width7_train32_width7_pulses16 = (
+    "00000000 00000000 00000000 11111110 11111110 11111110 11111110 11111110 "
+    "11111110 11111110 11111110 11111110 11111110 11111110 11111110 11111110 "
+    "11111110 11111110 11111110 11111110 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_comp256_start28_width6_train36_width6_pulses16 = (
+    "00000000 00000000 00000000 00001111 11001111 11001111 11001111 11001111 "
+    "11001111 11001111 11001111 11001111 11001111 11001111 11001111 11001111 "
+    "11001111 11001111 11001111 11001111 11000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_comp160_start28_width6_train36_width6_pulses16 = (
+    "00000000 00000000 00000000 00001111 11001111 11001111 11001111 11001111 "
+    "11001111 11001111 11001111 11001111 11001111 11001111 11001111 11001111 "
+    "11001111 11001111 11001111 11001111 "
+).replace(" ", "")
+
+
+# LOGIC channel patterns.
+_logic256_start1_width4_train29_width4_pulses16 = (
+    "01111000 00000000 00000000 00000111 10000111 10000111 10000111 10000111 "
+    "10000111 10000111 10000111 10000111 10000111 10000111 10000111 10000111 "
+    "10000111 10000111 10000111 10000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start2_width4_train30_width4_pulses16 = (
+    "00111100 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width4_train31_width4_pulses16 = (
+    "00011110 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start4_width4_train32_width4_pulses16 = (
+    "00001111 00000000 00000000 00000000 11110000 11110000 11110000 11110000 "
+    "11110000 11110000 11110000 11110000 11110000 11110000 11110000 11110000 "
+    "11110000 11110000 11110000 11110000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start5_width4_train33_width4_pulses16 = (
+    "00000111 10000000 00000000 00000000 01111000 01111000 01111000 01111000 "
+    "01111000 01111000 01111000 01111000 01111000 01111000 01111000 01111000 "
+    "01111000 01111000 01111000 01111000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start6_width4_train34_width4_pulses16 = (
+    "00000011 11000000 00000000 00000000 00111100 00111100 00111100 00111100 "
+    "00111100 00111100 00111100 00111100 00111100 00111100 00111100 00111100 "
+    "00111100 00111100 00111100 00111100 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start7_width4_train35_width4_pulses16 = (
+    "00000001 11100000 00000000 00000000 00011110 00011110 00011110 00011110 "
+    "00011110 00011110 00011110 00011110 00011110 00011110 00011110 00011110 "
+    "00011110 00011110 00011110 00011110 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic160_start3_width1_train28_width4_pulses16 = (
     "00010000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 "
     "00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 "
     "00001111 00001111 00001111 00000000 "
 ).replace(" ", "")
 
-logic00000011 = (
-    "00010000 00000000 00000000 00000011 00000011 00000011 00000011 00000011 "
-    "00000011 00000011 00000011 00000011 00000011 00000011 00000011 00000011 "
-    "00000011 00000011 00000011 00000000 "
-).replace(" ", "")
-
-logic00000111 = (
+_logic160_start3_width1_train29_width3_pulses16 = (
     "00010000 00000000 00000000 00000111 00000111 00000111 00000111 00000111 "
     "00000111 00000111 00000111 00000111 00000111 00000111 00000111 00000111 "
     "00000111 00000111 00000111 00000000 "
 ).replace(" ", "")
 
-logic11100001 = (
-    "00010000 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
-    "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
-    "11100001 11100001 11100001 11100000 "
+_logic160_start3_width1_train30_width2_pulses16 = (
+    "00010000 00000000 00000000 00000011 00000011 00000011 00000011 00000011 "
+    "00000011 00000011 00000011 00000011 00000011 00000011 00000011 00000011 "
+    "00000011 00000011 00000011 00000000 "
 ).replace(" ", "")
 
-logic11000011 = (
-    "00010000 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
-    "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
-    "11000011 11000011 11000011 11000000 "
+_logic160_start3_width1_train31_width1_pulses16 = (
+    "00010000 00000000 00000000 00000001 00000001 00000001 00000001 00000001 "
+    "00000001 00000001 00000001 00000001 00000001 00000001 00000001 00000001 "
+    "00000001 00000001 00000001 00000000 "
 ).replace(" ", "")
 
-logic10000111 = (
+_logic160_start3_width1_train29_width4_pulses16 = (
     "00010000 00000000 00000000 00000111 10000111 10000111 10000111 10000111 "
     "10000111 10000111 10000111 10000111 10000111 10000111 10000111 10000111 "
     "10000111 10000111 10000111 10000000 "
 ).replace(" ", "")
 
-# Build the complete cross product from the independent channels. The longer
-# sequence appends only a 96-symbol low pause, preserving every decision edge.
-DUTY_CYCLE_SEQUENCES = tuple(
-    (
-        f"symbol{symbols}_init4_samp20_comp{comp_word}_logic{logic_word}",
-        AdcSequence(
-            init4 + "0" * (symbols - 160),
-            samp20 + "0" * (symbols - 160),
-            comp_row + "0" * (symbols - 160),
-            logic_row + "0" * (symbols - 160),
-        ),
-    )
-    for symbols in (160, 256)
-    for comp_word, comp_row in (
-        ("11110000", comp11110000),
-        ("11111000", comp11111000),
-        ("11111100", comp11111100),
-        ("11111110", comp11111110),
-    )
-    for logic_word, logic_row in (
-        ("00001111", logic00001111),
-        ("00000111", logic00000111),
-        ("00000011", logic00000011),
-        ("00000001", logic00000001),
-        ("10000111", logic10000111),
-        ("11000011", logic11000011),
-        ("11100001", logic11100001),
-    )
+_logic160_start3_width1_train30_width4_pulses16 = (
+    "00010000 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000000 "
+).replace(" ", "")
+
+_logic160_start3_width1_train31_width4_pulses16 = (
+    "00010000 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train28_width4_pulses16 = (
+    "00010000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 "
+    "00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 "
+    "00001111 00001111 00001111 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train29_width3_pulses16 = (
+    "00010000 00000000 00000000 00000111 00000111 00000111 00000111 00000111 "
+    "00000111 00000111 00000111 00000111 00000111 00000111 00000111 00000111 "
+    "00000111 00000111 00000111 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train30_width2_pulses16 = (
+    "00010000 00000000 00000000 00000011 00000011 00000011 00000011 00000011 "
+    "00000011 00000011 00000011 00000011 00000011 00000011 00000011 00000011 "
+    "00000011 00000011 00000011 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train31_width1_pulses16 = (
+    "00010000 00000000 00000000 00000001 00000001 00000001 00000001 00000001 "
+    "00000001 00000001 00000001 00000001 00000001 00000001 00000001 00000001 "
+    "00000001 00000001 00000001 00000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train29_width4_pulses16 = (
+    "00010000 00000000 00000000 00000111 10000111 10000111 10000111 10000111 "
+    "10000111 10000111 10000111 10000111 10000111 10000111 10000111 10000111 "
+    "10000111 10000111 10000111 10000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train30_width4_pulses16 = (
+    "00010000 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
+    "11000011 11000011 11000011 11000000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start3_width1_train31_width4_pulses16 = (
+    "00010000 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
+    "11100001 11100001 11100001 11100000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic256_start6_width4_train34_width1_pulses16 = (
+    "00000011 11000000 00000000 00000000 00100000 00100000 00100000 00100000 "
+    "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
+    "00100000 00100000 00100000 00100000 00000000 00000000 00000000 00000000 "
+    "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
+).replace(" ", "")
+
+_logic160_start3_width1_train34_width1_pulses16 = (
+    "00010000 00000000 00000000 00000000 00100000 00100000 00100000 00100000 "
+    "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
+    "00100000 00100000 00100000 00100000 "
+).replace(" ", "")
+
+
+# Complete four-channel sequences. No aliases or generated cross products.
+symbol256_init8_samp16_comp11110000_logic01111000 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start1_width4_train29_width4_pulses16,
 )
 
-# This historical control has different INIT/SAMP timing from the new matrix.
-symbol256_init8_samp16_comp11110000_logic11000011 = ORIGINAL
+symbol256_init8_samp16_comp11110000_logic00111100 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start2_width4_train30_width4_pulses16,
+)
+
+symbol256_init8_samp16_comp11110000_logic00011110 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start3_width4_train31_width4_pulses16,
+)
+
+# Historical default timing (formerly "baseline").
+symbol256_init8_samp16_comp11110000_logic00001111 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start4_width4_train32_width4_pulses16,
+)
+
+symbol256_init8_samp16_comp11110000_logic10000111 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start5_width4_train33_width4_pulses16,
+)
+
+# Historical fixed-input control (formerly "original").
+symbol256_init8_samp16_comp11110000_logic11000011 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start6_width4_train34_width4_pulses16,
+)
+
+symbol256_init8_samp16_comp11110000_logic11100001 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width4_train36_width4_pulses16,
+    logic=_logic256_start7_width4_train35_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic00001111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train28_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic00000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train29_width3_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic00000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train30_width2_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic00000001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train31_width1_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic10000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train29_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic11000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train30_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11110000_logic11100001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width4_train32_width4_pulses16,
+    logic=_logic160_start3_width1_train31_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic00001111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train28_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic00000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train29_width3_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic00000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train30_width2_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic00000001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train31_width1_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic10000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train29_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic11000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train30_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111000_logic11100001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width5_train32_width5_pulses16,
+    logic=_logic160_start3_width1_train31_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic00001111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train28_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic00000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train29_width3_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic00000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train30_width2_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic00000001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train31_width1_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic10000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train29_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic11000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train30_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111100_logic11100001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train31_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic00001111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train28_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic00000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train29_width3_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic00000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train30_width2_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic00000001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train31_width1_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic10000111 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train29_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic11000011 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train30_width4_pulses16,
+)
+
+symbol160_init4_samp20_comp11111110_logic11100001 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width7_train32_width7_pulses16,
+    logic=_logic160_start3_width1_train31_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic00001111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train28_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic00000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train29_width3_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic00000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train30_width2_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic00000001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train31_width1_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic10000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train29_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic11000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train30_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11110000_logic11100001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width4_train32_width4_pulses16,
+    logic=_logic256_start3_width1_train31_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic00001111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train28_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic00000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train29_width3_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic00000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train30_width2_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic00000001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train31_width1_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic10000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train29_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic11000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train30_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111000_logic11100001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width5_train32_width5_pulses16,
+    logic=_logic256_start3_width1_train31_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic00001111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train28_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic00000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train29_width3_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic00000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train30_width2_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic00000001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train31_width1_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic10000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train29_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic11000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train30_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111100_logic11100001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width6_train32_width6_pulses16,
+    logic=_logic256_start3_width1_train31_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic00001111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train28_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic00000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train29_width3_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic00000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train30_width2_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic00000001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train31_width1_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic10000111 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train29_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic11000011 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train30_width4_pulses16,
+)
+
+symbol256_init4_samp20_comp11111110_logic11100001 = AdcSequence(
+    init=_init256_start0_width4,
+    samp=_samp256_start4_width20,
+    comp=_comp256_start24_width7_train32_width7_pulses16,
+    logic=_logic256_start3_width1_train31_width4_pulses16,
+)
+
+# Historical extended-COMP comparison.
+symbol256_init8_samp16_comp11111100_logic00000010 = AdcSequence(
+    init=_init256_start0_width8,
+    samp=_samp256_start8_width16,
+    comp=_comp256_start28_width6_train36_width6_pulses16,
+    logic=_logic256_start6_width4_train34_width1_pulses16,
+)
+
+# Historical continuous 100-ns comparison at 1600 MBd.
+symbol160_init4_samp24_comp11111100_logic00000010 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width24,
+    comp=_comp160_start28_width6_train36_width6_pulses16,
+    logic=_logic160_start3_width1_train34_width1_pulses16,
+)
+
+
+# Flat catalogue for callers that select several complete sequences.
+SEQUENCES = (
+    ("symbol256_init8_samp16_comp11110000_logic01111000", symbol256_init8_samp16_comp11110000_logic01111000),
+    ("symbol256_init8_samp16_comp11110000_logic00111100", symbol256_init8_samp16_comp11110000_logic00111100),
+    ("symbol256_init8_samp16_comp11110000_logic00011110", symbol256_init8_samp16_comp11110000_logic00011110),
+    ("symbol256_init8_samp16_comp11110000_logic00001111", symbol256_init8_samp16_comp11110000_logic00001111),
+    ("symbol256_init8_samp16_comp11110000_logic10000111", symbol256_init8_samp16_comp11110000_logic10000111),
+    ("symbol256_init8_samp16_comp11110000_logic11000011", symbol256_init8_samp16_comp11110000_logic11000011),
+    ("symbol256_init8_samp16_comp11110000_logic11100001", symbol256_init8_samp16_comp11110000_logic11100001),
+    ("symbol160_init4_samp20_comp11110000_logic00001111", symbol160_init4_samp20_comp11110000_logic00001111),
+    ("symbol160_init4_samp20_comp11110000_logic00000111", symbol160_init4_samp20_comp11110000_logic00000111),
+    ("symbol160_init4_samp20_comp11110000_logic00000011", symbol160_init4_samp20_comp11110000_logic00000011),
+    ("symbol160_init4_samp20_comp11110000_logic00000001", symbol160_init4_samp20_comp11110000_logic00000001),
+    ("symbol160_init4_samp20_comp11110000_logic10000111", symbol160_init4_samp20_comp11110000_logic10000111),
+    ("symbol160_init4_samp20_comp11110000_logic11000011", symbol160_init4_samp20_comp11110000_logic11000011),
+    ("symbol160_init4_samp20_comp11110000_logic11100001", symbol160_init4_samp20_comp11110000_logic11100001),
+    ("symbol160_init4_samp20_comp11111000_logic00001111", symbol160_init4_samp20_comp11111000_logic00001111),
+    ("symbol160_init4_samp20_comp11111000_logic00000111", symbol160_init4_samp20_comp11111000_logic00000111),
+    ("symbol160_init4_samp20_comp11111000_logic00000011", symbol160_init4_samp20_comp11111000_logic00000011),
+    ("symbol160_init4_samp20_comp11111000_logic00000001", symbol160_init4_samp20_comp11111000_logic00000001),
+    ("symbol160_init4_samp20_comp11111000_logic10000111", symbol160_init4_samp20_comp11111000_logic10000111),
+    ("symbol160_init4_samp20_comp11111000_logic11000011", symbol160_init4_samp20_comp11111000_logic11000011),
+    ("symbol160_init4_samp20_comp11111000_logic11100001", symbol160_init4_samp20_comp11111000_logic11100001),
+    ("symbol160_init4_samp20_comp11111100_logic00001111", symbol160_init4_samp20_comp11111100_logic00001111),
+    ("symbol160_init4_samp20_comp11111100_logic00000111", symbol160_init4_samp20_comp11111100_logic00000111),
+    ("symbol160_init4_samp20_comp11111100_logic00000011", symbol160_init4_samp20_comp11111100_logic00000011),
+    ("symbol160_init4_samp20_comp11111100_logic00000001", symbol160_init4_samp20_comp11111100_logic00000001),
+    ("symbol160_init4_samp20_comp11111100_logic10000111", symbol160_init4_samp20_comp11111100_logic10000111),
+    ("symbol160_init4_samp20_comp11111100_logic11000011", symbol160_init4_samp20_comp11111100_logic11000011),
+    ("symbol160_init4_samp20_comp11111100_logic11100001", symbol160_init4_samp20_comp11111100_logic11100001),
+    ("symbol160_init4_samp20_comp11111110_logic00001111", symbol160_init4_samp20_comp11111110_logic00001111),
+    ("symbol160_init4_samp20_comp11111110_logic00000111", symbol160_init4_samp20_comp11111110_logic00000111),
+    ("symbol160_init4_samp20_comp11111110_logic00000011", symbol160_init4_samp20_comp11111110_logic00000011),
+    ("symbol160_init4_samp20_comp11111110_logic00000001", symbol160_init4_samp20_comp11111110_logic00000001),
+    ("symbol160_init4_samp20_comp11111110_logic10000111", symbol160_init4_samp20_comp11111110_logic10000111),
+    ("symbol160_init4_samp20_comp11111110_logic11000011", symbol160_init4_samp20_comp11111110_logic11000011),
+    ("symbol160_init4_samp20_comp11111110_logic11100001", symbol160_init4_samp20_comp11111110_logic11100001),
+    ("symbol256_init4_samp20_comp11110000_logic00001111", symbol256_init4_samp20_comp11110000_logic00001111),
+    ("symbol256_init4_samp20_comp11110000_logic00000111", symbol256_init4_samp20_comp11110000_logic00000111),
+    ("symbol256_init4_samp20_comp11110000_logic00000011", symbol256_init4_samp20_comp11110000_logic00000011),
+    ("symbol256_init4_samp20_comp11110000_logic00000001", symbol256_init4_samp20_comp11110000_logic00000001),
+    ("symbol256_init4_samp20_comp11110000_logic10000111", symbol256_init4_samp20_comp11110000_logic10000111),
+    ("symbol256_init4_samp20_comp11110000_logic11000011", symbol256_init4_samp20_comp11110000_logic11000011),
+    ("symbol256_init4_samp20_comp11110000_logic11100001", symbol256_init4_samp20_comp11110000_logic11100001),
+    ("symbol256_init4_samp20_comp11111000_logic00001111", symbol256_init4_samp20_comp11111000_logic00001111),
+    ("symbol256_init4_samp20_comp11111000_logic00000111", symbol256_init4_samp20_comp11111000_logic00000111),
+    ("symbol256_init4_samp20_comp11111000_logic00000011", symbol256_init4_samp20_comp11111000_logic00000011),
+    ("symbol256_init4_samp20_comp11111000_logic00000001", symbol256_init4_samp20_comp11111000_logic00000001),
+    ("symbol256_init4_samp20_comp11111000_logic10000111", symbol256_init4_samp20_comp11111000_logic10000111),
+    ("symbol256_init4_samp20_comp11111000_logic11000011", symbol256_init4_samp20_comp11111000_logic11000011),
+    ("symbol256_init4_samp20_comp11111000_logic11100001", symbol256_init4_samp20_comp11111000_logic11100001),
+    ("symbol256_init4_samp20_comp11111100_logic00001111", symbol256_init4_samp20_comp11111100_logic00001111),
+    ("symbol256_init4_samp20_comp11111100_logic00000111", symbol256_init4_samp20_comp11111100_logic00000111),
+    ("symbol256_init4_samp20_comp11111100_logic00000011", symbol256_init4_samp20_comp11111100_logic00000011),
+    ("symbol256_init4_samp20_comp11111100_logic00000001", symbol256_init4_samp20_comp11111100_logic00000001),
+    ("symbol256_init4_samp20_comp11111100_logic10000111", symbol256_init4_samp20_comp11111100_logic10000111),
+    ("symbol256_init4_samp20_comp11111100_logic11000011", symbol256_init4_samp20_comp11111100_logic11000011),
+    ("symbol256_init4_samp20_comp11111100_logic11100001", symbol256_init4_samp20_comp11111100_logic11100001),
+    ("symbol256_init4_samp20_comp11111110_logic00001111", symbol256_init4_samp20_comp11111110_logic00001111),
+    ("symbol256_init4_samp20_comp11111110_logic00000111", symbol256_init4_samp20_comp11111110_logic00000111),
+    ("symbol256_init4_samp20_comp11111110_logic00000011", symbol256_init4_samp20_comp11111110_logic00000011),
+    ("symbol256_init4_samp20_comp11111110_logic00000001", symbol256_init4_samp20_comp11111110_logic00000001),
+    ("symbol256_init4_samp20_comp11111110_logic10000111", symbol256_init4_samp20_comp11111110_logic10000111),
+    ("symbol256_init4_samp20_comp11111110_logic11000011", symbol256_init4_samp20_comp11111110_logic11000011),
+    ("symbol256_init4_samp20_comp11111110_logic11100001", symbol256_init4_samp20_comp11111110_logic11100001),
+    ("symbol256_init8_samp16_comp11111100_logic00000010", symbol256_init8_samp16_comp11111100_logic00000010),
+    ("symbol160_init4_samp24_comp11111100_logic00000010", symbol160_init4_samp24_comp11111100_logic00000010),
+)

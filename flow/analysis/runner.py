@@ -30,7 +30,7 @@ import hdl21 as h
 import matplotlib as mpl
 import numpy as np
 
-from flow.adc.sequences import ORIGINAL, TIMING_SWEEP, AdcSequence
+from flow.adc.sequences import SEQUENCES, AdcSequence, symbol256_init8_samp16_comp11110000_logic11000011
 from flow.analysis.adc import (
     ADC_RAMP_RESET_EXCLUSION_CONVERSIONS,
     analyze_adc_cdac_settling,
@@ -87,6 +87,10 @@ from flow.analysis.types import (
 )
 from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.params import load_board_map
+
+timing_sequences = tuple(
+    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+)
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 
@@ -623,7 +627,7 @@ def adc_sample_rate_study(output_dir: Path) -> tuple[Path, ...]:
 
     Coverage: ADC00/01 50/100-mV DC and 10-kHz sine captures at 600-mV common
     mode, plus the control alignment in ADC00's 800-mV timing campaign.
-    Only the historical ORIGINAL sequence is currently accepted; extend the
+    Only the historical fixed-input sequence is currently accepted; extend the
     explicit selection after validating additional patterns in the sequence study.
     Actual rates are 0.3125--6.25 MSPS (formerly labelled 0.5--10 active MSPS);
     an actual 10-MSPS sweep of accepted new patterns still needs acquisition.
@@ -639,13 +643,13 @@ def adc_sample_rate_study(output_dir: Path) -> tuple[Path, ...]:
         )
     )
     sine_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
-    selected_sequences = (ORIGINAL,)
+    selected_sequences = (symbol256_init8_samp16_comp11110000_logic11000011,)
 
     # Give selected library recipes the same INIT reference as acquired rows.
     sequence_labels = {}
     for sequence in selected_sequences:
         relative_sequence = sequence.relative_to_init()
-        sequence_labels[relative_sequence] = f"LOGIC {TIMING_SWEEP.index(sequence) + 1}/8"
+        sequence_labels[relative_sequence] = f"LOGIC {timing_sequences.index(sequence) + 1}/8"
 
     # Select and compare DC sweeps without changing their saved acquisition phase.
     artifacts = []

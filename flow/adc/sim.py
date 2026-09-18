@@ -18,11 +18,25 @@ from hdl21.prefix import G, m, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from flow.adc.ip import adc_pex, adc_port_aliases, frida1_net_aliases, frida2_net_aliases
-from flow.adc.sequences import BASELINE, FIXED_INPUT_SEQUENCES, ORIGINAL
+from flow.adc.sequences import (
+    SEQUENCES,
+    symbol256_init8_samp16_comp11110000_logic00001111,
+    symbol256_init8_samp16_comp11110000_logic11000011,
+)
 from flow.adc.subckt import Adc, AdcNets, AdcParams, is_valid_adc_params
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import CompNets
+
+comparison_sequences = tuple(
+    (name, dict(SEQUENCES)[name])
+    for name in (
+        "symbol256_init8_samp16_comp11110000_logic11000011",
+        "symbol256_init8_samp16_comp11111100_logic00000010",
+        "symbol160_init4_samp24_comp11111100_logic00000010",
+        "symbol160_init4_samp20_comp11111110_logic00000001",
+    )
+)
 
 
 @h.paramclass
@@ -92,10 +106,18 @@ class AdcTbParams:
         desc="Differential input stimulus",
         default=h.Vdc.Params(dc=0.0),
     )
-    seq_init_pattern = h.Param(dtype=str, desc="INIT sequence", default=BASELINE.init)
-    seq_samp_pattern = h.Param(dtype=str, desc="SAMP sequence", default=BASELINE.samp)
-    seq_comp_pattern = h.Param(dtype=str, desc="COMP sequence", default=BASELINE.comp)
-    seq_logic_pattern = h.Param(dtype=str, desc="LOGIC sequence", default=BASELINE.logic)
+    seq_init_pattern = h.Param(
+        dtype=str, desc="INIT sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.init
+    )
+    seq_samp_pattern = h.Param(
+        dtype=str, desc="SAMP sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.samp
+    )
+    seq_comp_pattern = h.Param(
+        dtype=str, desc="COMP sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.comp
+    )
+    seq_logic_pattern = h.Param(
+        dtype=str, desc="LOGIC sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.logic
+    )
 
 
 def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
@@ -543,7 +565,7 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
                 symbol_rate=symbol_rate,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
-                **ORIGINAL.as_tb_fields(),
+                **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
             )
             futures.append(
                 (
@@ -581,7 +603,7 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         symbol_rate=1.6 * G,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **ORIGINAL.as_tb_fields(),
+        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
     )
     raw_path, signal_names = _run_adc_sim(
         run_dir,
@@ -609,7 +631,7 @@ def fixed_input_timing_params() -> tuple[tuple[str, AdcTbParams], ...]:
                 **sequence.as_tb_fields(),
             ),
         )
-        for name, sequence in FIXED_INPUT_SEQUENCES
+        for name, sequence in comparison_sequences
     )
 
 
@@ -695,7 +717,7 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
                         symbol_rate=symbol_rate,
                         conversions=1 if check else 100,
                         vin_diff=h.Vdc.Params(dc=0.05),
-                        **ORIGINAL.as_tb_fields(),
+                        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
                     )
                     futures.append(
                         (
@@ -735,7 +757,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         symbol_rate=1.6 * G,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **ORIGINAL.as_tb_fields(),
+        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
     )
     raw_path, signal_names = _run_adc_sim(
         run_dir,
@@ -777,7 +799,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                     symbol_rate=symbol_rate,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
-                    **ORIGINAL.as_tb_fields(),
+                    **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
                     supply_series_resistance_ohm=1.0,
                     supply_series_inductance_h=1e-9,
                     supply_decoupling_capacitance_f=1e-12,

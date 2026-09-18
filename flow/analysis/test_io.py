@@ -104,7 +104,7 @@ def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
         records,
         [3, 9],
         {
-            **({"vin_diff_v": 1} if with_input else {}),
+            **({"vin_diff_v": 1} if with_input else {"seq_init_v": 1}),
             "seq_comp_v": 2,
             "seq_logic_v": 3,
             "comp_out_v": 4,
@@ -118,6 +118,8 @@ def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
         assert wave.vin_diff_v.shape == (2, 3)
     else:
         assert wave.vin_diff_v is None
+        assert wave.seq_init_v is not None
+        np.testing.assert_allclose(wave.seq_init_v[1], [0.2, 0.1, 0.0])
     np.testing.assert_allclose(wave.comp_out_v[1], [1.2, 1.2, 0.0])
 
 

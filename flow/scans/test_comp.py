@@ -12,10 +12,11 @@ import pytest
 from flow.adc.sim import AdcTbParams
 from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import (
-    calculate_single_sample_fastrx_capture_alignment,
+    FastRxCapture,
     convert_fastrx_words_to_comp,
+    select_fastrx_capture_settings,
 )
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, validate_params
 from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 from flow.scans.scan_comp import (
     _build_comp_params,
@@ -57,16 +58,13 @@ def test_single_sample_seqgen_has_exactly_one_rx_sen_word() -> None:
     assert not np.any(np.asarray(without_capture, dtype=np.uint8).reshape(-1, 8)[:, 4])
 
 
-def test_single_sample_alignment_covers_comparator_sequence() -> None:
-    timing = load_board_map()["boards"]["00"]["capture_timing_model"]
-    template = build_comp_test_variants()[0]
-    for rate_mbd in range(80, 1601):
-        params = replace(template, tb=replace(template.tb, symbol_rate=rate_mbd * 1.0e6))
-        alignment = calculate_single_sample_fastrx_capture_alignment(params.tb, **timing)
-        assert 0 <= alignment.rx_sen_start_word < 31
-        assert 0 <= alignment.comp_idelay_taps < 32
-        assert alignment.setup_margin_s >= timing["minimum_capture_margin_s"]
-        assert alignment.hold_margin_s >= timing["minimum_capture_margin_s"]
+def test_single_sample_capture_settings_keep_comparator_sequence() -> None:
+    params = build_comp_test_variants()[0]
+    configured = replace(params, fastrx_capture=FastRxCapture(47, 12))
+    settings = select_fastrx_capture_settings(configured)
+    assert settings.comp_delay_taps == 47
+    assert settings.rx_sen_start_word == 12
+    assert configured.tb == params.tb
 
 
 def test_partial_fastrx_decoder_validates_headers_frames_and_unused_bits() -> None:

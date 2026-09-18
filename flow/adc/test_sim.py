@@ -73,7 +73,7 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
         {"dac_astate_p": (0,) * 15},
         {"dac_bstate_n": (2,) * 16},
         {"seq_samp_pattern": ""},
-        {"seq_comp_pattern": "x" * len(sim.BASELINE.comp)},
+        {"seq_comp_pattern": "x" * len(sim.symbol256_init8_samp16_comp11110000_logic00001111.comp)},
         {"seq_logic_pattern": "01"},
         {
             f"{net.name}_pattern": "010"
@@ -276,8 +276,12 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
     assert len(calls) == timing_count * count
     assert len({directory for directory, *_ in calls}) == timing_count * count
     assert len({directory.parent.name for directory, *_ in calls}) == count
-    expected_timings = {"continuous_100ns_comp7of8"}
-    expected_timings |= {"original", "extended_comp", "continuous_100ns"}
+    expected_timings = {"symbol160_init4_samp20_comp11111110_logic00000001"}
+    expected_timings |= {
+        "symbol256_init8_samp16_comp11110000_logic11000011",
+        "symbol256_init8_samp16_comp11111100_logic00000010",
+        "symbol160_init4_samp24_comp11111100_logic00000010",
+    }
     assert {directory.name for directory, *_ in calls} == expected_timings
     for directory, params, options in calls:
         flavor = directory.parent.name
@@ -300,7 +304,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         comp_falls = np.flatnonzero(np.diff(np.r_[comp, 0]) == -1) + 1
         logic_rises = (np.flatnonzero(np.diff(logic) == 1) + 1)[1:]
         logic_falls = (np.flatnonzero(np.diff(logic) == -1) + 1)[1:]
-        if directory.name == "continuous_100ns_comp7of8":
+        if directory.name == "symbol160_init4_samp20_comp11111110_logic00000001":
             assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
             assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
             np.testing.assert_array_equal(comp_rises, 24 + 8 * np.arange(17))
@@ -316,7 +320,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
             assert not comp[-1] and not logic[-1]
             assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
             continue
-        if directory.name == "continuous_100ns":
+        if directory.name == "symbol160_init4_samp24_comp11111100_logic00000010":
             assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
             assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
             np.testing.assert_array_equal(comp_rises, 28 + 8 * np.arange(17))
@@ -332,11 +336,11 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
             assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
             continue
         assert len(comp) == len(logic) == len(params.seq_init_pattern) == 256
-        np.testing.assert_array_equal(comp_rises, 36 + 8 * np.arange(17))
+        np.testing.assert_array_equal(comp_rises, 28 + 8 * np.arange(17))
         np.testing.assert_array_equal(logic_rises, comp_rises[:-1] + 6)
-        if directory.name == "original":
+        if directory.name == "symbol256_init8_samp16_comp11110000_logic11000011":
             assert params.seq_comp_pattern == sim.AdcTbParams().seq_comp_pattern
-            assert params.seq_logic_pattern == sim.ORIGINAL.logic
+            assert params.seq_logic_pattern == sim.symbol256_init8_samp16_comp11110000_logic11000011.logic
             np.testing.assert_array_equal(comp_falls, comp_rises + 4)
             np.testing.assert_array_equal(logic_falls, logic_rises + 4)
         else:
@@ -530,7 +534,7 @@ def test_single_executor_modes(view, threads, check, captured_executor, pex_inpu
     captured = captured_executor
     tran = next(attr for attr in captured["attrs"] if isinstance(attr, hs.Tran))
     assert tran.noise == (not check)
-    assert float(tran.tstop) == pytest.approx(100e-9 if check else 16e-6 + 23.125e-9, abs=1e-15)
+    assert float(tran.tstop) == pytest.approx(100e-9 if check else 16e-6 + 18.125e-9, abs=1e-15)
     assert float(tran.options["strobeperiod"]) == pytest.approx(params.waveform_sample_interval_s, abs=1e-18)
     if not check:
         assert tran.options["noisefmax"].text == "25G"
@@ -569,7 +573,7 @@ def test_transfer_executor_enforces_waveform_resolution(check, captured_executor
     tran = next(attr for attr in captured_executor["attrs"] if isinstance(attr, hs.Tran))
     assert not tran.noise
     assert float(tran.options["strobeperiod"]) == pytest.approx(params.waveform_sample_interval_s, abs=1e-18)
-    assert float(tran.tstop) == pytest.approx(100e-9 if check else 151 * 160e-9 + 23.125e-9, abs=1e-15)
+    assert float(tran.tstop) == pytest.approx(100e-9 if check else 151 * 160e-9 + 18.125e-9, abs=1e-15)
     if not check:
         assert "converted" not in captured_executor
 
@@ -708,28 +712,28 @@ def test_all_campaign_patterns_and_phases_are_preserved(monkeypatch, tmp_path):
     from concurrent.futures import Future
 
     expected = {
-        "original": (
+        "symbol256_init8_samp16_comp11110000_logic11000011": (
             "0" * 8 + "1" * 8 + "0" * 240,
             "0" * 16 + "1" * 16 + "0" * 224,
             "0" * 32 + "00001111" * 17 + "0" * 88,
             "0" * 8 + "00001111" + "0" * 24 + "11110000" * 16 + "0" * 88,
             2.0,
         ),
-        "extended_comp": (
+        "symbol256_init8_samp16_comp11111100_logic00000010": (
             "0" * 8 + "1" * 8 + "0" * 240,
             "0" * 16 + "1" * 16 + "0" * 224,
             "0" * 36 + "11111100" * 17 + "0" * 84,
             "0" * 8 + "00001111" + "0" * 24 + "10000000" * 16 + "0" * 88,
             2.0,
         ),
-        "continuous_100ns": (
+        "symbol160_init4_samp24_comp11111100_logic00000010": (
             "1111" + "0" * 156,
             "0000" + "1" * 24 + "0" * 132,
             "0" * 28 + "11111100" * 16 + "1111",
             "0001" + "0" * 24 + "00000010" * 16 + "0000",
             0.0,
         ),
-        "continuous_100ns_comp7of8": (
+        "symbol160_init4_samp20_comp11111110_logic00000001": (
             "1111" + "0" * 156,
             "0000" + "1" * 20 + "0" * 136,
             "0" * 24 + "11111110" * 17,
@@ -767,10 +771,14 @@ def test_all_campaign_patterns_and_phases_are_preserved(monkeypatch, tmp_path):
     assert len(cases) == len({path for path, _ in cases}) == 28
     for path, params in cases:
         init, samp, comp, logic, phase = expected[path.name]
+        logic = logic[-int(phase) :] + logic[: -int(phase)] if phase else logic
+        expected_rows = (init, samp, comp, logic)
+        if path.name.startswith("symbol256_init8_"):
+            expected_rows = tuple(row[8:] + row[:8] for row in expected_rows)
         assert (
             params.seq_init_pattern,
             params.seq_samp_pattern,
             params.seq_comp_pattern,
             params.seq_logic_pattern,
-        ) == (init, samp, comp, logic[-int(phase) :] + logic[: -int(phase)] if phase else logic)
+        ) == expected_rows
         assert float(params.symbol_rate) == 1.6e9

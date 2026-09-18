@@ -218,27 +218,39 @@ boards:
           - build/scan_cdac/20260804_100358/*adc02*.h5
           - build/scan_cdac/20260804_101107/*adc02*.h5
 
-    # Analytical COMP_OUT capture model. FPGA delays and clock skew come from
-    # the routed KX1 timing report. The external bounds cover the 3.649--6.764
-    # ns COMP-to-COMP_OUT delays observed across 669 transitions on 2026-07-30.
-    # Setup is calculated from the latest current decision and hold from the
-    # earliest following decision. All four ADC control lanes may move earlier
-    # together, preserving every relative timing interval while moving the
-    # returned decisions away from a FastRX clock boundary.
-    capture_timing_model:
-      seqgen_pipeline_cycles: 1.0
-      oserdes_to_output_s: 2.004e-9
-      external_comp_delay_min_s: 3.5e-9
-      external_comp_delay_max_s: 6.9e-9
-      comp_input_to_fastrx_d_s: 5.740e-9
-      # Routed serializer-clock insertion is 10.216 ns; FastRX capture-clock
-      # insertion is 8.661 ns, giving 1.555 ns of launch-to-capture skew.
-      launch_to_capture_clock_skew_s: 1.555e-9
-      idelay_tap_s: 78.125e-12
-      idelay_tap_count: 32
-      # Use up to five setup-side taps while retaining the modeled hold margin.
-      # At 1.52 GBd, repeated 200k-conversion sine captures were clean at taps
-      # 18/20 but contained rare gross errors at taps 22/24.
-      idelay_setup_backoff_taps: 5
-      maximum_control_phase_advance_symbols: 7
-      minimum_capture_margin_s: 0.5e-9
+    # Exact sequence/baud settings characterized with the installed two-stage
+    # delay bitstream, checked on ADC00-15 with 10,000 conversions per point.
+    # One scope conversion per point agreed with all 17 FastRX bits.
+    # Evidence: build/diagnostics/fastrx_capture_validation/accepted_summary.json
+    # Installed: frida_comp_delay2_optimized.bit (2026-09-18).
+    # Each entry: sequence (full catalogue name), symbol_rate_bps,
+    # comp_delay_taps (0..62), rx_sen_start_word (word index).
+    fastrx_capture_settings:
+      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 16
+        rx_sen_start_word: 5
+      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 40
+        rx_sen_start_word: 7
+      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 12
+        rx_sen_start_word: 8
+      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 31
+        rx_sen_start_word: 6
+      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 12
+        rx_sen_start_word: 7
+      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 36
+        rx_sen_start_word: 9
+    # Scope decode only: midpoint of characterized 3.5..6.9 ns COMP-to-COMP_OUT
+    # link latency. Sample halfway through the delayed decision, not at 7/8
+    # of the undelayed COMP period (which is too early at 1.6 GBd).
+    scope_comp_out_delay_s: 5.2e-9

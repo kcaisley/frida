@@ -6,7 +6,6 @@ import itertools
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
@@ -21,7 +20,11 @@ from flow.adc.sequences import AdcSequence
 from flow.analysis.io import write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.caparray import get_caparray_weights
-from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
+from flow.scans.fastrx import (
+    convert_fastrx_words_to_adc,
+    program_comp_delay,
+    select_fastrx_capture_settings,
+)
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import (
@@ -352,6 +355,8 @@ def scan(
         raise ValueError(f"unknown ADC scan lifecycle position {position!r}")
     if position != "abort":
         validate_params(params)
+        if params.tb.seq_init_pattern[0] != "1" or params.tb.seq_init_pattern[-1] != "0":
+            raise ValueError("ADC control sequence must start at the INIT rising edge")
     scan_params = params
     params = scan_params.tb
     if scan_params.board_id is None or (
@@ -440,6 +445,9 @@ def scan(
                     f"ADC inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
+    if position != "abort":
+        select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+
     if position in {"first", "only"}:
         run_dir.mkdir(parents=True, exist_ok=False)
     elif position != "abort" and not run_dir.is_dir():
@@ -514,6 +522,7 @@ def scan(
                 scope.set_vertical_position(0.0, channel=channel)
                 scope.set_vertical_offset(0.0, channel=channel)
                 scope.set_bandwidth(SCOPE_BANDWIDTH_HZ[signal_name], channel=channel)
+            scope._intf.write("TRIGger:B:STATE OFF")
             scope.set_trigger_type("EDGE")
             scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
             scope.set_trigger_edge_slope("RISE")
@@ -809,26 +818,9 @@ def scan(
 
                 symbol_rate_bps = float(params.symbol_rate)
 
-                # Derive the FastRX capture word and comparator IDELAY from
-                # the routed FPGA and measured external-path timing. The
-                # equation is software-tested in test_helpers.py and its exact
-                # 17-bit result is checked against simultaneous COMP_OUT scope
-                # captures by test_fastrx.py, including alignment-boundary
-                # and maximum-rate points.
-                capture_alignment = calculate_fastrx_capture_alignment(
-                    params,
-                    **board["capture_timing_model"],
-                )
-                phase_advance = capture_alignment.control_phase_advance_symbols
-                if phase_advance:
-                    params = replace(
-                        params,
-                        **AdcSequence.from_tb_params(params).advance(phase_advance).as_tb_fields(),
-                    )
-                    scan_params = replace(scan_params, tb=params)
-                    validate_params(scan_params)
-                rx_sen_start_word = capture_alignment.rx_sen_start_word
-                comp_idelay_taps = capture_alignment.comp_idelay_taps
+                capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+                rx_sen_start_word = capture_settings.rx_sen_start_word
+                comp_idelay_taps = capture_settings.comp_delay_taps
 
                 # Program the Si570 and the PLL's atomic request,
                 # acknowledgement, and lock transaction. The calculation and
@@ -845,16 +837,7 @@ def scan(
                 # Program the comparator-input IDELAY through GPIO1. These
                 # visible Basil register operations are exercised by the
                 # state-restoring hardware checks in test_gpio.py.
-                if not 0 <= comp_idelay_taps <= 31:
-                    raise ValueError(f"COMP IDELAY taps must be in 0..31, got {comp_idelay_taps}")
-                daq["gpio1"].read()
-                if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-                    raise RuntimeError("comparator IDELAYCTRL is not ready")
-                daq["gpio1"]["COMP_IDELAY_TAPS"] = comp_idelay_taps
-                daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-                daq["gpio1"].write()
-                daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-                daq["gpio1"].write()
+                program_comp_delay(daq["gpio1"], comp_idelay_taps)
 
                 # Program raw 64-bit sequencer memory through Basil's public
                 # seq_gen API. test_seqgen.py exercises the hardware readback;
@@ -867,9 +850,9 @@ def scan(
                     rx_sen_start_word,
                     len(code_weights),
                 )
-                # A wrapped mask can emit a leading partial frame. If INIT
-                # straddles the origin, also skip the first uninitialized conversion.
-                startup_conversions = int(params.seq_init_pattern[-1] == "1")
+                # Control rows start at INIT and are never rotated. Only a
+                # wrapped RX_SEN mask can emit a leading partial receive frame.
+                startup_conversions = 0
                 startup_frames = int(rx_sen_start_word + len(code_weights) > sequence_words) + startup_conversions
                 expected_frames = params.conversions + startup_frames
                 daq["seq0"].set_data(sequencer_memory)
@@ -1126,6 +1109,7 @@ def scan(
                     "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
                     "repetition_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
                     "repetition_interval_s": len(params.seq_init_pattern) / symbol_rate_bps,
+                    "nominal_conversion_rate_hz": symbol_rate_bps / 160,
                     "active_conversion_rate_hz": symbol_rate_bps
                     / AdcSequence.from_tb_params(params).conversion_symbols,
                     "si570_frequency_hz": si570_frequency_hz,
@@ -1133,18 +1117,15 @@ def scan(
                     "sequencer_frequency_hz": sequencer_frequency_hz,
                     "serializer_frequency_hz": serializer_frequency_hz,
                     "rx_sen_start_word": rx_sen_start_word,
-                    "comp_idelay_taps": comp_idelay_taps,
-                    "capture_control_phase_advance_symbols": phase_advance,
+                    "comp_delay_taps": comp_idelay_taps,
+                    "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
+                    "comp_delay_stages": 2,
+                    "capture_control_phase_advance_symbols": 0,
                     "capture_expected_frames": expected_frames,
                     "capture_startup_conversions": startup_conversions,
                     "capture_received_frames": received_frames,
                     "capture_startup_frames": startup_frames,
                     **startup_words,
-                    "capture_earliest_data_arrival_s": capture_alignment.earliest_data_arrival_s,
-                    "capture_latest_data_arrival_s": capture_alignment.latest_data_arrival_s,
-                    "capture_edge_s": capture_alignment.capture_edge_s,
-                    "capture_setup_margin_s": capture_alignment.setup_margin_s,
-                    "capture_hold_margin_s": capture_alignment.hold_margin_s,
                     "vin_cm_supply_set_v": vin_cm_supply_v,
                     "vin_cm_supply_measured_v": float(vin_cm_supply.get_voltage()),
                     "vin_cm_supply_measured_a": float(vin_cm_supply.get_current()),

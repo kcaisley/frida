@@ -124,3 +124,32 @@ maps in `flow/scans/`.
 - Python packages — `uv sync --extra daq` (pexpect, gitpython, basil-daq, pyyaml, bitarray)
 - basil — supplies Verilog firmware modules; pass its module directory with `--include-dir`
 - SiTCP — downloaded by `manage.py --get_sitcp`
+
+## Comparator input delay
+
+COMP_OUT uses two calibrated IDELAYE2 stages in series. The first receives
+IBUFDS; the second uses its fabric DATAIN port. KX1 constraints place the
+second stage at IDELAY_X0Y173 beside the native input site IDELAY_X0Y172.
+The FPGA does not rotate ADC controls or shift the FastRX clock.
+
+GPIO1 is now 16 bits: [5:0] combined tap request, [6] load, [7] IDELAYCTRL
+ready, [8] reserved zero, [14:9] actual sum of both delay counters, and [15]
+two-stage ABI marker. Total 0..62 maps to floor(N/2), ceil(N/2); raw code 63
+saturates to 62 and host software rejects it. Both stages load together on
+BUS_CLK. Stop acquisition before changing taps. The host must use the updated
+map_fpga.yaml; the old eight-bit GPIO1 interface is incompatible.
+
+Nominal adjustment span is 4.84375 ns plus intrinsic and routed delay.
+IDELAYCTRL does not calibrate the connecting fabric route. Hardware scope
+validation and a new board capture profile are required after programming.
+
+The 2026-09-18 optimized image has been programmed and checked on ADC00–15
+with two sequences at 320/960/1600 MBd. Six corresponding profiles are stored
+in `flow/scans/map_board.yaml`; the measurement manifest and limitations are
+in `build/diagnostics/fastrx_capture_validation/README.md`. The 800 MHz
+serializer clock still fails its BUFG minimum-period check by 0.350 ns;
+successful acquisition is not full timing signoff.
+
+The editable [CircuitikZ datapath diagram](../../docs/diagrams/adc_datapath.tex)
+shows both PCBs, cable, clocks, primitives, delays and tuning ranges.
+See its [build instructions and timing evidence](../../docs/diagrams/readme.md).

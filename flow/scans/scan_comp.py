@@ -21,14 +21,14 @@ from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
 from flow.adc import AdcParams
-from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CompDaq, CompExtWave, MeasCompExt, MeasInfo
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
-    calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
+    program_comp_delay,
+    select_fastrx_capture_settings,
 )
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
@@ -412,6 +412,9 @@ def scan(
                     f"comparator inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
+    for params in queue:
+        select_fastrx_capture_settings(params, board["fastrx_capture_settings"])
+
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -630,28 +633,10 @@ def scan(
                     raise RuntimeError(f"AWG offset readback {awg_readback_v:g} V does not match {awg_voltage_v:g} V")
                 awg_verified_curves.add(curve_key)
 
-            capture_alignment = calculate_single_sample_fastrx_capture_alignment(
-                params,
-                **board["capture_timing_model"],
-            )
-            phase_advance = capture_alignment.control_phase_advance_symbols
-            if phase_advance:
-                params = replace(
-                    params,
-                    **AdcSequence.from_tb_params(params).advance(phase_advance).as_tb_fields(),
-                )
-                scan_params = replace(scan_params, tb=params)
-                validate_params(scan_params)
-            rx_sen_start_word = capture_alignment.rx_sen_start_word
-            comp_idelay_taps = capture_alignment.comp_idelay_taps
-            daq["gpio1"].read()
-            if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-                raise RuntimeError("comparator IDELAYCTRL is not ready")
-            daq["gpio1"]["COMP_IDELAY_TAPS"] = comp_idelay_taps
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-            daq["gpio1"].write()
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-            daq["gpio1"].write()
+            capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+            rx_sen_start_word = capture_settings.rx_sen_start_word
+            comp_idelay_taps = capture_settings.comp_delay_taps
+            program_comp_delay(daq["gpio1"], comp_idelay_taps)
 
             spi_bytes = spi_bytes_by_curve.get(curve_key)
             if spi_bytes is None:
@@ -812,10 +797,9 @@ def scan(
                 "sequencer_frequency_hz": sequencer_frequency_hz,
                 "serializer_frequency_hz": serializer_frequency_hz,
                 "rx_sen_start_word": rx_sen_start_word,
-                "comp_idelay_taps": comp_idelay_taps,
-                "capture_control_phase_advance_symbols": phase_advance,
-                "capture_setup_margin_s": capture_alignment.setup_margin_s,
-                "capture_hold_margin_s": capture_alignment.hold_margin_s,
+                "comp_delay_taps": comp_idelay_taps,
+                "comp_delay_stages": 2,
+                "capture_control_phase_advance_symbols": 0,
                 "capture_batch_count": len(trial_batches),
                 "capture_batch_trials": max(trial_batches),
                 "capture_batch_interval_s": fine_batch_interval_s if time_distribute_batches else 0.0,
