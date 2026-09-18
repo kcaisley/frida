@@ -859,7 +859,7 @@ def plot_adc_noise_sweep(
     noise_rms_v = np.asarray(analysis.input_referred_noise_rms_v)
     noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(layout="none")
     if rate_axis == "sampling":
         if not isinstance(analysis, AnalysisAdcNoiseSweep):
             raise ValueError("repetition-rate axis requires AnalysisAdcNoiseSweep")
@@ -916,12 +916,19 @@ def plot_adc_noise_sweep(
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xlim(0.0, 10.25)
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
-    ax.set_title("ADC noise performance vs conversion rate")
+    ax.set_title(
+        "ADC noise performance vs repetition rate"
+        if rate_axis == "sampling"
+        else "ADC noise performance vs conversion rate"
+    )
     ax.tick_params(which="both", right=False)
     style_grid(ax)
     if ax.get_legend_handles_labels()[0]:
         ax.legend(
             ncols=4 if isinstance(analysis, AnalysisAdcNoiseSweep) else 1,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.06),
+            fontsize=8,
             title=(
                 "Sequence"
                 if series_labels
@@ -959,7 +966,10 @@ def plot_adc_noise_sweep(
         ),
     )
     enob_axis.set_ylabel("Noise-equivalent ENOB (bit)")
-    enob_axis.set_yticks(np.arange(7.0, 13.0, 1.0))
+    enob_ticks = np.arange(-2.0, 17.0)
+    enob_noise = full_scale_rms_lsb * np.power(10.0, -(6.02 * enob_ticks + 1.76) / 20.0)
+    noise_limit = max(ax.get_ylim())
+    enob_axis.set_yticks(enob_ticks[(enob_noise >= 0.07 * noise_limit) & (enob_noise <= noise_limit)])
     enob_axis.tick_params(which="both", left=False, right=True)
 
     snr_axis = ax.secondary_yaxis(
@@ -977,7 +987,9 @@ def plot_adc_noise_sweep(
     )
     snr_axis.spines["right"].set_position(("outward", 58))
     snr_axis.set_ylabel("SNR (dB)")
-    snr_axis.set_yticks(np.arange(45.0, 71.0, 5.0))
+    snr_ticks = np.arange(-10.0, 101.0, 5.0)
+    snr_noise = full_scale_rms_lsb * np.power(10.0, -snr_ticks / 20.0)
+    snr_axis.set_yticks(snr_ticks[(snr_noise >= 0.07 * noise_limit) & (snr_noise <= noise_limit)])
     snr_axis.tick_params(which="both", left=False, right=True)
 
     decision_time_axis = ax.twiny()
@@ -996,6 +1008,8 @@ def plot_adc_noise_sweep(
         top=False,
         bottom=True,
     )
+    # Reserve space for both outer noise axes and the second bottom time axis.
+    fig.subplots_adjust(left=0.20, right=0.80, bottom=0.23, top=0.72)
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower left")
     return save_figure(fig, output_path)
 
@@ -1071,6 +1085,7 @@ def plot_adc_noise_distribution_grid(
     analyses: Sequence[AnalysisAdcNoiseSweep],
     *,
     output_path: Path,
+    code_limits: tuple[float, float] | None = None,
 ) -> tuple[Path, ...]:
     """Plot three rate-indexed code densities for each ADC in a 4-by-4 grid."""
 
@@ -1094,6 +1109,10 @@ def plot_adc_noise_distribution_grid(
     y_span_lsb = 90.0
     y_center_lsb = 5.0 * np.round((float(np.min(means)) + float(np.max(means))) / 10.0)
     y_limits = (y_center_lsb - y_span_lsb / 2.0, y_center_lsb + y_span_lsb / 2.0)
+    if code_limits is not None:
+        if not np.all(np.isfinite(code_limits)) or code_limits[0] >= code_limits[1]:
+            raise ValueError("code_limits must be finite and increasing")
+        y_limits = code_limits
     all_measurements = tuple(measurement for group in msmt_groups for measurement in group)
     shared_setup_lines = style_measurement_group_text(all_measurements)
     cdac_setup_lines = tuple(line for line in shared_setup_lines if line.startswith("CDAC init: "))
@@ -1228,7 +1247,7 @@ def plot_adc_noise_distribution_grid(
         ax.set_xlim(-0.25, 10.5)
         ax.set_ylim(*y_limits)
         ax.set_xticks((2.0, 6.0, 10.0))
-        ax.yaxis.set_major_locator(MultipleLocator(25.0))
+        ax.yaxis.set_major_locator(MultipleLocator(25.0) if code_limits is None else MaxNLocator(nbins=4))
 
     colorbar_ax = fig.add_axes((0.84, 0.10, 0.02, 0.45))
     colorbar = fig.colorbar(
