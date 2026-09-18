@@ -275,9 +275,6 @@ module daq_top (
     wire mdio_gem_i;
     wire mdio_gem_o;
     wire mdio_gem_t;
-    wire link_status;
-    wire [1:0] clock_speed;
-    wire duplex_status;
 
     rgmii_io rgmii (
         .rgmii_txd   (rgmii_txd),
@@ -296,9 +293,11 @@ module daq_top (
         .gmii_rx_dv_reg(gmii_rx_dv),
         .gmii_rx_er_reg(gmii_rx_er),
 
-        .eth_link_status  (link_status),
-        .eth_clock_speed  (clock_speed),
-        .eth_duplex_status(duplex_status),
+        // slang lint_off empty-output-connection
+        .eth_link_status  (),
+        .eth_clock_speed  (),
+        .eth_duplex_status(),
+        // slang lint_on empty-output-connection
 
         .tx_rgmii_clk_int  (clk125_tx),
         .tx_rgmii_clk90_int(clk125_tx90),
@@ -318,12 +317,12 @@ module daq_top (
 
 
     // SiTCP
-    wire tcp_close_req, tcp_open_ack;
+    wire tcp_close_req;
     wire rbcp_act, rbcp_we, rbcp_re;
     wire [7:0] rbcp_wd, rbcp_rd;
     wire [31:0] rbcp_addr;
-    wire tcp_rx_wr, tcp_tx_wr;
-    wire [7:0] tcp_rx_data, tcp_tx_data;
+    wire tcp_tx_wr;
+    wire [7:0] tcp_tx_data;
     wire tcp_tx_full;
     wire rbcp_ack;
     wire sitcp_rst;
@@ -385,17 +384,20 @@ module daq_top (
         .SiTCP_RST     (sitcp_rst),
         // TCP connection control
         .TCP_OPEN_REQ  (1'b0),
-        .TCP_OPEN_ACK  (tcp_open_ack),
-        // SiTCP error status is not read here.
+        // TCP open acknowledgement and error status are not used.
         // slang lint_off empty-output-connection
+        .TCP_OPEN_ACK  (),
         .TCP_ERROR     (),
         // slang lint_on empty-output-connection
         .TCP_CLOSE_REQ (tcp_close_req),
         .TCP_CLOSE_ACK (tcp_close_req),
         // FIFO I/F
         .TCP_RX_WC     (16'h0001),
-        .TCP_RX_WR     (tcp_rx_wr),
-        .TCP_RX_DATA   (tcp_rx_data),
+        // TCP receive data is not used.
+        // slang lint_off empty-output-connection
+        .TCP_RX_WR     (),
+        .TCP_RX_DATA   (),
+        // slang lint_on empty-output-connection
         .TCP_TX_FULL   (tcp_tx_full),
         .TCP_TX_WR     (tcp_tx_wr),
         .TCP_TX_DATA   (tcp_tx_data),
