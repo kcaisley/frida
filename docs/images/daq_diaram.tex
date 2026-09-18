@@ -1,0 +1,180 @@
+% From the repository root: pdflatex -output-directory=build/analysis/adc_datapath docs/images/daq_diaram.tex
+\documentclass[tikz,border=8mm]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[american]{circuitikz}
+\usetikzlibrary{arrows.meta,calc}
+\standaloneenv{circuitikz}
+\renewcommand{\familydefault}{\sfdefault}
+\ctikzset{tripoles/plain amp/height=1.0,tripoles/fd op amp/height=1.0}
+\colorlet{ink}{black}
+\definecolor{pcb}{HTML}{E5E5E5}
+\definecolor{silicon}{HTML}{FFFFFF}
+\tikzset{box/.style={draw,fill=white,minimum height=1.1cm,align=center,font=\small},
+ flow/.style={-{Latex[length=2mm]},line width=.7pt},
+ clock/.style={line width=.7pt,dashed},
+ note/.style={align=left,font=\small},tinylabel/.style={font=\footnotesize,align=center},
+ % Native differential amplifier shape, adapted to one input; P/N label the outputs.
+ lvdsdriver/.style={fd op amp, circuitikz/tripoles/fd op amp/input height=0,
+ circuitikz/amplifiers/plus={},circuitikz/amplifiers/minus={},fill=white},
+ pisoreg/.style={muxdemux,muxdemux def={NL=1,NR=1,NT=2,NB=0,Lh=3.5,Rh=1.6,w=3.5},fill=white},
+ bank/.style={draw,minimum width=4.4cm,minimum height=1.7cm,fill=white}}
+\begin{document}
+\begin{circuitikz}[x=1cm,y=1cm,line width=.7pt]
+\path[use as bounding box] (0,.3) rectangle (34,22.9);
+\node[anchor=west,font=\LARGE\bfseries] at (0,22.3) {FRIDA-1: ADC control and comparator capture};
+% Two boards, with the ASIC on the left and FPGA on the right.
+\draw[black!55,fill=pcb] (0,2.7) rectangle (8,21.3);
+\node[anchor=north west,font=\bfseries] at (.3,21) {FRIDA single-chip card};
+\draw[black!55,fill=silicon] (.4,4.1) rectangle (7.6,20.4);
+\node[anchor=north west,font=\bfseries] at (.7,20.1) {FRIDA-1 ASIC};
+\draw[black!55,fill=pcb] (13,2.7) rectangle (34,21.3);
+\node[anchor=north west,font=\bfseries] at (13.3,21) {BDAQ53 carrier / Mercury KX1 FPGA module};
+\draw[black!55,fill=silicon] (13.35,3.1) rectangle (33.65,18.1);
+\node[anchor=north west,tinylabel] at (13.6,17.85) {XC7K160T-1};
+\node[tinylabel] at (10.5,9.4) {\textbf{DisplayPort cable}};
+% External programmable oscillator: physically on the board, outside the FPGA.
+\node[box,minimum width=2cm,minimum height=1.6cm] (si570) at (26.9,19.6) {};
+\node[vcoshape,circuitikz/bipoles/vco/width=.6,fill=white] (xo) at (26.9,19.45) {};
+\node[font=\ttfamily\small,fill=white,inner sep=1pt] at (26.9,20.1) {si570};
+% Functional PLL internals; clock buffers are omitted from this view.
+\draw[black!55] (22,15.55) rectangle (31.6,18.05);
+\node[tinylabel,anchor=north west] at (22.15,17.95) {\texttt{plle2\_adv\_seq}};
+\node[box,minimum width=1cm,minimum height=.55cm] (mult) at (26.9,17.45) {$\times 8$};
+\node[vcoshape,circuitikz/bipoles/vco/width=.65,fill=white] (pll) at (26.9,16.3) {};
+\draw[clock] (xo.south) -- (mult.north);
+\draw[clock] (mult.south) -- (pll.north);
+\node[tinylabel,anchor=west,align=left] at (27.2,18.45) {100--200 MHz\\$\approx0.09$ ppb tuning steps};
+\node[box,minimum width=1.2cm,minimum height=.7cm] (serclk) at (23.2,16.3) {$\div n$};
+\node[box,minimum width=1.2cm,minimum height=.7cm] (wordclk) at (30.7,16.3) {$\div(4n)$};
+\draw[clock] (pll.west) -- (serclk.east);
+\draw[clock] (pll.east) -- (wordclk.west);
+\node[tinylabel] at (29.1,17.35) {$n=2$ shown};
+% Sequencer: one register outline with a top clock input; RAM-backed implementation.
+\node[bank] (seq) at (30.1,12.3) {};
+\node[tinylabel] at (30.1,12.3) {\texttt{seq\_gen}\\cyclic 64-bit words};
+\node[tinylabel] at (30.1,10.8) {RAM-backed sequencer\\bytes 0--3 $\to$ controls};
+\draw (30.45,13.15) -- (30.7,12.95) -- (30.95,13.15);
+\coordinate (seqclk) at (30.7,13.15);
+% Serializer: one 32-bit bus represents four parallel eight-bit lanes.
+% Four physical OSERDES lanes, represented by stacked mux-shaped serializers.
+\node[pisoreg,muxdemux def={NL=0,NR=0,NT=2},draw only top pins={},xscale=-1] (ser3) at (24.4,12.9) {};
+\foreach \x/\y/\n in {24.2/12.7/2,24/12.5/1}{
+ \node[pisoreg,muxdemux def={NL=0,NR=0,NT=0},xscale=-1] (ser\n) at (\x,\y) {};
+}
+\node[pisoreg,muxdemux def={NT=0},xscale=-1] (ser) at (23.8,12.3) {};
+\node[font=\ttfamily\footnotesize] at (23.8,12.3) {oserdese2};
+\node[tinylabel] at (23.8,10.55) {4 $\times$ 8:1 DDR; d1 first};
+\draw[flow] (seq.west) -- (ser.lpin 1);
+\draw (26.35,12.08) -- (26.6,12.52);
+\node[tinylabel,anchor=west] at (26.63,12.55) {32};
+\node[tinylabel] at (26.8,13.45) {4 $\times$ 8-bit buses};
+\node[tinylabel] at (26.7,11) {Board-polarity\\correction};
+% Clock ports sit on the serializer boundary, with inset clock triangles.
+\foreach \pin in {1,2}{
+ \draw ($(ser3.btpin \pin)+(-.13,-.035)$) --
+  ($(ser3.btpin \pin)+(0,-.19)$) -- ($(ser3.btpin \pin)+(.13,.035)$);
+}
+\draw[clock] (wordclk.south) -- (30.7,14.6) -- (seqclk);
+\draw[clock] (30.7,14.6) -- (ser3.btpin 1 |- 30.7,14.6) -- (ser3.btpin 1);
+\node[tinylabel,anchor=south] at (27.2,14.75) {\texttt{seq\_clk}: 200 MHz};
+\draw[clock] (serclk.south) -- (23.2,15.05) -| (ser3.btpin 2);
+\node[tinylabel,anchor=east,align=right] at (22.95,14.8) {\texttt{ser\_clk}\\800 MHz};
+\draw[clock] (30.7,14.6) -- (33.05,14.6) -- (33.05,7.8) -- (30.1,7.8) -- (30.1,7.15);
+\fill (30.7,14.6) circle (1.5pt);
+% Outgoing LVDS: actual single-ended input / differential output topology.
+% Four-lane stack: 0.10 cm right and 0.22 cm up per lane.
+\foreach \d in {.30,.20,.10}{
+ % Body silhouettes omit unused rear-layer terminal stubs.
+ \draw[line width=1.4pt,fill=white] (16+\d-.833,12.3+2.2*\d) --
+  (16+\d+.833,12.3+2.2*\d+.7) -- (16+\d+.833,12.3+2.2*\d-.7) -- cycle;
+}
+\node[lvdsdriver,xscale=-1] (tx) at (16,12.3) {};
+\node[tinylabel] at (16,14.5) {4 $\times$ \texttt{obufds}\\output I/O bank: HR 15\\lvds\_25; no odelaye2};
+\draw[flow] (ser.rpin 1) -- node[above,tinylabel]{4 serial lanes} node[below,tinylabel]{0.625 ns / symbol} (tx.in up);
+\foreach \d in {.30,.20,.10}{
+ \draw[line width=1.4pt,fill=white] (4.5+\d-.833,12.3+2.2*\d) --
+  (4.5+\d+.833,12.3+2.2*\d+.7) -- (4.5+\d+.833,12.3+2.2*\d-.7) -- cycle;
+}
+\node[plain amp,xscale=-1,fill=white] (rx) at (4.5,12.3) {};
+\node[font=\small] at (5.05,12.55) {$+$};
+\node[font=\small] at (5.05,12.05) {$-$};
+\node[tinylabel] at (4.5,14.5) {\textbf{4 $\times$ LVDS RX pads}\\\texttt{seq\_init / seq\_samp}\\\texttt{seq\_comp / seq\_logic}};
+\draw (tx.out up) -- (rx.in up);
+\draw (tx.out down) -- (rx.in down);
+\node[tinylabel,fill=white] at (10.5,13.4) {\texttt{seq\_init, seq\_samp}\\\texttt{seq\_comp, seq\_logic}};
+\foreach \side in {up,down}{
+ \coordinate (busmark) at (11.4,0 |- tx.out \side);
+ \draw ($(busmark)+(-.12,-.18)$) -- ($(busmark)+(.12,.18)$);
+ \node[tinylabel,anchor=west,inner sep=1pt] at ($(busmark)+(.18,.16)$) {4};
+}
+
+\node[tinylabel] at (18.3,10.7) {Serializer clk $\to$ output pad\\1.01--2.00 ns (Vivado corners)};
+\node[font=\small] at (16.1,12.55) {$+$};
+\node[font=\small] at (16.1,12.05) {$-$};
+% Compact ADC array: two symbols, an ellipsis, then two more.
+% Trapezoids widen toward the digital output, matching the ADC convention.
+\foreach \d in {.78,.60,.18,0}{
+ \draw[line width=1.4pt,fill=white]
+  (1.8+\d,9.4+\d-.48) -- (3.4+\d,9.4+\d-.78) --
+  (3.4+\d,9.4+\d+.78) -- (1.8+\d,9.4+\d+.48) -- cycle;
+}
+\foreach \d in {.30,.40,.50}{\fill (3.4+\d,8.62+\d) circle (.8pt);}
+\node[tinylabel] at (5.2,9.8) {16 ADCs};
+% Four single-ended clock trees enter the top of the array.
+\coordinate (adcclk) at (2.9,10.72);
+\draw[flow] (rx.out) -- (2.9,12.3) -- (adcclk);
+\draw (2.75,10.692) -- (2.9,10.53) -- (3.05,10.748);
+\draw (2.72,11.35) -- (3.08,11.6);
+\node[tinylabel,anchor=west] at (3.12,11.5) {4};
+\node[tinylabel,anchor=west,align=left] at (4.4,11) {4 single-ended\\clock trees};
+\draw[flow] (.65,9.58) -- (1.8,9.58);
+\draw[flow] (.65,9.22) -- (1.8,9.22);
+\node[tinylabel] at (1.1,9.98) {$V_{\mathrm{N}}$};
+% Comparator bus, not the on-chip SAR output-code bus.
+\draw (3.4,9.4) -- (6.9,9.4) -- (6.9,7.25) -- (2.55,7.25) -- (2.55,6.3);
+\draw (5.5,7) -- (5.75,7.5);
+\node[tinylabel,anchor=west] at (5.75,7.52) {16};
+\node[tinylabel] at (4.55,7.85) {comparator outputs [15:0]};
+\node[muxdemux,muxdemux def={NL=1,NR=1,NB=1,NT=0,Lh=2.2,Rh=1.2,w=1.5},fill=white] (compmux) at (3.6,6.3) {};
+\draw (2.55,6.3) -- (compmux.lpin 1);
+\node[tinylabel] at (3.6,6.3) {16:1};
+\draw (compmux.bpin 1) -- (3.6,5.15);
+\draw (3.43,5.32) -- (3.77,5.53);
+\node[tinylabel,anchor=west] at (3.83,5.42) {4};
+\node[lvdsdriver] (asic_tx) at (5.5,6.3) {};
+\draw[flow] (compmux.rpin 1) -- (asic_tx.in up);
+\node[tinylabel] at (5.5,4.8) {\textbf{LVDS TX pad}};
+% Returning comparator bit, followed by two physical delay elements.
+\node[plain amp,fill=white] (fpga_rx) at (16,6.3) {};
+\node[font=\small] at (15.45,6.55) {$+$};
+\node[font=\small] at (15.45,6.05) {$-$};
+\draw (asic_tx.out up) -- (fpga_rx.in up);
+\draw (asic_tx.out down) -- (fpga_rx.in down);
+\node[tinylabel] at (10.5,7.4) {\texttt{comp\_out}};
+\node[tinylabel] at (16,4.85) {\texttt{ibufds}};
+\node[font=\small] at (5.4,6.55) {$+$};
+\node[font=\small] at (5.4,6.05) {$-$};
+\node[box,minimum width=2.6cm] (id0) at (20.1,6.3) {\texttt{idelaye2}\\$\tau_0+n_0\Delta t$};
+\node[box,minimum width=2.6cm] (id1) at (22.7,6.3) {\texttt{idelaye2}\\$\tau_1+n_1\Delta t$};
+\draw[flow] (fpga_rx.out) -- (id0.west);
+\node[bank] (fast) at (30.1,6.3) {};
+\node[tinylabel] at (30.1,6.3) {\texttt{fast\_spi\_rx}\\17-bit shift register\\one bit / rising sclk edge};
+\draw (29.85,7.15) -- (30.1,6.95) -- (30.35,7.15);
+\node[tinylabel,anchor=east] at (30,7.5) {\texttt{sclk}};
+\node[tinylabel,anchor=west] at (28,6.82) {\texttt{sen}};
+\draw[flow] (id1.east) -- node[above,tinylabel]{\texttt{sdi}} (fast.west);
+\draw[flow] ($(seq.west)+(0,-.5)$) -- (27.6,11.8) -- (27.6,6.82) -- (27.9,6.82);
+\node[tinylabel,fill=white,align=left] at (30.2,9.2) {\texttt{seq\_out[32]} $\to$ \texttt{sen}\\17-word capture window\\start word $w$: 5 ns steps};
+\node[tinylabel] at (23.5,3.6) {Comparator pad $\to$ FastRX d at zero taps: 3.31--7.27 ns (Vivado corners)\\Includes IBUFDS, two delay cells, fabric and sdi mux; add $N\times78.125$ ps};
+% Delay control: independent fixed reference, not the variable sequencer clock.
+\node[box,minimum width=7cm] (ctl) at (22,8.75) {\texttt{gpio1 + idelayctrl}\\$N=0\ldots62$, $n_0=\lfloor N/2\rfloor$, $n_1=\lceil N/2\rceil$\\refclk: fixed 200 MHz from \texttt{plle2\_base\_comm}};
+\draw[flow] (20.1,8.1) -- (id0.north);
+\draw[flow] (22.7,8.1) -- (id1.north);
+% Host readout.
+\node[box,minimum width=6cm] (fifo) at (28.5,1.2) {FastRX CDC FIFO $\to$ \texttt{fifo\_32\_to\_8}\\bus\_clk $\approx142.86$ MHz};
+\node[box,minimum width=7cm] (host) at (17.5,1.2) {SiTCP / Ethernet $\to$ host\\raw words, 17 bits, codes + scope $\to$ HDF5};
+\draw[flow] (fast.south) -- (30.1,2.1) -- (28.5,2.1) -- (fifo.north);
+\draw[flow] (fifo.west) -- (host.east);
+\end{circuitikz}
+\end{document}
