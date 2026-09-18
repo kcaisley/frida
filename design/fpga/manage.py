@@ -76,15 +76,16 @@ def get_sitcp():
     # The original code selects DEFAULT_IP_ADDR when FORCE_DEFAULTn=0,
     # which ignores the IP address set in the Verilog instantiation.
     wrap_file = sitcp_dir / "WRAP_SiTCP_GMII_XC7K_32K.V"
-    for line in fileinput.input([str(wrap_file)], inplace=True):
-        print(
-            line.replace(
-                "assign\tMY_IP_ADDR[31:0]\t= (~FORCE_DEFAULTn | (EXT_IP_ADDR[31:0]==32'd0) "
-                "\t? DEFAULT_IP_ADDR[31:0]\t\t: EXT_IP_ADDR[31:0]\t\t);",
-                "assign\tMY_IP_ADDR[31:0]\t= EXT_IP_ADDR[31:0];",
-            ),
-            end="",
-        )
+    with fileinput.input([str(wrap_file)], inplace=True) as lines:
+        for line in lines:
+            print(
+                line.replace(
+                    "assign\tMY_IP_ADDR[31:0]\t= (~FORCE_DEFAULTn | (EXT_IP_ADDR[31:0]==32'd0) "
+                    "\t? DEFAULT_IP_ADDR[31:0]\t\t: EXT_IP_ADDR[31:0]\t\t);",
+                    "assign\tMY_IP_ADDR[31:0]\t= EXT_IP_ADDR[31:0];",
+                ),
+                end="",
+            )
 
     log.info("SiTCP downloaded and patched")
 
@@ -204,7 +205,7 @@ def flash(filepath):
         try:
             import subprocess
 
-            lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
+            lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5, check=False)
             if "xilinx" not in lsusb.stdout.lower():
                 raise RuntimeError(
                     "No Xilinx USB programmer found (lsusb shows no Xilinx device).\n"
@@ -356,7 +357,7 @@ def check():
     # --- USB programmer ---
     log.info("Checking USB for Xilinx JTAG programmer...")
     try:
-        lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5)
+        lsusb = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5, check=False)
         xilinx_lines = [l for l in lsusb.stdout.splitlines() if "xilinx" in l.lower()]
         if not xilinx_lines:
             log.error("FAIL: No Xilinx USB device found. Check that the JTAG cable is plugged in.")
@@ -375,29 +376,31 @@ if {[llength $targets] == 0} {
     puts "BDAQ:NO_TARGETS"
     quit
 }
-puts "BDAQ:TARGET:[lindex $targets 0]"
-if {[catch {open_hw_target [lindex $targets 0]} err]} {
-    puts "BDAQ:OPEN_FAILED:$err"
-    quit
-}
-set devices [get_hw_devices]
-if {[llength $devices] == 0} {
-    puts "BDAQ:NO_DEVICES"
+foreach target $targets {
+    puts "BDAQ:TARGET:$target"
+    current_hw_target $target
+    if {[catch {open_hw_target $target} err]} {
+        puts "BDAQ:OPEN_FAILED:$target:$err"
+        continue
+    }
+    set devices [get_hw_devices]
+    if {[llength $devices] == 0} {
+        puts "BDAQ:NO_DEVICES:$target"
+    }
+    foreach d $devices {
+        set part [get_property PART $d]
+        puts "BDAQ:DEVICE:$d:$part"
+    }
     close_hw_target
-    quit
 }
-foreach d $devices {
-    set part [get_property PART $d]
-    set status [get_property STATUS $d]
-    puts "BDAQ:DEVICE:$d:$part:$status"
-}
-close_hw_target
 quit
 """
     log.info("Launching Vivado to scan JTAG chain...")
     _BUILD_DIR.mkdir(parents=True, exist_ok=True)
     vivado_cmd = (
-        "vivado_lab" if subprocess.run(["which", "vivado_lab"], capture_output=True).returncode == 0 else "vivado"
+        "vivado_lab"
+        if subprocess.run(["which", "vivado_lab"], capture_output=True, check=False).returncode == 0
+        else "vivado"
     )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tcl", delete=False) as f:
@@ -420,6 +423,7 @@ quit
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
             cwd=str(_FPGA_DIR),
         )
         output = result.stdout + result.stderr
@@ -429,46 +433,31 @@ quit
     finally:
         Path(tcl_path).unlink(missing_ok=True)
 
-    # Parse structured output
-    bdaq_lines = [l for l in output.splitlines() if l.startswith("BDAQ:")]
+    # A Tcl failure is not evidence of an empty chain. Preserve the actual error.
+    if result.returncode != 0:
+        log.error("FAIL: Vivado JTAG check failed (exit %d):\n%s", result.returncode, output.strip())
+        return
+    bdaq_lines = [line for line in output.splitlines() if line.startswith("BDAQ:")]
+    for line in bdaq_lines:
+        if line.startswith("BDAQ:TARGET:"):
+            log.info("  JTAG target: %s", line.split(":", 2)[2])
+        elif line.startswith("BDAQ:OPEN_FAILED:"):
+            log.warning("  Could not open target: %s", line.split(":", 2)[2])
+        elif line.startswith("BDAQ:NO_DEVICES:"):
+            log.warning("  No devices on target: %s", line.split(":", 2)[2])
 
-    if any("NO_TARGETS" in l for l in bdaq_lines):
+    devices = [line for line in bdaq_lines if line.startswith("BDAQ:DEVICE:")]
+    for line in devices:
+        _, _, name, part = line.split(":", 3)
+        log.info("  Device: %s  Part: %s", name, part)
+    if devices:
+        log.info("PASS: JTAG chain OK — %d device(s) found", len(devices))
+    elif "BDAQ:NO_TARGETS" in bdaq_lines:
         log.error("FAIL: No JTAG targets found. Check cable and drivers.")
-        return
-
-    for l in bdaq_lines:
-        if l.startswith("BDAQ:TARGET:"):
-            log.info("  JTAG target: %s", l.split(":", 2)[2])
-
-    if any("OPEN_FAILED" in l for l in bdaq_lines):
-        log.error(
-            "FAIL: JTAG target found but no FPGA detected on the chain.\n"
-            "  Check that:\n"
-            "    - The FPGA board is powered on\n"
-            "    - The FPGA module is seated firmly in the base board\n"
-            "    - The JTAG ribbon cable is on the correct header"
-        )
-        return
-
-    if any("NO_DEVICES" in l for l in bdaq_lines):
-        log.error("FAIL: JTAG target opened but no FPGA devices found.")
-        return
-
-    devices = [l for l in bdaq_lines if l.startswith("BDAQ:DEVICE:")]
-    if not devices:
-        log.error(
-            "FAIL: JTAG target opened but no FPGA devices found.\n"
-            "  Check that:\n"
-            "    - The FPGA module is seated firmly in the base board\n"
-            "    - The JTAG ribbon cable is on the correct header"
-        )
-        return
-
-    for l in devices:
-        _, _, name, part, status = l.split(":", 4)
-        log.info("  Device: %s  Part: %s  Status: %s", name, part, status)
-
-    log.info("PASS: JTAG chain OK — %d device(s) found", len(devices))
+    elif any(line.startswith(("BDAQ:NO_DEVICES:", "BDAQ:OPEN_FAILED:")) for line in bdaq_lines):
+        log.error("FAIL: No FPGA detected on the enumerated JTAG targets; see target diagnostics above.")
+    else:
+        log.error("FAIL: Incomplete Vivado JTAG check output:\n%s", output.strip())
 
 
 def main():
