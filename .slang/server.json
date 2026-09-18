@@ -1,19 +1,17 @@
 {
   "flags": "--std=1364-2005 -Wextra --timescale=1ns/1ps -f verilog.f --allow-lib-module-redef -Wempty-output-connection --suppress-warnings design/fpga/SiTCP/*",
-  "index": [
-    {
-      "dirs": [
-        "design/fpga",
-        "design/hdl",
-        "libs/basil/basil/firmware/modules"
-      ],
-      "excludeDirs": [
-        "build",
-        "sim_build",
-        "SiTCP",
-        "sitcp",
-        "xapp888"
-      ]
-    }
+  "indexGlobs": [
+    "design/fpga/*.v",
+    "design/hdl/*.v",
+    "libs/basil/basil/firmware/modules/**/*.v"
+  ],
+  "excludeDirs": [
+    "SiTCP",
+    "sitcp",
+    "ODDR_s3.v",
+    "ODDR_s6.v",
+    "IDDR_s3.v",
+    "IDDR_s3_noibuf.v",
+    "IDDR_s6.v"
   ]
 }
