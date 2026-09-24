@@ -1,7 +1,7 @@
 [project]
 name = "frida"
 version = "0.1.0"
-requires-python = "==3.12.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     # Core
     "numpy",
@@ -15,10 +15,11 @@ dependencies = [
     "pytest",
     "klayout",
     "protobuf",
-    "hdl21",
-    "vlsir",
-    "vlsirtools",
-    "basil-daq",
+    # Keep these commits aligned with the submodule gitlinks; uv uses the local editable sources below.
+    "hdl21 @ git+https://github.com/kcaisley/Hdl21.git@c0d73fa152c1b290498dfd686d10db597567e9af",
+    "vlsir @ git+https://github.com/kcaisley/Vlsir.git@21d2981b171046c5f03dcc2f1307854cbd054516#subdirectory=bindings/python",
+    "vlsirtools @ git+https://github.com/kcaisley/Vlsir.git@21d2981b171046c5f03dcc2f1307854cbd054516#subdirectory=VlsirTools",
+    "basil-daq @ git+https://github.com/SiLab-Bonn/basil.git@c1a011edee2d8ede0811f1246e182a7e93f518e7",
     "cocotb",
     "cocotb-bus",
     "spyci",
@@ -44,6 +45,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["flow", "pdk"]
