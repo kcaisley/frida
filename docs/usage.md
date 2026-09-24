@@ -65,7 +65,7 @@ runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to
 
 FRIDA-2/CDAC targets now use the shared `ringfmom.cdl` ideal/LVS model and
 three recognition purposes, with a read-only foundry LVS include and explicit
-3D xACT extraction. See [ringfmom integration](../pdk/tsmc65/calibre/ringfmom.md)
+3D xACT extraction. See `pdk/tsmc65/calibre/ringfmom.md` in the TSMC65 submodule
 for model limits, diagnostics, and PEX double-counting protection. Nominal C
 uses the same affine fit as LVS: 0.17L + 0.03, 0.34L + 0.06, and 0.51L + 0.12
 for one, two, and three active layers (C in fF, full inner-finger L in um).
