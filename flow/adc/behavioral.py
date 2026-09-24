@@ -1,10 +1,14 @@
 import matplotlib
+import matplotlib as mpl
 import numpy as np
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
+
+from flow.analysis.plots import NORD_RED, PLOT_STYLE, PNG_DPI, plot_adc_redundancy, style_grid
 
 
 class CDAC:
@@ -60,6 +64,7 @@ class CDAC:
     def build_capacitor_array(self):
         raise NotImplementedError
 
+    @mpl.rc_context(PLOT_STYLE)
     def calculate_nonlinearity(
         self, do_plot=False, values_per_bin=10
     ):  # FIXME: there is also an ADC top nonlinearity function?
@@ -88,20 +93,20 @@ class CDAC:
             plot[0].step(reg_data, dac_data, where="pre", label="DAC transfer function")
             # plot[0].set_xticks(range(reg_data[0], reg_data[len(reg_data)-1]+1,  self.params['array_size']//4))
             plot[0].set_ylabel("Output voltage [V]")
-            plot[0].grid(True)
+            style_grid(plot[0])
             plot[1].step(reg_data[:-1], dnl_data, where="post", label=f"DNL = {dac_dnl_std:.3f}")
             if dac_dnl_std < 0.0001:
                 plot[1].set_ylim(-1, 1)
             plot[1].set_ylabel("DNL [LSB]")
             plot[1].legend(loc="upper right")
-            plot[1].grid(True)
+            style_grid(plot[1])
             plot[2].step(reg_data[:-1], inl_data, where="post", label=f"INL = {dac_inl_std:.3f}")
             if dac_inl_std < 0.0001:
                 plot[2].set_ylim(-1, 1)
             plot[2].set_ylabel("INL [LSB]")
             plot[2].legend(loc="upper right")
             plot[2].set_xlabel("Digital code")
-            plot[2].grid(True)
+            style_grid(plot[2])
 
         return dac_dnl_std, dac_inl_std
 
@@ -413,6 +418,7 @@ class SAR_ADC:
             result = int(np.round(result))
         return result
 
+    @mpl.rc_context(PLOT_STYLE)
     def calculate_nonlinearity(self, do_plot=False, values_per_bin=10):
         """
         This function current has issues:
@@ -476,14 +482,15 @@ class SAR_ADC:
         if do_plot:
             x_ticks = range(min_code, max_code + 10, 2 ** (self.params["resolution"] - 3))
             plot_title = "ADC Nonlinearity"
-            figure, plot = plt.subplots(4, 1, sharex=True, figsize=(10, 16))
+            figure, plot = plt.subplots(4, 1, sharex=True)
+            figure.set_size_inches(9.6, 10.8)
             # figure.tight_layout()
             # figure.suptitle(plot_title)
             plot[0].title.set_text("ADC Transfer Function")
             plot[0].step(adc_data, input_voltage_data, where="pre")
             plot[0].set_xticks(x_ticks)
             plot[0].set_ylabel("Input voltage [V]")
-            plot[0].grid(True)
+            style_grid(plot[0])
             plot[1].title.set_text("Code Density")
 
             plot[1].step(
@@ -495,24 +502,25 @@ class SAR_ADC:
             plot[1].set_xticks(x_ticks)
             plot[1].set_ylabel("Counts per ADC code")
             plot[1].legend(loc="upper right")
-            plot[1].grid(True)
+            style_grid(plot[1])
             plot[2].title.set_text("Differential Nonlinearity")
 
             plot[2].step(bin_edges, dnl_data, where="post", label=f"DNL sigma = {dnl_sigma:.3f}")
             plot[2].set_ylim(-2, 2)
             plot[2].set_ylabel("DNL [LSB]")
             plot[2].legend(loc="upper right")
-            plot[2].grid(True)
+            style_grid(plot[2])
             plot[3].title.set_text("Integral Nonlinearity")
             plot[3].step(bin_edges, inl_data, where="post", label=f"INL sigma = {inl_sigma:.3f}")
             plot[3].set_ylim(-2, 2)
             plot[3].set_ylabel("INL [LSB]")
             plot[3].legend(loc="upper right")
             plot[3].set_xlabel("ADC code")
-            plot[3].grid(True)
+            style_grid(plot[3])
 
             return figure, plot
 
+    @mpl.rc_context(PLOT_STYLE)
     def calculate_enob(self, do_plot=False, num_samples=1000):
         # return (snr - 1.76)/6.02
         frequency = 10e3
@@ -547,7 +555,7 @@ class SAR_ADC:
 
         if do_plot:
             plot_title = "ENOB Calculation"
-            figure, ax = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
+            figure, ax = plt.subplots(2, 1, sharex=True)
             figure.suptitle(plot_title)
             # Disabled to fit in the redundancy chart on the dashboard view
             # plot adc data
@@ -560,17 +568,18 @@ class SAR_ADC:
                 label="ADC code",
             )
             ax[0].legend(loc="upper right")
-            ax[0].grid(True)
+            style_grid(ax[0])
             ax[1].plot(
                 time_array,
                 residual_array,
                 label=f"Residuals [LSB]\n Noise std = {noise_std:.3f}\n ENOB = {self.enob:.2f}",
             )
             ax[1].legend(loc="upper right")
-            ax[1].grid(True)
+            style_grid(ax[1])
             ax[1].set_ylim(-6, 6)
             return figure, ax
 
+    @mpl.rc_context(PLOT_STYLE)
     def calculate_conversion_energy(self, do_plot=False, samples_per_bin=1):
         # samples_per_bin is now passed as parameter
         common_mode_input_voltage = 0.0
@@ -599,7 +608,7 @@ class SAR_ADC:
         # Conversion energy and FOM results now reported in structured output
 
         if do_plot:
-            figure, ax = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
+            figure, ax = plt.subplots(2, 1, sharex=True)
             # figure.subplots_adjust(bottom=0.5)
             y_ticks = range(
                 -(2 ** (self.params["resolution"] - 1)),
@@ -612,7 +621,7 @@ class SAR_ADC:
             ax[0].step(input_voltage_data, adc_data)
             ax[0].set_ylabel("ADC code")
             ax[0].set_yticks(y_ticks)
-            ax[0].grid(True)
+            style_grid(ax[0])
             # plot[0].legend()
             ax[1].title.set_text("Conversion energy")
             ax[1].step(
@@ -622,35 +631,21 @@ class SAR_ADC:
             )
             ax[1].set_ylabel("Energy [pJ]")
             ax[1].set_xlabel("Diff. input voltage [V]")
-            ax[1].grid(True)
+            style_grid(ax[1])
             ax[1].legend(loc="upper right")
             return figure, ax
 
-    # redundancy should express, if a bit decision error is made on bit i, what error should be expected by the end
-    # a bit positions weight determines the error it can introduce, so you'd like to make sure each bit is not larger than the remaining sum of bits.
-    # what we are actually calculating is the 'error tolerance range'. Think about settling error.
-    # So it we can tolerate 12.5% of a bit position, this means that the weight of the remaining bits should be 12.5% larger than current bit.
-    def calculate_redundancy(self, do_plot=False):
-        weights = self.dac.weights_array.tolist()
-        # Calculate the cumulative sum from the end, then subtract the current value
-        self.redundancy = []
-        step_ticks = []
-        for i, value in enumerate(weights[:-1]):
-            self.redundancy.append((sum(weights[i + 1 :]) - weights[i]) / sum(weights[i:]) * 100)
-            step_ticks.append(i)
-        # Error tolerance array now summarized as scalar average in structured output
+    @staticmethod
+    def calculate_redundancy(weights):
+        """Return each SAR stage's correction margin as a percentage.
 
-        if do_plot:
-            figure, ax = plt.subplots(1, 1, figsize=(10, 8))
-            figure.suptitle("Error Tolerance @ step [i] in percent [%]")
-            ax.plot(step_ticks, self.redundancy, label="Error tolerance [%]")
-            ax.set_xlabel("Conversion Step [i]")
-            ax.set_ylabel("Error Tolerance [%]")
-            ax.set_ylim(-35, 55)
-            ax.grid(True)
-            ax.legend(loc="upper right")
-
-            return figure, ax
+        Weights are in conversion order; the final stage has no later correction.
+        """
+        values = np.asarray(weights, dtype=float)
+        if values.ndim != 1 or len(values) < 2 or not np.all(np.isfinite(values)) or np.any(values <= 0):
+            raise ValueError("expected at least two finite, positive SAR weights in conversion order")
+        remaining = np.cumsum(values[::-1])[::-1]
+        return (remaining[1:] - values[:-1]) / remaining[:-1] * 100
 
     def ideal_conversion(
         self, input_voltage_p, input_voltage_n
@@ -663,6 +658,7 @@ class SAR_ADC:
 
         return ideal_adc_code
 
+    @mpl.rc_context(PLOT_STYLE)
     def plot_transfer_function(self):
         samples_per_bin = 10  # Default value, can be overridden in function call
         common_mode_input_voltage = 0.6
@@ -691,17 +687,18 @@ class SAR_ADC:
         ax[0].plot(
             input_voltage_data,
             input_voltage_data_lsb,
-            "r--",
+            "--",
+            color=NORD_RED,
             label="Ideal transfer function",
         )
         ax[0].set_ylabel("ADC code")
         # plot[0].set_yticks(y_ticks)
-        ax[0].grid(True)
+        style_grid(ax[0])
         ax[0].legend(loc="upper right")
         ax[1].set_xlabel("Diff. input voltage [V]")
         ax[1].step(input_voltage_data, adc_data - input_voltage_data_lsb, label="Residuals")
         ax[1].set_ylabel("Error [LSB]")
-        ax[1].grid(True)
+        style_grid(ax[1])
         ax[1].legend(loc="upper right")
 
     def compile_results(
@@ -835,29 +832,23 @@ class SAR_ADC:
         output_both("", markdown_only=True)
 
         # Run analyses and collect results
-        self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
-        plt.tight_layout()
+        figure, _ = self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
         plot_path = f"{builddir}{testcase}_nonlinearity.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches="tight")
-        plt.close()
+        figure.savefig(plot_path, dpi=PNG_DPI)
+        plt.close(figure)
 
-        self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
-        plt.tight_layout()
+        figure, _ = self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
         plot_path2 = f"{builddir}{testcase}_energy.png"
-        plt.savefig(plot_path2, dpi=300, bbox_inches="tight")
-        plt.close()
+        figure.savefig(plot_path2, dpi=PNG_DPI)
+        plt.close(figure)
 
-        self.calculate_enob(do_plot=True, num_samples=num_samples)
-        plt.tight_layout()
+        figure, _ = self.calculate_enob(do_plot=True, num_samples=num_samples)
         plot_path3 = f"{builddir}{testcase}_enob.png"
-        plt.savefig(plot_path3, dpi=300, bbox_inches="tight")
-        plt.close()
+        figure.savefig(plot_path3, dpi=PNG_DPI)
+        plt.close(figure)
 
-        self.calculate_redundancy(do_plot=True)
-        plt.tight_layout()
-        plot_path4 = f"{builddir}{testcase}_redundancy.png"
-        plt.savefig(plot_path4, dpi=300, bbox_inches="tight")
-        plt.close()
+        self.redundancy = self.calculate_redundancy(self.dac.weights_array).tolist()
+        (plot_path4,) = plot_adc_redundancy(self.redundancy, output_path=Path(builddir) / f"{testcase}_redundancy")
 
         # Calculate average redundancy for scalar summary
         avg_redundancy = (
@@ -930,7 +921,7 @@ class SAR_ADC:
         output_both(f"![ENOB Analysis]({testcase}_enob.png)", markdown_only=True)
         output_both("", markdown_only=True)
         output_both("### Redundancy Analysis", markdown_only=True)
-        output_both(f"![Redundancy Analysis]({testcase}_redundancy.png)", markdown_only=True)
+        output_both(f"[Redundancy Analysis]({plot_path4.name})", markdown_only=True)
         output_both("", markdown_only=True)
         output_both("---", markdown_only=True)
         output_both("*Generated by SAR ADC Behavioral Model*", markdown_only=True)
@@ -1067,24 +1058,25 @@ class SAR_ADC:
                 ideal_comp_result
             )  # FIXME: Based on binary only model. Also this variable isn't used?'
 
-            figure, plot = plt.subplots(1, 1)
-            # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
-            # % (input_voltage_p, input_voltage_n, result, ideal_result)
-            legend_title = f"Diff input voltage [{input_voltage_p:.3f}, {input_voltage_n:.3f}] \nADC code = {result:.2f}"  # FIXME: Disable ideal result being added, as it's based on binary only model.
-            figure.suptitle("SAR Conversion")
-            plot.stairs(dac_out_p, range(self.cycles + 1), baseline=False, label="p-side")
-            plot.stairs(dac_out_n, range(self.cycles + 1), baseline=False, label="n-side")
-            plot.set_ylabel("DAC Output Voltage [V]")
-            plot.set_ylim(-1.5, 1.5)
-            plot.set_xticks(range(0, self.cycles + 1, 1))
-            plot.set_xlabel("Conversion Cycle")
-            plot.legend(title=legend_title)
-            plot.grid(True)
-            for i in range(self.cycles):
-                color = (
-                    # "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
-                    "black"  # FIXME: The ideal comp result is based on binary-only code. FIX this!
-                )
-                plot.annotate(self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color)
+            with mpl.rc_context(PLOT_STYLE):
+                figure, plot = plt.subplots(1, 1)
+                # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
+                # % (input_voltage_p, input_voltage_n, result, ideal_result)
+                legend_title = f"Diff input voltage [{input_voltage_p:.3f}, {input_voltage_n:.3f}] \nADC code = {result:.2f}"  # FIXME: Disable ideal result being added, as it's based on binary only model.
+                figure.suptitle("SAR Conversion")
+                plot.stairs(dac_out_p, range(self.cycles + 1), baseline=False, label="p-side")
+                plot.stairs(dac_out_n, range(self.cycles + 1), baseline=False, label="n-side")
+                plot.set_ylabel("DAC Output Voltage [V]")
+                plot.set_ylim(-1.5, 1.5)
+                plot.set_xticks(range(0, self.cycles + 1, 1))
+                plot.set_xlabel("Conversion Cycle")
+                plot.legend(title=legend_title)
+                style_grid(plot)
+                for i in range(self.cycles):
+                    color = (
+                        # "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
+                        "black"  # FIXME: The ideal comp result is based on binary-only code. FIX this!
+                    )
+                    plot.annotate(self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color)
 
         return result
