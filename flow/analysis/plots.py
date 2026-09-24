@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -313,6 +313,36 @@ def save_figure(
             paths.append(path)
     plt.close(fig)
     return tuple(paths)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_redundancy(
+    margins_percent: Sequence[float] | Mapping[str, Sequence[float]], *, output_path: Path
+) -> tuple[Path, ...]:
+    """Plot one SAR correction-margin sequence or compare several by name."""
+
+    series: Mapping[str, Sequence[float]]
+    if isinstance(margins_percent, Mapping):
+        series = cast("Mapping[str, Sequence[float]]", margins_percent)
+    else:
+        series = {"Error tolerance": margins_percent}
+    if not series:
+        raise ValueError("at least one redundancy sequence is required")
+    fig, ax = plt.subplots()
+    for index, (label, margins) in enumerate(series.items()):
+        ax.plot(np.arange(len(margins)), margins, "o-", color=CURVE_COLORS[index % len(CURVE_COLORS)], label=label)
+    ax.axhline(0.0, color=SPINE_COLOR)
+    ax.set_xlabel("Conversion stage")
+    ax.set_ylabel("Error tolerance (%)")
+    stage_count = max(map(len, series.values()))
+    ax.set_xticks(np.arange(0, stage_count, 1 if stage_count <= 12 else 2))
+    if stage_count > 12:
+        ax.xaxis.set_minor_locator(MultipleLocator(1))
+    if len(series) > 1:
+        ax.legend()
+    style_grid(ax)
+    fig.suptitle("SAR redundancy by conversion stage")
+    return save_figure(fig, output_path)
 
 
 @mpl.rc_context(PLOT_STYLE)

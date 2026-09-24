@@ -150,6 +150,5 @@ in `build/diagnostics/fastrx_capture_validation/README.md`. The 800 MHz
 serializer clock still fails its BUFG minimum-period check by 0.350 ns;
 successful acquisition is not full timing signoff.
 
-The editable [CircuitikZ datapath diagram](../../docs/diagrams/adc_datapath.tex)
+The editable [CircuitikZ datapath diagram](../../docs/images/daq_diaram.tex)
 shows both PCBs, cable, clocks, primitives, delays and tuning ranges.
-See its [build instructions and timing evidence](../../docs/diagrams/readme.md).

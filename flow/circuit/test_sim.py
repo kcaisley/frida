@@ -14,6 +14,7 @@ import pytest
 from vlsirtools.spice import ResultFormat
 from vlsirtools.spice.sim_data import AnalysisType
 
+import pdk
 from flow.comp import sim as comp
 
 from . import test_spectre
@@ -53,7 +54,9 @@ def capture_sim(monkeypatch):
             include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
         )
     )
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65", SimpleNamespace(site=site, pdk_logic=object()))
+    fake_tsmc65 = SimpleNamespace(site=site, pdk_logic=object())
+    monkeypatch.setattr(pdk, "tsmc65", fake_tsmc65, raising=False)
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65", fake_tsmc65)
     monkeypatch.setitem(sys.modules, "pdk.tsmc65.site", site)
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)

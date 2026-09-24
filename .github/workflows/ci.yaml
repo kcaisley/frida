@@ -124,6 +124,7 @@ jobs:
       - name: Run PDK-independent tests
         run: >-
           uv run pytest
+          flow/adc/test_behavioral.py
           flow/adc/test_subckt.py
           flow/comp/test_subckt.py
           flow/samp/test_subckt.py
