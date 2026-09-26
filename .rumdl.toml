@@ -1,17 +1,12 @@
 [global]
-line-length = 120
+# Let Markdown prose use one source line per paragraph.
+disable = ["MD013"]
 
 [MD007]
 indent = 2
 
 [MD009]
 strict = true
-
-[MD013]
-line-length = 120
-code-blocks = false
-tables = false
-reflow = true
 
 [MD024]
 allow-different-nesting = true
