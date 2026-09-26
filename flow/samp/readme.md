@@ -13,5 +13,4 @@
 | LVS runner | ✗ | - | No standalone sampler runner. |
 | PEX runner | ✗ | - | No standalone sampler runner. |
 
-TODO: characterize sampling time, resistance versus sizing/input voltage, and
-sampling noise separately from comparator offset. See [project TODO](../../docs/todo.md#samp).
+TODO: characterize sampling time, resistance versus sizing/input voltage, and sampling noise separately from comparator offset. See [project TODO](../../docs/todo.md#samp).

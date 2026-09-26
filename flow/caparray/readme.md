@@ -13,16 +13,8 @@
 | LVS runner | ✓ | [layout.py](layout.py) | Recorded full-array passes; repeat with current end-to-end flow. |
 | PEX runner | ✓ | [layout.py](layout.py), [pex.py](pex.py) | 3D xACT and capacitance tables; current end-to-end validation pending. |
 
-TODO: clean up `laygen.py`; guard the nominal model's geometry range; validate
-PEX completeness; finish ADC-level driver/array separation. See
-[project TODO](../../docs/todo.md).
+TODO: clean up `laygen.py`; guard the nominal model's geometry range; validate PEX completeness; finish ADC-level driver/array separation. See [project TODO](../../docs/todo.md).
 
-The planned `convert_netlist_caparray_to_measurement()` adapter consumes parasitic
-extraction results for design-versus-extracted capacitance, with later support
-for Monte Carlo capacitance variation. It currently raises `NotImplementedError`;
-it is not the transient `MeasCdacInt` waveform path.
+The planned `convert_netlist_caparray_to_measurement()` adapter consumes parasitic extraction results for design-versus-extracted capacitance, with later support for Monte Carlo capacitance variation. It currently raises `NotImplementedError`; it is not the transient `MeasCdacInt` waveform path.
 
-Its prototype takes `netlist_path`, `CapArrayParams`, `net_names` and
-`device_names` (raw netlist identifiers → analysis aliases), and returns
-`MeasCapArray`. That result type reserves the run information and parameters;
-its capacitance payload and HDF5 registration remain to be defined.
+Its prototype takes `netlist_path`, `CapArrayParams`, `net_names` and `device_names` (raw netlist identifiers → analysis aliases), and returns `MeasCapArray`. That result type reserves the run information and parameters; its capacitance payload and HDF5 registration remain to be defined.

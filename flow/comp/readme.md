@@ -13,5 +13,4 @@
 | LVS runner | ✗ | - | No standalone comparator runner. |
 | PEX runner | ✗ | - | No standalone comparator runner. |
 
-TODO: investigate settling, metastability, kickback, and offset; develop the
-planned transistor-placement/layout flow. See [project TODO](../../docs/todo.md#comp).
+TODO: investigate settling, metastability, kickback, and offset; develop the planned transistor-placement/layout flow. See [project TODO](../../docs/todo.md#comp).

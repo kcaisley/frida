@@ -13,6 +13,4 @@
 | LVS runner | ✓ | [layout.py](layout.py) | ✗ DNW layout devices mismatch ordinary upstream source models. |
 | PEX runner | ✗ | - | Not implemented. |
 
-TODO: review standalone M4 violations; provide a DNW-aware LVS source; rerun
-DRC/LVS before adding PEX. ADC-level driver/array separation remains incomplete.
-See [project TODO](../../docs/todo.md#capdriver).
+TODO: review standalone M4 violations; provide a DNW-aware LVS source; rerun DRC/LVS before adding PEX. ADC-level driver/array separation remains incomplete. See [project TODO](../../docs/todo.md#capdriver).

@@ -13,6 +13,4 @@
 | LVS runner | ✗ | - | No standalone MOSFET runner or matching reference source. |
 | PEX runner | ✗ | - | No standalone MOSFET runner. |
 
-TODO: add pin/abstract information for the proposed placement flow; establish
-matching electrical references and physical checks before treating layouts as
-verified devices. See [layout integration plan](../../docs/msor.md).
+TODO: add pin/abstract information for the proposed placement flow; establish matching electrical references and physical checks before treating layouts as verified devices. See [layout integration plan](../../docs/msor.md).
