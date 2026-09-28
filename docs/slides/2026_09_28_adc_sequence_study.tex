@@ -179,11 +179,34 @@
   \note{ADC01 and ADC03 are the only two channels with confirmed physical layer counts in the board map. Physical code distributions contain 100,000 conversions and PEX distributions contain 100, so their sample precision differs. The physical C4/L1 and C7/L3 failures do not appear in the PEX output-code means.}
 \end{frame}
 
-\begin{frame}{The archived 0.54-LSB result was PEX only}
+\begin{frame}{The archived 0.54-LSB result has a short final comparison}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/old_half_lsb_precedent.pdf}
   \slidesource{Archived 14 Sep physical ADC03 and 6 Sep PEX; corrected 26 Sep physical and PEX}
-  \note{The archived physical file stores the same 160-symbol INIT, SAMP, COMP, and LOGIC rows as the PEX file with a 48-symbol cyclic offset. Both use four INIT symbols, 24 SAMP symbols, six COMP-high symbols per decision, and a one-symbol LOGIC pulse. Archived PEX sigma is 0.538 LSB across 99 saved conversions; physical ADC03 sigma is 3.186 LSB across 100,000. The corrected SAMP20, four-symbol LOGIC case gives 0.703 LSB in PEX and 3.309 LSB physically. A corrected physical SAMP20, one-symbol LOGIC capture gives 3.447 LSB. PEX and physical conditions differ beyond the digital pattern, and the old and new PEX setups differ in SAMP duration, LOGIC width, and output sampling. These comparisons do not identify a single cause of the physical noise floor.}
+  \note{The archived physical file stores the same 160-symbol INIT, SAMP, COMP, and LOGIC rows as the PEX file with a 48-symbol cyclic offset. Both use INIT4, SAMP24, COMP 11111100, and one-symbol LOGIC. B0--B15 receive six COMP-high symbols, but B16 begins at symbol 156 and receives only four before the next INIT. Archived PEX sigma is 0.538 LSB across 99 saved conversions; physical ADC03 sigma is 3.186 LSB across 100,000. The corrected SAMP20, four-symbol LOGIC case gives 0.703 LSB in PEX and 3.309 LSB physically; a corrected physical SAMP20, one-symbol LOGIC capture gives 3.447 LSB. PEX and physical conditions differ beyond the digital pattern. The old and new PEX setups also differ in SAMP duration, LOGIC width, and output sampling, so their code-spread difference cannot be assigned to the B16 truncation alone.}
+\end{frame}
+
+\begin{frame}{The archived final decision does not consistently close}
+  \centering
+  {\small
+  \begin{tabular}{@{}lrr@{}}
+    \toprule
+    & Archived PEX & Corrected PEX \\
+    \midrule
+    B16 starts at symbol & 156 & 152 \\
+    B16 COMP-high symbols & 4 & 6 \\
+    B16 observed COMP high, median & 2.507 ns & 3.759 ns \\
+    B16 internal stable at 0.3 V & 86/99 & 100/100 \\
+    B16 SR matches at LOGIC & 80/99 & 100/100 \\
+    B16 LOGIC ready with 200 ps setup & 72/99 & 100/100 \\
+    Output code sigma & 0.538 LSB & 0.703 LSB \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\medskip
+  {\small 26 of 27 archived B16 readiness failures return code 2194.}
+  \slidesource{Archived PEX HDF5; corrected C6/L2 PEX timing CSV and HDF5 bit summary}
+  \note{The archived B16 pulse is cut by the periodic row boundary, as is the matching old physical row. The corrected SAMP20 C6/L2 recipe provides the full six high symbols. Full archived decision timing passes 1634 of 1683 decisions, but B16 alone fails its LOGIC-readiness criterion in 27 of 99 conversions. The 27 failures have code sigma 0.189 LSB, while the 72 ready conversions have 0.601 LSB; these are outcome-selected subsets and are not corrected noise estimates. B16 equals B15 in 94/99 archived conversions and 71/100 corrected conversions, but a repeated bit is not itself an error. The saved held differential spread at 1 ns after SAMP falls is 166.9 versus 182.9 microvolts; this observation can include comparator activity and does not isolate kT/C noise. The archived 0.538-LSB code spread cannot establish a healthy 17-decision conversion, while the different old and new conditions prevent a single-cause attribution for the spread change.}
 \end{frame}
 
 \begin{frame}{5/8 remains the best saved candidate; 0.5 LSB is unverified}
