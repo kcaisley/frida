@@ -20,9 +20,10 @@ DOCUMENT_NAMES := $(basename $(notdir $(DOCUMENT_TEX)))
 DOCUMENT_PDFS := $(addprefix $(OUTDIR)/,$(addsuffix .pdf,$(DOCUMENT_NAMES)))
 DOCUMENT_ALIASES := $(DOCUMENT_NAMES)
 
-SLIDE_TEX := $(wildcard $(SLIDES_DIR)/*.tex)
+SLIDE_TEX := $(filter-out $(SLIDES_DIR)/style.tex,$(wildcard $(SLIDES_DIR)/*.tex))
 SLIDE_NAMES := $(basename $(notdir $(SLIDE_TEX)))
 SLIDE_PDFS := $(addprefix $(OUTDIR)/,$(addsuffix .pdf,$(SLIDE_NAMES)))
+BEAMER_PDFS := $(filter-out $(OUTDIR)/beams.pdf $(OUTDIR)/detectors.pdf,$(SLIDE_PDFS))
 SLIDE_ALIASES := $(addsuffix .tex,$(SLIDE_NAMES))
 SLIDE_INTERMEDIATES := \
 	$(SLIDE_TEX:.tex=.aux) \
@@ -143,6 +144,8 @@ $(SLIDE_PDFS): $(OUTDIR)/%.pdf: $(SLIDES_DIR)/%.tex $(COLLATERAL)
 	rm -f $(@:.pdf=.aux) $(@:.pdf=.fdb_latexmk) $(@:.pdf=.fls) $(@:.pdf=.log)
 	cd $(SLIDES_DIR) && $(LATEXMK) -pdfxe -shell-escape -interaction=nonstopmode -halt-on-error -outdir=../$(OUTDIR) $(notdir $<)
 	@echo "Created $@"
+
+$(BEAMER_PDFS): $(SLIDES_DIR)/style.tex
 
 $(OUTDIR)/2026_09_24_sequences.pdf: $(IMAGES_DIR)/daq_diagram.pdf
 

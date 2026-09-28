@@ -1,0 +1,122 @@
+% Shared FRIDA Beamer style. Start each slide deck with \input{style.tex}.
+\documentclass[aspectratio=169,compress]{beamer}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,graphicx,xcolor,amsmath,booktabs,array,tikz,listings,etoolbox}
+
+% Decks are built from docs/slides; figures live beside docs and in docs/images.
+\graphicspath{{../}{./}}
+
+\definecolor{NordBody}{HTML}{4C566A}
+\definecolor{NordBlue}{HTML}{5E81AC}
+\definecolor{NordRed}{HTML}{BF616A}
+\definecolor{NordGreen}{HTML}{A3BE8C}
+\definecolor{NordOrange}{HTML}{D08770}
+\definecolor{NordPurple}{HTML}{B48EAD}
+\definecolor{NordPanel}{HTML}{ECEFF4}
+
+\newcommand{\framesource}{}
+\BeforeBeginEnvironment{frame}{\gdef\framesource{}}
+\newcommand{\slidesource}[1]{\gdef\framesource{#1}}
+\setbeamertemplate{footline}{%
+  \hbox{%
+    \begin{beamercolorbox}[wd=.12\paperwidth,ht=2.7ex,dp=1.2ex,leftskip=1em]{page number in head/foot}%
+      \usebeamerfont{page number in head/foot}\insertframenumber\,/\,\inserttotalframenumber
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.88\paperwidth,ht=2.7ex,dp=1.2ex,right,rightskip=1em]{normal text}%
+      \fontsize{5.5}{6.5}\selectfont\ifx\framesource\empty\else Sources:\enspace\framesource\fi
+    \end{beamercolorbox}%
+  }%
+}
+\beamertemplatenavigationsymbolsempty
+\setbeameroption{hide notes}
+
+% Opt in for decks with sections; shorter decks keep the full frame height.
+\newcommand{\slideprogressnavigation}{%
+  \useoutertheme[subsection=false]{miniframes}
+  \setbeamercolor{section in head/foot}{fg=NordBlue,bg=white}
+  \setbeamercolor{mini frame}{fg=NordBlue,bg=white}
+  \setbeamercolor{lower separation line head}{bg=NordPanel}
+  \setbeamerfont{section in head/foot}{size=\tiny}
+
+  \newif\ifnavbeforecurrent
+  \pretocmd\insertnavigation{\navbeforecurrenttrue}{}{}
+
+  \newcommand{\fridanavigationdot}{%
+    \begin{pgfpicture}{0pt}{0pt}{0.1cm}{0.1cm}
+      \pgfpathcircle{\pgfpoint{0.05cm}{0.05cm}}{0.05cm}
+      \ifnavbeforecurrent
+        \pgfusepath{fill,stroke}
+      \else
+        \pgfusepath{stroke}
+      \fi
+    \end{pgfpicture}%
+  }
+
+  \defbeamertemplate*{mini frame}{frida progress}{%
+    \begin{pgfpicture}{0pt}{0pt}{0.1cm}{0.1cm}
+      \pgfpathcircle{\pgfpoint{0.05cm}{0.05cm}}{0.05cm}
+      \pgfusepath{fill,stroke}
+    \end{pgfpicture}%
+    \global\navbeforecurrentfalse
+  }
+  \defbeamertemplate*{mini frame in current section}{frida progress}{\fridanavigationdot}
+  \defbeamertemplate*{mini frame in current subsection}{frida progress}{\fridanavigationdot}
+  \defbeamertemplate*{mini frame in other section}{frida progress}{\fridanavigationdot}
+  \defbeamertemplate*{mini frame in other subsection}{frida progress}{\fridanavigationdot}
+  \setbeamertemplate{mini frame}[frida progress]
+  \setbeamertemplate{mini frame in current section}[frida progress]
+  \setbeamertemplate{mini frame in current subsection}[frida progress]
+  \setbeamertemplate{mini frame in other section}[frida progress]
+  \setbeamertemplate{mini frame in other subsection}[frida progress]
+}
+
+\setbeamerfont{frametitle}{size=\large}
+\setbeamerfont{framesubtitle}{size=\small}
+\setbeamercolor{normal text}{fg=NordBody}
+\setbeamercolor{title}{fg=NordBlue}
+\setbeamercolor{frametitle}{fg=NordBlue}
+\setbeamercolor{framesubtitle}{fg=NordBody}
+\setbeamercolor{structure}{fg=NordBlue}
+\setbeamercolor{itemize/enumerate body}{fg=NordBody}
+\setbeamercolor{itemize/enumerate subbody}{fg=NordBody}
+\setbeamercolor{itemize/enumerate subsubbody}{fg=NordBody}
+\setbeamercolor{itemize item}{fg=NordBlue}
+\setbeamercolor{itemize subitem}{fg=NordBlue}
+\setbeamercolor{itemize subsubitem}{fg=NordBlue}
+\setbeamercolor{enumerate item}{fg=NordBlue}
+\setbeamercolor{enumerate subitem}{fg=NordBlue}
+\setbeamercolor{enumerate subsubitem}{fg=NordBlue}
+\setbeamercolor{block title}{fg=NordBlue,bg=NordPanel}
+\setbeamercolor{block body}{fg=NordBody,bg=NordPanel!55}
+\hypersetup{colorlinks=true,allcolors=NordBlue}
+
+\lstset{%
+  basicstyle=\ttfamily\tiny,
+  keywordstyle=\color{NordBlue}\bfseries,
+  commentstyle=\color{NordBody}\itshape,
+  stringstyle=\color{NordOrange},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{NordPanel!55},
+  rulecolor=\color{NordBody!50},
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+  aboveskip=4pt,
+  belowskip=4pt,
+}
+
+\newcommand{\placeholder}[2]{%
+  \begin{tikzpicture}
+    \node[minimum width=#1,minimum height=#2,draw=NordBlue!60,rounded corners=2pt,fill=NordPanel,align=center,text=NordBody]
+      {Placeholder\\[-1pt]\scriptsize image not yet available};
+  \end{tikzpicture}%
+}
+\newcommand{\maybeimage}[2][]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \IfFileExists{../#2}{\includegraphics[#1]{#2}}{\placeholder{0.95\linewidth}{0.30\textheight}}%
+  }%
+}
+
+\author{Kennedy Caisley}
+\institute{University of Bonn}
