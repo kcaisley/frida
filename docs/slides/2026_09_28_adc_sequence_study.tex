@@ -76,9 +76,18 @@
   \end{tabular}
   }
   \par\bigskip
-  {\small A later LOGIC edge fixes the broad 5/8 failure; the 6/8 code modes persist.}
+  {\small Moving the LOGIC edge later helps 5/8; pulse width matters too. The 6/8 code modes persist.}
   \slidesource{Physical seven-recipe metrics and saved scope edges; 16 ADCs at 1600 MBd}
   \note{The paired recipes differ only in LOGIC placement within each COMP high width. Medians include all 16 ADCs, including implausible captures; the last column is the median across ADCs of the absolute difference between each pair's mean code. Delaying LOGIC also shortens the CDAC update interval, so the unchanged 6/8 outcome cannot be attributed uniquely to comparator reset.}
+\end{frame}
+
+\begin{frame}{Shorter LOGIC removes a broad 5/8 error mode}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.72\textheight,keepaspectratio]{\analysispath/physical_logic_width_pairs.pdf}
+  \par\smallskip
+  {\small Early four-symbol LOGIC: 16,174 all-one frames at 5/8 and 143,839 at 6/8; short LOGIC: zero, each across 1.6 million conversions.}
+  \slidesource{Corrected 26 Sep physical scan; 16 ADCs, 100,000 conversions each at 1600 MBd}
+  \note{Each short/extended pair has the same COMP row and nominal LOGIC rising symbol; only its high duration changes. At 5/8 with LOGIC rising at COMP fall, three high symbols give 14/16 plausible ADCs and median sigma 4.25 LSB, while four high symbols give 5/16 and 138.5 LSB. ADC03's measured LOGIC rise is within 20 ps between these captures, below the approximately 160 ps scope sample spacing, while high width is 1.869 versus 2.541 ns. At 6/8 with LOGIC rising one symbol before COMP fall, the short pulse gives 8/16 plausible ADCs and 5.12 LSB median sigma; the extended pulse gives 0/16 and 535 LSB. Across 1.6 million conversions in each setting, the short early pulse produces no all-one BOUT frames, while the early four-symbol pulse produces 16,174 at 5/8 and 143,839 at 6/8, on all 16 ADCs. Each of these frames decodes to code 4095. The all-one versus other-code separation explains 99.88 percent of ADC03's early extended 5/8 code variance and 99.94 percent at 6/8. Later-starting four-symbol pulses also overlap the next COMP but produce no all-one frames, so overlap alone does not explain the failure. The single retained scope conversion per setting cannot separate on-chip logic from receive-path corruption. This fixed-rise control shows why the earlier C5/L1 to C5/L2 rescue should not be attributed uniquely to the later rising edge. Even the short early pulses remain above 1 LSB for ADC03; the best saved ADC03 5/8 case is the two-symbol pulse beginning about 0.61 ns after COMP fall, with 0.715 LSB spread and 213 rare code jumps per 100,000 conversions.}
 \end{frame}
 
 \begin{frame}{The 5/8 to 6/8 pair shows a high-rate code shift}
