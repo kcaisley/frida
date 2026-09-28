@@ -149,9 +149,19 @@ def rms(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray
     return math.sqrt(average(squared, axis))
 
 
-def stddev(signal: Sequence[float] | np.ndarray, *, sample: bool = False) -> float:
-    """Return discrete population or sample standard deviation."""
-    return float(np.std(np.asarray(signal, dtype=np.float64), ddof=int(sample)))
+def stddev(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray | None = None,
+    *,
+    sample: bool = False,
+) -> float:
+    """Return discrete standard deviation, or time-weighted waveform deviation."""
+    if axis is None:
+        return float(np.std(np.asarray(signal, dtype=np.float64), ddof=int(sample)))
+    if sample:
+        raise ValueError("sample standard deviation requires discrete observations without an axis")
+    signal, axis = _waveform(signal, axis)
+    return rms(signal - average(signal, axis), axis)
 
 
 def peakToPeak(signal: Sequence[float] | np.ndarray) -> float:
@@ -338,13 +348,18 @@ def psd(
 
 
 def dft(signal: Sequence[float] | np.ndarray, sample_rate: float) -> tuple[np.ndarray, np.ndarray]:
-    """Return the one-sided Fourier transform and its frequency axis."""
+    """Return one-sided complex amplitudes and their frequency axis."""
     values = np.asarray(signal, dtype=np.float64)
     if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
         raise ValueError("dft requires a non-empty finite one-dimensional signal")
     if not math.isfinite(sample_rate) or sample_rate <= 0:
         raise ValueError("sample_rate must be finite and positive")
-    return np.fft.rfftfreq(len(values), d=1.0 / sample_rate), np.fft.rfft(values)
+    amplitudes = np.fft.rfft(values) / len(values)
+    if len(values) % 2 == 0:
+        amplitudes[1:-1] *= 2.0
+    else:
+        amplitudes[1:] *= 2.0
+    return np.fft.rfftfreq(len(values), d=1.0 / sample_rate), amplitudes
 
 
 def thd(fundamental_power: float, harmonic_power: float) -> float:
@@ -443,9 +458,12 @@ def cross(
         raise ValueError("occurrence is one-based and cannot be zero")
     if len(signal) < 2:
         return np.asarray([], dtype=np.float64) if occurrence is None else math.nan
-    rises = (signal[:-1] < threshold) & (signal[1:] >= threshold)
-    falls = (signal[:-1] > threshold) & (signal[1:] <= threshold)
-    indices = np.flatnonzero(rises if edge == "rising" else falls if edge == "falling" else rises | falls)
+    nonzero = np.flatnonzero(signal != threshold)
+    left, right = nonzero[:-1], nonzero[1:]
+    rises = (signal[left] < threshold) & (signal[right] > threshold)
+    falls = (signal[left] > threshold) & (signal[right] < threshold)
+    selected = rises if edge == "rising" else falls if edge == "falling" else rises | falls
+    left, right = left[selected], right[selected]
     initial = (
         axis[:1]
         if initial_high
@@ -458,8 +476,10 @@ def cross(
         )
         else axis[:0]
     )
-    fractions = (threshold - signal[indices]) / (signal[indices + 1] - signal[indices])
-    crossings = np.r_[initial, axis[indices] + fractions * (axis[indices + 1] - axis[indices])]
+    fractions = (threshold - signal[left]) / (signal[right] - signal[left])
+    interpolated = axis[left] + fractions * (axis[right] - axis[left])
+    crossing_coordinates = np.where(right == left + 1, interpolated, axis[right - 1])
+    crossings = np.r_[initial, crossing_coordinates]
     if occurrence is None:
         return crossings
     selected = occurrence - 1 if occurrence > 0 else occurrence
@@ -499,7 +519,14 @@ def settlingTime(
     settled = np.abs(signal - final) <= limit
     suffix_settled = np.logical_and.accumulate(settled[::-1])[::-1]
     indices = np.flatnonzero(suffix_settled)
-    return float(axis[indices[0]]) if len(indices) else math.nan
+    if not len(indices):
+        return math.nan
+    first = int(indices[0])
+    if first == 0:
+        return float(axis[0])
+    boundary = final + limit if signal[first - 1] > final else final - limit
+    fraction = (boundary - signal[first - 1]) / (signal[first] - signal[first - 1])
+    return float(axis[first - 1] + fraction * (axis[first] - axis[first - 1]))
 
 
 def stable_since(axis: Sequence[float] | np.ndarray, valid: Sequence[bool] | np.ndarray) -> float:
@@ -623,10 +650,7 @@ def spectrumMeas(
         raise ValueError("maximum_harmonic_order must be at least two")
     window = blackmanharris(signal.size, sym=False)
     frequency_hz, spectrum = dft((signal - offset) * window, sample_rate)
-    amplitude = 2.0 * np.abs(spectrum) / float(np.sum(window))
-    amplitude[0] *= 0.5
-    if signal.size % 2 == 0:
-        amplitude[-1] *= 0.5
+    amplitude = np.abs(spectrum) * signal.size / float(np.sum(window))
     amplitude_dbfs = 20.0 * np.log10(
         np.maximum(
             amplitude / full_scale_peak,
@@ -634,11 +658,11 @@ def spectrumMeas(
         )
     )
 
-    spectral_power = np.abs(spectrum) ** 2
+    spectral_power = np.abs(spectrum) ** 2 * signal.size**2
     if signal.size % 2 == 0:
-        spectral_power[1:-1] *= 2.0
+        spectral_power[1:-1] *= 0.5
     else:
-        spectral_power[1:] *= 2.0
+        spectral_power[1:] *= 0.5
     spectral_power[0] = 0.0
     bin_width_hz = sample_rate / signal.size
 

@@ -47,6 +47,17 @@ def test_cross_edge_selection_and_occurrence() -> None:
     assert np.isnan(calc.cross(signal, axis, 0.0, occurrence=3))
 
 
+def test_cross_requires_a_change_of_sign_beyond_the_threshold() -> None:
+    axis = np.arange(5.0)
+    touch = np.array([0.0, 1.0, 0.0, -1.0, 0.0])
+    assert np.isnan(calc.cross(touch, axis, 0.0, edge="rising", occurrence=1))
+    assert np.isnan(calc.cross(touch, axis, 0.0, edge="rising", occurrence=-1))
+    np.testing.assert_allclose(calc.cross(touch, axis, 0.0, edge="falling"), [2.0])
+    plateau = np.array([-1.0, 0.0, 0.0, 1.0, -1.0])
+    np.testing.assert_allclose(calc.cross(plateau, axis, 0.0, edge="rising"), [2.0])
+    np.testing.assert_allclose(calc.cross(plateau, axis, 0.0, edge="falling"), [3.5])
+
+
 def test_clip_value_and_time_weighted_average() -> None:
     axis = np.array([0.0, 1.0, 3.0])
     signal = np.array([0.0, 2.0, 2.0])
@@ -63,11 +74,26 @@ def test_clip_value_and_time_weighted_average() -> None:
     np.testing.assert_allclose(sampled, np.minimum(2.0 * sample_axis, 2.0))
 
 
-def test_step_based_settling_and_absolute_band() -> None:
+def test_settling_band_and_absolute_tolerance() -> None:
     axis = np.arange(5.0)
     signal = np.array([10.0, 20.0, 21.0, 19.9, 20.0])
-    assert calc.settlingTime(signal, axis, initial=10.0, final=20.0, percent_of_step=2.0) == pytest.approx(3.0)
-    assert calc.settlingTime(signal, axis, final=20.0, absolute_tolerance=1.0) == pytest.approx(1.0)
+    assert calc.settlingTime(signal, axis, initial=10.0, final=20.0, percent_of_step=2.0) == pytest.approx(2.727272727)
+    assert calc.settlingTime(signal, axis, final=20.0, absolute_tolerance=1.0) == pytest.approx(0.9)
+
+
+def test_settling_time_interpolates_the_last_band_entry() -> None:
+    assert calc.settlingTime(
+        [0.0, 1.2, 0.8, 1.0], [0.0, 1.0, 2.0, 3.0], initial=0.0, final=1.0, percent_of_step=10.0
+    ) == pytest.approx(2.5)
+
+
+def test_continuous_stddev_weights_the_independent_axis() -> None:
+    signal = [0.0, 2.0, 2.0]
+    axis = [0.0, 1.0, 3.0]
+    assert calc.stddev(signal) == pytest.approx(0.9428090415820634)
+    assert calc.stddev(signal, axis) == pytest.approx(0.7453559924999299)
+    with pytest.raises(ValueError, match="discrete observations"):
+        calc.stddev(signal, axis, sample=True)
 
 
 def test_spectral_and_density_operations() -> None:
@@ -80,6 +106,17 @@ def test_spectral_and_density_operations() -> None:
     assert calc.rmsNoise(np.ones(3), np.array([0.0, 1.0, 2.0])) == pytest.approx(np.sqrt(2.0))
     assert calc.thd(100.0, 1.0) == pytest.approx(-20.0)
     assert calc.frequency(signal, np.arange(128) / sample_rate, threshold=0.0) == pytest.approx(8.0)
+
+
+def test_dft_reports_one_sided_signal_amplitudes() -> None:
+    frequency, amplitudes = calc.dft(np.full(8, 2.0), 1.0)
+    assert frequency[0] == 0.0
+    assert abs(amplitudes[0]) == pytest.approx(2.0)
+    sine = [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0]
+    frequency, amplitudes = calc.dft(sine, 1.0)
+    assert abs(amplitudes[np.flatnonzero(frequency == 0.25)[0]]) == pytest.approx(1.0)
+    frequency, amplitudes = calc.dft([1.0, -1.0] * 4, 1.0)
+    assert abs(amplitudes[-1]) == pytest.approx(1.0)
 
 
 def test_transfer_linearity_composes_from_calculator_operations() -> None:
