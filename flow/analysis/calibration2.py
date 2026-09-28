@@ -26,6 +26,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import lsq_linear
 
+from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
@@ -84,7 +85,7 @@ def analyze(
         raise ValueError("calibration 2 requires the matching ADC ramp analysis")
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = calc.linear_fit(ramp.reset_conversion_index, reset_number)
+    period_samples, first_reset_sample = metrics.linear_fit(ramp.reset_conversion_index, reset_number)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     code_max = (1 << params.dut.adc_bits) - 1
     ideal_dout = phase * code_max

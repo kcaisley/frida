@@ -13,6 +13,7 @@ from basil.HL.tektronix_oscilloscope import CapturedWaveform
 
 from flow.adc.sequences import AdcSequence
 from flow.adc.subckt import AdcNets
+from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.types import (
     AdcDecisionSelection,
@@ -80,24 +81,24 @@ def analyze_adc_comp_out_edge_eye(
         waveforms.append(wave)
         time_s = wave.time_s
         comp_v, comp_out_v = wave.signal_values
-        comp_low, comp_high = calc.percentile(comp_v, (5, 95))
-        out_low, out_high = calc.percentile(comp_out_v, (5, 95))
+        comp_low, comp_high = np.percentile(comp_v, (5, 95))
+        out_low, out_high = np.percentile(comp_out_v, (5, 95))
         if comp_high - comp_low < 0.05 or out_high - out_low < 0.05:
             raise ValueError(f"capture {capture_index} lacks a valid COMP or COMP_OUT swing")
         comp_level = float((comp_low + comp_high) / 2)
         out_level = float((out_low + out_high) / 2)
         clock_edges = calc.cross(comp_v, time_s, comp_level, edge="rising")
         clock_edges = clock_edges[clock_edges >= 0][:17]
-        if len(clock_edges) != 17 or np.any(np.abs(np.diff(clock_edges) - decision_period_s) > 0.2 * decision_period_s):
+        if len(clock_edges) != 17 or np.any(
+            np.abs(calc._period_jitter_edges(clock_edges, decision_period_s)) > 0.2 * decision_period_s
+        ):
             raise ValueError(f"capture {capture_index} does not contain one complete 17-decision conversion")
         clock_edges_s[capture_index] = clock_edges
+        jitter_s[capture_index] = calc._abs_jitter_edges(clock_edges, decision_period_s)
         rising_edges = calc.cross(comp_out_v, time_s, out_level, edge="rising")
         falling_edges = calc.cross(comp_out_v, time_s, out_level, edge="falling")
         output_edges = np.sort(np.r_[rising_edges, falling_edges])
         for decision, clock_edge in enumerate(clock_edges):
-            jitter_s[capture_index, decision] = (
-                clock_edge - clock_edges[0] - (edge_symbols[decision] - edge_symbols[0]) / symbol_rate_bps
-            )
             matching = output_edges[(output_edges >= clock_edge) & (output_edges < clock_edge + decision_period_s)]
             if len(matching) == 1:
                 rising = bool(np.any(rising_edges == matching[0]))
@@ -139,8 +140,8 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     time_s = msmt.wave.time_s
     comp_v = msmt.wave.seq_comp_v[0]
     comp_out_v = msmt.wave.comp_out_v[0]
-    comp_low_v, comp_high_v = calc.percentile(comp_v, (1.0, 99.0))
-    comp_out_low_v, comp_out_high_v = calc.percentile(comp_out_v, (1.0, 99.0))
+    comp_low_v, comp_high_v = np.percentile(comp_v, (1.0, 99.0))
+    comp_out_low_v, comp_out_high_v = np.percentile(comp_out_v, (1.0, 99.0))
     comp_threshold_v = float((comp_low_v + comp_high_v) / 2.0)
     comp_out_threshold_v = float((comp_out_low_v + comp_out_high_v) / 2.0)
     if comp_high_v - comp_low_v < 0.1:
@@ -260,7 +261,7 @@ def analyze_adc_dynamic(
         raise ValueError("sample_rate_hz must be finite and positive")
     if maximum_harmonic_order < 2:
         raise ValueError("maximum_harmonic_order must be at least two")
-    fit = calc.sine_fit(
+    fit = metrics.sine_fit(
         measured_dout,
         sample_rate=sample_rate_hz,
         frequency=input_frequency_hz,
@@ -362,7 +363,7 @@ def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> An
     if len(unique_inputs) < 3:
         raise ValueError("endpoint nonlinearity requires at least three input points")
     mean_dout = np.asarray([calc.average(decoded_dout[inverse == index]) for index in range(len(unique_inputs))])
-    transition_code, transition_input = calc.code_transitions(unique_inputs, mean_dout)
+    transition_code, transition_input = metrics.code_transitions(unique_inputs, mean_dout)
     if len(transition_input) < 2:
         raise ValueError("endpoint nonlinearity spans fewer than two code transitions")
     endpoint_lsb_v = float((transition_input[-1] - transition_input[0]) / (len(transition_input) - 1))
@@ -396,7 +397,7 @@ def _code_density_nonlinearity(
         raise ValueError(f"ADC measurement contains no codes in 0..{number_codes - 1}")
     counts = np.bincount(valid, minlength=number_codes)
     first_code, last_code = code_range or (1, number_codes - 2)
-    result = calc.code_density(counts, first_code=first_code, last_code=last_code)
+    result = metrics.code_density(counts, first_code=first_code, last_code=last_code)
     return AnalysisAdcNonlinearity(
         method="code_density",
         code=result["codes"],
@@ -530,7 +531,7 @@ def analyze_adc_ramp(
     if len(reset_conversion_index) < 2:
         raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
     reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = calc.linear_fit(reset_conversion_index, reset_number)
+    period_samples, first_reset_sample = metrics.linear_fit(reset_conversion_index, reset_number)
     if not math.isfinite(period_samples) or period_samples <= 1.0:
         raise ValueError("inferred ADC ramp period is invalid")
     reset_residual_samples = reset_conversion_index - (period_samples * reset_number + first_reset_sample)
@@ -558,7 +559,7 @@ def analyze_adc_ramp(
     curves = []
     for decoding, label, weights, decoded in decodings:
         counts = np.bincount(decoded[retained], minlength=number_codes).astype(np.int64)
-        density = calc.code_density(counts, first_code=first_code, last_code=last_code)
+        density = metrics.code_density(counts, first_code=first_code, last_code=last_code)
         transfer_sum = np.bincount(transfer_bin[retained], weights=decoded[retained], minlength=number_codes)
         transfer_mean_dout = transfer_sum[populated] / transfer_sample_count[populated]
         curves.append(
@@ -943,7 +944,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
                 )
             )
 
-    waveform_sample_interval_s = calc.median(np.diff(time_s))
+    waveform_sample_interval_s = np.median(np.diff(time_s))
     decision_period_s = min(
         next_comp_s - start_s
         for _record, _conversion, _bit, _cycle, start_s, _logic_s, next_comp_s, _stop_s in cycle_windows
@@ -1000,8 +1001,8 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         )
         if np.count_nonzero(settling_reference) < 2:
             raise ValueError(f"ADC CDAC stage C{stage_index} has fewer than two settled-reference samples")
-        p_static_v = calc.median(wave.voltage[AdcNets.vdac_p.name][record_index, settling_reference])
-        n_static_v = calc.median(wave.voltage[AdcNets.vdac_n.name][record_index, settling_reference])
+        p_static_v = np.median(wave.voltage[AdcNets.vdac_p.name][record_index, settling_reference])
+        n_static_v = np.median(wave.voltage[AdcNets.vdac_n.name][record_index, settling_reference])
         stage_indices.append(stage_index)
         cycle_indices.append(cycle_index)
         conversion_indices.append(conversion_index)
@@ -1291,7 +1292,7 @@ def _sequence_logic_timing(comp: str, logic: str) -> tuple[float, float]:
     ]
     if not delays:
         raise ValueError("sequence has no LOGIC rising edge between COMP decisions")
-    return calc.median(intervals), calc.median(delays)
+    return np.median(intervals), np.median(delays)
 
 
 def _adc_decision_times(
@@ -1396,14 +1397,14 @@ def analyze_adc_comparator_response(
                     target = 1 if final_p > final_n else -1
                     high, low = (latch_p, latch_n) if target > 0 else (latch_n, latch_p)
                     valid = (high[evaluation] >= midpoint) & (low[evaluation] <= midpoint)
-                    stable = calc.stable_since(time[evaluation], valid)
+                    stable = metrics.stable_since(time[evaluation], valid)
                     if np.isfinite(stable):
                         internal_delay = max(0.0, stable - start)
                     # Time the observed SR state even if the XC pair did not
                     # settle across the midpoint before COMP reset.
                     output = (time >= start) & (time < stop)
                     valid = sr_p[output] >= midpoint if target > 0 else sr_p[output] <= midpoint
-                    stable = calc.stable_since(time[output], valid)
+                    stable = metrics.stable_since(time[output], valid)
                     if np.isfinite(stable):
                         held = bool(np.all(valid))
                         if not held:
@@ -1499,7 +1500,7 @@ def analyze_adc_timing_closure(
             evaluation = (time >= start) & (time < reset)
             final_diff = float(internal[evaluation][-1]) if np.any(evaluation) else math.nan
             target = 1 if final_diff > 0 else -1
-            internal_stable = calc.stable_since(
+            internal_stable = metrics.stable_since(
                 time[evaluation], target * internal[evaluation] >= internal_differential_v
             )
             high, low = (sr_p, sr_n) if target > 0 else (sr_n, sr_p)
@@ -1514,7 +1515,7 @@ def analyze_adc_timing_closure(
                 and calc.value(high, time, logic_time) >= 0.7 * analog_supply
                 and calc.value(low, time, logic_time) <= 0.3 * analog_supply
             )
-            sr_stable = calc.stable_since(
+            sr_stable = metrics.stable_since(
                 np.r_[time[before_logic], logic_time], np.r_[sr_valid[before_logic], sr_matches]
             )
             cdac_stable = math.nan
@@ -1536,7 +1537,7 @@ def analyze_adc_timing_closure(
                         values = signals[f"{bottom_net.name}[{decision}]"][update]
                         bottom_target = (bool(state) ^ (diff and bool(params.dac_diffcaps))) * dac_supply
                         settled &= np.abs(values - bottom_target) <= cdac_tolerance_v
-                cdac_stable = calc.stable_since(time[update], settled)
+                cdac_stable = metrics.stable_since(time[update], settled)
             rows.append(
                 (
                     int(conversion),

@@ -169,7 +169,7 @@ def crop_adc_scope_conversion(
         reference = wave.seq_init_v[0]
     else:
         reference = wave.seq_comp_v[0]
-    low, high = calc.percentile(reference, (1, 99))
+    low, high = np.percentile(reference, (1, 99))
     if high - low < 0.1:
         raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
     edges = calc.cross(reference, wave.time_s, (low + high) / 2, edge="rising")

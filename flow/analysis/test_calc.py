@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 
 
@@ -113,6 +114,35 @@ def test_spectral_and_density_operations() -> None:
     assert calc.frequency(signal, np.arange(128) / sample_rate, threshold=0.0) == pytest.approx(8.0)
 
 
+def test_waveform_jitter_uses_crossings_and_mean_period_by_default() -> None:
+    axis = [-0.5, 0.5, 0.6, 1.4, 1.7, 2.7]
+    signal = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0]
+    np.testing.assert_allclose(calc.abs_jitter(signal, axis, threshold=0.0, nominal_period=1.0), [0.0, 0.0, 0.2])
+    np.testing.assert_allclose(calc.period_jitter(signal, axis, threshold=0.0), [-0.1, 0.1])
+    np.testing.assert_allclose(calc.period_jitter(signal, axis, threshold=0.0, nominal_period=1.0), [0.0, 0.2])
+
+
+def test_eye_diagram_folds_requested_interval_into_waveform() -> None:
+    axis = np.arange(0.0, 8.5, 0.5)
+    signal = 2 * axis
+    folded = calc.eyeDiagram(signal, 1.0, 7.0, 2.0, axis=axis)
+    np.testing.assert_allclose(folded[[0, 4, 6], 0], [0.0, 2.0, 0.0])
+    np.testing.assert_allclose(folded[[0, 4, 6], 1], [2.0, 6.0, 6.0])
+    assert np.isnan(folded[5]).all()
+    np.testing.assert_allclose(calc.eyeDiagram(np.arange(9.0), 1.0, 7.0, 2.0)[-1], [2.0, 7.0])
+
+
+def test_eye_segments_preserve_origin_identity_and_window_bounds() -> None:
+    axis = np.arange(0.0, 8.5, 0.5)
+    signal = 2 * axis
+    segments = calc._eye_segments(signal, axis, 2.0, 1.0, count=3, window=(0.0, 1.0))
+    assert [index for index, _ in segments] == [0, 1, 2]
+    np.testing.assert_allclose(segments[0][1], np.column_stack((np.arange(0.0, 1.25, 0.25), [2, 3, 4, 5, 6])))
+    np.testing.assert_allclose(segments[1][1][:, 0], segments[0][1][:, 0])
+    assert [index for index, _ in calc._eye_segments(signal, axis, 2.0, [1.0, 7.0], complete=True)] == [0]
+    assert calc._eye_segments(signal, axis, 2.0, [7.0], window=(0.0, 1.0), complete=True) == ()
+
+
 def test_dft_reports_one_sided_signal_amplitudes() -> None:
     frequency, amplitudes = calc.dft(np.full(8, 2.0), 1.0)
     assert frequency[0] == 0.0
@@ -128,14 +158,14 @@ def test_transfer_linearity_composes_from_calculator_operations() -> None:
     code = np.array([0.0, 1.0, 3.0, 4.0])
     transfer = np.array([0.0, 1.1, 3.0, 4.2])
     np.testing.assert_allclose(calc.deriv(transfer, code), [1.1, 0.95, 1.2])
-    counts, edges = calc.histogram([0.1, 0.9, 1.1, 1.9], bins=2, value_range=(0.0, 2.0))
+    counts, edges = np.histogram([0.1, 0.9, 1.1, 1.9], bins=2, range=(0.0, 2.0))
     np.testing.assert_array_equal(counts, [2, 2])
     np.testing.assert_allclose(edges, [0.0, 1.0, 2.0])
     np.testing.assert_allclose(calc.dnl([90, 100, 110], ideal_count=100), [-0.1, 0.0, 0.1])
     np.testing.assert_allclose(calc.inl([-0.1, 0.0, 0.1], endpoint_correct=False), [-0.1, -0.1, 0.0])
-    assert calc.linear_fit([1.0, 3.0, 5.0], [0.0, 1.0, 2.0]) == pytest.approx((2.0, 1.0))
-    assert calc.median([1.0, 2.0, 9.0]) == pytest.approx(2.0)
-    np.testing.assert_allclose(calc.percentile([0.0, 10.0], (25.0, 75.0)), [2.5, 7.5])
+    assert metrics.linear_fit([1.0, 3.0, 5.0], [0.0, 1.0, 2.0]) == pytest.approx((2.0, 1.0))
+    assert np.median([1.0, 2.0, 9.0]) == pytest.approx(2.0)
+    np.testing.assert_allclose(np.percentile([0.0, 10.0], (25.0, 75.0)), [2.5, 7.5])
     assert calc.xmin([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(1.0)
     assert calc.xmax([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(2.0)
 
@@ -144,7 +174,7 @@ def test_sine_fit_recovers_signal_with_frequency_error() -> None:
     sample_rate = 1000.0
     time_s = np.arange(1000) / sample_rate
     signal = 2.0 + 3.0 * np.sin(2.0 * np.pi * 41.25 * time_s + 0.4)
-    fit = calc.sine_fit(signal, sample_rate=sample_rate, frequency=41.0, frequency_search_fraction=0.02)
+    fit = metrics.sine_fit(signal, sample_rate=sample_rate, frequency=41.0, frequency_search_fraction=0.02)
     assert fit.frequency_hz == pytest.approx(41.25, abs=1e-5)
     assert fit.amplitude == pytest.approx(3.0, abs=1e-5)
     assert fit.phase_rad == pytest.approx(0.4, abs=1e-5)

@@ -534,7 +534,7 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             fitted_samples = fit_matrix @ fit_coefficients
             measured_vdiff_offset_v = float(fit_coefficients[0])
             measured_vdiff_vpp = float(2.0 * np.hypot(fit_coefficients[1], fit_coefficients[2]))
-            measured_residual_rms_v = float(np.sqrt(np.mean((samples - fitted_samples) ** 2)))
+            measured_residual_rms_v = calc.rms(samples - fitted_samples)
 
             plot_paths = plot_waveforms(
                 analyze_scope_waveforms(waveforms, SCOPE_TRACKS),

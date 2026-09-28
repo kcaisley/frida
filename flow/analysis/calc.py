@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any, NamedTuple, overload
+from typing import overload
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 from scipy.signal import welch
 from scipy.signal.windows import blackmanharris
 
@@ -121,6 +120,82 @@ def sample(
     return np.asarray(value(signal, axis, points, extrapolate=False)), points
 
 
+def eyeDiagram(
+    signal: Sequence[float] | np.ndarray,
+    start: float,
+    stop: float,
+    period: float,
+    *,
+    axis: Sequence[float] | np.ndarray | None = None,
+    trigger_period: float | None = None,
+) -> np.ndarray:
+    """Fold a waveform between start and stop into a two-column eye waveform.
+
+    The first column is phase in seconds and the second is signal value. NaN
+    rows separate periods for plotting. Without an axis, samples are one unit
+    apart.
+    """
+    values = np.asarray(signal, dtype=np.float64)
+    coordinates = np.arange(len(values), dtype=np.float64) if axis is None else axis
+    values, coordinates = _waveform(values, coordinates)
+    if not math.isfinite(start) or not math.isfinite(stop) or start >= stop:
+        raise ValueError("start and stop must be finite and ordered")
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("period must be finite and positive")
+    trigger_period = period if trigger_period is None else trigger_period
+    if not math.isfinite(trigger_period) or trigger_period <= 0:
+        raise ValueError("trigger_period must be finite and positive")
+    selected = (coordinates >= start) & (coordinates <= stop)
+    values, coordinates = values[selected], coordinates[selected]
+    if not len(values):
+        return np.empty((0, 2), dtype=np.float64)
+    origins = np.arange(start, stop, trigger_period)
+    segments = _eye_segments(values, coordinates, period, origins, window=(0.0, 1.0))
+    if not segments:
+        return np.empty((0, 2), dtype=np.float64)
+    separator = np.full((1, 2), np.nan)
+    return np.vstack([part for _, segment in segments for part in (segment * (period, 1.0), separator)][:-1])
+
+
+def _eye_segments(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    period: float,
+    origins: float | Sequence[float] | np.ndarray,
+    *,
+    window: tuple[float, float] = (-0.2, 1.2),
+    count: int | None = None,
+    complete: bool = False,
+    include_stop: bool = True,
+) -> tuple[tuple[int, np.ndarray], ...]:
+    """Return indexed phase/value windows around explicit edge origins."""
+    signal, axis = _waveform(signal, axis)
+    if not len(axis):
+        raise ValueError("eye segments require at least one sample")
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("period must be finite and positive")
+    if not all(math.isfinite(bound) for bound in window) or window[0] >= window[1]:
+        raise ValueError("window bounds must be finite and ordered")
+    starts = np.asarray(origins, dtype=np.float64)
+    if starts.ndim == 0:
+        if count is not None and count < 1:
+            raise ValueError("count must be positive")
+        starts = float(starts) + np.arange(1 if count is None else count) * period
+    elif starts.ndim != 1 or count is not None:
+        raise ValueError("array origins must be one-dimensional and cannot use count")
+    if not np.all(np.isfinite(starts)):
+        raise ValueError("origins must be finite")
+    segments = []
+    for index, origin in enumerate(starts):
+        first, last = origin + window[0] * period, origin + window[1] * period
+        if complete and (first < axis[0] or last > axis[-1]):
+            continue
+        selected = (axis >= first) & ((axis <= last) if include_stop else (axis < last))
+        if np.any(selected):
+            segments.append((index, np.column_stack(((axis[selected] - origin) / period, signal[selected]))))
+    return tuple(segments)
+
+
 def integ(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
     """Integrate a sampled waveform with trapezoidal interpolation."""
     signal, axis = _waveform(signal, axis)
@@ -205,115 +280,6 @@ def histogram2D(
     return np.histogram2d(x, y, bins=bins)
 
 
-def histogram(
-    signal: Sequence[float] | np.ndarray,
-    *,
-    bins: int | Sequence[float] | np.ndarray,
-    value_range: tuple[float, float] | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Count samples in one-dimensional bins."""
-    return np.histogram(signal, bins=bins, range=value_range)
-
-
-def median(signal: Sequence[float] | np.ndarray) -> float:
-    """Return the median of a one-dimensional set of samples."""
-    return float(np.median(np.asarray(signal, dtype=np.float64)))
-
-
-@overload
-def percentile(signal: Sequence[float] | np.ndarray, percent: float) -> float: ...
-
-
-@overload
-def percentile(signal: Sequence[float] | np.ndarray, percent: Sequence[float] | np.ndarray) -> np.ndarray: ...
-
-
-def percentile(
-    signal: Sequence[float] | np.ndarray, percent: float | Sequence[float] | np.ndarray
-) -> float | np.ndarray:
-    """Return interpolated percentiles of a one-dimensional set of samples."""
-    result = np.percentile(np.asarray(signal, dtype=np.float64), percent)
-    return float(result) if np.ndim(percent) == 0 else np.asarray(result)
-
-
-def linear_fit(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> tuple[float, float]:
-    """Return the least-squares slope and intercept of a sampled signal."""
-    signal, axis = _waveform(signal, axis)
-    if len(signal) < 2:
-        raise ValueError("linear fit requires at least two samples")
-    slope, intercept = np.linalg.lstsq(np.column_stack((axis, np.ones(len(axis)))), signal, rcond=None)[0]
-    return float(slope), float(intercept)
-
-
-class SineFit(NamedTuple):
-    """Least-squares sinusoid parameters and aligned waveform samples."""
-
-    frequency_hz: float
-    amplitude: float
-    phase_rad: float
-    offset: float
-    residual_rms: float
-    time_s: np.ndarray
-    fitted: np.ndarray
-    residual: np.ndarray
-
-
-def sine_fit(
-    signal: Sequence[float] | np.ndarray,
-    *,
-    sample_rate: float,
-    frequency: float,
-    frequency_search_fraction: float = 0.0,
-) -> SineFit:
-    """Fit a sine, cosine, and offset at a known or nearby frequency."""
-    signal = np.asarray(signal, dtype=np.float64)
-    if signal.ndim != 1 or len(signal) < 8 or not np.all(np.isfinite(signal)):
-        raise ValueError("sine fit requires at least eight finite one-dimensional samples")
-    if not math.isfinite(sample_rate) or sample_rate <= 0:
-        raise ValueError("sample_rate must be finite and positive")
-    if not math.isfinite(frequency) or not 0 < frequency < sample_rate / 2:
-        raise ValueError("frequency must be finite and between zero and Nyquist")
-    if not math.isfinite(frequency_search_fraction) or not 0 <= frequency_search_fraction < 1:
-        raise ValueError("frequency_search_fraction must be finite and in [0, 1)")
-    time_s = np.arange(signal.size, dtype=np.float64) / sample_rate
-    ones = np.ones(signal.size, dtype=np.float64)
-
-    def fit_at_frequency(frequency_hz: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        phase = 2.0 * np.pi * frequency_hz * time_s
-        design = np.column_stack((np.sin(phase), np.cos(phase), ones))
-        coefficients = np.linalg.lstsq(design, signal, rcond=None)[0]
-        fitted = design @ coefficients
-        residual = signal - fitted
-        return coefficients, fitted, residual, average(residual * residual)
-
-    if frequency_search_fraction:
-        maximum_offset_hz = min(frequency * frequency_search_fraction, 0.45 * sample_rate / signal.size)
-        lower_hz = max(np.nextafter(0.0, 1.0), frequency - maximum_offset_hz)
-        upper_hz = min(np.nextafter(sample_rate / 2.0, 0.0), frequency + maximum_offset_hz)
-        result = minimize_scalar(
-            lambda frequency_hz: fit_at_frequency(float(frequency_hz))[3],
-            bounds=(lower_hz, upper_hz),
-            method="bounded",
-            options={"xatol": max(1e-9, frequency * 1e-10)},
-        )
-        if not result.success:
-            raise RuntimeError(f"sine frequency fit failed: {result.message}")
-        frequency = float(result.x)
-
-    coefficients, fitted, residual, residual_power = fit_at_frequency(frequency)
-    sine_coefficient, cosine_coefficient, offset = (float(value) for value in coefficients)
-    return SineFit(
-        frequency_hz=frequency,
-        amplitude=math.hypot(sine_coefficient, cosine_coefficient),
-        phase_rad=math.atan2(cosine_coefficient, sine_coefficient),
-        offset=offset,
-        residual_rms=math.sqrt(residual_power),
-        time_s=time_s,
-        fitted=fitted,
-        residual=residual,
-    )
-
-
 def rmsNoise(density: Sequence[float] | np.ndarray, frequency: Sequence[float] | np.ndarray) -> float:
     """Integrate amplitude noise density over frequency and return RMS noise."""
     return math.sqrt(integ(np.square(np.asarray(density, dtype=np.float64)), frequency))
@@ -386,6 +352,74 @@ def frequency(
     if len(crossings) < 2:
         return math.nan
     return float((len(crossings) - 1) / (crossings[-1] - crossings[0]))
+
+
+def _edge_times(edges: Sequence[float] | np.ndarray) -> np.ndarray:
+    values = np.asarray(edges, dtype=np.float64)
+    if values.ndim != 1 or not np.all(np.isfinite(values)) or np.any(np.diff(values) <= 0):
+        raise ValueError("edge times must be a finite strictly increasing one-dimensional array")
+    return values
+
+
+def _abs_jitter_edges(
+    edges: Sequence[float] | np.ndarray, nominal_period: float, *, zero_ref: float | None = None
+) -> np.ndarray:
+    edges = _edge_times(edges)
+    if not math.isfinite(nominal_period) or nominal_period <= 0:
+        raise ValueError("nominal_period must be finite and positive")
+    if not len(edges):
+        return edges.copy()
+    origin = edges[0] if zero_ref is None else zero_ref
+    if not math.isfinite(origin):
+        raise ValueError("zero_ref must be finite")
+    return edges - origin - np.arange(len(edges)) * nominal_period
+
+
+def _period_jitter_edges(edges: Sequence[float] | np.ndarray, nominal_period: float | None = None) -> np.ndarray:
+    edges = _edge_times(edges)
+    if nominal_period is not None and (not math.isfinite(nominal_period) or nominal_period <= 0):
+        raise ValueError("nominal_period must be finite and positive")
+    if len(edges) < 2:
+        return np.empty(0, dtype=np.float64)
+    period = float((edges[-1] - edges[0]) / (len(edges) - 1)) if nominal_period is None else nominal_period
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("nominal_period must be finite and positive")
+    return np.diff(edges) - period
+
+
+def abs_jitter(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    *,
+    threshold: float | None = None,
+    edge: str = "rising",
+    nominal_period: float | None = None,
+    zero_ref: float | None = None,
+) -> np.ndarray:
+    """Return absolute crossing-time jitter against a periodic reference."""
+    signal, axis = _waveform(signal, axis)
+    if threshold is None:
+        threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
+    edges = cross(signal, axis, threshold, edge=edge)
+    if len(edges) < 2 and nominal_period is None:
+        return np.empty(0, dtype=np.float64)
+    period = float((edges[-1] - edges[0]) / (len(edges) - 1)) if nominal_period is None else nominal_period
+    return _abs_jitter_edges(edges, period, zero_ref=zero_ref)
+
+
+def period_jitter(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    *,
+    threshold: float | None = None,
+    edge: str = "rising",
+    nominal_period: float | None = None,
+) -> np.ndarray:
+    """Return crossing intervals minus their mean or an explicit period."""
+    signal, axis = _waveform(signal, axis)
+    if threshold is None:
+        threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
+    return _period_jitter_edges(cross(signal, axis, threshold, edge=edge), nominal_period)
 
 
 def dnl(counts: Sequence[int] | np.ndarray, *, ideal_count: float | None = None) -> np.ndarray:
@@ -552,18 +586,6 @@ def settlingTime(
     return float(axis[first - 1] + fraction * (axis[first] - axis[first - 1]))
 
 
-def stable_since(axis: Sequence[float] | np.ndarray, valid: Sequence[bool] | np.ndarray) -> float:
-    """Return the first sample of the last uninterrupted valid interval."""
-    coordinates = np.asarray(axis, dtype=np.float64)
-    mask = np.asarray(valid, dtype=np.bool_)
-    if coordinates.ndim != 1 or mask.ndim != 1 or len(coordinates) != len(mask):
-        raise ValueError("validity mask and axis must be aligned one-dimensional arrays")
-    if len(coordinates) < 2 or not mask[-1]:
-        return math.nan
-    invalid = np.flatnonzero(~mask)
-    return float(coordinates[invalid[-1] + 1] if len(invalid) else coordinates[0])
-
-
 def delay(
     trigger: Sequence[float] | np.ndarray,
     response: Sequence[float] | np.ndarray,
@@ -592,61 +614,6 @@ def delay(
         return trigger_time, math.nan, math.nan
     response_time = float(following[0])
     return trigger_time, response_time, response_time - trigger_time
-
-
-def code_density(
-    counts: Sequence[int] | np.ndarray,
-    *,
-    first_code: int = 1,
-    last_code: int | None = None,
-) -> dict[str, Any]:
-    """Calculate code-density DNL and endpoint-corrected INL."""
-
-    counts = np.asarray(counts, dtype=np.int64)
-    if counts.ndim != 1 or not len(counts):
-        raise ValueError("histogram counts must be a non-empty one-dimensional array")
-    last_code = len(counts) - 2 if last_code is None else last_code
-    if not 0 <= first_code <= last_code < len(counts):
-        raise ValueError(f"code range must fit within 0..{len(counts) - 1}")
-    codes = np.arange(first_code, last_code + 1, dtype=np.int64)
-    active_counts = counts[first_code : last_code + 1]
-    ideal_count = average(active_counts)
-    dnl_values = dnl(active_counts, ideal_count=ideal_count)
-    inl_values = inl(dnl_values)
-    return {
-        "codes": codes,
-        "counts": active_counts,
-        "ideal_count": ideal_count,
-        "dnl": dnl_values,
-        "inl": inl_values,
-        "missing_codes": int(np.count_nonzero(active_counts == 0)),
-    }
-
-
-def code_transitions(
-    inputs: Sequence[float] | np.ndarray,
-    outputs: Sequence[float] | np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Interpolate input coordinates at each half-code transition."""
-
-    inputs = np.asarray(inputs, dtype=np.float64)
-    outputs = np.asarray(outputs, dtype=np.float64)
-    if inputs.ndim != 1 or outputs.ndim != 1 or len(inputs) != len(outputs):
-        raise ValueError("transition inputs and outputs must be aligned")
-    if len(inputs) < 2:
-        return np.asarray([], dtype=np.int64), np.asarray([], dtype=np.float64)
-    order = np.argsort(inputs)
-    inputs = inputs[order]
-    outputs = outputs[order]
-    direction = 1.0 if outputs[-1] >= outputs[0] else -1.0
-    increasing = direction * outputs
-    if np.any(np.diff(increasing) < 0):
-        raise ValueError("code transition extraction requires a monotonic transfer")
-    first = math.ceil(increasing[0] - 0.5)
-    last = math.floor(increasing[-1] - 0.5)
-    codes = np.arange(first, last + 1, dtype=np.int64)
-    transitions = np.interp(codes + 0.5, increasing, inputs)
-    return np.asarray(direction * codes, dtype=np.int64), transitions
 
 
 def spectrumMeas(

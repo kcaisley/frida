@@ -456,7 +456,7 @@ class SAR_ADC:
         # ADC data array - results now in structured output
 
         # calculate code density histogram
-        code_density_hist, bin_edges = calc.histogram(adc_data, bins=num_codes, value_range=(min_code, max_code))
+        code_density_hist, bin_edges = np.histogram(adc_data, bins=num_codes, range=(min_code, max_code))
         code_density_hist = code_density_hist[lower_index_boundary:upper_index_boundary]
         bin_edges = bin_edges[lower_index_boundary:upper_index_boundary]
         average_bin_count = calc.average(code_density_hist)
