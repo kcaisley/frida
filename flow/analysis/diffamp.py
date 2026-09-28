@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from scipy.signal import welch
 
+from flow.analysis import calc
 from flow.analysis.types import AnalysisDiffampNoise
 
 
@@ -29,19 +29,15 @@ def analyze_diffamp_noise(
     if not math.isfinite(measurement_bandwidth_hz) or not 0.0 < measurement_bandwidth_hz <= nyquist_hz:
         raise ValueError("measurement bandwidth must be finite, positive, and no greater than Nyquist")
 
-    mean_v = float(np.mean(samples))
+    mean_v = calc.average(samples)
     centered_v = samples - mean_v
     sample_rate_hz = 1.0 / sample_interval_s
     segment_length = min(262_144, len(centered_v))
-    frequency_hz, power_spectral_density_v2_per_hz = welch(
+    frequency_hz, power_spectral_density_v2_per_hz = calc.psd(
         centered_v,
-        fs=sample_rate_hz,
+        sample_rate=sample_rate_hz,
         window="hann",
-        nperseg=segment_length,
-        noverlap=segment_length // 2,
-        detrend=False,
-        return_onesided=True,
-        scaling="density",
+        segment_length=segment_length,
     )
     density = np.sqrt(np.maximum(power_spectral_density_v2_per_hz, 0.0))
     return AnalysisDiffampNoise(

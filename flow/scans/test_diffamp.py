@@ -35,7 +35,7 @@ import numpy as np
 import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
-from flow.analysis.measure import find_crossings
+from flow.analysis import calc
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
@@ -500,11 +500,11 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
                 )
 
-            raw_crossings = find_crossings(
+            raw_crossings = calc.cross(
                 samples,
                 times,
                 crossing_level_v,
-                rising=True,
+                edge="rising",
             )
             minimum_crossing_separation_s = 0.75 / AWG_FREQUENCY_HZ
             rising_crossings = []

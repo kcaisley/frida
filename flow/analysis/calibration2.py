@@ -26,6 +26,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import lsq_linear
 
+from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 
@@ -350,8 +351,8 @@ def fit_empirical_bout_calibration(
         design_rank=design_rank,
         design_condition=design_condition,
         solver_cost=float(fit.cost),
-        training_rmse_lsb=float(np.sqrt(np.mean(np.square(training_error)))),
-        validation_rmse_lsb=float(np.sqrt(np.mean(np.square(validation_error)))),
+        training_rmse_lsb=calc.rms(training_error),
+        validation_rmse_lsb=calc.rms(validation_error),
         training_maximum_abs_error_lsb=float(np.max(np.abs(training_error))),
         validation_maximum_abs_error_lsb=float(np.max(np.abs(validation_error))),
     )

@@ -25,7 +25,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
-from flow.analysis.measure import find_crossings
+from flow.analysis import calc
 from flow.analysis.types import (
     AnalysisAdcCalibration,
     AnalysisAdcCdacSettling,
@@ -274,7 +274,7 @@ def style_measurement_group_text(msmt_list: Sequence[Measurement]) -> tuple[str,
 
 def style_time_units(time_s: np.ndarray) -> tuple[float, str]:
     # rcParams cannot choose a readable unit from the plotted data extent.
-    maximum = float(np.max(np.abs(time_s)))
+    maximum = float(calc.ymax(np.abs(time_s)))
     if maximum < 1e-9:
         return 1e12, "ps"
     if maximum < 1e-6:
@@ -409,11 +409,11 @@ def plot_adc_comparator_edge_eye(
 
     for record in range(len(wave.conversion_index)):
         signals = {name: wave.voltage[name][record] for name in required}
-        init_edges = find_crossings(signals["seq_init"], time, threshold, rising=True, initial_high=True)
+        init_edges = calc.cross(signals["seq_init"], time, threshold, edge="rising", initial_high=True)
         if not len(init_edges):
             raise ValueError(f"conversion {record} has no INIT rise")
         stop = init_edges[1] if len(init_edges) > 1 else time[-1]
-        clock_edges = find_crossings(signals["clk_comp"], time, threshold, rising=True)
+        clock_edges = calc.cross(signals["clk_comp"], time, threshold, edge="rising")
         clock_edges = clock_edges[(clock_edges >= init_edges[0]) & (clock_edges < stop)]
         if len(clock_edges) != 17:
             raise ValueError(f"conversion {record} has {len(clock_edges)} COMP rises; expected 17")
@@ -715,7 +715,7 @@ def plot_serdes_output_word_grid(
                 low_v, high_v = np.percentile(voltage_v, (5, 95))
                 if high_v - low_v < 0.05:
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
-                rises = find_crossings(voltage_v, time_s, float((low_v + high_v) / 2), rising=True)
+                rises = calc.cross(voltage_v, time_s, float((low_v + high_v) / 2), edge="rising")
                 if not len(rises):
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no rise")
                 origin_s = float(rises[np.argmin(np.abs(rises))])
@@ -797,8 +797,8 @@ def plot_serdes_symbol_eye_grid(
             output_low, output_high = np.percentile(output_v, (5, 95))
             if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a valid swing")
-            marker_edges = find_crossings(marker_v, time_s, float((marker_low + marker_high) / 2), rising=True)
-            output_edges = find_crossings(output_v, time_s, float((output_low + output_high) / 2), rising=True)
+            marker_edges = calc.cross(marker_v, time_s, float((marker_low + marker_high) / 2), edge="rising")
+            output_edges = calc.cross(output_v, time_s, float((output_low + output_high) / 2), edge="rising")
             if not len(marker_edges) or not len(output_edges):
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a trigger or output rise")
             marker_origin_s = float(marker_edges[np.argmin(np.abs(marker_edges))])
@@ -820,7 +820,7 @@ def plot_serdes_symbol_eye_grid(
                 voltage = output_v[selected]
                 phases.append(phase)
                 voltages.append(voltage)
-                center_v = float(np.interp(0.5, phase, voltage))
+                center_v = calc.value(voltage, phase, 0.5)
                 (high_centers if bit == "1" else low_centers).append(center_v)
                 folded_symbols += 1
         if not phases or not high_centers or not low_centers:
@@ -1088,7 +1088,7 @@ def plot_adc_ramp_histogram(
     bin_edges = np.linspace(first_code, last_code, number_bins + 1, dtype=np.int64)
     bin_edges = np.unique(bin_edges)
     for curve, color in zip(analysis.curves, CURVE_COLORS, strict=False):
-        average_count = np.asarray([np.mean(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
+        average_count = np.asarray([calc.average(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
         ax.stairs(
             average_count,
             bin_edges,
@@ -1281,8 +1281,8 @@ def plot_adc_sampling_noise(
 
     if not analyses or len(analyses) != len(labels):
         raise ValueError("sampling noise requires one label per analysis")
-    errors_uv = [(item.held_diff_v - np.mean(item.held_diff_v)) * 1e6 for item in analyses]
-    limit_uv = max(25.0, np.ceil(max(np.max(np.abs(values)) for values in errors_uv) / 25.0) * 25.0)
+    errors_uv = [(item.held_diff_v - calc.average(item.held_diff_v)) * 1e6 for item in analyses]
+    limit_uv = max(25.0, np.ceil(max(calc.ymax(np.abs(values)) for values in errors_uv) / 25.0) * 25.0)
     bins_uv = np.arange(-limit_uv, limit_uv + 25.0, 25.0)
     columns = min(4, len(analyses))
     rows = (len(analyses) + columns - 1) // columns
@@ -1400,7 +1400,7 @@ def plot_adc_noise_sweep(
         selected_noise_lsb = noise_rms_lsb[selected][order]
         if label == "Input stimulus noise":
             ax.hlines(
-                float(np.mean(selected_noise_lsb)),
+                calc.average(selected_noise_lsb),
                 float(selected_rate[0]),
                 float(selected_rate[-1]),
                 color=color,
@@ -1419,7 +1419,7 @@ def plot_adc_noise_sweep(
     ax.set_ylabel("Input-referred noise (LSB RMS)")
     ax.invert_yaxis()
     visible_noise = noise_rms_lsb[analysis.noise_valid]
-    ax.set_ylim(max(9.0, float(np.max(visible_noise)) * 1.05) if len(visible_noise) else 9.0, 0.0)
+    ax.set_ylim(max(9.0, float(calc.ymax(visible_noise)) * 1.05) if len(visible_noise) else 9.0, 0.0)
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xlim(0.0, 10.25)
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
@@ -1544,12 +1544,12 @@ def plot_adc_noise_distribution_sweep(
     visible_counts = counts[:, first_code : last_code + 1]
 
     fig, ax = plt.subplots()
-    maximum_count = int(np.max(visible_counts))
+    maximum_count = int(calc.ymax(visible_counts))
     histogram_scale = int(np.ceil(maximum_count / 10_000.0) * 10_000)
     if len(np.unique(rates_msps)) == 1:
         maximum_width_msps = 0.2
     else:
-        maximum_width_msps = min(0.2, 0.8 * float(np.min(np.diff(np.unique(rates_msps)))))
+        maximum_width_msps = min(0.2, 0.8 * float(calc.ymin(np.diff(np.unique(rates_msps)))))
     for rate_msps, histogram in zip(rates_msps, visible_counts, strict=True):
         populated_codes = histogram > 0
         widths = maximum_width_msps * histogram[populated_codes] / histogram_scale
@@ -1668,7 +1668,7 @@ def plot_adc_sequence_enob(
     sequence_index = np.arange(1, len(enob_bits) + 1)
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=(12.0, 7.0))
     finite_enob = enob_bits[np.isfinite(enob_bits)]
-    constant_marker_y = max(12.0, float(np.max(finite_enob)) + 0.5) if len(finite_enob) else 12.0
+    constant_marker_y = max(12.0, float(calc.ymax(finite_enob)) + 0.5) if len(finite_enob) else 12.0
     for rate_index, baud_mbd in enumerate(baud_rates_mbd):
         good = reliable[:, rate_index] & np.isfinite(enob_bits[:, rate_index])
         (line,) = axes[0].plot(
@@ -1771,7 +1771,7 @@ def plot_adc_noise_distribution_grid(
 
     means = np.concatenate(tuple(analysis.mean_dout for analysis in analyses))
     y_span_lsb = 90.0
-    y_center_lsb = 5.0 * np.round((float(np.min(means)) + float(np.max(means))) / 10.0)
+    y_center_lsb = 5.0 * np.round((float(calc.ymin(means)) + float(calc.ymax(means))) / 10.0)
     y_limits = (y_center_lsb - y_span_lsb / 2.0, y_center_lsb + y_span_lsb / 2.0)
     all_measurements = tuple(measurement for group in msmt_groups for measurement in group)
     shared_setup_lines = style_measurement_group_text(all_measurements)
@@ -1783,7 +1783,7 @@ def plot_adc_noise_distribution_grid(
     if len(campaign_sample_counts) == 1:
         sample_count_text = f"{int(campaign_sample_counts[0]):.3g}"
     else:
-        sample_count_text = f"{int(np.min(campaign_sample_counts)):.3g}-{int(np.max(campaign_sample_counts)):.3g}"
+        sample_count_text = f"{int(calc.ymin(campaign_sample_counts)):.3g}-{int(calc.ymax(campaign_sample_counts)):.3g}"
     system_info_lines = (
         f"ADCs: {min(groups_by_adc):02d}-{max(groups_by_adc):02d}",
         *shared_setup_lines,
@@ -1791,7 +1791,7 @@ def plot_adc_noise_distribution_grid(
         f"N: {sample_count_text}",
     )
     system_info_text = "\n".join(system_info_lines)
-    maximum_sample_count = max(int(np.max(analysis.sample_count)) for analysis in analyses)
+    maximum_sample_count = max(int(calc.ymax(analysis.sample_count)) for analysis in analyses)
     density_norm = LogNorm(vmin=1, vmax=max(2, maximum_sample_count))
     maximum_width_msps = 2.0
 
@@ -1824,7 +1824,7 @@ def plot_adc_noise_distribution_grid(
         ):
             populated = histogram > 0
             fractions = histogram[populated] / sample_count
-            peak_fraction_per_lsb = float(np.max(fractions))
+            peak_fraction_per_lsb = float(calc.ymax(fractions))
             widths = maximum_width_msps * fractions / peak_fraction_per_lsb
             ax.barh(
                 analysis.code[populated],
@@ -1887,7 +1887,7 @@ def plot_adc_noise_distribution_grid(
             zorder=4,
         )
         ax.plot(mean_curve_x, means, color=NORD_ORANGE, linestyle=":", zorder=5)
-        summary_location = "lower left" if float(np.mean(means)) > float(np.mean(y_limits)) else "upper left"
+        summary_location = "lower left" if calc.average(means) > calc.average(y_limits) else "upper left"
         dispersion_range_text = (
             "σ:"
             f"{style_adc_code_dispersion_lsb(float(standard_deviations[0]), single_code=np.count_nonzero(counts[0]) == 1)}→"
@@ -2092,11 +2092,11 @@ def plot_adc_power_sweep(
     ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
     ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
-    ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
-    if np.max(rate_msps) >= 1.0:
-        ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
-    ax.set_xticks(np.arange(0.0, float(np.max(rate_msps)) + 0.251, 0.25), minor=True)
-    ax.set_ylim(0.0, max(float(np.max(total_power_uw)) * 1.25, 1.0))
+    ax.set_xlim(0.0, float(calc.ymax(rate_msps)) + 0.25)
+    if calc.ymax(rate_msps) >= 1.0:
+        ax.set_xticks(np.arange(1.0, np.floor(calc.ymax(rate_msps)) + 1.0))
+    ax.set_xticks(np.arange(0.0, float(calc.ymax(rate_msps)) + 0.251, 0.25), minor=True)
+    ax.set_ylim(0.0, max(float(calc.ymax(total_power_uw)) * 1.25, 1.0))
     style_grid(ax)
     ax.legend()
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower right")
@@ -2341,7 +2341,7 @@ def plot_adc_decision_path_density(
         # voltage. Hold each estimate through its decision interval and jump
         # to the next value exactly at the following integer cycle.
         held = np.repeat(path_chunk, substeps_per_decision, axis=1)
-        path_count, _, _ = np.histogram2d(
+        path_count, _, _ = calc.histogram2D(
             np.broadcast_to(fine_cycles, held.shape).ravel(),
             held.ravel(),
             bins=(cycle_edges, code_edges),
@@ -2398,9 +2398,9 @@ def plot_adc_decision_path_density(
 
     density_norm = LogNorm(vmin=1, vmax=max(2, len(paths)))
 
-    final_mean_code = int(np.rint(np.mean(analysis.final_dout)))
-    populated_min = int(np.floor(np.min(analysis.estimate_dout) + 0.5))
-    populated_max = int(np.floor(np.max(analysis.estimate_dout) + 0.5))
+    final_mean_code = int(np.rint(calc.average(analysis.final_dout)))
+    populated_min = int(np.floor(calc.ymin(analysis.estimate_dout) + 0.5))
+    populated_max = int(np.floor(calc.ymax(analysis.estimate_dout) + 0.5))
     # Keep rare final-code branches visible outside the usual 51-LSB zoom.
     y_limits = (
         (
@@ -2408,8 +2408,8 @@ def plot_adc_decision_path_density(
             min(normalized_code_max + 0.5, populated_max + 8.5),
         ),
         (
-            max(-0.5, min(final_mean_code - 25.5, float(np.min(paths[:, -1])) - 2.5)),
-            min(normalized_code_max + 0.5, max(final_mean_code + 25.5, float(np.max(paths[:, -1])) + 2.5)),
+            max(-0.5, min(final_mean_code - 25.5, float(calc.ymin(paths[:, -1])) - 2.5)),
+            min(normalized_code_max + 0.5, max(final_mean_code + 25.5, float(calc.ymax(paths[:, -1])) + 2.5)),
         ),
     )
 
@@ -2481,8 +2481,8 @@ def plot_adc_decision_path_density(
         rasterized=True,
         zorder=2,
     )
-    final_mean = float(np.mean(paths[:, -1]))
-    final_std = float(np.std(paths[:, -1]))
+    final_mean = calc.average(paths[:, -1])
+    final_std = calc.stddev(paths[:, -1])
     if final_std > 0.0:
         fit_code = np.linspace(*y_limits[1], 501)
         fit_fraction_per_lsb = np.exp(-0.5 * ((fit_code - final_mean) / final_std) ** 2) / (
@@ -2596,8 +2596,8 @@ def plot_comp_sampling_campaign(
                 zorder=2,
             )
             fit_input_v = np.linspace(
-                float(np.min(analysis.vin_diff_v)),
-                float(np.max(analysis.vin_diff_v)),
+                float(calc.ymin(analysis.vin_diff_v)),
+                float(calc.ymax(analysis.vin_diff_v)),
                 1001,
             )
             fit_probability = ndtr(
@@ -2712,8 +2712,8 @@ def plot_comp_common_mode_campaign(
         )
         if valid_fit:
             fit_input_v = np.linspace(
-                float(np.min(analysis.vin_diff_v)),
-                float(np.max(analysis.vin_diff_v)),
+                float(calc.ymin(analysis.vin_diff_v)),
+                float(calc.ymax(analysis.vin_diff_v)),
                 1001,
             )
             fit_probability = ndtr(
@@ -3050,8 +3050,8 @@ def plot_comp_noise_power_tradeoff(
     resolved = analysis.unresolved_fraction == 0.0
     selected = valid_scurve & finite_positive & resolved
     selected_settling_ns = settling_ns[selected]
-    color_min = float(np.min(selected_settling_ns))
-    color_max = float(np.max(selected_settling_ns))
+    color_min = float(calc.ymin(selected_settling_ns))
+    color_max = float(calc.ymax(selected_settling_ns))
     if np.isclose(color_min, color_max):
         color_max = color_min + 1.0
     color_norm = Normalize(vmin=color_min, vmax=color_max)

@@ -17,6 +17,7 @@ import h5py
 import numpy as np
 from hdl21.prefix import Prefix, Prefixed
 
+from flow.analysis import calc
 from flow.analysis.types import (
     MEASUREMENT_TYPES,
     AdcDaq,
@@ -389,5 +390,5 @@ def interpolate_wave_records(
             raise ValueError(f"waveform window {(start, stop)} lies outside source time")
         sample_times = start + relative_time
         for name, values in normalized_signals.items():
-            records[name].append(np.interp(sample_times, source_time, values))
+            records[name].append(calc.value(values, source_time, sample_times))
     return relative_time, {name: np.stack(values) for name, values in records.items()}

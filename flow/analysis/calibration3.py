@@ -27,8 +27,8 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import log_ndtr, ndtr
 
+from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
-from flow.analysis.measure import histogram_inl_dnl
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 from flow.caparray import get_caparray_weights
 
@@ -315,7 +315,7 @@ def _code_density(
     decoded = np.rint(decisions[retained].astype(np.float64) @ weights).astype(np.int64)
     decoded = np.clip(decoded, 0, code_max)
     counts = np.bincount(decoded, minlength=code_max + 1)
-    return histogram_inl_dnl(counts, first_code=1, last_code=code_max - 1)
+    return calc.code_density(counts, first_code=1, last_code=code_max - 1)
 
 
 def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:

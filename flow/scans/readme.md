@@ -129,7 +129,7 @@ These functions are not Basil APIs. They implement design-specific packing, tran
 | `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics. |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
-| `find_crossings()` | `flow/analysis/measure.py` | Interpolate waveform threshold crossings directly from signal and time arrays; this is generic analysis, not scope control. |
+| `calc.cross()` | `flow/analysis/calc.py` | Interpolate waveform threshold crossings directly from signal and time arrays; this is generic analysis, not scope control. |
 
 The shared `program_comp_delay()` transaction verifies the two-stage ABI and ready flag, loads both counters, clears the load strobe, and checks the actual counter sum. Acquisition stop/start ordering remains visible in each scan.
 

@@ -11,15 +11,10 @@ import hdl21 as h
 import numpy as np
 from basil.HL.tektronix_oscilloscope import CapturedWaveform
 from scipy.optimize import minimize_scalar
-from scipy.signal.windows import blackmanharris
 
 from flow.adc.sequences import AdcSequence
 from flow.adc.subckt import AdcNets
-from flow.analysis.measure import (
-    find_code_transitions,
-    find_crossings,
-    histogram_inl_dnl,
-)
+from flow.analysis import calc
 from flow.analysis.types import (
     AdcDecisionSelection,
     AdcDecoding,
@@ -92,13 +87,13 @@ def analyze_adc_comp_out_edge_eye(
             raise ValueError(f"capture {capture_index} lacks a valid COMP or COMP_OUT swing")
         comp_level = float((comp_low + comp_high) / 2)
         out_level = float((out_low + out_high) / 2)
-        clock_edges = find_crossings(comp_v, time_s, comp_level, rising=True)
+        clock_edges = calc.cross(comp_v, time_s, comp_level, edge="rising")
         clock_edges = clock_edges[clock_edges >= 0][:17]
         if len(clock_edges) != 17 or np.any(np.abs(np.diff(clock_edges) - decision_period_s) > 0.2 * decision_period_s):
             raise ValueError(f"capture {capture_index} does not contain one complete 17-decision conversion")
         clock_edges_s[capture_index] = clock_edges
-        rising_edges = find_crossings(comp_out_v, time_s, out_level, rising=True)
-        falling_edges = find_crossings(comp_out_v, time_s, out_level, rising=False)
+        rising_edges = calc.cross(comp_out_v, time_s, out_level, edge="rising")
+        falling_edges = calc.cross(comp_out_v, time_s, out_level, edge="falling")
         output_edges = np.sort(np.r_[rising_edges, falling_edges])
         for decision, clock_edge in enumerate(clock_edges):
             jitter_s[capture_index, decision] = (
@@ -155,7 +150,7 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
         raise ValueError("scope COMP_OUT waveform does not have a valid logic swing")
 
     rising_edges_s = np.asarray(
-        [edge_s for edge_s in find_crossings(comp_v, time_s, comp_threshold_v, rising=True) if edge_s >= 0.0],
+        [edge_s for edge_s in calc.cross(comp_v, time_s, comp_threshold_v, edge="rising") if edge_s >= 0.0],
         dtype=np.float64,
     )
     if len(rising_edges_s) < 17:
@@ -173,7 +168,7 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     if sample_times_s[-1] > time_s[-1]:
         raise ValueError("scope record ends before the final comparator decision sample")
 
-    sample_values_v = np.interp(sample_times_s, time_s, comp_out_v)
+    sample_values_v = calc.value(comp_out_v, time_s, sample_times_s)
     scope_bits = np.asarray(sample_values_v) > comp_out_threshold_v
     if msmt.info.readbacks.get("scope_comp_out_inverted") is True:
         scope_bits = ~scope_bits
@@ -249,91 +244,6 @@ def _input_frequency_hz(measurement: MeasAdc) -> float:
     return float(source.freq)
 
 
-def _calculate_adc_spectrum(
-    measured_dout: np.ndarray,
-    *,
-    sample_rate_hz: float,
-    fitted_frequency_hz: float,
-    offset_dout: float,
-    full_scale_peak_dout: float,
-    maximum_harmonic_order: int,
-) -> tuple[float, float, float, float, float, np.ndarray, np.ndarray]:
-    """Calculate windowed SNR, SNDR, THD, SFDR, ENOB, and spectrum."""
-
-    window = blackmanharris(measured_dout.size, sym=False)
-    spectrum = np.fft.rfft((measured_dout - offset_dout) * window)
-    frequency_hz = np.fft.rfftfreq(measured_dout.size, d=1.0 / sample_rate_hz)
-    amplitude_dout = 2.0 * np.abs(spectrum) / float(np.sum(window))
-    amplitude_dout[0] *= 0.5
-    if measured_dout.size % 2 == 0:
-        amplitude_dout[-1] *= 0.5
-    amplitude_dbfs = 20.0 * np.log10(
-        np.maximum(
-            amplitude_dout / full_scale_peak_dout,
-            np.finfo(np.float64).tiny,
-        )
-    )
-
-    spectral_power = np.abs(spectrum) ** 2
-    if measured_dout.size % 2 == 0:
-        spectral_power[1:-1] *= 2.0
-    else:
-        spectral_power[1:] *= 2.0
-    spectral_power[0] = 0.0
-    bin_width_hz = sample_rate_hz / measured_dout.size
-
-    def tone_bins(tone_frequency_hz: float) -> set[int]:
-        center_bin = round(tone_frequency_hz / bin_width_hz)
-        return set(
-            range(
-                max(1, center_bin - 4),
-                min(len(spectral_power), center_bin + 5),
-            )
-        )
-
-    fundamental_bins = tone_bins(fitted_frequency_hz)
-    harmonic_bins: set[int] = set()
-    for harmonic_order in range(2, maximum_harmonic_order + 1):
-        wrapped_hz = (harmonic_order * fitted_frequency_hz) % sample_rate_hz
-        aliased_hz = min(wrapped_hz, sample_rate_hz - wrapped_hz)
-        harmonic_bins.update(tone_bins(aliased_hz) - fundamental_bins)
-
-    noise_bins = set(range(1, len(spectral_power))) - fundamental_bins - harmonic_bins
-    fundamental_power = float(np.sum(spectral_power[list(fundamental_bins)]))
-    harmonic_power = float(np.sum(spectral_power[list(harmonic_bins)]))
-    noise_power = float(np.sum(spectral_power[list(noise_bins)]))
-    noise_and_distortion = harmonic_power + noise_power
-    if fundamental_power <= 0:
-        sndr_db = -math.inf
-        snr_db = -math.inf
-        thd_db = math.inf if harmonic_power > 0 else -math.inf
-    else:
-        sndr_db = 10.0 * math.log10(fundamental_power / noise_and_distortion) if noise_and_distortion > 0 else math.inf
-        snr_db = 10.0 * math.log10(fundamental_power / noise_power) if noise_power > 0 else math.inf
-        thd_db = 10.0 * math.log10(harmonic_power / fundamental_power) if harmonic_power > 0 else -math.inf
-
-    spur_candidates = np.asarray(
-        sorted(set(range(1, len(spectral_power))) - fundamental_bins),
-        dtype=np.int64,
-    )
-    if fundamental_power > 0 and spur_candidates.size:
-        spur_center = int(spur_candidates[np.argmax(spectral_power[spur_candidates])])
-        spur_bins = tone_bins(frequency_hz[spur_center]) - fundamental_bins
-        spur_power = float(np.sum(spectral_power[list(spur_bins)]))
-        sfdr_db = 10.0 * math.log10(fundamental_power / spur_power) if spur_power > 0 else math.inf
-    else:
-        sfdr_db = math.inf
-    return (
-        sndr_db,
-        snr_db,
-        thd_db,
-        sfdr_db,
-        (sndr_db - 1.76) / 6.02,
-        frequency_hz,
-        amplitude_dbfs,
-    )
-
-
 def analyze_adc_dynamic(
     measurement: MeasAdc,
     *,
@@ -368,7 +278,7 @@ def analyze_adc_dynamic(
         coefficients = np.linalg.lstsq(design, measured_dout, rcond=None)[0]
         fitted = design @ coefficients
         residual = measured_dout - fitted
-        return coefficients, fitted, residual, float(np.mean(residual * residual))
+        return coefficients, fitted, residual, calc.average(residual * residual)
 
     if frequency_search_fraction:
         maximum_offset_hz = min(
@@ -406,12 +316,12 @@ def analyze_adc_dynamic(
         spectral_enob_bits,
         spectrum_frequency_hz,
         spectrum_dbfs,
-    ) = _calculate_adc_spectrum(
+    ) = calc.spectrumMeas(
         measured_dout,
-        sample_rate_hz=sample_rate_hz,
-        fitted_frequency_hz=fitted_frequency_hz,
-        offset_dout=offset_dout,
-        full_scale_peak_dout=full_scale_peak_dout,
+        sample_rate=sample_rate_hz,
+        fundamental_frequency=fitted_frequency_hz,
+        offset=offset_dout,
+        full_scale_peak=full_scale_peak_dout,
         maximum_harmonic_order=maximum_harmonic_order,
     )
     source = params.vin_diff
@@ -480,8 +390,8 @@ def analyze_adc_transfer(
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
     return AnalysisAdcTransfer(
         vin_diff_v=unique_inputs,
-        mean_dout=np.asarray([np.mean(dout[inverse == index]) for index in range(len(unique_inputs))]),
-        std_dout=np.asarray([np.std(dout[inverse == index]) for index in range(len(unique_inputs))]),
+        mean_dout=np.asarray([calc.average(dout[inverse == index]) for index in range(len(unique_inputs))]),
+        std_dout=np.asarray([calc.stddev(dout[inverse == index]) for index in range(len(unique_inputs))]),
         sample_count=np.bincount(inverse, minlength=len(unique_inputs)).astype(np.int64),
     )
 
@@ -492,8 +402,8 @@ def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> An
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
     if len(unique_inputs) < 3:
         raise ValueError("endpoint nonlinearity requires at least three input points")
-    mean_dout = np.asarray([np.mean(decoded_dout[inverse == index]) for index in range(len(unique_inputs))])
-    transition_code, transition_input = find_code_transitions(unique_inputs, mean_dout)
+    mean_dout = np.asarray([calc.average(decoded_dout[inverse == index]) for index in range(len(unique_inputs))])
+    transition_code, transition_input = calc.code_transitions(unique_inputs, mean_dout)
     if len(transition_input) < 2:
         raise ValueError("endpoint nonlinearity spans fewer than two code transitions")
     endpoint_lsb_v = float((transition_input[-1] - transition_input[0]) / (len(transition_input) - 1))
@@ -501,7 +411,7 @@ def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> An
     inl = (transition_input - ideal) / endpoint_lsb_v
     dnl = np.diff(transition_input) / endpoint_lsb_v - 1.0
     observed = set(np.rint(decoded_dout).astype(np.int64))
-    active = range(int(np.min(transition_code)), int(np.max(transition_code)) + 2)
+    active = range(int(calc.ymin(transition_code)), int(calc.ymax(transition_code)) + 2)
     return AnalysisAdcNonlinearity(
         method="endpoint",
         code=transition_code[1:],
@@ -528,7 +438,7 @@ def _code_density_nonlinearity(
         raise ValueError(f"ADC measurement contains no codes in 0..{number_codes - 1}")
     counts = np.bincount(valid, minlength=number_codes)
     first_code, last_code = code_range or (1, number_codes - 2)
-    result = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
+    result = calc.code_density(counts, first_code=first_code, last_code=last_code)
     return AnalysisAdcNonlinearity(
         method="code_density",
         code=result["codes"],
@@ -600,8 +510,8 @@ def analyze_adc_ramp(
     intended_input = np.asarray(measurement.daq.vin_diff_v, dtype=np.float64)
     if intended_input.ndim != 1 or len(intended_input) < 2:
         raise ValueError("ADC ramp analysis requires at least two intended input samples")
-    vin_diff_min_v = float(np.min(intended_input))
-    vin_diff_max_v = float(np.max(intended_input))
+    vin_diff_min_v = float(calc.ymin(intended_input))
+    vin_diff_max_v = float(calc.ymax(intended_input))
     if not vin_diff_max_v > vin_diff_min_v:
         raise ValueError("ADC ramp input must span a nonzero differential range")
 
@@ -671,7 +581,7 @@ def analyze_adc_ramp(
     if not math.isfinite(period_samples) or period_samples <= 1.0:
         raise ValueError("inferred ADC ramp period is invalid")
     reset_residual_samples = reset_conversion_index - (period_samples * reset_number + first_reset_sample)
-    if float(np.max(np.abs(reset_residual_samples))) > 2.0:
+    if float(calc.ymax(np.abs(reset_residual_samples))) > 2.0:
         raise ValueError("ADC ramp resets are not periodic within two conversions")
     sample_rate_hz = _pattern_repeat_rate_hz(measurement)
     ramp_frequency_hz = sample_rate_hz / period_samples
@@ -695,7 +605,7 @@ def analyze_adc_ramp(
     curves = []
     for decoding, label, weights, decoded in decodings:
         counts = np.bincount(decoded[retained], minlength=number_codes).astype(np.int64)
-        density = histogram_inl_dnl(counts, first_code=first_code, last_code=last_code)
+        density = calc.code_density(counts, first_code=first_code, last_code=last_code)
         transfer_sum = np.bincount(transfer_bin[retained], weights=decoded[retained], minlength=number_codes)
         transfer_mean_dout = transfer_sum[populated] / transfer_sample_count[populated]
         curves.append(
@@ -821,14 +731,14 @@ def analyze_adc_noise_sweep(
         sample_rate_hz.append(_active_conversion_rate_hz(measurement))
         logic_phase.append(phase)
         comparator_percent.append(100.0 * delay / interval)
-        std_dout.append(float(np.std(measurement.daq.dout)))
+        std_dout.append(calc.stddev(measurement.daq.dout))
         wave = measurement.wave
         pretrigger = None if wave is None else wave.time_s < 0.0
         if wave is not None and wave.vin_diff_v is not None and pretrigger is not None and np.any(pretrigger):
             quiet_input = wave.vin_diff_v[:, pretrigger]
-            pretrigger_vin_diff_mean_v.append(float(np.mean(quiet_input)))
+            pretrigger_vin_diff_mean_v.append(calc.average(quiet_input))
             pretrigger_vin_diff_noise_rms_v.append(
-                float(np.sqrt(np.mean((quiet_input - np.mean(quiet_input, axis=1, keepdims=True)) ** 2)))
+                calc.rms((quiet_input - np.mean(quiet_input, axis=1, keepdims=True)).ravel())
             )
         else:
             pretrigger_vin_diff_mean_v.append(float("nan"))
@@ -994,21 +904,21 @@ def analyze_adc_sampling_noise(measurement: MeasAdcInt) -> AnalysisAdcSamplingNo
     threshold = 0.5 * float(measurement.param.vdd_d.dc)
     starts, stops, held_p, held_n, inputs = [], [], [], [], []
     for row in range(len(wave.conversion_index)):
-        sample_edges = find_crossings(wave.voltage[AdcNets.seq_samp.name][row], wave.time_s, threshold, rising=False)
+        sample_edges = calc.cross(wave.voltage[AdcNets.seq_samp.name][row], wave.time_s, threshold, edge="falling")
         if not len(sample_edges):
             raise ValueError("sampling noise requires a SAMP falling edge")
         sample_time = float(sample_edges[0]) + 1e-9
         if not wave.time_s[0] <= sample_time <= wave.time_s[-1]:
             raise ValueError("sampling observation 1 ns after SAMP falls lies outside the saved waveform")
         input_trace = wave.voltage[AdcNets.vin_p.name][row] - wave.voltage[AdcNets.vin_n.name][row]
-        if np.ptp(input_trace) > 1e-9:
+        if calc.peakToPeak(input_trace) > 1e-9:
             raise ValueError("sampling noise analysis requires a fixed differential input")
         starts.append(sample_time)
         stops.append(sample_time)
-        held_p.append(np.interp(sample_time, wave.time_s, wave.voltage[AdcNets.vdac_p.name][row]))
-        held_n.append(np.interp(sample_time, wave.time_s, wave.voltage[AdcNets.vdac_n.name][row]))
-        inputs.append(np.interp(sample_time, wave.time_s, input_trace))
-    if np.ptp(inputs) > 1e-9:
+        held_p.append(calc.value(wave.voltage[AdcNets.vdac_p.name][row], wave.time_s, sample_time))
+        held_n.append(calc.value(wave.voltage[AdcNets.vdac_n.name][row], wave.time_s, sample_time))
+        inputs.append(calc.value(input_trace, wave.time_s, sample_time))
+    if calc.peakToPeak(inputs) > 1e-9:
         raise ValueError("sampling noise analysis requires the same input across conversions")
     return AnalysisAdcSamplingNoise(
         conversion_index=wave.conversion_index,
@@ -1030,13 +940,13 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
     cycle_windows = []
     for record_index, conversion_index in enumerate(wave.conversion_index):
         comp_rising_s = np.asarray(
-            find_crossings(wave.voltage[AdcNets.clk_comp.name][record_index], time_s, threshold_v, rising=True)
+            calc.cross(wave.voltage[AdcNets.clk_comp.name][record_index], time_s, threshold_v, edge="rising")
         )
         comp_falling_s = np.asarray(
-            find_crossings(wave.voltage[AdcNets.clk_comp.name][record_index], time_s, threshold_v, rising=False)
+            calc.cross(wave.voltage[AdcNets.clk_comp.name][record_index], time_s, threshold_v, edge="falling")
         )
         logic_rising_s = np.asarray(
-            find_crossings(wave.voltage[AdcNets.seq_logic.name][record_index], time_s, threshold_v, rising=True)
+            calc.cross(wave.voltage[AdcNets.seq_logic.name][record_index], time_s, threshold_v, edge="rising")
         )
         period_s = len(measurement.param.seq_init_pattern) / float(measurement.param.symbol_rate)
         comp_rising_s = comp_rising_s[comp_rising_s < period_s]
@@ -1145,25 +1055,25 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         static_vdac_p_v.append(p_static_v)
         static_vdac_n_v.append(n_static_v)
         for name in ("clk_comp_v", "comp_out_p_v", "comp_out_n_v", "seq_logic_v"):
-            aligned[name].append(np.interp(sample_time_s, time_s, wave.voltage[name.removesuffix("_v")][record_index]))
+            aligned[name].append(calc.value(wave.voltage[name.removesuffix("_v")][record_index], time_s, sample_time_s))
         for name in internal_names:
             aligned[name].append(
-                np.interp(
-                    sample_time_s,
-                    time_s,
+                calc.value(
                     wave.voltage[name.replace("comp_", "comp.", 1).removesuffix("_v")][record_index],
+                    time_s,
+                    sample_time_s,
                 )
             )
         for side in ("p", "n"):
             for signal in ("dac_state", "dac_botplate"):
                 aligned[f"{signal}_{side}_v"].append(
-                    np.interp(sample_time_s, time_s, wave.voltage[f"{signal}_{side}[{stage_index}]"][record_index])
+                    calc.value(wave.voltage[f"{signal}_{side}[{stage_index}]"][record_index], time_s, sample_time_s)
                 )
         aligned["vdac_p_settling_error_v"].append(
-            np.interp(sample_time_s, time_s, wave.voltage[AdcNets.vdac_p.name][record_index]) - p_static_v
+            calc.value(wave.voltage[AdcNets.vdac_p.name][record_index], time_s, sample_time_s) - p_static_v
         )
         aligned["vdac_n_settling_error_v"].append(
-            np.interp(sample_time_s, time_s, wave.voltage[AdcNets.vdac_n.name][record_index]) - n_static_v
+            calc.value(wave.voltage[AdcNets.vdac_n.name][record_index], time_s, sample_time_s) - n_static_v
         )
 
     return AnalysisAdcCdacSettling(
@@ -1292,14 +1202,12 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
             if isinstance(measurement, MeasAdcInt):
                 assert spice_active_start_s is not None and spice_active_stop_s is not None
                 waveform_time_s = measurement.wave.time_s
-                inside = (waveform_time_s > spice_active_start_s) & (waveform_time_s < spice_active_stop_s)
-                active_time_s = np.concatenate(
-                    (np.asarray([spice_active_start_s]), waveform_time_s[inside], np.asarray([spice_active_stop_s]))
-                )
                 rail_current_a = measurement.wave.current[rail][0]
-                active_current_a = np.interp(active_time_s, waveform_time_s, rail_current_a)
-                active_average_current_a = float(
-                    np.trapezoid(active_current_a, active_time_s) / (spice_active_stop_s - spice_active_start_s)
+                active_current_a, active_time_s = calc.clip(
+                    rail_current_a, waveform_time_s, spice_active_start_s, spice_active_stop_s
+                )
+                active_average_current_a = calc.integ(active_current_a, active_time_s) / (
+                    spice_active_stop_s - spice_active_start_s
                 )
                 active_power_w = float(getattr(params, rail).dc) * active_average_current_a
             else:
@@ -1316,7 +1224,7 @@ def analyze_adc_power_sweep(measurements: Sequence[MeasAdc]) -> AnalysisAdcPower
                 baseline_time_s = measurement.wave.time_s[spice_static_indices]
                 baseline_current_a = measurement.wave.current[rail][0, spice_static_indices]
                 duration_s = float(baseline_time_s[-1] - baseline_time_s[0])
-                static_average_current_a = float(np.trapezoid(baseline_current_a, baseline_time_s) / duration_s)
+                static_average_current_a = calc.integ(baseline_current_a, baseline_time_s) / duration_s
                 static_power_w = float(getattr(params, rail).dc) * static_average_current_a
             else:
                 voltage_key = f"{rail}_measured_voltage_v"
@@ -1450,9 +1358,9 @@ def _adc_decision_times(
     supplies observation edges but is never counted as a requested conversion.
     Conversion requires unique updates; diagnostic analysis marks bad updates NaN.
     """
-    init = find_crossings(init, time, threshold_v, rising=True, initial_high=True)
-    comp = find_crossings(comp, time, threshold_v, rising=True, initial_high=count_initial_comp_high)
-    logic = find_crossings(logic, time, threshold_v, rising=True, initial_high=True)
+    init = calc.cross(init, time, threshold_v, edge="rising", initial_high=True)
+    comp = calc.cross(comp, time, threshold_v, edge="rising", initial_high=count_initial_comp_high)
+    logic = calc.cross(logic, time, threshold_v, edge="rising", initial_high=True)
     if len(init) < conversions:
         raise ValueError("raw data lacks the requested INIT edges")
     starts = init[:conversions]
@@ -1482,14 +1390,6 @@ def _adc_decision_times(
             logic_times[conversion, decision] = when
             next_times[conversion, decision] = next_comp
     return starts, comp_times, logic_times, next_times
-
-
-def _stable_since(time: np.ndarray, valid: np.ndarray) -> float:
-    """First saved sample of the final uninterrupted valid interval."""
-    if len(time) < 2 or not valid[-1]:
-        return math.nan
-    invalid = np.flatnonzero(~valid)
-    return float(time[invalid[-1] + 1] if len(invalid) else time[0])
 
 
 def analyze_adc_comparator_response(
@@ -1523,7 +1423,7 @@ def analyze_adc_comparator_response(
             require_logic_updates=False,
             count_initial_comp_high=False,
         )
-        resets = find_crossings(signals["clk_comp"], time, digital_supply / 2, rising=False)
+        resets = calc.cross(signals["clk_comp"], time, digital_supply / 2, edge="falling")
         latch_p, latch_n = signals["comp.latch_p"], signals["comp.latch_n"]
         sr_p = signals["comp_out_p"]
         for decision, (start, next_comp) in enumerate(zip(comp[0], following[0], strict=True)):
@@ -1543,14 +1443,14 @@ def analyze_adc_comparator_response(
                     target = 1 if final_p > final_n else -1
                     high, low = (latch_p, latch_n) if target > 0 else (latch_n, latch_p)
                     valid = (high[evaluation] >= midpoint) & (low[evaluation] <= midpoint)
-                    stable = _stable_since(time[evaluation], valid)
+                    stable = calc.stable_since(time[evaluation], valid)
                     if np.isfinite(stable):
                         internal_delay = max(0.0, stable - start)
                     # Time the observed SR state even if the XC pair did not
                     # settle across the midpoint before COMP reset.
                     output = (time >= start) & (time < stop)
                     valid = sr_p[output] >= midpoint if target > 0 else sr_p[output] <= midpoint
-                    stable = _stable_since(time[output], valid)
+                    stable = calc.stable_since(time[output], valid)
                     if np.isfinite(stable):
                         held = bool(np.all(valid))
                         if not held:
@@ -1562,7 +1462,7 @@ def analyze_adc_comparator_response(
         internal_response_s=np.asarray([row[2] for row in rows]),
         sr_response_s=np.asarray([row[3] for row in rows]),
         sr_held=np.asarray([row[4] for row in rows]),
-        sample_interval_s=float(np.max(np.diff(time))),
+        sample_interval_s=float(calc.ymax(np.diff(time))),
         conversion_rate_hz=float(measurement.param.symbol_rate)
         / AdcSequence.from_tb_params(measurement.param).conversion_symbols,
     )
@@ -1636,7 +1536,7 @@ def analyze_adc_timing_closure(
             require_logic_updates=False,
             count_initial_comp_high=False,
         )
-        resets = find_crossings(signals[AdcNets.clk_comp.name], time, digital_supply / 2, rising=False)
+        resets = calc.cross(signals[AdcNets.clk_comp.name], time, digital_supply / 2, edge="falling")
         internal = signals[f"comp.{CompNets.latch_p.name}"] - signals[f"comp.{CompNets.latch_n.name}"]
         sr_p, sr_n = signals[AdcNets.comp_out_p.name], signals[AdcNets.comp_out_n.name]
         for decision, (start, logic_time, next_comp) in enumerate(zip(comp[0], logic[0], following[0], strict=True)):
@@ -1646,7 +1546,9 @@ def analyze_adc_timing_closure(
             evaluation = (time >= start) & (time < reset)
             final_diff = float(internal[evaluation][-1]) if np.any(evaluation) else math.nan
             target = 1 if final_diff > 0 else -1
-            internal_stable = _stable_since(time[evaluation], target * internal[evaluation] >= internal_differential_v)
+            internal_stable = calc.stable_since(
+                time[evaluation], target * internal[evaluation] >= internal_differential_v
+            )
             high, low = (sr_p, sr_n) if target > 0 else (sr_n, sr_p)
             sr_valid = (high >= 0.7 * analog_supply) & (low <= 0.3 * analog_supply)
             # Include interpolated values at LOGIC: a transition straddling that
@@ -1656,10 +1558,12 @@ def analyze_adc_timing_closure(
                 np.isfinite(final_diff)
                 and final_diff != 0
                 and np.isfinite(logic_time)
-                and np.interp(logic_time, time, high) >= 0.7 * analog_supply
-                and np.interp(logic_time, time, low) <= 0.3 * analog_supply
+                and calc.value(high, time, logic_time) >= 0.7 * analog_supply
+                and calc.value(low, time, logic_time) <= 0.3 * analog_supply
             )
-            sr_stable = _stable_since(np.r_[time[before_logic], logic_time], np.r_[sr_valid[before_logic], sr_matches])
+            sr_stable = calc.stable_since(
+                np.r_[time[before_logic], logic_time], np.r_[sr_valid[before_logic], sr_matches]
+            )
             cdac_stable = math.nan
             if decision < 16 and np.isfinite(next_comp) and np.isfinite(logic_time):
                 update = (time >= logic_time) & (time < next_comp)
@@ -1679,7 +1583,7 @@ def analyze_adc_timing_closure(
                         values = signals[f"{bottom_net.name}[{decision}]"][update]
                         bottom_target = (bool(state) ^ (diff and bool(params.dac_diffcaps))) * dac_supply
                         settled &= np.abs(values - bottom_target) <= cdac_tolerance_v
-                cdac_stable = _stable_since(time[update], settled)
+                cdac_stable = calc.stable_since(time[update], settled)
             rows.append(
                 (
                     int(conversion),
@@ -1720,5 +1624,5 @@ def analyze_adc_timing_closure(
         required_cdac_setup_s=required_cdac_setup_s,
         internal_differential_v=internal_differential_v,
         cdac_tolerance_v=cdac_tolerance_v,
-        sample_interval_s=float(np.max(np.diff(time))),
+        sample_interval_s=float(calc.ymax(np.diff(time))),
     )

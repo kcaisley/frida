@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from flow.analysis import calc
+
 if TYPE_CHECKING:
     from flow.adc.sim import AdcTbParams
     from flow.caparray.sim import CapArrayTbParams
@@ -807,7 +809,7 @@ class AnalysisDiffampNoise:
         if not all(math.isfinite(value) for value in scalars):
             raise ValueError("diff-amp noise scalar results must be finite")
         if (
-            float(np.sqrt(np.mean(centered_v**2))) <= 0.0
+            calc.rms(centered_v) <= 0.0
             or self.sample_rate_hz <= 0.0
             or self.measurement_bandwidth_hz <= 0.0
             or self.measurement_bandwidth_hz > self.sample_rate_hz / 2.0
@@ -822,20 +824,13 @@ class AnalysisDiffampNoise:
     def noise_rms_v(self) -> float:
         """Return the time-domain RMS of the centered samples."""
 
-        return float(np.sqrt(np.mean(self.centered_v**2)))
+        return calc.rms(self.centered_v)
 
     @property
     def integrated_fft_noise_rms_v(self) -> float:
         """Return the RMS obtained by integrating the spectral density."""
 
-        return float(
-            np.sqrt(
-                np.trapezoid(
-                    self.spectrum_amplitude_density_v_per_sqrt_hz**2,
-                    self.spectrum_frequency_hz,
-                )
-            )
-        )
+        return calc.rmsNoise(self.spectrum_amplitude_density_v_per_sqrt_hz, self.spectrum_frequency_hz)
 
 
 # ADC analyses
@@ -1573,7 +1568,7 @@ class AnalysisAdcDynamic:
     def residual_rms_dout(self) -> float:
         """Return RMS of the time-domain fit residual."""
 
-        return float(np.sqrt(np.mean(self.residual_dout**2)))
+        return calc.rms(self.residual_dout)
 
     @property
     def sinad_db(self) -> float:
@@ -1871,7 +1866,7 @@ class AnalysisAdcSamplingNoise:
 
     @property
     def sigma_v(self) -> float:
-        return float(np.std(self.held_diff_v, ddof=1))
+        return calc.stddev(self.held_diff_v, sample=True)
 
 
 @dataclass(frozen=True, slots=True)

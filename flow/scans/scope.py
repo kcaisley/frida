@@ -12,6 +12,7 @@ import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
 from yaml import safe_load
 
+from flow.analysis import calc
 from flow.analysis.types import AdcExtWave
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
@@ -156,8 +157,6 @@ def crop_adc_scope_conversion(
 
     import numpy as np
 
-    from flow.analysis.measure import find_crossings
-
     if len(wave.conversion_index) != 1 or skip_conversions < 0:
         raise ValueError("scope cropping requires one record and a nonnegative skip count")
     if reference_signal not in {"seq_comp", "seq_init"}:
@@ -173,7 +172,7 @@ def crop_adc_scope_conversion(
     low, high = np.percentile(reference, (1, 99))
     if high - low < 0.1:
         raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
-    edges = find_crossings(reference, wave.time_s, (low + high) / 2, rising=True)
+    edges = calc.cross(reference, wave.time_s, (low + high) / 2, edge="rising")
     if reference_signal == "seq_init":
         trigger_edges = edges[np.abs(edges) < conversion_period_s / 4]
         if len(trigger_edges) != 1:
