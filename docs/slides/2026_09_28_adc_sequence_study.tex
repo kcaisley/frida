@@ -122,7 +122,7 @@
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_latch_reset_49_matrix.pdf}
   \slidesource{Worker-local PEX HDF5; 49 cases, 1600 ordinary decisions each}
-  \note{In all 78,400 ordinary PEX decisions, both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise. Across all seven flavors, the minimum stable margin is about 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. These nominal-model findings do not certify physical silicon reset; the scope does not measure internal latch nodes.}
+  \note{In all 78,400 ordinary PEX decisions, both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise. Across all seven flavors, the minimum stable margin is about 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. The ADC PEX ports receive ideal 31.25 ps Vbit clock transitions and nominal supply sources. The model excludes the full-chip clock path, package, and board; the physical scope does not measure internal latch nodes. Silicon reset therefore remains unverified.}
 \end{frame}
 
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
