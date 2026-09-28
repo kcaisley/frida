@@ -90,6 +90,24 @@
   \note{Each short/extended pair has the same COMP row and nominal LOGIC rising symbol; only its high duration changes. At 5/8 with LOGIC rising at COMP fall, three high symbols give 14/16 plausible ADCs and median sigma 4.25 LSB, while four high symbols give 5/16 and 138.5 LSB. ADC03's measured LOGIC rise is within 20 ps between these captures, below the approximately 160 ps scope sample spacing, while high width is 1.869 versus 2.541 ns. At 6/8 with LOGIC rising one symbol before COMP fall, the short pulse gives 8/16 plausible ADCs and 5.12 LSB median sigma; the extended pulse gives 0/16 and 535 LSB. Across 1.6 million conversions in each setting, the short early pulse produces no all-one BOUT frames, while the early four-symbol pulse produces 16,174 at 5/8 and 143,839 at 6/8, on all 16 ADCs. Each of these frames decodes to code 4095. The all-one versus other-code separation explains 99.88 percent of ADC03's early extended 5/8 code variance and 99.94 percent at 6/8. Later-starting four-symbol pulses also overlap the next COMP but produce no all-one frames, so overlap alone does not explain the failure. The single retained scope conversion per setting cannot separate on-chip logic from receive-path corruption. This fixed-rise control shows why the earlier C5/L1 to C5/L2 rescue should not be attributed uniquely to the later rising edge. Even the short early pulses remain above 1 LSB for ADC03; the best saved ADC03 5/8 case is the two-symbol pulse beginning about 0.61 ns after COMP fall, with 0.715 LSB spread and 213 rare code jumps per 100,000 conversions.}
 \end{frame}
 
+\begin{frame}{The all-one frames recur seven conversions later}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.77\textheight,keepaspectratio]{\analysispath/physical_allones_recurrence.pdf}
+  \par\smallskip
+  {\small The recurrence appears on all 16 ADCs; FastRX identifiers and frame counters remain valid.}
+  \slidesource{Corrected physical 1600-MBd FastRX streams; early four-symbol LOGIC pulse}
+  \note{The plot shows the median across 16 ADCs of the conditional chance of another all-one frame after a given conversion lag. At 5/8, the median baseline rate is 0.00528 and the lag-7 conditional probability is 0.122; at 6/8, they are 0.08999 and 0.522. Median lag-6 and lag-8 probabilities are near zero, with peaks again at lags 14, 21, and 28. Each ADC individually has a lag-7-to-baseline ratio above 2.6. The short early LOGIC pulse has zero all-one frames in its corresponding 1.6 million conversions for each COMP width. The FastRX decoder checks identifiers and sequential frame counters for all received words, so these are validly framed payloads rather than missing or reordered frames. The conversion-index pattern is not consistent with independent random comparator noise, but the saved scope record does not reveal whether the bits became all-one on chip or at the FastRX input.}
+\end{frame}
+
+\begin{frame}{Extra idle removes all-one frames, while 6/8 B12 stays low}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_boundary_idle_control.pdf}
+  \par\smallskip
+  {\small Matching first 160 clock symbols; the 160-/168-symbol captures share FastRX start and delay settings.}
+  \slidesource{Corrected 26 Sep 160-symbol scan and independent 25 Sep 168-/256-symbol scan}
+  \note{The saved INIT, SAMP, COMP, and LOGIC patterns have exactly the same first 160 bits for every matched ADC and recipe; the longer rows append only all-low bits. Nominal input, supplies, temperature, and 1600-MBd symbol rate fields match. The 160- and 168-symbol captures use RX start word 8 and comparator delay 12 taps, with matching recorded FPGA clock, PLL, peripheral-control, and capture-phase settings. The early four-symbol LOGIC has 16,174 and 143,839 all-one frames across 16 ADCs at 5/8 and 6/8 in the 160-symbol row, and none in the 168- or 256-symbol rows. Its median code sigma collapses from 138.5 to 4.16 LSB at 5/8 and from 535.5 to 4.95 LSB at 6/8 when only eight idle symbols are added; the early short-LOGIC controls have no all-one frames at any length and much smaller sigma changes. In the same-day 160-symbol campaign, the early extended pulse has zero all-one frames at 320 and 960 MBd across all 16 ADCs, with the mode appearing at 1600 MBd. This implicates a conversion-boundary or recovery interaction, although the 160- and 168-symbol scans were on different days and a changed physical condition remains possible. ADC03 B12 stays low in the longer 6/8 cases, so the full-scale mode and the late-bit bias are distinct. The 160-, 168-, and 256-symbol rows repeat at 10, 9.524, and 6.25 MSPS; only the 160-symbol result is exact 10 MSPS.}
+\end{frame}
+
 \begin{frame}{The 5/8 to 6/8 pair shows a high-rate code shift}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_comp_duty_pair.pdf}
@@ -106,11 +124,11 @@
   \note{At 1600 MBd, all 100,000 conversions of C5/L2, C6/L2, and C6/L3 have the same B0--B11 string 100110010100. B12 is high in 99,615, 1, and 2 conversions, respectively. At 960 MBd the corresponding high counts are 100,000, 96,633, and 98,099; at 320 MBd they are 99,972, 99,989, and 99,984. The identical early digital decisions exclude a preceding decoded-bit difference but not an analog CDAC-residue or input difference. In the single retained 1600-MBd scope conversion, external COMP\_OUT crosses threshold 4.756 ns after B12 COMP rises in C5/L2, but no B12-window transition occurs in either C6 case; both remain low at the 7.7-ns delayed scope read point. Each scope B12 agrees with FastRX. This argues against an FPGA-only readout mismatch in those captures, but the scope cannot reveal internal comparator reset, exact LOGIC capture, or rare behavior across 100,000 conversions.}
 \end{frame}
 
-\begin{frame}{Long idle between conversions does not rescue 6/8}
+\begin{frame}{Long idle does not rescue the 6/8 B12 bias}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/historical_idle_control.pdf}
   \slidesource{Independent 25 Sep physical scan; 192 selected HDF5 captures, 100,000 conversions each}
-  \note{The historical 168- and 256-symbol rows share identical first 160 symbols, so their 5-ns decision periods and COMP/LOGIC timing match at 1600 MBd. The 256-symbol row adds 88 all-low symbols and lowers the actual repeat rate from 9.524 to 6.25 MSPS. Median absolute C6-minus-C5 mean-code shifts across 16 ADCs are 6.722 and 6.196 LSB for the two lengths, while adding idle to C6 changes the median mean code by only 0.269 LSB. ADC03 B12 remains low in all 100,000 C6 conversions for each length but high in about 98 percent of the C5 conversions. All 192 selected files have valid single-record scope comparisons, zero bit mismatches, and zero lost frames. This argues against insufficient between-conversion recovery; it does not test the internal reset between successive bit decisions. The corrected 160-symbol 10-MSPS scan remains the primary physical result.}
+  \note{The historical 168- and 256-symbol rows share identical first 160 symbols, so their 5-ns decision periods and COMP/LOGIC timing match at 1600 MBd. The 256-symbol row adds 88 all-low symbols and lowers the actual repeat rate from 9.524 to 6.25 MSPS. Median absolute C6-minus-C5 mean-code shifts across 16 ADCs are 6.722 and 6.196 LSB for the two lengths, while adding idle to C6 changes the median mean code by only 0.269 LSB. ADC03 B12 remains low in all 100,000 C6 conversions for each length but high in about 98 percent of the C5 conversions. All 192 selected files have valid single-record scope comparisons, zero bit mismatches, and zero lost frames. This argues against insufficient between-conversion recovery as the source of the C6/L2 B12 bias; it does not test the internal reset between successive bit decisions. The early long-LOGIC full-scale mode is separately sensitive to inter-conversion idle. The corrected 160-symbol 10-MSPS scan remains the primary physical result.}
 \end{frame}
 
 \begin{frame}{Measured ADC03 full scope window: C5/L2}
@@ -233,7 +251,7 @@
     \item At 1600 MBd, several 5/8 recipes have 14/16 plausible physical ADCs. The smallest full-capture sigma is 0.633 LSB on ADC15, with rare 15-LSB code jumps.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
     \item C5/L2 to C6/L2 keeps LOGIC fixed yet changes physical mean codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge for both.
-    \item Extra idle between conversions leaves the 6/8 failure intact. Silicon reset between bit decisions and the exact failure mechanism remain unverified; FRIDA-2 has no physical counterpart here.
+    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The 6/8 B12 bias persists; silicon reset between decisions remains unverified. FRIDA-2 has no physical counterpart here.
   \end{itemize}
   \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
 \end{frame}
