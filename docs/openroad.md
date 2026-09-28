@@ -4,8 +4,7 @@
 
 Completely Portable:
 
-- `constraint.sdc` - Synopsys Design Constraints format supported by all major tools (Cadence Innovus, Synopsys
-  ICC2/Fusion Compiler, OpenROAD)
+- `constraint.sdc` - Synopsys Design Constraints format supported by all major tools (Cadence Innovus, Synopsys ICC2/Fusion Compiler, OpenROAD)
 - `*.v` - Verilog RTL files are portable across all synthesis tools
 - `*.lef` - Library Exchange Format is industry standard (Cadence, Synopsys, OpenROAD)
 - `*.lib` - Liberty timing format is industry standard
@@ -15,8 +14,7 @@ Completely Portable:
 OpenROAD-Specific:
 
 - `tracks.info` - OpenROAD's custom format for routing track definitions
-  - Cadence equivalent: Track information embedded in technology LEF file or specified via Innovus TCL commands
-    (`createTrack`)
+  - Cadence equivalent: Track information embedded in technology LEF file or specified via Innovus TCL commands (`createTrack`)
   - Synopsys equivalent: Technology file (`.tf`) or ICC2 technology library
 
 Mixed (Tool-Specific Syntax, Portable Concept):
@@ -33,43 +31,30 @@ Mixed (Tool-Specific Syntax, Portable Concept):
 
 ## Synthesis
 
-- Input Files: adc.v, salogic.v, clkgate.v, capdriver.v, comp.v, sampswitch.v, caparray.v, constraint.sdc,
-  tcbn65lpwc.lib, tcbn65lp_9lmT2.lef
-- Flow Config Files: designs/tsmc65/adc/config.mk, platforms/tsmc65/config.mk, platforms/tsmc65/setRC.tcl,
-  platforms/tsmc65/tapcell.tcl, platforms/tsmc65/pdn.tcl
-- Output Files: results/tsmc65/adc/base/1_synth.v, results/tsmc65/adc/base/1_synth.sdc,
-  results/tsmc65/adc/base/1_2_yosys.v, results/tsmc65/adc/base/1_1_yosys_canonicalize.rtlil,
-  results/tsmc65/adc/base/clock_period.txt, results/tsmc65/adc/base/mem.json
-- Report/Collateral Files: reports/tsmc65/adc/base/synth_stat.txt, reports/tsmc65/adc/base/synth_check.txt,
-  logs/tsmc65/adc/base/1_1_yosys_canonicalize.log, logs/tsmc65/adc/base/1_2_yosys.log,
-  objects/tsmc65/adc/base/lib/tcbn65lpwc.lib, objects/tsmc65/adc/base/abc.constr
+- Input Files: adc.v, salogic.v, clkgate.v, capdriver.v, comp.v, sampswitch.v, caparray.v, constraint.sdc, tcbn65lpwc.lib, tcbn65lp_9lmT2.lef
+- Flow Config Files: designs/tsmc65/adc/config.mk, platforms/tsmc65/config.mk, platforms/tsmc65/setRC.tcl, platforms/tsmc65/tapcell.tcl, platforms/tsmc65/pdn.tcl
+- Output Files: results/tsmc65/adc/base/1_synth.v, results/tsmc65/adc/base/1_synth.sdc, results/tsmc65/adc/base/1_2_yosys.v, results/tsmc65/adc/base/1_1_yosys_canonicalize.rtlil, results/tsmc65/adc/base/clock_period.txt, results/tsmc65/adc/base/mem.json
+- Report/Collateral Files: reports/tsmc65/adc/base/synth_stat.txt, reports/tsmc65/adc/base/synth_check.txt, logs/tsmc65/adc/base/1_1_yosys_canonicalize.log, logs/tsmc65/adc/base/1_2_yosys.log, objects/tsmc65/adc/base/lib/tcbn65lpwc.lib, objects/tsmc65/adc/base/abc.constr
 
 Note: Capacitor arrays are placed physically above in M5-M8 metal layers.
 
-- Input Files: results/tsmc65/adc/base/1_synth.v, results/tsmc65/adc/base/1_synth.sdc, constraint.sdc,
-  tcbn65lp_9lmT2.lef
+- Input Files: results/tsmc65/adc/base/1_synth.v, results/tsmc65/adc/base/1_synth.sdc, constraint.sdc, tcbn65lp_9lmT2.lef
 - Flow Config Files: designs/tsmc65/adc/config.mk, platforms/tsmc65/config.mk
-- Output Files: results/tsmc65/adc/base/2_floorplan.v, results/tsmc65/adc/base/2_floorplan.sdc,
-  results/tsmc65/adc/base/2_floorplan.def
+- Output Files: results/tsmc65/adc/base/2_floorplan.v, results/tsmc65/adc/base/2_floorplan.sdc, results/tsmc65/adc/base/2_floorplan.def
 - Report/Collateral Files: reports/tsmc65/adc/base/2_floorplan.rpt, logs/tsmc65/adc/base/2_1_floorplan.log
 
 ## Placement
 
-- Input Files: results/tsmc65/adc/base/2_floorplan.v, results/tsmc65/adc/base/2_floorplan.sdc,
-  results/tsmc65/adc/base/2_floorplan.def
+- Input Files: results/tsmc65/adc/base/2_floorplan.v, results/tsmc65/adc/base/2_floorplan.sdc, results/tsmc65/adc/base/2_floorplan.def
 - Flow Config Files: designs/tsmc65/adc/config.mk, platforms/tsmc65/config.mk
-- Output Files: results/tsmc65/adc/base/3_place.v, results/tsmc65/adc/base/3_place.sdc,
-  results/tsmc65/adc/base/3_place.def
-- Report/Collateral Files: reports/tsmc65/adc/base/3_place.rpt, logs/tsmc65/adc/base/3_1_place.log,
-  logs/tsmc65/adc/base/3_2_place_iop.log
+- Output Files: results/tsmc65/adc/base/3_place.v, results/tsmc65/adc/base/3_place.sdc, results/tsmc65/adc/base/3_place.def
+- Report/Collateral Files: reports/tsmc65/adc/base/3_place.rpt, logs/tsmc65/adc/base/3_1_place.log, logs/tsmc65/adc/base/3_2_place_iop.log
 
-Final utilization: 46% (target density 65%)
-Cell placement: 219 instances placed within 50x50µm digital core area
+Final utilization: 46% (target density 65%) Cell placement: 219 instances placed within 50x50µm digital core area
 
 ## Clock Tree Synthesis (CTS)
 
-- Input Files: results/tsmc65/adc/base/3_place.v, results/tsmc65/adc/base/3_place.sdc,
-  results/tsmc65/adc/base/3_place.def
+- Input Files: results/tsmc65/adc/base/3_place.v, results/tsmc65/adc/base/3_place.sdc, results/tsmc65/adc/base/3_place.def
 - Flow Config Files: designs/tsmc65/adc/config.mk, platforms/tsmc65/config.mk, platforms/tsmc65/cts.tcl
 - Output Files: results/tsmc65/adc/base/4_cts.v, results/tsmc65/adc/base/4_cts.sdc, results/tsmc65/adc/base/4_cts.def
 - Report/Collateral Files: reports/tsmc65/adc/base/4_cts.rpt, logs/tsmc65/adc/base/4_1_cts.log
@@ -96,8 +81,7 @@ Critical debugging step to resolve pin access errors:
   - M3: Y-direction tracks at 0.000µm offset, 0.200µm pitch
   - M4-M9: Alternating X/Y directions with appropriate offsets and pitches
 
-Manufacturing grid alignment: 0.005µm (5nm)
-Database units: 2000 DB units per micron
+Manufacturing grid alignment: 0.005µm (5nm) Database units: 2000 DB units per micron
 
 ## RC Extraction Configuration
 
@@ -111,8 +95,7 @@ Updated platforms/tsmc65/setRC.tcl for proper OpenROAD compatibility:
 
 ## Library Mismatch Resolution
 
-Critical discovery: GDS file used LVT (Low Voltage Threshold) library variants while LEF/Liberty files used standard
-library variants.
+Critical discovery: GDS file used LVT (Low Voltage Threshold) library variants while LEF/Liberty files used standard library variants.
 
 Problem Identified:
 
@@ -120,8 +103,7 @@ Problem Identified:
 - Original configuration used standard library files with cells like `AN2D4`, `BUFFD8`, `CKBD16`
 - This mismatch caused routing failures and pin access errors
 
-Solution Applied:
-Updated platforms/tsmc65/config.mk to use matching LVT library files:
+Solution Applied: Updated platforms/tsmc65/config.mk to use matching LVT library files:
 
 - `LIB_FILES = /eda/kits/TSMC/65LP/2024/digital/Front_End/timing_power_noise/NLDM/tcbn65lplvt_220a/tcbn65lplvtwc.lib`
 - `LEF_FILES = /eda/kits/TSMC/65LP/2024/digital/Back_End/lef/tcbn65lplvt_200a/lef/tcbn65lplvt_9lmT2.lef`
@@ -148,8 +130,7 @@ Pin coordinates from failing cells:
 - `BUFFD8LVT Z pin`: X=2.250-2.850, Y=0.325-1.475
 - `CKBD16LVT Z pin`: X=3.450-5.305, Y=0.325-1.475
 
-Standard cell height: 1.800µm (consistent across all cells)
-Manufacturing grid: 0.005µm (5nm precision)
+Standard cell height: 1.800µm (consistent across all cells) Manufacturing grid: 0.005µm (5nm precision)
 
 ## OpenROAD Flow Usage
 
@@ -157,8 +138,7 @@ Manufacturing grid: 0.005µm (5nm precision)
 
 Always use make targets instead of calling `openroad` directly:
 
-- `DESIGN_CONFIG=designs/tsmc65/adc/config.mk make gui_cts` loads complete design context (libraries, timing,
-  constraints)
+- `DESIGN_CONFIG=designs/tsmc65/adc/config.mk make gui_cts` loads complete design context (libraries, timing, constraints)
 - `openroad -gui results/tsmc65/adc/base/4_cts.odb` only loads geometry without required technology files
 - ORFS automatically handles library loading, timing setup, and proper design environment configuration
 
@@ -191,8 +171,7 @@ Plus 2 original inputs recognized as clocks:
 - seq_samp (2 sinks) - drives the sampling clock gates
 - seq_update (2 sinks) - drives the update clock gates
 
-Plus 17 Internal Clock Nets (_077_, _210_, etc.):
-These are derived clocks created during synthesis when:
+Plus 17 Internal Clock Nets (_077_, _210_, etc.): These are derived clocks created during synthesis when:
 
 1. Logic optimization splits or duplicates clock paths
 2. Clock gating logic gets transformed into complex logic trees
@@ -252,18 +231,13 @@ Files: /flow/results/tsmc65/adc/base/*.odb
 - 4_1_cts.odb - Database after clock tree synthesis
 - Can open in OpenROAD GUI to visualize clock networks interactively
 
-From the 4_cts_final.rpt, you can see the clock buffer hierarchy:
-seq_update → clkbuf_0_seq_update → clkbuf_1_1__f_seq_update →
-clkgate.clkgate_update_p.clkgate → clk_update_p →
-clkbuf_0_clk_update_p → clkbuf_2_3__f_clk_update_p
+From the 4_cts_final.rpt, you can see the clock buffer hierarchy: seq_update → clkbuf_0_seq_update → clkbuf_1_1__f_seq_update → clkgate.clkgate_update_p.clkgate → clk_update_p → clkbuf_0_clk_update_p → clkbuf_2_3__f_clk_update_p
 
-This shows why you have so many buffers - each of the 23 clock nets gets its own H-tree with multiple levels of
-buffering for timing balance.
+This shows why you have so many buffers - each of the 23 clock nets gets its own H-tree with multiple levels of buffering for timing balance.
 
 ## Automatic Pad Ring Placement
 
-OpenROAD provides comprehensive automation for pad ring cell placement through the PAD module (based on ICeWall). The
-key command for automatic placement is:
+OpenROAD provides comprehensive automation for pad ring cell placement through the PAD module (based on ICeWall). The key command for automatic placement is:
 
 ### `place_pads` - Automatic Pad Placement
 
@@ -305,8 +279,7 @@ The PAD module handles bump-to-pad alignment, uniform spacing, and maintains pro
 
 ## Hierarchical Design Flow with Hard Macros
 
-OpenROAD Flow Scripts provides a hierarchical block-based flow for placing and routing sub-modules independently before
-top-level integration.
+OpenROAD Flow Scripts provides a hierarchical block-based flow for placing and routing sub-modules independently before top-level integration.
 
 ### BLOCKS Variable Configuration
 
@@ -420,8 +393,7 @@ These are required by OpenROAD for:
 
 ### Caparray Pin Guide Coverage Problems
 
-The OpenROAD detailed router fails to route the caparray (capacitor array) pins in our mixed-signal SAR ADC design. The
-routing consistently fails with guide coverage errors for all caparray pins.
+The OpenROAD detailed router fails to route the caparray (capacitor array) pins in our mixed-signal SAR ADC design. The routing consistently fails with guide coverage errors for all caparray pins.
 
 #### Error Messages
 
@@ -434,8 +406,7 @@ The main errors we see during detailed routing:
 [ERROR DRT-0218] Guide is not connected to design.
 ```
 
-This pattern repeats for all 32 bottom plate pins (16 main + 16 diff) across both caparray_p and caparray_n instances,
-plus the 4 top plate pins.
+This pattern repeats for all 32 bottom plate pins (16 main + 16 diff) across both caparray_p and caparray_n instances, plus the 4 top plate pins.
 
 The routing fails immediately in the first iteration of detailed routing, even though:
 
@@ -450,8 +421,7 @@ Problem: Original caparray pins were 0.18μm wide, which is below the M4 spacing
 
 What we tried: Increased all caparray pin widths from 0.18μm to 0.20μm while keeping the same center positions.
 
-Result: This fixed the pin access point generation (no more "Access Points: 0 items" errors), but detailed routing still
-fails with guide coverage issues.
+Result: This fixed the pin access point generation (no more "Access Points: 0 items" errors), but detailed routing still fails with guide coverage issues.
 
 ##### 2. Routing Track Alignment ✅ FIXED
 
@@ -481,8 +451,7 @@ Result: Global router still only used up to M4 anyway. No change in behavior.
 
 Problem: Maybe the caparray pins fall in bad locations relative to the 6μm global routing grid.
 
-What we tried: Analyzed where the pins land relative to GCell boundaries. Bottom pins are at Y=3.44μm (GCell 0), top
-pins at Y=56.28μm (GCell 9).
+What we tried: Analyzed where the pins land relative to GCell boundaries. Bottom pins are at Y=3.44μm (GCell 0), top pins at Y=56.28μm (GCell 9).
 
 Result: Pin locations seem reasonable relative to the grid. The issue appears deeper.
 
@@ -496,9 +465,7 @@ Result: No change in routing behavior with different OBS coordinates.
 
 #### Current Theory: Bottom-Up Pin Access
 
-The most likely issue is that our mixed-signal design has an unusual pin access pattern. The caparray pins are on M4,
-but they need to be accessed from below (M1-M3 standard cell routing). Most OpenROAD designs access pins from above
-(higher metal layers).
+The most likely issue is that our mixed-signal design has an unusual pin access pattern. The caparray pins are on M4, but they need to be accessed from below (M1-M3 standard cell routing). Most OpenROAD designs access pins from above (higher metal layers).
 
 This "bottom-up" access pattern might be confusing the detailed router's guide generation algorithm.
 
@@ -524,8 +491,7 @@ The guide coverage CSV file should tell us exactly which pins are missing covera
 
 #### Root Cause Discovery: COVER vs BLOCK Instance Types
 
-Key Finding: The caparray instances are classified as type "COVER" rather than "BLOCK", which explains why they weren't
-placed through the normal macro placement flow.
+Key Finding: The caparray instances are classified as type "COVER" rather than "BLOCK", which explains why they weren't placed through the normal macro placement flow.
 
 From `flow/logs/tsmc65/adc/base/6_report.log`:
 
@@ -554,17 +520,13 @@ Analysis:
 - The global router generates warnings when handling COVER instances
 - The detailed router may not properly handle pin access for COVER type instances in mixed-signal designs
 
-Implication: The fundamental issue may be that OpenROAD's detailed routing algorithms are not optimized for the
-"bottom-up" pin access pattern where M4 COVER instances need to be accessed from M1-M3 standard cells.
+Implication: The fundamental issue may be that OpenROAD's detailed routing algorithms are not optimized for the "bottom-up" pin access pattern where M4 COVER instances need to be accessed from M1-M3 standard cells.
 
 #### Status
 
-Successfully fixed all the pin geometry issues (width, alignment, area), but the fundamental guide coverage problem
-remains. The issue appears to be in OpenROAD's detailed routing algorithm when dealing with COVER type instances in
-mixed-signal designs, particularly the unusual bottom-up pin access pattern.
+Successfully fixed all the pin geometry issues (width, alignment, area), but the fundamental guide coverage problem remains. The issue appears to be in OpenROAD's detailed routing algorithm when dealing with COVER type instances in mixed-signal designs, particularly the unusual bottom-up pin access pattern.
 
-Next steps are to use the debug commands above to get more detailed information about why guides aren't reaching the
-caparray pins.
+Next steps are to use the debug commands above to get more detailed information about why guides aren't reaching the caparray pins.
 
 ---
 
@@ -572,9 +534,7 @@ caparray pins.
 
 #### Overview
 
-FRIDA is a 1mm × 1mm mixed-signal SAR ADC array chip implemented using TSMC65nm technology through OpenROAD Flow Scripts
-(ORFS). The design features 16 ADC instances arranged in a 4×4 grid, controlled by a 1280-bit SPI register, with a
-complete pad ring for external interfacing.
+FRIDA is a 1mm × 1mm mixed-signal SAR ADC array chip implemented using TSMC65nm technology through OpenROAD Flow Scripts (ORFS). The design features 16 ADC instances arranged in a 4×4 grid, controlled by a 1280-bit SPI register, with a complete pad ring for external interfacing.
 
 #### Physical Architecture
 
@@ -758,8 +718,7 @@ Error: global_place.tcl, 49 RSZ-2001
 
 ## Post synthesis, initial timing analysis
 
-Based on my examination of the floorplan execution output and the underlying TCL scripts, here's exactly what happens
-during the 4 floorplanning steps and the OpenSTA commands that are run:
+Based on my examination of the floorplan execution output and the underlying TCL scripts, here's exactly what happens during the 4 floorplanning steps and the OpenSTA commands that are run:
 
 4 Floorplan Steps:
 
@@ -768,8 +727,7 @@ Step 1: Initial Floorplan (2_1_floorplan)
 - Script: scripts/floorplan.tcl
 - Key OpenSTA commands:
 - check_setup - validates timing constraints setup
-- repair_timing -setup -verbose -setup_margin 0 -sequence unbuffer,sizeup,swap,buffer,vt_swap -repair_tns 100
-  -skip_last_gasp
+- repair_timing -setup -verbose -setup_margin 0 -sequence unbuffer,sizeup,swap,buffer,vt_swap -repair_tns 100 -skip_last_gasp
 - Various report_* commands for metrics collection
 
 Step 2: Macro Placement (2_2_floorplan_macro)
@@ -835,12 +793,9 @@ report_checks -path_delay max -fields {slew cap input net fanout} -format full_c
 report_checks -unconstrained -fields {slew cap input net fanout} -format full_clock_expanded
 report_check_types -max_slew -max_capacitance -max_fanout -violators
 
-The key timing analysis occurs in Step 1 (initial floorplan), where check_setup is called line 38 in
-~/OpenROAD-flow-scripts/flow/scripts/floorplan.tcl, and the repair_timing command performs setup timing optimization.
-The other steps focus mainly on physical implementation rather than timing analysis.
+The key timing analysis occurs in Step 1 (initial floorplan), where check_setup is called line 38 in ~/OpenROAD-flow-scripts/flow/scripts/floorplan.tcl, and the repair_timing command performs setup timing optimization. The other steps focus mainly on physical implementation rather than timing analysis.
 
-You can use info commands _liberty_ or info commands read* in OpenROAD to see what commands are actually available,
-regardless of tab completion.
+You can use info commands _liberty_ or info commands read* in OpenROAD to see what commands are actually available, regardless of tab completion.
 
 ## OpenDB vs. OpenSTA Architecture
 
@@ -881,15 +836,11 @@ The two database systems use different object models that need translation:
 
 ### Command Registration and Tab Completion Issue
 
-The reason `read_liberty` doesn't show up in tab completion but is still a valid command is due to lazy command
-registration in OpenROAD's modular architecture:
+The reason `read_liberty` doesn't show up in tab completion but is still a valid command is due to lazy command registration in OpenROAD's modular architecture:
 
-1. Modular Design: OpenROAD integrates multiple tools (OpenSTA, TritonRoute, OpenDB, etc.) with dynamic command
-   registration
-2. Lazy Loading: OpenSTA commands like `read_liberty` may not register in tab completion until the timing engine is
-   initialized
-3. Integration Layer: Commands are dispatched through a sophisticated system that doesn't always expose all available
-   commands to tab completion
+1. Modular Design: OpenROAD integrates multiple tools (OpenSTA, TritonRoute, OpenDB, etc.) with dynamic command registration
+2. Lazy Loading: OpenSTA commands like `read_liberty` may not register in tab completion until the timing engine is initialized
+3. Integration Layer: Commands are dispatched through a sophisticated system that doesn't always expose all available commands to tab completion
 
 Common OpenSTA commands affected by this:
 
@@ -898,8 +849,7 @@ Common OpenSTA commands affected by this:
 - `report_checks` (OpenSTA)
 - `create_clock` (OpenSTA)
 
-Workaround: Use `info commands *liberty*` or `info commands read*` to see all available commands regardless of tab
-completion.
+Workaround: Use `info commands *liberty*` or `info commands read*` to see all available commands regardless of tab completion.
 
 ### OpenROAD Testing Framework
 
@@ -915,8 +865,7 @@ OpenROAD uses a CMake/CTest-based testing framework with custom integration func
 
 ##### 2. Test registration
 
-- `src/[module]/test/CMakeLists.txt` - Each module (drt, pdn, gpl, etc.) calls `or_integration_tests()` to register
-  tests
+- `src/[module]/test/CMakeLists.txt` - Each module (drt, pdn, gpl, etc.) calls `or_integration_tests()` to register tests
 - Example: `or_integration_tests("drt" TESTS drc_test ispd18_sample ... PASSFAIL_TESTS gc_test)`
 - Specifies which tests are regular tests vs passfail tests
 
@@ -976,9 +925,7 @@ ctest -R "drt.ispd18_sample.tcl"
 
 ## OpenROAD-flow-scripts Modifications Required for FRIDA
 
-This document describes the modifications required to OpenROAD-flow-scripts (ORFS) to support the FRIDA ADC digital
-design flow. These changes enable custom cell protection, placement blockages, and proper GDS generation for
-mixed-signal designs.
+This document describes the modifications required to OpenROAD-flow-scripts (ORFS) to support the FRIDA ADC digital design flow. These changes enable custom cell protection, placement blockages, and proper GDS generation for mixed-signal designs.
 
 ### Overview
 
@@ -995,8 +942,7 @@ The FRIDA flow requires several modifications to ORFS scripts to support:
 
 **File:** `flow/util/def2stream.py`
 
-**Issue:** KLayout's def2stream conversion was removing via cells because some PDKs use "VIA" prefix without underscore
-(e.g., VIA12_1cut_V) while the script only preserved cells with "VIA_" prefix.
+**Issue:** KLayout's def2stream conversion was removing via cells because some PDKs use "VIA" prefix without underscore (e.g., VIA12_1cut_V) while the script only preserved cells with "VIA_" prefix.
 
 **Change:**
 
@@ -1018,8 +964,7 @@ for i in main_layout.each_cell():
             i.clear()
 ```
 
-**Why needed:** TSMC65 and other PDKs define via cells in LEF without the underscore (VIA12_1cut_V, VIA23_1cut, etc.).
-Without this change, all via geometry is lost during GDS merge.
+**Why needed:** TSMC65 and other PDKs define via cells in LEF without the underscore (VIA12_1cut_V, VIA23_1cut, etc.). Without this change, all via geometry is lost during GDS merge.
 
 ---
 
@@ -1027,8 +972,7 @@ Without this change, all via geometry is lost during GDS merge.
 
 **File:** `flow/scripts/synth.tcl`
 
-**Issue:** Yosys synthesis check with `-assert` flag fails when design contains custom cells or wrapped operators,
-blocking the flow.
+**Issue:** Yosys synthesis check with `-assert` flag fails when design contains custom cells or wrapped operators, blocking the flow.
 
 **Change:**
 
@@ -1052,9 +996,7 @@ if { ![env_var_exists_and_non_empty SYNTH_WRAPPED_OPERATORS] } {
 } else {
 ```
 
-**Why needed:** FRIDA design includes custom analog-aware cells (clkgate, sampdriver) that are blackboxed during
-synthesis. The `-assert` flag causes synthesis to fail when these cells are present. Removing `-assert` allows the flow
-to continue with warnings instead of errors.
+**Why needed:** FRIDA design includes custom analog-aware cells (clkgate, sampdriver) that are blackboxed during synthesis. The `-assert` flag causes synthesis to fail when these cells are present. Removing `-assert` allows the flow to continue with warnings instead of errors.
 
 ---
 
@@ -1080,8 +1022,7 @@ if { [info exists ::env(DONT_TOUCH)] && $::env(DONT_TOUCH) != "" } {
 }
 ```
 
-**Why needed:** Allows design-specific script to mark cells as dont_touch before remove_buffers runs, preventing
-optimization of critical analog interface cells.
+**Why needed:** Allows design-specific script to mark cells as dont_touch before remove_buffers runs, preventing optimization of critical analog interface cells.
 
 ##### 3.2 MANUAL_PLACE Hook (after DONT_TOUCH hook)
 
@@ -1093,8 +1034,7 @@ if { [info exists ::env(MANUAL_PLACE)] && $::env(MANUAL_PLACE) != "" } {
 }
 ```
 
-**Why needed:** Enables manual placement of specific cells before global placement, required for analog/digital
-interface cells that must be positioned precisely.
+**Why needed:** Enables manual placement of specific cells before global placement, required for analog/digital interface cells that must be positioned precisely.
 
 ##### 3.3 Buffer Cell Selection (line ~29)
 
@@ -1115,9 +1055,7 @@ if { ![env_var_exists_and_non_empty FOOTPRINT] } {
     buffer_ports
 ```
 
-**Why needed:** Without explicit `-buffer_cell` flag, OpenROAD's `selectBufferCell()` chooses the lowest drive
-resistance cell from the equivalence class, which selects DELD1LVT (delay cell) instead of a proper buffer. Explicit
-specification ensures BUFFD2LVT buffers are used.
+**Why needed:** Without explicit `-buffer_cell` flag, OpenROAD's `selectBufferCell()` chooses the lowest drive resistance cell from the equivalence class, which selects DELD1LVT (delay cell) instead of a proper buffer. Explicit specification ensures BUFFD2LVT buffers are used.
 
 ---
 
@@ -1125,8 +1063,7 @@ specification ensures BUFFD2LVT buffers are used.
 
 **File:** `flow/scripts/floorplan.tcl`
 
-**Issue:** Mixed-signal designs need placement and routing blockages to reserve space for analog macros that will be
-integrated later.
+**Issue:** Mixed-signal designs need placement and routing blockages to reserve space for analog macros that will be integrated later.
 
 **Changes:**
 
@@ -1140,8 +1077,7 @@ if { [info exists ::env(CREATE_REGIONS)] && $::env(CREATE_REGIONS) != "" } {
 }
 ```
 
-**Why needed:** Allows defining voltage domain regions for mixed-signal designs with multiple power domains (though not
-currently used in FRIDA digital block).
+**Why needed:** Allows defining voltage domain regions for mixed-signal designs with multiple power domains (though not currently used in FRIDA digital block).
 
 ##### 4.2 CREATE_BLOCKAGES Hook (after line ~93, after floorplan creation)
 
@@ -1153,9 +1089,7 @@ if { [info exists ::env(CREATE_BLOCKAGES)] && $::env(CREATE_BLOCKAGES) != "" } {
 }
 ```
 
-**Why needed:** Creates placement blockages in floorplan stage to reserve space for analog macros (comparator, sampling
-switches) that will be integrated at chip level. Critical for mixed-signal flows where digital blocks must leave space
-for analog components.
+**Why needed:** Creates placement blockages in floorplan stage to reserve space for analog macros (comparator, sampling switches) that will be integrated at chip level. Critical for mixed-signal flows where digital blocks must leave space for analog components.
 
 ---
 
@@ -1224,17 +1158,13 @@ git apply --check /path/to/frida/docs/orfs_mods.patch
 
 ### Notes and Caveats
 
-1. **synth.tcl check -assert removal**: This is a workaround. Ideally, custom cells should be properly blackboxed in
-   Yosys to avoid this issue. The TODO comment indicates this needs a proper fix.
+1. **synth.tcl check -assert removal**: This is a workaround. Ideally, custom cells should be properly blackboxed in Yosys to avoid this issue. The TODO comment indicates this needs a proper fix.
 
-2. **def2stream.py VIA preservation**: This change is defensive and should not break other flows, as it only makes the
-   VIA detection more permissive.
+2. **def2stream.py VIA preservation**: This change is defensive and should not break other flows, as it only makes the VIA detection more permissive.
 
-3. **Buffer selection**: The DELD1LVT selection issue may be fixed in future OpenROAD versions. Monitor
-   selectBufferCell() behavior in new releases.
+3. **Buffer selection**: The DELD1LVT selection issue may be fixed in future OpenROAD versions. Monitor selectBufferCell() behavior in new releases.
 
-4. **Hooks are optional**: All new hooks check for variable existence before sourcing, so they don't affect designs that
-   don't use them.
+4. **Hooks are optional**: All new hooks check for variable existence before sourcing, so they don't affect designs that don't use them.
 
 ---
 
@@ -1253,5 +1183,4 @@ These modifications were developed and tested with:
 
 1. **Proper custom cell handling in Yosys**: Add proper blackbox directives to avoid synthesis check failures
 2. **Standard ORFS mixed-signal support**: Propose these hooks as standard ORFS features for mixed-signal flows
-3. **Via preservation improvement**: Investigate if KLayout's DEF reader can be configured to avoid needing
-   def2stream.py modification
+3. **Via preservation improvement**: Investigate if KLayout's DEF reader can be configured to avoid needing def2stream.py modification

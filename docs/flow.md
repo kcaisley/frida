@@ -1,7 +1,6 @@
 # Analog PnR Flow Comparison
 
-Comparison of floorplanning, placement, and routing across OpenROAD, ALIGN,
-and MAGICAL — evaluated for analog transistor-level design.
+Comparison of floorplanning, placement, and routing across OpenROAD, ALIGN, and MAGICAL — evaluated for analog transistor-level design.
 
 ## Phase 1: Floorplanning & Technology Definition
 
@@ -145,8 +144,7 @@ How the cell or block boundary is determined.
 | **Module** | `ifp` | `PnRDB/ReadConstraint.cpp` ([ReadConstraint.cpp#L527](file:///home/kcaisley/libs/ALIGN-public/PlaceRouteHierFlow/PnRDB/ReadConstraint.cpp#L527), [#L604](file:///home/kcaisley/libs/ALIGN-public/PlaceRouteHierFlow/PnRDB/ReadConstraint.cpp#L604)) | `flow/python/Placer.py` ([Placer.py#L162](file:///home/kcaisley/libs/MAGICAL/flow/python/Placer.py#L162)) |
 | **Algorithm** | Deterministic formula (no optimization) | Part of SA + ILP placement objective: area + aspect_ratio penalty + boundary violation penalty | N/A — computed post-placement |
 
-**OpenROAD Python API:** See section 1.1 — both sizing modes are overloads of
-`floorplan.initFloorplan()`.
+**OpenROAD Python API:** See section 1.1 — both sizing modes are overloads of `floorplan.initFloorplan()`.
 
 **ALIGN constraint JSON:**
 

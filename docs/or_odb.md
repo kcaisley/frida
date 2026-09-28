@@ -1,8 +1,6 @@
 # `odb` — low-level database API
 
-Direct access to the OpenDB C++ objects via SWIG bindings. Used for reading and
-writing the design database at the object level: instances, nets, routing guides,
-wires.
+Direct access to the OpenDB C++ objects via SWIG bindings. Used for reading and writing the design database at the object level: instances, nets, routing guides, wires.
 
 ```python
 import odb
@@ -21,36 +19,25 @@ for net in block.getNets():
     print(net.getName())
 ```
 
-The database unit is **nanometres**. A coordinate in microns must be multiplied
-by 1000 to convert to database units.
+The database unit is **nanometres**. A coordinate in microns must be multiplied by 1000 to convert to database units.
 
 ---
 
 ## Why Python over pure TCL
 
-The Python API exposes more of the C++ surface than TCL does. TCL wraps a
-fixed set of commands; Python binds all public C++ methods via SWIG. This matters
-for:
+The Python API exposes more of the C++ surface than TCL does. TCL wraps a fixed set of commands; Python binds all public C++ methods via SWIG. This matters for:
 
-- **Direct ODB manipulation** — placing instances, creating/deleting routing
-  guides, inspecting wire geometry. All of this is only practical via `odb`.
-- **Geometric computation** — mirroring guide coordinates for symmetric routing
-  requires arithmetic that is cumbersome in TCL and natural in Python.
-- **Integration with the rest of FRIDA** — constraint objects, PDK lookups, and
-  output path handling are all Python. Keeping the layout script in Python means
-  no context switch.
+- **Direct ODB manipulation** — placing instances, creating/deleting routing guides, inspecting wire geometry. All of this is only practical via `odb`.
+- **Geometric computation** — mirroring guide coordinates for symmetric routing requires arithmetic that is cumbersome in TCL and natural in Python.
+- **Integration with the rest of FRIDA** — constraint objects, PDK lookups, and output path handling are all Python. Keeping the layout script in Python means no context switch.
 
-See [docs/or_analog.md](or_analog.md) for a
-detailed comparison of Python vs TCL coverage and a summary of what OpenROAD
-does and does not support natively for analog flows.
+See [docs/or_analog.md](or_analog.md) for a detailed comparison of Python vs TCL coverage and a summary of what OpenROAD does and does not support natively for analog flows.
 
 ---
 
 ## Symmetric routing workaround
 
-OpenROAD has no native symmetric routing. The workaround is to route one net,
-extract its guides, mirror the coordinates about the symmetry axis, and apply
-the mirrored guides to the paired net before re-routing.
+OpenROAD has no native symmetric routing. The workaround is to route one net, extract its guides, mirror the coordinates about the symmetry axis, and apply the mirrored guides to the paired net before re-routing.
 
 ```python
 import odb
@@ -78,24 +65,17 @@ for guide in net_a.getGuides():
         odb.Rect(new_xlo, box.yMin(), new_xhi, box.yMax()))
 ```
 
-After mirroring, run `detailed_route` again via `evalTclString` so the router
-uses the constrained guides for `net_b`.
+After mirroring, run `detailed_route` again via `evalTclString` so the router uses the constrained guides for `net_b`.
 
 ---
 
 ## NDR and net weights
 
-Non-default routing rules (`add_ndr` / `assign_ndr`) require a liberty file to
-be loaded because OpenROAD's constraint infrastructure was built around timing-
-driven digital flows. Without a liberty file the timing graph is uninitialised
-and these commands fail silently or error out.
+Non-default routing rules (`add_ndr` / `assign_ndr`) require a liberty file to be loaded because OpenROAD's constraint infrastructure was built around timing- driven digital flows. Without a liberty file the timing graph is uninitialised and these commands fail silently or error out.
 
-For analog flows without liberty files, apply width and spacing constraints
-directly via ODB instead of using NDR commands.
+For analog flows without liberty files, apply width and spacing constraints directly via ODB instead of using NDR commands.
 
-Net weights (for influencing global placement and routing congestion) are not
-exposed as plain TCL commands. They must be set via the Replace (global placer)
-Python API:
+Net weights (for influencing global placement and routing congestion) are not exposed as plain TCL commands. They must be set via the Replace (global placer) Python API:
 
 ```python
 replace = design.getReplace()
@@ -157,10 +137,6 @@ d.evalTclString(f"write_def {script_dir}/{cell}_placed_routed.def")
 
 ## Further reading
 
-- [docs/or_analog.md](or_analog.md) — placement
-  status options, routing guide API, symmetric routing workaround detail,
-  Python vs TCL feature comparison table
-- [docs/openroad.md](openroad.md) — full
-  TCL command reference for OpenROAD
-- OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source
-  tree — the most complete examples of the `odb` Python API
+- [docs/or_analog.md](or_analog.md) — placement status options, routing guide API, symmetric routing workaround detail, Python vs TCL feature comparison table
+- [docs/openroad.md](openroad.md) — full TCL command reference for OpenROAD
+- OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source tree — the most complete examples of the `odb` Python API
