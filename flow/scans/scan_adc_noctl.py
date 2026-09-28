@@ -42,8 +42,9 @@ def scan(
     *,
     run_dir: Path,
     position: Literal["first", "middle", "last", "only", "abort"],
+    scope_trigger_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
 ) -> Path:
-    """Acquire one fixed-input point and compare its first retained conversion to scope."""
+    """Acquire one fixed-input point and compare a retained conversion to scope."""
 
     SI570_SETTLE_S = 0.02
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
@@ -52,6 +53,8 @@ def scan(
 
     if position not in {"first", "middle", "last", "only", "abort"}:
         raise ValueError(f"unknown ADC scan lifecycle position {position!r}")
+    if scope_trigger_signal not in {"seq_comp", "seq_init"}:
+        raise ValueError(f"unknown scope trigger signal {scope_trigger_signal!r}")
     if position != "abort":
         validate_params(params)
         if params.tb.seq_init_pattern[0] != "1" or params.tb.seq_init_pattern[-1] != "0":
@@ -139,14 +142,22 @@ def scan(
                 scope.set_vertical_position(0.0, channel=channel)
                 scope.set_vertical_offset(0.0, channel=channel)
                 scope.set_bandwidth(2.0e9, channel=channel)
-            # COMP is quiet in the idle RAM word. A wrapped INIT word can
-            # toggle repeatedly in the serializer while the sequencer is idle.
+            # COMP is quiet in the idle RAM word. For CH1 timing captures,
+            # arm on COMP and trigger on the next INIT to avoid idle INIT chatter.
             scope._intf.write("TRIGger:B:STATE OFF")
             scope.set_trigger_type("EDGE")
             scope.set_trigger_source(channel=channels["seq_comp"])
             scope.set_trigger_edge_slope("RISE")
             scope.set_trigger_level(0.0, channel=channels["seq_comp"])
             scope.set_trigger_mode("NORMAL")
+            if scope_trigger_signal == "seq_init":
+                scope._intf.write("TRIGger:B:BY EVENTS")
+                scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
+                scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{channels['seq_init']}")
+                scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
+                scope._intf.write("TRIGger:B:EDGE:COUPling DC")
+                scope._intf.write(f"TRIGger:B:LEVel:CH{channels['seq_init']} 0")
+                scope._intf.write("TRIGger:B:STATE ON")
             variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
                 print(
@@ -275,11 +286,13 @@ def scan(
                     raise RuntimeError(f"expected at least {expected_frames} FastRX words, received {len(raw_data)}")
                 wait_for_scope_capture(scope, acquisition_count_before, timeout_s=5.0)
                 scope_waveforms = scope.get_waveforms({channel: name for name, channel in channels.items()})
+                scope_conversion_index = int(scope_trigger_signal == "seq_init")
                 scope_wave = crop_adc_scope_conversion(
-                    scope_records_to_adc_wave([scope_waveforms], [0], tracks),
+                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], tracks),
                     skip_conversions=startup_conversions,
                     conversion_period_s=conversion_period_s,
                     symbol_period_s=1 / symbol_rate_bps,
+                    reference_signal=scope_trigger_signal,
                 )
                 fastrx_lost_count = int(daq["fastrx0"].get_lost_count())
                 if fastrx_lost_count:
@@ -287,7 +300,11 @@ def scan(
 
                 conversion_index_values = np.arange(params.conversions, dtype=np.int64)
                 vin_diff_values_v = np.full(params.conversions, float(params.vin_diff.dc))
-                fastrx_words = np.asarray(raw_data, dtype=np.uint32)
+                received_frames = len(raw_data)
+                # The host can collect additional frames while it stops RX.
+                # Validate the requested window, including its startup frame;
+                # later frames are outside this measurement's conversion count.
+                fastrx_words = np.asarray(raw_data[:expected_frames], dtype=np.uint32)
                 bout_values, dout_raw_values, dout_values = convert_fastrx_words_to_adc(
                     fastrx_words,
                     data_size,
@@ -300,7 +317,6 @@ def scan(
                     f"startup_fastrx_word_{index}": int(word)
                     for index, word in enumerate(fastrx_words[:startup_frames])
                 }
-                received_frames = len(fastrx_words)
                 fastrx_words = fastrx_words[startup_frames:expected_frames]
                 bout_values = bout_values[startup_frames:expected_frames]
                 dout_raw_values = dout_raw_values[startup_frames:expected_frames]
@@ -344,6 +360,7 @@ def scan(
                             "capture_expected_frames": expected_frames,
                             "capture_startup_conversions": startup_conversions,
                             "capture_received_frames": received_frames,
+                            "capture_trailing_frames": received_frames - expected_frames,
                             "capture_startup_frames": startup_frames,
                             **startup_words,
                             "spi_mismatches": spi_mismatches,
@@ -351,9 +368,9 @@ def scan(
                             "controller_hostname": hostname,
                             "peripheral_control": "manual",
                             "scope_waveform_captured": True,
-                            "scope_startup_conversions_skipped": startup_conversions,
+                            "scope_startup_conversions_skipped": scope_conversion_index,
                             "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
-                            "scope_trigger_signal": "seq_comp",
+                            "scope_trigger_signal": scope_trigger_signal,
                             "scope_trigger_edge": "rise",
                             "scope_record_length_requested": 10_000,
                             "stimulus_kind": "dc",
@@ -419,6 +436,7 @@ def scan(
         try:
             if scope is not None:
                 scope.set_acquire_state("STOP")
+                scope._intf.write("TRIGger:B:STATE OFF")
         finally:
             try:
                 if scope_dut is not None:

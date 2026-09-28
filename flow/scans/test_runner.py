@@ -169,6 +169,24 @@ def test_adc_noctl_target_aborts_fpga_after_interrupted_middle_point(monkeypatch
     assert calls[-1][0] is calls[-2][0]
 
 
+def test_adc_sequence_static_resumes_contiguous_capture_prefix(tmp_path: Path, monkeypatch) -> None:
+    sequences = tuple(sequence for _name, sequence in SEQUENCES[:2])
+    for index in range(2):
+        (tmp_path / f"{index:04d}_capture.h5").touch()
+    calls = []
+
+    def scan_noctl(params, *, run_dir: Path, position: str) -> Path:
+        calls.append((params, run_dir, position))
+        return run_dir
+
+    monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
+    result = runner.adc_sequence_static(adc_indices=(3,), sequences=sequences, conversions=10, run_dir=tmp_path)
+    assert result == tmp_path
+    assert [position for _params, _run_dir, position in calls] == ["middle", "middle", "middle", "last"]
+    assert all(run_dir == tmp_path for _params, run_dir, _position in calls)
+    assert [float(params.tb.symbol_rate) for params, _run_dir, _position in calls] == [1.6e9, 320e6, 960e6, 1.6e9]
+
+
 def test_comparator_repair_target_owns_the_accepted_curve_selection(monkeypatch) -> None:
     captured = {}
     sentinel = object()
@@ -308,11 +326,13 @@ def test_fixed_input_grid_noctl_covers_all_adcs_and_three_rates(monkeypatch, seq
     assert all(p.tb.seq_logic_pattern == sequence.logic for p, _ in captured)
 
 
-def test_sequence_static_default_covers_complete_catalogue(monkeypatch):
+def test_sequence_static_default_covers_continuous_catalogue(monkeypatch):
     captured = []
     monkeypatch.setattr(runner.scan_adc_noctl, "scan", lambda params, **kwargs: captured.append(params))
     runner.adc_sequence_static()
-    assert len(captured) == 16 * len(SEQUENCES) * 3
+    continuous = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+    assert len(continuous) == 29
+    assert len(captured) == 16 * len(continuous) * 3
     actual = {
         (
             p.observed_adc,
@@ -327,7 +347,7 @@ def test_sequence_static_default_covers_complete_catalogue(monkeypatch):
     expected = {
         (adc, seq.init, seq.samp, seq.comp, seq.logic, rate * 160)
         for adc in range(16)
-        for _, seq in SEQUENCES
+        for seq in continuous
         for rate in (2e6, 6e6, 10e6)
     }
     assert actual == expected

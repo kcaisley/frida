@@ -2258,6 +2258,82 @@ MEASUREMENT_TYPES = {
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAdcComparatorResponse:
+    """Per-decision rail-valid response times relative to COMP rising edges.
+
+    NaN marks a response that did not settle in the observed window. An SR
+    output that remained valid from the clock edge is marked as held instead
+    of being assigned a zero response time. The final XC rail polarity sets
+    the target SR state, including decisions where the XC rails did not settle
+    across the midpoint before COMP reset.
+    """
+
+    conversion_index: IntArray
+    decision_index: IntArray
+    internal_response_s: FloatArray
+    sr_response_s: FloatArray
+    sr_held: BoolArray
+    sample_interval_s: float
+    conversion_rate_hz: float
+
+    def __post_init__(self) -> None:
+        arrays = {}
+        for name in ("conversion_index", "decision_index", "internal_response_s", "sr_response_s", "sr_held"):
+            dtype = np.bool_ if name == "sr_held" else (np.int64 if name.endswith("index") else np.float64)
+            arrays[name] = _array_1d(getattr(self, name), dtype, name)
+            object.__setattr__(self, name, arrays[name])
+        if not _aligned_length(arrays) or np.any((self.decision_index < 0) | (self.decision_index > 16)):
+            raise ValueError("ADC comparator response requires decisions B0..B16")
+        if not math.isfinite(self.sample_interval_s) or self.sample_interval_s <= 0:
+            raise ValueError("sample_interval_s must be finite and positive")
+        if not math.isfinite(self.conversion_rate_hz) or self.conversion_rate_hz <= 0:
+            raise ValueError("conversion_rate_hz must be finite and positive")
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcCompOutEdgeEye:
+    """Scope waveforms and measured COMP-to-COMP_OUT timing for one sequence."""
+
+    waveforms: tuple[AnalysisWaveform, ...]
+    clock_edges_s: FloatArray
+    delays_s: FloatArray
+    jitter_s: FloatArray
+    unchanged: IntArray
+    multiple: IntArray
+    unsettled: IntArray
+    decision_period_s: float
+    conversion_rate_hz: float
+
+    def __post_init__(self) -> None:
+        if not self.waveforms:
+            raise ValueError("comparator eye requires scope waveforms")
+        shape = (len(self.waveforms), 17)
+        for name in ("clock_edges_s", "delays_s", "jitter_s"):
+            values = _array_2d(getattr(self, name), np.float64, name)
+            if values.shape != shape:
+                raise ValueError(f"{name} has shape {values.shape}, expected {shape}")
+            object.__setattr__(self, name, values)
+        if not np.all(np.isfinite(self.clock_edges_s)) or not np.all(np.isfinite(self.jitter_s)):
+            raise ValueError("comparator clock edges and jitter must be finite")
+        if not np.any(np.isfinite(self.delays_s)):
+            raise ValueError("no comparator output transitions were observed")
+        for name in ("unchanged", "multiple", "unsettled"):
+            values = _array_1d(getattr(self, name), np.int64, name)
+            if values.shape != (17,) or np.any(values < 0):
+                raise ValueError(f"{name} must contain 17 nonnegative counts")
+            object.__setattr__(self, name, values)
+        if not math.isfinite(self.decision_period_s) or self.decision_period_s <= 0:
+            raise ValueError("decision_period_s must be finite and positive")
+        if not math.isfinite(self.conversion_rate_hz) or self.conversion_rate_hz <= 0:
+            raise ValueError("conversion_rate_hz must be finite and positive")
+
+    @property
+    def delay_bounds_s(self) -> tuple[float, float]:
+        valid = self.delays_s[np.isfinite(self.delays_s)]
+        return float(valid.min()), float(valid.max())
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisAdcTimingClosure:
     """One row per saved decision, with times relative to its waveform record.
 

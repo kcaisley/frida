@@ -24,6 +24,11 @@ Run FPGA loopback without instruments (ordinary and boundary windows):
 
     uv run pytest -q -s -m hw flow/scans/test_fastrx.py -k exact_internal
 
+With fixed external ADC input and rails, capture the 2 MSPS comparator edge eye
+using only the FPGA and scope:
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py::test_adc_comp_out_edge_eye
+
 Boundary cases run on the existing 256-byte sequencer RAM.
 
 Run the complete 273-point physical campaign:
@@ -52,11 +57,13 @@ from flow.adc.sequences import (
     SEQUENCES,
     AdcSequence,
     symbol160_init4_samp20_comp11110000_logic00001111,
+    symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
+    analyze_adc_comp_out_edge_eye,
     analyze_adc_noise_sweep,
     analyze_scope_wave_to_bits,
 )
@@ -66,6 +73,7 @@ from flow.analysis.io import (
 )
 from flow.analysis.plots import (
     plot_adc_code_distribution,
+    plot_adc_comp_out_edge_eye,
     plot_adc_fastrx_scope_comparison,
     plot_adc_noise_sweep,
 )
@@ -722,7 +730,7 @@ def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, li
         for name in (
             "symbol256_init8_samp16_comp11110000_logic11000011",
             "symbol256_init8_samp16_comp11111100_logic00000010",
-            "symbol160_init4_samp24_comp11111100_logic00000010",
+            "symbol160_init4_samp20_comp11111100_logic00000010",
             "symbol160_init4_samp20_comp11111110_logic00000001",
         )
         for row in (dict(SEQUENCES)[name],)
@@ -885,3 +893,180 @@ def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, bo
                 daq["fifo0"].get_data()
         finally:
             daq.close()
+
+
+@pytest.mark.hw
+@pytest.mark.slow
+@pytest.mark.scope_signals("seq_init", "seq_comp", "comp_out")
+def test_adc_comp_out_edge_eye() -> None:
+    """Measure repeated 2 MSPS comparator edge timing with fixed manual input."""
+
+    from basil.dut import Dut
+
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    params = build_adc_variants(
+        board_id=BOARD_ID,
+        adc_indices=(ADC_INDEX,),
+        active_conversion_rates_hz=(2e6,),
+        sequences=(sequence,),
+        conversions=1,
+        vin_cm_v=0.700,
+        vin_diff=h.Vdc.Params(dc=0.050),
+    )[0]
+    symbol_rate_bps = float(params.tb.symbol_rate)
+    assert symbol_rate_bps == 320e6
+    channels = scope_channels("seq_init", "seq_comp", "comp_out")
+    tracks = {channels["seq_comp"]: "seq_comp", channels["comp_out"]: "comp_out"}
+    run_dir = OUTPUT_DIR / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") / "comp_out_edge_eye"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    captures = []
+
+    config = safe_load((MAP_DIR / "map_fpga.yaml").read_text())
+    config["hw_drivers"] = [
+        driver
+        for driver in config["hw_drivers"]
+        if driver["name"] in {"seq0", "spi0", "gpio0", "gpio2", "i2c0", "si570"}
+    ]
+    config["registers"] = [
+        register for register in config["registers"] if register["name"] in {"seq0", "gpio0", "gpio2"}
+    ]
+    daq = Dut(config)
+    scope_dut = Dut(str(MAP_DIR / "map_scope.yaml"))
+    seq = scope = None
+    clock_changed = False
+    try:
+        daq.init()
+        seq = daq["seq0"]
+        assert seq.is_ready, "sequencer must be idle before changing clocks"
+        scope_dut.init()
+        scope = scope_dut["scope"]
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        scope._intf.write("HORizontal:MODe MANual")
+        scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
+        scope.set_horizontal_record_length(5_000)
+        scope._intf.write("HORizontal:POSition 2")
+        sample_rate_hz = float(response_value(scope._intf.query("HORizontal:SAMPLERate?")))
+        record_length = int(response_value(scope.get_horizontal_record_length()))
+        assert record_length / sample_rate_hz >= 600e-9, "scope record must cover all 17 decisions"
+        for channel in tracks:
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_coupling("DC", channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+        scope._intf.write(f"DISplay:GLObal:CH{channels['seq_init']}:STATE ON")
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=channels["seq_init"])
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=channels["seq_init"])
+        scope.set_trigger_mode("NORMAL")
+        # A arms on the startup INIT; B selects the next complete conversion.
+        scope._intf.write("TRIGger:B:STATE OFF")
+        scope._intf.write("TRIGger:B:BY EVENTS")
+        scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
+        scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{channels['seq_init']}")
+        scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
+        scope._intf.write("TRIGger:B:EDGE:COUPling DC")
+        scope._intf.write(f"TRIGger:B:LEVel:CH{channels['seq_init']} 0")
+        scope._intf.write("TRIGger:B:STATE ON")
+
+        daq["gpio0"]["RST_B"] = 0
+        daq["gpio0"]["AMP_EN"] = 1
+        daq["gpio0"]["RX_LOOPBACK"] = 0
+        daq["gpio0"]["SPI_LOOPBACK"] = 0
+        daq["gpio0"]["DBG_FIFO"] = 0
+        daq["gpio0"]["RX_TIEHIGH"] = 0
+        daq["gpio0"]["SEQ_START"] = 0
+        daq["gpio0"]["RX_EN_MUX"] = 1
+        daq["gpio0"].write()
+        daq["gpio0"]["RST_B"] = 1
+        daq["gpio0"].write()
+        spi_bytes = convert_params_to_spi_fmt(params)
+        for _ in range(2):
+            daq["spi0"].set_data(list(spi_bytes))
+            daq["spi0"].set_size(180)
+            daq["spi0"].start()
+            daq["spi0"].wait_for_ready()
+        readback_bits = bitarray()
+        readback_bits.frombytes(bytes(daq["spi0"].get_data(size=23)))
+        expected_bits = bitarray()
+        expected_bits.frombytes(spi_bytes)
+        assert (expected_bits[:180][1:] ^ readback_bits[:180][1:]).count(1) == 0, "SPI readback mismatch"
+
+        si570_frequency_hz, divider_n = select_pll_configuration(symbol_rate_bps)
+        daq["si570"].frequency_change(si570_frequency_hz / 1e6)
+        sleep(SI570_SETTLE_S)
+        set_pll_divider(daq["gpio2"], divider_n)
+        clock_changed = True
+        memory = convert_params_to_seqgen_fmt(params.tb, "0" * (len(sequence.init) // 8))
+        seq.reset()
+        seq.set_data(bytes(seq.get_mem_size()))
+        seq.set_data(memory)
+        seq.set_size(len(sequence.init) // 8)
+        seq.set_clk_divide(1)
+        seq.set_repeat(4)
+        seq.set_en_ext_start(False)
+        assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
+
+        for capture_index in range(256):
+            scope._intf.write("ACQuire:NUMACq:RESET")
+            scope.set_acquire_state("RUN")
+            before = wait_for_scope_armed(scope, timeout_s=5.0)
+            seq.start()
+            wait_for_scope_capture(scope, before, timeout_s=5.0)
+            assert seq.is_ready, "finite sequencer run did not finish"
+            captured = scope.get_waveforms(tracks)
+            if set(captured) != set(tracks):
+                raise RuntimeError(f"scope returned channels {sorted(captured)}, expected {sorted(tracks)}")
+            captures.append(captured)
+        aligned = sequence.relative_to_init()
+        first_comp = aligned.comp.index("1") + 8
+        context = (
+            f"COMP {aligned.comp[first_comp : first_comp + 8]}; "
+            f"LOGIC {aligned.logic[first_comp : first_comp + 8]} (B1 word)\n"
+            f"{symbol_rate_bps / 1e6:g} MBd; ADC01; FRIDA-1 1-layer radix20; Scope measurement"
+        )
+        analysis = analyze_adc_comp_out_edge_eye(
+            captures,
+            comp_channel=channels["seq_comp"],
+            comp_out_channel=channels["comp_out"],
+            sequence=sequence,
+            symbol_rate_bps=symbol_rate_bps,
+        )
+        paths = plot_adc_comp_out_edge_eye(
+            analysis,
+            output_path=run_dir / "msmt_adc01_2msps_comp",
+            context=context,
+        )
+        bounds_s = analysis.delay_bounds_s
+        print(f"Observed COMP_OUT delay bounds: {bounds_s[0] * 1e9:.3f}..{bounds_s[1] * 1e9:.3f} ns")
+        for path in paths:
+            print(f"Saved comparator timing result: {path}")
+    finally:
+        try:
+            if seq is not None:
+                seq.reset()
+                seq.set_data(bytes(8))
+                seq.set_size(1)
+                seq.set_repeat(1)
+                seq.set_clk_divide(1)
+                seq.set_en_ext_start(False)
+                seq.start()
+                daq["gpio0"]["RST_B"] = 0
+                daq["gpio0"]["AMP_EN"] = 0
+                daq["gpio0"].write()
+            if clock_changed:
+                daq["si570"].frequency_change(200.0)
+                sleep(SI570_SETTLE_S)
+                set_pll_divider(daq["gpio2"], 2)
+        finally:
+            try:
+                if scope is not None:
+                    scope.set_acquire_state("STOP")
+                    scope._intf.write("TRIGger:B:STATE OFF")
+            finally:
+                scope_dut.close()
+                daq.close()

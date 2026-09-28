@@ -23,7 +23,7 @@ from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import AdcExtWave
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
-from flow.scans.params import AdcScanParams, build_adc_variants
+from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
 from flow.scans.scope import crop_adc_scope_conversion, write_scope_csv
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
@@ -46,6 +46,51 @@ def test_hardware_output_directories_match_test_modules() -> None:
         "test_serdes",
     }
     assert {path.parent.name for path in output_directories} == {"build"}
+
+
+def test_analytical_fastrx_capture_uses_unrotated_comp_edges() -> None:
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    original_rows = (sequence.init, sequence.samp, sequence.comp, sequence.logic)
+    capture = fastrx.calculate_fastrx_capture_settings(
+        sequence,
+        320e6,
+        comparator_return_min_s=12e-9,
+        comparator_return_max_s=13e-9,
+        fpga_relative_path_min_s=0.0,
+        fpga_relative_path_max_s=0.0,
+        seqgen_pipeline_words=1,
+        tap_delay_s=78.125e-12,
+        setup_guard_s=1e-9,
+        hold_guard_s=1e-9,
+    )
+    assert capture == fastrx.FastRxCapture(comp_delay_taps=0, rx_sen_start_word=5)
+    assert (sequence.init, sequence.samp, sequence.comp, sequence.logic) == original_rows
+    with pytest.raises(ValueError, match="no RX_SEN word"):
+        fastrx.calculate_fastrx_capture_settings(
+            sequence,
+            320e6,
+            comparator_return_min_s=0,
+            comparator_return_max_s=30e-9,
+            fpga_relative_path_min_s=0,
+            fpga_relative_path_max_s=0,
+            seqgen_pipeline_words=1,
+            tap_delay_s=78.125e-12,
+            setup_guard_s=1e-9,
+            hold_guard_s=1e-9,
+        )
+    with pytest.raises(ValueError, match="no RX_SEN word"):
+        fastrx.calculate_fastrx_capture_settings(
+            sequence,
+            320e6,
+            comparator_return_min_s=500e-9,
+            comparator_return_max_s=500e-9,
+            fpga_relative_path_min_s=0,
+            fpga_relative_path_max_s=0,
+            seqgen_pipeline_words=1,
+            tap_delay_s=78.125e-12,
+            setup_guard_s=1e-9,
+            hold_guard_s=1e-9,
+        )
 
 
 def spi_params(**overrides) -> AdcScanParams:
@@ -204,6 +249,36 @@ def test_scope_crop_associates_first_retained_conversion() -> None:
     assert np.count_nonzero(np.diff((cropped.seq_comp_v[0] > 0.6).astype(int)) == 1) == 17
     with pytest.raises(ValueError, match="lacks the complete"):
         crop_adc_scope_conversion(wave, skip_conversions=3, conversion_period_s=160e-9, symbol_period_s=1e-9)
+
+
+def test_scope_crop_preserves_init_triggered_conversion() -> None:
+    time = np.arange(-40, 210, 0.25) * 1e-9
+    init = ((time >= 0) & (time < 4e-9)).astype(float)
+    comp = np.zeros_like(time)
+    for bit in range(17):
+        edge = (12 + bit * 8) * 1e-9
+        comp[(time >= edge) & (time < edge + 2e-9)] = 1.0
+    wave = AdcExtWave(
+        conversion_index=np.array([1]),
+        time_s=time,
+        seq_init_v=init[None, :],
+        seq_comp_v=comp[None, :],
+        seq_logic_v=comp[None, :],
+        comp_out_v=comp[None, :],
+    )
+    cropped = crop_adc_scope_conversion(
+        wave,
+        skip_conversions=0,
+        conversion_period_s=160e-9,
+        symbol_period_s=1e-9,
+        reference_signal="seq_init",
+    )
+    assert cropped.conversion_index.tolist() == [1]
+    assert 0 <= cropped.time_s[0] < 0.25e-9
+    assert 175e-9 < cropped.time_s[-1] < 176e-9
+    assert cropped.seq_init_v is not None
+    assert cropped.seq_init_v[0, 0] == 0.0
+    assert np.count_nonzero(np.diff((cropped.seq_comp_v[0] > 0.5).astype(int)) == 1) == 17
 
 
 def test_convert_vdiff_input_to_awg_supply_applies_empirical_calibration() -> None:
@@ -582,3 +657,13 @@ def test_fastrx_settings_require_exact_characterization():
             fastrx.select_fastrx_capture_settings(replace(params, fastrx_capture=fastrx.FastRxCapture(taps, word)))
     explicit = replace(params, fastrx_capture=fastrx.FastRxCapture(0, 0))
     assert fastrx.select_fastrx_capture_settings(explicit, [profile]) == fastrx.FastRxCapture(0, 0)
+
+
+def test_fastrx_timing_profiles_cover_every_catalogue_sequence() -> None:
+    profiles = load_board_map()["boards"]["00"]["fastrx_capture_settings"]
+    for _name, sequence in SEQUENCES:
+        for baud in (320e6, 960e6, 1600e6):
+            params = AdcScanParams(tb=AdcTbParams(symbol_rate=baud, **sequence.as_tb_fields()))
+            capture = fastrx.select_fastrx_capture_settings(params, profiles)
+            assert 0 <= capture.comp_delay_taps <= 62
+            assert capture.rx_sen_start_word < len(sequence.init) // 8

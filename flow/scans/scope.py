@@ -6,7 +6,7 @@ import csv
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
@@ -143,13 +143,14 @@ def crop_adc_scope_conversion(
     skip_conversions: int,
     conversion_period_s: float,
     symbol_period_s: float,
+    reference_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
 ) -> AdcExtWave:
-    """Select a complete ADC conversion after sequencer startup, with COMP as reference.
+    """Select a complete ADC conversion after sequencer startup.
 
-    A long startup-triggered scope record contains the startup conversion and the
-    first retained conversion. Keep one symbol before its first COMP edge, so
-    the normal scope decoder sees exactly that conversion's B0--B16. The caller
-    has already associated the record with the retained DAQ conversion index.
+    COMP-referenced captures keep one symbol before B0. INIT-triggered captures
+    keep the CH1 trigger edge and a short tail beyond the next INIT, allowing
+    the final external COMP_OUT decision to settle. The caller associates the
+    selected record with its DAQ conversion index.
     """
     from dataclasses import replace
 
@@ -159,15 +160,33 @@ def crop_adc_scope_conversion(
 
     if len(wave.conversion_index) != 1 or skip_conversions < 0:
         raise ValueError("scope cropping requires one record and a nonnegative skip count")
-    comp = wave.seq_comp_v[0]
-    low, high = np.percentile(comp, (1, 99))
+    if reference_signal not in {"seq_comp", "seq_init"}:
+        raise ValueError(f"unsupported scope crop reference {reference_signal!r}")
+    if reference_signal == "seq_init" and skip_conversions:
+        raise ValueError("INIT-triggered scope cropping starts at the triggered conversion")
+    if reference_signal == "seq_init":
+        if wave.seq_init_v is None:
+            raise ValueError("scope INIT waveform is required for INIT-referenced cropping")
+        reference = wave.seq_init_v[0]
+    else:
+        reference = wave.seq_comp_v[0]
+    low, high = np.percentile(reference, (1, 99))
     if high - low < 0.1:
-        raise ValueError("scope COMP waveform has no valid logic swing")
-    edges = find_crossings(comp, wave.time_s, (low + high) / 2, rising=True)
-    if len(edges) < 17 * (skip_conversions + 1):
-        raise ValueError("scope record lacks the complete retained ADC conversion after startup")
-    origin = edges[17 * skip_conversions] - symbol_period_s
-    stop = origin + conversion_period_s
+        raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
+    edges = find_crossings(reference, wave.time_s, (low + high) / 2, rising=True)
+    if reference_signal == "seq_init":
+        trigger_edges = edges[np.abs(edges) < conversion_period_s / 4]
+        if len(trigger_edges) != 1:
+            raise ValueError("scope record lacks one INIT edge at the CH1 trigger")
+        origin = trigger_edges[0] - symbol_period_s / 2
+        # The final external COMP_OUT decision can settle after the next
+        # INIT, so retain two decision intervals beyond the 160-symbol row.
+        stop = origin + conversion_period_s + 16 * symbol_period_s
+    else:
+        if len(edges) < 17 * (skip_conversions + 1):
+            raise ValueError("scope record lacks the complete retained ADC conversion after startup")
+        origin = edges[17 * skip_conversions] - symbol_period_s
+        stop = origin + conversion_period_s
     if origin < wave.time_s[0] or stop > wave.time_s[-1]:
         raise ValueError("scope record does not cover the retained ADC conversion window")
     selected = (wave.time_s >= origin) & (wave.time_s < stop)

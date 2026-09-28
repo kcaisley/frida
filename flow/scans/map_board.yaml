@@ -37,6 +37,11 @@ boards:
       14: radix17
       15: radix20
 
+    # Layer counts confirmed for the two ADCs with detailed timing plots.
+    adc_layers:
+      1: 1
+      3: 2
+
     # VDD_IO is not connected to one of the three programmable Keithley rails.
     fixed_vdd_io_v: 1.2
 
@@ -218,35 +223,105 @@ boards:
           - build/scan_cdac/20260804_100358/*adc02*.h5
           - build/scan_cdac/20260804_101107/*adc02*.h5
 
-    # Exact sequence/baud settings characterized with the installed two-stage
-    # delay bitstream, checked on ADC00-15 with 10,000 conversions per point.
-    # One scope conversion per point agreed with all 17 FastRX bits.
+    # Two-stage delay settings grouped by complete sequence length and first
+    # COMP rising edge. All catalogue sequences have 17 edges eight symbols
+    # apart. The 160/256-symbol settings were checked on ADC00-15 with 10,000
+    # conversions per point and one 17-bit scope comparison per point.
     # Evidence: build/diagnostics/fastrx_capture_validation/accepted_summary.json
+    #           build/diagnostics/adc_sequence_alignment_20260924/validation/summary.json
     # Installed: frida_comp_delay2_optimized.bit (2026-09-18).
-    # Each entry: sequence (full catalogue name), symbol_rate_bps,
+    # Each entry: sequence_symbols, first_comp_edge_symbol, symbol_rate_bps,
     # comp_delay_taps (0..62), rx_sen_start_word (word index).
     fastrx_capture_settings:
-      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 24
         symbol_rate_bps: 320000000
         comp_delay_taps: 16
         rx_sen_start_word: 5
-      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 24
         symbol_rate_bps: 960000000
         comp_delay_taps: 40
         rx_sen_start_word: 7
-      - sequence: symbol160_init4_samp20_comp11111100_logic11000011
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 24
         symbol_rate_bps: 1600000000
         comp_delay_taps: 12
         rx_sen_start_word: 8
-      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 28
         symbol_rate_bps: 320000000
         comp_delay_taps: 31
         rx_sen_start_word: 6
-      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 16
+        rx_sen_start_word: 7
+      - sequence_symbols: 160
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 32
+        rx_sen_start_word: 9
+      # One appended idle word leaves the first COMP edge and every receive
+      # edge at the same symbol positions as the characterized 160-symbol phase.
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 16
+        rx_sen_start_word: 5
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 40
+        rx_sen_start_word: 7
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 12
+        rx_sen_start_word: 8
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 31
+        rx_sen_start_word: 6
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 16
+        rx_sen_start_word: 7
+      - sequence_symbols: 168
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 32
+        rx_sen_start_word: 9
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 31
+        rx_sen_start_word: 5
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 960000000
+        comp_delay_taps: 32
+        rx_sen_start_word: 7
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 24
+        symbol_rate_bps: 1600000000
+        comp_delay_taps: 8
+        rx_sen_start_word: 8
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 28
+        symbol_rate_bps: 320000000
+        comp_delay_taps: 31
+        rx_sen_start_word: 6
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 28
         symbol_rate_bps: 960000000
         comp_delay_taps: 12
         rx_sen_start_word: 7
-      - sequence: symbol256_init8_samp16_comp11110000_logic11000011
+      - sequence_symbols: 256
+        first_comp_edge_symbol: 28
         symbol_rate_bps: 1600000000
         comp_delay_taps: 36
         rx_sen_start_word: 9

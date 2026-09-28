@@ -1172,6 +1172,47 @@ def test_adc_timing_closure_uses_typed_wave_records_and_preserves_codes(tmp_path
     np.testing.assert_array_equal(loaded.daq.bout, before)
 
 
+def test_adc_record_analyses_ignore_high_comp_at_record_boundary() -> None:
+    from flow.analysis.adc import analyze_adc_comparator_response, analyze_adc_timing_closure
+
+    measurement = adc_timing_measurement()
+    clock = measurement.wave.voltage["clk_comp"].copy()
+    clock[0, 0] = 1.2  # Tail of the preceding conversion, not a new COMP edge.
+    voltage = {**measurement.wave.voltage, "clk_comp": clock}
+    measurement = replace(measurement, wave=replace(measurement.wave, voltage=voltage))
+
+    timing = analyze_adc_timing_closure(measurement)
+    response = analyze_adc_comparator_response(measurement)
+    np.testing.assert_array_equal(timing.decision_index, np.arange(17))
+    np.testing.assert_array_equal(response.decision_index, np.arange(17))
+
+
+def test_adc_comparator_response_requires_both_xc_rails_and_times_one_sr_output() -> None:
+    from flow.analysis.adc import analyze_adc_comparator_response
+
+    measurement = adc_timing_measurement()
+    time = measurement.wave.time_s
+    signals = {name: values.copy() for name, values in measurement.wave.voltage.items()}
+    glitch = (time >= 1.5e-9) & (time < 1.6e-9)
+    signals["comp.latch_p"][0, glitch] = 0.5
+    signals["comp_out_p"][0, glitch] = 0.5
+    not_low_enough = (time >= 5e-9) & (time < 5.8e-9)
+    signals["comp.latch_p"][0, not_low_enough] = 0.7
+    weak_midpoint_decision = (time >= 7.25e-9) & (time < 7.8e-9)
+    signals["comp.latch_p"][0, weak_midpoint_decision] = 0.7
+    signals["comp.latch_n"][0, weak_midpoint_decision] = 0.55
+    del signals["comp_out_n"]
+    result = analyze_adc_comparator_response(replace(measurement, wave=replace(measurement.wave, voltage=signals)))
+
+    np.testing.assert_array_equal(result.decision_index, np.arange(17))
+    assert result.internal_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
+    assert result.sr_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
+    assert result.sr_held[1] and np.isnan(result.sr_response_s[1])
+    assert np.isnan(result.internal_response_s[2])
+    assert np.isfinite(result.sr_response_s[2])
+    assert np.isfinite(result.internal_response_s[3])
+
+
 @pytest.mark.parametrize(
     "failure", ("wrong_sr", "late_sr", "unresolved", "late_internal", "ringing_cdac", "wrong_state", "missing_reset")
 )

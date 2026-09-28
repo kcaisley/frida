@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import csv
 import dataclasses
 import json
 import re
@@ -75,19 +76,27 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
 
 def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, monkeypatch) -> None:
     campaigns = (
-        ("frida-20260906_124441_733878", "frida1_fixed_input_noise", "20260906_125026", (1, 2), (17, 20)),
-        ("frida-20260906_124442_994752", "frida2_fixed_input_noise", "20260906_124953", (1, 2, 3), (17,)),
+        ("frida-20260926_215421_042700", "frida1_sequence", "20260926_221031_frida1_sequence", (1, 2), (17, 20)),
+        ("frida-20260926_215427_988306", "frida2_sequence", "20260926_221039_frida2_sequence", (1, 2, 3), (17,)),
+    )
+    timings = (
+        "symbol160_init4_samp20_comp11110000_logic00001111",
+        "symbol160_init4_samp20_comp11110000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11100001",
+        "symbol160_init4_samp20_comp11111110_logic11100001",
     )
     for session, target, stamp, layers, radices in campaigns:
         campaign = tmp_path / "build/remote" / session
         campaign.mkdir(parents=True)
         for layer in layers:
             for radix in radices:
-                for timing in ("original", "extended_comp", "continuous_100ns"):
+                for timing in timings:
                     path = (
                         campaign
                         / "results/sim/adc"
-                        / target
                         / stamp
                         / f"{target[:6]}_{layer}layer_radix{radix}"
                         / timing
@@ -98,66 +107,68 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         # Unrelated results must not enter this explicitly pinned comparison.
         (campaign / "result.h5").write_bytes(b"unrelated")
 
-    for index, (_, target, _, layers, radices) in enumerate(campaigns):
-        campaign = tmp_path / "build/remote" / ("frida-20260910_185707_055364", "frida-20260910_185757_562573")[index]
-        campaign.mkdir(parents=True)
-        for layer in layers:
-            for radix in radices:
-                path = (
-                    campaign
-                    / "results/sim/adc"
-                    / (target + "_comp7of8")
-                    / ("20260910_185921", "20260910_190007")[index]
-                    / f"{target[:6]}_{layer}layer_radix{radix}"
-                    / "continuous_100ns_comp7of8"
-                    / "result.h5"
-                )
-                path.parent.mkdir(parents=True)
-                path.write_bytes(b"unchanged measurement")
+    historical = tmp_path / "build/remote/frida-20260906_124441_733878/result.h5"
+    historical.parent.mkdir(parents=True)
+    historical.write_bytes(b"historical measurement")
     output_dir = tmp_path / "output"
-    physical_path = tmp_path / "build/scan_adc/20260915_111149/0102_adc03.h5"
-    physical_path.parent.mkdir(parents=True)
-    physical_path.touch()
-    (physical_path.parent / "scope_diagnostic.h5").touch()
+    sequence_name, sequence = next(
+        (name, seq) for name, seq in runner.SEQUENCES if name.startswith("symbol160_init4_samp20_")
+    )
+    monkeypatch.setattr(runner, "SEQUENCES", ((sequence_name, sequence),))
+    physical_dir = tmp_path / "build/scan_adc/20260926_172920_adc_sequence_static"
+    physical_dir.mkdir(parents=True)
+    physical_captures = {}
+    for adc in range(16):
+        for baud_mbd in (320, 960, 1600):
+            path = physical_dir / f"{len(physical_captures):04d}_capture.h5"
+            path.touch()
+            physical_captures[path] = adc, baud_mbd
+    (physical_dir / "scope_diagnostic.h5").touch()
     output_dir.mkdir()
     # Neither output files nor another acquisition directory can override inputs.
     (output_dir / "0000_unrelated.h5").touch()
-    case_count = 28
-    clock_count = 4
+    case_count = 49
+    clock_count = 7
     selected_cases = []
 
     from flow.analysis.test_adc import adc_timing_measurement
     from flow.analysis.types import AnalysisWaveform
 
-    physical = adc_measurement([100, 101, 100, 101], observed_adc=3)
+    physical = adc_measurement(np.tile([100, 101], 50_000), observed_adc=0)
     physical = dataclasses.replace(
-        physical,
-        param=dataclasses.replace(
-            physical.param, tb=dataclasses.replace(physical.param.tb, vin_diff=h.Vdc.Params(dc=0.05))
-        ),
-    )
-
-    shifted_path = physical_path.with_name("0103_adc03.h5")
-    shifted_path.touch()
-    shifted = dataclasses.replace(
         physical,
         param=dataclasses.replace(
             physical.param,
             tb=dataclasses.replace(
                 physical.param.tb,
-                **{
-                    name: getattr(physical.param.tb, name)[5:] + getattr(physical.param.tb, name)[:5]
-                    for name in ("seq_init_pattern", "seq_samp_pattern", "seq_comp_pattern", "seq_logic_pattern")
-                },
+                vin_diff=h.Vdc.Params(dc=0.05),
+                **sequence.as_tb_fields(),
             ),
         ),
     )
 
     def load(path):
-        if path == physical_path:
-            return physical
-        if path == shifted_path:
-            return shifted
+        if path in physical_captures:
+            adc, baud_mbd = physical_captures[path]
+            rate_hz = baud_mbd * 1e6 / 160
+            return dataclasses.replace(
+                physical,
+                param=dataclasses.replace(
+                    physical.param,
+                    observed_adc=adc,
+                    tb=dataclasses.replace(physical.param.tb, symbol_rate=baud_mbd * 1e6),
+                ),
+                info=dataclasses.replace(
+                    physical.info,
+                    readbacks={
+                        "actual_sample_rate_hz": rate_hz,
+                        "active_conversion_rate_hz": rate_hz,
+                        "scope_fastrx_comparison_valid": True,
+                        "scope_fastrx_bit_mismatches": 0,
+                        "fastrx_lost_count": 0,
+                    },
+                ),
+            )
         assert path.read_bytes() == b"unchanged measurement"
         selected_cases.append("/".join(path.parts[-3:]))
         return adc_timing_measurement()
@@ -178,13 +189,15 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     )
 
     def plot(*args, output_path, **kwargs):
-        if output_path.name.endswith("sequences1"):
-            assert len(args[0]) == 2
-            assert kwargs["series_labels"] == ["Sequence 1", "Sequence 1"]
-            assert args[0][0].param.tb.seq_init_pattern != args[0][1].param.tb.seq_init_pattern
+        if output_path.name == "all_adc_sequence_overview":
+            assert args[1].shape == (16, 1, 3)
+        if output_path.name.startswith("adc") and output_path.name.endswith("_sequence_enob"):
+            assert args[1].shape == (1, 3)
         return (output_path.with_suffix(".pdf"),)
 
     for name in (
+        "plot_adc_sequence_chip_overview",
+        "plot_adc_sequence_enob",
         "plot_adc_decision_path_density",
         "plot_adc_cdac_settling",
         "plot_waveforms",
@@ -197,21 +210,22 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         assert command[-1] == "frida_2_vs_1.tex"
         tex = (cwd / command[-1]).read_text()
         assert tex.count("\\begin{frame}") == tex.count("\\includegraphics") == 3 * case_count + clock_count + 7
-        assert "FRIDA-1 1L R17 original" in tex
-        assert "FRIDA-2 3L R17 continuous 100ns" in tex
-        assert "FRIDA-2 3L R17 continuous 100ns comp7of8" in tex
+        assert "FRIDA-1 1L R17 symbol160 init4 samp20 comp11110000 logic00001111" in tex
+        assert "FRIDA-2 3L R17 symbol160 init4 samp20 comp11111110 logic11100001" in tex
         (cwd / "frida_2_vs_1.pdf").touch()
 
     monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
     monkeypatch.setattr(runner.subprocess, "run", compile_deck)
 
     artifacts = runner.adc_sequence_study(output_dir)
-    assert len(artifacts) == 5 * case_count + 2 * clock_count + 7 + 3 + 5
+    assert len(artifacts) == 18 + 5 * case_count + 2 * clock_count + 7 + 3
+    assert len([path for path in artifacts if path.name.endswith("_sequence_enob.pdf")]) == 16
     assert not list(output_dir.glob("*.md"))
-    tables = list(output_dir.glob("*_timing_closure.csv"))
-    assert len(tables) == case_count
-    assert all(len(path.read_text().splitlines()) == 18 for path in tables)
-    assert "logic_setup_s" in tables[0].read_text().splitlines()[0]
+    assert len(list(output_dir.glob("*_timing_closure.csv"))) == case_count
+    with (output_dir / "pex_timing_reset_summary.csv").open(newline="") as stream:
+        summaries = list(csv.DictReader(stream))
+    assert len(summaries) == case_count
+    assert all(row["recipe"] in timings for row in summaries)
     assert len(set(selected_cases)) == case_count
     records = json.loads((tmp_path / "output/sources.json").read_text())
     assert len(records) == case_count
@@ -309,15 +323,8 @@ def test_adc_calibration_runner_combines_three_common_results(
 
     artifacts = runner.adc_calibration_study(tmp_path)
 
-    assert [path.name for path in artifacts] == [
-        "adc00_calibration_metrics.csv",
-        "adc00_calibration_weights.csv",
-    ]
-    metrics = artifacts[0].read_text()
-    weights = artifacts[1].read_text()
-    assert all(method in metrics for method in ("calibration1", "calibration2", "calibration3"))
-    assert "ideal_weight_lsb" in weights
-    assert len(weights.splitlines()) == 18
+    assert artifacts == ()
+    assert not list(tmp_path.glob("*.csv"))
 
 
 def test_cdac_analysis_replaces_whole_curves(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -616,9 +623,8 @@ def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
     assert [artifact.name for artifact in artifacts] == [
         "comp_candidate_noise_power_settling",
         "comp_candidate_noise_power_tradeoff",
-        "comp_candidate_noise_power_settling.csv",
     ]
-    assert "fixture" in artifacts[-1].read_text()
+    assert not list((tmp_path / "output").glob("*.csv"))
 
 
 def test_cdac_runner_derives_board_and_adc_indices_from_h5(

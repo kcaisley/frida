@@ -17,7 +17,7 @@ TODO: finish ADC-level driver/array composition; validate current assembled DRC/
 
 ## Simulation acquisition families
 
-The seven entry points are `hdl21_sample_rate`, `frida1_sample_rate`, `hdl21_transfer_curve`, `frida1_transfer_curve`, `frida1_sequence`, `frida2_sequence`, and `frida1_supply_noise`. Sequence targets retain the four reviewed recipes (16 FRIDA-1 and 12 FRIDA-2 cases). Separate FRIDA generations keep their explicit extraction inputs and four-by-six / three-by-eight worker budgets. Temporary seven-eighths-only campaign entry points are removed; the complete sequence targets include those cases.
+The seven entry points are `hdl21_sample_rate`, `frida1_sample_rate`, `hdl21_transfer_curve`, `frida1_transfer_curve`, `frida1_sequence`, `frida2_sequence`, and `frida1_supply_noise`. Each sequence target lists seven reviewed recipes directly: 28 FRIDA-1 and 21 FRIDA-2 cases. Separate FRIDA generations keep their explicit extraction inputs and four-by-six / three-by-eight worker budgets. Temporary seven-eighths-only campaign entry points are removed; the complete sequence targets include those cases.
 
 New runs use `build/sim/adc/<timestamp>_<target>/`. Each case keeps `result.h5` and its native raw/deck/log files together, under flavor/sequence directories where needed. Rate case names use the programmed `mbd`, avoiding ambiguity between active conversion timing and actual repetition rate. The archived campaign paths selected by analysis are unchanged. Run `python -m flow.adc.sim` to list targets without starting a simulation; diagnostics remain pytest-only.
 

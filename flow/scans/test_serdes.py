@@ -26,12 +26,20 @@ declared in map_scope.yaml, capture the named ADC recipes instead:
 
 This separate test uses only the FPGA and scope. It saves raw CSV, waveform
 PDFs and an edge-timing report; it does not control supplies or ADC inputs.
+
+The serializer output-word tests also use only the FPGA and scope. One sweeps
+three symbol rates and seven eight-symbol high-pulse widths. The other folds
+a 256-bit pattern containing all 254 nonconstant eight-bit contexts:
+
+    uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_serdes_output_words
+    uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_serdes_symbol_eye
 """
 
 from __future__ import annotations
 
 import itertools
 import json
+import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -44,7 +52,7 @@ from yaml import safe_load
 from flow.adc.sequences import SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis.measure import find_crossings
-from flow.analysis.plots import plot_waveforms
+from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.plldrp import (
     calculate_pll_frequency,
@@ -71,7 +79,6 @@ comparison_sequences = tuple(
     for name in (
         "symbol256_init8_samp16_comp11110000_logic11000011",
         "symbol256_init8_samp16_comp11111100_logic00000010",
-        "symbol160_init4_samp24_comp11111100_logic00000010",
         "symbol160_init4_samp20_comp11111110_logic00000001",
     )
 )
@@ -101,6 +108,15 @@ SCOPE_POST_TRIGGER_AT_200_MHZ_S = 120.0e-9
 SI570_SETTLE_TIME_S = 0.02
 SCOPE_CAPTURE_SETTLE_TIME_S = 0.1
 SCOPE_CAPTURE_ATTEMPTS = 3
+
+# Every cyclic eight-bit word except 00000000 and 11111111 occurs here.
+# Two nonconstant words repeat so the RAM program remains 256 bits long.
+SERDES_EYE_PATTERN = (
+    "0000000100000011000001010000011100001001000010110000110100001111"
+    "0001000100110001010101000101110001100100011011000111010001111100"
+    "1001010010011100101011001011010010111100110011010100110111001110"
+    "1100111101001111110101010111010110110101111101101111011101111111"
+)
 
 SMU_RAILS = (
     ("smu1", "VDD_A"),
@@ -641,6 +657,263 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         finally:
             try:
                 # Keep the capture settings and last waveform visible for inspection.
+                if scope is not None:
+                    scope.set_acquire_state("STOP")
+            finally:
+                scope_dut.close()
+                daq.close()
+
+
+@pytest.mark.hw
+@pytest.mark.slow
+@pytest.mark.scope_signals("seq_comp")
+def test_serdes_output_words() -> None:
+    """Capture eight-symbol output words with one through seven high symbols."""
+
+    from basil.dut import Dut
+
+    symbol_rates_bps = (320e6, 960e6, 1600e6)
+    high_counts = range(1, 8)
+    captures_per_case = 32
+    comp_channel = scope_channels("seq_comp")["seq_comp"]
+    resume_dir = os.environ.get("FRIDA_SERDES_OUTPUT_WORDS_RUN_DIR")
+    run_dir = Path(resume_dir) if resume_dir else OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / "output_words"
+    run_dir.mkdir(parents=True, exist_ok=bool(resume_dir))
+    config = safe_load(MAP_PATH.read_text())
+    config["hw_drivers"] = [
+        driver for driver in config["hw_drivers"] if driver["name"] in {"seq0", "gpio2", "i2c0", "si570"}
+    ]
+    config["registers"] = [register for register in config["registers"] if register["name"] in {"seq0", "gpio2"}]
+    daq = Dut(config)
+    scope_dut = Dut(str(SCOPE_MAP_PATH))
+    seq = scope = None
+    try:
+        daq.init()
+        seq = daq["seq0"]
+        assert seq.is_ready, "sequencer must be idle before changing clocks"
+        scope_dut.init()
+        scope = scope_dut["scope"]
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        scope._intf.write("HORizontal:MODe MANual")
+        scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
+        scope.set_horizontal_record_length(1_000)
+        scope._intf.write("HORizontal:POSition 10")
+        scope._intf.write(f"DISplay:GLObal:CH{comp_channel}:STATE ON")
+        scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=comp_channel)
+        scope.set_vertical_position(0.0, channel=comp_channel)
+        scope.set_vertical_offset(0.0, channel=comp_channel)
+        scope.set_coupling("DC", channel=comp_channel)
+        scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=comp_channel)
+        scope._intf.write("TRIGger:B:STATE OFF")
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=comp_channel)
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=comp_channel)
+        scope.set_trigger_mode("NORMAL")
+        sample_rate_hz = float(response_value(scope._intf.query("HORizontal:SAMPLERate?")))
+        assert sample_rate_hz / max(symbol_rates_bps) >= 3, "scope has fewer than three samples per symbol"
+
+        captures_by_case = {}
+        for symbol_rate_bps in symbol_rates_bps:
+            assert seq.is_ready, "sequencer must be idle before changing the PLL"
+            si570_frequency_hz, divider_n = select_pll_configuration(symbol_rate_bps)
+            daq["si570"].frequency_change(si570_frequency_hz / 1e6)
+            time.sleep(SI570_SETTLE_TIME_S)
+            set_pll_divider(daq["gpio2"], divider_n)
+            for high_symbols in high_counts:
+                case_dir = run_dir / f"{symbol_rate_bps / 1e6:g}mbd_{high_symbols}of8"
+                case_dir.mkdir(exist_ok=bool(resume_dir))
+                existing = sorted(case_dir.glob("capture_*.csv"))
+                if [path.name for path in existing] != [f"capture_{index:03d}.csv" for index in range(len(existing))]:
+                    raise ValueError(f"{case_dir} has a noncontiguous capture prefix")
+                if len(existing) > captures_per_case:
+                    raise ValueError(f"{case_dir} has too many captures")
+                if len(existing) == captures_per_case:
+                    continue
+                # Quiet first/last RAM words keep COMP from toggling while idle.
+                word = "1" * high_symbols + "0" * (8 - high_symbols)
+                pattern = "0" * 8 + word * 30 + "0" * 8
+                params = AdcTbParams(
+                    symbol_rate=symbol_rate_bps,
+                    seq_init_pattern="0" * 256,
+                    seq_samp_pattern="0" * 256,
+                    seq_comp_pattern=pattern,
+                    seq_logic_pattern="0" * 256,
+                )
+                memory = convert_params_to_seqgen_fmt(params, "0" * 32)
+                seq.reset()
+                seq.set_data(bytes(seq.get_mem_size()))
+                seq.set_data(memory)
+                seq.set_size(32)
+                seq.set_clk_divide(1)
+                seq.set_repeat(4)
+                seq.set_en_ext_start(False)
+                assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
+                captures = []
+                for capture_index in range(len(existing), captures_per_case):
+                    scope._intf.write("ACQuire:NUMACq:RESET")
+                    scope.set_acquire_state("RUN")
+                    before = wait_for_scope_armed(scope, timeout_s=5.0)
+                    seq.start()
+                    wait_for_scope_capture(scope, before, timeout_s=5.0)
+                    assert seq.is_ready, "finite sequencer run did not finish"
+                    captured = scope.get_waveforms((comp_channel,))
+                    if comp_channel not in captured:
+                        raise RuntimeError(f"scope omitted COMP channel {comp_channel}")
+                    captures.append(captured)
+                    write_scope_csv(case_dir / f"capture_{capture_index:03d}.csv", captured, {comp_channel: "seq_comp"})
+                captures_by_case[(int(symbol_rate_bps / 1e6), high_symbols)] = captures
+        if not resume_dir:
+            for path in plot_serdes_output_word_grid(
+                captures_by_case,
+                output_channel=comp_channel,
+                output_path=run_dir / "msmt_fpga_serdes_output_words_grid",
+            ):
+                print(f"Saved serializer output-word result: {path}")
+    finally:
+        try:
+            if seq is not None:
+                seq.reset()
+                seq.set_data(bytes(8))
+                seq.set_size(1)
+                seq.set_repeat(1)
+                seq.set_clk_divide(1)
+                seq.set_en_ext_start(False)
+                seq.start()
+                daq["si570"].frequency_change(200.0)
+                time.sleep(SI570_SETTLE_TIME_S)
+                set_pll_divider(daq["gpio2"], 2)
+        finally:
+            try:
+                if scope is not None:
+                    scope.set_acquire_state("STOP")
+            finally:
+                scope_dut.close()
+                daq.close()
+
+
+@pytest.mark.hw
+@pytest.mark.slow
+@pytest.mark.scope_signals("seq_init", "seq_comp")
+def test_serdes_symbol_eye() -> None:
+    """Fold all nonconstant eight-bit contexts into a single-symbol eye."""
+
+    from basil.dut import Dut
+
+    pattern = SERDES_EYE_PATTERN
+    words = {(pattern + pattern)[index : index + 8] for index in range(256)}
+    assert len(pattern) == 256 and len(words) == 254
+    assert not words & {"00000000", "11111111"}
+    symbol_rates_bps = (320e6, 960e6, 1600e6)
+    captures_per_rate = 64
+    channels = scope_channels("seq_init", "seq_comp")
+    marker_channel, output_channel = channels["seq_init"], channels["seq_comp"]
+    tracks = {marker_channel: "seq_init", output_channel: "seq_comp"}
+    run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / "symbol_eye"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    config = safe_load(MAP_PATH.read_text())
+    config["hw_drivers"] = [
+        driver for driver in config["hw_drivers"] if driver["name"] in {"seq0", "gpio2", "i2c0", "si570"}
+    ]
+    config["registers"] = [register for register in config["registers"] if register["name"] in {"seq0", "gpio2"}]
+    daq = Dut(config)
+    scope_dut = Dut(str(SCOPE_MAP_PATH))
+    seq = scope = None
+    try:
+        daq.init()
+        seq = daq["seq0"]
+        assert seq.is_ready, "sequencer must be idle before changing clocks"
+        scope_dut.init()
+        scope = scope_dut["scope"]
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        scope._intf.write("HORizontal:MODe MANual")
+        scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
+        scope.set_horizontal_record_length(10_000)
+        scope._intf.write("HORizontal:POSition 10")
+        for channel in tracks:
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_coupling("DC", channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+        scope._intf.write("TRIGger:B:STATE OFF")
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=marker_channel)
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=marker_channel)
+        scope.set_trigger_mode("NORMAL")
+        sample_rate_hz = float(response_value(scope._intf.query("HORizontal:SAMPLERate?")))
+        record_length = int(response_value(scope.get_horizontal_record_length()))
+        assert sample_rate_hz / max(symbol_rates_bps) >= 3, "scope has fewer than three samples per symbol"
+        assert record_length / sample_rate_hz >= 256 / min(symbol_rates_bps) + 0.1e-6
+
+        captures_by_rate = {}
+        for symbol_rate_bps in symbol_rates_bps:
+            assert seq.is_ready, "sequencer must be idle before changing the PLL"
+            si570_frequency_hz, divider_n = select_pll_configuration(symbol_rate_bps)
+            daq["si570"].frequency_change(si570_frequency_hz / 1e6)
+            time.sleep(SI570_SETTLE_TIME_S)
+            set_pll_divider(daq["gpio2"], divider_n)
+            params = AdcTbParams(
+                symbol_rate=symbol_rate_bps,
+                seq_init_pattern="1" * 8 + "0" * 248,
+                seq_samp_pattern="0" * 256,
+                seq_comp_pattern=pattern,
+                seq_logic_pattern="0" * 256,
+            )
+            memory = convert_params_to_seqgen_fmt(params, "0" * 32)
+            seq.reset()
+            seq.set_data(bytes(seq.get_mem_size()))
+            seq.set_data(memory)
+            seq.set_size(32)
+            seq.set_clk_divide(1)
+            seq.set_repeat(4)
+            seq.set_en_ext_start(False)
+            assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
+            case_dir = run_dir / f"{symbol_rate_bps / 1e6:g}mbd"
+            case_dir.mkdir()
+            captures = []
+            for capture_index in range(captures_per_rate):
+                scope._intf.write("ACQuire:NUMACq:RESET")
+                scope.set_acquire_state("RUN")
+                before = wait_for_scope_armed(scope, timeout_s=5.0)
+                seq.start()
+                wait_for_scope_capture(scope, before, timeout_s=5.0)
+                assert seq.is_ready, "finite sequencer run did not finish"
+                captured = scope.get_waveforms(tracks)
+                if set(captured) != set(tracks):
+                    raise RuntimeError(f"scope returned channels {sorted(captured)}, expected {sorted(tracks)}")
+                captures.append(captured)
+                write_scope_csv(case_dir / f"capture_{capture_index:03d}.csv", captured, tracks)
+            captures_by_rate[int(symbol_rate_bps / 1e6)] = captures
+        for path in plot_serdes_symbol_eye_grid(
+            captures_by_rate,
+            marker_channel=marker_channel,
+            output_channel=output_channel,
+            pattern=pattern,
+            output_path=run_dir / "msmt_fpga_serdes_symbol_eye",
+        ):
+            print(f"Saved serializer symbol eye: {path}")
+    finally:
+        try:
+            if seq is not None:
+                seq.reset()
+                seq.set_data(bytes(8))
+                seq.set_size(1)
+                seq.set_repeat(1)
+                seq.set_clk_divide(1)
+                seq.set_en_ext_start(False)
+                seq.start()
+                daq["si570"].frequency_change(200.0)
+                time.sleep(SI570_SETTLE_TIME_S)
+                set_pll_divider(daq["gpio2"], 2)
+        finally:
+            try:
                 if scope is not None:
                     scope.set_acquire_state("STOP")
             finally:

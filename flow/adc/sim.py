@@ -6,7 +6,6 @@ import json
 import math
 import re
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import replace
 from datetime import datetime
 from itertools import product
 from multiprocessing import get_context
@@ -27,16 +26,6 @@ from flow.adc.subckt import Adc, AdcNets, AdcParams, is_valid_adc_params
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import CompNets
-
-comparison_sequences = tuple(
-    (name, dict(SEQUENCES)[name])
-    for name in (
-        "symbol256_init8_samp16_comp11110000_logic11000011",
-        "symbol256_init8_samp16_comp11111100_logic00000010",
-        "symbol160_init4_samp24_comp11111100_logic00000010",
-        "symbol160_init4_samp20_comp11111110_logic00000001",
-    )
-)
 
 
 @h.paramclass
@@ -621,22 +610,8 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     return run_dir
 
 
-def fixed_input_timing_params() -> tuple[tuple[str, AdcTbParams], ...]:
-    """Expand the four reviewed timing recipes into complete ADC parameters."""
-    return tuple(
-        (
-            name,
-            AdcTbParams(
-                symbol_rate=1.6 * G,
-                **sequence.as_tb_fields(),
-            ),
-        )
-        for name, sequence in comparison_sequences
-    )
-
-
 def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare four timing recipes on four historical flavors, 100 conversions per case."""
+    """Compare seven continuous timing recipes on four historical flavors."""
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
@@ -645,22 +620,36 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
         for layers in (1, 2):
-            for (radix, cdac), (timing, timing_params) in product(
+            for (radix, cdac), timing in product(
                 (
                     (17, CapArrayConfig()),
                     (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
                 ),
-                fixed_input_timing_params(),
+                # COMP      LOGIC at fall  LOGIC +1 symbol
+                # 11110000  00001111       10000111
+                # 11111000  10000111       11000011
+                # 11111100  11000011       11100001
+                # 11111110  11100001       (excluded)
+                (
+                    "symbol160_init4_samp20_comp11110000_logic00001111",
+                    "symbol160_init4_samp20_comp11110000_logic10000111",
+                    "symbol160_init4_samp20_comp11111000_logic10000111",
+                    "symbol160_init4_samp20_comp11111000_logic11000011",
+                    "symbol160_init4_samp20_comp11111100_logic11000011",
+                    "symbol160_init4_samp20_comp11111100_logic11100001",
+                    "symbol160_init4_samp20_comp11111110_logic11100001",
+                ),
             ):
                 target = f"frida1_{layers}layer_radix{radix}"
                 pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
-                params = replace(
-                    timing_params,
+                params = AdcTbParams(
                     view="frida1",
                     pex_cell="adc_12b_17step",
                     dut=AdcParams(adc_bits=12, cdac=cdac),
+                    symbol_rate=1.6 * G,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
+                    **dict(SEQUENCES)[timing].as_tb_fields(),
                 )
                 futures.append(
                     (
@@ -832,18 +821,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
 
 
 def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare four timing recipes on three radix-17 stacks, 100 conversions per case.
-
-    Keep sampling, COMP rising edges, and LOGIC rising edges unchanged from
-    the September 5 campaign. In extended_comp, six of eight slots evaluate; LOGIC is high
-    for the first reset slot and low one slot before the next comparison.
-    Edges coincide at the sequencer, not necessarily at the internal clocks.
-    continuous_100ns instead uses 15 ns sampling and a shorter final COMP pulse
-    to fit back-to-back conversions, as in adc_sequencer_timing_100ns.tex.
-    continuous_100ns_comp7of8 shortens SAMP by four symbols and advances
-    the decision train by 2.5 ns. All 17 COMP pulses last seven symbols;
-    each of the 16 LOGIC updates occupies the final symbol of its slot.
-    """
+    """Compare named continuous timing recipes on three radix-17 stacks."""
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
@@ -851,18 +829,32 @@ def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
     root = Path(__file__).resolve().parents[2] / "build/layout/adc"
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
-        for (layers, stamp), (timing, timing_params) in product(
+        for (layers, stamp), timing in product(
             ((1, "20260905_193440"), (2, "20260905_193629"), (3, "20260905_193816")),
-            fixed_input_timing_params(),
+            # COMP      LOGIC at fall  LOGIC +1 symbol
+            # 11110000  00001111       10000111
+            # 11111000  10000111       11000011
+            # 11111100  11000011       11100001
+            # 11111110  11100001       (excluded)
+            (
+                "symbol160_init4_samp20_comp11110000_logic00001111",
+                "symbol160_init4_samp20_comp11110000_logic10000111",
+                "symbol160_init4_samp20_comp11111000_logic10000111",
+                "symbol160_init4_samp20_comp11111000_logic11000011",
+                "symbol160_init4_samp20_comp11111100_logic11000011",
+                "symbol160_init4_samp20_comp11111100_logic11100001",
+                "symbol160_init4_samp20_comp11111110_logic11100001",
+            ),
         ):
             target = f"frida2_{layers}layer_radix17"
-            params = replace(
-                timing_params,
+            params = AdcTbParams(
                 view="frida2",
                 pex_cell="adc_12b_17step",
                 dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
+                symbol_rate=1.6 * G,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
+                **dict(SEQUENCES)[timing].as_tb_fields(),
             )
             futures.append(
                 (

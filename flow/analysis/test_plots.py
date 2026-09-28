@@ -10,13 +10,16 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from basil.HL.tektronix_oscilloscope import CapturedWaveform, XScale, YScale
 from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
+from flow.adc.sequences import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
+    analyze_adc_comp_out_edge_eye,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_dynamic_sweep,
@@ -46,6 +49,9 @@ from flow.analysis.plots import (
     TEXT_COLOR,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
+    plot_adc_comp_out_edge_eye,
+    plot_adc_comparator_edge_eye,
+    plot_adc_comparator_response,
     plot_adc_decision_path_density,
     plot_adc_decision_paths,
     plot_adc_dynamic,
@@ -65,6 +71,8 @@ from flow.analysis.plots import (
     plot_cdac_cap_mismatch_comparison,
     plot_comp_common_mode_campaign,
     plot_comp_sampling_campaign,
+    plot_serdes_output_word_grid,
+    plot_serdes_symbol_eye_grid,
     plot_waveforms,
     style_adc_code_dispersion_lsb,
     style_grid,
@@ -83,6 +91,230 @@ from flow.analysis.types import (
 from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
+
+
+def test_adc_comp_out_edge_eye_uses_paired_basil_captures(tmp_path: Path) -> None:
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    rate = 320e6
+    step_s = 0.1e-9
+    time_s = np.arange(-20e-9, 600e-9, step_s)
+    scale = XScale(step_s, float(time_s[0]), "s")
+    edge_symbols = [index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"]
+    captures = []
+    for capture_index in range(4):
+        edge_s = np.asarray(edge_symbols) / rate + capture_index * 0.03e-9
+        comp_v = np.full(len(time_s), -0.2)
+        out_v = np.full(len(time_s), -0.2)
+        output_high = False
+        for decision, edge in enumerate(edge_s):
+            comp_v[(time_s >= edge) & (time_s < edge + 6 / rate)] = 0.2
+            if decision != 3:
+                output_high = not output_high
+                ramp = np.clip((time_s - edge - 5e-9 - capture_index * 0.02e-9) / 1e-9, 0, 1)
+                out_v += (0.4 if output_high else -0.4) * ramp
+        captures.append(
+            {
+                channel: CapturedWaveform(channel, np.rint(values * 1000).astype(int), values, scale, YScale(0.2, -0.2))
+                for channel, values in ((3, comp_v), (2, out_v))
+            }
+        )
+    analysis = analyze_adc_comp_out_edge_eye(
+        captures,
+        comp_channel=3,
+        comp_out_channel=2,
+        sequence=sequence,
+        symbol_rate_bps=rate,
+    )
+    paths = plot_adc_comp_out_edge_eye(analysis, output_path=tmp_path / "comparator")
+    bounds = analysis.delay_bounds_s
+    assert bounds[0] == pytest.approx(5.5e-9, abs=0.1e-9)
+    assert bounds[1] == pytest.approx(5.56e-9, abs=0.1e-9)
+    assert all(path.exists() for path in paths)
+    assert analysis.unchanged[3] == 4
+    assert np.count_nonzero(np.isfinite(analysis.delays_s[:, 3])) == 0
+    assert (tmp_path / "comparator_timing.pdf").exists()
+    assert (tmp_path / "comparator_decision_eye.pdf").exists()
+    assert not (tmp_path / "comparator_clock_jitter.pdf").exists()
+    assert (tmp_path / "comparator_response_histogram.pdf").exists()
+    assert not (tmp_path / "comparator_delay_density.pdf").exists()
+    assert not (tmp_path / "comparator.pdf").exists()
+
+
+def test_serdes_output_word_grid_keeps_each_eight_symbol_pattern(tmp_path: Path, monkeypatch) -> None:
+    figures = []
+    save_figure = analysis_plots.save_figure
+
+    def capture(fig, output_path, **kwargs):
+        figures.append(fig)
+        return save_figure(fig, output_path, **kwargs)
+
+    monkeypatch.setattr(analysis_plots, "save_figure", capture)
+    samples_in_symbols = np.arange(-20, 1300) / 10
+    captures = {}
+    for rate_mbd in (320, 960, 1600):
+        time_s = samples_in_symbols / (rate_mbd * 1e6)
+        scale = XScale(float(time_s[1] - time_s[0]), float(time_s[0]), "s")
+        for high_symbols in range(1, 8):
+            high = np.mod(np.floor(samples_in_symbols).astype(int), 8) < high_symbols
+            voltage = np.where(high, 0.5, -0.5)
+            captures[(rate_mbd, high_symbols)] = [
+                {3: CapturedWaveform(3, np.rint(voltage * 1000).astype(int), voltage, scale, YScale(0.2, -0.2))}
+            ]
+    paths = plot_serdes_output_word_grid(captures, output_channel=3, output_path=tmp_path / "words")
+    assert all(path.is_file() for path in paths)
+    assert len(figures[0].axes) == 28
+    assert [ax.get_title() for ax in figures[0].axes if ax.get_title()] == [f"{high} of 8" for high in range(1, 8)]
+
+
+def test_serdes_symbol_eye_folds_nonconstant_contexts(tmp_path: Path, monkeypatch) -> None:
+    from flow.scans.test_serdes import SERDES_EYE_PATTERN
+
+    figures = []
+    save_figure = analysis_plots.save_figure
+
+    def capture(fig, output_path, **kwargs):
+        figures.append(fig)
+        return save_figure(fig, output_path, **kwargs)
+
+    monkeypatch.setattr(analysis_plots, "save_figure", capture)
+    samples_in_symbols = np.arange(-20, 2600) / 10
+    bit_index = np.mod(np.floor(samples_in_symbols).astype(int), 256)
+    marker = np.where((samples_in_symbols >= 0) & (bit_index < 8), 0.5, -0.5)
+    output = np.where(np.fromiter((SERDES_EYE_PATTERN[index] == "1" for index in bit_index), bool), 0.5, -0.5)
+    captures = {}
+    for rate_mbd in (320, 960, 1600):
+        time_s = samples_in_symbols / (rate_mbd * 1e6)
+        scale = XScale(float(time_s[1] - time_s[0]), float(time_s[0]), "s")
+        captures[rate_mbd] = [
+            {
+                channel: CapturedWaveform(
+                    channel, np.rint(voltage * 1000).astype(int), voltage, scale, YScale(0.2, -0.2)
+                )
+                for channel, voltage in ((1, marker), (3, output))
+            }
+        ]
+    paths = plot_serdes_symbol_eye_grid(
+        captures,
+        marker_channel=1,
+        output_channel=3,
+        pattern=SERDES_EYE_PATTERN,
+        output_path=tmp_path / "symbol_eye",
+    )
+    assert all(path.is_file() for path in paths)
+    assert len(figures[0].axes) == 3
+    assert all("256 symbols" in axis.get_title() for axis in figures[0].axes)
+    assert all("1000 mV" in axis.get_title() for axis in figures[0].axes)
+
+
+def test_adc_comparator_response_plot_overlays_histograms_and_counts_held_decisions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from flow.analysis.adc import analyze_adc_comparator_response
+    from flow.analysis.test_adc import adc_timing_measurement
+
+    figures = []
+    save_figure = analysis_plots.save_figure
+
+    def capture(fig, output_path, **kwargs):
+        figures.append(fig)
+        return save_figure(fig, output_path, **kwargs)
+
+    monkeypatch.setattr(analysis_plots, "save_figure", capture)
+    analysis = analyze_adc_comparator_response(adc_timing_measurement())
+    paths = plot_adc_comparator_response(
+        analysis,
+        output_path=tmp_path / "response",
+    )
+    assert all(path.exists() for path in paths)
+    assert len(np.unique(analysis.decision_index)) == 17
+    second_decision = analysis.decision_index == 1
+    assert np.count_nonzero(analysis.sr_held[second_decision]) == 1
+    assert np.count_nonzero(np.isfinite(analysis.sr_response_s[second_decision])) == 0
+    bars = figures[0].axes[0].patches
+    left_edges = [
+        {
+            round(bar.get_x(), 6)
+            for bar in bars
+            if bar.get_width() > 0 and np.allclose(bar.get_facecolor()[:3], mcolors.to_rgb(color))
+        }
+        for color in CURVE_COLORS[:2]
+    ]
+    assert left_edges[0] & left_edges[1]
+
+
+def test_adc_comparator_edge_eye_uses_every_conversion_and_absolute_xc(tmp_path, monkeypatch) -> None:
+    from flow.analysis.test_adc import adc_timing_measurement
+
+    measurement = adc_timing_measurement()
+    wave = measurement.wave
+    repeated = replace(
+        measurement,
+        param=replace(measurement.param, conversions=2),
+        daq=replace(
+            measurement.daq,
+            conversion_index=np.arange(2),
+            bout=np.repeat(measurement.daq.bout, 2, axis=0),
+            dout_raw=np.repeat(measurement.daq.dout_raw, 2),
+            dout=np.repeat(measurement.daq.dout, 2),
+            vin_diff_v=np.repeat(measurement.daq.vin_diff_v, 2),
+            fastrx_word=(
+                np.repeat(measurement.daq.fastrx_word, 2) if measurement.daq.fastrx_word is not None else None
+            ),
+        ),
+        wave=replace(
+            wave,
+            conversion_index=np.arange(2),
+            voltage={name: np.repeat(values, 2, axis=0) for name, values in wave.voltage.items()},
+        ),
+    )
+    figures = []
+    save_figure = analysis_plots.save_figure
+
+    def capture(fig, output_path, **kwargs):
+        figures.append(fig)
+        return save_figure(fig, output_path, **kwargs)
+
+    monkeypatch.setattr(analysis_plots, "save_figure", capture)
+    paths = plot_adc_comparator_edge_eye(repeated, output_path=tmp_path / "pex_eye")
+    assert all(path.exists() for path in paths)
+    assert [len(collection.get_segments()) for collection in figures[0].axes[0].collections] == [2] * 3
+    assert [len(collection.get_segments()) for collection in figures[1].axes[0].collections] == [34] * 3
+    assert all(np.all(segment[:, 1] >= 0) for segment in figures[1].axes[0].collections[2].get_segments())
+    assert figures[1].axes[0].get_xlim() == pytest.approx((-0.2, 2.2))
+    assert figures[1].axes[0].collections[0].get_segments()[0][-1, 0] > 2.0
+    assert [line.get_label() for line in figures[0].axes[0].lines] == [
+        "Comparator clock",
+        "SR-latch P",
+        "XC-latch |P−N|",
+    ]
+    assert [line.get_color() for line in figures[0].axes[0].lines] == list(CURVE_COLORS[:3])
+
+
+def test_adc_comparator_response_uses_per_decision_sample_fractions(tmp_path, monkeypatch) -> None:
+    from flow.analysis.types import AnalysisAdcComparatorResponse
+
+    values = np.array([1.0, 1.1, 1.2, 1.3]) * 1e-9
+    captured = []
+    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, path, **_kwargs: captured.append(fig) or (path,))
+    analysis = AnalysisAdcComparatorResponse(
+        conversion_index=np.arange(40),
+        decision_index=np.zeros(40, dtype=int),
+        internal_response_s=np.r_[values, np.full(36, np.nan)],
+        sr_response_s=np.repeat(values, 10),
+        sr_held=np.zeros(40, dtype=bool),
+        sample_interval_s=10e-12,
+        conversion_rate_hz=10e6,
+    )
+    try:
+        plot_adc_comparator_response(analysis, output_path=tmp_path / "response")
+        ax = captured[0].axes[0]
+        widths = [bar.get_width() for bar in ax.patches]
+        assert len(widths) == 8
+        assert widths[:4] == pytest.approx(widths[4:])
+        assert [bar.get_x() for bar in ax.patches] == [0.0] * 8
+    finally:
+        for fig in captured:
+            plt.close(fig)
 
 
 def test_sampling_noise_histogram_has_common_voltage_bins_and_axes(tmp_path, monkeypatch) -> None:

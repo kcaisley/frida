@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import pairwise
 
 import hdl21 as h
 import numpy as np
+from basil.HL.tektronix_oscilloscope import CapturedWaveform
 from scipy.optimize import minimize_scalar
 from scipy.signal.windows import blackmanharris
 
@@ -26,6 +27,8 @@ from flow.analysis.types import (
     AnalysisAdcCalibration,
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcComparatorResponse,
+    AnalysisAdcCompOutEdgeEye,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcDynamicSweep,
@@ -44,12 +47,88 @@ from flow.analysis.types import (
     MeasAdcExt,
     MeasAdcInt,
 )
+from flow.analysis.waveform import analyze_scope_waveforms
 from flow.caparray import get_caparray_weights
 from flow.comp.subckt import CompNets
 
 ADC_DYNAMIC_RESIDUAL_TAIL_LIMIT_DOUT = 24.0
 ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION = 0.0027
 ADC_RAMP_RESET_EXCLUSION_CONVERSIONS = 8
+
+
+def analyze_adc_comp_out_edge_eye(
+    captures: Sequence[Mapping[int, CapturedWaveform]],
+    *,
+    comp_channel: int,
+    comp_out_channel: int,
+    sequence: AdcSequence,
+    symbol_rate_bps: float,
+) -> AnalysisAdcCompOutEdgeEye:
+    """Measure external comparator transitions and clock jitter from scope captures."""
+
+    if not captures or symbol_rate_bps <= 0:
+        raise ValueError("captures and a positive symbol rate are required")
+    comp_bits = np.fromiter((bit == "1" for bit in sequence.comp), dtype=bool)
+    edge_symbols = np.flatnonzero(comp_bits & ~np.roll(comp_bits, 1))
+    if len(edge_symbols) != 17 or not np.all(np.diff(edge_symbols) == 8):
+        raise ValueError("comparator eye requires 17 COMP rising edges eight symbols apart")
+    decision_period_s = 8.0 / symbol_rate_bps
+    clock_edges_s = np.empty((len(captures), 17))
+    delays_s = np.full((len(captures), 17), np.nan)
+    jitter_s = np.empty((len(captures), 17))
+    unchanged = np.zeros(17, dtype=np.int64)
+    multiple = np.zeros(17, dtype=np.int64)
+    unsettled = np.zeros(17, dtype=np.int64)
+    waveforms = []
+
+    for capture_index, capture in enumerate(captures):
+        wave = analyze_scope_waveforms(capture, {comp_channel: "COMP", comp_out_channel: "COMP_OUT"})
+        waveforms.append(wave)
+        time_s = wave.time_s
+        comp_v, comp_out_v = wave.signal_values
+        comp_low, comp_high = np.percentile(comp_v, (5, 95))
+        out_low, out_high = np.percentile(comp_out_v, (5, 95))
+        if comp_high - comp_low < 0.05 or out_high - out_low < 0.05:
+            raise ValueError(f"capture {capture_index} lacks a valid COMP or COMP_OUT swing")
+        comp_level = float((comp_low + comp_high) / 2)
+        out_level = float((out_low + out_high) / 2)
+        clock_edges = find_crossings(comp_v, time_s, comp_level, rising=True)
+        clock_edges = clock_edges[clock_edges >= 0][:17]
+        if len(clock_edges) != 17 or np.any(np.abs(np.diff(clock_edges) - decision_period_s) > 0.2 * decision_period_s):
+            raise ValueError(f"capture {capture_index} does not contain one complete 17-decision conversion")
+        clock_edges_s[capture_index] = clock_edges
+        rising_edges = find_crossings(comp_out_v, time_s, out_level, rising=True)
+        falling_edges = find_crossings(comp_out_v, time_s, out_level, rising=False)
+        output_edges = np.sort(np.r_[rising_edges, falling_edges])
+        for decision, clock_edge in enumerate(clock_edges):
+            jitter_s[capture_index, decision] = (
+                clock_edge - clock_edges[0] - (edge_symbols[decision] - edge_symbols[0]) / symbol_rate_bps
+            )
+            matching = output_edges[(output_edges >= clock_edge) & (output_edges < clock_edge + decision_period_s)]
+            if len(matching) == 1:
+                rising = bool(np.any(rising_edges == matching[0]))
+                final_index = min(np.searchsorted(time_s, clock_edge + decision_period_s), len(time_s)) - 1
+                final_valid = comp_out_v[final_index] >= out_level if rising else comp_out_v[final_index] <= out_level
+                if final_valid:
+                    delays_s[capture_index, decision] = matching[0] - clock_edge
+                else:
+                    unsettled[decision] += 1
+            elif len(matching) == 0:
+                unchanged[decision] += 1
+            else:
+                multiple[decision] += 1
+
+    return AnalysisAdcCompOutEdgeEye(
+        waveforms=tuple(waveforms),
+        clock_edges_s=clock_edges_s,
+        delays_s=delays_s,
+        jitter_s=jitter_s,
+        unchanged=unchanged,
+        multiple=multiple,
+        unsettled=unsettled,
+        decision_period_s=decision_period_s,
+        conversion_rate_hz=symbol_rate_bps / sequence.conversion_symbols,
+    )
 
 
 def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
@@ -1363,6 +1442,7 @@ def _adc_decision_times(
     threshold_v: float,
     *,
     require_logic_updates: bool = True,
+    count_initial_comp_high: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Pair each comparison with LOGIC and next COMP; NaN means an unsaved edge.
 
@@ -1370,9 +1450,9 @@ def _adc_decision_times(
     supplies observation edges but is never counted as a requested conversion.
     Conversion requires unique updates; diagnostic analysis marks bad updates NaN.
     """
-    init, comp, logic = (
-        find_crossings(signal, time, threshold_v, rising=True, initial_high=True) for signal in (init, comp, logic)
-    )
+    init = find_crossings(init, time, threshold_v, rising=True, initial_high=True)
+    comp = find_crossings(comp, time, threshold_v, rising=True, initial_high=count_initial_comp_high)
+    logic = find_crossings(logic, time, threshold_v, rising=True, initial_high=True)
     if len(init) < conversions:
         raise ValueError("raw data lacks the requested INIT edges")
     starts = init[:conversions]
@@ -1410,6 +1490,82 @@ def _stable_since(time: np.ndarray, valid: np.ndarray) -> float:
         return math.nan
     invalid = np.flatnonzero(~valid)
     return float(time[invalid[-1] + 1] if len(invalid) else time[0])
+
+
+def analyze_adc_comparator_response(
+    measurement: MeasAdcInt,
+) -> AnalysisAdcComparatorResponse:
+    """Measure midpoint-valid XC and single-ended SR timing after COMP rise.
+
+    One XC node must fall below 50% of VDD and the other remain above 50%
+    before COMP reset. The positive buffered SR output must enter the matching
+    half-rail band before the next COMP rise. Both must remain valid through
+    the end of their windows. Already-held SR states are counted separately.
+    """
+
+    wave = measurement.wave
+    required = {"seq_init", "seq_logic", "clk_comp", "comp.latch_p", "comp.latch_n", "comp_out_p"}
+    if missing := required - wave.voltage.keys():
+        raise ValueError(f"ADC comparator response requires saved canonical nets: {sorted(missing)}")
+    time = wave.time_s
+    analog_supply = float(measurement.param.vdd_a.dc)
+    digital_supply = float(measurement.param.vdd_d.dc)
+    rows = []
+    for record, conversion in enumerate(wave.conversion_index):
+        signals = {name: values[record] for name, values in wave.voltage.items() if name in required}
+        _, comp, _, following = _adc_decision_times(
+            time,
+            signals["seq_init"],
+            signals["clk_comp"],
+            signals["seq_logic"],
+            1,
+            digital_supply / 2,
+            require_logic_updates=False,
+            count_initial_comp_high=False,
+        )
+        resets = find_crossings(signals["clk_comp"], time, digital_supply / 2, rising=False)
+        latch_p, latch_n = signals["comp.latch_p"], signals["comp.latch_n"]
+        sr_p = signals["comp_out_p"]
+        for decision, (start, next_comp) in enumerate(zip(comp[0], following[0], strict=True)):
+            stop = next_comp if np.isfinite(next_comp) else time[-1]
+            reset_edges = resets[(resets > start) & (resets < stop)]
+            reset = float(reset_edges[0]) if len(reset_edges) == 1 else math.nan
+            evaluation = (time >= start) & (time < reset)
+            internal_delay = math.nan
+            sr_delay = math.nan
+            held = False
+            if np.any(evaluation):
+                last = np.flatnonzero(evaluation)[-1]
+                final_p = float(latch_p[last])
+                final_n = float(latch_n[last])
+                midpoint = 0.5 * analog_supply
+                if final_p != final_n:
+                    target = 1 if final_p > final_n else -1
+                    high, low = (latch_p, latch_n) if target > 0 else (latch_n, latch_p)
+                    valid = (high[evaluation] >= midpoint) & (low[evaluation] <= midpoint)
+                    stable = _stable_since(time[evaluation], valid)
+                    if np.isfinite(stable):
+                        internal_delay = max(0.0, stable - start)
+                    # Time the observed SR state even if the XC pair did not
+                    # settle across the midpoint before COMP reset.
+                    output = (time >= start) & (time < stop)
+                    valid = sr_p[output] >= midpoint if target > 0 else sr_p[output] <= midpoint
+                    stable = _stable_since(time[output], valid)
+                    if np.isfinite(stable):
+                        held = bool(np.all(valid))
+                        if not held:
+                            sr_delay = max(0.0, stable - start)
+            rows.append((int(conversion), decision, internal_delay, sr_delay, held))
+    return AnalysisAdcComparatorResponse(
+        conversion_index=np.asarray([row[0] for row in rows]),
+        decision_index=np.asarray([row[1] for row in rows]),
+        internal_response_s=np.asarray([row[2] for row in rows]),
+        sr_response_s=np.asarray([row[3] for row in rows]),
+        sr_held=np.asarray([row[4] for row in rows]),
+        sample_interval_s=float(np.max(np.diff(time))),
+        conversion_rate_hz=float(measurement.param.symbol_rate)
+        / AdcSequence.from_tb_params(measurement.param).conversion_symbols,
+    )
 
 
 def analyze_adc_timing_closure(
@@ -1478,6 +1634,7 @@ def analyze_adc_timing_closure(
             1,
             digital_supply / 2,
             require_logic_updates=False,
+            count_initial_comp_high=False,
         )
         resets = find_crossings(signals[AdcNets.clk_comp.name], time, digital_supply / 2, rising=False)
         internal = signals[f"comp.{CompNets.latch_p.name}"] - signals[f"comp.{CompNets.latch_n.name}"]

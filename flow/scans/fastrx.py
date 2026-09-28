@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -115,8 +117,79 @@ class FastRxCapture:
             raise ValueError("rx_sen_start_word must be an integer in 0..31")
 
 
+def calculate_fastrx_capture_settings(
+    sequence: AdcSequence,
+    symbol_rate_bps: float,
+    *,
+    comparator_return_min_s: float,
+    comparator_return_max_s: float,
+    fpga_relative_path_min_s: float,
+    fpga_relative_path_max_s: float,
+    seqgen_pipeline_words: int,
+    tap_delay_s: float,
+    setup_guard_s: float,
+    hold_guard_s: float,
+) -> FastRxCapture:
+    """Select RX_SEN and two-stage IDELAY without changing any ADC output row.
+
+    Comparator return bounds run from the outgoing COMP pad to the COMP_OUT
+    input pin. FPGA-relative path bounds include serializer clock-to-COMP pad
+    and zero-tap COMP_OUT pin-to-FastRX D, minus the corresponding capture-clock
+    insertion at each Vivado corner. Guards include setup/hold, clock jitter,
+    measurement uncertainty, and any further chosen safety margin.
+    RX_SEN may stay high across the sequence boundary, but its first word
+    must refer to the current conversion.
+    """
+
+    values = (
+        symbol_rate_bps,
+        comparator_return_min_s,
+        comparator_return_max_s,
+        fpga_relative_path_min_s,
+        fpga_relative_path_max_s,
+        tap_delay_s,
+        setup_guard_s,
+        hold_guard_s,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("capture timing values must be finite")
+    if symbol_rate_bps <= 0 or tap_delay_s <= 0 or setup_guard_s < 0 or hold_guard_s < 0:
+        raise ValueError("symbol rate and tap delay must be positive; guards must be nonnegative")
+    if comparator_return_min_s > comparator_return_max_s or fpga_relative_path_min_s > fpga_relative_path_max_s:
+        raise ValueError("timing lower bounds must not exceed upper bounds")
+    if type(seqgen_pipeline_words) is not int or seqgen_pipeline_words < 0:
+        raise ValueError("seqgen_pipeline_words must be a nonnegative integer")
+
+    comp = sequence.comp
+    edge_symbols = [index for index, bit in enumerate(comp) if bit == "1" and comp[index - 1] == "0"]
+    if len(edge_symbols) != 17 or any(right - left != 8 for left, right in pairwise(edge_symbols)):
+        raise ValueError("capture alignment requires 17 COMP rising edges eight symbols apart")
+    word_period_s = 8.0 / symbol_rate_bps
+    sequence_words = len(comp) // 8
+    first_edge_s = edge_symbols[0] / symbol_rate_bps
+    best: tuple[float, int, int] | None = None
+    for start_word in range(sequence_words):
+        capture_first_s = start_word * word_period_s
+        for taps in range(63):
+            variable_delay_s = seqgen_pipeline_words * word_period_s + taps * tap_delay_s
+            latest_data_s = first_edge_s + variable_delay_s + comparator_return_max_s + fpga_relative_path_max_s
+            earliest_next_data_s = (
+                first_edge_s + word_period_s + variable_delay_s + comparator_return_min_s + fpga_relative_path_min_s
+            )
+            setup_margin_s = capture_first_s - latest_data_s - setup_guard_s
+            hold_margin_s = earliest_next_data_s - capture_first_s - hold_guard_s
+            score = min(setup_margin_s, hold_margin_s)
+            if score >= 0:
+                candidate = (score, -taps, -start_word)
+                if best is None or candidate > best:
+                    best = candidate
+    if best is None:
+        raise ValueError("no RX_SEN word and IDELAY setting satisfy the measured timing bounds")
+    return FastRxCapture(comp_delay_taps=-best[1], rx_sen_start_word=-best[2])
+
+
 def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dict[str, Any]] = ()) -> FastRxCapture:
-    """Use explicit controls or an exact characterized sequence/baud match.
+    """Use explicit controls or a characterized sequence/COMP-timing match.
 
     Profiles belong to the board's installed two-stage bitstream. Never
     interpolate across baud rates or silently reuse single-stage calibration.
@@ -125,15 +198,29 @@ def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dic
     if capture is None:
         sequence = AdcSequence.from_tb_params(params.tb)
         catalogue = dict(SEQUENCES)
+        is_catalogued = sequence in catalogue.values()
+        comp_edges = [
+            index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"
+        ]
+        regular_comp = len(comp_edges) == 17 and all(right - left == 8 for left, right in pairwise(comp_edges))
         matches = [
             profile
             for profile in profiles
             if float(profile["symbol_rate_bps"]) == float(params.tb.symbol_rate)
-            and catalogue.get(profile["sequence"]) == sequence
+            and (
+                catalogue.get(profile.get("sequence")) == sequence
+                or (
+                    "sequence" not in profile
+                    and regular_comp
+                    and is_catalogued
+                    and profile.get("sequence_symbols") == len(sequence.comp)
+                    and profile.get("first_comp_edge_symbol") == comp_edges[0]
+                )
+            )
         ]
         if len(matches) != 1:
             raise ValueError(
-                "expected one characterized FastRX sequence/baud profile; "
+                "expected one characterized FastRX sequence or COMP-timing/baud profile; "
                 "set fastrx_capture=FastRxCapture(...) explicitly for calibration"
             )
         capture = FastRxCapture(matches[0]["comp_delay_taps"], matches[0]["rx_sen_start_word"])

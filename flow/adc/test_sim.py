@@ -272,17 +272,11 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
     monkeypatch.setattr(sim, "_run_adc_sim", capture)
     root = tmp_path / "campaign"
     assert getattr(sim, f"{family}_sequence")(root, check=check) == root
-    timing_count = 4
+    timing_count = 7
     assert len(calls) == timing_count * count
     assert len({directory for directory, *_ in calls}) == timing_count * count
     assert len({directory.parent.name for directory, *_ in calls}) == count
-    expected_timings = {"symbol160_init4_samp20_comp11111110_logic00000001"}
-    expected_timings |= {
-        "symbol256_init8_samp16_comp11110000_logic11000011",
-        "symbol256_init8_samp16_comp11111100_logic00000010",
-        "symbol160_init4_samp24_comp11111100_logic00000010",
-    }
-    assert {directory.name for directory, *_ in calls} == expected_timings
+    assert len({directory.name for directory, *_ in calls}) == timing_count
     for directory, params, options in calls:
         flavor = directory.parent.name
         assert directory.parent.parent == root
@@ -298,58 +292,22 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         assert options["pex_netlist"].parent.name.startswith("20260905_")
         assert options.get("expected_disconnect", False) == (family == "frida1" and "2layer" in flavor)
         assert sum(sim.get_caparray_weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
-        comp = np.array([int(bit) for bit in params.seq_comp_pattern])
-        logic = np.asarray([int(bit) for bit in params.seq_logic_pattern])
+        comp = np.fromiter(map(int, params.seq_comp_pattern), dtype=int)
+        logic = np.fromiter(map(int, params.seq_logic_pattern), dtype=int)
+        assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
+        assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
         comp_rises = np.flatnonzero(np.diff(comp) == 1) + 1
         comp_falls = np.flatnonzero(np.diff(np.r_[comp, 0]) == -1) + 1
-        logic_rises = (np.flatnonzero(np.diff(logic) == 1) + 1)[1:]
-        logic_falls = (np.flatnonzero(np.diff(logic) == -1) + 1)[1:]
-        if directory.name == "symbol160_init4_samp20_comp11111110_logic00000001":
-            assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
-            assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
-            np.testing.assert_array_equal(comp_rises, 24 + 8 * np.arange(17))
-            np.testing.assert_array_equal(comp_falls, comp_rises + 7)
-            np.testing.assert_array_equal(logic_rises, comp_rises[:-1] + 7)
-            np.testing.assert_array_equal(logic_falls, comp_rises[1:])
-            np.testing.assert_array_equal(np.flatnonzero(logic[:24]), [3])
-            np.testing.assert_array_equal(np.flatnonzero([int(bit) for bit in params.seq_init_pattern]), np.arange(4))
-            np.testing.assert_array_equal(
-                np.flatnonzero([int(bit) for bit in params.seq_samp_pattern]), np.arange(4, 24)
-            )
-            assert comp_falls[-1] / float(params.symbol_rate) == pytest.approx(99.375e-9)
-            assert not comp[-1] and not logic[-1]
-            assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
-            continue
-        if directory.name == "symbol160_init4_samp24_comp11111100_logic00000010":
-            assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
-            assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
-            np.testing.assert_array_equal(comp_rises, 28 + 8 * np.arange(17))
-            np.testing.assert_array_equal(comp_falls, np.r_[comp_rises[:-1] + 6, 160])
-            np.testing.assert_array_equal(logic_rises, comp_rises[:-1] + 6)
-            np.testing.assert_array_equal(logic_falls, logic_rises + 1)
-            np.testing.assert_array_equal(np.flatnonzero(logic[:28]), [3])
-            np.testing.assert_array_equal(np.flatnonzero([int(bit) for bit in params.seq_init_pattern]), np.arange(4))
-            np.testing.assert_array_equal(
-                np.flatnonzero([int(bit) for bit in params.seq_samp_pattern]), np.arange(4, 28)
-            )
-            # Exercise the generator's validation with the shorter whole-word record.
-            assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
-            continue
-        assert len(comp) == len(logic) == len(params.seq_init_pattern) == 256
-        np.testing.assert_array_equal(comp_rises, 28 + 8 * np.arange(17))
-        np.testing.assert_array_equal(logic_rises, comp_rises[:-1] + 6)
-        if directory.name == "symbol256_init8_samp16_comp11110000_logic11000011":
-            assert params.seq_comp_pattern == sim.AdcTbParams().seq_comp_pattern
-            assert params.seq_logic_pattern == sim.symbol256_init8_samp16_comp11110000_logic11000011.logic
-            np.testing.assert_array_equal(comp_falls, comp_rises + 4)
-            np.testing.assert_array_equal(logic_falls, logic_rises + 4)
-        else:
-            np.testing.assert_array_equal(comp_falls, comp_rises + 6)
-            np.testing.assert_array_equal(logic_rises, comp_falls[:-1])
-            np.testing.assert_array_equal(logic_falls, logic_rises + 1)
-            np.testing.assert_array_equal(comp_rises[1:] - logic_falls, np.ones(16))
-        assert params.seq_samp_pattern == sim.AdcTbParams().seq_samp_pattern
-        assert params.seq_init_pattern == sim.AdcTbParams().seq_init_pattern
+        np.testing.assert_array_equal(comp_rises, 24 + 8 * np.arange(17))
+        comp_word = directory.name.split("_comp", 1)[1].split("_logic", 1)[0]
+        np.testing.assert_array_equal(comp_falls, comp_rises + comp_word.count("1"))
+        np.testing.assert_array_equal(
+            np.flatnonzero(np.fromiter(map(int, params.seq_init_pattern), dtype=int)), np.arange(4)
+        )
+        np.testing.assert_array_equal(
+            np.flatnonzero(np.fromiter(map(int, params.seq_samp_pattern), dtype=int)), np.arange(4, 24)
+        )
+        assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
 
 
 @pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
@@ -368,7 +326,7 @@ def test_concurrent_campaign_propagates_case_failure(family, count, tmp_path, mo
     monkeypatch.setattr(sim, "_run_adc_sim", fail_one)
     with pytest.raises(RuntimeError, match="simulator failed"):
         getattr(sim, f"{family}_sequence")(tmp_path)
-    assert len(calls) == 4 * count
+    assert len(calls) == 7 * count
 
 
 @pytest.mark.parametrize(
@@ -707,39 +665,18 @@ def test_main_runs_full_experiment(tmp_path, monkeypatch):
     assert options == {}
 
 
-def test_all_campaign_patterns_and_phases_are_preserved(monkeypatch, tmp_path):
-    """Independent literal expectations cover every clock of all 28 configurations."""
+def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
+    """Independent literal expectations cover every clock of all 49 configurations."""
     from concurrent.futures import Future
 
     expected = {
-        "symbol256_init8_samp16_comp11110000_logic11000011": (
-            "0" * 8 + "1" * 8 + "0" * 240,
-            "0" * 16 + "1" * 16 + "0" * 224,
-            "0" * 32 + "00001111" * 17 + "0" * 88,
-            "0" * 8 + "00001111" + "0" * 24 + "11110000" * 16 + "0" * 88,
-            2.0,
-        ),
-        "symbol256_init8_samp16_comp11111100_logic00000010": (
-            "0" * 8 + "1" * 8 + "0" * 240,
-            "0" * 16 + "1" * 16 + "0" * 224,
-            "0" * 36 + "11111100" * 17 + "0" * 84,
-            "0" * 8 + "00001111" + "0" * 24 + "10000000" * 16 + "0" * 88,
-            2.0,
-        ),
-        "symbol160_init4_samp24_comp11111100_logic00000010": (
-            "1111" + "0" * 156,
-            "0000" + "1" * 24 + "0" * 132,
-            "0" * 28 + "11111100" * 16 + "1111",
-            "0001" + "0" * 24 + "00000010" * 16 + "0000",
-            0.0,
-        ),
-        "symbol160_init4_samp20_comp11111110_logic00000001": (
-            "1111" + "0" * 156,
-            "0000" + "1" * 20 + "0" * 136,
-            "0" * 24 + "11111110" * 17,
-            "0001" + "0" * 20 + "00000001" * 16 + "0" * 8,
-            0.0,
-        ),
+        "symbol160_init4_samp20_comp11110000_logic00001111": ("11110000", "00001111", "00001111", "00000000"),
+        "symbol160_init4_samp20_comp11110000_logic10000111": ("11110000", "00000111", "10000111", "10000000"),
+        "symbol160_init4_samp20_comp11111000_logic10000111": ("11111000", "00000111", "10000111", "10000000"),
+        "symbol160_init4_samp20_comp11111000_logic11000011": ("11111000", "00000011", "11000011", "11000000"),
+        "symbol160_init4_samp20_comp11111100_logic11000011": ("11111100", "00000011", "11000011", "11000000"),
+        "symbol160_init4_samp20_comp11111100_logic11100001": ("11111100", "00000001", "11100001", "11100000"),
+        "symbol160_init4_samp20_comp11111110_logic11100001": ("11111110", "00000001", "11100001", "11100000"),
     }
     cases = []
 
@@ -768,13 +705,15 @@ def test_all_campaign_patterns_and_phases_are_preserved(monkeypatch, tmp_path):
     monkeypatch.setattr(sim, "ProcessPoolExecutor", CaptureExecutor)
     sim.frida1_sequence(tmp_path)
     sim.frida2_sequence(tmp_path)
-    assert len(cases) == len({path for path, _ in cases}) == 28
+    assert len(cases) == len({path for path, _ in cases}) == 49
     for path, params in cases:
-        init, samp, comp, logic, phase = expected[path.name]
-        logic = logic[-int(phase) :] + logic[: -int(phase)] if phase else logic
-        expected_rows = (init, samp, comp, logic)
-        if path.name.startswith("symbol256_init8_"):
-            expected_rows = tuple(row[8:] + row[:8] for row in expected_rows)
+        comp_word, first_logic, logic_word, last_logic = expected[path.name]
+        expected_rows = (
+            "1111" + "0" * 156,
+            "0000" + "1" * 20 + "0" * 136,
+            "0" * 24 + comp_word * 17,
+            "0001" + "0" * 20 + first_logic + logic_word * 15 + last_logic,
+        )
         assert (
             params.seq_init_pattern,
             params.seq_samp_pattern,

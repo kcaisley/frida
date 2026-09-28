@@ -96,16 +96,19 @@ def adc_sequence_static(
     nominal_conversion_rates_hz: tuple[float, ...] = (2.0e6, 6.0e6, 10.0e6),
     sequences: tuple[AdcSequence, ...] | None = None,
     conversions: int = 100_000,
+    run_dir: Path | None = None,
 ) -> Path:
     """Capture named sequences with manual 50-mV input and 700-mV common mode.
 
-    Defaults cover all sixteen ADCs and every catalogue sequence at 2/6/10 nominal MSPS.
+    Defaults cover all sixteen ADCs and 29 continuous recipes at 320/960/1600 MBd.
+    These recipes repeat in 160 symbols (2/6/10 MSPS). Explicitly selected
+    long recipes retain their 256-symbol idle interval.
     Select all ADCs and a single sequence for a grid, or the complete catalogue
     for a full timing campaign. Inputs and 1.2-V rails must be supplied manually.
     """
     board_id = "00"
     if sequences is None:
-        sequences = tuple(sequence for _name, sequence in SEQUENCES)
+        sequences = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
     if not adc_indices or not nominal_conversion_rates_hz or not sequences:
         raise ValueError("ADC, rate, and sequence selections must be nonempty")
     catalogue = dict(SEQUENCES).values()
@@ -130,19 +133,31 @@ def adc_sequence_static(
             vin_diff=vin_diff,
         )
     ]
-    run_dir = (
-        BASE_PATH / "build/scan_adc" / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_sequence_static")
-    )
+    resume = run_dir is not None
+    if run_dir is None:
+        run_dir = (
+            BASE_PATH
+            / "build/scan_adc"
+            / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_sequence_static")
+        )
+    completed_paths = sorted(run_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5")) if resume else []
+    if resume and not run_dir.is_dir():
+        raise FileNotFoundError(run_dir)
+    if len(completed_paths) > len(variants) or any(
+        path.name != f"{index:04d}_capture.h5" for index, path in enumerate(completed_paths)
+    ):
+        raise ValueError("resume directory must contain a contiguous prefix of this campaign's captures")
 
     active = False
     current = variants[0]
     try:
-        for index, params in enumerate(variants):
+        for index in range(len(completed_paths), len(variants)):
+            params = variants[index]
             position = (
                 "only"
-                if len(variants) == 1
+                if len(variants) == 1 and not resume
                 else "first"
-                if index == 0
+                if index == 0 and not resume
                 else "last"
                 if index == len(variants) - 1
                 else "middle"

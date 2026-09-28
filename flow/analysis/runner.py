@@ -30,7 +30,11 @@ import hdl21 as h
 import matplotlib as mpl
 import numpy as np
 
-from flow.adc.sequences import SEQUENCES, AdcSequence, symbol256_init8_samp16_comp11110000_logic11000011
+from flow.adc.sequences import (
+    SEQUENCES,
+    AdcSequence,
+    symbol256_init8_samp16_comp11110000_logic11000011,
+)
 from flow.analysis.adc import (
     ADC_RAMP_RESET_EXCLUSION_CONVERSIONS,
     analyze_adc_cdac_settling,
@@ -68,6 +72,8 @@ from flow.analysis.plots import (
     plot_adc_ramp_histogram,
     plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
+    plot_adc_sequence_chip_overview,
+    plot_adc_sequence_enob,
     plot_adc_static_nonlinearity,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
@@ -244,130 +250,133 @@ def adc_calibration_study(output_dir: Path) -> tuple[Path, ...]:
         )
     )
 
-    calibration_by_method = {calibration.method: calibration for calibration in calibrations}
-    metrics_path = output_dir / f"adc{adc_index:02d}_calibration_metrics.csv"
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    with metrics_path.open("w", newline="") as output:
-        writer = csv.writer(output)
-        writer.writerow(
-            (
-                "decoding",
-                "training_sample_count",
-                "validation_sample_count",
-                "weights_from_measurement",
-                "output_gain",
-                "output_offset_lsb",
-                "maximum_abs_dnl_lsb",
-                "maximum_abs_inl_lsb",
-                "missing_codes",
-                "maximum_transfer_reversal_lsb",
-            )
-        )
-        for curve in ramp.curves:
-            calibration = calibration_by_method.get(curve.decoding)
-            writer.writerow(
-                (
-                    curve.decoding,
-                    0 if calibration is None else calibration.training_sample_count,
-                    0 if calibration is None else calibration.validation_sample_count,
-                    0 if calibration is None else int(np.count_nonzero(calibration.measured_weight_mask)),
-                    1.0 if calibration is None else calibration.output_gain,
-                    0.0 if calibration is None else calibration.output_offset_lsb,
-                    curve.maximum_abs_dnl,
-                    curve.maximum_abs_inl,
-                    curve.missing_codes,
-                    curve.maximum_transfer_reversal_dout,
-                )
-            )
-    artifacts.append(metrics_path)
-
-    weights_path = output_dir / f"adc{adc_index:02d}_calibration_weights.csv"
-    with weights_path.open("w", newline="") as output:
-        writer = csv.writer(output)
-        writer.writerow(
-            (
-                "decision_index",
-                "ideal_weight_lsb",
-                *(
-                    field
-                    for calibration in calibrations
-                    for field in (
-                        f"{calibration.method}_weight_lsb",
-                        f"{calibration.method}_from_measurement",
-                    )
-                ),
-            )
-        )
-        for decision_index in range(17):
-            writer.writerow(
-                (
-                    decision_index,
-                    calibrations[0].nominal_weights[decision_index],
-                    *(
-                        value
-                        for calibration in calibrations
-                        for value in (
-                            calibration.calibrated_weights[decision_index],
-                            bool(calibration.measured_weight_mask[decision_index]),
-                        )
-                    ),
-                )
-            )
-    artifacts.append(weights_path)
     return tuple(artifacts)
 
 
 def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare fixed-input sequence captures from measurement and PEX.
+    """Compare 29 continuous recipes on 16 ADCs at 2/6/10 MSPS and selected PEX cases.
 
-    Measurement coverage: ADC03's 56-pattern/control sweep at 10/6 MSPS active
-    timing only. The 2-MSPS captures and other ADCs are not yet available for
-    this sweep. Older ADC00/01 campaigns belong to the other studies.
-    PEX coverage: seven FRIDA-1/2 flavors x four sequences, 50 mV input,
-    160/100-ns periods. No slow 2-MSPS SPICE cases are selected.
-    Trajectories/histograms use MeasAdcExt or MeasAdcInt DAQ data. Comparator,
-    SAR/CDAC timing and clock plots use MeasAdcInt waveform records. Timing
-    tables require 200 ps of setup before LOGIC and before the next COMP.
+    Physical captures are the corrected 160-symbol, 100,000-conversion
+    fixed-input campaign. The selected PEX cases cover the same seven
+    continuous recipes on four FRIDA-1 and three FRIDA-2 flavors at 1600 MBd.
     """
-    meas_read_dirs = (BASE_PATH / "build/scan_adc/20260915_111149",)
+    read_dir = BASE_PATH / "build/scan_adc/20260926_172920_adc_sequence_static"
+    paths = sorted(read_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5"))
+    catalogue = tuple((name, sequence) for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+    expected_count = 16 * len(catalogue) * 3
+    if len(paths) != expected_count:
+        raise ValueError(f"100-ns campaign has {len(paths)}/{expected_count} captures in {read_dir}")
+
+    names_by_sequence = {sequence: (index, name) for index, (name, sequence) in enumerate(catalogue)}
+    baud_rates_mbd = (320, 960, 1600)
+    shape = (16, len(catalogue), 3)
+    mean_code = np.full(shape, np.nan)
+    sigma_code = np.full(shape, np.nan)
+    modal_fraction = np.full(shape, np.nan)
+    unique_count = np.zeros(shape, dtype=int)
+    scope_valid = np.zeros(shape, dtype=bool)
+    mismatches = np.full(shape, -1, dtype=int)
+    lost_frames = np.full(shape, -1, dtype=int)
+    capture_paths: dict[tuple[int, int, int], Path] = {}
+    adc_bits = None
+    for path in paths:
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdcExt) or measurement.param.observed_adc is None:
+            raise TypeError(f"expected observed-ADC MeasAdcExt: {path}")
+        sequence = AdcSequence.from_tb_params(measurement.param.tb)
+        if sequence not in names_by_sequence:
+            raise ValueError(f"capture has no 100-ns catalogue recipe: {path}")
+        sequence_index, _name = names_by_sequence[sequence]
+        baud_mbd = round(float(measurement.param.tb.symbol_rate) / 1e6)
+        if baud_mbd not in baud_rates_mbd or not np.isclose(float(measurement.param.tb.symbol_rate), baud_mbd * 1e6):
+            raise ValueError(f"unexpected baud rate: {path}")
+        key = (int(measurement.param.observed_adc), sequence_index, baud_rates_mbd.index(baud_mbd))
+        if key in capture_paths:
+            raise ValueError(f"duplicate ADC/sequence/baud capture: {key}")
+        capture_paths[key] = path
+        dout = np.asarray(measurement.daq.dout)
+        if len(dout) != 100_000:
+            raise ValueError(f"capture has {len(dout)} conversions rather than 100000: {path}")
+        _codes, counts = np.unique(dout, return_counts=True)
+        mean_code[key] = float(np.mean(dout))
+        sigma_code[key] = float(np.std(dout))
+        modal_fraction[key] = float(np.max(counts) / len(dout))
+        unique_count[key] = len(counts)
+        readbacks = measurement.info.readbacks
+        scope_valid[key] = bool(readbacks.get("scope_fastrx_comparison_valid", False))
+        mismatches[key] = int(readbacks.get("scope_fastrx_bit_mismatches", -1))
+        lost_frames[key] = int(readbacks.get("fastrx_lost_count", -1))
+        bits = int(measurement.param.tb.dut.adc_bits)
+        if adc_bits is not None and bits != adc_bits:
+            raise ValueError("campaign mixes ADC output resolutions")
+        adc_bits = bits
+    if len(capture_paths) != expected_count or np.isnan(mean_code).any() or adc_bits is None:
+        raise ValueError("100-ns campaign is missing an ADC/sequence/baud configuration")
+
+    full_scale_rms_lsb = ((1 << adc_bits) - 1) / (2.0 * np.sqrt(2.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        enob = (20.0 * np.log10(full_scale_rms_lsb / sigma_code) - 1.76) / 6.02
+    reference_indices = [index for index, (name, _sequence) in enumerate(catalogue) if "comp11110000" in name]
+    reference_code = np.median(mean_code[:, reference_indices, 0], axis=1)
+    mean_shift = mean_code - reference_code[:, None, None]
+    constant_suspect = (unique_count <= 1) | (modal_fraction >= 0.995) | (sigma_code < 0.1)
+    shift_suspect = np.abs(mean_shift) > 8.0
+    readout_suspect = ~scope_valid | (mismatches != 0) | (lost_frames != 0)
+    plausible = ~(constant_suspect | shift_suspect | readout_suspect) & np.isfinite(enob)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    artifacts = list(
+        plot_adc_sequence_chip_overview(
+            baud_rates_mbd,
+            enob,
+            plausible,
+            title="16 ADCs · fixed 50 mV input · continuous 160-symbol sequence comparison",
+            output_path=output_dir / "all_adc_sequence_overview",
+        )
+    )
+    board = load_board_map()["boards"]["00"]
+    flavors = board["adc_channels"]
+    layers = board["adc_layers"]
+    for adc in range(16):
+        artifacts.extend(
+            plot_adc_sequence_enob(
+                baud_rates_mbd,
+                enob[adc],
+                mean_shift[adc],
+                plausible[adc],
+                adc_label=(f"ADC{adc:02d} · {flavors[adc]}" + (f" · {layers[adc]} layer" if adc in layers else "")),
+                output_path=output_dir / f"adc{adc:02d}_sequence_enob",
+            )
+        )
+
     sources = {}
     provenance = []
-    for session, target, stamp, flavors in (
+    timings = (
+        "symbol160_init4_samp20_comp11110000_logic00001111",
+        "symbol160_init4_samp20_comp11110000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11100001",
+        "symbol160_init4_samp20_comp11111110_logic11100001",
+    )
+    for session, stamp, flavors in (
         (
-            "frida-20260906_124441_733878",
-            "frida1_fixed_input_noise",
-            "20260906_125026",
+            "frida-20260926_215421_042700",
+            "20260926_221031_frida1_sequence",
             tuple(f"frida1_{layers}layer_radix{radix}" for layers in (1, 2) for radix in (17, 20)),
         ),
         (
-            "frida-20260906_124442_994752",
-            "frida2_fixed_input_noise",
-            "20260906_124953",
-            tuple(f"frida2_{layers}layer_radix17" for layers in (1, 2, 3)),
-        ),
-        (
-            "frida-20260910_185707_055364",
-            "frida1_fixed_input_noise_comp7of8",
-            "20260910_185921",
-            tuple(f"frida1_{layers}layer_radix{radix}" for layers in (1, 2) for radix in (17, 20)),
-        ),
-        (
-            "frida-20260910_185757_562573",
-            "frida2_fixed_input_noise_comp7of8",
-            "20260910_190007",
+            "frida-20260926_215427_988306",
+            "20260926_221039_frida2_sequence",
             tuple(f"frida2_{layers}layer_radix17" for layers in (1, 2, 3)),
         ),
     ):
-        timings = (
-            ("continuous_100ns_comp7of8",)
-            if target.endswith("comp7of8")
-            else ("original", "extended_comp", "continuous_100ns")
-        )
         campaign = BASE_PATH / "build/remote" / session
         for flavor in flavors:
             for timing in timings:
                 name = f"{flavor}/{timing}/result.h5"
-                path = campaign / "results/sim/adc" / target / stamp / name
+                path = campaign / "results/sim/adc" / stamp / name
                 sources[name] = path
     if not sources:
         raise FileNotFoundError("no SPICE measurements in the selected sequence campaign")
@@ -384,70 +393,11 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         provenance.append(
             {"case": name, "source": str(path), "sha256": checksum, "sequence_plot": name in sequence_cases.values()}
         )
-    output_dir.mkdir(parents=True, exist_ok=True)
     record = output_dir / "sources.json"
     record.write_text(json.dumps(provenance, indent=2) + "\n")
-    artifacts = []
-
-    # Physical campaigns retain their own ADC/input/sequence identities.
-    for meas_read_dir in meas_read_dirs:
-        paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
-        if not paths:
-            raise FileNotFoundError(meas_read_dir)
-        groups = {}
-        for path in paths:
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasAdcExt):
-                raise TypeError(f"expected MeasAdcExt: {path}")
-            params = measurement.param.tb
-            key = (measurement.param.observed_adc, float(params.vin_diff.dc), float(params.vin_cm.dc))
-            groups.setdefault(key, []).append(measurement)
-            stem = f"{meas_read_dir.name}_{path.name.split('_', 1)[0]}_adc{measurement.param.observed_adc:02d}"
-            artifacts.extend(
-                plot_adc_decision_path_density(
-                    measurement,
-                    analyze_adc_decision_paths(measurement, selection="all"),
-                    output_path=output_dir / f"{stem}_trajectory",
-                )
-            )
-            artifacts.extend(
-                plot_adc_code_distribution(
-                    (measurement,),
-                    analyze_adc_code_distribution((measurement,)),
-                    output_path=output_dir / f"{stem}_codes",
-                )
-            )
-        for (adc_index, input_v, common_v), measurements in groups.items():
-            labels = []
-            sequences = []
-            for measurement in measurements:
-                params = measurement.param.tb
-                sequence = AdcSequence.from_tb_params(params)
-
-                # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
-                sequence = sequence.relative_to_init()
-
-                if sequence not in sequences:
-                    sequences.append(sequence)
-                labels.append(f"Sequence {sequences.index(sequence) + 1}")
-            # Limit each overview to seven complete sequences, with all points visible.
-            for page in range(0, len(sequences), 7):
-                selected = [i for i, label in enumerate(labels) if page < int(label.split()[-1]) <= page + 7]
-                group = [measurements[i] for i in selected]
-                artifacts.extend(
-                    plot_adc_noise_sweep(
-                        group,
-                        analyze_adc_noise_sweep(group),
-                        series_labels=[labels[i] for i in selected],
-                        rate_axis="sampling",
-                        output_path=output_dir
-                        / f"{meas_read_dir.name}_adc{adc_index:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm_sequences{page // 7 + 1}",
-                    )
-                )
-        del groups, measurements, measurement
-
-    # Load, analyze and plot each case before releasing its waveform records.
+    # Retain only one flavor's waveform records for its noise comparison.
     pex_groups = {}
+    timing_summaries = []
     for index, source in enumerate(provenance, start=1):
         path = Path(cast(str, source["source"]))
         with path.open("rb") as stream:
@@ -485,11 +435,7 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
                 output_path=output_dir / f"spice_{case}_codes",
             )
         )
-        timing = analyze_adc_timing_closure(
-            measurement,
-            required_logic_setup_s=200e-12,
-            required_cdac_setup_s=200e-12,
-        )
+        timing = analyze_adc_timing_closure(measurement)
         timing_columns = {field.name: getattr(timing, field.name) for field in dataclasses.fields(timing)}
         timing_columns.update(
             {
@@ -509,12 +455,49 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         )
         timing_path = output_dir / f"{case}_timing_closure.csv"
         with timing_path.open("w", newline="") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(timing_columns)
+            writer = csv.DictWriter(stream, fieldnames=timing_columns)
+            writer.writeheader()
             for row in range(len(timing.conversion_index)):
-                writer.writerow([value if np.isscalar(value) else value[row] for value in timing_columns.values()])
+                writer.writerow(
+                    {name: value if np.isscalar(value) else value[row] for name, value in timing_columns.items()}
+                )
         artifacts.append(timing_path)
-
+        ordinary = timing.decision_index < 16
+        reset_gap_s = timing.next_comp_s[ordinary] - timing.comp_reset_s[ordinary]
+        observed_gap = np.isfinite(reset_gap_s) & (reset_gap_s > 0)
+        internal_margin_s = timing.comp_reset_s - timing.internal_stable_s
+        observed_internal = np.isfinite(internal_margin_s) & (internal_margin_s >= 0)
+        logic_setup_s = timing.logic_setup_s
+        cdac_setup_s = timing.cdac_setup_s[ordinary]
+        flavor, recipe, _filename = Path(cast(str, source["case"])).parts
+        timing_summaries.append(
+            {
+                "flavor": flavor,
+                "recipe": recipe,
+                "decisions": len(timing.decision_index),
+                "reset_edges_observed": int(np.count_nonzero(np.isfinite(timing.comp_reset_s))),
+                "ordinary_reset_gaps_observed": int(np.count_nonzero(observed_gap)),
+                "minimum_reset_gap_ps": float(np.min(reset_gap_s[observed_gap]) * 1e12)
+                if np.any(observed_gap)
+                else np.nan,
+                "resolved_before_reset": int(np.count_nonzero(observed_internal)),
+                "sr_matches_at_logic": int(np.count_nonzero(timing.sr_matches_at_logic)),
+                "logic_ready": int(np.count_nonzero(timing.logic_ready)),
+                "cdac_ready": int(np.count_nonzero(timing.cdac_ready)),
+                "cdac_decisions": int(np.count_nonzero(ordinary)),
+                "timing_passed": int(np.count_nonzero(timing.passed)),
+                "minimum_logic_setup_ps": (
+                    float(np.min(logic_setup_s[np.isfinite(logic_setup_s)]) * 1e12)
+                    if np.isfinite(logic_setup_s).any()
+                    else np.nan
+                ),
+                "minimum_cdac_setup_ps": (
+                    float(np.min(cdac_setup_s[np.isfinite(cdac_setup_s)]) * 1e12)
+                    if np.isfinite(cdac_setup_s).any()
+                    else np.nan
+                ),
+            }
+        )
         codes = output_dir / f"{case}_codes.txt"
         codes.write_text(
             "sample B0_to_B16 DOUT_decimal DOUT_12bit\n"
@@ -525,7 +508,7 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         )
         artifacts.append(codes)
 
-        # One representative flavor supplies the four sequence clock diagrams.
+        # One representative flavor supplies the seven sequence clock diagrams.
         if source["sequence_plot"]:
             timing = Path(cast(str, source["case"])).parts[1]
             waveform = analyze_measurement_waveforms(
@@ -564,19 +547,27 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         flavor = Path(cast(str, source["case"])).parts[0]
         pex_groups.setdefault(flavor, []).append((Path(cast(str, source["case"])).parts[1], measurement))
         del measurement
-
-    for flavor, cases in pex_groups.items():
-        labels, measurements = zip(*cases, strict=True)
-        artifacts.extend(
-            plot_adc_noise_sweep(
-                measurements,
-                analyze_adc_noise_sweep(measurements),
-                series_labels=labels,
-                rate_axis="sampling",
-                output_path=output_dir / f"spice_{flavor}_sequence_noise",
+        if len(pex_groups[flavor]) == len(timings):
+            cases = pex_groups.pop(flavor)
+            labels, measurements = zip(*cases, strict=True)
+            artifacts.extend(
+                plot_adc_noise_sweep(
+                    measurements,
+                    analyze_adc_noise_sweep(measurements),
+                    series_labels=labels,
+                    rate_axis="sampling",
+                    output_path=output_dir / f"spice_{flavor}_sequence_noise",
+                )
             )
-        )
-    del pex_groups
+            del cases, labels, measurements
+    if pex_groups:
+        raise ValueError(f"incomplete PEX flavor groups: {tuple(pex_groups)}")
+    summary_path = output_dir / "pex_timing_reset_summary.csv"
+    with summary_path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=timing_summaries[0])
+        writer.writeheader()
+        writer.writerows(timing_summaries)
+    artifacts.append(summary_path)
 
     for source in provenance:
         with Path(cast(str, source["source"])).open("rb") as stream:
@@ -919,96 +910,6 @@ def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
             output_path=output_dir / "comp_candidate_noise_power_tradeoff",
         )
     )
-    csv_path = output_dir / "comp_candidate_noise_power_settling.csv"
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", newline="") as output:
-        writer = csv.writer(output)
-        writer.writerow(
-            (
-                "area_order",
-                "candidate_id",
-                "candidate_label",
-                "size_profile",
-                "topology_index",
-                "total_width_units",
-                "total_active_area_units",
-                "total_active_area_um2",
-                "device_count",
-                "comp_stages",
-                "preamp_diff_xtors",
-                "preamp_bias",
-                "latch_inner_on_xtors",
-                "latch_outer_on_xtors",
-                "latch_inner_init_xtors",
-                "latch_outer_init_xtors",
-                "diffpair_w",
-                "diffpair_l",
-                "tail_w",
-                "tail_l",
-                "rst_w",
-                "rst_l",
-                "latch_on_w",
-                "latch_on_l",
-                "latch_init_w",
-                "latch_init_l",
-                "srlatch_n_w",
-                "srlatch_p_w",
-                "validity",
-                "offset_v",
-                "noise_sigma_v",
-                "average_power_w",
-                "energy_per_decision_j",
-                "maximum_clock_to_decision_s",
-                "maximum_settling_s",
-                "unresolved_fraction",
-            )
-        )
-        measurement_by_id = {
-            str(measurement.info.readbacks["candidate_id"]): measurement for measurement in measurements
-        }
-        for index, candidate_id in enumerate(analysis.candidate_id):
-            comp = measurement_by_id[candidate_id].param.comp
-            writer.writerow(
-                (
-                    index,
-                    candidate_id,
-                    analysis.candidate_label[index],
-                    analysis.size_profile[index],
-                    analysis.topology_index[index],
-                    analysis.total_width_units[index],
-                    analysis.total_active_area_units[index],
-                    analysis.total_active_area_um2[index],
-                    analysis.device_count[index],
-                    comp.comp_stages.name,
-                    comp.preamp_diff_xtors.name,
-                    comp.preamp_bias.name,
-                    comp.latch_inner_on_xtors.name,
-                    comp.latch_outer_on_xtors.name,
-                    comp.latch_inner_init_xtors.name,
-                    comp.latch_outer_init_xtors.name,
-                    comp.diffpair_w,
-                    comp.diffpair_l,
-                    comp.tail_w,
-                    comp.tail_l,
-                    comp.rst_w,
-                    comp.rst_l,
-                    comp.latch_on_w,
-                    comp.latch_on_l,
-                    comp.latch_init_w,
-                    comp.latch_init_l,
-                    comp.srlatch_n_w,
-                    comp.srlatch_p_w,
-                    analysis.validity[index],
-                    analysis.offset_v[index],
-                    analysis.noise_sigma_v[index],
-                    analysis.average_power_w[index],
-                    analysis.energy_per_decision_j[index],
-                    analysis.maximum_clock_to_decision_s[index],
-                    analysis.maximum_settling_s[index],
-                    analysis.unresolved_fraction[index],
-                )
-            )
-    artifacts.append(csv_path)
     return tuple(artifacts)
 
 

@@ -5,7 +5,11 @@ from dataclasses import fields
 import h5py
 import pytest
 
-from flow.adc.sequences import SEQUENCES, AdcSequence, symbol256_init8_samp16_comp11110000_logic00001111
+from flow.adc.sequences import (
+    SEQUENCES,
+    AdcSequence,
+    symbol256_init8_samp16_comp11110000_logic00001111,
+)
 from flow.adc.sim import AdcTb, AdcTbParams
 from flow.analysis.adc import _sequence_logic_timing
 from flow.analysis.io import _read_native, _write_native
@@ -19,6 +23,7 @@ duty_sequences = tuple(
     (name, sequence)
     for name, sequence in SEQUENCES
     if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
+    and name != "symbol160_init4_samp20_comp11111100_logic00000010"
 )
 
 
@@ -171,5 +176,24 @@ def test_flat_catalogue_preserves_all_reviewed_channel_rows():
         for name, sequence in sorted(SEQUENCES)
     )
     assert (
-        hashlib.sha256(rows.encode()).hexdigest() == "fc3d839a3d95cbac50ab54a8419583a4836c2eff957782af7953253deb6c1e39"
+        hashlib.sha256(rows.encode()).hexdigest() == "493723c09e8f18515d7693c5138795b854868f0928994f1033b342797674b48f"
     )
+
+
+def test_continuous_catalogue_keeps_complete_terminal_comp_word():
+    continuous = tuple((name, sequence) for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+    assert len(continuous) == 29
+    name, repaired = continuous[-1]
+    assert name == "symbol160_init4_samp20_comp11111100_logic00000010"
+    assert repaired.samp == SEQUENCES[21][1].samp
+    assert repaired.comp == SEQUENCES[21][1].comp
+    assert [index for index, bit in enumerate(repaired.logic) if bit == "1" and repaired.logic[index - 1] == "0"] == [
+        3,
+        *(30 + 8 * index for index in range(16)),
+    ]
+    for _name, sequence in continuous:
+        last_rise = max(
+            index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"
+        )
+        assert last_rise == 152
+        assert sequence.comp[-8:] in {"11110000", "11111000", "11111100", "11111110"}

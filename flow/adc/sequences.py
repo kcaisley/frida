@@ -2,7 +2,8 @@
 
 Names describe period length, INIT/SAMP widths, and recurring SAR words
 relative to COMP rising. Every catalogue sequence starts at INIT rising;
-all four rows share that origin, without extending the sequence period.
+all four rows share that origin. The continuous 160-symbol recipes give every
+terminal COMP pulse a complete word by shortening the historical 24-symbol sample.
 Historical captures may retain a different cyclic RAM phase.
 Channel rows are private; callers select complete sequences below.
 """
@@ -345,6 +346,12 @@ _logic160_start3_width1_train34_width1_pulses16 = (
     "00010000 00000000 00000000 00000000 00100000 00100000 00100000 00100000 "
     "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
     "00100000 00100000 00100000 00100000 "
+).replace(" ", "")
+
+_logic160_start3_width1_train30_width1_pulses16 = (
+    "00010000 00000000 00000000 00000010 00000010 00000010 00000010 00000010 "
+    "00000010 00000010 00000010 00000010 00000010 00000010 00000010 00000010 "
+    "00000010 00000010 00000010 00000000 "
 ).replace(" ", "")
 
 
@@ -808,6 +815,14 @@ symbol160_init4_samp24_comp11111100_logic00000010 = AdcSequence(
     logic=_logic160_start3_width1_train34_width1_pulses16,
 )
 
+# Keep the 100-ns period and give the final COMP pulse all six high symbols.
+symbol160_init4_samp20_comp11111100_logic00000010 = AdcSequence(
+    init=_init160_start0_width4,
+    samp=_samp160_start4_width20,
+    comp=_comp160_start24_width6_train32_width6_pulses16,
+    logic=_logic160_start3_width1_train30_width1_pulses16,
+)
+
 
 # Flat catalogue for callers that select several complete sequences.
 SEQUENCES = (
@@ -875,5 +890,5 @@ SEQUENCES = (
     ("symbol256_init4_samp20_comp11111110_logic11000011", symbol256_init4_samp20_comp11111110_logic11000011),
     ("symbol256_init4_samp20_comp11111110_logic11100001", symbol256_init4_samp20_comp11111110_logic11100001),
     ("symbol256_init8_samp16_comp11111100_logic00000010", symbol256_init8_samp16_comp11111100_logic00000010),
-    ("symbol160_init4_samp24_comp11111100_logic00000010", symbol160_init4_samp24_comp11111100_logic00000010),
+    ("symbol160_init4_samp20_comp11111100_logic00000010", symbol160_init4_samp20_comp11111100_logic00000010),
 )
