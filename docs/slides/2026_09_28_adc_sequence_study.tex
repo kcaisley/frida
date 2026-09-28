@@ -118,11 +118,11 @@
   \note{All 83,300 internal COMP falling edges were observed. All 78,400 ordinary decisions had a positive falling-edge-to-next-COMP interval. This alone does not establish latch precharge or timing closure.}
 \end{frame}
 
-\begin{frame}{Matched PEX latch precharges before the next decision}
+\begin{frame}{PEX latch precharges in all 49 cases}
   \centering
-  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_latch_precharge_margin.pdf}
-  \slidesource{FRIDA-1 two-layer radix20 PEX HDF5; seven recipes, 1600 ordinary decisions each}
-  \note{Both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise in the nominal PEX model. Minimum stable margins are 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. The physical scope does not measure these internal nodes, so silicon reset remains unverified.}
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_latch_reset_49_matrix.pdf}
+  \slidesource{Worker-local PEX HDF5; 49 cases, 1600 ordinary decisions each}
+  \note{In all 78,400 ordinary PEX decisions, both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise. Across all seven flavors, the minimum stable margin is about 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. These nominal-model findings do not certify physical silicon reset; the scope does not measure internal latch nodes.}
 \end{frame}
 
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
@@ -151,7 +151,7 @@
   \begin{itemize}
     \item At 1600 MBd, C5/L2 has 14/16 plausible physical ADCs, with two below 1 LSB code sigma; ADC03 still has rare B12 flips and a shifted mean.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
-    \item PEX passes 48,858/83,300 full timing checks (58.7\%). The matched model precharges its latch, but physical C4/L1 and C7/L3 code failures are absent in PEX.
+    \item PEX passes 48,858/83,300 full timing checks (58.7\%). All seven PEX flavors precharge their latches, but physical C4/L1 and C7/L3 code failures are absent in PEX.
     \item Silicon latch reset and the physical failure mechanism remain unverified. This scan has no FRIDA-2 physical counterpart.
   \end{itemize}
   \slidesource{29-recipe physical screen; 49-case PEX timing and latch analysis}
