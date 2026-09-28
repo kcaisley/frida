@@ -124,6 +124,15 @@
   \note{At 1600 MBd, all 100,000 conversions of C5/L2, C6/L2, and C6/L3 have the same B0--B11 string 100110010100. B12 is high in 99,615, 1, and 2 conversions, respectively. At 960 MBd the corresponding high counts are 100,000, 96,633, and 98,099; at 320 MBd they are 99,972, 99,989, and 99,984. The identical early digital decisions exclude a preceding decoded-bit difference but not an analog CDAC-residue or input difference. In the single retained 1600-MBd scope conversion, external COMP\_OUT crosses threshold 4.756 ns after B12 COMP rises in C5/L2, but no B12-window transition occurs in either C6 case; both remain low at the 7.7-ns delayed scope read point. Each scope B12 agrees with FastRX. This argues against an FPGA-only readout mismatch in those captures, but the scope cannot reveal internal comparator reset, exact LOGIC capture, or rare behavior across 100,000 conversions.}
 \end{frame}
 
+\begin{frame}{B12 collapse accompanies a short COMP-low interval}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_b12_reset_window.pdf}
+  \par\smallskip
+  {\small Matching roughly 0.62-ns post-fall LOGIC delay does not restore the 6/8 B12 state.}
+  \slidesource{ADC03 corrected physical HDF5; three recipes at 320/960/1600 MBd}
+  \note{The nine ADC03 captures each contain 100,000 FastRX conversions and one scope record. At 1600 MBd, C5/L2 has an observed B12 COMP-low interval of 1.847 ns and B12 is high in 99,615 conversions. C6/L2 and C6/L3 have 1.206 and 1.203 ns low intervals, with B12 high once and twice. At 960 MBd C6/L2 has 2.016 ns low and B12 high in 96,633 conversions. At 1600 MBd C5/L2 and C6/L3 place LOGIC 0.614 and 0.636 ns after COMP falls, yet B12 differs. C5/L2 and C6/L2 retain the identical LOGIC row and nearly the same LOGIC-to-next-COMP interval, 1.233 and 1.222 ns, but LOGIC moves from after COMP fall to approximately coincident with it. These controls weaken a simple LOGIC phase or CDAC update-time explanation. C6/L3 has only about 0.567 ns before the next COMP for CDAC update, so its analog residue can differ despite identical B0--B11 decisions. The scope sees external clocks, not internal latch reset, and comparator kickback or clock delivery can change the analog decision. The observed low intervals bracket a suspect operating region without measuring an intrinsic reset requirement.}
+\end{frame}
+
 \begin{frame}{Long idle does not rescue the 6/8 B12 bias}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/historical_idle_control.pdf}
