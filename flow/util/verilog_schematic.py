@@ -8,6 +8,8 @@ are omitted from the drawing to keep shared supply rails readable.
 Run from the repository root with:
 
     uv run python -m flow.util.verilog_schematic input.v --top Comp -o comp.svg
+    uv run python -m flow.util.verilog_schematic input.v --top Comp -o comp.svg \
+        --skin flow/util/skins/circuitikz_analog.svg
 """
 
 from __future__ import annotations
@@ -42,7 +44,9 @@ _MOS_SKIN = r"""
 """
 
 
-def verilog_to_analog_svg(verilog_path: Path, output_path: Path, top: str) -> tuple[Path, Path]:
+def verilog_to_analog_svg(
+    verilog_path: Path, output_path: Path, top: str, skin: Path | None = None
+) -> tuple[Path, Path]:
     """Convert one structural Verilog module to netlistsvg JSON and analog SVG."""
 
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", top) is None:
@@ -81,11 +85,22 @@ def verilog_to_analog_svg(verilog_path: Path, output_path: Path, top: str) -> tu
                 cell["connections"] = {
                     name.upper(): bits for name, bits in connections.items() if name.lower() in {"d", "g", "s"}
                 }
-                cell["port_directions"] = {
-                    name.upper(): "output" if name.lower() == "d" else "input"
-                    for name in connections
-                    if name.lower() in {"d", "g", "s"}
-                }
+                if skin is None:
+                    cell["port_directions"] = {
+                        name.upper(): "output" if name.lower() == "d" else "input"
+                        for name in connections
+                        if name.lower() in {"d", "g", "s"}
+                    }
+                else:
+                    # Guide the new top-down skin from the PMOS supply through
+                    # the NMOS tail to ground. These are drawing directions,
+                    # not electrical claims about a MOS terminal.
+                    out_pin = "D" if cell["type"] == "mos_p" else "S"
+                    cell["port_directions"] = {
+                        name.upper(): "output" if name.upper() == out_pin else "input"
+                        for name in connections
+                        if name.lower() in {"d", "g", "s"}
+                    }
                 parameters = cell.get("parameters", {})
                 if parameters:
                     cell.setdefault("attributes", {})["value"] = " ".join(
@@ -112,12 +127,17 @@ def verilog_to_analog_svg(verilog_path: Path, output_path: Path, top: str) -> tu
         )
         executable = Path(locator.stdout.strip())
         package_path = executable.parent.parent
-        analog_skin = package_path / "lib" / "analog.svg"
-        if not analog_skin.is_file():
-            raise FileNotFoundError(f"netlistsvg analog skin not found at {analog_skin}")
-        skin_text = analog_skin.read_text()
-        skin_path = temporary_path / "analog_mos.svg"
-        skin_path.write_text(skin_text.replace("</svg>", _MOS_SKIN + "\n</svg>"))
+        if skin is None:
+            analog_skin = package_path / "lib" / "analog.svg"
+            if not analog_skin.is_file():
+                raise FileNotFoundError(f"netlistsvg analog skin not found at {analog_skin}")
+            skin_text = analog_skin.read_text()
+            skin_path = temporary_path / "analog_mos.svg"
+            skin_path.write_text(skin_text.replace("</svg>", _MOS_SKIN + "\n</svg>"))
+        else:
+            skin_path = skin.resolve()
+            if not skin_path.is_file():
+                raise FileNotFoundError(f"netlistsvg skin not found at {skin_path}")
 
         subprocess.run(
             ["node", str(executable), str(json_path), "-o", str(output_path), "--skin", str(skin_path)],
@@ -132,9 +152,10 @@ def main() -> None:
     parser.add_argument("verilog", type=Path, help="structural Verilog input")
     parser.add_argument("--top", required=True, help="top-level Verilog module")
     parser.add_argument("-o", "--output", required=True, type=Path, help="output SVG path")
+    parser.add_argument("--skin", type=Path, help="standalone netlistsvg skin SVG")
     args = parser.parse_args()
 
-    json_path, svg_path = verilog_to_analog_svg(args.verilog, args.output, args.top)
+    json_path, svg_path = verilog_to_analog_svg(args.verilog, args.output, args.top, args.skin)
     print(f"Created {json_path}")
     print(f"Created {svg_path}")
 
