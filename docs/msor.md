@@ -4,16 +4,11 @@
 
 The system has three cleanly separated concerns:
 
-1. **VLSIR (existing)** — Emits LEF abstracts from primitive layouts and structural Verilog netlists from hdl21 circuit
-   descriptions. Already works via `flow/layout/serialize.py` and `vlsirtools.netlist`. Don't touch the core; extend
-   with new emitters only.
+1. **VLSIR (existing)** — Emits LEF abstracts from primitive layouts and structural Verilog netlists from hdl21 circuit descriptions. Already works via `flow/layout/serialize.py` and `vlsirtools.netlist`. Don't touch the core; extend with new emitters only.
 
-2. **Constraint language (new: `flow/constraint/`)** — Python dataclasses modeled on hdl21+ALIGN syntax that capture
-   analog placement/routing intent (symmetry pairs, net groups, ordering, routing rules). Tool-neutral; no OpenROAD
-   semantics leak in.
+2. **Constraint language (new: `flow/constraint/`)** — Python dataclasses modeled on hdl21+ALIGN syntax that capture analog placement/routing intent (symmetry pairs, net groups, ordering, routing rules). Tool-neutral; no OpenROAD semantics leak in.
 
-3. **TCL generation (new: `flow/openroad/`)** — Takes VLSIR artifacts (LEF, Verilog, DEF) plus constraint objects and
-   emits a self-contained `.tcl` script that OpenROAD can `source`. The Python side's job ends once the TCL is written.
+3. **TCL generation (new: `flow/openroad/`)** — Takes VLSIR artifacts (LEF, Verilog, DEF) plus constraint objects and emits a self-contained `.tcl` script that OpenROAD can `source`. The Python side's job ends once the TCL is written.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -45,18 +40,13 @@ The system has three cleanly separated concerns:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The partitioned placement/routing strategy (from Wei's ALOE thesis) maps to
-sequences of TCL `place` / `route` commands that select subsets of instances
-and nets, not to a Python sidecar running alongside OpenROAD.
+The partitioned placement/routing strategy (from Wei's ALOE thesis) maps to sequences of TCL `place` / `route` commands that select subsets of instances and nets, not to a Python sidecar running alongside OpenROAD.
 
 ---
 
 ## Component 1: Constraint Language (`flow/constraint/`)
 
-Python-native constraint vocabulary. References hdl21 instance names and signal
-names as plain strings. Modeled on ALIGN's schema (`SymmetricBlocks`,
-`SymmetricNets`, `GroupBlocks`, `Order`, etc.) and Fritchman Ch. 7 priorities,
-with hard/soft strength and integer priority.
+Python-native constraint vocabulary. References hdl21 instance names and signal names as plain strings. Modeled on ALIGN's schema (`SymmetricBlocks`, `SymmetricNets`, `GroupBlocks`, `Order`, etc.) and Fritchman Ch. 7 priorities, with hard/soft strength and integer priority.
 
 Does NOT live in VLSIR proto yet — that's a future step once the flow is proven.
 
@@ -175,56 +165,29 @@ Each is a frozen dataclass with `strength: Strength = HARD` and `priority: int =
 
 ## Component 2: VLSIR Emitters (`flow/layout/` extensions)
 
-Convert existing VLSIR raw protos and hdl21 packages into the three file formats
-OpenROAD needs: LEF, structural Verilog, and DEF. Two of these three already
-have working implementations in our `libs/` dependencies:
+Convert existing VLSIR raw protos and hdl21 packages into the three file formats OpenROAD needs: LEF, structural Verilog, and DEF. Two of these three already have working implementations in our `libs/` dependencies:
 
-- **LEF**: Layout21 (`libs/Layout21`) already has the full pipeline:
-  `vlsir.raw.proto` → `layout21raw::Library` (via `ProtoImporter`) →
-  `lef21::LefLibrary` (via `LefExporter`) → `.lef` file (via `LefLibrary::save()`).
-  The code lives in `layout21raw/src/proto.rs` (proto↔layout21 conversion) and
-  `layout21raw/src/lef.rs` (layout21→LEF export with Abstract/port/blockage support).
+- **LEF**: Layout21 (`libs/Layout21`) already has the full pipeline: `vlsir.raw.proto` → `layout21raw::Library` (via `ProtoImporter`) → `lef21::LefLibrary` (via `LefExporter`) → `.lef` file (via `LefLibrary::save()`). The code lives in `layout21raw/src/proto.rs` (proto↔layout21 conversion) and `layout21raw/src/lef.rs` (layout21→LEF export with Abstract/port/blockage support).
 
-- **Structural Verilog**: `vlsirtools` (`libs/Vlsir/VlsirTools`) already has a
-  `VerilogNetlister` in `vlsirtools/netlist/verilog.py` that emits structural
-  Verilog from `vlsir.circuit.Package`. FRIDA can call this public API directly
-  with `vlsirtools.netlist(pkg, fmt="verilog")`; no project wrapper is needed.
+- **Structural Verilog**: `vlsirtools` (`libs/Vlsir/VlsirTools`) already has a `VerilogNetlister` in `vlsirtools/netlist/verilog.py` that emits structural Verilog from `vlsir.circuit.Package`. FRIDA can call this public API directly with `vlsirtools.netlist(pkg, fmt="verilog")`; no project wrapper is needed.
 
-So the work here is NOT reimplementing LEF/Verilog emitters from scratch.
-Instead it is: (a) ensuring the primitive generators populate `vlsir.raw.Abstract`
-correctly so Layout21's LEF exporter has the data it needs, (b) writing a thin
-Python wrapper that shells out to the Layout21 Rust binary or calls it via a
-compiled CLI, (c) writing a tech LEF emitter (which Layout21 does NOT cover —
-`lef21` handles macro LEF only, not technology LEF), and (d) writing a minimal
-DEF seed file.
+So the work here is NOT reimplementing LEF/Verilog emitters from scratch. Instead it is: (a) ensuring the primitive generators populate `vlsir.raw.Abstract` correctly so Layout21's LEF exporter has the data it needs, (b) writing a thin Python wrapper that shells out to the Layout21 Rust binary or calls it via a compiled CLI, (c) writing a tech LEF emitter (which Layout21 does NOT cover — `lef21` handles macro LEF only, not technology LEF), and (d) writing a minimal DEF seed file.
 
 ### 2a. Primitive Abstract Annotation
 
-The existing `mosfet()` generator emits GDS-layer shapes and PIN-layer markers,
-but does NOT populate `vlsir.raw.Cell.abstract`. Capacitor layouts are now owned
-by `flow.caparray`; standalone capacitor primitives are no longer exported.
-Any capacitor LEF integration should target the complete array macro. The
-`export_layout()` path in `flow/layout/serialize.py` only fills
-`vlsir.raw.Cell.layout`, not `vlsir.raw.Cell.abstract`. Layout21's LEF
-exporter (`LefExporter`) only exports cells that have `.abs` — cells with
-only `.layout` are silently skipped.
+The existing `mosfet()` generator emits GDS-layer shapes and PIN-layer markers, but does NOT populate `vlsir.raw.Cell.abstract`. Capacitor layouts are now owned by `flow.caparray`; standalone capacitor primitives are no longer exported. Any capacitor LEF integration should target the complete array macro. The `export_layout()` path in `flow/layout/serialize.py` only fills `vlsir.raw.Cell.layout`, not `vlsir.raw.Cell.abstract`. Layout21's LEF exporter (`LefExporter`) only exports cells that have `.abs` — cells with only `.layout` are silently skipped.
 
 - [ ] Extend `flow/layout/serialize.py` — `layout_to_vlsir_raw()`
   - [ ] After building `raw_layout`, also build `raw.Abstract` for each cell:
     - [ ] Derive `outline` polygon from the cell's bounding box
-    - [ ] Identify PIN-layer shapes (e.g. layer 10/datatype 1 = `PIN1`) and
-          group them by associated text label to form `AbstractPort` entries
+    - [ ] Identify PIN-layer shapes (e.g. layer 10/datatype 1 = `PIN1`) and group them by associated text label to form `AbstractPort` entries
     - [ ] Collect all non-pin drawing-layer shapes as `blockages`
     - [ ] Populate `vlsir.raw_pb2.Cell.abstract` alongside `.layout`
-  - [ ] Alternatively, add a new function `build_abstract(cell, layout, G) -> raw.Abstract`
-        that the generators call explicitly
+  - [ ] Alternatively, add a new function `build_abstract(cell, layout, G) -> raw.Abstract` that the generators call explicitly
 
 #### Key decisions
 
-- Pin names come from text labels on the PIN layer. The mosfet generator
-  currently does NOT emit text labels on PIN layers — it only inserts boxes.
-  We either need to add text labels in the generators, or infer pin names
-  from position (less robust).
+- Pin names come from text labels on the PIN layer. The mosfet generator currently does NOT emit text labels on PIN layers — it only inserts boxes. We either need to add text labels in the generators, or infer pin names from position (less robust).
 - [ ] Add pin-name text labels to `mosfet()` generator on each PIN-layer shape
 - [ ] Preserve `CapArrayLayout` port labels when building array-macro abstracts
 
@@ -238,21 +201,15 @@ only `.layout` are silently skipped.
 
 ### 2b. LEF Generation via Layout21
 
-Use Layout21's existing Rust pipeline to convert `vlsir.raw.pb` (with Abstract
-populated per §2a) to `.lef` files. This is a Rust binary invocation, not a
-Python reimplementation.
+Use Layout21's existing Rust pipeline to convert `vlsir.raw.pb` (with Abstract populated per §2a) to `.lef` files. This is a Rust binary invocation, not a Python reimplementation.
 
 - [ ] Build Layout21 workspace: `cargo build --release` in `libs/Layout21/`
   - [ ] Verify `proto2gds` binary builds (confirms proto support compiles)
   - [ ] Write or identify a CLI entry point for `proto2lef` conversion
-    - Layout21 does NOT currently ship a `proto2lef` binary. The pieces exist
-      (`ProtoImporter` + `LefExporter`) but there is no CLI wiring them together.
-    - [ ] Option A: Add a small `proto2lef.rs` binary to `layout21converters/src/bin/`
-          that reads a `vlsir.raw.Library` protobuf file, imports it via
-          `ProtoImporter`, exports via `LefExporter`, and saves via `LefLibrary::save()`
+    - Layout21 does NOT currently ship a `proto2lef` binary. The pieces exist (`ProtoImporter` + `LefExporter`) but there is no CLI wiring them together.
+    - [ ] Option A: Add a small `proto2lef.rs` binary to `layout21converters/src/bin/` that reads a `vlsir.raw.Library` protobuf file, imports it via `ProtoImporter`, exports via `LefExporter`, and saves via `LefLibrary::save()`
     - [ ] Option B: Write a thin Rust `cdylib` with a C FFI that Python calls via `ctypes`
-    - [ ] Option C: Write a standalone Python LEF text emitter that reads the
-          `vlsir.raw_pb2` protobuf directly (fallback if Rust compilation is impractical)
+    - [ ] Option C: Write a standalone Python LEF text emitter that reads the `vlsir.raw_pb2` protobuf directly (fallback if Rust compilation is impractical)
   - Recommendation: Option A is simplest. ~30 lines of Rust.
 
 - [ ] `flow/layout/lef.py` — Python wrapper
@@ -277,79 +234,56 @@ Python reimplementation.
 #### Tests
 
 - [ ] `flow/layout/test_lef.py`
-  - [ ] Generate a mosfet layout → `export_layout()` (with Abstract) → `proto_to_lef()`
-        → verify output `.lef` file exists and contains `MACRO`, `PIN`, `OBS` keywords
+  - [ ] Generate a mosfet layout → `export_layout()` (with Abstract) → `proto_to_lef()` → verify output `.lef` file exists and contains `MACRO`, `PIN`, `OBS` keywords
   - [ ] Generate a capacitor-array layout → same flow → verify array-macro LEF
-  - [ ] `emit_tech_lef()` from ihp130 rule deck → verify `LAYER` names match
-        rule deck entries, pitches/widths are correct in micron units
+  - [ ] `emit_tech_lef()` from ihp130 rule deck → verify `LAYER` names match rule deck entries, pitches/widths are correct in micron units
   - [ ] Verify tech LEF `UNITS` and `MANUFACTURINGGRID` are present
 
 ### 2c. Structural Verilog via vlsirtools
 
-The `VerilogNetlister` in `vlsirtools/netlist/verilog.py` already emits
-structural Verilog from `vlsir.circuit.Package`. The frida path is:
+The `VerilogNetlister` in `vlsirtools/netlist/verilog.py` already emits structural Verilog from `vlsir.circuit.Package`. The frida path is:
 
 ```text
 hdl21 Module → h.to_proto() → vlsir.circuit.Package → vlsirtools.netlist(pkg, fmt='verilog') → .v
 ```
 
-This already works through VLSIRTools' public `netlist(..., fmt="verilog")`
-API.
+This already works through VLSIRTools' public `netlist(..., fmt="verilog")` API.
 
-**However**, the existing Verilog output assumes all instances resolve to
-modules defined within the same package. For the OpenROAD flow, compiled
-device instances (post `pdk.compile()`) reference PDK `ExternalModule`s that
-are NOT in the package. The `VerilogNetlister` treats unresolved references
-as errors.
+**However**, the existing Verilog output assumes all instances resolve to modules defined within the same package. For the OpenROAD flow, compiled device instances (post `pdk.compile()`) reference PDK `ExternalModule`s that are NOT in the package. The `VerilogNetlister` treats unresolved references as errors.
 
 - [ ] Investigate `VerilogNetlister` behavior with compiled PDK devices
-  - [ ] Test: compile a `Comp` module with ihp130, call `h.to_proto()`,
-        call `vlsirtools.netlist(pkg, fmt='verilog')` — does it succeed or error?
+  - [ ] Test: compile a `Comp` module with ihp130, call `h.to_proto()`, call `vlsirtools.netlist(pkg, fmt='verilog')` — does it succeed or error?
   - [ ] If it errors on unresolved `ExternalModule` references:
-    - [ ] Option A: Add stub module definitions to the package for each
-          unique `ExternalModule` (matching LEF macro pin names)
-    - [ ] Option B: Patch `VerilogNetlister` to emit `ExternalModule` references
-          as black-box instantiations (the module is defined by LEF, not Verilog)
-    - Recommendation: Option A — keep vlsirtools unmodified; add stubs in the
-      frida integration layer
+    - [ ] Option A: Add stub module definitions to the package for each unique `ExternalModule` (matching LEF macro pin names)
+    - [ ] Option B: Patch `VerilogNetlister` to emit `ExternalModule` references as black-box instantiations (the module is defined by LEF, not Verilog)
+    - Recommendation: Option A — keep vlsirtools unmodified; add stubs in the frida integration layer
 
 - [ ] `flow/layout/verilog.py` — Thin wrapper (only if stub injection is needed)
   - [ ] `emit_structural_verilog(module: h.Module, stem_cell_map: dict[str, str], out: Path) -> Path`
     - `stem_cell_map`: maps hdl21 `ExternalModule` qualified names → LEF macro names
-    - Calls `h.to_proto()`, injects stub module defs for external modules, then
-      calls `vlsirtools.netlist()` with `fmt='verilog'`
+    - Calls `h.to_proto()`, injects stub module defs for external modules, then calls `vlsirtools.netlist()` with `fmt='verilog'`
     - If no stubs needed, this is just a thin convenience function
 
 #### Key decisions
 
-- The **stem cell map** connects hdl21's `ExternalModule` world (where a
-  compiled NMOS is e.g. `pdk.ihp130.NMOS`) to the LEF macro name
-  (`MOSFET_nf4_w1_l1_...`). This mapping is built by the user or by the
-  layout sweep — it says "this parameterized device instance uses this
-  specific LEF cell."
+- The **stem cell map** connects hdl21's `ExternalModule` world (where a compiled NMOS is e.g. `pdk.ihp130.NMOS`) to the LEF macro name (`MOSFET_nf4_w1_l1_...`). This mapping is built by the user or by the layout sweep — it says "this parameterized device instance uses this specific LEF cell."
 - Port ordering in the Verilog must match LEF pin names exactly.
 - Power/ground nets (`vdd`, `vss`) are explicit wires, not implicit globals.
 
 #### Tests
 
 - [ ] `flow/layout/test_verilog.py`
-  - [ ] Build a `Comp` module, compile with ihp130 PDK, emit structural Verilog
-        via the existing `vlsirtools` path, verify output `.v` file is syntactically valid
+  - [ ] Build a `Comp` module, compile with ihp130 PDK, emit structural Verilog via the existing `vlsirtools` path, verify output `.v` file is syntactically valid
   - [ ] Verify all instance names from the hdl21 module appear in the Verilog
   - [ ] Verify all port names appear as `input`/`output`/`inout`
   - [ ] Verify all internal signals appear as `wire`
-  - [ ] If stem cell map injection is needed: verify substituted module names
-        match the LEF macro names
+  - [ ] If stem cell map injection is needed: verify substituted module names match the LEF macro names
 
 ### 2d. DEF Seed File (Minimal)
 
-Creates an initial DEF file with the design header, die area, and component
-list (all instances UNPLACED). OpenROAD reads this as the starting point.
-This is simple enough to emit directly as text — no library needed.
+Creates an initial DEF file with the design header, die area, and component list (all instances UNPLACED). OpenROAD reads this as the starting point. This is simple enough to emit directly as text — no library needed.
 
-Alternatively, this can be omitted entirely if the TCL script uses
-`initialize_floorplan` instead of `read_def`. OpenROAD can derive the
-initial placement from just LEF + Verilog + floorplan commands.
+Alternatively, this can be omitted entirely if the TCL script uses `initialize_floorplan` instead of `read_def`. OpenROAD can derive the initial placement from just LEF + Verilog + floorplan commands.
 
 - [ ] `flow/layout/def_writer.py`
   - [ ] Add `emit_initial_def`:
@@ -379,9 +313,7 @@ initial placement from just LEF + Verilog + floorplan commands.
 
 ## Component 3: TCL Generation (`flow/openroad/`)
 
-Translates constraint objects + file paths into a complete OpenROAD TCL script.
-This is the experimental component. No VLSIR dependency — it consumes
-constraint dataclasses and emits text.
+Translates constraint objects + file paths into a complete OpenROAD TCL script. This is the experimental component. No VLSIR dependency — it consumes constraint dataclasses and emits text.
 
 ### Files
 
@@ -443,11 +375,8 @@ Each function returns a `list[str]` of TCL lines. No file I/O.
 #### Symmetric Routing Workaround
 
 - [ ] `mirror_guides_comment_block(net_a: str, net_b: str, axis_x: int) -> list[str]`
-  - Emit a commented TCL procedure skeleton that documents the guide-mirroring
-    approach (extract guides from `net_a`, mirror X coordinates about `axis_x`,
-    apply to `net_b`).
-  - This is not fully automatable in pure TCL — it's a placeholder for the
-    approach described in `or_analog.md` lines 278–326.
+  - Emit a commented TCL procedure skeleton that documents the guide-mirroring approach (extract guides from `net_a`, mirror X coordinates about `axis_x`, apply to `net_b`).
+  - This is not fully automatable in pure TCL — it's a placeholder for the approach described in `or_analog.md` lines 278–326.
   - Mark with `# TODO: requires custom ODB scripting or Python API session`
 
 ### `tcl_emitter.py` — High-level orchestrator
@@ -503,8 +432,7 @@ write_def ...
 
 #### Constraint → TCL mapping
 
-Each constraint type maps to specific TCL command(s) inserted at the right
-stage of the script:
+Each constraint type maps to specific TCL command(s) inserted at the right stage of the script:
 
 | Constraint | TCL Stage | TCL Commands |
 |---|---|---|
@@ -571,8 +499,7 @@ Wire up all three components for the comparator as a proof-of-concept.
 #### Tests
 
 - [ ] `flow/comp/test_layout.py`
-  - [ ] `run_openroad_prep` produces all expected files in output directory:
-    `tech.lef`, `*.macro.lef`, `comp.v`, `flow.tcl`
+  - [ ] `run_openroad_prep` produces all expected files in output directory: `tech.lef`, `*.macro.lef`, `comp.v`, `flow.tcl`
   - [ ] Constraint validation passes against the compiled `Comp` module
   - [ ] Generated TCL script references the correct LEF and Verilog filenames
 
@@ -632,11 +559,7 @@ Phase 4: Integration (depends on Phases 1–3)
   └── cli.py extension
 ```
 
-Phase 0 is pure investigation — no code, just build & test existing tools.
-Phases 1 and 2a–2d are independent of each other and can proceed in parallel
-(except 2b depends on 2a).
-Phase 3 requires Phase 1.
-Phase 4 requires all of Phases 1–3.
+Phase 0 is pure investigation — no code, just build & test existing tools. Phases 1 and 2a–2d are independent of each other and can proceed in parallel (except 2b depends on 2a). Phase 3 requires Phase 1. Phase 4 requires all of Phases 1–3.
 
 ---
 
@@ -644,32 +567,21 @@ Phase 4 requires all of Phases 1–3.
 
 These are explicitly out of scope for the first implementation:
 
-- [ ] **`vlsir.constraints` proto** — The constraint types live as Python dataclasses
-  for now. Promoting them to a `.proto` schema in `Vlsir/protos/constraints.proto`
-  happens only after the flow is proven to work end-to-end.
+- [ ] **`vlsir.constraints` proto** — The constraint types live as Python dataclasses for now. Promoting them to a `.proto` schema in `Vlsir/protos/constraints.proto` happens only after the flow is proven to work end-to-end.
 
-- [ ] **Partitioned placement/routing via evolutionary algorithm** — Wei's ALOE uses
-  an EA to drive net weights and then rank layouts by post-PEX simulation. The TCL
-  emitter supports net weights as a knob, but the EA loop is a separate concern.
+- [ ] **Partitioned placement/routing via evolutionary algorithm** — Wei's ALOE uses an EA to drive net weights and then rank layouts by post-PEX simulation. The TCL emitter supports net weights as a knob, but the EA loop is a separate concern.
 
-- [ ] **DEF → GDS back-annotation** — Reading the placed+routed DEF back into VLSIR
-  `tetris.proto` or `raw.proto` for GDS export / DRC checking in KLayout.
+- [ ] **DEF → GDS back-annotation** — Reading the placed+routed DEF back into VLSIR `tetris.proto` or `raw.proto` for GDS export / DRC checking in KLayout.
 
-- [ ] **UPF / power domain integration** — The `or_analog.md` UPF section is relevant
-  for mixed-signal SoC integration, not for the analog block P&R itself.
+- [ ] **UPF / power domain integration** — The `or_analog.md` UPF section is relevant for mixed-signal SoC integration, not for the analog block P&R itself.
 
-- [ ] **Automatic stem-cell-map generation** — Automatically matching hdl21 compiled
-  device parameters to pre-generated LEF cells. For now this map is manual.
+- [ ] **Automatic stem-cell-map generation** — Automatically matching hdl21 compiled device parameters to pre-generated LEF cells. For now this map is manual.
 
-- [ ] **KLayout DRC/LVS integration** — Checking the OpenROAD output against PDK
-  rules via KLayout's DRC engine.
+- [ ] **KLayout DRC/LVS integration** — Checking the OpenROAD output against PDK rules via KLayout's DRC engine.
 
-- [ ] **Multi-block hierarchical constraint propagation** — The ALIGN `translator.py`
-  pattern of propagating constraints through hierarchy. Start flat, add hierarchy later.
+- [ ] **Multi-block hierarchical constraint propagation** — The ALIGN `translator.py` pattern of propagating constraints through hierarchy. Start flat, add hierarchy later.
 
-- [ ] **Python bindings for Layout21** — Layout21 is pure Rust today. A `pyo3` or
-  `ctypes` bridge would eliminate the subprocess call for `proto2lef`, but is not
-  needed for a first pass.
+- [ ] **Python bindings for Layout21** — Layout21 is pure Rust today. A `pyo3` or `ctypes` bridge would eliminate the subprocess call for `proto2lef`, but is not needed for a first pass.
 
 ---
 

@@ -94,14 +94,12 @@ Core `vlsir.layout.raw` targets for bridging:
 
 ### Notes
 
-- `substrate2` does use protobuf, but for cache RPC (`libs/cache/proto/*.proto` + `tonic/prost` codegen), not as a
-  VLSIR-like circuit/layout interchange schema.
+- `substrate2` does use protobuf, but for cache RPC (`libs/cache/proto/*.proto` + `tonic/prost` codegen), not as a VLSIR-like circuit/layout interchange schema.
 - For your immediate goal (unit NMOS/PMOS + resistor + MOM/MIM cap footprints), the lowest-friction paths are:
   1. `IHP` and `skywater130` gdsfactory PDKs (Python-first),
   2. official IHP KLayout PyCells,
   3. direct KLayout PyPI API for custom generators.
-- BFG/Layout21 are the strongest references for **native VLSIR-first** layout serialization, but are not drop-in PDK
-  primitive providers for your exact device set.
+- BFG/Layout21 are the strongest references for **native VLSIR-first** layout serialization, but are not drop-in PDK primitive providers for your exact device set.
 
 ## Primitive Drawing Command Comparison (Generator-Level)
 
@@ -115,8 +113,7 @@ Expanded scan scope for this table:
 Top API counts from the expanded scan:
 
 - `BFG`: `AddRectangle (221)`, `SetActiveLayerByName (137)`, `MakeVia (88)`, `AddPolygon (81)`, `SavePoint (57)`
-- `IHP PyCells`: `dbCreateRect (473)`, `dbCreatePolygon (192)`, `dbCreateRectArray (134)`, `dbCreateLabel (79)`,
-  `MkPin (63)`
+- `IHP PyCells`: `dbCreateRect (473)`, `dbCreatePolygon (192)`, `dbCreateRectArray (134)`, `dbCreateLabel (79)`, `MkPin (63)`
 - `IHP GDSFactory`: `components.rectangle (176)`, `add_ref (160)`, `add_port (97)`, `add_label (39)`, `boolean (15)`
 
 ### BFG Primitive Library Layering (`libs/bfg/src/layout.h`)
@@ -145,8 +142,7 @@ Legend:
 - `❌️` not available as a first-class API item
 - `🍂` function family used in primitive-cell generators
 
-Note: this matrix is API-capability based. `🍂` marks APIs that are used in
-primitive-cell generators.
+Note: this matrix is API-capability based. `🍂` marks APIs that are used in primitive-cell generators.
 
 | Primitive API family | FRIDA KLayout PyPI | VLSIR raw | Layout21 | BFG | IHP PyCells | IHP GDSFactory |
 |---|---|---|---|---|---|---|
@@ -177,9 +173,7 @@ primitive-cell generators.
 
 Legend: ✅ = directly supported in spec/parser, ⚠️ = partial/indirect, ❌️ = not first-class.
 
-`tech.proto` today is mostly a layer catalog: `Technology` with `LayerInfo` entries (`name`, `index`, `sub_index`) and a
-`LayerPurpose` type (`LABEL`, `DRAWING`, `PIN`, `OBSTRUCTION`, `OUTLINE`). It does not yet include rule-deck rules such
-as pitch/width/spacing/enclosure.
+`tech.proto` today is mostly a layer catalog: `Technology` with `LayerInfo` entries (`name`, `index`, `sub_index`) and a `LayerPurpose` type (`LABEL`, `DRAWING`, `PIN`, `OBSTRUCTION`, `OUTLINE`). It does not yet include rule-deck rules such as pitch/width/spacing/enclosure.
 
 | Rule (Y-axis) | CICC / ciccreator | ALIGN | MAGICAL | TECHLEF + OpenROAD |
 |---|---|---|---|---|
@@ -236,11 +230,8 @@ Legend: ✅ = first-class constraint/support, ⚠️ = indirect or limited, ❌�
 ## Literature-Grounded Constraint Priorities (Wei + Fritchman Ch. 7)
 
 - Hard classes to preserve: `technological constraints` (DRC) and `functional constraints` (post-layout performance).
-- Geometric constraints to carry explicitly: symmetry (devices and nets), proximity, routing shielding, wire
-  widening/multi-wire for critical current paths, common-centroid/interdigitation where needed, and flexible
-  floorplanning.
-- ALIGN-centric practical list from Fritchman Ch.7: virtual hierarchy (`Group`), symmetry, `Order`/`Align`/`Floorplan`,
-  route-layer requests, and multi-track routing requests.
+- Geometric constraints to carry explicitly: symmetry (devices and nets), proximity, routing shielding, wire widening/multi-wire for critical current paths, common-centroid/interdigitation where needed, and flexible floorplanning.
+- ALIGN-centric practical list from Fritchman Ch.7: virtual hierarchy (`Group`), symmetry, `Order`/`Align`/`Floorplan`, route-layer requests, and multi-track routing requests.
 
 ## Evidence: Examples + Ingest Code Paths
 
@@ -289,11 +280,9 @@ Current source of truth is `Vlsir/protos/tech.proto`, where `RuleDeck` already i
 
 FRIDA layout API alignment:
 
-- `TechnologyData` now carries layout-facing process identity only (`name`, `packages`, `model_libraries`,
-  `layer_infos`, `rule_deck`)
+- `TechnologyData` now carries layout-facing process identity only (`name`, `packages`, `model_libraries`, `layer_infos`, `rule_deck`)
 - transistor minimum rules are not serialized in the layout tech payload
-- minimum poly `WIDTH` and `MINLENGTH` remain in per-layer rule statements and define min transistor geometry for
-  primitive generators
+- minimum poly `WIDTH` and `MINLENGTH` remain in per-layer rule statements and define min transistor geometry for primitive generators
 
 Design intent:
 
@@ -354,8 +343,7 @@ Required field coverage for concept completeness (informed by CICC/ALIGN/MAGICAL
 - Shape/outline controls: boundary, halo, aspect ratio, distance constraints.
 - Grid legality: direction, pitch, legal offsets/scalings.
 - Pin intent: side/region/location, mirrored/grouped IO where needed.
-- Routing intent: min/max layers, width/spacing multiplier, shielding net, criticality, multi-wire multiplier,
-  do-not-route lists.
+- Routing intent: min/max layers, width/spacing multiplier, shielding net, criticality, multi-wire multiplier, do-not-route lists.
 - Analog structures: guard ring parameters and cap-group ratios/dummy policy.
 - Objective metadata: hard/soft and priority, plus optional charge-flow waveforms.
 
@@ -410,8 +398,7 @@ Coverage key:
 
 Width/NDR nuance in `tetris.proto`:
 
-- Track-wire width exists at `Stack.metals[].entries[].entry.width` and
-  `Stack.metals[].entries[].repeat.entries[].width`.
+- Track-wire width exists at `Stack.metals[].entries[].entry.width` and `Stack.metals[].entries[].repeat.entries[].width`.
 - Trace gaps are explicit with `Stack.metals[].entries[].entry.ttype = GAP` and repeated by `repeat.entries[].ttype`.
 - Track classes are explicit with `TrackEntry.ttype` (`GAP`, `SIGNAL`, `RAIL`).
 - Default cut size exists at `Stack.metals[].cutsize`.
@@ -451,8 +438,7 @@ Width/NDR nuance in `tetris.proto`:
 Immediate implication:
 
 - `vlsir.tetris` is a good IR for grid-native placement/routing intent.
-- It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic
-  patterns, and via/cut sizes.
+- It already models core route-fabric semantics: typed tracks (`GAP`/`SIGNAL`/`RAIL`), explicit track widths, periodic patterns, and via/cut sizes.
 - It is not a lossless DEF schema today.
 - A DEF emitter from `tetris` should be treated as a lowering pass with defaults/assumptions for missing DEF sections.
 
@@ -468,7 +454,5 @@ Immediate implication:
 
 Notes:
 
-- LEF is strong for routing/cut stack constraints (`WIDTH`, `AREA`, `SPACING`, `SPACINGTABLE`, `ENCLOSURE`,
-  `ADJACENTCUTS`), but not a full FEOL implant-opposition rule language.
-- PVS and Calibre decks both express FEOL/BEOL checks procedurally, including conditional PRL spacing and
-  implant-opposition constraints.
+- LEF is strong for routing/cut stack constraints (`WIDTH`, `AREA`, `SPACING`, `SPACINGTABLE`, `ENCLOSURE`, `ADJACENTCUTS`), but not a full FEOL implant-opposition rule language.
+- PVS and Calibre decks both express FEOL/BEOL checks procedurally, including conditional PRL spacing and implant-opposition constraints.

@@ -8,18 +8,13 @@ make
 
 The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Finished image PDFs are kept in `docs/images/`; complete slide/document PDFs and their LaTeX build files are written to `docs/tex/`.
 
-For any image PDF target or the `figures`, `sequences`, and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs
-and render a 200 DPI PNG preview of each PDF's first page. Previews go to
-`build/docs/images/previews/`, mirroring the path under `docs/images/`. This
-also works when the PDF already exists. Remove previews and image build
-intermediates without removing the TeX sources or PDFs with:
+For any image PDF target or the `figures`, `sequences`, and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs and render a 200 DPI PNG preview of each PDF's first page. Previews go to `build/docs/images/previews/`, mirroring the path under `docs/images/`. This also works when the PDF already exists. Remove previews and image build intermediates without removing the TeX sources or PDFs with:
 
 ```bash
 make -C docs clean-image-debug
 ```
 
-Normal builds do not create PNG previews. The source `arch.png` remains in
-`docs/images/` because the root README embeds it.
+Normal builds do not create PNG previews. The source `arch.png` remains in `docs/images/` because the root README embeds it.
 
 ## `netlistsvg`
 
@@ -63,41 +58,21 @@ Outputs:
 - `images/spi_register_timing.pdf`
 - `images/spi_register_bitfield_memory_path.pdf`
 
-The timing waveform uses `tikz-timing` and shows the first two and final two
-bits of a 180-bit transfer. The register map uses the LaTeX `bytefield` package
-to group the mux, repeated seven-bit ADC configurations, and four shared DAC
-states. An indexed range formula identifies all sixteen ADC fields, and a
-dotted leader expands ADC0 into its seven control bits.
-`tikzpackets` is a TikZ-native option for packet
-layouts, but `bytefield` fits this register map more directly. Both packages
-used here are provided by the local TeX Live.
+The timing waveform uses `tikz-timing` and shows the first two and final two bits of a 180-bit transfer. The register map uses the LaTeX `bytefield` package to group the mux, repeated seven-bit ADC configurations, and four shared DAC states. An indexed range formula identifies all sixteen ADC fields, and a dotted leader expands ADC0 into its seven control bits. `tikzpackets` is a TikZ-native option for packet layouts, but `bytefield` fits this register map more directly. Both packages used here are provided by the local TeX Live.
 
 ## ADC sequencer timing
 
-From the repository root, generate and render the seven 160-symbol sequences
-used by the recent `frida1_sequence` and `frida2_sequence` PEX simulations:
+From the repository root, generate and render the seven 160-symbol sequences used by the recent `frida1_sequence` and `frida2_sequence` PEX simulations:
 
 ```bash
 make -C docs sequences
 ```
 
-Use `make -C docs DEBUG=1 sequences` to retain LaTeX logs and render PNG
-previews while developing the figures. Rerun without the option to remove
-the LaTeX intermediates, or run `make -C docs clean-image-debug` to remove
-those and the previews together.
+Use `make -C docs DEBUG=1 sequences` to retain LaTeX logs and render PNG previews while developing the figures. Rerun without the option to remove the LaTeX intermediates, or run `make -C docs clean-image-debug` to remove those and the previews together.
 
-The generator is `docs/images/sequences/render.py`. It reads recipes from
-`flow/adc/sequences.py` and writes only `tikz-timing` TeX. Each figure shows
-four symbols before index 0 and eight after the next period begins. The dashed
-red lines mark the sequence boundaries. Vertical guides occur every four
-symbols; dotted horizontal guides mark each signal's low and high levels.
-Triangular arrows mark both edges of `comp` and rising edges of `logic`.
-The seven TeX/PDF pairs and the Python generator live in
-`docs/images/sequences/`; debug previews live under `build/`.
+The generator is `docs/images/sequences/render.py`. It reads recipes from `flow/adc/sequences.py` and writes only `tikz-timing` TeX. Each figure shows four symbols before index 0 and eight after the next period begins. The dashed red lines mark the sequence boundaries. Vertical guides occur every four symbols; dotted horizontal guides mark each signal's low and high levels. Triangular arrows mark both edges of `comp` and rising edges of `logic`. The seven TeX/PDF pairs and the Python generator live in `docs/images/sequences/`; debug previews live under `build/`.
 
-For another named recipe, use `--sequence NAME --name my_timing`. For literal
-rows, pass `--init`, `--samp`, `--comp`, and `--logic` binary strings. Put
-one-off results outside the image directory:
+For another named recipe, use `--sequence NAME --name my_timing`. For literal rows, pass `--init`, `--samp`, `--comp`, and `--logic` binary strings. Put one-off results outside the image directory:
 
 ```bash
 uv run python docs/images/sequences/render.py \
@@ -107,8 +82,7 @@ latexmk -pdf -outdir=build/analysis/sequences/custom \
   build/analysis/sequences/custom/my_timing.tex
 ```
 
-Python callers can also construct `flow.adc.sequences.AdcSequence` and pass it
-to `render(sequence, "my_timing", output_dir=...)` from the generator module.
+Python callers can also construct `flow.adc.sequences.AdcSequence` and pass it to `render(sequence, "my_timing", output_dir=...)` from the generator module.
 
 ## TeX image figures
 
@@ -134,14 +108,7 @@ Inputs:
 
 - `slides/*.tex`
 
-Each Beamer deck begins with `\input{style.tex}`. The shared file sets the
-16:9 layout, Latin Modern fonts, Nord colors, footer, source-note
-command (`\slidesource{...}`), listing style, and image fallback helpers.
-Decks with sections can enable the mini-frame progress bar with
-`\slideprogressnavigation`.
-Keep each deck's title, date, subject-specific packages, and figure commands
-in its own file. The `beams.tex` and `detectors.tex` article documents keep
-their separate preambles.
+Each Beamer deck begins with `\input{style.tex}`. The shared file sets the 16:9 layout, Latin Modern fonts, Nord colors, footer, source-note command (`\slidesource{...}`), listing style, and image fallback helpers. Decks with sections can enable the mini-frame progress bar with `\slideprogressnavigation`. Keep each deck's title, date, subject-specific packages, and figure commands in its own file. The `beams.tex` and `detectors.tex` article documents keep their separate preambles.
 
 Flow:
 

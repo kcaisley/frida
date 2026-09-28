@@ -1,12 +1,8 @@
 # Analog layout optimization flow
 
-This document describes the FRIDA analog layout flow: an NSGA-II optimization
-loop that drives OpenROAD as a black-box place-and-route engine, with symmetric
-placement and routing handled via netlist partitioning and guide mirroring.
+This document describes the FRIDA analog layout flow: an NSGA-II optimization loop that drives OpenROAD as a black-box place-and-route engine, with symmetric placement and routing handled via netlist partitioning and guide mirroring.
 
-This strategy is inspired by the Analog Layout Optimization Engine (ALOE) from
-P.H. Wei's 2021 thesis, adapted to use OpenROAD instead of Cadence Innovus and
-with symmetric routing handled via guide mirroring rather than native tool support.
+This strategy is inspired by the Analog Layout Optimization Engine (ALOE) from P.H. Wei's 2021 thesis, adapted to use OpenROAD instead of Cadence Innovus and with symmetric routing handled via guide mirroring rather than native tool support.
 
 ---
 
@@ -172,9 +168,6 @@ flowchart LR
 
 ## See also
 
-- [docs/or_odb.md](or_odb.md) — OpenROAD Python
-  execution model, `openroad`/`odb` api reference, symmetric routing workaround
-- [docs/or_analog.md](or_analog.md) — placement
-  status, routing guides, Python vs Tcl comparison, ALOE appendix
-- [docs/msor.md](msor.md) — constraint types,
-  Tcl emitter design, end-to-end integration plan
+- [docs/or_odb.md](or_odb.md) — OpenROAD Python execution model, `openroad`/`odb` api reference, symmetric routing workaround
+- [docs/or_analog.md](or_analog.md) — placement status, routing guides, Python vs Tcl comparison, ALOE appendix
+- [docs/msor.md](msor.md) — constraint types, Tcl emitter design, end-to-end integration plan

@@ -1,12 +1,8 @@
 # Analysis plot gallery
 
-This is a manually maintained visual index of plots produced by the named
-targets in `flow.analysis.runner`. The relative links point into the local,
-ignored `build/analysis` tree, so they work in this checkout but are not
-expected to resolve on GitHub.
+This is a manually maintained visual index of plots produced by the named targets in `flow.analysis.runner`. The relative links point into the local, ignored `build/analysis` tree, so they work in this checkout but are not expected to resolve on GitHub.
 
-When a target is rerun, update its output-directory timestamp and image links
-here. CSV artifacts are intentionally omitted.
+When a target is rerun, update its output-directory timestamp and image links here. CSV artifacts are intentionally omitted.
 
 ## ADC transfer curve
 
@@ -234,12 +230,8 @@ Output: `build/analysis/comp/20260819_0206`
 
 Current study: `cdac_system_cap_mismatch_study` (figures below are archived outputs)
 
-No accepted runner-generated plot directory is currently present under
-`build/analysis`. Run the target and add its ADC00--ADC03 mismatch plots and
-shared comparison plot here.
+No accepted runner-generated plot directory is currently present under `build/analysis`. Run the target and add its ADC00--ADC03 mismatch plots and shared comparison plot here.
 
 ## Aggregate target
 
-The removed historical wrapper `adc_rate_characterization` ran `adc_noise_vs_rate`,
-`adc_code_distributions`, and `adc_power_vs_rate`; its outputs are represented
-in the corresponding sections above.
+The removed historical wrapper `adc_rate_characterization` ran `adc_noise_vs_rate`, `adc_code_distributions`, and `adc_power_vs_rate`; its outputs are represented in the corresponding sections above.

@@ -15,31 +15,21 @@ The initial prototype is designed in 65 nm and measures 1 × 1 mm. It contains 1
 
 The fabricated FRIDA-1 ADC channel measures approximately 60.5 × 63.5 µm (about 3845 µm²):
 
-<p align="center">
-  <img src="docs/images/adc_layouts/frida1_adc_channel.png" alt="FRIDA-1 ADC channel layout" width="60%">
-</p>
+<p align="center"> <img src="docs/images/adc_layouts/frida1_adc_channel.png" alt="FRIDA-1 ADC channel layout" width="60%"> </p>
 
 The full FRIDA-1 chip, containing 16 ADC channels on a 1 × 1 mm die:
 
-<p align="center">
-  <img src="docs/images/frida-1_web.webp" alt="Full FRIDA-1 chip layout" width="60%">
-</p>
+<p align="center"> <img src="docs/images/frida-1_web.webp" alt="Full FRIDA-1 chip layout" width="60%"> </p>
 
 A micrograph of the fabricated prototype:
 
-<p align="center">
-  <img src="docs/images/frida_dieshot.png" alt="FRIDA prototype die photo" width="60%">
-</p>
+<p align="center"> <img src="docs/images/frida_dieshot.png" alt="FRIDA prototype die photo" width="60%"> </p>
 
 And the single-chip carrier test card, with wirebonded FRIDA ASIC:
 
-<p align="center">
-  <img src="docs/images/fridascc.jpg" alt="FRIDA SCC test board" width="60%">
-</p>
+<p align="center"> <img src="docs/images/fridascc.jpg" alt="FRIDA SCC test board" width="60%"> </p>
 
-<p align="center">
-  <img src="docs/images/frida_cob_square.png" alt="FRIDA SCC board close-up" width="60%">
-</p>
+<p align="center"> <img src="docs/images/frida_cob_square.png" alt="FRIDA SCC board close-up" width="60%"> </p>
 
 Detailed command-line usage, build notes, and tool installation instructions are recorded in [`docs/usage.md`](docs/usage.md).
 
