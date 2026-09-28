@@ -79,7 +79,9 @@ def template(
     x: float,
     y: float,
     label: bool = True,
+    directed_ports: set[str] | None = None,
 ) -> list[str]:
+    directed_ports = directed_ports or set()
     lines = [
         (
             f'<g s:type="{escape(kind)}" s:width="{num(width)}" s:height="{num(height)}" '
@@ -93,7 +95,12 @@ def template(
         )
     lines += [f"  {item}" for item in artwork]
     lines += [
-        f'  <g s:x="{num(px)}" s:y="{num(py)}" s:pid="{escape(pid, quote=True)}" s:position="{position}"/>'
+        (
+            f'  <g s:x="{num(px)}" s:y="{num(py)}" '
+            f's:pid="{escape(pid, quote=True)}" s:position="{position}"'
+            + (' s:dir="input"' if pid in directed_ports else "")
+            + "/>"
+        )
         for pid, px, py, position in ports
     ]
     return lines + ["</g>"]
@@ -417,16 +424,16 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
     if not mirror:
         aliases += ["pmos" if p else "nmos"]
     art = [
-        '<path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/>',
+        '<path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/>',
     ]
     if p:
-        art += ['<circle cx="25.6" cy="32" r="2.4" class="gatebubble $cell_id"/>']
+        art += ['<circle cx="9.6" cy="32" r="2.4" class="gatebubble $cell_id"/>']
     if mirror:
-        art = [f'<g transform="translate(96,0) scale(-1,1)">{"".join(art)}</g>']
+        art = [f'<g transform="translate(80,0) scale(-1,1)">{"".join(art)}</g>']
     art += (
         [
-            '<text x="56" y="29" s:attribute="ref" class="$cell_id">M1</text>',
-            '<text x="56" y="42" s:attribute="value" class="$cell_id">W/L</text>',
+            '<text x="40" y="29" s:attribute="ref" class="$cell_id">M1</text>',
+            '<text x="40" y="42" s:attribute="value" class="$cell_id">W/L</text>',
         ]
         if not mirror
         else [
@@ -436,17 +443,19 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
     )
     if mirror:
         ports = [
-            ("G", 96, 32, "right"),
+            ("G", 80, 32, "right"),
             ("D", 48, 0 if not p else 64, "top" if not p else "bottom"),
             ("S", 48, 64 if not p else 0, "bottom" if not p else "top"),
         ]
     else:
         ports = [
             ("G", 0, 32, "left"),
-            ("D", 48, 0 if not p else 64, "top" if not p else "bottom"),
-            ("S", 48, 64 if not p else 0, "bottom" if not p else "top"),
+            ("D", 32, 0 if not p else 64, "top" if not p else "bottom"),
+            ("S", 32, 64 if not p else 0, "bottom" if not p else "top"),
         ]
-    return template(name, 96, 64, aliases, art, ports, x=x, y=y, label=False)
+    # netlistsvg otherwise classifies left/right pins as lateral, so a gate
+    # input would not contribute to the top-down ELK placement of its driver.
+    return template(name, 80, 64, aliases, art, ports, x=x, y=y, label=False, directed_ports={"G"})
 
 
 def analog_skin() -> str:
@@ -480,9 +489,9 @@ def analog_skin() -> str:
     lines += template(
         "gnd",
         32,
-        24,
+        16,
         ["gnd", "ground"],
-        ['<path d="M16,0 V8 M0,8 H32 M5,14 H27 M10,20 H22" class="symbol $cell_id"/>'],
+        ['<path d="M16,0 V8 M4,8 H28 M8,12 H24 M12,16 H20" class="symbol $cell_id"/>'],
         [("A", 16, 0, "top")],
         x=160,
         y=185,

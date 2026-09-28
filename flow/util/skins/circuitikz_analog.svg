@@ -13,42 +13,42 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
 .gatebubble { fill: white; }
 .splitjoinBody { fill: #000; }
 </style>
-<g s:type="mos_n" s:width="96" s:height="64" transform="translate(20,70)">
+<g s:type="mos_n" s:width="80" s:height="64" transform="translate(20,70)">
   <s:alias val="mos_n"/>
   <s:alias val="nmos"/>
-  <path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/>
-  <text x="56" y="29" s:attribute="ref" class="$cell_id">M1</text>
-  <text x="56" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="0" s:y="32" s:pid="G" s:position="left"/>
-  <g s:x="48" s:y="0" s:pid="D" s:position="top"/>
-  <g s:x="48" s:y="64" s:pid="S" s:position="bottom"/>
+  <path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/>
+  <text x="40" y="29" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="40" y="42" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="0" s:y="32" s:pid="G" s:position="left" s:dir="input"/>
+  <g s:x="32" s:y="0" s:pid="D" s:position="top"/>
+  <g s:x="32" s:y="64" s:pid="S" s:position="bottom"/>
 </g>
-<g s:type="mos_p" s:width="96" s:height="64" transform="translate(150,70)">
+<g s:type="mos_p" s:width="80" s:height="64" transform="translate(150,70)">
   <s:alias val="mos_p"/>
   <s:alias val="pmos"/>
-  <path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/>
-  <circle cx="25.6" cy="32" r="2.4" class="gatebubble $cell_id"/>
-  <text x="56" y="29" s:attribute="ref" class="$cell_id">M1</text>
-  <text x="56" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="0" s:y="32" s:pid="G" s:position="left"/>
-  <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
-  <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
+  <path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/>
+  <circle cx="9.6" cy="32" r="2.4" class="gatebubble $cell_id"/>
+  <text x="40" y="29" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="40" y="42" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="0" s:y="32" s:pid="G" s:position="left" s:dir="input"/>
+  <g s:x="32" s:y="64" s:pid="D" s:position="bottom"/>
+  <g s:x="32" s:y="0" s:pid="S" s:position="top"/>
 </g>
-<g s:type="mos_n_r" s:width="96" s:height="64" transform="translate(280,70)">
+<g s:type="mos_n_r" s:width="80" s:height="64" transform="translate(280,70)">
   <s:alias val="mos_n_r"/>
-  <g transform="translate(96,0) scale(-1,1)"><path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/></g>
+  <g transform="translate(80,0) scale(-1,1)"><path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/></g>
   <text x="0" y="29" s:attribute="ref" class="$cell_id">M1</text>
   <text x="0" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="96" s:y="32" s:pid="G" s:position="right"/>
+  <g s:x="80" s:y="32" s:pid="G" s:position="right" s:dir="input"/>
   <g s:x="48" s:y="0" s:pid="D" s:position="top"/>
   <g s:x="48" s:y="64" s:pid="S" s:position="bottom"/>
 </g>
-<g s:type="mos_p_r" s:width="96" s:height="64" transform="translate(410,70)">
+<g s:type="mos_p_r" s:width="80" s:height="64" transform="translate(410,70)">
   <s:alias val="mos_p_r"/>
-  <g transform="translate(96,0) scale(-1,1)"><path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/><circle cx="25.6" cy="32" r="2.4" class="gatebubble $cell_id"/></g>
+  <g transform="translate(80,0) scale(-1,1)"><path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/><circle cx="9.6" cy="32" r="2.4" class="gatebubble $cell_id"/></g>
   <text x="0" y="29" s:attribute="ref" class="$cell_id">M1</text>
   <text x="0" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="96" s:y="32" s:pid="G" s:position="right"/>
+  <g s:x="80" s:y="32" s:pid="G" s:position="right" s:dir="input"/>
   <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
 </g>
@@ -64,10 +64,10 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <path d="M16,0 V16 M4,16 H28" class="symbol $cell_id"/>
   <g s:x="16" s:y="0" s:pid="A" s:position="top"/>
 </g>
-<g s:type="gnd" s:width="32" s:height="24" transform="translate(160,185)">
+<g s:type="gnd" s:width="32" s:height="16" transform="translate(160,185)">
   <s:alias val="gnd"/>
   <s:alias val="ground"/>
-  <path d="M16,0 V8 M0,8 H32 M5,14 H27 M10,20 H22" class="symbol $cell_id"/>
+  <path d="M16,0 V8 M4,8 H28 M8,12 H24 M12,16 H20" class="symbol $cell_id"/>
   <g s:x="16" s:y="0" s:pid="A" s:position="top"/>
 </g>
 <g s:type="voltage_source" s:width="96" s:height="64" transform="translate(230,185)">
