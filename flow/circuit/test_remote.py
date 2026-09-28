@@ -96,7 +96,7 @@ def test_snapshot_rejects_input_symlinks(repository):
     ),
 )
 def test_cli_rejects_unsafe_arguments(args, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["remote", "launch", "frida2_fixed_input_noise", *args])
+    monkeypatch.setattr(sys, "argv", ["remote", "launch", "frida2_sequence", *args])
     with pytest.raises(SystemExit) as error:
         remote.main()
     assert error.value.code == 2
@@ -129,10 +129,9 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
         work_root="/local/user",
         setup="/eda/setup.sh",
         block="adc",
-        target="frida2_fixed_input_noise",
+        target="frida2_sequence",
         input=[],
         pdk="tsmc65",
-        analysis=None,
     )
     campaign = remote.launch(args, repository)
     record = json.loads((campaign / "manifest.json").read_text())
@@ -140,7 +139,7 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
         record["revision"] == subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
     )
     assert record["remote_dir"].startswith("/local/user/frida-")
-    assert "uv run --frozen python -m flow.adc.sim frida2_fixed_input_noise" in (campaign / "run.sh").read_text()
+    assert "uv run --frozen python -m flow.adc.sim frida2_sequence" in (campaign / "run.sh").read_text()
     assert any(call[0] == "tmux" and "collect" in call[-1] and "--watch" in call[-1] for call in calls)
     assert any(call[0] == "worker" and "tmux new-session -d" in call[1] for call in calls)
     assert not any("--delete" in call for call in calls)
@@ -198,7 +197,7 @@ elif 'python' in args:
         path.chmod(0o755)
     setup = tmp_path / "vendor's setup.sh"
     setup.write_text("false\nexport VENDOR_ENVIRONMENT=ready\n")
-    script = remote._worker_script(str(work), "adc", "frida2_fixed_input_noise", str(setup))
+    script = remote._worker_script(str(work), "adc", "frida2_sequence", str(setup))
     result = subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}", "SCENARIO": scenario},
@@ -217,20 +216,19 @@ def campaign(tmp_path):
                 "host": "worker",
                 "remote_dir": "/local/user/snapshot",
                 "session": "test",
-                "analysis": "adc_pex_flavor_paths",
             }
         )
     )
     return tmp_path
 
 
-@pytest.mark.parametrize("state,analysis", (("0", True), ("7", False), ("running", False)))
-def test_collection_waits_for_exit_and_only_analyzes_success(campaign, monkeypatch, state, analysis):
+@pytest.mark.parametrize("state", ("0", "7", "running"))
+def test_collection_waits_for_exit_without_running_analysis(campaign, monkeypatch, state):
     calls = []
     monkeypatch.setattr(remote, "_status", lambda _: state)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append(argv) or SimpleNamespace(returncode=0))
     assert remote.collect(campaign) == (7 if state == "7" else 0)
-    assert any("flow.analysis.runner" in call for call in calls) == analysis
+    assert not any("flow.analysis.runner" in call for call in calls)
     assert any(call[0] == "rsync" for call in calls) == (state != "running")
     if state != "running":
         count = len(calls)
@@ -272,15 +270,6 @@ def test_failed_copy_is_not_marked_collected(campaign, monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):
         remote.collect(campaign)
     assert not (campaign / "collected.json").exists()
-
-
-def test_analysis_failure_is_reported_separately(campaign, monkeypatch):
-    monkeypatch.setattr(remote, "_status", lambda _: "0")
-    monkeypatch.setattr(
-        subprocess, "run", lambda argv, **kw: SimpleNamespace(returncode=9 if "flow.analysis.runner" in argv else 0)
-    )
-    assert remote.collect(campaign) == 9
-    assert json.loads((campaign / "collected.json").read_text()) == {"worker_exit_code": 0, "exit_code": 9}
 
 
 def test_rsync_result_filter_preserves_raw_and_hdf5_but_omits_inputs(tmp_path):

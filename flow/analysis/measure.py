@@ -19,6 +19,7 @@ def find_crossings(
     threshold: float,
     *,
     rising: bool,
+    initial_high: bool = False,
 ) -> np.ndarray:
     """Return linearly interpolated threshold-crossing coordinates."""
 
@@ -37,13 +38,16 @@ def find_crossings(
         indices = np.flatnonzero((signal[:-1] < threshold) & (signal[1:] >= threshold))
     else:
         indices = np.flatnonzero((signal[:-1] > threshold) & (signal[1:] <= threshold))
+    initial = (
+        axis[:1] if initial_high and ((signal[0] > threshold) if rising else (signal[0] < threshold)) else axis[:0]
+    )
     if not len(indices):
-        return np.asarray([], dtype=np.float64)
+        return initial.copy()
 
     left_signal = signal[indices]
     right_signal = signal[indices + 1]
     fractions = (threshold - left_signal) / (right_signal - left_signal)
-    return axis[indices] + fractions * (axis[indices + 1] - axis[indices])
+    return np.r_[initial, axis[indices] + fractions * (axis[indices + 1] - axis[indices])]
 
 
 def measure_settling(

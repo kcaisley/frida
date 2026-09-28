@@ -9,24 +9,38 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from multiprocessing import get_context
 from pathlib import Path
-from typing import cast
 
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
-from vlsirtools.spice.sim_data import AnalysisType, SimResult, TranResult
 
 from flow.analysis.io import write_measurement
-from flow.circuit.results import comp_signal_names, convert_spectre_comp_to_measurement
+from flow.circuit.ports import testbench_from_ports
 
-from .subckt import Bias, Comp, CompParams, Stages, State, is_valid_comp_params
+from .subckt import Bias, Comp, CompNets, CompParams, Stages, State, is_valid_comp_params
+
+
+def comp_signal_names() -> dict[str, str]:
+    """Derive simulator saves and waveform names from the block's net bundle."""
+    names = {"time": "time"}
+    for net in CompNets.signals.values():
+        if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND):
+            names[f"xtop.{net.name}"] = net.name
+        elif net.props.get("save"):
+            names[f"xtop.dut.{net.name}"] = net.name
+        if net.usage == h.Usage.POWER:
+            names[f"xtop.v{net.name}:p"] = f"i({net.name})"
+    return names
 
 
 @h.paramclass
 class CompTbParams:
     """Parameters which determine one generated comparator testbench."""
 
+    waveform_sample_interval_s = h.Param(
+        dtype=float, desc="Maximum raw step and stored waveform spacing", default=10e-12
+    )
     vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
     vin_cm_values_v = h.Param(dtype=tuple[h.Scalar, ...], desc="Input common-mode values", default=(0.8,))
@@ -44,10 +58,7 @@ class CompTbParams:
     output_load_f = h.Param(dtype=h.Scalar, desc="Output load per side", default=10e-15)
 
 
-@h.generator
-def CompTb(params: CompTbParams) -> h.Module:
-    """Generate a complete swept comparator testbench."""
-
+def _validate_comp_tb_params(params: CompTbParams) -> None:
     if not math.isfinite(float(params.vdd)) or float(params.vdd) <= 0.0:
         raise ValueError("comparator vdd must be finite and positive")
     common_modes = tuple(float(value) for value in params.vin_cm_values_v)
@@ -67,6 +78,7 @@ def CompTb(params: CompTbParams) -> h.Module:
     if params.conversions <= 0:
         raise ValueError("comparator conversions must be positive")
     for name in (
+        "waveform_sample_interval_s",
         "reset_time_s",
         "evaluation_time_s",
         "transition_time_s",
@@ -78,49 +90,47 @@ def CompTb(params: CompTbParams) -> h.Module:
             raise ValueError(f"comparator {name} must be finite and positive")
     if float(params.transition_time_s) >= min(float(params.reset_time_s), float(params.evaluation_time_s)):
         raise ValueError("comparator transition must be shorter than reset and evaluation")
+
+
+@h.generator
+def CompTb(params: CompTbParams) -> h.Module:
+    """Generate a complete swept comparator testbench."""
+
+    _validate_comp_tb_params(params)
     cycle_s = float(params.reset_time_s) + float(params.evaluation_time_s)
 
-    @h.module
-    class CompTb:
-        vss = h.Port(desc="Simulator ground")
-        vdd, vin_cm, vin_diff, in_p, in_n, clk, clk_b, out_p, out_n = h.Signals(9)
-        vin = h.Diff()
+    CompTb, connections = testbench_from_ports(
+        "CompTb", {net.name: net for net in CompNets.signals.values() if net.vis == h.Visibility.PORT}
+    )
+    CompTb.vin_cm, CompTb.vin_diff = h.Signals(2)
+    CompTb.vin = h.Diff()
 
     CompTb.vvdd = Vdc(dc=params.vdd)(p=CompTb.vdd, n=CompTb.vss)
-    CompTb.rsrc_p = R(r=params.source_resistance_ohm)(p=CompTb.vin.p, n=CompTb.in_p)
-    CompTb.rsrc_n = R(r=params.source_resistance_ohm)(p=CompTb.vin.n, n=CompTb.in_n)
-    CompTb.csrc_p = C(c=params.source_capacitance_f)(p=CompTb.in_p, n=CompTb.vss)
-    CompTb.csrc_n = C(c=params.source_capacitance_f)(p=CompTb.in_n, n=CompTb.vss)
-    CompTb.vclk = Vpulse(
-        v1=0.0,
-        v2=params.vdd,
-        period=cycle_s,
-        width=params.evaluation_time_s,
-        rise=params.transition_time_s,
-        fall=params.transition_time_s,
-        delay=params.reset_time_s,
-    )(p=CompTb.clk, n=CompTb.vss)
-    CompTb.vclk_b = Vpulse(
-        v1=params.vdd,
-        v2=0.0,
-        period=cycle_s,
-        width=params.evaluation_time_s,
-        rise=params.transition_time_s,
-        fall=params.transition_time_s,
-        delay=params.reset_time_s,
-    )(p=CompTb.clk_b, n=CompTb.vss)
-    CompTb.cload_p = C(c=params.output_load_f)(p=CompTb.out_p, n=CompTb.vss)
-    CompTb.cload_n = C(c=params.output_load_f)(p=CompTb.out_n, n=CompTb.vss)
-    CompTb.dut = Comp(params.comp)(
-        inp=CompTb.in_p,
-        inn=CompTb.in_n,
-        outp=CompTb.out_p,
-        outn=CompTb.out_n,
-        clk=CompTb.clk,
-        clkb=CompTb.clk_b,
-        vdd=CompTb.vdd,
-        vss=CompTb.vss,
-    )
+    CompTb.rsrc_p = R(r=params.source_resistance_ohm)(p=CompTb.vin.p, n=CompTb.inp)
+    CompTb.rsrc_n = R(r=params.source_resistance_ohm)(p=CompTb.vin.n, n=CompTb.inn)
+    CompTb.csrc_p = C(c=params.source_capacitance_f)(p=CompTb.inp, n=CompTb.vss)
+    CompTb.csrc_n = C(c=params.source_capacitance_f)(p=CompTb.inn, n=CompTb.vss)
+    for port in CompNets.signals.values():
+        if port.usage != h.Usage.CLOCK:
+            continue
+        complement = port is CompNets.clkb
+        net = connections[port.name]
+        CompTb.add(
+            Vpulse(
+                v1=params.vdd if complement else 0.0,
+                v2=0.0 if complement else params.vdd,
+                period=cycle_s,
+                width=params.evaluation_time_s,
+                rise=params.transition_time_s,
+                fall=params.transition_time_s,
+                delay=params.reset_time_s,
+            )(p=net, n=CompTb.vss),
+            name=f"v{net.name}",
+        )
+    CompTb.cload_p = C(c=params.output_load_f)(p=CompTb.outp, n=CompTb.vss)
+    CompTb.cload_n = C(c=params.output_load_f)(p=CompTb.outn, n=CompTb.vss)
+    CompTb.dut = Comp(params.comp)(**connections)
+
     common_mode_schedule = []
     differential_schedule = []
     for common_mode in params.vin_cm_values_v:
@@ -152,7 +162,7 @@ def _run_comp_sim(
     topology_index: int,
     size_profile: str,
     check: bool = False,
-) -> Path:
+) -> tuple[Path, CompTbParams, dict[str, str | int | float | bool]]:
     """Execute one configured comparator case, not an entire campaign.
 
     Targets define experiments: topology, sizing, stimuli, and case concurrency.
@@ -181,7 +191,7 @@ def _run_comp_sim(
             site.install.include_pre_simulation(),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
-            hs.Save([raw for canonical, raw in comp_signal_names().items() if canonical != "time_s"]),
+            hs.Save([raw for raw in comp_signal_names() if raw != "time"]),
         ]
         if check:
             attrs.append(
@@ -193,18 +203,22 @@ def _run_comp_sim(
                     "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
                     "check_stack static_stack count=3\n"
                     "check_topology static_topology node=[*] pin2gnd=on\n"
-                    "check_nodecap dyn_nodecap node=[xtop.in_p xtop.in_n xtop.out_p xtop.out_n] time=[10n 39n]\n"
-                    "check_setuphold dyn_setuphold node=[xtop.out_p xtop.out_n] ref_node=xtop.clk "
+                    "check_nodecap dyn_nodecap node=[xtop.inp xtop.inn xtop.outp xtop.outn] time=[10n 39n]\n"
+                    "check_setuphold dyn_setuphold node=[xtop.outp xtop.outn] ref_node=xtop.clk "
                     "setup_time=50p hold_time=50p"
                 )
             )
-        tran_options = {"strobeperiod": 500e-12, "strobeoutput": "strobeonly"}
+        tran_options = {
+            "strobeperiod": params.waveform_sample_interval_s,
+            "maxstep": params.waveform_sample_interval_s,
+            "strobeoutput": "strobeonly",
+        }
         if not check:
             tran_options.update(noisefmin=1.0 / tstop_s, noisefmax="25G", noiseseed=1)
         attrs.append(hs.Tran(tstop=tstop_s, name="tran", noise=not check, options=tran_options))
         simulation = hs.Sim(tb=tb, attrs=attrs)
         started = time.perf_counter()
-        result = simulation.run(
+        simulation.run(
             SimOptions(
                 simulator=SupportedSimulators.SPECTRE,
                 fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
@@ -222,29 +236,38 @@ def _run_comp_sim(
             )
         )
         runtime_s = time.perf_counter() - started
-        if not check:
-            transient = cast(TranResult, cast(SimResult, result)[AnalysisType.TRAN])
-            measurement = convert_spectre_comp_to_measurement(
-                transient.data,
-                params=params,
-                raw_path=run_dir / "netlist.raw",
-                signal_names=comp_signal_names(),
-                candidate_id=candidate_id,
-                candidate_label=candidate_label,
-                topology_index=topology_index,
-                size_profile=size_profile,
-                compiled_tb=tb,
-                spectre_runtime_s=runtime_s,
-            )
-            write_measurement(run_dir / "result.h5", measurement)
+        geometry = tuple(
+            (name, round(float(instance.of.params.w) / 120e-9), round(float(instance.of.params.l) / 60e-9))
+            for name, instance in tb.dut.of.instances.items()
+            if hasattr(instance.of.params, "w") and hasattr(instance.of.params, "l")
+        )
+        readbacks = {
+            "candidate_id": candidate_id,
+            "candidate_label": candidate_label,
+            "topology_index": topology_index,
+            "size_profile": size_profile,
+            "spectre_runtime_s": runtime_s,
+            "total_width_units": sum(w for _, w, _ in geometry),
+            "total_active_area_units": sum(w * l for _, w, l in geometry),
+            "total_active_area_um2": sum(w * l for _, w, l in geometry) * 0.12 * 0.06,
+            "device_width_signature": ",".join(f"{name}:{w}" for name, w, _ in geometry),
+            "device_geometry_signature": ",".join(f"{name}:{w}:{l}" for name, w, l in geometry),
+            "transient_noise": not check,
+            "transient_noise_seed": 1,
+            "transient_noise_max_hz": 25e9,
+        }
     finally:
         CompTb.Cache.reset()
         Comp.Cache.reset()
-    return run_dir
+    return run_dir / "netlist.raw", params, readbacks
 
 
 def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
     """Run 296 generated sizes plus FRIDA-1; checks cover six representative cases."""
+
+    from dataclasses import replace
+
+    from flow.circuit.results import convert_raw_comp_to_measurement, read_raw_transient
 
     run_dir.mkdir(parents=True, exist_ok=True)
     if check:
@@ -542,7 +565,19 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
         for future in as_completed(futures):
             candidate_id = futures[future]
             try:
-                future.result()
+                raw_path, params, readbacks = future.result()
+                if not check:
+                    measurement = convert_raw_comp_to_measurement(
+                        read_raw_transient(raw_path),
+                        params=params,
+                        raw_path=raw_path,
+                        signal_names=comp_signal_names(),
+                    )
+                    measurement = replace(
+                        measurement,
+                        info=replace(measurement.info, readbacks={**measurement.info.readbacks, **readbacks}),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
             except Exception as error:  # noqa: BLE001 - report every independent case failure
                 failures[candidate_id] = repr(error)
     if failures:
@@ -554,6 +589,10 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
 
 def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
     """Run the FRIDA-1 comparator S-curve, or one noise-free diagnostic decision."""
+
+    from dataclasses import replace
+
+    from flow.circuit.results import convert_raw_comp_to_measurement, read_raw_transient
 
     params = CompTbParams(
         comp=CompParams(
@@ -572,7 +611,7 @@ def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
         ),
         **({"vin_cm_values_v": (0.8,), "vin_diff_values_v": (0.0,), "conversions": 1} if check else {}),
     )
-    return _run_comp_sim(
+    raw_path, params, readbacks = _run_comp_sim(
         run_dir,
         params,
         candidate_id="frida1_fabricated_baseline",
@@ -581,6 +620,19 @@ def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
         size_profile="fabricated",
         check=check,
     )
+
+    if not check:
+        measurement = convert_raw_comp_to_measurement(
+            read_raw_transient(raw_path),
+            params=params,
+            raw_path=raw_path,
+            signal_names=comp_signal_names(),
+        )
+        measurement = replace(
+            measurement, info=replace(measurement.info, readbacks={**measurement.info.readbacks, **readbacks})
+        )
+        write_measurement(run_dir / "result.h5", measurement)
+    return run_dir
 
 
 def main() -> None:

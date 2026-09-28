@@ -30,7 +30,7 @@ from scipy.special import log_ndtr, ndtr
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
 from flow.analysis.measure import histogram_inl_dnl
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 
 THRESHOLD_BIN_COUNT = 16_384
 STEP_RESOLUTION_SIGMA = 3.0
@@ -370,7 +370,7 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
         raise ValueError("threshold calibration requires multiple complete ramp cycles for train/validation splitting")
 
     nominal_weight = np.asarray(
-        [2 * value for value in get_cdac_weights(params.dut.cdac)] + [1],
+        [2 * value for value in get_caparray_weights(params.dut.cdac)] + [1],
         dtype=np.float64,
     )
     code_max = (1 << params.dut.adc_bits) - 1

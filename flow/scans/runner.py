@@ -2,7 +2,7 @@
 
 Run one named campaign from the repository root, for example::
 
-    uv run python -m flow.scans.runner adc_sine_conversion_rate
+    uv run python -m flow.scans.runner adc_sequence_static
 
 Every target owns its complete parameter recipe, lifecycle loop, and output
 location. The scan modules acquire one parameter configuration per call and
@@ -19,215 +19,52 @@ from pathlib import Path
 
 import hdl21 as h
 
+from flow.adc.sequences import (
+    SEQUENCES,
+    AdcSequence,
+    symbol256_init8_samp16_comp11110000_logic00001111,
+    symbol256_init8_samp16_comp11110000_logic11000011,
+)
 from flow.scans import scan_adc, scan_adc_noctl, scan_cdac, scan_comp
 from flow.scans.params import build_adc_variants
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 
 
-def adc_sine_conversion_rate() -> Path:
-    """Capture ADC00/ADC01 dynamic performance over 0.5--10 MSPS."""
-
-    board_id = "00"
-    adc_indices = (0, 1)
-    active_conversion_rates_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    logic_offsets_symbols = (2.0,)
-    conversions = 1_000_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vsin.Params(voff=0.0, vamp=0.500, freq=9_998.770151)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
+def adc_sample_rate_static() -> Path:
+    """Manual-input ADC00–03 fixed-input rate sweep; sequence selection pending."""
+    # TODO: choose 4–5 complete named sequences after the all-sequence comparison.
+    sequences: tuple[AdcSequence, ...] = (
+        # TODO: sequence_1, sequence_2, sequence_3, sequence_4[, sequence_5]
     )
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
-
-
-def adc00_fixed_input_noise() -> Path:
-    """Capture ADC00 fixed-50-mV noise at 2, 6, and 10 MSPS."""
-
-    board_id = "00"
-    adc_indices = (0,)
-    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
-    )
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
-
-
-def adc00_all_adc_activity_noise() -> Path:
-    """Capture ADC00 noise with all 16 ADCs active at 2, 6, and 10 MSPS."""
-
-    board_id = "00"
-    adc_indices = (0,)
-    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    if not sequences:
+        raise ValueError("adc_sample_rate_static: TODO select 4–5 named sequences before running")
+    if any(sequence not in dict(SEQUENCES).values() for sequence in sequences):
+        raise ValueError("sequences must be explicitly named catalogue entries")
+    # Nominal MSPS assumes 160 symbols, independently of the recipe length.
     variants = [
-        dataclasses.replace(params, active_adc_mask=(1,) * 16)
+        params
+        for sequence in sequences
         for params in build_adc_variants(
-            board_id=board_id,
-            adc_indices=adc_indices,
-            active_conversion_rates_hz=active_conversion_rates_hz,
-            logic_offsets_symbols=logic_offsets_symbols,
-            conversions=conversions,
-            vin_cm_v=vin_cm_v,
-            vin_diff=vin_diff,
+            board_id="00",
+            adc_indices=(0, 1, 2, 3),
+            active_conversion_rates_hz=tuple(
+                rate * 0.25e6 * 160 / sequence.conversion_symbols for rate in range(2, 41)
+            ),
+            sequences=(sequence,),
+            conversions=1_000,
+            vin_cm_v=0.700,
+            vin_diff=h.Vdc.Params(dc=0.050),
         )
     ]
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
 
-
-def adc_fixed_input_noise_50mv_700mvcm() -> Path:
-    """Capture ADC00--ADC15 50 mV differential noise at 700 mV common mode."""
-
-    board_id = "00"
-    adc_indices = tuple(range(16))
-    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
+    # Keep the bench active between cases; abort the current configuration on failure.
+    run_dir = (
+        BASE_PATH
+        / "build/scan_adc"
+        / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_sample_rate_static")
     )
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
 
-
-def adc_fixed_input_noise_50mv_700mvcm_noctl() -> Path:
-    """Capture manually supplied ADC00--ADC15 noise without controlling bench peripherals."""
-
-    board_id = "00"
-    adc_indices = tuple(range(16))
-    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
-    )
     active = False
     current = variants[0]
     try:
@@ -253,80 +90,74 @@ def adc_fixed_input_noise_50mv_700mvcm_noctl() -> Path:
     return run_dir
 
 
-def adc_fixed_input_noise_0mv_600mvcm() -> Path:
-    """Capture ADC00--ADC15 zero-differential noise at 600 mV common mode."""
+def adc_sequence_static(
+    *,
+    adc_indices: tuple[int, ...] = tuple(range(16)),
+    nominal_conversion_rates_hz: tuple[float, ...] = (2.0e6, 6.0e6, 10.0e6),
+    sequences: tuple[AdcSequence, ...] | None = None,
+    conversions: int = 100_000,
+    run_dir: Path | None = None,
+) -> Path:
+    """Capture named sequences with manual 50-mV input and 700-mV common mode.
 
+    Defaults cover all sixteen ADCs and 29 continuous recipes at 320/960/1600 MBd.
+    These recipes repeat in 160 symbols (2/6/10 MSPS). Explicitly selected
+    long recipes retain their 256-symbol idle interval.
+    Select all ADCs and a single sequence for a grid, or the complete catalogue
+    for a full timing campaign. Inputs and 1.2-V rails must be supplied manually.
+    """
     board_id = "00"
-    adc_indices = tuple(range(16))
-    active_conversion_rates_hz = (2.0e6, 6.0e6, 10.0e6)
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
-    vin_cm_v = 0.600
-    vin_diff = h.Vdc.Params(dc=0.0)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
-    )
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
-
-
-def adc_fixed_input_noise_100mv() -> Path:
-    """Capture ADC00/ADC01 fixed-100-mV noise over 0.5--10 MSPS."""
-
-    board_id = "00"
-    adc_indices = (0, 1)
-    active_conversion_rates_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    logic_offsets_symbols = (2.0,)
-    conversions = 100_000
+    if sequences is None:
+        sequences = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+    if not adc_indices or not nominal_conversion_rates_hz or not sequences:
+        raise ValueError("ADC, rate, and sequence selections must be nonempty")
+    catalogue = dict(SEQUENCES).values()
+    if any(sequence not in catalogue for sequence in sequences):
+        raise ValueError("sequences must be explicitly named catalogue entries")
     vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.100)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
-    )
+    vin_diff = h.Vdc.Params(dc=0.050)
+    # Nominal MSPS uses a fixed 160-symbol reference: 320/960/1600 MBd.
+    # The builder expects active rates, so convert without changing the baud rate.
+    variants = [
+        params
+        for sequence in sequences
+        for params in build_adc_variants(
+            board_id=board_id,
+            adc_indices=adc_indices,
+            active_conversion_rates_hz=tuple(
+                rate * 160 / sequence.conversion_symbols for rate in nominal_conversion_rates_hz
+            ),
+            sequences=(sequence,),
+            conversions=conversions,
+            vin_cm_v=vin_cm_v,
+            vin_diff=vin_diff,
+        )
+    ]
+    resume = run_dir is not None
+    if run_dir is None:
+        run_dir = (
+            BASE_PATH
+            / "build/scan_adc"
+            / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_sequence_static")
+        )
+    completed_paths = sorted(run_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5")) if resume else []
+    if resume and not run_dir.is_dir():
+        raise FileNotFoundError(run_dir)
+    if len(completed_paths) > len(variants) or any(
+        path.name != f"{index:04d}_capture.h5" for index, path in enumerate(completed_paths)
+    ):
+        raise ValueError("resume directory must contain a contiguous prefix of this campaign's captures")
+
     active = False
     current = variants[0]
     try:
-        for index, params in enumerate(variants):
+        for index in range(len(completed_paths), len(variants)):
+            params = variants[index]
             position = (
                 "only"
-                if len(variants) == 1
+                if len(variants) == 1 and not resume
                 else "first"
-                if index == 0
+                if index == 0 and not resume
                 else "last"
                 if index == len(variants) - 1
                 else "middle"
@@ -334,80 +165,43 @@ def adc_fixed_input_noise_100mv() -> Path:
             current = params
             if position in {"first", "middle"}:
                 active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
+            scan_adc_noctl.scan(params, run_dir=run_dir, position=position)
             if position in {"last", "only"}:
                 active = False
     finally:
         if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
+            scan_adc_noctl.scan(current, run_dir=run_dir, position="abort")
+    # Select this completed directory explicitly in analysis.runner before analysis.
     return run_dir
 
 
-def adc00_fixed_input_timing() -> Path:
-    """Capture ADC00 fixed-input noise across rate and LOGIC timing."""
+def adc_activity_noise() -> Path:
+    """Compare observed-ADC-only and all-16-active noise at fixed 50 mV.
 
-    board_id = "00"
+    ADC00 is the current observation point; each activity condition includes
+    three rates and 100,000 conversions. Instrumented captures include power.
+    """
     adc_indices = (0,)
-    active_conversion_rates_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    logic_offsets_symbols = tuple(range(-3, 4))
-    conversions = 1_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
+    # adc_indices = tuple(range(16))  # Observe every ADC under both activity conditions.
+    variants = [
+        dataclasses.replace(params, active_adc_mask=(1,) * 16) if all_active else params
+        for all_active in (False, True)
+        for params in build_adc_variants(
+            board_id="00",
+            adc_indices=adc_indices,
+            active_conversion_rates_hz=(2.0e6, 6.0e6, 10.0e6),
+            sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
+            conversions=100_000,
+            vin_cm_v=0.700,
+            vin_diff=h.Vdc.Params(dc=0.050),
+        )
+    ]
+
+    # Keep the bench active between cases; abort the current configuration on failure.
+    run_dir = (
+        BASE_PATH / "build/scan_adc" / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_activity_noise")
     )
-    active = False
-    current = variants[0]
-    try:
-        for index, params in enumerate(variants):
-            position = (
-                "only"
-                if len(variants) == 1
-                else "first"
-                if index == 0
-                else "last"
-                if index == len(variants) - 1
-                else "middle"
-            )
-            current = params
-            if position in {"first", "middle"}:
-                active = True
-            scan_adc.scan(params, run_dir=run_dir, position=position)
-            if position in {"last", "only"}:
-                active = False
-    finally:
-        if active:
-            scan_adc.scan(current, run_dir=run_dir, position="abort")
-    return run_dir
 
-
-def adc01_fixed_input_timing() -> Path:
-    """Capture ADC01 fixed-input noise across rate and LOGIC timing."""
-
-    board_id = "00"
-    adc_indices = (1,)
-    active_conversion_rates_hz = tuple(rate * 0.25e6 for rate in range(2, 41))
-    logic_offsets_symbols = tuple(range(-3, 4))
-    conversions = 1_000
-    vin_cm_v = 0.700
-    vin_diff = h.Vdc.Params(dc=0.050)
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    variants = build_adc_variants(
-        board_id=board_id,
-        adc_indices=adc_indices,
-        active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
-        conversions=conversions,
-        vin_cm_v=vin_cm_v,
-        vin_diff=vin_diff,
-    )
     active = False
     current = variants[0]
     try:
@@ -438,17 +232,17 @@ def adc_transfer_curve() -> Path:
 
     board_id = "00"
     adc_indices = (0,)
+    # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (10.0e6,)
-    logic_offsets_symbols = (2.0,)
+    sequences = (symbol256_init8_samp16_comp11110000_logic11000011,)
     conversions = 100
     vin_cm_v = 0.700
     vin_diff_values_v = tuple((step - 500) * 0.0015 for step in range(1_001))
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     templates = build_adc_variants(
         board_id=board_id,
         adc_indices=adc_indices,
         active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
+        sequences=sequences,
         conversions=conversions,
         vin_cm_v=vin_cm_v,
         vin_diff=h.Vdc.Params(dc=0.0),
@@ -459,6 +253,10 @@ def adc_transfer_curve() -> Path:
         for vin_diff_v in vin_diff_values_v
         for template in templates
     ]
+    run_dir = (
+        BASE_PATH / "build/scan_adc" / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_transfer_curve")
+    )
+
     active = False
     current = variants[0]
     try:
@@ -489,22 +287,28 @@ def adc_ramp_code_density() -> Path:
 
     board_id = "00"
     adc_indices = (0, 1, 2, 3)
+    # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (1.0e6,)
-    logic_offsets_symbols = (0.0,)
+    sequences = (symbol256_init8_samp16_comp11110000_logic00001111,)
     conversions = 4_000_000
     vin_cm_v = 0.700
     vin_diff = h.Vpwl.Params(wave="0 -1 0.1 1")
-    run_dir = BASE_PATH / "build/scan_adc" / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     variants = build_adc_variants(
         board_id=board_id,
         adc_indices=adc_indices,
         active_conversion_rates_hz=active_conversion_rates_hz,
-        logic_offsets_symbols=logic_offsets_symbols,
+        sequences=sequences,
         conversions=conversions,
         vin_cm_v=vin_cm_v,
         vin_diff=vin_diff,
         campaign="adc_ramp",
     )
+    run_dir = (
+        BASE_PATH
+        / "build/scan_adc"
+        / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_adc_ramp_code_density")
+    )
+
     active = False
     current = variants[0]
     try:
@@ -671,37 +475,28 @@ def cdac_cap_mismatch_calibration_boundary_repair() -> Path:
     return scan_cdac.scan(variants, run_dir=run_dir, capture_scope_per_curve=False)
 
 
-TARGETS: dict[str, Callable[[], Path]] = {
-    target.__name__: target
-    for target in (
-        adc_sine_conversion_rate,
-        adc00_fixed_input_noise,
-        adc00_all_adc_activity_noise,
-        adc_fixed_input_noise_50mv_700mvcm,
-        adc_fixed_input_noise_50mv_700mvcm_noctl,
-        adc_fixed_input_noise_0mv_600mvcm,
-        adc_fixed_input_noise_100mv,
-        adc00_fixed_input_timing,
-        adc01_fixed_input_timing,
-        adc_transfer_curve,
-        adc_ramp_code_density,
-        comp_common_mode,
-        comp_sampling_noise,
-        comp_sampling_noise_repair,
-        cdac_cap_mismatch,
-        cdac_cap_mismatch_diagnostic_repair,
-        cdac_cap_mismatch_calibration_boundary_repair,
-    )
-}
-
-
 def main() -> None:
     """Run one explicitly selected physical hardware campaign."""
-
+    targets: dict[str, Callable[[], Path]] = {
+        target.__name__: target
+        for target in (
+            adc_sample_rate_static,
+            adc_sequence_static,
+            adc_activity_noise,
+            adc_transfer_curve,
+            adc_ramp_code_density,
+            comp_common_mode,
+            comp_sampling_noise,
+            comp_sampling_noise_repair,
+            cdac_cap_mismatch,
+            cdac_cap_mismatch_diagnostic_repair,
+            cdac_cap_mismatch_calibration_boundary_repair,
+        )
+    }
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", choices=sorted(TARGETS), help="physical scan campaign to run")
+    parser.add_argument("target", choices=sorted(targets), help="physical scan campaign to run")
     args = parser.parse_args()
-    run_dir = TARGETS[args.target]()
+    run_dir = targets[args.target]()
     print(f"Completed {args.target} in {run_dir}")
 
 

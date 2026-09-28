@@ -1,0 +1,58 @@
+% Regenerate: make -C docs images/spi_register_bitfield_memory_path.pdf
+% Bit ranges agree with design/hdl/frida_core.v and the 180-bit SPI shift register.
+\documentclass[border=8pt]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{bytefield}
+\usepackage{tikz}
+\usetikzlibrary{tikzmark,calc}
+\usepackage{xcolor}
+\definecolor{NordBlue}{HTML}{5E81AC}
+\definecolor{NordPanel}{HTML}{ECEFF4}
+\newcommand{\adcpatternfield}[1]{\bitbox{7}[bgcolor=NordPanel]{\texttt{ADC#1 cfg}\\[-1pt]{\scriptsize 7 bits}}}
+\newcommand{\dacfield}[3]{\bitbox{16}[bgcolor=NordPanel]{\texttt{#1}\\[-1pt]{\scriptsize[#2:#3]}}}
+\newcommand{\adcbit}[3]{\bitbox{1}[bgcolor=NordPanel]{{\scriptsize #1}\\[-2pt]\texttt{\scriptsize #2}\\[-2pt]\texttt{\scriptsize #3}}}
+\begin{document}
+\begin{minipage}{11.5cm}
+\centering
+{\small\bfseries 180-bit SPI configuration register}\par\smallskip
+{\footnotesize Transmitted MSB first: bit 179 $\longrightarrow$ bit 0}\par\medskip
+
+{\color{NordBlue}\ttfamily\small mux\_sel\quad[179:176]}\par\smallskip
+\begin{bytefield}[bitwidth=0.32cm,bitheight=0.72cm,boxformatting={\centering\scriptsize}]{4}
+  \bitbox{4}[bgcolor=NordPanel]{mux}
+\end{bytefield}\par\medskip
+
+{\color{NordBlue}\ttfamily\small ADC configuration\quad[175:64]}\par\smallskip
+{\footnotesize 16 consecutive 7-bit fields, high bit to low bit}\par\smallskip
+\raisebox{0.27cm}{\(\cdots\)}\quad
+\begin{bytefield}[bitwidth=0.43cm,bitheight=0.83cm,boxformatting={\centering\scriptsize}]{21}
+  \adcpatternfield{(N+2)} & \adcpatternfield{(N+1)} &
+  \bitbox{7}[bgcolor=NordPanel]{\tikzmarknode{adcn}{\texttt{ADC N cfg}}\\[-1pt]{\scriptsize 7 bits}}
+\end{bytefield}
+\par\smallskip
+{\footnotesize\texttt{ADC N cfg}: [70 + 7N : 64 + 7N],\quad N = 0,\ldots,15}\par\medskip
+
+{\color{NordBlue}\ttfamily\small shared DAC state\quad[63:0]}\par\smallskip
+\begin{bytefield}[bitwidth=0.32cm,bitheight=0.8cm,boxformatting={\centering\scriptsize}]{32}
+  \dacfield{astate\_p}{63}{48} & \dacfield{bstate\_p}{47}{32} \\
+  \dacfield{astate\_n}{31}{16} & \dacfield{bstate\_n}{15}{0}
+\end{bytefield}\par\medskip
+
+{\color{NordBlue}\ttfamily\small
+  ADC0 cfg [70:64]\quad(N = 0)\hspace{0.16cm}%
+  \tikz[remember picture,overlay]\coordinate (adc0detail);}\par\smallskip
+\begin{bytefield}[bitwidth=1.55cm,bitheight=1.05cm,boxformatting={\centering\scriptsize}]{7}
+  \adcbit{70}{dac\_}{diffcaps} & \adcbit{69}{dac\_}{mode} &
+  \adcbit{68}{en\_}{update} & \adcbit{67}{en\_}{comp} &
+  \adcbit{66}{en\_samp\_}{n} & \adcbit{65}{en\_samp\_}{p} &
+  \adcbit{64}{en\_}{init}
+\end{bytefield}
+\begin{tikzpicture}[remember picture,overlay]
+  \coordinate (adcncorner) at ($(adcn.south east)+(0.88cm,-0.46cm)$);
+  \draw[NordBlue,densely dotted,line width=0.75pt]
+    (adcncorner) -- ++(0.75cm,0)
+    |- (adc0detail);
+\end{tikzpicture}
+\end{minipage}
+\end{document}

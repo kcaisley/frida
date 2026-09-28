@@ -69,7 +69,8 @@ module daq_core #(
     output wire AMPEN_B, // Input amplifier enable (active low)
 
     // GPIO1 -> comparator input-delay control
-    output wire [4:0] COMP_IDELAY_TAPS,
+    output wire [5:0] COMP_IDELAY_TAPS,
+    input  wire [5:0] COMP_IDELAY_ACTUAL,
     output wire       COMP_IDELAY_LOAD,
     input  wire       COMP_IDELAY_RDY,
 
@@ -119,7 +120,6 @@ module daq_core #(
     assign seq_rst     = control_rst | SEQ_RESET;
 
     // Capture control wires (used by sequencer outputs and fast_spi_rx)
-    wire fastrx_clk;
     wire fastrx_en;
     wire fastrx_test_data;
     wire fastrx_loopback_en;
@@ -203,7 +203,10 @@ module daq_core #(
         .EXT_START(1'b0),
 
         .SEN(spi_sen),
+        // The SPI load pulse is not used.
+        // slang lint_off empty-output-connection
         .SLD()
+        // slang lint_on empty-output-connection
     );
 
 
@@ -246,21 +249,22 @@ module daq_core #(
         .IO(gpio)
     );
 
-    // 4. GPIO1: runtime comparator IDELAY control
-    // Bits 4:0 are output tap controls, bit 5 is the output load strobe,
-    // bit 6 reads IDELAYCTRL.RDY, and bit 7 is reserved low.
-    wire [7:0] gpio1;
-    assign COMP_IDELAY_TAPS = gpio1[4:0];
-    assign COMP_IDELAY_LOAD = gpio1[5];
-    assign gpio1[6]         = COMP_IDELAY_RDY;
-    assign gpio1[7]         = 1'b0;
+    // 4. GPIO1: combined comparator delay, load, ready and actual tap sum.
+    // Bit 15 identifies the two-stage register ABI; bit 8 is reserved.
+    wire [15:0] gpio1;
+    assign COMP_IDELAY_TAPS = gpio1[5:0];
+    assign COMP_IDELAY_LOAD = gpio1[6];
+    assign gpio1[7]         = COMP_IDELAY_RDY;
+    assign gpio1[8]         = 1'b0;
+    assign gpio1[14:9]      = COMP_IDELAY_ACTUAL;
+    assign gpio1[15]        = 1'b1;
 
     gpio #(
         .BASEADDR    (Gpio1BaseAddr),
         .HIGHADDR    (Gpio1HighAddr),
         .ABUSWIDTH   (ABUSWIDTH),
-        .IO_WIDTH    (8),
-        .IO_DIRECTION(8'h3F),          // Bits 5:0 outputs; bits 7:6 inputs
+        .IO_WIDTH    (16),
+        .IO_DIRECTION(16'h007F),       // Bits 6:0 outputs; bits 15:7 inputs
         .IO_TRI      (0)
     ) inst_gpio1 (
         .BUS_CLK (BUS_CLK),

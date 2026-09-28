@@ -10,6 +10,7 @@ physical scan.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -19,14 +20,80 @@ import numpy as np
 
 from flow.adc.behavioral import SAR_ADC
 from flow.adc.sim import AdcTbParams
-from flow.analysis.io import build_adc_interface_wave, write_measurement
-from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
-from flow.cdac import get_cdac_weights
+from flow.analysis.io import write_measurement
+from flow.analysis.types import AdcDaq, AdcExtWave, MeasAdcExt, MeasInfo
+from flow.caparray import get_caparray_weights
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
     convert_dout_to_normalized_dout,
 )
+
+
+def build_adc_interface_wave(
+    params: AdcTbParams,
+    bout: Sequence[int],
+    *,
+    conversion_index: int = 0,
+    samples_per_symbol: int = 4,
+) -> AdcExtWave:
+    """Build one dense behavioral ADC-interface waveform from test parameters."""
+
+    if samples_per_symbol <= 0:
+        raise ValueError("samples_per_symbol must be positive")
+    bout_array = np.asarray(bout, dtype=np.uint8)
+    if bout_array.ndim != 1 or np.any((bout_array != 0) & (bout_array != 1)):
+        raise ValueError("Bout must be one binary decision vector")
+
+    sequence_length = len(params.seq_init_pattern)
+
+    def sampled_pattern(name: str) -> np.ndarray:
+        pattern = getattr(params, f"seq_{name}_pattern")
+        return np.repeat(
+            np.fromiter((int(bit) for bit in pattern), dtype=np.uint8),
+            samples_per_symbol,
+        )
+
+    seq_comp = sampled_pattern("comp")
+    seq_logic = sampled_pattern("logic")
+    comp_symbols = seq_comp.reshape(sequence_length, samples_per_symbol)[:, 0]
+    falling_symbols = np.flatnonzero((comp_symbols[:-1] == 1) & (comp_symbols[1:] == 0)) + 1
+    if len(falling_symbols) < len(bout_array):
+        raise ValueError(
+            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout_array)} bits"
+        )
+    comp_out_symbols = np.zeros(sequence_length, dtype=np.uint8)
+    state = 0
+    decision_index = 0
+    for symbol in range(sequence_length):
+        if decision_index < len(bout_array) and symbol == falling_symbols[decision_index]:
+            state = int(bout_array[decision_index])
+            decision_index += 1
+        comp_out_symbols[symbol] = state
+
+    symbol_period_s = 1.0 / float(params.symbol_rate)
+    time_s = np.arange(sequence_length * samples_per_symbol, dtype=np.float64)
+    time_s *= symbol_period_s / samples_per_symbol
+    source = params.vin_diff
+    if hasattr(source, "dc") and source.dc is not None:
+        vin_diff_v = np.full_like(time_s, float(source.dc))
+    elif hasattr(source, "voff") and source.voff is not None:
+        vin_diff_v = np.full_like(time_s, float(source.voff))
+        vin_diff_v += float(source.vamp) * np.sin(
+            2.0 * np.pi * float(source.freq) * time_s + np.deg2rad(float(source.phase or 0.0))
+        )
+    else:
+        vin_diff_v = np.zeros_like(time_s)
+    logic_high_v = float(params.vdd_d.dc)
+    return AdcExtWave(
+        conversion_index=np.asarray([conversion_index], dtype=np.int64),
+        time_s=time_s,
+        vin_diff_v=vin_diff_v[None, :],
+        seq_comp_v=(logic_high_v * seq_comp)[None, :],
+        seq_logic_v=(logic_high_v * seq_logic)[None, :],
+        comp_out_v=(logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
+    )
+
 
 ADC_INDEX = 0
 PARAMS = AdcScanParams(
@@ -37,7 +104,7 @@ PARAMS = AdcScanParams(
         vin_diff=h.Vdc.Params(dc=0.015),
     )
 )
-CAP_WEIGHTS = get_cdac_weights(PARAMS.tb.dut.cdac)
+CAP_WEIGHTS = get_caparray_weights(PARAMS.tb.dut.cdac)
 CODE_WEIGHTS = convert_dac_caps_to_adc_weights(CAP_WEIGHTS)
 NUM_CAPTURE_BITS = len(CODE_WEIGHTS)
 # TODO: Change this stable overwrite path to build/scan_behavioral/<short-datetime>.
@@ -142,7 +209,7 @@ def main() -> None:
     print("Behavioral FRIDA ADC configuration")
     print(f"Cap weights C0..C15: {CAP_WEIGHTS}")
     print(f"Decision weights B0..B16: {CODE_WEIGHTS}")
-    print(f"Cdac={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
+    print(f"CapArray={cdac_capacitance / 1e-15:.3f} fF, Cpar={cpar / 1e-15:.3f} fF")
     print(f"Sampled input attenuation={attenuation:.6g}")
 
     bout_values = np.empty((PARAMS.tb.conversions, NUM_CAPTURE_BITS), dtype=np.uint8)

@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
+from flow.scans.fastrx import program_comp_delay
+
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
 pytestmark = pytest.mark.hw
 
@@ -82,30 +84,15 @@ def test_gpio1_comp_idelay_programming(gpio_daq) -> None:
     gpio = gpio_daq["gpio1"]
     gpio.read()
     assert gpio["COMP_IDELAY_RDY"].tovalue(), "comparator IDELAYCTRL is not ready"
-    original_taps = gpio["COMP_IDELAY_TAPS"].tovalue()
-    test_taps = (original_taps + 1) % 32
-
+    original_taps = gpio["COMP_IDELAY_ACTUAL"].tovalue()
     try:
-        gpio["COMP_IDELAY_TAPS"] = test_taps
-        gpio["COMP_IDELAY_LOAD"] = 1
-        gpio.write()
-        gpio["COMP_IDELAY_LOAD"] = 0
-        gpio.write()
-
-        gpio.read()
-        assert gpio["COMP_IDELAY_TAPS"].tovalue() == test_taps
-        assert gpio["COMP_IDELAY_LOAD"].tovalue() == 0
-        assert gpio["COMP_IDELAY_RDY"].tovalue()
+        for taps in (0, 1, 30, 31, 32, 33, 61, 62):
+            program_comp_delay(gpio, taps)
+            assert gpio["COMP_IDELAY_TAPS"].tovalue() == taps
+            assert gpio["COMP_IDELAY_ACTUAL"].tovalue() == taps
+            assert gpio["COMP_IDELAY_LOAD"].tovalue() == 0
     finally:
-        gpio["COMP_IDELAY_TAPS"] = original_taps
-        gpio["COMP_IDELAY_LOAD"] = 1
-        gpio.write()
-        gpio["COMP_IDELAY_LOAD"] = 0
-        gpio.write()
-
-    gpio.read()
-    assert gpio["COMP_IDELAY_TAPS"].tovalue() == original_taps
-    assert gpio["COMP_IDELAY_LOAD"].tovalue() == 0
+        program_comp_delay(gpio, original_taps)
 
 
 def test_gpio2_pll_command_and_status_registers(gpio_daq) -> None:

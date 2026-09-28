@@ -3,7 +3,7 @@
 Allow roughly one hour for the full suite on asiclab003 (host/load dependent).
 Run it occasionally or after broad simulation-flow changes, not after every edit.
 For routine changes, select affected blocks/experiments with pytest's -k option,
-for example: uv run pytest -m spectre -k 'adc-frida2_fixed_input_noise'.
+for example: uv run pytest -m spectre -k 'adc-frida2_sequence'.
 The short simulated durations do not imply short wall-clock runtimes.
 """
 
@@ -50,17 +50,17 @@ def diagnostic_root(spectre_installation):
 @pytest.mark.parametrize(
     "block,target",
     (
-        ("adc", "hdl21_fixed_input_noise_vs_rate"),
+        ("adc", "hdl21_sample_rate"),
         ("adc", "hdl21_transfer_curve"),
-        ("adc", "frida1_fixed_input_noise"),
-        ("adc", "frida1_fixed_input_noise_vs_rate"),
+        ("adc", "frida1_sequence"),
+        ("adc", "frida1_sample_rate"),
         ("adc", "frida1_transfer_curve"),
-        ("adc", "frida1_supply_noise_vs_rate"),
-        ("adc", "frida2_fixed_input_noise"),
+        ("adc", "frida1_supply_noise"),
+        ("adc", "frida2_sequence"),
         ("comp", "hdl21_comp_perf_vs_size"),
         ("comp", "frida1_fixed_input_noise"),
         ("samp", "frida1_transient"),
-        ("cdac", "frida1_transfer_curve"),
+        ("caparray", "frida1_transfer_curve"),
     ),
     ids=lambda value: value,
 )

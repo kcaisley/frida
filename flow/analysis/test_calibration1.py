@@ -18,7 +18,7 @@ from flow.analysis.calibration1 import (
     extract_endpoint_separation_weights,
 )
 from flow.analysis.types import MeasCdacExt
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 from flow.scans.params import AdcScanParams
 
 
@@ -138,7 +138,7 @@ def test_calibration1_public_analysis_returns_common_weights(monkeypatch: pytest
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = 2.0 * np.asarray(get_cdac_weights(params.tb.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = 2.0 * np.asarray(get_caparray_weights(params.tb.dut.cdac), dtype=np.float64)
     measured = np.repeat((nominal_cap_weight / 2.0)[None, :, None], 2, axis=0)
     measured = np.repeat(measured, 2, axis=2)
     monkeypatch.setattr(

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Literal
@@ -131,6 +132,10 @@ def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
                 "lvs_report": str(lvs_report),
                 "lvs_correct": lvs_correct,
                 "pex_netlist": str(pex_netlist),
+                "pex_sha256": hashlib.sha256(pex_netlist.read_bytes()).hexdigest(),
+                "pdk_options": asdict(params.pdk_options) if is_dataclass(params.pdk_options) else None,
+                "lvs_source_sha256": hashlib.sha256(params.lvs_source_path.read_bytes()).hexdigest(),
+                "gds_sha256": hashlib.sha256(params.gds_path.read_bytes()).hexdigest(),
                 "warnings": list(warnings),
             },
             indent=2,

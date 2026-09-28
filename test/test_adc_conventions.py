@@ -3,12 +3,12 @@
 from pathlib import Path
 
 from flow.adc.sim import AdcTbParams
-from flow.cdac import get_cdac_weights
+from flow.caparray import get_caparray_weights
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
 
 def test_default_weights_and_decisions_are_chronological() -> None:
-    weights = get_cdac_weights(AdcTbParams().dut.cdac)
+    weights = get_caparray_weights(AdcTbParams().dut.cdac)
 
     assert weights == [768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1]
     assert convert_dac_caps_to_adc_weights(weights) == [

@@ -24,3 +24,17 @@ def test_main_owns_only_experiment_targets() -> None:
     assert "frida1_transient" in source
     assert "_check" not in source
     assert "TARGETS" not in vars(sim)
+
+
+@pytest.mark.parametrize(
+    "setting",
+    (
+        {"vdd": float("nan")},
+        {"clock_transition_time_s": float("nan")},
+        {"input_voltage": float("inf")},
+        {"clock_delay_s": -1e-9},
+    ),
+)
+def test_sampler_rejects_invalid_testbench_values(setting):
+    with pytest.raises(ValueError):
+        sim.SampTb(sim.SampTbParams(**setting))

@@ -6,17 +6,18 @@ import os
 from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from basil.HL.tektronix_oscilloscope import CapturedWaveform
 from cycler import cycler
 from matplotlib.artist import Artist
 from matplotlib.cm import ScalarMappable
-from matplotlib.collections import PolyCollection
+from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
@@ -24,10 +25,13 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
+from flow.analysis.measure import find_crossings
 from flow.analysis.types import (
     AnalysisAdcCalibration,
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcComparatorResponse,
+    AnalysisAdcCompOutEdgeEye,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcDynamicSweep,
@@ -55,7 +59,7 @@ from flow.analysis.types import (
     MeasCompInt,
     Measurement,
 )
-from flow.analysis.waveform import style_measurement_text
+from flow.analysis.waveform import analyze_scope_waveforms, style_measurement_text
 
 PLOT_PNGS = False
 PLOT_SVGS = False
@@ -285,6 +289,8 @@ def style_time_units(time_s: np.ndarray) -> tuple[float, str]:
 def save_figure(
     fig: plt.Figure,
     output_path: Path,
+    *,
+    pdf_metadata: Mapping[str, str] | None = None,
 ) -> tuple[Path, ...]:
     output_path = Path(output_path)
     if output_path.suffix:
@@ -309,7 +315,10 @@ def save_figure(
     with mpl.rc_context({"figure.constrained_layout.use": False}):
         for output_format in formats:
             path = output_path.with_suffix(f".{output_format}")
-            fig.savefig(path)
+            if output_format == "pdf" and pdf_metadata is not None:
+                fig.savefig(path, metadata=dict(pdf_metadata))
+            else:
+                fig.savefig(path)
             paths.append(path)
     plt.close(fig)
     return tuple(paths)
@@ -328,7 +337,6 @@ def plot_adc_redundancy(
         series = {"Error tolerance": margins_percent}
     if not series:
         raise ValueError("at least one redundancy sequence is required")
-
     fig, ax = plt.subplots()
     for label, margins in series.items():
         ax.plot(np.arange(len(margins)), margins, "o-", label=label)
@@ -376,6 +384,474 @@ def plot_waveforms(
     style_info_box(axes[0], analysis.setup_lines)
     fig.suptitle(analysis.title)
     return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_comparator_edge_eye(
+    measurement: MeasAdcInt,
+    *,
+    output_path: Path,
+    context: str | None = None,
+) -> tuple[Path, ...]:
+    """Overlay every saved conversion and every COMP-aligned decision window."""
+
+    wave = measurement.wave
+    required = {"seq_init", "clk_comp", "comp.latch_p", "comp.latch_n", "comp_out_p"}
+    if missing := required - wave.voltage.keys():
+        raise ValueError(f"ADC edge eye requires saved canonical nets: {sorted(missing)}")
+    time = wave.time_s
+    threshold = float(measurement.param.vdd_d.dc) / 2
+    signal_names = ("Comparator clock", "SR-latch P", "XC-latch |P−N|")
+    full_segments: list[list[np.ndarray]] = [[] for _ in signal_names]
+    decision_segments: list[list[np.ndarray]] = [[] for _ in signal_names]
+    relative_edges = []
+    periods = []
+
+    for record in range(len(wave.conversion_index)):
+        signals = {name: wave.voltage[name][record] for name in required}
+        init_edges = find_crossings(signals["seq_init"], time, threshold, rising=True, initial_high=True)
+        if not len(init_edges):
+            raise ValueError(f"conversion {record} has no INIT rise")
+        stop = init_edges[1] if len(init_edges) > 1 else time[-1]
+        clock_edges = find_crossings(signals["clk_comp"], time, threshold, rising=True)
+        clock_edges = clock_edges[(clock_edges >= init_edges[0]) & (clock_edges < stop)]
+        if len(clock_edges) != 17:
+            raise ValueError(f"conversion {record} has {len(clock_edges)} COMP rises; expected 17")
+        period = float(np.median(np.diff(clock_edges)))
+        periods.append(period)
+        relative_edges.append(clock_edges - clock_edges[0])
+        traces = (
+            signals["clk_comp"],
+            signals["comp_out_p"],
+            np.abs(signals["comp.latch_p"] - signals["comp.latch_n"]),
+        )
+        selected = (time >= clock_edges[0] - 0.2 * period) & (time <= clock_edges[-1] + period)
+        full_time_ns = (time[selected] - clock_edges[0]) * 1e9
+        for segments, values in zip(full_segments, traces, strict=True):
+            segments.append(np.column_stack((full_time_ns, values[selected])))
+        for edge in clock_edges:
+            selected = (time >= edge - 0.1 * period) & (time <= edge + 1.1 * period)
+            decision_time_ns = (time[selected] - edge) * 1e9
+            for segments, values in zip(decision_segments, traces, strict=True):
+                segments.append(np.column_stack((decision_time_ns, values[selected])))
+
+    period_ns = float(np.median(periods)) * 1e9
+    edge_ns = np.median(relative_edges, axis=0) * 1e9
+    supply = max(float(measurement.param.vdd_a.dc), float(measurement.param.vdd_d.dc))
+    output_path = Path(output_path)
+    paths = []
+    for suffix, segments_by_signal in (("timing", full_segments), ("decision_eye", decision_segments)):
+        fig, ax = plt.subplots(figsize=(14, 5.5))
+        handles = [ax.plot([], [], label=name)[0] for name in signal_names]
+        for handle, segments in zip(handles, segments_by_signal, strict=True):
+            ax.add_collection(
+                LineCollection(segments, colors=(handle.get_color(),), alpha=0.7, linewidths=1.0, rasterized=True)
+            )
+        if suffix == "timing":
+            decision_axis = ax.secondary_xaxis("top")
+            decision_axis.set_xticks(edge_ns, labels=[f"B{decision}" for decision in range(17)])
+            ax.set_xlim(-0.2 * period_ns, edge_ns[-1] + period_ns)
+            ax.set_xlabel("Time from B0 comparator clock rise (ns)")
+            title = f"PEX comparator waveforms: {len(wave.conversion_index)} conversions overlaid"
+        else:
+            ax.set_xlim(-0.1 * period_ns, 1.1 * period_ns)
+            ax.set_xlabel("Time from each comparator clock rise (ns)")
+            title = f"PEX comparator decision eye: {len(wave.conversion_index)} conversions × 17 decisions"
+        ax.set_title(f"{title}\n{context}" if context else title)
+        ax.set_ylim(-0.1 * supply, 1.1 * supply)
+        ax.set_ylabel("Voltage (V); XC trace is |P−N|")
+        style_grid(ax)
+        fig.legend(handles=handles, loc="outside lower center", ncol=len(handles))
+        metadata = (
+            {"Title": title, "Subject": context.replace("\n", "; "), "Keywords": "PEX simulation"} if context else None
+        )
+        paths.extend(save_figure(fig, output_path.with_name(f"{output_path.name}_{suffix}"), pdf_metadata=metadata))
+    return tuple(paths)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_comparator_response(
+    analysis: AnalysisAdcComparatorResponse,
+    *,
+    output_path: Path,
+    context: str | None = None,
+) -> tuple[Path, ...]:
+    """Plot XC rail validity and positive SR output histograms at B0..B16."""
+
+    internal = [analysis.internal_response_s[analysis.decision_index == decision] for decision in range(17)]
+    output = [analysis.sr_response_s[analysis.decision_index == decision] for decision in range(17)]
+    fig, ax = plt.subplots(figsize=(12, 6))
+    series = (internal, output)
+    labels = ("XC-latch |P−N| (both rails valid)", "SR-latch P (single-ended rail valid)")
+    populated = [
+        scaled for stages in series for values in stages if len(scaled := np.asarray(values)[np.isfinite(values)] * 1e9)
+    ]
+    if not populated:
+        raise ValueError("no valid comparator response times to plot")
+    all_values = np.concatenate(populated)
+    lower, upper = float(all_values.min()), float(all_values.max())
+    if lower == upper:
+        lower -= 0.05
+        upper += 0.05
+    bins = np.linspace(lower, upper, 49)
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+    bin_height = float(bins[1] - bins[0]) * 0.95
+    peak_fraction = max(np.histogram(values, bins=bins)[0].max() / len(values) for values in populated)
+    for stages, label in zip(series, labels, strict=True):
+        positions = []
+        widths = []
+        left_edges = []
+        median_x = []
+        median_y = []
+        for decision, values in enumerate(stages):
+            values = np.asarray(values)
+            scaled = values[np.isfinite(values)] * 1e9
+            if not len(scaled):
+                continue
+            counts, _ = np.histogram(scaled, bins=bins)
+            occupied = counts > 0
+            positions.extend(bin_centers[occupied])
+            widths.extend(0.58 * counts[occupied] / len(scaled) / peak_fraction)
+            left_edges.extend(np.full(np.count_nonzero(occupied), decision))
+            median_x.append(decision)
+            median_y.append(float(np.median(scaled)))
+        bars = ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.5, label=label)
+        if bars.patches:
+            ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
+    ax.set_xlim(-0.7, 16.7)
+    ax.set_xticks(range(17))
+    ax.set_xlabel("ADC decision step (bar width: fraction of transitions per bin)")
+    ax.set_ylabel("Time from COMP rise to midpoint response (ns)")
+    title = f"ADC comparator response at {analysis.conversion_rate_hz / 1e6:.3g} MSPS (PEX simulation, 50% VDD)"
+    ax.set_title(f"{title}\n{context}" if context else title)
+    ax.legend()
+    if not np.any(np.isfinite(analysis.internal_response_s)):
+        ax.text(
+            0.99,
+            0.97,
+            "No XC output reached both rail thresholds before COMP reset",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+        )
+    style_grid(ax)
+    output_path = Path(output_path)
+    metadata = (
+        {"Title": title, "Subject": context.replace("\n", "; "), "Keywords": "PEX simulation"} if context else None
+    )
+    return save_figure(fig, output_path, pdf_metadata=metadata)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_comp_out_edge_eye(
+    analysis: AnalysisAdcCompOutEdgeEye,
+    *,
+    output_path: Path,
+    context: str | None = None,
+) -> tuple[Path, ...]:
+    """Render external comparator timing from a completed scope analysis."""
+
+    decision_period_s = analysis.decision_period_s
+    delays_by_decision = [analysis.delays_s[:, decision] for decision in range(17)]
+    decision_segments: list[list[np.ndarray]] = [[], []]
+    timing_segments: list[list[np.ndarray]] = [[], []]
+    voltage_low = np.inf
+    voltage_high = -np.inf
+
+    for wave, clock_edges in zip(analysis.waveforms, analysis.clock_edges_s, strict=True):
+        time_s = wave.time_s
+        comp_v, comp_out_v = wave.signal_values
+        voltage_low = min(voltage_low, float(comp_v.min()), float(comp_out_v.min()))
+        voltage_high = max(voltage_high, float(comp_v.max()), float(comp_out_v.max()))
+        selected = (time_s >= clock_edges[0] - 0.2 * decision_period_s) & (
+            time_s <= clock_edges[-1] + decision_period_s
+        )
+        relative_ns = (time_s[selected] - clock_edges[0]) * 1e9
+        timing_segments[0].append(np.column_stack((relative_ns, comp_v[selected])))
+        timing_segments[1].append(np.column_stack((relative_ns, comp_out_v[selected])))
+        for clock_edge in clock_edges:
+            selected = (time_s >= clock_edge - 0.2 * decision_period_s) & (time_s < clock_edge + decision_period_s)
+            relative_ns = (time_s[selected] - clock_edge) * 1e9
+            decision_segments[0].append(np.column_stack((relative_ns, comp_v[selected])))
+            decision_segments[1].append(np.column_stack((relative_ns, comp_out_v[selected])))
+
+    output_path = Path(output_path)
+    period_ns = decision_period_s * 1e9
+    voltage_margin = 0.05 * (voltage_high - voltage_low)
+    overlay_alpha = 0.35
+    metadata = {"Subject": context.replace("\n", "; "), "Keywords": "Oscilloscope measurement"} if context else None
+    eye_fig, eye_ax = plt.subplots(figsize=(14, 5.5))
+    eye_handles = [eye_ax.plot([], [], label=name)[0] for name in ("Scope COMP", "Scope COMP_OUT")]
+    for handle, segments in zip(eye_handles, decision_segments, strict=True):
+        eye_ax.add_collection(
+            LineCollection(segments, colors=(handle.get_color(),), alpha=overlay_alpha, linewidths=0.6, rasterized=True)
+        )
+    eye_ax.set_xlim(-0.2 * period_ns, period_ns)
+    eye_ax.set_ylim(voltage_low - voltage_margin, voltage_high + voltage_margin)
+    eye_ax.set_xlabel("Time from each scope COMP rise (ns)")
+    eye_ax.set_ylabel("Voltage at scope (V)")
+    eye_title = f"Measured comparator decision eye: {len(analysis.waveforms)} captures × 17 decisions"
+    eye_ax.set_title(f"{eye_title}\n{context}" if context else eye_title)
+    style_grid(eye_ax)
+    eye_fig.legend(handles=eye_handles, loc="outside lower center", ncol=len(eye_handles))
+    eye_paths = save_figure(
+        eye_fig,
+        output_path.with_name(output_path.name + "_decision_eye"),
+        pdf_metadata={**metadata, "Title": eye_title} if metadata else None,
+    )
+
+    timing_fig, timing_ax = plt.subplots(figsize=(14, 5.5))
+    timing_handles = [timing_ax.plot([], [], label=name)[0] for name in ("Scope COMP", "Scope COMP_OUT")]
+    for handle, segments in zip(timing_handles, timing_segments, strict=True):
+        timing_ax.add_collection(
+            LineCollection(segments, colors=(handle.get_color(),), alpha=overlay_alpha, linewidths=0.6, rasterized=True)
+        )
+    decision_axis = timing_ax.secondary_xaxis("top")
+    decision_axis.set_xticks(
+        np.arange(17) * period_ns,
+        labels=[f"B{decision}" for decision in range(17)],
+    )
+    timing_ax.set_xlim(-0.2 * period_ns, 17 * period_ns)
+    timing_ax.set_ylim(voltage_low - voltage_margin, voltage_high + voltage_margin)
+    timing_ax.set_xlabel("Time from B0 scope COMP rise (ns)")
+    timing_ax.set_ylabel("Voltage at scope (V)")
+    timing_title = f"Measured comparator waveforms: {len(analysis.waveforms)} captures overlaid"
+    timing_ax.set_title(f"{timing_title}\n{context}" if context else timing_title)
+    style_grid(timing_ax)
+    timing_fig.legend(handles=timing_handles, loc="outside lower center", ncol=len(timing_handles))
+    timing_paths = save_figure(
+        timing_fig,
+        output_path.with_name(output_path.name + "_timing"),
+        pdf_metadata={**metadata, "Title": timing_title} if metadata else None,
+    )
+
+    response_fig, response_ax = plt.subplots(figsize=(12, 6))
+    populated = [
+        scaled for values in delays_by_decision if len(scaled := np.asarray(values)[np.isfinite(values)] * 1e9)
+    ]
+    all_values_ns = np.concatenate(populated)
+    lower, upper = float(all_values_ns.min()), float(all_values_ns.max())
+    if lower == upper:
+        lower -= 0.05
+        upper += 0.05
+    bins = np.linspace(lower, upper, 49)
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+    bin_height = float(bins[1] - bins[0]) * 0.95
+    peak_fraction = max(np.histogram(values, bins=bins)[0].max() / len(values) for values in populated)
+    positions = []
+    widths = []
+    left_edges = []
+    median_x = []
+    median_y = []
+    for decision, values in enumerate(delays_by_decision):
+        scaled = np.asarray(values) * 1e9
+        if not len(scaled):
+            continue
+        counts, _ = np.histogram(scaled, bins=bins)
+        occupied = counts > 0
+        positions.extend(bin_centers[occupied])
+        widths.extend(0.39 * counts[occupied] / len(scaled) / peak_fraction)
+        left_edges.extend(np.full(np.count_nonzero(occupied), decision))
+        median_x.append(decision)
+        median_y.append(float(np.median(scaled)))
+    bars = response_ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.68, label="Scope COMP_OUT")
+    if bars.patches:
+        response_ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
+    response_ax.set_xlim(-0.7, 16.7)
+    response_ax.set_xticks(range(17))
+    response_ax.set_xlabel("ADC decision step (bar width: fraction of transitions per bin)")
+    response_title = f"ADC COMP_OUT response at {analysis.conversion_rate_hz / 1e6:g} MSPS (50% swing, measured)"
+    response_ax.set_title(f"{response_title}\n{context}" if context else response_title)
+    response_ax.set_ylabel("Time from COMP rise to 50% swing (ns)")
+    style_grid(response_ax)
+    response_paths = save_figure(
+        response_fig,
+        output_path.with_name(output_path.name + "_response_histogram"),
+        pdf_metadata={**metadata, "Title": response_title} if metadata else None,
+    )
+    return (*eye_paths, *timing_paths, *response_paths)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_serdes_output_word_grid(
+    captures_by_case: Mapping[tuple[int, int], Sequence[Mapping[int, CapturedWaveform]]],
+    *,
+    output_channel: int,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Show 1..7-of-8 serializer words at three baud rates over their full period."""
+
+    rates_mbd = (320, 960, 1600)
+    high_counts = range(1, 8)
+    if set(captures_by_case) != {(rate, high) for rate in rates_mbd for high in high_counts}:
+        raise ValueError("word grid requires 1..7-of-8 captures at 320, 960, and 1600 MBd")
+    output_path = Path(output_path)
+    fig = plt.figure(figsize=(18, 9))
+    grid = fig.add_gridspec(4, 7, height_ratios=(0.35, 1, 1, 1))
+    axes = np.empty((3, 7), dtype=object)
+    for column, high_symbols in enumerate(high_counts):
+        icon_ax = fig.add_subplot(grid[0, column])
+        icon_ax.plot(
+            (-0.2, 0, 0, high_symbols, high_symbols, 8.2),
+            (0, 0, 1, 1, 0, 0),
+        )
+        icon_ax.set_xlim(-0.2, 8.2)
+        icon_ax.set_ylim(-0.2, 1.2)
+        icon_ax.set_axis_off()
+        icon_ax.set_title(f"{high_symbols} of 8", fontsize=10)
+        for row, rate_mbd in enumerate(rates_mbd):
+            shared = axes[0, 0] if row or column else None
+            ax = fig.add_subplot(grid[row + 1, column], sharex=shared, sharey=shared)
+            axes[row, column] = ax
+            captures = captures_by_case[(rate_mbd, high_symbols)]
+            if not captures:
+                raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 has no captures")
+            unit_interval_s = 1.0 / (rate_mbd * 1e6)
+            segments = []
+            for capture_index, capture in enumerate(captures):
+                wave = analyze_scope_waveforms(capture, {output_channel: "SERDES output"})
+                time_s = wave.time_s
+                voltage_v = wave.signal_values[0]
+                low_v, high_v = np.percentile(voltage_v, (5, 95))
+                if high_v - low_v < 0.05:
+                    raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
+                rises = find_crossings(voltage_v, time_s, float((low_v + high_v) / 2), rising=True)
+                if not len(rises):
+                    raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no rise")
+                origin_s = float(rises[np.argmin(np.abs(rises))])
+                # Skip the trigger word after idle and the final idle word.
+                for word_index in range(1, 30):
+                    word_start_s = origin_s + 8 * word_index * unit_interval_s
+                    if word_start_s + 8.2 * unit_interval_s > time_s[-1]:
+                        break
+                    selected = (time_s >= word_start_s - 0.2 * unit_interval_s) & (
+                        time_s <= word_start_s + 8.2 * unit_interval_s
+                    )
+                    phase = (time_s[selected] - word_start_s) / unit_interval_s
+                    trace = voltage_v[selected]
+                    segments.append(np.column_stack((phase, trace)))
+            if not segments:
+                raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 has no complete words")
+            handle = ax.plot([], [])[0]
+            ax.add_collection(
+                LineCollection(segments, colors=(handle.get_color(),), alpha=0.45, linewidths=0.6, rasterized=True)
+            )
+            ax.set_xlim(-0.2, 8.2)
+            ax.set_ylim(-0.85, 0.85)
+            ax.set_xticks(range(9))
+            ax.set_yticks((-0.5, 0.0, 0.5))
+            ax.tick_params(labelbottom=row == 2, labelleft=column == 0)
+            if row == 2:
+                ax.set_xlabel("Symbol position")
+            if column == 0:
+                ax.set_ylabel(f"{rate_mbd} MBd\nOutput (V)")
+            style_grid(ax)
+            ax.minorticks_off()
+            ax.grid(False, which="minor")
+    fig.suptitle("FPGA sequencer and serializer output: eight-symbol words")
+    metadata = {
+        "Title": "FPGA sequencer and serializer output: eight-symbol words",
+        "Subject": "1..7 high symbols of 8; 320, 960, 1600 MBd; oscilloscope measurement",
+        "Keywords": "Oscilloscope measurement",
+    }
+    return save_figure(fig, output_path, pdf_metadata=metadata)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_serdes_symbol_eye_grid(
+    captures_by_rate: Mapping[int, Sequence[Mapping[int, CapturedWaveform]]],
+    *,
+    marker_channel: int,
+    output_channel: int,
+    pattern: str,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Fold a complete 256-bit serializer pattern into three symbol eyes."""
+
+    rates_mbd = (320, 960, 1600)
+    if set(captures_by_rate) != set(rates_mbd) or len(pattern) != 256 or set(pattern) != {"0", "1"}:
+        raise ValueError("symbol eye requires three rates and one binary 256-bit pattern")
+    words = {(pattern + pattern)[index : index + 8] for index in range(256)}
+    if len(words) != 254 or words & {"00000000", "11111111"}:
+        raise ValueError("symbol eye pattern must contain every nonconstant eight-bit word")
+    anchor_bit = next(
+        index for index in range(256) if pattern[index - 1] == "0" and pattern[index : index + 4] == "1111"
+    )
+    output_path = Path(output_path)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 8), sharex=True, sharey=True)
+    for ax, rate_mbd in zip(axes, rates_mbd, strict=True):
+        captures = captures_by_rate[rate_mbd]
+        if not captures:
+            raise ValueError(f"{rate_mbd} MBd has no captures")
+        unit_interval_s = 1.0 / (rate_mbd * 1e6)
+        phases = []
+        voltages = []
+        high_centers = []
+        low_centers = []
+        folded_symbols = 0
+        for capture_index, capture in enumerate(captures):
+            wave = analyze_scope_waveforms(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
+            time_s = wave.time_s
+            marker_v, output_v = wave.signal_values
+            marker_low, marker_high = np.percentile(marker_v, (0.1, 99.9))
+            output_low, output_high = np.percentile(output_v, (5, 95))
+            if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
+                raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a valid swing")
+            marker_edges = find_crossings(marker_v, time_s, float((marker_low + marker_high) / 2), rising=True)
+            output_edges = find_crossings(output_v, time_s, float((output_low + output_high) / 2), rising=True)
+            if not len(marker_edges) or not len(output_edges):
+                raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a trigger or output rise")
+            marker_origin_s = float(marker_edges[np.argmin(np.abs(marker_edges))])
+            anchor_expected_s = marker_origin_s + anchor_bit * unit_interval_s
+            anchor_edge_s = float(output_edges[np.argmin(np.abs(output_edges - anchor_expected_s))])
+            if abs(anchor_edge_s - anchor_expected_s) > unit_interval_s:
+                raise ValueError(f"{rate_mbd} MBd capture {capture_index} cannot align the output word")
+            output_origin_s = anchor_edge_s - anchor_bit * unit_interval_s
+            for symbol_index, bit in enumerate(pattern):
+                symbol_start_s = output_origin_s + symbol_index * unit_interval_s
+                if symbol_start_s - 0.2 * unit_interval_s < time_s[0]:
+                    continue
+                if symbol_start_s + 1.2 * unit_interval_s > time_s[-1]:
+                    break
+                selected = (time_s >= symbol_start_s - 0.2 * unit_interval_s) & (
+                    time_s <= symbol_start_s + 1.2 * unit_interval_s
+                )
+                phase = (time_s[selected] - symbol_start_s) / unit_interval_s
+                voltage = output_v[selected]
+                phases.append(phase)
+                voltages.append(voltage)
+                center_v = float(np.interp(0.5, phase, voltage))
+                (high_centers if bit == "1" else low_centers).append(center_v)
+                folded_symbols += 1
+        if not phases or not high_centers or not low_centers:
+            raise ValueError(f"{rate_mbd} MBd captures contain no complete symbol eyes")
+        high_p01_v = float(np.percentile(high_centers, 1))
+        low_p99_v = float(np.percentile(low_centers, 99))
+        opening_v = high_p01_v - low_p99_v
+        ax.hist2d(
+            np.concatenate(phases),
+            np.concatenate(voltages),
+            bins=(140, 160),
+            range=((-0.2, 1.2), (-0.8, 0.8)),
+            weights=np.full(sum(map(len, phases)), 1 / folded_symbols),
+            norm=LogNorm(vmin=1 / folded_symbols),
+            cmap=DENSITY_COLOR_MAP,
+        )
+        ax.set_xlim(-0.2, 1.2)
+        ax.set_ylim(-0.8, 0.8)
+        ax.set_ylabel(f"{rate_mbd} MBd\nOutput (V)")
+        ax.set_title(f"{folded_symbols:,} symbols; center opening (1st/99th percentile): {opening_v * 1e3:.0f} mV")
+        style_grid(ax)
+        ax.minorticks_off()
+        ax.grid(False, which="minor")
+    axes[-1].set_xlabel("Phase within one symbol (UI)")
+    fig.suptitle("FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts")
+    metadata = {
+        "Title": "FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts",
+        "Subject": "256-bit pattern excluding constant words; 320, 960, 1600 MBd; oscilloscope measurement",
+        "Keywords": "Oscilloscope measurement",
+    }
+    return save_figure(fig, output_path, pdf_metadata=metadata)
 
 
 @mpl.rc_context(PLOT_STYLE)
@@ -528,10 +1004,7 @@ def plot_adc_fastrx_scope_comparison(
     setup_lines = (
         *(line for line in style_measurement_text(msmt) if line.startswith("ADC:")),
         f"Symbol rate: {float(params.symbol_rate) / 1e6:g} MBd",
-        (
-            "COMP→LOGIC: "
-            f"{float(params.seq_logic_phase_delay_symbols) - float(params.seq_comp_phase_delay_symbols):+g} symbols"
-        ),
+        f"Sequence: {len(params.seq_comp_pattern)} symbols",
     )
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC scope and FastRX decision comparison")
@@ -836,9 +1309,9 @@ def plot_adc_sampling_noise(
         style_info_box(ax, (f"SD = {analysis.sigma_v * 1e6:.1f} µV", f"N = {len(error_uv)}"))
     for ax in axes.flat[len(analyses) :]:
         ax.set_visible(False)
-    fig.supxlabel("Held VDAC_P − VDAC_N, relative to each design's mean (µV)")
+    fig.supxlabel("VDAC_P − VDAC_N, relative to each design's mean (µV)")
     fig.supylabel("Fraction of conversions per 25 µV bin")
-    fig.suptitle("Held sampling-level noise · before the first comparator decision")
+    fig.suptitle("Sampling-level variation · 1 ns after SAMP falls")
     return save_figure(fig, output_path)
 
 
@@ -879,6 +1352,8 @@ def plot_adc_noise_sweep(
     analysis: AnalysisAdcNoiseSweep | AnalysisAdcNoiseComparison,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
+    series_labels: Sequence[str] = (),
 ) -> tuple[Path, ...]:
     """Plot noise, equivalent full-scale SNR, and ENOB on one rate panel."""
 
@@ -891,9 +1366,21 @@ def plot_adc_noise_sweep(
     noise_rms_v = np.asarray(analysis.input_referred_noise_rms_v)
     noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
 
-    fig, ax = plt.subplots()
-    conversion_rate_msps = analysis.active_conversion_rate_hz / 1e6
-    if isinstance(analysis, AnalysisAdcNoiseSweep):
+    fig, ax = plt.subplots(layout="none")
+    if rate_axis == "sampling":
+        if not isinstance(analysis, AnalysisAdcNoiseSweep):
+            raise ValueError("repetition-rate axis requires AnalysisAdcNoiseSweep")
+        rates = analysis.sample_rate_hz
+    else:
+        rates = analysis.active_conversion_rate_hz
+    conversion_rate_msps = rates / 1e6
+    if series_labels:
+        if len(series_labels) != len(rates):
+            raise ValueError("sequence labels must align with noise points")
+        labels = tuple(dict.fromkeys(series_labels))
+        selections = tuple(np.asarray(series_labels) == label for label in labels)
+        colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
+    elif isinstance(analysis, AnalysisAdcNoiseSweep):
         timing_values = np.unique(analysis.comparator_time_percent)
         labels = tuple(f"{value:g}%" for value in timing_values)
         selections = tuple(analysis.comparator_time_percent == value for value in timing_values)
@@ -928,22 +1415,33 @@ def plot_adc_noise_sweep(
                 color=color,
                 label=label,
             )
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("Input-referred noise (LSB RMS)")
     ax.invert_yaxis()
-    ax.set_ylim(9.0, 0.0)
-    ax.set_yticks(np.arange(0.0, 10.0, 1.0))
+    visible_noise = noise_rms_lsb[analysis.noise_valid]
+    ax.set_ylim(max(9.0, float(np.max(visible_noise)) * 1.05) if len(visible_noise) else 9.0, 0.0)
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xlim(0.0, 10.25)
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
-    ax.set_title("ADC noise performance vs conversion rate")
+    ax.set_title(
+        "ADC noise performance vs repetition rate"
+        if rate_axis == "sampling"
+        else "ADC noise performance vs conversion rate"
+    )
     ax.tick_params(which="both", right=False)
     style_grid(ax)
     if ax.get_legend_handles_labels()[0]:
         ax.legend(
             ncols=4 if isinstance(analysis, AnalysisAdcNoiseSweep) else 1,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.06),
+            fontsize=8,
             title=(
-                "COMP→LOGIC interval\n(as % of decision cycle)" if isinstance(analysis, AnalysisAdcNoiseSweep) else None
+                "Sequence"
+                if series_labels
+                else "COMP→LOGIC interval\n(as % of decision cycle)"
+                if isinstance(analysis, AnalysisAdcNoiseSweep)
+                else None
             ),
         )
     noise_mv_axis = ax.secondary_yaxis(
@@ -974,8 +1472,11 @@ def plot_adc_noise_sweep(
             lambda enob_bits: full_scale_rms_lsb * np.power(10.0, -(6.02 * np.asarray(enob_bits) + 1.76) / 20.0),
         ),
     )
-    enob_axis.set_ylabel("ENOB (bit)")
-    enob_axis.set_yticks(np.arange(7.0, 13.0, 1.0))
+    enob_axis.set_ylabel("Noise-equivalent ENOB (bit)")
+    enob_ticks = np.arange(-2.0, 17.0)
+    enob_noise = full_scale_rms_lsb * np.power(10.0, -(6.02 * enob_ticks + 1.76) / 20.0)
+    noise_limit = max(ax.get_ylim())
+    enob_axis.set_yticks(enob_ticks[(enob_noise >= 0.07 * noise_limit) & (enob_noise <= noise_limit)])
     enob_axis.tick_params(which="both", left=False, right=True)
 
     snr_axis = ax.secondary_yaxis(
@@ -993,7 +1494,9 @@ def plot_adc_noise_sweep(
     )
     snr_axis.spines["right"].set_position(("outward", 58))
     snr_axis.set_ylabel("SNR (dB)")
-    snr_axis.set_yticks(np.arange(45.0, 71.0, 5.0))
+    snr_ticks = np.arange(-10.0, 101.0, 5.0)
+    snr_noise = full_scale_rms_lsb * np.power(10.0, -snr_ticks / 20.0)
+    snr_axis.set_yticks(snr_ticks[(snr_noise >= 0.07 * noise_limit) & (snr_noise <= noise_limit)])
     snr_axis.tick_params(which="both", left=False, right=True)
 
     decision_time_axis = ax.twiny()
@@ -1002,9 +1505,9 @@ def plot_adc_noise_sweep(
     decision_time_axis.xaxis.set_label_position("bottom")
     decision_time_axis.spines["bottom"].set_position(("outward", 38))
     decision_time_axis.spines["top"].set_visible(False)
-    decision_time_axis.set_xlabel("Time per decision cycle (ns)")
+    decision_time_axis.set_xlabel("Repetition interval (ns)" if rate_axis == "sampling" else "Conversion interval (ns)")
     labeled_rates_msps = np.arange(1.0, 11.0)
-    decision_cycle_ns = 50.0 / labeled_rates_msps
+    decision_cycle_ns = 1000.0 / labeled_rates_msps
     decision_time_axis.set_xticks(labeled_rates_msps)
     decision_time_axis.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
     decision_time_axis.tick_params(
@@ -1012,6 +1515,8 @@ def plot_adc_noise_sweep(
         top=False,
         bottom=True,
     )
+    # Reserve space for both outer noise axes and the second bottom time axis.
+    fig.subplots_adjust(left=0.20, right=0.80, bottom=0.23, top=0.72)
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower left")
     return save_figure(fig, output_path)
 
@@ -1022,13 +1527,15 @@ def plot_adc_noise_distribution_sweep(
     analysis: AnalysisAdcNoiseSweep,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot left-facing output-code histograms along the conversion-rate axis."""
 
     code = analysis.code
     count = analysis.count
-    order = np.argsort(analysis.active_conversion_rate_hz)
-    rates_msps = analysis.active_conversion_rate_hz[order] / 1e6
+    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    order = np.argsort(rates)
+    rates_msps = rates[order] / 1e6
     counts = count[order]
     populated = np.flatnonzero(np.any(counts > 0, axis=0))
     first_code = max(0, int(populated[0]) - 2)
@@ -1039,10 +1546,10 @@ def plot_adc_noise_distribution_sweep(
     fig, ax = plt.subplots()
     maximum_count = int(np.max(visible_counts))
     histogram_scale = int(np.ceil(maximum_count / 10_000.0) * 10_000)
-    if len(rates_msps) == 1:
+    if len(np.unique(rates_msps)) == 1:
         maximum_width_msps = 0.2
     else:
-        maximum_width_msps = min(0.2, 0.8 * float(np.min(np.diff(rates_msps))))
+        maximum_width_msps = min(0.2, 0.8 * float(np.min(np.diff(np.unique(rates_msps)))))
     for rate_msps, histogram in zip(rates_msps, visible_counts, strict=True):
         populated_codes = histogram > 0
         widths = maximum_width_msps * histogram[populated_codes] / histogram_scale
@@ -1066,16 +1573,174 @@ def plot_adc_noise_distribution_sweep(
         label="Mean ±1σ",
     )
     ax.plot(rates_msps, mean + std, color=CURVE_COLORS[2], linestyle="--")
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("ADC output code (LSB)")
     ax.set_xticks(np.arange(0.0, 11.0, 1.0))
     ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
     ax.set_xlim(0.0, 10.25)
-    ax.set_ylim(mean[0] - 3.0 * std[0], mean[0] + 3.0 * std[0])
+    ax.set_ylim(float(codes[0]) - 0.5, float(codes[-1]) + 0.5)
     ax.set_title("ADC fixed-input output-code distributions")
     style_grid(ax)
     ax.legend()
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower left")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_sequence_static_overview(
+    baud_rates_mbd: Sequence[int],
+    mean_code_lsb: np.ndarray,
+    sigma_code_lsb: np.ndarray,
+    code_span_lsb: np.ndarray,
+    modal_code_fraction: np.ndarray,
+    *,
+    catalogue_indices: Sequence[int] | None = None,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare all catalogue sequences by spread and rate-dependent code shift."""
+
+    if any(values.shape != mean_code_lsb.shape for values in (sigma_code_lsb, code_span_lsb, modal_code_fraction)):
+        raise ValueError("sequence overview metric arrays must have the same shape")
+    if mean_code_lsb.ndim != 2 or mean_code_lsb.shape[1] != len(baud_rates_mbd):
+        raise ValueError("sequence overview must have one column per baud rate")
+    sequence_index = np.arange(1, len(mean_code_lsb) + 1)
+    if catalogue_indices is not None and len(catalogue_indices) != len(sequence_index):
+        raise ValueError("catalogue indices must align with sequence overview rows")
+    code_shift_lsb = mean_code_lsb - mean_code_lsb[:, :1]
+
+    fig, axes = plt.subplots(4, 1, sharex=True, figsize=(11.0, 10.0))
+    for baud_index, baud_mbd in enumerate(baud_rates_mbd):
+        for ax, values in zip(
+            axes,
+            (
+                sigma_code_lsb[:, baud_index],
+                code_shift_lsb[:, baud_index],
+                code_span_lsb[:, baud_index],
+                modal_code_fraction[:, baud_index],
+            ),
+            strict=True,
+        ):
+            ax.plot(sequence_index, values, linestyle="none", marker="o", label=f"{baud_mbd} MBd")
+
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("Code σ (LSB)")
+    axes[0].legend(ncols=len(baud_rates_mbd))
+    axes[1].set_yscale("symlog", linthresh=1.0)
+    axes[1].set_ylabel("Mean shift from 320 MBd (LSB)")
+    axes[2].set_yscale("log")
+    axes[2].set_ylabel("Full code span (LSB)")
+    axes[3].set_ylabel("Most common code fraction")
+    axes[3].set_ylim(0.0, 1.02)
+    axes[3].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
+    axes[3].set_xlim(0.5, len(sequence_index) + 0.5)
+    if catalogue_indices is None:
+        axes[3].xaxis.set_major_locator(MultipleLocator(5))
+        axes[3].xaxis.set_minor_locator(MultipleLocator(1))
+    else:
+        axes[3].set_xticks(sequence_index, labels=[str(index) for index in catalogue_indices])
+    for ax in axes:
+        style_grid(ax)
+    fig.suptitle(
+        "ADC03 continuous sequence comparison · 10,000 conversions per setting"
+        if catalogue_indices is not None
+        else "ADC03 fixed-input sequence comparison · 10,000 conversions per setting"
+    )
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_sequence_enob(
+    baud_rates_mbd: Sequence[int],
+    enob_bits: np.ndarray,
+    mean_shift_lsb: np.ndarray,
+    reliable: np.ndarray,
+    *,
+    adc_label: str,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Show fixed-input noise-equivalent ENOB and code shifts across recipes."""
+
+    if enob_bits.ndim != 2 or enob_bits.shape[1] != len(baud_rates_mbd):
+        raise ValueError("sequence ENOB needs one column per baud rate")
+    if mean_shift_lsb.shape != enob_bits.shape or reliable.shape != enob_bits.shape:
+        raise ValueError("sequence ENOB, code shift, and reliability arrays must align")
+
+    sequence_index = np.arange(1, len(enob_bits) + 1)
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(12.0, 7.0))
+    finite_enob = enob_bits[np.isfinite(enob_bits)]
+    constant_marker_y = max(12.0, float(np.max(finite_enob)) + 0.5) if len(finite_enob) else 12.0
+    for rate_index, baud_mbd in enumerate(baud_rates_mbd):
+        good = reliable[:, rate_index] & np.isfinite(enob_bits[:, rate_index])
+        (line,) = axes[0].plot(
+            sequence_index,
+            np.where(good, enob_bits[:, rate_index], np.nan),
+            marker="o",
+            label=f"{baud_mbd} MBd ({baud_mbd / 160:g} MSPS nominal)",
+        )
+        suspect = ~good
+        axes[0].plot(
+            sequence_index[suspect],
+            np.where(
+                np.isfinite(enob_bits[suspect, rate_index]),
+                enob_bits[suspect, rate_index],
+                constant_marker_y,
+            ),
+            marker="x",
+            linestyle="none",
+            color=line.get_color(),
+        )
+        axes[1].plot(sequence_index, mean_shift_lsb[:, rate_index], marker="o", label=f"{baud_mbd} MBd")
+    axes[0].set_ylabel("Noise-equivalent ENOB (bit)")
+    axes[0].legend(ncols=3)
+    axes[1].set_yscale("symlog", linthresh=1.0)
+    axes[1].set_ylabel("Mean code − 2 MSPS reference (LSB)")
+    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
+    axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
+    axes[1].xaxis.set_major_locator(MultipleLocator(5))
+    axes[1].xaxis.set_minor_locator(MultipleLocator(1))
+    for ax in axes:
+        style_grid(ax)
+    fig.suptitle(f"{adc_label} · fixed 50 mV input · × suspect (top ×: constant code)")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_sequence_chip_overview(
+    baud_rates_mbd: Sequence[int],
+    enob_bits: np.ndarray,
+    plausible: np.ndarray,
+    *,
+    title: str,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the median noise-equivalent ENOB and valid ADC count by recipe."""
+
+    if enob_bits.ndim != 3 or enob_bits.shape[0] != 16 or enob_bits.shape[2] != len(baud_rates_mbd):
+        raise ValueError("chip sequence overview requires 16 ADCs and one column per baud rate")
+    if plausible.shape != enob_bits.shape:
+        raise ValueError("chip ENOB and plausibility arrays must align")
+
+    sequence_index = np.arange(1, enob_bits.shape[1] + 1)
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(12.0, 7.0))
+    for rate_index, baud_mbd in enumerate(baud_rates_mbd):
+        medians = np.full(enob_bits.shape[1], np.nan)
+        for index in range(enob_bits.shape[1]):
+            selected = enob_bits[plausible[:, index, rate_index], index, rate_index]
+            if len(selected) >= 12:
+                medians[index] = np.median(selected)
+        axes[0].plot(sequence_index, medians, marker="o", label=f"{baud_mbd} MBd")
+        axes[1].plot(sequence_index, np.sum(plausible[:, :, rate_index], axis=0), marker="o")
+    axes[0].set_ylabel("Median ENOB with ≥12 plausible ADCs (bit)")
+    axes[0].legend(ncols=3)
+    axes[1].set_ylabel("Plausible ADCs of 16")
+    axes[1].set_ylim(-0.5, 16.5)
+    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
+    axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
+    axes[1].xaxis.set_major_locator(MultipleLocator(5))
+    axes[1].xaxis.set_minor_locator(MultipleLocator(1))
+    for ax in axes:
+        style_grid(ax)
+    fig.suptitle(title)
     return save_figure(fig, output_path)
 
 
@@ -1292,7 +1957,7 @@ def plot_adc_noise_distribution_grid(
     legend_box.patch.set_alpha(mpl.rcParams["legend.framealpha"])
     legend_box.patch.set_linewidth(mpl.rcParams["legend.linewidth"])
     fig.add_artist(legend_box)
-    fig.supxlabel("Active conversion rate (MS/s)")
+    fig.supxlabel("Conversion rate (MSPS)")
     fig.supylabel("Output code (LSB)", x=0.01)
     return save_figure(fig, output_path)
 
@@ -1338,24 +2003,33 @@ def plot_adc_dynamic_sweep(
     analysis: AnalysisAdcDynamicSweep,
     *,
     output_path: Path,
+    x_axis: Literal["input_frequency", "sample_rate"] = "input_frequency",
 ) -> tuple[Path, ...]:
     """Plot ENOB and SNDR versus input frequency for each conversion rate."""
 
     fig, axes = plt.subplots(2, 1, sharex=True)
-    groups = np.unique(analysis.sample_rate_hz)
-    for sample_rate_hz in groups:
-        selected = analysis.sample_rate_hz == sample_rate_hz
-        order = np.argsort(analysis.input_frequency_hz[selected])
-        frequency = analysis.input_frequency_hz[selected][order]
-        label = style_frequency_text(sample_rate_hz)
-        axes[0].semilogx(frequency, analysis.spectral_enob_bits[selected][order], marker="o", label=label)
-        axes[1].semilogx(frequency, analysis.spectral_sndr_db[selected][order], marker="o", label=label)
+    if x_axis == "sample_rate":
+        order = np.argsort(analysis.sample_rate_hz)
+        axes[0].plot(
+            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_enob_bits[order], marker="o", label="Spectral"
+        )
+        axes[1].plot(
+            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_sndr_db[order], marker="o", label="Spectral"
+        )
+    else:
+        for sample_rate_hz in np.unique(analysis.sample_rate_hz):
+            selected = analysis.sample_rate_hz == sample_rate_hz
+            order = np.argsort(analysis.input_frequency_hz[selected])
+            frequency = analysis.input_frequency_hz[selected][order]
+            label = style_frequency_text(sample_rate_hz)
+            axes[0].semilogx(frequency, analysis.spectral_enob_bits[selected][order], marker="o", label=label)
+            axes[1].semilogx(frequency, analysis.spectral_sndr_db[selected][order], marker="o", label=label)
     axes[0].set_ylabel("ENOB (bit)")
     axes[1].set_ylabel("SNDR (dB)")
-    axes[1].set_xlabel("Input frequency (Hz)")
+    axes[1].set_xlabel("Repetition rate (MHz)" if x_axis == "sample_rate" else "Input frequency (Hz)")
     for ax in axes:
         style_grid(ax)
-    axes[0].legend(title="Conversion rate")
+    axes[0].legend(title=None if x_axis == "sample_rate" else "Conversion rate")
     style_info_box(axes[1], style_measurement_group_text(msmt_list), location="lower right")
     fig.suptitle("ADC dynamic performance sweep")
     return save_figure(fig, output_path)
@@ -1367,11 +2041,13 @@ def plot_adc_power_sweep(
     analysis: AnalysisAdcPowerSweep,
     *,
     output_path: Path,
+    rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot one source's static and dynamic rail power versus rate."""
 
-    order = np.argsort(analysis.active_conversion_rate_hz)
-    rate_msps = analysis.active_conversion_rate_hz[order] / 1e6
+    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    order = np.argsort(rates)
+    rate_msps = rates[order] / 1e6
     component_labels = (
         "Digital static",
         "DAC static",
@@ -1415,7 +2091,7 @@ def plot_adc_power_sweep(
     total_power_uw = analysis.total_power_w[order] * 1e6
     ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
-    ax.set_xlabel("Active conversion rate (Msps)")
+    ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_xlim(0.0, float(np.max(rate_msps)) + 0.25)
     if np.max(rate_msps) >= 1.0:
         ax.set_xticks(np.arange(1.0, np.floor(np.max(rate_msps)) + 1.0))
@@ -1600,7 +2276,7 @@ def plot_adc_power_waveform(
     setup_lines = [f"Source: {analysis.backend.upper()}"]
     if analysis.adc_index >= 0:
         setup_lines.append(f"ADC: {analysis.adc_index:02d}")
-    setup_lines.append(f"Rate: {analysis.active_conversion_rate_hz / 1e6:g} Msps")
+    setup_lines.append(f"Conversion: {analysis.active_conversion_rate_hz / 1e6:g} MSPS")
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC instantaneous supply power")
     return save_figure(fig, output_path)
@@ -1725,14 +2401,15 @@ def plot_adc_decision_path_density(
     final_mean_code = int(np.rint(np.mean(analysis.final_dout)))
     populated_min = int(np.floor(np.min(analysis.estimate_dout) + 0.5))
     populated_max = int(np.floor(np.max(analysis.estimate_dout) + 0.5))
+    # Keep rare final-code branches visible outside the usual 51-LSB zoom.
     y_limits = (
         (
             max(-0.5, populated_min - 8.5),
             min(normalized_code_max + 0.5, populated_max + 8.5),
         ),
         (
-            max(-0.5, final_mean_code - 25.5),
-            min(normalized_code_max + 0.5, final_mean_code + 25.5),
+            max(-0.5, min(final_mean_code - 25.5, float(np.min(paths[:, -1])) - 2.5)),
+            min(normalized_code_max + 0.5, max(final_mean_code + 25.5, float(np.max(paths[:, -1])) + 2.5)),
         ),
     )
 

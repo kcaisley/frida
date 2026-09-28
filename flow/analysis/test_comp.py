@@ -51,14 +51,16 @@ def comparator_measurement() -> MeasCompInt:
         wave=CompIntWave(
             trial_index=trial_index,
             time_s=time_s,
-            vin_p_v=np.tile((0.6 + vin_diff_v / 2)[:, None], (1, len(time_s))),
-            vin_n_v=np.tile((0.6 - vin_diff_v / 2)[:, None], (1, len(time_s))),
-            clock_v=clock,
-            vout_p_v=0.6 + output / 2,
-            vout_n_v=0.6 - output / 2,
-            comp_p_v=0.6 + output / 2,
-            comp_n_v=0.6 - output / 2,
-            vdd_i=np.full_like(output, 10e-6),
+            voltage={
+                "inp": np.tile((0.6 + vin_diff_v / 2)[:, None], (1, len(time_s))),
+                "inn": np.tile((0.6 - vin_diff_v / 2)[:, None], (1, len(time_s))),
+                "clk": clock,
+                "outp": 0.6 + output / 2,
+                "outn": 0.6 - output / 2,
+                "latch_p": 0.6 + output / 2,
+                "latch_n": 0.6 - output / 2,
+            },
+            current={"vdd": np.full_like(output, 1e-05)},
         ),
     )
 

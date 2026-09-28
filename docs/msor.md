@@ -200,8 +200,10 @@ DEF seed file.
 
 ### 2a. Primitive Abstract Annotation
 
-The existing `mosfet()` and `momcap()` generators emit GDS-layer shapes and
-PIN-layer markers, but they do NOT populate `vlsir.raw.Cell.abstract`. The
+The existing `mosfet()` generator emits GDS-layer shapes and PIN-layer markers,
+but does NOT populate `vlsir.raw.Cell.abstract`. Capacitor layouts are now owned
+by `flow.caparray`; standalone capacitor primitives are no longer exported.
+Any capacitor LEF integration should target the complete array macro. The
 `export_layout()` path in `flow/layout/serialize.py` only fills
 `vlsir.raw.Cell.layout`, not `vlsir.raw.Cell.abstract`. Layout21's LEF
 exporter (`LefExporter`) only exports cells that have `.abs` — cells with
@@ -224,7 +226,7 @@ only `.layout` are silently skipped.
   We either need to add text labels in the generators, or infer pin names
   from position (less robust).
 - [ ] Add pin-name text labels to `mosfet()` generator on each PIN-layer shape
-- [ ] Add pin-name text labels to `momcap()` generator on each PIN-layer shape
+- [ ] Preserve `CapArrayLayout` port labels when building array-macro abstracts
 
 #### Tests
 
@@ -277,7 +279,7 @@ Python reimplementation.
 - [ ] `flow/layout/test_lef.py`
   - [ ] Generate a mosfet layout → `export_layout()` (with Abstract) → `proto_to_lef()`
         → verify output `.lef` file exists and contains `MACRO`, `PIN`, `OBS` keywords
-  - [ ] Generate a momcap layout → same flow → verify LEF
+  - [ ] Generate a capacitor-array layout → same flow → verify array-macro LEF
   - [ ] `emit_tech_lef()` from ihp130 rule deck → verify `LAYER` names match
         rule deck entries, pitches/widths are correct in micron units
   - [ ] Verify tech LEF `UNITS` and `MANUFACTURINGGRID` are present
@@ -602,7 +604,7 @@ Phase 1: Constraint types (no dependencies)
   └── flow/constraint/test_types.py
 
 Phase 2a: Primitive abstract annotation (depends on existing flow/layout/)
-  ├── Add pin-name text labels to mosfet/momcap generators
+  ├── Add mosfet pin-name text labels and preserve capacitor-array port labels
   ├── Extend layout_to_vlsir_raw() to populate Cell.abstract
   └── Tests: verify Abstract is populated with ports/outline/blockages
 
@@ -701,7 +703,7 @@ Files to modify:
 |---|---|
 | `flow/layout/serialize.py` | Populate `Cell.abstract` in `layout_to_vlsir_raw()` (~60 lines) |
 | `flow/mosfet/primitive.py` | Add pin-name text labels on PIN layers (~10 lines) |
-| `flow/momcap/primitive.py` | Add pin-name text labels on PIN layers (~10 lines) |
+| `flow/caparray/laygen.py` | Preserve array port labels when integrating macro abstracts |
 | `flow/cli.py` | Add `openroad` subcommand (~30 lines) |
 
 Existing code reused (NOT reimplemented):

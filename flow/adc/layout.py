@@ -14,11 +14,12 @@ import hdl21 as h
 from hdl21.prefix import f
 from klayout import db
 
-from flow.cdac.laygen import CdacLayout, CdacLayoutParams, UnitLengthCapFamilyParams
-from flow.cdac.subckt import CdacArray, CdacArrayParams, CdacParams, get_cdac_weights
+from flow.caparray.laygen import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams
+from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
+from pdk.tsmc65.ringfmom import LIBRARY, ringfmom_array_params
 from pdk.tsmc65.signoff import SignoffOptions, add_mom_recognition, mom_lvs_device
 
 from .laygen import AdcLayout, AdcLayoutParams, is_valid_adc_layout_params
@@ -44,7 +45,7 @@ def _run_frida1(
     source_netlist_top: str,
     cap_cell: str,
     unit_cell_prefix: str,
-    cdac: CdacParams,
+    cdac: CapArrayConfig,
     active_layers: tuple[int, ...],
     lvs_expectation: Literal["correct", "incorrect"],
 ) -> Path:
@@ -80,8 +81,8 @@ def _run_frida1(
         raise RuntimeError(f"historical annotation changed mask geometry on {sorted(changed)}")
     (run_dir / "recognition_only_diff.json").write_text(json.dumps(diff_summary, indent=2) + "\n", encoding="utf-8")
 
-    array = CdacArray(
-        CdacArrayParams(
+    array = CapArray(
+        CapArrayParams(
             cdac=cdac,
             active_layers=active_layers,
             unit_models=tuple(mom_lvs_device(layer, 5) for layer in active_layers),
@@ -92,10 +93,12 @@ def _run_frida1(
     h.netlist(array, block_source, fmt="spice")
     # The immutable fabricated-macro boundary maps stage C0 to physical pin 15.
     legacy_pins = {name: name for name in array.ports}
-    count = len(get_cdac_weights(cdac))
+    count = len(get_caparray_weights(cdac))
     legacy_pins.update(
         {
-            f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{count - 1 - stage}>"
+            array.ports[f"cap_botplate_{kind}<{stage}>"].name: array.ports[
+                f"cap_botplate_{kind}<{count - 1 - stage}>"
+            ].name
             for kind in ("main", "diff")
             for stage in range(count)
         }
@@ -154,12 +157,12 @@ def _run_frida1(
     return run_dir
 
 
-def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) -> Path:
+def _run_frida2(run_dir: Path, *, target_name: str, params: CapArrayLayoutParams) -> Path:
     run_dir.mkdir(parents=True, exist_ok=False)
     repository = Path(__file__).resolve().parents[2]
     template = db.Layout()
     template.read(str(repository / "build" / "frida-2-template-c0.gds"))
-    replacement = CdacLayout(params)
+    replacement = CapArrayLayout(params)
     adc_params = AdcLayoutParams(top_cell="adc_12b_17step")
     if not is_valid_adc_layout_params(adc_params):
         raise ValueError("invalid FRIDA-2 assembly parameters")
@@ -173,16 +176,11 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
 
     reference_path = repository / "build" / "frida-2-template-c0.cdl"
     reference = reference_path.read_text(encoding="utf-8")
-    array = CdacArray(
-        CdacArrayParams(
-            cdac=params.cdac,
-            coarse_weight=params.family.coarse_weight,
-            active_layers=params.active_layers,
-            unit_models=tuple(mom_lvs_device(layer, params.shield_layer) for layer in params.active_layers),
-        )
-    )
+    array = CapArray(ringfmom_array_params(params))
     array.name = params.top_cell
+    (run_dir / "ringfmom.cdl").write_text(LIBRARY.read_text(), encoding="utf-8")
     block_source = io.StringIO()
+    block_source.write('.INCLUDE "ringfmom.cdl"\n')
     h.netlist(array, block_source, fmt="spice")
     # The paired template/source labels already use chronological C0-first
     # indexing throughout the digital, driver, and capacitor hierarchy.
@@ -203,6 +201,8 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
         omit_subcircuit(reference, "caparray_2layer_radix17"),
         encoding="utf-8",
     )
+    # Same authored capacitors for ideal simulation and LVS; PEX omits them.
+    (run_dir / "source.ideal.cdl").write_text(lvs_source.read_text(), encoding="utf-8")
     run_signoff(
         SignoffParams(
             technology="tsmc65",
@@ -215,8 +215,8 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CdacLayoutParams) ->
             pdk_options=SignoffOptions(
                 gdscheck_suite="adc",
                 drc_unselect_checks=("PO.DN.2", "M7.DN.1", "M8.DN.1", "M9.DN.2", "DRM.R.1", "MOM.R.1"),
-                mom_shield_layer=params.shield_layer,
-                mom_active_layers=params.active_layers,
+                ringfmom=True,
+                pex_engine="xact3d",
             ),
         ),
         run_dir,
@@ -233,7 +233,7 @@ def frida1_1layer_radix17(run_dir: Path) -> Path:
         source_netlist_top="adc_1layer_radix17",
         cap_cell="caparray_1layer_radix17",
         unit_cell_prefix="capunit_1layer",
-        cdac=CdacParams(unit_cap=0.8 * f),
+        cdac=CapArrayConfig(unit_cap=0.8 * f),
         active_layers=(6,),
         lvs_expectation="correct",
     )
@@ -250,7 +250,7 @@ def frida1_1layer_radix20(run_dir: Path) -> Path:
         source_netlist_top="adc_1layer_radix20",
         cap_cell="caparray_1layer_radix20",
         unit_cell_prefix="capunit_1layer",
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=16,
             n_extra=0,
             weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
@@ -272,7 +272,7 @@ def frida1_2layer_radix17(run_dir: Path) -> Path:
         source_netlist_top="adc_2layer_radix17",
         cap_cell="caparray_2layer_radix17",
         unit_cell_prefix="capunit_2layer",
-        cdac=CdacParams(unit_cap=0.8 * f),
+        cdac=CapArrayConfig(unit_cap=0.8 * f),
         active_layers=(6, 7),
         lvs_expectation="incorrect",
     )
@@ -289,7 +289,7 @@ def frida1_2layer_radix20(run_dir: Path) -> Path:
         source_netlist_top="adc_2layer_radix20",
         cap_cell="caparray_2layer_radix20",
         unit_cell_prefix="capunit_2layer",
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=16,
             n_extra=0,
             weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
@@ -304,8 +304,8 @@ def frida2_1layer_radix17(run_dir: Path) -> Path:
     return _run_frida2(
         run_dir,
         target_name="frida2_1layer_radix17",
-        params=CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        params=CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -320,8 +320,8 @@ def frida2_2layer_radix17(run_dir: Path) -> Path:
     return _run_frida2(
         run_dir,
         target_name="frida2_2layer_radix17",
-        params=CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        params=CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -336,8 +336,8 @@ def frida2_3layer_radix17(run_dir: Path) -> Path:
     return _run_frida2(
         run_dir,
         target_name="frida2_3layer_radix17",
-        params=CdacLayoutParams(
-            cdac=CdacParams(unit_cap=0.8 * f),
+        params=CapArrayLayoutParams(
+            cdac=CapArrayConfig(),
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,

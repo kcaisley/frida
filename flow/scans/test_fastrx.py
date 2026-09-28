@@ -2,13 +2,11 @@
 
 ADC01 converts a fixed +50 mV differential input at 0.8 V common mode. The
 default run tests 80--1600 MBd in 40 MBd steps and LOGIC phase offsets -3..+3.
-For each point the analytical capture equation selects RX_SEN and IDELAY,
+For each point an exact characterized profile selects RX_SEN and combined IDELAY,
 FastRX records repeated conversions, and the scope records:
 
-    CH1 ADC differential input
-    CH2 COMP
-    CH3 LOGIC
-    CH4 COMP_OUT
+COMP, LOGIC, and COMP_OUT on their configured map_scope.yaml channels, plus
+the differential ADC input when connected.
 
 The first 17 scope decisions are compared bit-for-bit with the first FastRX
 word. Every scope waveform, ADC conversion record, and noise histogram is
@@ -17,6 +15,21 @@ saved under a new ``build/test_fastrx/<timestamp>`` directory.
 Run the quick physical smoke point:
 
     uv run pytest -q -s -m "hw and not slow" flow/scans/test_fastrx.py -k physical
+
+Run boundary regressions through both production scans (ADC01, 960/1600 MBd):
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py -k adc_scan_boundary
+
+Run FPGA loopback without instruments (ordinary and boundary windows):
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py -k exact_internal
+
+With fixed external ADC input and rails, capture the 2 MSPS comparator edge eye
+using only the FPGA and scope:
+
+    uv run pytest -q -s -m hw flow/scans/test_fastrx.py::test_adc_comp_out_edge_eye
+
+Boundary cases run on the existing 256-byte sequencer RAM.
 
 Run the complete 273-point physical campaign:
 
@@ -40,25 +53,35 @@ from bitarray import bitarray
 from yaml import safe_load
 
 from flow.adc import AdcParams
+from flow.adc.sequences import (
+    SEQUENCES,
+    AdcSequence,
+    symbol160_init4_samp20_comp11110000_logic00001111,
+    symbol160_init4_samp20_comp11111100_logic11000011,
+    symbol256_init8_samp16_comp11110000_logic11000011,
+)
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
+    analyze_adc_comp_out_edge_eye,
     analyze_adc_noise_sweep,
     analyze_scope_wave_to_bits,
 )
 from flow.analysis.io import (
-    scope_records_to_adc_wave,
+    read_measurement,
     write_measurement,
 )
 from flow.analysis.plots import (
     plot_adc_code_distribution,
+    plot_adc_comp_out_edge_eye,
     plot_adc_fastrx_scope_comparison,
     plot_adc_noise_sweep,
 )
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
-from flow.scans.fastrx import calculate_fastrx_capture_alignment, convert_fastrx_words_to_adc
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.scans import scan_adc, scan_adc_noctl
+from flow.scans.fastrx import convert_fastrx_words_to_adc, program_comp_delay, select_fastrx_capture_settings
+from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
@@ -66,11 +89,12 @@ from flow.scans.scan_adc import (
     convert_vdiff_input_to_awg_supply,
 )
 from flow.scans.scope import (
-    FRIDA_SCOPE_CHANNELS,
+    scope_channels,
+    scope_records_to_adc_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
-from flow.scans.seqgen import convert_params_to_seqgen_fmt
+from flow.scans.seqgen import build_fastrx_capture_pattern, convert_params_to_seqgen_fmt
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_fastrx"
@@ -91,8 +115,6 @@ SMOKE_SYMBOL_RATE_BPS = 800.0e6
 SMOKE_LOGIC_OFFSET = 0
 SMOKE_CONVERSIONS = 100
 
-SCOPE_TRACKS = {channel: track for track, channel in FRIDA_SCOPE_CHANNELS.items()}
-SCOPE_TRIGGER_CHANNEL = FRIDA_SCOPE_CHANNELS["seq_logic"]
 SCOPE_RECORD_LENGTH = 10_000
 SCOPE_BANDWIDTH_HZ = 2.0e9
 SCOPE_VERTICAL_SCALE_V = 0.2
@@ -124,6 +146,7 @@ FASTRX_TRAILING_DRAIN_S = 0.01
         ),
     ),
 )
+@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_physical_fastrx_matches_scope(
     symbol_rates_bps: tuple[float, ...],
     logic_offsets: tuple[int, ...],
@@ -132,14 +155,20 @@ def test_physical_fastrx_matches_scope(
 ) -> None:
     """Hardware: compare physical comparator decisions with FastRX capture."""
 
+    timing_sequences = tuple(
+        sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+    )
+    channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
+    SCOPE_TRACKS = {channel: name for name, channel in channels.items()}
+    SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
     board_map = load_board_map()
     board = board_map["boards"][BOARD_ID]
-    timing_model = board["capture_timing_model"]
+    capture_profiles = board["fastrx_capture_settings"]
     flavor_name = board["adc_channels"][ADC_INDEX]
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
     dut_params = AdcParams(
         adc_bits=12,
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
             redun_strat=RedunStrat.SUBRDX2_OVLY,
@@ -159,6 +188,19 @@ def test_physical_fastrx_matches_scope(
         observed_adc=ADC_INDEX,
         active_adc_mask=active_adc_mask,
     )
+
+    # Reject missing profiles for any point before opening laboratory instruments.
+    for rate in symbol_rates_bps:
+        for offset in logic_offsets:
+            planned = dataclasses.replace(
+                base_params,
+                tb=dataclasses.replace(
+                    base_params.tb,
+                    symbol_rate=rate,
+                    seq_logic_pattern=timing_sequences[int(offset) + 3].logic,
+                ),
+            )
+            select_fastrx_capture_settings(planned, capture_profiles)
 
     maximum_supply_v = float(board["supply_limits"]["maximum_voltage_v"])
     if not 0.0 < VDD_V <= maximum_supply_v:
@@ -333,7 +375,7 @@ def test_physical_fastrx_matches_scope(
         scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
         scope.set_trigger_mode("NORMAL")
 
-        cap_weights = get_cdac_weights(base_params.tb.dut.cdac)
+        cap_weights = get_caparray_weights(base_params.tb.dut.cdac)
         code_weights = convert_dac_caps_to_adc_weights(cap_weights)
         data_size = int(daq["fastrx0"].get_size())
         if data_size != len(code_weights):
@@ -349,29 +391,13 @@ def test_physical_fastrx_matches_scope(
                 tb=dataclasses.replace(
                     base_params.tb,
                     symbol_rate=symbol_rate_bps,
-                    seq_logic_phase_delay_symbols=logic_offset,
+                    seq_logic_pattern=timing_sequences[int(logic_offset) + 3].logic,
                 ),
             )
             validate_params(params)
-            alignment = calculate_fastrx_capture_alignment(
-                params.tb,
-                **timing_model,
-            )
-            phase_advance = alignment.control_phase_advance_symbols
-            if phase_advance:
-                params = dataclasses.replace(
-                    params,
-                    tb=dataclasses.replace(
-                        params.tb,
-                        seq_init_phase_delay_symbols=float(params.tb.seq_init_phase_delay_symbols) - phase_advance,
-                        seq_samp_phase_delay_symbols=float(params.tb.seq_samp_phase_delay_symbols) - phase_advance,
-                        seq_comp_phase_delay_symbols=float(params.tb.seq_comp_phase_delay_symbols) - phase_advance,
-                        seq_logic_phase_delay_symbols=float(params.tb.seq_logic_phase_delay_symbols) - phase_advance,
-                    ),
-                )
-                validate_params(params)
+            alignment = select_fastrx_capture_settings(params, capture_profiles)
             rx_sen_start_word = alignment.rx_sen_start_word
-            comp_idelay_taps = alignment.comp_idelay_taps
+            comp_idelay_taps = alignment.comp_delay_taps
             rx_sen_stop_word = rx_sen_start_word + len(code_weights)
             rx_sen_pattern = (
                 "0" * rx_sen_start_word + "1" * len(code_weights) + "0" * (sequence_words - rx_sen_stop_word)
@@ -393,9 +419,7 @@ def test_physical_fastrx_matches_scope(
             print(
                 f"\n[{point_index}/{len(symbol_rates_bps) * len(logic_offsets)}] "
                 f"{symbol_rate_bps / 1e6:g} MBd, LOGIC {logic_offset:+d}: "
-                f"phase advance={phase_advance}, RX_SEN={rx_sen_start_word}, tap={comp_idelay_taps}, "
-                f"predicted setup={alignment.setup_margin_s * 1e9:.3f} ns, "
-                f"hold={alignment.hold_margin_s * 1e9:.3f} ns"
+                f"RX_SEN={rx_sen_start_word}, tap={comp_idelay_taps}, "
             )
 
             daq["si570"].frequency_change(si570_frequency_hz / 1e6)
@@ -404,14 +428,7 @@ def test_physical_fastrx_matches_scope(
 
             # Program comparator IDELAY through the GPIO1 transaction exercised
             # independently by test_gpio.py.
-            daq["gpio1"].read()
-            if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-                raise RuntimeError("comparator IDELAYCTRL is not ready")
-            daq["gpio1"]["COMP_IDELAY_TAPS"] = comp_idelay_taps
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-            daq["gpio1"].write()
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-            daq["gpio1"].write()
+            program_comp_delay(daq["gpio1"], comp_idelay_taps)
 
             # Program the 64-bit sequencer memory with the same public Basil
             # calls exercised by test_seqgen.py.
@@ -510,10 +527,9 @@ def test_physical_fastrx_matches_scope(
                     readbacks={
                         "rx_sen_start_word": rx_sen_start_word,
                         "comp_idelay_taps": comp_idelay_taps,
-                        "control_phase_advance_symbols": phase_advance,
+                        "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
+                        "control_phase_advance_symbols": 0,
                         "scope_comp_out_inverted": False,
-                        "predicted_setup_margin_s": alignment.setup_margin_s,
-                        "predicted_hold_margin_s": alignment.hold_margin_s,
                     },
                 ),
                 param=params,
@@ -528,12 +544,7 @@ def test_physical_fastrx_matches_scope(
                 wave=scope_records_to_adc_wave(
                     [waveforms],
                     [0],
-                    {
-                        "vin_diff_v": FRIDA_SCOPE_CHANNELS["adc_vdiff"],
-                        "seq_comp_v": FRIDA_SCOPE_CHANNELS["seq_comp"],
-                        "seq_logic_v": FRIDA_SCOPE_CHANNELS["seq_logic"],
-                        "comp_out_v": FRIDA_SCOPE_CHANNELS["comp_out"],
-                    },
+                    {f"{name}_v": channel for name, channel in channels.items()},
                 ),
             )
             scope_analysis = analyze_scope_wave_to_bits(measurement)
@@ -574,12 +585,8 @@ def test_physical_fastrx_matches_scope(
                     "comparator_time_percent": 50.0 + 12.5 * logic_offset,
                     "rx_sen_start_word": rx_sen_start_word,
                     "comp_idelay_taps": comp_idelay_taps,
-                    "control_phase_advance_symbols": phase_advance,
-                    "predicted_earliest_data_arrival_s": alignment.earliest_data_arrival_s,
-                    "predicted_latest_data_arrival_s": alignment.latest_data_arrival_s,
-                    "predicted_capture_edge_s": alignment.capture_edge_s,
-                    "predicted_setup_margin_s": alignment.setup_margin_s,
-                    "predicted_hold_margin_s": alignment.hold_margin_s,
+                    "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
+                    "control_phase_advance_symbols": 0,
                     "scope_bits": scope_analysis.scope_bit_string,
                     "fastrx_bits": scope_analysis.fastrx_bit_string,
                     "bit_mismatches": scope_analysis.mismatch_count,
@@ -669,33 +676,82 @@ def test_physical_fastrx_matches_scope(
 
 
 INTERNAL_EXPECTED_BITS = "10110100101100101"
-INTERNAL_TEST_REPEATS = 64
 INTERNAL_CAPTURE_TIMEOUT_S = 2.0
 
 
 @pytest.mark.hw
-def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
+@pytest.mark.parametrize("symbol_rate", (960e6, 1600e6))
+@pytest.mark.parametrize(
+    "sequence",
+    (symbol256_init8_samp16_comp11110000_logic11000011, symbol160_init4_samp20_comp11110000_logic00001111),
+    ids=("ordinary", "wrapped"),
+)
+@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
+def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, linux_gpib_interface: None) -> None:
+    """Exercise both production scans and compare instrumented ADC data with scope."""
+    params = build_adc_variants(
+        board_id=BOARD_ID,
+        adc_indices=(ADC_INDEX,),
+        active_conversion_rates_hz=(10e6,),
+        sequences=(sequence,),
+        conversions=2050,
+        vin_cm_v=0.700,
+        vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
+    )[0]
+    params = dataclasses.replace(params, tb=dataclasses.replace(params.tb, symbol_rate=symbol_rate))
+    run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_adc_wrap")
+    try:
+        scan_adc.scan(params, run_dir=run_dir, position="first")
+        # Use the same powered bench to exercise the FPGA-only scan path.
+        scan_adc_noctl.scan(params, run_dir=run_dir, position="middle")
+    finally:
+        scan_adc.scan(params, run_dir=run_dir, position="abort")
+
+    paths = sorted(run_dir.glob("*.h5"))
+    assert len(paths) == 2
+    measurements = [read_measurement(path) for path in paths]
+    for measurement in measurements:
+        assert isinstance(measurement, MeasAdcExt)
+        assert len(measurement.daq.conversion_index) == 2050
+        assert measurement.info.readbacks["fastrx_lost_count"] == 0
+    instrumented = measurements[0]
+    assert isinstance(instrumented, MeasAdcExt)
+    comparison = analyze_scope_wave_to_bits(instrumented)
+    plot_adc_fastrx_scope_comparison(instrumented, comparison, output_path=run_dir / "scope_comparison")
+    print(f"scope={comparison.scope_bit_string}, FastRX={comparison.fastrx_bit_string}; {run_dir}")
+    assert comparison.mismatch_count == 0
+
+
+@pytest.mark.hw
+@pytest.mark.parametrize(
+    "sequence,boundary_case",
+    [
+        pytest.param(row, boundary, id=f"{name}-{'boundary' if boundary else 'ordinary'}")
+        for name in (
+            "symbol256_init8_samp16_comp11110000_logic11000011",
+            "symbol256_init8_samp16_comp11111100_logic00000010",
+            "symbol160_init4_samp20_comp11111100_logic00000010",
+            "symbol160_init4_samp20_comp11111110_logic00000001",
+        )
+        for row in (dict(SEQUENCES)[name],)
+        for boundary in (False, True)
+        if not boundary or len(row.init) < 256
+    ],
+)
+def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, boundary_case: bool) -> None:
     """Hardware: capture every test bit in order with contiguous frame IDs."""
 
-    params = AdcTbParams()
-    timing_model = load_board_map()["boards"]["00"]["capture_timing_model"]
-    capture_start_words = sorted(
-        {
-            calculate_fastrx_capture_alignment(
-                dataclasses.replace(params, symbol_rate=rate_mbd * 1.0e6),
-                **timing_model,
-            ).rx_sen_start_word
-            for rate_mbd in range(80, 1601, 80)
-        }
+    params = AdcTbParams(
+        seq_init_pattern=sequence.init,
+        seq_samp_pattern=sequence.samp,
+        seq_comp_pattern=sequence.comp,
+        seq_logic_pattern=sequence.logic,
     )
     sequence_words = len(params.seq_init_pattern) // 8
-    first_capture_stop_word = capture_start_words[0] + len(INTERNAL_EXPECTED_BITS)
-    first_rx_sen_pattern = (
-        "0" * capture_start_words[0]
-        + "1" * len(INTERNAL_EXPECTED_BITS)
-        + "0" * (sequence_words - first_capture_stop_word)
-    )
-    memory = convert_params_to_seqgen_fmt(params, first_rx_sen_pattern)
+    # Exercise every receive word offset, including wrapped first/last frames.
+    capture_start_words = list(range(sequence_words))
+    run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_internal_wrap")
+    run_dir.mkdir(parents=True)
 
     # Initialize only the hardware blocks participating in this loopback.
     config = safe_load((MAP_DIR / "map_fpga.yaml").read_text())
@@ -726,10 +782,15 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
         gpio.read()
         original_gpio = {field: gpio[field].tovalue() for field in gpio_fields}
         original_seq = {
-            "memory": bytes(seq.get_data(size=len(memory))),
+            "memory": bytes(seq.get_data()),
             "size": int(seq.get_size()),
             "clk_divide": int(seq.get_clk_divide()),
             "repeat": int(seq.get_repeat()),
+            "wait": int(seq.get_wait()),
+            "repeat_start": int(seq.get_repeat_start()),
+            "nested_start": int(seq.get_nested_start()),
+            "nested_stop": int(seq.get_nested_stop()),
+            "nested_repeat": int(seq.get_nested_repeat()),
             "en_ext_start": int(seq.get_en_ext_start()),
         }
 
@@ -740,66 +801,87 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
         gpio["RX_EN_MUX"] = 1
         gpio.write()
 
-        for capture_start_word in capture_start_words:
-            capture_stop_word = capture_start_word + len(INTERNAL_EXPECTED_BITS)
-            rx_sen_pattern = (
-                "0" * capture_start_word
-                + "1" * len(INTERNAL_EXPECTED_BITS)
-                + "0" * (sequence_words - capture_stop_word)
-            )
-            memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
+        print(f"FPGA sequencer RAM: {seq.get_mem_size()} bytes")
+        for capture_start_word, repeats in (
+            (start, count)
+            for start in capture_start_words
+            for count in ((1, 2050, 100000) if start == (7 if sequence_words == 20 else 9) else (1, 2050))
+        ):
+            memory = build_fastrx_capture_pattern(params, capture_start_word, len(INTERNAL_EXPECTED_BITS))
+            boundary = capture_start_word + len(INTERNAL_EXPECTED_BITS) >= sequence_words
+            if boundary != boundary_case:
+                continue
+            startup = int(capture_start_word + len(INTERNAL_EXPECTED_BITS) > sequence_words)
             # Byte lane four carries RX_SEN in bit zero and RX_TEST in bit one.
-            for bit_index, bit in enumerate(INTERNAL_EXPECTED_BITS):
-                if bit == "1":
-                    memory[(capture_start_word + bit_index) * 8 + 4] |= 1 << 1
+            for word_index in range(len(memory) // 8):
+                bit_index = (word_index % sequence_words - capture_start_word) % sequence_words
+                if bit_index < len(INTERNAL_EXPECTED_BITS) and INTERNAL_EXPECTED_BITS[bit_index] == "1":
+                    memory[word_index * 8 + 4] |= 1 << 1
 
+            daq["fastrx0"].set_en(False)
             seq.reset()
-            daq["fastrx0"].reset()
             sleep(0.001)
+            seq.set_data(bytes(seq.get_mem_size()))
             seq.set_data(memory)
-            seq.set_size(sequence_words)
+            seq.set_size(len(memory) // 8)
+            assert seq.get_size() == sequence_words
+            assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
             seq.set_clk_divide(1)
-            seq.set_repeat(INTERNAL_TEST_REPEATS)
+            seq.set_wait(0)
+            seq.set_repeat_start(0)
+            seq.set_repeat(0)
+            seq.set_nested_repeat(0)
             seq.set_en_ext_start(False)
-            daq["fastrx0"].set_en(True)
+            daq["fastrx0"].reset()
+            sleep(FASTRX_TRAILING_DRAIN_S)
             assert int(daq["fastrx0"].get_size()) == len(INTERNAL_EXPECTED_BITS)
 
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
+            daq["fastrx0"].set_en(True)
             seq.start()
             deadline = monotonic() + INTERNAL_CAPTURE_TIMEOUT_S
-            while not seq.is_done():
-                if monotonic() >= deadline:
-                    raise TimeoutError("sequencer did not finish the FastRX loopback")
-                sleep(0.001)
 
-            expected_fifo_bytes = 4 * INTERNAL_TEST_REPEATS
+            expected_fifo_bytes = 4 * (repeats + startup)
             while int(daq["fifo0"]["FIFO_SIZE"]) < expected_fifo_bytes:
                 if monotonic() >= deadline:
                     raise TimeoutError("FastRX did not deliver every loopback frame")
                 sleep(0.001)
-            sleep(0.01)
+            daq["fastrx0"].set_en(False)
+            seq.reset()
+            sleep(FASTRX_TRAILING_DRAIN_S)
 
             words = list(daq["fifo0"].get_data())
-            assert len(words) == INTERNAL_TEST_REPEATS
-            expected_data = int(INTERNAL_EXPECTED_BITS, 2)
-            for frame_index, word in enumerate(words):
-                identifier, frame, data = daq["fastrx0"].parse_word(int(word))
-                assert identifier == 1
-                assert frame == frame_index
-                assert data == expected_data, (
-                    f"start word {capture_start_word}, frame {frame_index}: "
-                    f"captured {data:017b}, expected {INTERNAL_EXPECTED_BITS}"
-                )
+            np.save(
+                run_dir / f"{sequence_words}words_start{capture_start_word}_n{repeats}.npy",
+                np.asarray(words, dtype=np.uint32),
+            )
+            assert len(words) >= repeats + startup
+            sleep(FASTRX_TRAILING_DRAIN_S)
+            assert len(daq["fifo0"].get_data()) == 0, "FastRX kept producing after receiver stop"
+            bout, _, _ = convert_fastrx_words_to_adc(words, 17, [1] * 17, 12)
+            expected_bits = np.array([int(bit) for bit in INTERNAL_EXPECTED_BITS])
+            assert np.all(bout[startup:] == expected_bits), "corrupt complete loopback frame"
+            assert bout[startup : startup + repeats].shape == (repeats, 17)
             assert int(daq["fastrx0"].get_lost_count()) == 0
+            print(
+                f"PASS: period={sequence_words} start={capture_start_word} repeats={repeats} "
+                f"startup={startup} received={len(words)}; exact data, frame counters and receiver stop; {run_dir}"
+            )
     finally:
         try:
             if seq is not None and original_seq is not None:
+                daq["fastrx0"].set_en(False)
                 seq.reset()
                 seq.set_data(original_seq["memory"])
                 seq.set_size(original_seq["size"])
                 seq.set_clk_divide(original_seq["clk_divide"])
                 seq.set_repeat(original_seq["repeat"])
+                seq.set_wait(original_seq["wait"])
+                seq.set_repeat_start(original_seq["repeat_start"])
+                seq.set_nested_start(original_seq["nested_start"])
+                seq.set_nested_stop(original_seq["nested_stop"])
+                seq.set_nested_repeat(original_seq["nested_repeat"])
                 seq.set_en_ext_start(original_seq["en_ext_start"])
             if gpio is not None and original_gpio is not None:
                 for field, value in original_gpio.items():
@@ -811,3 +893,180 @@ def test_fastrx_captures_exact_internal_17_bit_pattern() -> None:
                 daq["fifo0"].get_data()
         finally:
             daq.close()
+
+
+@pytest.mark.hw
+@pytest.mark.slow
+@pytest.mark.scope_signals("seq_init", "seq_comp", "comp_out")
+def test_adc_comp_out_edge_eye() -> None:
+    """Measure repeated 2 MSPS comparator edge timing with fixed manual input."""
+
+    from basil.dut import Dut
+
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    params = build_adc_variants(
+        board_id=BOARD_ID,
+        adc_indices=(ADC_INDEX,),
+        active_conversion_rates_hz=(2e6,),
+        sequences=(sequence,),
+        conversions=1,
+        vin_cm_v=0.700,
+        vin_diff=h.Vdc.Params(dc=0.050),
+    )[0]
+    symbol_rate_bps = float(params.tb.symbol_rate)
+    assert symbol_rate_bps == 320e6
+    channels = scope_channels("seq_init", "seq_comp", "comp_out")
+    tracks = {channels["seq_comp"]: "seq_comp", channels["comp_out"]: "comp_out"}
+    run_dir = OUTPUT_DIR / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") / "comp_out_edge_eye"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    captures = []
+
+    config = safe_load((MAP_DIR / "map_fpga.yaml").read_text())
+    config["hw_drivers"] = [
+        driver
+        for driver in config["hw_drivers"]
+        if driver["name"] in {"seq0", "spi0", "gpio0", "gpio2", "i2c0", "si570"}
+    ]
+    config["registers"] = [
+        register for register in config["registers"] if register["name"] in {"seq0", "gpio0", "gpio2"}
+    ]
+    daq = Dut(config)
+    scope_dut = Dut(str(MAP_DIR / "map_scope.yaml"))
+    seq = scope = None
+    clock_changed = False
+    try:
+        daq.init()
+        seq = daq["seq0"]
+        assert seq.is_ready, "sequencer must be idle before changing clocks"
+        scope_dut.init()
+        scope = scope_dut["scope"]
+        scope.set_acquire_state("STOP")
+        scope.set_acquire_mode("SAMPLE")
+        scope.set_acquire_stop_after("SEQUENCE")
+        scope._intf.write("HORizontal:MODe MANual")
+        scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
+        scope.set_horizontal_record_length(5_000)
+        scope._intf.write("HORizontal:POSition 2")
+        sample_rate_hz = float(response_value(scope._intf.query("HORizontal:SAMPLERate?")))
+        record_length = int(response_value(scope.get_horizontal_record_length()))
+        assert record_length / sample_rate_hz >= 600e-9, "scope record must cover all 17 decisions"
+        for channel in tracks:
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+            scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_coupling("DC", channel=channel)
+            scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
+        scope._intf.write(f"DISplay:GLObal:CH{channels['seq_init']}:STATE ON")
+        scope.set_trigger_type("EDGE")
+        scope.set_trigger_source(channel=channels["seq_init"])
+        scope.set_trigger_edge_slope("RISE")
+        scope.set_trigger_level(0.0, channel=channels["seq_init"])
+        scope.set_trigger_mode("NORMAL")
+        # A arms on the startup INIT; B selects the next complete conversion.
+        scope._intf.write("TRIGger:B:STATE OFF")
+        scope._intf.write("TRIGger:B:BY EVENTS")
+        scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
+        scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{channels['seq_init']}")
+        scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
+        scope._intf.write("TRIGger:B:EDGE:COUPling DC")
+        scope._intf.write(f"TRIGger:B:LEVel:CH{channels['seq_init']} 0")
+        scope._intf.write("TRIGger:B:STATE ON")
+
+        daq["gpio0"]["RST_B"] = 0
+        daq["gpio0"]["AMP_EN"] = 1
+        daq["gpio0"]["RX_LOOPBACK"] = 0
+        daq["gpio0"]["SPI_LOOPBACK"] = 0
+        daq["gpio0"]["DBG_FIFO"] = 0
+        daq["gpio0"]["RX_TIEHIGH"] = 0
+        daq["gpio0"]["SEQ_START"] = 0
+        daq["gpio0"]["RX_EN_MUX"] = 1
+        daq["gpio0"].write()
+        daq["gpio0"]["RST_B"] = 1
+        daq["gpio0"].write()
+        spi_bytes = convert_params_to_spi_fmt(params)
+        for _ in range(2):
+            daq["spi0"].set_data(list(spi_bytes))
+            daq["spi0"].set_size(180)
+            daq["spi0"].start()
+            daq["spi0"].wait_for_ready()
+        readback_bits = bitarray()
+        readback_bits.frombytes(bytes(daq["spi0"].get_data(size=23)))
+        expected_bits = bitarray()
+        expected_bits.frombytes(spi_bytes)
+        assert (expected_bits[:180][1:] ^ readback_bits[:180][1:]).count(1) == 0, "SPI readback mismatch"
+
+        si570_frequency_hz, divider_n = select_pll_configuration(symbol_rate_bps)
+        daq["si570"].frequency_change(si570_frequency_hz / 1e6)
+        sleep(SI570_SETTLE_S)
+        set_pll_divider(daq["gpio2"], divider_n)
+        clock_changed = True
+        memory = convert_params_to_seqgen_fmt(params.tb, "0" * (len(sequence.init) // 8))
+        seq.reset()
+        seq.set_data(bytes(seq.get_mem_size()))
+        seq.set_data(memory)
+        seq.set_size(len(sequence.init) // 8)
+        seq.set_clk_divide(1)
+        seq.set_repeat(4)
+        seq.set_en_ext_start(False)
+        assert bytes(seq.get_data(size=len(memory))) == bytes(memory)
+
+        for capture_index in range(256):
+            scope._intf.write("ACQuire:NUMACq:RESET")
+            scope.set_acquire_state("RUN")
+            before = wait_for_scope_armed(scope, timeout_s=5.0)
+            seq.start()
+            wait_for_scope_capture(scope, before, timeout_s=5.0)
+            assert seq.is_ready, "finite sequencer run did not finish"
+            captured = scope.get_waveforms(tracks)
+            if set(captured) != set(tracks):
+                raise RuntimeError(f"scope returned channels {sorted(captured)}, expected {sorted(tracks)}")
+            captures.append(captured)
+        aligned = sequence.relative_to_init()
+        first_comp = aligned.comp.index("1") + 8
+        context = (
+            f"COMP {aligned.comp[first_comp : first_comp + 8]}; "
+            f"LOGIC {aligned.logic[first_comp : first_comp + 8]} (B1 word)\n"
+            f"{symbol_rate_bps / 1e6:g} MBd; ADC01; FRIDA-1 1-layer radix20; Scope measurement"
+        )
+        analysis = analyze_adc_comp_out_edge_eye(
+            captures,
+            comp_channel=channels["seq_comp"],
+            comp_out_channel=channels["comp_out"],
+            sequence=sequence,
+            symbol_rate_bps=symbol_rate_bps,
+        )
+        paths = plot_adc_comp_out_edge_eye(
+            analysis,
+            output_path=run_dir / "msmt_adc01_2msps_comp",
+            context=context,
+        )
+        bounds_s = analysis.delay_bounds_s
+        print(f"Observed COMP_OUT delay bounds: {bounds_s[0] * 1e9:.3f}..{bounds_s[1] * 1e9:.3f} ns")
+        for path in paths:
+            print(f"Saved comparator timing result: {path}")
+    finally:
+        try:
+            if seq is not None:
+                seq.reset()
+                seq.set_data(bytes(8))
+                seq.set_size(1)
+                seq.set_repeat(1)
+                seq.set_clk_divide(1)
+                seq.set_en_ext_start(False)
+                seq.start()
+                daq["gpio0"]["RST_B"] = 0
+                daq["gpio0"]["AMP_EN"] = 0
+                daq["gpio0"].write()
+            if clock_changed:
+                daq["si570"].frequency_change(200.0)
+                sleep(SI570_SETTLE_S)
+                set_pll_divider(daq["gpio2"], 2)
+        finally:
+            try:
+                if scope is not None:
+                    scope.set_acquire_state("STOP")
+                    scope._intf.write("TRIGger:B:STATE OFF")
+            finally:
+                scope_dut.close()
+                daq.close()

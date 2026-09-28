@@ -1,9 +1,9 @@
-"""Measure the quiet THS4541 differential output with the CH1 probe.
+"""Measure the quiet THS4541 differential output using the configured vin_diff probe.
 
 The Agilent 33250A applies the calibrated DC level required for zero
 differential THS4541 output, the E3634A sets the output common mode to 0.7 V,
-and the TDP3500 differential probe on MSO54 CH1 measures ``Vin_p - Vin_n``.
-CH1 uses its minimum accepted 20 MHz
+and the TDP3500 probe measures ``Vin_p - Vin_n`` on the channel recorded in
+map_scope.yaml. The scope uses its minimum accepted 20 MHz
 bandwidth and minimum accepted 2.5 mV/div scale for the final capture. The
 MSO54 may quantize the requested 100 ksample record to a longer supported
 length; the accepted value is preserved in the summary.
@@ -35,7 +35,7 @@ import flow.analysis.plots as analysis_plots
 from flow.analysis.diffamp import analyze_diffamp_noise
 from flow.analysis.plots import plot_diffamp_noise
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import FRIDA_SCOPE_CHANNELS, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import scope_channels, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_noise"
@@ -53,8 +53,6 @@ DC_NULL_TOLERANCE_V = 0.25e-3
 MAX_DC_NULL_ITERATIONS = 3
 MAX_ABSOLUTE_AWG_DC_V = 2.25
 
-SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["adc_vdiff"]
-SCOPE_TRACKS = {SCOPE_CHANNEL: "vdiff_ch1"}
 SCOPE_BANDWIDTH_HZ = 20.0e6
 SCOPE_RECORD_LENGTH = 100_000
 SCOPE_HORIZONTAL_SCALE_S = 1.0e-3
@@ -65,8 +63,12 @@ SCOPE_ARM_TIMEOUT_S = 5.0
 
 
 @pytest.mark.hw
+@pytest.mark.scope_signals("vin_diff")
 def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
     """Configure the bench, acquire one quiet waveform, and save its analysis."""
+
+    SCOPE_CHANNEL = scope_channels("vin_diff")["vin_diff"]
+    SCOPE_TRACKS = {SCOPE_CHANNEL: "vin_diff"}
 
     if not 0.0 < ASIC_SUPPLY_V <= 1.2:
         raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
@@ -160,9 +162,13 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         print(f"AWG: {awg_id}")
         print(f"VIN_CM supply: {supply_id}")
         print(f"Scope: {scope_id}")
-        print(f"Scope CH1: probe={probe_type}, input_resistance={probe_resistance_ohm:g} ohm, gain={probe_gain:g}")
+        print(
+            f"Scope CH{SCOPE_CHANNEL}: probe={probe_type}, input_resistance={probe_resistance_ohm:g} ohm, gain={probe_gain:g}"
+        )
         if probe_type.upper() != "TDP3500" or probe_resistance_ohm < 10.0e3:
-            raise RuntimeError("scope CH1 does not have the expected high-impedance TDP3500 probe")
+            raise RuntimeError(
+                "scope differential-input channel does not have the expected high-impedance TDP3500 probe"
+            )
 
         scope_state = {
             "acquire_state": response_value(scope.get_acquire_state()),
@@ -239,10 +245,12 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         scope.set_acquire_state("STOP")
         coarse_waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
         if SCOPE_CHANNEL not in coarse_waveforms:
-            raise RuntimeError("scope did not return the coarse CH1 waveform")
+            raise RuntimeError("scope did not return the coarse differential-input channel waveform")
         coarse_samples_v = np.asarray(coarse_waveforms[SCOPE_CHANNEL].data, dtype=np.float64)
         coarse_mean_v = float(np.mean(coarse_samples_v))
-        print(f"Coarse CH1: mean={coarse_mean_v * 1e3:.3f} mV, RMS={np.std(coarse_samples_v) * 1e3:.3f} mV")
+        print(
+            f"Coarse CH{SCOPE_CHANNEL}: mean={coarse_mean_v * 1e3:.3f} mV, RMS={np.std(coarse_samples_v) * 1e3:.3f} mV"
+        )
 
         scope.set_vertical_offset(coarse_mean_v, channel=SCOPE_CHANNEL)
         scope.set_vertical_scale(SCOPE_FINE_VERTICAL_SCALE_V, channel=SCOPE_CHANNEL)
@@ -353,7 +361,9 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         )
         print(f"Artifacts: {run_dir}")
         if clipped:
-            raise RuntimeError("fine CH1 waveform approaches the scope range limit; artifacts were retained")
+            raise RuntimeError(
+                "fine differential-input channel waveform approaches the scope range limit; artifacts were retained"
+            )
         if abs(analysis.mean_v - TARGET_VDIFF_DC_V) > DC_NULL_TOLERANCE_V:
             raise RuntimeError(
                 f"differential-output mean {analysis.mean_v:g} V remains outside "

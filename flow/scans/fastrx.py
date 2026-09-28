@@ -1,30 +1,19 @@
-"""Pure FastRX alignment and host-side word decoding for physical scans."""
+"""FastRX capture settings, comparator-delay programming, and word decoding."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from flow.adc.sim import AdcTbParams
-from flow.cdac import get_cdac_weights
+from flow.adc.sequences import SEQUENCES, AdcSequence
 
-
-@dataclass(frozen=True, slots=True)
-class FastRxCaptureAlignment:
-    """One analytically selected FastRX timing aperture."""
-
-    rx_sen_start_word: int
-    comp_idelay_taps: int
-    control_phase_advance_symbols: int
-    first_comp_transition_symbol: int
-    earliest_data_arrival_s: float
-    latest_data_arrival_s: float
-    capture_edge_s: float
-    setup_margin_s: float
-    hold_margin_s: float
+if TYPE_CHECKING:
+    from flow.scans.params import AdcScanParams
 
 
 def convert_fastrx_words_to_adc(
@@ -114,287 +103,154 @@ def convert_fastrx_words_to_comp(
     return (payload & 1).astype(np.uint8), frames.astype(np.uint32)
 
 
-def calculate_fastrx_capture_alignment(
-    params: AdcTbParams,
+@dataclass(frozen=True, slots=True)
+class FastRxCapture:
+    """The two independent receive controls; ADC output rows are never changed."""
+
+    comp_delay_taps: int
+    rx_sen_start_word: int
+
+    def __post_init__(self) -> None:
+        if type(self.comp_delay_taps) is not int or not 0 <= self.comp_delay_taps <= 62:
+            raise ValueError("comp_delay_taps must be an integer in 0..62")
+        if type(self.rx_sen_start_word) is not int or not 0 <= self.rx_sen_start_word < 32:
+            raise ValueError("rx_sen_start_word must be an integer in 0..31")
+
+
+def calculate_fastrx_capture_settings(
+    sequence: AdcSequence,
+    symbol_rate_bps: float,
     *,
-    seqgen_pipeline_cycles: float,
-    oserdes_to_output_s: float,
-    external_comp_delay_min_s: float,
-    external_comp_delay_max_s: float,
-    comp_input_to_fastrx_d_s: float,
-    launch_to_capture_clock_skew_s: float,
-    idelay_tap_s: float,
-    idelay_tap_count: int,
-    idelay_setup_backoff_taps: int,
-    maximum_control_phase_advance_symbols: int,
-    minimum_capture_margin_s: float,
-) -> FastRxCaptureAlignment:
-    """Center FastRX sampling inside the measured comparator-data aperture."""
+    comparator_return_min_s: float,
+    comparator_return_max_s: float,
+    fpga_relative_path_min_s: float,
+    fpga_relative_path_max_s: float,
+    seqgen_pipeline_words: int,
+    tap_delay_s: float,
+    setup_guard_s: float,
+    hold_guard_s: float,
+) -> FastRxCapture:
+    """Select RX_SEN and two-stage IDELAY without changing any ADC output row.
 
-    numeric_fields = {
-        "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
-        "oserdes_to_output_s": oserdes_to_output_s,
-        "external_comp_delay_min_s": external_comp_delay_min_s,
-        "external_comp_delay_max_s": external_comp_delay_max_s,
-        "comp_input_to_fastrx_d_s": comp_input_to_fastrx_d_s,
-        "launch_to_capture_clock_skew_s": launch_to_capture_clock_skew_s,
-        "idelay_tap_s": idelay_tap_s,
-        "minimum_capture_margin_s": minimum_capture_margin_s,
-    }
-    for field, value in numeric_fields.items():
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError(f"{field} must be finite and non-negative")
-    if isinstance(idelay_tap_count, bool) or not isinstance(idelay_tap_count, int) or idelay_tap_count <= 0:
-        raise ValueError("idelay_tap_count must be a positive integer")
-    if (
-        isinstance(idelay_setup_backoff_taps, bool)
-        or not isinstance(idelay_setup_backoff_taps, int)
-        or idelay_setup_backoff_taps < 0
-    ):
-        raise ValueError("idelay_setup_backoff_taps must be a non-negative integer")
-    if (
-        isinstance(maximum_control_phase_advance_symbols, bool)
-        or not isinstance(maximum_control_phase_advance_symbols, int)
-        or not 0 <= maximum_control_phase_advance_symbols <= 7
-    ):
-        raise ValueError("maximum_control_phase_advance_symbols must be an integer in 0..7")
-    if external_comp_delay_min_s > external_comp_delay_max_s:
-        raise ValueError("external comparator minimum delay must not exceed its maximum delay")
-    symbol_rate_bps = float(params.symbol_rate)
-    sequencer_period_s = 8.0 / symbol_rate_bps
-    sequence_words = len(params.seq_comp_pattern) // 8
-    capture_bits = len(get_cdac_weights(params.dut.cdac)) + 1
-    if not float(params.seq_comp_phase_delay_symbols).is_integer():
-        raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
+    Comparator return bounds run from the outgoing COMP pad to the COMP_OUT
+    input pin. FPGA-relative path bounds include serializer clock-to-COMP pad
+    and zero-tap COMP_OUT pin-to-FastRX D, minus the corresponding capture-clock
+    insertion at each Vivado corner. Guards include setup/hold, clock jitter,
+    measurement uncertainty, and any further chosen safety margin.
+    RX_SEN may stay high across the sequence boundary, but its first word
+    must refer to the current conversion.
+    """
 
-    candidates = []
-    for phase_advance in range(maximum_control_phase_advance_symbols + 1):
-        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
-        shift = phase_symbols % len(params.seq_comp_pattern)
-        comp_pattern = (
-            params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern
-        )
-        first_transition = next(
-            (index for index in range(1, len(comp_pattern)) if comp_pattern[index] != comp_pattern[index - 1]),
-            -1,
-        )
-        if first_transition < 0:
-            raise ValueError("seq_comp_pattern contains no transition")
-        common_delay_s = (
-            first_transition / symbol_rate_bps
-            + seqgen_pipeline_cycles * sequencer_period_s
-            + oserdes_to_output_s
-            + comp_input_to_fastrx_d_s
-            + launch_to_capture_clock_skew_s
-        )
-        for taps in range(idelay_tap_count):
-            tap_delay_s = taps * idelay_tap_s
-            earliest_arrival_s = common_delay_s + external_comp_delay_min_s + tap_delay_s
-            latest_arrival_s = common_delay_s + external_comp_delay_max_s + tap_delay_s
-            for capture_word in range(sequence_words - capture_bits):
-                capture_edge_s = capture_word * sequencer_period_s
-                setup_margin_s = capture_edge_s - latest_arrival_s
-                hold_margin_s = earliest_arrival_s + sequencer_period_s - capture_edge_s
-                smaller_margin_s = min(setup_margin_s, hold_margin_s)
-                if smaller_margin_s < minimum_capture_margin_s:
-                    continue
-                candidates.append(
-                    (
-                        smaller_margin_s,
-                        -abs(setup_margin_s - hold_margin_s),
-                        -phase_advance,
-                        -taps,
-                        capture_word,
-                        phase_advance,
-                        taps,
-                        first_transition,
-                        earliest_arrival_s,
-                        latest_arrival_s,
-                        setup_margin_s,
-                        hold_margin_s,
-                    )
+    values = (
+        symbol_rate_bps,
+        comparator_return_min_s,
+        comparator_return_max_s,
+        fpga_relative_path_min_s,
+        fpga_relative_path_max_s,
+        tap_delay_s,
+        setup_guard_s,
+        hold_guard_s,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("capture timing values must be finite")
+    if symbol_rate_bps <= 0 or tap_delay_s <= 0 or setup_guard_s < 0 or hold_guard_s < 0:
+        raise ValueError("symbol rate and tap delay must be positive; guards must be nonnegative")
+    if comparator_return_min_s > comparator_return_max_s or fpga_relative_path_min_s > fpga_relative_path_max_s:
+        raise ValueError("timing lower bounds must not exceed upper bounds")
+    if type(seqgen_pipeline_words) is not int or seqgen_pipeline_words < 0:
+        raise ValueError("seqgen_pipeline_words must be a nonnegative integer")
+
+    comp = sequence.comp
+    edge_symbols = [index for index, bit in enumerate(comp) if bit == "1" and comp[index - 1] == "0"]
+    if len(edge_symbols) != 17 or any(right - left != 8 for left, right in pairwise(edge_symbols)):
+        raise ValueError("capture alignment requires 17 COMP rising edges eight symbols apart")
+    word_period_s = 8.0 / symbol_rate_bps
+    sequence_words = len(comp) // 8
+    first_edge_s = edge_symbols[0] / symbol_rate_bps
+    best: tuple[float, int, int] | None = None
+    for start_word in range(sequence_words):
+        capture_first_s = start_word * word_period_s
+        for taps in range(63):
+            variable_delay_s = seqgen_pipeline_words * word_period_s + taps * tap_delay_s
+            latest_data_s = first_edge_s + variable_delay_s + comparator_return_max_s + fpga_relative_path_max_s
+            earliest_next_data_s = (
+                first_edge_s + word_period_s + variable_delay_s + comparator_return_min_s + fpga_relative_path_min_s
+            )
+            setup_margin_s = capture_first_s - latest_data_s - setup_guard_s
+            hold_margin_s = earliest_next_data_s - capture_first_s - hold_guard_s
+            score = min(setup_margin_s, hold_margin_s)
+            if score >= 0:
+                candidate = (score, -taps, -start_word)
+                if best is None or candidate > best:
+                    best = candidate
+    if best is None:
+        raise ValueError("no RX_SEN word and IDELAY setting satisfy the measured timing bounds")
+    return FastRxCapture(comp_delay_taps=-best[1], rx_sen_start_word=-best[2])
+
+
+def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dict[str, Any]] = ()) -> FastRxCapture:
+    """Use explicit controls or a characterized sequence/COMP-timing match.
+
+    Profiles belong to the board's installed two-stage bitstream. Never
+    interpolate across baud rates or silently reuse single-stage calibration.
+    """
+    capture = params.fastrx_capture
+    if capture is None:
+        sequence = AdcSequence.from_tb_params(params.tb)
+        catalogue = dict(SEQUENCES)
+        is_catalogued = sequence in catalogue.values()
+        comp_edges = [
+            index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"
+        ]
+        regular_comp = len(comp_edges) == 17 and all(right - left == 8 for left, right in pairwise(comp_edges))
+        matches = [
+            profile
+            for profile in profiles
+            if float(profile["symbol_rate_bps"]) == float(params.tb.symbol_rate)
+            and (
+                catalogue.get(profile.get("sequence")) == sequence
+                or (
+                    "sequence" not in profile
+                    and regular_comp
+                    and is_catalogued
+                    and profile.get("sequence_symbols") == len(sequence.comp)
+                    and profile.get("first_comp_edge_symbol") == comp_edges[0]
                 )
-
-    if not candidates:
-        raise ValueError("no safe FastRX capture aperture exists at this symbol rate")
-    selected = max(candidates)
-    (
-        _smaller_margin_s,
-        _negative_imbalance_s,
-        _negative_phase_advance,
-        _negative_taps,
-        capture_word,
-        phase_advance,
-        taps,
-        first_comp_transition_symbol,
-        earliest_arrival_s,
-        latest_arrival_s,
-        setup_margin_s,
-        hold_margin_s,
-    ) = selected
-    if idelay_tap_s > 0.0:
-        hold_backoff_taps = max(
-            0,
-            math.floor((hold_margin_s - minimum_capture_margin_s) / idelay_tap_s + 1.0e-12),
-        )
-    else:
-        hold_backoff_taps = 0
-    applied_backoff_taps = min(taps, idelay_setup_backoff_taps, hold_backoff_taps)
-    guarded_taps = taps - applied_backoff_taps
-    guard_shift_s = (guarded_taps - taps) * idelay_tap_s
-    taps = guarded_taps
-    earliest_arrival_s += guard_shift_s
-    latest_arrival_s += guard_shift_s
-    setup_margin_s -= guard_shift_s
-    hold_margin_s += guard_shift_s
-    return FastRxCaptureAlignment(
-        rx_sen_start_word=capture_word,
-        comp_idelay_taps=taps,
-        control_phase_advance_symbols=phase_advance,
-        first_comp_transition_symbol=first_comp_transition_symbol,
-        earliest_data_arrival_s=earliest_arrival_s,
-        latest_data_arrival_s=latest_arrival_s,
-        capture_edge_s=capture_word * sequencer_period_s,
-        setup_margin_s=setup_margin_s,
-        hold_margin_s=hold_margin_s,
-    )
+            )
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "expected one characterized FastRX sequence or COMP-timing/baud profile; "
+                "set fastrx_capture=FastRxCapture(...) explicitly for calibration"
+            )
+        capture = FastRxCapture(matches[0]["comp_delay_taps"], matches[0]["rx_sen_start_word"])
+    if capture.rx_sen_start_word >= len(params.tb.seq_init_pattern) // 8:
+        raise ValueError("rx_sen_start_word must be inside the sequencer period")
+    return capture
 
 
-def calculate_single_sample_fastrx_capture_alignment(
-    params: AdcTbParams,
-    *,
-    seqgen_pipeline_cycles: float,
-    oserdes_to_output_s: float,
-    external_comp_delay_min_s: float,
-    external_comp_delay_max_s: float,
-    comp_input_to_fastrx_d_s: float,
-    launch_to_capture_clock_skew_s: float,
-    idelay_tap_s: float,
-    idelay_tap_count: int,
-    idelay_setup_backoff_taps: int,
-    maximum_control_phase_advance_symbols: int,
-    minimum_capture_margin_s: float,
-) -> FastRxCaptureAlignment:
-    """Select a safe one-clock FastRX aperture after the sole COMP event."""
+def program_comp_delay(gpio, taps: int) -> None:
+    """Load both calibrated delay counters while acquisition is stopped.
 
-    numeric_fields = {
-        "seqgen_pipeline_cycles": seqgen_pipeline_cycles,
-        "oserdes_to_output_s": oserdes_to_output_s,
-        "external_comp_delay_min_s": external_comp_delay_min_s,
-        "external_comp_delay_max_s": external_comp_delay_max_s,
-        "comp_input_to_fastrx_d_s": comp_input_to_fastrx_d_s,
-        "launch_to_capture_clock_skew_s": launch_to_capture_clock_skew_s,
-        "idelay_tap_s": idelay_tap_s,
-        "minimum_capture_margin_s": minimum_capture_margin_s,
-    }
-    for field, value in numeric_fields.items():
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError(f"{field} must be finite and non-negative")
-    if isinstance(idelay_tap_count, bool) or not isinstance(idelay_tap_count, int) or idelay_tap_count <= 0:
-        raise ValueError("idelay_tap_count must be a positive integer")
-    if (
-        isinstance(idelay_setup_backoff_taps, bool)
-        or not isinstance(idelay_setup_backoff_taps, int)
-        or idelay_setup_backoff_taps < 0
-    ):
-        raise ValueError("idelay_setup_backoff_taps must be a non-negative integer")
-    if (
-        isinstance(maximum_control_phase_advance_symbols, bool)
-        or not isinstance(maximum_control_phase_advance_symbols, int)
-        or not 0 <= maximum_control_phase_advance_symbols <= 7
-    ):
-        raise ValueError("maximum_control_phase_advance_symbols must be an integer in 0..7")
-    if external_comp_delay_min_s > external_comp_delay_max_s:
-        raise ValueError("external comparator minimum delay must not exceed its maximum delay")
-    if not float(params.seq_comp_phase_delay_symbols).is_integer():
-        raise ValueError("physical seq_comp_phase_delay_symbols must be a whole number of serialized symbols")
-
-    symbol_rate_bps = float(params.symbol_rate)
-    sequencer_period_s = 8.0 / symbol_rate_bps
-    sequence_words = len(params.seq_comp_pattern) // 8
-    candidates = []
-    for phase_advance in range(maximum_control_phase_advance_symbols + 1):
-        phase_symbols = int(params.seq_comp_phase_delay_symbols) - phase_advance
-        shift = phase_symbols % len(params.seq_comp_pattern)
-        comp_pattern = (
-            params.seq_comp_pattern[-shift:] + params.seq_comp_pattern[:-shift] if shift else params.seq_comp_pattern
-        )
-        first_transition = next(
-            (index for index in range(1, len(comp_pattern)) if comp_pattern[index] != comp_pattern[index - 1]),
-            -1,
-        )
-        if first_transition < 0:
-            raise ValueError("seq_comp_pattern contains no transition")
-        common_delay_s = (
-            first_transition / symbol_rate_bps
-            + seqgen_pipeline_cycles * sequencer_period_s
-            + oserdes_to_output_s
-            + comp_input_to_fastrx_d_s
-            + launch_to_capture_clock_skew_s
-        )
-        for taps in range(idelay_tap_count):
-            tap_delay_s = taps * idelay_tap_s
-            earliest_arrival_s = common_delay_s + external_comp_delay_min_s + tap_delay_s
-            latest_arrival_s = common_delay_s + external_comp_delay_max_s + tap_delay_s
-            for capture_word in range(sequence_words - 1):
-                capture_edge_s = capture_word * sequencer_period_s
-                setup_margin_s = capture_edge_s - latest_arrival_s
-                hold_margin_s = earliest_arrival_s + sequencer_period_s - capture_edge_s
-                smaller_margin_s = min(setup_margin_s, hold_margin_s)
-                if smaller_margin_s < minimum_capture_margin_s:
-                    continue
-                candidates.append(
-                    (
-                        smaller_margin_s,
-                        -abs(setup_margin_s - hold_margin_s),
-                        -phase_advance,
-                        -taps,
-                        capture_word,
-                        phase_advance,
-                        taps,
-                        first_transition,
-                        earliest_arrival_s,
-                        latest_arrival_s,
-                        setup_margin_s,
-                        hold_margin_s,
-                    )
-                )
-    if not candidates:
-        raise ValueError("no safe one-sample FastRX capture aperture exists at this symbol rate")
-    selected = max(candidates)
-    (
-        _smaller_margin_s,
-        _negative_imbalance_s,
-        _negative_phase_advance,
-        _negative_taps,
-        capture_word,
-        phase_advance,
-        taps,
-        first_comp_transition_symbol,
-        earliest_arrival_s,
-        latest_arrival_s,
-        setup_margin_s,
-        hold_margin_s,
-    ) = selected
-    hold_backoff_taps = (
-        max(0, math.floor((hold_margin_s - minimum_capture_margin_s) / idelay_tap_s + 1.0e-12))
-        if idelay_tap_s > 0.0
-        else 0
-    )
-    guarded_taps = taps - min(taps, idelay_setup_backoff_taps, hold_backoff_taps)
-    guard_shift_s = (guarded_taps - taps) * idelay_tap_s
-    earliest_arrival_s += guard_shift_s
-    latest_arrival_s += guard_shift_s
-    setup_margin_s -= guard_shift_s
-    hold_margin_s += guard_shift_s
-    return FastRxCaptureAlignment(
-        rx_sen_start_word=capture_word,
-        comp_idelay_taps=guarded_taps,
-        control_phase_advance_symbols=phase_advance,
-        first_comp_transition_symbol=first_comp_transition_symbol,
-        earliest_data_arrival_s=earliest_arrival_s,
-        latest_data_arrival_s=latest_arrival_s,
-        capture_edge_s=capture_word * sequencer_period_s,
-        setup_margin_s=setup_margin_s,
-        hold_margin_s=hold_margin_s,
-    )
+    The firmware splits the sum into floor(taps/2), ceil(taps/2). Verify the
+    register ABI before writing and the actual hardware counters after loading.
+    """
+    if isinstance(taps, bool) or not isinstance(taps, int) or not 0 <= taps <= 62:
+        raise ValueError("combined comparator delay taps must be in 0..62")
+    gpio.read()
+    if not gpio["COMP_IDELAY_TWO_STAGE"].tovalue():
+        raise RuntimeError("two-stage comparator-delay firmware is required")
+    if not gpio["COMP_IDELAY_RDY"].tovalue():
+        raise RuntimeError("comparator IDELAYCTRL is not ready")
+    gpio["COMP_IDELAY_TAPS"] = taps
+    gpio["COMP_IDELAY_LOAD"] = 1
+    try:
+        gpio.write()
+    finally:
+        gpio["COMP_IDELAY_LOAD"] = 0
+        gpio.write()
+    gpio.read()
+    if not gpio["COMP_IDELAY_RDY"].tovalue():
+        raise RuntimeError("comparator IDELAYCTRL lost readiness")
+    if gpio["COMP_IDELAY_ACTUAL"].tovalue() != taps:
+        raise RuntimeError("comparator delay counter readback does not match requested taps")

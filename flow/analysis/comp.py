@@ -23,6 +23,7 @@ from flow.analysis.types import (
     MeasCompExt,
     MeasCompInt,
 )
+from flow.comp.subckt import CompNets
 
 
 def analyze_comp_offset_noise(
@@ -220,11 +221,14 @@ def analyze_comp_timing(
     unresolved = []
     for source_index, measurement in enumerate(measurements):
         for record, trial_index in enumerate(measurement.wave.trial_index):
-            clock = measurement.wave.clock_v[record]
+            clock = measurement.wave.voltage[CompNets.clk.name][record]
             # Settling is a property of the dynamic comparator core. The held
             # output latch can retain the previous decision throughout reset,
             # so using vout_p-vout_n would often look resolved before the clock.
-            output_difference = measurement.wave.comp_p_v[record] - measurement.wave.comp_n_v[record]
+            output_difference = (
+                measurement.wave.voltage[CompNets.latch_p.name][record]
+                - measurement.wave.voltage[CompNets.latch_n.name][record]
+            )
             clock_threshold = (
                 float((np.min(clock) + np.max(clock)) / 2.0) if clock_threshold_v is None else clock_threshold_v
             )
@@ -283,7 +287,7 @@ def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower
         voltage = _supply_voltage_v(measurement)
         stored_power = measurement.info.readbacks.get("vdd_active_average_power_w")
         if stored_power is None:
-            current = measurement.wave.vdd_i.reshape(-1)
+            current = measurement.wave.current[CompNets.vdd.name].reshape(-1)
             power = measure_average_power(current, voltage)
         else:
             power = float(stored_power)

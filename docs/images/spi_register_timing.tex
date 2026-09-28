@@ -1,0 +1,46 @@
+% Regenerate: make -C docs images/spi_register_timing.pdf
+% The narrow break omits 176 of the 180 SPI clocks; it is not time to scale.
+\documentclass[tikz,border=7pt]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{tikz-timing}
+\usetikzlibrary{arrows.meta,backgrounds,decorations.markings}
+\usepackage{xcolor}
+\definecolor{NordBlue}{HTML}{5E81AC}
+\definecolor{NordGuide}{HTML}{D8DEE9}
+\tikzset{
+  timing/x/.style={black,densely dotted},
+  sample arrow/.style={
+    draw=black,line width=0.85pt,
+    postaction={decorate},
+    decoration={markings,
+      mark=at position 0.7 with {\arrow{Triangle[length=3pt,width=2.4pt]}}}
+  }
+}
+\begin{document}
+\begin{tikztimingtable}[
+  timing/xunit=0.52cm,
+  timing/yunit=0.46cm,
+  timing/rowdist=1.65,
+  timing/coldist=0.8,
+  timing/slope=0,
+  timing/dslope=0.35,
+  timing/name/.append style={anchor=east,yshift=0.23cm,font=\ttfamily\small,text=NordBlue},
+  draw=black,line width=0.85pt]
+  rst\_b    & 2L 8H 1S 7H \\
+  spi\_cs\_b & 4H 6L 1S 5L 2H \\
+  spi\_sclk & 6L 1H 1L 1H 1L 1S 1L 1H 1L 1H 3L \\
+  spi\_sdi  & 5L 2D{\texttt{[179]}} 2D{\texttt{[178]}} 1L 1S 2D{\texttt{[1]}} 2D{\texttt{[0]}} 3L \\
+  spi\_sdo  & 7L 2D{} 1L 1S 2D{} 2D{} 3L \\
+  \extracode
+  \begin{pgfonlayer}{background}
+    \foreach \y in {-0.325,-1.975,-3.625,-5.275} {
+      \draw[NordGuide,densely dotted,line width=0.5pt] (0,\y) -- (18,\y);
+    }
+  \end{pgfonlayer}
+  \foreach \x in {6,8,12,14} {
+    \draw[sample arrow] (\x,-3.3) -- (\x,-2.3);
+  }
+  \node[font=\rmfamily\normalsize,text=NordBlue] at (10.5,-2.8) {$\cdots$};
+\end{tikztimingtable}
+\end{document}

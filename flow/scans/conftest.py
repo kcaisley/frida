@@ -6,6 +6,16 @@ from time import sleep
 
 import pytest
 
+from flow.scans.scope import scope_channels
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item) -> None:
+    for requirement in item.iter_markers("scope_signals"):
+        missing = set(requirement.args) - scope_channels().keys()
+        if missing:
+            pytest.skip(f"map_scope.yaml has no connection for: {', '.join(sorted(missing))}")
+
 
 @pytest.fixture(scope="session")
 def linux_gpib_interface() -> None:

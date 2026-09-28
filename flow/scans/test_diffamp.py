@@ -1,15 +1,14 @@
 """Check calibrated AWG and VIN_CM control through the THS4541 input path.
 
 The Agilent 33250A applies a 1 MHz sine to the single-ended THS4541 input,
-the E3634A sets its output common mode, and the differential probe on MSO54
-CH1 measures ``Vin_p - Vin_n``. Safe points qualify every 0.1--1.1 V
+the E3634A sets its output common mode, and the probe configured as vin_diff
+in map_scope.yaml measures ``Vin_p - Vin_n``. Safe points qualify every 0.1--1.1 V
 comparator common mode, the guarded 1.18 V near-rail point, the requested
 0.7--1.2 V 50 mVpp campaign envelope, and the existing larger amplitudes. Differential
 amplitude must agree within 2% in the small-signal regime and 0.5% at
 larger amplitudes; frequency and E3634A voltage readback remain within 0.5%.
 
-CH1 is differential and therefore cannot independently measure output common
-mode. The VIN_CM assertion checks the calibrated E3634A readback as a proxy;
+The differential probe cannot independently measure output common mode. The VIN_CM assertion checks the calibrated E3634A readback as a proxy;
 verifying actual ADC-side common mode requires probing Vin_p and Vin_n relative
 to ground.
 
@@ -40,7 +39,7 @@ from flow.analysis.measure import find_crossings
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import FRIDA_SCOPE_CHANNELS, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import scope_channels, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_diffamp"
@@ -52,8 +51,6 @@ SMU_VOLTAGE_RANGE_V = 2.0
 SMU_CURRENT_COMPLIANCE_A = 500.0e-6
 SMU_MINIMUM_LOADED_V = 1.15
 SMU_SETTLE_TIME_S = 0.5
-SCOPE_CHANNEL = FRIDA_SCOPE_CHANNELS["adc_vdiff"]
-SCOPE_TRACKS = {SCOPE_CHANNEL: "vdiff_ch1"}
 
 # Values in this table are sine peak amplitudes: for example 1.0 V means a
 # differential waveform from -1.0 V to +1.0 V, or 2.0 Vpp. The 20 mV points
@@ -150,8 +147,12 @@ def calculate_refitted_input_calibration(
 
 
 @pytest.mark.hw
+@pytest.mark.scope_signals("vin_diff")
 def test_diffamp_calibration(linux_gpib_interface: None) -> None:
     """Hardware: qualify the calibrated differential-amplifier stimulus path."""
+    SCOPE_CHANNEL = scope_channels("vin_diff")["vin_diff"]
+    SCOPE_TRACKS = {SCOPE_CHANNEL: "vin_diff"}
+
     if not 0.0 < ASIC_SUPPLY_V <= 1.2:
         raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
     if not 0.0 < SMU_CURRENT_COMPLIANCE_A <= 500.0e-6:

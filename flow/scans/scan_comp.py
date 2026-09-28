@@ -24,10 +24,11 @@ from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CompDaq, CompExtWave, MeasCompExt, MeasInfo
-from flow.cdac import CdacParams, RedunStrat, get_cdac_weights
+from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
-    calculate_single_sample_fastrx_capture_alignment,
     convert_fastrx_words_to_comp,
+    program_comp_delay,
+    select_fastrx_capture_settings,
 )
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
@@ -35,7 +36,7 @@ from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
 )
-from flow.scans.scope import wait_for_scope_armed, wait_for_scope_capture
+from flow.scans.scope import scope_channels, wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 
@@ -106,7 +107,7 @@ def _build_comp_params(
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
-        cdac=CdacParams(
+        cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
             redun_strat=RedunStrat.SUBRDX2_OVLY,
@@ -323,7 +324,6 @@ def scan(
     drift_checkpoint_high_probability = 0.85
     capture_timeout_s = 5.0
     scope_timeout_s = 5.0
-    scope_tracks = {"vin_diff_v": 1, "seq_comp_v": 2, "comp_out_v": 4}
 
     queue = list(variants)
     if not isinstance(capture_scope_per_curve, bool):
@@ -412,6 +412,9 @@ def scan(
                     f"comparator inputs {(vin_p_v, vin_n_v)} V are outside {minimum_input_v:g}..{maximum_input_v:g} V"
                 )
 
+    for params in queue:
+        select_fastrx_capture_settings(params, board["fastrx_capture_settings"])
+
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -442,6 +445,12 @@ def scan(
     from basil.dut import Dut
 
     map_dir = Path(__file__).resolve().parent
+    scope_tracks = {
+        f"{name}_v": channel
+        for name, channel in (
+            scope_channels("vin_diff", "seq_comp", "comp_out") if capture_scope_per_curve else {}
+        ).items()
+    }
     daq_dut = Dut(str(map_dir / "map_fpga.yaml"))
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
@@ -538,11 +547,11 @@ def scan(
                 scope.set_vertical_offset(0.0, channel=channel)
                 scope.set_bandwidth(200.0e6 if signal_name == "vin_diff_v" else 2.0e9, channel=channel)
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=2)
+            scope.set_trigger_source(channel=scope_tracks["seq_comp_v"])
             scope.set_trigger_edge_slope("RISE")
             # The differential sequencer probe is centered around zero and swings
             # to roughly +/-0.6 V; trigger at its zero crossing.
-            scope.set_trigger_level(0.0, channel=2)
+            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp_v"])
             scope.set_trigger_mode("NORMAL")
 
         daq["gpio0"]["RST_B"] = 0
@@ -567,7 +576,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_cdac_weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(get_caparray_weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -624,31 +633,10 @@ def scan(
                     raise RuntimeError(f"AWG offset readback {awg_readback_v:g} V does not match {awg_voltage_v:g} V")
                 awg_verified_curves.add(curve_key)
 
-            capture_alignment = calculate_single_sample_fastrx_capture_alignment(
-                params,
-                **board["capture_timing_model"],
-            )
-            phase_advance = capture_alignment.control_phase_advance_symbols
-            if phase_advance:
-                params = replace(
-                    params,
-                    seq_init_phase_delay_symbols=float(params.seq_init_phase_delay_symbols) - phase_advance,
-                    seq_samp_phase_delay_symbols=float(params.seq_samp_phase_delay_symbols) - phase_advance,
-                    seq_comp_phase_delay_symbols=float(params.seq_comp_phase_delay_symbols) - phase_advance,
-                    seq_logic_phase_delay_symbols=float(params.seq_logic_phase_delay_symbols) - phase_advance,
-                )
-                scan_params = replace(scan_params, tb=params)
-                validate_params(scan_params)
-            rx_sen_start_word = capture_alignment.rx_sen_start_word
-            comp_idelay_taps = capture_alignment.comp_idelay_taps
-            daq["gpio1"].read()
-            if not daq["gpio1"]["COMP_IDELAY_RDY"].tovalue():
-                raise RuntimeError("comparator IDELAYCTRL is not ready")
-            daq["gpio1"]["COMP_IDELAY_TAPS"] = comp_idelay_taps
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 1
-            daq["gpio1"].write()
-            daq["gpio1"]["COMP_IDELAY_LOAD"] = 0
-            daq["gpio1"].write()
+            capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
+            rx_sen_start_word = capture_settings.rx_sen_start_word
+            comp_idelay_taps = capture_settings.comp_delay_taps
+            program_comp_delay(daq["gpio1"], comp_idelay_taps)
 
             spi_bytes = spi_bytes_by_curve.get(curve_key)
             if spi_bytes is None:
@@ -685,10 +673,6 @@ def scan(
                 seq_samp_pattern="".join(setup_samp_words),
                 seq_comp_pattern="".join(setup_comp_words),
                 seq_logic_pattern="".join(setup_logic_words),
-                seq_init_phase_delay_symbols=0.0,
-                seq_samp_phase_delay_symbols=0.0,
-                seq_comp_phase_delay_symbols=0.0,
-                seq_logic_phase_delay_symbols=0.0,
             )
             setup_rx_sen_pattern = "0" * sequence_words
             daq["seq0"].reset()
@@ -813,10 +797,9 @@ def scan(
                 "sequencer_frequency_hz": sequencer_frequency_hz,
                 "serializer_frequency_hz": serializer_frequency_hz,
                 "rx_sen_start_word": rx_sen_start_word,
-                "comp_idelay_taps": comp_idelay_taps,
-                "capture_control_phase_advance_symbols": phase_advance,
-                "capture_setup_margin_s": capture_alignment.setup_margin_s,
-                "capture_hold_margin_s": capture_alignment.hold_margin_s,
+                "comp_delay_taps": comp_idelay_taps,
+                "comp_delay_stages": 2,
+                "capture_control_phase_advance_symbols": 0,
                 "capture_batch_count": len(trial_batches),
                 "capture_batch_trials": max(trial_batches),
                 "capture_batch_interval_s": fine_batch_interval_s if time_distribute_batches else 0.0,
