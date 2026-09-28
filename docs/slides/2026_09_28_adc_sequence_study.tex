@@ -49,6 +49,13 @@
   \note{Plausible means nonconstant codes, modal fraction below 99.5 percent, sigma at least 0.1 LSB, mean within 8 LSB of that ADC's 320-MBd reference, and valid scope/FastRX readout. These are diagnostics, not an independently calibrated accuracy specification.}
 \end{frame}
 
+\begin{frame}{No measured 6/8 variant crosses the 1-LSB screen}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_full_29_recipe_screen.pdf}
+  \slidesource{Full corrected 29-recipe physical scan; 16 ADCs per recipe at 1600 MBd}
+  \note{The left matrix counts ADCs passing the fixed-input plausibility screen; the right also requires code sigma below 1 LSB. The eight measured 6/8 rows give zero on the right. The fixed LOGIC=00000001 row has plausible counts 16, 14, 7, and 0 as COMP high increases from 4/8 to 7/8; LOGIC-to-next-COMP update time is held fixed in that row, while the COMP low and LOGIC-after-fall intervals shorten. This pattern is consistent with a reset/setup limitation but does not identify the failing internal node. The dash denotes a recipe not in the physical catalogue.}
+\end{frame}
+
 \begin{frame}{C5/L2 keeps evaluation and update time}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_clock_budget_vs_noise.pdf}
