@@ -81,6 +81,13 @@
   \note{The paired recipes differ only in LOGIC placement within each COMP high width. Medians include all 16 ADCs, including implausible captures; the last column is the median across ADCs of the absolute difference between each pair's mean code. Delaying LOGIC also shortens the CDAC update interval, so the unchanged 6/8 outcome cannot be attributed uniquely to comparator reset.}
 \end{frame}
 
+\begin{frame}{The 5/8 to 6/8 pair shows a high-rate code shift}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_comp_duty_pair.pdf}
+  \slidesource{Corrected 26 Sep scan; 16 ADCs, three rates, 100,000 conversions per setting}
+  \note{C5/L2 to C6/L2 changes only the COMP row, retaining identical INIT, SAMP, and LOGIC rows. Median absolute mean-code shift across 16 ADCs is 0.085, 1.854, and 6.660 LSB at 320, 960, and 1600 MBd. The 6/8 low time falls to about 1.215 ns from 1.857 ns, while LOGIC-to-next-COMP stays near 1.23 ns and LOGIC moves from 0.617 ns after COMP fall to approximately coincident with it. C6/L2 to C6/L3 delays LOGIC with COMP fixed and changes the 1600-MBd median mean code by only 0.373 LSB. Physical ADC03 B12 high fraction collapses from 0.99615 to 0.00001 between C5/L2 and C6/L2 at 1600 MBd; the C6/L3 value is 0.00002. The retained ADC03 scope conversion agrees with FastRX on B12 for all three recipes, but samples the delayed output only once per capture. The paired result points to the COMP low/capture interval, but does not separate internal reset from LOGIC setup or clock delivery.}
+\end{frame}
+
 \begin{frame}{Measured ADC03 full scope window: C5/L2}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
@@ -93,6 +100,25 @@
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/adc03_c5_c6_code_modes.pdf}
   \slidesource{Physical ADC03 FastRX capture; 100,000 conversions per recipe}
   \note{At C5/L2, 385 isolated B12=0 conversions produce code 2175. Overall sigma is 0.891 LSB; conditional on B12=1, sigma is 0.215 LSB. The state separation contributes 94.2 percent of total variance. C6/L2 moves B12=0 to 99,999 of 100,000 conversions and toggles B13 instead. A low sigma alone is not proof of a correct code: ADC01 C6/L2 has sigma 0.243 LSB but its mean is 11.2 LSB below its low-rate reference.}
+\end{frame}
+
+\begin{frame}{The best saved 5/8 modes still have rare code jumps}
+  \centering
+  {\small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    ADC & LOGIC word & Full $\sigma$ (LSB) & Rare code events / 100k & Variance share \\
+    \midrule
+    15 & \texttt{00000001} & 0.633 & 81 at +15 LSB & 44.8\% \\
+    03 & \texttt{00000011} & 0.715 & 213 at $-14$ LSB & 80.3\% \\
+    03 & \texttt{11000011} & 0.891 & 385 at $-14$ LSB & 93.8\% \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small These are fixed-input code spreads; rare events remain part of the full result.}
+  \slidesource{All 29 saved 5/8 recipes at 1600 MBd; physical ADC03 and ADC15}
+  \note{The ADC15 one-symbol case has the smallest plausible full-capture sigma, 0.633 LSB. Its mean is 3.17 LSB below its 320-MBd reference, and the code-2204 tail is 15 LSB above mode 2189. ADC03's two-symbol case has 213 code-2175 events versus 385 in the four-symbol case. The two- and four-symbol C5 cases each have 14/16 plausible ADCs, and their across-ADC sigma changes have mixed signs; the narrower pulse is not a general fix. Excluding the selected tail from ADC15 gives 0.471 LSB, but that is not the measured full-capture noise or transfer accuracy. The manual DC input was not independently calibrated at the ADC pin.}
 \end{frame}
 
 \section[PEX]{PEX}
@@ -153,15 +179,15 @@
   \note{The archived physical file stores the same 160-symbol INIT, SAMP, COMP, and LOGIC rows as the PEX file with a 48-symbol cyclic offset. Both use four INIT symbols, 24 SAMP symbols, six COMP-high symbols per decision, and a one-symbol LOGIC pulse. Archived PEX sigma is 0.538 LSB across 99 saved conversions; physical ADC03 sigma is 3.186 LSB across 100,000. The corrected SAMP20, four-symbol LOGIC case gives 0.703 LSB in PEX and 3.309 LSB physically. A corrected physical SAMP20, one-symbol LOGIC capture gives 3.447 LSB. PEX and physical conditions differ beyond the digital pattern, and the old and new PEX setups differ in SAMP duration, LOGIC width, and output sampling. These comparisons do not identify a single cause of the physical noise floor.}
 \end{frame}
 
-\begin{frame}{C5/L2 leads, but no sub-0.5-LSB case is verified}
+\begin{frame}{5/8 remains the best saved candidate; 0.5 LSB is unverified}
   \small
   \begin{itemize}
-    \item At 1600 MBd, C5/L2 has 14/16 plausible physical ADCs, with two below 1 LSB code sigma; ADC03 still has rare B12 flips and a shifted mean.
+    \item At 1600 MBd, several 5/8 recipes have 14/16 plausible physical ADCs. The smallest full-capture sigma is 0.633 LSB on ADC15, with rare 15-LSB code jumps.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
-    \item PEX passes 48,858/83,300 full timing checks (58.7\%). All seven PEX flavors precharge their latches, but physical C4/L1 and C7/L3 code failures are absent in PEX.
+    \item C5/L2 to C6/L2 keeps LOGIC fixed yet changes physical mean codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge for both.
     \item Silicon latch reset and the physical failure mechanism remain unverified. This scan has no FRIDA-2 physical counterpart.
   \end{itemize}
-  \slidesource{29-recipe physical screen; 49-case PEX timing and latch analysis}
+  \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
 \end{frame}
 
 \appendix
