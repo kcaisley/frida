@@ -146,6 +146,13 @@
   \note{ADC01 and ADC03 are the only two channels with confirmed physical layer counts in the board map. Physical code distributions contain 100,000 conversions and PEX distributions contain 100, so their sample precision differs. The physical C4/L1 and C7/L3 failures do not appear in the PEX output-code means.}
 \end{frame}
 
+\begin{frame}{The archived 0.54-LSB result was PEX only}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/old_half_lsb_precedent.pdf}
+  \slidesource{Archived 14 Sep physical ADC03 and 6 Sep PEX; corrected 26 Sep physical and PEX}
+  \note{The archived physical file stores the same 160-symbol INIT, SAMP, COMP, and LOGIC rows as the PEX file with a 48-symbol cyclic offset. Both use four INIT symbols, 24 SAMP symbols, six COMP-high symbols per decision, and a one-symbol LOGIC pulse. Archived PEX sigma is 0.538 LSB across 99 saved conversions; physical ADC03 sigma is 3.186 LSB across 100,000. The corrected SAMP20, four-symbol LOGIC case gives 0.703 LSB in PEX and 3.309 LSB physically. A corrected physical SAMP20, one-symbol LOGIC capture gives 3.447 LSB. PEX and physical conditions differ beyond the digital pattern, and the old and new PEX setups differ in SAMP duration, LOGIC width, and output sampling. These comparisons do not identify a single cause of the physical noise floor.}
+\end{frame}
+
 \begin{frame}{C5/L2 leads, but no sub-0.5-LSB case is verified}
   \small
   \begin{itemize}
