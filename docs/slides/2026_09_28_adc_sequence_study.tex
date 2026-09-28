@@ -1,0 +1,139 @@
+% Build after generating the pinned plots in build/analysis/adc/20260928_measured_pex_sequences/:
+%   (cd docs/slides && latexmk -pdf -interaction=nonstopmode -halt-on-error \
+%      -outdir=../../build/analysis/adc/20260928_measured_pex_sequences \
+%      2026_09_28_adc_sequence_study.tex)
+\input{style.tex}
+\slideprogressnavigation
+
+\newcommand{\analysispath}{../../build/analysis/adc/20260928_measured_pex_sequences}
+\newcommand{\pexpath}{../../build/analysis/adc/20260928_125732}
+
+\title{Seven continuous ADC sequences}
+\subtitle{Physical FRIDA-1 and extracted-layout FRIDA-1/2 evidence}
+\date{28 September 2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\section[Coverage]{Coverage}
+
+\begin{frame}{Matched experiment settings}
+  \centering
+  {\small
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    & Physical scan & Extracted-layout simulation \\
+    \midrule
+    Recipe & Seven of 29 continuous rows & Seven matched rows \\
+    Rate & 320, 960, 1600 MBd & 1600 MBd \\
+    Input & 50 mV differential, 700 mV common mode & Same DC input \\
+    Conversions & 100,000 per capture & 100 per case \\
+    Coverage & 16 FRIDA-1 ADCs & Four F1 and three F2 PEX flavors \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\medskip
+  {\small C4/L0 through C7/L3 label the COMP high-symbol count and LOGIC placement.}
+  \slidesource{26 Sep corrected physical scan; 26 Sep PEX sequence campaigns}
+\end{frame}
+
+\section[Measured]{Measured}
+
+\begin{frame}{Measured sequence behavior across 16 ADCs}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_seven_recipe_overview.pdf}
+  \slidesource{Corrected 29-recipe physical scan; 100,000 conversions per setting}
+  \note{Plausible means nonconstant codes, modal fraction below 99.5 percent, sigma at least 0.1 LSB, mean within 8 LSB of that ADC's 320-MBd reference, and valid scope/FastRX readout. These are diagnostics, not an independently calibrated accuracy specification.}
+\end{frame}
+
+\begin{frame}{Measured ADC03 full scope window: C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan; saved COMP-triggered scope record}
+  \note{The saved scope window contains 17 COMP rising edges. It is aligned to the first observed COMP edge, so the INIT transition appears near the end of the plotted window.}
+\end{frame}
+
+\section[PEX]{PEX}
+
+\begin{frame}{PEX timing closure across seven flavors}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_timing_closure_by_recipe_flavor.pdf}
+  \slidesource{49 PEX cases; internal/SR/LOGIC/CDAC timing checks}
+  \note{The full check requires rail-valid SR agreement and 200 ps LOGIC setup; ordinary B0--B15 decisions also require the programmed SAR and CDAC state with 200 ps setup. The CDAC tolerance is 1 mV relative to the saved end-of-window value. B16 has no CDAC update.}
+\end{frame}
+
+\begin{frame}{PEX comparator reset evidence}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_reset_gap_by_recipe.pdf}
+  \slidesource{49 PEX timing tables; observed comparator falling edges}
+  \note{All 83,300 comparator reset edges were observed. All 78,400 ordinary decisions had a positive reset-to-next-COMP interval. A positive reset gap does not imply that the preceding SAR/CDAC update settled in time.}
+\end{frame}
+
+\begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_trajectory.pdf}
+  \slidesource{PEX source HDF5; all 100 saved conversions}
+\end{frame}
+
+\begin{frame}{PEX CDAC settling: FRIDA-1 two-layer radix20, C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_cdac_settling.pdf}
+  \slidesource{PEX source HDF5; top-plate and bottom-plate settling}
+\end{frame}
+
+\section[Comparison]{Comparison}
+
+\begin{frame}{Matched radix20 output codes at 1600 MBd}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_vs_pex_radix20_codes.pdf}
+  \slidesource{Physical ADC01/03; FRIDA-1 one-/two-layer radix20 PEX}
+  \note{ADC01 and ADC03 are the only two channels with confirmed physical layer counts in the board map. Physical code distributions contain 100,000 conversions and PEX distributions contain 100, so their sample precision differs. The physical C4/L1 and C7/L3 failures do not appear in the PEX output-code means.}
+\end{frame}
+
+\begin{frame}{What the new cases establish}
+  \small
+  \begin{itemize}
+    \item At 320 MBd, all seven recipes meet the saved physical plausibility checks on all 16 ADCs.
+    \item At 1600 MBd, C5/L2 retains 14/16 plausible physical ADCs; C4/L1 and C7/L3 retain 0/16.
+    \item PEX observes all comparator resets, yet only 48,858/83,300 decisions pass the full timing check. CDAC setup is the dominant failing component for the late LOGIC recipes.
+    \item The two confirmed physical layer matches are ADC01 and ADC03, both radix20. The FRIDA-2 PEX flavors have no physical counterpart in this scan.
+  \end{itemize}
+  \slidesource{Physical metrics; 49-case PEX timing and reset summary}
+\end{frame}
+
+\appendix
+\section[Scope]{Scope by recipe}
+
+\begin{frame}{Measured ADC03 scope: C4/L0}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C4_L0_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C4/L1}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C4_L1_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C5/L1}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L1_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C5/L2}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C6/L2}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C6_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C6/L3}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C6_L3_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C7/L3}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C7_L3_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+
+\end{document}
