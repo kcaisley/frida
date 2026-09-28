@@ -447,7 +447,11 @@ def cross(
     initial_high: bool = False,
     occurrence: int | None = None,
 ) -> np.ndarray | float:
-    """Return interpolated crossings, or one selected crossing coordinate."""
+    """Return crossing coordinates, including first contact at an interior threshold sample.
+
+    A contact at the final sample is excluded because its direction is not
+    observable. ``occurrence`` is one-based, with negative indices from the end.
+    """
 
     signal, axis = _waveform(signal, axis)
     if edge not in {"rising", "falling", "either"}:
@@ -458,12 +462,13 @@ def cross(
         raise ValueError("occurrence is one-based and cannot be zero")
     if len(signal) < 2:
         return np.asarray([], dtype=np.float64) if occurrence is None else math.nan
-    nonzero = np.flatnonzero(signal != threshold)
-    left, right = nonzero[:-1], nonzero[1:]
-    rises = (signal[left] < threshold) & (signal[right] > threshold)
-    falls = (signal[left] > threshold) & (signal[right] < threshold)
-    selected = rises if edge == "rising" else falls if edge == "falling" else rises | falls
-    left, right = left[selected], right[selected]
+    direct_rises = np.flatnonzero((signal[:-1] < threshold) & (signal[1:] > threshold))
+    direct_falls = np.flatnonzero((signal[:-1] > threshold) & (signal[1:] < threshold))
+    # A threshold sample inside the record is an event at first contact,
+    # including a touch that subsequently reverses. The final sample alone
+    # does not establish an event.
+    touch_rises = np.flatnonzero((signal[:-2] < threshold) & (signal[1:-1] == threshold)) + 1
+    touch_falls = np.flatnonzero((signal[:-2] > threshold) & (signal[1:-1] == threshold)) + 1
     initial = (
         axis[:1]
         if initial_high
@@ -476,10 +481,28 @@ def cross(
         )
         else axis[:0]
     )
-    fractions = (threshold - signal[left]) / (signal[right] - signal[left])
-    interpolated = axis[left] + fractions * (axis[right] - axis[left])
-    crossing_coordinates = np.where(right == left + 1, interpolated, axis[right - 1])
-    crossings = np.r_[initial, crossing_coordinates]
+    rising_coordinates = np.r_[
+        axis[direct_rises]
+        + (threshold - signal[direct_rises])
+        / (signal[direct_rises + 1] - signal[direct_rises])
+        * (axis[direct_rises + 1] - axis[direct_rises]),
+        axis[touch_rises],
+    ]
+    falling_coordinates = np.r_[
+        axis[direct_falls]
+        + (threshold - signal[direct_falls])
+        / (signal[direct_falls + 1] - signal[direct_falls])
+        * (axis[direct_falls + 1] - axis[direct_falls]),
+        axis[touch_falls],
+    ]
+    selected_coordinates = (
+        rising_coordinates
+        if edge == "rising"
+        else falling_coordinates
+        if edge == "falling"
+        else np.r_[rising_coordinates, falling_coordinates]
+    )
+    crossings = np.r_[initial, np.sort(selected_coordinates)]
     if occurrence is None:
         return crossings
     selected = occurrence - 1 if occurrence > 0 else occurrence

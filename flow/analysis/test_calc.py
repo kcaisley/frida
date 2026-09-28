@@ -47,15 +47,20 @@ def test_cross_edge_selection_and_occurrence() -> None:
     assert np.isnan(calc.cross(signal, axis, 0.0, occurrence=3))
 
 
-def test_cross_requires_a_change_of_sign_beyond_the_threshold() -> None:
+def test_cross_distinguishes_interior_contact_from_endpoint_contact() -> None:
     axis = np.arange(5.0)
     touch = np.array([0.0, 1.0, 0.0, -1.0, 0.0])
     assert np.isnan(calc.cross(touch, axis, 0.0, edge="rising", occurrence=1))
     assert np.isnan(calc.cross(touch, axis, 0.0, edge="rising", occurrence=-1))
     np.testing.assert_allclose(calc.cross(touch, axis, 0.0, edge="falling"), [2.0])
     plateau = np.array([-1.0, 0.0, 0.0, 1.0, -1.0])
-    np.testing.assert_allclose(calc.cross(plateau, axis, 0.0, edge="rising"), [2.0])
+    np.testing.assert_allclose(calc.cross(plateau, axis, 0.0, edge="rising"), [1.0])
     np.testing.assert_allclose(calc.cross(plateau, axis, 0.0, edge="falling"), [3.5])
+    interior_touch = np.array([-1.0, 0.0, -1.0])
+    assert calc.cross(interior_touch, axis[:3], 0.0, edge="rising", occurrence=1) == pytest.approx(1.0)
+    np.testing.assert_allclose(calc.cross(interior_touch, axis[:3], 0.0, edge="either"), [1.0])
+    falling_plateau = np.array([-1.0, 1.0, 0.0, 0.0, -1.0, 1.0])
+    assert calc.cross(falling_plateau, np.arange(6.0), 0.0, edge="falling", occurrence=1) == pytest.approx(2.0)
 
 
 def test_clip_value_and_time_weighted_average() -> None:
