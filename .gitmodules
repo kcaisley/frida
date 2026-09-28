@@ -12,15 +12,15 @@
 	url = git@github.com:kcaisley/ihp130.git
 [submodule "libs/Hdl21"]
 	path = libs/Hdl21
-	url = git@github.com:kcaisley/Hdl21.git
+	url = https://github.com/kcaisley/Hdl21.git
 	branch = spectre
 [submodule "libs/Vlsir"]
 	path = libs/Vlsir
-	url = git@github.com:kcaisley/Vlsir.git
+	url = https://github.com/kcaisley/Vlsir.git
 	branch = spectre
 [submodule "libs/basil"]
 	path = libs/basil
-	url = git@github.com:SiLab-Bonn/basil.git
+	url = https://github.com/SiLab-Bonn/basil.git
 	branch = behavioral-modules
 [submodule "libs/ubonn-thesis"]
 	path = libs/ubonn-thesis

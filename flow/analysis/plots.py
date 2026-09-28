@@ -338,8 +338,8 @@ def plot_adc_redundancy(
     if not series:
         raise ValueError("at least one redundancy sequence is required")
     fig, ax = plt.subplots()
-    for index, (label, margins) in enumerate(series.items()):
-        ax.plot(np.arange(len(margins)), margins, "o-", color=CURVE_COLORS[index % len(CURVE_COLORS)], label=label)
+    for label, margins in series.items():
+        ax.plot(np.arange(len(margins)), margins, "o-", label=label)
     ax.axhline(0.0, color=SPINE_COLOR)
     ax.set_xlabel("Conversion stage")
     ax.set_ylabel("Error tolerance (%)")
