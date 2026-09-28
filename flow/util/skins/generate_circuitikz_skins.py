@@ -79,9 +79,7 @@ def template(
     x: float,
     y: float,
     label: bool = True,
-    directed_ports: set[str] | None = None,
 ) -> list[str]:
-    directed_ports = directed_ports or set()
     lines = [
         (
             f'<g s:type="{escape(kind)}" s:width="{num(width)}" s:height="{num(height)}" '
@@ -95,12 +93,7 @@ def template(
         )
     lines += [f"  {item}" for item in artwork]
     lines += [
-        (
-            f'  <g s:x="{num(px)}" s:y="{num(py)}" '
-            f's:pid="{escape(pid, quote=True)}" s:position="{position}"'
-            + (' s:dir="input"' if pid in directed_ports else "")
-            + "/>"
-        )
+        f'  <g s:x="{num(px)}" s:y="{num(py)}" s:pid="{escape(pid, quote=True)}" s:position="{position}"/>'
         for pid, px, py, position in ports
     ]
     return lines + ["</g>"]
@@ -389,17 +382,17 @@ def terminal(kind: str, *, x: float, y: float) -> list[str]:
 def dynamic_generic(*, x: float, y: float) -> list[str]:
     """netlistsvg needs child text nodes when it grows a generic cell."""
     return [
-        f'<g s:type="generic" s:width="112" s:height="42" transform="translate({num(x)},{num(y)})">',
+        f'<g s:type="generic" s:width="240" s:height="42" transform="translate({num(x)},{num(y)})">',
         '  <s:alias val="generic-bus"/>',
-        '  <text x="56" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>',
-        '  <rect x="6" y="0" width="100" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>',
+        '  <text x="120" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>',
+        '  <rect x="6" y="0" width="228" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>',
         (
-            '  <g transform="translate(112,10)" s:x="112" s:y="10" s:pid="out0">'
+            '  <g transform="translate(240,10)" s:x="240" s:y="10" s:pid="out0">'
             '<path d="M-6,0 H0" class="connect $cell_id"/>'
             '<text x="-10" y="3" text-anchor="end">out0</text></g>'
         ),
         (
-            '  <g transform="translate(112,32)" s:x="112" s:y="32" s:pid="out1">'
+            '  <g transform="translate(240,32)" s:x="240" s:y="32" s:pid="out1">'
             '<path d="M-6,0 H0" class="connect $cell_id"/>'
             '<text x="-10" y="3" text-anchor="end">out1</text></g>'
         ),
@@ -437,8 +430,8 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
         ]
         if not mirror
         else [
-            '<text x="0" y="29" s:attribute="ref" class="$cell_id">M1</text>',
-            '<text x="0" y="42" s:attribute="value" class="$cell_id">W/L</text>',
+            '<text x="56" y="29" text-anchor="end" s:attribute="ref" class="$cell_id">M1</text>',
+            '<text x="56" y="42" text-anchor="end" s:attribute="value" class="$cell_id">W/L</text>',
         ]
     )
     if mirror:
@@ -453,9 +446,7 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
             ("D", 32, 0 if not p else 64, "top" if not p else "bottom"),
             ("S", 32, 64 if not p else 0, "bottom" if not p else "top"),
         ]
-    # netlistsvg otherwise classifies left/right pins as lateral, so a gate
-    # input would not contribute to the top-down ELK placement of its driver.
-    return template(name, 80, 64, aliases, art, ports, x=x, y=y, label=False, directed_ports={"G"})
+    return template(name, 80, 64, aliases, art, ports, x=x, y=y, label=False)
 
 
 def analog_skin() -> str:

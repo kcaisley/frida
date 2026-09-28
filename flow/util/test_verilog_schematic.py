@@ -38,7 +38,7 @@ endmodule
 
 
 def test_custom_skin_places_single_gate_inputs_straight(tmp_path: Path) -> None:
-    """The preamp's sole gate inputs should be direct, with the shared clock above."""
+    """The preamp's sole gate inputs should be direct."""
     root = Path(__file__).resolve().parents[2]
     verilog = root / "docs/images/preamp_netlistsvg.v"
     skin = root / "flow/util/skins/circuitikz_analog.svg"
@@ -66,5 +66,12 @@ def test_custom_skin_places_single_gate_inputs_straight(tmp_path: Path) -> None:
         assert (float(lines[0].get("x1")), float(lines[0].get("y1"))) == input_xy
         assert (float(lines[0].get("x2")), float(lines[0].get("y2"))) == gate_xy
 
-    assert port_xy("clk", "Y")[1] < port_xy("MP1", "G")[1]
-    assert port_xy("MP1", "G")[0] < port_xy("MP2", "G")[0]
+    clock_bit = module["ports"]["clk"]["bits"][0]
+    clock_xy = port_xy("clk", "Y")
+    assert clock_xy[1] == port_xy("MN3", "G")[1]
+    clock_lines = [line for line in svg_root.findall(f"{{{svg_ns}}}line") if line.get("class") == f"net_{clock_bit}"]
+    assert any(
+        (float(line.get("x1")), float(line.get("y1"))) == clock_xy
+        or (float(line.get("x2")), float(line.get("y2"))) == clock_xy
+        for line in clock_lines
+    )

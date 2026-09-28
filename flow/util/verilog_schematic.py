@@ -4,7 +4,6 @@ The input Verilog should describe analog primitives as black-box cells. MOS
 cell types named ``mos_n``/``nmos``/``nch*`` and
 ``mos_p``/``pmos``/``pch*`` are normalized to analog symbols. Bulk terminals
 are omitted from the drawing to keep shared supply rails readable.
-The Circuitikz skin marks MOS gates as directed inputs for ELK placement.
 With a custom skin, an external input driving only one gate is drawn directly
 to the left of that gate when the geometry permits it.
 
@@ -132,6 +131,105 @@ def _straighten_single_gate_inputs(module: dict, svg_path: Path) -> None:
         tree.write(svg_path, encoding="unicode")
 
 
+def _align_low_shared_gate_inputs(module: dict, svg_path: Path) -> None:
+    """Move a dangling input stub up to the lowest MOS gate on its net."""
+    uses: dict[int, list[tuple[str, str, str]]] = {}
+    for cell_name, cell in module.get("cells", {}).items():
+        for pin, bits in cell.get("connections", {}).items():
+            for bit in bits:
+                if isinstance(bit, int):
+                    uses.setdefault(bit, []).append((cell_name, cell["type"], pin))
+
+    ET.register_namespace("", _SVG_NS)
+    ET.register_namespace("s", _SKIN_NS)
+    tree = ET.parse(svg_path)
+    root = tree.getroot()
+    groups = {group.get("id", "").removeprefix("cell_"): group for group in root.findall(f"{{{_SVG_NS}}}g")}
+
+    def position(group: ET.Element) -> tuple[float, float]:
+        match = re.fullmatch(r"translate\(\s*([^,]+),\s*([^,)]+)\s*\)", group.attrib["transform"])
+        if match is None:
+            raise ValueError(f"unexpected netlistsvg transform: {group.attrib['transform']}")
+        return float(match[1]), float(match[2])
+
+    changed = False
+    for port_name, port in module.get("ports", {}).items():
+        bits = port.get("bits", [])
+        if port.get("direction") != "input" or len(bits) != 1 or not isinstance(bits[0], int):
+            continue
+        bit = bits[0]
+        gate_uses = uses.get(bit, [])
+        if len(gate_uses) < 2 or any(kind not in {"mos_n", "mos_p"} or pin != "G" for _, kind, pin in gate_uses):
+            continue
+        terminal = groups.get(port_name)
+        if terminal is None:
+            continue
+        terminal_pin = terminal.find(f"{{{_SVG_NS}}}g[@{{{_SKIN_NS}}}pid='Y']")
+        if terminal_pin is None:
+            continue
+        terminal_x, terminal_y = position(terminal)
+        pin_x = terminal_x + float(terminal_pin.get(f"{{{_SKIN_NS}}}x"))
+        pin_y_offset = float(terminal_pin.get(f"{{{_SKIN_NS}}}y"))
+        pin_y = terminal_y + pin_y_offset
+
+        gate_ys = []
+        for cell_name, _, _ in gate_uses:
+            cell = groups.get(cell_name)
+            gate = cell.find(f"{{{_SVG_NS}}}g[@{{{_SKIN_NS}}}pid='G']") if cell is not None else None
+            if cell is None or gate is None:
+                break
+            gate_ys.append(position(cell)[1] + float(gate.get(f"{{{_SKIN_NS}}}y")))
+        if len(gate_ys) != len(gate_uses) or pin_y <= max(gate_ys):
+            continue
+        target_y = max(gate_ys)
+        net_class = f"net_{bit}"
+        lines = [line for line in root.findall(f"{{{_SVG_NS}}}line") if net_class in line.get("class", "").split()]
+        stubs = [
+            line
+            for line in lines
+            if float(line.get("y1")) == pin_y == float(line.get("y2"))
+            and pin_x in (float(line.get("x1")), float(line.get("x2")))
+        ]
+        if len(stubs) != 1:
+            continue
+        stub = stubs[0]
+        junction_x = float(stub.get("x2")) if float(stub.get("x1")) == pin_x else float(stub.get("x1"))
+        tail = [
+            line
+            for line in lines
+            if line.get("x1") == line.get("x2")
+            and float(line.get("x1")) == junction_x
+            and {float(line.get("y1")), float(line.get("y2"))} == {target_y, pin_y}
+        ]
+        gate_branch = any(
+            line not in tail
+            and float(line.get("y1")) == target_y == float(line.get("y2"))
+            and junction_x in (float(line.get("x1")), float(line.get("x2")))
+            for line in lines
+        )
+        if len(tail) != 1 or not gate_branch or pin_x >= junction_x:
+            continue
+
+        root.remove(stub)
+        root.remove(tail[0])
+        terminal.set("transform", f"translate({terminal_x:g},{target_y - pin_y_offset:g})")
+        ET.SubElement(
+            root,
+            f"{{{_SVG_NS}}}line",
+            {
+                "x1": f"{pin_x:g}",
+                "x2": f"{junction_x:g}",
+                "y1": f"{target_y:g}",
+                "y2": f"{target_y:g}",
+                "class": net_class,
+            },
+        )
+        changed = True
+
+    if changed:
+        tree.write(svg_path, encoding="unicode")
+
+
 def verilog_to_analog_svg(
     verilog_path: Path, output_path: Path, top: str, skin: Path | None = None
 ) -> tuple[Path, Path]:
@@ -197,18 +295,6 @@ def verilog_to_analog_svg(
                         if name.lower() in ("w", "l", "m")
                     )
 
-            if skin is not None:
-                # netlistsvg passes this order to ELK. Place the upper PMOS
-                # devices first so symmetric CMOS branches keep their natural
-                # left-to-right names when gate connections are directed.
-                mos_rank = {"mos_p": 0, "mos_n": 1}
-                module["cells"] = dict(
-                    sorted(
-                        module.get("cells", {}).items(),
-                        key=lambda item: (mos_rank.get(item[1]["type"], 2), item[0]),
-                    )
-                )
-
         json_path.write_text(json.dumps(data, indent=2) + "\n")
 
         locator = subprocess.run(
@@ -246,6 +332,7 @@ def verilog_to_analog_svg(
 
         if skin is not None:
             _straighten_single_gate_inputs(data["modules"][top], output_path)
+            _align_low_shared_gate_inputs(data["modules"][top], output_path)
 
     return json_path, output_path
 

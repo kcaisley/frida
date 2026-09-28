@@ -19,7 +19,7 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/>
   <text x="40" y="29" s:attribute="ref" class="$cell_id">M1</text>
   <text x="40" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="0" s:y="32" s:pid="G" s:position="left" s:dir="input"/>
+  <g s:x="0" s:y="32" s:pid="G" s:position="left"/>
   <g s:x="32" s:y="0" s:pid="D" s:position="top"/>
   <g s:x="32" s:y="64" s:pid="S" s:position="bottom"/>
 </g>
@@ -30,25 +30,25 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <circle cx="9.6" cy="32" r="2.4" class="gatebubble $cell_id"/>
   <text x="40" y="29" s:attribute="ref" class="$cell_id">M1</text>
   <text x="40" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="0" s:y="32" s:pid="G" s:position="left" s:dir="input"/>
+  <g s:x="0" s:y="32" s:pid="G" s:position="left"/>
   <g s:x="32" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="32" s:y="0" s:pid="S" s:position="top"/>
 </g>
 <g s:type="mos_n_r" s:width="80" s:height="64" transform="translate(280,70)">
   <s:alias val="mos_n_r"/>
   <g transform="translate(80,0) scale(-1,1)"><path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/></g>
-  <text x="0" y="29" s:attribute="ref" class="$cell_id">M1</text>
-  <text x="0" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="80" s:y="32" s:pid="G" s:position="right" s:dir="input"/>
+  <text x="56" y="29" text-anchor="end" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="56" y="42" text-anchor="end" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="80" s:y="32" s:pid="G" s:position="right"/>
   <g s:x="48" s:y="0" s:pid="D" s:position="top"/>
   <g s:x="48" s:y="64" s:pid="S" s:position="bottom"/>
 </g>
 <g s:type="mos_p_r" s:width="80" s:height="64" transform="translate(410,70)">
   <s:alias val="mos_p_r"/>
   <g transform="translate(80,0) scale(-1,1)"><path d="M0,32 H12 M12,16 V48 M32,0 V16 H16 V48 H32 V64" class="symbol $cell_id"/><circle cx="9.6" cy="32" r="2.4" class="gatebubble $cell_id"/></g>
-  <text x="0" y="29" s:attribute="ref" class="$cell_id">M1</text>
-  <text x="0" y="42" s:attribute="value" class="$cell_id">W/L</text>
-  <g s:x="80" s:y="32" s:pid="G" s:position="right" s:dir="input"/>
+  <text x="56" y="29" text-anchor="end" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="56" y="42" text-anchor="end" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="80" s:y="32" s:pid="G" s:position="right"/>
   <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
 </g>
@@ -102,12 +102,12 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <text x="20" y="7" text-anchor="start" s:attribute="ref" class="$cell_id">net</text>
   <g s:x="0" s:y="4" s:pid="A" s:position="left"/>
 </g>
-<g s:type="generic" s:width="112" s:height="42" transform="translate(220,300)">
+<g s:type="generic" s:width="240" s:height="42" transform="translate(220,300)">
   <s:alias val="generic-bus"/>
-  <text x="56" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>
-  <rect x="6" y="0" width="100" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>
-  <g transform="translate(112,10)" s:x="112" s:y="10" s:pid="out0"><path d="M-6,0 H0" class="connect $cell_id"/><text x="-10" y="3" text-anchor="end">out0</text></g>
-  <g transform="translate(112,32)" s:x="112" s:y="32" s:pid="out1"><path d="M-6,0 H0" class="connect $cell_id"/><text x="-10" y="3" text-anchor="end">out1</text></g>
+  <text x="120" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>
+  <rect x="6" y="0" width="228" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>
+  <g transform="translate(240,10)" s:x="240" s:y="10" s:pid="out0"><path d="M-6,0 H0" class="connect $cell_id"/><text x="-10" y="3" text-anchor="end">out0</text></g>
+  <g transform="translate(240,32)" s:x="240" s:y="32" s:pid="out1"><path d="M-6,0 H0" class="connect $cell_id"/><text x="-10" y="3" text-anchor="end">out1</text></g>
   <g transform="translate(0,10)" s:x="0" s:y="10" s:pid="in0"><path d="M0,0 H6" class="connect $cell_id"/><text x="10" y="3">in0</text></g>
   <g transform="translate(0,32)" s:x="0" s:y="32" s:pid="in1"><path d="M0,0 H6" class="connect $cell_id"/><text x="10" y="3">in1</text></g>
 </g>
