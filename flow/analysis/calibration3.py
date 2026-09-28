@@ -114,7 +114,7 @@ def _fit_probit_threshold(
     # makes the transition narrower than one voltage bin.
     zero_count = trials - one_count
     split_error = np.cumsum(one_count) + np.sum(zero_count) - np.cumsum(zero_count)
-    threshold_seed_v = float(centers_v[int(np.argmin(split_error))])
+    threshold_seed_v = calc.xmin(split_error, centers_v)
     sigma_seed_v = max(input_span_v / 1000.0, 2.0 * bin_width_v)
     minimum_sigma_v = max(bin_width_v / 32.0, np.finfo(np.float64).eps)
     maximum_sigma_v = input_span_v / 2.0
@@ -350,11 +350,7 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
 
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = np.linalg.lstsq(
-        np.column_stack((reset_number, np.ones(len(reset_number)))),
-        ramp.reset_conversion_index.astype(np.float64),
-        rcond=None,
-    )[0]
+    period_samples, first_reset_sample = calc.linear_fit(ramp.reset_conversion_index, reset_number)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     inferred_vin_diff_v = ramp.vin_diff_min_v + phase * (ramp.vin_diff_max_v - ramp.vin_diff_min_v)
     cycle_index = np.floor((sample - first_reset_sample) / period_samples).astype(np.int64)

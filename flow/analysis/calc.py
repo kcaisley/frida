@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any, overload
+from typing import Any, NamedTuple, overload
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 from scipy.signal import welch
 from scipy.signal.windows import blackmanharris
 
@@ -126,6 +127,12 @@ def integ(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarr
     return float(np.trapezoid(signal, axis))
 
 
+def deriv(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Return the slope over each interval between adjacent samples."""
+    signal, axis = _waveform(signal, axis)
+    return np.diff(signal) / np.diff(axis)
+
+
 def average(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray | None = None) -> float:
     """Average discrete samples, or time-weight a continuous waveform with ``axis``."""
     if axis is None:
@@ -162,6 +169,22 @@ def ymin(signal: Sequence[float] | np.ndarray) -> float:
     return float(np.min(np.asarray(signal, dtype=np.float64)))
 
 
+def xmax(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
+    """Return the axis coordinate at the first signal maximum."""
+    signal, axis = _waveform(signal, axis)
+    if not len(signal):
+        raise ValueError("xmax requires a non-empty waveform")
+    return float(axis[np.argmax(signal)])
+
+
+def xmin(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
+    """Return the axis coordinate at the first signal minimum."""
+    signal, axis = _waveform(signal, axis)
+    if not len(signal):
+        raise ValueError("xmin requires a non-empty waveform")
+    return float(axis[np.argmin(signal)])
+
+
 def histogram2D(
     x: Sequence[float] | np.ndarray,
     y: Sequence[float] | np.ndarray,
@@ -170,6 +193,115 @@ def histogram2D(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Count samples in a two-dimensional grid of bin edges."""
     return np.histogram2d(x, y, bins=bins)
+
+
+def histogram(
+    signal: Sequence[float] | np.ndarray,
+    *,
+    bins: int | Sequence[float] | np.ndarray,
+    value_range: tuple[float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Count samples in one-dimensional bins."""
+    return np.histogram(signal, bins=bins, range=value_range)
+
+
+def median(signal: Sequence[float] | np.ndarray) -> float:
+    """Return the median of a one-dimensional set of samples."""
+    return float(np.median(np.asarray(signal, dtype=np.float64)))
+
+
+@overload
+def percentile(signal: Sequence[float] | np.ndarray, percent: float) -> float: ...
+
+
+@overload
+def percentile(signal: Sequence[float] | np.ndarray, percent: Sequence[float] | np.ndarray) -> np.ndarray: ...
+
+
+def percentile(
+    signal: Sequence[float] | np.ndarray, percent: float | Sequence[float] | np.ndarray
+) -> float | np.ndarray:
+    """Return interpolated percentiles of a one-dimensional set of samples."""
+    result = np.percentile(np.asarray(signal, dtype=np.float64), percent)
+    return float(result) if np.ndim(percent) == 0 else np.asarray(result)
+
+
+def linear_fit(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> tuple[float, float]:
+    """Return the least-squares slope and intercept of a sampled signal."""
+    signal, axis = _waveform(signal, axis)
+    if len(signal) < 2:
+        raise ValueError("linear fit requires at least two samples")
+    slope, intercept = np.linalg.lstsq(np.column_stack((axis, np.ones(len(axis)))), signal, rcond=None)[0]
+    return float(slope), float(intercept)
+
+
+class SineFit(NamedTuple):
+    """Least-squares sinusoid parameters and aligned waveform samples."""
+
+    frequency_hz: float
+    amplitude: float
+    phase_rad: float
+    offset: float
+    residual_rms: float
+    time_s: np.ndarray
+    fitted: np.ndarray
+    residual: np.ndarray
+
+
+def sine_fit(
+    signal: Sequence[float] | np.ndarray,
+    *,
+    sample_rate: float,
+    frequency: float,
+    frequency_search_fraction: float = 0.0,
+) -> SineFit:
+    """Fit a sine, cosine, and offset at a known or nearby frequency."""
+    signal = np.asarray(signal, dtype=np.float64)
+    if signal.ndim != 1 or len(signal) < 8 or not np.all(np.isfinite(signal)):
+        raise ValueError("sine fit requires at least eight finite one-dimensional samples")
+    if not math.isfinite(sample_rate) or sample_rate <= 0:
+        raise ValueError("sample_rate must be finite and positive")
+    if not math.isfinite(frequency) or not 0 < frequency < sample_rate / 2:
+        raise ValueError("frequency must be finite and between zero and Nyquist")
+    if not math.isfinite(frequency_search_fraction) or not 0 <= frequency_search_fraction < 1:
+        raise ValueError("frequency_search_fraction must be finite and in [0, 1)")
+    time_s = np.arange(signal.size, dtype=np.float64) / sample_rate
+    ones = np.ones(signal.size, dtype=np.float64)
+
+    def fit_at_frequency(frequency_hz: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        phase = 2.0 * np.pi * frequency_hz * time_s
+        design = np.column_stack((np.sin(phase), np.cos(phase), ones))
+        coefficients = np.linalg.lstsq(design, signal, rcond=None)[0]
+        fitted = design @ coefficients
+        residual = signal - fitted
+        return coefficients, fitted, residual, average(residual * residual)
+
+    if frequency_search_fraction:
+        maximum_offset_hz = min(frequency * frequency_search_fraction, 0.45 * sample_rate / signal.size)
+        lower_hz = max(np.nextafter(0.0, 1.0), frequency - maximum_offset_hz)
+        upper_hz = min(np.nextafter(sample_rate / 2.0, 0.0), frequency + maximum_offset_hz)
+        result = minimize_scalar(
+            lambda frequency_hz: fit_at_frequency(float(frequency_hz))[3],
+            bounds=(lower_hz, upper_hz),
+            method="bounded",
+            options={"xatol": max(1e-9, frequency * 1e-10)},
+        )
+        if not result.success:
+            raise RuntimeError(f"sine frequency fit failed: {result.message}")
+        frequency = float(result.x)
+
+    coefficients, fitted, residual, residual_power = fit_at_frequency(frequency)
+    sine_coefficient, cosine_coefficient, offset = (float(value) for value in coefficients)
+    return SineFit(
+        frequency_hz=frequency,
+        amplitude=math.hypot(sine_coefficient, cosine_coefficient),
+        phase_rad=math.atan2(cosine_coefficient, sine_coefficient),
+        offset=offset,
+        residual_rms=math.sqrt(residual_power),
+        time_s=time_s,
+        fitted=fitted,
+        residual=residual,
+    )
 
 
 def rmsNoise(density: Sequence[float] | np.ndarray, frequency: Sequence[float] | np.ndarray) -> float:
@@ -250,13 +382,19 @@ def dnl(counts: Sequence[int] | np.ndarray, *, ideal_count: float | None = None)
     return counts / ideal - 1.0 if ideal > 0 else np.zeros_like(counts)
 
 
-def inl(dnl_values: Sequence[float] | np.ndarray) -> np.ndarray:
-    """Integrate DNL with a straight endpoint correction."""
+def inl(dnl_values: Sequence[float] | np.ndarray, *, endpoint_correct: bool = True) -> np.ndarray:
+    """Integrate DNL, optionally correcting the line through both endpoints.
+
+    Without endpoint correction, each output is the cumulative DNL through
+    that code. With correction, each output is the INL at the code's start.
+    """
     values = np.asarray(dnl_values, dtype=np.float64)
     if values.ndim != 1:
         raise ValueError("dnl_values must be one-dimensional")
     if not len(values):
         return values.copy()
+    if not endpoint_correct:
+        return np.cumsum(values, dtype=np.float64)
     raw = np.r_[0.0, np.cumsum(values[:-1], dtype=np.float64)]
     return raw - np.linspace(raw[0], raw[-1], len(raw)) if len(raw) > 1 else raw
 

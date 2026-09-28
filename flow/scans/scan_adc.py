@@ -17,6 +17,7 @@ from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
 from flow.adc.sequences import AdcSequence
+from flow.analysis import calc
 from flow.analysis.io import write_measurement
 from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
 from flow.caparray import get_caparray_weights
@@ -91,8 +92,8 @@ def convert_vdiff_input_to_awg_supply(
             raise ValueError("small-signal input calibration table is malformed")
         if not common_modes[0] <= vin_cm <= common_modes[-1]:
             raise ValueError("Vin_cm is outside the small-signal input calibration table")
-        small_signal_gain = float(np.interp(vin_cm, common_modes, magnitude_values))
-        small_signal_center_v = float(np.interp(vin_cm, common_modes, center_values))
+        small_signal_gain = calc.value(magnitude_values, common_modes, vin_cm)
+        small_signal_center_v = calc.value(center_values, common_modes, vin_cm)
     if use_small_signal:
         assert small_signal_gain is not None
         assert small_signal_center_v is not None
@@ -185,7 +186,7 @@ def convert_vdiff_input_to_awg_supply(
             raise ValueError("Vin_cm supply calibration table is malformed")
         if not supply_common_modes_array[0] <= vin_cm <= supply_common_modes_array[-1]:
             raise ValueError("Vin_cm is outside the supply calibration table")
-        vin_cm_supply_voltage = float(np.interp(vin_cm, supply_common_modes_array, supply_setpoints))
+        vin_cm_supply_voltage = calc.value(supply_setpoints, supply_common_modes_array, vin_cm)
     return awg_voltage, vin_cm_supply_voltage
 
 
@@ -1071,7 +1072,7 @@ def scan(
                     point_values_v = np.asarray([point[1] for point in points])
                     period_s = point_times_s[-1] - point_times_s[0]
                     relative_times_s = np.mod(conversion_times_s - point_times_s[0], period_s) + point_times_s[0]
-                    vin_diff_values_v = np.interp(relative_times_s, point_times_s, point_values_v)
+                    vin_diff_values_v = calc.value(point_values_v, point_times_s, relative_times_s)
                 else:
                     raise TypeError(f"unsupported differential source type {type(source).__name__}")
 

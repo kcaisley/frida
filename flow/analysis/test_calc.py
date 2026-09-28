@@ -80,3 +80,34 @@ def test_spectral_and_density_operations() -> None:
     assert calc.rmsNoise(np.ones(3), np.array([0.0, 1.0, 2.0])) == pytest.approx(np.sqrt(2.0))
     assert calc.thd(100.0, 1.0) == pytest.approx(-20.0)
     assert calc.frequency(signal, np.arange(128) / sample_rate, threshold=0.0) == pytest.approx(8.0)
+
+
+def test_transfer_linearity_composes_from_calculator_operations() -> None:
+    code = np.array([0.0, 1.0, 3.0, 4.0])
+    transfer = np.array([0.0, 1.1, 3.0, 4.2])
+    np.testing.assert_allclose(calc.deriv(transfer, code), [1.1, 0.95, 1.2])
+    counts, edges = calc.histogram([0.1, 0.9, 1.1, 1.9], bins=2, value_range=(0.0, 2.0))
+    np.testing.assert_array_equal(counts, [2, 2])
+    np.testing.assert_allclose(edges, [0.0, 1.0, 2.0])
+    np.testing.assert_allclose(calc.dnl([90, 100, 110], ideal_count=100), [-0.1, 0.0, 0.1])
+    np.testing.assert_allclose(calc.inl([-0.1, 0.0, 0.1], endpoint_correct=False), [-0.1, -0.1, 0.0])
+    assert calc.linear_fit([1.0, 3.0, 5.0], [0.0, 1.0, 2.0]) == pytest.approx((2.0, 1.0))
+    assert calc.median([1.0, 2.0, 9.0]) == pytest.approx(2.0)
+    np.testing.assert_allclose(calc.percentile([0.0, 10.0], (25.0, 75.0)), [2.5, 7.5])
+    assert calc.xmin([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(1.0)
+    assert calc.xmax([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(2.0)
+
+
+def test_sine_fit_recovers_signal_with_frequency_error() -> None:
+    sample_rate = 1000.0
+    time_s = np.arange(1000) / sample_rate
+    signal = 2.0 + 3.0 * np.sin(2.0 * np.pi * 41.25 * time_s + 0.4)
+    fit = calc.sine_fit(signal, sample_rate=sample_rate, frequency=41.0, frequency_search_fraction=0.02)
+    assert fit.frequency_hz == pytest.approx(41.25, abs=1e-5)
+    assert fit.amplitude == pytest.approx(3.0, abs=1e-5)
+    assert fit.phase_rad == pytest.approx(0.4, abs=1e-5)
+    assert fit.offset == pytest.approx(2.0, abs=1e-5)
+    assert fit.residual_rms < 1e-5
+    np.testing.assert_allclose(fit.time_s, time_s)
+    np.testing.assert_allclose(fit.fitted, signal, atol=1e-5)
+    np.testing.assert_allclose(fit.residual, np.zeros_like(signal), atol=1e-5)

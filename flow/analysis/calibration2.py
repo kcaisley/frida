@@ -84,11 +84,7 @@ def analyze(
         raise ValueError("calibration 2 requires the matching ADC ramp analysis")
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = np.linalg.lstsq(
-        np.column_stack((reset_number, np.ones(len(reset_number)))),
-        ramp.reset_conversion_index.astype(np.float64),
-        rcond=None,
-    )[0]
+    period_samples, first_reset_sample = calc.linear_fit(ramp.reset_conversion_index, reset_number)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     code_max = (1 << params.dut.adc_bits) - 1
     ideal_dout = phase * code_max

@@ -417,7 +417,7 @@ def plot_adc_comparator_edge_eye(
         clock_edges = clock_edges[(clock_edges >= init_edges[0]) & (clock_edges < stop)]
         if len(clock_edges) != 17:
             raise ValueError(f"conversion {record} has {len(clock_edges)} COMP rises; expected 17")
-        period = float(np.median(np.diff(clock_edges)))
+        period = calc.median(np.diff(clock_edges))
         periods.append(period)
         relative_edges.append(clock_edges - clock_edges[0])
         traces = (
@@ -435,7 +435,7 @@ def plot_adc_comparator_edge_eye(
             for segments, values in zip(decision_segments, traces, strict=True):
                 segments.append(np.column_stack((decision_time_ns, values[selected])))
 
-    period_ns = float(np.median(periods)) * 1e9
+    period_ns = calc.median(periods) * 1e9
     edge_ns = np.median(relative_edges, axis=0) * 1e9
     supply = max(float(measurement.param.vdd_a.dc), float(measurement.param.vdd_d.dc))
     output_path = Path(output_path)
@@ -496,7 +496,7 @@ def plot_adc_comparator_response(
     bins = np.linspace(lower, upper, 49)
     bin_centers = (bins[:-1] + bins[1:]) / 2
     bin_height = float(bins[1] - bins[0]) * 0.95
-    peak_fraction = max(np.histogram(values, bins=bins)[0].max() / len(values) for values in populated)
+    peak_fraction = max(calc.ymax(calc.histogram(values, bins=bins)[0]) / len(values) for values in populated)
     for stages, label in zip(series, labels, strict=True):
         positions = []
         widths = []
@@ -508,13 +508,13 @@ def plot_adc_comparator_response(
             scaled = values[np.isfinite(values)] * 1e9
             if not len(scaled):
                 continue
-            counts, _ = np.histogram(scaled, bins=bins)
+            counts, _ = calc.histogram(scaled, bins=bins)
             occupied = counts > 0
             positions.extend(bin_centers[occupied])
             widths.extend(0.58 * counts[occupied] / len(scaled) / peak_fraction)
             left_edges.extend(np.full(np.count_nonzero(occupied), decision))
             median_x.append(decision)
-            median_y.append(float(np.median(scaled)))
+            median_y.append(calc.median(scaled))
         bars = ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.5, label=label)
         if bars.patches:
             ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
@@ -637,7 +637,7 @@ def plot_adc_comp_out_edge_eye(
     bins = np.linspace(lower, upper, 49)
     bin_centers = (bins[:-1] + bins[1:]) / 2
     bin_height = float(bins[1] - bins[0]) * 0.95
-    peak_fraction = max(np.histogram(values, bins=bins)[0].max() / len(values) for values in populated)
+    peak_fraction = max(calc.ymax(calc.histogram(values, bins=bins)[0]) / len(values) for values in populated)
     positions = []
     widths = []
     left_edges = []
@@ -647,13 +647,13 @@ def plot_adc_comp_out_edge_eye(
         scaled = np.asarray(values) * 1e9
         if not len(scaled):
             continue
-        counts, _ = np.histogram(scaled, bins=bins)
+        counts, _ = calc.histogram(scaled, bins=bins)
         occupied = counts > 0
         positions.extend(bin_centers[occupied])
         widths.extend(0.39 * counts[occupied] / len(scaled) / peak_fraction)
         left_edges.extend(np.full(np.count_nonzero(occupied), decision))
         median_x.append(decision)
-        median_y.append(float(np.median(scaled)))
+        median_y.append(calc.median(scaled))
     bars = response_ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.68, label="Scope COMP_OUT")
     if bars.patches:
         response_ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
@@ -712,13 +712,13 @@ def plot_serdes_output_word_grid(
                 wave = analyze_scope_waveforms(capture, {output_channel: "SERDES output"})
                 time_s = wave.time_s
                 voltage_v = wave.signal_values[0]
-                low_v, high_v = np.percentile(voltage_v, (5, 95))
+                low_v, high_v = calc.percentile(voltage_v, (5, 95))
                 if high_v - low_v < 0.05:
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
                 rises = calc.cross(voltage_v, time_s, float((low_v + high_v) / 2), edge="rising")
                 if not len(rises):
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no rise")
-                origin_s = float(rises[np.argmin(np.abs(rises))])
+                origin_s = calc.xmin(np.abs(rises), rises)
                 # Skip the trigger word after idle and the final idle word.
                 for word_index in range(1, 30):
                     word_start_s = origin_s + 8 * word_index * unit_interval_s
@@ -793,17 +793,17 @@ def plot_serdes_symbol_eye_grid(
             wave = analyze_scope_waveforms(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
             time_s = wave.time_s
             marker_v, output_v = wave.signal_values
-            marker_low, marker_high = np.percentile(marker_v, (0.1, 99.9))
-            output_low, output_high = np.percentile(output_v, (5, 95))
+            marker_low, marker_high = calc.percentile(marker_v, (0.1, 99.9))
+            output_low, output_high = calc.percentile(output_v, (5, 95))
             if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a valid swing")
             marker_edges = calc.cross(marker_v, time_s, float((marker_low + marker_high) / 2), edge="rising")
             output_edges = calc.cross(output_v, time_s, float((output_low + output_high) / 2), edge="rising")
             if not len(marker_edges) or not len(output_edges):
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a trigger or output rise")
-            marker_origin_s = float(marker_edges[np.argmin(np.abs(marker_edges))])
+            marker_origin_s = calc.xmin(np.abs(marker_edges), marker_edges)
             anchor_expected_s = marker_origin_s + anchor_bit * unit_interval_s
-            anchor_edge_s = float(output_edges[np.argmin(np.abs(output_edges - anchor_expected_s))])
+            anchor_edge_s = calc.xmin(np.abs(output_edges - anchor_expected_s), output_edges)
             if abs(anchor_edge_s - anchor_expected_s) > unit_interval_s:
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} cannot align the output word")
             output_origin_s = anchor_edge_s - anchor_bit * unit_interval_s
@@ -825,8 +825,8 @@ def plot_serdes_symbol_eye_grid(
                 folded_symbols += 1
         if not phases or not high_centers or not low_centers:
             raise ValueError(f"{rate_mbd} MBd captures contain no complete symbol eyes")
-        high_p01_v = float(np.percentile(high_centers, 1))
-        low_p99_v = float(np.percentile(low_centers, 99))
+        high_p01_v = calc.percentile(high_centers, 1)
+        low_p99_v = calc.percentile(low_centers, 99)
         opening_v = high_p01_v - low_p99_v
         ax.hist2d(
             np.concatenate(phases),
@@ -1727,7 +1727,7 @@ def plot_adc_sequence_chip_overview(
         for index in range(enob_bits.shape[1]):
             selected = enob_bits[plausible[:, index, rate_index], index, rate_index]
             if len(selected) >= 12:
-                medians[index] = np.median(selected)
+                medians[index] = calc.median(selected)
         axes[0].plot(sequence_index, medians, marker="o", label=f"{baud_mbd} MBd")
         axes[1].plot(sequence_index, np.sum(plausible[:, :, rate_index], axis=0), marker="o")
     axes[0].set_ylabel("Median ENOB with ≥12 plausible ADCs (bit)")

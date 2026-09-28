@@ -23,6 +23,7 @@ from pyvisa.errors import VisaIOError
 
 from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
+from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import CdacExtDaq, CdacExtWave, MeasCdacExt, MeasInfo
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
@@ -191,8 +192,8 @@ def build_next_fine_sweep_variant(
     )
     trend = float(
         np.dot(
-            coarse_voltages - np.mean(coarse_voltages),
-            coarse_probabilities - np.mean(coarse_probabilities),
+            coarse_voltages - calc.average(coarse_voltages),
+            coarse_probabilities - calc.average(coarse_probabilities),
         )
     )
     increasing = trend >= 0.0
@@ -1115,7 +1116,7 @@ def scan(
                 raw_batches.extend(raw_batch)
                 if scan_params.sweep_stage == "fine" and batch_index == 0:
                     first_decisions, _first_frames = convert_fastrx_words_to_comp(raw_batch, data_size=data_size)
-                    first_batch_probability = float(np.mean(first_decisions))
+                    first_batch_probability = calc.average(first_decisions)
                     time_distribute_batches = (
                         curve_key not in drift_checkpoint_curves
                         and drift_checkpoint_low_probability
@@ -1291,7 +1292,7 @@ def scan(
                 f"[{variant_index + 1}/{len(queue)}] ADC{scan_params.observed_adc:02d} "
                 f"{scan_params.cdac_side.upper()} C{scan_params.cdac_element} "
                 f"{scan_params.cdac_direction} "
-                f"P(decision=1)={float(np.mean(decisions)):.4f} "
+                f"P(decision=1)={calc.average(decisions):.4f} "
                 f"elapsed={monotonic() - point_started:.3f}s: {h5_path}"
             )
             if curve_error is not None:

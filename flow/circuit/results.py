@@ -14,6 +14,7 @@ from vlsirtools.spice.sim_data import TranResult
 
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets
+from flow.analysis import calc
 from flow.analysis.adc import _adc_decision_times
 from flow.analysis.io import interpolate_wave_records
 from flow.analysis.types import (
@@ -64,7 +65,7 @@ def _is_valid_transient(result: TranResult, names: Mapping[str, str], interval: 
         and len(time) >= 2
         and np.all(np.isfinite(time))
         and np.all(np.diff(time) > 0)
-        and np.max(np.diff(time)) <= interval * (1 + _RAW_STEP_RTOL)
+        and calc.ymax(np.diff(time)) <= interval * (1 + _RAW_STEP_RTOL)
         and all(np.asarray(value).shape == time.shape and np.all(np.isfinite(value)) for value in result.data.values())
     )
 
@@ -143,7 +144,7 @@ def convert_raw_adc_to_measurement(
     final_sample_times_s = logic_times[valid, -1]
     sample_times_s = logic_times[valid]
     bout = (
-        np.interp(sample_times_s.ravel(), times_s, signals[AdcNets.comp_out.name]).reshape(sample_times_s.shape)
+        calc.value(signals[AdcNets.comp_out.name], times_s, sample_times_s.ravel()).reshape(sample_times_s.shape)
         > threshold_v
     ).astype(np.uint8)
     dout_raw = bout.astype(np.int64) @ code_weights
@@ -151,9 +152,7 @@ def convert_raw_adc_to_measurement(
     conversion_start_indices = np.searchsorted(times_s, starts[valid], side="right")
     conversion_start_indices[starts[valid] == times_s[0]] = 0
     conversion_starts_s = times_s[conversion_start_indices]
-    vin_diff_v = np.interp(
-        comp_edge_times_s[:, 0], times_s, (signals[AdcNets.vin_p.name] - signals[AdcNets.vin_n.name])
-    )
+    vin_diff_v = calc.value(signals[AdcNets.vin_p.name] - signals[AdcNets.vin_n.name], times_s, comp_edge_times_s[:, 0])
     complete_conversions = len(conversion_start_indices)
     # HDL21 paramclasses are runtime dataclasses, although their decorator's
     # typing stub does not currently expose that fact to ty.
@@ -189,10 +188,10 @@ def convert_raw_adc_to_measurement(
         "raw_file": Path(raw_path).name,
         "raw_format": "spectre_nutbin",
         "raw_points": len(times_s),
-        "raw_max_timestep_s": float(np.max(np.diff(times_s))),
+        "raw_max_timestep_s": calc.ymax(np.diff(times_s)),
         "waveform_sample_interval_s": params.waveform_sample_interval_s,
         "waveform_interpolated_from_coarser_raw": bool(
-            np.max(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
+            calc.ymax(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
         ),
         "decision_sample_fraction": 1.0,
         "decision_time_reference": "seq_logic_rising_threshold_B0_B15",
@@ -208,8 +207,7 @@ def convert_raw_adc_to_measurement(
     rail_voltages = {name: float(getattr(params, name).dc) for name in supply_rails}
     for rail, voltage_v in rail_voltages.items():
         current_draw_a = currents[rail]
-        duration_s = float(times_s[-1] - times_s[0])
-        average_current_a = float(np.trapezoid(current_draw_a, times_s) / duration_s)
+        average_current_a = calc.average(current_draw_a, times_s)
         readbacks[f"{rail}_active_average_current_a"] = average_current_a
         readbacks[f"{rail}_active_average_power_w"] = voltage_v * average_current_a
 
@@ -278,8 +276,8 @@ def convert_raw_comp_to_measurement(
     # its much finer internal timesteps.
     decision_margin_s = max(float(params.transition_time_s) * 2.0, params.waveform_sample_interval_s / 2.0)
     sample_times_s = times_s[0] + (np.arange(expected_trial_count) + 1) * cycle_s - decision_margin_s
-    out_p = np.interp(sample_times_s, times_s, signals[CompNets.outp.name])
-    out_n = np.interp(sample_times_s, times_s, signals[CompNets.outn.name])
+    out_p = calc.value(signals[CompNets.outp.name], times_s, sample_times_s)
+    out_n = calc.value(signals[CompNets.outn.name], times_s, sample_times_s)
     decisions = (out_p > out_n).astype(np.uint8)
 
     # Preserve all records at the three points closest to 50% probability and
@@ -288,7 +286,7 @@ def convert_raw_comp_to_measurement(
     # is not centered at zero input, while bounding each production H5 file.
     representative_trials = [first + params.conversions // 2 for first in point_first_trial]
     point_probability = np.asarray(
-        [np.mean(decisions[first : first + params.conversions]) for first in point_first_trial],
+        [calc.average(decisions[first : first + params.conversions]) for first in point_first_trial],
         dtype=np.float64,
     )
     transition_points = np.argsort(np.abs(point_probability - 0.5), kind="stable")[: min(3, len(point_first_trial))]
@@ -322,17 +320,17 @@ def convert_raw_comp_to_measurement(
         params.waveform_sample_interval_s,
     )
     supply_v = float(params.vdd)
-    average_current_a = float(np.trapezoid(currents[CompNets.vdd.name], times_s) / (times_s[-1] - times_s[0]))
+    average_current_a = calc.average(currents[CompNets.vdd.name], times_s)
     average_power_w = supply_v * average_current_a
     readbacks: dict[str, str | int | float | bool] = {
         "signal_map_json": json.dumps(dict(signal_names), sort_keys=True),
         "raw_file": Path(raw_path).name,
         "raw_format": "spectre_nutbin",
         "raw_points": len(times_s),
-        "raw_max_timestep_s": float(np.max(np.diff(times_s))),
+        "raw_max_timestep_s": calc.ymax(np.diff(times_s)),
         "waveform_sample_interval_s": params.waveform_sample_interval_s,
         "waveform_interpolated_from_coarser_raw": bool(
-            np.max(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
+            calc.ymax(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
         ),
         "decision_sample_margin_s": decision_margin_s,
         "supply_power_available": True,

@@ -10,7 +10,6 @@ from itertools import pairwise
 import hdl21 as h
 import numpy as np
 from basil.HL.tektronix_oscilloscope import CapturedWaveform
-from scipy.optimize import minimize_scalar
 
 from flow.adc.sequences import AdcSequence
 from flow.adc.subckt import AdcNets
@@ -81,8 +80,8 @@ def analyze_adc_comp_out_edge_eye(
         waveforms.append(wave)
         time_s = wave.time_s
         comp_v, comp_out_v = wave.signal_values
-        comp_low, comp_high = np.percentile(comp_v, (5, 95))
-        out_low, out_high = np.percentile(comp_out_v, (5, 95))
+        comp_low, comp_high = calc.percentile(comp_v, (5, 95))
+        out_low, out_high = calc.percentile(comp_out_v, (5, 95))
         if comp_high - comp_low < 0.05 or out_high - out_low < 0.05:
             raise ValueError(f"capture {capture_index} lacks a valid COMP or COMP_OUT swing")
         comp_level = float((comp_low + comp_high) / 2)
@@ -140,8 +139,8 @@ def analyze_scope_wave_to_bits(msmt: MeasAdcExt) -> AnalysisAdcScopeBits:
     time_s = msmt.wave.time_s
     comp_v = msmt.wave.seq_comp_v[0]
     comp_out_v = msmt.wave.comp_out_v[0]
-    comp_low_v, comp_high_v = np.percentile(comp_v, (1.0, 99.0))
-    comp_out_low_v, comp_out_high_v = np.percentile(comp_out_v, (1.0, 99.0))
+    comp_low_v, comp_high_v = calc.percentile(comp_v, (1.0, 99.0))
+    comp_out_low_v, comp_out_high_v = calc.percentile(comp_out_v, (1.0, 99.0))
     comp_threshold_v = float((comp_low_v + comp_high_v) / 2.0)
     comp_out_threshold_v = float((comp_out_low_v + comp_out_high_v) / 2.0)
     if comp_high_v - comp_low_v < 0.1:
@@ -257,56 +256,16 @@ def analyze_adc_dynamic(
     sample_rate_hz = _pattern_repeat_rate_hz(measurement)
     input_frequency_hz = _input_frequency_hz(measurement)
     adc_bits = params.dut.adc_bits
-    if measured_dout.ndim != 1 or measured_dout.size < 8:
-        raise ValueError("ADC sine fit requires at least eight one-dimensional samples")
-    if not np.all(np.isfinite(measured_dout)):
-        raise ValueError("ADC sine-fit samples must all be finite")
     if not math.isfinite(sample_rate_hz) or sample_rate_hz <= 0:
         raise ValueError("sample_rate_hz must be finite and positive")
-    if not math.isfinite(input_frequency_hz) or input_frequency_hz <= 0 or input_frequency_hz >= sample_rate_hz / 2:
-        raise ValueError("input_frequency_hz must be finite and between zero and Nyquist")
-    if not math.isfinite(frequency_search_fraction) or not 0 <= frequency_search_fraction < 1:
-        raise ValueError("frequency_search_fraction must be finite and in [0, 1)")
     if maximum_harmonic_order < 2:
         raise ValueError("maximum_harmonic_order must be at least two")
-    time_s = np.arange(measured_dout.size, dtype=np.float64) / sample_rate_hz
-    ones = np.ones(measured_dout.size, dtype=np.float64)
-
-    def fit_at_frequency(frequency_hz: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        phase = 2.0 * np.pi * frequency_hz * time_s
-        design = np.column_stack((np.sin(phase), np.cos(phase), ones))
-        coefficients = np.linalg.lstsq(design, measured_dout, rcond=None)[0]
-        fitted = design @ coefficients
-        residual = measured_dout - fitted
-        return coefficients, fitted, residual, calc.average(residual * residual)
-
-    if frequency_search_fraction:
-        maximum_offset_hz = min(
-            input_frequency_hz * frequency_search_fraction,
-            0.45 * sample_rate_hz / measured_dout.size,
-        )
-        lower_hz = max(np.nextafter(0.0, 1.0), input_frequency_hz - maximum_offset_hz)
-        upper_hz = min(
-            np.nextafter(sample_rate_hz / 2.0, 0.0),
-            input_frequency_hz + maximum_offset_hz,
-        )
-        frequency_fit = minimize_scalar(
-            lambda frequency_hz: fit_at_frequency(float(frequency_hz))[3],
-            bounds=(lower_hz, upper_hz),
-            method="bounded",
-            options={"xatol": max(1e-9, input_frequency_hz * 1e-10)},
-        )
-        if not frequency_fit.success:
-            raise RuntimeError(f"ADC sine frequency fit failed: {frequency_fit.message}")
-        fitted_frequency_hz = float(frequency_fit.x)
-    else:
-        fitted_frequency_hz = input_frequency_hz
-
-    coefficients, fitted_dout, residual_dout, residual_power = fit_at_frequency(fitted_frequency_hz)
-    sine_coefficient, cosine_coefficient, offset_dout = (float(value) for value in coefficients)
-    amplitude_dout = math.hypot(sine_coefficient, cosine_coefficient)
-    phase_rad = math.atan2(cosine_coefficient, sine_coefficient)
-    residual_rms_dout = math.sqrt(residual_power)
+    fit = calc.sine_fit(
+        measured_dout,
+        sample_rate=sample_rate_hz,
+        frequency=input_frequency_hz,
+        frequency_search_fraction=frequency_search_fraction,
+    )
     full_scale_peak_dout = ((1 << adc_bits) - 1) / 2.0
     (
         spectral_sndr_db,
@@ -319,8 +278,8 @@ def analyze_adc_dynamic(
     ) = calc.spectrumMeas(
         measured_dout,
         sample_rate=sample_rate_hz,
-        fundamental_frequency=fitted_frequency_hz,
-        offset=offset_dout,
+        fundamental_frequency=fit.frequency_hz,
+        offset=fit.offset,
         full_scale_peak=full_scale_peak_dout,
         maximum_harmonic_order=maximum_harmonic_order,
     )
@@ -328,9 +287,9 @@ def analyze_adc_dynamic(
     if not isinstance(source, h.Vsin.Params) or source.vamp is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with vamp set")
     input_amplitude_v = abs(float(source.vamp))
-    if input_amplitude_v > 0 and amplitude_dout > 0:
-        gain_dout_per_v = amplitude_dout / input_amplitude_v
-        input_referred_residual_rms_v = residual_rms_dout / gain_dout_per_v
+    if input_amplitude_v > 0 and fit.amplitude > 0:
+        gain_dout_per_v = fit.amplitude / input_amplitude_v
+        input_referred_residual_rms_v = fit.residual_rms / gain_dout_per_v
         if math.isinf(spectral_snr_db) and spectral_snr_db > 0:
             input_referred_noise_rms_v = 0.0
         elif math.isinf(spectral_snr_db) and spectral_snr_db < 0:
@@ -343,11 +302,11 @@ def analyze_adc_dynamic(
     return AnalysisAdcDynamic(
         sample_rate_hz=sample_rate_hz,
         input_frequency_hz=input_frequency_hz,
-        fitted_frequency_hz=fitted_frequency_hz,
+        fitted_frequency_hz=fit.frequency_hz,
         adc_bits=adc_bits,
-        offset_dout=offset_dout,
-        amplitude_dout=amplitude_dout,
-        phase_rad=phase_rad,
+        offset_dout=fit.offset,
+        amplitude_dout=fit.amplitude,
+        phase_rad=fit.phase_rad,
         input_referred_noise_rms_v=input_referred_noise_rms_v,
         input_referred_residual_rms_v=input_referred_residual_rms_v,
         spectral_sndr_db=spectral_sndr_db,
@@ -356,11 +315,11 @@ def analyze_adc_dynamic(
         spectral_sfdr_db=spectral_sfdr_db,
         spectral_enob_bits=spectral_enob_bits,
         residual_tail_limit_dout=ADC_DYNAMIC_RESIDUAL_TAIL_LIMIT_DOUT,
-        expected_residual_tail_count=len(residual_dout) * ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION,
-        time_s=time_s,
+        expected_residual_tail_count=len(fit.residual) * ADC_DYNAMIC_GAUSSIAN_TAIL_FRACTION,
+        time_s=fit.time_s,
         measured_dout=measured_dout,
-        fitted_dout=fitted_dout,
-        residual_dout=residual_dout,
+        fitted_dout=fit.fitted,
+        residual_dout=fit.residual,
         spectrum_frequency_hz=spectrum_frequency_hz,
         spectrum_dbfs=spectrum_dbfs,
     )
@@ -407,16 +366,15 @@ def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> An
     if len(transition_input) < 2:
         raise ValueError("endpoint nonlinearity spans fewer than two code transitions")
     endpoint_lsb_v = float((transition_input[-1] - transition_input[0]) / (len(transition_input) - 1))
-    ideal = transition_input[0] + np.arange(len(transition_input)) * endpoint_lsb_v
-    inl = (transition_input - ideal) / endpoint_lsb_v
-    dnl = np.diff(transition_input) / endpoint_lsb_v - 1.0
+    dnl = calc.deriv(transition_input, np.arange(len(transition_input))) / endpoint_lsb_v - 1.0
+    inl = calc.inl(dnl, endpoint_correct=False)
     observed = set(np.rint(decoded_dout).astype(np.int64))
     active = range(int(calc.ymin(transition_code)), int(calc.ymax(transition_code)) + 2)
     return AnalysisAdcNonlinearity(
         method="endpoint",
         code=transition_code[1:],
         dnl=dnl,
-        inl=inl[1:],
+        inl=inl,
         count=None,
         transition_vin_diff_v=transition_input[1:],
         ideal_count=None,
@@ -572,12 +530,7 @@ def analyze_adc_ramp(
     if len(reset_conversion_index) < 2:
         raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
     reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
-    reset_design = np.column_stack((reset_number, np.ones(len(reset_number))))
-    period_samples, first_reset_sample = np.linalg.lstsq(
-        reset_design,
-        reset_conversion_index.astype(np.float64),
-        rcond=None,
-    )[0]
+    period_samples, first_reset_sample = calc.linear_fit(reset_conversion_index, reset_number)
     if not math.isfinite(period_samples) or period_samples <= 1.0:
         raise ValueError("inferred ADC ramp period is invalid")
     reset_residual_samples = reset_conversion_index - (period_samples * reset_number + first_reset_sample)
@@ -990,7 +943,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
                 )
             )
 
-    waveform_sample_interval_s = float(np.median(np.diff(time_s)))
+    waveform_sample_interval_s = calc.median(np.diff(time_s))
     decision_period_s = min(
         next_comp_s - start_s
         for _record, _conversion, _bit, _cycle, start_s, _logic_s, next_comp_s, _stop_s in cycle_windows
@@ -1047,8 +1000,8 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         )
         if np.count_nonzero(settling_reference) < 2:
             raise ValueError(f"ADC CDAC stage C{stage_index} has fewer than two settled-reference samples")
-        p_static_v = float(np.median(wave.voltage[AdcNets.vdac_p.name][record_index, settling_reference]))
-        n_static_v = float(np.median(wave.voltage[AdcNets.vdac_n.name][record_index, settling_reference]))
+        p_static_v = calc.median(wave.voltage[AdcNets.vdac_p.name][record_index, settling_reference])
+        n_static_v = calc.median(wave.voltage[AdcNets.vdac_n.name][record_index, settling_reference])
         stage_indices.append(stage_index)
         cycle_indices.append(cycle_index)
         conversion_indices.append(conversion_index)
@@ -1338,7 +1291,7 @@ def _sequence_logic_timing(comp: str, logic: str) -> tuple[float, float]:
     ]
     if not delays:
         raise ValueError("sequence has no LOGIC rising edge between COMP decisions")
-    return float(np.median(intervals)), float(np.median(delays))
+    return calc.median(intervals), calc.median(delays)
 
 
 def _adc_decision_times(

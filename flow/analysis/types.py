@@ -1536,7 +1536,7 @@ class AnalysisAdcDynamic:
             raise ValueError("ADC dynamic magnitudes and counts must be nonnegative")
         if (
             not np.allclose(waveform["fitted_dout"] + waveform["residual_dout"], waveform["measured_dout"])
-            or not np.isclose(np.median(np.diff(waveform["time_s"])) * self.sample_rate_hz, 1.0)
+            or not np.isclose(calc.median(np.diff(waveform["time_s"])) * self.sample_rate_hz, 1.0)
             or not -math.pi <= self.phase_rad <= math.pi
         ):
             raise ValueError("ADC dynamic waveform, sample rate, fit, and phase are inconsistent")
