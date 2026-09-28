@@ -1,54 +1,10 @@
-\documentclass[aspectratio=169]{beamer}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage{graphicx}
-\graphicspath{{docs/}}
-\usepackage{xcolor}
-\usepackage{amsmath}
-\usepackage{tikz}
+\input{style.tex}
+
 \usetikzlibrary{arrows.meta,positioning,fit}
 
-% Nord-inspired slide colors, matching docs/design.tex
-\definecolor{NordBody}{HTML}{4C566A}
-\definecolor{NordBlue}{HTML}{5E81AC}
-\definecolor{NordRed}{HTML}{BF616A}
-\definecolor{NordGreen}{HTML}{A3BE8C}
-\definecolor{NordOrange}{HTML}{D08770}
-\definecolor{NordPurple}{HTML}{B48EAD}
-\definecolor{NordPanel}{HTML}{ECEFF4}
-
-\setbeamertemplate{footline}{
-  \hspace{1em}%
-  \usebeamercolor[fg]{page number in head/foot}%
-  \usebeamerfont{page number in head/foot}%
-  \insertframenumber\,/\,\inserttotalframenumber%
-  \vskip2pt%
-}
-\beamertemplatenavigationsymbolsempty{}
-
-\setbeamercolor{normal text}{fg=NordBody}
-\setbeamercolor{title}{fg=NordBlue}
-\setbeamercolor{frametitle}{fg=NordBlue}
-\setbeamercolor{structure}{fg=NordBlue}
-\setbeamercolor{itemize/enumerate body}{fg=NordBody}
-\setbeamercolor{itemize item}{fg=NordBlue}
-
-\hypersetup{colorlinks=true,allcolors=NordBlue}
-
 \newcommand{\um}{\ensuremath{\mu\mathrm{m}}}
-\newcommand{\placeholder}[2]{%
-  \begin{tikzpicture}
-    \node[minimum width=#1,minimum height=#2,draw=NordBlue!60,rounded corners=2pt,fill=NordPanel,align=center,text=NordBody]
-      {Placeholder\\[-1pt]\scriptsize image not yet available};
-  \end{tikzpicture}%
-}
-\newcommand{\maybeimage}[2][]{%
-  \IfFileExists{#2}{\includegraphics[#1]{#2}}{\placeholder{0.95\linewidth}{0.30\textheight}}%
-}
 
 \title{FRIDA ADC Bringup Status}
-\author{Kennedy Caisley}
-\institute{University of Bonn}
 \date{25 June 2026}
 
 \begin{document}

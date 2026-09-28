@@ -3,38 +3,9 @@
 %   (cd docs/slides && latexmk -pdfxe -shell-escape -outdir=../tex 2026_09_24_sequences.tex)
 % TeX figures build in docs/images; measurement plots remain in
 % build/analysis/adc/20260924_comparator_response/.
-\documentclass[aspectratio=169,compress]{beamer}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage{graphicx}
-\usepackage{xcolor}
-\usepackage{amsmath}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{tikz}
+\input{style.tex}
+
 \usetikzlibrary{calc}
-
-% Match the established FRIDA Beamer slides, especially 2026_08_18_adc_guide.tex.
-\definecolor{NordBody}{HTML}{4C566A}
-\definecolor{NordBlue}{HTML}{5E81AC}
-\definecolor{NordPanel}{HTML}{ECEFF4}
-\definecolor{NordRed}{HTML}{BF616A}
-
-\setbeamertemplate{footline}{%
-  \hspace{1em}%
-  \usebeamercolor[fg]{page number in head/foot}%
-  \usebeamerfont{page number in head/foot}%
-  \insertframenumber\,/\,\inserttotalframenumber%
-  \vskip2pt%
-}
-\beamertemplatenavigationsymbolsempty
-\setbeamerfont{frametitle}{size=\large}
-\setbeamercolor{normal text}{fg=NordBody}
-\setbeamercolor{title}{fg=NordBlue}
-\setbeamercolor{frametitle}{fg=NordBlue}
-\setbeamercolor{structure}{fg=NordBlue}
-\setbeamercolor{itemize item}{fg=NordBlue}
-\hypersetup{colorlinks=true,allcolors=NordBlue}
 
 \newcommand{\systemdiagram}{\includegraphics[width=0.98\paperwidth,height=0.80\paperheight,keepaspectratio]{../images/daq_diagram.pdf}}
 \newcommand{\qdelay}[1]{\textcolor{NordRed}{$t_{d,\mathrm{#1}}$=?}}
@@ -62,8 +33,6 @@
 }
 
 \title{Timing the FRIDA ADC capture loop}
-\author{Kennedy Caisley}
-\institute{University of Bonn}
 \date{24 September 2026}
 
 \begin{document}

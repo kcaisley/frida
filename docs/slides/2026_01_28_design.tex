@@ -1,68 +1,8 @@
-\documentclass[aspectratio=169]{beamer}
-\usepackage{graphicx}
-\usepackage{listings}
-\usepackage{xcolor}
-\usepackage{amsmath}
-\usepackage{tikz}
+\input{style.tex}
+
 \usetikzlibrary{arrows.meta,positioning}
-% SVGs pre-converted to PDF via inkscape
-
-% Nord-inspired slide colors
-\definecolor{NordBody}{HTML}{4C566A}
-\definecolor{NordBlue}{HTML}{5E81AC}
-
-% Custom footline with slide numbers in bottom left
-\setbeamertemplate{footline}{
-  \hspace{1em}%
-  \usebeamercolor[fg]{page number in head/foot}%
-  \usebeamerfont{page number in head/foot}%
-  \insertframenumber\,/\,\inserttotalframenumber%
-  \vskip2pt%
-}
-
-\beamertemplatenavigationsymbolsempty
-
-% Text-color theme
-\setbeamercolor{normal text}{fg=NordBody}
-\setbeamercolor{title}{fg=NordBlue}
-\setbeamercolor{frametitle}{fg=NordBlue}
-\setbeamercolor{structure}{fg=NordBlue}
-\setbeamercolor{itemize/enumerate body}{fg=NordBody}
-\setbeamercolor{itemize/enumerate subbody}{fg=NordBody}
-\setbeamercolor{itemize/enumerate subsubbody}{fg=NordBody}
-\setbeamercolor{itemize item}{fg=NordBlue}
-\setbeamercolor{itemize subitem}{fg=NordBlue}
-\setbeamercolor{itemize subsubitem}{fg=NordBlue}
-\setbeamercolor{enumerate item}{fg=NordBlue}
-\setbeamercolor{enumerate subitem}{fg=NordBlue}
-\setbeamercolor{enumerate subsubitem}{fg=NordBlue}
-
-% Global hyperlink style for this deck
-\hypersetup{
-  colorlinks=true,
-  allcolors=NordBlue
-}
-
-% Code listing style
-\lstset{
-  basicstyle=\ttfamily\tiny,
-  keywordstyle=\color{NordBlue}\bfseries,
-  commentstyle=\color{NordBody}\itshape,
-  stringstyle=\color{orange},
-  showstringspaces=false,
-  breaklines=true,
-  frame=single,
-  backgroundcolor=\color{gray!10},
-  rulecolor=\color{gray!50},
-  xleftmargin=2pt,
-  xrightmargin=2pt,
-  aboveskip=4pt,
-  belowskip=4pt,
-}
 
 \title{FRIDA Design Review}
-\author{Kennedy Caisley}
-\institute{University of Bonn}
 \date{28 January 2026}
 
 \begin{document}

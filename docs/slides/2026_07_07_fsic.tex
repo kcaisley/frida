@@ -1,27 +1,9 @@
-\documentclass[aspectratio=169]{beamer}
-\usepackage{graphicx}
-\usepackage{xcolor}
+\input{style.tex}
+
 \usepackage{pgfpages}
-\usepackage{tikz}
 \usepackage[european]{circuitikz}
 \usetikzlibrary{arrows.meta,positioning,calc}
-
-% Slightly tighter global line spacing for compact slide blocks.
 \linespread{0.92}
-
-% Beamer supports presenter notes via \note{...}.
-% Default build hides notes. For presenter notes, change this to e.g.:
-%   \setbeameroption{show notes on second screen=right}
-\setbeameroption{hide notes}
-
-% Nord-inspired slide colors
-\definecolor{NordBody}{HTML}{4C566A}
-\definecolor{NordBlue}{HTML}{5E81AC}
-\definecolor{NordRed}{HTML}{BF616A}
-\definecolor{NordGreen}{HTML}{A3BE8C}
-\definecolor{NordOrange}{HTML}{D08770}
-\definecolor{NordPurple}{HTML}{B48EAD}
-\definecolor{NordPanel}{HTML}{ECEFF4}
 
 % Reusable flow-diagram layout settings.
 \newcommand{\FlowTitleGap}{0.7ex}
@@ -50,41 +32,7 @@
   flowarrow/.style={-{Stealth[length=3mm]}, line width=0.8pt, draw=NordBody},
 }
 
-% Custom footline with slide numbers in bottom left
-\setbeamertemplate{footline}{
-  \hspace{1em}%
-  \usebeamercolor[fg]{page number in head/foot}%
-  \usebeamerfont{page number in head/foot}%
-  \insertframenumber\,/\,\inserttotalframenumber%
-  \vskip2pt%
-}
-
-\beamertemplatenavigationsymbolsempty
-
-% Text-color theme
-\setbeamercolor{normal text}{fg=NordBody}
-\setbeamercolor{title}{fg=NordBlue}
-\setbeamercolor{frametitle}{fg=NordBlue}
-\setbeamercolor{structure}{fg=NordBlue}
-\setbeamercolor{itemize/enumerate body}{fg=NordBody}
-\setbeamercolor{itemize/enumerate subbody}{fg=NordBody}
-\setbeamercolor{itemize/enumerate subsubbody}{fg=NordBody}
-\setbeamercolor{itemize item}{fg=NordBlue}
-\setbeamercolor{itemize subitem}{fg=NordBlue}
-\setbeamercolor{itemize subsubitem}{fg=NordBlue}
-\setbeamercolor{enumerate item}{fg=NordBlue}
-\setbeamercolor{enumerate subitem}{fg=NordBlue}
-\setbeamercolor{enumerate subsubitem}{fg=NordBlue}
-
-% Global hyperlink style
-\hypersetup{
-  colorlinks=true,
-  allcolors=NordBlue
-}
-
 \title{Programmatic analog IC design\\{\large without reinventing the wheel}}
-\author{Kennedy Caisley}
-\institute{University of Bonn}
 \date{FSiC 2026, 7 July 2026}
 
 \begin{document}

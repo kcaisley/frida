@@ -134,21 +134,19 @@ Inputs:
 
 - `slides/*.tex`
 
-Current slide/document sources include:
-
-- `slides/2026_01_28_design.tex`
-- `slides/2026_02_17_pcb.tex`
-- `slides/2026_03_18_dpg.tex`
-- `slides/2026_06_25_bringup.tex`
-- `slides/2026_07_07_fsic.tex`
-- `slides/2026_07_09_measurement.tex`
-- `slides/beams.tex`
-- `slides/detectors.tex`
+Each Beamer deck begins with `\input{style.tex}`. The shared file sets the
+16:9 layout, Latin Modern fonts, Nord colors, footer, source-note
+command (`\slidesource{...}`), listing style, and image fallback helpers.
+Decks with sections can enable the mini-frame progress bar with
+`\slideprogressnavigation`.
+Keep each deck's title, date, subject-specific packages, and figure commands
+in its own file. The `beams.tex` and `detectors.tex` article documents keep
+their separate preambles.
 
 Flow:
 
 ```text
-slides/*.tex + generated image collateral -> latexmk -> tex/*.pdf
+slides/style.tex + deck.tex + generated image collateral -> latexmk -> tex/*.pdf
 ```
 
 Outputs:
