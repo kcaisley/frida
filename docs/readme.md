@@ -8,7 +8,7 @@ make
 
 The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Finished image PDFs are kept in `docs/images/`; complete slide/document PDFs and their LaTeX build files are written to `docs/tex/`.
 
-For any image PDF target or the `figures` and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs
+For any image PDF target or the `figures`, `sequences`, and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs
 and render a 200 DPI PNG preview of each PDF's first page. Previews go to
 `build/docs/images/previews/`, mirroring the path under `docs/images/`. This
 also works when the PDF already exists. Remove previews and image build
@@ -71,6 +71,44 @@ dotted leader expands ADC0 into its seven control bits.
 `tikzpackets` is a TikZ-native option for packet
 layouts, but `bytefield` fits this register map more directly. Both packages
 used here are provided by the local TeX Live.
+
+## ADC sequencer timing
+
+From the repository root, generate and render the seven 160-symbol sequences
+used by the recent `frida1_sequence` and `frida2_sequence` PEX simulations:
+
+```bash
+make -C docs sequences
+```
+
+Use `make -C docs DEBUG=1 sequences` to retain LaTeX logs and render PNG
+previews while developing the figures. Rerun without the option to remove
+the LaTeX intermediates, or run `make -C docs clean-image-debug` to remove
+those and the previews together.
+
+The generator is `docs/images/sequences/render.py`. It reads recipes from
+`flow/adc/sequences.py` and writes only `tikz-timing` TeX. Each figure shows
+four symbols before index 0 and eight after the next period begins. The dashed
+red lines mark the sequence boundaries. Vertical guides occur every four
+symbols; dotted horizontal guides mark each signal's low and high levels.
+Triangular arrows mark both edges of `comp` and rising edges of `logic`.
+The seven TeX/PDF pairs and the Python generator live in
+`docs/images/sequences/`; debug previews live under `build/`.
+
+For another named recipe, use `--sequence NAME --name my_timing`. For literal
+rows, pass `--init`, `--samp`, `--comp`, and `--logic` binary strings. Put
+one-off results outside the image directory:
+
+```bash
+uv run python docs/images/sequences/render.py \
+  --output-dir build/analysis/sequences/custom --name my_timing \
+  --init 11110000 --samp 00001111 --comp 00110011 --logic 00010001
+latexmk -pdf -outdir=build/analysis/sequences/custom \
+  build/analysis/sequences/custom/my_timing.tex
+```
+
+Python callers can also construct `flow.adc.sequences.AdcSequence` and pass it
+to `render(sequence, "my_timing", output_dir=...)` from the generator module.
 
 ## TeX image figures
 

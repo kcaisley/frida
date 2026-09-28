@@ -66,6 +66,25 @@ define render_debug_preview
 	fi
 endef
 
+SEQUENCE_DIR := $(IMAGES_DIR)/sequences
+SEQUENCE_STEMS := \
+	comp11110000_logic00001111 \
+	comp11110000_logic10000111 \
+	comp11111000_logic10000111 \
+	comp11111000_logic11000011 \
+	comp11111100_logic11000011 \
+	comp11111100_logic11100001 \
+	comp11111110_logic11100001
+SEQUENCE_TEX := $(addprefix $(SEQUENCE_DIR)/,$(addsuffix .tex,$(SEQUENCE_STEMS)))
+SEQUENCE_PDFS := $(SEQUENCE_TEX:.tex=.pdf)
+SEQUENCE_INTERMEDIATES := \
+	$(SEQUENCE_TEX:.tex=.aux) \
+	$(SEQUENCE_TEX:.tex=.fdb_latexmk) \
+	$(SEQUENCE_TEX:.tex=.fls) \
+	$(SEQUENCE_TEX:.tex=.log) \
+	$(SEQUENCE_TEX:.tex=.xdv) \
+	$(SEQUENCE_TEX:.tex=.synctex.gz)
+
 PHYS_RESULTS := \
 	../phys/results/hit_rate_vs_fluence.png \
 	../phys/results/max_counting_rate_vs_window.png
@@ -73,9 +92,10 @@ PHYS_RESULTS := \
 COLLATERAL := \
 	$(FIGURE_PDFS) \
 	$(NETLISTSVG_PDFS) \
+	$(SEQUENCE_PDFS) \
 	$(PHYS_RESULTS)
 
-.PHONY: all help clean clean-image-debug clean-figure-intermediates figures netlistsvgs documents decks FORCE $(DOCUMENT_ALIASES) $(SLIDE_ALIASES)
+.PHONY: all help clean clean-image-debug clean-figure-intermediates figures netlistsvgs sequences documents decks FORCE $(DOCUMENT_ALIASES) $(SLIDE_ALIASES)
 .SECONDARY: $(NETLISTSVG_FROM_V_JSON)
 
 .DEFAULT_GOAL := all
@@ -87,6 +107,8 @@ figures: $(FIGURE_PDFS) clean-figure-intermediates
 
 netlistsvgs: $(NETLISTSVG_PDFS)
 
+sequences: $(SEQUENCE_PDFS)
+
 documents: $(DOCUMENT_PDFS)
 
 decks: $(SLIDE_PDFS)
@@ -97,6 +119,8 @@ help:
 	@echo "  make outline          Build the thesis outline into $(OUTDIR)/outline.pdf"
 	@echo "  make 2026_07_07_fsic.tex  Build one TeX document into $(OUTDIR)/2026_07_07_fsic.pdf"
 	@echo "  make images/foo.pdf   Build one generated image asset"
+	@echo "  make sequences        Build seven ADC PEX sequence timing PDFs"
+	@echo "  make DEBUG=1 sequences  Keep image build logs and render PNG previews"
 	@echo "  make clean-image-debug  Remove image build logs and debug previews"
 	@echo "  make clean            Remove generated build artifacts"
 	@echo ""
@@ -135,6 +159,21 @@ $(IMAGES_DIR)/%.pdf: $(IMAGES_DIR)/%.tex FORCE
 	fi
 	@set -e; if [ "$(DEBUG)" != "1" ]; then \
 		$(LATEXMK) -c -outdir=$(IMAGES_DIR) $<; \
+		$(RM) $(@:.pdf=.synctex.gz); \
+	fi
+	$(render_debug_preview)
+	@echo "Created $@"
+
+$(SEQUENCE_TEX) &: $(SEQUENCE_DIR)/render.py ../flow/adc/sequences.py
+	uv run python $(SEQUENCE_DIR)/render.py
+
+$(SEQUENCE_DIR)/%.pdf: $(SEQUENCE_DIR)/%.tex FORCE
+	@set -e; if [ "$(DEBUG)" = "1" ] || [ ! -f "$@" ] || [ "$<" -nt "$@" ]; then \
+		$(LATEXMK) -pdf $(if $(filter 1,$(DEBUG)),-g,) \
+			-interaction=nonstopmode -halt-on-error -outdir=$(SEQUENCE_DIR) $<; \
+	fi
+	@set -e; if [ "$(DEBUG)" != "1" ]; then \
+		$(LATEXMK) -c -outdir=$(SEQUENCE_DIR) $<; \
 		$(RM) $(@:.pdf=.synctex.gz); \
 	fi
 	$(render_debug_preview)
@@ -190,12 +229,12 @@ $(IMAGES_DIR)/arch.png: $(IMAGES_DIR)/arch.svg
 FORCE:
 
 clean-figure-intermediates:
-	@if [ "$(DEBUG)" != "1" ]; then $(RM) $(FIGURE_INTERMEDIATES); fi
+	@if [ "$(DEBUG)" != "1" ]; then $(RM) $(FIGURE_INTERMEDIATES) $(SEQUENCE_INTERMEDIATES); fi
 	rm -f $(SLIDE_INTERMEDIATES)
 	rm -f $(SLIDES_DIR)/*.aux $(SLIDES_DIR)/*.fdb_latexmk $(SLIDES_DIR)/*.fls $(SLIDES_DIR)/*.log $(SLIDES_DIR)/*.nav $(SLIDES_DIR)/*.out $(SLIDES_DIR)/*.pdf $(SLIDES_DIR)/*.snm $(SLIDES_DIR)/*.synctex.gz $(SLIDES_DIR)/*.toc $(SLIDES_DIR)/*.vrb $(SLIDES_DIR)/*.xdv
 
 clean-image-debug:
-	rm -f $(FIGURE_INTERMEDIATES)
+	rm -f $(FIGURE_INTERMEDIATES) $(SEQUENCE_INTERMEDIATES)
 	rm -rf $(DOC_IMAGE_BUILD_DIR)
 	@echo "Removed image debug logs and previews"
 
