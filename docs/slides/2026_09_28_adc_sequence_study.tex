@@ -49,11 +49,25 @@
   \note{Plausible means nonconstant codes, modal fraction below 99.5 percent, sigma at least 0.1 LSB, mean within 8 LSB of that ADC's 320-MBd reference, and valid scope/FastRX readout. These are diagnostics, not an independently calibrated accuracy specification.}
 \end{frame}
 
+\begin{frame}{C5/L2 keeps evaluation and update time}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_clock_budget_vs_noise.pdf}
+  \slidesource{Saved physical scope records; 16 ADCs per recipe at 1600 MBd}
+  \note{These are external COMP and LOGIC edges measured at roughly 160 ps scope sample spacing; channel deskew is not established. Near-zero differences indicate coincidence within that uncertainty. C5/L2 leaves about 3.15 ns of COMP high time, 0.62 ns from COMP fall to LOGIC, and 1.24 ns from LOGIC to the next COMP. C6/L2 puts LOGIC at COMP fall; C6/L3 leaves only 0.57 ns for the update after LOGIC. This timing comparison suggests a tradeoff, not a proven root cause.}
+\end{frame}
+
 \begin{frame}{Measured ADC03 full scope window: C5/L2}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
   \slidesource{ADC03 physical scan; saved COMP-triggered scope record}
   \note{The saved scope window contains 17 COMP rising edges. It is aligned to the first observed COMP edge, so the INIT transition appears near the end of the plotted window.}
+\end{frame}
+
+\begin{frame}{Rare B12 flips dominate ADC03 C5/L2 variance}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/adc03_c5_c6_code_modes.pdf}
+  \slidesource{Physical ADC03 FastRX capture; 100,000 conversions per recipe}
+  \note{At C5/L2, 385 isolated B12=0 conversions produce code 2175. Overall sigma is 0.891 LSB; conditional on B12=1, sigma is 0.215 LSB. The state separation contributes 94.2 percent of total variance. C6/L2 moves B12=0 to 99,999 of 100,000 conversions and toggles B13 instead. A low sigma alone is not proof of a correct code: ADC01 C6/L2 has sigma 0.243 LSB but its mean is 11.2 LSB below its low-rate reference.}
 \end{frame}
 
 \section[PEX]{PEX}
@@ -65,11 +79,18 @@
   \note{The full check requires rail-valid SR agreement and 200 ps LOGIC setup; ordinary B0--B15 decisions also require the programmed SAR and CDAC state with 200 ps setup. The CDAC tolerance is 1 mV relative to the saved end-of-window value. B16 has no CDAC update.}
 \end{frame}
 
-\begin{frame}{PEX comparator reset evidence}
+\begin{frame}{PEX clock reset gaps remain positive}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_reset_gap_by_recipe.pdf}
   \slidesource{49 PEX timing tables; observed comparator falling edges}
-  \note{All 83,300 comparator reset edges were observed. All 78,400 ordinary decisions had a positive reset-to-next-COMP interval. A positive reset gap does not imply that the preceding SAR/CDAC update settled in time.}
+  \note{All 83,300 internal COMP falling edges were observed. All 78,400 ordinary decisions had a positive falling-edge-to-next-COMP interval. This alone does not establish latch precharge or timing closure.}
+\end{frame}
+
+\begin{frame}{Matched PEX latch precharges before the next decision}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_latch_precharge_margin.pdf}
+  \slidesource{FRIDA-1 two-layer radix20 PEX HDF5; seven recipes, 1600 ordinary decisions each}
+  \note{Both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise in the nominal PEX model. Minimum stable margins are 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. The physical scope does not measure these internal nodes, so silicon reset remains unverified.}
 \end{frame}
 
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
@@ -93,15 +114,15 @@
   \note{ADC01 and ADC03 are the only two channels with confirmed physical layer counts in the board map. Physical code distributions contain 100,000 conversions and PEX distributions contain 100, so their sample precision differs. The physical C4/L1 and C7/L3 failures do not appear in the PEX output-code means.}
 \end{frame}
 
-\begin{frame}{What the new cases establish}
+\begin{frame}{C5/L2 leads, but no sub-0.5-LSB case is verified}
   \small
   \begin{itemize}
-    \item At 320 MBd, all seven recipes meet the saved physical plausibility checks on all 16 ADCs.
-    \item At 1600 MBd, C5/L2 retains 14/16 plausible physical ADCs; C4/L1 and C7/L3 retain 0/16.
-    \item PEX observes all comparator resets, yet only 48,858/83,300 decisions pass the full timing check. CDAC setup is the dominant failing component for the late LOGIC recipes.
-    \item The two confirmed physical layer matches are ADC01 and ADC03, both radix20. The FRIDA-2 PEX flavors have no physical counterpart in this scan.
+    \item At 1600 MBd, C5/L2 has 14/16 plausible physical ADCs, with two below 1 LSB code sigma; ADC03 still has rare B12 flips and a shifted mean.
+    \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
+    \item PEX passes 48,858/83,300 full timing checks (58.7\%). The matched model precharges its latch, but physical C4/L1 and C7/L3 code failures are absent in PEX.
+    \item Silicon latch reset and the physical failure mechanism remain unverified. This scan has no FRIDA-2 physical counterpart.
   \end{itemize}
-  \slidesource{Physical metrics; 49-case PEX timing and reset summary}
+  \slidesource{29-recipe physical screen; 49-case PEX timing and latch analysis}
 \end{frame}
 
 \appendix
