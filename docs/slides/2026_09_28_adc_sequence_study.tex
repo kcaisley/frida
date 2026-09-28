@@ -97,6 +97,13 @@
 
 \section[PEX]{PEX}
 
+\begin{frame}{PEX FRIDA-1 5/8 and 6/8 stay near 0.7 LSB}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_49_noise_matrix.pdf}
+  \slidesource{49 completed PEX code exports; device transient noise, 100 conversions per case}
+  \note{All 49 cases enable Spectre device transient noise with a 25 GHz upper frequency and fixed seed. The four FRIDA-1 flavors have about 0.69--0.73 LSB code sigma from C5/L2 onward; FRIDA-2 three-layer radix17 reaches 0.545 LSB at C6/L3 but has no measured counterpart here. The 100-conversion run can easily miss rare bit errors: if each conversion had ADC03's measured 0.385 percent C5/L2 B12 event rate independently, the chance of observing zero such events in 100 is about 68 percent. Code spread alone does not establish correct transfer accuracy.}
+\end{frame}
+
 \begin{frame}{PEX timing closure across seven flavors}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_timing_closure_by_recipe_flavor.pdf}
