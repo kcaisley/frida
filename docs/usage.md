@@ -343,11 +343,24 @@ for the longer scans. Acquisition creates no plots and does not modify the
 analysis studies' pinned input directories.
 
 `adc_sequence_static` uses manual 50 mV differential input, 700 mV common mode,
-and 1.2 V rails. It scans all 16 ADCs and all 65 catalogue sequences at
-2/6/10 nominal MSPS, with 100,000 conversions per point (3,120 captures).
+and 1.2 V rails. By default it scans all 16 ADCs and the 29 continuous
+sequences at 2/6/10 nominal MSPS, with 100,000 conversions per point
+(1,392 captures). These 160-symbol recipes repeat
+at 2/6/10 MSPS for the three baud rates. The first 28 already end with a full
+COMP word. The historical 24-symbol-SAMP recipe is replaced by a 20-symbol-SAMP
+recipe with its COMP and LOGIC train four symbols earlier, giving the final
+COMP pulse its full word. The 2026-09-25 168-symbol padded captures remain
+available as historical data.
 Nominal MSPS uses a fixed 160-symbol reference for every recipe: 2/6/10 MSPS
 means 320/960/1600 MBd. Actual active conversion and repetition rates remain
 separate saved quantities; no recipe-specific baud-rate adjustment is applied.
+Pass an existing `run_dir` when calling the Python runner function to resume a
+contiguous prefix of completed captures. `adc_sequence_study` analyzes the
+pinned corrected 2026-09-26 campaign: 29 continuous recipes on all 16 ADCs at
+2/6/10 MSPS. It writes one PDF per ADC and a chip-wide overview. Its
+fixed-input ENOB is noise-equivalent, not spectral. The
+2026-09-25 padded captures remain available as historical data but are not
+selected by this study.
 
 `adc_sample_rate_static` uses the same manual setup for ADC00–03 and 39 rates from
 0.5 to 10 nominal MSPS in 0.25-MSPS steps, with 1,000 conversions per point.
@@ -375,9 +388,9 @@ entire populated code span, rare distant bins, and repeated late-bit tails;
 low RMS alone is not evidence of a healthy conversion. The screening target is
 RMS at most 2 LSB and full populated span at most 4 LSB, with a non-stuck
 trajectory. Keep every acquired code when computing these metrics.
-Acquisition and analysis are separate. Explicitly select the completed directory
-in `adc_sequence_study`, then invoke that study to write its trajectory and
-full code-distribution PDFs into one flat analysis output directory. Review
+Acquisition and analysis are separate. The completed measurement and PEX
+directories are pinned in `adc_sequence_study`. It writes the corrected sweep
+overview, plus separately named historical PEX plots. Review
 candidate recipes with repeated captures before accepting recovered performance.
 
 Scope/FastRX verification at 1600 MBd does not validate 960 MBd automatically.
@@ -436,10 +449,12 @@ uv run python -m flow.analysis.runner adc_power_study
 Each takes only `output_dir: Path` in Python. The CLI accepts a study name;
 there is no input-directory override. Docstrings identify the selected ADCs,
 rate/sequence limits and requirements for `MeasAdcInt` waveform records.
-The sequence study includes ADC03's two-speed measurements and the 28 reviewed
-PEX cases, with internal-node plots, four clock plots and the
-`frida_2_vs_1.tex`/PDF deck. Scope/setup HDF5 files are excluded. Other studies
-use the independently pinned historical inputs documented in their docstrings.
+The sequence study includes all 1,392 corrected physical captures and 49
+reviewed PEX cases. The PEX subset supplies internal-node plots, seven clock
+plots, per-decision timing tables, a timing/reset summary, and the
+`frida_2_vs_1.tex`/PDF deck; it covers seven of the 29 physical recipes at
+1600 MBd. Scope/setup HDF5 files are excluded. Other studies use the
+independently pinned historical inputs documented in their docstrings.
 
 `flow.adc.sequences` defines the `AdcSequence` value type and
 contains explicit named channel rows and 65 named, rate-independent four-channel
@@ -456,64 +471,55 @@ Hardware ADC acquisition preserves all four rows exactly. FastRX alignment
 adjusts only RX_SEN placement and comparator IDELAY. A wrapped receive window
 can require dropping a partial receive frame, but no ADC control rotation or
 startup-conversion discard is applied. Set `fastrx_capture=FastRxCapture(comp_delay_taps, rx_sen_start_word)`
-in the physical parameters (combined taps 0..62), or provide an exact
-characterized sequence/baud profile in `map_board.yaml`. Missing profiles fail
+in the physical parameters (combined taps 0..62), or use a characterized
+sequence-length, first-COMP-edge, and baud profile in `map_board.yaml`. Missing profiles fail
 before instrument setup; single-stage calibration cannot be reused.
 Historical result directories keep their old names; new simulation directories
 use the full sequence names.
 
-Both fixed-input targets use `fixed_input_timing_params()` to select the same four complete timing recipes:
-`symbol256_init8_samp16_comp11110000_logic11000011`, `symbol256_init8_samp16_comp11111100_logic00000010`,
-`symbol160_init4_samp24_comp11111100_logic00000010`, and `symbol160_init4_samp20_comp11111110_logic00000001`. Results
-are written beneath `<flavor>/<timing>/`. That is sixteen FRIDA-1 cases and twelve FRIDA-2 cases, each with 100
-conversions. The worker limits remain four and three respectively; cases queue within each host's 24-thread budget.
-Diagnostics (`check=True`) cover all four recipes. The additions-only targets select the seven 7/8 cases from that same
-builder.
+Each fixed-input target lists seven complete 160-symbol recipes directly from
+`flow/adc/sequences.py` and builds its `AdcTbParams` in the runner. INIT is four
+symbols high and SAMP is high on symbols 4--23. All 17 COMP words begin at
+symbol 24 + 8k, so the last word occupies symbols 152--159 before the next
+INIT at 160. Each recurring LOGIC pulse is four symbols wide. For COMP widths
+4, 5, and 6, LOGIC starts either at the first low COMP symbol or one symbol
+later. COMP 7/8 uses only the first-low-symbol case: another symbol of delay
+would put LOGIC rising at the next COMP rising edge. The initial B16 readout
+LOGIC pulse remains the catalogue's separate one-symbol pulse.
 
-`symbol256_init8_samp16_comp11110000_logic11000011` retains the September 5 timing.
-`symbol256_init8_samp16_comp11111100_logic00000010` tests extended comparator evaluation: relative to each COMP rising
-edge, its eight 0.625 ns slots are:
+| COMP word | LOGIC at first low symbol | LOGIC one symbol later |
+| --- | --- | --- |
+| `11110000` | `00001111` | `10000111` |
+| `11111000` | `10000111` | `11000011` |
+| `11111100` | `11000011` | `11100001` |
+| `11111110` | `11100001` | excluded: coincides with next COMP rise |
 
-```text
-COMP   11111100
-LOGIC  00000010
-```
-
-COMP falls with LOGIC rising at the sequencer. LOGIC falls one slot before
-the next COMP rising edge. Sampling, COMP rising edges, LOGIC rising edges,
-the initialization pulse, noise settings, and the 160 ns record period remain
-unchanged from the September 5 baseline. This is an experimental timing
-setting, not timing signoff: internal clock skew, decision capture, minimum
-pulse widths, comparator reset recovery and DAC settling still need checking.
-Other targets retain their existing timing. `input.json` records
-all four final sequence patterns for each new run.
-
-`symbol160_init4_samp24_comp11111100_logic00000010` follows `docs/images/adc_sequencer_timing_100ns.tex`, with
-time measured from INIT rising: INIT is high at 0--2.5 ns; its initialization
-LOGIC pulse is at 1.875--2.5 ns; SAMP is high at 2.5--17.5 ns. COMP rises at
-17.5 + 5k ns for k = 0..16. B0--B15 evaluate for 3.75 ns, followed by a
-0.625 ns LOGIC update; B16 evaluates for only 2.5 ns and resets at 100 ns,
-coincident with the next INIT rising edge. There is no B16 DAC-update pulse.
-All four sequences repeat after 160 symbols / 100 ns, so this is true 10 MS/s
-throughput (10 us for 100 conversions), rather than the other recipes' padded
-160 ns records. The decoder reads B0--B15 at the SEQ_LOGIC rising threshold
+At 1600 MBd, one symbol is 0.625 ns and every recipe repeats in 100 ns.
+The final COMP pulse has its full eight-symbol word; the 7/8 recipe has only
+one low symbol for reset. The seven recipes give 28 FRIDA-1 and 21 FRIDA-2
+PEX cases, with 100 conversions per case. Results are written beneath
+`<flavor>/<full-sequence-name>/`. Each host uses at most 24 simulator threads.
+`input.json` records the four programmed rows. The decoder reads B0--B15 at
+the SEQ_LOGIC rising threshold
 crossing, linearly located in the saved transient, rather than ahead of that
 edge. This external-clock reference does not model the SAR registers' local
 clock delay or setup/hold behavior. B16 has no DAC update: it is observed at
 the following INIT's LOGIC rising threshold. Missing final observations are
 excluded and recorded, never replaced with an earlier read. New runs save a
 partial next cycle for this observation and the next-COMP diagnostic.
-`adc_sequence_study` plots the codes and canonical waveform records already
-stored in each measurement. It does not re-decode or replace those codes and
+`adc_sequence_study` uses the saved physical codes and readout checks, plus the
+canonical waveform records stored in the selected PEX measurements. It does not
+re-decode or replace those codes and
 does not write capture-analysis caches. Rebuild older simulation HDF5 files
 before using the new `/wave/voltage` and `/wave/current` format. New conversions
 consume VLSIR `TranResult` values and retain the required next-cycle tail in
 the same waveform records. Simulator maximum steps and output spacing are both
-controlled by `waveform_sample_interval_s` (10 ps by default). The study also
-exports per-decision `*_timing_closure.csv` tables from `analyze_adc_timing_closure`:
-internal resolution, SR agreement, LOGIC setup and CDAC settling margins. Both
-setup requirements are 200 ps; the table records its voltage tolerances and
-sampling interval. Missing observations cannot pass. B16 has no CDAC update.
+controlled by `waveform_sample_interval_s` (10 ps by default).
+The study exports `*_timing_closure.csv` for internal resolution, SR agreement,
+LOGIC setup, CDAC settling, and observed COMP reset edges from the source HDF5
+measurements. `pex_timing_reset_summary.csv` gives one row per recipe and PEX
+flavor. Both setup requirements default to 200 ps. Missing observations cannot
+pass. B16 has no CDAC update.
 Run the named target without experiment flags.
 It does not model a separate physical output-capture register. Verify capture,
 clock skew, and first-record startup in simulation before accepting this timing.

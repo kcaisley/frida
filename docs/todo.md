@@ -2,6 +2,7 @@
 
 ## `samp`
 
+- we never really comparaed was is possible in terms on Rds_on from this device, vs a more complicated bootstrap circuit. We would need to better justify that.
 - [ ] Study the effect of sampling time in measurements and simulation. Is 20 ps needed?
 - [ ] Finish analysis seperating the sampling-switch noise from the comparator input-referred offset.
 - [x] Compare held differential sampling levels across all seven extracted ADC designs.
@@ -14,6 +15,7 @@
 
 ## `comp`
 
+- study impact of kickback (does it actually matter? reset seems to do the inverse, except does dac level matter? I think not, but the dac is in a different state offset when kickback revses)
 - [ ] Better understand the relationship between the comparator and logic clocks.
   - [ ] Study the noise and metastability effects of the current design. At the planned 10 MS/s operating rate, the
     comparator has only 2–4 ns to settle.
@@ -35,6 +37,12 @@
 
 ## `caparray`
 
+- study the capacitnace density, shielding, and do a literature review on the error of different momcap structures (and in different pdks?)
+- study the coarse-fine issue, and how to implement the fine weights to size array capacitnace based on sampling noise, instead of mismatch
+- study the impact of switching strategy on power consumption, circuit complexity, and common mode over time
+- regarding the previous, the initial values of the single-side switching matter, since they control common mode.
+- we haven't yet really properly measured our capacitor mismatches, or at the system level characterized their impact on INL DNL
+- regarding the previous points, we could take it one step further and also create node specific mismatch models allowing us to evaluate this with spice
 - [ ] Rename the `cdac` block to caparray, and break out the driver sizing strategy into it's own `capdriver` generator.
 - [ ] Verify/investigate the cdac's 800 pF of capacitance per branch
   - [ ] Original unit and capacitance definition need confirmation: documented full-ADC node loads are approximately
@@ -62,6 +70,7 @@
 
 ## `capdriver`
 
+- basic expression for how to size the drivers based on capacitance
 - [ ] Create this new netlist generator, which in frida-1 was actually just an assembled layout and netlist
 - [ ] In the top level frida-1 and frida-2 netlist generator, this can just be a fixed gate netlist
 - [ ] Ensure fixed netlist is pulled from build, since it's composed of stdcells
@@ -70,6 +79,7 @@
 
 ## `seqgen`
 
+- we've done some work on finding the optimal sequence, looks like giving comp more time helps, but only if it also has enough time to reset and if the salogic and cdac can update in time.
 - [ ] Determine whether a gap is needed between sampling and the first comparator decision.
   - [ ] The collected continuous-100-ns experiment removes the programmed gap, but also changes other timing;
     interpret the timing sweep above before drawing a conclusion.
@@ -83,6 +93,8 @@
 
 ## `salogic`
 
+- we've observed that the sr latch doesn't really seems to slow does the output of the comparator. Or maybe it does? like it we had another gate there, maybe it would do just as good of a job?
+- Also, how close is our current implementation, in the SA logic, to a minimal time for the propgation delay of the sarlogic.
 - [ ] Revisit the ADC power-consumption simulations. (Original note was incomplete.)
 - [ ] Finish migrating the different flows into the consistent `flow` namespace. Planning is in the FRIDA remote Codex
   `cleanup` session.
@@ -93,8 +105,15 @@
       analysis.
   - [ ] Historical silicon retains an explicit boundary mapping. See [ADC conventions](adc_conventions.md).
 
+## `adc` top level
+
+- we haven't really answered the question if syncrhonous operation is necessary. If having all adcs synchronized is necessary to minimize false
+- we haven't really demonstrate that redundancy itself is helping us reduce errors (improve enob). Maybe just fewer cycles (12 for 12bit) would be ideal because it gives more time to each comparator decision? And also relaxes clock speed requirements.
+
 ## Lab setup
 
+- be re-verify that the data coming from the ADC is be correctly capctured by the fastrx
+- Understand where this issue with the 100ns continuous operation is potentially causing issues in ENOB
 - [x] Create manually circuit of resistors + caps, to set voltage described in `design/pcb/input_structure.txt`
 - [x] Update PCB schematic decoupling capacitor C6 from 51 pF to 100 nF, in an attempt to reduce bandwidth to limit
       noise

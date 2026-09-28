@@ -6,7 +6,20 @@ Run the documentation build from this directory:
 make
 ```
 
-The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Generated image outputs are kept in `docs/images/`; complete slide/document PDFs and LaTeX build collateral are written to `docs/tex/`.
+The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Finished image PDFs are kept in `docs/images/`; complete slide/document PDFs and their LaTeX build files are written to `docs/tex/`.
+
+For any image PDF target or the `figures` and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs
+and render a 200 DPI PNG preview of each PDF's first page. Previews go to
+`build/docs/images/previews/`, mirroring the path under `docs/images/`. This
+also works when the PDF already exists. Remove previews and image build
+intermediates without removing the TeX sources or PDFs with:
+
+```bash
+make -C docs clean-image-debug
+```
+
+Normal builds do not create PNG previews. The source `arch.png` remains in
+`docs/images/` because the root README embeds it.
 
 ## `netlistsvg`
 
@@ -18,39 +31,46 @@ Inputs:
 Flow:
 
 ```text
-.v -> yosys -> .json -> netlistsvg -> .svg -> rsvg-convert -> .pdf
-.json -> netlistsvg -> .svg -> rsvg-convert -> .pdf
+.v -> yosys -> .json -> netlistsvg -> temporary .svg -> rsvg-convert -> .pdf
+.json -> netlistsvg -> temporary .svg -> rsvg-convert -> .pdf
 ```
 
 Outputs:
 
 - `images/*_netlistsvg.json` for JSON generated from Verilog inputs
-- `images/*_netlistsvg.svg`
 - `images/*_netlistsvg.pdf`
 
 Notes:
 
 - `images/preamp_netlistsvg.svg` and `images/preamp_netlistsvg.pdf` are curated analog renders and are intentionally not regenerated from `images/preamp_netlistsvg.v`, because the automatic Yosys/netlistsvg path loses the MOS-symbol styling.
-- The makefile sanitizes unsupported bidirectional/inout directions in netlistsvg JSONs before rendering with the current `netlistsvg` CLI.
+- The makefile sanitizes unsupported bidirectional/inout directions in netlistsvg JSONs before rendering. Generated SVGs are temporary files under `build/docs/images/` and remain there in debug mode; curated SVG inputs remain in `images/`.
 
-## WaveDrom
+## SPI diagrams
 
 Inputs:
 
-- `*.json` in `docs/`
-- selected WaveDrom JSON files in `docs/images/`
+- `images/spi_register_timing.tex`
+- `images/spi_register_bitfield_memory_path.tex`
 
 Flow:
 
 ```text
-.json -> wavedrom-cli -> .svg -> rsvg-convert -> .pdf -> pdftoppm -> .png
+.tex -> latexmk -> .pdf
 ```
 
 Outputs:
 
-- `images/*.svg`
-- `images/*.pdf`
-- `images/*.png`
+- `images/spi_register_timing.pdf`
+- `images/spi_register_bitfield_memory_path.pdf`
+
+The timing waveform uses `tikz-timing` and shows the first two and final two
+bits of a 180-bit transfer. The register map uses the LaTeX `bytefield` package
+to group the mux, repeated seven-bit ADC configurations, and four shared DAC
+states. An indexed range formula identifies all sixteen ADC fields, and a
+dotted leader expands ADC0 into its seven control bits.
+`tikzpackets` is a TikZ-native option for packet
+layouts, but `bytefield` fits this register map more directly. Both packages
+used here are provided by the local TeX Live.
 
 ## TeX image figures
 
@@ -61,13 +81,12 @@ Inputs:
 Flow:
 
 ```text
-.tex -> latexmk -> .pdf -> pdftoppm -> .png
+.tex -> latexmk -> .pdf
 ```
 
 Outputs:
 
 - `images/*.pdf`
-- `images/*.png`
 
 Temporary LaTeX intermediates in `images/` are removed by the makefile cleanup step.
 
