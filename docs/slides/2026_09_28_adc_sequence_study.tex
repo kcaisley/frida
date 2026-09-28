@@ -88,6 +88,15 @@
   \note{C5/L2 to C6/L2 changes only the COMP row, retaining identical INIT, SAMP, and LOGIC rows. Median absolute mean-code shift across 16 ADCs is 0.085, 1.854, and 6.660 LSB at 320, 960, and 1600 MBd. The 6/8 low time falls to about 1.215 ns from 1.857 ns, while LOGIC-to-next-COMP stays near 1.23 ns and LOGIC moves from 0.617 ns after COMP fall to approximately coincident with it. C6/L2 to C6/L3 delays LOGIC with COMP fixed and changes the 1600-MBd median mean code by only 0.373 LSB. In physical ADC03, B11 is low in every 1600-MBd C5/L2 and C6/L2 conversion. B12 equals that preceding low bit in 385/100,000 C5/L2 conversions and 99,999/100,000 C6/L2 conversions. This is compatible with a retained preceding decision but does not prove why it was retained. The retained scope conversion agrees with FastRX on B12 for all three recipes, but samples the delayed output only once per capture. The paired result points to the COMP low/capture interval, but does not separate internal reset from LOGIC setup or clock delivery.}
 \end{frame}
 
+\begin{frame}{B12 is ADC03's first divergent decision}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_b12_first_divergence.pdf}
+  \par\smallskip
+  {\small Every saved conversion has the same B0--B11 bits in all three recipes.}
+  \slidesource{Corrected physical ADC03 HDF5; 100,000 FastRX conversions and one scope record per setting}
+  \note{At 1600 MBd, all 100,000 conversions of C5/L2, C6/L2, and C6/L3 have the same B0--B11 string 100110010100. B12 is high in 99,615, 1, and 2 conversions, respectively. At 960 MBd the corresponding high counts are 100,000, 96,633, and 98,099; at 320 MBd they are 99,972, 99,989, and 99,984. The identical early digital decisions exclude a preceding decoded-bit difference but not an analog CDAC-residue or input difference. In the single retained 1600-MBd scope conversion, external COMP\_OUT crosses threshold 4.756 ns after B12 COMP rises in C5/L2, but no B12-window transition occurs in either C6 case; both remain low at the 7.7-ns delayed scope read point. Each scope B12 agrees with FastRX. This argues against an FPGA-only readout mismatch in those captures, but the scope cannot reveal internal comparator reset, exact LOGIC capture, or rare behavior across 100,000 conversions.}
+\end{frame}
+
 \begin{frame}{Long idle between conversions does not rescue 6/8}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/historical_idle_control.pdf}
