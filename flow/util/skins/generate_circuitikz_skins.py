@@ -58,12 +58,12 @@ def svg_header(*, analog: bool) -> list[str]:
             '@font-face { font-family: "FRIDA Latin Modern Mono"; '
             f'src: url("data:font/woff;base64,{font_data}") format("woff"); }}'
         ),
-        "svg { stroke: #000; fill: none; stroke-width: 1.1; stroke-linecap: butt; stroke-linejoin: miter; }",
+        "svg { stroke: #000; fill: none; stroke-width: 1.1; stroke-linecap: square; stroke-linejoin: miter; }",
         'text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Modern Mono", monospace; }',
         ".nodelabel { text-anchor: middle; }",
         ".inputPortLabel { text-anchor: end; }",
         ".gatebubble { fill: white; }",
-        ".gate-dot, .splitjoinBody { fill: #000; }",
+        ".splitjoinBody { fill: #000; }",
         "</style>",
     ]
 
@@ -152,15 +152,18 @@ def logic_gate(
     y: float,
 ) -> list[str]:
     height = max(30, 12 * inputs)
-    body_right = 38
+    body_right = 35
     output_x = 48 if inverted else 44
     center = height / 2
     pins = [height * (index + 1) / (inputs + 1) for index in range(inputs)]
-    artwork = [f'<path d="M0,{num(py)} H9" class="connect $cell_id"/>' for py in pins]
+    # The OR back curves cross the pins to the right of the shape's top corner.
+    # The XOR's extra curve is the point where its leads should stop.
+    input_end = {"and": 9, "or": 17, "xor": 8}[primitive]
+    artwork = [f'<path d="M0,{num(py)} H{input_end}" class="connect $cell_id"/>' for py in pins]
     artwork += outline(primitive, 6, 1, 32, height - 2)
     if inverted:
         artwork.append(f'<circle cx="41" cy="{num(center)}" r="3" class="gatebubble $cell_id"/>')
-        artwork.append(f'<path d="M44,{num(center)} H48" class="connect $cell_id"/>')
+        artwork.append(f'<path d="M{body_right},{num(center)} H38 M44,{num(center)} H48" class="connect $cell_id"/>')
     else:
         artwork.append(f'<path d="M{body_right},{num(center)} H44" class="connect $cell_id"/>')
     return template(
@@ -179,8 +182,8 @@ def compound_gate(name: str, aliases: list[str], *, x: float, y: float) -> list[
     family = name[:3]
     groups = [int(digit) for digit in name[3:]]
     count = sum(groups)
-    height = 14 * count + 12
-    inputs_y = [12 + 14 * index for index in range(count)]
+    height = 18 * count + 6
+    inputs_y = [12 + 18 * index for index in range(count)]
     group_y = []
     offset = 0
     for size in groups:
@@ -196,26 +199,26 @@ def compound_gate(name: str, aliases: list[str], *, x: float, y: float) -> list[
         if size == 1:
             artwork.append(
                 f'<path d="M0,{num(group_pins[0])} H38 '
-                f'V{num(final_input_y[group_index])} H49" '
+                f'V{num(final_input_y[group_index])} H58" '
                 'class="connect $cell_id"/>'
             )
         else:
             gate_height = max(23, 14 * size + 2)
             gate_top = group_y[group_index] - gate_height / 2
-            artwork += outline(first, 8, gate_top, 30, gate_height)
             for py in group_pins:
-                artwork.append(f'<path d="M0,{num(py)} H11" class="connect $cell_id"/>')
+                artwork.append(f'<path d="M0,{num(py)} H{11 if first == "and" else 20}" class="connect $cell_id"/>')
+            artwork += outline(first, 8, gate_top, 30, gate_height)
             artwork.append(
                 f'<path d="M35,{num(group_y[group_index])} H43 '
-                f'V{num(final_input_y[group_index])} H49" '
+                f'V{num(final_input_y[group_index])} H58" '
                 'class="connect $cell_id"/>'
             )
         offset += size
-    final_height = max(28, 12 * len(groups))
-    artwork += outline(second, 45, height / 2 - final_height / 2, 31, final_height)
+    final_height = final_input_y[-1] - final_input_y[0] + 18
+    artwork += outline(second, 45, final_input_y[0] - 9, 31, final_height)
     artwork += [
         f'<circle cx="79" cy="{num(height / 2)}" r="3" class="gatebubble $cell_id"/>',
-        f'<path d="M82,{num(height / 2)} H88" class="connect $cell_id"/>',
+        f'<path d="M73,{num(height / 2)} H76 M82,{num(height / 2)} H88" class="connect $cell_id"/>',
     ]
     ports = [(chr(65 + index), 0, py, "left") for index, py in enumerate(inputs_y)] + [("Y", 88, height / 2, "right")]
     return template(name, 88, height, aliases, artwork, ports, x=x, y=y)
@@ -255,10 +258,10 @@ def digital_skin() -> str:
         body = outline("buffer", 5, 1, 28, 28)
         art = ['<path d="M0,15 H8" class="connect $cell_id"/>'] + body
         if inverted:
-            art.append('<circle cx="36" cy="15" r="3" class="gatebubble $cell_id"/>')
-            art.append('<path d="M39,15 H42" class="connect $cell_id"/>')
+            art.append('<circle cx="33" cy="15" r="3" class="gatebubble $cell_id"/>')
+            art.append('<path d="M36,15 H42" class="connect $cell_id"/>')
         else:
-            art.append('<path d="M33,15 H38" class="connect $cell_id"/>')
+            art.append('<path d="M30,15 H38" class="connect $cell_id"/>')
         aliases = ["$_BUF_"] if kind == "buf" else ["$_NOT_", "$not", "$logic_not"]
         lines += template(
             kind, width, 30, aliases, art, [("A", 0, 15, "left"), ("Y", width, 15, "right")], x=25 + 115 * index, y=235
@@ -269,8 +272,9 @@ def digital_skin() -> str:
         42,
         ["$pmux", "$mux", "$_MUX_"],
         [
+            '<path d="M0,12 H8 M0,30 H8 M20,35.6923 V42" class="connect $cell_id"/>',
             '<path d="M6,2 L32,10 V32 L6,40 Z" class="symbol $cell_id" fill="white"/>',
-            '<path d="M0,12 H8 M0,30 H8 M20,40 V42 M32,21 H42" class="connect $cell_id"/>',
+            '<path d="M32,21 H42" class="connect $cell_id"/>',
             '<text x="18" y="24" class="nodelabel $cell_id">MUX</text>',
         ],
         [("A", 0, 12, "left"), ("B", 0, 30, "left"), ("S", 20, 42, "bottom"), ("Y", 42, 21, "right")],
@@ -331,7 +335,7 @@ def digital_skin() -> str:
         '  <g transform="translate(6,10)" s:x="6" s:y="10" s:pid="out0"><text x="5" y="-4">hi:lo</text></g>',
         '  <g transform="translate(6,30)" s:x="6" s:y="30" s:pid="out1"><text x="5" y="-4">hi:lo</text></g>',
         "</g>",
-        '<g s:type="join" s:width="6" s:height="40" transform="translate(300,750)">',
+        '<g s:type="join" s:width="6" s:height="40" transform="translate(400,750)">',
         '  <rect width="6" height="40" class="splitjoinBody" s:generic="body"/>',
         '  <s:alias val="$_join_"/>',
         '  <g s:x="6" s:y="20" s:pid="out"/>',
@@ -345,26 +349,30 @@ def digital_skin() -> str:
         ),
         "</g>",
     ]
-    lines += dynamic_generic(x=350, y=750)
+    lines += dynamic_generic(x=520, y=750)
     return "\n".join(lines + ["</svg>", ""])
 
 
 def terminal(kind: str, *, x: float, y: float) -> list[str]:
-    """A half-size version of the stock netlistsvg terminal trapezoid."""
+    """Small trapezoid and grid-aligned lead, with its net name alongside."""
     incoming = kind == "inputExt"
     art = [
-        '<path d="M0,0 H8 L16,4 L8,8 H0 Z" class="symbol $cell_id" fill="white"/>'
+        '<path d="M24,0 H30 L36,4 L30,8 H24 Z M36,4 H40" class="symbol $cell_id" fill="white"/>'
         if incoming
-        else '<path d="M16,0 H8 L0,4 L8,8 H16 Z" class="symbol $cell_id" fill="white"/>',
-        '<text x="8" y="-3" s:attribute="ref" class="nodelabel $cell_id">net</text>',
+        else '<path d="M16,0 H10 L4,4 L10,8 H16 Z M0,4 H4" class="symbol $cell_id" fill="white"/>',
+        (
+            '<text x="20" y="7" text-anchor="end" s:attribute="ref" class="$cell_id">net</text>'
+            if incoming
+            else '<text x="20" y="7" text-anchor="start" s:attribute="ref" class="$cell_id">net</text>'
+        ),
     ]
     return template(
         kind,
-        16,
+        40,
         8,
         ["$_inputExt_" if incoming else "$_outputExt_"],
         art,
-        [("Y" if incoming else "A", 16 if incoming else 0, 4, "right" if incoming else "left")],
+        [("Y" if incoming else "A", 40 if incoming else 0, 4, "right" if incoming else "left")],
         x=x,
         y=y,
         label=False,
@@ -374,19 +382,29 @@ def terminal(kind: str, *, x: float, y: float) -> list[str]:
 def dynamic_generic(*, x: float, y: float) -> list[str]:
     """netlistsvg needs child text nodes when it grows a generic cell."""
     return [
-        f'<g s:type="generic" s:width="48" s:height="42" transform="translate({num(x)},{num(y)})">',
+        f'<g s:type="generic" s:width="112" s:height="42" transform="translate({num(x)},{num(y)})">',
         '  <s:alias val="generic-bus"/>',
-        '  <text x="24" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>',
-        '  <rect x="0" y="0" width="48" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>',
-        '  <g transform="translate(48,10)" s:x="48" s:y="10" s:pid="out0"><text x="5" y="-4">out0</text></g>',
-        '  <g transform="translate(48,32)" s:x="48" s:y="32" s:pid="out1"><text x="5" y="-4">out1</text></g>',
+        '  <text x="56" y="-5" s:attribute="ref" class="nodelabel $cell_id">generic</text>',
+        '  <rect x="6" y="0" width="100" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>',
+        (
+            '  <g transform="translate(112,10)" s:x="112" s:y="10" s:pid="out0">'
+            '<path d="M-6,0 H0" class="connect $cell_id"/>'
+            '<text x="-10" y="3" text-anchor="end">out0</text></g>'
+        ),
+        (
+            '  <g transform="translate(112,32)" s:x="112" s:y="32" s:pid="out1">'
+            '<path d="M-6,0 H0" class="connect $cell_id"/>'
+            '<text x="-10" y="3" text-anchor="end">out1</text></g>'
+        ),
         (
             '  <g transform="translate(0,10)" s:x="0" s:y="10" s:pid="in0">'
-            '<text x="-3" y="-4" class="inputPortLabel">in0</text></g>'
+            '<path d="M0,0 H6" class="connect $cell_id"/>'
+            '<text x="10" y="3">in0</text></g>'
         ),
         (
             '  <g transform="translate(0,32)" s:x="0" s:y="32" s:pid="in1">'
-            '<text x="-3" y="-4" class="inputPortLabel">in1</text></g>'
+            '<path d="M0,0 H6" class="connect $cell_id"/>'
+            '<text x="10" y="3">in1</text></g>'
         ),
         "</g>",
     ]
@@ -399,10 +417,10 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
     if not mirror:
         aliases += ["pmos" if p else "nmos"]
     art = [
-        '<path d="M0,32 H24 M24,16 V48 M32,16 V48 M32,16 H48 V0 M32,48 H48 V64" class="symbol $cell_id"/>',
+        '<path d="M0,32 H28 M28,16 V48 M48,0 V16 H32 V48 H48 V64" class="symbol $cell_id"/>',
     ]
     if p:
-        art += ['<circle cx="18" cy="32" r="2.4" class="gate-dot $cell_id"/>']
+        art += ['<circle cx="25.6" cy="32" r="2.4" class="gatebubble $cell_id"/>']
     if mirror:
         art = [f'<g transform="translate(96,0) scale(-1,1)">{"".join(art)}</g>']
     art += (
@@ -440,13 +458,10 @@ def analog_skin() -> str:
     lines += template(
         "vcc",
         32,
-        24,
+        16,
         ["vcc", "vdd"],
-        [
-            '<path d="M0,0 H32 M16,0 V24" class="symbol $cell_id"/>',
-            '<text x="16" y="-4" s:attribute="name" class="nodelabel $cell_id">VDD</text>',
-        ],
-        [("A", 16, 24, "bottom")],
+        ['<path d="M4,0 H28 M16,0 V16" class="symbol $cell_id"/>'],
+        [("A", 16, 16, "bottom")],
         x=20,
         y=185,
         label=False,
@@ -454,12 +469,9 @@ def analog_skin() -> str:
     lines += template(
         "vee",
         32,
-        24,
+        16,
         ["vee", "vss"],
-        [
-            '<path d="M16,0 V24 M0,24 H32" class="symbol $cell_id"/>',
-            '<text x="16" y="38" s:attribute="name" class="nodelabel $cell_id">VSS</text>',
-        ],
+        ['<path d="M16,0 V16 M4,16 H28" class="symbol $cell_id"/>'],
         [("A", 16, 0, "top")],
         x=90,
         y=185,
@@ -470,7 +482,7 @@ def analog_skin() -> str:
         32,
         24,
         ["gnd", "ground"],
-        ['<path d="M16,0 V8 M0,8 H32 M5,16 H27 M10,24 H22" class="symbol $cell_id"/>'],
+        ['<path d="M16,0 V8 M0,8 H32 M5,14 H27 M10,20 H22" class="symbol $cell_id"/>'],
         [("A", 16, 0, "top")],
         x=160,
         y=185,
@@ -482,8 +494,8 @@ def analog_skin() -> str:
         64,
         ["v", "vsource"],
         [
-            '<circle cx="24" cy="32" r="18" class="symbol $cell_id"/>',
-            '<path d="M24,0 V14 M24,50 V64 M19,25 H29 M24,20 V30 M19,41 H29" class="connect $cell_id"/>',
+            '<circle cx="24" cy="32" r="12" class="symbol $cell_id"/>',
+            '<path d="M24,0 V20 M24,44 V64 M20,27 H28 M24,23 V31 M20,38 H28" class="connect $cell_id"/>',
             '<text x="52" y="29" s:attribute="ref" class="$cell_id">V1</text>',
             '<text x="52" y="43" s:attribute="value" class="$cell_id">V</text>',
         ],
@@ -498,8 +510,8 @@ def analog_skin() -> str:
         64,
         ["i", "isource"],
         [
-            '<circle cx="24" cy="32" r="18" class="symbol $cell_id"/>',
-            '<path d="M24,0 V14 M24,50 V64 M24,44 V20 M20,26 L24,20 L28,26" class="connect $cell_id"/>',
+            '<circle cx="24" cy="32" r="12" class="symbol $cell_id"/>',
+            '<path d="M24,0 V20 M24,44 V64 M24,40 V24 M20,29 L24,24 L28,29" class="connect $cell_id"/>',
             '<text x="52" y="29" s:attribute="ref" class="$cell_id">I1</text>',
             '<text x="52" y="43" s:attribute="value" class="$cell_id">A</text>',
         ],
