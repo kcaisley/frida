@@ -252,6 +252,7 @@ def digital_skin() -> str:
             x=25 + 115 * (index % 7),
             y=40 + 90 * (index // 7),
         )
+    lines += logic_gate("reduce_or", "or", 1, False, ["$reduce_or", "$reduce_bool"], x=825, y=40)
     for index, kind in enumerate(("buf", "not")):
         inverted = kind == "not"
         width = 42 if inverted else 38
@@ -295,6 +296,42 @@ def digital_skin() -> str:
         x=370,
         y=235,
     )
+    lines += template(
+        "add",
+        50,
+        44,
+        ["$add"],
+        [
+            '<path d="M0,12 H14 M0,32 H14 M40,22 H50" class="connect $cell_id"/>',
+            '<circle cx="25" cy="22" r="15" class="symbol $cell_id" fill="white"/>',
+            '<path d="M19,22 H31 M25,16 V28" class="symbol $cell_id"/>',
+        ],
+        [("A", 0, 12, "left"), ("B", 0, 32, "left"), ("Y", 50, 22, "right")],
+        x=450,
+        y=235,
+    )
+    lines += template(
+        "sdffe",
+        78,
+        78,
+        ["$sdffe", "$sdffce"],
+        [
+            '<rect x="8" y="2" width="60" height="74" class="symbol $cell_id" fill="white"/>',
+            '<path d="M0,12 H8 M0,30 H8 M0,48 H8 M0,66 H8 M68,12 H78 M8,61 L14,66 L8,71" class="connect $cell_id"/>',
+            '<text x="14" y="16">D</text><text x="62" y="16" text-anchor="end">Q</text>',
+            '<text x="14" y="34">EN</text><text x="14" y="52">SRST</text>',
+            '<text x="20" y="70">CLK</text>',
+        ],
+        [
+            ("D", 0, 12, "left"),
+            ("EN", 0, 30, "left"),
+            ("SRST", 0, 48, "left"),
+            ("CLK", 0, 66, "left"),
+            ("Q", 78, 12, "right"),
+        ],
+        x=535,
+        y=235,
+    )
     compounds = [
         "aoi21",
         "aoi22",
@@ -311,18 +348,18 @@ def digital_skin() -> str:
     ]
     for index, name in enumerate(compounds):
         lines += compound_gate(name, [name], x=25 + 145 * (index % 6), y=325 + 175 * (index // 6))
-    lines += terminal("inputExt", x=25, y=750)
-    lines += terminal("outputExt", x=100, y=750)
+    lines += terminal("inputExt", x=25, y=750, label_space=120)
+    lines += terminal("outputExt", x=100, y=750, label_space=120)
     lines += template(
         "constant",
         28,
-        20,
+        52,
         ["$_constant_"],
         [
-            '<path d="M8,4 H20 V16 H8 Z M20,10 H28" class="symbol $cell_id"/>',
-            '<text x="14" y="13" class="nodelabel $cell_id" s:attribute="value">0</text>',
+            '<path d="M4,18 H20 V30 H4 Z M20,24 H28" class="symbol $cell_id"/>',
+            '<text x="12" y="27" class="nodelabel $cell_id" s:attribute="ref">0</text>',
         ],
-        [("Y", 28, 10, "right")],
+        [("Y", 28, 24, "right")],
         x=175,
         y=750,
         label=False,
@@ -353,26 +390,29 @@ def digital_skin() -> str:
     return "\n".join(lines + ["</svg>", ""])
 
 
-def terminal(kind: str, *, x: float, y: float) -> list[str]:
+def terminal(kind: str, *, x: float, y: float, label_space: float = 0) -> list[str]:
     """Small trapezoid and grid-aligned lead, with its net name alongside."""
     incoming = kind == "inputExt"
+    offset = label_space if incoming else 0
     art = [
-        '<path d="M24,0 H30 L36,4 L30,8 H24 Z M36,4 H40" class="symbol $cell_id" fill="white"/>'
+        f'<path d="M{num(24 + offset)},0 H{num(30 + offset)} L{num(36 + offset)},4 '
+        f'L{num(30 + offset)},8 H{num(24 + offset)} Z M{num(36 + offset)},4 H{num(40 + offset)}" '
+        'class="symbol $cell_id" fill="white"/>'
         if incoming
         else '<path d="M16,0 H10 L4,4 L10,8 H16 Z M0,4 H4" class="symbol $cell_id" fill="white"/>',
         (
-            '<text x="20" y="7" text-anchor="end" s:attribute="ref" class="$cell_id">net</text>'
+            f'<text x="{num(20 + offset)}" y="7" text-anchor="end" s:attribute="ref" class="$cell_id">net</text>'
             if incoming
             else '<text x="20" y="7" text-anchor="start" s:attribute="ref" class="$cell_id">net</text>'
         ),
     ]
     return template(
         kind,
-        40,
+        40 + label_space,
         8,
         ["$_inputExt_" if incoming else "$_outputExt_"],
         art,
-        [("Y" if incoming else "A", 40 if incoming else 0, 4, "right" if incoming else "left")],
+        [("Y" if incoming else "A", 40 + offset if incoming else 0, 4, "right" if incoming else "left")],
         x=x,
         y=y,
         label=False,
@@ -388,22 +428,22 @@ def dynamic_generic(*, x: float, y: float) -> list[str]:
         '  <rect x="6" y="0" width="228" height="42" s:generic="body" class="symbol $cell_id" fill="white"/>',
         (
             '  <g transform="translate(240,10)" s:x="240" s:y="10" s:pid="out0">'
-            '<path d="M-6,0 H0" class="connect $cell_id"/>'
+            '<path d="M-6,0.5 H1" class="connect $cell_id"/>'
             '<text x="-10" y="3" text-anchor="end">out0</text></g>'
         ),
         (
             '  <g transform="translate(240,32)" s:x="240" s:y="32" s:pid="out1">'
-            '<path d="M-6,0 H0" class="connect $cell_id"/>'
+            '<path d="M-6,0.5 H1" class="connect $cell_id"/>'
             '<text x="-10" y="3" text-anchor="end">out1</text></g>'
         ),
         (
             '  <g transform="translate(0,10)" s:x="0" s:y="10" s:pid="in0">'
-            '<path d="M0,0 H6" class="connect $cell_id"/>'
+            '<path d="M0,0.5 H6" class="connect $cell_id"/>'
             '<text x="10" y="3">in0</text></g>'
         ),
         (
             '  <g transform="translate(0,32)" s:x="0" s:y="32" s:pid="in1">'
-            '<path d="M0,0 H6" class="connect $cell_id"/>'
+            '<path d="M0,0.5 H6" class="connect $cell_id"/>'
             '<text x="10" y="3">in1</text></g>'
         ),
         "</g>",

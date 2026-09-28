@@ -230,6 +230,82 @@ def _align_low_shared_gate_inputs(module: dict, svg_path: Path) -> None:
         tree.write(svg_path, encoding="unicode")
 
 
+def _consolidate_net_wires(svg_path: Path) -> None:
+    """Draw overlapping ELK segments only once to avoid dark seams."""
+    ET.register_namespace("", _SVG_NS)
+    ET.register_namespace("s", _SKIN_NS)
+    tree = ET.parse(svg_path)
+    root = tree.getroot()
+    segments: dict[tuple[str, str, float], list[tuple[float, float, ET.Element]]] = {}
+
+    for line in root.findall(f"{{{_SVG_NS}}}line"):
+        net_class = line.get("class", "")
+        if not net_class.startswith("net_"):
+            continue
+        x1, x2 = float(line.get("x1")), float(line.get("x2"))
+        y1, y2 = float(line.get("y1")), float(line.get("y2"))
+        if y1 == y2:
+            key, start, end = (net_class, "horizontal", y1), min(x1, x2), max(x1, x2)
+        elif x1 == x2:
+            key, start, end = (net_class, "vertical", x1), min(y1, y2), max(y1, y2)
+        else:
+            continue
+        segments.setdefault(key, []).append((start, end, line))
+
+    changed = False
+    for (net_class, direction, fixed), spans in segments.items():
+        if len(spans) == 1 and spans[0][0] != spans[0][1]:
+            continue
+        for _, _, line in spans:
+            root.remove(line)
+        current_start, current_end = None, None
+        for start, end, _ in sorted(spans, key=lambda item: (item[0], item[1])):
+            if current_start is None:
+                current_start, current_end = start, end
+            elif start <= current_end:
+                current_end = max(current_end, end)
+            else:
+                if current_start != current_end:
+                    coords = (
+                        (current_start, fixed, current_end, fixed)
+                        if direction == "horizontal"
+                        else (fixed, current_start, fixed, current_end)
+                    )
+                    ET.SubElement(
+                        root,
+                        f"{{{_SVG_NS}}}line",
+                        dict(zip(("x1", "y1", "x2", "y2"), (f"{v:g}" for v in coords))) | {"class": net_class},
+                    )
+                current_start, current_end = start, end
+        if current_start is not None and current_start != current_end:
+            coords = (
+                (current_start, fixed, current_end, fixed)
+                if direction == "horizontal"
+                else (fixed, current_start, fixed, current_end)
+            )
+            ET.SubElement(
+                root,
+                f"{{{_SVG_NS}}}line",
+                dict(zip(("x1", "y1", "x2", "y2"), (f"{v:g}" for v in coords))) | {"class": net_class},
+            )
+        changed = True
+
+    circles: set[tuple[str, str, str, str]] = set()
+    for circle in root.findall(f"{{{_SVG_NS}}}circle"):
+        net_class = circle.get("class", "")
+        if not net_class.startswith("net_"):
+            continue
+        key = (net_class, circle.get("cx", ""), circle.get("cy", ""), circle.get("r", ""))
+        if key in circles:
+            root.remove(circle)
+            changed = True
+        else:
+            circles.add(key)
+
+    if changed:
+        tree.write(svg_path, encoding="unicode")
+
+
 def verilog_to_analog_svg(
     verilog_path: Path, output_path: Path, top: str, skin: Path | None = None
 ) -> tuple[Path, Path]:
@@ -333,6 +409,7 @@ def verilog_to_analog_svg(
         if skin is not None:
             _straighten_single_gate_inputs(data["modules"][top], output_path)
             _align_low_shared_gate_inputs(data["modules"][top], output_path)
+            _consolidate_net_wires(output_path)
 
     return json_path, output_path
 
