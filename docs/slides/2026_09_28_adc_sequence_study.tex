@@ -143,6 +143,15 @@
   \note{The 320-MBd C5/L2 COMP waveform provides each ADC's reference low/high levels from its 20th/80th percentiles. For each 1600-MBd B12 scope record, the plot integrates time below 10--50 percent of that reference swing within the measured COMP-low interval. At the 10-percent level the medians across 16 ADCs are 1.209 ns for C6/L2 at 960 MBd, 1.056 ns for C5/L2 at 1600 MBd, 0.551 ns for C6/L2 at 1600 MBd, and 0.519 ns for C6/L3 at 1600 MBd. At 20 percent they are 1.741, 1.617, 0.895, and 0.867 ns. The C5 and C6 1600-MBd 10-percent ranges across ADCs do not overlap: 0.995--1.080 versus 0.407--0.619 ns. Each saved capture has one scope record and 100,000 FastRX conversions. The oscilloscope is DC coupled at a 2-GHz bandwidth setting and sampled about every 160 ps. The normalized thresholds are descriptive external-signal levels, not MOS reset thresholds. They cannot establish the unobserved on-chip comparator reset time or clock delivery, and should not be directly subtracted from ideal PEX internal reset settling.}
 \end{frame}
 
+\begin{frame}{5/8 has a narrow saved LOGIC window; 6/8 does not recover}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_adc03_logic_window.pdf}
+  \par\smallskip
+  {\small The late two-symbol pulse gives ADC03 its smallest saved 5/8 B12 tail: 213/100,000.}
+  \slidesource{Corrected 26 Sep ADC03 physical scan; eight 10-MSPS captures and lower-rate controls}
+  \note{The four 5/8 ADC03 settings have identical B0--B11 in all 100,000 conversions, as well as the same COMP, INIT, and SAMP patterns. Late-only LOGIC words 00000111, 00000011, and 00000001 put the observed late LOGIC rise 0.013 ns before, 0.600 ns after, and 1.204 ns after COMP falls. B12 is low in 663, 213, and 624 of 100,000 conversions. The 11000011 pulse has the same late rise as the two-symbol pulse, plus a high interval spanning the next decision boundary, and gives 385 B12-low events. Their 10-percent-level COMP-low dwells in the single retained scopes are 1.077, 1.020, 1.108, and 1.059 ns; the smallest B12 tail does not correspond to the longest observed dwell. All four 320-MBd controls have B12 high in at least 99,969 conversions, and the 960-MBd controls have it high in all conversions. At 6/8 COMP, the same four LOGIC words leave B12 high in only 3, 1, 10, and 1 conversions out of 100,000. All eight retained scopes agree with FastRX, with zero lost frames. The 5/8 two-symbol row has sigma 0.715 LSB on ADC03 but mean code 4.329 LSB above its 320-MBd reference, so neither 0.5-LSB nor calibrated accuracy is demonstrated. These sequential captures share nominal input settings, but the physical ADC-pin input was not independently measured; LOGIC timing, pulse width, CDAC feedback, and small environmental drift are not isolated.}
+\end{frame}
+
 \begin{frame}{A shorter COMP-low interval also fails at 6 MSPS}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_c7_960_low_gap.pdf}
@@ -276,7 +285,7 @@
 \begin{frame}{5/8 remains the best saved candidate; 0.5 LSB is unverified}
   \small
   \begin{itemize}
-    \item At 1600 MBd, several 5/8 recipes have 14/16 plausible physical ADCs. The smallest full-capture sigma is 0.633 LSB on ADC15, with rare 15-LSB code jumps.
+    \item At 1600 MBd, the 5/8 two-symbol late LOGIC row has 14/16 plausible ADCs; ADC03/15 code spreads are 0.715/0.748 LSB. ADC15's one-symbol minimum is 0.633 LSB, with rare 15-LSB jumps.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
     \item C5/L2 to C6/L2 keeps LOGIC fixed yet changes physical mean codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge for both.
     \item Short LOGIC or extra idle removes the separate all-one-frame mode. The 6/8 B12 bias persists; silicon reset between decisions remains unverified. FRIDA-2 has no physical counterpart here.
