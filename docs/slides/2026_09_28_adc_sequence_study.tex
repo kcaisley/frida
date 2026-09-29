@@ -152,6 +152,15 @@
   \note{The four 5/8 ADC03 settings have identical B0--B11 in all 100,000 conversions, as well as the same COMP, INIT, and SAMP patterns. Late-only LOGIC words 00000111, 00000011, and 00000001 put the observed late LOGIC rise 0.013 ns before, 0.600 ns after, and 1.204 ns after COMP falls. B12 is low in 663, 213, and 624 of 100,000 conversions. The 11000011 pulse has the same late rise as the two-symbol pulse, plus a high interval spanning the next decision boundary, and gives 385 B12-low events. Their 10-percent-level COMP-low dwells in the single retained scopes are 1.077, 1.020, 1.108, and 1.059 ns; the smallest B12 tail does not correspond to the longest observed dwell. All four 320-MBd controls have B12 high in at least 99,969 conversions, and the 960-MBd controls have it high in all conversions. At 6/8 COMP, the same four LOGIC words leave B12 high in only 3, 1, 10, and 1 conversions out of 100,000. All eight retained scopes agree with FastRX, with zero lost frames. The 5/8 two-symbol row has sigma 0.715 LSB on ADC03 but mean code 4.329 LSB above its 320-MBd reference, so neither 0.5-LSB nor calibrated accuracy is demonstrated. These sequential captures share nominal input settings, but the physical ADC-pin input was not independently measured; LOGIC timing, pulse width, CDAC feedback, and small environmental drift are not isolated.}
 \end{frame}
 
+\begin{frame}{The remaining 5/8 B12 tail has conversion-lag structure}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_b12_recurrence.pdf}
+  \par\smallskip
+  {\small Even the late two-symbol candidate has a weaker eight-conversion recurrence.}
+  \slidesource{12 corrected physical captures; 5,000 within-block event shuffles per capture}
+  \note{Rare B12-low events were evaluated in 12 5/8 physical captures with 100--5000 such events among 100,000 contiguous conversions and zero lost frames. Event-pair counts at lags 8, 16, through 72, and at lags 9, 18, through 72, were compared with 5,000 randomizations preserving event count within every 5,000-conversion block. Aggregate observed/shuffled ratios are 3.54 at multiples of eight for late-three-symbol LOGIC on ADC03/04/15, 2.59 at multiples of eight for late-two-symbol LOGIC on ADC03/04/07, 4.21 at multiples of nine for late-one-symbol LOGIC on ADC03/04/07, and 5.01 at multiples of nine for boundary-spanning four-symbol LOGIC on ADC03/04/07. All four excesses reach the 1/5001 empirical-p floor; the comparison is exploratory because the periods were noticed in the same data. ADC07's two-symbol case lacks lag-eight excess, so this pattern is not universal. ADC03's best two-symbol row has 10 lag-eight harmonic pairs versus 3.99 shuffled on average. The four physical recipes were captured sequentially, making a changing external interferer a possible explanation for the apparent eight-to-nine-lag switch; do not assign it uniquely to LOGIC width. Their retained single-conversion scope records miss the rare events, so the comparator, SAR logic, FastRX input, and external interference remain unresolved. The separate full-scale all-one-frame mode peaks at lag seven and is absent from the best two-symbol row.}
+\end{frame}
+
 \begin{frame}{A shorter COMP-low interval also fails at 6 MSPS}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_c7_960_low_gap.pdf}
@@ -288,7 +297,7 @@
     \item At 1600 MBd, the 5/8 two-symbol late LOGIC row has 14/16 plausible ADCs. ADC03/15 spreads are 0.715/0.748 LSB, but their means shift +4.33/-3.12 LSB versus 320 MBd. ADC15's one-symbol minimum is 0.633 LSB, with rare 15-LSB jumps.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
     \item C5/L2 to C6/L2 keeps LOGIC fixed yet changes physical mean codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge for both.
-    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The 6/8 B12 bias persists; silicon reset between decisions remains unverified. FRIDA-2 has no physical counterpart here.
+    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The remaining 5/8 B12 tail recurs at selected conversion lags; the 6/8 B12 bias persists. Silicon reset remains unverified. FRIDA-2 has no physical counterpart here.
   \end{itemize}
   \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
 \end{frame}
