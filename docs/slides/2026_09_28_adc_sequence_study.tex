@@ -313,9 +313,12 @@
   \end{tabular}
   }
   \par\bigskip
-  {\small These are fixed-input code spreads; rare events remain part of the full result.}
+  {\small Holding other codes fixed, $0.5$ LSB needs at most 12, 77, and 104\\
+  rare events per 100k, respectively. This is a counterfactual budget.}
+  \par\smallskip
+  {\small Rare events remain part of the measured spread; transfer accuracy is unverified.}
   \slidesource{All 29 saved 5/8 recipes at 1600 MBd; physical ADC03 and ADC15}
-  \note{The ADC15 one-symbol case has the smallest plausible full-capture sigma, 0.633 LSB. Its mean is 3.17 LSB below its 320-MBd reference, and the code-2204 tail is 15 LSB above mode 2189. ADC03's two-symbol case has 213 code-2175 events versus 385 in the four-symbol case. The two- and four-symbol C5 cases each have 14/16 plausible ADCs, and their across-ADC sigma changes have mixed signs; the narrower pulse is not a general fix. Excluding the selected tail from ADC15 gives 0.471 LSB, but that is not the measured full-capture noise or transfer accuracy. The manual DC input was not independently calibrated at the ADC pin.}
+  \note{The ADC15 one-symbol case has the smallest plausible full-capture sigma, 0.633 LSB. Its mean is 3.17 LSB below its 320-MBd reference, and the code-2204 tail is 15 LSB above mode 2189. ADC03's two-symbol case has 213 code-2175 events versus 385 in the four-symbol case. The two- and four-symbol C5 cases each have 14/16 plausible ADCs, and their across-ADC sigma changes have mixed signs; the narrower pulse is not a general fix. Excluding the selected tail from ADC15 gives 0.471 LSB, but that is not the measured full-capture noise or transfer accuracy. The counterfactual budget fixes each row's empirical nonrare code distribution, lets only the selected rare-code fraction vary, and solves variance=(1-p)*nonrare variance+p*(1-p)*(rare code minus nonrare mean)^2 for sigma=0.5 LSB. The integer maximum rare counts per 100,000 are 12, 77, and 104 in table order, versus the observed 81, 213, and 385. These are targets for a hypothetical removal of rare events, not observed operating points; other faults, the measured mean shifts, and uncalibrated input remain. The exact pinned-source calculations are in physical\_half\_lsb\_tail\_budget.py and .csv beside the analysis. The manual DC input was not independently calibrated at the ADC pin.}
 \end{frame}
 
 \section[PEX]{PEX}
