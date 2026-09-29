@@ -1890,6 +1890,8 @@ class AnalysisAdcCdacSettling:
     vdac_n_settling_error_v: FloatArray
     static_vdac_p_v: FloatArray
     static_vdac_n_v: FloatArray
+    vdac_p_settling_s: FloatArray
+    vdac_n_settling_s: FloatArray
     comp_latch_p_v: FloatArray | None = None
     comp_latch_n_v: FloatArray | None = None
 
@@ -1915,6 +1917,8 @@ class AnalysisAdcCdacSettling:
         }
         static_vdac_p_v = _array_1d(self.static_vdac_p_v, np.float64, "static_vdac_p_v", finite=True)
         static_vdac_n_v = _array_1d(self.static_vdac_n_v, np.float64, "static_vdac_n_v", finite=True)
+        vdac_p_settling_s = _array_1d(self.vdac_p_settling_s, np.float64, "vdac_p_settling_s")
+        vdac_n_settling_s = _array_1d(self.vdac_n_settling_s, np.float64, "vdac_n_settling_s")
         trace_count = _aligned_length(
             {
                 "stage_index": stage_index,
@@ -1922,6 +1926,8 @@ class AnalysisAdcCdacSettling:
                 "conversion_index": conversion_index,
                 "static_vdac_p_v": static_vdac_p_v,
                 "static_vdac_n_v": static_vdac_n_v,
+                "vdac_p_settling_s": vdac_p_settling_s,
+                "vdac_n_settling_s": vdac_n_settling_s,
                 **waveforms,
             }
         )
@@ -1943,6 +1949,8 @@ class AnalysisAdcCdacSettling:
             or not np.any(time_s == 0.0)
             or set(zip(stage_index, cycle_index, strict=True)) != {(0, 0), (7, 7), (15, 15)}
             or np.any(conversion_index < 0)
+            or np.any((vdac_p_settling_s < 0) | np.isinf(vdac_p_settling_s))
+            or np.any((vdac_n_settling_s < 0) | np.isinf(vdac_n_settling_s))
         ):
             raise ValueError("ADC CDAC settling metadata is outside its valid range")
         object.__setattr__(self, "stage_index", stage_index)
@@ -1953,6 +1961,8 @@ class AnalysisAdcCdacSettling:
             object.__setattr__(self, name, values)
         object.__setattr__(self, "static_vdac_p_v", static_vdac_p_v)
         object.__setattr__(self, "static_vdac_n_v", static_vdac_n_v)
+        object.__setattr__(self, "vdac_p_settling_s", vdac_p_settling_s)
+        object.__setattr__(self, "vdac_n_settling_s", vdac_n_settling_s)
 
 
 @dataclass(frozen=True, slots=True)

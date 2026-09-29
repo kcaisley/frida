@@ -1429,3 +1429,14 @@ def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_pa
     period_axis = next(axis for axis in figures[0].axes if axis.get_xlabel() == "Repetition interval (ns)")
     assert period_axis.get_xticklabels()[0].get_text() == "1e+03"
     plt.close(figures[0])
+
+
+def test_eye_segments_preserve_origin_identity_and_window_bounds() -> None:
+    axis = np.arange(0.0, 8.5, 0.5)
+    signal = 2 * axis
+    segments = analysis_plots._eye_segments(signal, axis, 2.0, 1.0, count=3, window=(0.0, 1.0))
+    assert [index for index, _ in segments] == [0, 1, 2]
+    np.testing.assert_allclose(segments[0][1], np.column_stack((np.arange(0.0, 1.25, 0.25), [2, 3, 4, 5, 6])))
+    np.testing.assert_allclose(segments[1][1][:, 0], segments[0][1][:, 0])
+    assert [index for index, _ in analysis_plots._eye_segments(signal, axis, 2.0, [1.0, 7.0], complete=True)] == [0]
+    assert analysis_plots._eye_segments(signal, axis, 2.0, [7.0], window=(0.0, 1.0), complete=True) == ()

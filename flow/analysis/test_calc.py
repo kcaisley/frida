@@ -63,6 +63,19 @@ def test_cross_distinguishes_interior_contact_from_endpoint_contact() -> None:
     assert calc.cross(falling_plateau, np.arange(6.0), 0.0, edge="falling", occurrence=1) == pytest.approx(2.0)
 
 
+def test_transition_times_and_slew_match_piecewise_linear_reference() -> None:
+    axis = [0.0, 1.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    signal = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+    np.testing.assert_allclose(calc.riseTime(signal, axis, 0.0, 1.0, occurrence=None), [1.6, 0.8])
+    np.testing.assert_allclose(calc.fallTime(signal, axis, 1.0, 0.0, occurrence=None), [0.8, 0.8])
+    assert calc.riseTime(signal, axis, 0.0, 1.0, occurrence=-1) == pytest.approx(0.8)
+    assert calc.slewrate(signal, axis, 0.0, 1.0, occurrence=1) == pytest.approx(0.5)
+    assert calc.slewrate(signal, axis, 1.0, 0.0, occurrence=1) == pytest.approx(-1.0)
+    assert np.isnan(calc.riseTime([0.0, 0.5], [0.0, 1.0], 0.0, 1.0))
+    with pytest.raises(ValueError, match="percentages"):
+        calc.riseTime(signal, axis, 0.0, 1.0, percent_low=90.0, percent_high=10.0)
+
+
 def test_clip_value_and_time_weighted_average() -> None:
     axis = np.array([0.0, 1.0, 3.0])
     signal = np.array([0.0, 2.0, 2.0])
@@ -180,6 +193,21 @@ def test_jitter_axes_units_moving_reference_and_scalar_output() -> None:
     )
     with pytest.raises(ValueError, match="bin_size cannot"):
         calc.period_jitter(signal, axis, threshold=0.0, nominal_period=1.0, bin_size=2)
+
+
+def test_jitter_matches_variable_duty_cycle_piecewise_linear_reference() -> None:
+    axis = np.asarray([0.0, 1.0, 1.4, 2.5, 3.9, 5.1, 5.4, 6.8, 8.1, 9.1, 9.7, 11.2, 12.0])
+    signal = np.asarray([0.0, 2.0, 2.0, 0.0, 0.0, 3.0, 3.0, 0.0, 0.0, 4.0, 4.0, 0.0, 0.0])
+    mean_level = np.trapezoid(signal, axis) / 12.0
+    edges = np.asarray([mean_level / 2.0, 3.9 + mean_level * 1.2 / 3.0, 8.1 + mean_level / 4.0])
+    periods = np.diff(edges)
+    np.testing.assert_allclose(calc.period_jitter(signal, axis), periods - np.mean(periods))
+    assert calc.period_jitter(signal, axis, output_type="sd") == pytest.approx(np.std(periods - np.mean(periods)))
+    cycle, jitter_ui = calc.abs_jitter(signal, axis, threshold=1.0, nominal_period=4.0, x_unit="cycle", y_unit="ui")
+    np.testing.assert_allclose(cycle, [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(jitter_ui, (np.asarray([0.5, 4.3, 8.35]) - [0.5, 4.5, 8.5]) / 4.0)
+    np.testing.assert_allclose(calc.abs_jitter(signal, axis, nominal_period=4.0), [0.0, -0.3, -0.4])
+    np.testing.assert_array_equal(calc.abs_jitter([0.0, 0.0], [0.0, 1.0], threshold=1.0, nominal_period=4.0), [])
     with pytest.raises(ValueError, match="cannot have an x axis"):
         calc.period_jitter(signal, axis, threshold=0.0, output_type="sd", x_unit="cycle")
     assert np.isnan(calc.period_jitter([0.0], [0.0], output_type="sd"))
@@ -209,17 +237,6 @@ def test_eye_diagram_interpolates_uneven_off_grid_windows() -> None:
     np.testing.assert_allclose(folded[:4], [[0.0, 1.0], [0.3, 1.6], [1.2, 3.4], [1.5, 4.0]])
     assert np.isnan(folded[4]).all()
     np.testing.assert_allclose(folded[5:], [[0.0, 4.0], [0.8, 5.6], [1.3, 6.6]])
-
-
-def test_eye_segments_preserve_origin_identity_and_window_bounds() -> None:
-    axis = np.arange(0.0, 8.5, 0.5)
-    signal = 2 * axis
-    segments = calc._eye_segments(signal, axis, 2.0, 1.0, count=3, window=(0.0, 1.0))
-    assert [index for index, _ in segments] == [0, 1, 2]
-    np.testing.assert_allclose(segments[0][1], np.column_stack((np.arange(0.0, 1.25, 0.25), [2, 3, 4, 5, 6])))
-    np.testing.assert_allclose(segments[1][1][:, 0], segments[0][1][:, 0])
-    assert [index for index, _ in calc._eye_segments(signal, axis, 2.0, [1.0, 7.0], complete=True)] == [0]
-    assert calc._eye_segments(signal, axis, 2.0, [7.0], window=(0.0, 1.0), complete=True) == ()
 
 
 def test_dft_reports_one_sided_signal_amplitudes() -> None:

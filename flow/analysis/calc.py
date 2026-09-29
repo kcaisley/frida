@@ -162,45 +162,6 @@ def eyeDiagram(
     return np.vstack([part for segment in segments for part in (segment, separator)][:-1])
 
 
-def _eye_segments(
-    signal: Sequence[float] | np.ndarray,
-    axis: Sequence[float] | np.ndarray,
-    period: float,
-    origins: float | Sequence[float] | np.ndarray,
-    *,
-    window: tuple[float, float] = (-0.2, 1.2),
-    count: int | None = None,
-    complete: bool = False,
-    include_stop: bool = True,
-) -> tuple[tuple[int, np.ndarray], ...]:
-    """Return indexed phase/value windows around explicit edge origins."""
-    signal, axis = _waveform(signal, axis)
-    if not len(axis):
-        raise ValueError("eye segments require at least one sample")
-    if not math.isfinite(period) or period <= 0:
-        raise ValueError("period must be finite and positive")
-    if not all(math.isfinite(bound) for bound in window) or window[0] >= window[1]:
-        raise ValueError("window bounds must be finite and ordered")
-    starts = np.asarray(origins, dtype=np.float64)
-    if starts.ndim == 0:
-        if count is not None and count < 1:
-            raise ValueError("count must be positive")
-        starts = float(starts) + np.arange(1 if count is None else count) * period
-    elif starts.ndim != 1 or count is not None:
-        raise ValueError("array origins must be one-dimensional and cannot use count")
-    if not np.all(np.isfinite(starts)):
-        raise ValueError("origins must be finite")
-    segments = []
-    for index, origin in enumerate(starts):
-        first, last = origin + window[0] * period, origin + window[1] * period
-        if complete and (first < axis[0] or last > axis[-1]):
-            continue
-        selected = (axis >= first) & ((axis <= last) if include_stop else (axis < last))
-        if np.any(selected):
-            segments.append((index, np.column_stack(((axis[selected] - origin) / period, signal[selected]))))
-    return tuple(segments)
-
-
 def integ(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
     """Integrate a sampled waveform with trapezoidal interpolation."""
     signal, axis = _waveform(signal, axis)
@@ -375,39 +336,6 @@ def frequency(
     return (len(retained) - 1) / (retained[-1] - retained[0])
 
 
-def _edge_times(edges: Sequence[float] | np.ndarray) -> np.ndarray:
-    values = np.asarray(edges, dtype=np.float64)
-    if values.ndim != 1 or not np.all(np.isfinite(values)) or np.any(np.diff(values) <= 0):
-        raise ValueError("edge times must be a finite strictly increasing one-dimensional array")
-    return values
-
-
-def _abs_jitter_edges(
-    edges: Sequence[float] | np.ndarray, nominal_period: float, *, zero_ref: float | None = None
-) -> np.ndarray:
-    edges = _edge_times(edges)
-    if not math.isfinite(nominal_period) or nominal_period <= 0:
-        raise ValueError("nominal_period must be finite and positive")
-    if not len(edges):
-        return edges.copy()
-    origin = edges[0] if zero_ref is None else zero_ref
-    if not math.isfinite(origin):
-        raise ValueError("zero_ref must be finite")
-    return edges - origin - np.arange(len(edges)) * nominal_period
-
-
-def _period_jitter_edges(edges: Sequence[float] | np.ndarray, nominal_period: float | None = None) -> np.ndarray:
-    edges = _edge_times(edges)
-    if nominal_period is not None and (not math.isfinite(nominal_period) or nominal_period <= 0):
-        raise ValueError("nominal_period must be finite and positive")
-    if len(edges) < 2:
-        return np.empty(0, dtype=np.float64)
-    period = float((edges[-1] - edges[0]) / (len(edges) - 1)) if nominal_period is None else nominal_period
-    if not math.isfinite(period) or period <= 0:
-        raise ValueError("nominal_period must be finite and positive")
-    return np.diff(edges) - period
-
-
 def abs_jitter(
     signal: Sequence[float] | np.ndarray,
     axis: Sequence[float] | np.ndarray,
@@ -439,15 +367,19 @@ def abs_jitter(
         empty = np.empty(0, dtype=np.float64)
         return empty if x_unit is None else (empty, empty.copy())
     period = float((edges[-1] - edges[0]) / (len(edges) - 1)) if nominal_period is None else nominal_period
-    jitter = _abs_jitter_edges(edges, period, zero_ref=zero_ref)
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("nominal_period must be finite and positive")
+    if not len(edges):
+        empty = np.empty(0, dtype=np.float64)
+        return empty if x_unit is None else (empty, empty.copy())
+    origin = edges[0] if zero_ref is None else zero_ref
+    if not math.isfinite(origin):
+        raise ValueError("zero_ref must be finite")
+    jitter = edges - origin - np.arange(len(edges)) * period
     scale = {"s": 1.0, "ui": 1.0 / period, "rad": 2.0 * math.pi / period, "deg": 360.0 / period}
     jitter *= scale[y_unit]
     if x_unit is None:
         return jitter
-    if not len(edges):
-        empty = np.empty(0, dtype=np.float64)
-        return empty, jitter
-    origin = edges[0] if zero_ref is None else zero_ref
     if x_unit == "cycle":
         x = np.arange(1, len(edges) + 1, dtype=np.float64)
     elif x_unit == "crossing_time":
@@ -494,7 +426,14 @@ def period_jitter(
         for index in range(len(periods)):
             jitter[index] = periods[index] - average(periods[max(0, index - bin_size + 1) : index + 1])
     else:
-        jitter = _period_jitter_edges(edges, nominal_period)
+        if nominal_period is not None and (not math.isfinite(nominal_period) or nominal_period <= 0):
+            raise ValueError("nominal_period must be finite and positive")
+        period = (
+            float((edges[-1] - edges[0]) / (len(edges) - 1))
+            if nominal_period is None and len(edges) > 1
+            else nominal_period
+        )
+        jitter = np.diff(edges) - period if period is not None else np.empty(0, dtype=np.float64)
     if output_type == "sd":
         finite = jitter[np.isfinite(jitter)]
         return stddev(finite) if len(finite) else math.nan
@@ -530,8 +469,6 @@ def inl(dnl_values: Sequence[float] | np.ndarray, *, endpoint_correct: bool = Tr
     return raw - np.linspace(raw[0], raw[-1], len(raw)) if len(raw) > 1 else raw
 
 
-# Future transition measurements: riseTime, fallTime, and slewrate can pair
-# interpolated low/high crossings when an analysis needs duration or slew.
 @overload
 def cross(
     signal: Sequence[float] | np.ndarray,
@@ -625,6 +562,89 @@ def cross(
         return crossings
     selected = occurrence - 1 if occurrence > 0 else occurrence
     return float(crossings[selected]) if -len(crossings) <= selected < len(crossings) else math.nan
+
+
+def riseTime(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    initial: float,
+    final: float,
+    *,
+    percent_low: float = 10.0,
+    percent_high: float = 90.0,
+    occurrence: int | None = 1,
+) -> np.ndarray | float:
+    """Measure complete low-to-high transition durations between two levels."""
+    signal, axis = _waveform(signal, axis)
+    if not all(math.isfinite(level) for level in (initial, final, percent_low, percent_high)):
+        raise ValueError("transition levels and percentages must be finite")
+    if not final > initial:
+        raise ValueError("riseTime requires final greater than initial")
+    if not 0 <= percent_low < percent_high <= 100:
+        raise ValueError("transition percentages must be ordered within [0, 100]")
+    if occurrence == 0:
+        raise ValueError("occurrence is one-based and cannot be zero")
+    low_level = initial + (final - initial) * percent_low / 100
+    high_level = initial + (final - initial) * percent_high / 100
+    starts = cross(signal, axis, low_level, edge="rising")
+    stops = cross(signal, axis, high_level, edge="rising")
+    durations = []
+    for index, start in enumerate(starts):
+        stop_index = int(np.searchsorted(stops, start, side="right"))
+        if stop_index < len(stops) and (index + 1 == len(starts) or stops[stop_index] < starts[index + 1]):
+            durations.append(float(stops[stop_index] - start))
+    durations = np.asarray(durations, dtype=np.float64)
+    if occurrence is None:
+        return durations
+    selected = occurrence - 1 if occurrence > 0 else occurrence
+    return float(durations[selected]) if -len(durations) <= selected < len(durations) else math.nan
+
+
+def fallTime(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    initial: float,
+    final: float,
+    *,
+    percent_low: float = 10.0,
+    percent_high: float = 90.0,
+    occurrence: int | None = 1,
+) -> np.ndarray | float:
+    """Measure complete high-to-low transition durations between two levels."""
+    if not final < initial:
+        raise ValueError("fallTime requires final less than initial")
+    return riseTime(
+        -np.asarray(signal, dtype=np.float64),
+        axis,
+        -initial,
+        -final,
+        percent_low=percent_low,
+        percent_high=percent_high,
+        occurrence=occurrence,
+    )
+
+
+def slewrate(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    initial: float,
+    final: float,
+    *,
+    percent_low: float = 10.0,
+    percent_high: float = 90.0,
+    occurrence: int | None = 1,
+) -> np.ndarray | float:
+    """Return signed average slope between transition percentage levels."""
+    duration = (
+        riseTime(
+            signal, axis, initial, final, percent_low=percent_low, percent_high=percent_high, occurrence=occurrence
+        )
+        if final > initial
+        else fallTime(
+            signal, axis, initial, final, percent_low=percent_low, percent_high=percent_high, occurrence=occurrence
+        )
+    )
+    return (final - initial) * (percent_high - percent_low) / 100 / duration
 
 
 def settlingTime(
@@ -754,21 +774,17 @@ def spectrumMeas(
     spectral_power[0] = 0.0
     bin_width_hz = sample_rate / signal.size
 
-    def tone_bins(tone_frequency_hz: float) -> set[int]:
-        center_bin = round(tone_frequency_hz / bin_width_hz)
-        return set(
-            range(
-                max(1, center_bin - 4),
-                min(len(spectral_power), center_bin + 5),
-            )
-        )
-
-    fundamental_bins = tone_bins(fundamental_frequency)
+    # Assign the Blackman-Harris main lobe (four bins each side) to each tone.
+    fundamental_center = round(fundamental_frequency / bin_width_hz)
+    fundamental_bins = set(range(max(1, fundamental_center - 4), min(len(spectral_power), fundamental_center + 5)))
     harmonic_bins: set[int] = set()
     for harmonic_order in range(2, maximum_harmonic_order + 1):
         wrapped_hz = (harmonic_order * fundamental_frequency) % sample_rate
         aliased_hz = min(wrapped_hz, sample_rate - wrapped_hz)
-        harmonic_bins.update(tone_bins(aliased_hz) - fundamental_bins)
+        harmonic_center = round(aliased_hz / bin_width_hz)
+        harmonic_bins.update(
+            set(range(max(1, harmonic_center - 4), min(len(spectral_power), harmonic_center + 5))) - fundamental_bins
+        )
 
     noise_bins = set(range(1, len(spectral_power))) - fundamental_bins - harmonic_bins
     fundamental_power = float(np.sum(spectral_power[list(fundamental_bins)]))
@@ -790,7 +806,7 @@ def spectrumMeas(
     )
     if fundamental_power > 0 and spur_candidates.size:
         spur_center = int(spur_candidates[np.argmax(spectral_power[spur_candidates])])
-        spur_bins = tone_bins(frequency_hz[spur_center]) - fundamental_bins
+        spur_bins = set(range(max(1, spur_center - 4), min(len(spectral_power), spur_center + 5))) - fundamental_bins
         spur_power = float(np.sum(spectral_power[list(spur_bins)]))
         sfdr_db = 10.0 * math.log10(fundamental_power / spur_power) if spur_power > 0 else math.inf
     else:

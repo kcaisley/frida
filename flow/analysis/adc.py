@@ -90,12 +90,10 @@ def analyze_adc_comp_out_edge_eye(
         out_level = float((out_low + out_high) / 2)
         clock_edges = calc.cross(comp_v, time_s, comp_level, edge="rising")
         clock_edges = clock_edges[clock_edges >= 0][:17]
-        if len(clock_edges) != 17 or np.any(
-            np.abs(calc._period_jitter_edges(clock_edges, decision_period_s)) > 0.2 * decision_period_s
-        ):
+        if len(clock_edges) != 17 or np.any(np.abs(np.diff(clock_edges) - decision_period_s) > 0.2 * decision_period_s):
             raise ValueError(f"capture {capture_index} does not contain one complete 17-decision conversion")
         clock_edges_s[capture_index] = clock_edges
-        jitter_s[capture_index] = calc._abs_jitter_edges(clock_edges, decision_period_s)
+        jitter_s[capture_index] = clock_edges - clock_edges[0] - np.arange(17) * decision_period_s
         rising_edges = calc.cross(comp_out_v, time_s, out_level, edge="rising")
         falling_edges = calc.cross(comp_out_v, time_s, out_level, edge="falling")
         output_edges = np.sort(np.r_[rising_edges, falling_edges])
@@ -1009,8 +1007,13 @@ def analyze_adc_sampling_noise(measurement: MeasAdcInt) -> AnalysisAdcSamplingNo
     )
 
 
-def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettling:
-    """Align representative early, middle, and late C0-first CDAC stages."""
+def analyze_adc_cdac_settling(
+    measurement: MeasAdcInt, *, settling_tolerance_v: float = 1e-3
+) -> AnalysisAdcCdacSettling:
+    """Align representative stages and measure final-value DAC settling."""
+
+    if not math.isfinite(settling_tolerance_v) or settling_tolerance_v <= 0:
+        raise ValueError("settling_tolerance_v must be finite and positive")
 
     wave = measurement.wave
     time_s = wave.time_s
@@ -1102,6 +1105,8 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
     }
     static_vdac_p_v = []
     static_vdac_n_v = []
+    vdac_p_settling_s = []
+    vdac_n_settling_s = []
     internal_names = tuple(
         name
         for name in ("comp_latch_p_v", "comp_latch_n_v")
@@ -1128,6 +1133,18 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
             raise ValueError(f"ADC CDAC stage C{stage_index} has fewer than two settled-reference samples")
         p_static_v = np.median(wave.voltage[AdcNets.vdac_p.name][record_index, settling_reference])
         n_static_v = np.median(wave.voltage[AdcNets.vdac_n.name][record_index, settling_reference])
+        evaluation_stop_s = logic_s + 0.95 * (next_comp_s - logic_s)
+        for side, static_v, durations in (
+            ("p", p_static_v, vdac_p_settling_s),
+            ("n", n_static_v, vdac_n_settling_s),
+        ):
+            evaluation_v, evaluation_s = calc.clip(
+                wave.voltage[f"vdac_{side}"][record_index], time_s, logic_s, evaluation_stop_s
+            )
+            settled_at_s = calc.settlingTime(
+                evaluation_v, evaluation_s, final=float(static_v), absolute_tolerance=settling_tolerance_v
+            )
+            durations.append(settled_at_s - logic_s if math.isfinite(settled_at_s) else math.nan)
         stage_indices.append(stage_index)
         cycle_indices.append(cycle_index)
         conversion_indices.append(conversion_index)
@@ -1164,6 +1181,8 @@ def analyze_adc_cdac_settling(measurement: MeasAdcInt) -> AnalysisAdcCdacSettlin
         **{name: np.asarray(values) for name, values in aligned.items()},
         static_vdac_p_v=np.asarray(static_vdac_p_v),
         static_vdac_n_v=np.asarray(static_vdac_n_v),
+        vdac_p_settling_s=np.asarray(vdac_p_settling_s),
+        vdac_n_settling_s=np.asarray(vdac_n_settling_s),
     )
 
 

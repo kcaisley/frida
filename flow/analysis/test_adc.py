@@ -748,6 +748,17 @@ def test_cdac_settling_aligns_saved_stages_and_removes_static_levels() -> None:
     settled = (result.time_s >= 0.85e-9) & (result.time_s <= 0.97e-9)
     np.testing.assert_allclose(np.median(result.vdac_p_settling_error_v[:, settled], axis=1), 0.0, atol=1e-6)
     np.testing.assert_allclose(np.median(result.vdac_n_settling_error_v[:, settled], axis=1), 0.0, atol=1e-6)
+    np.testing.assert_allclose(result.vdac_p_settling_s, result.vdac_n_settling_s, atol=10e-12)
+    assert np.all((result.vdac_p_settling_s > 0.1e-9) & (result.vdac_p_settling_s < 0.3e-9))
+
+
+def test_cdac_settling_uses_explicit_tolerance() -> None:
+    measurement = adc_cdac_settling_measurement()
+    tight = analyze_adc_cdac_settling(measurement, settling_tolerance_v=1e-3)
+    loose = analyze_adc_cdac_settling(measurement, settling_tolerance_v=10e-3)
+    assert np.all(loose.vdac_p_settling_s < tight.vdac_p_settling_s)
+    with pytest.raises(ValueError, match="settling_tolerance_v"):
+        analyze_adc_cdac_settling(measurement, settling_tolerance_v=0.0)
 
 
 def test_cdac_settling_keeps_final_pulse_cut_by_record_boundary() -> None:

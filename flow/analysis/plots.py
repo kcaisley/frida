@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping, Sequence
 from itertools import pairwise
@@ -386,6 +387,48 @@ def plot_waveforms(
     return save_figure(fig, output_path)
 
 
+def _eye_segments(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    period: float,
+    origins: float | Sequence[float] | np.ndarray,
+    *,
+    window: tuple[float, float] = (-0.2, 1.2),
+    count: int | None = None,
+    complete: bool = False,
+    include_stop: bool = True,
+) -> tuple[tuple[int, np.ndarray], ...]:
+    """Return indexed phase/value windows around explicit edge origins."""
+    signal = np.asarray(signal, dtype=np.float64)
+    axis = np.asarray(axis, dtype=np.float64)
+    if signal.ndim != 1 or axis.ndim != 1 or len(signal) != len(axis):
+        raise ValueError("eye signal and axis must be aligned one-dimensional arrays")
+    if not len(axis):
+        raise ValueError("eye segments require at least one sample")
+    if not math.isfinite(period) or period <= 0:
+        raise ValueError("period must be finite and positive")
+    if not all(math.isfinite(bound) for bound in window) or window[0] >= window[1]:
+        raise ValueError("window bounds must be finite and ordered")
+    starts = np.asarray(origins, dtype=np.float64)
+    if starts.ndim == 0:
+        if count is not None and count < 1:
+            raise ValueError("count must be positive")
+        starts = float(starts) + np.arange(1 if count is None else count) * period
+    elif starts.ndim != 1 or count is not None:
+        raise ValueError("array origins must be one-dimensional and cannot use count")
+    if not np.all(np.isfinite(starts)):
+        raise ValueError("origins must be finite")
+    segments = []
+    for index, origin in enumerate(starts):
+        first, last = origin + window[0] * period, origin + window[1] * period
+        if complete and (first < axis[0] or last > axis[-1]):
+            continue
+        selected = (axis >= first) & ((axis <= last) if include_stop else (axis < last))
+        if np.any(selected):
+            segments.append((index, np.column_stack(((axis[selected] - origin) / period, signal[selected]))))
+    return tuple(segments)
+
+
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_comparator_edge_eye(
     measurement: MeasAdcInt,
@@ -432,7 +475,7 @@ def plot_adc_comparator_edge_eye(
         for segments, values in zip(decision_segments, traces, strict=True):
             segments.extend(
                 np.column_stack((fold[:, 0] * period * 1e9, fold[:, 1]))
-                for _, fold in calc._eye_segments(values, time, period, clock_edges, window=(-0.1, 1.1))
+                for _, fold in _eye_segments(values, time, period, clock_edges, window=(-0.1, 1.1))
             )
 
     period_ns = np.median(periods) * 1e9
@@ -572,7 +615,7 @@ def plot_adc_comp_out_edge_eye(
         for segments, values in zip(decision_segments, (comp_v, comp_out_v), strict=True):
             segments.extend(
                 np.column_stack((fold[:, 0] * decision_period_s * 1e9, fold[:, 1]))
-                for _, fold in calc._eye_segments(
+                for _, fold in _eye_segments(
                     values, time_s, decision_period_s, clock_edges, window=(-0.2, 1.0), include_stop=False
                 )
             )
@@ -725,7 +768,7 @@ def plot_serdes_output_word_grid(
                 word_origins = origin_s + 8 * np.arange(1, 30) * unit_interval_s
                 segments.extend(
                     segment
-                    for _, segment in calc._eye_segments(
+                    for _, segment in _eye_segments(
                         voltage_v, time_s, unit_interval_s, word_origins, window=(-0.2, 8.2), complete=True
                     )
                 )
@@ -807,7 +850,7 @@ def plot_serdes_symbol_eye_grid(
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} cannot align the output word")
             output_origin_s = anchor_edge_s - anchor_bit * unit_interval_s
             symbol_origins = output_origin_s + np.arange(len(pattern)) * unit_interval_s
-            for symbol_index, segment in calc._eye_segments(
+            for symbol_index, segment in _eye_segments(
                 output_v, time_s, unit_interval_s, symbol_origins, window=(-0.2, 1.2), complete=True
             ):
                 phase, voltage = segment.T
