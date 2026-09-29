@@ -1,0 +1,662 @@
+% Build after generating the pinned plots in build/analysis/adc/20260928_measured_pex_sequences/:
+%   (cd docs/slides && latexmk -pdf -interaction=nonstopmode -halt-on-error \
+%      -outdir=../../build/analysis/adc/20260928_measured_pex_sequences \
+%      2026_09_28_adc_sequence_study.tex)
+\input{style.tex}
+\slideprogressnavigation
+
+\newcommand{\analysispath}{../../build/analysis/adc/20260928_measured_pex_sequences}
+\newcommand{\pexpath}{../../build/analysis/adc/20260928_125732}
+
+\title{Seven continuous ADC sequences}
+\subtitle{Physical FRIDA-1 and extracted-layout FRIDA-1/2 evidence}
+\date{28 September 2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\section[Coverage]{Coverage}
+
+\begin{frame}{Matched experiment settings}
+  \centering
+  {\small
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    & Physical scan & Extracted-layout simulation \\
+    \midrule
+    Recipe & Seven of 29 continuous rows & Seven matched rows \\
+    Rate & 320, 960, 1600 MBd & 1600 MBd \\
+    Input & 50 mV differential, 700 mV common mode & Same DC input \\
+    Conversions & 100,000 per capture & 100 per case \\
+    Coverage & 16 FRIDA-1 ADCs & Four F1 and three F2 PEX flavors \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\medskip
+  {\small C4/L0 through C7/L3 label the COMP high-symbol count and LOGIC placement.}
+  \slidesource{26 Sep corrected physical scan; 26 Sep PEX sequence campaigns}
+\end{frame}
+
+\section[Measured]{Measured}
+
+\begin{frame}{Measured sequence behavior across 16 ADCs}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_seven_recipe_overview.pdf}
+  \slidesource{Corrected 29-recipe physical scan; 100,000 conversions per setting}
+  \note{Plausible means nonconstant codes, modal fraction below 99.5 percent, sigma at least 0.1 LSB, mean within 8 LSB of that ADC's 320-MBd reference, and valid scope/FastRX readout. These are diagnostics, not an independently calibrated accuracy specification.}
+\end{frame}
+
+\begin{frame}{No measured 6/8 variant crosses the 1-LSB screen}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_full_29_recipe_screen.pdf}
+  \slidesource{Full corrected 29-recipe physical scan; 16 ADCs per recipe at 1600 MBd}
+  \note{The left matrix counts ADCs passing the fixed-input plausibility screen; the right also requires code sigma below 1 LSB. The eight measured 6/8 rows give zero on the right. The fixed LOGIC=00000001 row has plausible counts 16, 14, 7, and 0 as COMP high increases from 4/8 to 7/8; LOGIC-to-next-COMP update time is held fixed in that row, while the COMP low and LOGIC-after-fall intervals shorten. This pattern is consistent with a reset/setup limitation but does not identify the failing internal node. The dash denotes a recipe not in the physical catalogue.}
+\end{frame}
+
+\begin{frame}{C5/L2 keeps evaluation and update time}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_clock_budget_vs_noise.pdf}
+  \slidesource{Saved physical scope records; 16 ADCs per recipe at 1600 MBd}
+  \note{These are external COMP and LOGIC edges measured at roughly 160 ps scope sample spacing; channel deskew is not established. Near-zero differences indicate coincidence within that uncertainty. C5/L2 leaves about 3.15 ns of COMP high time, 0.62 ns from COMP fall to LOGIC, and 1.24 ns from LOGIC to the next COMP. C6/L2 puts LOGIC at COMP fall; C6/L3 leaves only 0.57 ns for the update after LOGIC. This timing comparison suggests a tradeoff, not a proven root cause.}
+\end{frame}
+
+\begin{frame}{Delaying LOGIC rescues 5/8 but not 6/8}
+  \centering
+  {\small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    COMP high & LOGIC after fall & Plausible /16 & Median $\sigma$ (LSB) & Median $|\mathrm{mean\ shift}|$ \\
+    \midrule
+    5/8 & near 0 $\rightarrow$ 0.62 ns & 5 $\rightarrow$ 14 & 138.5 $\rightarrow$ 3.0 & 9.79 LSB \\
+    6/8 & near 0 $\rightarrow$ 0.63 ns & 7 $\rightarrow$ 7 & 4.43 $\rightarrow$ 3.92 & 0.37 LSB \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small Moving the LOGIC edge later helps 5/8; pulse width matters too. The 6/8 code modes persist.}
+  \slidesource{Physical seven-recipe metrics and saved scope edges; 16 ADCs at 1600 MBd}
+  \note{The paired recipes differ only in LOGIC placement within each COMP high width. Medians include all 16 ADCs, including implausible captures; the last column is the median across ADCs of the absolute difference between each pair's mean code. Delaying LOGIC also shortens the CDAC update interval, so the unchanged 6/8 outcome cannot be attributed uniquely to comparator reset.}
+\end{frame}
+
+\begin{frame}{Shorter LOGIC removes a broad 5/8 error mode}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.72\textheight,keepaspectratio]{\analysispath/physical_logic_width_pairs.pdf}
+  \par\smallskip
+  {\small Early four-symbol LOGIC: 16,174 all-one frames at 5/8 and 143,839 at 6/8; short LOGIC: zero, each across 1.6 million conversions.}
+  \slidesource{Corrected 26 Sep physical scan; 16 ADCs, 100,000 conversions each at 1600 MBd}
+  \note{Each short/extended pair has the same COMP row and nominal LOGIC rising symbol; only its high duration changes. At 5/8 with LOGIC rising at COMP fall, three high symbols give 14/16 plausible ADCs and median sigma 4.25 LSB, while four high symbols give 5/16 and 138.5 LSB. ADC03's measured LOGIC rise is within 20 ps between these captures, below the approximately 160 ps scope sample spacing, while high width is 1.869 versus 2.541 ns. At 6/8 with LOGIC rising one symbol before COMP fall, the short pulse gives 8/16 plausible ADCs and 5.12 LSB median sigma; the extended pulse gives 0/16 and 535 LSB. Across 1.6 million conversions in each setting, the short early pulse produces no all-one BOUT frames, while the early four-symbol pulse produces 16,174 at 5/8 and 143,839 at 6/8, on all 16 ADCs. Each of these frames decodes to code 4095. The all-one versus other-code separation explains 99.88 percent of ADC03's early extended 5/8 code variance and 99.94 percent at 6/8. Later-starting four-symbol pulses also overlap the next COMP but produce no all-one frames, so overlap alone does not explain the failure. The single retained scope conversion per setting cannot separate on-chip logic from receive-path corruption. This fixed-rise control shows why the earlier C5/L1 to C5/L2 rescue should not be attributed uniquely to the later rising edge. Even the short early pulses remain above 1 LSB for ADC03; the best saved ADC03 5/8 case is the two-symbol pulse beginning about 0.61 ns after COMP fall, with 0.715 LSB spread and 213 rare code jumps per 100,000 conversions.}
+\end{frame}
+
+\begin{frame}{The all-one frames recur seven conversions later}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.77\textheight,keepaspectratio]{\analysispath/physical_allones_recurrence.pdf}
+  \par\smallskip
+  {\small The recurrence appears on all 16 ADCs; FastRX identifiers and frame counters remain valid.}
+  \slidesource{Corrected physical 1600-MBd FastRX streams; early four-symbol LOGIC pulse}
+  \note{The plot shows the median across 16 ADCs of the conditional chance of another all-one frame after a given conversion lag. At 5/8, the median baseline rate is 0.00528 and the lag-7 conditional probability is 0.122; at 6/8, they are 0.08999 and 0.522. Median lag-6 and lag-8 probabilities are near zero, with peaks again at lags 14, 21, and 28. Each ADC individually has a lag-7-to-baseline ratio above 2.6. The short early LOGIC pulse has zero all-one frames in its corresponding 1.6 million conversions for each COMP width. The FastRX decoder checks identifiers and sequential frame counters for all received words, so these are validly framed payloads rather than missing or reordered frames. The conversion-index pattern is not consistent with independent random comparator noise, but the saved scope record does not reveal whether the bits became all-one on chip or at the FastRX input.}
+\end{frame}
+
+\begin{frame}{Extra idle removes all-one frames, while 6/8 B12 stays low}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_boundary_idle_control.pdf}
+  \par\smallskip
+  {\small Matching first 160 clock symbols; the 160-/168-symbol captures share FastRX start and delay settings.}
+  \slidesource{Corrected 26 Sep 160-symbol scan and independent 25 Sep 168-/256-symbol scan}
+  \note{The saved INIT, SAMP, COMP, and LOGIC patterns have exactly the same first 160 bits for every matched ADC and recipe; the longer rows append only all-low bits. Nominal input, supplies, temperature, and 1600-MBd symbol rate fields match. The 160- and 168-symbol captures use RX start word 8 and comparator delay 12 taps, with matching recorded FPGA clock, PLL, peripheral-control, and capture-phase settings. The early four-symbol LOGIC has 16,174 and 143,839 all-one frames across 16 ADCs at 5/8 and 6/8 in the 160-symbol row, and none in the 168- or 256-symbol rows. Its median code sigma collapses from 138.5 to 4.16 LSB at 5/8 and from 535.5 to 4.95 LSB at 6/8 when only eight idle symbols are added; the early short-LOGIC controls have no all-one frames at any length and much smaller sigma changes. In the same-day 160-symbol campaign, the early extended pulse has zero all-one frames at 320 and 960 MBd across all 16 ADCs, with the mode appearing at 1600 MBd. This implicates a conversion-boundary or recovery interaction, although the 160- and 168-symbol scans were on different days and a changed physical condition remains possible. ADC03 B12 stays low in the longer 6/8 cases, so the full-scale mode and the late-bit bias are distinct. The 160-, 168-, and 256-symbol rows repeat at 10, 9.524, and 6.25 MSPS; only the 160-symbol result is exact 10 MSPS.}
+\end{frame}
+
+\begin{frame}{A 9.524-MSPS code lock needs a 10-MSPS comparison}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.73\textheight,keepaspectratio]{\analysispath/historical_adc15_code_lock.pdf}
+  \par\smallskip
+  {\small ADC15, 5/8 COMP: 168 symbols gives 0.193 LSB with 98.1\% at one code;\\
+  exact-10-MSPS 160 symbols gives 0.633 LSB and 81 rare 15-LSB jumps.}
+  \slidesource{Physical ADC15; independent 25/26 Sep campaigns; 100,000 conversions per capture}
+  \note{The shown sub-0.5-LSB physical result is from ADC15 with 5/8 COMP and one-symbol LOGIC in the independent 25 Sep 168-symbol campaign. Its 1600-MBd capture repeats at 9.524 MSPS, has 0.193064 LSB full-output-code sigma, and returns code 2189 in 98,087 of 100,000 conversions. The mean code 2189.02462 is 3.07220 LSB below its same-day 320-MBd counterpart, whose output spread is 1.525027 LSB. The matching corrected 26 Sep 160-symbol capture is exact 10 MSPS, returns code 2189 in 94,441 conversions, and has full-output-code sigma 0.633257 LSB. It contains 81 code-2204 events, 15 LSB above the modal code. The two 320-MBd captures have similar code distributions and modal code 2192. All four stored scope/FastRX comparisons are valid with zero mismatches and zero lost frames. The 160 and 168 clock rows have matching first 160 symbols and eight additional all-low symbols in the longer row, but the scans were on different days and run at different repetition rates; no single-cause idle-time conclusion follows. A nearly locked static code can exhibit small digital sigma even if it has a shifted mean and has not been checked against a calibrated transfer curve. Separate 24 Sep captures at exact 10 MSPS are compared on the next slide. Exact source HDF5 paths, histograms, and values are in historical\_adc15\_code\_lock.csv and historical\_adc15\_code\_lock.pdf; regeneration source is adjacent.}
+\end{frame}
+
+\begin{frame}{Four ADC15 rows reached 0.30 LSB at exact 10 MSPS}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.70\textheight,keepaspectratio]{\analysispath/archived_adc15_c5_replay.pdf}
+  \par\smallskip
+  {\small The same 160-symbol rows gave 0.633--0.819 LSB two days later.\\
+  Mean code stays about 3.2 LSB below the 2-MSPS control; only 50-mV input was saved.}
+  \slidesource{Exact-matched 24/26 Sep physical ADC15 C5 captures; 100,000 conversions per rate and recipe}
+  \note{All four ADC15 24 Sep C5 settings have 160-symbol INIT4/SAMP20/COMP 11111000 and LOGIC 00000001, 00000011, 11000011, or 11100001. At exactly 10 MSPS, their full code sigmas are 0.301--0.316 LSB over 100,000 conversions each, with valid one-record scope/FastRX agreement, zero mismatches and zero lost frames. The exact same four digital patterns, ADC and nominal 50-mV differential input on 26 Sep give 0.633--0.819 LSB. Splitting each stream into two contiguous 50,000-conversion halves gives 0.283--0.330 LSB on 24 Sep and 0.619--0.851 LSB on 26 Sep, so the day-to-day spread difference persists in both 5-ms segments. All eight 10-MSPS means are near code 2189, about 3.13--3.22 LSB below same-campaign 2-MSPS controls. The 2- and 6-MSPS control means change by at most 0.183 and 0.189 LSB between days. Code 2189 appears in 96.97--98.05 percent of 24 Sep conversions versus 92.33--94.94 percent on 26 Sep; code-2204 tails grow from 5--22 to 81--219 in 100,000. The B11 binary stream has a more prominent 0.8--1.6-MHz digital spectral peak on 26 Sep in every matched pair. The peak is measured from the same bits as the code spread, so the association does not identify an analog interference source or establish causality. Saved B11 external COMP-low interval, 10-percent low dwell, and LOGIC-after-COMP-fall differ by at most about 40, 55, and 43 ps across days, below the roughly 160-ps scope sample interval. These historical captures do prove sub-0.5-LSB fixed-input code spread occurred at exact 10 MSPS, but no input sweep, calibrated ADC-pin voltage, or on-chip reset/DAC-state capture is saved. The changed spread and mean shift prevent a claim of reproducible, accurate 0.5-LSB conversion. Exact matched source paths, code/spectrum metrics, and clock audit are in archived\_adc15\_c5\_replay.csv and archived\_adc15\_c5\_clock.csv beside the plot source.}
+\end{frame}
+
+\begin{frame}{The low spread tracks a rate-dependent B11 branch}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.70\textheight,keepaspectratio]{\analysispath/adc15_b11_rate_boundary.pdf}
+  \par\smallskip
+  {\small B11-high falls from about 95\% at 2 MSPS to 2--8\% at 10 MSPS.\\
+  Every non-2189 code at 10 MSPS has B11 high: zero exceptions in 800,000 conversions.}
+  \slidesource{24/26 Sep ADC15 C5 FastRX; four matched recipes, 100,000 conversions per rate each}
+  \note{The four exactly matched ADC15 5/8 recipes at 2, 6, and 10 MSPS on 24 and 26 Sep contain 2.4 million complete FastRX conversions. B0--B10 never change in any of the 24 files. B11-high fractions are 95.2--95.9 percent at 2 MSPS, 60.1--65.6 percent at 6 MSPS, and 1.95--7.68 percent at 10 MSPS. In all eight 10-MSPS files, B11 high is exactly equivalent to an output code other than 2189: zero disagreements in 800,000 conversions. The 10-MSPS output-code sigma of 0.301--0.819 LSB thus coincides with one output branch becoming rare; mean output code falls by about 3.2 LSB against the corresponding 2-MSPS control. All saved recipe, instrument, readback configuration, nominal input, supply, temperature, and FPGA settings are exactly equal across the 12 matched day-pairs. Their only HDF5 metadata differences are timestamp, received/trailing-frame counters, and three startup FastRX words. The retained scope clocks agree at their roughly 160-ps sample resolution. These observations do not tell whether the B11 branch migration came from actual comparator residue, incomplete reset, LOGIC capture, source/input behavior, or a hidden chip clock or rail difference. The saved fixed-input code spread cannot be read as input-referred noise. Exact paths and per-recipe metrics are in adc15\_b11\_rate\_boundary.csv beside the plot and source.}
+\end{frame}
+
+\begin{frame}{At 10 MSPS, 6/8 adds a B12 repeat mode in ADC15}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.68\textheight,keepaspectratio]{\analysispath/adc15_c5_c6_b12_rate.pdf}
+  \par\smallskip
+  {\small B12 repeats B11 in 1.75--5.56\% with 6/8 at 10 MSPS, versus at most 0.22\% with 5/8.\\
+  The saved external COMP-low interval is 1.19--1.23 ns versus 1.82--1.87 ns.}
+  \slidesource{Pinned 26 Sep ADC15 C5/C6 captures; four matched LOGIC words, 100,000 conversions each}
+  \note{The pinned 26 Sep ADC15 scan contains four exactly matched 5/8 and 6/8 LOGIC-word pairs at each of 2, 6, and 10 MSPS. For 6/8 at 10 MSPS, B11 stays low in all 400,000 conversions, while B12 repeats low in 1.754--5.557 percent per recipe. The resulting output is mostly code 2189 or code 2175, with full sigma 1.865--3.207 LSB; one recipe also has six code-2232 events. At 6 MSPS the 6/8 rows have B11 high only 2.06--3.54 percent of conversions, B12 repeat at most 0.030 percent, and sigma 0.300--0.334 LSB. This is another mostly fixed output branch rather than verified input-referred noise. At 10 MSPS the 5/8 rows have B12 repeat in 0.081--0.219 percent and sigma 0.633--0.819 LSB. One saved scope record per case gives ADC15 B12 external COMP-low intervals 2.039--2.080 ns for 6/8 at 6 MSPS, 1.815--1.866 ns for 5/8 at 10 MSPS, and 1.190--1.225 ns for 6/8 at 10 MSPS. At fixed 6/8 and 10 MSPS, B12 repeat rises from 1.754 percent with LOGIC 0.619 ns after COMP fall to 3.415 percent with LOGIC 0.019 ns before it; adding an early high prefix at the same late edge gives 3.173 or 5.557 percent. This within-duty variation also implicates LOGIC timing/history or coupling, although the captures were sequential and their waveform changes are not isolated. Every scope/FastRX comparison is valid with no mismatches or lost frames. These observations locate a high-rate B12 output-repeat mode in the shorter-low 6/8 regime, but rate and COMP-high evaluation time also change. The scope probe is outside the chip, and no internal comparator reset or DAC-state capture was recorded; reset versus LOGIC-capture failure cannot be decided from these files. Exact paths and metrics are in adc15\_c5\_c6\_b12\_rate.csv beside the figure and source.}
+\end{frame}
+
+\begin{frame}{Fixed COMP: LOGIC pattern changes B12 in two ADCs}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.69\textheight,keepaspectratio]{\analysispath/adc07_adc15_logic_b12_pairs.pdf}
+  \par\smallskip
+  {\small An early LOGIC high raises 6/8 B12 repeats in ADC07 and ADC15.\\
+  The 5/8 controls stay near zero; neither 6/8 series follows scan order monotonically.}
+  \slidesource{Pinned 26 Sep physical scan; all 16 ADCs screened, two nonsaturated channels shown}
+  \note{The audit reads all 128 pinned 10-MSPS files covering 16 ADCs, two COMP widths, and four LOGIC words. The plotted ADC07 and ADC15 are the only channels satisfying the disclosed exploratory screen: all four 5/8 B12-repeat fractions below 0.5 percent, B11 low in every 6/8 conversion, and all four 6/8 B12-repeat fractions between 1 and 99 percent. At 6/8, changing 00000001 to 11100001 adds an early high prefix while retaining the late LOGIC rising edge; B12 repeats B11 in ADC07 53.180 to 62.935 percent and ADC15 1.754 to 3.173 percent. The corresponding 00000011 to 11000011 change increases ADC07 70.366 to 72.924 percent and ADC15 3.415 to 5.557 percent. The four 5/8 controls have zero repeats in ADC07 and 0.081--0.219 percent in ADC15. One saved B12 scope record per case puts the late LOGIC edges within 19 ps and COMP-low widths within 39 ps for each prefix pair, below its 160-ps sample interval. The high-rate 6/8 fractions are not monotonic in actual capture index, weakening a simple slow-drift explanation. This is an outcome-selected exploratory comparison of sequential captures. An early LOGIC pulse can change CDAC analog history as well as capture; these data do not isolate a flip-flop failure or disprove a reset interaction. Full-channel values, exact source paths, and scan indices are in adc07\_adc15\_logic\_b12\_pairs.csv and adc07\_adc15\_logic\_b12\_scope.csv beside the Nord figure and source.}
+\end{frame}
+
+\begin{frame}{A shared tone modulates the 6/8 B12 mode}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.69\textheight,keepaspectratio]{\analysispath/physical_c6_shared_tone.pdf}
+  \par\smallskip
+  {\small 6- and 10-MSPS peaks match a 7.143-MHz alias family in 13/16 6/8 ADCs.\\
+  Even the favorable held-out phase leaves ADC15 at 1.43--2.38 LSB code spread.}
+  \slidesource{Pinned 26 Sep C5/C6 physical streams; 100,000 conversions per rate and ADC}
+  \note{For the one-symbol late LOGIC row, the spectral audit checks all 16 ADCs at 6 and 10 MSPS under both 5/8 and 6/8 COMP. It searches post-hoc bands around 1.1432 and 2.8568 MHz and retains the strongest variable bit at each rate. A peak greater than 50 times the in-band median occurs at both rates in 13 of 16 6/8 ADCs and 4 of 16 5/8 ADCs. In the 13 6/8 pairs, 6 MHz plus the 6-MSPS peak and 10 MHz minus the 10-MSPS peak agree to a median 60 Hz near 7.1433 MHz. This is an alias-equivalent candidate, not a uniquely identified physical frequency; other RF aliases and the digital receive path remain possible. The line is visible in 5/8 output too, so the source need not be unique to 6/8. For four LOGIC words in each of ADC07 and ADC15 under 6/8, a sinusoidal frequency and phase fitted only to conversions 0--49,999 predict the higher-repeat half of conversions 50,000--99,999. Held-out high/low B12-repeat rate ratios are 1.21--1.42 for ADC07 and 2.30--3.10 for ADC15, all eight above one. The frequency search, ADCs, and visibility threshold were selected after exploring the same campaign; the temporal split only protects the phase prediction from training/test reuse. These digital data show periodic modulation of the output error, but do not locate the disturbance in input, rail, clock, comparator, CDAC, LOGIC, or receiver. The tone may interact with a marginal reset or capture window; its removal is not demonstrated to recover 0.5-LSB physical accuracy. Exact source paths and metrics are in physical\_c6\_shared\_tone\_spectra.csv, \_pairs.csv, and \_holdout.csv beside the Nord figure and regeneration source.}
+\end{frame}
+
+\begin{frame}{The 5/8 to 6/8 pair shows a high-rate code shift}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_comp_duty_pair.pdf}
+  \slidesource{Corrected 26 Sep scan; 16 ADCs, three rates, 100,000 conversions per setting}
+  \note{C5/L2 to C6/L2 changes only the COMP row, retaining identical INIT, SAMP, and LOGIC rows. Median absolute mean-code shift across 16 ADCs is 0.085, 1.854, and 6.660 LSB at 320, 960, and 1600 MBd. At 1600 MBd, the signed C6-minus-C5 shifts are positive for five ADCs and negative for eleven, spanning +12.686 to -16.253 LSB; one common input drift with monotonic transfers cannot alone explain opposing directions. The 6/8 low time falls to about 1.215 ns from 1.857 ns, while LOGIC-to-next-COMP stays near 1.23 ns and LOGIC moves from 0.617 ns after COMP fall to approximately coincident with it. C6/L2 to C6/L3 delays LOGIC with COMP fixed and changes the 1600-MBd median mean code by only 0.373 LSB. In physical ADC03, B11 is low in every 1600-MBd C5/L2 and C6/L2 conversion. B12 equals that preceding low bit in 385/100,000 C5/L2 conversions and 99,999/100,000 C6/L2 conversions. This is compatible with a retained preceding decision but does not prove why it was retained. The retained scope conversion agrees with FastRX on B12 for all three recipes, but samples the delayed output only once per capture. The paired result points to the COMP low/capture interval, but does not separate internal reset from LOGIC setup or clock delivery.}
+\end{frame}
+
+\begin{frame}{B12 is ADC03's first divergent decision}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_b12_first_divergence.pdf}
+  \par\smallskip
+  {\small Every saved conversion has the same B0--B11 bits in all three recipes.\\
+  All 144 matched scope records agree with FastRX (one record per capture).}
+  \slidesource{Corrected physical ADC03 HDF5; 100,000 FastRX conversions and one scope record per setting}
+  \note{At 1600 MBd, all 100,000 conversions of C5/L2, C6/L2, and C6/L3 have the same B0--B11 string 100110010100. B12 is high in 99,615, 1, and 2 conversions, respectively. At 960 MBd the corresponding high counts are 100,000, 96,633, and 98,099; at 320 MBd they are 99,972, 99,989, and 99,984. The identical early digital decisions exclude a preceding decoded-bit difference but not an analog CDAC-residue or input difference. In the single retained 1600-MBd scope conversion, external COMP\_OUT crosses threshold 4.756 ns after B12 COMP rises in C5/L2, but no B12-window transition occurs in either C6 case; both remain low at the 7.7-ns delayed scope read point. Across all 16 ADCs and three rates for these three recipes, all 144 valid saved scope records agree with the corresponding 17-bit FastRX words, with zero lost frames. ADC03's three 1600-MBd B12 samples lie 27.9--33.5 percent of the observed output swing away from the scope threshold. These checks weaken an FPGA-only readout-mismatch explanation in the retained conversions, but the scope cannot reveal internal comparator reset, exact LOGIC capture, or rare behavior across 100,000 conversions.}
+\end{frame}
+
+\begin{frame}{6/8 often repeats the preceding decision}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_first_divergence_copy.pdf}
+  \par\smallskip
+  {\small At 10 MSPS, 14/16 ADCs first diverge at B5--B13; all 14 repeat the preceding bit more often at 6/8.\\
+  The repeated majority bit is high in seven ADCs and low in seven.}
+  \slidesource{Pinned 26 Sep physical C5/L2 and C6/L2 captures; held-out 50,000 conversions each}
+  \note{For each ADC and rate, the first majority bit that differs between the fixed-LOGIC C5/L2 and C6/L2 captures is selected using only the first 50,000 conversions. The plotted fractions in the remaining 50,000 are the chances that this decision equals its preceding decoded bit within the same conversion. At 1600 MBd all 14 training-selected differences remain majority differences in holdout; all 14 have a higher same-state fraction under 6/8, with medians 0.002 versus 0.974. The differing position ranges from B5 to B13. A separate polarity audit of those same holdout halves finds the preceding majority bit unchanged between recipes for all 14 ADCs. The C5 decision is opposite that bit; the C6 decision repeats it. Seven preceding bits are high and seven are low. In the high-preceding group, the median copy fraction changes from 0.008 to 0.986; in the low-preceding group, from 0.000 to 0.835. A single fixed digital output level cannot explain both directions, but previous-state retention could arise from incomplete comparator reset, stale LOGIC capture, or altered analog/CDAC history. At 960 MBd all 13 selected majority differences persist, 12/13 have a higher same-state fraction under 6/8, and medians are 0.308 versus 0.979. At 320 MBd 10/11 selected differences persist; the medians are 0.452 versus 0.501, much closer to the diagonal. The condition was chosen from the output data and the manual input was not independently measured at the ADC pins. The 6/8 scope COMP-low interval is shorter and shallower, but the internal clock and latch are not observed. The per-ADC audit is in physical\_first\_divergence\_polarity.py and .csv beside the analysis.}
+\end{frame}
+
+\begin{frame}{The first divergent decision consumes more output time}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.72\textheight,keepaspectratio]{\analysispath/physical_first_change_late_delay.pdf}
+  \par\smallskip
+  {\small At 10 MSPS, all 13 visible C5 edges cross after external LOGIC; median +0.906 ns.\\
+  The paired extra delay is 0.560 ns; no C6 edge crosses in the 14 selected windows.}
+  \slidesource{Pinned 26 Sep C5/L2 and C6/L2 physical scopes; first difference selected in 50k, validated in 50k conversions}
+  \note{For each ADC at 960 and 1600 MBd, the first C5/L2-to-C6/L2 majority-bit difference was selected from the first 50,000 FastRX conversions and verified in the remaining 50,000, as on the preceding slide. One saved scope conversion per capture then supplies the external COMP\_OUT and LOGIC edges. This figure includes only C5 scopes whose selected decision changed its output bit and had exactly one output threshold crossing in that decision window: 10/13 at 960 MBd and 13/14 at 1600 MBd. It compares that edge's time relative to external LOGIC with the median of other single-edge output transitions in the same scope; every selected transition is later, by 0.328--0.847 ns at 960 MBd (median 0.610 ns) or 0.160--0.761 ns at 1600 MBd (median 0.560 ns). At 960 MBd all ten selected C5 edges precede external LOGIC, with median -1.392 ns. At 1600 MBd all 13 follow it, with median +0.906 ns. None of the 14 C6 scopes at 1600 MBd has an output threshold crossing inside its selected decision window; one C6 scope bit changes between consecutive delayed sample points outside that window. Every used capture has 100,000 conversions, a valid scope/FastRX comparison, zero mismatches, and zero lost frames. These descriptive observations suggest the critical analog decision is slower than ordinary bit decisions and that the high-rate external timing is tight. The external COMP\_OUT edge follows the comparator through an output mux, TX pad, package/board and probe, whereas the internal DAC DFF sees a different path; there is no calibrated input/output deskew. An external edge after LOGIC is not proof of internal setup failure. Incomplete reset, CDAC residue, physical comparator overdrive and internal clock delay remain unresolved. Exact per-capture values and source paths are in physical\_first\_change\_output\_timing.csv and physical\_first\_change\_late\_delay.csv.}
+\end{frame}
+
+\begin{frame}{The next 6/8 output transition also approaches LOGIC}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.73\textheight,keepaspectratio]{\analysispath/physical_c6_recovery_window.pdf}
+  \par\smallskip
+  {\small The 10-MSPS C6/L2 recovery edge follows external LOGIC in all 12 qualified scopes.\\
+  Delaying LOGIC by one symbol moves the paired edge margin by median 0.615 ns.}
+  \slidesource{Pinned 26 Sep physical C5/L2 and C6/L2/L3 captures; one scope conversion per capture}
+  \note{For each ADC, the first C5/L2-to-C6 majority-bit difference is selected from the first 50,000 conversions and checked in the second 50,000. The next majority-bit transition under C6 is selected descriptively from that second half. A scope enters this plot only when its bits at the first difference and recovery match the second-half majority and a single correctly oriented external COMP\_OUT edge and one external LOGIC rise occur in that recovery decision window. Of 16 ADCs per condition, 7 qualify for C6/L2 at 6 MSPS, 12 for C6/L2 at 10 MSPS, and 8 for C6/L3 at 10 MSPS; the CSV records all exclusions. The 6-MSPS C6/L2 edges all precede external LOGIC by 1.069--2.197 ns, median 1.446 ns. The 10-MSPS C6/L2 edges all follow it by 0.249--1.118 ns, median 0.757 ns. Under C6/L3, four edges are before and four after, median -0.021 ns. Seven ADCs qualify in both 10-MSPS variants with the same first-difference and recovery bit indices; delaying LOGIC shifts their output-minus-LOGIC times earlier by 0.479--0.907 ns, median 0.615 ns, close to the 0.625-ns symbol interval. This verifies that the retained external timing responds to LOGIC placement, while B12 remains low in the ADC03 6/8 captures. Selection is exploratory, captures were sequential, and only one scope conversion per capture is retained. The external output travels through a mux, TX pad, package, board, and probe, while the SAR DFF sees another internal path. C6/L3 also shortens CDAC update time. These edge relationships therefore do not measure silicon setup margin or isolate reset, capture, and analog residue. Exact source HDF5 paths, exclusions, edge times, and the Nord figure are in physical\_c6\_recovery\_window.csv and .pdf beside their regeneration source.}
+\end{frame}
+
+\begin{frame}{B12 collapse accompanies a short COMP-low interval}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_b12_reset_window.pdf}
+  \par\smallskip
+  {\small Matching roughly 0.62-ns post-fall LOGIC delay does not restore the 6/8 B12 state.}
+  \slidesource{ADC03 corrected physical HDF5; three recipes at 320/960/1600 MBd}
+  \note{The nine ADC03 captures each contain 100,000 FastRX conversions and one scope record. At 1600 MBd, C5/L2 has an observed B12 COMP-low interval of 1.847 ns and B12 is high in 99,615 conversions. C6/L2 and C6/L3 have 1.206 and 1.203 ns low intervals, with B12 high once and twice. At 960 MBd C6/L2 has 2.016 ns low and B12 high in 96,633 conversions. At 1600 MBd C5/L2 and C6/L3 place LOGIC 0.614 and 0.636 ns after COMP falls, yet B12 differs. C5/L2 and C6/L2 retain the identical LOGIC row and nearly the same LOGIC-to-next-COMP interval, 1.233 and 1.222 ns, but LOGIC moves from after COMP fall to approximately coincident with it. These controls weaken a simple LOGIC phase or CDAC update-time explanation. C6/L3 has only about 0.567 ns before the next COMP for CDAC update, so its analog residue can differ despite identical B0--B11 decisions. The scope sees external clocks, not internal latch reset, and comparator kickback or clock delivery can change the analog decision. The observed low intervals bracket a suspect operating region without measuring an intrinsic reset requirement.}
+\end{frame}
+
+\begin{frame}{The measured COMP pulse spends less time near low}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_comp_low_dwell.pdf}
+  \par\smallskip
+  {\small At 1600 MBd, B12 dwell below 10\% of the swing falls 1.06 $\rightarrow$ 0.55 ns;
+  the 6/8 minimum is a median 0.124 V higher than 5/8.}
+  \slidesource{Corrected 26 Sep physical scan; 16 saved scope records per setting}
+  \note{The 320-MBd C5/L2 COMP waveform provides each ADC's reference low/high levels from its 20th/80th percentiles. For each 1600-MBd B12 scope record, the plot integrates time below 10--50 percent of that reference swing within the measured COMP-low interval. At the 10-percent level the medians across 16 ADCs are 1.209 ns for C6/L2 at 960 MBd, 1.056 ns for C5/L2 at 1600 MBd, 0.551 ns for C6/L2 at 1600 MBd, and 0.519 ns for C6/L3 at 1600 MBd. At 20 percent they are 1.741, 1.617, 0.895, and 0.867 ns. The C5 and C6 1600-MBd 10-percent ranges across ADCs do not overlap: 0.995--1.080 versus 0.407--0.619 ns. The sampled B12-window minimum relative to the low-rate low level is median -0.096 of the roughly 1-V reference swing for C5/L2 and +0.024 for C6/L2; the paired C6 minimum is 0.124 V higher, range 0.096--0.176 V, on all 16 ADCs. C6/L2 at 960 MBd reaches a median -0.008 of the reference swing. Each saved capture has one scope record and 100,000 FastRX conversions. The oscilloscope is DC coupled at a 2-GHz bandwidth setting and sampled about every 160 ps. The normalized thresholds and sampled minima describe the external signal, not MOS reset thresholds or stable plateaus. They cannot establish the unobserved on-chip comparator reset time or clock delivery, and should not be directly subtracted from ideal PEX internal reset settling.}
+\end{frame}
+
+\begin{frame}{5/8 has a narrow saved LOGIC window; 6/8 does not recover}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_adc03_logic_window.pdf}
+  \par\smallskip
+  {\small The late two-symbol pulse gives ADC03 its smallest saved 5/8 B12 tail: 213/100,000.}
+  \slidesource{Corrected 26 Sep ADC03 physical scan; eight 10-MSPS captures and lower-rate controls}
+  \note{The four 5/8 ADC03 settings have identical B0--B11 in all 100,000 conversions, as well as the same COMP, INIT, and SAMP patterns. Late-only LOGIC words 00000111, 00000011, and 00000001 put the observed late LOGIC rise 0.013 ns before, 0.600 ns after, and 1.204 ns after COMP falls. B12 is low in 663, 213, and 624 of 100,000 conversions. The 11000011 pulse has the same late rise as the two-symbol pulse, plus a high interval spanning the next decision boundary, and gives 385 B12-low events. Their 10-percent-level COMP-low dwells in the single retained scopes are 1.077, 1.020, 1.108, and 1.059 ns; the smallest B12 tail does not correspond to the longest observed dwell. All four 320-MBd controls have B12 high in at least 99,969 conversions, and the 960-MBd controls have it high in all conversions. At 6/8 COMP, the same four LOGIC words leave B12 high in only 3, 1, 10, and 1 conversions out of 100,000. All eight retained scopes agree with FastRX, with zero lost frames. The 5/8 two-symbol row has sigma 0.715 LSB on ADC03 but mean code 4.329 LSB above its 320-MBd reference, so neither 0.5-LSB nor calibrated accuracy is demonstrated. These sequential captures share nominal input settings, but the physical ADC-pin input was not independently measured; LOGIC timing, pulse width, CDAC feedback, and small environmental drift are not isolated.}
+\end{frame}
+
+\begin{frame}{The remaining 5/8 B12 tail has conversion-lag structure}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_b12_recurrence.pdf}
+  \par\smallskip
+  {\small Even the late two-symbol candidate has a weaker eight-conversion recurrence.}
+  \slidesource{12 corrected physical captures; 5,000 within-block event shuffles per capture}
+  \note{Rare B12-low events were evaluated in 12 5/8 physical captures with 100--5000 such events among 100,000 contiguous conversions and zero lost frames. Event-pair counts at lags 8, 16, through 72, and at lags 9, 18, through 72, were compared with 5,000 randomizations preserving event count within every 5,000-conversion block. Aggregate observed/shuffled ratios are 3.54 at multiples of eight for late-three-symbol LOGIC on ADC03/04/15, 2.59 at multiples of eight for late-two-symbol LOGIC on ADC03/04/07, 4.21 at multiples of nine for late-one-symbol LOGIC on ADC03/04/07, and 5.01 at multiples of nine for boundary-spanning four-symbol LOGIC on ADC03/04/07. All four excesses reach the 1/5001 empirical-p floor; the comparison is exploratory because the periods were noticed in the same data. ADC07's two-symbol case lacks lag-eight excess, so this pattern is not universal. ADC03's best two-symbol row has 10 lag-eight harmonic pairs versus 3.99 shuffled on average. The four physical recipes were captured sequentially, making a changing external interferer a possible explanation for the apparent eight-to-nine-lag switch; do not assign it uniquely to LOGIC width. Their retained single-conversion scope records miss the rare events, so the comparator, SAR logic, FastRX input, and external interference remain unresolved. The separate full-scale all-one-frame mode peaks at lag seven and is absent from the best two-symbol row.}
+\end{frame}
+
+\begin{frame}{The 5/8 B12 tail shares a drifting aliased tone}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_alias_tone.pdf}
+  \par\smallskip
+  {\small Matching peaks at three rates point to a periodic disturbance in the physical chain.}
+  \slidesource{Pinned 26 Sep physical captures; 100,000 conversions per ADC, recipe, and rate}
+  \note{A follow-up spectral audit used the four 5/8 LOGIC words on all 16 ADCs at 2, 6, and 10 MSPS. The plot shows one alias-equivalent frequency: 8 plus the B12 peak at 2 MSPS, 6 plus the B16 peak at 6 MSPS, or 10 minus the B16 peak at 10 MSPS. Frequencies were estimated from Welch spectra with 8192-conversion segments; a displayed peak exceeds the median in-band spectral density by fivefold. Of 64 ADC/recipe pairs, 37 have qualifying B16 peaks at both 6 and 10 MSPS, 29 of them outside the ADC03/04 discovery pair. The median absolute difference between those two alias-equivalent estimates is 6.8 kHz, maximum 40.8 kHz. Twelve pairs also have a qualifying B12 peak at 2 MSPS; their 2/6-MSPS alias-equivalent estimates differ by median 6.2 kHz, maximum 24.9 kHz. For ADC03/04 in all four 10-MSPS recipes, the B12 event spectrum peaks at the B16 frequency and their magnitude-squared coherence there is 0.58--0.82. The component changes from about 8.74 to 8.90 MHz over the sequential campaign; this apparent change must not be assigned to LOGIC recipe without an interleaved control. The three sampled rates do not uniquely identify its analog frequency: approximately 8.7--8.9 MHz and 21.1--21.3 MHz are equivalent alias families, with higher-frequency repetitions possible. Its appearance at 2 MSPS argues against an explanation limited to inadequate 10-MSPS comparator reset, but the saved digital words cannot locate the source among input, rails, chip, clocks, and receive path. Search bands and display threshold were selected after exploratory inspection; this is a diagnostic, not a calibrated interference amplitude or causal test. The persistent 6/8 B12 bias is a separate unresolved behavior.}
+\end{frame}
+
+\begin{frame}{Heldout B12 errors follow the B16 tone phase}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_b12_phase_holdout.pdf}
+  \par\smallskip
+  {\small The late two-symbol candidate has 2.86$\times$/3.59$\times$ B12 risk on ADC03/04 in the predicted half-cycle.}
+  \slidesource{Pinned 10-MSPS physical captures; first 50,000 conversions train, last 50,000 test}
+  \note{For each of four 5/8 LOGIC words on ADC03 and ADC04, the phase proxy is the bandpass-filtered B16 decision stream at the spectral peak. The phase prediction for even conversions is built only from odd-conversion B16, and vice versa; the same-conversion B16 bit is never used to predict B12. The tone frequency and the B12-error-prone phase are estimated in the first 50,000 conversions separately for each parity, then the final 50,000 B12 outcomes are held out. The frequency search is 0.8--1.6 MHz and the bandpass half-width is 100 kHz, both exploratory choices. In the late-two-symbol setting, ADC03 has 86 B12-low events in the predicted half-cycle versus 30 in the other, with 25,021 versus 24,979 conversion exposures; the rate ratio is 2.86. ADC04 has 107 versus 30, with a rate ratio of 3.59. The other six ADC/LOGIC comparisons give ratios 1.51--3.72. A 5,000-trial circular-shift null within each 5,000-conversion block preserves local error clustering; both late-two-symbol results reach its one-sided 1/5,001 p floor, and all eight are at or below 0.0014. Changing the filter half-width from 50 to 150 kHz changes the late-two-symbol ratios to 15.55--1.58 for ADC03 and 11.47--4.28 for ADC04; the direction remains but its size is method-dependent. The ADC03 phase-half means are 2188.835 and 2188.930 LSB, still about 4.28 and 4.38 LSB above the 320-MBd reference; the periodic tail alone does not explain that mean shift. The B16 phase is only a digital proxy, and the data cannot determine whether the common modulation entered through the input, supply, chip, clock, or receiver. This phase association does not prove that removing the tone achieves a correct sub-0.5-LSB result or fixes the persistent 6/8 B12 bias.}
+\end{frame}
+
+\begin{frame}{A shorter COMP-low interval also fails at 6 MSPS}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_c7_960_low_gap.pdf}
+  \par\smallskip
+  {\small With LOGIC fixed, 16/16 first changed decisions repeat the preceding bit more at 7/8; median 0.000 $\rightarrow$ 0.999.}
+  \slidesource{Corrected 26 Sep physical scan; 48 captures at 960 MBd, 100,000 conversions each}
+  \note{At 960 MBd, or 6 MSPS, C6/L2 to C7/L2 changes only COMP from six to seven high symbols. ADC03's measured COMP-low interval falls from 2.028 to 0.981 ns while LOGIC-to-next-COMP remains 2.028 ns. Across all 16 ADCs, median absolute mean-code shift is 10.735 LSB and 11 ADCs shift by more than 8 LSB. A separate first-half/second-half check selects each ADC's first changed majority decision from 50,000 conversions, then evaluates preceding-bit repetition in the other 50,000. All 16 first changes at B5--B11 persist in holdout; all 16 repeat the preceding decoded bit more under 7/8, with median fractions 0.000 versus 0.99898. In ADC03 every conversion in all three shown recipes has the same B0--B6 string 1001100. B7 is high in 100,000/100,000 C6/L2 conversions, 194/100,000 C7/L2 conversions, and 12/100,000 C7/L3 conversions. C7/L3 moves LOGIC from about 1.047 ns before COMP falls to approximately coincident with the fall, but it also shortens the CDAC update interval to 0.958 ns. All 48 retained 17-bit scope records agree with FastRX and no capture lost frames. The result supports a short-low-interval reset/capture interaction and argues against insufficient COMP-high evaluation time as the sole issue. It does not observe internal reset or separate clock skew, comparator/CDAC interaction, and analog residue. The lower rate is a diagnostic, not a working 10-MSPS setting.}
+\end{frame}
+
+\begin{frame}{Long idle does not rescue the 6/8 B12 bias}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/historical_idle_control.pdf}
+  \slidesource{Independent 25 Sep physical scan; 192 selected HDF5 captures, 100,000 conversions each}
+  \note{The historical 168- and 256-symbol rows share identical first 160 symbols, so their 5-ns decision periods and COMP/LOGIC timing match at 1600 MBd. The 256-symbol row adds 88 all-low symbols and lowers the actual repeat rate from 9.524 to 6.25 MSPS. Median absolute C6-minus-C5 mean-code shifts across 16 ADCs are 6.722 and 6.196 LSB for the two lengths, while adding idle to C6 changes the median mean code by only 0.269 LSB. ADC03 B12 remains low in all 100,000 C6 conversions for each length but high in about 98 percent of the C5 conversions. All 192 selected files have valid single-record scope comparisons, zero bit mismatches, and zero lost frames. This argues against insufficient between-conversion recovery as the source of the C6/L2 B12 bias; it does not test the internal reset between successive bit decisions. The early long-LOGIC full-scale mode is separately sensitive to inter-conversion idle. The corrected 160-symbol 10-MSPS scan remains the primary physical result.}
+\end{frame}
+
+\begin{frame}{Measured ADC03 full scope window: C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan; saved COMP-triggered scope record}
+  \note{The saved scope window contains 17 COMP rising edges. It is aligned to the first observed COMP edge, so the INIT transition appears near the end of the plotted window.}
+\end{frame}
+
+\begin{frame}{Rare B12 flips dominate ADC03 C5/L2 variance}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/adc03_c5_c6_code_modes.pdf}
+  \slidesource{Physical ADC03 FastRX capture; 100,000 conversions per recipe}
+  \note{At C5/L2, 385 isolated B12=0 conversions produce code 2175. Overall sigma is 0.891 LSB; conditional on B12=1, sigma is 0.215 LSB. The state separation contributes 94.2 percent of total variance. C6/L2 moves B12=0 to 99,999 of 100,000 conversions and toggles B13 instead. A low sigma alone is not proof of a correct code: ADC01 C6/L2 has sigma 0.243 LSB but its mean is 11.2 LSB below its low-rate reference.}
+\end{frame}
+
+\begin{frame}{The best saved 5/8 modes still have rare code jumps}
+  \centering
+  {\small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    ADC & LOGIC word & Full $\sigma$ (LSB) & Rare code events / 100k & Variance share \\
+    \midrule
+    15 & \texttt{00000001} & 0.633 & 81 at +15 LSB & 44.8\% \\
+    03 & \texttt{00000011} & 0.715 & 213 at $-14$ LSB & 80.3\% \\
+    03 & \texttt{11000011} & 0.891 & 385 at $-14$ LSB & 93.8\% \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small Holding other codes fixed, $0.5$ LSB needs at most 12, 77, and 104\\
+  rare events per 100k, respectively. This is a counterfactual budget.}
+  \par\smallskip
+  {\small Rare events remain part of the measured spread; transfer accuracy is unverified.}
+  \slidesource{All 29 saved 5/8 recipes at 1600 MBd; physical ADC03 and ADC15}
+  \note{The ADC15 one-symbol case has the smallest plausible full-capture sigma, 0.633 LSB. Its mean is 3.17 LSB below its 320-MBd reference, and the code-2204 tail is 15 LSB above mode 2189. ADC03's two-symbol case has 213 code-2175 events versus 385 in the four-symbol case. The two- and four-symbol C5 cases each have 14/16 plausible ADCs, and their across-ADC sigma changes have mixed signs; the narrower pulse is not a general fix. Excluding the selected tail from ADC15 gives 0.471 LSB, but that is not the measured full-capture noise or transfer accuracy. The counterfactual budget fixes each row's empirical nonrare code distribution, lets only the selected rare-code fraction vary, and solves variance=(1-p)*nonrare variance+p*(1-p)*(rare code minus nonrare mean)^2 for sigma=0.5 LSB. The integer maximum rare counts per 100,000 are 12, 77, and 104 in table order, versus the observed 81, 213, and 385. These are targets for a hypothetical removal of rare events, not observed operating points; other faults, the measured mean shifts, and uncalibrated input remain. The exact pinned-source calculations are in physical\_half\_lsb\_tail\_budget.py and .csv beside the analysis. The manual DC input was not independently calibrated at the ADC pin.}
+\end{frame}
+
+\section[PEX]{PEX}
+
+\begin{frame}{PEX FRIDA-1 5/8 and 6/8 stay near 0.7 LSB}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_49_noise_matrix.pdf}
+  \slidesource{49 completed PEX code exports; device transient noise, 100 conversions per case}
+  \note{All 49 cases enable Spectre device transient noise with a 25 GHz upper frequency and fixed seed. The four FRIDA-1 flavors have about 0.69--0.73 LSB code sigma from C5/L2 onward; FRIDA-2 three-layer radix17 reaches 0.545 LSB at C6/L3 but has no measured counterpart here. The 100-conversion run can easily miss rare bit errors: if each conversion had ADC03's measured 0.385 percent C5/L2 B12 event rate independently, the chance of observing zero such events in 100 is about 68 percent. This PEX testbench uses constant ideal input and supply sources, so it cannot reproduce the measured drifting aliased component without a separate source model. That gap does not exclude a physical comparator timing fault. Code spread alone does not establish correct transfer accuracy.}
+\end{frame}
+
+\begin{frame}{The 0.545-LSB PEX point has no ordinary CDAC closure}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.69\textheight,keepaspectratio]{\analysispath/pex_near_half_lsb_audit.pdf}
+  \par\smallskip
+  {\small C6/L3: 0/1600 CDAC-ready ordinary decisions; its 100 timing passes are B16 only.\\
+  One C6/L2 B13 event accounts for most of the observed spread difference.}
+  \slidesource{FRIDA-2 three-layer radix17 PEX code and timing exports; 100 conversions per recipe}
+  \note{The saved FRIDA-2 three-layer radix17 code exports give sigma 0.588 LSB at C5/L2, 0.649 at C6/L2, and 0.545 at C6/L3, each over 100 fixed-input conversions. C6/L2 and C6/L3 have identical codes at 94 of 100 paired conversion indices. At index 58, C6/L2 alone has B13 high, yielding code 2183 instead of 2179; removing that single C6/L2 conversion reduces its descriptive sigma to 0.562 LSB, close to C6/L3's 0.545. The deletion is a sensitivity diagnostic, not a valid replacement noise estimate. The saved 200-ps/1-mV timing screen finds 1,371/1,600 CDAC-ready ordinary updates and 1,471/1,700 full decision passes under C6/L2, but zero ready ordinary updates and zero ordinary full passes under C6/L3. Its 100 full passes are all B16, which has no CDAC update. The screen checks convergence to each final saved pre-COMP value, not DC accuracy; its failures do not prove all output codes are wrong. Nevertheless the 0.545-LSB C6/L3 fixed-input code spread does not demonstrate a timing-closed 0.5-LSB ADC, and FRIDA-2 lacks a matched physical capture. Exact counts and paths are in pex\_near\_half\_lsb\_audit.csv beside the Nord figure and regeneration source.}
+\end{frame}
+
+\begin{frame}{PEX timing closure across seven flavors}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_timing_closure_by_recipe_flavor.pdf}
+  \slidesource{49 PEX cases; internal/SR/LOGIC/CDAC timing checks}
+  \note{The full check requires rail-valid SR agreement and 200 ps LOGIC setup; ordinary B0--B15 decisions also require the programmed SAR and CDAC state with 200 ps setup. The CDAC tolerance is 1 mV relative to the saved end-of-window value. B16 has no CDAC update.}
+\end{frame}
+
+\begin{frame}{Late LOGIC reduces B11/B12 CDAC readiness}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pex_b11_b12_cdac_control.pdf}
+  \par\smallskip
+  {\small ADC03-matched PEX: B11 readiness 70/100 $\rightarrow$ 52/100; B12 84/100 $\rightarrow$ 49/100.}
+  \slidesource{Saved C5/L2 and C6/L2/L3 timing exports; seven extracted ADC flavors, 100 conversions each}
+  \note{The plot reads only the completed 49-case PEX timing CSV exports. It compares B11-to-B12 and B12-to-B13 CDAC readiness in all seven flavors for C6/L2 versus C6/L3. Readiness requires the programmed SAR states and bottom plates and top plates within 1 mV of their final saved values at least 200 ps before the next observed COMP rise; it does not prove DC accuracy or count wrong output codes. In the physical ADC03-matched FRIDA-1 two-layer radix20 PEX, C5/L2 and C6/L2 both have 70/100 ready B11 updates and 84/100 ready B12 updates. Their median LOGIC-to-next-COMP interval is 1.351 ns; C6/L3 cuts it to 0.726 ns and has 52/100 and 49/100 ready updates. Three of seven flavors have zero ready B11 updates under C6/L3. The later-LOGIC physical comparison therefore changes the CDAC settling budget while it changes capture timing. B12 remaining low in physical C6/L3 does not by itself rule out an early-capture contribution, nor do these ideal-port PEX metrics establish the physical cause. The exact 42-row CSV and regeneration source are beside the Nord figure.}
+\end{frame}
+
+\begin{frame}{PEX clock reset gaps remain positive}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_reset_gap_by_recipe.pdf}
+  \slidesource{49 PEX timing tables; observed comparator falling edges}
+  \note{All 83,300 internal COMP falling edges were observed. All 78,400 ordinary decisions had a positive falling-edge-to-next-COMP interval. This alone does not establish latch precharge or timing closure.}
+\end{frame}
+
+\begin{frame}{PEX latch precharges in all 49 cases}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pex_latch_reset_49_matrix.pdf}
+  \par{\scriptsize Ideal clocks drive the extracted ADC macro; silicon also has an unmeasured LVDS receiver and chip-level clock delivery.}
+  \slidesource{Worker-local PEX HDF5; 49 cases, 1600 ordinary decisions each}
+  \note{In all 78,400 ordinary PEX decisions, both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise. Across all seven flavors, the minimum stable margin is about 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. The extracted ADC macro includes its local comparator clock gate, but its seq\_comp port receives ideal 31.25 ps Vbit transitions and nominal supply sources. Physical COMP instead reaches the macro through an LVDS P/N pad receiver and chip-level clock delivery, after the board and package; none of those upstream elements is in this PEX testbench. The saved scope hookup records only one external COMP trace and no internal latch nodes, so it cannot establish the differential pad waveform or silicon reset.}
+\end{frame}
+
+\begin{frame}{Nominal pad-to-latch path keeps a 6/8 low pulse}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    Differential pad low (ns) & 1.875 & 1.250 & 1.875 & 1.250 \\
+    Comparator latch clock low (ns) & 1.840 & 1.215 & 1.828 & 1.202 \\
+    Latch outputs precharged after fall (ns) & 0.247 & 0.253 & 0.271 & 0.280 \\
+    Stable until next clock rise (ns) & 1.593 & 0.962 & 1.558 & 0.922 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small Four isolated pulses per case, with a clean 520-ps differential pad ramp.\\
+  The physical pad waveform, routing, SAR/CDAC state, and LOGIC capture remain unmodeled.}
+  \slidesource{Pruned FRIDA-1 full-chip schematic CDL; four zero-warning Spectre runs}
+  \note{This isolated ADC01 path contains the transistor-level LVDS pad receiver, schematic core clock buffers, local clock gate, and comparator latch. The four cases use a 5 ns period, 3.125 or 3.750 ns high time at the differential pad crossing, 0.9 V common mode, 1 V peak-to-peak differential swing, 520 ps P/N ramps, 1.2 V rails, fixed 100 mV comparator input, and TT or SS device corner. Median values are over four complete low intervals per case. At 6/8 the nominal path reduces the pad low interval by only about 35 ps at TT or 48 ps at SS; both latch outputs rise above 1.1 V and agree within 50 mV continuously for 0.962 or 0.922 ns before the next clock rise. This rules out severe pulse loss in this simplified schematic stimulus, not in physical silicon. The model has no routed parasitics, bond wire, PCB/cable, measured P/N pad waveform, supply disturbance, SAR/CDAC updates, or LOGIC capture. The external physical C6/L2 half-level B12 interval is about 1.206 ns and its low depth is shallower than C5/L2, but a similar interval does not imply the same differential pad waveform. The 49-case ADC PEX separately includes local clock gate and dynamic ADC operation but drives ideal clocks directly at its macro port.}
+\end{frame}
+
+\begin{frame}{Replayed external COMP shape still precharges the model}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    Assumed differential pad low (ns) & 1.828 & 1.187 & 1.828 & 1.187 \\
+    Comparator latch clock low (ns) & 1.792 & 1.152 & 1.778 & 1.138 \\
+    Latch outputs precharged after fall (ns) & 0.248 & 0.252 & 0.272 & 0.280 \\
+    Stable until next clock rise (ns) & 1.543 & 0.900 & 1.506 & 0.858 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small Scope COMP values were mapped to symmetric P/N pad voltages at 0.9 V common mode.\\
+  The actual silicon pad waveform and dynamic ADC decision are not observed.}
+  \slidesource{Saved physical ADC03 B12 scope traces; pruned ADC01 schematic path, TT/SS Spectre}
+  \note{The pinned corrected 10-MSPS ADC03 C5/L2 and C6/L2 HDF5 scope traces are sampled about every 160 ps. A 25 ns window around B12 was converted to 158-point PWL sources, assuming pad\_p=0.9 V+Vscope/2 and pad\_n=0.9 V-Vscope/2. The four isolated TT/SS Spectre benches replay these waveforms through the ADC01 LVDS receiver, schematic clock tree, local gate, and comparator latch. The table reports the B12 interval; both latch outputs exceed 1.1 V and agree within 50 mV continuously for the stated stable margin before the next rise. All four runs finished with zero errors or warnings. This conditional replay narrows a simple pad receiver pulse-loss explanation, but the actual P/N pad voltages are not recorded; board/package, probe bandwidth, routed RC, rail variation, changing CDAC residue, LOGIC capture, and near-threshold stochastic comparator behavior are absent. The approximately 1.187 ns replayed differential pad low interval is near the 1.206 ns external physical half-level measurement, but that match cannot establish the same waveform at the chip pad. No working physical 6/8 case follows from this test.}
+\end{frame}
+
+\begin{frame}{Small PEX input reverses the isolated latch at 6/8}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    B12 stable resolution after rise (ns) & 1.384 & 1.375 & 1.584 & 1.584 \\
+    B12 resolution margin to fall (ns) & 1.850 & 2.471 & 1.662 & 2.275 \\
+    B12 stable precharge to next rise (ns) & 1.544 & 0.890 & 1.504 & 0.852 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small One saved PEX \texttt{vdac\_p/vdac\_n} trace changes from about +1.4 mV at B11\\
+  to -3.5 mV at B12; both latch output polarities reverse in all four cases.}
+  \par\medskip
+  {\small Ideal input sources omit CDAC impedance, kickback, SR/LOGIC capture, and the real pad waveform.}
+  \slidesource{One FRIDA-1 radix20 PEX conversion; physical COMP scope replay; isolated TT/SS latch benches}
+  \note{This hybrid diagnostic takes one saved C6/L2 FRIDA-1 two-layer radix20 PEX conversion's comparator input voltage traces at B10--B14 and aligns its B12 seq\_comp rise to the ADC macro COMP rise in the external-clock replay. It drives those same ideal voltage traces directly into the isolated comparator latch for both physical C5/L2 and C6/L2 scope-clock shapes, at TT and SS. The PEX B11/B12 input differences just before COMP rise are about +1.44 and -3.46 mV. In all four benches, the sign of out\_n minus out\_p reverses from B11 to B12; both output nodes subsequently rise above 1.1 V and agree within 50 mV continuously for the stated precharge margin. Resolution requires the signed difference to remain at least 0.3 V until COMP fall. Six diagnostic Spectre runs, including two static +1 mV controls, finish without warnings. The voltage source clamps the comparator input, unlike a floating CDAC top plate, so it omits source impedance, charge sharing, and kickback; it also omits SR/LOGIC capture, actual pad P/N waves, routed RC, and physical rail effects. One PEX conversion is not a measurement of physical 100,000-conversion error frequency. This isolated success does not establish working physical 6/8 operation.}
+\end{frame}
+
+\begin{frame}{Schematic SR output also changes before LOGIC's external edge}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    B12 buffered transition after COMP rise (ns) & 1.742 & 1.730 & 2.038 & 2.035 \\
+    Before COMP fall (ns) & 1.492 & 2.116 & 1.207 & 1.825 \\
+    Before external LOGIC proxy (ns) & 1.644 & 1.631 & 1.251 & 1.229 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small One saved PEX input trace flips the comparator's SR and digital input-buffer states\\
+  at both clock widths; the proxy places LOGIC using its measured external edge.}
+  \par\medskip
+  {\small Physical pad delays/skew, routed RC, CDAC loading, and the LOGIC capture path remain unknown.}
+  \slidesource{FRIDA-1 schematic comparator/SR; ADC03 scope timing; TT/SS runs}
+  \note{This extends the preceding four isolated near-threshold hybrid Spectre decks with the fabricated comp\_sr schematic cell and its two adc\_digital BUFFD2LVT input buffers. The selected schematic clock branch is ADC01; the physical scope source is ADC03. All four zero-warning runs produce opposite B11 and B12 buffered output states. For B12, the buffered positive-side output crosses 0.6 V once before local COMP falls. The external LOGIC timing proxy is the simulated differential COMP pad fall plus the measured external LOGIC-minus-COMP-fall interval in the matching physical ADC03 10-MSPS capture: +0.614 ns for C5/L2, -0.016 ns for C6/L2. These are not capture flip-flop setup margins: probe-to-pad delays, scope channel skew, LOGIC receiver and clock tree, routed RC, actual P/N pad voltage and rails, source impedance, CDAC kickback, and physical ADC03 analog residue are unmodeled. The C6 B12 physical wrong-bit state therefore remains unexplained. Exact decks, raw outputs, logs, analysis source, and sr\_transition.csv are in build/diagnostics/frida1\_comp\_sr\_replay.}
+\end{frame}
+
+\begin{frame}{Schematic LOGIC path can capture a B12 change}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    D changes after local COMP rise (ns) & 1.819 & 1.819 & 2.135 & 2.135 \\
+    D settled before local LOGIC rise (ns) & 2.032 & 2.011 & 1.731 & 1.712 \\
+    Q changes after LOGIC rise (ns) & 0.063 & 0.063 & 0.081 & 0.081 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small The modeled stage-12 output is high after B11 and low after B12 in all four runs.\\
+  One PEX input trace and the two saved scope-clock shapes drive the replay.}
+  \par\medskip
+  {\small Stage enable is held high; real pad timing, CDAC loading, routed RC, and SAR state remain unmodeled.}
+  \slidesource{FRIDA-1 ADC01 schematic paths; saved ADC03 scope replay; TT/SS Spectre}
+  \note{This diagnostic adds the ADC01 LOGIC LVDS receiver, frida\_core selected clock branch, adc\_digital update gate and local clock buffers, sensitized N-side stage-12 comparator-to-D gates, and its EDFD2LVT enabled flip-flop. The saved ADC03 C5/L2 and C6/L2 COMP and LOGIC scope traces are aligned to the same 25-ns window, then mapped to symmetric P/N pad voltages at 0.9-V common mode. The same saved FRIDA-1 radix20 PEX input conversion is driven by ideal voltage sources. The digital path holds dac\_mode=1, clk\_init=0, and stage-12 enable=1. All four Spectre runs finish with zero warnings, and the selected DFF Q reads high after B11 and low after B12. This input trace gives the same B12 polarity for both clock widths, so it does not reproduce physical C5-high versus C6-low B12. The measured positive intervals in the table are simulation time between a 0.6-V D crossing and local 0.6-V LOGIC rise; they are not guaranteed physical setup margins. Actual pad voltages, ADC03 residue, board/package and probe delays, channel skew, routed RC, branch loading, rail variation, CDAC source impedance and kickback, and live one-hot SAR enable are absent. Thus the physical C6 wrong-bit state remains unexplained. Exact decks, raw traces, logs, analysis source, and capture\_timing.csv are in build/diagnostics/frida1\_comp\_logic\_replay.}
+\end{frame}
+
+\begin{frame}{Smaller comparator input does not reproduce the physical B12 split}
+  \centering
+  {\small D transition before local LOGIC rise (ns), when B11/B12 Q follows the driven input}
+  \par\medskip
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    PEX input gain & C5 TT & C6 TT & C5 SS & C6 SS \\
+    \midrule
+    10\% & -- & -- & 1.295 & 1.269 \\
+    3\% & -- & -- & 1.063 & 1.030 \\
+    1\% & 1.227 & 1.210 & 0.850 & 0.800 \\
+    0.3\% & 1.029 & 1.027 & B11 wrong & 0.566 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small At 1\% gain, all four runs capture the driven B11-high/B12-low pair.\\
+  At 0.3\%, C5 SS loses B11; both modeled B12 outputs remain low.}
+  \par\medskip
+  {\small Ideal input sources and the ADC01 schematic path do not model physical ADC03 residue or mismatch.}
+  \slidesource{Saved PEX input and ADC03 scope clocks; isolated ADC01 schematic path; 12 TT/SS Spectre runs}
+  \note{This one-conversion sensitivity diagnostic scales only the differential component of the saved FRIDA-1 radix20 PEX comparator input and preserves its common-mode trace. The physical ADC03 C5/L2 and C6/L2 external COMP and LOGIC shapes drive the same ADC01 schematic receiver, clock, comparator, SR, sensitized stage-12 gates, and enabled flip-flop as the preceding capture replay. Twelve completed Spectre cases have zero errors and warnings. The table reports the simulated D-fall lead over the local LOGIC rise only when Q is high after B11 and low after B12; dashes are unrun. The PEX B12 overdrive near COMP rise is approximately -3.46 mV, giving about -35 microvolts at 1 percent gain. At that gain the SS D lead remains 0.850 ns for C5 and 0.800 ns for C6, and both TT cases also capture the driven polarity. At 0.3 percent gain, the C5 SS B11 output is already low while C6 SS and both TT cases still capture the driven B11-high/B12-low pair. This is neither a measured physical input-residue sweep nor a stochastic noise simulation. Ideal comparator-input voltage sources, schematic ADC01 instead of physical ADC03, pad and clock delays, routed RC, source impedance and CDAC kickback, live SAR state, rail variation, and device mismatch remain unmodeled. Exact generated decks, raw traces, logs, regeneration and audit scripts, and input\_capture\_timing.csv are in build/diagnostics/frida1\_comp\_input\_margin.}
+\end{frame}
+
+\begin{frame}{ADC03 clock leaves preserve the modeled reset and capture margins}
+  \centering
+  {\small The ADC03 schematic adds one buffer in both COMP and LOGIC leaves.}
+  \par\medskip
+  {\small
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    B12 timing quantity & ADC01 leaf & ADC03 leaf \\
+    \midrule
+    C5 TT, nominal stable precharge (ns) & 1.541 & 1.539 \\
+    C6 TT, nominal stable precharge (ns) & 0.887 & 0.884 \\
+    C5 SS, nominal stable precharge (ns) & 1.502 & 1.500 \\
+    C6 SS, nominal stable precharge (ns) & 0.850 & 0.851 \\
+    C5 SS, 1\% input, D before LOGIC (ns) & 0.850 & 0.838 \\
+    C6 SS, 1\% input, D before LOGIC (ns) & 0.800 & 0.816 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small The extra stages shift local COMP by 23--28 ps, with under 2 ps change\\
+  in LOGIC relative to COMP fall. Both branches capture the driven B11/B12 pair.}
+  \par\medskip
+  {\small Routed RC, real pad voltages, CDAC feedback, and ADC03 analog mismatch remain unknown.}
+  \slidesource{FRIDA-1 frida\_core schematic ADC01/03 leaves; saved ADC03 clocks; 8 TT/SS Spectre runs}
+  \note{The physical ADC03 path was compared with the earlier ADC01 schematic replay by tracing the selected adc[3] seq\_comp=net2839 and seq\_update=net2855 ports in design/spice/frida\_top.cdl. Both ADC03 leaves add one CKBD3LVT stage relative to ADC01, after the shared frida\_core tree and before the terminal CKBD4LVT. Eight isolated Spectre runs finished with zero errors and warnings, covering C5 and C6 at TT and SS with the nominal saved PEX one-conversion input, and at SS with its differential component scaled to 10 and 1 percent. The table shows stable comparator output precharge before the next local COMP rise and the stage-12 D-fall lead over local LOGIC for the 1-percent input. The ADC03 local COMP rise is 23--28 ps later, yet LOGIC relative to COMP fall changes by under 2 ps, since both leaves gain a stage. Both schematic branches return high Q after B11 and low Q after B12 in every modeled case. Thus leaf-cell count alone cannot explain the measured physical ADC03 C5-high/C6-low B12 split. The same approximate nonselected clock loads as the ADC01 replay are retained. Routed RC and full-chip fanout, actual P/N pad voltages and timing, real ADC03 comparator/CDAC residue, finite source impedance and kickback, live SAR stage enable, rail variation, and mismatch are absent. These simulated intervals are not measured physical setup or reset margins. Exact decks, logs, raw traces, generator, analyzer, and adc01\_adc03\_clock\_comparison.csv are in build/diagnostics/frida1\_adc03\_clock\_replay.}
+\end{frame}
+
+\begin{frame}{ADC03's saved B12 output edge arrives after external LOGIC}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.60\textheight,keepaspectratio]{\analysispath/physical_b12_output_capture_window.pdf}
+  \par\smallskip
+  {\small At 1600 MBd, C5 output crosses 0.964 ns after external LOGIC; C6 has no B12 rise.\\
+  Conditional N/P DAC D lead: $+17/-18$ ps (TT), $+207/+164$ ps (SS).\\
+  External skew, loading, and DAC-state capture remain unmeasured.}
+  \slidesource{Pinned ADC03 physical scopes at 960/1600 MBd; isolated ADC03 TX, clock, and dual-state replays}
+  \note{The figure shows the one saved scope conversion in each of four ADC03 C5/L2 and C6/L2 captures, with output voltage relative to the saved threshold and time relative to the external B12 COMP rise. Dashed lines are the approximately coincident external LOGIC rises within each rate; dotted lines are the next COMP rises. At 960 MBd, C5 and C6 external COMP\_OUT cross 4.552 and 4.813 ns after COMP rise, 1.710 and 1.475 ns before external LOGIC. At 1600 MBd, C5 output crosses 4.756 ns after COMP rise, 0.964 ns after external LOGIC; C6 does not rise in the B12 window. In all six saved 320/960/1600-MBd scopes, external COMP\_OUT stays below threshold with no crossing during the preceding B11-to-B12 COMP-low interval, including the lower-rate cases where B12 subsequently rises. The flat output during this interval does not reveal internal latch reset. All four saved B12 scope bits agree with FastRX, with zero lost frames. The ADC03 schematic comparator-output mux/TX-pad replay gives LATCH\_P fall to output differential rise of 0.559 ns TT and 0.655 ns SS. The separate ADC03 clock replay gives external LOGIC-pad crossing to local update DFF clock rise of 0.512 ns TT and 0.629 ns SS, and selected N-side D fall after comparator SR LATCH\_P fall of 0.089 ns TT and 0.112 ns SS. A complementary P-side stage-12 replay gives its D rise 0.124 ns TT or 0.155 ns SS after the same SR fall; its D edge is 36--44 ps after N-side D. Assuming those modeled delays apply to the physical path with zero unmodeled external skew, N-side D leads local LOGIC by 0.017 ns TT and 0.207 ns SS; P-side D lags local LOGIC by 0.018 ns TT and leads by 0.164 ns SS for the saved C5 event. These are conditional timing estimates, not silicon setup margins: output and input probe/board/package delays and channel deskew are unknown, schematic gates omit routed RC and actual loading, the analog residue and comparator input are not modeled physically, and actual one-hot DAC-state capture has not been checked. The late external output can coexist with a correctly captured internal state. This finding keeps LOGIC capture timing alongside comparator reset as a candidate and does not identify the cause of C6's B12 bias. Exact sources, CSVs, the plotting source, decks, and zero-warning Spectre logs are in the named build/analysis and build/diagnostics directories.}
+\end{frame}
+
+\begin{frame}{Short internal pulses can vanish at the ADC03 output pad}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.72\textheight,keepaspectratio]{\analysispath/adc03_tx_short_pulse.pdf}
+  \par\smallskip
+  {\small A 0.10-ns full-swing comparator-state pulse misses the pad zero crossing;\\
+  0.15 ns crosses in TT and SS. Board, probe, and scope filtering are unmodeled.}
+  \slidesource{ADC03 schematic output mux and LVDS TX pad; 20 isolated TT/SS pulse cases}
+  \note{This isolated diagnostic replaces the ideal comparator-state stimulus in the selected ADC03 frida\_core output-mux and LVDS\_TX\_CUP\_pad path with ten full-swing low pulses of 50-ps to 1-ns plateau width. Falling LATCH\_P produces a rising ADC03 output differential. The analyzer measures input duration between 0.6-V crossings and output visibility by whether pad\_p minus pad\_n crosses zero. At TT and SS the 0.10-ns half-rail pulse switches the core node but the pad differential remains negative; the 0.15-ns half-rail pulse produces a positive pad differential and two zero crossings. Both transient runs complete with zero errors and warnings. The schematic uses 100-ohm differential termination and 1-pF load on each pad, ideal 1.2-V rails and full-swing input edges; it omits extracted route, real comparator amplitude/slew, package/board/cable/probe and scope response, as well as overlap with the following comparator clock event. The physical scope records about one point every 160 ps. Thus absence of an external C6 output threshold crossing cannot rule out a very brief internal comparator pulse, and this exercise does not identify the physical reset or LOGIC capture cause. The exact decks, raw traces and logs are in build/diagnostics/frida1\_adc03\_tx\_pulse\_width; analysis source, CSV and figure are in the build/analysis study directory.}
+\end{frame}
+
+\begin{frame}{Pad-voltage sweep has no clean 5/8 versus 6/8 split}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pad_reset_sensitivity.pdf}
+  \par\smallskip
+  {\small At 2\% symmetric gain, both cases still reset; with offset, C5 develops extra edges\\
+  before C6 loses stable precharge in the tested TT and SS sweeps.}
+  \slidesource{Saved ADC03 COMP traces; isolated FRIDA-1 ADC01 schematic receiver/latch; 49 Spectre runs}
+  \note{This isolated sensitivity sweep changes only the assumed differential pad voltage in the preceding comparator-clock replay: pad\_p=0.9 V+(gain times external COMP scope trace plus offset)/2 and pad\_n=0.9 V-(same)/2. The seven campaign recipes are unchanged. The same PEX one-conversion analog input trace is driven by ideal voltage sources. All 49 executed diagnostic runs finished with zero Spectre errors and warnings. In the four-case gain audit, both C5 and C6 have opposite B11/B12 latch polarities and stable B12 precharge at TT and SS down to 2 percent differential gain. C6 precharge margins there are 0.768 ns TT and 0.827 ns SS. At quarter gain and +90 mV offset, the SS C6 margin shrinks to 0.115 ns while C5 is still regular with 1.073 ns. At +92 mV, C6 has no stable precharge but C5 already has extra local clock edges; at TT, C5 also glitches before C6 stops transferring. These conditional thresholds neither measure pad voltages nor reproduce a clean physical C5-good/C6-bad pair. Receiver mismatch and input offset, actual pad P/N and skew, routed RC, CDAC source impedance and kickback, rails, live SAR/LOGIC capture, and physical ADC03 analog residue are omitted. Exact decks, raw files, logs and audits are in build/diagnostics/frida1\_comp\_pad\_margin; the Nord plot and regeneration source are in the analysis directory.}
+\end{frame}
+
+\begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_trajectory.pdf}
+  \slidesource{PEX source HDF5; all 100 saved conversions}
+\end{frame}
+
+\begin{frame}{PEX CDAC settling: FRIDA-1 two-layer radix20, C5/L2}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_cdac_settling.pdf}
+  \slidesource{PEX source HDF5; top-plate and bottom-plate settling}
+\end{frame}
+
+\section[Comparison]{Comparison}
+
+\begin{frame}{Matched radix20 output codes at 1600 MBd}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_vs_pex_radix20_codes.pdf}
+  \slidesource{Physical ADC01/03; FRIDA-1 one-/two-layer radix20 PEX}
+  \note{ADC01 and ADC03 are the only two channels with confirmed physical layer counts in the board map. Physical code distributions contain 100,000 conversions and PEX distributions contain 100, so their sample precision differs. The physical C4/L1 and C7/L3 failures do not appear in the PEX output-code means.}
+\end{frame}
+
+\begin{frame}{The archived 0.54-LSB result has a short final comparison}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/old_half_lsb_precedent.pdf}
+  \slidesource{Archived 14 Sep physical ADC03 and 6 Sep PEX; corrected 26 Sep physical and PEX}
+  \note{The archived physical file stores the same 160-symbol INIT, SAMP, COMP, and LOGIC rows as the PEX file with a 48-symbol cyclic offset. Both use INIT4, SAMP24, COMP 11111100, and one-symbol LOGIC. B0--B15 receive six COMP-high symbols, but B16 begins at symbol 156 and receives only four before the next INIT. Archived PEX sigma is 0.538 LSB across 99 saved conversions; physical ADC03 sigma is 3.186 LSB across 100,000. The corrected SAMP20, four-symbol LOGIC case gives 0.703 LSB in PEX and 3.309 LSB physically; a corrected physical SAMP20, one-symbol LOGIC capture gives 3.447 LSB. PEX and physical conditions differ beyond the digital pattern. The old and new PEX setups also differ in SAMP duration, LOGIC width, and output sampling, so their code-spread difference cannot be assigned to the B16 truncation alone.}
+\end{frame}
+
+\begin{frame}{The archived final decision does not consistently close}
+  \centering
+  {\small
+  \begin{tabular}{@{}lrr@{}}
+    \toprule
+    & Archived PEX & Corrected PEX \\
+    \midrule
+    B16 starts at symbol & 156 & 152 \\
+    B16 COMP-high symbols & 4 & 6 \\
+    B16 observed COMP high, median & 2.507 ns & 3.759 ns \\
+    B16 internal stable at 0.3 V & 86/99 & 100/100 \\
+    B16 SR matches at LOGIC & 80/99 & 100/100 \\
+    B16 LOGIC ready with 200 ps setup & 72/99 & 100/100 \\
+    Output code sigma & 0.538 LSB & 0.703 LSB \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\medskip
+  {\small 26 of 27 archived B16 readiness failures return code 2194.}
+  \slidesource{Archived PEX HDF5; corrected C6/L2 PEX timing CSV and HDF5 bit summary}
+  \note{The archived B16 pulse is cut by the periodic row boundary, as is the matching old physical row. The corrected SAMP20 C6/L2 recipe provides the full six high symbols. Full archived decision timing passes 1634 of 1683 decisions, but B16 alone fails its LOGIC-readiness criterion in 27 of 99 conversions. The 27 failures have code sigma 0.189 LSB, while the 72 ready conversions have 0.601 LSB; these are outcome-selected subsets and are not corrected noise estimates. B16 equals B15 in 94/99 archived conversions and 71/100 corrected conversions, but a repeated bit is not itself an error. The saved held differential spread at 1 ns after SAMP falls is 166.9 versus 182.9 microvolts; this observation can include comparator activity and does not isolate kT/C noise. The archived 0.538-LSB code spread cannot establish a healthy 17-decision conversion, while the different old and new conditions prevent a single-cause attribution for the spread change.}
+\end{frame}
+
+\begin{frame}{5/8 can reach 0.30 LSB code spread; accuracy is unverified}
+  \small
+  \begin{itemize}
+    \item Pinned 26 Sep: 5/8 with late two-symbol LOGIC gives 14/16 plausible ADCs; ADC03/15 sigma is 0.715/0.748 LSB. Four independent 24 Sep ADC15 rows reached 0.301--0.316 LSB at exact 10 MSPS, then 0.633--0.819 LSB on 26 Sep.
+    \item At 10 MSPS, ADC15 mean stays about 3.2 LSB below its 2-MSPS control. All 507 locally saved C5/C6 captures record one nominal 50-mV input, so transfer accuracy and input-referred noise remain unverified.
+    \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
+    \item C5/L2 to C6/L2 keeps LOGIC fixed. Physical first-divergence bits shift 56--100 percentage points; PEX changes no majority bit in seven flavors. The measured COMP-low pulse is shorter and shallower.
+    \item Short LOGIC or extra idle removes the all-one mode. LOGIC also changes 6/8 B12 repeats in ADC07/15, which carry a shared tone. Unmeasured LVDS and clock paths leave silicon reset unverified; FRIDA-2 has no physical counterpart here.
+  \end{itemize}
+  \slidesource{7,739-file physical archive inventory; 29-recipe screen; seven PEX flavors; latch analysis}
+  \note{The archived input audit reads all 7,739 local build/scan_adc HDF5 metadata records. It finds 507 exact-10-MSPS, 160-symbol, 17-decision SAR C5/C6 captures: 269 C5 and 238 C6. All record one nominal 50-mV differential, 700-mV common-mode, manually controlled input; there is no saved input sweep and no independent ADC-pin voltage measurement. Exact paths and settings are in all\_exact10\_input\_sweep\_inventory.csv, with regeneration source beside the analysis. The physical first divergence is selected in the first 50,000 conversions and evaluated in the other 50,000 for each ADC. Fourteen of sixteen ADCs have a persistent C5/L2-to-C6/L2 majority-bit difference at 1600 MBd; its high-fraction shift is 56.5--99.6 percentage points, median 90.2. The paired worker-local PEX audit reads all seven flavors' completed C5/L2 and C6/L2 HDF5 bit streams at 100 conversions each. No PEX flavor changes a majority bit, and the largest fraction shift across any of the 17 bits is 1--4 points per flavor. The extracted ADC macro receives ideal clocks and nominal supplies; it omits the upstream physical LVDS receiver, chip-level clock route, measured pad waveforms, and live supply variation. Physical and PEX ADC populations and analog inputs differ. This contrast establishes that the short PEX runs do not reproduce the broad physical 6/8 state shift; it does not isolate reset from stale LOGIC capture or rule out rare physical-scale events in the 100 PEX conversions. Exact worker HDF5 paths and bit shifts are in pex\_pair\_decision\_shift\_jupiter.csv and pex\_pair\_decision\_shift\_juno.csv, with regeneration source beside the analysis.}
+\end{frame}
+
+\appendix
+\section[Scope]{Scope by recipe}
+
+\begin{frame}{Measured ADC03 scope: C4/L0}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C4_L0_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C4/L1}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C4_L1_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C5/L1}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L1_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C5/L2}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C5_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C6/L2}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C6_L2_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C6/L3}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C6_L3_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+\begin{frame}{Measured ADC03 scope: C7/L3}
+  \centering\includegraphics[width=0.98\linewidth,height=0.83\textheight,keepaspectratio]{\analysispath/measured_adc03_C7_L3_1600mbd.pdf}
+  \slidesource{ADC03 physical scan at 1600 MBd}
+\end{frame}
+
+\end{document}
