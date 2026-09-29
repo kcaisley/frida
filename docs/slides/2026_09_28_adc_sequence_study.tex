@@ -125,6 +125,15 @@
   \note{At 1600 MBd, all 100,000 conversions of C5/L2, C6/L2, and C6/L3 have the same B0--B11 string 100110010100. B12 is high in 99,615, 1, and 2 conversions, respectively. At 960 MBd the corresponding high counts are 100,000, 96,633, and 98,099; at 320 MBd they are 99,972, 99,989, and 99,984. The identical early digital decisions exclude a preceding decoded-bit difference but not an analog CDAC-residue or input difference. In the single retained 1600-MBd scope conversion, external COMP\_OUT crosses threshold 4.756 ns after B12 COMP rises in C5/L2, but no B12-window transition occurs in either C6 case; both remain low at the 7.7-ns delayed scope read point. Across all 16 ADCs and three rates for these three recipes, all 144 valid saved scope records agree with the corresponding 17-bit FastRX words, with zero lost frames. ADC03's three 1600-MBd B12 samples lie 27.9--33.5 percent of the observed output swing away from the scope threshold. These checks weaken an FPGA-only readout-mismatch explanation in the retained conversions, but the scope cannot reveal internal comparator reset, exact LOGIC capture, or rare behavior across 100,000 conversions.}
 \end{frame}
 
+\begin{frame}{6/8 often repeats the preceding decision}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_first_divergence_copy.pdf}
+  \par\smallskip
+  {\small At 10 MSPS, 14/16 ADCs first diverge at B5--B13; all 14 repeat the preceding bit more often at 6/8.}
+  \slidesource{Pinned 26 Sep physical C5/L2 and C6/L2 captures; held-out 50,000 conversions each}
+  \note{For each ADC and rate, the first majority bit that differs between the fixed-LOGIC C5/L2 and C6/L2 captures is selected using only the first 50,000 conversions. The plotted fractions in the remaining 50,000 are the chances that this decision equals its preceding decoded bit within the same conversion. At 1600 MBd all 14 training-selected differences remain majority differences in holdout; all 14 have a higher same-state fraction under 6/8, with medians 0.002 versus 0.974. The differing position ranges from B5 to B13. At 960 MBd all 13 selected majority differences persist, 12/13 have a higher same-state fraction under 6/8, and medians are 0.308 versus 0.979. At 320 MBd 10/11 selected majority differences persist; the medians are 0.452 versus 0.501, much closer to the diagonal. The condition was chosen from the output data and the manual input was not independently measured at the ADC pins. A repeated decoded bit is compatible with incomplete comparator reset, stale LOGIC capture, or an analog decision altered by clock/CDAC history; these captures do not separate those mechanisms. The 6/8 scope COMP-low interval is shorter and shallower, but the internal clock and latch are not observed.}
+\end{frame}
+
 \begin{frame}{B12 collapse accompanies a short COMP-low interval}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.75\textheight,keepaspectratio]{\analysispath/physical_b12_reset_window.pdf}
