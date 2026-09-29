@@ -161,6 +161,15 @@
   \note{Rare B12-low events were evaluated in 12 5/8 physical captures with 100--5000 such events among 100,000 contiguous conversions and zero lost frames. Event-pair counts at lags 8, 16, through 72, and at lags 9, 18, through 72, were compared with 5,000 randomizations preserving event count within every 5,000-conversion block. Aggregate observed/shuffled ratios are 3.54 at multiples of eight for late-three-symbol LOGIC on ADC03/04/15, 2.59 at multiples of eight for late-two-symbol LOGIC on ADC03/04/07, 4.21 at multiples of nine for late-one-symbol LOGIC on ADC03/04/07, and 5.01 at multiples of nine for boundary-spanning four-symbol LOGIC on ADC03/04/07. All four excesses reach the 1/5001 empirical-p floor; the comparison is exploratory because the periods were noticed in the same data. ADC07's two-symbol case lacks lag-eight excess, so this pattern is not universal. ADC03's best two-symbol row has 10 lag-eight harmonic pairs versus 3.99 shuffled on average. The four physical recipes were captured sequentially, making a changing external interferer a possible explanation for the apparent eight-to-nine-lag switch; do not assign it uniquely to LOGIC width. Their retained single-conversion scope records miss the rare events, so the comparator, SAR logic, FastRX input, and external interference remain unresolved. The separate full-scale all-one-frame mode peaks at lag seven and is absent from the best two-symbol row.}
 \end{frame}
 
+\begin{frame}{The 5/8 B12 tail shares a drifting aliased tone}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_alias_tone.pdf}
+  \par\smallskip
+  {\small Matching peaks at three rates point to a periodic disturbance in the physical chain.}
+  \slidesource{Pinned 26 Sep physical captures; 100,000 conversions per ADC, recipe, and rate}
+  \note{A follow-up spectral audit used the four 5/8 LOGIC words on all 16 ADCs at 2, 6, and 10 MSPS. The plot shows one alias-equivalent frequency: 8 plus the B12 peak at 2 MSPS, 6 plus the B16 peak at 6 MSPS, or 10 minus the B16 peak at 10 MSPS. Frequencies were estimated from Welch spectra with 8192-conversion segments; a displayed peak exceeds the median in-band spectral density by fivefold. Of 64 ADC/recipe pairs, 37 have qualifying B16 peaks at both 6 and 10 MSPS, 29 of them outside the ADC03/04 discovery pair. The median absolute difference between those two alias-equivalent estimates is 6.8 kHz, maximum 40.8 kHz. Twelve pairs also have a qualifying B12 peak at 2 MSPS; their 2/6-MSPS alias-equivalent estimates differ by median 6.2 kHz, maximum 24.9 kHz. For ADC03/04 in all four 10-MSPS recipes, the B12 event spectrum peaks at the B16 frequency and their magnitude-squared coherence there is 0.58--0.82. The component changes from about 8.74 to 8.90 MHz over the sequential campaign; this apparent change must not be assigned to LOGIC recipe without an interleaved control. The three sampled rates do not uniquely identify its analog frequency: approximately 8.7--8.9 MHz and 21.1--21.3 MHz are equivalent alias families, with higher-frequency repetitions possible. Its appearance at 2 MSPS argues against an explanation limited to inadequate 10-MSPS comparator reset, but the saved digital words cannot locate the source among input, rails, chip, clocks, and receive path. Search bands and display threshold were selected after exploratory inspection; this is a diagnostic, not a calibrated interference amplitude or causal test. The persistent 6/8 B12 bias is a separate unresolved behavior.}
+\end{frame}
+
 \begin{frame}{A shorter COMP-low interval also fails at 6 MSPS}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/physical_c7_960_low_gap.pdf}
@@ -216,7 +225,7 @@
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_49_noise_matrix.pdf}
   \slidesource{49 completed PEX code exports; device transient noise, 100 conversions per case}
-  \note{All 49 cases enable Spectre device transient noise with a 25 GHz upper frequency and fixed seed. The four FRIDA-1 flavors have about 0.69--0.73 LSB code sigma from C5/L2 onward; FRIDA-2 three-layer radix17 reaches 0.545 LSB at C6/L3 but has no measured counterpart here. The 100-conversion run can easily miss rare bit errors: if each conversion had ADC03's measured 0.385 percent C5/L2 B12 event rate independently, the chance of observing zero such events in 100 is about 68 percent. Code spread alone does not establish correct transfer accuracy.}
+  \note{All 49 cases enable Spectre device transient noise with a 25 GHz upper frequency and fixed seed. The four FRIDA-1 flavors have about 0.69--0.73 LSB code sigma from C5/L2 onward; FRIDA-2 three-layer radix17 reaches 0.545 LSB at C6/L3 but has no measured counterpart here. The 100-conversion run can easily miss rare bit errors: if each conversion had ADC03's measured 0.385 percent C5/L2 B12 event rate independently, the chance of observing zero such events in 100 is about 68 percent. This PEX testbench uses constant ideal input and supply sources, so it cannot reproduce the measured drifting aliased component without a separate source model. That gap does not exclude a physical comparator timing fault. Code spread alone does not establish correct transfer accuracy.}
 \end{frame}
 
 \begin{frame}{PEX timing closure across seven flavors}
@@ -297,7 +306,7 @@
     \item At 1600 MBd, the 5/8 two-symbol late LOGIC row has 14/16 plausible ADCs. ADC03/15 spreads are 0.715/0.748 LSB, but their means shift +4.33/-3.12 LSB versus 320 MBd. ADC15's one-symbol minimum is 0.633 LSB, with rare 15-LSB jumps.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
     \item C5/L2 to C6/L2 keeps LOGIC fixed yet changes physical mean codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge for both.
-    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The remaining 5/8 B12 tail recurs at selected conversion lags; the 6/8 B12 bias persists. Silicon reset remains unverified. FRIDA-2 has no physical counterpart here.
+    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The 5/8 B12 tail shares an aliased tone with B16; the 6/8 B12 bias persists. Silicon reset remains unverified. FRIDA-2 has no physical counterpart here.
   \end{itemize}
   \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
 \end{frame}
