@@ -620,10 +620,11 @@
     \item Pinned 26 Sep: 5/8 with late two-symbol LOGIC gives 14/16 plausible ADCs; ADC03/15 sigma is 0.715/0.748 LSB. Four independent 24 Sep ADC15 rows reached 0.301--0.316 LSB at exact 10 MSPS, then 0.633--0.819 LSB on 26 Sep.
     \item At 10 MSPS, ADC15 mean stays about 3.2 LSB below its 2-MSPS control. All saved exact-10-MSPS C5/C6 captures use one nominal 50-mV input, so transfer accuracy and input-referred noise remain unverified.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
-    \item C5/L2 to C6/L2 keeps LOGIC fixed, makes the measured COMP-low pulse shorter and less deep, and changes physical codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge.
+    \item C5/L2 to C6/L2 keeps LOGIC fixed. Physical first-divergence bits shift 56--100 percentage points; PEX changes no majority bit in seven flavors. The measured COMP-low pulse is shorter and shallower.
     \item Short LOGIC or extra idle removes the all-one mode. LOGIC also changes 6/8 B12 repeats in ADC07/15, which carry a shared tone. Unmeasured LVDS and clock paths leave silicon reset unverified; FRIDA-2 has no physical counterpart here.
   \end{itemize}
-  \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
+  \slidesource{29-recipe physical screen; all seven PEX flavors; comparator timing and latch analysis}
+  \note{The physical first divergence is selected in the first 50,000 conversions and evaluated in the other 50,000 for each ADC. Fourteen of sixteen ADCs have a persistent C5/L2-to-C6/L2 majority-bit difference at 1600 MBd; its high-fraction shift is 56.5--99.6 percentage points, median 90.2. The paired worker-local PEX audit reads all seven flavors' completed C5/L2 and C6/L2 HDF5 bit streams at 100 conversions each. No PEX flavor changes a majority bit, and the largest fraction shift across any of the 17 bits is 1--4 points per flavor. The extracted ADC macro receives ideal clocks and nominal supplies; it omits the upstream physical LVDS receiver, chip-level clock route, measured pad waveforms, and live supply variation. Physical and PEX ADC populations and analog inputs differ. This contrast establishes that the short PEX runs do not reproduce the broad physical 6/8 state shift; it does not isolate reset from stale LOGIC capture or rule out rare physical-scale events in the 100 PEX conversions. Exact worker HDF5 paths and bit shifts are in pex\_pair\_decision\_shift\_jupiter.csv and pex\_pair\_decision\_shift\_juno.csv, with regeneration source beside the analysis.}
 \end{frame}
 
 \appendix
