@@ -2,7 +2,7 @@
 
 Run after rendering with the Circuitikz digital skin::
 
-    python flow/util/skins/postprocess_digital_svg.py schematic.svg input.json
+    python flow/util/skins/postprocess.py diagram.svg netlist.json
 
 netlistsvg 1.0.2 omits the constant cell's ``value`` skin attribute; the
 generated cell ID contains the bit pattern. It also loses connection widths

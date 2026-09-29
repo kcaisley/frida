@@ -569,7 +569,7 @@ def analog_skin() -> str:
 def main() -> None:
     for filename, content in (
         ("circuitikz_analog.svg", analog_skin()),
-        ("circuitikz_openroad.svg", digital_skin()),
+        ("style.svg", digital_skin()),
     ):
         path = HERE / filename
         path.write_text(content)

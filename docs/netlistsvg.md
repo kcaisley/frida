@@ -1,22 +1,30 @@
 # Digital netlistsvg diagrams
 
-Run these commands from the FRIDA repository root; `compmux.v` is a self-contained example.
+Save this as `write_json.tcl`, replacing the input file, top module, and JSON output placeholders.
 
-```bash
-mkdir -p build/analysis/netlistsvg_tutorial
-yosys -Q -q -p 'read_verilog design/hdl/compmux.v; prep -top compmux; techmap; opt; write_json build/analysis/netlistsvg_tutorial/compmux.json'
+```tcl
+yosys -import
+read_verilog path/to/input.v
+prep -top top_module
+techmap
+opt
+write_json path/to/netlist.json
 ```
 
-netlistsvg uses the checked-in digital skin for symbols, wires, and labels.
+Run the script with Yosys; add other Verilog files to `read_verilog` when needed.
 
 ```bash
-npx --yes netlistsvg@1.0.2 build/analysis/netlistsvg_tutorial/compmux.json --skin flow/util/skins/circuitikz_openroad.svg -o build/analysis/netlistsvg_tutorial/compmux.svg
+yosys -Q -q -c write_json.tcl
 ```
 
-The SVG helper draws 0/1 tie bars and bus-width marks in the output image.
+Point netlistsvg to the [digital skin](../flow/util/skins/style.svg) and the JSON output.
 
 ```bash
-python3 flow/util/skins/postprocess_digital_svg.py build/analysis/netlistsvg_tutorial/compmux.svg build/analysis/netlistsvg_tutorial/compmux.json
+npx --yes netlistsvg@1.0.2 path/to/netlist.json --skin path/to/style.svg -o path/to/diagram.svg
 ```
 
-Replace the Verilog path and top module for another design, and include its required source files in `read_verilog`.
+The [SVG helper](../flow/util/skins/postprocess.py) reads JSON for bus widths, then adds width marks and 0/1 tie bars to the SVG.
+
+```bash
+python3 path/to/postprocess.py path/to/diagram.svg path/to/netlist.json
+```
