@@ -11,6 +11,11 @@
 \usepackage{booktabs}
 \usepackage{geometry}
 \usepackage{graphicx}
+\usepackage{xcolor}
+
+\definecolor{ErrorRed}{HTML}{C51B32}
+\definecolor{WarningOrange}{HTML}{BD5200}
+\definecolor{GoodGreen}{HTML}{008A2E}
 
 \newcommand{\sequencepanel}[2]{%
   \begin{minipage}[t]{0.49\linewidth}
@@ -21,7 +26,15 @@
   \end{minipage}%
 }
 
-\newcommand{\metric}[4]{\shortstack{#1\\[-0.10em]#2/#3/#4}}
+\newcommand{\spreadvalue}[1]{%
+  \ifdim #1pt<0.7pt\textcolor{GoodGreen}{#1}%
+  \else\ifdim #1pt>0.8pt\textcolor{ErrorRed}{#1}%
+\else\textcolor{WarningOrange}{#1}\fi\fi}
+\newcommand{\errorcount}[1]{%
+  \ifnum #1<3\textcolor{GoodGreen}{#1}%
+  \else\ifnum #1<10\textcolor{WarningOrange}{#1}%
+\else\textcolor{ErrorRed}{#1}\fi\fi}
+\newcommand{\metric}[4]{\shortstack{\spreadvalue{#1}\\[-0.10em]\errorcount{#2}/\errorcount{#3}/\errorcount{#4}}}
 
 \begin{document}
 \pagestyle{empty}
@@ -47,10 +60,10 @@
   \begin{tabular}{@{}l*{7}{c}@{}}
     \toprule
     \shortstack[l]{COMP\\LOGIC} &
-    \shortstack{FRIDA-1\\1 layer\\radix 17} & \shortstack{FRIDA-1\\1 layer\\radix 20} &
-    \shortstack{FRIDA-1\\2 layers\\radix 17} & \shortstack{FRIDA-1\\2 layers\\radix 20} &
-    \shortstack{FRIDA-2\\1 layer\\radix 17} & \shortstack{FRIDA-2\\2 layers\\radix 17} &
-    \shortstack{FRIDA-2\\3 layers\\radix 17} \\
+    \shortstack{\strut FRIDA-1\\\strut 1 layer\\\strut radix 1.7} & \shortstack{\strut FRIDA-1\\\strut 1 layer\\\strut radix 2.0} &
+    \shortstack{\strut FRIDA-1\\\strut 2 layers\\\strut radix 1.7} & \shortstack{\strut FRIDA-1\\\strut 2 layers\\\strut radix 2.0} &
+    \shortstack{\strut FRIDA-2\\\strut 1 layer\\\strut radix 1.7} & \shortstack{\strut FRIDA-2\\\strut 2 layers\\\strut radix 1.7} &
+    \shortstack{\strut FRIDA-2\\\strut 3 layers\\\strut radix 1.7} \\
     \midrule
     \shortstack[l]{\texttt{11110000}\\\texttt{00001111}} &
     \metric{11.859}{40}{184}{197} & \metric{2.933}{3}{95}{16} &
@@ -93,8 +106,8 @@
 
 \vspace{0.18cm}
 \small
-\noindent\textbf{$\sigma$ (LSB):} Top value: output-code spread across 100 fixed-input conversions at 10 MSps (1600 MBd); X/S/T below are counts out of 1,700 decisions.\par
-\noindent\textbf{X:} Comparator differential fails to maintain 0.3 V before COMP falls.\par
+\noindent\textbf{$\sigma$ (LSB):} Top value: output-code spread across 100 fixed-input conversions at 10 MSps (1600 MBd); green $<0.7$, orange $0.7$--$0.8$, red $>0.8$.\par
+\noindent\textbf{X:} Comparator differential fails to maintain 0.3 V before COMP falls; X/S/T counts out of 1,700 decisions are green $0$--$2$, orange $3$--$9$, red $\geq10$.\par
 \noindent\textbf{S:} SR outputs differ from the final comparator direction at LOGIC.\par
 \noindent\textbf{T:} SR outputs match with less than 200 ps setup before LOGIC.\par
 \end{document}
