@@ -355,6 +355,28 @@
   \note{This extends the preceding four isolated near-threshold hybrid Spectre decks with the fabricated comp\_sr schematic cell and its two adc\_digital BUFFD2LVT input buffers. The selected schematic clock branch is ADC01; the physical scope source is ADC03. All four zero-warning runs produce opposite B11 and B12 buffered output states. For B12, the buffered positive-side output crosses 0.6 V once before local COMP falls. The external LOGIC timing proxy is the simulated differential COMP pad fall plus the measured external LOGIC-minus-COMP-fall interval in the matching physical ADC03 10-MSPS capture: +0.614 ns for C5/L2, -0.016 ns for C6/L2. These are not capture flip-flop setup margins: probe-to-pad delays, scope channel skew, LOGIC receiver and clock tree, routed RC, actual P/N pad voltage and rails, source impedance, CDAC kickback, and physical ADC03 analog residue are unmodeled. The C6 B12 physical wrong-bit state therefore remains unexplained. Exact decks, raw outputs, logs, analysis source, and sr\_transition.csv are in build/diagnostics/frida1\_comp\_sr\_replay.}
 \end{frame}
 
+\begin{frame}{Schematic LOGIC path can capture a B12 change}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    D changes after local COMP rise (ns) & 1.819 & 1.819 & 2.135 & 2.135 \\
+    D settled before local LOGIC rise (ns) & 2.032 & 2.011 & 1.731 & 1.712 \\
+    Q changes after LOGIC rise (ns) & 0.063 & 0.063 & 0.081 & 0.081 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small The modeled stage-12 output is high after B11 and low after B12 in all four runs.\\
+  One PEX input trace and the two saved scope-clock shapes drive the replay.}
+  \par\medskip
+  {\small Stage enable is held high; real pad timing, CDAC loading, routed RC, and SAR state remain unmodeled.}
+  \slidesource{FRIDA-1 ADC01 schematic paths; saved ADC03 scope replay; TT/SS Spectre}
+  \note{This diagnostic adds the ADC01 LOGIC LVDS receiver, frida\_core selected clock branch, adc\_digital update gate and local clock buffers, sensitized N-side stage-12 comparator-to-D gates, and its EDFD2LVT enabled flip-flop. The saved ADC03 C5/L2 and C6/L2 COMP and LOGIC scope traces are aligned to the same 25-ns window, then mapped to symmetric P/N pad voltages at 0.9-V common mode. The same saved FRIDA-1 radix20 PEX input conversion is driven by ideal voltage sources. The digital path holds dac\_mode=1, clk\_init=0, and stage-12 enable=1. All four Spectre runs finish with zero warnings, and the selected DFF Q reads high after B11 and low after B12. This input trace gives the same B12 polarity for both clock widths, so it does not reproduce physical C5-high versus C6-low B12. The measured positive intervals in the table are simulation time between a 0.6-V D crossing and local 0.6-V LOGIC rise; they are not guaranteed physical setup margins. Actual pad voltages, ADC03 residue, board/package and probe delays, channel skew, routed RC, branch loading, rail variation, CDAC source impedance and kickback, and live one-hot SAR enable are absent. Thus the physical C6 wrong-bit state remains unexplained. Exact decks, raw traces, logs, analysis source, and capture\_timing.csv are in build/diagnostics/frida1\_comp\_logic\_replay.}
+\end{frame}
+
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_trajectory.pdf}
