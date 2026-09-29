@@ -377,6 +377,31 @@
   \note{This diagnostic adds the ADC01 LOGIC LVDS receiver, frida\_core selected clock branch, adc\_digital update gate and local clock buffers, sensitized N-side stage-12 comparator-to-D gates, and its EDFD2LVT enabled flip-flop. The saved ADC03 C5/L2 and C6/L2 COMP and LOGIC scope traces are aligned to the same 25-ns window, then mapped to symmetric P/N pad voltages at 0.9-V common mode. The same saved FRIDA-1 radix20 PEX input conversion is driven by ideal voltage sources. The digital path holds dac\_mode=1, clk\_init=0, and stage-12 enable=1. All four Spectre runs finish with zero warnings, and the selected DFF Q reads high after B11 and low after B12. This input trace gives the same B12 polarity for both clock widths, so it does not reproduce physical C5-high versus C6-low B12. The measured positive intervals in the table are simulation time between a 0.6-V D crossing and local 0.6-V LOGIC rise; they are not guaranteed physical setup margins. Actual pad voltages, ADC03 residue, board/package and probe delays, channel skew, routed RC, branch loading, rail variation, CDAC source impedance and kickback, and live one-hot SAR enable are absent. Thus the physical C6 wrong-bit state remains unexplained. Exact decks, raw traces, logs, analysis source, and capture\_timing.csv are in build/diagnostics/frida1\_comp\_logic\_replay.}
 \end{frame}
 
+\begin{frame}{Smaller comparator input does not reproduce the physical B12 split}
+  \centering
+  {\small D transition before local LOGIC rise (ns), when B11/B12 Q follows the driven input}
+  \par\medskip
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    PEX input gain & C5 TT & C6 TT & C5 SS & C6 SS \\
+    \midrule
+    10\% & -- & -- & 1.295 & 1.269 \\
+    3\% & -- & -- & 1.063 & 1.030 \\
+    1\% & 1.227 & 1.210 & 0.850 & 0.800 \\
+    0.3\% & 1.029 & 1.027 & B11 wrong & 0.566 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small At 1\% gain, all four runs capture the driven B11-high/B12-low pair.\\
+  At 0.3\%, C5 SS loses B11; both modeled B12 outputs remain low.}
+  \par\medskip
+  {\small Ideal input sources and the ADC01 schematic path do not model physical ADC03 residue or mismatch.}
+  \slidesource{Saved PEX input and ADC03 scope clocks; isolated ADC01 schematic path; 12 TT/SS Spectre runs}
+  \note{This one-conversion sensitivity diagnostic scales only the differential component of the saved FRIDA-1 radix20 PEX comparator input and preserves its common-mode trace. The physical ADC03 C5/L2 and C6/L2 external COMP and LOGIC shapes drive the same ADC01 schematic receiver, clock, comparator, SR, sensitized stage-12 gates, and enabled flip-flop as the preceding capture replay. Twelve completed Spectre cases have zero errors and warnings. The table reports the simulated D-fall lead over the local LOGIC rise only when Q is high after B11 and low after B12; dashes are unrun. The PEX B12 overdrive near COMP rise is approximately -3.46 mV, giving about -35 microvolts at 1 percent gain. At that gain the SS D lead remains 0.850 ns for C5 and 0.800 ns for C6, and both TT cases also capture the driven polarity. At 0.3 percent gain, the C5 SS B11 output is already low while C6 SS and both TT cases still capture the driven B11-high/B12-low pair. This is neither a measured physical input-residue sweep nor a stochastic noise simulation. Ideal comparator-input voltage sources, schematic ADC01 instead of physical ADC03, pad and clock delays, routed RC, source impedance and CDAC kickback, live SAR state, rail variation, and device mismatch remain unmodeled. Exact generated decks, raw traces, logs, regeneration and audit scripts, and input\_capture\_timing.csv are in build/diagnostics/frida1\_comp\_input\_margin.}
+\end{frame}
+
 \begin{frame}{Pad-voltage sweep has no clean 5/8 versus 6/8 split}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pad_reset_sensitivity.pdf}
