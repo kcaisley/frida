@@ -262,7 +262,12 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
     """
     read_dir = BASE_PATH / "build/scan_adc/20260926_172920_adc_sequence_static"
     paths = sorted(read_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5"))
-    catalogue = tuple((name, sequence) for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+    # The pinned physical captures predate the wider INIT-associated LOGIC pulse.
+    catalogue = tuple(
+        (name, dataclasses.replace(sequence, logic="00010000" + sequence.logic[8:]))
+        for name, sequence in SEQUENCES
+        if name.startswith("symbol160_init4_samp20_")
+    )
     expected_count = 16 * len(catalogue) * 3
     if len(paths) != expected_count:
         raise ValueError(f"100-ns campaign has {len(paths)}/{expected_count} captures in {read_dir}")

@@ -326,13 +326,21 @@ def test_fixed_input_grid_noctl_covers_all_adcs_and_three_rates(monkeypatch, seq
     assert all(p.tb.seq_logic_pattern == sequence.logic for p, _ in captured)
 
 
-def test_sequence_static_default_covers_continuous_catalogue(monkeypatch):
+def test_sequence_static_default_covers_init_logic_shortlist(monkeypatch):
     captured = []
     monkeypatch.setattr(runner.scan_adc_noctl, "scan", lambda params, **kwargs: captured.append(params))
     runner.adc_sequence_static()
-    continuous = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
-    assert len(continuous) == 29
-    assert len(captured) == 16 * len(continuous) * 3
+    names = (
+        "symbol160_init4_samp20_comp11110000_logic00001111",
+        "symbol160_init4_samp20_comp11110000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic10000111",
+        "symbol160_init4_samp20_comp11111000_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11000011",
+        "symbol160_init4_samp20_comp11111100_logic11100001",
+        "symbol160_init4_samp20_comp11111110_logic11100001",
+    )
+    selected = tuple(dict(SEQUENCES)[name] for name in names)
+    assert len(captured) == 4 * len(selected) * 3
     actual = {
         (
             p.observed_adc,
@@ -346,8 +354,8 @@ def test_sequence_static_default_covers_continuous_catalogue(monkeypatch):
     }
     expected = {
         (adc, seq.init, seq.samp, seq.comp, seq.logic, rate * 160)
-        for adc in range(16)
-        for seq in continuous
+        for adc in range(4)
+        for seq in selected
         for rate in (2e6, 6e6, 10e6)
     }
     assert actual == expected

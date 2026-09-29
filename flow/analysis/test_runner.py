@@ -135,6 +135,7 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     from flow.analysis.types import AnalysisWaveform
 
     physical = adc_measurement(np.tile([100, 101], 50_000), observed_adc=0)
+    historical_sequence = dataclasses.replace(sequence, logic="00010000" + sequence.logic[8:])
     physical = dataclasses.replace(
         physical,
         param=dataclasses.replace(
@@ -142,7 +143,7 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
             tb=dataclasses.replace(
                 physical.param.tb,
                 vin_diff=h.Vdc.Params(dc=0.05),
-                **sequence.as_tb_fields(),
+                **historical_sequence.as_tb_fields(),
             ),
         ),
     )
