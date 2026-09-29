@@ -327,6 +327,16 @@
   \note{All 49 cases enable Spectre device transient noise with a 25 GHz upper frequency and fixed seed. The four FRIDA-1 flavors have about 0.69--0.73 LSB code sigma from C5/L2 onward; FRIDA-2 three-layer radix17 reaches 0.545 LSB at C6/L3 but has no measured counterpart here. The 100-conversion run can easily miss rare bit errors: if each conversion had ADC03's measured 0.385 percent C5/L2 B12 event rate independently, the chance of observing zero such events in 100 is about 68 percent. This PEX testbench uses constant ideal input and supply sources, so it cannot reproduce the measured drifting aliased component without a separate source model. That gap does not exclude a physical comparator timing fault. Code spread alone does not establish correct transfer accuracy.}
 \end{frame}
 
+\begin{frame}{The 0.545-LSB PEX point has no ordinary CDAC closure}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.69\textheight,keepaspectratio]{\analysispath/pex_near_half_lsb_audit.pdf}
+  \par\smallskip
+  {\small C6/L3: 0/1600 CDAC-ready ordinary decisions; its 100 timing passes are B16 only.\\
+  One C6/L2 B13 event accounts for most of the observed spread difference.}
+  \slidesource{FRIDA-2 three-layer radix17 PEX code and timing exports; 100 conversions per recipe}
+  \note{The saved FRIDA-2 three-layer radix17 code exports give sigma 0.588 LSB at C5/L2, 0.649 at C6/L2, and 0.545 at C6/L3, each over 100 fixed-input conversions. C6/L2 and C6/L3 have identical codes at 94 of 100 paired conversion indices. At index 58, C6/L2 alone has B13 high, yielding code 2183 instead of 2179; removing that single C6/L2 conversion reduces its descriptive sigma to 0.562 LSB, close to C6/L3's 0.545. The deletion is a sensitivity diagnostic, not a valid replacement noise estimate. The saved 200-ps/1-mV timing screen finds 1,371/1,600 CDAC-ready ordinary updates and 1,471/1,700 full decision passes under C6/L2, but zero ready ordinary updates and zero ordinary full passes under C6/L3. Its 100 full passes are all B16, which has no CDAC update. The screen checks convergence to each final saved pre-COMP value, not DC accuracy; its failures do not prove all output codes are wrong. Nevertheless the 0.545-LSB C6/L3 fixed-input code spread does not demonstrate a timing-closed 0.5-LSB ADC, and FRIDA-2 lacks a matched physical capture. Exact counts and paths are in pex\_near\_half\_lsb\_audit.csv beside the Nord figure and regeneration source.}
+\end{frame}
+
 \begin{frame}{PEX timing closure across seven flavors}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_timing_closure_by_recipe_flavor.pdf}
