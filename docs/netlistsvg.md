@@ -11,6 +11,8 @@ opt
 write_json path/to/netlist.json
 ```
 
+For SystemVerilog, use `read_verilog -sv path/to/input.sv` instead; Yosys supports a subset of the language.
+
 Run the script with Yosys; add other Verilog files to `read_verilog` when needed.
 
 ```bash
