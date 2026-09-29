@@ -311,6 +311,28 @@
   \note{The pinned corrected 10-MSPS ADC03 C5/L2 and C6/L2 HDF5 scope traces are sampled about every 160 ps. A 25 ns window around B12 was converted to 158-point PWL sources, assuming pad\_p=0.9 V+Vscope/2 and pad\_n=0.9 V-Vscope/2. The four isolated TT/SS Spectre benches replay these waveforms through the ADC01 LVDS receiver, schematic clock tree, local gate, and comparator latch. The table reports the B12 interval; both latch outputs exceed 1.1 V and agree within 50 mV continuously for the stated stable margin before the next rise. All four runs finished with zero errors or warnings. This conditional replay narrows a simple pad receiver pulse-loss explanation, but the actual P/N pad voltages are not recorded; board/package, probe bandwidth, routed RC, rail variation, changing CDAC residue, LOGIC capture, and near-threshold stochastic comparator behavior are absent. The approximately 1.187 ns replayed differential pad low interval is near the 1.206 ns external physical half-level measurement, but that match cannot establish the same waveform at the chip pad. No working physical 6/8 case follows from this test.}
 \end{frame}
 
+\begin{frame}{Small PEX input reverses the isolated latch at 6/8}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    B12 stable resolution after rise (ns) & 1.384 & 1.375 & 1.584 & 1.584 \\
+    B12 resolution margin to fall (ns) & 1.850 & 2.471 & 1.662 & 2.275 \\
+    B12 stable precharge to next rise (ns) & 1.544 & 0.890 & 1.504 & 0.852 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small One saved PEX \texttt{vdac\_p/vdac\_n} trace changes from about +1.4 mV at B11\\
+  to -3.5 mV at B12; both latch output polarities reverse in all four cases.}
+  \par\medskip
+  {\small Ideal input sources omit CDAC impedance, kickback, SR/LOGIC capture, and the real pad waveform.}
+  \slidesource{One FRIDA-1 radix20 PEX conversion; physical COMP scope replay; isolated TT/SS latch benches}
+  \note{This hybrid diagnostic takes one saved C6/L2 FRIDA-1 two-layer radix20 PEX conversion's comparator input voltage traces at B10--B14 and aligns its B12 seq\_comp rise to the ADC macro COMP rise in the external-clock replay. It drives those same ideal voltage traces directly into the isolated comparator latch for both physical C5/L2 and C6/L2 scope-clock shapes, at TT and SS. The PEX B11/B12 input differences just before COMP rise are about +1.44 and -3.46 mV. In all four benches, the sign of out\_n minus out\_p reverses from B11 to B12; both output nodes subsequently rise above 1.1 V and agree within 50 mV continuously for the stated precharge margin. Resolution requires the signed difference to remain at least 0.3 V until COMP fall. Six diagnostic Spectre runs, including two static +1 mV controls, finish without warnings. The voltage source clamps the comparator input, unlike a floating CDAC top plate, so it omits source impedance, charge sharing, and kickback; it also omits SR/LOGIC capture, actual pad P/N waves, routed RC, and physical rail effects. One PEX conversion is not a measurement of physical 100,000-conversion error frequency. This isolated success does not establish working physical 6/8 operation.}
+\end{frame}
+
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_trajectory.pdf}
