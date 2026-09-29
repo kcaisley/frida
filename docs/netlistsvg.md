@@ -13,6 +13,10 @@ write_json path/to/netlist.json
 
 For SystemVerilog, use `read_verilog -sv path/to/input.sv` instead; Yosys supports a subset of the language.
 
+Read child files with `read_verilog -lib path/to/child.v` before the top file to keep their modules as boxes.
+
+If a child is already loaded, run `blackbox child_module` before `prep`.
+
 Run the script with Yosys; add other Verilog files to `read_verilog` when needed.
 
 ```bash
