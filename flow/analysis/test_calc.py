@@ -144,6 +144,54 @@ def test_waveform_jitter_uses_crossings_and_mean_period_by_default() -> None:
     np.testing.assert_allclose(calc.period_jitter(signal, axis, threshold=0.0, nominal_period=1.0), [0.0, 0.2])
 
 
+def test_jitter_axes_units_moving_reference_and_scalar_output() -> None:
+    axis = [-0.5, 0.5, 0.6, 1.4, 1.7, 2.7, 2.8, 3.4]
+    signal = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0]
+    absolute = calc.abs_jitter(signal, axis, threshold=0.0, nominal_period=1.0, x_unit="crossing_time", y_unit="rad")
+    assert isinstance(absolute, tuple)
+    crossing_time, phase = absolute
+    np.testing.assert_allclose(crossing_time, [0.0, 1.0, 2.2, 3.1])
+    np.testing.assert_allclose(phase, [0.0, 0.0, 0.4 * np.pi, 0.2 * np.pi])
+    absolute = calc.abs_jitter(
+        signal, axis, threshold=0.0, nominal_period=1.0, zero_ref=-0.1, x_unit="time", y_unit="ui"
+    )
+    assert isinstance(absolute, tuple)
+    reference_time, ui = absolute
+    np.testing.assert_allclose(reference_time, [-0.1, 0.9, 1.9, 2.9])
+    np.testing.assert_allclose(ui, [0.1, 0.1, 0.3, 0.2])
+    absolute = calc.abs_jitter(signal, axis, threshold=0.0, nominal_period=1.0, x_unit="cycle", y_unit="deg")
+    assert isinstance(absolute, tuple)
+    cycles, degrees = absolute
+    np.testing.assert_allclose(cycles, [1.0, 2.0, 3.0, 4.0])
+    np.testing.assert_allclose(degrees, [0.0, 0.0, 72.0, 36.0])
+    period_result = calc.period_jitter(signal, axis, threshold=0.0, bin_size=2, x_unit="cycle")
+    assert isinstance(period_result, tuple)
+    cycles, moving = period_result
+    np.testing.assert_allclose(cycles, [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(moving, [0.0, 0.1, -0.15])
+    period_result = calc.period_jitter(signal, axis, threshold=0.0, x_unit="time")
+    assert isinstance(period_result, tuple)
+    trailing_edges, period_error = period_result
+    np.testing.assert_allclose(trailing_edges, [1.0, 2.2, 3.1])
+    np.testing.assert_allclose(period_error, [-1.0 / 30.0, 1.0 / 6.0, -2.0 / 15.0])
+    assert calc.period_jitter(signal, axis, threshold=0.0, nominal_period=1.0, output_type="sd") == pytest.approx(
+        np.std([0.0, 0.2, -0.1])
+    )
+    with pytest.raises(ValueError, match="bin_size cannot"):
+        calc.period_jitter(signal, axis, threshold=0.0, nominal_period=1.0, bin_size=2)
+    with pytest.raises(ValueError, match="cannot have an x axis"):
+        calc.period_jitter(signal, axis, threshold=0.0, output_type="sd", x_unit="cycle")
+    assert np.isnan(calc.period_jitter([0.0], [0.0], output_type="sd"))
+
+
+def test_period_jitter_auto_threshold_uses_time_average() -> None:
+    axis = np.arange(18.0)
+    signal = [0, 2, 2, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 4, 4, 0, 0, 0]
+    assert calc.average(signal, axis) == pytest.approx(18.0 / 17.0)
+    np.testing.assert_allclose(calc.period_jitter(signal, axis), [-0.0441176470588234, 0.0441176470588234])
+    np.testing.assert_allclose(calc.period_jitter(signal, axis, threshold=2.0), [-1.0 / 12.0, 1.0 / 12.0])
+
+
 def test_eye_diagram_folds_requested_interval_into_waveform() -> None:
     axis = np.arange(0.0, 8.5, 0.5)
     signal = 2 * axis
@@ -152,6 +200,14 @@ def test_eye_diagram_folds_requested_interval_into_waveform() -> None:
     np.testing.assert_allclose(folded[[0, 4, 6], 1], [2.0, 6.0, 6.0])
     assert np.isnan(folded[5]).all()
     np.testing.assert_allclose(calc.eyeDiagram(np.arange(9.0), 1.0, 7.0, 2.0)[-1], [2.0, 7.0])
+
+
+def test_eye_diagram_interpolates_uneven_off_grid_windows() -> None:
+    axis = [0.0, 0.8, 1.7, 2.8, 4.2]
+    folded = calc.eyeDiagram(np.asarray(axis) * 2.0, 0.5, 3.3, 1.5, axis=axis)
+    np.testing.assert_allclose(folded[:4], [[0.0, 1.0], [0.3, 1.6], [1.2, 3.4], [1.5, 4.0]])
+    assert np.isnan(folded[4]).all()
+    np.testing.assert_allclose(folded[5:], [[0.0, 4.0], [0.8, 5.6], [1.3, 6.6]])
 
 
 def test_eye_segments_preserve_origin_identity_and_window_bounds() -> None:

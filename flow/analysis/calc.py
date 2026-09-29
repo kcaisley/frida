@@ -145,16 +145,21 @@ def eyeDiagram(
     trigger_period = period if trigger_period is None else trigger_period
     if not math.isfinite(trigger_period) or trigger_period <= 0:
         raise ValueError("trigger_period must be finite and positive")
-    selected = (coordinates >= start) & (coordinates <= stop)
-    values, coordinates = values[selected], coordinates[selected]
     if not len(values):
         return np.empty((0, 2), dtype=np.float64)
-    origins = np.arange(start, stop, trigger_period)
-    segments = _eye_segments(values, coordinates, period, origins, window=(0.0, 1.0))
+    first, last = max(start, float(coordinates[0])), min(stop, float(coordinates[-1]))
+    if first >= last:
+        return np.empty((0, 2), dtype=np.float64)
+    segments = []
+    for origin in np.arange(start, stop, trigger_period):
+        window_start, window_stop = max(first, origin), min(last, origin + period)
+        if window_start < window_stop:
+            window_values, window_axis = clip(values, coordinates, window_start, window_stop)
+            segments.append(np.column_stack((window_axis - origin, window_values)))
     if not segments:
         return np.empty((0, 2), dtype=np.float64)
     separator = np.full((1, 2), np.nan)
-    return np.vstack([part for _, segment in segments for part in (segment * (period, 1.0), separator)][:-1])
+    return np.vstack([part for segment in segments for part in (segment, separator)][:-1])
 
 
 def _eye_segments(
@@ -395,16 +400,45 @@ def abs_jitter(
     edge: str = "rising",
     nominal_period: float | None = None,
     zero_ref: float | None = None,
-) -> np.ndarray:
-    """Return absolute crossing-time jitter against a periodic reference."""
+    x_unit: str | None = None,
+    y_unit: str = "s",
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """Return absolute crossing-time jitter against a periodic reference.
+
+    Request ``x_unit`` to receive axis/jitter arrays. ``time`` uses ideal
+    reference times; ``crossing_time`` uses measured edge times.
+    """
     signal, axis = _waveform(signal, axis)
+    if x_unit not in {None, "cycle", "time", "reference_time", "crossing_time"}:
+        raise ValueError("x_unit must be cycle, time, reference_time, or crossing_time")
+    if y_unit not in {"s", "ui", "rad", "deg"}:
+        raise ValueError("y_unit must be s, ui, rad, or deg")
+    if not len(signal):
+        empty = np.empty(0, dtype=np.float64)
+        return empty if x_unit is None else (empty, empty.copy())
     if threshold is None:
         threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
     edges = cross(signal, axis, threshold, edge=edge)
     if len(edges) < 2 and nominal_period is None:
-        return np.empty(0, dtype=np.float64)
+        empty = np.empty(0, dtype=np.float64)
+        return empty if x_unit is None else (empty, empty.copy())
     period = float((edges[-1] - edges[0]) / (len(edges) - 1)) if nominal_period is None else nominal_period
-    return _abs_jitter_edges(edges, period, zero_ref=zero_ref)
+    jitter = _abs_jitter_edges(edges, period, zero_ref=zero_ref)
+    scale = {"s": 1.0, "ui": 1.0 / period, "rad": 2.0 * math.pi / period, "deg": 360.0 / period}
+    jitter *= scale[y_unit]
+    if x_unit is None:
+        return jitter
+    if not len(edges):
+        empty = np.empty(0, dtype=np.float64)
+        return empty, jitter
+    origin = edges[0] if zero_ref is None else zero_ref
+    if x_unit == "cycle":
+        x = np.arange(1, len(edges) + 1, dtype=np.float64)
+    elif x_unit == "crossing_time":
+        x = edges.copy()
+    else:
+        x = origin + np.arange(len(edges)) * period
+    return x, jitter
 
 
 def period_jitter(
@@ -414,12 +448,44 @@ def period_jitter(
     threshold: float | None = None,
     edge: str = "rising",
     nominal_period: float | None = None,
-) -> np.ndarray:
-    """Return crossing intervals minus their mean or an explicit period."""
+    bin_size: int = 0,
+    x_unit: str | None = None,
+    output_type: str = "plot",
+) -> np.ndarray | tuple[np.ndarray, np.ndarray] | float:
+    """Return period deviations or their standard deviation.
+
+    A positive ``bin_size`` compares each period with the average of up to
+    that many periods ending at the current one.
+    """
     signal, axis = _waveform(signal, axis)
+    if not isinstance(bin_size, int) or bin_size < 0:
+        raise ValueError("bin_size must be a nonnegative integer")
+    if x_unit not in {None, "cycle", "time"}:
+        raise ValueError("x_unit must be cycle or time")
+    if output_type not in {"plot", "sd"} or (output_type == "sd" and x_unit is not None):
+        raise ValueError("output_type must be plot or sd; sd cannot have an x axis")
+    if bin_size and nominal_period is not None:
+        raise ValueError("bin_size cannot be combined with nominal_period")
+    if len(signal) < 2:
+        empty = np.empty(0, dtype=np.float64)
+        return math.nan if output_type == "sd" else empty if x_unit is None else (empty, empty.copy())
     if threshold is None:
-        threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
-    return _period_jitter_edges(cross(signal, axis, threshold, edge=edge), nominal_period)
+        threshold = average(signal, axis)
+    edges = cross(signal, axis, threshold, edge=edge)
+    if bin_size:
+        periods = np.diff(edges)
+        jitter = np.empty(len(periods))
+        for index in range(len(periods)):
+            jitter[index] = periods[index] - average(periods[max(0, index - bin_size + 1) : index + 1])
+    else:
+        jitter = _period_jitter_edges(edges, nominal_period)
+    if output_type == "sd":
+        finite = jitter[np.isfinite(jitter)]
+        return stddev(finite) if len(finite) else math.nan
+    if x_unit is None:
+        return jitter
+    x = np.arange(1, len(edges), dtype=np.float64) if x_unit == "cycle" else edges[1:].copy()
+    return x, jitter
 
 
 def dnl(counts: Sequence[int] | np.ndarray, *, ideal_count: float | None = None) -> np.ndarray:
