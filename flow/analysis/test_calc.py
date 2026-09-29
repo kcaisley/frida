@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 
 
@@ -129,9 +128,11 @@ def test_median_period_frequency_rejects_nearby_edges_and_long_gaps() -> None:
     signal = np.full(len(axis), -1.0)
     for edge in (1.0, 1.5, 3.0, 5.0, 11.0):
         signal[(axis >= edge) & (axis < edge + 0.25)] = 1.0
-    assert metrics.median_period_frequency(signal, axis, threshold=0.0, minimum_separation=1.0) == pytest.approx(0.5)
+    assert calc.frequency(
+        signal, axis, threshold=0.0, method="median_period", minimum_separation=1.0, minimum_crossings=3
+    ) == pytest.approx(0.5)
     assert np.isnan(
-        metrics.median_period_frequency(signal, axis, threshold=0.0, minimum_separation=1.0, minimum_crossings=5)
+        calc.frequency(signal, axis, threshold=0.0, method="median_period", minimum_separation=1.0, minimum_crossings=5)
     )
     assert calc.frequency(signal, axis, threshold=0.0) == pytest.approx(0.4)
 
@@ -241,23 +242,7 @@ def test_transfer_linearity_composes_from_calculator_operations() -> None:
     np.testing.assert_allclose(edges, [0.0, 1.0, 2.0])
     np.testing.assert_allclose(calc.dnl([90, 100, 110], ideal_count=100), [-0.1, 0.0, 0.1])
     np.testing.assert_allclose(calc.inl([-0.1, 0.0, 0.1], endpoint_correct=False), [-0.1, -0.1, 0.0])
-    assert metrics.linear_fit([1.0, 3.0, 5.0], [0.0, 1.0, 2.0]) == pytest.approx((2.0, 1.0))
     assert np.median([1.0, 2.0, 9.0]) == pytest.approx(2.0)
     np.testing.assert_allclose(np.percentile([0.0, 10.0], (25.0, 75.0)), [2.5, 7.5])
     assert calc.xmin([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(1.0)
     assert calc.xmax([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(2.0)
-
-
-def test_sine_fit_recovers_signal_with_frequency_error() -> None:
-    sample_rate = 1000.0
-    time_s = np.arange(1000) / sample_rate
-    signal = 2.0 + 3.0 * np.sin(2.0 * np.pi * 41.25 * time_s + 0.4)
-    fit = metrics.sine_fit(signal, sample_rate=sample_rate, frequency=41.0, frequency_search_fraction=0.02)
-    assert fit.frequency_hz == pytest.approx(41.25, abs=1e-5)
-    assert fit.amplitude == pytest.approx(3.0, abs=1e-5)
-    assert fit.phase_rad == pytest.approx(0.4, abs=1e-5)
-    assert fit.offset == pytest.approx(2.0, abs=1e-5)
-    assert fit.residual_rms < 1e-5
-    np.testing.assert_allclose(fit.time_s, time_s)
-    np.testing.assert_allclose(fit.fitted, signal, atol=1e-5)
-    np.testing.assert_allclose(fit.residual, np.zeros_like(signal), atol=1e-5)

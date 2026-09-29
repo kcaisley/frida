@@ -348,15 +348,31 @@ def frequency(
     *,
     threshold: float | None = None,
     edge: str = "rising",
+    method: str = "span",
+    minimum_separation: float = 0.0,
+    minimum_crossings: int = 2,
 ) -> float:
-    """Return average cycle frequency from the first and last threshold crossing."""
+    """Measure crossing frequency over the full span or median adjacent period.
+
+    A minimum crossing separation can reject closely spaced spurious edges.
+    """
+    if method not in {"span", "median_period"}:
+        raise ValueError("method must be 'span' or 'median_period'")
+    if not math.isfinite(minimum_separation) or minimum_separation < 0 or minimum_crossings < 2:
+        raise ValueError("minimum_separation must be nonnegative and minimum_crossings at least two")
     signal, axis = _waveform(signal, axis)
     if threshold is None:
         threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
     crossings = cross(signal, axis, threshold, edge=edge)
-    if len(crossings) < 2:
+    retained: list[float] = []
+    for crossing in crossings:
+        if not retained or crossing - retained[-1] >= minimum_separation:
+            retained.append(float(crossing))
+    if len(retained) < minimum_crossings:
         return math.nan
-    return float((len(crossings) - 1) / (crossings[-1] - crossings[0]))
+    if method == "median_period":
+        return 1.0 / float(np.median(np.diff(retained)))
+    return (len(retained) - 1) / (retained[-1] - retained[0])
 
 
 def _edge_times(edges: Sequence[float] | np.ndarray) -> np.ndarray:

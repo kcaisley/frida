@@ -15,6 +15,7 @@ from flow.adc import AdcParams
 from flow.adc.sequences import SEQUENCES
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
+    _sine_fit,
     analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
     analyze_adc_decision_paths,
@@ -1323,3 +1324,18 @@ def test_adc_timing_closure_marks_missing_logic_unknown_instead_of_guessing() ->
     assert np.isnan(result.logic_rise_s[0])
     assert not result.passed[0]
     assert np.all(result.passed[1:])
+
+
+def test_sine_fit_recovers_signal_with_frequency_error() -> None:
+    sample_rate = 1000.0
+    time_s = np.arange(1000) / sample_rate
+    signal = 2.0 + 3.0 * np.sin(2.0 * np.pi * 41.25 * time_s + 0.4)
+    fit = _sine_fit(signal, sample_rate=sample_rate, frequency=41.0, frequency_search_fraction=0.02)
+    assert fit.frequency_hz == pytest.approx(41.25, abs=1e-5)
+    assert fit.amplitude == pytest.approx(3.0, abs=1e-5)
+    assert fit.phase_rad == pytest.approx(0.4, abs=1e-5)
+    assert fit.offset == pytest.approx(2.0, abs=1e-5)
+    assert fit.residual_rms < 1e-5
+    np.testing.assert_allclose(fit.time_s, time_s)
+    np.testing.assert_allclose(fit.fitted, signal, atol=1e-5)
+    np.testing.assert_allclose(fit.residual, np.zeros_like(signal), atol=1e-5)

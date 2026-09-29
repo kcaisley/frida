@@ -34,7 +34,6 @@ import numpy as np
 import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
-from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
@@ -500,10 +499,11 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
                 )
 
-            measured_frequency_hz = metrics.median_period_frequency(
+            measured_frequency_hz = calc.frequency(
                 samples,
                 times,
                 threshold=crossing_level_v,
+                method="median_period",
                 minimum_separation=0.75 / AWG_FREQUENCY_HZ,
                 minimum_crossings=3,
             )

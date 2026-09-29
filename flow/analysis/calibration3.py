@@ -27,9 +27,9 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import log_ndtr, ndtr
 
-from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
+from flow.analysis.adc import _code_density as _adc_code_density
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 from flow.caparray import get_caparray_weights
 
@@ -316,7 +316,7 @@ def _code_density(
     decoded = np.rint(decisions[retained].astype(np.float64) @ weights).astype(np.int64)
     decoded = np.clip(decoded, 0, code_max)
     counts = np.bincount(decoded, minlength=code_max + 1)
-    return metrics.code_density(counts, first_code=1, last_code=code_max - 1)
+    return _adc_code_density(counts, first_code=1, last_code=code_max - 1)
 
 
 def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:
@@ -351,7 +351,7 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
 
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = metrics.linear_fit(ramp.reset_conversion_index, reset_number)
+    period_samples, first_reset_sample = np.polyfit(reset_number, ramp.reset_conversion_index, 1)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     inferred_vin_diff_v = ramp.vin_diff_min_v + phase * (ramp.vin_diff_max_v - ramp.vin_diff_min_v)
     cycle_index = np.floor((sample - first_reset_sample) / period_samples).astype(np.int64)

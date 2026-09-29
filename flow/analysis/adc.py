@@ -6,14 +6,15 @@ import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from itertools import pairwise
+from typing import Any, NamedTuple
 
 import hdl21 as h
 import numpy as np
 from basil.HL.tektronix_oscilloscope import CapturedWaveform
+from scipy.optimize import minimize_scalar
 
 from flow.adc.sequences import AdcSequence
 from flow.adc.subckt import AdcNets
-from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.types import (
     AdcDecisionSelection,
@@ -244,6 +245,75 @@ def _input_frequency_hz(measurement: MeasAdc) -> float:
     return float(source.freq)
 
 
+class _SineFit(NamedTuple):
+    """Least-squares sinusoid parameters and aligned waveform samples."""
+
+    frequency_hz: float
+    amplitude: float
+    phase_rad: float
+    offset: float
+    residual_rms: float
+    time_s: np.ndarray
+    fitted: np.ndarray
+    residual: np.ndarray
+
+
+def _sine_fit(
+    signal: Sequence[float] | np.ndarray,
+    *,
+    sample_rate: float,
+    frequency: float,
+    frequency_search_fraction: float = 0.0,
+) -> _SineFit:
+    """Fit a sine, cosine, and offset at a known or nearby frequency."""
+    signal = np.asarray(signal, dtype=np.float64)
+    if signal.ndim != 1 or len(signal) < 8 or not np.all(np.isfinite(signal)):
+        raise ValueError("sine fit requires at least eight finite one-dimensional samples")
+    if not math.isfinite(sample_rate) or sample_rate <= 0:
+        raise ValueError("sample_rate must be finite and positive")
+    if not math.isfinite(frequency) or not 0 < frequency < sample_rate / 2:
+        raise ValueError("frequency must be finite and between zero and Nyquist")
+    if not math.isfinite(frequency_search_fraction) or not 0 <= frequency_search_fraction < 1:
+        raise ValueError("frequency_search_fraction must be finite and in [0, 1)")
+    time_s = np.arange(signal.size, dtype=np.float64) / sample_rate
+    ones = np.ones(signal.size, dtype=np.float64)
+
+    def fit_at_frequency(frequency_hz: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        phase = 2.0 * np.pi * frequency_hz * time_s
+        design = np.column_stack((np.sin(phase), np.cos(phase), ones))
+        coefficients = np.linalg.lstsq(design, signal, rcond=None)[0]
+        fitted = design @ coefficients
+        residual = signal - fitted
+        return coefficients, fitted, residual, calc.average(residual * residual)
+
+    if frequency_search_fraction:
+        maximum_offset_hz = min(frequency * frequency_search_fraction, 0.45 * sample_rate / signal.size)
+        lower_hz = max(np.nextafter(0.0, 1.0), frequency - maximum_offset_hz)
+        upper_hz = min(np.nextafter(sample_rate / 2.0, 0.0), frequency + maximum_offset_hz)
+        result = minimize_scalar(
+            lambda frequency_hz: fit_at_frequency(float(frequency_hz))[3],
+            bounds=(lower_hz, upper_hz),
+            method="bounded",
+            options={"xatol": max(1e-9, frequency * 1e-10)},
+        )
+        if not result.success:
+            raise RuntimeError(f"sine frequency fit failed: {result.message}")
+        frequency = float(result.x)
+
+    coefficients, fitted, residual, residual_power = fit_at_frequency(frequency)
+    sine_coefficient, cosine_coefficient, offset = (float(value) for value in coefficients)
+    return _SineFit(
+        frequency_hz=frequency,
+        amplitude=math.hypot(sine_coefficient, cosine_coefficient),
+        phase_rad=math.atan2(cosine_coefficient, sine_coefficient),
+        offset=offset,
+        residual_rms=math.sqrt(residual_power),
+        time_s=time_s,
+        fitted=fitted,
+        residual=residual,
+    )
+
+
 def analyze_adc_dynamic(
     measurement: MeasAdc,
     *,
@@ -261,7 +331,7 @@ def analyze_adc_dynamic(
         raise ValueError("sample_rate_hz must be finite and positive")
     if maximum_harmonic_order < 2:
         raise ValueError("maximum_harmonic_order must be at least two")
-    fit = metrics.sine_fit(
+    fit = _sine_fit(
         measured_dout,
         sample_rate=sample_rate_hz,
         frequency=input_frequency_hz,
@@ -356,6 +426,61 @@ def analyze_adc_transfer(
     )
 
 
+def _code_density(
+    counts: Sequence[int] | np.ndarray,
+    *,
+    first_code: int = 1,
+    last_code: int | None = None,
+) -> dict[str, Any]:
+    """Calculate code-density DNL and endpoint-corrected INL."""
+
+    counts = np.asarray(counts, dtype=np.int64)
+    if counts.ndim != 1 or not len(counts):
+        raise ValueError("histogram counts must be a non-empty one-dimensional array")
+    last_code = len(counts) - 2 if last_code is None else last_code
+    if not 0 <= first_code <= last_code < len(counts):
+        raise ValueError(f"code range must fit within 0..{len(counts) - 1}")
+    codes = np.arange(first_code, last_code + 1, dtype=np.int64)
+    active_counts = counts[first_code : last_code + 1]
+    ideal_count = calc.average(active_counts)
+    dnl_values = calc.dnl(active_counts, ideal_count=ideal_count)
+    inl_values = calc.inl(dnl_values)
+    return {
+        "codes": codes,
+        "counts": active_counts,
+        "ideal_count": ideal_count,
+        "dnl": dnl_values,
+        "inl": inl_values,
+        "missing_codes": int(np.count_nonzero(active_counts == 0)),
+    }
+
+
+def _code_transitions(
+    inputs: Sequence[float] | np.ndarray,
+    outputs: Sequence[float] | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Interpolate input coordinates at each half-code transition."""
+
+    inputs = np.asarray(inputs, dtype=np.float64)
+    outputs = np.asarray(outputs, dtype=np.float64)
+    if inputs.ndim != 1 or outputs.ndim != 1 or len(inputs) != len(outputs):
+        raise ValueError("transition inputs and outputs must be aligned")
+    if len(inputs) < 2:
+        return np.asarray([], dtype=np.int64), np.asarray([], dtype=np.float64)
+    order = np.argsort(inputs)
+    inputs = inputs[order]
+    outputs = outputs[order]
+    direction = 1.0 if outputs[-1] >= outputs[0] else -1.0
+    increasing = direction * outputs
+    if np.any(np.diff(increasing) < 0):
+        raise ValueError("code transition extraction requires a monotonic transfer")
+    first = math.ceil(increasing[0] - 0.5)
+    last = math.floor(increasing[-1] - 0.5)
+    codes = np.arange(first, last + 1, dtype=np.int64)
+    transitions = np.interp(codes + 0.5, increasing, inputs)
+    return np.asarray(direction * codes, dtype=np.int64), transitions
+
+
 def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> AnalysisAdcNonlinearity:
     inputs = measurement.daq.vin_diff_v
     decoded_dout = np.asarray(decoded_dout, dtype=np.float64)
@@ -363,7 +488,7 @@ def _endpoint_nonlinearity(measurement: MeasAdc, decoded_dout: np.ndarray) -> An
     if len(unique_inputs) < 3:
         raise ValueError("endpoint nonlinearity requires at least three input points")
     mean_dout = np.asarray([calc.average(decoded_dout[inverse == index]) for index in range(len(unique_inputs))])
-    transition_code, transition_input = metrics.code_transitions(unique_inputs, mean_dout)
+    transition_code, transition_input = _code_transitions(unique_inputs, mean_dout)
     if len(transition_input) < 2:
         raise ValueError("endpoint nonlinearity spans fewer than two code transitions")
     endpoint_lsb_v = float((transition_input[-1] - transition_input[0]) / (len(transition_input) - 1))
@@ -397,7 +522,7 @@ def _code_density_nonlinearity(
         raise ValueError(f"ADC measurement contains no codes in 0..{number_codes - 1}")
     counts = np.bincount(valid, minlength=number_codes)
     first_code, last_code = code_range or (1, number_codes - 2)
-    result = metrics.code_density(counts, first_code=first_code, last_code=last_code)
+    result = _code_density(counts, first_code=first_code, last_code=last_code)
     return AnalysisAdcNonlinearity(
         method="code_density",
         code=result["codes"],
@@ -531,7 +656,7 @@ def analyze_adc_ramp(
     if len(reset_conversion_index) < 2:
         raise ValueError("ADC ramp analysis requires at least two visible sawtooth resets")
     reset_number = np.arange(len(reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = metrics.linear_fit(reset_conversion_index, reset_number)
+    period_samples, first_reset_sample = np.polyfit(reset_number, reset_conversion_index, 1)
     if not math.isfinite(period_samples) or period_samples <= 1.0:
         raise ValueError("inferred ADC ramp period is invalid")
     reset_residual_samples = reset_conversion_index - (period_samples * reset_number + first_reset_sample)
@@ -559,7 +684,7 @@ def analyze_adc_ramp(
     curves = []
     for decoding, label, weights, decoded in decodings:
         counts = np.bincount(decoded[retained], minlength=number_codes).astype(np.int64)
-        density = metrics.code_density(counts, first_code=first_code, last_code=last_code)
+        density = _code_density(counts, first_code=first_code, last_code=last_code)
         transfer_sum = np.bincount(transfer_bin[retained], weights=decoded[retained], minlength=number_codes)
         transfer_mean_dout = transfer_sum[populated] / transfer_sample_count[populated]
         curves.append(
