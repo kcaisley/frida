@@ -269,6 +269,27 @@
   \note{In all 78,400 ordinary PEX decisions, both saved regenerative latch nodes rise above 1.1 V and differ by no more than 50 mV continuously before the next COMP rise. Across all seven flavors, the minimum stable margin is about 1.546 ns for C5/L2, 0.906 ns for C6/L2, and 0.286 ns for C7/L3. The extracted ADC macro includes its local comparator clock gate, but its seq\_comp port receives ideal 31.25 ps Vbit transitions and nominal supply sources. Physical COMP instead reaches the macro through an LVDS P/N pad receiver and chip-level clock delivery, after the board and package; none of those upstream elements is in this PEX testbench. The saved scope hookup records only one external COMP trace and no internal latch nodes, so it cannot establish the differential pad waveform or silicon reset.}
 \end{frame}
 
+\begin{frame}{Nominal pad-to-latch path keeps a 6/8 low pulse}
+  \centering
+  {\small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & 5/8 TT & 6/8 TT & 5/8 SS & 6/8 SS \\
+    \midrule
+    Differential pad low (ns) & 1.875 & 1.250 & 1.875 & 1.250 \\
+    Comparator latch clock low (ns) & 1.840 & 1.215 & 1.828 & 1.202 \\
+    Latch outputs precharged after fall (ns) & 0.247 & 0.253 & 0.271 & 0.280 \\
+    Stable until next clock rise (ns) & 1.593 & 0.962 & 1.558 & 0.922 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small Four isolated pulses per case, with a clean 520-ps differential pad ramp.\\
+  The physical pad waveform, routing, SAR/CDAC state, and LOGIC capture remain unmodeled.}
+  \slidesource{Pruned FRIDA-1 full-chip schematic CDL; four zero-warning Spectre runs}
+  \note{This isolated ADC01 path contains the transistor-level LVDS pad receiver, schematic core clock buffers, local clock gate, and comparator latch. The four cases use a 5 ns period, 3.125 or 3.750 ns high time at the differential pad crossing, 0.9 V common mode, 1 V peak-to-peak differential swing, 520 ps P/N ramps, 1.2 V rails, fixed 100 mV comparator input, and TT or SS device corner. Median values are over four complete low intervals per case. At 6/8 the nominal path reduces the pad low interval by only about 35 ps at TT or 48 ps at SS; both latch outputs rise above 1.1 V and agree within 50 mV continuously for 0.962 or 0.922 ns before the next clock rise. This rules out severe pulse loss in this simplified schematic stimulus, not in physical silicon. The model has no routed parasitics, bond wire, PCB/cable, measured P/N pad waveform, supply disturbance, SAR/CDAC updates, or LOGIC capture. The external physical C6/L2 half-level B12 interval is about 1.206 ns and its low depth is shallower than C5/L2, but a similar interval does not imply the same differential pad waveform. The 49-case ADC PEX separately includes local clock gate and dynamic ADC operation but drives ideal clocks directly at its macro port.}
+\end{frame}
+
 \begin{frame}{PEX decision paths: FRIDA-1 two-layer radix20, C5/L2}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\pexpath/spice_frida1_2layer_radix20_symbol160_init4_samp20_comp11111000_logic11000011_trajectory.pdf}
