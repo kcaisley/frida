@@ -8,6 +8,7 @@ import pytest
 from flow.adc.sequences import (
     SEQUENCES,
     AdcSequence,
+    symbol160_init4_samp24_comp11111100_logic00000010,
     symbol256_init8_samp16_comp11110000_logic00001111,
 )
 from flow.adc.sim import AdcTb, AdcTbParams
@@ -118,8 +119,9 @@ def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(name, sequence
     bits = np.array([int(bit) for bit in sequence.logic])
     rises = np.flatnonzero((bits == 1) & (np.roll(bits, 1) == 0))
     falls = np.flatnonzero((bits == 0) & (np.roll(bits, 1) == 1))
-    assert rises.tolist() == [3] + [24 + 8 * bit + start for bit in range(16)]
-    assert falls.tolist() == [4] + [24 + 8 * bit + start + width for bit in range(16)]
+    init_logic_rise, init_logic_fall = (2, 6) if symbols == 160 else (3, 4)
+    assert rises.tolist() == [init_logic_rise] + [24 + 8 * bit + start for bit in range(16)]
+    assert falls.tolist() == [init_logic_fall] + [24 + 8 * bit + start + width for bit in range(16)]
     assert _sequence_logic_timing(sequence.comp, sequence.logic) == (8, start)
 
 
@@ -134,8 +136,20 @@ def test_duty_matrix_covers_every_pair_and_preserves_pause_only_changes():
     }
     for name, short in duty_sequences[:28]:
         long = recipes[name.replace("symbol160_", "symbol256_")]
-        for signal in ("init", "samp", "comp", "logic"):
+        for signal in ("init", "samp", "comp"):
             assert getattr(long, signal) == getattr(short, signal) + "0" * 96
+        assert short.logic[:8] == "00111100"
+        assert long.logic == "00010000" + short.logic[8:] + "0" * 96
+
+
+def test_all_160_symbol_init_logic_pulses_span_symbols_two_through_five():
+    short = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_")) + (
+        symbol160_init4_samp24_comp11111100_logic00000010,
+    )
+    assert len(short) == 30
+    for sequence in short:
+        assert sequence.init[:8] == "11110000"
+        assert sequence.logic[:8] == "00111100"
 
 
 @pytest.mark.parametrize("name,sequence", SEQUENCES)
@@ -176,7 +190,7 @@ def test_flat_catalogue_preserves_all_reviewed_channel_rows():
         for name, sequence in sorted(SEQUENCES)
     )
     assert (
-        hashlib.sha256(rows.encode()).hexdigest() == "493723c09e8f18515d7693c5138795b854868f0928994f1033b342797674b48f"
+        hashlib.sha256(rows.encode()).hexdigest() == "785b4bb014a0bbf5955edcef7dc7900e7fea4158c74d776a9eac6c7c687ba957"
     )
 
 
@@ -188,7 +202,7 @@ def test_continuous_catalogue_keeps_complete_terminal_comp_word():
     assert repaired.samp == SEQUENCES[21][1].samp
     assert repaired.comp == SEQUENCES[21][1].comp
     assert [index for index, bit in enumerate(repaired.logic) if bit == "1" and repaired.logic[index - 1] == "0"] == [
-        3,
+        2,
         *(30 + 8 * index for index in range(16)),
     ]
     for _name, sequence in continuous:

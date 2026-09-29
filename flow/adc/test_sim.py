@@ -712,7 +712,7 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
             "1111" + "0" * 156,
             "0000" + "1" * 20 + "0" * 136,
             "0" * 24 + comp_word * 17,
-            "0001" + "0" * 20 + first_logic + logic_word * 15 + last_logic,
+            "001111" + "0" * 18 + first_logic + logic_word * 15 + last_logic,
         )
         assert (
             params.seq_init_pattern,

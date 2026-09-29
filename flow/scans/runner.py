@@ -92,7 +92,8 @@ def adc_sample_rate_static() -> Path:
 
 def adc_sequence_static(
     *,
-    adc_indices: tuple[int, ...] = tuple(range(16)),
+    # TODO: Restore tuple(range(16)) after the INIT-LOGIC check.
+    adc_indices: tuple[int, ...] = (0, 1, 2, 3),
     nominal_conversion_rates_hz: tuple[float, ...] = (2.0e6, 6.0e6, 10.0e6),
     sequences: tuple[AdcSequence, ...] | None = None,
     conversions: int = 100_000,
@@ -100,7 +101,7 @@ def adc_sequence_static(
 ) -> Path:
     """Capture named sequences with manual 50-mV input and 700-mV common mode.
 
-    Defaults cover all sixteen ADCs and 29 continuous recipes at 320/960/1600 MBd.
+    Defaults cover ADC00--03 and seven continuous recipes at 320/960/1600 MBd.
     These recipes repeat in 160 symbols (2/6/10 MSPS). Explicitly selected
     long recipes retain their 256-symbol idle interval.
     Select all ADCs and a single sequence for a grid, or the complete catalogue
@@ -108,7 +109,18 @@ def adc_sequence_static(
     """
     board_id = "00"
     if sequences is None:
-        sequences = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
+        # TODO: Restore all 29 continuous recipes after the INIT-LOGIC check.
+        names = (
+            "symbol160_init4_samp20_comp11110000_logic00001111",
+            "symbol160_init4_samp20_comp11110000_logic10000111",
+            "symbol160_init4_samp20_comp11111000_logic10000111",
+            "symbol160_init4_samp20_comp11111000_logic11000011",
+            "symbol160_init4_samp20_comp11111100_logic11000011",
+            "symbol160_init4_samp20_comp11111100_logic11100001",
+            "symbol160_init4_samp20_comp11111110_logic11100001",
+        )
+        catalogue = dict(SEQUENCES)
+        sequences = tuple(catalogue[name] for name in names)
     if not adc_indices or not nominal_conversion_rates_hz or not sequences:
         raise ValueError("ADC, rate, and sequence selections must be nonempty")
     catalogue = dict(SEQUENCES).values()

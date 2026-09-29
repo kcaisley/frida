@@ -5,6 +5,8 @@ relative to COMP rising. Every catalogue sequence starts at INIT rising;
 all four rows share that origin. The continuous 160-symbol recipes give every
 terminal COMP pulse a complete word by shortening the historical 24-symbol sample.
 Historical captures may retain a different cyclic RAM phase.
+Their INIT-associated LOGIC pulse spans symbols 2--5; padded 256-symbol
+recipes retain the historical one-symbol marker at symbol 3.
 Channel rows are private; callers select complete sequences below.
 """
 
@@ -244,44 +246,44 @@ _logic256_start7_width4_train35_width4_pulses16 = (
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train28_width4_pulses16 = (
-    "00010000 00000000 00000000 00001111 00001111 00001111 00001111 00001111 "
+_logic160_start2_width4_train28_width4_pulses16 = (
+    "00111100 00000000 00000000 00001111 00001111 00001111 00001111 00001111 "
     "00001111 00001111 00001111 00001111 00001111 00001111 00001111 00001111 "
     "00001111 00001111 00001111 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train29_width3_pulses16 = (
-    "00010000 00000000 00000000 00000111 00000111 00000111 00000111 00000111 "
+_logic160_start2_width4_train29_width3_pulses16 = (
+    "00111100 00000000 00000000 00000111 00000111 00000111 00000111 00000111 "
     "00000111 00000111 00000111 00000111 00000111 00000111 00000111 00000111 "
     "00000111 00000111 00000111 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train30_width2_pulses16 = (
-    "00010000 00000000 00000000 00000011 00000011 00000011 00000011 00000011 "
+_logic160_start2_width4_train30_width2_pulses16 = (
+    "00111100 00000000 00000000 00000011 00000011 00000011 00000011 00000011 "
     "00000011 00000011 00000011 00000011 00000011 00000011 00000011 00000011 "
     "00000011 00000011 00000011 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train31_width1_pulses16 = (
-    "00010000 00000000 00000000 00000001 00000001 00000001 00000001 00000001 "
+_logic160_start2_width4_train31_width1_pulses16 = (
+    "00111100 00000000 00000000 00000001 00000001 00000001 00000001 00000001 "
     "00000001 00000001 00000001 00000001 00000001 00000001 00000001 00000001 "
     "00000001 00000001 00000001 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train29_width4_pulses16 = (
-    "00010000 00000000 00000000 00000111 10000111 10000111 10000111 10000111 "
+_logic160_start2_width4_train29_width4_pulses16 = (
+    "00111100 00000000 00000000 00000111 10000111 10000111 10000111 10000111 "
     "10000111 10000111 10000111 10000111 10000111 10000111 10000111 10000111 "
     "10000111 10000111 10000111 10000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train30_width4_pulses16 = (
-    "00010000 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
+_logic160_start2_width4_train30_width4_pulses16 = (
+    "00111100 00000000 00000000 00000011 11000011 11000011 11000011 11000011 "
     "11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011 "
     "11000011 11000011 11000011 11000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train31_width4_pulses16 = (
-    "00010000 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
+_logic160_start2_width4_train31_width4_pulses16 = (
+    "00111100 00000000 00000000 00000001 11100001 11100001 11100001 11100001 "
     "11100001 11100001 11100001 11100001 11100001 11100001 11100001 11100001 "
     "11100001 11100001 11100001 11100000 "
 ).replace(" ", "")
@@ -342,14 +344,14 @@ _logic256_start6_width4_train34_width1_pulses16 = (
     "00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train34_width1_pulses16 = (
-    "00010000 00000000 00000000 00000000 00100000 00100000 00100000 00100000 "
+_logic160_start2_width4_train34_width1_pulses16 = (
+    "00111100 00000000 00000000 00000000 00100000 00100000 00100000 00100000 "
     "00100000 00100000 00100000 00100000 00100000 00100000 00100000 00100000 "
     "00100000 00100000 00100000 00100000 "
 ).replace(" ", "")
 
-_logic160_start3_width1_train30_width1_pulses16 = (
-    "00010000 00000000 00000000 00000010 00000010 00000010 00000010 00000010 "
+_logic160_start2_width4_train30_width1_pulses16 = (
+    "00111100 00000000 00000000 00000010 00000010 00000010 00000010 00000010 "
     "00000010 00000010 00000010 00000010 00000010 00000010 00000010 00000010 "
     "00000010 00000010 00000010 00000000 "
 ).replace(" ", "")
@@ -411,196 +413,196 @@ symbol160_init4_samp20_comp11110000_logic00001111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train28_width4_pulses16,
+    logic=_logic160_start2_width4_train28_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic00000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train29_width3_pulses16,
+    logic=_logic160_start2_width4_train29_width3_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic00000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train30_width2_pulses16,
+    logic=_logic160_start2_width4_train30_width2_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic00000001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train31_width1_pulses16,
+    logic=_logic160_start2_width4_train31_width1_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic10000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train29_width4_pulses16,
+    logic=_logic160_start2_width4_train29_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic11000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train30_width4_pulses16,
+    logic=_logic160_start2_width4_train30_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11110000_logic11100001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width4_train32_width4_pulses16,
-    logic=_logic160_start3_width1_train31_width4_pulses16,
+    logic=_logic160_start2_width4_train31_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic00001111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train28_width4_pulses16,
+    logic=_logic160_start2_width4_train28_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic00000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train29_width3_pulses16,
+    logic=_logic160_start2_width4_train29_width3_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic00000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train30_width2_pulses16,
+    logic=_logic160_start2_width4_train30_width2_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic00000001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train31_width1_pulses16,
+    logic=_logic160_start2_width4_train31_width1_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic10000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train29_width4_pulses16,
+    logic=_logic160_start2_width4_train29_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic11000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train30_width4_pulses16,
+    logic=_logic160_start2_width4_train30_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111000_logic11100001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width5_train32_width5_pulses16,
-    logic=_logic160_start3_width1_train31_width4_pulses16,
+    logic=_logic160_start2_width4_train31_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic00001111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train28_width4_pulses16,
+    logic=_logic160_start2_width4_train28_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic00000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train29_width3_pulses16,
+    logic=_logic160_start2_width4_train29_width3_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic00000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train30_width2_pulses16,
+    logic=_logic160_start2_width4_train30_width2_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic00000001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train31_width1_pulses16,
+    logic=_logic160_start2_width4_train31_width1_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic10000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train29_width4_pulses16,
+    logic=_logic160_start2_width4_train29_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic11000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train30_width4_pulses16,
+    logic=_logic160_start2_width4_train30_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111100_logic11100001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train31_width4_pulses16,
+    logic=_logic160_start2_width4_train31_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic00001111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train28_width4_pulses16,
+    logic=_logic160_start2_width4_train28_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic00000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train29_width3_pulses16,
+    logic=_logic160_start2_width4_train29_width3_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic00000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train30_width2_pulses16,
+    logic=_logic160_start2_width4_train30_width2_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic00000001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train31_width1_pulses16,
+    logic=_logic160_start2_width4_train31_width1_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic10000111 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train29_width4_pulses16,
+    logic=_logic160_start2_width4_train29_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic11000011 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train30_width4_pulses16,
+    logic=_logic160_start2_width4_train30_width4_pulses16,
 )
 
 symbol160_init4_samp20_comp11111110_logic11100001 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width7_train32_width7_pulses16,
-    logic=_logic160_start3_width1_train31_width4_pulses16,
+    logic=_logic160_start2_width4_train31_width4_pulses16,
 )
 
 symbol256_init4_samp20_comp11110000_logic00001111 = AdcSequence(
@@ -812,7 +814,7 @@ symbol160_init4_samp24_comp11111100_logic00000010 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width24,
     comp=_comp160_start28_width6_train36_width6_pulses16,
-    logic=_logic160_start3_width1_train34_width1_pulses16,
+    logic=_logic160_start2_width4_train34_width1_pulses16,
 )
 
 # Keep the 100-ns period and give the final COMP pulse all six high symbols.
@@ -820,7 +822,7 @@ symbol160_init4_samp20_comp11111100_logic00000010 = AdcSequence(
     init=_init160_start0_width4,
     samp=_samp160_start4_width20,
     comp=_comp160_start24_width6_train32_width6_pulses16,
-    logic=_logic160_start3_width1_train30_width1_pulses16,
+    logic=_logic160_start2_width4_train30_width1_pulses16,
 )
 
 
