@@ -334,6 +334,15 @@
   \note{The full check requires rail-valid SR agreement and 200 ps LOGIC setup; ordinary B0--B15 decisions also require the programmed SAR and CDAC state with 200 ps setup. The CDAC tolerance is 1 mV relative to the saved end-of-window value. B16 has no CDAC update.}
 \end{frame}
 
+\begin{frame}{Late LOGIC reduces B11/B12 CDAC readiness}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pex_b11_b12_cdac_control.pdf}
+  \par\smallskip
+  {\small ADC03-matched PEX: B11 readiness 70/100 $\rightarrow$ 52/100; B12 84/100 $\rightarrow$ 49/100.}
+  \slidesource{Saved C5/L2 and C6/L2/L3 timing exports; seven extracted ADC flavors, 100 conversions each}
+  \note{The plot reads only the completed 49-case PEX timing CSV exports. It compares B11-to-B12 and B12-to-B13 CDAC readiness in all seven flavors for C6/L2 versus C6/L3. Readiness requires the programmed SAR states and bottom plates and top plates within 1 mV of their final saved values at least 200 ps before the next observed COMP rise; it does not prove DC accuracy or count wrong output codes. In the physical ADC03-matched FRIDA-1 two-layer radix20 PEX, C5/L2 and C6/L2 both have 70/100 ready B11 updates and 84/100 ready B12 updates. Their median LOGIC-to-next-COMP interval is 1.351 ns; C6/L3 cuts it to 0.726 ns and has 52/100 and 49/100 ready updates. Three of seven flavors have zero ready B11 updates under C6/L3. The later-LOGIC physical comparison therefore changes the CDAC settling budget while it changes capture timing. B12 remaining low in physical C6/L3 does not by itself rule out an early-capture contribution, nor do these ideal-port PEX metrics establish the physical cause. The exact 42-row CSV and regeneration source are beside the Nord figure.}
+\end{frame}
+
 \begin{frame}{PEX clock reset gaps remain positive}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/pex_reset_gap_by_recipe.pdf}
