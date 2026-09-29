@@ -203,6 +203,7 @@ def test_serdes_symbol_eye_folds_nonconstant_contexts(tmp_path: Path, monkeypatc
     assert all(path.is_file() for path in paths)
     assert len(figures[0].axes) == 3
     assert all("256 symbols" in axis.get_title() for axis in figures[0].axes)
+    assert all("geometric center eye height" in axis.get_title() for axis in figures[0].axes)
     assert all("1000 mV" in axis.get_title() for axis in figures[0].axes)
 
 

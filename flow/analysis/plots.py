@@ -828,8 +828,7 @@ def plot_serdes_symbol_eye_grid(
         unit_interval_s = 1.0 / (rate_mbd * 1e6)
         phases = []
         voltages = []
-        high_centers = []
-        low_centers = []
+        eyes = []
         folded_symbols = 0
         for capture_index, capture in enumerate(captures):
             wave = analyze_scope_waveforms(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
@@ -849,38 +848,48 @@ def plot_serdes_symbol_eye_grid(
             if abs(anchor_edge_s - anchor_expected_s) > unit_interval_s:
                 raise ValueError(f"{rate_mbd} MBd capture {capture_index} cannot align the output word")
             output_origin_s = anchor_edge_s - anchor_bit * unit_interval_s
-            symbol_origins = output_origin_s + np.arange(len(pattern)) * unit_interval_s
-            for symbol_index, segment in _eye_segments(
-                output_v, time_s, unit_interval_s, symbol_origins, window=(-0.2, 1.2), complete=True
-            ):
-                phase, voltage = segment.T
-                phases.append(phase)
-                voltages.append(voltage)
-                center_v = calc.value(voltage, phase, 0.5)
-                (high_centers if pattern[symbol_index] == "1" else low_centers).append(center_v)
+            start_s = output_origin_s - 0.5 * unit_interval_s
+            stop_s = start_s + (len(pattern) + 1) * unit_interval_s
+            eye = calc.eyeDiagram(
+                output_v, start_s, stop_s, 2 * unit_interval_s, axis=time_s, trigger_period=unit_interval_s
+            )
+            separators = np.flatnonzero(np.isnan(eye[:, 0]))
+            # The acquisition edges and final trigger can leave incomplete windows.
+            for first, last in zip(np.r_[0, separators + 1], np.r_[separators, len(eye)], strict=True):
+                trace = eye[first:last]
+                if (
+                    not len(trace)
+                    or not np.isclose(trace[0, 0], 0, atol=1e-9 * unit_interval_s, rtol=0)
+                    or not np.isclose(trace[-1, 0], 2 * unit_interval_s, atol=1e-9 * unit_interval_s, rtol=0)
+                ):
+                    continue
+                eyes.append(trace)
+                phases.append(trace[:, 0] / unit_interval_s - 0.5)
+                voltages.append(trace[:, 1])
                 folded_symbols += 1
-        if not phases or not high_centers or not low_centers:
+        if not eyes:
             raise ValueError(f"{rate_mbd} MBd captures contain no complete symbol eyes")
-        high_p01_v = np.percentile(high_centers, 1)
-        low_p99_v = np.percentile(low_centers, 99)
-        opening_v = high_p01_v - low_p99_v
+        folded = np.vstack([part for eye in eyes for part in (eye, np.full((1, 2), np.nan))][:-1])
+        samples = np.concatenate(voltages)
+        low_v, high_v = np.percentile(samples, (5, 95))
+        opening_v = calc.eyeHeightAtXY(folded, unit_interval_s, float((low_v + high_v) / 2))
         ax.hist2d(
             np.concatenate(phases),
-            np.concatenate(voltages),
+            samples,
             bins=(140, 160),
-            range=((-0.2, 1.2), (-0.8, 0.8)),
+            range=((-0.5, 1.5), (-0.8, 0.8)),
             weights=np.full(sum(map(len, phases)), 1 / folded_symbols),
             norm=LogNorm(vmin=1 / folded_symbols),
             cmap=DENSITY_COLOR_MAP,
         )
-        ax.set_xlim(-0.2, 1.2)
+        ax.set_xlim(-0.5, 1.5)
         ax.set_ylim(-0.8, 0.8)
         ax.set_ylabel(f"{rate_mbd} MBd\nOutput (V)")
-        ax.set_title(f"{folded_symbols:,} symbols; center opening (1st/99th percentile): {opening_v * 1e3:.0f} mV")
+        ax.set_title(f"{folded_symbols:,} symbols; geometric center eye height: {opening_v * 1e3:.0f} mV")
         style_grid(ax)
         ax.minorticks_off()
         ax.grid(False, which="minor")
-    axes[-1].set_xlabel("Phase within one symbol (UI)")
+    axes[-1].set_xlabel("Time from symbol boundary (UI)")
     fig.suptitle("FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts")
     metadata = {
         "Title": "FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts",

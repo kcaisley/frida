@@ -162,6 +162,42 @@ def eyeDiagram(
     return np.vstack([part for segment in segments for part in (segment, separator)][:-1])
 
 
+def eyeHeightAtXY(
+    eye_diagram: Sequence[Sequence[float]] | np.ndarray, x: float, y: float, *, output: str = "total"
+) -> float:
+    """Measure the geometric eye opening around a point in a folded waveform.
+
+    Each NaN row separates one trace. The point must lie inside an open eye;
+    a missing intercept or a point on a trace yields NaN.
+    """
+    folded = np.asarray(eye_diagram, dtype=np.float64)
+    if folded.ndim != 2 or folded.shape[1] != 2 or np.any(np.isnan(folded[:, 0]) != np.isnan(folded[:, 1])):
+        raise ValueError("eye diagram must have phase/value columns separated by NaN rows")
+    if not math.isfinite(x) or not math.isfinite(y):
+        raise ValueError("eye measurement point must be finite")
+    if output not in {"total", "above", "below"}:
+        raise ValueError("output must be 'total', 'above', or 'below'")
+    if np.any(np.isinf(folded)):
+        raise ValueError("eye diagram samples must be finite")
+    separators = np.flatnonzero(np.isnan(folded[:, 0]))
+    intercepts = []
+    for first, last in zip(np.r_[0, separators + 1], np.r_[separators, len(folded)], strict=True):
+        trace = folded[first:last]
+        if len(trace) >= 2 and trace[0, 0] <= x <= trace[-1, 0]:
+            if np.any(np.diff(trace[:, 0]) <= 0):
+                raise ValueError("eye trace phases must increase strictly")
+            intercepts.append(float(np.interp(x, trace[:, 0], trace[:, 1])))
+    values = np.asarray(intercepts)
+    if np.any(values == y):
+        return math.nan
+    below = values[values < y]
+    above = values[values > y]
+    if not len(below) or not len(above):
+        return math.nan
+    lower, upper = float(np.max(below)), float(np.min(above))
+    return upper - lower if output == "total" else upper - y if output == "above" else y - lower
+
+
 def integ(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
     """Integrate a sampled waveform with trapezoidal interpolation."""
     signal, axis = _waveform(signal, axis)
@@ -309,31 +345,15 @@ def frequency(
     *,
     threshold: float | None = None,
     edge: str = "rising",
-    method: str = "span",
-    minimum_separation: float = 0.0,
-    minimum_crossings: int = 2,
 ) -> float:
-    """Measure crossing frequency over the full span or median adjacent period.
-
-    A minimum crossing separation can reject closely spaced spurious edges.
-    """
-    if method not in {"span", "median_period"}:
-        raise ValueError("method must be 'span' or 'median_period'")
-    if not math.isfinite(minimum_separation) or minimum_separation < 0 or minimum_crossings < 2:
-        raise ValueError("minimum_separation must be nonnegative and minimum_crossings at least two")
+    """Return average cycle frequency from the first and last threshold crossing."""
     signal, axis = _waveform(signal, axis)
     if threshold is None:
         threshold = (float(np.min(signal)) + float(np.max(signal))) / 2.0
     crossings = cross(signal, axis, threshold, edge=edge)
-    retained: list[float] = []
-    for crossing in crossings:
-        if not retained or crossing - retained[-1] >= minimum_separation:
-            retained.append(float(crossing))
-    if len(retained) < minimum_crossings:
+    if len(crossings) < 2:
         return math.nan
-    if method == "median_period":
-        return 1.0 / float(np.median(np.diff(retained)))
-    return (len(retained) - 1) / (retained[-1] - retained[0])
+    return float((len(crossings) - 1) / (crossings[-1] - crossings[0]))
 
 
 def abs_jitter(

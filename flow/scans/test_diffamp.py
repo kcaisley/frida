@@ -499,16 +499,15 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
                 )
 
-            measured_frequency_hz = calc.frequency(
-                samples,
-                times,
-                threshold=crossing_level_v,
-                method="median_period",
-                minimum_separation=0.75 / AWG_FREQUENCY_HZ,
-                minimum_crossings=3,
-            )
-            if not math.isfinite(measured_frequency_hz):
+            crossings = calc.cross(samples, times, crossing_level_v, edge="rising")
+            # Reject closely spaced scope artifacts before taking the median cycle period.
+            accepted: list[float] = []
+            for crossing in crossings:
+                if not accepted or crossing - accepted[-1] >= 0.75 / AWG_FREQUENCY_HZ:
+                    accepted.append(float(crossing))
+            if len(accepted) < 3:
                 raise AssertionError(f"scope CH{SCOPE_CHANNEL} has fewer than three rising crossings")
+            measured_frequency_hz = 1.0 / float(np.median(np.diff(accepted)))
 
             # Fit the DC term and fundamental sine independently. Percentile
             # extrema are useful for finding crossings, but would mix even

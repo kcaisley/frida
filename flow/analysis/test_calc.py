@@ -136,18 +136,13 @@ def test_spectral_and_density_operations() -> None:
     assert calc.frequency(signal, np.arange(128) / sample_rate, threshold=0.0) == pytest.approx(8.0)
 
 
-def test_median_period_frequency_rejects_nearby_edges_and_long_gaps() -> None:
+def test_frequency_averages_the_full_crossing_span() -> None:
     axis = np.arange(0.0, 12.0, 0.25)
     signal = np.full(len(axis), -1.0)
     for edge in (1.0, 1.5, 3.0, 5.0, 11.0):
         signal[(axis >= edge) & (axis < edge + 0.25)] = 1.0
-    assert calc.frequency(
-        signal, axis, threshold=0.0, method="median_period", minimum_separation=1.0, minimum_crossings=3
-    ) == pytest.approx(0.5)
-    assert np.isnan(
-        calc.frequency(signal, axis, threshold=0.0, method="median_period", minimum_separation=1.0, minimum_crossings=5)
-    )
     assert calc.frequency(signal, axis, threshold=0.0) == pytest.approx(0.4)
+    assert np.isnan(calc.frequency([-1.0, 1.0], [0.0, 1.0], threshold=0.0))
 
 
 def test_waveform_jitter_uses_crossings_and_mean_period_by_default() -> None:
@@ -237,6 +232,29 @@ def test_eye_diagram_interpolates_uneven_off_grid_windows() -> None:
     np.testing.assert_allclose(folded[:4], [[0.0, 1.0], [0.3, 1.6], [1.2, 3.4], [1.5, 4.0]])
     assert np.isnan(folded[4]).all()
     np.testing.assert_allclose(folded[5:], [[0.0, 4.0], [0.8, 5.6], [1.3, 6.6]])
+
+
+def test_eye_height_at_xy_measures_inner_trace_intercepts() -> None:
+    folded = np.asarray(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [np.nan, np.nan],
+            [0.0, 2.0],
+            [1.0, 2.0],
+            [np.nan, np.nan],
+            [0.0, 3.0],
+            [1.0, 3.0],
+        ]
+    )
+    assert calc.eyeHeightAtXY(folded, 0.5, 1.0) == pytest.approx(2.0)
+    assert calc.eyeHeightAtXY(folded, 0.5, 1.0, output="above") == pytest.approx(1.0)
+    assert calc.eyeHeightAtXY(folded, 0.5, 1.0, output="below") == pytest.approx(1.0)
+    assert np.isnan(calc.eyeHeightAtXY(folded, 0.5, 2.0))
+    assert np.isnan(calc.eyeHeightAtXY(folded, 0.5, 4.0))
+    assert np.isnan(calc.eyeHeightAtXY(folded, 2.0, 1.0))
+    sloped = np.asarray([[0.0, 0.0], [1.0, 1.0], [np.nan, np.nan], [0.0, 3.0], [1.0, 2.0]])
+    assert calc.eyeHeightAtXY(sloped, 0.5, 1.5) == pytest.approx(2.0)
 
 
 def test_dft_reports_one_sided_signal_amplitudes() -> None:
