@@ -402,6 +402,33 @@
   \note{This one-conversion sensitivity diagnostic scales only the differential component of the saved FRIDA-1 radix20 PEX comparator input and preserves its common-mode trace. The physical ADC03 C5/L2 and C6/L2 external COMP and LOGIC shapes drive the same ADC01 schematic receiver, clock, comparator, SR, sensitized stage-12 gates, and enabled flip-flop as the preceding capture replay. Twelve completed Spectre cases have zero errors and warnings. The table reports the simulated D-fall lead over the local LOGIC rise only when Q is high after B11 and low after B12; dashes are unrun. The PEX B12 overdrive near COMP rise is approximately -3.46 mV, giving about -35 microvolts at 1 percent gain. At that gain the SS D lead remains 0.850 ns for C5 and 0.800 ns for C6, and both TT cases also capture the driven polarity. At 0.3 percent gain, the C5 SS B11 output is already low while C6 SS and both TT cases still capture the driven B11-high/B12-low pair. This is neither a measured physical input-residue sweep nor a stochastic noise simulation. Ideal comparator-input voltage sources, schematic ADC01 instead of physical ADC03, pad and clock delays, routed RC, source impedance and CDAC kickback, live SAR state, rail variation, and device mismatch remain unmodeled. Exact generated decks, raw traces, logs, regeneration and audit scripts, and input\_capture\_timing.csv are in build/diagnostics/frida1\_comp\_input\_margin.}
 \end{frame}
 
+\begin{frame}{ADC03 clock leaves preserve the modeled reset and capture margins}
+  \centering
+  {\small The ADC03 schematic adds one buffer in both COMP and LOGIC leaves.}
+  \par\medskip
+  {\small
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    B12 timing quantity & ADC01 leaf & ADC03 leaf \\
+    \midrule
+    C5 TT, nominal stable precharge (ns) & 1.541 & 1.539 \\
+    C6 TT, nominal stable precharge (ns) & 0.887 & 0.884 \\
+    C5 SS, nominal stable precharge (ns) & 1.502 & 1.500 \\
+    C6 SS, nominal stable precharge (ns) & 0.850 & 0.851 \\
+    C5 SS, 1\% input, D before LOGIC (ns) & 0.850 & 0.838 \\
+    C6 SS, 1\% input, D before LOGIC (ns) & 0.800 & 0.816 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\bigskip
+  {\small The extra stages shift local COMP by 23--28 ps, with under 2 ps change\\
+  in LOGIC relative to COMP fall. Both branches capture the driven B11/B12 pair.}
+  \par\medskip
+  {\small Routed RC, real pad voltages, CDAC feedback, and ADC03 analog mismatch remain unknown.}
+  \slidesource{FRIDA-1 frida\_core schematic ADC01/03 leaves; saved ADC03 clocks; 8 TT/SS Spectre runs}
+  \note{The physical ADC03 path was compared with the earlier ADC01 schematic replay by tracing the selected adc[3] seq\_comp=net2839 and seq\_update=net2855 ports in design/spice/frida\_top.cdl. Both ADC03 leaves add one CKBD3LVT stage relative to ADC01, after the shared frida\_core tree and before the terminal CKBD4LVT. Eight isolated Spectre runs finished with zero errors and warnings, covering C5 and C6 at TT and SS with the nominal saved PEX one-conversion input, and at SS with its differential component scaled to 10 and 1 percent. The table shows stable comparator output precharge before the next local COMP rise and the stage-12 D-fall lead over local LOGIC for the 1-percent input. The ADC03 local COMP rise is 23--28 ps later, yet LOGIC relative to COMP fall changes by under 2 ps, since both leaves gain a stage. Both schematic branches return high Q after B11 and low Q after B12 in every modeled case. Thus leaf-cell count alone cannot explain the measured physical ADC03 C5-high/C6-low B12 split. The same approximate nonselected clock loads as the ADC01 replay are retained. Routed RC and full-chip fanout, actual P/N pad voltages and timing, real ADC03 comparator/CDAC residue, finite source impedance and kickback, live SAR stage enable, rail variation, and mismatch are absent. These simulated intervals are not measured physical setup or reset margins. Exact decks, logs, raw traces, generator, analyzer, and adc01\_adc03\_clock\_comparison.csv are in build/diagnostics/frida1\_adc03\_clock\_replay.}
+\end{frame}
+
 \begin{frame}{Pad-voltage sweep has no clean 5/8 versus 6/8 split}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.76\textheight,keepaspectratio]{\analysispath/pad_reset_sensitivity.pdf}
