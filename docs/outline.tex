@@ -1,8 +1,7 @@
 \documentclass[PhD, UKenglish]{scrbook}
 
-% The Uni Bonn thesis package is provided by libs/ubonn-thesis. The docs
-% Makefile adds that submodule to TEXINPUTS so the package can be loaded by
-% name, just as in the upstream thesis skeleton.
+% Load the checked-out thesis package directly so editor LaTeX builds also
+% find it without the TEXINPUTS setting supplied by docs/makefile.
 \usepackage[
   twoside=false,
   biblatex=false,
@@ -12,7 +11,7 @@
   numpmcorr=false,
   hepparticles=false,
   mhchem=false
-]{ubonn-thesis}
+]{../libs/ubonn-thesis/ubonn-thesis}
 
 \begin{document}
 
@@ -26,23 +25,94 @@
 \mainmatter
 \pagestyle{scrheadings}
 
-\chapter{Radiation imaging systems}
+\chapter{Introduction}
+\section{Motivation and contributions}
 
-\section{Single-bit counting (discriminators) vs multi-bit quantization (ADCs)}
+\begin{itemize}
+  \item Background explaining how to derive a data converter specific to a radiation imaging system (pen-and-paper math).
+  \item A set of behavioral models and SPICE simulations to map out the optimization space for SAR ADCs which meet the needs of compact, high-frame-rate image sensors.
+  \item A framework/pipeline for translating that into a fabricatable GDS layout, using mostly open-source tools, across a range of PDKs.
+  \item Two silicon prototypes built with the simulations and pipeline above.
+  \item A hardware DAQ system (COB PCB carrier plus FPGA system, plus control code), with scans to measure all ADC parameters.
+  \item Finally, an analysis of measurements from the first generation.
+\end{itemize}
 
-\chapter{Optimization of the design}
+\chapter{Background}
+
+\section{Radiation imaging systems}
+\subsection{Imaging modalities and detector requirements}
+\subsubsection{Stroboscopic high-fluence imaging and high-frame-rate integration}
+\subsubsection{Scanning transmission electron microscopy (STEM) and high-frame-rate integration}
+\subsection{Electron and X-ray signals and sensor readout}
+\subsection{Monolithic and hybrid sensor arrangements}
+\subsubsection{Sensor-to-readout connections and pixel pitch}
+\subsubsection{Available converter area and power density}
+\subsection{Pixel-parallel and column-parallel ADC arrangements}
+\subsubsection{Per-pixel conversion versus shared column conversion}
+\subsubsection{Multiplexing, aggregate throughput, and frame rate}
+\subsection{Single-bit counting and integrating readout}
+\subsubsection{Counting dead time, pileup, and false hits}
+\subsubsection{Fluence limits of single-bit counting versus integrating readout}
+\subsubsection{Amplitude information from multi-bit readout}
+\subsection{Imaging rate, dynamic range, and readout requirements}
+\subsubsection{Frame rate and aggregate conversion throughput}
+\subsubsection{Noise, power density, and pixel-area budgets}
+
+\clearpage
+
+\section{Multi-bit quantization (ADCs)}
+\subsection{ADC operation and resolution}
+\subsubsection{Quantization, noise, and effective number of bits}
+\subsubsection{Static linearity, dynamic range, and distortion}
+\subsection{Area, power, and speed performance}
+\subsubsection{Conversion rate, latency, and channel density}
+\subsubsection{Energy per conversion and resolution-dependent figures of merit}
+\subsection{ADC architectures for high-speed imaging}
+\subsubsection{Single-slope, flash, cyclic, pipeline, and SAR converters}
+\subsubsection{Resolution, area, power, and speed tradeoffs}
+\subsection{Fitness of SAR architecture for high-rate imaging}
+\subsubsection{Fit to the imaging throughput and per-channel budgets}
+\subsubsection{Sampling, CDAC, comparator and sequential-decision limits}
+\clearpage
+
+\section{Review of existing designs}
+\subsection{High-speed imaging converters in the literature}
+\subsection{Development history within the group}
+\subsection{Sensor interfaces and converter architectures across designs}
+\subsection{Resolution, speed, area, and power comparison}
+\subsection{Literature review and position of this work}
+\subsubsection{Resolution and conversion-rate density}
+\subsubsection{Energy efficiency and area at the target sampling rate}
+
+\chapter{Design of a compact SAR ADC}
 
 \section{Study of a sampling switch}
+\subsection{On-resistance and acquisition bandwidth}
+\subsubsection{Device size and input-voltage dependence}
+\subsubsection{Simple switch versus bootstrapped switch}
 \subsection{Sampling noise}
+\subsubsection{Thermal-noise and capacitance limits}
+\subsubsection{Extracted held-level noise and comparator contributions}
 \subsection{Dynamic sampling error}
+\subsubsection{Settling error versus sampling-window duration}
+\subsubsection{Input bandwidth and effective-resolution limits}
 
 \section{Study of a dynamic comparator}
 \subsection{Architectures}
+\subsubsection{Regeneration, reset, and output retention}
+\subsubsection{Kickback and its dependence on CDAC state}
 \subsection{Input-referred noise}
+\subsubsection{Standalone and full-ADC noise simulations}
 \subsection{Input offset voltage}
+\subsubsection{Offset relative to sampling noise and CDAC error}
 \subsection{Clock rate and metastability}
+\subsubsection{Evaluation-time and input-overdrive dependence}
+\subsubsection{Comparator, logic, and CDAC timing margins}
+\subsubsection{Metastability versus incomplete output-latch transfer}
 \subsection{Power consumption}
 \subsection{Layout area}
+
+\clearpage
 
 \section{Study of a compact CDAC array}
 \subsection{Capacitor styles}
@@ -51,9 +121,20 @@
 \subsubsection{POD capacitors}
 \subsubsection{MOM capacitors}
 \subsubsection{FMOM capacitors}
+\subsection{Capacitance density, shielding, and parasitics}
+\subsubsection{Connected-layer extraction and capacitance partition}
+\subsubsection{Input attenuation and usable voltage range}
+\subsection{Capacitance budget and weight architecture}
+\subsubsection{Sampling-noise and mismatch constraints}
+\subsubsection{Coarse and fine weight implementation}
 \subsection{Capacitor mismatch}
+\subsubsection{Unit-cell and array-level mismatch models}
+\subsubsection{Node-specific mismatch and predicted nonlinearity}
 \subsection{Switching scheme}
+\subsubsection{Energy, control complexity, and common-mode trajectory}
+\subsubsection{Initial CDAC state and comparator common mode}
 \subsection{Driver sizing and settling time}
+\subsubsection{Capacitive load and bit-dependent settling budget}
 \subsection{Power consumption}
 \subsection{Layout area}
 
@@ -61,36 +142,181 @@
 
 \section{Study of the complete SAR ADC}
 \subsection{CDAC switching scheme}
+\subsubsection{Extracted top-plate trajectories and settling}
 \subsection{System nonlinearity}
+\subsubsection{Transfer gain and full-scale input range}
+\subsubsection{Mismatch, parasitics, and INL/DNL simulations}
 \subsection{Weight calibration}
+\subsubsection{Weight extraction from a ramp and comparator A/B tests}
+\subsubsection{Sensitivity to reference and input noise}
 \subsection{System sampling rate}
+\subsubsection{Conversion-path timing budget}
+\subsubsection{Noise and distortion versus sampling rate}
+\subsection{System noise and resolution budget}
+\subsubsection{Quantization, sampling, comparator, and reference noise}
+\subsubsection{Predicted ENOB versus input range and sampling rate}
+\clearpage
 \subsection{Decision redundancy}
+\subsubsection{Error-recovery range of redundant weights}
+\subsubsection{Redundant versus minimum-cycle conversion at equal total time}
+\subsubsection{Effect of redundancy on noise and decision errors}
 \subsection{Control-sequence optimization}
+\subsubsection{Sampling-to-first-decision gap}
+\subsubsection{Comparator evaluation, reset, and logic duty cycles}
+\subsubsection{Continuous conversion and final-decision decoding}
 \subsection{Control logic}
+\subsubsection{SR-latch and SAR-logic propagation delay}
+\subsubsection{Per-channel programmability and clock synchronization}
+\subsubsection{Logic contribution to ADC power}
+\subsection{System power consumption}
+\subsubsection{Block-level and full-ADC simulation comparison}
+\subsubsection{Energy per conversion versus sampling rate}
 
-\chapter[Implementation of a 65 nm prototype]{Implementation of a 65\,nm prototype}
+\chapter[FRIDA-1: A first generation 65 nm prototype]{FRIDA-1: A first generation 65\,nm prototype}
+\section{Implementation of the building blocks selected in the preceding design chapter}
+\subsection{Sampling switch and comparator}
+\begin{itemize}
+  \item The sampling switch and comparator layouts were manually laid out using a traditional analog-on-top flow. Both were customized from previous designs originating in Cordia.
+  \item We used these designs because their architectures and device sizes were already close to the optima found in the preceding optimization steps.
+\end{itemize}
+\subsection{Capacitor drivers and array}
+\begin{itemize}
+  \item The drivers were sized from standard cells.
+  \item The capacitor array was generated directly from its specification to GDS using a Python script and the KLayout Python API.
+\end{itemize}
+\subsection{Digital control logic}
+\begin{itemize}
+  \item The digital control logic was implemented entirely in Verilog. An OpenROAD flow converted it to layout, leaving gaps for the analog blocks.
+\end{itemize}
 
-\chapter{First-prototype measurements}
+\section{ADC block assembly and channel layout}
+\subsection{Assembling the ADC block}
+\begin{itemize}
+  \item Assemble the individual building blocks into the ADC channel, placing the manually laid-out analog blocks in the gaps left by the digital layout.
+  \item Place the capacitor array above the drivers and logic, with a shielding plate between them.
+  \item Explain the strategy for isolating the power grids and routing the supplies within the channel.
+\end{itemize}
+\subsection{Physical verification and completed channel layout}
+\begin{itemize}
+  \item Check layout connectivity, DRC, LVS, and extraction of the assembled channel.
+  \item End with the ADC channel-level layout, showing the building-block placement, capacitor array, shielding, and power grids.
+\end{itemize}
+
+\section{Chip-level arrangement and hierarchical assembly of the prototype}
+\subsection{Configuration and sequencing}
+\begin{itemize}
+  \item A synthesized SPI register controls the configuration bits of each ADC.
+  \item The decision was made to apply the four ADC sequences externally, so four LVDS inputs were included.
+\end{itemize}
+\subsection{Analog inputs and comparator-output readout}
+\begin{itemize}
+  \item The ADC inputs were connected directly to a shared wire bus. The sampling switches of the ADCs choose which ADC is sampling from that bus.
+  \item The ADC outputs were not resampled on-chip. Instead, the positive-polarity comparator outputs drive medium-performance LVDS transmitters directly for external measurement.
+  \item The SAR logic is still on-chip, but the external DAQ system must acquire each comparator output serially in real time.
+\end{itemize}
+\subsection{Top-level power grids, pad ring, and assembly}
+\begin{itemize}
+  \item Explain the chip-level power grids and show a labeled pad ring of the chip.
+  \item The top level was assembled hierarchically with OpenROAD, using the ADC block as a hardened macro with a LEF view.
+\end{itemize}
+\subsection{Top-level layout and fabricated prototype}
+\begin{itemize}
+  \item End with the top-level layout and an image of the fabricated prototype received in spring 2026.
+\end{itemize}
+
+\chapter{FRIDA-1 silicon measurements}
+
+\section{Measurement setup and readout validation}
+\subsection{Test board, input drive, references, and clock distribution}
+\subsection{DAQ system, FastRX capture, and code decoding}
+\subsection{Input-source and differential-amplifier noise}
+\subsection{Channel-to-code alignment}
+\subsection{Fixed-input tests with and without the amplifier}
+
+\section{Sampling-switch characterization}
+\subsection{Track-versus-hold noise and offset separation}
+\subsection{Acquisition time and input-dependent settling}
 
 \section{Comparator measurements}
 \subsection{Input-referred noise}
+\subsubsection{Sampling-duration and clock-phase dependence}
 \subsection{Decision errors and metastability}
+\subsubsection{Error probability versus input overdrive and evaluation time}
+\subsubsection{Reset and output-latch retention checks}
+\subsection{Kickback and CDAC-state dependence}
 \subsection{Power consumption}
 
 \section{CDAC characterization}
 \subsection{Capacitor mismatch}
+\subsubsection{Ramp-based and comparator A/B weight extraction}
+\subsubsection{Measured weights versus extracted mismatch models}
+\subsection{Parasitic capacitance and transfer gain}
+\subsection{Initialization state and common-mode trajectory}
 \subsection{Power consumption}
 
 \section{Static nonlinearity}
+\subsection{Low-noise ramp, full-scale range, and transfer gain}
+\subsection{INL and DNL before and after calibration}
+
+\clearpage
+
+\section{Fixed-input noise and channel variation}
+\subsection{Code-density distributions across all channels}
+\subsection{Sampling-rate dependence of noise and offset}
 
 \section{Calibration methods}
+\subsection{Capacitor-weight estimation and repeatability}
+\subsection{Noise and linearity after weight correction}
 
 \section{Sampling rate and distortion}
+\subsection{ENOB and distortion versus input frequency and rate}
+\subsection{Continuous 100 ns operation and acquisition-chain checks}
 
 \section{Timing optimization of control sequence}
+\subsection{Comparator and logic clock duty-cycle sweep}
+\subsection{Sampling gap, comparator reset, and CDAC-settling margins}
+\subsection{Redundant versus minimum-cycle error rates}
+\subsection{Synchronized versus independent channel clocks}
 
-\chapter{Design improvements}
+\chapter[FRIDA-2: A revised 65 nm design]{FRIDA-2: A revised 65\,nm design}
+\section{Sampling and input-path characterization}
+\subsection{Sampling-switch behavior with extracted loading}
+\subsection{Sampling window and input-noise budget}
 
-\chapter{Second-prototype measurements}
+\section{Comparator and timing changes}
+\subsection{Lower kickback, offset, and metastability risk}
+\subsection{Transistor-level layout and extracted verification}
+\subsection{Comparator, logic, and CDAC timing allocation}
+
+\section{Capacitor array and driver changes}
+\subsection{Connected metal layers and improved parasitic modeling}
+\subsection{Capacitor mismatch modeling for linearity studies}
+\subsection{Coarse and fine weights and common-mode control}
+\subsection{Driver sizing for the extracted capacitance}
+
+\section{Sequence, logic, and system changes}
+\subsection{SR-latch and SAR-logic delay reduction}
+\subsection{Clock synchronization and channel-to-channel errors}
+\subsection{Redundancy versus conversion time and power}
+
+% \chapter{Second-prototype measurements}
+% \section{Comparable measurement conditions and readout checks}
+% \subsection{Input, reference, and clock conditions matched to the first prototype}
+% \subsection{FastRX capture and code-decoding verification}
+% \section{Sampling noise, comparator errors, and timing margins}
+% \subsection{Track-and-hold noise versus sampling time}
+% \subsection{Comparator error rate versus clock phase and overdrive}
+% \section{CDAC weights, transfer gain, and static linearity}
+% \subsection{Extracted versus measured weights and common mode}
+% \subsection{Full-scale range, INL, and DNL}
+% \section{Calibration and redundant-decision performance}
+% \subsection{Weight calibration and residual nonlinearity}
+% \subsection{Redundant versus minimum-cycle conversions}
+% \section{ENOB, distortion, and power versus sampling rate}
+% \subsection{Fixed-input noise and dynamic-input spectra}
+% \subsection{Continuous conversion and energy per sample}
+% \section{First- and second-prototype comparison}
+% \subsection{Resolution, error rate, and linearity changes}
+% \subsection{Power, area, and remaining limitations}
 
 \end{document}
