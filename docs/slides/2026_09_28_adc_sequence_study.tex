@@ -158,6 +158,16 @@
   \note{The audit reads all 128 pinned 10-MSPS files covering 16 ADCs, two COMP widths, and four LOGIC words. The plotted ADC07 and ADC15 are the only channels satisfying the disclosed exploratory screen: all four 5/8 B12-repeat fractions below 0.5 percent, B11 low in every 6/8 conversion, and all four 6/8 B12-repeat fractions between 1 and 99 percent. At 6/8, changing 00000001 to 11100001 adds an early high prefix while retaining the late LOGIC rising edge; B12 repeats B11 in ADC07 53.180 to 62.935 percent and ADC15 1.754 to 3.173 percent. The corresponding 00000011 to 11000011 change increases ADC07 70.366 to 72.924 percent and ADC15 3.415 to 5.557 percent. The four 5/8 controls have zero repeats in ADC07 and 0.081--0.219 percent in ADC15. One saved B12 scope record per case puts the late LOGIC edges within 19 ps and COMP-low widths within 39 ps for each prefix pair, below its 160-ps sample interval. The high-rate 6/8 fractions are not monotonic in actual capture index, weakening a simple slow-drift explanation. This is an outcome-selected exploratory comparison of sequential captures. An early LOGIC pulse can change CDAC analog history as well as capture; these data do not isolate a flip-flop failure or disprove a reset interaction. Full-channel values, exact source paths, and scan indices are in adc07\_adc15\_logic\_b12\_pairs.csv and adc07\_adc15\_logic\_b12\_scope.csv beside the Nord figure and source.}
 \end{frame}
 
+\begin{frame}{A shared tone modulates the 6/8 B12 mode}
+  \centering
+  \includegraphics[width=0.98\linewidth,height=0.69\textheight,keepaspectratio]{\analysispath/physical_c6_shared_tone.pdf}
+  \par\smallskip
+  {\small 6- and 10-MSPS peaks match a 7.143-MHz alias family in 13/16 6/8 ADCs.\\
+  Even the favorable held-out phase leaves ADC15 at 1.43--2.38 LSB code spread.}
+  \slidesource{Pinned 26 Sep C5/C6 physical streams; 100,000 conversions per rate and ADC}
+  \note{For the one-symbol late LOGIC row, the spectral audit checks all 16 ADCs at 6 and 10 MSPS under both 5/8 and 6/8 COMP. It searches post-hoc bands around 1.1432 and 2.8568 MHz and retains the strongest variable bit at each rate. A peak greater than 50 times the in-band median occurs at both rates in 13 of 16 6/8 ADCs and 4 of 16 5/8 ADCs. In the 13 6/8 pairs, 6 MHz plus the 6-MSPS peak and 10 MHz minus the 10-MSPS peak agree to a median 60 Hz near 7.1433 MHz. This is an alias-equivalent candidate, not a uniquely identified physical frequency; other RF aliases and the digital receive path remain possible. The line is visible in 5/8 output too, so the source need not be unique to 6/8. For four LOGIC words in each of ADC07 and ADC15 under 6/8, a sinusoidal frequency and phase fitted only to conversions 0--49,999 predict the higher-repeat half of conversions 50,000--99,999. Held-out high/low B12-repeat rate ratios are 1.21--1.42 for ADC07 and 2.30--3.10 for ADC15, all eight above one. The frequency search, ADCs, and visibility threshold were selected after exploring the same campaign; the temporal split only protects the phase prediction from training/test reuse. These digital data show periodic modulation of the output error, but do not locate the disturbance in input, rail, clock, comparator, CDAC, LOGIC, or receiver. The tone may interact with a marginal reset or capture window; its removal is not demonstrated to recover 0.5-LSB physical accuracy. Exact source paths and metrics are in physical\_c6\_shared\_tone\_spectra.csv, \_pairs.csv, and \_holdout.csv beside the Nord figure and regeneration source.}
+\end{frame}
+
 \begin{frame}{The 5/8 to 6/8 pair shows a high-rate code shift}
   \centering
   \includegraphics[width=0.98\linewidth,height=0.82\textheight,keepaspectratio]{\analysispath/physical_comp_duty_pair.pdf}
@@ -578,7 +588,7 @@
     \item At 10 MSPS, ADC15 mean stays about 3.2 LSB below its 2-MSPS control. All saved exact-10-MSPS C5/C6 captures use one nominal 50-mV input, so transfer accuracy and input-referred noise remain unverified.
     \item None of the eight measured 6/8 recipes combines a plausible code with sigma below 1 LSB. Longer COMP high time alone has not reduced the floor.
     \item C5/L2 to C6/L2 keeps LOGIC fixed, makes the measured COMP-low pulse shorter and less deep, and changes physical codes sharply at 10 MSPS. PEX gives nearly identical codes and complete latch precharge.
-    \item Short LOGIC or extra idle removes the separate all-one-frame mode. The 5/8 B12 tail follows a B16-tone phase; the 6/8 B12 bias persists. The unmeasured LVDS receiver and chip clock path leave silicon reset unverified. FRIDA-2 has no physical counterpart here.
+    \item Short LOGIC or extra idle removes the all-one mode. LOGIC also changes 6/8 B12 repeats in ADC07/15, which carry a shared tone. Unmeasured LVDS and clock paths leave silicon reset unverified; FRIDA-2 has no physical counterpart here.
   \end{itemize}
   \slidesource{29-recipe physical screen; matched FRIDA-1 PEX timing and latch analysis}
 \end{frame}
