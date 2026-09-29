@@ -28,13 +28,13 @@ import csv
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from statistics import median
 from time import sleep, strftime
 
 import numpy as np
 import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
+from flow.analysis import _metrics as metrics
 from flow.analysis import calc
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
@@ -500,20 +500,15 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
                 )
 
-            raw_crossings = calc.cross(
+            measured_frequency_hz = metrics.median_period_frequency(
                 samples,
                 times,
-                crossing_level_v,
-                edge="rising",
+                threshold=crossing_level_v,
+                minimum_separation=0.75 / AWG_FREQUENCY_HZ,
+                minimum_crossings=3,
             )
-            minimum_crossing_separation_s = 0.75 / AWG_FREQUENCY_HZ
-            rising_crossings = []
-            for crossing in raw_crossings:
-                if not rising_crossings or crossing - rising_crossings[-1] >= minimum_crossing_separation_s:
-                    rising_crossings.append(crossing)
-            if len(rising_crossings) < 3:
-                raise AssertionError(f"scope CH{SCOPE_CHANNEL} has only {len(rising_crossings)} rising crossings")
-            measured_frequency_hz = float(1.0 / median(np.diff(rising_crossings)))
+            if not math.isfinite(measured_frequency_hz):
+                raise AssertionError(f"scope CH{SCOPE_CHANNEL} has fewer than three rising crossings")
 
             # Fit the DC term and fundamental sine independently. Percentile
             # extrema are useful for finding crossings, but would mix even

@@ -1397,14 +1397,14 @@ def analyze_adc_comparator_response(
                     target = 1 if final_p > final_n else -1
                     high, low = (latch_p, latch_n) if target > 0 else (latch_n, latch_p)
                     valid = (high[evaluation] >= midpoint) & (low[evaluation] <= midpoint)
-                    stable = metrics.stable_since(time[evaluation], valid)
+                    stable = calc.settlingTime(valid, time[evaluation])
                     if np.isfinite(stable):
                         internal_delay = max(0.0, stable - start)
                     # Time the observed SR state even if the XC pair did not
                     # settle across the midpoint before COMP reset.
                     output = (time >= start) & (time < stop)
                     valid = sr_p[output] >= midpoint if target > 0 else sr_p[output] <= midpoint
-                    stable = metrics.stable_since(time[output], valid)
+                    stable = calc.settlingTime(valid, time[output])
                     if np.isfinite(stable):
                         held = bool(np.all(valid))
                         if not held:
@@ -1500,8 +1500,8 @@ def analyze_adc_timing_closure(
             evaluation = (time >= start) & (time < reset)
             final_diff = float(internal[evaluation][-1]) if np.any(evaluation) else math.nan
             target = 1 if final_diff > 0 else -1
-            internal_stable = metrics.stable_since(
-                time[evaluation], target * internal[evaluation] >= internal_differential_v
+            internal_stable = calc.settlingTime(
+                target * internal[evaluation] >= internal_differential_v, time[evaluation]
             )
             high, low = (sr_p, sr_n) if target > 0 else (sr_n, sr_p)
             sr_valid = (high >= 0.7 * analog_supply) & (low <= 0.3 * analog_supply)
@@ -1515,8 +1515,8 @@ def analyze_adc_timing_closure(
                 and calc.value(high, time, logic_time) >= 0.7 * analog_supply
                 and calc.value(low, time, logic_time) <= 0.3 * analog_supply
             )
-            sr_stable = metrics.stable_since(
-                np.r_[time[before_logic], logic_time], np.r_[sr_valid[before_logic], sr_matches]
+            sr_stable = calc.settlingTime(
+                np.r_[sr_valid[before_logic], sr_matches], np.r_[time[before_logic], logic_time]
             )
             cdac_stable = math.nan
             if decision < 16 and np.isfinite(next_comp) and np.isfinite(logic_time):
@@ -1537,7 +1537,7 @@ def analyze_adc_timing_closure(
                         values = signals[f"{bottom_net.name}[{decision}]"][update]
                         bottom_target = (bool(state) ^ (diff and bool(params.dac_diffcaps))) * dac_supply
                         settled &= np.abs(values - bottom_target) <= cdac_tolerance_v
-                cdac_stable = metrics.stable_since(time[update], settled)
+                cdac_stable = calc.settlingTime(settled, time[update])
             rows.append(
                 (
                     int(conversion),

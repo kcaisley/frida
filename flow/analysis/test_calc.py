@@ -93,6 +93,16 @@ def test_settling_time_interpolates_the_last_band_entry() -> None:
     ) == pytest.approx(2.5)
 
 
+def test_settling_time_preserves_boolean_validity_sample_boundaries() -> None:
+    assert calc.settlingTime([False, True, False, True, True], np.arange(5.0)) == pytest.approx(3.0)
+    assert calc.settlingTime([True, True], [0.0, 1.0]) == pytest.approx(0.0)
+    assert np.isnan(calc.settlingTime([False, True, False], [0.0, 1.0, 2.0]))
+    assert np.isnan(calc.settlingTime([True, False], [0.0, np.nan]))
+    assert np.isnan(calc.settlingTime([True], [0.0]))
+    with pytest.raises(ValueError, match="Boolean validity"):
+        calc.settlingTime([False, True], [0.0, 1.0], final=1.0)
+
+
 def test_continuous_stddev_weights_the_independent_axis() -> None:
     signal = [0.0, 2.0, 2.0]
     axis = [0.0, 1.0, 3.0]
@@ -112,6 +122,18 @@ def test_spectral_and_density_operations() -> None:
     assert calc.rmsNoise(np.ones(3), np.array([0.0, 1.0, 2.0])) == pytest.approx(np.sqrt(2.0))
     assert calc.thd(100.0, 1.0) == pytest.approx(-20.0)
     assert calc.frequency(signal, np.arange(128) / sample_rate, threshold=0.0) == pytest.approx(8.0)
+
+
+def test_median_period_frequency_rejects_nearby_edges_and_long_gaps() -> None:
+    axis = np.arange(0.0, 12.0, 0.25)
+    signal = np.full(len(axis), -1.0)
+    for edge in (1.0, 1.5, 3.0, 5.0, 11.0):
+        signal[(axis >= edge) & (axis < edge + 0.25)] = 1.0
+    assert metrics.median_period_frequency(signal, axis, threshold=0.0, minimum_separation=1.0) == pytest.approx(0.5)
+    assert np.isnan(
+        metrics.median_period_frequency(signal, axis, threshold=0.0, minimum_separation=1.0, minimum_crossings=5)
+    )
+    assert calc.frequency(signal, axis, threshold=0.0) == pytest.approx(0.4)
 
 
 def test_waveform_jitter_uses_crossings_and_mean_period_by_default() -> None:

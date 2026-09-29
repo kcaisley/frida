@@ -90,16 +90,26 @@ def sine_fit(
     )
 
 
-def stable_since(axis: Sequence[float] | np.ndarray, valid: Sequence[bool] | np.ndarray) -> float:
-    """Return the first sample of the last uninterrupted valid interval."""
-    coordinates = np.asarray(axis, dtype=np.float64)
-    mask = np.asarray(valid, dtype=np.bool_)
-    if coordinates.ndim != 1 or mask.ndim != 1 or len(coordinates) != len(mask):
-        raise ValueError("validity mask and axis must be aligned one-dimensional arrays")
-    if len(coordinates) < 2 or not mask[-1]:
+def median_period_frequency(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    *,
+    threshold: float,
+    minimum_separation: float,
+    minimum_crossings: int = 3,
+    edge: str = "rising",
+) -> float:
+    """Estimate frequency after rejecting crossings too close to the preceding one."""
+    if not math.isfinite(minimum_separation) or minimum_separation < 0 or minimum_crossings < 2:
+        raise ValueError("minimum_separation must be nonnegative and minimum_crossings at least two")
+    crossings = calc.cross(signal, axis, threshold, edge=edge)
+    retained: list[float] = []
+    for crossing in crossings:
+        if not retained or crossing - retained[-1] >= minimum_separation:
+            retained.append(float(crossing))
+    if len(retained) < minimum_crossings:
         return math.nan
-    invalid = np.flatnonzero(~mask)
-    return float(coordinates[invalid[-1] + 1] if len(invalid) else coordinates[0])
+    return 1.0 / float(np.median(np.diff(retained)))
 
 
 def code_density(

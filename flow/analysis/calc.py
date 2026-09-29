@@ -448,6 +448,8 @@ def inl(dnl_values: Sequence[float] | np.ndarray, *, endpoint_correct: bool = Tr
     return raw - np.linspace(raw[0], raw[-1], len(raw)) if len(raw) > 1 else raw
 
 
+# Future transition measurements: riseTime, fallTime, and slewrate can pair
+# interpolated low/high crossings when an analysis needs duration or slew.
 @overload
 def cross(
     signal: Sequence[float] | np.ndarray,
@@ -544,7 +546,7 @@ def cross(
 
 
 def settlingTime(
-    signal: Sequence[float] | np.ndarray,
+    signal: Sequence[float] | Sequence[bool] | np.ndarray,
     axis: Sequence[float] | np.ndarray,
     *,
     initial: float | None = None,
@@ -556,8 +558,22 @@ def settlingTime(
 
     The default tolerance is a percentage of the initial-to-final step.
     ``absolute_tolerance`` supports fixed-band checks, including zero steps.
+    A Boolean validity trace settles at the first sample of its final
+    uninterrupted true interval; discrete validity has no interpolated edge.
     """
 
+    validity = np.asarray(signal)
+    if validity.dtype == np.dtype(bool):
+        coordinates = np.asarray(axis, dtype=np.float64)
+        if validity.ndim != 1 or coordinates.ndim != 1 or len(validity) != len(coordinates):
+            raise ValueError("validity mask and axis must be aligned one-dimensional arrays")
+        if initial is not None or final is not None or percent_of_step != 5.0 or absolute_tolerance is not None:
+            raise ValueError("Boolean validity traces do not accept level or tolerance options")
+        if len(validity) < 2 or not validity[-1]:
+            return math.nan
+        _, coordinates = _waveform(validity, coordinates)
+        invalid = np.flatnonzero(~validity)
+        return float(coordinates[invalid[-1] + 1] if len(invalid) else coordinates[0])
     signal, axis = _waveform(signal, axis)
     if len(signal) == 0:
         return math.nan
