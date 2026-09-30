@@ -11,7 +11,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.stats import t as student_t
 
-from flow.analysis.measure import measure_average_power, measure_delay, measure_settling
+from flow.analysis import calc
 from flow.analysis.types import (
     AnalysisCompCandidateSweep,
     AnalysisCompOffsetNoise,
@@ -48,7 +48,7 @@ def analyze_comp_offset_noise(
         minlength=len(unique_input),
     )
     probability = decision_count / count
-    trend = float(np.dot(unique_input - np.mean(unique_input), probability - np.mean(probability)))
+    trend = float(np.dot(unique_input - calc.average(unique_input), probability - calc.average(probability)))
     decision_polarity = 1 if trend >= 0.0 else -1
 
     # Adjacent-point reversals are tested across the complete curve. Use
@@ -96,7 +96,9 @@ def analyze_comp_offset_noise(
             continue
         batch_array = np.asarray(point_batches, dtype=np.float64)
         cluster_half_width = float(
-            student_t.ppf(0.975, len(batch_array) - 1) * np.std(batch_array, ddof=1) / np.sqrt(len(batch_array))
+            student_t.ppf(0.975, len(batch_array) - 1)
+            * calc.stddev(batch_array, sample=True)
+            / np.sqrt(len(batch_array))
         )
         lower_probability[input_index] = min(
             lower_probability[input_index],
@@ -120,14 +122,10 @@ def analyze_comp_offset_noise(
     )
     fitted_probability = np.maximum.accumulate(oriented_probability)
 
-    def input_at_probability(target: float) -> float:
-        if not fitted_probability[0] <= target <= fitted_probability[-1]:
-            return math.nan
-        return float(np.interp(target, fitted_probability, unique_input))
-
-    p16 = input_at_probability(0.158655)
-    p50 = input_at_probability(0.5)
-    p84 = input_at_probability(0.841345)
+    # Measure the first rising contact; endpoint-only contacts remain unbracketed.
+    p16 = calc.cross(fitted_probability, unique_input, 0.158655, occurrence=1)
+    p50 = calc.cross(fitted_probability, unique_input, 0.5, occurrence=1)
+    p84 = calc.cross(fitted_probability, unique_input, 0.841345, occurrence=1)
     noise_sigma_v = abs(p84 - p16) / 2.0 if math.isfinite(p16) and math.isfinite(p84) else math.nan
     if significant_reversal:
         validity = "non_monotonic"
@@ -189,11 +187,11 @@ def classify_comp_common_mode_validity(
         upper_candidates = np.flatnonzero((common_mode_array > common_modes[index]) & valid_analyses)
         neighbor_indices = []
         if lower_candidates.size:
-            neighbor_indices.append(int(lower_candidates[np.argmax(common_mode_array[lower_candidates])]))
+            neighbor_indices.append(int(calc.xmax(common_mode_array[lower_candidates], lower_candidates)))
         if upper_candidates.size:
-            neighbor_indices.append(int(upper_candidates[np.argmin(common_mode_array[upper_candidates])]))
-        captured_minimum_v = float(np.min(analysis.vin_diff_v))
-        captured_maximum_v = float(np.max(analysis.vin_diff_v))
+            neighbor_indices.append(int(calc.xmin(common_mode_array[upper_candidates], upper_candidates)))
+        captured_minimum_v = float(calc.ymin(analysis.vin_diff_v))
+        captured_maximum_v = float(calc.ymax(analysis.vin_diff_v))
         expected_transition_was_exercised = any(
             captured_minimum_v <= analyses[neighbor].offset_v <= captured_maximum_v for neighbor in neighbor_indices
         )
@@ -230,14 +228,16 @@ def analyze_comp_timing(
                 - measurement.wave.voltage[CompNets.latch_n.name][record]
             )
             clock_threshold = (
-                float((np.min(clock) + np.max(clock)) / 2.0) if clock_threshold_v is None else clock_threshold_v
+                float((calc.ymin(clock) + calc.ymax(clock)) / 2.0) if clock_threshold_v is None else clock_threshold_v
             )
             response = np.abs(output_difference)
-            response_threshold = float(np.max(response) / 2.0) if decision_threshold_v is None else decision_threshold_v
-            trigger_s, _response_s, delay_s = measure_delay(
-                measurement.wave.time_s,
+            response_threshold = (
+                float(calc.ymax(response) / 2.0) if decision_threshold_v is None else decision_threshold_v
+            )
+            trigger_s, _response_s, delay_s = calc.delay(
                 clock,
                 response,
+                measurement.wave.time_s,
                 clock_threshold,
                 response_threshold,
             )
@@ -246,12 +246,10 @@ def analyze_comp_timing(
             delays.append(delay_s)
             is_unresolved = abs(output_difference[-1]) < unresolved_threshold_v
             if math.isfinite(trigger_s) and not is_unresolved:
-                evaluation = measurement.wave.time_s >= trigger_s
-                settled_at_s = measure_settling(
-                    measurement.wave.time_s[evaluation],
-                    output_difference[evaluation],
-                    relative_tolerance=settling_tolerance,
+                evaluation_v, evaluation_s = calc.clip(
+                    output_difference, measurement.wave.time_s, trigger_s, float(measurement.wave.time_s[-1])
                 )
+                settled_at_s = calc.settlingTime(evaluation_v, evaluation_s, percent_of_step=100.0 * settling_tolerance)
                 settling_s = settled_at_s - trigger_s if math.isfinite(settled_at_s) else math.nan
             else:
                 settling_s = math.nan
@@ -276,7 +274,7 @@ def _supply_voltage_v(measurement: MeasCompInt) -> float:
 
 
 def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower:
-    """Calculate average comparator power consumption."""
+    """Time-weight comparator power within each record and average records equally."""
 
     if not measurements:
         raise ValueError("comparator power analysis requires measurements")
@@ -287,8 +285,12 @@ def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower
         voltage = _supply_voltage_v(measurement)
         stored_power = measurement.info.readbacks.get("vdd_active_average_power_w")
         if stored_power is None:
-            current = measurement.wave.current[CompNets.vdd.name].reshape(-1)
-            power = measure_average_power(current, voltage)
+            power = calc.average(
+                [
+                    calc.average(np.abs(current * voltage), measurement.wave.time_s)
+                    for current in measurement.wave.current[CompNets.vdd.name]
+                ]
+            )
         else:
             power = float(stored_power)
         stored_energy = measurement.info.readbacks.get("energy_per_decision_j")
@@ -343,12 +345,12 @@ def analyze_comp_candidate_sweep(measurements: Sequence[MeasCompInt]) -> Analysi
         power = analyze_comp_power([measurement])
         finite_delay = timing.clock_to_decision_s[np.isfinite(timing.clock_to_decision_s)]
         finite_settling = timing.settling_s[np.isfinite(timing.settling_s)]
-        unresolved_fraction = float(np.mean(timing.unresolved))
-        maximum_delay_s = float(np.max(finite_delay)) if len(finite_delay) else math.nan
+        unresolved_fraction = calc.average(timing.unresolved)
+        maximum_delay_s = float(calc.ymax(finite_delay)) if len(finite_delay) else math.nan
         if np.any(timing.unresolved):
             maximum_settling_s = float(getattr(measurement.param, "evaluation_time_s", math.nan))
         else:
-            maximum_settling_s = float(np.max(finite_settling)) if len(finite_settling) else math.nan
+            maximum_settling_s = float(calc.ymax(finite_settling)) if len(finite_settling) else math.nan
         geometry_signature = str(readbacks["device_geometry_signature"])
         rows.append(
             {

@@ -28,14 +28,13 @@ import csv
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from statistics import median
 from time import sleep, strftime
 
 import numpy as np
 import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
-from flow.analysis.measure import find_crossings
+from flow.analysis import calc
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
@@ -500,20 +499,15 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
                 )
 
-            raw_crossings = find_crossings(
-                samples,
-                times,
-                crossing_level_v,
-                rising=True,
-            )
-            minimum_crossing_separation_s = 0.75 / AWG_FREQUENCY_HZ
-            rising_crossings = []
-            for crossing in raw_crossings:
-                if not rising_crossings or crossing - rising_crossings[-1] >= minimum_crossing_separation_s:
-                    rising_crossings.append(crossing)
-            if len(rising_crossings) < 3:
-                raise AssertionError(f"scope CH{SCOPE_CHANNEL} has only {len(rising_crossings)} rising crossings")
-            measured_frequency_hz = float(1.0 / median(np.diff(rising_crossings)))
+            crossings = calc.cross(samples, times, crossing_level_v, edge="rising")
+            # Reject closely spaced scope artifacts before taking the median cycle period.
+            accepted: list[float] = []
+            for crossing in crossings:
+                if not accepted or crossing - accepted[-1] >= 0.75 / AWG_FREQUENCY_HZ:
+                    accepted.append(float(crossing))
+            if len(accepted) < 3:
+                raise AssertionError(f"scope CH{SCOPE_CHANNEL} has fewer than three rising crossings")
+            measured_frequency_hz = 1.0 / float(np.median(np.diff(accepted)))
 
             # Fit the DC term and fundamental sine independently. Percentile
             # extrema are useful for finding crossings, but would mix even
@@ -534,7 +528,7 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             fitted_samples = fit_matrix @ fit_coefficients
             measured_vdiff_offset_v = float(fit_coefficients[0])
             measured_vdiff_vpp = float(2.0 * np.hypot(fit_coefficients[1], fit_coefficients[2]))
-            measured_residual_rms_v = float(np.sqrt(np.mean((samples - fitted_samples) ** 2)))
+            measured_residual_rms_v = calc.rms(samples - fitted_samples)
 
             plot_paths = plot_waveforms(
                 analyze_scope_waveforms(waveforms, SCOPE_TRACKS),

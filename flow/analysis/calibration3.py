@@ -27,8 +27,8 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import log_ndtr, ndtr
 
+from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
-from flow.analysis.measure import histogram_inl_dnl
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 from flow.caparray import get_caparray_weights
 
@@ -114,7 +114,7 @@ def _fit_probit_threshold(
     # makes the transition narrower than one voltage bin.
     zero_count = trials - one_count
     split_error = np.cumsum(one_count) + np.sum(zero_count) - np.cumsum(zero_count)
-    threshold_seed_v = float(centers_v[int(np.argmin(split_error))])
+    threshold_seed_v = calc.xmin(split_error, centers_v)
     sigma_seed_v = max(input_span_v / 1000.0, 2.0 * bin_width_v)
     minimum_sigma_v = max(bin_width_v / 32.0, np.finfo(np.float64).eps)
     maximum_sigma_v = input_span_v / 2.0
@@ -305,19 +305,6 @@ def _hybrid_weights(
     return analog_weight * code_max / np.sum(analog_weight)
 
 
-def _code_density(
-    decisions: np.ndarray,
-    retained: np.ndarray,
-    weights: np.ndarray,
-    *,
-    code_max: int,
-) -> dict[str, np.ndarray | float | int]:
-    decoded = np.rint(decisions[retained].astype(np.float64) @ weights).astype(np.int64)
-    decoded = np.clip(decoded, 0, code_max)
-    counts = np.bincount(decoded, minlength=code_max + 1)
-    return histogram_inl_dnl(counts, first_code=1, last_code=code_max - 1)
-
-
 def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:
     """Extract Hsu prefix thresholds and validate a conservative BOUT decoder.
 
@@ -350,11 +337,7 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
 
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = np.linalg.lstsq(
-        np.column_stack((reset_number, np.ones(len(reset_number)))),
-        ramp.reset_conversion_index.astype(np.float64),
-        rcond=None,
-    )[0]
+    period_samples, first_reset_sample = np.polyfit(reset_number, ramp.reset_conversion_index, 1)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     inferred_vin_diff_v = ramp.vin_diff_min_v + phase * (ramp.vin_diff_max_v - ramp.vin_diff_min_v)
     cycle_index = np.floor((sample - first_reset_sample) / period_samples).astype(np.int64)
@@ -396,18 +379,11 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
             int(measured_step_count),
             code_max=code_max,
         )
-        candidate_density = _code_density(
-            decisions,
-            inner_score,
-            candidate_weight,
-            code_max=code_max,
-        )
-        candidate_maximum_abs_inl[index] = float(np.max(np.abs(candidate_density["inl"])))
-    selected_index = min(
-        range(len(candidate_measured_step_count)),
-        key=lambda index: (candidate_maximum_abs_inl[index], candidate_measured_step_count[index]),
-    )
-    selected_measured_step_count = int(candidate_measured_step_count[selected_index])
+        decoded = np.rint(decisions[inner_score].astype(np.float64) @ candidate_weight).astype(np.int64)
+        counts = np.bincount(np.clip(decoded, 0, code_max), minlength=code_max + 1)
+        candidate_inl = calc.inl(calc.dnl(counts[1:code_max]))
+        candidate_maximum_abs_inl[index] = calc.ymax(np.abs(candidate_inl))
+    selected_measured_step_count = int(calc.xmin(candidate_maximum_abs_inl, candidate_measured_step_count))
 
     # Refit the already-selected model on every even calibration cycle.  Odd
     # cycles remain held out and are used only below for final metrics.

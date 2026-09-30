@@ -8,6 +8,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+from flow.analysis import calc
 from flow.analysis.plots import NORD_RED, PLOT_STYLE, PNG_DPI, plot_adc_redundancy, style_grid
 
 
@@ -70,8 +71,6 @@ class CDAC:
     ):  # FIXME: there is also an ADC top nonlinearity function?
         reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
         dac_data = np.zeros(len(reg_data))
-        dnl_data = np.zeros(len(reg_data) - 1)
-        inl_data = np.zeros(len(reg_data))
 
         print(f"DAC array size {self.params['array_size']:d}")
         print(f"lsb size {self.lsb_size:e}")
@@ -82,10 +81,10 @@ class CDAC:
             out_p, out_n = self.update(reg, 0)
             dac_data[reg] = out_p - out_n
 
-        dnl_data = (np.diff(dac_data) - self.lsb_size) / self.lsb_size
-        dac_dnl_std = np.std(dnl_data)
-        inl_data = np.cumsum(dnl_data)
-        dac_inl_std = np.std(inl_data)
+        dnl_data = calc.deriv(dac_data, reg_data) / self.lsb_size - 1.0
+        dac_dnl_std = calc.stddev(dnl_data)
+        inl_data = calc.inl(dnl_data, endpoint_correct=False)
+        dac_inl_std = calc.stddev(inl_data)
 
         if do_plot:
             figure, plot = plt.subplots(3, 1, sharex=True)
@@ -441,10 +440,6 @@ class SAR_ADC:
         upper_index_boundary = num_codes - upper_excluded_bins
 
         # data structures for DNL/INL calculation
-        code_density_hist = np.empty(num_codes)
-        bin_edges = []
-        dnl_data = np.empty(num_codes)
-        inl_data = np.empty(num_codes)
         adc_data = np.empty(num_codes * values_per_bin)
 
         # values are uniformly distributed within bin uniformly
@@ -464,17 +459,17 @@ class SAR_ADC:
         code_density_hist, bin_edges = np.histogram(adc_data, bins=num_codes, range=(min_code, max_code))
         code_density_hist = code_density_hist[lower_index_boundary:upper_index_boundary]
         bin_edges = bin_edges[lower_index_boundary:upper_index_boundary]
-        average_bin_count = np.average(code_density_hist)
+        average_bin_count = calc.average(code_density_hist)
 
         # calculate differential nonlinearity, difference between expected ideal counts in a bit and 'measured' (ideally would be zero)
-        dnl_data = (code_density_hist - average_bin_count) / average_bin_count
+        dnl_data = calc.dnl(code_density_hist, ideal_count=average_bin_count)
         dnl_data[:lower_index_boundary] = 0
         dnl_data[upper_index_boundary:] = 0
-        dnl_sigma = np.std(dnl_data)
+        dnl_sigma = calc.stddev(dnl_data)
 
         # calculate integral(i.e. cumsum) nonlinearity
-        inl_data = np.cumsum(dnl_data)
-        inl_sigma = np.std(inl_data)
+        inl_data = calc.inl(dnl_data, endpoint_correct=False)
+        inl_sigma = calc.stddev(inl_data)
         self.dnl = dnl_sigma
         self.inl = inl_sigma
         # DNL/INL results now reported in structured output
@@ -547,7 +542,7 @@ class SAR_ADC:
         # Q: Assumes an ideal binary ADCs, so just ideal quantization noise.
         residual_array = input_voltage_array / adc_gain + adc_offset - adc_data_array
         # noise floor RMS
-        noise_std = np.std(residual_array)
+        noise_std = calc.stddev(residual_array)
         noise_percent = noise_std / 2 ** self.params["resolution"] * 100
         # ENOB (ideal resolution minus noise gives effective resolution)
         self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12))  # log10 is Decibels,
@@ -601,7 +596,7 @@ class SAR_ADC:
             # This is the core of the algorithm. At every input voltage, it records the energy used
             # Inside sample_and_convert: reset() is run one, and update()
             conversion_energy_array[i] = self.conversion_energy
-        conversion_energy_average = np.average(conversion_energy_array)
+        conversion_energy_average = calc.average(conversion_energy_array)
 
         self.fom = conversion_energy_average / self.params["resolution"]
         self.average_conversion_energy = conversion_energy_average

@@ -51,7 +51,7 @@ from yaml import safe_load
 
 from flow.adc.sequences import SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
-from flow.analysis.measure import find_crossings
+from flow.analysis import calc
 from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
 from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.plldrp import (
@@ -151,11 +151,11 @@ def validate_capture(waveforms, symbol_rate_bps: float, tracks: dict[int, str]) 
         crossings = []
         for rising in (True, False):
             crossings.extend(
-                find_crossings(
+                calc.cross(
                     signal,
                     time_s,
                     crossing_level_v,
-                    rising=rising,
+                    edge="rising" if rising else "falling",
                 )
             )
         crossing_times[track] = tuple(sorted(crossings))
@@ -575,7 +575,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         # The end of the long recipe's idle pause lies outside the pretrigger window.
         # Zero volts is the differential crossing; no per-channel deskew is fitted.
         time_s = analysis.time_s
-        init_edges = find_crossings(analysis.signal_values[list(tracks).index(init_channel)], time_s, 0.0, rising=True)
+        init_edges = calc.cross(analysis.signal_values[list(tracks).index(init_channel)], time_s, 0.0, edge="rising")
         assert len(init_edges), "capture must include the triggering INIT rising edge"
         origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
         period_s = len(sequence.init) / symbol_rate_bps
@@ -602,7 +602,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
                     assert time_s[-1] >= origin_s + expected[-1] + edge_tolerance_s, (
                         f"scope record misses the final {track} {edge} edge"
                     )
-                measured = find_crossings(signal, time_s, 0.0, rising=rising) - origin_s
+                measured = calc.cross(signal, time_s, 0.0, edge="rising" if rising else "falling") - origin_s
                 measured = measured[(measured >= -edge_tolerance_s) & (measured < period_s - edge_tolerance_s)]
                 edge_observations: dict[str, object] = {
                     "expected_s": expected.tolist(),

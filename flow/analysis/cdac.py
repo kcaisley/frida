@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
+from flow.analysis import calc
 from flow.analysis.comp import analyze_comp_offset_noise
 from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt, Measurement
 from flow.caparray import get_caparray_weights
@@ -113,7 +114,7 @@ def analyze_cdac_cap_mismatch(
             for diffcaps in range(2):
                 directions = per_mode_direction[side, element, diffcaps]
                 if np.all(np.isfinite(directions)):
-                    mode_values.append(float(np.mean(directions)))
+                    mode_values.append(calc.average(directions))
                     direction_bias[side, element, diffcaps] = float((directions[0] - directions[1]) / 2.0)
                 else:
                     mode_values.append(math.nan)

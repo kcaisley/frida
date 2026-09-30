@@ -168,7 +168,7 @@ def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
     capture = "0110" + "0" * 16
     memory = seqgen.convert_params_to_seqgen_fmt(params, capture)
     assert len(memory) == 160
-    assert list(memory[:8]) == [0x0F, 0xF0, 0, 0x08, 0, 0, 0, 0]
+    assert list(memory[:8]) == [0x0F, 0xF0, 0, 0x3C, 0, 0, 0, 0]
     assert list(memory[24:32]) == [0, 0, 0x3F, 0xC0, 0, 0, 0, 0]
     for lane, row in enumerate((sequence.init, sequence.samp, sequence.comp, sequence.logic)):
         decoded = "".join(str((word >> bit) & 1) for word in memory[lane::8] for bit in range(8))

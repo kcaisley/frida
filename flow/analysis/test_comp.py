@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -90,6 +91,32 @@ def test_comp_offset_noise_uses_binary_decision_curve() -> None:
     assert result.noise_sigma_v == pytest.approx(0.8e-3, rel=0.15)
     assert result.decision_polarity == 1
     assert result.validity == "valid"
+
+
+@pytest.mark.parametrize("one_counts, expected_offset", (((0, 5, 5, 10), 1e-3), ((0, 2, 5), math.nan)))
+def test_comp_offset_uses_first_contact_and_requires_a_bracketed_crossing(one_counts, expected_offset) -> None:
+    msmt = comparator_measurement()
+    trials = 10
+    sample_count = trials * len(one_counts)
+    decisions = np.concatenate([np.r_[np.ones(count), np.zeros(trials - count)] for count in one_counts])
+    msmt = replace(
+        msmt,
+        daq=replace(
+            msmt.daq,
+            trial_index=np.arange(sample_count),
+            vin_diff_v=np.repeat(np.arange(len(one_counts)) * 1e-3, trials),
+            vin_cm_v=np.full(sample_count, 0.6),
+            decision=decisions,
+        ),
+    )
+    analysis = analyze_comp_offset_noise([msmt])
+    if math.isnan(expected_offset):
+        assert math.isnan(analysis.offset_v)
+        assert analysis.validity == "unbracketed"
+    else:
+        assert analysis.offset_v == pytest.approx(expected_offset)
+        assert analysis.noise_sigma_v == pytest.approx(1.18269e-3)
+        assert analysis.validity == "valid"
 
 
 def test_comp_offset_noise_accepts_descending_physical_polarity() -> None:
@@ -298,6 +325,47 @@ def test_comp_timing_and_power_use_internal_waveforms() -> None:
     power = analyze_comp_power([msmt])
     assert power.average_power_w[0] == pytest.approx(12e-6)
     assert power.energy_per_decision_j[0] == pytest.approx(480e-15)
+
+
+def test_comp_settling_starts_at_the_interpolated_clock_trigger() -> None:
+    msmt = comparator_measurement()
+    time_s = np.asarray((0.0, 2.0, 4.0)) * 1e-9
+    voltage = {name: values[:, :3] for name, values in msmt.wave.voltage.items()}
+    voltage.update(
+        clk=np.tile((0.0, 1.2, 1.2), (3, 1)),
+        latch_p=np.tile((0.5, 0.75, 1.0), (3, 1)),
+        latch_n=np.tile((0.5, 0.25, 0.0), (3, 1)),
+    )
+    msmt = replace(
+        msmt,
+        wave=replace(msmt.wave, time_s=time_s, voltage=voltage, current={"vdd": np.zeros((3, 3))}),
+    )
+    timing = analyze_comp_timing([msmt])
+    # Clock crosses at 1 ns, where the differential output is 0.25 V.
+    # Its 1% band starts at 0.9925 V, reached at 3.97 ns.
+    np.testing.assert_allclose(timing.clock_to_decision_s, 1e-9)
+    np.testing.assert_allclose(timing.settling_s, 2.97e-9)
+
+
+def test_comp_power_time_weights_each_trial_and_preserves_stored_power() -> None:
+    msmt = comparator_measurement()
+    time_s = np.asarray((0.0, 1.0, 10.0)) * 1e-9
+    current = np.asarray((10.0, 20.0, -30.0))[:, None] * np.asarray((0.0, 1.0, 1.0)) * 1e-6
+    msmt = replace(
+        msmt,
+        wave=replace(
+            msmt.wave,
+            time_s=time_s,
+            voltage={name: values[:, :3] for name, values in msmt.wave.voltage.items()},
+            current={"vdd": current},
+        ),
+    )
+    # The ramp occupies 1 ns and the plateau 9 ns: each rectified mean
+    # is 95% of its plateau, then the three trial powers are averaged.
+    power = analyze_comp_power([msmt])
+    assert power.average_power_w[0] == pytest.approx(22.8e-6)
+    msmt = replace(msmt, info=replace(msmt.info, readbacks={"vdd_active_average_power_w": 77e-6}))
+    assert analyze_comp_power([msmt]).average_power_w[0] == pytest.approx(77e-6)
 
 
 def test_comp_power_requires_aligned_energy_results() -> None:

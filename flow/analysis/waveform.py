@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from flow.adc.sequences import AdcSequence
-from flow.analysis.measure import find_crossings
+from flow.analysis import calc
 from flow.analysis.types import AdcIntWave, AnalysisWaveform, CompIntWave, MeasAdcExt, MeasAdcInt, Measurement
 from flow.scans.params import AdcScanParams
 
@@ -87,7 +87,7 @@ def analyze_measurement_waveforms(
     origin = 0.0
     if reference_signal is not None:
         threshold = 0.6 if threshold_v is None else threshold_v
-        edges = find_crossings(traces[reference_signal], time, threshold, rising=True, initial_high=True)
+        edges = calc.cross(traces[reference_signal], time, threshold, edge="rising", initial_high=True)
         if not len(edges):
             raise ValueError("Waveform record has no reference edge")
         origin = float(edges[0])
@@ -102,7 +102,7 @@ def analyze_measurement_waveforms(
         time_origin_s=origin,
         signal_names=selected,
         signal_units=tuple(units[name] for name in selected),
-        signal_values=np.asarray([np.interp(time, wave.time_s, traces[name]) for name in selected]),
+        signal_values=np.asarray([calc.value(traces[name], wave.time_s, time) for name in selected]),
         setup_lines=style_measurement_text(msmt),
     )
 

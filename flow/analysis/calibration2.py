@@ -26,6 +26,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import lsq_linear
 
+from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 
@@ -83,11 +84,7 @@ def analyze(
         raise ValueError("calibration 2 requires the matching ADC ramp analysis")
     sample = np.arange(ramp.sample_count, dtype=np.float64)
     reset_number = np.arange(len(ramp.reset_conversion_index), dtype=np.float64)
-    period_samples, first_reset_sample = np.linalg.lstsq(
-        np.column_stack((reset_number, np.ones(len(reset_number)))),
-        ramp.reset_conversion_index.astype(np.float64),
-        rcond=None,
-    )[0]
+    period_samples, first_reset_sample = np.polyfit(reset_number, ramp.reset_conversion_index, 1)
     phase = np.mod((sample - first_reset_sample) / period_samples, 1.0)
     code_max = (1 << params.dut.adc_bits) - 1
     ideal_dout = phase * code_max
@@ -350,10 +347,10 @@ def fit_empirical_bout_calibration(
         design_rank=design_rank,
         design_condition=design_condition,
         solver_cost=float(fit.cost),
-        training_rmse_lsb=float(np.sqrt(np.mean(np.square(training_error)))),
-        validation_rmse_lsb=float(np.sqrt(np.mean(np.square(validation_error)))),
-        training_maximum_abs_error_lsb=float(np.max(np.abs(training_error))),
-        validation_maximum_abs_error_lsb=float(np.max(np.abs(validation_error))),
+        training_rmse_lsb=calc.rms(training_error),
+        validation_rmse_lsb=calc.rms(validation_error),
+        training_maximum_abs_error_lsb=calc.ymax(np.abs(training_error)),
+        validation_maximum_abs_error_lsb=calc.ymax(np.abs(validation_error)),
     )
     return AdcCalibrationResult(
         normalized_weights=normalized_weights,

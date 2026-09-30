@@ -35,6 +35,7 @@ from flow.adc.sequences import (
     AdcSequence,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
+from flow.analysis import calc
 from flow.analysis.adc import (
     ADC_RAMP_RESET_EXCLUSION_CONVERSIONS,
     analyze_adc_cdac_settling,
@@ -303,9 +304,9 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         if len(dout) != 100_000:
             raise ValueError(f"capture has {len(dout)} conversions rather than 100000: {path}")
         _codes, counts = np.unique(dout, return_counts=True)
-        mean_code[key] = float(np.mean(dout))
-        sigma_code[key] = float(np.std(dout))
-        modal_fraction[key] = float(np.max(counts) / len(dout))
+        mean_code[key] = calc.average(dout)
+        sigma_code[key] = calc.stddev(dout)
+        modal_fraction[key] = float(calc.ymax(counts) / len(dout))
         unique_count[key] = len(counts)
         readbacks = measurement.info.readbacks
         scope_valid[key] = bool(readbacks.get("scope_fastrx_comparison_valid", False))
@@ -482,7 +483,7 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
                 "decisions": len(timing.decision_index),
                 "reset_edges_observed": int(np.count_nonzero(np.isfinite(timing.comp_reset_s))),
                 "ordinary_reset_gaps_observed": int(np.count_nonzero(observed_gap)),
-                "minimum_reset_gap_ps": float(np.min(reset_gap_s[observed_gap]) * 1e12)
+                "minimum_reset_gap_ps": float(calc.ymin(reset_gap_s[observed_gap]) * 1e12)
                 if np.any(observed_gap)
                 else np.nan,
                 "resolved_before_reset": int(np.count_nonzero(observed_internal)),
@@ -492,12 +493,12 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
                 "cdac_decisions": int(np.count_nonzero(ordinary)),
                 "timing_passed": int(np.count_nonzero(timing.passed)),
                 "minimum_logic_setup_ps": (
-                    float(np.min(logic_setup_s[np.isfinite(logic_setup_s)]) * 1e12)
+                    float(calc.ymin(logic_setup_s[np.isfinite(logic_setup_s)]) * 1e12)
                     if np.isfinite(logic_setup_s).any()
                     else np.nan
                 ),
                 "minimum_cdac_setup_ps": (
-                    float(np.min(cdac_setup_s[np.isfinite(cdac_setup_s)]) * 1e12)
+                    float(calc.ymin(cdac_setup_s[np.isfinite(cdac_setup_s)]) * 1e12)
                     if np.isfinite(cdac_setup_s).any()
                     else np.nan
                 ),
