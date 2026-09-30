@@ -29,7 +29,6 @@ from scipy.special import log_ndtr, ndtr
 
 from flow.analysis import calc
 from flow.analysis.adc import ADC_RAMP_RESET_EXCLUSION_CONVERSIONS
-from flow.analysis.adc import _code_density as _adc_code_density
 from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, MeasAdcExt
 from flow.caparray import get_caparray_weights
 
@@ -306,19 +305,6 @@ def _hybrid_weights(
     return analog_weight * code_max / np.sum(analog_weight)
 
 
-def _code_density(
-    decisions: np.ndarray,
-    retained: np.ndarray,
-    weights: np.ndarray,
-    *,
-    code_max: int,
-) -> dict[str, np.ndarray | float | int]:
-    decoded = np.rint(decisions[retained].astype(np.float64) @ weights).astype(np.int64)
-    decoded = np.clip(decoded, 0, code_max)
-    counts = np.bincount(decoded, minlength=code_max + 1)
-    return _adc_code_density(counts, first_code=1, last_code=code_max - 1)
-
-
 def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:
     """Extract Hsu prefix thresholds and validate a conservative BOUT decoder.
 
@@ -393,18 +379,11 @@ def analyze(measurement: MeasAdc, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibrati
             int(measured_step_count),
             code_max=code_max,
         )
-        candidate_density = _code_density(
-            decisions,
-            inner_score,
-            candidate_weight,
-            code_max=code_max,
-        )
-        candidate_maximum_abs_inl[index] = float(np.max(np.abs(candidate_density["inl"])))
-    selected_index = min(
-        range(len(candidate_measured_step_count)),
-        key=lambda index: (candidate_maximum_abs_inl[index], candidate_measured_step_count[index]),
-    )
-    selected_measured_step_count = int(candidate_measured_step_count[selected_index])
+        decoded = np.rint(decisions[inner_score].astype(np.float64) @ candidate_weight).astype(np.int64)
+        counts = np.bincount(np.clip(decoded, 0, code_max), minlength=code_max + 1)
+        candidate_inl = calc.inl(calc.dnl(counts[1:code_max]))
+        candidate_maximum_abs_inl[index] = calc.ymax(np.abs(candidate_inl))
+    selected_measured_step_count = int(calc.xmin(candidate_maximum_abs_inl, candidate_measured_step_count))
 
     # Refit the already-selected model on every even calibration cycle.  Odd
     # cycles remain held out and are used only below for final metrics.

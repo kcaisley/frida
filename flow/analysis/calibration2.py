@@ -349,8 +349,8 @@ def fit_empirical_bout_calibration(
         solver_cost=float(fit.cost),
         training_rmse_lsb=calc.rms(training_error),
         validation_rmse_lsb=calc.rms(validation_error),
-        training_maximum_abs_error_lsb=float(np.max(np.abs(training_error))),
-        validation_maximum_abs_error_lsb=float(np.max(np.abs(validation_error))),
+        training_maximum_abs_error_lsb=calc.ymax(np.abs(training_error)),
+        validation_maximum_abs_error_lsb=calc.ymax(np.abs(validation_error)),
     )
     return AdcCalibrationResult(
         normalized_weights=normalized_weights,

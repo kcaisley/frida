@@ -15,6 +15,7 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from flow.analysis import calc
 from flow.analysis.cdac import analyze_cdac_cap_mismatch
 from flow.analysis.types import AnalysisAdcCalibration, MeasCdacExt
 from flow.caparray import get_caparray_weights
@@ -215,7 +216,7 @@ def audit_measured_weights(
         weight_error=error,
         minimum_binary_path_shift=float(np.sum(error[error < 0.0])),
         maximum_binary_path_shift=float(np.sum(error[error > 0.0])),
-        maximum_absolute_weight_error=float(np.max(np.abs(error))),
+        maximum_absolute_weight_error=calc.ymax(np.abs(error)),
     )
 
 

@@ -15,6 +15,7 @@ from flow.adc import AdcParams
 from flow.adc.sequences import SEQUENCES
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
+    _sequence_logic_timing,
     _sine_fit,
     analyze_adc_cdac_settling,
     analyze_adc_code_distribution,
@@ -24,6 +25,7 @@ from flow.analysis.adc import (
     analyze_adc_noise_sweep,
     analyze_adc_nonlinearity,
     analyze_adc_power_sweep,
+    analyze_adc_power_waveform,
     analyze_adc_ramp,
     analyze_adc_sampling_noise,
     analyze_adc_transfer,
@@ -121,7 +123,7 @@ def test_sampling_noise_does_not_extrapolate_past_saved_record() -> None:
     measurement = adc_sampling_measurement()
     wave = measurement.wave
     sample = np.tile(np.where(wave.time_s < wave.time_s[-1] - 0.5e-9, 1.2, 0.0), (3, 1))
-    with pytest.raises(ValueError, match="outside the saved waveform"):
+    with pytest.raises(ValueError, match="outside the waveform"):
         analyze_adc_sampling_noise(
             replace(measurement, wave=replace(wave, voltage={**wave.voltage, "seq_samp": sample}))
         )
@@ -693,6 +695,17 @@ def test_shared_adc_analyses_accept_internal_measurements() -> None:
     assert analyze_adc_dynamic(dynamic).sample_count == len(time_s)
 
 
+def test_endpoint_nonlinearity_uses_first_contact_and_omits_unbracketed_endpoints() -> None:
+    # Mean codes are [0, 0.5, 0.5, 1.5, 3.5]. The first plateau is
+    # reached at input 1; the final 3.5 threshold has no saved crossing.
+    measurement = adc_measurement([0, 0, 1, 0, 1, 1, 2, 3, 4], vin_diff_v=[0, 1, 1, 2, 2, 3, 3, 4, 4])
+    analysis = analyze_adc_nonlinearity(measurement, method="endpoint")
+    assert analysis.transition_vin_diff_v is not None
+    np.testing.assert_array_equal(analysis.code, [1, 2])
+    np.testing.assert_allclose(analysis.transition_vin_diff_v, [3.0, 3.5])
+    assert analysis.endpoint_lsb_v == pytest.approx(1.25)
+
+
 def test_endpoint_linearity_interpolates_static_code_transitions() -> None:
     inputs = np.linspace(-0.6, 0.6, 129)
     ideal_codes = np.rint(np.linspace(0.0, 15.0, len(inputs)))
@@ -813,6 +826,14 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
     assert paths.estimate_dout[0, -1] == pytest.approx(4095.0)
 
 
+def test_sequence_logic_timing_uses_the_full_crossing_span() -> None:
+    comp = "".join("1" if index in (0, 2, 6, 18) else "0" for index in range(24))
+    logic = "".join("1" if index in (1, 3, 7) else "0" for index in range(24))
+    # Four COMP rises span 18 symbols: the average period is six rather
+    # than the median spacing of four. LOGIC remains one symbol after COMP.
+    assert _sequence_logic_timing(comp, logic) == pytest.approx((6.0, 1.0))
+
+
 def test_dynamic_sweep_retains_rate_frequency_and_logic_phase() -> None:
     measurements = []
     for index, frequency_hz in enumerate((1_000.0, 5_000.0)):
@@ -901,16 +922,24 @@ def test_power_sweep_extracts_spice_static_from_settled_idle_tail() -> None:
 
     power = analyze_adc_power_sweep((measurement,))
 
+    # INIT crosses halfway between 20 and 25 ns. Integrating the linear
+    # current segments from 22.5 to 647.5 ns gives these active means.
+    expected_active_w = 1.2e-6 * np.asarray((10.09, 20.08, 30.07))
+    # The idle samples span 650..995 ns and include half of the 5 ns
+    # transition from active to static current, giving a 10/345 correction.
+    expected_static_w = 1.2e-6 * np.asarray((2.0, 4.0, 6.0)) * (1.0 + 10.0 / 345.0)
     np.testing.assert_array_equal(power.adc_index, (-1,))
     np.testing.assert_allclose(
         (power.vdd_a_static_power_w[0], power.vdd_d_static_power_w[0], power.vdd_dac_static_power_w[0]),
-        (2.4e-6, 4.8e-6, 7.2e-6),
+        expected_static_w,
     )
     np.testing.assert_allclose(
         (power.vdd_a_dynamic_power_w[0], power.vdd_d_dynamic_power_w[0], power.vdd_dac_dynamic_power_w[0]),
-        (9.6e-6, 19.2e-6, 28.8e-6),
+        expected_active_w - expected_static_w,
     )
-    assert power.total_power_w[0] == pytest.approx(72.0e-6)
+    assert power.total_power_w[0] == pytest.approx(72.288e-6)
+    aligned = analyze_adc_power_waveform(measurement)
+    assert aligned.time_s[0] == pytest.approx(-12.5e-9)
 
 
 def test_power_sweep_requires_spice_settled_idle_tail() -> None:
@@ -997,15 +1026,17 @@ def test_noise_sweep_preserves_failed_and_recovered_points() -> None:
     np.testing.assert_allclose(sweep.sample_rate_hz, [3e6, 1e6, 2e6])
 
 
-def test_noise_sweep_extracts_pretrigger_input_noise() -> None:
+@pytest.mark.parametrize("offsets", ((-0.05,), (-0.05, -0.15, 0.05)))
+def test_noise_sweep_extracts_pretrigger_input_noise(offsets) -> None:
     msmt = adc_measurement([100, 101, 100])
     assert msmt.wave is not None
     time_s = np.asarray((-2.0, -1.0, 0.0, 1.0)) * 1e-9
-    vin_diff_v = np.asarray(((-0.051, -0.049, -0.040, -0.060),))
+    vin_diff_v = np.asarray(offsets)[:, None] + np.asarray((-0.001, 0.001, 0.01, -0.01))
     msmt = replace(
         msmt,
         wave=replace(
             msmt.wave,
+            conversion_index=np.arange(len(offsets)),
             time_s=time_s,
             vin_diff_v=vin_diff_v,
             seq_comp_v=np.zeros_like(vin_diff_v),
