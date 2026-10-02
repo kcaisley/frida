@@ -1,6 +1,6 @@
 # ADC schematic generation
 
-The schematic is authored in Circuitikz in [adc_architecture.tex](../../../build/summary_adc_figures/adc_architecture.tex), beside its generated PDF and PNG in `build/summary_adc_figures/`. It began from the repository's hand-drawn ADC diagram and follows the monochrome driver style in [daq_diagram.tex](../daq_diagram.tex). The report uses the PNG; the PDF preserves vector lines and text for publication.
+The schematic is authored in Circuitikz in [adc_architecture.tex](../../../build/summary_adc_figures/adc_architecture.tex), beside its generated PDF and PNG in `build/summary_adc_figures/`. It began from the repository's hand-drawn ADC diagram and follows the driver geometry in [daq_diagram.tex](../daq_diagram.tex). The report uses the PNG; the PDF preserves vector lines and text for publication.
 
 From the repository root, regenerate with:
 
@@ -29,3 +29,5 @@ The comparator is drawn at scale 3.3, positioned close to the array with shorten
 Flip-flop pin names retain Circuitikz’s default serif LaTeX font. The diagram does not override the document family to sans-serif; signal labels use the same small serif font as the pins, and electrical quantities use upright Roman math lettering. Only the capacitor-unit notation C_u remains italic.
 
 Symbol outline weight uses the default TikZ base stroke and Circuitikz class thickness multipliers. Do not apply a heavier global line width to the circuit: it also multiplies amplifier and flip-flop body outlines. Geometry is unchanged by this styling correction.
+
+Block fills use the Nord palette: blue at 25% for all flip-flops, orange at 30% for capacitor drivers, green at 35% for the comparator, purple at 30% for the sampling switches, and light Nord grey (#ECEFF4) inside the dotted capacitor cells. Cell fills are drawn on the background layer so they do not cover the top-plate bus. Wires, symbol outlines, and labels retain their existing dark strokes; inversion bubbles remain white. The build directory also retains adc_architecture_monochrome.tex as the preceding version.
