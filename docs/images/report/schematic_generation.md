@@ -1,6 +1,6 @@
 # ADC schematic generation
 
-The schematic is authored in Circuitikz in [adc_architecture.tex](../../../build/summary_adc_figures/adc_architecture.tex), beside its generated PDF and PNG in `build/summary_adc_figures/`. It began from the repository's hand-drawn ADC diagram and follows the driver geometry in [daq_diagram.tex](../daq_diagram.tex). The report uses the PNG; the PDF preserves vector lines and text for publication.
+The schematic is authored in Circuitikz in the local source `build/summary_adc_figures/adc_architecture.tex`, beside its generated PDF and PNG. This one-off build source is not tracked in the repository. It began from the repository's hand-drawn ADC diagram and follows the driver geometry in [daq_diagram.tex](../daq_diagram.tex). The report uses the PNG; the PDF preserves vector lines and text for publication.
 
 From the repository root, regenerate with:
 
