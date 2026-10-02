@@ -50,12 +50,12 @@ FIGURE_INTERMEDIATES := \
 	$(FIGURE_TEX:.tex=.xdv) \
 	$(FIGURE_TEX:.tex=.synctex.gz)
 
-# Preserve the curated FSIC analog figure; the custom render has its own name.
-NETLISTSVG_V := $(NETLISTSVG_DIR)/preamp_netlistsvg.v
-NETLISTSVG_INPUT_JSON := $(wildcard $(NETLISTSVG_DIR)/*_netlistsvg.json) $(NETLISTSVG_DIR)/adc_digital.json
-NETLISTSVG_FROM_V_JSON :=
-NETLISTSVG_PDFS := $(addprefix $(NETLISTSVG_DIR)/,adc_digital_netlistsvg.pdf daq_core_netlistsvg.pdf daq_core_netlistsvg_patched.pdf frida_core_1adc_netlistsvg.pdf preamp_custom.pdf preamp_netlistsvg.pdf adc_top_netlistsvg.pdf)
-NETLISTSVG_HELPERS := $(NETLISTSVG_DIR)/render.py $(NETLISTSVG_DIR)/postprocess.py $(NETLISTSVG_DIR)/prepare_digital_json.py $(NETLISTSVG_DIR)/style.svg
+NETLISTSVG_STEMS := preamp_netlistsvg adc_digital_netlistsvg adc_top_netlistsvg daq_core_netlistsvg frida_core_1adc_netlistsvg spi_diagram
+NETLISTSVG_PDFS := $(addprefix $(NETLISTSVG_DIR)/,$(addsuffix .pdf,$(NETLISTSVG_STEMS)))
+NETLISTSVG_FROM_V_JSON := $(NETLISTSVG_PDFS:.pdf=.json)
+NETLISTSVG_V := $(NETLISTSVG_DIR)/preamp_netlistsvg.v $(wildcard ../design/hdl/*.v) ../design/fpga/daq_core.v
+NETLISTSVG_INPUT_JSON :=
+NETLISTSVG_HELPERS := $(wildcard $(NETLISTSVG_DIR)/*.py $(NETLISTSVG_DIR)/*.tcl) $(NETLISTSVG_DIR)/style.svg $(NETLISTSVG_DIR)/circuitikz_analog.svg $(NETLISTSVG_DIR)/fonts.conf
 
 DOC_IMAGE_BUILD_DIR := ../build/docs/images
 DEBUG_PREVIEW = $(patsubst $(IMAGES_DIR)/%,$(DOC_IMAGE_BUILD_DIR)/previews/%,$(@:.pdf=.png))
@@ -186,31 +186,12 @@ $(PHYS_RESULTS) &: ../phys/model.py
 	uv run python ../phys/model.py
 	@echo "Created physics result plots"
 
-$(NETLISTSVG_DIR)/daq_core_netlistsvg.pdf $(NETLISTSVG_DIR)/daq_core_netlistsvg_patched.pdf $(NETLISTSVG_DIR)/frida_core_1adc_netlistsvg.pdf: %.pdf: %.json $(NETLISTSVG_HELPERS) FORCE
-	@set -e; if [ "$(DEBUG)" = "1" ] || [ ! -f "$@" ] || [ "$<" -nt "$@" ] || [ -n "$(filter-out FORCE,$?)" ]; then \
-		python3 $(NETLISTSVG_DIR)/render.py $< --output $@; \
-	fi
-	$(render_debug_preview)
-	@echo "Created $@"
-
-$(NETLISTSVG_DIR)/adc_digital_netlistsvg.pdf: $(NETLISTSVG_DIR)/adc_digital.json $(NETLISTSVG_HELPERS) FORCE
+$(NETLISTSVG_PDFS): $(NETLISTSVG_V) $(NETLISTSVG_HELPERS) FORCE
 	@set -e; if [ "$(DEBUG)" = "1" ] || [ ! -f "$@" ] || [ -n "$(filter-out FORCE,$?)" ]; then \
-		python3 $(NETLISTSVG_DIR)/render.py $< --output $@; \
+		python3 $(NETLISTSVG_DIR)/render.py $(patsubst %_netlistsvg,%,$(basename $(notdir $@))); \
 	fi
 	$(render_debug_preview)
 	@echo "Created $@"
-
-$(NETLISTSVG_DIR)/preamp_custom.pdf: $(NETLISTSVG_DIR)/preamp_netlistsvg.v $(NETLISTSVG_DIR)/verilog_schematic.py $(NETLISTSVG_DIR)/circuitikz_analog.svg FORCE
-	@set -e; if [ "$(DEBUG)" = "1" ] || [ ! -f "$@" ] || [ -n "$(filter-out FORCE,$?)" ]; then \
-		python3 $(NETLISTSVG_DIR)/verilog_schematic.py $< --top preamp_netlistsvg --skin $(NETLISTSVG_DIR)/circuitikz_analog.svg -o $(@:.pdf=.svg); \
-		rsvg-convert -f pdf -o $@ $(@:.pdf=.svg); \
-		pdftocairo -png -singlefile -r 160 $@ $(@:.pdf=); \
-	fi
-	$(render_debug_preview)
-	@echo "Created $@"
-
-$(NETLISTSVG_DIR)/preamp_netlistsvg.pdf: $(NETLISTSVG_DIR)/preamp_netlistsvg.svg
-$(NETLISTSVG_DIR)/adc_top_netlistsvg.pdf: $(NETLISTSVG_DIR)/adc_top_netlistsvg.svg
 
 $(IMAGES_DIR)/%.pdf: $(IMAGES_DIR)/%.svg FORCE
 	@set -e; if [ ! -f "$@" ] || [ "$<" -nt "$@" ]; then rsvg-convert -f pdf -o $@ $<; fi
@@ -243,6 +224,6 @@ clean: clean-image-debug
 	rm -f *.aux *.fdb_latexmk *.fls *.log *.out *.synctex.gz *.xdv
 	rm -f *.pdf
 	rm -f $(SLIDE_INTERMEDIATES)
-	rm -f $(NETLISTSVG_FROM_V_JSON) $(NETLISTSVG_PDFS)
+	rm -f $(NETLISTSVG_FROM_V_JSON) $(NETLISTSVG_PDFS) $(NETLISTSVG_PDFS:.pdf=.svg) $(NETLISTSVG_PDFS:.pdf=.png)
 	rm -f $(PHYS_RESULTS)
 	@echo "Removed generated build artifacts"

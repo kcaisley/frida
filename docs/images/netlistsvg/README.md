@@ -1,39 +1,42 @@
-# Netlistsvg diagram collection
+# Netlistsvg diagrams
 
-Run from the repository root to regenerate the figures, PNG previews, and symbol catalogs.
+Regenerate the six diagrams from their current Verilog sources.
 
 ```bash
 python3 docs/images/netlistsvg/render.py
 ```
 
-Include the analog and digital A/B comparisons using their saved JSON inputs.
+Give diagram names to rebuild only those figures.
 
 ```bash
-python3 docs/images/netlistsvg/render.py --comparisons
+python3 docs/images/netlistsvg/render.py preamp daq_core
 ```
 
-Refresh the comparison JSON from the current ADC and DAQ Verilog first.
+| Diagram | Verilog source | Skin |
+| --- | --- | --- |
+| `preamp` | [preamp_netlistsvg.v](preamp_netlistsvg.v) | Analog |
+| `adc_digital` | [adc_digital.v](../../../design/hdl/adc_digital.v) | Digital |
+| `adc_top` | [adc.v](../../../design/hdl/adc.v) | Digital |
+| `daq_core` | [daq_core.v](../../../design/fpga/daq_core.v) | Digital |
+| `frida_core_1adc` | [frida_core_1chan.v](../../../design/hdl/frida_core_1chan.v) | Digital |
+| `spi_diagram` | [spi.v](../../../design/hdl/spi.v) | Digital |
 
-```bash
-python3 docs/images/netlistsvg/render.py --comparisons --refresh-json
-```
+Run commands from the repository root; each pipeline writes one JSON, SVG, PDF, and PNG beside these scripts.
 
-Render an individual digital JSON using the custom skin, bus labels, and tie symbols.
+The digital Tcl files load the required child modules as boxes and select only the top module for JSON export.
 
-```bash
-python3 docs/images/netlistsvg/render.py path/to/netlist.json --output path/to/diagram.pdf
-```
+`render.py` prepares inout ports for netlistsvg, renders with `style.svg`, and applies `postprocess.py` for tie symbols and bus widths.
 
-Regenerate the skins from their geometry and bundled Latin Modern Mono font.
+The preamp uses `verilog_schematic.py` to normalize MOS devices and render with `circuitikz_analog.svg`.
+
+The handwritten `preamp_test.tex` and `preamp_pmos.tex` figures remain separate Circuitikz sources, built by the documentation makefile.
+
+Regenerate the skins from the bundled font and symbol geometry.
 
 ```bash
 python3 docs/images/netlistsvg/generate_circuitikz_skins.py
 ```
 
-`style.svg` is the digital skin; `circuitikz_analog.svg` is the analog skin. The helpers, font, and font license are alongside them. The original `preamp_netlistsvg.svg` is the curated FSIC figure; `preamp_custom.svg` is generated from the same Verilog with the custom analog skin. The two hand-drawn preamps retain their Circuitikz TeX sources.
+Requires Yosys, Node/npm, netlistsvg 1.0.2 through npx, `rsvg-convert`, and `pdftocairo`; DAQ also requires the Basil submodule.
 
-`comparisons/` contains the saved analog and digital A/B figures, including archived and current-source digital inputs. `preamp_comparison/` also compares the old automatic analog renderer. `examples/` contains symbol demos, the exported HDL21 comparator, hierarchy examples, the tutorial fixtures, and the OBELIX RX reference Tcl and JSON. The OBELIX Tcl requires the separate `obelix1-daq` checkout and the Basil submodule.
-
-The rendering commands require Yosys, Node/npm, netlistsvg 1.0.2 through npx, librsvg (`rsvg-convert`), Poppler (`pdftocairo`), and TeX Live (`pdflatex`). See [the generic Verilog tutorial](../../netlistsvg.md) for the basic Yosys-to-JSON flow.
-
-The exported comparator example is diagram-only structural Verilog. Its capacitor B pin is declared as an output for netlistsvg placement, including a connection to the vss input, so Verilator digital elaboration reports ASSIGNIN. The hierarchy and tie examples pass Verilator in Verilog-2005 mode; the analog renderer is checked by the integration tests.
+See [the generic Verilog tutorial](../../netlistsvg.md) for the individual Yosys and netlistsvg commands.

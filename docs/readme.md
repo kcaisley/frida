@@ -18,16 +18,14 @@ Netlistsvg figures retain PNG exports beside their SVG and PDF files; other norm
 
 ## `netlistsvg`
 
-Sources, skins, rendering helpers, SVG/PDF/PNG outputs, and A/B comparisons live together in `images/netlistsvg/`.
+Six pipelines in `images/netlistsvg/` read the current Verilog, export JSON with Yosys, and render SVG/PDF/PNG with the custom digital or analog skin.
 
 ```bash
 make -C docs netlistsvgs
-python3 docs/images/netlistsvg/render.py --comparisons
+python3 docs/images/netlistsvg/render.py preamp daq_core
 ```
 
-Run these commands from the repository root. The Python command also rebuilds the symbol catalogs, preamp TeX figures, and comparisons. Add `--refresh-json` to rebuild the current-source digital comparison inputs with Yosys.
-
-The original `preamp_netlistsvg.svg` is the curated FSIC figure; `preamp_custom.svg` is its automatic rendering with the analog skin. The digital figures use `style.svg`, a presentation copy of JSON for inout placement, and `postprocess.py` for ties and bus widths. See [the collection](images/netlistsvg/README.md) and [the generic tutorial](netlistsvg.md).
+Run these commands from the repository root. Omit the diagram names to regenerate all six. The digital pipelines keep child modules as blocks and add tie symbols and bus widths. See [the pipelines](images/netlistsvg/README.md) and [the generic tutorial](netlistsvg.md).
 
 ## SPI diagrams
 
