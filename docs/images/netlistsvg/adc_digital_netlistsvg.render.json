@@ -1,0 +1,1072 @@
+{
+  "creator": "Yosys 0.33 (git sha1 2584903a060)",
+  "modules": {
+    "adc_digital": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "/home/kcaisley/frida/hdl/adc_digital.v:3.1-157.10"
+      },
+      "ports": {
+        "seq_init": {
+          "direction": "input",
+          "bits": [
+            2
+          ]
+        },
+        "seq_samp": {
+          "direction": "input",
+          "bits": [
+            3
+          ]
+        },
+        "seq_comp": {
+          "direction": "input",
+          "bits": [
+            4
+          ]
+        },
+        "seq_update": {
+          "direction": "input",
+          "bits": [
+            5
+          ]
+        },
+        "en_init": {
+          "direction": "input",
+          "bits": [
+            6
+          ]
+        },
+        "en_samp_p": {
+          "direction": "input",
+          "bits": [
+            7
+          ]
+        },
+        "en_samp_n": {
+          "direction": "input",
+          "bits": [
+            8
+          ]
+        },
+        "en_comp": {
+          "direction": "input",
+          "bits": [
+            9
+          ]
+        },
+        "en_update": {
+          "direction": "input",
+          "bits": [
+            10
+          ]
+        },
+        "dac_mode": {
+          "direction": "input",
+          "bits": [
+            11
+          ]
+        },
+        "dac_diffcaps": {
+          "direction": "input",
+          "bits": [
+            12
+          ]
+        },
+        "dac_astate_p": {
+          "direction": "input",
+          "bits": [
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28
+          ]
+        },
+        "dac_bstate_p": {
+          "direction": "input",
+          "bits": [
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44
+          ]
+        },
+        "dac_astate_n": {
+          "direction": "input",
+          "bits": [
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60
+          ]
+        },
+        "dac_bstate_n": {
+          "direction": "input",
+          "bits": [
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73,
+            74,
+            75,
+            76
+          ]
+        },
+        "comp_out_p": {
+          "direction": "input",
+          "bits": [
+            77
+          ]
+        },
+        "comp_out_n": {
+          "direction": "input",
+          "bits": [
+            78
+          ]
+        },
+        "clk_samp_p": {
+          "direction": "output",
+          "bits": [
+            79
+          ]
+        },
+        "clk_samp_p_b": {
+          "direction": "output",
+          "bits": [
+            80
+          ]
+        },
+        "clk_samp_n": {
+          "direction": "output",
+          "bits": [
+            81
+          ]
+        },
+        "clk_samp_n_b": {
+          "direction": "output",
+          "bits": [
+            82
+          ]
+        },
+        "clk_comp": {
+          "direction": "output",
+          "bits": [
+            83
+          ]
+        },
+        "dac_state_p_main": {
+          "direction": "output",
+          "bits": [
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99
+          ]
+        },
+        "dac_state_p_diff": {
+          "direction": "output",
+          "bits": [
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99
+          ]
+        },
+        "dac_state_n_main": {
+          "direction": "output",
+          "bits": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115
+          ]
+        },
+        "dac_state_n_diff": {
+          "direction": "output",
+          "bits": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115
+          ]
+        },
+        "dac_invert_p_main": {
+          "direction": "output",
+          "bits": [
+            "0"
+          ]
+        },
+        "dac_invert_p_diff": {
+          "direction": "output",
+          "bits": [
+            12
+          ]
+        },
+        "dac_invert_n_main": {
+          "direction": "output",
+          "bits": [
+            "0"
+          ]
+        },
+        "dac_invert_n_diff": {
+          "direction": "output",
+          "bits": [
+            12
+          ]
+        },
+        "comp_out": {
+          "direction": "output",
+          "bits": [
+            77
+          ]
+        }
+      },
+      "cells": {
+        "clkgate": {
+          "hide_name": 0,
+          "type": "clkgate",
+          "parameters": {},
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:69.13-95.6"
+          },
+          "port_directions": {
+            "clk_comp": "output",
+            "clk_init": "output",
+            "clk_samp_n": "output",
+            "clk_samp_p": "output",
+            "clk_update": "output",
+            "en_comp": "input",
+            "en_init": "input",
+            "en_samp_n": "input",
+            "en_samp_p": "input",
+            "en_update": "input",
+            "seq_comp": "input",
+            "seq_init": "input",
+            "seq_samp": "input",
+            "seq_update": "input"
+          },
+          "connections": {
+            "clk_comp": [
+              83
+            ],
+            "clk_init": [
+              116
+            ],
+            "clk_samp_n": [
+              117
+            ],
+            "clk_samp_p": [
+              118
+            ],
+            "clk_update": [
+              119
+            ],
+            "en_comp": [
+              9
+            ],
+            "en_init": [
+              6
+            ],
+            "en_samp_n": [
+              8
+            ],
+            "en_samp_p": [
+              7
+            ],
+            "en_update": [
+              10
+            ],
+            "seq_comp": [
+              4
+            ],
+            "seq_init": [
+              2
+            ],
+            "seq_samp": [
+              3
+            ],
+            "seq_update": [
+              5
+            ]
+          }
+        },
+        "salogic_dual": {
+          "hide_name": 0,
+          "type": "salogic",
+          "parameters": {},
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:98.13-116.6"
+          },
+          "port_directions": {
+            "clk_init": "input",
+            "clk_update": "input",
+            "comp_n": "input",
+            "comp_p": "input",
+            "dac_astate_n": "input",
+            "dac_astate_p": "input",
+            "dac_bstate_n": "input",
+            "dac_bstate_p": "input",
+            "dac_mode": "input",
+            "dac_state_n": "output",
+            "dac_state_p": "output"
+          },
+          "connections": {
+            "clk_init": [
+              116
+            ],
+            "clk_update": [
+              119
+            ],
+            "comp_n": [
+              77
+            ],
+            "comp_p": [
+              78
+            ],
+            "dac_astate_n": [
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60
+            ],
+            "dac_astate_p": [
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28
+            ],
+            "dac_bstate_n": [
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76
+            ],
+            "dac_bstate_p": [
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44
+            ],
+            "dac_mode": [
+              11
+            ],
+            "dac_state_n": [
+              100,
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108,
+              109,
+              110,
+              111,
+              112,
+              113,
+              114,
+              115
+            ],
+            "dac_state_p": [
+              84,
+              85,
+              86,
+              87,
+              88,
+              89,
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99
+            ]
+          }
+        },
+        "sampdriver_n": {
+          "hide_name": 0,
+          "type": "sampdriver",
+          "parameters": {},
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:131.16-139.6"
+          },
+          "port_directions": {
+            "clk_in": "input",
+            "clk_out": "output",
+            "clk_out_b": "output"
+          },
+          "connections": {
+            "clk_in": [
+              117
+            ],
+            "clk_out": [
+              81
+            ],
+            "clk_out_b": [
+              82
+            ]
+          }
+        },
+        "sampdriver_p": {
+          "hide_name": 0,
+          "type": "sampdriver",
+          "parameters": {},
+          "attributes": {
+            "module_not_derived": "00000000000000000000000000000001",
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:121.16-129.6"
+          },
+          "port_directions": {
+            "clk_in": "input",
+            "clk_out": "output",
+            "clk_out_b": "output"
+          },
+          "connections": {
+            "clk_in": [
+              118
+            ],
+            "clk_out": [
+              79
+            ],
+            "clk_out_b": [
+              80
+            ]
+          }
+        }
+      },
+      "netnames": {
+        "clk_comp": {
+          "hide_name": 0,
+          "bits": [
+            83
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:36.17-36.25"
+          }
+        },
+        "clk_init": {
+          "hide_name": 0,
+          "bits": [
+            116
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:60.10-60.18"
+          }
+        },
+        "clk_samp_n": {
+          "hide_name": 0,
+          "bits": [
+            81
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:33.17-33.27"
+          }
+        },
+        "clk_samp_n_b": {
+          "hide_name": 0,
+          "bits": [
+            82
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:33.29-33.41"
+          }
+        },
+        "clk_samp_n_raw": {
+          "hide_name": 0,
+          "bits": [
+            117
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:61.26-61.40"
+          }
+        },
+        "clk_samp_p": {
+          "hide_name": 0,
+          "bits": [
+            79
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:32.17-32.27"
+          }
+        },
+        "clk_samp_p_b": {
+          "hide_name": 0,
+          "bits": [
+            80
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:32.29-32.41"
+          }
+        },
+        "clk_samp_p_raw": {
+          "hide_name": 0,
+          "bits": [
+            118
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:61.10-61.24"
+          }
+        },
+        "clk_update": {
+          "hide_name": 0,
+          "bits": [
+            119
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:62.10-62.20"
+          }
+        },
+        "comp_out": {
+          "hide_name": 0,
+          "bits": [
+            77
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:51.17-51.25"
+          }
+        },
+        "comp_out_n": {
+          "hide_name": 0,
+          "bits": [
+            78
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:29.29-29.39"
+          }
+        },
+        "comp_out_p": {
+          "hide_name": 0,
+          "bits": [
+            77
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:29.17-29.27"
+          }
+        },
+        "dac_astate_n": {
+          "hide_name": 0,
+          "bits": [
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:26.24-26.36"
+          }
+        },
+        "dac_astate_p": {
+          "hide_name": 0,
+          "bits": [
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:22.24-22.36"
+          }
+        },
+        "dac_bstate_n": {
+          "hide_name": 0,
+          "bits": [
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73,
+            74,
+            75,
+            76
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:27.24-27.36"
+          }
+        },
+        "dac_bstate_p": {
+          "hide_name": 0,
+          "bits": [
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:23.24-23.36"
+          }
+        },
+        "dac_diffcaps": {
+          "hide_name": 0,
+          "bits": [
+            12
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:21.16-21.28"
+          }
+        },
+        "dac_invert_n_diff": {
+          "hide_name": 0,
+          "bits": [
+            12
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:48.17-48.34"
+          }
+        },
+        "dac_invert_n_main": {
+          "hide_name": 0,
+          "bits": [
+            "0"
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:47.17-47.34"
+          }
+        },
+        "dac_invert_p_diff": {
+          "hide_name": 0,
+          "bits": [
+            12
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:46.17-46.34"
+          }
+        },
+        "dac_invert_p_main": {
+          "hide_name": 0,
+          "bits": [
+            "0"
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:45.17-45.34"
+          }
+        },
+        "dac_mode": {
+          "hide_name": 0,
+          "bits": [
+            11
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:19.17-19.25"
+          }
+        },
+        "dac_state_n": {
+          "hide_name": 0,
+          "bits": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:66.17-66.28"
+          }
+        },
+        "dac_state_n_diff": {
+          "hide_name": 0,
+          "bits": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:42.24-42.40"
+          }
+        },
+        "dac_state_n_main": {
+          "hide_name": 0,
+          "bits": [
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:41.24-41.40"
+          }
+        },
+        "dac_state_p": {
+          "hide_name": 0,
+          "bits": [
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:65.17-65.28"
+          }
+        },
+        "dac_state_p_diff": {
+          "hide_name": 0,
+          "bits": [
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:40.24-40.40"
+          }
+        },
+        "dac_state_p_main": {
+          "hide_name": 0,
+          "bits": [
+            84,
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:39.24-39.40"
+          }
+        },
+        "en_comp": {
+          "hide_name": 0,
+          "bits": [
+            9
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:15.17-15.24"
+          }
+        },
+        "en_init": {
+          "hide_name": 0,
+          "bits": [
+            6
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:12.17-12.24"
+          }
+        },
+        "en_samp_n": {
+          "hide_name": 0,
+          "bits": [
+            8
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:14.17-14.26"
+          }
+        },
+        "en_samp_p": {
+          "hide_name": 0,
+          "bits": [
+            7
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:13.17-13.26"
+          }
+        },
+        "en_update": {
+          "hide_name": 0,
+          "bits": [
+            10
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:16.17-16.26"
+          }
+        },
+        "seq_comp": {
+          "hide_name": 0,
+          "bits": [
+            4
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:8.17-8.25"
+          }
+        },
+        "seq_init": {
+          "hide_name": 0,
+          "bits": [
+            2
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:6.17-6.25"
+          }
+        },
+        "seq_samp": {
+          "hide_name": 0,
+          "bits": [
+            3
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:7.17-7.25"
+          }
+        },
+        "seq_update": {
+          "hide_name": 0,
+          "bits": [
+            5
+          ],
+          "attributes": {
+            "src": "/home/kcaisley/frida/hdl/adc_digital.v:9.17-9.27"
+          }
+        }
+      }
+    }
+  }
+}

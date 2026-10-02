@@ -23,13 +23,13 @@ Run the script with Yosys; add other Verilog files to `read_verilog` when needed
 yosys -Q -q -c write_json.tcl
 ```
 
-Point netlistsvg to the [digital skin](../flow/util/skins/style.svg) and the JSON output.
+Point netlistsvg to the [digital skin](images/netlistsvg/style.svg) and the JSON output.
 
 ```bash
 npx --yes netlistsvg@1.0.2 path/to/netlist.json --skin path/to/style.svg -o path/to/diagram.svg
 ```
 
-The [SVG helper](../flow/util/skins/postprocess.py) reads JSON for bus widths, then adds width marks and 0/1 tie bars to the SVG.
+The [SVG helper](images/netlistsvg/postprocess.py) reads JSON for bus widths, then adds width marks and 0/1 tie bars to the SVG.
 
 ```bash
 python3 path/to/postprocess.py path/to/diagram.svg path/to/netlist.json

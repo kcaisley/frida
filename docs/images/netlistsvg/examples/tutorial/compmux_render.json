@@ -1,0 +1,146 @@
+{
+  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 11.5.0 -fPIC -O3)",
+  "modules": {
+    "compmux": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "design/hdl/compmux.v:8.1-24.10"
+      },
+      "ports": {
+        "adc_comp_in": {
+          "direction": "input",
+          "bits": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17
+          ]
+        },
+        "mux_sel": {
+          "direction": "input",
+          "bits": [
+            18,
+            19,
+            20,
+            21
+          ]
+        },
+        "comp_out": {
+          "direction": "output",
+          "bits": [
+            22
+          ]
+        }
+      },
+      "cells": {
+        "$shiftx$design/hdl/compmux.v:22$1": {
+          "hide_name": 1,
+          "type": "$shiftx",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000010000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "B_WIDTH": "00000000000000000000000000000100",
+            "Y_WIDTH": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17
+            ],
+            "B": [
+              18,
+              19,
+              20,
+              21
+            ],
+            "Y": [
+              22
+            ]
+          }
+        }
+      },
+      "netnames": {
+        "adc_comp_in": {
+          "hide_name": 0,
+          "bits": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17
+          ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:9.24-9.35"
+          }
+        },
+        "comp_out": {
+          "hide_name": 0,
+          "bits": [
+            22
+          ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:11.24-11.32"
+          }
+        },
+        "mux_sel": {
+          "hide_name": 0,
+          "bits": [
+            18,
+            19,
+            20,
+            21
+          ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:10.24-10.31"
+          }
+        }
+      }
+    }
+  }
+}

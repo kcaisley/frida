@@ -128,10 +128,10 @@ The PMOS-input example used in the FSiC 2026 deck uses:
 
 Current reference implementations:
 
-- 65 nm dynamic preamp source: [`docs/images/preamp_test.tex`](images/preamp_test.tex)
-- 65 nm dynamic preamp PDF: [`docs/images/preamp_test.pdf`](images/preamp_test.pdf)
-- 28 nm PMOS-input preamp source: [`docs/images/preamp_pmos.tex`](images/preamp_pmos.tex)
-- 28 nm PMOS-input preamp PDF: [`docs/images/preamp_pmos.pdf`](images/preamp_pmos.pdf)
+- 65 nm dynamic preamp source: [`docs/images/netlistsvg/preamp_test.tex`](images/netlistsvg/preamp_test.tex)
+- 65 nm dynamic preamp PDF: [`docs/images/netlistsvg/preamp_test.pdf`](images/netlistsvg/preamp_test.pdf)
+- 28 nm PMOS-input preamp source: [`docs/images/netlistsvg/preamp_pmos.tex`](images/netlistsvg/preamp_pmos.tex)
+- 28 nm PMOS-input preamp PDF: [`docs/images/netlistsvg/preamp_pmos.pdf`](images/netlistsvg/preamp_pmos.pdf)
 - Comparator testbench PDF used in the FSiC deck: [`docs/images/comp_testbench.pdf`](images/comp_testbench.pdf)
 
 Use these as starting points for future comparator/preamp schematics rather than redrawing from scratch.

@@ -1,0 +1,389 @@
+{
+  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 11.5.0 -fPIC -O3)",
+  "modules": {
+    "compmux": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "design/hdl/compmux.v:8.1-24.10"
+      },
+      "ports": {
+        "adc_comp_in": {
+          "direction": "input",
+          "bits": [ 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 ]
+        },
+        "mux_sel": {
+          "direction": "input",
+          "bits": [ 18, 19, 20, 21 ]
+        },
+        "comp_out": {
+          "direction": "output",
+          "bits": [ 22 ]
+        }
+      },
+      "cells": {
+        "$auto$simplemap.cc:298:simplemap_mux$108": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 23 ],
+            "B": [ 24 ],
+            "S": [ 19 ],
+            "Y": [ 25 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$112": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 26 ],
+            "B": [ 27 ],
+            "S": [ 19 ],
+            "Y": [ 28 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$116": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 29 ],
+            "B": [ 30 ],
+            "S": [ 19 ],
+            "Y": [ 31 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$120": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 32 ],
+            "B": [ 33 ],
+            "S": [ 19 ],
+            "Y": [ 34 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$124": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 25 ],
+            "B": [ 28 ],
+            "S": [ 20 ],
+            "Y": [ 35 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$132": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 31 ],
+            "B": [ 34 ],
+            "S": [ 20 ],
+            "Y": [ 36 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$140": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 2 ],
+            "B": [ 3 ],
+            "S": [ 18 ],
+            "Y": [ 23 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$142": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 4 ],
+            "B": [ 5 ],
+            "S": [ 18 ],
+            "Y": [ 24 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$144": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 6 ],
+            "B": [ 7 ],
+            "S": [ 18 ],
+            "Y": [ 26 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$146": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 8 ],
+            "B": [ 9 ],
+            "S": [ 18 ],
+            "Y": [ 27 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$148": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 10 ],
+            "B": [ 11 ],
+            "S": [ 18 ],
+            "Y": [ 29 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$150": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 12 ],
+            "B": [ 13 ],
+            "S": [ 18 ],
+            "Y": [ 30 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$152": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 14 ],
+            "B": [ 15 ],
+            "S": [ 18 ],
+            "Y": [ 32 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$154": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 16 ],
+            "B": [ 17 ],
+            "S": [ 18 ],
+            "Y": [ 33 ]
+          }
+        },
+        "$auto$simplemap.cc:298:simplemap_mux$156": {
+          "hide_name": 1,
+          "type": "$_MUX_",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:178.4-183.7|/usr/local/bin/../share/yosys/techmap.v:178.8-178.12"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "S": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 35 ],
+            "B": [ 36 ],
+            "S": [ 21 ],
+            "Y": [ 22 ]
+          }
+        }
+      },
+      "netnames": {
+        "$techmap$shiftx$design/hdl/compmux.v:22$1.$2\\buffer[15:0]": {
+          "hide_name": 1,
+          "bits": [ 23, 37, 24, 38, 26, 39, 27, 40, 29, 41, 30, 42, 32, 43, 33, 44 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:157.2-184.5",
+            "unused_bits": "1 3 5 7 9 11 13 15"
+          }
+        },
+        "$techmap$shiftx$design/hdl/compmux.v:22$1.$4\\buffer[15:0]": {
+          "hide_name": 1,
+          "bits": [ 25, 45, 46, 47, 28, 48, 49, 50, 31, 51, 52, 53, 34, 54, 55, 56 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:157.2-184.5",
+            "unused_bits": "1 2 3 5 6 7 9 10 11 13 14 15"
+          }
+        },
+        "$techmap$shiftx$design/hdl/compmux.v:22$1.$6\\buffer[15:0]": {
+          "hide_name": 1,
+          "bits": [ 35, 57, 58, 59, 60, 61, 62, 63, 36, 64, 65, 66, 67, 68, 69, 70 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:22.34-22.43|/usr/local/bin/../share/yosys/techmap.v:157.2-184.5",
+            "unused_bits": "1 2 3 4 5 6 7 9 10 11 12 13 14 15"
+          }
+        },
+        "adc_comp_in": {
+          "hide_name": 0,
+          "bits": [ 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:9.24-9.35"
+          }
+        },
+        "comp_out": {
+          "hide_name": 0,
+          "bits": [ 22 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:11.24-11.32"
+          }
+        },
+        "mux_sel": {
+          "hide_name": 0,
+          "bits": [ 18, 19, 20, 21 ],
+          "attributes": {
+            "src": "design/hdl/compmux.v:10.24-10.31"
+          }
+        }
+      }
+    }
+  }
+}

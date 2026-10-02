@@ -1,0 +1,70 @@
+{
+  "modules": {
+    "demo": {
+      "attributes": {
+        "top": "00000000000000000000000000000001"
+      },
+      "ports": {
+        "in0": {
+          "direction": "input",
+          "bits": [
+            2
+          ]
+        },
+        "in1": {
+          "direction": "input",
+          "bits": [
+            3
+          ]
+        },
+        "in2": {
+          "direction": "input",
+          "bits": [
+            4
+          ]
+        },
+        "out0": {
+          "direction": "output",
+          "bits": [
+            5
+          ]
+        },
+        "out1": {
+          "direction": "output",
+          "bits": [
+            6
+          ]
+        }
+      },
+      "cells": {
+        "U_BLOCK": {
+          "type": "mystery",
+          "port_directions": {
+            "in0": "input",
+            "in1": "input",
+            "in2": "input",
+            "out0": "output",
+            "out1": "output"
+          },
+          "connections": {
+            "in0": [
+              2
+            ],
+            "in1": [
+              3
+            ],
+            "in2": [
+              4
+            ],
+            "out0": [
+              5
+            ],
+            "out1": [
+              6
+            ]
+          }
+        }
+      }
+    }
+  }
+}

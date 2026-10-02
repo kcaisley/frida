@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from flow.util.verilog_schematic import verilog_to_analog_svg
+from docs.images.netlistsvg.verilog_schematic import verilog_to_analog_svg
 
 
 def test_verilog_to_analog_svg(tmp_path: Path) -> None:
@@ -40,8 +40,8 @@ endmodule
 def test_custom_skin_places_single_gate_inputs_straight(tmp_path: Path) -> None:
     """The preamp's sole gate inputs should be direct."""
     root = Path(__file__).resolve().parents[2]
-    verilog = root / "docs/images/preamp_netlistsvg.v"
-    skin = root / "flow/util/skins/circuitikz_analog.svg"
+    verilog = root / "docs/images/netlistsvg/preamp_netlistsvg.v"
+    skin = root / "docs/images/netlistsvg/circuitikz_analog.svg"
     json_path, svg_path = verilog_to_analog_svg(verilog, tmp_path / "preamp.svg", "preamp_netlistsvg", skin)
     module = json.loads(json_path.read_text())["modules"]["preamp_netlistsvg"]
     svg_ns = "http://www.w3.org/2000/svg"

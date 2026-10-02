@@ -8,37 +8,26 @@ make
 
 The default target builds generated image collateral first, then builds all slide/document PDFs. Source files are kept in `docs/`, `docs/slides/`, and `docs/images/`. Finished image PDFs are kept in `docs/images/`; complete slide/document PDFs and their LaTeX build files are written to `docs/tex/`.
 
-For any image PDF target or the `figures`, `sequences`, and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and temporary netlistsvg SVGs and render a 200 DPI PNG preview of each PDF's first page. Previews go to `build/docs/images/previews/`, mirroring the path under `docs/images/`. This also works when the PDF already exists. Remove previews and image build intermediates without removing the TeX sources or PDFs with:
+For any image PDF target or the `figures`, `sequences`, and `netlistsvgs` targets, use `DEBUG=1` to retain TeX build logs and render a 200 DPI PNG preview of each PDF's first page. Previews go to `build/docs/images/previews/`, mirroring the path under `docs/images/`. This also works when the PDF already exists. Remove previews and image build intermediates without removing the TeX sources or PDFs with:
 
 ```bash
 make -C docs clean-image-debug
 ```
 
-Normal builds do not create PNG previews. The source `arch.png` remains in `docs/images/` because the root README embeds it.
+Netlistsvg figures retain PNG exports beside their SVG and PDF files; other normal builds do not create PNG previews. The source `arch.png` remains in `docs/images/` because the root README embeds it.
 
 ## `netlistsvg`
 
-Inputs:
+Sources, skins, rendering helpers, SVG/PDF/PNG outputs, and A/B comparisons live together in `images/netlistsvg/`.
 
-- `images/*_netlistsvg.v`
-- `images/*_netlistsvg.json`
-
-Flow:
-
-```text
-.v -> yosys -> .json -> netlistsvg -> temporary .svg -> rsvg-convert -> .pdf
-.json -> netlistsvg -> temporary .svg -> rsvg-convert -> .pdf
+```bash
+make -C docs netlistsvgs
+python3 docs/images/netlistsvg/render.py --comparisons
 ```
 
-Outputs:
+Run these commands from the repository root. The Python command also rebuilds the symbol catalogs, preamp TeX figures, and comparisons. Add `--refresh-json` to rebuild the current-source digital comparison inputs with Yosys.
 
-- `images/*_netlistsvg.json` for JSON generated from Verilog inputs
-- `images/*_netlistsvg.pdf`
-
-Notes:
-
-- `images/preamp_netlistsvg.svg` and `images/preamp_netlistsvg.pdf` are curated analog renders and are intentionally not regenerated from `images/preamp_netlistsvg.v`, because the automatic Yosys/netlistsvg path loses the MOS-symbol styling.
-- The makefile sanitizes unsupported bidirectional/inout directions in netlistsvg JSONs before rendering. Generated SVGs are temporary files under `build/docs/images/` and remain there in debug mode; curated SVG inputs remain in `images/`.
+The original `preamp_netlistsvg.svg` is the curated FSIC figure; `preamp_custom.svg` is its automatic rendering with the analog skin. The digital figures use `style.svg`, a presentation copy of JSON for inout placement, and `postprocess.py` for ties and bus widths. See [the collection](images/netlistsvg/README.md) and [the generic tutorial](netlistsvg.md).
 
 ## SPI diagrams
 

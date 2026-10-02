@@ -224,7 +224,7 @@
   \begin{tikzpicture}[flowdiagram]
     \node[flowinput, text width=\FlowInputSchematicW, anchor=west] (schem_in) at (0.13,0) {
       \FlowTitle{Schematic}
-      {\centering\includegraphics[width=\FlowSchematicImgW]{images/preamp_test.pdf}\par}
+      {\centering\includegraphics[width=\FlowSchematicImgW]{images/netlistsvg/preamp_test.pdf}\par}
     };
 
     \node[flowartifact, text width=\FlowOutputW, anchor=west] (net_out) at (0.55,0) {
@@ -295,7 +295,7 @@
 
     \node[flowartifact, text width=\FlowOutputW, anchor=west] (schem) at (\FlowOutputX,-1.75) {
       \FlowTitle{Schematic}
-      {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/preamp_test.pdf}\par}
+      {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/netlistsvg/preamp_test.pdf}\par}
     };
 
     \draw[flowarrow] (params.east) -- (tmpl.west);
@@ -310,7 +310,7 @@
       };
     \node[anchor=south west, inner sep=0pt]
       at ([xshift=4.75cm,yshift=0.25cm]current page.south west) {
-        \includegraphics[height=3.48cm,keepaspectratio]{images/preamp_netlistsvg.pdf}
+        \includegraphics[height=3.48cm,keepaspectratio]{images/netlistsvg/preamp_netlistsvg.pdf}
       };
   \end{tikzpicture}
   \note{\begin{itemize}
@@ -367,7 +367,7 @@
     };
     \node[flowartifact, text width=\FlowOutputW, anchor=west] (schem) at (\FlowOutputX,-1.75) {
       \FlowTitle{Schematic}
-      {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/preamp_test.pdf}\par}
+      {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/netlistsvg/preamp_test.pdf}\par}
     };
 
     \draw[flowarrow] (params.east) -- ++(0.025,0) |- ($(gen.south west)!\FlowEdgeHigh!(gen.north west)$);
@@ -442,7 +442,7 @@
     };
     \node[flowartifact, text width=\FlowOutputW, anchor=west] (schem) at (\FlowOutputX,-2.05) {
           \FlowTitle{Schematic}
-          {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/preamp_pmos.pdf}\par}
+          {\centering\includegraphics[width=\FlowSmallSchematicImgW]{images/netlistsvg/preamp_pmos.pdf}\par}
     };
 
     \draw[flowarrow] (params.east) -- ++(0.025,0) |- ($(gen.south west)!\FlowEdgeHigh!(gen.north west)$);
