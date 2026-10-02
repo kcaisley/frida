@@ -26,14 +26,14 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bitarray", specifier = ">=3.4.0" },
-    { name = "cocotb", marker = "extra == 'test'", specifier = ">=2.0.1" },
+    { name = "cocotb", marker = "extra == 'test'", specifier = ">=2.1.0" },
     { name = "cocotb-bus", marker = "extra == 'test'", specifier = ">=0.3.0" },
-    { name = "cocotb-test", marker = "extra == 'test'", git = "https://github.com/themperek/cocotb-test.git?rev=4e6b7db" },
-    { name = "coverage", marker = "extra == 'test'" },
+    { name = "coverage", extras = ["toml"], marker = "extra == 'test'" },
     { name = "diff-cover", marker = "extra == 'test'" },
     { name = "gitpython" },
     { name = "numpy" },
     { name = "pyserial", marker = "extra == 'hw'" },
+    { name = "pyslang", marker = "python_full_version >= '3.11' and extra == 'hdl-lint'", specifier = "==12.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3" },
     { name = "pyvisa", marker = "extra == 'hw'" },
     { name = "pyvisa", marker = "extra == 'test'" },
@@ -43,8 +43,9 @@ requires-dist = [
     { name = "six" },
     { name = "sphinx", marker = "extra == 'docs'" },
     { name = "sphinx-book-theme", marker = "extra == 'docs'" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'hdl-lint'", specifier = "==2.2.1" },
 ]
-provides-extras = ["hw", "test", "docs"]
+provides-extras = ["docs", "hdl-lint", "hw", "test"]
 
 [[package]]
 name = "bitarray"
