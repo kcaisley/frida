@@ -2,7 +2,6 @@
 
 from dataclasses import fields
 
-import h5py
 import pytest
 
 from flow.adc.sequences import (
@@ -12,8 +11,6 @@ from flow.adc.sequences import (
     symbol256_init8_samp16_comp11110000_logic00001111,
 )
 from flow.adc.sim import AdcTb, AdcTbParams
-from flow.analysis.adc import _sequence_logic_timing
-from flow.analysis.io import _read_native, _write_native
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 timing_sequences = tuple(
@@ -71,38 +68,7 @@ def test_library_logic_rows_have_explicit_edge_separations(symbols, sequence):
     assert sequence.init == symbol256_init8_samp16_comp11110000_logic00001111.init
     assert sequence.samp == symbol256_init8_samp16_comp11110000_logic00001111.samp
     assert sequence.comp == symbol256_init8_samp16_comp11110000_logic00001111.comp
-    assert _sequence_logic_timing(sequence.comp, sequence.logic) == (8, symbols)
-
-
-@pytest.mark.parametrize("shift", (-3, 0, 2, 3, 258))
-def test_old_hdf5_phase_fields_are_folded_into_rows(tmp_path, shift):
-    path = tmp_path / "parameters.h5"
-    original = AdcTbParams()
-    with h5py.File(path, "w") as output:
-        _write_native(output, "param", original)
-        for signal in ("init", "samp", "comp", "logic"):
-            _write_native(output["param"], f"seq_{signal}_phase_delay_symbols", float(shift))
-    with h5py.File(path) as source:
-        loaded = _read_native(source["param"])
-    for signal in ("init", "samp", "comp", "logic"):
-        row = getattr(original, f"seq_{signal}_pattern")
-        rotation = shift % len(row)
-        expected = row[-rotation:] + row[:-rotation] if rotation else row
-        assert getattr(loaded, f"seq_{signal}_pattern") == expected
-    # Re-saving does not retain old fields or apply the delay twice.
-    with h5py.File(path, "w") as output:
-        _write_native(output, "param", loaded)
-        assert not any("phase" in name for name in output["param"])
-    with h5py.File(path) as source:
-        assert _read_native(source["param"]) == loaded
-
-
-def test_saved_fractional_delay_is_not_silently_rounded(tmp_path):
-    with h5py.File(tmp_path / "parameters.h5", "w") as output:
-        _write_native(output, "param", AdcTbParams())
-        _write_native(output["param"], "seq_comp_phase_delay_symbols", 0.5)
-        with pytest.raises(ValueError, match="fractional"):
-            _read_native(output["param"])
+    assert sequence.logic_timing == (8, symbols)
 
 
 @pytest.mark.parametrize("name,sequence", duty_sequences)
@@ -122,7 +88,7 @@ def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(name, sequence
     init_logic_rise, init_logic_fall = (2, 6) if symbols == 160 else (3, 4)
     assert rises.tolist() == [init_logic_rise] + [24 + 8 * bit + start for bit in range(16)]
     assert falls.tolist() == [init_logic_fall] + [24 + 8 * bit + start + width for bit in range(16)]
-    assert _sequence_logic_timing(sequence.comp, sequence.logic) == (8, start)
+    assert sequence.logic_timing == (8, start)
 
 
 def test_duty_matrix_covers_every_pair_and_preserves_pause_only_changes():

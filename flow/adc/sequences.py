@@ -11,7 +11,10 @@ Channel rows are private; callers select complete sequences below.
 """
 
 from dataclasses import dataclass, fields
+from itertools import pairwise
 from typing import Protocol
+
+import numpy as np
 
 
 class SequenceParams(Protocol):
@@ -60,6 +63,33 @@ class AdcSequence:
         if "1" not in comp:
             raise ValueError("conversion requires an active COMP pulse")
         return ((comp.rindex("1") + 1 + 7) // 8) * 8
+
+    @property
+    def logic_timing(self) -> tuple[float, float]:
+        """Average decision interval and median COMP-to-LOGIC delay, in symbols.
+
+        Pair updates inside each decision interval; exclude the initialization
+        pulse and the final decision, which has no SAR update.
+        """
+        from flow.analysis import calc
+
+        comp_bits = np.fromiter((int(bit) for bit in self.comp), dtype=np.int8)
+        logic_bits = np.fromiter((int(bit) for bit in self.logic), dtype=np.int8)
+        # Prepend the cyclic predecessor and place each threshold crossing at its symbol boundary.
+        symbols = np.arange(len(self.comp) + 1) - 0.5
+        comp_signal = np.r_[comp_bits[-1], comp_bits]
+        comp_edges = calc.cross(comp_signal, symbols, 0.5, edge="rising")
+        logic_edges = calc.cross(np.r_[logic_bits[-1], logic_bits], symbols, 0.5, edge="rising")
+        if len(comp_edges) < 2:
+            raise ValueError("sequence requires at least two COMP rising edges")
+        delays = [
+            float(updates[0] - start)
+            for start, stop in pairwise(comp_edges)
+            if len(updates := logic_edges[(logic_edges >= start) & (logic_edges < stop)])
+        ]
+        if not delays:
+            raise ValueError("sequence has no LOGIC rising edge between COMP decisions")
+        return 1.0 / calc.frequency(comp_signal, symbols, threshold=0.5), float(np.median(delays))
 
     def __post_init__(self) -> None:
         for field in fields(self):
