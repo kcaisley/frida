@@ -27,6 +27,13 @@ repos:
         files: ^flow/(analysis|scans|adc|caparray|capdriver|comp|samp|circuit)/.*\.py$
         pass_filenames: false
 
+      - id: analysis-conformance
+        name: analysis contract conformance
+        entry: uv run pytest -q -p no:cacheprovider flow/analysis/test_conformance.py
+        language: system
+        files: ^flow/(analysis|adc|caparray|comp|samp|scans)/.*\.py$
+        pass_filenames: false
+
       - id: rumdl-markdown
         name: rumdl Markdown format and lint
         entry: uvx --from rumdl==0.2.55 rumdl check --fix
