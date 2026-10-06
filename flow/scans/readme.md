@@ -125,7 +125,7 @@ These functions are not Basil APIs. They implement design-specific packing, tran
 | `write_measurement()` / `read_measurement()` | `flow/analysis/io.py` | Persist and load one typed physical, behavioral, or SPICE measurement using the shared HDF5 schema. |
 | `scope_records_to_adc_wave()` | `scope.py` | Convert aligned triggered scope records into the dense external ADC waveform section. |
 | `analyze_adc_dynamic()` | `flow/analysis/adc.py` | Perform a four-parameter sine fit plus FFT analysis and report residual RMS, SNR, SNDR, THD, SFDR, and ENOB. |
-| `analyze_adc_transfer()` / `analyze_adc_nonlinearity()` / `analyze_adc_code_distribution()` | `flow/analysis/adc.py` | Calculate typed static transfer, INL/DNL, and fixed-input code-distribution results. |
+| `analyze_adc_transfer()` / `analyze_adc_endpoint_nonlinearity()` / `analyze_adc_code_density_nonlinearity()` / `analyze_adc_code_distribution()` | `flow/analysis/adc.py` | Calculate typed static transfer, INL/DNL, and fixed-input code-distribution results. |
 | `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics. |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
@@ -155,7 +155,7 @@ It programs the four comparison recipes and 56 duty-cycle recipes at 1.6 GBd and
 
 Saved hardware-test artifacts are grouped by test module and invocation under `build/test_diffamp/<timestamp>`, `build/test_noise/<timestamp>`, `build/test_fastrx/<timestamp>`, and `build/test_serdes/<timestamp>`. Backend-neutral result I/O, numerical post-processing, and rendering live in `flow/analysis`; none of these modules adds methods to the Basil hardware API.
 
-`params.py` expands the full sweep into a flat `list[AdcTbParams]`. The runner iterates that list and each call to `scan_adc.scan` produces exactly one `MeasAdcExt` HDF5 file. `map_board.yaml` maps its `board_id` to physical ADC flavors, explicit CDAC weights, safe supply limits, input calibration, and capture alignment. The first call creates a new timestamped directory under `build/scan_adc/`. Each file contains native `/info`, `/param`, `/daq`, and `/wave` groups; there is no separate CSV or manifest sidecar.
+`params.py` expands the full sweep into a flat `list[AdcTbParams]`. The runner iterates that list and each call to `scan_adc.scan` produces exactly one `MeasAdc` HDF5 file. `map_board.yaml` maps its `board_id` to physical ADC flavors, explicit CDAC weights, safe supply limits, input calibration, and capture alignment. The first call creates a new timestamped directory under `build/scan_adc/`. Each file contains native `/info`, `/param`, `/daq`, and `/wave` groups; there is no separate CSV or manifest sidecar.
 
 Each configuration is acquired in one uninterrupted sequencer/FastRX run. After acquisition, `scan_adc.py` constructs one typed in-memory measurement and writes it with `flow.analysis.io.write_measurement()`. Scope waveforms may cover a representative conversion while `/daq` retains every FastRX result.
 
