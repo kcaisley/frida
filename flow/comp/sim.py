@@ -56,6 +56,11 @@ class CompTbParams:
     source_resistance_ohm = h.Param(dtype=h.Scalar, desc="Input source resistance", default=1_000.0)
     source_capacitance_f = h.Param(dtype=h.Scalar, desc="Input source capacitance", default=100e-15)
     output_load_f = h.Param(dtype=h.Scalar, desc="Output load per side", default=10e-15)
+    # TODO: matching a building-block Monte Carlo result to a higher-level run
+    # by seed and iteration alone is not valid; the two runs draw independent
+    # mismatch. Netlisting does not consume these fields yet.
+    mc_seed = h.Param(dtype=int | None, desc="Spectre Monte Carlo seed; None for nominal", default=None)
+    mc_index = h.Param(dtype=int | None, desc="Spectre Monte Carlo iteration; None for nominal", default=None)
 
 
 def _validate_comp_tb_params(params: CompTbParams) -> None:

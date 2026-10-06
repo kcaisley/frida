@@ -107,6 +107,11 @@ class AdcTbParams:
     seq_logic_pattern = h.Param(
         dtype=str, desc="LOGIC sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.logic
     )
+    # TODO: matching a building-block Monte Carlo result to a higher-level run
+    # by seed and iteration alone is not valid; the two runs draw independent
+    # mismatch. Netlisting does not consume these fields yet.
+    mc_seed = h.Param(dtype=int | None, desc="Spectre Monte Carlo seed; None for nominal", default=None)
+    mc_index = h.Param(dtype=int | None, desc="Spectre Monte Carlo iteration; None for nominal", default=None)
 
 
 def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
